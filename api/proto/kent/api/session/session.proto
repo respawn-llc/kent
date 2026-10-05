@@ -4,172 +4,13 @@ package kent.api.session;
 
 import "buf/validate/validate.proto";
 import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "kent/api/auth/auth.proto";
 import "kent/api/runtime/runtime.proto";
+import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/session;sessionpb";
-
-enum ExecutionFieldErrorCode {
-  EXECUTION_FIELD_ERROR_CODE_UNSPECIFIED = 0;
-  EXECUTION_FIELD_ERROR_CODE_SOURCE_FAILURE = 1;
-  EXECUTION_FIELD_ERROR_CODE_INVALID_CONFIGURATION = 2;
-}
-
-message ExecutionFieldError {
-  ExecutionFieldErrorCode code = 1 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-  string message = 2 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.session.execution_field_error_message_nonblank"
-      message: "message must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
-}
-
-enum ExecutionWorkspaceUnavailableReason {
-  EXECUTION_WORKSPACE_UNAVAILABLE_REASON_UNSPECIFIED = 0;
-  EXECUTION_WORKSPACE_UNAVAILABLE_REASON_NOT_CONFIGURED = 1;
-}
-
-enum ExecutionBranchUnavailableReason {
-  EXECUTION_BRANCH_UNAVAILABLE_REASON_UNSPECIFIED = 0;
-  EXECUTION_BRANCH_UNAVAILABLE_REASON_DETACHED_HEAD = 1;
-  EXECUTION_BRANCH_UNAVAILABLE_REASON_NOT_GIT_REPOSITORY = 2;
-}
-
-enum ExecutionAuthUnavailableReason {
-  EXECUTION_AUTH_UNAVAILABLE_REASON_UNSPECIFIED = 0;
-  EXECUTION_AUTH_UNAVAILABLE_REASON_NOT_APPLICABLE = 1;
-}
-
-enum ExecutionModelUnavailableReason {
-  EXECUTION_MODEL_UNAVAILABLE_REASON_UNSPECIFIED = 0;
-  EXECUTION_MODEL_UNAVAILABLE_REASON_NOT_CONFIGURED = 1;
-}
-
-enum ExecutionAuthMethod {
-  EXECUTION_AUTH_METHOD_UNSPECIFIED = 0;
-  EXECUTION_AUTH_METHOD_NONE = 1;
-  EXECUTION_AUTH_METHOD_API_KEY = 2;
-  EXECUTION_AUTH_METHOD_O_AUTH = 3;
-}
-
-message ExecutionWorkspace {
-  string path = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.session.execution_workspace_path_nonblank"
-      message: "path must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
-}
-
-message ExecutionBranch {
-  string name = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.session.execution_branch_name_nonblank"
-      message: "name must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
-}
-
-message ExecutionAuth {
-  string provider = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.session.execution_auth_provider_nonblank"
-      message: "provider must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
-  ExecutionAuthMethod method = 2 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-}
-
-message ExecutionModel {
-  string name = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.session.execution_model_name_nonblank"
-      message: "name must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
-  string provider = 2 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.session.execution_model_provider_nonblank"
-      message: "provider must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
-  bool locked = 3;
-}
-
-message ExecutionWorkspaceField {
-  oneof result {
-    option (buf.validate.oneof).required = true;
-    ExecutionWorkspace available = 1;
-    ExecutionWorkspaceUnavailableReason unavailable = 2 [(buf.validate.field).enum = {
-      defined_only: true
-      not_in: [0]
-    }];
-    ExecutionFieldError failed = 3;
-  }
-}
-
-message ExecutionBranchField {
-  oneof result {
-    option (buf.validate.oneof).required = true;
-    ExecutionBranch available = 1;
-    ExecutionBranchUnavailableReason unavailable = 2 [(buf.validate.field).enum = {
-      defined_only: true
-      not_in: [0]
-    }];
-    ExecutionFieldError failed = 3;
-  }
-}
-
-message ExecutionAuthField {
-  oneof result {
-    option (buf.validate.oneof).required = true;
-    ExecutionAuth available = 1;
-    ExecutionAuthUnavailableReason unavailable = 2 [(buf.validate.field).enum = {
-      defined_only: true
-      not_in: [0]
-    }];
-    ExecutionFieldError failed = 3;
-  }
-}
-
-message ExecutionModelField {
-  oneof result {
-    option (buf.validate.oneof).required = true;
-    ExecutionModel available = 1;
-    ExecutionModelUnavailableReason unavailable = 2 [(buf.validate.field).enum = {
-      defined_only: true
-      not_in: [0]
-    }];
-    ExecutionFieldError failed = 3;
-  }
-}
-
-message ExecutionEnvironment {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
-  ExecutionWorkspaceField workspace = 2 [(buf.validate.field).required = true];
-  ExecutionBranchField branch = 3 [(buf.validate.field).required = true];
-  ExecutionAuthField auth = 4 [(buf.validate.field).required = true];
-  ExecutionModelField model = 5 [(buf.validate.field).required = true];
-}
 
 message MainViewRequest {
   string session_id = 1 [
@@ -192,6 +33,10 @@ message MainViewError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
@@ -207,43 +52,50 @@ message MainViewResult {
   }
 }
 
-message ExecutionEnvironmentRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.session.execution_environment_session_id_nonblank"
-      message: "session ID must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
+message PromptHistoryRequest {
+  string session_id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
-message ExecutionEnvironmentSuccess {
-  ExecutionEnvironment environment = 1 [(buf.validate.field).required = true];
+message PromptHistorySuccess {
+  repeated string prompts = 1 [(buf.validate.field).repeated.max_items = 100];
 }
 
-message ExecutionEnvironmentError {
+message PromptHistoryError {
   string code = 1 [
     (buf.validate.field).string.min_len = 1,
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
-    kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 2 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
     }];
   }
 }
 
-message ExecutionEnvironmentResult {
+message PromptHistoryResult {
   oneof outcome {
     option (buf.validate.oneof).required = true;
-    ExecutionEnvironmentSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
-    ExecutionEnvironmentError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+    PromptHistorySuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    PromptHistoryError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
   }
 }
 
 service ReadService {
+  rpc GetPromptHistory(PromptHistoryRequest) returns (PromptHistoryResult) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_UNARY
+      authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER
+      scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
+      direction: DIRECTION_CLIENT_TO_SERVER
+      unary_connection: UNARY_CONNECTION_MULTIPLEXED
+    };
+  }
+
   rpc GetMainView(MainViewRequest) returns (MainViewResult) {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
@@ -251,18 +103,6 @@ service ReadService {
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "session.getMainView"
-    };
-  }
-
-  rpc GetExecutionEnvironment(ExecutionEnvironmentRequest) returns (ExecutionEnvironmentResult) {
-    option (kent.api.shared.kent_method) = {
-      kind: OPERATION_KIND_UNARY
-      authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER
-      scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
-      direction: DIRECTION_CLIENT_TO_SERVER
-      unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "session.getExecutionEnvironment"
     };
   }
 }
@@ -309,10 +149,7 @@ message QuestionHistoryQuestion {
       expression: "this.trim() != ''"
     }
   ];
-  optional int64 committed_at_unix_ms = 5 [(buf.validate.field).int64 = {
-    gte: -8640000000000000
-    lte: 8640000000000000
-  }];
+  optional google.protobuf.Timestamp committed_at = 5;
 }
 
 message QuestionHistoryCompleted {
@@ -338,6 +175,16 @@ message QuestionHistorySubscribeError {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
     }];
+
+    kent.api.auth.AuthRequiredDetails auth_required = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
   }
 }
 
@@ -356,9 +203,16 @@ service QuestionHistoryService {
       authentication_stage: AUTHENTICATION_STAGE_SERVER
       scope_policy: SCOPE_POLICY_ATTACHED_SESSION
       direction: DIRECTION_CLIENT_TO_SERVER
-      event: {package: "kent.api.session" service: "QuestionHistoryService" method: "Event"}
-      completion: {package: "kent.api.session" service: "QuestionHistoryService" method: "Complete"}
-      legacy_wire_name: "session.questionHistory.subscribe"
+      event: {
+        package: "kent.api.session"
+        service: "QuestionHistoryService"
+        method: "Event"
+      }
+      completion: {
+        package: "kent.api.session"
+        service: "QuestionHistoryService"
+        method: "Complete"
+      }
     };
   }
   rpc Event(QuestionHistoryEvent) returns (google.protobuf.Empty) {
@@ -367,7 +221,6 @@ service QuestionHistoryService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "session.questionHistory.event"
     };
   }
   rpc Complete(kent.api.shared.StreamCompletion) returns (google.protobuf.Empty) {
@@ -376,7 +229,6 @@ service QuestionHistoryService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "session.questionHistory.complete"
     };
   }
 }

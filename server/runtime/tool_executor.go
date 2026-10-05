@@ -10,7 +10,9 @@ import (
 
 	"core/server/llm"
 	"core/server/tools"
+	shelltool "core/server/tools/shell"
 	"core/server/workflowruntime"
+	"core/shared/clientui"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
@@ -60,7 +62,26 @@ func (t *defaultToolExecutor) ExecuteToolCalls(
 		toolID := prepared.toolID
 		knownTool := prepared.knownTool
 		executableCall := prepared.executableCall
-		transcriptCall := normalizeToolCallForTranscript(executableCall, e.transcriptWorkingDir())
+		transcriptCall, normalizeErr := normalizeToolCallForTranscriptChecked(
+			executableCall,
+			e.transcriptWorkingDir(),
+		)
+		if normalizeErr != nil {
+			failure := fmt.Errorf(
+				"normalize tool call presentation (call_id=%s tool=%s): %w",
+				call.ID,
+				executableCall.Name,
+				normalizeErr,
+			)
+			fatal := e.abortResultGroupForOperationalFailure(
+				stepID,
+				collector,
+				failure,
+			)
+			cancelExecution()
+			callErrs[i] = fatal
+			break
+		}
 		started := Event{Kind: EventToolCallStarted, StepID: exactStepIDPointer(stepID), ToolCall: &transcriptCall, CommittedTranscriptChanged: true}
 		if start, ok := e.pendingToolCallStart(call.ID); ok {
 			started.CommittedEntryStart = start
@@ -97,7 +118,7 @@ func (t *defaultToolExecutor) ExecuteToolCalls(
 				serialGate.wait(serialOrdinal)
 				defer serialGate.done(serialOrdinal)
 			}
-			res, completed, callErr := t.executePreparedToolCall(executionCtx, stepID, runID, tc, toolID, knownTool, inputErr, askBatch)
+			res, completed, callErr := e.executePreparedToolCall(executionCtx, stepID, runID, tc, toolID, knownTool, inputErr, askBatch)
 			if fatal := collector.fatalSnapshot(); fatal != nil {
 				return
 			}
@@ -228,7 +249,14 @@ func resultGroupFlushReasonForEffect(
 	}
 }
 
-func (t *defaultToolExecutor) executePreparedToolCall(
+func toolErrorResult(call tools.Call, message string) tools.Result {
+	if call.Name == toolspec.ToolExecCommand || call.Name == toolspec.ToolWriteStdin {
+		return shelltool.ErrorResult(call, message)
+	}
+	return tools.ErrorResult(call, message)
+}
+
+func (e *Engine) executePreparedToolCall(
 	ctx context.Context,
 	stepID string,
 	runID string,
@@ -238,34 +266,36 @@ func (t *defaultToolExecutor) executePreparedToolCall(
 	inputErr error,
 	askBatch *tools.AskQuestionBatchMetadata,
 ) (tools.Result, bool, error) {
+	ctx = tools.WithExecutionIdentity(ctx, tools.ExecutionIdentity{
+		RunID: runID, StepID: stepID, ToolCallID: clientui.ToolCallID(call.ID),
+	})
+	ctx = tools.WithApprovalLifecycle(ctx, tools.NewApprovalLifecycle())
+	toolCall := tools.Call{
+		ID: call.ID, Name: toolID, Input: call.Input, RunID: runID, StepID: stepID,
+		AskQuestionBatch: askBatch, OnAskQuestionBatchSkipped: e.cfg.AskQuestionBatchSkipped,
+	}
 	if !knownTool {
 		return tools.Result{CallID: call.ID, Name: toolspec.ID(call.Name), IsError: true, Output: mustJSON(map[string]any{"error": "unknown tool"}), Summary: textutil.Value("unknown tool")}, true, nil
 	}
 	if toolID == toolspec.ToolCompleteNode {
-		result, err := t.executeCompleteNodeTool(ctx, stepID, call)
+		result, err := e.executeCompleteNodeTool(ctx, stepID, call)
 		return result, true, err
 	}
 	if inputErr != nil {
-		return tools.ErrorResult(tools.Call{
-			ID:     call.ID,
-			Name:   toolID,
-			Input:  call.Input,
-			RunID:  runID,
-			StepID: stepID,
-		}, inputErr.Error()), true, nil
+		return toolErrorResult(toolCall, inputErr.Error()), true, nil
 	}
 	if toolID == toolspec.ToolWebSearch {
 		if err := tools.ValidateWebSearchInput(call.Input); err != nil {
 			return tools.ErrorResult(tools.Call{ID: call.ID, Name: toolID, Input: call.Input, RunID: runID, StepID: stepID}, tools.InvalidWebSearchQueryMessage), true, nil
 		}
 	}
-	handler, ok := t.engine.registry.Get(toolID)
+	handler, ok := e.registry.Get(toolID)
 	if !ok {
-		return tools.Result{CallID: call.ID, Name: toolID, IsError: true, Output: mustJSON(map[string]any{"error": "unknown tool"}), Summary: textutil.Value("unknown tool")}, true, nil
+		return toolErrorResult(toolCall, errUnknownTool.Error()), true, nil
 	}
 	result, err := handler.Call(
-		tools.WithExecutionIdentity(ctx, tools.ExecutionIdentity{RunID: runID, StepID: stepID}),
-		tools.Call{ID: call.ID, Name: toolID, Input: call.Input, RunID: runID, StepID: stepID, AskQuestionBatch: askBatch, OnAskQuestionBatchSkipped: t.engine.cfg.AskQuestionBatchSkipped},
+		ctx,
+		toolCall,
 	)
 	if err != nil {
 		if errors.Is(err, context.Canceled) &&
@@ -274,7 +304,7 @@ func (t *defaultToolExecutor) executePreparedToolCall(
 			return tools.Result{}, false, err
 		}
 		if !toolResultHasCompletedOutcome(result) {
-			result = tools.Result{CallID: call.ID, Name: toolID, IsError: true, Output: mustJSON(map[string]any{"error": err.Error()}), Summary: textutil.Value(err.Error())}
+			result = toolErrorResult(toolCall, err.Error())
 		}
 	}
 	result.CallID = call.ID
@@ -305,12 +335,15 @@ type executorToolCall struct {
 func prepareExecutorToolCalls(engine *Engine, stepID string, runID string, workflowActive bool, calls []llm.ToolCall) ([]executorToolCall, error) {
 	prepared := make([]executorToolCall, 0, len(calls))
 	askCandidateIndexes := make([]int, 0)
-	askCandidatePromptIDs := make([]string, 0)
+	askCandidateToolCallIDs := make([]string, 0)
 	registeredTools := registeredToolIDs(engine)
 	for i := range calls {
 		call := calls[i]
 		if strings.TrimSpace(call.ID) == "" {
 			return nil, fmt.Errorf("%w (tool=%s)", ErrMissingProviderToolCallID, call.Name)
+		}
+		if err := clientui.ToolCallID(call.ID).Validate(); err != nil {
+			return nil, fmt.Errorf("invalid provider tool call id (tool=%s): %w", call.Name, err)
 		}
 		toolID, knownTool := toolspec.ResolveModelToolName(call.Name, registeredTools)
 		executableCall := call
@@ -354,22 +387,22 @@ func prepareExecutorToolCalls(engine *Engine, stepID string, runID string, workf
 			continue
 		}
 		askCandidateIndexes = append(askCandidateIndexes, len(prepared)-1)
-		askCandidatePromptIDs = append(askCandidatePromptIDs, executableCall.ID)
+		askCandidateToolCallIDs = append(askCandidateToolCallIDs, executableCall.ID)
 	}
 	if len(askCandidateIndexes) == 0 {
 		return prepared, nil
 	}
 	for ordinal, index := range askCandidateIndexes {
-		promptIDs := append([]string(nil), askCandidatePromptIDs...)
+		toolCallIDs := append([]string(nil), askCandidateToolCallIDs...)
 		call := prepared[index].executableCall
 		prepared[index].askQuestionBatch = &tools.AskQuestionBatchMetadata{
 			Origin:              tools.AskQuestionOriginModelTool,
 			RunID:               runID,
 			StepID:              stepID,
-			PromptID:            call.ID,
-			BatchPromptIDs:      promptIDs,
+			ToolCallID:          call.ID,
+			BatchToolCallIDs:    toolCallIDs,
 			CandidateOrdinal:    ordinal,
-			PreparedPromptCount: len(promptIDs),
+			PreparedPromptCount: len(toolCallIDs),
 		}
 	}
 	return prepared, nil
@@ -439,8 +472,7 @@ func serialToolExecutionRequired(toolID toolspec.ID, workflowActive bool) bool {
 	}
 }
 
-func (t *defaultToolExecutor) executeCompleteNodeTool(ctx context.Context, stepID string, call llm.ToolCall) (tools.Result, error) {
-	e := t.engine
+func (e *Engine) executeCompleteNodeTool(ctx context.Context, stepID string, call llm.ToolCall) (tools.Result, error) {
 	result := tools.Result{CallID: call.ID, Name: toolspec.ToolCompleteNode}
 	execution, active := e.currentNodeExecutionConfig()
 	if !active || execution.Controller == nil {

@@ -10,7 +10,7 @@ import {
 } from "@app/server-api-contract";
 import type { Result, TransportFailure } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 
-import { TransportError } from "./errors";
+import { ContractError, TransportError } from "./errors";
 
 export type DescriptorResponse = Readonly<
   | { kind: "result"; correlation: string; result: Result }
@@ -90,7 +90,11 @@ export function completeDescriptorResponse<Method extends DescMethod>(
   if (response.result.payload === undefined) {
     throw new TransportError(`${operation} result payload is required.`);
   }
-  return decode<Method["output"]>(method.output, response.result.payload);
+  try {
+    return decode<Method["output"]>(method.output, response.result.payload);
+  } catch {
+    throw new ContractError(`${operation} response did not match GUI contract.`);
+  }
 }
 
 export function binaryFrameBytes(data: unknown): Uint8Array | undefined {

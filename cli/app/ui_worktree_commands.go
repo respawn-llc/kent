@@ -1,9 +1,10 @@
 package app
 
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+
 import (
 	"strings"
 
-	"core/shared/clientui"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeinput"
 
@@ -124,10 +125,10 @@ func (m *uiModel) suggestedWorktreeSessionName() string {
 		return trimmed
 	}
 	if cached, ok := m.runtimeClient().(interface {
-		CachedMainView() (clientui.RuntimeMainView, bool)
+		CachedMainView() (*runtimepb.MainView, bool)
 	}); ok {
 		if view, hasCached := cached.CachedMainView(); hasCached {
-			return strings.TrimSpace(view.Session.SessionName)
+			return strings.TrimSpace(view.Session.GetSessionName())
 		}
 	}
 	return ""

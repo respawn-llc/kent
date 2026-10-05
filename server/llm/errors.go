@@ -9,13 +9,20 @@ import (
 
 var ErrModelStreamStalled = llmerrors.ErrModelStreamStalled
 
-type APIStatusError = llmerrors.APIStatusError
 type UnifiedErrorCode = llmerrors.UnifiedErrorCode
 type ProviderAPIError = llmerrors.ProviderAPIError
 type AuthError = llmerrors.AuthError
 type ProviderSelectionError = llmerrors.ProviderSelectionError
 
 type CompactionCheckpointReason string
+
+type RetainedContextCompatibilityError struct {
+	ItemType ResponseItemType
+}
+
+func (e *RetainedContextCompatibilityError) Error() string {
+	return fmt.Sprintf("selected connection cannot use retained %s context; restore a compatible connection before continuing", e.ItemType)
+}
 
 const (
 	CompactionCheckpointReasonZero                    CompactionCheckpointReason = "zero_checkpoints"

@@ -21,10 +21,12 @@ import (
 	"core/server/workflowstore"
 	"core/shared/clientui"
 	"core/shared/config"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
+
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/google/uuid"
 )
@@ -90,13 +92,13 @@ func workflowViewQuestionAnswer(answer string) tools.AskQuestionAnswer {
 
 func workflowViewApprovalRequest() tools.AskQuestionRequest {
 	return tools.AskQuestionRequest{
-		ID:       uuid.NewString(),
-		StepID:   uuid.NewString(),
-		Question: "Approve this workflow action?",
-		Approval: true,
+		ToolCallID: uuid.NewString(),
+		StepID:     uuid.NewString(),
+		Question:   "Approve this workflow action?",
+		Approval:   true,
 		ApprovalOptions: []tools.AskQuestionApprovalOption{
-			{Decision: tools.AskQuestionApprovalDecisionAllowOnce, Label: "Allow once"},
-			{Decision: tools.AskQuestionApprovalDecisionDeny, Label: "Deny"},
+			{Decision: tools.AskQuestionApprovalDecisionAllowOnce},
+			{Decision: tools.AskQuestionApprovalDecisionDeny},
 		},
 	}
 }
@@ -106,10 +108,11 @@ func newCurrentNodeViewFixture(t *testing.T, requiresApproval bool) currentNodeV
 	home := t.TempDir()
 	workspaceRoot := t.TempDir()
 	t.Setenv(config.PersistenceRootEnvName, filepath.Join(home, "kent-root"))
-	cfg, err := config.Load(workspaceRoot, config.LoadOptions{})
+	cfg, err := config.Load(workspaceRoot, workspaceRoot, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 	metadataStore := testsetup.OpenStore(t, cfg.PersistenceRoot)
 	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), cfg.WorkspaceRoot)
 	if err != nil {
@@ -181,7 +184,7 @@ func newCurrentNodeViewFixture(t *testing.T, requiresApproval bool) currentNodeV
 	if err != nil {
 		t.Fatalf("NewTaskSearch: %v", err)
 	}
-	activity, err := NewActivity(metadataStore, projector)
+	activity, err := NewActivity(metadataStore)
 	if err != nil {
 		t.Fatalf("NewActivity: %v", err)
 	}
@@ -222,9 +225,26 @@ func (f currentNodeViewFixture) startTask(t *testing.T, title string) startedCur
 
 func (f currentNodeViewFixture) startExistingTask(t *testing.T, task workflowstore.TaskRecord) startedCurrentNodeViewTask {
 	t.Helper()
-	started, err := f.store.StartTask(f.ctx, task.ID)
+	target, err := f.store.GetTaskExecutionTargetContext(f.ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := f.store.PlanTaskStart(f.ctx, task.ID, &workflowstore.ExecutionTargetCandidate{
+		Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
+		Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: target.SourceWorkspaceID, SourceWorkspaceRoot: target.SourceWorkspaceRoot},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions, creations := workflowfixture.PrepareCurrentNodeSessionArtifacts(t, f.ctx, f.metadata, plan.StartContexts())
+	started, err := f.store.CommitTaskStart(f.ctx, plan, sessions)
 	if err != nil {
 		t.Fatalf("StartTask: %v", err)
+	}
+	for _, creation := range creations {
+		if _, err := session.MaterializeCommittedCreation(f.ctx, creation, f.metadata.AuthoritativeSessionStoreOptions()...); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if len(started.Mutation.Created) != 1 {
 		t.Fatalf("StartTask mutation = %+v, want one Current Node", started.Mutation)
@@ -249,17 +269,17 @@ func (f currentNodeViewFixture) createBacklogTask(t *testing.T, title string) wo
 
 func (f currentNodeViewFixture) bindCurrentNodeSession(t *testing.T, started startedCurrentNodeViewTask) runtimeids.SessionID {
 	t.Helper()
-	sessionID := f.newCurrentNodeViewSession(t)
-	if _, err := f.store.BindSessionToCurrentNode(f.ctx, workflowstore.CurrentNodeSessionBindingRequest{
-		Association: workflowstore.TaskSessionAssociationRequest{
-			SessionID:    sessionID,
-			CurrentNode:  started.currentNode,
-			AssociatedAt: time.Now().UTC(),
-		},
-	}); err != nil {
-		t.Fatalf("BindSessionToCurrentNode: %v", err)
+	nodes, err := f.store.ListCurrentNodes(f.ctx, started.task.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return sessionID
+	for _, node := range nodes {
+		if node.Reference.Equal(started.currentNode) && node.SessionID != nil {
+			return *node.SessionID
+		}
+	}
+	t.Fatal("started Agent has no committed Session")
+	return runtimeids.SessionID{}
 }
 
 func (f currentNodeViewFixture) newCurrentNodeViewSession(t *testing.T) runtimeids.SessionID {
@@ -391,7 +411,7 @@ func (f currentNodeViewFixture) newAgentAuthority(t *testing.T) (*sessionruntime
 func (f currentNodeViewFixture) startCurrentNodeQuestion(t *testing.T, started startedCurrentNodeViewTask) currentNodeViewQuestion {
 	t.Helper()
 	request := tools.AskQuestionRequest{
-		ID:                     uuid.NewString(),
+		ToolCallID:             uuid.NewString(),
 		StepID:                 uuid.NewString(),
 		Question:               "Proceed?",
 		Suggestions:            []string{"Yes", "No"},
@@ -489,8 +509,8 @@ func resolveWorkflowViewPrompt(
 		return fmt.Errorf("unsupported prompt resolution %T", resolution)
 	}
 	_, err = authority.ResolvePromptBatch(context.Background(), sessionID, stepID, []sessionruntime.PromptAnswerCommand{{
-		PromptID: clientui.PromptID(request.ID),
-		Payload:  payload,
+		ToolCallID: clientui.ToolCallID(request.ToolCallID),
+		Payload:    payload,
 	}})
 	return err
 }
@@ -503,15 +523,16 @@ func (q currentNodeViewQuestion) resolve(t *testing.T, ctx context.Context) {
 func (f currentNodeViewFixture) newAgentRuntimePlan(t *testing.T) sessionruntime.AgentRuntimePlan {
 	t.Helper()
 	settings := f.cfg.Settings
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200_000
 	settings.Reviewer.Frequency = "off"
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		MainWorkspaceRoot:     f.cfg.WorkspaceRoot,
 		Settings:              settings,
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		FilesystemContext: func() tools.FilesystemContext {
-			context, err := runtimewire.NewFilesystemContext(f.cfg.WorkspaceRoot, f.cfg.WorkspaceRoot, metadata.ProjectWorkspaceBoundary{ProjectID: "test"})
+			context, err := runtimewire.NewFilesystemContext(f.cfg.WorkspaceRoot, f.cfg.WorkspaceRoot, "test")
 			if err != nil {
 				t.Fatalf("NewFilesystemContext: %v", err)
 			}
@@ -598,15 +619,15 @@ func currentNodeViewNodeIDByKind(t *testing.T, definition workflow.Definition, k
 	return ""
 }
 
-func workflowViewBoardColumn(t *testing.T, board serverapi.WorkflowBoard, nodeID workflow.NodeID) serverapi.WorkflowBoardColumn {
+func workflowViewBoardColumn(t *testing.T, board *taskpb.Board, nodeID workflow.NodeID) *taskpb.BoardColumn {
 	t.Helper()
 	for _, column := range board.Columns {
-		if column.Node.NodeID == string(nodeID) {
+		if column.Node.NodeId == string(nodeID) {
 			return column
 		}
 	}
 	t.Fatalf("board column for node %q missing", nodeID)
-	return serverapi.WorkflowBoardColumn{}
+	return &taskpb.BoardColumn{}
 }
 
 func mustDefinitionProjection(t *testing.T, store *workflowstore.Store) *DefinitionProjection {
@@ -620,6 +641,10 @@ func mustDefinitionProjection(t *testing.T, store *workflowstore.Store) *Definit
 
 func stringPointer(value string) *string {
 	return &value
+}
+
+func noLabelFilter() *taskpb.LabelFilter {
+	return &taskpb.LabelFilter{Filter: &taskpb.LabelFilter_None{None: &emptypb.Empty{}}}
 }
 
 func intPointer(value int) *int {
@@ -638,7 +663,7 @@ func equalStrings(left, right []string) bool {
 	return true
 }
 
-func equalStatusKinds(left, right []serverapi.WorkflowTaskStatusKind) bool {
+func equalStatusKinds(left, right []taskpb.TaskStatusKind) bool {
 	if len(left) != len(right) {
 		return false
 	}

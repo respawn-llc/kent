@@ -18,6 +18,7 @@ import (
 
 func mustNewRunner(t *testing.T, settings Settings) *Runner {
 	t.Helper()
+	settings.PersistenceRoot = t.TempDir()
 	runner, err := NewRunner(settings)
 	if err != nil {
 		t.Fatalf("NewRunner: %v", err)

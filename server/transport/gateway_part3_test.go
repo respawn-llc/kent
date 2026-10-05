@@ -7,13 +7,19 @@ import (
 	"core/server/core"
 	"core/server/session"
 	remoteclient "core/shared/client"
+	"core/shared/config"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"encoding/json"
@@ -71,8 +77,8 @@ func TestGatewaySessionAttachEstablishesProjectForUnboundServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetWorktreeStatus: %v", err)
 	}
-	if status.Target.WorkspaceId != binding.WorkspaceID {
-		t.Fatalf("target workspace id = %q, want %q", status.Target.WorkspaceId, binding.WorkspaceID)
+	if status.Target.GetWorkspaceId() != binding.WorkspaceID {
+		t.Fatalf("target workspace id = %q, want %q", status.Target.GetWorkspaceId(), binding.WorkspaceID)
 	}
 }
 
@@ -123,13 +129,20 @@ func newGatewayTestCore(t *testing.T, bindWorkspace bool, ready bool) (*core.Cor
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
-	authSupport := newGatewayTestAuthSupport(t, ready)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolved.Config)
-	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
+	authSupport := newGatewayTestAuthSupport(t, resolved.Config.PersistenceRoot, ready)
+	resolved.Config.Settings = testsetup.ProviderSettings(resolved.Config.Settings)
+	if !ready {
+		resolved.Config.Settings.Connections[*resolved.Config.Settings.Connection] = config.ProviderConnection{
+			Protocol: config.ConnectionChatGPT,
+		}
 	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
-	appCore, err := core.New(resolved.Config, authSupport, runtimeSupport)
+	resolved.Config.Settings = testsetup.WriteProviderSettings(t, resolved.Config.PersistenceRoot, resolved.Config.Settings)
+	background, err := serverbootstrap.BuildShellManager(resolved.Config)
+	if err != nil {
+		t.Fatalf("BuildShellManager: %v", err)
+	}
+	t.Cleanup(func() { _ = background.Close() })
+	appCore, err := core.New(resolved.Config, authSupport, background)
 	if err != nil {
 		t.Fatalf("core.New: %v", err)
 	}
@@ -216,6 +229,128 @@ func createGatewayAuthoritativeSession(t *testing.T, appCore *core.Core) *sessio
 		t.Fatalf("EnsureDurable: %v", err)
 	}
 	return store
+}
+
+func TestGatewayReturnsCompleteDormantMainViewWithActiveGoal(t *testing.T) {
+	appCore, server := newGatewayTestServer(t)
+	defer func() { _ = appCore.Close() }()
+	defer server.Close()
+	store := createGatewayAuthoritativeSession(t, appCore)
+	if _, _, err := store.SetGoal("ship the dormant projection", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	sessionID, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+	if err != nil {
+		t.Fatalf("ParseSessionID: %v", err)
+	}
+	remote, err := remoteclient.DialRemoteURLForProject(
+		t.Context(),
+		"ws"+server.URL[len("http"):],
+		appCore.ProjectID(),
+	)
+	if err != nil {
+		t.Fatalf("DialRemoteURLForProject: %v", err)
+	}
+	defer func() { _ = remote.Close() }()
+
+	contextResponse, err := remote.GetChatContext(t.Context(), &contextpb.GetRequest{
+		Target: &contextpb.Target{Target: &contextpb.Target_Session{Session: &contextpb.SessionTarget{SessionId: sessionID.String()}}},
+	})
+	if err != nil {
+		t.Fatalf("GetChatContext: %v", err)
+	}
+	conn := dialGateway(t, server)
+	defer conn.Close()
+	handshakeGateway(t, conn)
+	requireGatewayProjectAttachment(t, conn, "main-view-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
+	generated := &sessionpb.MainViewResult{}
+	callGatewayDescriptor(t, conn, "main-view",
+		sessionpb.File_kent_api_session_session_proto.Services().ByName("ReadService").Methods().ByName("GetMainView"),
+		&sessionpb.MainViewRequest{SessionId: sessionID.String()}, generated)
+	if generated.GetSuccess().GetMainView().GetActivity().GetReviewer() != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE ||
+		generated.GetSuccess().GetMainView().GetStatus().GetGoal().GetGoal().GetObjective() != "ship the dormant projection" {
+		t.Fatalf("generated dormant Main View lost current facts: %v", generated)
+	}
+	if failure := callGatewayExpectError(t, conn, "retired-session-json", "session.getMainView", map[string]string{"session_id": sessionID.String()}); failure.Code != protocol.ErrCodeMethodNotFound {
+		t.Fatalf("retired Session JSON operation = %v", failure)
+	}
+	response, err := remote.GetSessionMainView(t.Context(), &sessionpb.MainViewRequest{
+		SessionId: sessionID.String(),
+	})
+	if err != nil {
+		t.Fatalf("GetSessionMainView: %v", err)
+	}
+	if err := protoapi.Validate(response); err != nil {
+		t.Fatalf("dormant Main View contract: %v", err)
+	}
+	status := response.MainView.Status
+	if status.ReviewerFrequency == "" || status.ThinkingLevel == "" || status.CompactionMode == "" {
+		t.Fatalf("dormant status strings = %+v", status)
+	}
+	if int(status.ContextUsage.WindowTokens) != int(contextResponse.Context.ContextWindowTokens) ||
+		int(status.ContextUsage.UsedTokens) != int(contextResponse.Context.UsedTokens) ||
+		int(status.CompactionCount) != int(contextResponse.Context.CompletedCompactionCount) {
+		t.Fatalf("Main View Context = %+v, Context response = %+v", status.ContextUsage, contextResponse.Context)
+	}
+	if status.Goal == nil || status.Goal.Goal == nil ||
+		status.Goal.Goal.Status != runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE ||
+		status.Goal.Goal.Objective != "ship the dormant projection" {
+		t.Fatalf("dormant active Goal = %+v", status.Goal)
+	}
+	if response.MainView.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE {
+		t.Fatalf("dormant activity = %+v, want unavailable", response.MainView.Activity)
+	}
+	wantTarget, err := appCore.MetadataStore().ResolveSessionExecutionTarget(t.Context(), sessionID.String())
+	if err != nil {
+		t.Fatalf("ResolveSessionExecutionTarget: %v", err)
+	}
+	if !proto.Equal(response.MainView.Session.ExecutionTarget, wantTarget) {
+		t.Fatalf("execution target = %+v, want %+v", response.MainView.Session.ExecutionTarget, wantTarget)
+	}
+}
+
+func TestGatewayGoalObservationHydratesDormantSessionAndPublishesMutation(t *testing.T) {
+	appCore, server := newGatewayTestServer(t)
+	defer func() { _ = appCore.Close() }()
+	defer server.Close()
+	store := createGatewayAuthoritativeSession(t, appCore)
+	remote, err := remoteclient.DialRemoteURLForProject(
+		t.Context(),
+		"ws"+server.URL[len("http"):],
+		appCore.ProjectID(),
+	)
+	if err != nil {
+		t.Fatalf("DialRemoteURLForProject: %v", err)
+	}
+	defer func() { _ = remote.Close() }()
+	subscription, err := remote.SubscribeGoalObservation(t.Context(), &runtimepb.GoalObserveRequest{
+		SessionId: store.Meta().SessionID,
+	})
+	if err != nil {
+		t.Fatalf("SubscribeGoalObservation: %v", err)
+	}
+	defer func() { _ = subscription.Close() }()
+	hydration, err := subscription.Next(t.Context())
+	if err != nil {
+		t.Fatalf("read hydration: %v", err)
+	}
+	if hydration.Kind != runtimepb.GoalObservationKind_GOAL_OBSERVATION_KIND_HYDRATION || hydration.Status.Goal != nil {
+		t.Fatalf("hydration = %+v", hydration)
+	}
+	goal, _, err := store.SetGoal("observe through Gateway", session.GoalActorUser)
+	if err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	update, err := subscription.Next(t.Context())
+	if err != nil {
+		t.Fatalf("read update: %v", err)
+	}
+	if update.Sequence != 2 ||
+		update.Kind != runtimepb.GoalObservationKind_GOAL_OBSERVATION_KIND_UPDATE ||
+		update.Status.Goal == nil ||
+		update.Status.Goal.Id != goal.ID {
+		t.Fatalf("update = %+v, want Goal %q", update, goal.ID)
+	}
 }
 
 func dialGateway(t *testing.T, server *httptest.Server) *websocket.Conn {
@@ -330,6 +465,41 @@ func callGatewayDescriptor(
 	result proto.Message,
 ) {
 	t.Helper()
+	operation := sendGatewayDescriptor(t, conn, correlation, method, request)
+	response := receiveGatewayDescriptorResult(t, conn)
+	if response.Operation != operation.Name || response.GetCorrelation() != correlation {
+		t.Fatalf("%s result identity = %+v", operation.Name, response)
+	}
+	if err := protoapi.Unmarshal(response.Payload, result); err != nil {
+		t.Fatalf("unmarshal %s result: %v", operation.Name, err)
+	}
+	if err := protoapi.Validate(result); err != nil {
+		t.Fatalf("validate %s result: %v", operation.Name, err)
+	}
+}
+
+func receiveGatewayDescriptorResult(t *testing.T, conn *websocket.Conn) *sharedpb.Result {
+	t.Helper()
+	var responseFrame []byte
+	if err := websocket.Message.Receive(conn, &responseFrame); err != nil {
+		t.Fatalf("receive generated result: %v", err)
+	}
+	envelope, err := protoapi.DecodeEnvelope(responseFrame)
+	if err != nil {
+		t.Fatalf("decode result envelope: %v", err)
+	}
+	if failure := envelope.GetTransportFailure(); failure != nil {
+		t.Fatalf("transport failure: %+v", failure)
+	}
+	response := envelope.GetResult()
+	if response == nil {
+		t.Fatal("generated result is required")
+	}
+	return response
+}
+
+func sendGatewayDescriptor(t *testing.T, conn *websocket.Conn, correlation string, method protoreflect.MethodDescriptor, request proto.Message) protoapi.Operation {
+	t.Helper()
 	operation, err := protoapi.OperationFromDescriptor(method)
 	if err != nil {
 		t.Fatalf("operation descriptor: %v", err)
@@ -354,30 +524,7 @@ func callGatewayDescriptor(
 	if err := websocket.Message.Send(conn, encoded); err != nil {
 		t.Fatalf("send %s: %v", operation.Name, err)
 	}
-	var responseFrame []byte
-	if err := websocket.Message.Receive(conn, &responseFrame); err != nil {
-		t.Fatalf("receive %s: %v", operation.Name, err)
-	}
-	envelope, err := protoapi.DecodeEnvelope(responseFrame)
-	if err != nil {
-		t.Fatalf("decode %s response envelope: %v", operation.Name, err)
-	}
-	if failure := envelope.GetTransportFailure(); failure != nil {
-		t.Fatalf("%s transport failure: %+v", operation.Name, failure)
-	}
-	response := envelope.GetResult()
-	if response == nil {
-		t.Fatalf("%s result is required", operation.Name)
-	}
-	if response.Operation != operation.Name || response.GetCorrelation() != correlation {
-		t.Fatalf("%s result identity = %+v", operation.Name, response)
-	}
-	if err := protoapi.Unmarshal(response.Payload, result); err != nil {
-		t.Fatalf("unmarshal %s result: %v", operation.Name, err)
-	}
-	if err := protoapi.Validate(result); err != nil {
-		t.Fatalf("validate %s result: %v", operation.Name, err)
-	}
+	return operation
 }
 
 func callGatewayDescriptorPayload(
@@ -425,6 +572,25 @@ func gatewayOperationName(t *testing.T, method protoreflect.MethodDescriptor) st
 	return operation.Name
 }
 
+func receiveGatewayDescriptorNotification(t *testing.T, conn *websocket.Conn, method protoreflect.MethodDescriptor, message proto.Message) {
+	t.Helper()
+	var frame []byte
+	if err := websocket.Message.Receive(conn, &frame); err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := protoapi.DecodeEnvelope(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := envelope.GetNotificationEvent()
+	if event == nil || event.Operation != gatewayOperationName(t, method) {
+		t.Fatalf("unexpected notification: %v", envelope)
+	}
+	if err := protoapi.Decode(event.Payload, message); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func gatewayAuthMethod(t *testing.T, name protoreflect.Name) protoreflect.MethodDescriptor {
 	t.Helper()
 	method := authpb.File_kent_api_auth_auth_proto.Services().ByName("AuthService").Methods().ByName(name)
@@ -459,20 +625,6 @@ func callGatewayAuthCompleteBootstrap(
 	callGatewayDescriptor(t, conn, correlation, gatewayAuthMethod(t, "CompleteBootstrap"), request, &result)
 	if result.GetSuccess() == nil {
 		t.Fatalf("CompleteBootstrap failed: %+v", result.GetError())
-	}
-	return result.GetSuccess()
-}
-
-func callGatewayAuthAcknowledgeNoAuth(
-	t *testing.T,
-	conn *websocket.Conn,
-	correlation string,
-) *authpb.NoAuthAcknowledgement {
-	t.Helper()
-	var result authpb.AcknowledgeNoAuthResult
-	callGatewayDescriptor(t, conn, correlation, gatewayAuthMethod(t, "AcknowledgeNoAuth"), &emptypb.Empty{}, &result)
-	if result.GetSuccess() == nil {
-		t.Fatalf("AcknowledgeNoAuth failed: %+v", result.GetError())
 	}
 	return result.GetSuccess()
 }
@@ -536,65 +688,68 @@ func TestGatewayWorkflowProjectLabelsRoundTrip(t *testing.T) {
 	handshakeGateway(t, conn)
 	requireGatewayProjectAttachment(t, conn, "attach-project-labels", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
 
-	var created serverapi.WorkflowProjectLabelCreateResponse
-	callGateway(t, conn, "create-project-label", protocol.MethodWorkflowProjectLabelCreate, serverapi.WorkflowProjectLabelCreateRequest{
-		ProjectID: appCore.ProjectID(),
+	service := pb.File_kent_api_workflow_definition_workflow_definition_proto.Services().ByName("ProjectLabelService")
+	callInvalid := func(correlation string, method protoreflect.Name, request, result proto.Message) {
+		t.Helper()
+		payload, err := proto.Marshal(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		envelope := callGatewayDescriptorPayload(t, conn, correlation, service.Methods().ByName(method), payload)
+		if envelope.GetResult() == nil {
+			t.Fatalf("expected declared label validation error, got %v", envelope)
+		}
+		if err := protoapi.Decode(envelope.GetResult().Payload, result); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var createResult pb.ProjectLabelCreateResult
+	callGatewayDescriptor(t, conn, "create-project-label", service.Methods().ByName("Create"), &pb.ProjectLabelCreateRequest{
+		ProjectId: appCore.ProjectID(),
 		Name:      "Priority",
-	}, &created)
-	if created.Label.ID == "" || created.Label.Name != "Priority" {
+	}, &createResult)
+	created := createResult.GetSuccess()
+	if created == nil || created.Label.Id == "" || created.Label.Name != "Priority" {
 		t.Fatalf("created label = %+v", created.Label)
 	}
 
-	var listed serverapi.WorkflowProjectLabelCatalogResponse
-	callGateway(t, conn, "list-project-labels", protocol.MethodWorkflowProjectLabelList, serverapi.WorkflowProjectLabelCatalogRequest{
-		ProjectID: appCore.ProjectID(),
-	}, &listed)
-	if listed.Catalog.ProjectID != appCore.ProjectID() ||
+	var listResult pb.ProjectLabelCatalogResult
+	callGatewayDescriptor(t, conn, "list-project-labels", service.Methods().ByName("List"), &pb.ProjectLabelCatalogRequest{
+		ProjectId: appCore.ProjectID(),
+	}, &listResult)
+	listed := listResult.GetSuccess()
+	if listed == nil || listed.Catalog.ProjectId != appCore.ProjectID() ||
 		len(listed.Catalog.Labels) != 1 ||
-		listed.Catalog.Labels[0] != created.Label {
+		!proto.Equal(listed.Catalog.Labels[0], created.Label) {
 		t.Fatalf("listed catalog = %+v, want created label", listed.Catalog)
 	}
 
-	duplicate := callGatewayExpectError(t, conn, "duplicate-project-label", protocol.MethodWorkflowProjectLabelCreate, serverapi.WorkflowProjectLabelCreateRequest{
-		ProjectID: appCore.ProjectID(),
+	var duplicate pb.ProjectLabelCreateResult
+	callGatewayDescriptor(t, conn, "duplicate-project-label", service.Methods().ByName("Create"), &pb.ProjectLabelCreateRequest{
+		ProjectId: appCore.ProjectID(),
 		Name:      "priority",
-	})
-	if duplicate.Code != protocol.ErrCodeWorkflowLabel {
-		t.Fatalf("duplicate label error = %+v, want workflow label code", duplicate)
-	}
-	decoded, ok := serverapi.DecodeWorkflowLabelError(duplicate.Data, duplicate.Message).(*serverapi.WorkflowLabelError)
-	if !ok ||
-		decoded.Reason != serverapi.WorkflowLabelErrorReasonNameConflict ||
-		decoded.ProjectID == nil ||
-		*decoded.ProjectID != appCore.ProjectID() {
-		t.Fatalf("decoded duplicate label error = %+v", decoded)
+	}, &duplicate)
+	if duplicate.GetError().GetCode() != "name_conflict" || duplicate.GetError().GetNameConflict().GetProjectId() != appCore.ProjectID() {
+		t.Fatalf("duplicate label error = %+v", &duplicate)
 	}
 
-	invalidRename := callGatewayExpectError(t, conn, "invalid-project-label-rename", protocol.MethodWorkflowProjectLabelRename, serverapi.WorkflowProjectLabelRenameRequest{
-		ProjectID: appCore.ProjectID(),
-		LabelID:   created.Label.ID,
+	var invalidRename pb.ProjectLabelRenameResult
+	callInvalid("invalid-project-label-rename", "Rename", &pb.ProjectLabelRenameRequest{
+		ProjectId: appCore.ProjectID(),
+		LabelId:   created.Label.Id,
 		Name:      " ",
-	})
-	assertWorkflowLabelGatewayError(t, invalidRename, serverapi.WorkflowLabelErrorReasonInvalidName, "name")
-
-	invalidDelete := callGatewayExpectError(t, conn, "invalid-project-label-delete", protocol.MethodWorkflowProjectLabelDelete, serverapi.WorkflowProjectLabelDeleteRequest{
-		ProjectID: appCore.ProjectID(),
-		LabelID:   "not-a-label-id",
-	})
-	assertWorkflowLabelGatewayError(t, invalidDelete, serverapi.WorkflowLabelErrorReasonInvalidMutation, "label_id")
-}
-
-func assertWorkflowLabelGatewayError(t *testing.T, response *protocol.ResponseError, reason serverapi.WorkflowLabelErrorReason, field string) {
-	t.Helper()
-	if response == nil {
-		t.Fatal("workflow label error response is missing")
+	}, &invalidRename)
+	if invalidRename.GetError().GetInvalidName().GetField() != "name" {
+		t.Fatalf("invalid name error = %v", &invalidRename)
 	}
-	if response.Code != protocol.ErrCodeWorkflowLabel {
-		t.Fatalf("workflow label error = %+v, want code %d", response, protocol.ErrCodeWorkflowLabel)
-	}
-	decoded, ok := serverapi.DecodeWorkflowLabelError(response.Data, response.Message).(*serverapi.WorkflowLabelError)
-	if !ok || decoded.Reason != reason || decoded.Field == nil || *decoded.Field != field {
-		t.Fatalf("decoded workflow label error = %+v, want reason %q field %q", decoded, reason, field)
+
+	var invalidDelete pb.ProjectLabelDeleteResult
+	callInvalid("invalid-project-label-delete", "Delete", &pb.ProjectLabelDeleteRequest{
+		ProjectId: appCore.ProjectID(),
+		LabelId:   "not-a-label-id",
+	}, &invalidDelete)
+	if invalidDelete.GetError().GetInvalidMutation().GetField() != "label_id" {
+		t.Fatalf("invalid deletion error = %v", &invalidDelete)
 	}
 }
 

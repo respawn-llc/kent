@@ -10,6 +10,7 @@ import { Spinner } from "./Spinner";
 export type LoadingStateProps = Readonly<{
   title?: ReactNode;
   body?: ReactNode;
+  actions?: ReactNode;
   fullPage?: boolean;
   chromePadding?: boolean;
   contentWidth?: StateContentWidth;
@@ -25,6 +26,7 @@ const delayedLoadingAppearanceKeys = new Set<string>();
 export function LoadingState({
   title = null,
   body = null,
+  actions,
   fullPage = true,
   chromePadding = false,
   contentWidth,
@@ -50,6 +52,7 @@ export function LoadingState({
       titleClassName="text-[var(--color-on-island)]"
     >
       {body !== null ? <p className="m-0 max-w-[52ch] text-[var(--color-muted)]">{body}</p> : null}
+      {actions !== undefined ? <StateActions testID="loading-state-actions">{actions}</StateActions> : null}
     </StateIsland>
   );
 }
@@ -57,20 +60,24 @@ export function LoadingState({
 function useOneShotDelayedAppearance(delayMs: number, key: string): boolean {
   const normalizedDelayMs = Math.max(0, delayMs);
   const [shouldDelay] = useState(() => normalizedDelayMs > 0 && !delayedLoadingAppearanceKeys.has(key));
-  const [visible, setVisible] = useState(!shouldDelay);
-
   useEffect(() => {
-    if (!shouldDelay || visible) {
-      return undefined;
-    }
-    delayedLoadingAppearanceKeys.add(key);
+    if (shouldDelay) delayedLoadingAppearanceKeys.add(key);
+  }, [key, shouldDelay]);
+  return useDelayedAppearance(shouldDelay ? normalizedDelayMs : 0);
+}
+
+export function useDelayedAppearance(delayMs = defaultLoadingAppearanceDelayMs): boolean {
+  const normalizedDelayMs = Math.max(0, delayMs);
+  const [visible, setVisible] = useState(normalizedDelayMs === 0);
+  useEffect(() => {
+    if (visible) return;
     const timer = window.setTimeout(() => {
       setVisible(true);
     }, normalizedDelayMs);
     return () => {
       window.clearTimeout(timer);
     };
-  }, [key, normalizedDelayMs, shouldDelay, visible]);
+  }, [normalizedDelayMs, visible]);
 
   return visible;
 }

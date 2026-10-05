@@ -1,35 +1,40 @@
 package app
 
-import "core/shared/clientui"
+import (
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
-func (c *sessionRuntimeClient) cachedMainView() (clientui.RuntimeMainView, bool) {
+	"google.golang.org/protobuf/proto"
+)
+
+func (c *sessionRuntimeClient) cachedMainView() (*runtimepb.MainView, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	view := c.mainView
+	view := proto.Clone(c.mainView).(*runtimepb.MainView)
 	if !c.hasMainView {
 		return view, false
 	}
 	return view, true
 }
 
-func (c *sessionRuntimeClient) CachedMainView() (clientui.RuntimeMainView, bool) {
+func (c *sessionRuntimeClient) CachedMainView() (*runtimepb.MainView, bool) {
 	if c == nil {
-		return clientui.RuntimeMainView{}, false
+		return &runtimepb.MainView{}, false
 	}
 	return c.cachedMainView()
 }
 
-func (c *sessionRuntimeClient) storeMainView(view clientui.RuntimeMainView) clientui.RuntimeMainView {
+func (c *sessionRuntimeClient) storeMainView(view *runtimepb.MainView) *runtimepb.MainView {
 	return c.mergeMainViewCandidate(view, runtimeTupleIngressAuthoritativeSnapshot, nil).view
 }
 
 func (c *sessionRuntimeClient) mergeMainViewCandidate(
-	view clientui.RuntimeMainView,
+	view *runtimepb.MainView,
 	ingress runtimeTupleIngress,
 	metadataBaselineRevision *uint64,
 ) runtimeTupleMergeResult {
-	if view.Session.SessionID == "" {
-		view.Session.SessionID = c.sessionID
+	view = proto.Clone(view).(*runtimepb.MainView)
+	if view.Session.SessionId == "" {
+		view.Session.SessionId = c.sessionID
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -40,10 +45,10 @@ func (c *sessionRuntimeClient) mergeMainViewCandidate(
 		c.advanceMetadataRevision()
 	}
 	if decision == runtimeTupleApply {
-		applyRuntimeTuple(&c.mainView, runtimeTupleFromMainView(view))
+		applyRuntimeTuple(c.mainView, runtimeTupleFromMainView(view))
 	}
 	c.hasMainView = true
-	return runtimeTupleMergeResult{decision: decision, view: c.mainView, project: decision == runtimeTupleApply}
+	return runtimeTupleMergeResult{decision: decision, view: proto.Clone(c.mainView).(*runtimepb.MainView), project: decision == runtimeTupleApply}
 }
 
 func (c *sessionRuntimeClient) mainViewMetadataRevision() uint64 {
@@ -59,11 +64,11 @@ func (c *sessionRuntimeClient) advanceMetadataRevision() {
 	c.metadataRevision++
 }
 
-func (c *sessionRuntimeClient) patchMainView(apply func(view *clientui.RuntimeMainView)) {
+func (c *sessionRuntimeClient) patchMainView(apply func(view *runtimepb.MainView)) {
 	c.mu.Lock()
-	apply(&c.mainView)
-	if c.mainView.Session.SessionID == "" {
-		c.mainView.Session.SessionID = c.sessionID
+	apply(c.mainView)
+	if c.mainView.Session.SessionId == "" {
+		c.mainView.Session.SessionId = c.sessionID
 	}
 	c.hasMainView = true
 	c.advanceMetadataRevision()

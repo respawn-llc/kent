@@ -20,8 +20,14 @@ import (
 	askquestion "core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/workflowcontract"
 )
 
 type RuntimeRegistry struct {
@@ -34,10 +40,10 @@ type RuntimeRegistry struct {
 	blockingActivitySessions   map[string]bool
 	pendingPrompts             *pendingPromptStore
 	attentionBroker            *attentionnotify.Broker
+	attentionNavigation        func(context.Context, string) (*sessionlaunchpb.SessionNavigationBinding, error)
 	questionBatches            *attentionnotify.QuestionBatchTracker
-	workflowEventPublisher     func(context.Context, serverapi.WorkflowProjectEvent) error
-	workflowAttentionSnapshot  WorkflowAttentionNotificationSnapshotSource
-	executionTargetResolver    func(context.Context, string) (*clientui.SessionExecutionTarget, error)
+	workflowEventPublisher     func(context.Context, workflowcontract.Event) error
+	executionTargetResolver    func(context.Context, string) (*worktreepb.SessionExecutionTarget, error)
 	backgroundProcessSnapshots func() []shelltool.Snapshot
 }
 
@@ -45,15 +51,12 @@ type authorityRuntimeEntry struct {
 	ref         runtimeids.SessionResourceRef
 	engine      *runtime.Engine
 	sessionFeed *sessionFeedSequencer
-	retain      func() (io.Closer, error)
-	mainView    atomic.Pointer[clientui.RuntimeMainView]
+	mainView    atomic.Pointer[runtimepb.MainView]
 
 	publicationMu sync.Mutex
 	mu            sync.Mutex
 	lifecycle     authorityRuntimeEntryLifecycle
 	feedReady     bool
-	nextRetention uint64
-	retentions    map[uint64]io.Closer
 }
 
 type authorityRuntimeEntryLifecycle uint8
@@ -96,8 +99,6 @@ func (r *RuntimeRegistry) ResourceReady(
 		ref:         ref,
 		engine:      engine,
 		sessionFeed: newSessionFeedSequencer(newTranscriptSubscriptionBroker()),
-		retain:      retain,
-		retentions:  make(map[uint64]io.Closer),
 	}
 	r.authorityMu.Lock()
 	if existing := r.authorityEntryBySession(sessionID); existing != nil {
@@ -156,8 +157,6 @@ func (r *RuntimeRegistry) ResourceDraining(_ context.Context, resource sessionru
 		return nil
 	}
 	entry.lifecycle = authorityRuntimeEntryDraining
-	retentions := entry.retentions
-	entry.retentions = nil
 	entry.mu.Unlock()
 	entry.mainView.Store(nil)
 	entry.publicationMu.Unlock()
@@ -182,17 +181,13 @@ func (r *RuntimeRegistry) ResourceDraining(_ context.Context, resource sessionru
 		entry.sessionFeed.Close(io.EOF)
 	}
 	r.updateAggregateRuntimeActivityState(sessionID, false)
-	var retentionErr error
-	for _, retention := range retentions {
-		retentionErr = errors.Join(retentionErr, retention.Close())
-	}
 	r.authorityMu.Lock()
 	if r.authorityEntryBySession(sessionID) == entry {
 		r.authorityBySession.Delete(sessionID)
 		r.signalAuthorityChangeLocked()
 	}
 	r.authorityMu.Unlock()
-	return errors.Join(retentionErr, err)
+	return err
 }
 
 func (r *RuntimeRegistry) authorityEntryBySession(sessionID string) *authorityRuntimeEntry {
@@ -244,44 +239,16 @@ func (r *RuntimeRegistry) withCurrentAuthorityEntry(ref runtimeids.SessionResour
 	return entry.lifecycle == authorityRuntimeEntryReady && entry.feedReady && mutate(entry)
 }
 
-func (e *authorityRuntimeEntry) retainSubscription() (uint64, error) {
-	if e == nil || e.retain == nil {
-		return 0, fmt.Errorf("authority runtime subscription is unavailable: %w", serverapi.ErrStreamUnavailable)
+func (e *authorityRuntimeEntry) transcriptAttachable() bool {
+	if e == nil {
+		return false
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.lifecycle != authorityRuntimeEntryReady || !e.feedReady {
-		return 0, fmt.Errorf("authority runtime subscription is not ready: %w", serverapi.ErrStreamUnavailable)
-	}
-	retention, err := e.retain()
-	if err != nil {
-		return 0, err
-	}
-	e.nextRetention++
-	id := e.nextRetention
-	if id == 0 {
-		_ = retention.Close()
-		panic("authority runtime subscription retention id overflow")
-	}
-	e.retentions[id] = retention
-	return id, nil
+	return e.lifecycle == authorityRuntimeEntryReady && e.feedReady
 }
 
-func (e *authorityRuntimeEntry) releaseSubscription(id uint64) error {
-	if e == nil || id == 0 {
-		return nil
-	}
-	e.mu.Lock()
-	retention := e.retentions[id]
-	delete(e.retentions, id)
-	e.mu.Unlock()
-	if retention == nil {
-		return nil
-	}
-	return retention.Close()
-}
-
-func (r *RuntimeRegistry) WithExecutionTargetResolver(resolver func(context.Context, string) (*clientui.SessionExecutionTarget, error)) *RuntimeRegistry {
+func (r *RuntimeRegistry) WithExecutionTargetResolver(resolver func(context.Context, string) (*worktreepb.SessionExecutionTarget, error)) *RuntimeRegistry {
 	if r == nil {
 		return nil
 	}
@@ -316,7 +283,7 @@ func (r *RuntimeRegistry) ActiveRuntimeActivitySnapshots(context.Context) ([]run
 			panic("Runtime Main View index contains an invalid entry")
 		}
 		view := entry.mainView.Load()
-		if view == nil || !view.Activity.ActiveForControl() {
+		if view == nil || !protoapi.RuntimeActivityActiveForControl(view.Activity) {
 			return true
 		}
 		snapshots = append(snapshots, runtimeactivity.ActiveSessionSnapshot{
@@ -331,7 +298,7 @@ func (r *RuntimeRegistry) ActiveRuntimeActivitySnapshots(context.Context) ([]run
 	return snapshots, nil
 }
 
-func (r *RuntimeRegistry) RuntimeReadModelFeedSnapshot(_ context.Context, sessionID string) (clientui.RuntimeReadModelUpdate, error) {
+func (r *RuntimeRegistry) RuntimeReadModelFeedSnapshot(_ context.Context, sessionID string) (*runtimepb.ReadModelUpdate, error) {
 	id := strings.TrimSpace(sessionID)
 	if r == nil || id == "" {
 		return runtimeactivity.BuildFeedSnapshot(
@@ -343,7 +310,7 @@ func (r *RuntimeRegistry) RuntimeReadModelFeedSnapshot(_ context.Context, sessio
 	return runtimeactivity.BuildFeedSnapshot(runtimeactivity.NextReadModelVersion(id), resolver)
 }
 
-func (r *RuntimeRegistry) unavailableRuntimeReadModelFeedSnapshot(sessionID string) (clientui.RuntimeReadModelUpdate, error) {
+func (r *RuntimeRegistry) unavailableRuntimeReadModelFeedSnapshot(sessionID string) (*runtimepb.ReadModelUpdate, error) {
 	id := strings.TrimSpace(sessionID)
 	return runtimeactivity.BuildFeedSnapshot(runtimeactivity.NextReadModelVersion(id), runtimeactivity.ResolverSnapshot{})
 }
@@ -459,12 +426,12 @@ func (r *RuntimeRegistry) publishRuntimeEvent(entry *authorityRuntimeEntry, evt 
 		entry.sessionFeed.Publish(messages)
 	}
 	if runtimeEventShouldPublishSessionStatus(evt) {
-		return r.publishTranscriptAndMainView(entry, func() ([]clientui.TranscriptEvent, error) {
+		return r.publishTranscriptAndMainView(entry, func() ([]*transcriptpb.Event, error) {
 			status, err := runtimeview.TranscriptSessionStatusFromRuntime(entry.engine)
 			if err != nil {
 				return nil, err
 			}
-			return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(status)}, nil
+			return []*transcriptpb.Event{{Payload: &transcriptpb.Event_SessionStatus{SessionStatus: status}}}, nil
 		})
 	}
 	return nil
@@ -479,12 +446,12 @@ func (r *RuntimeRegistry) PublishSessionIdentity(sessionID string) error {
 	if entry == nil {
 		return nil
 	}
-	return r.publishTranscriptAndMainView(entry, func() ([]clientui.TranscriptEvent, error) {
+	return r.publishTranscriptAndMainView(entry, func() ([]*transcriptpb.Event, error) {
 		identity, err := r.sessionIdentity(entry, id)
 		if err != nil {
 			return nil, err
 		}
-		return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(identity)}, nil
+		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_SessionIdentity{SessionIdentity: identity}}}, nil
 	})
 }
 
@@ -496,23 +463,23 @@ func (r *RuntimeRegistry) PublishSessionStatus(sessionID string) error {
 	if entry == nil {
 		return nil
 	}
-	return r.publishTranscriptAndMainView(entry, func() ([]clientui.TranscriptEvent, error) {
+	return r.publishTranscriptAndMainView(entry, func() ([]*transcriptpb.Event, error) {
 		status, err := r.sessionStatus(entry)
 		if err != nil {
 			return nil, err
 		}
-		return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(status)}, nil
+		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_SessionStatus{SessionStatus: status}}}, nil
 	})
 }
 
 func (r *RuntimeRegistry) PublishSessionSettingFeedback(
 	sessionID string,
-	feedback clientui.TranscriptSessionSettingFeedback,
+	feedback *transcriptpb.SessionSettingFeedback,
 ) error {
 	if r == nil {
 		return nil
 	}
-	if err := feedback.Validate(); err != nil {
+	if err := protoapi.Validate(feedback); err != nil {
 		return err
 	}
 	id := strings.TrimSpace(sessionID)
@@ -520,15 +487,15 @@ func (r *RuntimeRegistry) PublishSessionSettingFeedback(
 	if entry == nil {
 		return nil
 	}
-	return r.publishTranscriptAndMainView(entry, func() ([]clientui.TranscriptEvent, error) {
-		feedbackEvent := clientui.NewTranscriptEvent(feedback)
-		if feedback.Kind == clientui.SessionSettingSessionName {
+	return r.publishTranscriptAndMainView(entry, func() ([]*transcriptpb.Event, error) {
+		feedbackEvent := &transcriptpb.Event{Payload: &transcriptpb.Event_SessionSettingFeedback{SessionSettingFeedback: feedback}}
+		if feedback.Kind == transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME {
 			identity, err := r.sessionIdentity(entry, id)
 			if err != nil {
 				return nil, err
 			}
-			return []clientui.TranscriptEvent{
-				clientui.NewTranscriptEvent(identity),
+			return []*transcriptpb.Event{
+				{Payload: &transcriptpb.Event_SessionIdentity{SessionIdentity: identity}},
 				feedbackEvent,
 			}, nil
 		}
@@ -536,8 +503,8 @@ func (r *RuntimeRegistry) PublishSessionSettingFeedback(
 		if err != nil {
 			return nil, err
 		}
-		return []clientui.TranscriptEvent{
-			clientui.NewTranscriptEvent(status),
+		return []*transcriptpb.Event{
+			{Payload: &transcriptpb.Event_SessionStatus{SessionStatus: status}},
 			feedbackEvent,
 		}, nil
 	})
@@ -546,24 +513,24 @@ func (r *RuntimeRegistry) PublishSessionSettingFeedback(
 func (r *RuntimeRegistry) sessionIdentity(
 	entry *authorityRuntimeEntry,
 	sessionID string,
-) (clientui.TranscriptSessionIdentity, error) {
+) (*transcriptpb.SessionIdentity, error) {
 	identity, err := runtimeview.TranscriptSessionIdentityFromRuntime(entry.engine)
 	if err != nil {
-		return clientui.TranscriptSessionIdentity{}, err
+		return nil, err
 	}
 	target, err := r.resolveSessionExecutionTarget(context.Background(), sessionID)
 	if err != nil {
-		return clientui.TranscriptSessionIdentity{}, err
+		return nil, err
 	}
 	identity.ExecutionTarget = target
 	return identity, nil
 }
 
-func (r *RuntimeRegistry) sessionStatus(entry *authorityRuntimeEntry) (clientui.TranscriptSessionStatus, error) {
+func (r *RuntimeRegistry) sessionStatus(entry *authorityRuntimeEntry) (*transcriptpb.SessionStatus, error) {
 	return runtimeview.TranscriptSessionStatusFromRuntime(entry.engine)
 }
 
-func (r *RuntimeRegistry) resolveSessionExecutionTarget(ctx context.Context, sessionID string) (*clientui.SessionExecutionTarget, error) {
+func (r *RuntimeRegistry) resolveSessionExecutionTarget(ctx context.Context, sessionID string) (*worktreepb.SessionExecutionTarget, error) {
 	if r == nil || r.executionTargetResolver == nil {
 		return nil, nil
 	}
@@ -574,11 +541,11 @@ func (r *RuntimeRegistry) resolveSessionExecutionTarget(ctx context.Context, ses
 	if target == nil {
 		return nil, nil
 	}
-	normalized := clientui.NormalizeSessionExecutionTarget(*target)
+	normalized := clientui.NormalizeSessionExecutionTarget(target)
 	if clientui.SessionExecutionTargetIsZero(normalized) {
 		return nil, fmt.Errorf("resolve execution target for session %q returned an empty target", strings.TrimSpace(sessionID))
 	}
-	return &normalized, nil
+	return normalized, nil
 }
 
 func runtimeEventShouldPublishSessionStatus(evt runtime.Event) bool {
@@ -589,7 +556,7 @@ func transcriptEventRequiresVisibleSubscriber(evt runtime.Event) bool {
 	return evt.Kind == runtime.EventAssistantDelta || evt.Kind == runtime.EventAssistantDeltaReset
 }
 
-func (r *RuntimeRegistry) PublishRuntimeReadModelUpdate(sessionID string, update clientui.RuntimeReadModelUpdate) {
+func (r *RuntimeRegistry) PublishRuntimeReadModelUpdate(sessionID string, update *runtimepb.ReadModelUpdate) {
 	if r == nil {
 		return
 	}
@@ -597,14 +564,14 @@ func (r *RuntimeRegistry) PublishRuntimeReadModelUpdate(sessionID string, update
 	if entry == nil {
 		return
 	}
-	if err := update.Validate(); err != nil {
+	if err := protoapi.Validate(update); err != nil {
 		panic(fmt.Sprintf("publish invalid canonical runtime read-model update: %+v: %v", update, err))
 	}
 	entry.publicationMu.Lock()
 	defer entry.publicationMu.Unlock()
 	current := entry.mainView.Load()
 	if current != nil &&
-		(current.Version == update.Version || current.Version.NewerThan(update.Version)) {
+		(protoapi.ReadModelVersionsEqual(current.Version, update.Version) || protoapi.ReadModelVersionNewerThan(current.Version, update.Version)) {
 		return
 	}
 	publicationErr := r.publishRuntimeMainViewLocked(entry, update.Version, update.Activity)
@@ -612,7 +579,7 @@ func (r *RuntimeRegistry) PublishRuntimeReadModelUpdate(sessionID string, update
 		log.Printf("publish Runtime Main View for Session %q: %v", strings.TrimSpace(sessionID), publicationErr)
 	}
 	entry.sessionFeed.PublishRuntimeReadModel(update)
-	r.updateAggregateRuntimeActivityForAuthority(sessionID, entry, update.Activity.ActiveForControl())
+	r.updateAggregateRuntimeActivityForAuthority(sessionID, entry, protoapi.RuntimeActivityActiveForControl(update.Activity))
 }
 
 func (r *RuntimeRegistry) PublishWorktreeTransitionOutcome(sessionID string, outcome clientui.WorktreeTransitionOutcome) {
@@ -626,39 +593,70 @@ func (r *RuntimeRegistry) PublishWorktreeTransitionOutcome(sessionID string, out
 	if entry == nil {
 		return
 	}
-	transcriptOutcome := clientui.TranscriptWorktreeTransitionOutcome{
-		OperationID: outcome.OperationID,
-		Transition:  outcome.Transition,
-		State:       outcome.State,
+	transcriptOutcome := &transcriptpb.WorktreeTransitionOutcome{
+		OperationId: outcome.OperationID.String(),
+	}
+	switch outcome.Transition {
+	case clientui.WorktreeTransitionEnter:
+		transcriptOutcome.Transition = transcriptpb.WorktreeTransitionKind_WORKTREE_TRANSITION_KIND_ENTER
+	case clientui.WorktreeTransitionLeave:
+		transcriptOutcome.Transition = transcriptpb.WorktreeTransitionKind_WORKTREE_TRANSITION_KIND_LEAVE
+	case clientui.WorktreeTransitionDelete:
+		transcriptOutcome.Transition = transcriptpb.WorktreeTransitionKind_WORKTREE_TRANSITION_KIND_DELETE
+	}
+	switch outcome.State {
+	case clientui.WorktreeTransitionCompleted:
+		transcriptOutcome.State = transcriptpb.WorktreeTransitionState_WORKTREE_TRANSITION_STATE_COMPLETED
+	case clientui.WorktreeTransitionFailed:
+		transcriptOutcome.State = transcriptpb.WorktreeTransitionState_WORKTREE_TRANSITION_STATE_FAILED
 	}
 	if outcome.Failure != nil {
 		if outcome.Failure.SelectorError != nil {
-			transcriptOutcome.SelectorError = outcome.Failure.SelectorError
+			transcriptOutcome.FailureDetail = &transcriptpb.WorktreeTransitionOutcome_SelectorError{SelectorError: outcome.Failure.SelectorError}
 		} else {
-			transcriptOutcome.Failure = &clientui.TranscriptDiagnostic{
-				Code:   clientui.TranscriptDiagnosticCode("worktree_transition_failed"),
+			transcriptOutcome.FailureDetail = &transcriptpb.WorktreeTransitionOutcome_Failure{Failure: &transcriptpb.Diagnostic{
+				Code:   "worktree_transition_failed",
 				Detail: outcome.Failure.Diagnostic,
-			}
+			}}
 		}
 		if outcome.Failure.DeletePrecondition != nil {
-			dirtyState := *outcome.Failure.DeletePrecondition
-			transcriptOutcome.DeletePrecondition = &dirtyState
+			native := outcome.Failure.DeletePrecondition
+			dirtyState := &worktreepb.DirtyState{UnknownCause: native.UnknownCause}
+			switch native.Kind {
+			case clientui.WorktreeDirtyStateClean:
+				dirtyState.Kind = worktreepb.DirtyStateKind_DIRTY_STATE_CLEAN
+			case clientui.WorktreeDirtyStateDirty:
+				dirtyState.Kind = worktreepb.DirtyStateKind_DIRTY_STATE_DIRTY
+			case clientui.WorktreeDirtyStateUnknown:
+				dirtyState.Kind = worktreepb.DirtyStateKind_DIRTY_STATE_UNKNOWN
+			}
+			if native.DirtyFileCount != nil {
+				count, err := protoapi.Int32(*native.DirtyFileCount, "dirty file count")
+				if err != nil {
+					if closeErr := entry.sessionFeed.CloseContractViolation(err); closeErr != nil {
+						log.Printf("publish Worktree transition for Session %q: %v", sessionID, closeErr)
+					}
+					return
+				}
+				dirtyState.DirtyFileCount = &count
+			}
+			transcriptOutcome.DeletePrecondition = &worktreepb.DeletePreconditionDetails{DirtyState: dirtyState}
 		}
 	}
-	entry.sessionFeed.Publish([]clientui.TranscriptEvent{clientui.NewTranscriptEvent(transcriptOutcome)})
+	entry.sessionFeed.Publish([]*transcriptpb.Event{{Payload: &transcriptpb.Event_WorktreeTransitionOutcome{WorktreeTransitionOutcome: transcriptOutcome}}})
 }
 
-func (r *RuntimeRegistry) SubscribeSessionTranscript(ctx context.Context, req serverapi.TranscriptSubscribeRequest) (serverapi.TranscriptSubscription, error) {
+func (r *RuntimeRegistry) SubscribeSessionTranscript(ctx context.Context, req *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
 	if r == nil {
 		return nil, fmt.Errorf("runtime registry is required")
 	}
-	if err := req.Validate(); err != nil {
+	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	id := strings.TrimSpace(req.SessionID)
+	id := strings.TrimSpace(req.SessionId)
 	for {
 		authorityEntry, authorityChanged := r.authorityEntryAndChange(id)
 		if authorityEntry != nil {
@@ -676,28 +674,28 @@ func (r *RuntimeRegistry) SubscribeSessionTranscript(ctx context.Context, req se
 }
 
 func (r *RuntimeRegistry) subscribeAuthorityTranscript(ctx context.Context, id string, entry *authorityRuntimeEntry) (serverapi.TranscriptSubscription, error) {
-	retentionID, err := entry.retainSubscription()
-	if err != nil {
-		return nil, err
-	}
-	releaseRetention := func() {
-		_ = entry.releaseSubscription(retentionID)
+	if !entry.transcriptAttachable() {
+		return nil, fmt.Errorf("authority runtime subscription is not ready: %w", serverapi.ErrStreamUnavailable)
 	}
 	var sub *transcriptSubscription
-	err = entry.engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
+	err := entry.engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
+		tailPage, pageErr := entry.engine.TranscriptNewestSegmentPage()
+		if pageErr != nil {
+			return fmt.Errorf("read transcript hydration tail segment: %w", pageErr)
+		}
 		var subscribeErr error
-		sub, subscribeErr = entry.sessionFeed.Subscribe(func() (clientui.TranscriptHydration, error) {
-			return r.composeTranscriptHydration(ctx, id, entry, snapshot)
+		sub, subscribeErr = entry.sessionFeed.Subscribe(func() (*transcriptpb.Hydration, error) {
+			return r.composeTranscriptHydration(ctx, id, entry, snapshot, tailPage)
 		})
 		return subscribeErr
 	})
 	if err != nil {
-		releaseRetention()
+		if !entry.transcriptAttachable() {
+			return nil, fmt.Errorf("authority runtime subscription became unavailable: %w", serverapi.ErrStreamUnavailable)
+		}
 		return nil, err
 	}
-	return &notifyingSessionTranscriptSubscription{TranscriptSubscription: sub, onClose: func() {
-		releaseRetention()
-	}}, nil
+	return sub, nil
 }
 
 func (r *RuntimeRegistry) PromptPendingScope(scope sessionruntime.ExecutionScope, req askquestion.AskQuestionRequest, createdAt time.Time) error {
@@ -710,20 +708,41 @@ func (r *RuntimeRegistry) PromptPendingScope(scope sessionruntime.ExecutionScope
 	}
 	id := resource.SessionID().String()
 	entry := r.authorityEntryByRef(resource)
+	if entry == nil {
+		return fmt.Errorf(
+			"publish pending prompt %q for session %s generation %d: %w",
+			req.ToolCallID,
+			resource.SessionID(),
+			resource.Generation(),
+			serverapi.ErrStreamUnavailable,
+		)
+	}
 	var snapshot PendingPromptSnapshot
+	var wakeErr error
+	entry.publicationMu.Lock()
 	projected := r.withCurrentAuthorityEntry(resource, func(_ *authorityRuntimeEntry) bool {
 		var admitted bool
 		snapshot, admitted = r.pendingPrompts.Begin(id, resource, scope.ID(), req, createdAt)
 		return admitted
 	})
-	if projected && entry != nil {
+	if projected {
 		publishPendingPrompt(entry.sessionFeed, id, snapshot, pendingPromptEventPending)
 		r.publishAttentionPending(id, snapshot)
-		wakeErr := r.publishTaskQuestionWaitingForScope(scope, snapshot)
-		r.publishCurrentRuntimeActivity(id)
-		if wakeErr != nil {
-			return wakeErr
-		}
+		wakeErr = r.publishTaskQuestionWaitingForScope(scope, snapshot)
+	}
+	entry.publicationMu.Unlock()
+	if !projected {
+		return fmt.Errorf(
+			"publish pending prompt %q for session %s generation %d: %w",
+			req.ToolCallID,
+			resource.SessionID(),
+			resource.Generation(),
+			serverapi.ErrStreamUnavailable,
+		)
+	}
+	r.publishCurrentRuntimeActivity(id)
+	if wakeErr != nil {
+		return wakeErr
 	}
 	return nil
 }
@@ -765,7 +784,7 @@ func (r *RuntimeRegistry) publishPromptResolution(entry *authorityRuntimeEntry, 
 		logAttentionNotificationOperationFailure(
 			"publish workflow prompt resolution event",
 			sessionID,
-			snapshot.Request.ID,
+			snapshot.Request.ToolCallID,
 			err,
 		)
 	}
@@ -829,26 +848,4 @@ func (r *RuntimeRegistry) updateAggregateRuntimeActivityState(sessionID string, 
 	if observer != nil {
 		observer(active)
 	}
-}
-
-type notifyingSessionTranscriptSubscription struct {
-	serverapi.TranscriptSubscription
-	once    sync.Once
-	onClose func()
-}
-
-func (s *notifyingSessionTranscriptSubscription) Close() error {
-	if s == nil {
-		return nil
-	}
-	var err error
-	if s.TranscriptSubscription != nil {
-		err = s.TranscriptSubscription.Close()
-	}
-	s.once.Do(func() {
-		if s.onClose != nil {
-			s.onClose()
-		}
-	})
-	return err
 }

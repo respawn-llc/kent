@@ -118,6 +118,7 @@ const (
 )
 
 const RuntimePromptParameterCommentary = workflowcontract.RuntimePromptParameterCommentary
+const RuntimePromptParameterSessionID = workflowcontract.RuntimePromptParameterSessionID
 
 type Definition struct {
 	ID                    runtimeids.WorkflowID

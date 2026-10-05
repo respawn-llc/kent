@@ -3,20 +3,13 @@ package transport
 import (
 	"testing"
 
-	"core/shared/clientui"
+	"core/shared/protoapi"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
-	"core/shared/protocol"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 )
 
-func TestGatewayRegistersPromptAnswerBatchTypedResponseHandler(t *testing.T) {
-	if _, exists := gatewayUnaryHandlerEntries[protocol.MethodPromptAnswerBatch]; !exists {
-		t.Fatal("gateway prompt answer batch handler missing")
-	}
-}
-
-func TestGatewayPromptAnswerBatchRoundTripReturnsTypedAllSkippedSet(t *testing.T) {
+func TestGatewayPromptAnswerBatchRoundTrip(t *testing.T) {
 	appCore, server := newGatewayTestServer(t)
 	defer func() { _ = appCore.Close() }()
 	defer server.Close()
@@ -29,23 +22,13 @@ func TestGatewayPromptAnswerBatchRoundTripReturnsTypedAllSkippedSet(t *testing.T
 	if err != nil {
 		t.Fatalf("ParseStepID: %v", err)
 	}
-	selected := 1
-	request := serverapi.PromptAnswerBatchRequest{
-		SessionID: sessionID,
-		StepID:    stepID,
-		Entries: []serverapi.PromptAnswerBatchEntry{
-			{
-				PromptID:       "question-1",
-				QuestionAnswer: &serverapi.PromptQuestionAnswer{SelectedOptionNumber: &selected},
-			},
-			{
-				PromptID: "approval-1",
-				ApprovalAnswer: &serverapi.PromptApprovalAnswer{
-					Decision: clientui.ApprovalDecisionDeny,
-				},
-			},
-			{PromptID: "declined-1", Declined: &serverapi.PromptDeclined{}},
-		},
+	request := &promptpb.AnswerBatchRequest{
+		SessionId: sessionID.String(),
+		StepId:    stepID.String(),
+		Entries: []*promptpb.AnswerBatchEntry{{
+			ToolCallId: "declined-1",
+			Answer:     &promptpb.AnswerBatchEntry_Declined{Declined: &promptpb.Declined{}},
+		}},
 	}
 
 	conn := dialGateway(t, server)
@@ -54,14 +37,18 @@ func TestGatewayPromptAnswerBatchRoundTripReturnsTypedAllSkippedSet(t *testing.T
 	if result := attachGatewayProject(t, conn, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()}); result.GetSuccess() == nil {
 		t.Fatalf("attach Project failed: %+v", result.GetError())
 	}
-	var response serverapi.PromptAnswerBatchResponse
-	callGateway(t, conn, "prompt-answer-batch", protocol.MethodPromptAnswerBatch, request, &response)
-	if err := serverapi.ValidatePromptAnswerBatchResponse(request, response); err != nil {
+	var result promptpb.AnswerBatchResult
+	callGatewayDescriptor(t, conn, "prompt-answer-batch",
+		promptpb.File_kent_api_prompt_prompt_proto.Services().ByName("AnswerService").Methods().ByName("AnswerBatch"),
+		request, &result)
+	response := result.GetSuccess()
+	if response == nil {
+		t.Fatalf("prompt answer batch failed: %+v", result.GetError())
+	}
+	if err := protoapi.ValidatePromptAnswerBatchResponse(request, response); err != nil {
 		t.Fatalf("ValidatePromptAnswerBatchResponse: %v", err)
 	}
-	for _, result := range response.Results {
-		if result.Outcome != serverapi.PromptAnswerBatchOutcomeSkipped {
-			t.Fatalf("all-stale gateway result = %+v", response)
-		}
+	if len(response.Results) != 1 || response.Results[0].Outcome != promptpb.AnswerBatchOutcome_ANSWER_BATCH_OUTCOME_SKIPPED {
+		t.Fatalf("gateway response = %+v", response)
 	}
 }

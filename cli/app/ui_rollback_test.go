@@ -2,32 +2,28 @@ package app
 
 import (
 	"context"
+	"core/cli/tui"
+	"core/server/llm"
+	"core/server/runtime"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/rollbacktarget"
 	"errors"
+	tea "github.com/charmbracelet/bubbletea"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"core/cli/tui"
-	"core/server/llm"
-	"core/server/runtime"
-	"core/shared/clientui"
-	"core/shared/rollbacktarget"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestDoubleEscLoadsNewestDetailPageAndSelectsNewestRollbackCandidate(t *testing.T) {
 	olderTarget := rollbacktarget.EncodeUserMessageSeq(11)
 	newestTarget := rollbacktarget.EncodeUserMessageSeq(22)
-	model, _ := newRollbackTestModel(clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries: []clientui.TranscriptCommittedRow{
+	model, _ := newRollbackTestModel(&transcriptpb.Page{SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{
 			detailTestRollbackUserRow("older user message", olderTarget),
 			detailTestAssistantRow("assistant answer"),
-			detailTestRollbackUserRow("newest user message", newestTarget),
-		},
-	})
+			detailTestRollbackUserRow("newest user message", newestTarget)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
 	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
 	next, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	model = next.(*uiModel)
@@ -61,19 +57,13 @@ func TestDoubleEscLoadsNewestDetailPageAndSelectsNewestRollbackCandidate(t *test
 }
 
 func TestDoubleEscWithNoRollbackCandidatesRestoresTranscriptSurface(t *testing.T) {
-	candidateFreePage := clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries: []clientui.TranscriptCommittedRow{
+	candidateFreePage := &transcriptpb.Page{SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{
 			detailTestAssistantRow("assistant-only transcript"),
-			detailTestUserRow("user row without rollback target"),
-		},
-	}
-	priorDetailPage := clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestAssistantRow("prior detail window"),
-		},
-	}
+			detailTestUserRow("user row without rollback target")}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
+	priorDetailPage := &transcriptpb.Page{SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestAssistantRow("prior detail window")}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
 	for _, tc := range []struct {
 		name        string
 		priorDetail bool
@@ -132,15 +122,12 @@ func TestDoubleEscWithNoRollbackCandidatesRestoresTranscriptSurface(t *testing.T
 
 func TestDoubleEscFindsNewestRollbackCandidateAcrossCompactionBoundary(t *testing.T) {
 	targetID := rollbacktarget.EncodeUserMessageSeq(17)
-	model, sessionViews := newRollbackTestModel(clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	model, sessionViews := newRollbackTestModel(&transcriptpb.Page{SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(100),
 		HasMoreAbove: true,
-		Entries: []clientui.TranscriptCommittedRow{
+		Entries: []*transcriptpb.CommittedRow{
 			detailTestUserRow("synthetic compacted user row"),
-			detailTestAssistantRow("post-compaction answer"),
-		},
-	})
+			detailTestAssistantRow("post-compaction answer")}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
 
 	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
 	next, newestLoadCmd := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
@@ -158,14 +145,11 @@ func TestDoubleEscFindsNewestRollbackCandidateAcrossCompactionBoundary(t *testin
 		t.Fatalf("bounded candidate probe became visible through status notice %q", model.transientStatus)
 	}
 
-	sessionViews.page = clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	sessionViews.page = &transcriptpb.Page{SessionId: detailTestSessionID,
 		NewerCursor:  appInt64Ptr(100),
 		HasMoreBelow: true,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestRollbackUserRow("original pre-compaction prompt", targetID),
-		},
-	}
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestRollbackUserRow("original pre-compaction prompt", targetID)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
 	model = applyRollbackDetailLoad(t, model, olderLoadCmd)
 
 	if !model.rollback.isSelecting() {
@@ -179,27 +163,20 @@ func TestDoubleEscFindsNewestRollbackCandidateAcrossCompactionBoundary(t *testin
 
 func TestDoubleEscUsesLatestRollbackCandidateLocatorAcrossMultipleCandidateFreeSegments(t *testing.T) {
 	targetID := rollbacktarget.EncodeUserMessageSeq(17)
-	model, sessionViews := newRollbackTestModel(clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	model, sessionViews := newRollbackTestModel(&transcriptpb.Page{SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(300),
 		HasMoreAbove: true,
-		LatestRollbackCandidate: &rollbacktarget.CandidateLocator{
+		LatestRollbackCandidate: &transcriptpb.RollbackCandidate{
 			UserMessageSeq:       17,
-			CandidatePageEndByte: 100,
-		},
-		Entries: []clientui.TranscriptCommittedRow{
+			CandidatePageEndByte: 100},
+		Entries: []*transcriptpb.CommittedRow{
 			detailTestUserRow("newest synthetic compacted user row"),
-			detailTestAssistantRow("newest post-compaction answer"),
-		},
-	})
-	priorDetailPage := clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries: []clientui.TranscriptCommittedRow{
+			detailTestAssistantRow("newest post-compaction answer")}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
+	priorDetailPage := &transcriptpb.Page{SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{
 			detailTestAssistantRow("previous detail one"),
 			detailTestAssistantRow("previous detail two"),
-			detailTestAssistantRow("previous detail three\n" + strings.Repeat("expanded line\n", 30)),
-		},
-	}
+			detailTestAssistantRow("previous detail three\n" + strings.Repeat("expanded line\n", 30))}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
 	model.forwardToView(tui.SetViewportSizeMsg{Lines: 2, Width: 80})
 	model.detailTranscript.replace(priorDetailPage)
 	model.forwardToView(tui.SetDetailTranscriptPageMsg{
@@ -221,23 +198,19 @@ func TestDoubleEscUsesLatestRollbackCandidateLocatorAcrossMultipleCandidateFreeS
 		t.Fatal("candidate-free newest segment did not request the advertised rollback candidate page")
 	}
 
-	sessionViews.page = clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		LatestRollbackCandidate: &rollbacktarget.CandidateLocator{
+	sessionViews.page = &transcriptpb.Page{SessionId: detailTestSessionID,
+		LatestRollbackCandidate: &transcriptpb.RollbackCandidate{
 			UserMessageSeq:       17,
-			CandidatePageEndByte: 100,
-		},
+			CandidatePageEndByte: 100},
 		NewerCursor:  appInt64Ptr(100),
 		HasMoreBelow: true,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestRollbackUserRow("original prompt behind multiple compactions", targetID),
-		},
-	}
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestRollbackUserRow("original prompt behind multiple compactions", targetID)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
 	candidateCompletion := rollbackDetailLoadCompletion(t, candidateLoadCmd)
-	if sessionViews.lastPageReq.Cursor == nil || *sessionViews.lastPageReq.Cursor != 100 {
+	if !isOlderTranscriptPageRequest(sessionViews.lastPageReq) || sessionViews.lastPageReq.GetCursor() != 100 {
 		t.Fatalf(
 			"rollback locator request cursor = %v, want direct candidate page cursor 100 instead of adjacent cursor 300",
-			sessionViews.lastPageReq.Cursor,
+			sessionViews.lastPageReq.GetCursor(),
 		)
 	}
 	next, _ = model.Update(candidateCompletion)
@@ -274,12 +247,9 @@ func TestDoubleEscUsesLatestRollbackCandidateLocatorAcrossMultipleCandidateFreeS
 
 func TestRollbackPickerDoesNotOpenAfterComposerChangesDuringHydration(t *testing.T) {
 	targetID := rollbacktarget.EncodeUserMessageSeq(27)
-	model, _ := newRollbackTestModel(clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestRollbackUserRow("stale activation candidate", targetID),
-		},
-	})
+	model, _ := newRollbackTestModel(&transcriptpb.Page{SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestRollbackUserRow("stale activation candidate", targetID)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
 
 	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
 	next, loadCmd := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
@@ -304,39 +274,30 @@ func TestRollbackSelectionPagesAcrossBoundedDetailWindowsAtCandidateEdges(t *tes
 	oldestTarget := rollbacktarget.EncodeUserMessageSeq(10)
 	middleTarget := rollbacktarget.EncodeUserMessageSeq(20)
 	newestTarget := rollbacktarget.EncodeUserMessageSeq(30)
-	model, sessionViews := newRollbackTestModel(clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	model, sessionViews := newRollbackTestModel(&transcriptpb.Page{SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(200),
 		HasMoreAbove: true,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestRollbackUserRow("newest message", newestTarget),
-		},
-	})
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestRollbackUserRow("newest message", newestTarget)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
 	model = openRollbackPicker(t, model)
 
-	sessionViews.page = clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	sessionViews.page = &transcriptpb.Page{SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(100),
 		HasMoreAbove: true,
 		NewerCursor:  appInt64Ptr(200),
 		HasMoreBelow: true,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestRollbackUserRow("middle message", middleTarget),
-		},
-	}
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestRollbackUserRow("middle message", middleTarget)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
 	next, cmd := model.Update(tea.KeyMsg{Type: tea.KeyUp})
 	model = next.(*uiModel)
 	model = applyRollbackDetailLoad(t, model, cmd)
 	assertRollbackSelection(t, model, middleTarget)
 
-	sessionViews.page = clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	sessionViews.page = &transcriptpb.Page{SessionId: detailTestSessionID,
 		NewerCursor:  appInt64Ptr(100),
 		HasMoreBelow: true,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestRollbackUserRow("oldest message", oldestTarget),
-		},
-	}
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestRollbackUserRow("oldest message", oldestTarget)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
 	next, cmd = model.Update(tea.KeyMsg{Type: tea.KeyUp})
 	model = next.(*uiModel)
 	model = applyRollbackDetailLoad(t, model, cmd)
@@ -352,14 +313,11 @@ func TestRollbackSelectionPagesAcrossBoundedDetailWindowsAtCandidateEdges(t *tes
 	}
 	assertRollbackSelection(t, model, middleTarget)
 
-	sessionViews.page = clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	sessionViews.page = &transcriptpb.Page{SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(200),
 		HasMoreAbove: true,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestRollbackUserRow("newest message", newestTarget),
-		},
-	}
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestRollbackUserRow("newest message", newestTarget)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
 	next, cmd = model.Update(tea.KeyMsg{Type: tea.KeyDown})
 	model = next.(*uiModel)
 	model = applyRollbackDetailLoad(t, model, cmd)
@@ -379,27 +337,21 @@ func TestRollbackSelectionPagesAcrossBoundedDetailWindowsAtCandidateEdges(t *tes
 func TestRollbackNavigationTraversesConsecutiveCandidateFreePages(t *testing.T) {
 	newestTarget := rollbacktarget.EncodeUserMessageSeq(30)
 	olderTarget := rollbacktarget.EncodeUserMessageSeq(10)
-	model, sessionViews := newRollbackTestModel(clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	model, sessionViews := newRollbackTestModel(&transcriptpb.Page{SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(300),
 		HasMoreAbove: true,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestRollbackUserRow("newest candidate", newestTarget),
-		},
-	})
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestRollbackUserRow("newest candidate", newestTarget)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
 	model = openRollbackPicker(t, model)
 	originalWindow := model.detailTranscript.page()
 
-	sessionViews.page = clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	sessionViews.page = &transcriptpb.Page{SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(200),
 		HasMoreAbove: true,
 		NewerCursor:  appInt64Ptr(300),
 		HasMoreBelow: true,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestAssistantRow("candidate-free segment one"),
-		},
-	}
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestAssistantRow("candidate-free segment one")}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
 	next, cmd := model.Update(tea.KeyMsg{Type: tea.KeyUp})
 	model = next.(*uiModel)
 	model, cmd = applyRollbackDetailLoadWithFollowUp(t, model, cmd)
@@ -411,16 +363,13 @@ func TestRollbackNavigationTraversesConsecutiveCandidateFreePages(t *testing.T) 
 		t.Fatal("candidate-free traversal replaced the visible candidate window")
 	}
 
-	sessionViews.page = clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	sessionViews.page = &transcriptpb.Page{SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(100),
 		HasMoreAbove: true,
 		NewerCursor:  appInt64Ptr(200),
 		HasMoreBelow: true,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestAssistantRow("candidate-free segment two"),
-		},
-	}
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestAssistantRow("candidate-free segment two")}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
 	model, cmd = applyRollbackDetailLoadWithFollowUp(t, model, cmd)
 	if cmd == nil {
 		t.Fatal("second candidate-free page did not continue bounded rollback navigation")
@@ -430,14 +379,11 @@ func TestRollbackNavigationTraversesConsecutiveCandidateFreePages(t *testing.T) 
 		t.Fatal("second candidate-free traversal replaced the visible candidate window")
 	}
 
-	sessionViews.page = clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	sessionViews.page = &transcriptpb.Page{SessionId: detailTestSessionID,
 		NewerCursor:  appInt64Ptr(100),
 		HasMoreBelow: true,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestRollbackUserRow("older candidate", olderTarget),
-		},
-	}
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestRollbackUserRow("older candidate", olderTarget)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
 	model, _ = applyRollbackDetailLoadWithFollowUp(t, model, cmd)
 	assertRollbackSelection(t, model, olderTarget)
 	if len(model.detailTranscript.segments) != 1 {
@@ -448,16 +394,13 @@ func TestRollbackNavigationTraversesConsecutiveCandidateFreePages(t *testing.T) 
 	}
 	olderWindow := model.detailTranscript.page()
 
-	sessionViews.page = clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	sessionViews.page = &transcriptpb.Page{SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(100),
 		HasMoreAbove: true,
 		NewerCursor:  appInt64Ptr(200),
 		HasMoreBelow: true,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestAssistantRow("candidate-free segment two"),
-		},
-	}
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestAssistantRow("candidate-free segment two")}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
 	next, cmd = model.Update(tea.KeyMsg{Type: tea.KeyDown})
 	model = next.(*uiModel)
 	model, cmd = applyRollbackDetailLoadWithFollowUp(t, model, cmd)
@@ -469,16 +412,13 @@ func TestRollbackNavigationTraversesConsecutiveCandidateFreePages(t *testing.T) 
 		t.Fatal("newer candidate-free traversal replaced the visible candidate window")
 	}
 
-	sessionViews.page = clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	sessionViews.page = &transcriptpb.Page{SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(200),
 		HasMoreAbove: true,
 		NewerCursor:  appInt64Ptr(300),
 		HasMoreBelow: true,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestAssistantRow("candidate-free segment one"),
-		},
-	}
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestAssistantRow("candidate-free segment one")}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
 	model, cmd = applyRollbackDetailLoadWithFollowUp(t, model, cmd)
 	if cmd == nil {
 		t.Fatal("newer traversal stopped at the second candidate-free page")
@@ -488,14 +428,11 @@ func TestRollbackNavigationTraversesConsecutiveCandidateFreePages(t *testing.T) 
 		t.Fatal("second newer candidate-free traversal replaced the visible candidate window")
 	}
 
-	sessionViews.page = clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	sessionViews.page = &transcriptpb.Page{SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(300),
 		HasMoreAbove: true,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestRollbackUserRow("newest candidate", newestTarget),
-		},
-	}
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestRollbackUserRow("newest candidate", newestTarget)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
 	model, _ = applyRollbackDetailLoadWithFollowUp(t, model, cmd)
 	assertRollbackSelection(t, model, newestTarget)
 	if len(model.detailTranscript.segments) != 1 {
@@ -511,26 +448,20 @@ func TestRollbackNavigationTraversesConsecutiveCandidateFreePages(t *testing.T) 
 
 func TestRollbackNavigationTimeoutKeepsCurrentCandidateAndStopsPaging(t *testing.T) {
 	targetID := rollbacktarget.EncodeUserMessageSeq(30)
-	model, sessionViews := newRollbackTestModel(clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	model, sessionViews := newRollbackTestModel(&transcriptpb.Page{SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(300),
 		HasMoreAbove: true,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestRollbackUserRow("current candidate", targetID),
-		},
-	})
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestRollbackUserRow("current candidate", targetID)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
 	model = openRollbackPicker(t, model)
 	originalWindow := model.detailTranscript.page()
-	sessionViews.page = clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	sessionViews.page = &transcriptpb.Page{SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(200),
 		HasMoreAbove: true,
 		NewerCursor:  appInt64Ptr(300),
 		HasMoreBelow: true,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestAssistantRow("candidate-free timeout page"),
-		},
-	}
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestAssistantRow("candidate-free timeout page")}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
 
 	next, cmd := model.Update(tea.KeyMsg{Type: tea.KeyUp})
 	model = next.(*uiModel)
@@ -608,23 +539,17 @@ func TestRollbackSharedListKeysNavigateResidentCandidates(t *testing.T) {
 func TestRollbackPageKeyPropagatesAdjacentWindowRequest(t *testing.T) {
 	newestTarget := rollbacktarget.EncodeUserMessageSeq(20)
 	olderTarget := rollbacktarget.EncodeUserMessageSeq(10)
-	model, sessionViews := newRollbackTestModel(clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	model, sessionViews := newRollbackTestModel(&transcriptpb.Page{SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(100),
 		HasMoreAbove: true,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestRollbackUserRow("newest", newestTarget),
-		},
-	})
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestRollbackUserRow("newest", newestTarget)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
 	model = openRollbackPicker(t, model)
-	sessionViews.page = clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	sessionViews.page = &transcriptpb.Page{SessionId: detailTestSessionID,
 		NewerCursor:  appInt64Ptr(100),
 		HasMoreBelow: true,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestRollbackUserRow("older", olderTarget),
-		},
-	}
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestRollbackUserRow("older", olderTarget)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
 
 	next, cmd := model.Update(tea.KeyMsg{Type: tea.KeyPgUp})
 	model = next.(*uiModel)
@@ -641,16 +566,12 @@ func TestRollbackCtrlCClosesPickerBeforeGlobalAction(t *testing.T) {
 		busy bool
 	}{
 		{name: "busy selection", busy: true},
-		{name: "idle exit"},
-	} {
+		{name: "idle exit"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			targetID := rollbacktarget.EncodeUserMessageSeq(44)
-			model, _ := newRollbackTestModel(clientui.TranscriptPage{
-				SessionID: detailTestSessionID,
-				Entries: []clientui.TranscriptCommittedRow{
-					detailTestRollbackUserRow("Ctrl+C target", targetID),
-				},
-			})
+			model, _ := newRollbackTestModel(&transcriptpb.Page{SessionId: detailTestSessionID,
+				Entries: []*transcriptpb.CommittedRow{
+					detailTestRollbackUserRow("Ctrl+C target", targetID)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
 			model = openRollbackPicker(t, model)
 			if tc.busy {
 				model.setRuntimeActivityBusyForTest(true)
@@ -686,12 +607,9 @@ func TestRollbackCtrlCClosesPickerBeforeGlobalAction(t *testing.T) {
 
 func TestSessionReplacementDiscardsRollbackStateWithoutRestoringOldTranscript(t *testing.T) {
 	targetID := rollbacktarget.EncodeUserMessageSeq(46)
-	model, _ := newRollbackTestModel(clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestRollbackUserRow("old session rollback target", targetID),
-		},
-	})
+	model, _ := newRollbackTestModel(&transcriptpb.Page{SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestRollbackUserRow("old session rollback target", targetID)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
 	model = openRollbackPicker(t, model)
 
 	cmd := applyDetailTestSessionReplacement(t, model, detailTestReplacementSessionID)
@@ -720,12 +638,9 @@ func TestSessionReplacementDiscardsRollbackStateWithoutRestoringOldTranscript(t 
 
 func TestRollbackSelectionStartsForkWithSelectedMessageAsDraft(t *testing.T) {
 	targetID := rollbacktarget.EncodeUserMessageSeq(73)
-	model, _ := newRollbackTestModel(clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestRollbackUserRow("original prompt", targetID),
-		},
-	})
+	model, _ := newRollbackTestModel(&transcriptpb.Page{SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestRollbackUserRow("original prompt", targetID)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
 	model = openRollbackPicker(t, model)
 
 	next, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -816,12 +731,9 @@ func TestRollbackPickerWorksAfterInterruptedRuntimeAndTUIRestart(t *testing.T) {
 
 func TestRollbackPickerNeverEnablesAlternateScroll(t *testing.T) {
 	targetID := rollbacktarget.EncodeUserMessageSeq(88)
-	model, _ := newRollbackTestModel(clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestRollbackUserRow("rollback candidate", targetID),
-		},
-	})
+	model, _ := newRollbackTestModel(&transcriptpb.Page{SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestRollbackUserRow("rollback candidate", targetID)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
 	originalWrite := writeTerminalSequence
 	var terminalSequences []string
 	writeTerminalSequence = func(sequence string) error {
@@ -863,14 +775,14 @@ func (*rollbackInterruptBlockingClient) ProviderCapabilities(context.Context) (l
 	return llm.InferProviderCapabilities("openai")
 }
 
-func detailTestRollbackUserRow(text, rollbackTargetID string) clientui.TranscriptCommittedRow {
+func detailTestRollbackUserRow(text, rollbackTargetID string) *transcriptpb.CommittedRow {
 	target := rollbackTargetID
 	row := detailTestUserRow(text)
-	row.User.RollbackTargetID = &target
+	row.GetUser().RollbackTargetId = &target
 	return row
 }
 
-func newRollbackTestModel(page clientui.TranscriptPage) (*uiModel, *countingSessionViewClient) {
+func newRollbackTestModel(page *transcriptpb.Page) (*uiModel, *countingSessionViewClient) {
 	sessionViews := &countingSessionViewClient{page: page}
 	model := newSizedProjectedClosedUIModel(
 		&runtimeControlFakeClient{},
@@ -883,14 +795,11 @@ func newRollbackTestModel(page clientui.TranscriptPage) (*uiModel, *countingSess
 }
 
 func newResidentRollbackTestModel(oldestTarget, middleTarget, newestTarget string) *uiModel {
-	model, _ := newRollbackTestModel(clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries: []clientui.TranscriptCommittedRow{
+	model, _ := newRollbackTestModel(&transcriptpb.Page{SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{
 			detailTestRollbackUserRow("oldest", oldestTarget),
 			detailTestRollbackUserRow("middle", middleTarget),
-			detailTestRollbackUserRow("newest", newestTarget),
-		},
-	})
+			detailTestRollbackUserRow("newest", newestTarget)}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
 	return model
 }
 

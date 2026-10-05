@@ -29,7 +29,7 @@ func TestCompactionCacheObservationRequestBuildsExactConversationReplica(t *test
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeCompactionClient{}, newTestToolRegistry(t, tools.HandlerRegistration{
 		ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand},
-	}), Config{Model: "gpt-5"})
+	}), Config{Model: "gpt-6-sol"})
 	stepID := runtimeTestStepID("seed-step")
 	if err := runTestActiveStep(eng, stepID, func() error {
 		return eng.steerBaseMetaContextIfNeeded(stepID)
@@ -84,22 +84,6 @@ func TestRemoteCompactionCollapsesToolPayloadAfterOverflowAndPersistsCacheWarnin
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{
-		inputTokenCountFn: func(req llm.Request) int {
-			total := 0
-			for _, item := range req.Items {
-				switch item.Type {
-				case llm.ResponseItemTypeMessage:
-					total += 1000
-				case llm.ResponseItemTypeFunctionCall:
-					total += 3000
-				case llm.ResponseItemTypeFunctionCallOutput:
-					total += 1000
-				default:
-					total += 500
-				}
-			}
-			return total
-		},
 		compactionErrors: []error{
 			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
 			nil,
@@ -115,7 +99,7 @@ func TestRemoteCompactionCollapsesToolPayloadAfterOverflowAndPersistsCacheWarnin
 	}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{
 		ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand},
-	}), Config{Model: "gpt-5", ContextWindowTokens: 2500})
+	}), Config{Model: "gpt-6-sol", ContextWindowTokens: 2500})
 	stepID := runtimeTestStepID("seed-step")
 	if err := runTestActiveStep(eng, stepID, func() error {
 		return eng.steerBaseMetaContextIfNeeded(stepID)
@@ -220,7 +204,7 @@ func TestRemoteCompactionDoesNotRepairUnsupportedViewImagePayload(t *testing.T) 
 	}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{
 		ID: toolspec.ToolViewImage, Handler: fakeTool{name: toolspec.ToolViewImage},
-	}), Config{Model: "gpt-5", ContextWindowTokens: 2500})
+	}), Config{Model: "gpt-6-sol", ContextWindowTokens: 2500})
 	stepID := runtimeTestStepID("seed-step")
 	if err := runTestActiveStep(eng, stepID, func() error {
 		return eng.steerBaseMetaContextIfNeeded(stepID)
@@ -287,7 +271,7 @@ func TestRemoteCompactionFailsFastWhenOverflowHasNoCollapsibleToolPayload(t *tes
 	}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{
 		ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand},
-	}), Config{Model: "gpt-5", ContextWindowTokens: 2500})
+	}), Config{Model: "gpt-6-sol", ContextWindowTokens: 2500})
 	stepID := runtimeTestStepID("seed-step")
 	if err := runTestActiveStep(eng, stepID, func() error {
 		return eng.steerBaseMetaContextIfNeeded(stepID)
@@ -332,7 +316,7 @@ func TestCompactionTransientRetryObservesCacheLineageOnce(t *testing.T) {
 	}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{
 		ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand},
-	}), Config{Model: "gpt-5"})
+	}), Config{Model: "gpt-6-sol"})
 	stepID := runtimeTestStepID("seed-step")
 	restoreStep := setTestActiveStep(eng, stepID)
 	if err := eng.steerBaseMetaContextIfNeeded(stepID); err != nil {

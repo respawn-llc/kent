@@ -1,98 +1,87 @@
-import { z } from "zod";
+import { create } from "@app/server-api-contract";
+import {
+  AnswerService,
+  AnswerBatchEntrySchema,
+  AnswerBatchOutcome,
+  ApprovalDecision,
+} from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
 
 import type {
   PromptAnswerBatchEntryInput,
   PromptAnswerBatchInput,
   PromptAnswerBatchResponse,
 } from "./clientInputs";
-import { parseRpcResponse } from "./clientParse";
-import { compactJsonObject } from "./json";
-import type { JsonValue } from "./json";
-import type { RpcTransport } from "./transport";
-
-const responseSchema = z
-  .object({
-    results: z.array(
-      z
-        .object({
-          prompt_id: z.string().trim().min(1),
-          outcome: z.enum(["resolved", "skipped"]),
-        })
-        .strict(),
-    ),
-  })
-  .strict()
-  .transform((value): PromptAnswerBatchResponse => ({
-    results: value.results.map((result) => ({
-      promptID: result.prompt_id,
-      outcome: result.outcome,
-    })),
-  }));
+import { enumValue } from "./chatWire";
+import { requireUnarySuccess } from "./protobufRpc";
+import type { DescriptorRpcTransport } from "./transport";
 
 export async function answerPromptBatch(
-  transport: RpcTransport,
+  transport: DescriptorRpcTransport,
   input: PromptAnswerBatchInput,
 ): Promise<PromptAnswerBatchResponse> {
-  validateInput(input);
-  const response = parseRpcResponse(
-    "prompt.answerBatch",
-    responseSchema,
-    await transport.callAttachedSession(input.sessionID, "prompt.answerBatch", {
-      session_id: input.sessionID,
-      step_id: input.stepID,
-      entries: input.entries.map(encodeEntry),
-    }),
+  const method = AnswerService.method.answerBatch;
+  const request = create(method.input, {
+    sessionId: input.sessionID,
+    stepId: input.stepID,
+    entries: input.entries.map(encodeEntry),
+  });
+  const success = requireUnarySuccess(
+    method,
+    await transport.callDescriptorAttachedSession({ sessionID: input.sessionID }, method, request),
   );
-  validateResponse(input, response);
-  return response;
-}
-
-function encodeEntry(entry: PromptAnswerBatchEntryInput): JsonValue {
-  switch (entry.kind) {
-    case "question":
-      return {
-        prompt_id: entry.promptID,
-        question_answer: compactJsonObject({
-          selected_option_number: entry.selectedOptionNumber ?? undefined,
-          freeform: entry.freeform ?? undefined,
-        }),
-      };
-    case "approval":
-      return {
-        prompt_id: entry.promptID,
-        approval_answer: compactJsonObject({
-          decision: entry.decision,
-          commentary: entry.commentary ?? undefined,
-        }),
-      };
-    case "declined":
-      return { prompt_id: entry.promptID, declined: {} };
-  }
-}
-
-function validateInput(input: PromptAnswerBatchInput): void {
-  if (input.sessionID.trim().length === 0 || input.stepID.trim().length === 0 || input.entries.length === 0) {
-    throw new Error("prompt answer batch requires Session, Step, and entries");
-  }
-  const promptIDs = new Set<string>();
-  for (const entry of input.entries) {
-    if (entry.promptID.trim().length === 0 || promptIDs.has(entry.promptID)) {
-      throw new Error("prompt answer batch prompt identity is invalid or duplicated");
-    }
-    promptIDs.add(entry.promptID);
-  }
-}
-
-function validateResponse(input: PromptAnswerBatchInput, response: PromptAnswerBatchResponse): void {
+  const response: PromptAnswerBatchResponse = {
+    results: success.results.map((result) => ({
+      toolCallID: result.toolCallId,
+      outcome: enumValue(result.outcome, {
+        [AnswerBatchOutcome.RESOLVED]: "resolved",
+        [AnswerBatchOutcome.SKIPPED]: "skipped",
+      }),
+    })),
+  };
   if (response.results.length !== input.entries.length) {
     throw new Error("prompt answer batch result count does not match request");
   }
-  const requested = new Set(input.entries.map((entry) => entry.promptID));
-  const results = new Set<string>();
+  const requested = new Set(input.entries.map((entry) => entry.toolCallID));
   for (const result of response.results) {
-    if (!requested.has(result.promptID) || results.has(result.promptID)) {
+    if (!requested.delete(result.toolCallID)) {
       throw new Error("prompt answer batch result identity is foreign or duplicated");
     }
-    results.add(result.promptID);
+  }
+  return response;
+}
+
+function encodeEntry(entry: PromptAnswerBatchEntryInput) {
+  switch (entry.kind) {
+    case "question":
+      return create(AnswerBatchEntrySchema, {
+        toolCallId: entry.toolCallID,
+        answer: {
+          case: "questionAnswer",
+          value: {
+            selectedOptionNumber: entry.selectedOptionNumber ?? undefined,
+            freeform: entry.freeform ?? undefined,
+          },
+        },
+      });
+    case "approval":
+      return create(AnswerBatchEntrySchema, {
+        toolCallId: entry.toolCallID,
+        answer: {
+          case: "approvalAnswer",
+          value: {
+            decision: {
+              allow_once: ApprovalDecision.ALLOW_ONCE,
+              allow_session: ApprovalDecision.ALLOW_SESSION,
+              deny: ApprovalDecision.DENY,
+            }[entry.decision],
+            commentary: entry.commentary ?? undefined,
+          },
+        },
+      });
+    case "declined":
+      return create(AnswerBatchEntrySchema, {
+        toolCallId: entry.toolCallID,
+        answer: { case: "declined", value: {} },
+      });
   }
 }

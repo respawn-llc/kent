@@ -3,7 +3,8 @@ package runtimeactivity
 import (
 	"testing"
 
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 )
 
 const (
@@ -15,36 +16,36 @@ func TestResolveRuntimeActivityUsesOnlyLiveResolverInputs(t *testing.T) {
 	tests := []struct {
 		name     string
 		snapshot ResolverSnapshot
-		want     clientui.RuntimeActivityState
-		wantKind clientui.RuntimeActivityActiveKind
+		want     runtimepb.ActivityState
+		wantKind runtimepb.ActivityActiveKind
 		active   bool
 	}{
-		{name: "no runtime entry unavailable", want: clientui.RuntimeActivityUnavailable},
+		{name: "no runtime entry unavailable", want: runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE},
 		{
 			name:     "registered idle",
 			snapshot: ResolverSnapshot{Registry: RegistrySnapshot{Registered: true, QueueAccepting: true}},
-			want:     clientui.RuntimeActivityRegisteredIdle,
+			want:     runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
 		},
 		{
 			name: "running copies runtime-owned active kind",
 			snapshot: ResolverSnapshot{
 				Registry: RegistrySnapshot{Registered: true, QueueAccepting: true},
-				Active:   &ActiveStepSnapshot{RunID: runtimeActivityTestRunID, StepID: runtimeActivityTestStepID, ActiveKind: clientui.RuntimeActivityActiveKindGoalLoop},
+				Active:   &ActiveStepSnapshot{RunID: runtimeActivityTestRunID, StepID: runtimeActivityTestStepID, ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_GOAL_LOOP},
 			},
-			want:     clientui.RuntimeActivityRunning,
-			wantKind: clientui.RuntimeActivityActiveKindGoalLoop,
+			want:     runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING,
+			wantKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_GOAL_LOOP,
 			active:   true,
 		},
 		{
 			name:     "draining masks active details",
 			snapshot: ResolverSnapshot{Registry: RegistrySnapshot{Registered: true, Draining: true}},
-			want:     clientui.RuntimeActivityDraining,
+			want:     runtimepb.ActivityState_RUNTIME_ACTIVITY_DRAINING,
 			active:   true,
 		},
 		{
 			name:     "closing masks active details",
 			snapshot: ResolverSnapshot{Registry: RegistrySnapshot{Registered: true, Closing: true}},
-			want:     clientui.RuntimeActivityClosing,
+			want:     runtimepb.ActivityState_RUNTIME_ACTIVITY_CLOSING,
 			active:   true,
 		},
 	}
@@ -61,7 +62,7 @@ func TestResolveRuntimeActivityUsesOnlyLiveResolverInputs(t *testing.T) {
 			if got := runtimeActivityKind(activity); got != test.wantKind {
 				t.Fatalf("active kind = %q, want %q", got, test.wantKind)
 			}
-			if got := activity.ActiveForControl(); got != test.active {
+			if got := protoapi.RuntimeActivityActiveForControl(activity); got != test.active {
 				t.Fatalf("active = %t, want %t", got, test.active)
 			}
 		})
@@ -69,11 +70,8 @@ func TestResolveRuntimeActivityUsesOnlyLiveResolverInputs(t *testing.T) {
 }
 
 func TestResolveRuntimeActivityPreservesReviewerPhase(t *testing.T) {
-	for _, want := range []clientui.ReviewerActivity{
-		clientui.ReviewerActivityInvoking,
-		clientui.ReviewerActivityAddressingFeedback,
-	} {
-		t.Run(string(want), func(t *testing.T) {
+	for _, want := range []runtimepb.ReviewerActivity{runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INVOKING, runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_ADDRESSING_FEEDBACK} {
+		t.Run(want.String(), func(t *testing.T) {
 			activity, err := ResolveRuntimeActivity(ResolverSnapshot{
 				Registry: RegistrySnapshot{Registered: true, QueueAccepting: true},
 				Reviewer: want,
@@ -89,14 +87,8 @@ func TestResolveRuntimeActivityPreservesReviewerPhase(t *testing.T) {
 }
 
 func TestResolveRuntimeActivityCopiesEveryRuntimeOwnedActiveKind(t *testing.T) {
-	for _, kind := range []clientui.RuntimeActivityActiveKind{
-		clientui.RuntimeActivityActiveKindUserTurn,
-		clientui.RuntimeActivityActiveKindWorkflowTurn,
-		clientui.RuntimeActivityActiveKindGoalLoop,
-		clientui.RuntimeActivityActiveKindCompaction,
-		clientui.RuntimeActivityActiveKindBackground,
-	} {
-		t.Run(string(kind), func(t *testing.T) {
+	for _, kind := range []runtimepb.ActivityActiveKind{runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN, runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_WORKFLOW_TURN, runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_GOAL_LOOP, runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_COMPACTION, runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_BACKGROUND} {
+		t.Run(kind.String(), func(t *testing.T) {
 			activity, err := ResolveRuntimeActivity(ResolverSnapshot{
 				Registry: RegistrySnapshot{Registered: true, QueueAccepting: true},
 				Active:   &ActiveStepSnapshot{RunID: runtimeActivityTestRunID, StepID: runtimeActivityTestStepID, ActiveKind: kind},
@@ -104,10 +96,10 @@ func TestResolveRuntimeActivityCopiesEveryRuntimeOwnedActiveKind(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ResolveRuntimeActivity: %v", err)
 			}
-			if activity.State != clientui.RuntimeActivityRunning || runtimeActivityKind(activity) != kind {
+			if activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING || runtimeActivityKind(activity) != kind {
 				t.Fatalf("activity = %+v, want running %q", activity, kind)
 			}
-			if !activity.ActiveForControl() {
+			if !protoapi.RuntimeActivityActiveForControl(activity) {
 				t.Fatalf("activity must block runtime control while active: %+v", activity)
 			}
 		})
@@ -117,13 +109,13 @@ func TestResolveRuntimeActivityCopiesEveryRuntimeOwnedActiveKind(t *testing.T) {
 func TestResolveRuntimeActivityProjectsPromptWaitFromExplicitFact(t *testing.T) {
 	activity, err := ResolveRuntimeActivity(ResolverSnapshot{
 		Registry:   RegistrySnapshot{Registered: true},
-		Active:     &ActiveStepSnapshot{RunID: runtimeActivityTestRunID, StepID: runtimeActivityTestStepID, ActiveKind: clientui.RuntimeActivityActiveKindUserTurn},
+		Active:     &ActiveStepSnapshot{RunID: runtimeActivityTestRunID, StepID: runtimeActivityTestStepID, ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN},
 		PromptWait: true,
 	})
 	if err != nil {
 		t.Fatalf("ResolveRuntimeActivity: %v", err)
 	}
-	if activity.State != clientui.RuntimeActivityAwaitingPrompt || runtimeActivityKind(activity) != clientui.RuntimeActivityActiveKindUserTurn {
+	if activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_AWAITING_PROMPT || runtimeActivityKind(activity) != runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN {
 		t.Fatalf("activity = %+v, want awaiting prompt on active runtime step", activity)
 	}
 }
@@ -135,7 +127,7 @@ func TestResolveRuntimeActivityKeepsPassiveQueuedFactsIdle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRuntimeActivity: %v", err)
 	}
-	if activity.State != clientui.RuntimeActivityRegisteredIdle {
+	if activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE {
 		t.Fatalf("passive queued facts must not become active activity, got %+v", activity)
 	}
 
@@ -146,7 +138,7 @@ func TestResolveRuntimeActivityKeepsPassiveQueuedFactsIdle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRuntimeActivity promoted continuation: %v", err)
 	}
-	if activity.State != clientui.RuntimeActivityStarting {
+	if activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_STARTING {
 		t.Fatalf("promoted continuation activity = %+v, want starting", activity)
 	}
 }
@@ -159,7 +151,7 @@ func TestResolveRuntimeActivityTreatsOpenLiveRunGroupAsBlocking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRuntimeActivity: %v", err)
 	}
-	if activity.State != clientui.RuntimeActivityDraining || !activity.ActiveForControl() {
+	if activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_DRAINING || !protoapi.RuntimeActivityActiveForControl(activity) {
 		t.Fatalf("activity = %+v, want blocking live-run group projection", activity)
 	}
 }
@@ -174,7 +166,7 @@ func TestReadModelVersionsPermitSequenceHoles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second snapshot: %v", err)
 	}
-	if !hole.NewerThan(first.Version) || !second.Version.NewerThan(hole) {
+	if !protoapi.ReadModelVersionNewerThan(hole, first.Version) || !protoapi.ReadModelVersionNewerThan(second.Version, hole) {
 		t.Fatalf("versions did not preserve hole ordering: first=%+v hole=%+v second=%+v", first.Version, hole, second.Version)
 	}
 }
@@ -186,17 +178,17 @@ func TestReadModelVersionBuildsCanonicalFeedSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build canonical feed snapshot: %v", err)
 	}
-	if err := update.Validate(); err != nil {
+	if err := protoapi.Validate(update); err != nil {
 		t.Fatalf("validate canonical feed snapshot: %v", err)
 	}
-	if update.Activity.State != clientui.RuntimeActivityRegisteredIdle || !update.Activity.QueueAccepting {
+	if update.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE || !update.Activity.QueueAccepting {
 		t.Fatalf("canonical activity = %+v", update.Activity)
 	}
 }
 
-func runtimeActivityKind(activity clientui.RuntimeActivity) clientui.RuntimeActivityActiveKind {
+func runtimeActivityKind(activity *runtimepb.Activity) runtimepb.ActivityActiveKind {
 	if activity.ActiveStep == nil {
-		return ""
+		return runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_UNSPECIFIED
 	}
 	return activity.ActiveStep.ActiveKind
 }

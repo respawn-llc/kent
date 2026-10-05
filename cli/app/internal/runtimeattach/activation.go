@@ -25,6 +25,7 @@ type Request struct {
 	AutoCompactionEnabled    bool
 	ThinkingOverrideExplicit bool
 	AgentSelection           *serverapi.SessionRuntimeAgentSelection
+	ExplicitToolSelection    *config.ToolSelection
 	Source                   config.SourceReport
 }
 
@@ -90,7 +91,7 @@ func activate(ctx context.Context, service servicecontract.SessionRuntimeService
 	if err := response.ValidateForSession(req.SessionID); err != nil {
 		return serverapi.SessionRuntimeAttachment{}, err
 	}
-	return response.Attachment, nil
+	return response, nil
 }
 
 func activateRequest(req Request, ownerID string) serverapi.SessionRuntimeActivateRequest {
@@ -103,6 +104,7 @@ func activateRequest(req Request, ownerID string) serverapi.SessionRuntimeActiva
 		AutoCompactionEnabled:    textutil.Value(req.AutoCompactionEnabled),
 		ThinkingOverrideExplicit: req.ThinkingOverrideExplicit,
 		AgentSelection:           req.AgentSelection,
+		ExplicitToolSelection:    config.CloneToolSelection(req.ExplicitToolSelection),
 		Source:                   req.Source,
 	}
 }

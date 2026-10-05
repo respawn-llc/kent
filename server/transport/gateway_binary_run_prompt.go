@@ -1,0 +1,93 @@
+package transport
+
+import (
+	"context"
+	"errors"
+	"sync"
+
+	"core/shared/protoapi"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	"core/shared/serverapi"
+	"google.golang.org/protobuf/proto"
+)
+
+func registerRunPromptGatewayBinaryBinding(bindings map[string]gatewayBinaryBinding) error {
+	method := runpromptpb.File_kent_api_run_prompt_run_prompt_proto.Services().ByName("RunService").Methods().ByName("Prompt")
+	operation, err := protoapi.OperationFromDescriptor(method)
+	if err != nil {
+		return err
+	}
+	progressOperation, err := protoapi.ResolveProgressOperation(method)
+	if err != nil {
+		return err
+	}
+	bindings[operation.Name] = gatewayBinaryBinding{
+		operation: operation, policy: gatewayBinaryCoreActiveOrdinary, progressEvent: &progressOperation,
+		request: func() proto.Message { return &runpromptpb.Request{} },
+		failure: func(_ *Gateway, _ *connectionState, message proto.Message, err error) proto.Message {
+			var rejected *serverapi.RunSelectionRejectedError
+			if errors.As(err, &rejected) {
+				return gatewayBinaryFailureResult(method, &chatsettingspb.MutationRejected{Reason: rejected.Reason})
+			}
+			var denied *serverapi.SubagentLaunchDeniedError
+			if errors.As(err, &denied) && denied.Kind == serverapi.SubagentLaunchDenialCallerMissing {
+				request := message.(*runpromptpb.Request)
+				if request.CallerSessionId != nil {
+					return gatewayBinaryFailureResult(method, &runpromptpb.Error{
+						Code: "caller_session_not_found",
+						Detail: &runpromptpb.Error_CallerSessionNotFound{
+							CallerSessionNotFound: &sessionlaunchpb.SessionNotFoundDetails{SessionId: *request.CallerSessionId},
+						},
+					})
+				}
+			}
+			if denied != nil {
+				details, conversionErr := protoapi.SubagentLaunchDeniedToProto(denied)
+				if conversionErr != nil {
+					return gatewayBinaryFailureResult(method, binaryInternalFailure(errors.Join(err, conversionErr)))
+				}
+				return gatewayBinaryFailureResult(method, details)
+			}
+			if details, ok := binaryServerNotReadyDetails(err); ok {
+				return gatewayBinaryFailureResult(method, details)
+			}
+			return gatewayBinaryFailureResult(method, binaryAuthFailure(err))
+		},
+		invoke: func(g *Gateway, ctx context.Context, state *connectionState, message proto.Message, emit func(proto.Message) error) (proto.Message, error) {
+			request, err := protoapi.RunPromptRequestFromProto(message.(*runpromptpb.Request))
+			if err != nil {
+				return nil, err
+			}
+			runCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			client, err := g.runPromptClientForState(runCtx, state)
+			if err != nil {
+				return nil, err
+			}
+			var mu sync.Mutex
+			var progressErr error
+			sink := serverapi.RunPromptProgressFunc(func(event *runpromptpb.ProgressEvent) {
+				mu.Lock()
+				defer mu.Unlock()
+				if progressErr != nil {
+					return
+				}
+				if err := emit(event); err != nil {
+					progressErr = err
+					cancel()
+				}
+			})
+			result, runErr := client.RunPrompt(runCtx, request, sink)
+			mu.Lock()
+			err = errors.Join(runErr, progressErr)
+			mu.Unlock()
+			if err != nil {
+				return nil, err
+			}
+			return protoapi.SuccessResult(method, result)
+		},
+	}
+	return nil
+}

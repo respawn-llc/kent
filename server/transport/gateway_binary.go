@@ -11,10 +11,12 @@ import (
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/sessioncontract"
 
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -25,7 +27,8 @@ type gatewayBinaryBinding struct {
 	policy            gatewayBinaryExecutionPolicy
 	request           func() proto.Message
 	scope             func(proto.Message) (routeScopeParams, error)
-	invoke            func(*Gateway, context.Context, *connectionState, proto.Message) (proto.Message, error)
+	invoke            func(*Gateway, context.Context, *connectionState, proto.Message, func(proto.Message) error) (proto.Message, error)
+	progressEvent     *protoapi.Operation
 	subscribe         func(*Gateway, context.Context, *connectionState, proto.Message) (gatewayBinarySubscriber, error)
 	associated        *protoapi.SubscriptionOperations
 	start             proto.Message
@@ -86,7 +89,10 @@ func productionGatewayBinaryBindings() (map[string]gatewayBinaryBinding, error) 
 		gatewayBinaryCoreActiveExclusive,
 		func() *connectionpb.AttachSessionRequest { return &connectionpb.AttachSessionRequest{} },
 		func(request *connectionpb.AttachSessionRequest) (routeScopeParams, error) {
-			return routeScopeParams{sessionID: request.SessionId}, nil
+			return routeScopeParams{
+				sessionID:                 request.SessionId,
+				sessionReattachCapability: request.ReattachCapability,
+			}, nil
 		},
 		invokeBinaryAttachSession,
 		binaryAttachSessionFailure,
@@ -99,6 +105,21 @@ func productionGatewayBinaryBindings() (map[string]gatewayBinaryBinding, error) 
 	if err := registerProjectReadGatewayBinaryBindings(bindings); err != nil {
 		return nil, err
 	}
+	if err := registerWorkflowGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerWorkflowLabelGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerWorkflowTaskGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerWorkflowStreamsGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerAttentionNotificationGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
 	if err := registerProjectMutationGatewayBinaryBindings(bindings); err != nil {
 		return nil, err
 	}
@@ -106,6 +127,51 @@ func productionGatewayBinaryBindings() (map[string]gatewayBinaryBinding, error) 
 		return nil, err
 	}
 	if err := registerSessionLaunchGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerSessionLifecycleGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerSessionRuntimeGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerSessionViewGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerSessionStreamsGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerRuntimeControlGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerRuntimeLiveGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerPromptGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerPromptCatalogGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerRunPromptGatewayBinaryBinding(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerProcessGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerSessionRemovalGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerChatGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerGoalGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerChatSettingsGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerChatContextGatewayBinaryBindings(bindings); err != nil {
 		return nil, err
 	}
 	if err := registerWorktreeGatewayBinaryBindings(bindings); err != nil {
@@ -156,6 +222,7 @@ func registerGatewayBinaryUnary[
 			ctx context.Context,
 			state *connectionState,
 			message proto.Message,
+			_ func(proto.Message) error,
 		) (proto.Message, error) {
 			request, ok := message.(Request)
 			if !ok {
@@ -306,11 +373,24 @@ func invokeBinaryAttachSession(
 	state *connectionState,
 	request *connectionpb.AttachSessionRequest,
 ) (*connectionpb.AttachmentSuccess, error) {
-	binding, err := g.resolveSessionAttachment(ctx, state, request.SessionId)
+	_, binding, err := g.resolveSessionAttachmentTargetWithCapability(
+		ctx,
+		state,
+		request.SessionId,
+		request.ReattachCapability,
+	)
 	if err != nil {
 		return nil, err
 	}
 	parsedSessionID, err := runtimeids.ParseSessionID(request.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	authority, err := g.sessionReattachAuthority()
+	if err != nil {
+		return nil, err
+	}
+	reattachCapability, err := authority.issue(request.SessionId)
 	if err != nil {
 		return nil, err
 	}
@@ -321,10 +401,11 @@ func invokeBinaryAttachSession(
 	return &connectionpb.AttachmentSuccess{
 		Attachment: &connectionpb.AttachmentSuccess_Session{
 			Session: &connectionpb.SessionAttachment{
-				ProjectId:     binding.ProjectID,
-				WorkspaceId:   binding.WorkspaceID,
-				WorkspaceRoot: binding.CanonicalRoot,
-				SessionId:     request.SessionId,
+				ProjectId:          binding.ProjectID,
+				WorkspaceId:        binding.WorkspaceID,
+				WorkspaceRoot:      binding.CanonicalRoot,
+				SessionId:          request.SessionId,
+				ReattachCapability: reattachCapability,
 			},
 		},
 	}, nil
@@ -380,6 +461,13 @@ func binaryAttachSessionFailure(
 	err error,
 ) proto.Message {
 	switch {
+	case errors.Is(err, sessioncontract.ErrSessionNotFound) && request != nil:
+		return &connectionpb.AttachSessionError{
+			Code: "session_not_found",
+			Detail: &connectionpb.AttachSessionError_SessionNotFound{
+				SessionNotFound: &sessionlaunchpb.SessionNotFoundDetails{SessionId: request.SessionId},
+			},
+		}
 	case errors.Is(err, serverapi.ErrProjectNotFound) && request != nil:
 		details := &connectionpb.SessionAttachmentTargetDetails{SessionId: request.SessionId}
 		if projectID := connectionAttachmentProjectID(g, state); projectID != "" {
@@ -435,7 +523,17 @@ func connectionSessionWorkspaceNotRegisteredDetails(
 	sessionID string,
 	err error,
 ) *connectionpb.SessionAttachmentTargetDetails {
-	details := &connectionpb.SessionAttachmentTargetDetails{SessionId: sessionID}
+	workspace := binaryWorkspaceNotRegisteredDetails(g, state, err)
+	return &connectionpb.SessionAttachmentTargetDetails{
+		SessionId:     sessionID,
+		ProjectId:     workspace.ProjectId,
+		WorkspaceId:   workspace.WorkspaceId,
+		WorkspaceRoot: workspace.WorkspaceRoot,
+	}
+}
+
+func binaryWorkspaceNotRegisteredDetails(g *Gateway, state *connectionState, err error) *projectpb.WorkspaceNotRegisteredDetails {
+	details := &projectpb.WorkspaceNotRegisteredDetails{}
 	var attachmentErr sessionWorkspaceNotRegisteredError
 	if errors.As(err, &attachmentErr) {
 		if attachmentErr.projectID != "" {
@@ -543,7 +641,12 @@ func (g *Gateway) serveBinaryRequest(
 	state *connectionState,
 	request gatewayBinaryRequest,
 ) bool {
-	subscription, result, transportFailure := g.dispatchBinary(ctx, state, request)
+	subscription, result, transportFailure := g.dispatchBinary(ctx, state, request, func(event proto.Message) error {
+		if request.binding.progressEvent == nil {
+			return errors.New("binary operation does not declare progress")
+		}
+		return sendBinaryNotification(ctx, conn, *request.binding.progressEvent, event)
+	})
 	if transportFailure != nil {
 		return sendTransportFailure(ctx, conn, transportFailure)
 	}
@@ -588,6 +691,7 @@ func (g *Gateway) dispatchBinary(
 	ctx context.Context,
 	state *connectionState,
 	request gatewayBinaryRequest,
+	progress func(proto.Message) error,
 ) (gatewayBinarySubscriber, proto.Message, *sharedpb.TransportFailure) {
 	binding := request.binding
 	var decoded proto.Message
@@ -599,13 +703,6 @@ func (g *Gateway) dispatchBinary(
 		if err := g.requireCoreActive(); err != nil {
 			return fail(err)
 		}
-	}
-	if err := newRoutePolicyExecutor(g).requireAuthenticationStage(
-		ctx,
-		state,
-		binding.operation.Options.AuthenticationStage,
-	); err != nil {
-		return fail(err)
 	}
 	payloadField := request.call.ProtoReflect().Descriptor().Fields().ByName("payload")
 	if !request.call.ProtoReflect().Has(payloadField) {
@@ -648,7 +745,7 @@ func (g *Gateway) dispatchBinary(
 		}
 		return subscription, binding.start, nil
 	}
-	result, err := binding.invoke(g, ctx, state, message)
+	result, err := binding.invoke(g, ctx, state, message, progress)
 	if err != nil {
 		return fail(err)
 	}

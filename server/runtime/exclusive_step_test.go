@@ -69,7 +69,7 @@ func (s *callbackStepLifecycleSink) seen(transition StepLifecycleTransition) boo
 }
 
 func TestBackgroundStepBoundaryDrainsAgentFIFOAndCompletesCompactionBookkeeping(t *testing.T) {
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	lifecycle := &defaultExclusiveStepLifecycle{engine: engine}
 	engine.stepLifecycle = lifecycle
 	engine.compactionRuntimeState().SetManualCompactionEligible(false)
@@ -119,7 +119,7 @@ func TestExclusiveStepLifecycleEagerCompactsAfterSuccessfulFinalAtConsumedThresh
 		},
 	}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_900,
 	})
@@ -159,7 +159,7 @@ func TestExclusiveStepLifecycleEagerCompactsEligibleAgentKinds(t *testing.T) {
 				},
 			}
 			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-				Model:                 "gpt-5",
+				Model:                 "gpt-6-sol",
 				ContextWindowTokens:   2_000,
 				AutoCompactTokenLimit: 1_900,
 			})
@@ -206,7 +206,7 @@ func TestSubmitUserMessageEagerCompactsAfterSuccessfulFinal(t *testing.T) {
 		},
 	}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   10_000,
 		AutoCompactTokenLimit: 9_500,
 	})
@@ -240,7 +240,7 @@ func TestSubmitAgentSteerEagerCompactsAfterSuccessfulFinal(t *testing.T) {
 		},
 	}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   10_000,
 		AutoCompactTokenLimit: 9_500,
 	})
@@ -272,7 +272,7 @@ func TestExclusiveStepLifecycleEagerCompactionExcludesIneligibleResults(t *testi
 				},
 			}
 			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-				Model:                 "gpt-5",
+				Model:                 "gpt-6-sol",
 				ContextWindowTokens:   2_000,
 				AutoCompactTokenLimit: 1_900,
 			})
@@ -308,7 +308,7 @@ func TestExclusiveStepLifecycleEagerCompactionExcludesWorkflowBackgroundContinua
 		},
 	}
 	engine := mustNewWorkflowTestEngine(t, mustCreateTestSession(t), client, testWorkflowConfig(&fakeWorkflowController{}, "tool"), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_900,
 	})
@@ -364,7 +364,7 @@ func TestExclusiveStepLifecycleEagerCompactionExcludesNoFinalAndInterruptedSteps
 				},
 			}
 			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-				Model:                 "gpt-5",
+				Model:                 "gpt-6-sol",
 				ContextWindowTokens:   2_000,
 				AutoCompactTokenLimit: 1_900,
 			})
@@ -399,7 +399,7 @@ func TestExclusiveStepLifecycleEagerCompactionDoesNotReserveAfterTerminalCleanup
 		},
 	}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_900,
 	})
@@ -430,7 +430,7 @@ func TestExclusiveStepLifecycleFailedEagerCompactionDoesNotRetry(t *testing.T) {
 	compactionErr := llm.ErrInvalidRequest
 	client := &fakeCompactionClient{compactionErrors: []error{compactionErr}}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_900,
 	})
@@ -502,10 +502,6 @@ func (s *stubExclusiveStepLifecycle) Interrupt() error {
 }
 
 func (s *stubExclusiveStepLifecycle) InterruptCurrent(func(*RunSnapshot)) (*RunSnapshot, error) {
-	return nil, nil
-}
-
-func (s *stubExclusiveStepLifecycle) InterruptCurrentAgentTurn(func(*RunSnapshot)) (*RunSnapshot, error) {
 	return nil, nil
 }
 
@@ -610,7 +606,7 @@ func (s *stubExclusiveStepLifecycle) calls() int {
 func TestExclusiveStepLifecycleRejectsConcurrentRun(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 
 	lifecycle := &defaultExclusiveStepLifecycle{engine: eng}
 	eng.stepLifecycle = lifecycle
@@ -650,7 +646,7 @@ func TestExclusiveStepLifecycleRejectsConcurrentRun(t *testing.T) {
 func TestExclusiveStepLifecycleRejectsCanceledContextBeforeActiveRun(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 	lifecycle := &defaultExclusiveStepLifecycle{engine: eng}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -669,7 +665,7 @@ func TestExclusiveStepLifecycleRejectsCanceledContextBeforeActiveRun(t *testing.
 func TestExclusiveStepAuthorityRejectsInterruptedStepBeforeFinalDrain(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 	lifecycle := &defaultExclusiveStepLifecycle{engine: eng}
 	eng.stepLifecycle = lifecycle
 	stepCtx, stepID, err := lifecycle.begin(context.Background(), exclusiveStepOptions{ActiveKind: ActiveKindUserTurn})
@@ -695,7 +691,7 @@ func TestExclusiveStepAuthorityRejectsInterruptedStepBeforeFinalDrain(t *testing
 func TestExclusiveStepLifecycleSnapshotTracksActiveRun(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 
 	lifecycle := &defaultExclusiveStepLifecycle{engine: eng}
 	eng.stepLifecycle = lifecycle
@@ -747,7 +743,7 @@ func TestExclusiveStepLifecycleEmitsCompletedRunStatePayloads(t *testing.T) {
 		events []Event
 	)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(evt Event) {
 			mu.Lock()
 			events = append(events, evt)
@@ -797,7 +793,7 @@ func TestExclusiveStepLifecycleEmitsInterruptedRunStatePayloads(t *testing.T) {
 		events []Event
 	)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(evt Event) {
 			mu.Lock()
 			events = append(events, evt)
@@ -853,7 +849,7 @@ func TestExclusiveStepLifecycleEmitsInterruptedRunStatePayloads(t *testing.T) {
 	}
 }
 
-func TestExclusiveStepLifecycleAgentTurnInterruptMatchesOnlyAgentTurns(t *testing.T) {
+func TestExclusiveStepLifecycleInterruptCancelsStoppableWork(t *testing.T) {
 	for _, test := range []struct {
 		name      string
 		kind      ActiveKind
@@ -864,12 +860,15 @@ func TestExclusiveStepLifecycleAgentTurnInterruptMatchesOnlyAgentTurns(t *testin
 		{name: string(ActiveKindWorkflowTurn), kind: ActiveKindWorkflowTurn, wantMatch: true},
 		{name: string(ActiveKindGoalLoop), kind: ActiveKindGoalLoop, wantMatch: true},
 		{name: "closing_user_turn", kind: ActiveKindUserTurn, closing: true},
-		{name: string(ActiveKindBackground), kind: ActiveKindBackground},
-		{name: string(ActiveKindCompaction), kind: ActiveKindCompaction},
+		{name: string(ActiveKindBackground), kind: ActiveKindBackground, wantMatch: true},
+		{name: string(ActiveKindCompaction), kind: ActiveKindCompaction, wantMatch: true},
+		{name: string(ActiveKindPreSubmitCompaction), kind: ActiveKindPreSubmitCompaction, wantMatch: true},
+		{name: string(ActiveKindUserShell), kind: ActiveKindUserShell, wantMatch: true},
+		{name: string(ActiveKindRuntimeMaintenance), kind: ActiveKindRuntimeMaintenance},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := mustCreateTestSession(t)
-			eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+			eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 			canceled := false
 			lifecycle := &defaultExclusiveStepLifecycle{
 				engine: eng,
@@ -884,7 +883,7 @@ func TestExclusiveStepLifecycleAgentTurnInterruptMatchesOnlyAgentTurns(t *testin
 				},
 			}
 
-			interrupted, err := lifecycle.InterruptCurrentAgentTurn(nil)
+			interrupted, err := lifecycle.InterruptCurrent(nil)
 			if matched := interrupted != nil; err != nil || matched != test.wantMatch {
 				t.Fatalf("agent-turn interrupt matched/error=%t/%v, want %t for %s", matched, err, test.wantMatch, test.kind)
 			}
@@ -898,11 +897,11 @@ func TestExclusiveStepLifecycleAgentTurnInterruptMatchesOnlyAgentTurns(t *testin
 	}
 }
 
-func TestExclusiveStepLifecycleAgentTurnPersistenceFailureDoesNotCancel(t *testing.T) {
+func TestExclusiveStepLifecycleInterruptCancelsDespitePersistenceFailure(t *testing.T) {
 	persistErr := errors.New("interruption persistence failed")
 	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	canceled := false
 	lifecycle := &defaultExclusiveStepLifecycle{
 		engine: eng,
@@ -917,22 +916,22 @@ func TestExclusiveStepLifecycleAgentTurnPersistenceFailureDoesNotCancel(t *testi
 	}
 	gate.FailNext(persistErr)
 
-	snapshot, err := lifecycle.InterruptCurrentAgentTurn(nil)
+	snapshot, err := lifecycle.InterruptCurrent(nil)
 	if snapshot != nil || !errors.Is(err, persistErr) {
 		t.Fatalf("agent-turn interrupt = (%+v, %v), want persistence failure", snapshot, err)
 	}
-	if canceled {
-		t.Fatal("Agent Turn context was canceled before interruption persisted")
+	if !canceled {
+		t.Fatal("persistence failure prevented cancellation")
 	}
-	if lifecycle.active.interrupted {
-		t.Fatal("persistence failure left Agent Turn marked interrupted")
+	if repeated, err := lifecycle.InterruptCurrent(nil); err != nil || repeated != nil {
+		t.Fatalf("repeated interrupt restarted cancellation after persistence failure: %v, %v", repeated, err)
 	}
 }
 
 func TestExclusiveStepLifecycleInterruptPreservesPendingRecoveryUntilTerminalCleanup(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 
 	lifecycle := &defaultExclusiveStepLifecycle{engine: eng}
 	started := make(chan struct{})
@@ -982,7 +981,7 @@ func TestExclusiveStepLifecycleDiscardsStreamingMessageOnInterrupt(t *testing.T)
 		events []Event
 	)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(evt Event) {
 			mu.Lock()
 			events = append(events, evt)
@@ -1035,7 +1034,7 @@ func TestExclusiveStepLifecycleCanEmitRunStateWithoutPersistingDurableRun(t *tes
 	store := mustCreateTestSession(t)
 	var events []Event
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(evt Event) {
 			events = append(events, evt)
 		},
@@ -1060,7 +1059,7 @@ func TestExclusiveStepLifecycleDefersSecondBoundaryReservationToOuterStep(t *tes
 		mustCreateTestSession(t),
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5", StepLifecycle: stepLifecycle},
+		Config{Model: "gpt-6-sol", StepLifecycle: stepLifecycle},
 	)
 	lifecycle := &defaultExclusiveStepLifecycle{engine: engine}
 	engine.stepLifecycle = lifecycle
@@ -1217,7 +1216,7 @@ func TestExclusiveStepRuntimeAbortClosesAdmission(t *testing.T) {
 		store,
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5", StepLifecycle: stepLifecycle},
+		Config{Model: "gpt-6-sol", StepLifecycle: stepLifecycle},
 	)
 	lifecycle := &defaultExclusiveStepLifecycle{engine: eng}
 	cause := errors.New("result group persistence failed")
@@ -1270,7 +1269,7 @@ func TestContextCompactorUsesExclusiveStepLifecycle(t *testing.T) {
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("summary")},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol", CompactionMode: "local"})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}

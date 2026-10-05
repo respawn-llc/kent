@@ -11,14 +11,18 @@ import (
 
 	modelstub "core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/testsetup"
+	"core/server/auth"
+	"core/server/authservice"
 	"core/server/metadata"
 	"core/server/onboarding"
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/protoapi"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
+	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
-	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 
@@ -30,7 +34,7 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	configureServeTestServerPort(t)
 	workspaceA := t.TempDir()
 	workspaceB := t.TempDir()
-	cfg, err := config.Load(workspaceA, config.LoadOptions{})
+	cfg, err := config.Load(workspaceA, workspaceA, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -60,7 +64,14 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 		t.Fatal("Claude Code provider UUID is missing")
 	}
 	providerUUID := providers[providerIndex].UUID.String()
-	finalizer, err := onboarding.NewFinalizer(onboarding.Options{PersistenceRoot: cfg.PersistenceRoot, WorkspaceRoot: workspaceA, HomeDir: os.Getenv("HOME"), SettingsPath: cfg.Source.HomeSettingsPath})
+	connections := authservice.NewBootstrapService(t.Context(), authservice.NewConnectionResolver(cfg.PersistenceRoot, auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil), nil), auth.OpenAIOAuthOptions{})
+	endpoint := "http://localhost:1234/v1"
+	if _, err := connections.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_PendingSetup{
+		PendingSetup: &authpb.ConnectionDefinition{Id: "local", Protocol: authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES, Endpoint: &endpoint},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{Baseline: config.DefaultOnboardingSettings(), PersistenceRoot: cfg.PersistenceRoot, WorkspaceRoot: workspaceA, HomeDir: os.Getenv("HOME"), SettingsPath: cfg.Source.File(config.FileGlobal).Path, Connections: connections})
 	if err != nil {
 		t.Fatalf("NewFinalizer: %v", err)
 	}
@@ -87,23 +98,22 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(workspaceConfigDir, "config.toml"), []byte(
-		"model = \"gpt-5\"\nopenai_base_url = \""+responseServer.URL()+"\"\n",
+		"model = \"gpt-6-sol\"\n",
 	), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, responseServer.URL()))
 	server := startServeTestServer(t, Request{
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
-		OpenAIBaseURL:         responseServer.URL(),
-		OpenAIBaseURLExplicit: true,
 		LoadOptions: config.LoadOptions{
-			Model:         "gpt-5",
-			OpenAIBaseURL: responseServer.URL(),
+			Model: "gpt-6-sol",
 		},
-	}, envAuthHandler{}, nil)
-	if got := server.Config().Settings.OpenAIBaseURL; got != responseServer.URL() {
-		t.Fatalf("OpenAIBaseURL = %q, want %q", got, responseServer.URL())
+	})
+	connection, err := server.Config().Settings.SelectedConnection()
+	if err != nil || connection.Endpoint == nil || *connection.Endpoint != responseServer.URL() {
+		t.Fatalf("selected connection = %+v, error = %v", connection, err)
 	}
 	startServingTestServer(t, server)
 
@@ -113,11 +123,11 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 		return err == nil
 	}, "DialRemoteURLForProjectWorkspace")
 	defer func() { _ = remote.Close() }()
-	catalog, err := remote.GetPromptCommandCatalog(context.Background(), serverapi.PromptCommandCatalogRequest{})
+	catalog, err := remote.GetPromptCommandCatalog(context.Background(), &promptcommandpb.GetCatalogRequest{})
 	if err != nil {
 		t.Fatalf("GetPromptCommandCatalog: %v", err)
 	}
-	if !slices.ContainsFunc(catalog.Commands, func(command serverapi.PromptCommandCatalogEntry) bool {
+	if !slices.ContainsFunc(catalog.Commands, func(command *promptcommandpb.CatalogEntry) bool {
 		return command.Name == "prompt:remote_demo" && command.Preview == "server body $ARGUMENTS"
 	}) {
 		t.Fatalf("catalog = %+v", catalog.Commands)
@@ -163,14 +173,14 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	if _, err := remote.SubmitUserTurn(context.Background(), serverapi.RuntimeSubmitUserTurnRequest{
-		SessionID: plan.Plan.SessionId,
-		Input:     runtimeinput.Command("prompt:remote_demo", "hello world"),
+	if _, err := remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
+		SessionId: plan.Plan.SessionId,
+		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: "prompt:remote_demo", Arguments: "hello world"}}},
 	}); err != nil {
 		t.Fatalf("SubmitUserTurn: %v", err)
 	}
 	_, _ = remote.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-		Attachment:  attachment.Attachment,
+		Attachment:  attachment,
 		DropOwner:   true,
 		ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
 	})

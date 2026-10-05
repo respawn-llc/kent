@@ -1,5 +1,11 @@
 package app
 
+import worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+
+import transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+
 import (
 	"time"
 
@@ -41,16 +47,24 @@ type uiRuntimeFeatureState struct {
 	pathReferenceEvents        <-chan uiPathReferenceSearchEvent
 	runtimeConnectionEvents    chan runtimeConnectionStateChangedMsg
 	runtimeReconnectWarning    <-chan runtimeReconnectWarningMsg
-	runtimeContextUsage        clientui.RuntimeContextUsage
+	runtimeContextUsage        *runtimepb.ContextUsage
 	runtimeContextUsageSession string
-	runtimeActivityProjection  clientui.RuntimeActivity
+	runtimeActivityProjection  *runtimepb.Activity
+	missingPromptRecovery      *missingPromptRecoveryScope
 	logger                     uiLogger
+}
+
+type missingPromptRecoveryScope struct {
+	sessionID string
+	runID     runtimeids.RunID
+	stepID    runtimeids.StepID
 }
 
 type uiInputFeatureState struct {
 	mainEditor             tuiinput.Editor
 	mainInputDraftToken    uint64
 	promptHistory          []string
+	promptHistoryLoading   bool
 	promptHistorySelection *int
 	promptHistoryDraft     *tuiinput.EditorSnapshot
 	activity               uiActivity
@@ -59,7 +73,7 @@ type uiInputFeatureState struct {
 	reviewerMode           string
 	autoCompactionEnabled  bool
 	questionsEnabled       bool
-	conversationFreshness  clientui.ConversationFreshness
+	conversationFreshness  runtimepb.ConversationFreshness
 	localConversationTurn  bool
 	runtimeControlToken    uint64
 	runtimeControlTokens   map[runtimeControlOperation]uint64
@@ -75,7 +89,7 @@ type uiInputFeatureState struct {
 
 	injectedQueue               []injectedRuntimeQueueItem
 	injectedQueueToken          uint64
-	unownedQueuedTerminalStates map[string]clientui.TranscriptQueuedMessageState
+	unownedQueuedTerminalStates map[string]*transcriptpb.QueuedMessageState
 	pendingInputSubmissionOrder uint64
 	interruptLifecycle          uiInterruptLifecycle
 	currentRunID                string
@@ -102,13 +116,6 @@ type uiInputFeatureState struct {
 	promptCatalogRefreshToken *uuid.UUID
 	finalAnswerOperation      *uiFinalAnswerOperation
 	finalAnswerOperationToken uint64
-	authSlashCommand          authSlashCommandKind
-	authSlashCommandErr       string
-	authSlashSessionOpen      bool
-	authSlashLoading          bool
-	authSlashToken            uint64
-	authSlashGeneration       uint64
-	authSlashResolved         uint64
 	slashCommandFilter        string
 	slashCommandFilterSet     bool
 	slashCommandSelection     int
@@ -160,7 +167,7 @@ type uiSessionTransitionFeatureState struct {
 	nextSessionID                           string
 	nextForkRollbackTargetID                string
 	nextPreviousSessionID                   *runtimeids.SessionID
-	sessionExecutionTarget                  *clientui.SessionExecutionTarget
+	sessionExecutionTarget                  *worktreepb.SessionExecutionTarget
 	sessionRetargeted                       bool
 	sessionName                             string
 	sessionID                               string
@@ -195,15 +202,14 @@ type uiStatusFeatureState struct {
 }
 
 type uiTranscriptFeatureState struct {
-	runtimeConnection            clientui.RuntimeConnectionLifecycle
-	pendingWorkRefresh           pendingWorkRefreshOwner
-	runtimeMainViewToken         uint64
-	runtimeMainViewBusy          bool
-	runtimeMainViewActiveRequest runtimeMainViewRefreshRequest
-	runtimeMainViewPendingSet    bool
-	runtimeMainViewPending       runtimeMainViewRefreshRequest
-	detailTranscript             uiDetailTranscriptWindow
-	pendingDetailTranscript      *uiPendingDetailTranscriptRequest
+	runtimeConnection                            clientui.RuntimeConnectionLifecycle
+	pendingWorkRefresh                           pendingWorkRefreshOwner
+	runtimeMainViewToken                         uint64
+	runtimeMainViewBusy                          bool
+	runtimeMainViewPendingSet                    bool
+	runtimeMainViewPendingInterruptedSubmitToken *uint64
+	detailTranscript                             uiDetailTranscriptWindow
+	pendingDetailTranscript                      *uiPendingDetailTranscriptRequest
 }
 
 type uiKeyboardFeatureState struct {

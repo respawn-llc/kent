@@ -11,7 +11,6 @@ import (
 	"core/server/session"
 	"core/server/workflow"
 	"core/server/workflowruntime"
-	"core/server/workflowstore"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -31,7 +30,7 @@ func TestCompletedResponseActiveStreamFinalizesOnce(t *testing.T) {
 		mustCreateTestSession(t),
 		scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{step}}),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -111,7 +110,7 @@ func TestCompletedResponseWithoutActiveStreamPublishesNoStreamTerminal(t *testin
 			scriptedllm.FinalAnswer("completed"),
 		}}),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -190,7 +189,7 @@ func TestCompletedResponseWorkflowPreflightAbortsBeforeContinuation(t *testing.T
 			Controller:                   controller,
 		},
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -244,7 +243,7 @@ func TestCompletedResponsePersistsOnlyPlannedAcceptedCalls(t *testing.T) {
 			Usage: llm.Usage{WindowTokens: 200000},
 		},
 	}}
-	engine := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-5"})
+	engine := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-6-sol"})
 
 	if _, err := engine.SubmitUserMessage(context.Background(), "turn"); err != nil {
 		t.Fatalf("submit user turn: %v", err)
@@ -309,7 +308,7 @@ func TestCompletedResponseReasoningOnlyAbortsBeforeContinuation(t *testing.T) {
 		mustCreateTestSession(t),
 		scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{reasoning, final}}),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -424,7 +423,7 @@ func TestCompletedResponseFinalAnswerWithToolsFinalizesAfterToolPersistence(t *t
 		store,
 		scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{step}}),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -597,7 +596,7 @@ func TestSubmitUserMessageFinalAnswerWithMixedToolCallsMaterializesAllToolsBefor
 	var events []Event
 	store := mustCreateTestSession(t)
 	engine := mustNewExecTestEngine(t, store, scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{step}}), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(event Event) { events = append(events, event) },
 	})
 	if _, err := engine.SubmitUserMessage(context.Background(), "turn"); err != nil {
@@ -674,7 +673,7 @@ func TestBlankStreamedFinalSkipsFinalPublication(t *testing.T) {
 	t.Parallel()
 	var events []Event
 	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), fakeNoopStreamClient{}, Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(event Event) { events = append(events, event) },
 	})
 	if _, err := engine.SubmitUserMessage(context.Background(), "turn"); err != nil {
@@ -721,7 +720,7 @@ func TestWorkflowInvalidCompletionFailClosedWhenConfiguredCapInvalid(t *testing.
 			Controller:                   controller,
 		},
 		Config{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 		},
 	)
 
@@ -772,7 +771,7 @@ func TestWorkflowCompletionControllerFailureEndsTurnWithoutProtocolViolation(t *
 			Controller:                   controller,
 		},
 		Config{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 		},
 	)
 
@@ -804,7 +803,7 @@ func TestCompletedResponseFinalizationUsesActiveSegmentCoordinatesAfterCompactio
 		mustCreateTestSession(t),
 		scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{first, second}}),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -952,13 +951,6 @@ func (c *externallyCompletedWorkflowController) CompleteScriptCurrentNode(
 ) (workflowruntime.CompletionResult, error) {
 	err := errors.New("unexpected Script completion")
 	return workflowruntime.CompletionResult{}, err
-}
-
-func (c *externallyCompletedWorkflowController) ContinueCurrentNode(
-	context.Context,
-	workflowstore.CurrentNodeCompletionResult,
-) error {
-	return nil
 }
 
 func (c *externallyCompletedWorkflowController) RecordProtocolViolation(

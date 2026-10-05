@@ -16,7 +16,7 @@ import (
 	"core/shared/invariant"
 	"core/shared/jsoncontract"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
+	"core/shared/workflowcontract"
 	"github.com/google/uuid"
 )
 
@@ -27,7 +27,6 @@ type Store struct {
 	priorValuesContract jsoncontract.Internal
 	roleResolver        workflow.RoleResolver
 	now                 func() time.Time
-	approvalGate        chan struct{}
 	graphSaves          *mutationlane.MutationLaneRegistry[runtimeids.WorkflowID]
 	eventMu             sync.RWMutex
 	eventSink           WorkflowEventPublisher
@@ -87,7 +86,6 @@ func New(metadataStore *metadata.Store, opts ...Option) (*Store, error) {
 		queries:             metadataStore.Queries(),
 		priorValuesContract: priorValues,
 		now:                 func() time.Time { return time.Now().UTC() },
-		approvalGate:        make(chan struct{}, 1),
 		graphSaves:          mutationlane.NewMutationLaneRegistry[runtimeids.WorkflowID](),
 		eventSink:           noopWorkflowEventPublisher{},
 		invariantPolicy:     invariant.NewPolicy(invariant.WithSink(workflowInvariantSlogSink{})),
@@ -185,15 +183,13 @@ type NodeGroupRecord struct {
 	SortOrder   int64
 }
 
-type WorkflowEventRecord = serverapi.WorkflowProjectEvent
-
 type WorkflowEventPublisher interface {
-	PublishWorkflowEvent(context.Context, WorkflowEventRecord) error
+	PublishWorkflowEvent(context.Context, workflowcontract.Event) error
 }
 
 type noopWorkflowEventPublisher struct{}
 
-func (noopWorkflowEventPublisher) PublishWorkflowEvent(context.Context, WorkflowEventRecord) error {
+func (noopWorkflowEventPublisher) PublishWorkflowEvent(context.Context, workflowcontract.Event) error {
 	return nil
 }
 
@@ -280,6 +276,8 @@ type CurrentNodeStartContext struct {
 	EnteringEdge                   workflow.Edge
 	ContextMode                    workflow.ContextMode
 	SourceSessionID                *runtimeids.SessionID
+	PromptSessionID                *runtimeids.SessionID
+	PriorSessionIDs                map[workflow.ModelKey]*runtimeids.SessionID
 	IsFanoutBranch                 bool
 	AcceptedTransitionPath         AcceptedTransitionPath
 	TransitionIDs                  []string
@@ -542,12 +540,12 @@ func (s *Store) SetWorkflowEventPublisher(publisher WorkflowEventPublisher) {
 	s.eventMu.Unlock()
 }
 
-func (s *Store) PublishWorkflowEvent(ctx context.Context, event WorkflowEventRecord) error {
+func (s *Store) PublishWorkflowEvent(ctx context.Context, event workflowcontract.Event) error {
 	occurredAt := event.OccurredAtUnixMs
 	if occurredAt == 0 {
 		occurredAt = s.now().UnixMilli()
 	}
-	normalized := WorkflowEventRecord{
+	normalized := workflowcontract.Event{
 		ProjectID:        cloneWorkflowEventID(event.ProjectID),
 		WorkflowID:       cloneWorkflowEventWorkflowID(event.WorkflowID),
 		Resource:         event.Resource,
@@ -555,9 +553,6 @@ func (s *Store) PublishWorkflowEvent(ctx context.Context, event WorkflowEventRec
 		PrimaryEntityID:  event.PrimaryEntityID,
 		RelatedIDs:       append([]string(nil), event.RelatedIDs...),
 		OccurredAtUnixMs: occurredAt,
-	}
-	if err := normalized.Validate(); err != nil {
-		return err
 	}
 	s.eventMu.RLock()
 	sink := s.eventSink

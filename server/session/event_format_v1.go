@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"core/shared/invariant"
+	"core/shared/modelcontract"
 	"core/shared/runtimeids"
 	"core/shared/transcript"
 )
@@ -62,15 +64,16 @@ func decodeEventLogHeader(line []byte) (EventLogHeader, error) {
 type EventKind string
 
 const (
-	EventKindMessage          EventKind = "message"
-	EventKindToolCompletion   EventKind = "tool_completed"
-	EventKindLocalEntry       EventKind = "local_entry"
-	EventKindHistoryReplace   EventKind = "history_replaced"
-	EventKindCacheRequest     EventKind = "cache_request_observed"
-	EventKindCacheResponse    EventKind = "cache_response_observed"
-	EventKindCacheWarning     EventKind = "cache_warning"
-	EventKindReviewerFeedback EventKind = "reviewer_feedback"
-	EventKindReviewerError    EventKind = "reviewer_error"
+	EventKindMessage             EventKind = "message"
+	EventKindToolCompletion      EventKind = "tool_completed"
+	EventKindLocalEntry          EventKind = "local_entry"
+	EventKindHistoryReplace      EventKind = "history_replaced"
+	EventKindConfigurationUpdate EventKind = "configuration_updated"
+	EventKindCacheRequest        EventKind = "cache_request_observed"
+	EventKindCacheResponse       EventKind = "cache_response_observed"
+	EventKindCacheWarning        EventKind = "cache_warning"
+	EventKindReviewerFeedback    EventKind = "reviewer_feedback"
+	EventKindReviewerError       EventKind = "reviewer_error"
 )
 
 type MessageRole string
@@ -216,16 +219,66 @@ func newEventRecord(
 			return EventRecord{}, fmt.Errorf("%s payload: %w", payload.eventKind(), normalizeErr)
 		}
 		payload = normalized
+	case ConfigurationUpdateRecord:
+		normalized, normalizeErr := normalizeProviderHistoryItem(0, typed.Item)
+		if normalizeErr != nil {
+			return EventRecord{}, normalizeErr
+		}
+		payload = ConfigurationUpdateRecord{Item: normalized}
 	case CacheRequestObservationRecord:
 		typed.CacheKey = strings.TrimSpace(typed.CacheKey)
 		typed.TerminalHash = strings.TrimSpace(typed.TerminalHash)
 		payload = typed
 	case CacheResponseObservationRecord:
-		typed.CacheKey = strings.TrimSpace(typed.CacheKey)
-		typed.TerminalHash = strings.TrimSpace(typed.TerminalHash)
+		if typed.CacheKey != nil {
+			cacheKey := strings.TrimSpace(*typed.CacheKey)
+			typed.CacheKey = &cacheKey
+		}
+		if typed.TerminalHash != nil {
+			terminalHash := strings.TrimSpace(*typed.TerminalHash)
+			typed.TerminalHash = &terminalHash
+		}
+		if typed.DigestVersion != nil {
+			digestVersion := *typed.DigestVersion
+			typed.DigestVersion = &digestVersion
+		}
+		if typed.Scope != nil {
+			scope := *typed.Scope
+			typed.Scope = &scope
+		}
+		if typed.ChunkCount != nil {
+			chunkCount := *typed.ChunkCount
+			typed.ChunkCount = &chunkCount
+		}
+		if typed.OperationID != nil {
+			operationID, normalizeErr := normalizeOptionalEventIdentity("provider operation ID", typed.OperationID)
+			if normalizeErr != nil {
+				return EventRecord{}, fmt.Errorf("%s payload: %w", payload.eventKind(), normalizeErr)
+			}
+			typed.OperationID = operationID
+		}
+		if typed.SessionID != nil {
+			sessionID, normalizeErr := normalizeOptionalEventIdentity("provider Session ID", typed.SessionID)
+			if normalizeErr != nil {
+				return EventRecord{}, fmt.Errorf("%s payload: %w", payload.eventKind(), normalizeErr)
+			}
+			typed.SessionID = sessionID
+		}
+		if typed.Purpose != nil {
+			purpose := *typed.Purpose
+			typed.Purpose = &purpose
+		}
+		if typed.ObservedAt != nil {
+			observedAt := *typed.ObservedAt
+			typed.ObservedAt = &observedAt
+		}
 		if typed.CachedInputTokens != nil {
 			cachedInputTokens := *typed.CachedInputTokens
 			typed.CachedInputTokens = &cachedInputTokens
+		}
+		if typed.ProviderUsage != nil {
+			usage := typed.ProviderUsage.Clone()
+			typed.ProviderUsage = &usage
 		}
 		payload = typed
 	case CacheWarningRecord:
@@ -358,12 +411,17 @@ type CacheRequestObservationRecord struct {
 }
 
 type CacheResponseObservationRecord struct {
-	DigestVersion     int        `json:"digest_version"`
-	CacheKey          string     `json:"cache_key"`
-	Scope             CacheScope `json:"scope"`
-	ChunkCount        int        `json:"chunk_count"`
-	TerminalHash      string     `json:"terminal_hash"`
-	CachedInputTokens *int       `json:"cached_input_tokens,omitempty"`
+	DigestVersion     *int                                    `json:"digest_version,omitempty"`
+	CacheKey          *string                                 `json:"cache_key,omitempty"`
+	Scope             *CacheScope                             `json:"scope,omitempty"`
+	ChunkCount        *int                                    `json:"chunk_count,omitempty"`
+	TerminalHash      *string                                 `json:"terminal_hash,omitempty"`
+	CachedInputTokens *int                                    `json:"cached_input_tokens,omitempty"`
+	OperationID       *string                                 `json:"operation_id,omitempty"`
+	SessionID         *string                                 `json:"session_id,omitempty"`
+	Purpose           *modelcontract.ProviderOperationPurpose `json:"purpose,omitempty"`
+	ObservedAt        *time.Time                              `json:"observed_at,omitempty"`
+	ProviderUsage     *modelcontract.ProviderUsageEvidence    `json:"provider_usage,omitempty"`
 }
 
 type CacheWarningReason string
@@ -408,12 +466,46 @@ func (CacheResponseObservationRecord) eventKind() EventKind {
 }
 
 func (r CacheResponseObservationRecord) validate() error {
+	hasProviderIdentity := r.OperationID != nil || r.SessionID != nil || r.Purpose != nil || r.ObservedAt != nil
+	if r.ProviderUsage == nil {
+		if hasProviderIdentity {
+			return errors.New("provider operation identity requires provider usage")
+		}
+	} else {
+		if r.OperationID == nil || r.SessionID == nil || r.Purpose == nil || r.ObservedAt == nil {
+			return errors.New("provider usage requires complete operation identity")
+		}
+		if _, err := runtimeids.ParseCanonicalUUIDv4(*r.OperationID, "provider operation ID"); err != nil {
+			return err
+		}
+		if _, err := runtimeids.ParseSessionID(*r.SessionID); err != nil {
+			return err
+		}
+		if err := r.Purpose.Validate(); err != nil {
+			return err
+		}
+		if r.ObservedAt.IsZero() {
+			return errors.New("provider observation time is required")
+		}
+	}
+	if r.DigestVersion == nil && r.CacheKey == nil && r.Scope == nil && r.ChunkCount == nil && r.TerminalHash == nil {
+		if r.ProviderUsage == nil {
+			return errors.New("provider response observation requires provider usage")
+		}
+		if r.CachedInputTokens != nil {
+			return errors.New("cached input tokens require cache response facts")
+		}
+		return nil
+	}
+	if r.DigestVersion == nil || r.CacheKey == nil || r.Scope == nil || r.ChunkCount == nil || r.TerminalHash == nil {
+		return errors.New("cache response facts must be complete when present")
+	}
 	request := CacheRequestObservationRecord{
-		DigestVersion: r.DigestVersion,
-		CacheKey:      r.CacheKey,
-		Scope:         r.Scope,
-		ChunkCount:    r.ChunkCount,
-		TerminalHash:  r.TerminalHash,
+		DigestVersion: *r.DigestVersion,
+		CacheKey:      *r.CacheKey,
+		Scope:         *r.Scope,
+		ChunkCount:    *r.ChunkCount,
+		TerminalHash:  *r.TerminalHash,
 	}
 	if err := request.validate(); err != nil {
 		return err
@@ -862,6 +954,12 @@ func decodeEventRecordPayloadV1(
 			return nil, fmt.Errorf("decode %s payload: %w", kind, err)
 		}
 		payload = replacement
+	case EventKindConfigurationUpdate:
+		var update ConfigurationUpdateRecord
+		if err := decode(&update); err != nil {
+			return nil, fmt.Errorf("decode %s payload: %w", kind, err)
+		}
+		payload = update
 	case EventKindCacheRequest:
 		var observation CacheRequestObservationRecord
 		if err := decode(&observation); err != nil {
@@ -892,6 +990,7 @@ func validateEventKind(kind EventKind) error {
 		EventKindToolCompletion,
 		EventKindLocalEntry,
 		EventKindHistoryReplace,
+		EventKindConfigurationUpdate,
 		EventKindCacheRequest,
 		EventKindCacheResponse,
 		EventKindCacheWarning,

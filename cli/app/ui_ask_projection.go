@@ -8,6 +8,8 @@ import (
 
 	"core/cli/tui"
 	"core/cli/tui/transcriptrender"
+	"core/shared/clientui"
+	"core/shared/protoapi"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
@@ -68,7 +70,11 @@ func (m *uiModel) currentQuestionRenderIdentity() (questionRenderIdentity, bool)
 	if size == nil || size.width < 1 {
 		return questionRenderIdentity{}, false
 	}
-	question := m.ask.current.prompt.Question
+	prompt := m.ask.current.prompt
+	question := transcriptPromptQuestion(prompt)
+	if targets := prompt.GetApproval().GetAccessTargets(); len(targets) > 0 {
+		question = clientui.FormatFileAccessApprovalMarkdown(protoapi.FileAccessTargetsFromProto(targets))
+	}
 	return questionRenderIdentity{
 		questionSource:   question,
 		terminalWidth:    size.width,
@@ -145,8 +151,8 @@ func (m *uiModel) applyQuestionRenderResult(result questionRenderResultMsg) (tea
 		return m.handleQuestionProjectionError(result), false
 	}
 	initialActivation := m.ask.activeProjection == nil
-	activationPending := initialActivation ||
-		m.ask.activeProjection != nil && m.ask.activeProjection.pendingActivationPreview != nil
+	activationPending := desired.candidate.origin == promptDeliveryLive &&
+		(initialActivation || m.ask.activeProjection != nil && m.ask.activeProjection.pendingActivationPreview != nil)
 	candidate := cloneAskEventForProjection(desired.candidate)
 	m.ask.current = &candidate
 	var pendingActivationPreview *string
@@ -170,13 +176,13 @@ func cloneAskEventForProjection(event askEvent) askEvent {
 }
 
 func (m *uiModel) handleQuestionProjectionError(result questionRenderResultMsg) tea.Cmd {
-	promptID := ""
+	toolCallID := ""
 	if m.ask.current != nil {
-		promptID = string(m.ask.current.prompt.PromptID)
+		toolCallID = transcriptPromptToolCallID(m.ask.current.prompt)
 	}
 	m.logf(
-		"ask.question_projection.error prompt_id=%q current_token=%d operation_token=%s rendered_at=%+v desired=%+v delivery_generation=%s err=%q stack=%s",
-		promptID,
+		"ask.question_projection.error tool_call_id=%q current_token=%d operation_token=%s rendered_at=%+v desired=%+v delivery_generation=%s err=%q stack=%s",
+		toolCallID,
 		m.ask.currentToken,
 		result.request.operationToken,
 		questionRenderIdentityDiagnosticsFor(m.ask.activeProjection),

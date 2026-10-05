@@ -64,14 +64,14 @@ func newMetadataOnlyAncestryPlanner(t *testing.T) (Planner, string, *sessiontest
 			WorkspaceRoot:   "/tmp/workspace-a",
 			PersistenceRoot: root,
 			Settings: config.Settings{
-				Model:            "gpt-5",
+				Model:            "gpt-6-sol",
 				MaxSubagentDepth: 2,
 			},
 		},
-		ContainerDir:             containerDir,
-		StoreOptions:             persistence.Options(),
-		PersistedSessions:        persistence,
-		ProjectWorkspaceBoundary: testProjectBoundaryResolver{},
+		ContainerDir:      containerDir,
+		StoreOptions:      persistence.Options(),
+		PersistedSessions: persistence,
+		SessionProjects:   testSessionProjectResolver{}, ManagedWorktreeRoots: testSessionProjectResolver{},
 	}, containerDir, persistence
 }
 

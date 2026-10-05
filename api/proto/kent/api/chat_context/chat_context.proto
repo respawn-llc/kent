@@ -4,12 +4,11 @@ package kent.api.chat_context;
 
 import "buf/validate/validate.proto";
 import "kent/api/auth/auth.proto";
+import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/chat_context;chatcontextpb";
-
-message WorkspaceChatTarget {}
 
 message SessionTarget {
   string session_id = 1 [
@@ -22,7 +21,6 @@ message Target {
   oneof target {
     option (buf.validate.oneof).required = true;
 
-    WorkspaceChatTarget workspace_chat = 1;
     SessionTarget session = 2;
   }
 }
@@ -101,6 +99,10 @@ message GetError {
         error_code: "internal_failure"
       }
     ];
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
   }
 }
 
@@ -122,10 +124,9 @@ service ChatContextService {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
       authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER
-      scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT_IF_SET
+      scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "chat.context.get"
     };
   }
 }

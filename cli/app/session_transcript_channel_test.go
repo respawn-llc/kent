@@ -2,31 +2,27 @@ package app
 
 import (
 	"context"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/serverapi"
 	"errors"
 	"net"
 	"reflect"
 	"testing"
 	"time"
-
-	"core/shared/clientui"
-	"core/shared/serverapi"
 )
 
 func TestStartSessionTranscriptEventsWaitsForExplicitRehydrationAfterLoss(t *testing.T) {
 	subscriber := &recordingTranscriptSubscriber{
 		subs: []*scriptedTranscriptSubscription{
 			{
-				messages: []clientui.TranscriptMessage{ongoingHydrationMessage(1)},
-				err:      serverapi.ErrStreamGap,
-			},
-			{messages: []clientui.TranscriptMessage{ongoingHydrationMessage(1)}},
-		},
-	}
+				messages: []*transcriptpb.Message{ongoingHydrationMessage(1)},
+				err:      serverapi.ErrStreamGap},
+			{messages: []*transcriptpb.Message{ongoingHydrationMessage(1)}}}}
 	stream := startSessionTranscriptEvents(context.Background(), "session-1", subscriber.SubscribeSessionTranscript, nil)
 	defer stream.Stop()
 
 	first := nextTranscriptEvent(t, stream.Events)
-	if first.Kind != ongoingTranscriptEventMessage || first.Message.Kind() != clientui.TranscriptMessageHydration {
+	if first.Kind != ongoingTranscriptEventMessage || reflect.TypeOf(first.Message.Event.Payload) != reflect.TypeFor[*transcriptpb.Event_Hydration]() {
 		t.Fatalf("first event = %+v, want hydration message", first)
 	}
 	loss := nextTranscriptEvent(t, stream.Events)
@@ -41,7 +37,7 @@ func TestStartSessionTranscriptEventsWaitsForExplicitRehydrationAfterLoss(t *tes
 
 	stream.RequestRehydration()
 	second := nextTranscriptEvent(t, stream.Events)
-	if second.Kind != ongoingTranscriptEventMessage || second.Message.Kind() != clientui.TranscriptMessageHydration {
+	if second.Kind != ongoingTranscriptEventMessage || reflect.TypeOf(second.Message.Event.Payload) != reflect.TypeFor[*transcriptpb.Event_Hydration]() {
 		t.Fatalf("second event = %+v, want reopened hydration message", second)
 	}
 	if got, want := subscriber.sessionIDs, []string{"session-1", "session-1"}; !reflect.DeepEqual(got, want) {
@@ -68,10 +64,8 @@ func TestStartSessionTranscriptEventsLocalCancelClosesChannel(t *testing.T) {
 func TestStartSessionTranscriptEventsReopensOnLocalRehydrationRequest(t *testing.T) {
 	subscriber := &recordingTranscriptSubscriber{
 		subs: []*scriptedTranscriptSubscription{
-			{messages: []clientui.TranscriptMessage{ongoingHydrationMessage(1)}},
-			{messages: []clientui.TranscriptMessage{ongoingHydrationMessage(1)}},
-		},
-	}
+			{messages: []*transcriptpb.Message{ongoingHydrationMessage(1)}},
+			{messages: []*transcriptpb.Message{ongoingHydrationMessage(1)}}}}
 	stream := startSessionTranscriptEvents(context.Background(), "session-1", subscriber.SubscribeSessionTranscript, nil)
 	defer stream.Stop()
 
@@ -96,11 +90,10 @@ func TestStartSessionTranscriptEventsSurfacesSubscriptionOpenFailure(t *testing.
 	stream := startSessionTranscriptEvents(
 		context.Background(),
 		"session-1",
-		func(context.Context, serverapi.TranscriptSubscribeRequest) (serverapi.TranscriptSubscription, error) {
+		func(context.Context, *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
 			return nil, subscribeErr
 		},
-		nil,
-	)
+		nil)
 	defer stream.Stop()
 
 	failure := nextTranscriptEvent(t, stream.Events)
@@ -119,19 +112,17 @@ func TestStartSessionTranscriptEventsSurfacesSubscriptionOpenFailure(t *testing.
 
 func TestStartSessionTranscriptEventsRetriesTransportFailureUntilServerReturns(t *testing.T) {
 	initial := &scriptedTranscriptSubscription{
-		messages: []clientui.TranscriptMessage{ongoingHydrationMessage(1)},
-		err:      &net.OpError{Op: "read", Net: "tcp", Err: errors.New("connection reset by peer")},
-	}
+		messages: []*transcriptpb.Message{ongoingHydrationMessage(1)},
+		err:      &net.OpError{Op: "read", Net: "tcp", Err: errors.New("connection reset by peer")}}
 	recovered := &scriptedTranscriptSubscription{
-		messages: []clientui.TranscriptMessage{ongoingHydrationMessage(1)},
-	}
+		messages: []*transcriptpb.Message{ongoingHydrationMessage(1)}}
 	attempt := 0
 	reactivationAttempts := 0
 	reactivationFailure := &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
 	stream := startSessionTranscriptEvents(
 		context.Background(),
 		"session-1",
-		func(context.Context, serverapi.TranscriptSubscribeRequest) (serverapi.TranscriptSubscription, error) {
+		func(context.Context, *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
 			attempt++
 			switch attempt {
 			case 1:
@@ -146,8 +137,7 @@ func TestStartSessionTranscriptEventsRetriesTransportFailureUntilServerReturns(t
 				return reactivationFailure
 			}
 			return nil
-		},
-	)
+		})
 	defer stream.Stop()
 
 	if event := nextTranscriptEvent(t, stream.Events); event.Kind != ongoingTranscriptEventMessage {
@@ -163,7 +153,7 @@ func TestStartSessionTranscriptEventsRetriesTransportFailureUntilServerReturns(t
 		t.Fatalf("reopen failure = %+v, want transport failure", failure)
 	}
 	hydration := nextTranscriptEvent(t, stream.Events)
-	if hydration.Kind != ongoingTranscriptEventMessage || hydration.Message.Kind() != clientui.TranscriptMessageHydration {
+	if hydration.Kind != ongoingTranscriptEventMessage || reflect.TypeOf(hydration.Message.Event.Payload) != reflect.TypeFor[*transcriptpb.Event_Hydration]() {
 		t.Fatalf("recovered event = %+v, want hydration", hydration)
 	}
 	if attempt != 2 {
@@ -176,18 +166,16 @@ func TestStartSessionTranscriptEventsRetriesTransportFailureUntilServerReturns(t
 
 func TestStartSessionTranscriptEventsRetriesReactivationTimeoutUntilServerReturns(t *testing.T) {
 	initial := &scriptedTranscriptSubscription{
-		messages: []clientui.TranscriptMessage{ongoingHydrationMessage(1)},
-		err:      &net.OpError{Op: "read", Net: "tcp", Err: errors.New("connection reset by peer")},
-	}
+		messages: []*transcriptpb.Message{ongoingHydrationMessage(1)},
+		err:      &net.OpError{Op: "read", Net: "tcp", Err: errors.New("connection reset by peer")}}
 	recovered := &scriptedTranscriptSubscription{
-		messages: []clientui.TranscriptMessage{ongoingHydrationMessage(1)},
-	}
+		messages: []*transcriptpb.Message{ongoingHydrationMessage(1)}}
 	subscriptionAttempts := 0
 	reactivationAttempts := 0
 	stream := startSessionTranscriptEvents(
 		context.Background(),
 		"session-1",
-		func(context.Context, serverapi.TranscriptSubscribeRequest) (serverapi.TranscriptSubscription, error) {
+		func(context.Context, *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
 			subscriptionAttempts++
 			if subscriptionAttempts == 1 {
 				return initial, nil
@@ -200,8 +188,7 @@ func TestStartSessionTranscriptEventsRetriesReactivationTimeoutUntilServerReturn
 				return context.DeadlineExceeded
 			}
 			return nil
-		},
-	)
+		})
 	defer stream.Stop()
 
 	if event := nextTranscriptEvent(t, stream.Events); event.Kind != ongoingTranscriptEventMessage {
@@ -213,7 +200,7 @@ func TestStartSessionTranscriptEventsRetriesReactivationTimeoutUntilServerReturn
 
 	stream.RequestRehydration()
 	hydration := nextTranscriptEvent(t, stream.Events)
-	if hydration.Kind != ongoingTranscriptEventMessage || hydration.Message.Kind() != clientui.TranscriptMessageHydration {
+	if hydration.Kind != ongoingTranscriptEventMessage || reflect.TypeOf(hydration.Message.Event.Payload) != reflect.TypeFor[*transcriptpb.Event_Hydration]() {
 		t.Fatalf("recovered event = %+v, want hydration", hydration)
 	}
 	if subscriptionAttempts != 2 {
@@ -229,8 +216,8 @@ type recordingTranscriptSubscriber struct {
 	subs       []*scriptedTranscriptSubscription
 }
 
-func (s *recordingTranscriptSubscriber) SubscribeSessionTranscript(_ context.Context, req serverapi.TranscriptSubscribeRequest) (serverapi.TranscriptSubscription, error) {
-	s.sessionIDs = append(s.sessionIDs, req.SessionID)
+func (s *recordingTranscriptSubscriber) SubscribeSessionTranscript(_ context.Context, req *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
+	s.sessionIDs = append(s.sessionIDs, req.SessionId)
 	if len(s.subs) == 0 {
 		return nil, context.Canceled
 	}
@@ -240,22 +227,22 @@ func (s *recordingTranscriptSubscriber) SubscribeSessionTranscript(_ context.Con
 }
 
 type scriptedTranscriptSubscription struct {
-	messages []clientui.TranscriptMessage
+	messages []*transcriptpb.Message
 	err      error
 	closed   bool
 }
 
-func (s *scriptedTranscriptSubscription) Next(ctx context.Context) (clientui.TranscriptMessage, error) {
+func (s *scriptedTranscriptSubscription) Next(ctx context.Context) (*transcriptpb.Message, error) {
 	if len(s.messages) > 0 {
 		message := s.messages[0]
 		s.messages = s.messages[1:]
 		return message, nil
 	}
 	if s.err != nil {
-		return clientui.TranscriptMessage{}, s.err
+		return &transcriptpb.Message{}, s.err
 	}
 	<-ctx.Done()
-	return clientui.TranscriptMessage{}, ctx.Err()
+	return &transcriptpb.Message{}, ctx.Err()
 }
 
 func (s *scriptedTranscriptSubscription) Close() error {

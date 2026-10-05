@@ -11,6 +11,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/transcript"
@@ -47,13 +48,13 @@ type steeringItem struct {
 	resultGroupFlush            *steeringResultGroupFlush
 	resultGroupClose            *steeringResultGroupClose
 	missingToolOutputRepair     *steeringMissingToolOutputRepair
-	queuedFlush                 *steeringQueuedUserMessageFlush
-	queuedRestore               *steeringQueuedUserMessageRestore
+	modelInput                  *steeringPreparedModelInput
 	compactionActivity          *steeringCompactionActivity
 	event                       *Event
+	connectionReplacement       *config.ConnectionReplacement
 	streaming                   *steeringStreamingOutput
 	cacheWarning                *steeringCacheWarning
-	cacheObservation            *steeringCacheObservation
+	providerObservation         *steeringProviderObservation
 	liveToolAbort               *steeringLiveToolAbort
 	commitReceipt               *session.CommitReceipt
 }
@@ -63,7 +64,6 @@ type steeringMessage struct {
 	eventPolicy           steeringMessageEventPolicy
 	persist               bool
 	provenanceDestination **TranscriptCommittedRowProvenance
-	emitUserFlushEvent    bool
 }
 
 type steeringAssistantCommit struct {
@@ -182,7 +182,7 @@ type steeringCacheWarning struct {
 	emit       bool
 }
 
-type steeringCacheObservation struct {
+type steeringProviderObservation struct {
 	records    []session.EventRecordPayload
 	response   persistedCacheResponseObserved
 	warning    transcript.CacheWarning
@@ -195,14 +195,17 @@ type steeringLiveToolAbort struct {
 	reason string
 }
 
-type steeringQueuedUserMessageFlush struct {
-	message    llm.Message
-	batch      []string
-	queueItems []QueuedUserMessage
+type steeringPreparedModelInput struct {
+	ctx      context.Context
+	prepared *preparedUserInjections
+	thinking nativeThinkingProjection
 }
 
-type steeringQueuedUserMessageRestore struct {
-	items []queuedUserMessage
+func steerPreparedModelInputIntent(ctx context.Context, prepared *preparedUserInjections, thinking nativeThinkingProjection) steeringIntent {
+	return steeringIntent{
+		priority: steeringPriorityUser,
+		items:    []steeringItem{{modelInput: &steeringPreparedModelInput{ctx: ctx, prepared: prepared, thinking: thinking}}},
+	}
 }
 
 type steeringCompactionActivity struct {
@@ -248,14 +251,6 @@ func steerAssistantCommitIntent(
 			},
 		}},
 	}
-}
-
-func steerUserMessageWithFlushIntent(msg llm.Message) steeringIntent {
-	intent := steerMessagesWithPersistenceIntent(steeringPriorityUser, steeringMessageEventNone, true, []llm.Message{msg})
-	var provenance *TranscriptCommittedRowProvenance
-	intent.items[0].message.provenanceDestination = &provenance
-	intent.items[0].message.emitUserFlushEvent = true
-	return intent
 }
 
 func steerLocalEntryIntent(entry storedLocalEntry) steeringIntent {
@@ -364,26 +359,6 @@ func steerResultGroupCloseIntent(collector *resultGroupCollector) steeringIntent
 		priority: steeringPriorityNormal,
 		items: []steeringItem{{resultGroupClose: &steeringResultGroupClose{
 			collector: collector,
-		}}},
-	}
-}
-
-func steerQueuedUserMessageFlushIntent(message llm.Message, batch []string, queueItems []QueuedUserMessage) steeringIntent {
-	return steeringIntent{
-		priority: steeringPriorityUser,
-		items: []steeringItem{{queuedFlush: &steeringQueuedUserMessageFlush{
-			message:    message,
-			batch:      append([]string(nil), batch...),
-			queueItems: append([]QueuedUserMessage(nil), queueItems...),
-		}}},
-	}
-}
-
-func steerQueuedUserMessageRestoreIntent(items []queuedUserMessage) steeringIntent {
-	return steeringIntent{
-		priority: steeringPriorityUser,
-		items: []steeringItem{{queuedRestore: &steeringQueuedUserMessageRestore{
-			items: append([]queuedUserMessage(nil), items...),
 		}}},
 	}
 }
@@ -546,7 +521,13 @@ func steerCacheWarningIntent(warning transcript.CacheWarning, visibility transcr
 	}
 }
 
-func steerCacheObservationIntent(records []session.EventRecordPayload, response persistedCacheResponseObserved, warning *transcript.CacheWarning, visibility transcript.EntryVisibility, emit bool) steeringIntent {
+func steerProviderObservationIntent(
+	records []session.EventRecordPayload,
+	response persistedCacheResponseObserved,
+	warning *transcript.CacheWarning,
+	visibility transcript.EntryVisibility,
+	emit bool,
+) steeringIntent {
 	copyRecords := append([]session.EventRecordPayload(nil), records...)
 	var copyWarning transcript.CacheWarning
 	if warning != nil {
@@ -554,7 +535,7 @@ func steerCacheObservationIntent(records []session.EventRecordPayload, response 
 	}
 	return steeringIntent{
 		priority: steeringPriorityRuntimeEvent,
-		items: []steeringItem{{cacheObservation: &steeringCacheObservation{
+		items: []steeringItem{{providerObservation: &steeringProviderObservation{
 			records:    copyRecords,
 			response:   response,
 			warning:    copyWarning,
@@ -696,28 +677,9 @@ func (e *Engine) steerWithCommitReceiptRaw(provenance steeringProvenance, intent
 }
 
 func (e *Engine) steerOrdered(provenance steeringProvenance, intents ...steeringIntent) error {
-	if restored, ok := queuedUserMessageRestoreItems(intents); ok {
-		e.outputMutationMu.Lock()
-		e.messageFlow.RestorePendingUserInjections(restored)
-		for _, pending := range restored {
-			e.emitQueuedUserMessageStatus(pending.message, QueuedUserMessageAccepted, "", false)
-		}
-		e.outputMutationMu.Unlock()
-		if len(restored) != 0 {
-			e.publishPendingWorkChanged()
-		}
-		return nil
-	}
 	e.outputMutationMu.Lock()
 	defer e.outputMutationMu.Unlock()
 	return e.steerOrderedRaw(provenance, intents...)
-}
-
-func queuedUserMessageRestoreItems(intents []steeringIntent) ([]queuedUserMessage, bool) {
-	if len(intents) != 1 || len(intents[0].items) != 1 || intents[0].items[0].queuedRestore == nil {
-		return nil, false
-	}
-	return intents[0].items[0].queuedRestore.items, true
 }
 
 func (e *Engine) steerOrderedRaw(provenance steeringProvenance, intents ...steeringIntent) error {
@@ -762,7 +724,7 @@ func workflowPostCompletionActivityForSteeringItem(item steeringItem) workflowPo
 		item.toolCompletion != nil ||
 		(item.resultGroupFlush != nil && item.resultGroupFlush.committed) ||
 		(item.missingToolOutputRepair != nil && item.missingToolOutputRepair.repaired > 0) ||
-		item.queuedFlush != nil {
+		(item.modelInput != nil && len(item.modelInput.prepared.groups) > 0) {
 		return workflowPostCompletionDurableActivity
 	}
 	return workflowPostCompletionNoActivity
@@ -780,6 +742,10 @@ func (e *Engine) resolveCompletedResponseStream(stepID string, instruction compl
 }
 
 func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringItem) error {
+	if item.connectionReplacement != nil {
+		e.transcriptRuntimeState().SetConnectionReplacement(*item.connectionReplacement)
+		return nil
+	}
 	if item.compactionActivity != nil {
 		stepID, err := provenance.requireExactStepID()
 		if err != nil {
@@ -935,15 +901,6 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 			item.message.provenanceDestination,
 		)
 		item.recordCommitReceipt(receipt)
-		if err == nil && receipt.Committed && item.message.emitUserFlushEvent {
-			if flushed := flushedUserMessageEvent(
-				*item.message.provenanceDestination,
-				item.message.message,
-				provenance.stepID(),
-			); flushed != nil {
-				err = errors.Join(err, e.emitRaw(*flushed))
-			}
-		}
 		return err
 	}
 	if item.goalNoticeAndStatus != nil {
@@ -1073,16 +1030,13 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 		}
 		return err
 	}
-	if item.queuedFlush != nil {
+	if item.modelInput != nil {
 		if _, err := provenance.requireExactStepID(); err != nil {
 			return err
 		}
-		receipt, err := e.appendQueuedUserMessageFlush(provenance.stepID(), item.queuedFlush.message, item.queuedFlush.batch, item.queuedFlush.queueItems)
+		receipt, err := e.appendPreparedModelInput(provenance.stepID(), *item.modelInput)
 		item.recordCommitReceipt(receipt)
 		return err
-	}
-	if item.queuedRestore != nil {
-		return errors.New("queued user restoration must use the Pending Work mutation owner")
 	}
 	if item.event != nil {
 		evt := *item.event
@@ -1117,14 +1071,14 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 		if provenanceErr != nil {
 			return errors.Join(appendErr, provenanceErr)
 		}
-		e.transcriptRuntimeState().AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, transcript.CacheWarningText(warning), visibility, &recordProvenance)
+		e.transcriptRuntimeState().AppendCommittedCacheWarning(warning, visibility, &recordProvenance)
 		if item.cacheWarning.emit {
 			appendErr = errors.Join(appendErr, e.emitRaw(Event{Kind: EventCacheWarning, StepID: stepIDPointer, CacheWarning: copyCacheWarning(&warning), CacheWarningVisibility: visibility, CommittedTranscriptChanged: true, CommittedProvenance: &recordProvenance}))
 		}
 		return appendErr
 	}
-	if item.cacheObservation != nil {
-		observation := item.cacheObservation
+	if item.providerObservation != nil {
+		observation := item.providerObservation
 		records, receipt, appendErr := e.eventLog.AppendRecordsAtomic(provenance.stepID(), observation.records)
 		item.recordCommitReceipt(receipt)
 		if !receipt.Committed {
@@ -1152,7 +1106,7 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 			if warningProvenance == nil {
 				return errors.Join(appendErr, errors.New("cache warning append did not return its warning record"))
 			}
-			e.transcriptRuntimeState().AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, transcript.CacheWarningText(warning), visibility, warningProvenance)
+			e.transcriptRuntimeState().AppendCommittedCacheWarning(warning, visibility, warningProvenance)
 			if observation.emit {
 				appendErr = errors.Join(appendErr, e.emitRaw(Event{Kind: EventCacheWarning, StepID: provenance.stepID(), CacheWarning: copyCacheWarning(&warning), CacheWarningVisibility: visibility, CommittedTranscriptChanged: true, CommittedProvenance: warningProvenance}))
 			}
@@ -1254,6 +1208,7 @@ func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryRep
 	if appendErr != nil && !receipt.Committed {
 		return receipt, appendErr
 	}
+	e.lockedContractState().Clear()
 	e.resetPromptCacheObservationBaselines()
 	provenance, provenanceErr := transcriptProvenanceFromRecord(appended)
 	if provenanceErr != nil {
@@ -1266,7 +1221,6 @@ func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryRep
 		replacement.projectedEntries,
 		&provenance,
 	)
-	e.lockedContractState().MarkPromptFacingSnapshotsStale()
 	// Compaction reinjects canonical generation context, including base meta,
 	// into the same replacement payload. Mirror the restore-time length signal
 	// here rather than scanning individual items.
@@ -1352,6 +1306,7 @@ func cloneToolResult(result tools.Result) tools.Result {
 	copyResult := result
 	copyResult.Output = append(json.RawMessage(nil), result.Output...)
 	copyResult.Presentation = clonePersistedToolCallMeta(result.Presentation)
+	copyResult.QuestionAnswer = cloneAskQuestionAnswer(result.QuestionAnswer)
 	return copyResult
 }
 

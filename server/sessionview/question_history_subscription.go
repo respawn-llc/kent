@@ -5,6 +5,8 @@ import (
 	"io"
 
 	"core/server/session"
+	"core/shared/protoapi"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	"core/shared/serverapi"
 )
 
@@ -16,56 +18,65 @@ type questionHistorySubscription struct {
 	completed bool
 }
 
-func (s *questionHistorySubscription) Next(ctx context.Context) (serverapi.QuestionHistoryEvent, error) {
+func (s *questionHistorySubscription) Next(ctx context.Context) (*sessionpb.QuestionHistoryEvent, error) {
 	if err := ctx.Err(); err != nil {
-		return serverapi.QuestionHistoryEvent{}, err
+		return nil, err
 	}
 	if !s.started {
 		s.started = true
 		large := s.cursor.InitialSize() >= largeQuestionHistoryBytes
-		event := serverapi.QuestionHistoryEvent{
-			Kind:         serverapi.QuestionHistoryEventStarted,
-			LargeHistory: &large,
+		event := &sessionpb.QuestionHistoryEvent{
+			Event: &sessionpb.QuestionHistoryEvent_Started{Started: &sessionpb.QuestionHistoryStarted{LargeHistory: large}},
 		}
-		return event, event.Validate()
+		return event, protoapi.Validate(event)
 	}
 	for !s.completed {
 		if err := ctx.Err(); err != nil {
-			return serverapi.QuestionHistoryEvent{}, err
+			return nil, err
 		}
 		record, err := s.cursor.Next(ctx)
 		if err != nil {
-			return serverapi.QuestionHistoryEvent{}, err
+			return nil, err
 		}
 		if record == nil {
 			s.completed = true
 			omitted := s.cursor.HistoryOmitted()
-			event := serverapi.QuestionHistoryEvent{
-				Kind:           serverapi.QuestionHistoryEventCompleted,
-				HistoryOmitted: &omitted,
+			event := &sessionpb.QuestionHistoryEvent{
+				Event: &sessionpb.QuestionHistoryEvent_Completed{Completed: &sessionpb.QuestionHistoryCompleted{HistoryOmitted: omitted}},
 			}
-			return event, event.Validate()
+			return event, protoapi.Validate(event)
 		}
 		question, err := projectQuestionHistoryRecord(*record, s.cursor.Version())
 		if err != nil {
-			return serverapi.QuestionHistoryEvent{}, err
+			return nil, err
 		}
 		if question == nil {
 			continue
 		}
-		event := serverapi.QuestionHistoryEvent{
-			Kind: serverapi.QuestionHistoryEventQuestion,
-			Question: &serverapi.QuestionHistoryQuestion{
+		at, err := protoapi.CommittedTimeToProto(question.At)
+		if err != nil {
+			return nil, err
+		}
+		var selected *int32
+		if question.SelectedOptionNumber != nil {
+			value, err := protoapi.Int32(*question.SelectedOptionNumber, "selected option number")
+			if err != nil {
+				return nil, err
+			}
+			selected = &value
+		}
+		event := &sessionpb.QuestionHistoryEvent{
+			Event: &sessionpb.QuestionHistoryEvent_Question{Question: &sessionpb.QuestionHistoryQuestion{
 				Question:             question.Question,
 				Answer:               question.Answer,
-				SelectedOptionNumber: question.SelectedOptionNumber,
+				SelectedOptionNumber: selected,
 				Commentary:           question.Commentary,
-				At:                   question.At,
-			},
+				CommittedAt:          at,
+			}},
 		}
-		return event, event.Validate()
+		return event, protoapi.Validate(event)
 	}
-	return serverapi.QuestionHistoryEvent{}, io.EOF
+	return nil, io.EOF
 }
 
 func (s *questionHistorySubscription) Close() error {

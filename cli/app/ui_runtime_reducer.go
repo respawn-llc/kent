@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"core/cli/tui"
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -29,7 +29,7 @@ func (m *uiModel) reduceRuntimeMessage(msg tea.Msg) uiFeatureUpdateResult {
 		return handledUIFeatureUpdate(m, cmd)
 	case tui.RequestDetailTranscriptPageMsg:
 		var (
-			request clientui.TranscriptPageRequest
+			request *transcriptpb.PageRequest
 			ok      bool
 		)
 		switch msg.Direction {
@@ -86,8 +86,8 @@ func (m *uiModel) handleDetailTranscriptLoad(msg detailTranscriptLoadMsg) tea.Cm
 	return sequenceCmds(clearLoadingCmd, rollbackCmd)
 }
 
-func (m *uiModel) applyDetailTranscriptLoad(requestSessionID string, request clientui.TranscriptPageRequest, responsePage clientui.TranscriptPage) {
-	if !m.detailTranscriptResponseCurrent(requestSessionID, responsePage.SessionID) {
+func (m *uiModel) applyDetailTranscriptLoad(requestSessionID string, request *transcriptpb.PageRequest, responsePage *transcriptpb.Page) {
+	if !m.detailTranscriptResponseCurrent(requestSessionID, responsePage.SessionId) {
 		return
 	}
 	if pageRequestEqual(m.detailTranscript.lastRequest, request) && m.detailTranscript.matchesPage(responsePage) {
@@ -96,22 +96,22 @@ func (m *uiModel) applyDetailTranscriptLoad(requestSessionID string, request cli
 	}
 	anchor := tui.DetailTranscriptAnchorDefault
 	prependedEntries := 0
-	var trimmedFrontEntries []clientui.TranscriptCommittedRow
+	var trimmedFrontEntries []*transcriptpb.CommittedRow
 	if isolatedAnchor, ok := m.rollbackIsolatedPageAnchor(request); ok {
 		m.detailTranscript.replace(responsePage)
 		anchor = isolatedAnchor
-	} else if request.NewerCursor != nil {
+	} else if _, newer := request.Direction.(*transcriptpb.PageRequest_NewerCursor); newer {
 		result := m.detailTranscript.appendCursorPage(responsePage)
 		trimmedFrontEntries = result.trimmedFrontEntries
 		anchor = tui.DetailTranscriptAnchorPreserve
-	} else if request.Cursor != nil {
+	} else if _, older := request.Direction.(*transcriptpb.PageRequest_Cursor); older {
 		result := m.detailTranscript.prependCursorPage(responsePage)
 		prependedEntries = result.addedEntries
 		trimmedFrontEntries = result.trimmedFrontEntries
 		anchor = tui.DetailTranscriptAnchorPreserve
 	} else {
 		preserveCachedPosition := m.detailTranscript.loaded &&
-			!transcriptPageSessionChanged(m.detailTranscript.sessionID, responsePage.SessionID) &&
+			!transcriptPageSessionChanged(m.detailTranscript.sessionID, responsePage.SessionId) &&
 			!m.detailTranscript.hasMoreBelow &&
 			m.detailTranscript.newerCursor == nil
 		m.detailTranscript.replace(responsePage)
@@ -123,7 +123,7 @@ func (m *uiModel) applyDetailTranscriptLoad(requestSessionID string, request cli
 	}
 	m.detailTranscript.lastRequest = request
 	page := m.detailTranscript.page()
-	page.SessionID = responsePage.SessionID
+	page.SessionId = responsePage.SessionId
 	page.SessionName = responsePage.SessionName
 	page.ConversationFreshness = responsePage.ConversationFreshness
 	m.forwardToView(tui.SetDetailTranscriptPageMsg{

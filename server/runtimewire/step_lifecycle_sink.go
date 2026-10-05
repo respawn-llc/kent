@@ -2,17 +2,18 @@ package runtimewire
 
 import (
 	"context"
+	"core/shared/protoapi"
 	"fmt"
 	"strings"
 
 	"core/server/runtime"
 	"core/server/runtimeactivity"
-	"core/shared/clientui"
 	"core/shared/invariant"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 )
 
 type RuntimeReadModelPublisher interface {
-	PublishRuntimeReadModelUpdate(sessionID string, update clientui.RuntimeReadModelUpdate)
+	PublishRuntimeReadModelUpdate(sessionID string, update *runtimepb.ReadModelUpdate)
 }
 
 type RuntimeActivityRegistrySnapshotProvider interface {
@@ -20,7 +21,7 @@ type RuntimeActivityRegistrySnapshotProvider interface {
 }
 
 type RuntimeReadModelFeedSnapshotProvider interface {
-	RuntimeReadModelFeedSnapshot(ctx context.Context, sessionID string) (clientui.RuntimeReadModelUpdate, error)
+	RuntimeReadModelFeedSnapshot(ctx context.Context, sessionID string) (*runtimepb.ReadModelUpdate, error)
 }
 
 func NewStepLifecycleSink(sessionID string, publisher RuntimeReadModelPublisher) runtime.StepLifecycleSink {
@@ -69,12 +70,12 @@ func (s stepLifecycleSink) publish(cause string, terminal bool, resolver runtime
 	sessionID := strings.TrimSpace(s.sessionID)
 	snapshot, err := s.feedSnapshot(sessionID, resolver)
 	if err != nil {
-		return s.handlePublicationFailure(cause, terminal, resolver, clientui.RuntimeReadModelUpdate{}, err)
+		return s.handlePublicationFailure(cause, terminal, resolver, &runtimepb.ReadModelUpdate{}, err)
 	}
-	if snapshot.Activity.State == clientui.RuntimeActivityUnavailable {
-		snapshot.Activity = clientui.RuntimeActivity{
-			State:          clientui.RuntimeActivityRegisteredIdle,
-			Reviewer:       clientui.ReviewerActivityInactive,
+	if snapshot.Activity.State == runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE {
+		snapshot.Activity = &runtimepb.Activity{
+			State:          runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
+			Reviewer:       runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
 			QueueAccepting: true,
 		}
 	}
@@ -82,14 +83,14 @@ func (s stepLifecycleSink) publish(cause string, terminal bool, resolver runtime
 	return nil
 }
 
-func (s stepLifecycleSink) feedSnapshot(sessionID string, resolver runtimeactivity.ResolverSnapshot) (clientui.RuntimeReadModelUpdate, error) {
+func (s stepLifecycleSink) feedSnapshot(sessionID string, resolver runtimeactivity.ResolverSnapshot) (*runtimepb.ReadModelUpdate, error) {
 	if provider, ok := s.publisher.(RuntimeReadModelFeedSnapshotProvider); ok {
 		return provider.RuntimeReadModelFeedSnapshot(context.Background(), sessionID)
 	}
 	return runtimeactivity.BuildFeedSnapshot(runtimeactivity.NextReadModelVersion(sessionID), resolver)
 }
 
-func (s stepLifecycleSink) handlePublicationFailure(cause string, terminal bool, resolver runtimeactivity.ResolverSnapshot, proposed clientui.RuntimeReadModelUpdate, failure error) error {
+func (s stepLifecycleSink) handlePublicationFailure(cause string, terminal bool, resolver runtimeactivity.ResolverSnapshot, proposed *runtimepb.ReadModelUpdate, failure error) error {
 	sessionID := strings.TrimSpace(s.sessionID)
 	s.policy.Check(false, invariant.ReadModelPublicationDiagnostic(invariant.ReadModelPublicationDiagnosticInput{
 		Operation:                "runtime_step_lifecycle",
@@ -111,24 +112,24 @@ func (s stepLifecycleSink) handlePublicationFailure(cause string, terminal bool,
 	return nil
 }
 
-func (s stepLifecycleSink) recoverySnapshot(sessionID string) (clientui.RuntimeReadModelUpdate, error) {
+func (s stepLifecycleSink) recoverySnapshot(sessionID string) (*runtimepb.ReadModelUpdate, error) {
 	if provider, ok := s.publisher.(RuntimeReadModelFeedSnapshotProvider); ok {
 		return provider.RuntimeReadModelFeedSnapshot(context.Background(), sessionID)
 	}
 	return terminalRecoverySnapshot(sessionID, s.registrySnapshot())
 }
 
-func terminalRecoverySnapshot(sessionID string, registry runtimeactivity.RegistrySnapshot) (clientui.RuntimeReadModelUpdate, error) {
+func terminalRecoverySnapshot(sessionID string, registry runtimeactivity.RegistrySnapshot) (*runtimepb.ReadModelUpdate, error) {
 	update, err := runtimeactivity.BuildFeedSnapshot(
 		runtimeactivity.NextReadModelVersion(sessionID),
 		runtimeactivity.ResolverSnapshot{Registry: registry},
 	)
 	if err != nil {
-		return clientui.RuntimeReadModelUpdate{}, err
+		return &runtimepb.ReadModelUpdate{}, err
 	}
 	update.Activity.DiagnosticRecovery = true
-	if err := update.Validate(); err != nil {
-		return clientui.RuntimeReadModelUpdate{}, err
+	if err := protoapi.Validate(update); err != nil {
+		return &runtimepb.ReadModelUpdate{}, err
 	}
 	return update, nil
 }

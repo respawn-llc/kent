@@ -4,7 +4,7 @@ import type { WorkflowDefinition, WorkflowSelectorApplicabilityReason } from "@/
 import { DisabledInteractionGuard, SelectField } from "@/ui";
 import { DetailSection } from "./WorkflowInspectorPrimitives";
 import { type DraftWorkflowEdge } from "./workflowEditorDraft";
-import { type WorkflowEditorDraftController } from "./workflowEditorDraftBridgeCore";
+import { type WorkflowEditorView } from "./useWorkflowEditorView";
 import { ApprovalToggle, FieldSummary } from "./WorkflowInspectorSharedSections";
 import { EditableEdgeParameters, PromptTemplateEditor } from "./WorkflowDraftEditableSections";
 import { edgePromptPlaceholderParameters, parameterSummaryFields } from "./workflowInspectorWiring";
@@ -18,7 +18,7 @@ export function EdgeInvocationSections({
   sourceKind,
   targetKind,
 }: Readonly<{
-  controller: WorkflowEditorDraftController;
+  controller: WorkflowEditorView;
   definition: WorkflowDefinition;
   derivedEdge: ReturnType<typeof derivedEdgeWiring>;
   edge: DraftWorkflowEdge;
@@ -38,6 +38,7 @@ export function EdgeInvocationSections({
             }}
             parameters={promptParameters}
             promptTemplate={edge.promptTemplate}
+            sourceKind={sourceKind}
           />
         </>
       ) : null}
@@ -66,7 +67,7 @@ function EdgeAgentSelectionControls({
   derivedEdge,
   edge,
 }: Readonly<{
-  controller: WorkflowEditorDraftController;
+  controller: WorkflowEditorView;
   derivedEdge: ReturnType<typeof derivedEdgeWiring>;
   edge: DraftWorkflowEdge;
 }>) {

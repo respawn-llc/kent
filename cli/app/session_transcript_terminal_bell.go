@@ -1,35 +1,43 @@
 package app
 
 import (
-	"core/shared/clientui"
-	"core/shared/transcript"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
 )
 
-func (h *bellHooks) OnTranscriptMessage(message clientui.TranscriptMessage) {
-	switch message.Kind() {
-	case clientui.TranscriptMessageAssistantDelta:
-		_ = message.Payload().(clientui.TranscriptAssistantDelta)
-	case clientui.TranscriptMessageToolStart:
-		tool := message.Payload().(clientui.TranscriptToolStart)
-		h.recordToolCall(tool.StepID)
-	case clientui.TranscriptMessageStepState:
-		step := message.Payload().(clientui.TranscriptStepState)
-		if step.Lifecycle == clientui.StepLifecycleFinished {
-			h.recordStepFinished(step.StepID)
+func (h *bellHooks) OnTranscriptMessage(message *transcriptpb.Message) {
+	switch message.Event.Payload.(type) {
+	case *transcriptpb.Event_AssistantDelta:
+		_ = message.Event.GetAssistantDelta()
+	case *transcriptpb.Event_ToolStart:
+		tool := message.Event.GetToolStart()
+		h.recordToolCall(transcriptBellStepID(tool.StepId))
+	case *transcriptpb.Event_StepState:
+		step := message.Event.GetStepState()
+		if step.Lifecycle == transcriptpb.StepLifecycle_STEP_LIFECYCLE_FINISHED {
+			h.recordStepFinished(transcriptBellStepID(step.StepId))
 		}
-	case clientui.TranscriptMessageLiveRunFinished:
-		result := message.Payload().(clientui.TranscriptLiveRunResult)
-		if result.ResultKind == clientui.LiveRunResultNoFinalAnswer {
+	case *transcriptpb.Event_LiveRunFinished:
+		result := message.Event.GetLiveRunFinished()
+		if result.ResultKind == transcriptpb.LiveRunResultKind_LIVE_RUN_RESULT_KIND_NO_FINAL_ANSWER {
 			h.clearPendingTurnCompletionForNoFinal()
 		}
-	case clientui.TranscriptMessageCommittedRow:
-		row := message.Payload().(clientui.TranscriptCommittedRow)
-		if row.Kind != clientui.TranscriptRowAssistant || row.Assistant == nil {
+	case *transcriptpb.Event_CommittedRow:
+		assistant := message.Event.GetCommittedRow().GetAssistant()
+		if assistant == nil {
 			return
 		}
-		switch row.Assistant.Phase {
-		case transcript.AssistantPhaseFinal:
-			h.recordTurnCompletion(row.Assistant.StepID, row.Assistant.Text)
+		switch assistant.Phase {
+		case transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL:
+			h.recordTurnCompletion(transcriptBellStepID(assistant.StepId), assistant.Text)
 		}
 	}
+}
+
+func transcriptBellStepID(raw string) runtimeids.StepID {
+	id, err := runtimeids.ParseStepID(raw)
+	if err != nil {
+		panic(err)
+	}
+	return id
 }

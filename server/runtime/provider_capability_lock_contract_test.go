@@ -8,21 +8,21 @@ import (
 	"core/server/session"
 )
 
-func TestNewUsesPersistedProviderContractWhenLiveCapabilitiesUnavailable(t *testing.T) {
+func TestFastModeAvailabilityUsesCurrentConnectionCapabilityWithOldSessionContract(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	persisted := llm.ProviderCapabilities{
-		ProviderID:           "openai",
-		SupportsResponsesAPI: true,
-		IsOpenAIFirstParty:   true,
-	}
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model:            "gpt-5.3-codex",
-		ProviderContract: llm.LockedProviderCapabilitiesFromContract(persisted),
+		Model: "custom-model",
+		ProviderContract: session.LockedProviderCapabilities{
+			ProviderID: "anthropic",
+		},
 	}); err != nil {
 		t.Fatalf("persist provider contract: %v", err)
 	}
 
+	currentCapabilities := llm.ProviderCapabilities{
+		ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsFastMode: true,
+	}
 	client := &fakeClient{
 		capsErr: errors.New("transient provider capability failure"),
 	}
@@ -31,13 +31,13 @@ func TestNewUsesPersistedProviderContractWhenLiveCapabilitiesUnavailable(t *test
 		mustMaterializeTestEventLog(t, store),
 		client,
 		newTestToolRegistry(t),
-		Config{Model: "gpt-5.3-codex"},
+		Config{Model: "custom-model", ProviderCapabilitiesOverride: &currentCapabilities},
 	)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	t.Cleanup(func() { _ = engine.Close() })
 	if !engine.FastModeAvailable() {
-		t.Fatal("persisted supported provider was reported unavailable")
+		t.Fatal("current provider capability was ignored in favor of the old Session provider facts")
 	}
 }

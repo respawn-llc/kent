@@ -102,7 +102,12 @@ func TranscriptEntriesFromEvent(evt Event) []ChatEntry {
 		if evt.CacheWarning == nil {
 			return nil
 		}
-		entries = []ChatEntry{{Role: cacheWarningTranscriptRole, Text: transcript.CacheWarningText(*evt.CacheWarning), Visibility: evt.CacheWarningVisibility}}
+		entries = []ChatEntry{{
+			Role:         cacheWarningTranscriptRole,
+			Text:         transcript.CacheWarningText(*evt.CacheWarning),
+			Visibility:   evt.CacheWarningVisibility,
+			CacheWarning: copyCacheWarning(evt.CacheWarning),
+		}}
 	case EventLocalEntryAdded:
 		if evt.LocalEntry == nil {
 			return nil
@@ -173,6 +178,7 @@ func resolvedToolResultForMessage(msg llm.Message, completions map[string]tools.
 		result.Summary = completion.Summary
 		result.CondensedText = completion.CondensedText
 		result.Presentation = completion.Presentation
+		result.QuestionAnswer = cloneAskQuestionAnswer(completion.QuestionAnswer)
 	}
 	if result.Name == "" {
 		result.Name = toolspec.ID("tool")
@@ -181,8 +187,9 @@ func resolvedToolResultForMessage(msg llm.Message, completions map[string]tools.
 }
 
 func toolResultChatEntry(result tools.Result) ChatEntry {
+	content := projectToolResultContent(result)
 	role := "tool_result_ok"
-	if result.IsError {
+	if content.isError {
 		role = "tool_result_error"
 	}
 	presentation := result.Presentation
@@ -195,10 +202,43 @@ func toolResultChatEntry(result tools.Result) ChatEntry {
 	return ChatEntry{
 		Visibility:        transcript.EntryVisibilityOngoingCollapsed,
 		Role:              role,
-		Text:              tools.FormatToolResultByName(string(result.Name), result.Output, result.IsError),
+		Text:              content.text,
+		WebSearch:         content.webSearch,
 		CondensedText:     condensedText,
 		ToolCallID:        strings.TrimSpace(result.CallID),
 		ToolResultSummary: summary,
 		ToolCall:          presentation,
+		QuestionAnswer:    cloneAskQuestionAnswer(result.QuestionAnswer),
 	}
+}
+
+type toolResultContent struct {
+	text      string
+	isError   bool
+	webSearch *transcript.WebSearchDetail
+}
+
+func projectToolResultContent(result tools.Result) toolResultContent {
+	if result.Name != toolspec.ToolWebSearch {
+		return toolResultContent{
+			text:    tools.FormatToolResultByName(string(result.Name), result.Output, result.IsError),
+			isError: result.IsError,
+		}
+	}
+	if result.IsError {
+		diagnostic, err := tools.DecodeWebSearchFailure(result.Output)
+		if err != nil {
+			return toolResultContent{text: err.Error(), isError: true}
+		}
+		content := toolResultContent{isError: true}
+		if diagnostic != nil {
+			content.text = *diagnostic
+		}
+		return content
+	}
+	detail, err := tools.DecodeWebSearchDetail(result.Output)
+	if err != nil {
+		return toolResultContent{text: err.Error(), isError: true}
+	}
+	return toolResultContent{webSearch: detail}
 }

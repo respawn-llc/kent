@@ -235,7 +235,12 @@ func (s *Store) resolveManualMoveExecutablePreview(
 		}
 		contextUnavailableForCandidate, err := s.manualMoveContextUnavailable(ctx, q, definition, req.TaskID, candidate, currentNodes)
 		if err != nil {
-			return ManualMovePreview{}, err
+			var unavailable workflow.RetainedTargetUnavailableError
+			if !errors.As(err, &unavailable) || (req.TransitionKey != nil && *req.TransitionKey == candidate.TransitionKey) {
+				return ManualMovePreview{}, err
+			}
+			// An unavailable incoming route must not prevent choosing another route.
+			contextUnavailableForCandidate = true
 		}
 		if contextUnavailableForCandidate {
 			contextUnavailable = true
@@ -707,7 +712,7 @@ func (s *Store) addManualMoveArrivedFanoutValues(
 	taskID workflow.TaskID,
 	environment *manualMoveValueEnvironment,
 ) error {
-	arrivals, _, err := currentFanoutJoinArrivals(ctx, q, taskID)
+	arrivals, _, err := currentFanoutJoinArrivals(ctx, q, taskID, nil)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil

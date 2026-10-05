@@ -1,22 +1,18 @@
 package app
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"io"
-	"sync"
-	"testing"
-	"time"
-
 	"core/cli/app/internal/runtimeattach"
 	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
-
+	"errors"
+	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+	"io"
+	"testing"
 )
 
 func queuedInputsForTest(texts ...string) []queuedInputItem {
@@ -137,145 +133,20 @@ func TestInjectedQueueCreateConnectionFailureRestoresDraftWithoutTranscriptEntry
 	}
 }
 
-func TestAllowCommentaryQueueCreateConnectionFailureAnswersIndependently(t *testing.T) {
-	client := &runtimeControlFakeClient{submitErr: io.EOF}
-	model := newProjectedTestUIModel(client)
-	control := newRecordingPromptControl()
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	model.promptAnswers = newTranscriptPromptAnswerer(ctx, control).withConnectionOutcomeSink(func(err error) {
-		enqueueRuntimeConnectionStateChange(model.runtimeConnectionEvents, err)
-	})
-	if model.runtimeConnectionEvents == nil {
-		model.runtimeConnectionEvents = make(chan runtimeConnectionStateChangedMsg, 1)
-	}
-	model.setRuntimeActivityBusyForTest(true)
-	model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(
-		testApprovalPrompt(
-			"allow-commentary-create-failure",
-			"Allow access?",
-			clientui.ApprovalDecisionAllowOnce,
-			clientui.ApprovalDecisionDeny,
-		),
-	)})
-	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyTab})
-	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("failed commentary")})
-
-	next, queueCmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	model = next.(*uiModel)
-	if queueCmd == nil || !model.ask.answerPending {
-		t.Fatal("allow commentary did not enter the queue stage")
-	}
-	queueResult := queueCmd()
-	queueMsg, ok := queueResult.(injectedQueueCreateDoneMsg)
-	if !ok {
-		t.Fatalf("queue completion = %T, want injectedQueueCreateDoneMsg", queueResult)
-	}
-
-	expiryStarted := make(chan struct{})
-	releaseExpiry := make(chan struct{})
-	var expiryOnce sync.Once
-	previousSchedule := scheduleTransientStatusClear
-	scheduleTransientStatusClear = func(_ time.Duration, token uint64) tea.Cmd {
-		return func() tea.Msg {
-			expiryOnce.Do(func() { close(expiryStarted) })
-			<-releaseExpiry
-			return clearTransientStatusMsg{token: token}
-		}
-	}
-	t.Cleanup(func() {
-		scheduleTransientStatusClear = previousSchedule
-	})
-
-	next, returnedCmd := model.Update(queueMsg)
-	model = next.(*uiModel)
-	if got, want := testMainInput(model), "failed commentary"; got != want {
-		t.Fatalf("restored commentary = %q, want %q", got, want)
-	}
-	if len(model.injectedQueue) != 0 {
-		t.Fatalf("failed queue state = %+v, want no items", model.injectedQueue)
-	}
-	if model.activity == uiActivityError {
-		t.Fatalf("activity = %v, want no failure-owned error label", model.activity)
-	}
-	if got, want := ansi.Strip(model.layout().renderStatusNotice(statusLineUnboundedWidth)), runtimeattach.FormatSubmissionError(io.EOF); got != want {
-		t.Fatalf("active status notice = %q, want %q", got, want)
-	}
-
-	if returnedCmd == nil {
-		t.Fatal("queue failure returned no independent effects")
-	}
-	effect := returnedCmd()
-	batch, ok := effect.(tea.BatchMsg)
-	if !ok {
-		t.Fatalf("queue failure effect = %T, want exported tea.BatchMsg", effect)
-	}
-	results := make(chan tea.Msg, len(batch))
-	for _, child := range batch {
-		if child == nil {
-			continue
-		}
-		go func(command tea.Cmd) {
-			results <- command()
-		}(child)
-	}
-	select {
-	case <-expiryStarted:
-	case <-time.After(time.Second):
-		t.Fatal("transient expiry did not start")
-	}
-
-	var batchRequest serverapi.PromptAnswerBatchRequest
-	select {
-	case batchRequest = <-control.batchRequests:
-	case <-time.After(time.Second):
-		t.Fatal("approval answer did not start while transient expiry was blocked")
-	}
-	entry := requireApprovalAnswerEntry(t, batchRequest)
-	if entry.ApprovalAnswer.Commentary == nil ||
-		*entry.ApprovalAnswer.Commentary != "failed commentary" ||
-		entry.ApprovalAnswer.Decision != clientui.ApprovalDecisionAllowOnce {
-		t.Fatalf("approval request = %+v, want Allow once with failed commentary", batchRequest)
-	}
-
-	deliveryResult := <-results
-	model = updateUIModel(t, model, deliveryResult)
-	model = updateUIModel(t, model, <-model.runtimeConnectionEvents)
-	if model.runtimeDisconnectStatusVisible() {
-		t.Fatal("successful approval delivery did not clear the disconnect state")
-	}
-	if got, want := ansi.Strip(model.layout().renderStatusNotice(statusLineUnboundedWidth)), runtimeattach.FormatSubmissionError(io.EOF); got != want {
-		t.Fatalf("status after approval delivery = %q, want transient %q", got, want)
-	}
-
-	close(releaseExpiry)
-	model = updateUIModel(t, model, <-results)
-	if got := ansi.Strip(model.layout().renderStatusNotice(statusLineUnboundedWidth)); got != "" {
-		t.Fatalf("status after transient expiry = %q, want empty", got)
-	}
-	if client.appendCalls != 0 {
-		t.Fatalf("committed-entry calls = %d, want 0", client.appendCalls)
-	}
-	if client.submitCalls != 1 {
-		t.Fatalf("submit calls = %d, want 1", client.submitCalls)
-	}
-}
-
 func TestTranscriptQueuedStateOnlyMutatesMatchingLocalRestorationOwnership(t *testing.T) {
 	disableTransientStatusClearForTest(t)
 	const localText = "  local queued text  "
 	serverText := "server queued text"
 	for _, test := range []struct {
-		status       clientui.QueuedUserMessageStatus
+		status       transcriptpb.QueuedMessageStatus
 		wantQueued   int
 		wantComposer string
 	}{
-		{status: clientui.QueuedUserMessageAccepted, wantQueued: 1, wantComposer: "existing draft"},
-		{status: clientui.QueuedUserMessageSubmitted, wantComposer: "existing draft"},
-		{status: clientui.QueuedUserMessageFailed, wantComposer: "existing draft\n\n  local queued text  "},
-		{status: clientui.QueuedUserMessageDiscarded, wantComposer: "existing draft"},
-	} {
-		t.Run(string(test.status), func(t *testing.T) {
+		{status: transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_ACCEPTED, wantQueued: 1, wantComposer: "existing draft"},
+		{status: transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_SUBMITTED, wantComposer: "existing draft"},
+		{status: transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_FAILED, wantComposer: "existing draft\n\n  local queued text  "},
+		{status: transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_DISCARDED, wantComposer: "existing draft"}} {
+		t.Run(test.status.String(), func(t *testing.T) {
 			client := &runtimeControlFakeClient{}
 			model := newProjectedTestUIModel(client)
 			testSetMainInput(model, "existing draft")
@@ -287,26 +158,23 @@ func TestTranscriptQueuedStateOnlyMutatesMatchingLocalRestorationOwnership(t *te
 				State:           injectedRuntimeQueueEnqueued,
 				submissionOrder: inputSubmissionOrder{sequence: 1},
 			}}
-			model.injectedQueue[0].ApprovalCommentaryAnswer = &clientui.PromptAnswer{PromptID: "approval"}
 			model.registerSteeredQueuedUserMessage(clientui.QueuedUserMessage{
 				ID: queueID.String(), Text: serverText})
 			model.pendingWorkRefresh.collection = runtimeinput.PendingWork{}
-			if len(model.injectedQueue) != 1 || model.injectedQueue[0].ApprovalCommentaryAnswer == nil {
+			if len(model.injectedQueue) != 1 {
 				t.Fatal("membership replacement settled local queue lifecycle")
 			}
-			if test.status == clientui.QueuedUserMessageSubmitted {
+			if test.status == transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_SUBMITTED {
 				model.queued = []queuedInputItem{{ID: "local-draft", Text: "local draft"}}
 				if cmd := model.inputController().resumeQueuedInputsAfterIdleRuntime(); cmd != nil || len(model.queued) != 1 {
 					t.Fatal("local draft advanced before accepted server work reached a terminal state")
 				}
 			}
 
-			cmd := model.applyTranscriptQueuedMessageState(clientui.TranscriptQueuedMessageState{
-				QueueItemID: queueID,
-				Status:      test.status,
-				Text:        &serverText,
-			})
-			if test.status == clientui.QueuedUserMessageSubmitted {
+			cmd := model.applyTranscriptQueuedMessageState(&transcriptpb.QueuedMessageState{QueueItemId: queueID.String(),
+				Status: test.status,
+				Text:   &serverText})
+			if test.status == transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_SUBMITTED {
 				cmd = tea.Batch(cmd, model.inputController().resumeQueuedInputsAfterIdleRuntime())
 			}
 			for _, msg := range collectCmdMessages(t, cmd) {
@@ -319,7 +187,7 @@ func TestTranscriptQueuedStateOnlyMutatesMatchingLocalRestorationOwnership(t *te
 			if got := testMainInput(model); got != test.wantComposer {
 				t.Fatalf("composer = %q, want %q", got, test.wantComposer)
 			}
-			if test.status == clientui.QueuedUserMessageSubmitted && client.submitCalls != 1 {
+			if test.status == transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_SUBMITTED && client.submitCalls != 1 {
 				t.Fatalf("local submit calls = %d, want 1", client.submitCalls)
 			}
 		})
@@ -346,14 +214,10 @@ func TestTranscriptQueueStateWaitsForMatchingRPCOwnership(t *testing.T) {
 		},
 	}
 
-	model.applyTranscriptQueuedMessageState(clientui.TranscriptQueuedMessageState{
-		QueueItemID: secondID,
-		Status:      clientui.QueuedUserMessageAccepted,
-	})
-	model.applyTranscriptQueuedMessageState(clientui.TranscriptQueuedMessageState{
-		QueueItemID: secondID,
-		Status:      clientui.QueuedUserMessageSubmitted,
-	})
+	model.applyTranscriptQueuedMessageState(&transcriptpb.QueuedMessageState{QueueItemId: secondID.String(),
+		Status: transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_ACCEPTED})
+	model.applyTranscriptQueuedMessageState(&transcriptpb.QueuedMessageState{QueueItemId: secondID.String(),
+		Status: transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_SUBMITTED})
 	if model.injectedQueue[0].ServerID != "" || model.injectedQueue[1].ServerID != "" {
 		t.Fatalf("transcript event guessed pending ownership: %+v", model.injectedQueue)
 	}
@@ -389,12 +253,9 @@ func TestInterruptedHumanInputWaitsForMatchingRPCOwnership(t *testing.T) {
 		submissionOrder: inputSubmissionOrder{sequence: 1},
 	}}
 
-	model.applyTranscriptHumanInputInterrupted(clientui.TranscriptHumanInputInterrupted{
-		Items: []clientui.TranscriptInterruptedHumanInputItem{{
-			QueueItemID: queueID,
-			Text:        "interrupted",
-		}},
-	})
+	model.applyTranscriptHumanInputInterrupted(&transcriptpb.HumanInputInterrupted{
+		Items: []*transcriptpb.InterruptedHumanInputItem{{QueueItemId: queueID.String(),
+			Text: "interrupted"}}})
 	if len(model.injectedQueue) != 1 || len(model.unownedQueuedTerminalStates) != 1 {
 		t.Fatalf("interruption discarded unresolved ownership: queue=%+v terminal=%+v", model.injectedQueue, model.unownedQueuedTerminalStates)
 	}

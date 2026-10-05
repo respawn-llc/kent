@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
 	"core/server/launch"
 	"core/server/metadata"
 	"core/server/session"
@@ -25,29 +24,6 @@ import (
 	"core/shared/toolspec"
 )
 
-type failingAuthStateReader struct{}
-
-type nonRefreshingAuthStateReader struct {
-	loaded       auth.State
-	current      auth.State
-	loadCalls    int
-	currentCalls int
-}
-
-func (r *nonRefreshingAuthStateReader) Load(context.Context) (auth.State, error) {
-	r.loadCalls++
-	return r.loaded, nil
-}
-
-func (r *nonRefreshingAuthStateReader) CurrentState(context.Context) (auth.State, error) {
-	r.currentCalls++
-	return r.current, nil
-}
-
-func (r *nonRefreshingAuthStateReader) StoredState(context.Context) (auth.State, error) {
-	return auth.EmptyState(), nil
-}
-
 var serviceTestPersistence = sessiontest.NewPersistence()
 
 func createLaunchTestSession(t *testing.T, containerDir, name, workspace string) *session.Store {
@@ -59,219 +35,29 @@ func createLaunchTestSession(t *testing.T, containerDir, name, workspace string)
 	return store
 }
 
-func (failingAuthStateReader) Load(context.Context) (auth.State, error) {
-	return auth.EmptyState(), nil
-}
-
-func (failingAuthStateReader) CurrentState(context.Context) (auth.State, error) {
-	return auth.State{}, errors.New("auth unavailable")
-}
-
-func (failingAuthStateReader) StoredState(context.Context) (auth.State, error) {
-	return auth.EmptyState(), nil
-}
-
-func TestPlanLaunchSessionResolvesEffectiveAuthAfterFinalNamedRoleSelection(t *testing.T) {
-	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	cfg.Settings.CompactionMode = config.CompactionModeNative
-	cfg.Settings.Subagents = map[string]config.SubagentRole{
-		"worker": {
-			Settings: func() config.Settings {
-				settings := cfg.Settings
-				settings.Model = "worker-model"
-				settings.OpenAIBaseURL = "https://compatible.example/v1"
-				settings.ThinkingLevel = "high"
-				settings.Reviewer.Model = "worker-model"
-				settings.Reviewer.ThinkingLevel = "high"
-				settings.Subagents = nil
-				return settings
-			}(),
-			Sources: map[string]string{
-				"model":           "file",
-				"openai_base_url": "file",
-				"thinking_level":  "file",
-			},
-		},
-	}
-	containerDir := t.TempDir()
-	reader := &nonRefreshingAuthStateReader{
-		loaded:  auth.State{Method: auth.Method{Type: auth.MethodAPIKey}},
-		current: auth.State{Method: auth.Method{Type: auth.MethodOAuth}},
-	}
-	service := newSessionLaunchTestService(cfg, containerDir).WithAuthStateReader(reader)
-	role := "worker"
-
-	result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
-		Mode:      launch.ModeHeadless,
-		Intent:    serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
-		Overrides: serverapi.RunPromptOverrides{AgentRole: &role},
-	})
-	if err != nil {
-		t.Fatalf("PlanLaunchSession: %v", err)
-	}
-	if result.Plan.ActiveSettings.CompactionMode != config.CompactionModeLocal {
-		t.Fatalf("CompactionMode = %q, want API-key compatible-provider local fallback; refreshing OAuth would select native", result.Plan.ActiveSettings.CompactionMode)
-	}
-	if reader.loadCalls != 1 || reader.currentCalls != 1 {
-		t.Fatalf("auth calls Load/CurrentState = %d/%d, want non-refreshing policy read after existing readiness read", reader.loadCalls, reader.currentCalls)
-	}
-}
-
-func TestPlanLaunchSessionLoadsEffectiveAuthWhenLockedProviderContractIsAbsent(t *testing.T) {
-	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	cfg.Settings.CompactionMode = config.CompactionModeNative
-	containerDir := t.TempDir()
-	store := createLaunchTestSession(t, containerDir, "workspace-a", workspace)
-	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model:         cfg.Settings.Model,
-		ContextWindow: cfg.Settings.ModelContextWindow,
-	}); err != nil {
-		t.Fatalf("MarkModelDispatchLocked: %v", err)
-	}
-	reader := &nonRefreshingAuthStateReader{
-		loaded:  auth.State{Method: auth.Method{Type: auth.MethodOAuth}},
-		current: auth.State{Method: auth.Method{Type: auth.MethodOAuth}},
-	}
-	service := newSessionLaunchTestService(cfg, containerDir).WithAuthStateReader(reader)
-
-	result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
-		Mode:   launch.ModeInteractive,
-		Intent: serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, store.Meta().SessionID)),
-	})
-	if err != nil {
-		t.Fatalf("PlanLaunchSession: %v", err)
-	}
-	if result.Plan.ActiveSettings.CompactionMode != config.CompactionModeNative {
-		t.Fatalf("CompactionMode = %q, want OAuth provider-native mode", result.Plan.ActiveSettings.CompactionMode)
-	}
-	if reader.loadCalls != 1 {
-		t.Fatalf("effective auth Load calls = %d, want 1", reader.loadCalls)
-	}
-}
-
-func TestPlanLaunchSessionSkipsEffectiveAuthForExplicitProviderCapabilities(t *testing.T) {
-	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	cfg.Settings.CompactionMode = config.CompactionModeNative
-	cfg.Settings.ProviderCapabilities = config.ProviderCapabilitiesOverride{
-		ProviderID:               "custom",
-		SupportsResponsesCompact: false,
-	}
-	reader := &nonRefreshingAuthStateReader{
-		loaded: auth.State{Method: auth.Method{Type: auth.MethodOAuth}},
-	}
-	service := newSessionLaunchTestService(cfg, t.TempDir()).WithAuthStateReader(reader)
-
-	result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
-		Mode:   launch.ModeInteractive,
-		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
-	})
-	if err != nil {
-		t.Fatalf("PlanLaunchSession: %v", err)
-	}
-	if result.Plan.ActiveSettings.CompactionMode != config.CompactionModeLocal {
-		t.Fatalf("CompactionMode = %q, want explicit-capability local fallback", result.Plan.ActiveSettings.CompactionMode)
-	}
-	if reader.loadCalls != 0 {
-		t.Fatalf("effective auth Load calls = %d, want 0", reader.loadCalls)
-	}
-}
-
 func sessionLaunchStringPtr(value string) *string {
 	return &value
 }
 
 func newSessionLaunchTestService(cfg config.App, containerDir string) *Service {
+	cfg.Settings = testsetup.ProviderSettings(cfg.Settings)
 	return NewService(launch.Planner{
-		Config:                   cfg,
-		ContainerDir:             containerDir,
-		StoreOptions:             serviceTestPersistence.Options(),
-		PersistedSessions:        serviceTestPersistence,
-		ProjectWorkspaceBoundary: sessionLaunchBoundaryResolver{root: cfg.WorkspaceRoot},
-	})
+		Config:            cfg,
+		ContainerDir:      containerDir,
+		StoreOptions:      serviceTestPersistence.Options(),
+		PersistedSessions: serviceTestPersistence,
+		SessionProjects:   sessionLaunchProjectResolver{}, ManagedWorktreeRoots: sessionLaunchProjectResolver{},
+	}, ChatSettingsOwner{})
 }
 
-type sessionLaunchBoundaryResolver struct{ root string }
+type sessionLaunchProjectResolver struct{}
 
-func (r sessionLaunchBoundaryResolver) ResolveSessionProjectWorkspaceBoundary(context.Context, string) (metadata.ProjectWorkspaceBoundary, error) {
-	return metadata.ProjectWorkspaceBoundary{ProjectID: "test-project", Workspaces: []metadata.ProjectWorkspace{{CanonicalRoot: r.root}}}, nil
+func (sessionLaunchProjectResolver) ResolveSessionProjectID(context.Context, string) (string, error) {
+	return "test-project", nil
 }
 
-func (r sessionLaunchBoundaryResolver) ListManagedWorktreeRoots(context.Context) ([]string, error) {
+func (sessionLaunchProjectResolver) ListManagedWorktreeRoots(context.Context) ([]string, error) {
 	return nil, nil
-}
-
-func TestPlanLaunchSessionReadsPromptHistoryFromMetadataOnly(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv(config.PersistenceRootEnvName, home)
-	ctx := context.Background()
-	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	meta, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	binding, err := meta.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding: %v", err)
-	}
-	containerDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
-	store, err := session.Create(containerDir, filepath.Base(containerDir), cfg.WorkspaceRoot, sessioncontract.SessionCategoryMain, meta.AuthoritativeSessionStoreOptions()...)
-	if err != nil {
-		t.Fatalf("session.Create: %v", err)
-	}
-	eventLog, err := store.MaterializeEventLog()
-	if err != nil {
-		t.Fatalf("materialize event log: %v", err)
-	}
-	eventLogText := "event-log history must not become prompt history"
-	if _, receipt, err := eventLog.AppendRecord(nil, session.LocalEntryRecord{
-		Visibility: session.EntryVisibilityHidden,
-		Role:       "system",
-		Text:       &eventLogText,
-	}); err != nil || !receipt.Committed {
-		t.Fatalf("append event-log entry: receipt=%+v error=%v", receipt, err)
-	}
-	if _, err := meta.RecordPromptHistoryEntry(ctx, metadata.PromptHistoryEntry{
-		SessionID: store.Meta().SessionID,
-		Text:      "db-history",
-	}); err != nil {
-		t.Fatalf("record metadata prompt history: %v", err)
-	}
-	service := NewService(launch.Planner{
-		Config:                   cfg,
-		ContainerDir:             containerDir,
-		StoreOptions:             meta.AuthoritativeSessionStoreOptions(),
-		PersistedSessions:        meta,
-		ProjectWorkspaceBoundary: meta,
-	}).WithPromptHistoryReader(meta)
-
-	resp, err := service.PlanLaunchSession(ctx, PlanRequest{
-		Mode:   launch.ModeInteractive,
-		Intent: serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, store.Meta().SessionID)),
-	})
-	if err != nil {
-		t.Fatalf("PlanLaunchSession: %v", err)
-	}
-	if !reflect.DeepEqual(resp.Plan.PromptHistory, []string{"db-history"}) {
-		t.Fatalf("prompt history = %+v, want metadata only", resp.Plan.PromptHistory)
-	}
 }
 
 func TestServicePlanSessionProjectsTypedOptionalSessionName(t *testing.T) {
@@ -321,7 +107,7 @@ func TestPlanLaunchSessionReturnsPlanWithoutRegisteringStore(t *testing.T) {
 	service := newSessionLaunchTestService(config.App{
 		WorkspaceRoot:   "/tmp/workspace-a",
 		PersistenceRoot: persistenceRoot,
-		Settings:        config.Settings{Model: "gpt-5", OpenAIBaseURL: "http://config.local/v1"},
+		Settings:        testsetup.WithResponsesProvider(config.Settings{Model: "gpt-6-sol"}, "http://config.local/v1"),
 	}, containerDir)
 
 	resp, err := service.PlanLaunchSession(context.Background(), PlanRequest{
@@ -334,8 +120,280 @@ func TestPlanLaunchSessionReturnsPlanWithoutRegisteringStore(t *testing.T) {
 	if resp.Plan.Descriptor.SessionID().String() == "" {
 		t.Fatal("expected session id")
 	}
-	if resp.Plan.ActiveSettings.OpenAIBaseURL != "http://config.local/v1" {
-		t.Fatalf("active OpenAI base URL = %q, want http://config.local/v1", resp.Plan.ActiveSettings.OpenAIBaseURL)
+	definition, err := resp.Plan.ActiveSettings.SelectedConnection()
+	if err != nil || definition.Endpoint == nil || *definition.Endpoint != "http://config.local/v1" {
+		t.Fatalf("active connection = %+v, %v", definition, err)
+	}
+}
+
+func TestPlanLaunchSessionCreatesIndependentMainSessionWithInitialChatState(t *testing.T) {
+	workspace := t.TempDir()
+	persistenceRoot := t.TempDir()
+	containerDir := t.TempDir()
+	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
+	cfg.Settings.Model = "gpt-6-sol"
+	cfg.Settings.Reviewer.Frequency = "edits"
+	cfg.Settings.ThinkingLevel = "medium"
+	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolAskQuestion: true}
+	service := newSessionLaunchTestService(cfg, containerDir)
+	draft := " exact unsent\ncomposer text "
+
+	result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
+		Mode:   launch.ModeInteractive,
+		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+		InitialChat: &InitialChatCreation{
+			Settings: serverapi.InitialChatSettings{
+				AgentRole:             config.DefaultSubagentRole,
+				Supervisor:            "all",
+				Thinking:              textutil.Value("high"),
+				Fast:                  textutil.Value(false),
+				QuestionsEnabled:      false,
+				AutoCompactionEnabled: false,
+			},
+			InputDraft: &draft,
+		},
+	})
+	if err != nil {
+		t.Fatalf("PlanLaunchSession: %v", err)
+	}
+
+	reopened, err := session.Open(
+		filepath.Join(containerDir, result.Plan.Descriptor.SessionID().String()),
+		serviceTestPersistence.Options()...,
+	)
+	if err != nil {
+		t.Fatalf("open created Session: %v", err)
+	}
+	state, err := session.ChatDraftStateFromMeta(reopened.Meta())
+	if err != nil {
+		t.Fatalf("ChatDraftStateFromMeta: %v", err)
+	}
+	want := sessiontest.CompleteChatSettingsState(
+		t,
+		config.DefaultSubagentRole,
+		"all",
+		"high",
+		false,
+		false,
+		false,
+	)
+	if state.Message != draft ||
+		state.Agent != want.AgentSelector() ||
+		!reflect.DeepEqual(state.Settings, want.Settings) {
+		t.Fatalf("created Chat state = %+v, want draft %q and settings %+v", state, draft, want)
+	}
+	if result.Plan.ActiveSettings.Reviewer.Frequency != "all" ||
+		result.Plan.ActiveSettings.ThinkingLevel != "high" ||
+		result.Plan.ActiveSettings.PriorityRequestMode ||
+		result.Plan.QuestionsEnabled ||
+		result.Plan.AutoCompactionEnabled {
+		t.Fatalf(
+			"planned Chat settings = supervisor=%q thinking=%q fast=%t questions=%t auto_compaction=%t",
+			result.Plan.ActiveSettings.Reviewer.Frequency,
+			result.Plan.ActiveSettings.ThinkingLevel,
+			result.Plan.ActiveSettings.PriorityRequestMode,
+			result.Plan.QuestionsEnabled,
+			result.Plan.AutoCompactionEnabled,
+		)
+	}
+}
+
+func TestPlanLaunchSessionReturnsNoSessionWhenOrdinaryCreationPersistenceFails(t *testing.T) {
+	workspace := t.TempDir()
+	cfg := loadSessionLaunchTestConfig(t, workspace, t.TempDir())
+	cfg.Settings.Model = "gpt-6-sol"
+	persistence := sessiontest.NewPersistence()
+	gate := sessiontest.NewPersistenceGate(persistence)
+	persistenceErr := errors.New("ordinary creation persistence failed")
+	gate.FailNext(persistenceErr)
+	service := NewService(launch.Planner{
+		Config:       cfg,
+		ContainerDir: t.TempDir(),
+		StoreOptions: []session.StoreOption{
+			session.WithPersistenceObserver(gate),
+			session.WithPersistedSessionResolver(persistence),
+			session.WithSessionContextFactWriter(persistence),
+		},
+		PersistedSessions: persistence,
+		SessionProjects:   sessionLaunchProjectResolver{}, ManagedWorktreeRoots: sessionLaunchProjectResolver{},
+	}, ChatSettingsOwner{})
+
+	result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
+		Mode:   launch.ModeInteractive,
+		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+		InitialChat: &InitialChatCreation{
+			Settings: serverapi.InitialChatSettings{
+				AgentRole:             config.DefaultSubagentRole,
+				Supervisor:            "edits",
+				QuestionsEnabled:      true,
+				AutoCompactionEnabled: true,
+			},
+		},
+	})
+	if !errors.Is(err, persistenceErr) {
+		t.Fatalf("PlanLaunchSession error = %v, want ordinary persistence failure", err)
+	}
+	if !reflect.DeepEqual(result, PlanResult{}) {
+		t.Fatalf("PlanLaunchSession result = %+v, want no Session result", result)
+	}
+}
+
+func TestPlanLaunchSessionMakesInitialChatVisibleWithoutDraft(t *testing.T) {
+	workspace := t.TempDir()
+	persistenceRoot := t.TempDir()
+	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
+	cfg.Settings.Model = "gpt-6-sol"
+	metadataStore, err := metadata.Open(persistenceRoot)
+	if err != nil {
+		t.Fatalf("metadata.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = metadataStore.Close() })
+	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), workspace)
+	if err != nil {
+		t.Fatalf("RegisterWorkspaceBinding: %v", err)
+	}
+	containerDir := filepath.Join(persistenceRoot, "projects", binding.ProjectID, "sessions")
+	if err := os.MkdirAll(containerDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll Session container: %v", err)
+	}
+	service := NewService(launch.Planner{
+		Config:            cfg,
+		ContainerDir:      containerDir,
+		StoreOptions:      metadataStore.AuthoritativeSessionStoreOptions(),
+		PersistedSessions: metadataStore,
+		SessionProjects:   metadataStore, ManagedWorktreeRoots: metadataStore,
+	}, ChatSettingsOwner{})
+
+	result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
+		Mode:   launch.ModeInteractive,
+		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+		InitialChat: &InitialChatCreation{
+			Settings: serverapi.InitialChatSettings{
+				AgentRole:             config.DefaultSubagentRole,
+				Supervisor:            "edits",
+				QuestionsEnabled:      true,
+				AutoCompactionEnabled: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PlanLaunchSession: %v", err)
+	}
+	page, err := metadataStore.ListSessionPage(
+		t.Context(),
+		binding.ProjectID,
+		sessioncontract.SessionCategoryMain,
+		0,
+		10,
+	)
+	if err != nil {
+		t.Fatalf("ListSessionPage: %v", err)
+	}
+	if len(page.Sessions) != 1 ||
+		page.Sessions[0].SessionID != result.Plan.Descriptor.SessionID() {
+		t.Fatalf("visible Sessions = %+v, want created initial Chat", page.Sessions)
+	}
+}
+
+func TestPlanLaunchSessionRebasesRemovedInitialAgentToReloadedDefaultBaseline(t *testing.T) {
+	workspace := t.TempDir()
+	containerDir := t.TempDir()
+	stale := loadSessionLaunchTestConfig(t, workspace, t.TempDir())
+	workerSettings := stale.Settings
+	workerSettings.Model = "gpt-6-sol"
+	workerSettings.ThinkingLevel = "high"
+	stale.Settings.Subagents = map[string]config.SubagentRole{
+		"worker": {
+			Settings:      workerSettings,
+			AgentCallable: true, Sources: map[string]config.Origin{"agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
+		},
+	}
+	current := stale
+	current.Settings.Subagents = nil
+	current.Settings.Model = "gpt-6-luna"
+	current.Settings.Reviewer.Frequency = "off"
+	current.Settings.ThinkingLevel = "low"
+	current.Settings.PriorityRequestMode = false
+	current.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolAskQuestion: false}
+	current.Settings.CompactionMode = config.CompactionModeNone
+	persistence := sessiontest.NewPersistence()
+	reloads := 0
+	service := NewService(launch.Planner{
+		Config:            stale,
+		ContainerDir:      containerDir,
+		StoreOptions:      persistence.Options(),
+		PersistedSessions: persistence,
+		SessionProjects:   sessionLaunchProjectResolver{}, ManagedWorktreeRoots: sessionLaunchProjectResolver{},
+		ReloadConfig: func() (config.App, error) {
+			reloads++
+			return current, nil
+		},
+	}, ChatSettingsOwner{})
+	fast := true
+	thinking := "high"
+
+	result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
+		Mode:   launch.ModeInteractive,
+		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+		InitialChat: &InitialChatCreation{
+			Settings: serverapi.InitialChatSettings{
+				AgentRole:             "worker",
+				Supervisor:            "all",
+				Thinking:              &thinking,
+				Fast:                  &fast,
+				QuestionsEnabled:      true,
+				AutoCompactionEnabled: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PlanLaunchSession: %v", err)
+	}
+	if reloads != 1 {
+		t.Fatalf("ReloadConfig calls = %d, want 1", reloads)
+	}
+	reopened, err := session.Open(
+		filepath.Join(containerDir, result.Plan.Descriptor.SessionID().String()),
+		persistence.Options()...,
+	)
+	if err != nil {
+		t.Fatalf("open created Session: %v", err)
+	}
+	state, err := session.ChatSettingsStateFromMeta(reopened.Meta())
+	if err != nil {
+		t.Fatalf("ChatSettingsStateFromMeta: %v", err)
+	}
+	want := sessiontest.CompleteChatSettingsState(
+		t,
+		config.DefaultSubagentRole,
+		"off",
+		"low",
+		false,
+		false,
+		true,
+	)
+	if !reflect.DeepEqual(state, want) {
+		gotSettings := session.ChatSettings{
+			Supervisor:     *state.Settings.Supervisor,
+			Thinking:       *state.Settings.Thinking,
+			Fast:           *state.Settings.Fast,
+			Questions:      *state.Settings.Questions,
+			AutoCompaction: *state.Settings.AutoCompaction,
+		}
+		wantSettings := session.ChatSettings{
+			Supervisor:     *want.Settings.Supervisor,
+			Thinking:       *want.Settings.Thinking,
+			Fast:           *want.Settings.Fast,
+			Questions:      *want.Settings.Questions,
+			AutoCompaction: *want.Settings.AutoCompaction,
+		}
+		t.Fatalf(
+			"rebased initial Chat settings = agent:%q settings:%+v, want agent:%q settings:%+v",
+			state.AgentSelector(),
+			gotSettings,
+			want.AgentSelector(),
+			wantSettings,
+		)
 	}
 }
 
@@ -345,21 +403,20 @@ func TestPlanLaunchSessionUsesOneConfigSnapshotForNamedRole(t *testing.T) {
 	workspace := t.TempDir()
 	snapshot := loadSessionLaunchTestConfig(t, workspace, t.TempDir())
 	roleSettings := snapshot.Settings
-	roleSettings.Model = "gpt-5.3-codex-spark"
+	roleSettings.Model = "gpt-6-luna"
 	snapshot.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
-			Settings:         roleSettings,
-			Sources:          map[string]string{"model": "file"},
-			AgentCallable:    true,
-			AgentCallableSet: true,
+			Settings:      roleSettings,
+			Sources:       map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
+			AgentCallable: true,
 		},
 	}
 	reloads := 0
 	service := NewService(launch.Planner{
-		Config:                   snapshot,
-		ContainerDir:             t.TempDir(),
-		StoreOptions:             serviceTestPersistence.Options(),
-		ProjectWorkspaceBoundary: sessionLaunchBoundaryResolver{root: snapshot.WorkspaceRoot},
+		Config:          snapshot,
+		ContainerDir:    t.TempDir(),
+		StoreOptions:    serviceTestPersistence.Options(),
+		SessionProjects: sessionLaunchProjectResolver{}, ManagedWorktreeRoots: sessionLaunchProjectResolver{},
 		ReloadConfig: func() (config.App, error) {
 			reloads++
 			if reloads != 1 {
@@ -374,7 +431,7 @@ func TestPlanLaunchSessionUsesOneConfigSnapshotForNamedRole(t *testing.T) {
 			}
 			return snapshot, nil
 		},
-	})
+	}, ChatSettingsOwner{})
 	role := "worker"
 
 	response, err := service.PlanLaunchSession(context.Background(), PlanRequest{
@@ -382,7 +439,7 @@ func TestPlanLaunchSessionUsesOneConfigSnapshotForNamedRole(t *testing.T) {
 		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 		Overrides: serverapi.RunPromptOverrides{
 			AgentRole: &role,
-			Model:     "gpt-5.4",
+			Model:     "gpt-6-sol",
 		},
 	})
 	if err != nil {
@@ -391,7 +448,7 @@ func TestPlanLaunchSessionUsesOneConfigSnapshotForNamedRole(t *testing.T) {
 	if reloads != 1 {
 		t.Fatalf("ReloadConfig called %d times, want exactly once", reloads)
 	}
-	if response.Plan.ActiveSettings.Model != "gpt-5.4" {
+	if response.Plan.ActiveSettings.Model != "gpt-6-sol" {
 		t.Fatalf("model = %q, want request override from the captured snapshot", response.Plan.ActiveSettings.Model)
 	}
 }
@@ -401,19 +458,20 @@ func TestPlanLaunchSessionRejectsInvalidPreparedNamedTargetBeforeCreatingSession
 	workspace := t.TempDir()
 	snapshot := loadSessionLaunchTestConfig(t, workspace, t.TempDir())
 	roleSettings := snapshot.Settings
-	roleSettings.Model = "gpt-5.3-codex-spark"
+	roleSettings.Model = "gpt-6-luna"
 	roleSettings.ModelContextWindow = 100
 	roleSettings.ContextCompactionThresholdTokens = 101
 	snapshot.Settings.Subagents = map[string]config.SubagentRole{
 		"invalid": {
 			Settings: roleSettings,
-			Sources: map[string]string{
-				"model":                               "file",
-				"model_context_window":                "file",
-				"context_compaction_threshold_tokens": "file",
+			Sources: map[string]config.Origin{
+				"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}},
+
+				"model_context_window": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model_context_window"}},
+
+				"context_compaction_threshold_tokens": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "context_compaction_threshold_tokens"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}},
 			},
-			AgentCallable:    true,
-			AgentCallableSet: true,
+			AgentCallable: true,
 		},
 	}
 	containerDir := t.TempDir()
@@ -440,7 +498,7 @@ func TestPlanLaunchSessionRejectsUnknownParentBeforeRegisteringStore(t *testing.
 	service := newSessionLaunchTestService(config.App{
 		WorkspaceRoot:   t.TempDir(),
 		PersistenceRoot: t.TempDir(),
-		Settings:        config.Settings{Model: "gpt-5"},
+		Settings:        config.Settings{Model: "gpt-6-sol"},
 	}, t.TempDir())
 	unknownParent := mustSessionLaunchIntentID(t, "unknown-parent")
 	_, err := service.PlanLaunchSession(context.Background(), PlanRequest{
@@ -486,42 +544,71 @@ func TestPlanLaunchSessionUsesResolvedCallerWorkflowOrigin(t *testing.T) {
 	roleSettings.ThinkingLevel = "high"
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
-			Settings:         roleSettings,
-			Sources:          map[string]string{"thinking_level": "file"},
-			AgentCallable:    true,
-			AgentCallableSet: true,
+			Settings:      roleSettings,
+			Sources:       map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
+			AgentCallable: true,
 		},
 	}
 	service := NewService(launch.Planner{
-		Config:                   cfg,
-		ContainerDir:             containerDir,
-		StoreOptions:             meta.AuthoritativeSessionStoreOptions(),
-		PersistedSessions:        meta,
-		ProjectWorkspaceBoundary: meta,
-	})
-	worker := "worker"
+		Config:            cfg,
+		ContainerDir:      containerDir,
+		StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
+		PersistedSessions: meta,
+		SessionProjects:   meta, ManagedWorktreeRoots: meta,
+	}, ChatSettingsOwner{})
 	workflowCallerID := workflowCaller.Meta().SessionID
 	workflowCallerRuntimeID := mustSessionLaunchIntentID(t, workflowCallerID)
-	_, err = service.PlanLaunchSession(ctx, PlanRequest{
-		Mode:            launch.ModeHeadless,
-		Intent:          serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(workflowCallerRuntimeID)),
-		CallerSessionID: &workflowCallerID,
-		Overrides:       serverapi.RunPromptOverrides{AgentRole: &worker},
-	})
-	var denied *serverapi.SubagentLaunchDeniedError
-	if !errors.As(err, &denied) || denied.Kind != serverapi.SubagentLaunchDenialNotCallable {
-		t.Fatalf("workflow caller error = %T %v, want not-callable denial", err, err)
-	}
-
 	ordinaryCallerID := ordinaryCaller.Meta().SessionID
 	ordinaryCallerRuntimeID := mustSessionLaunchIntentID(t, ordinaryCallerID)
-	if _, err := service.PlanLaunchSession(ctx, PlanRequest{
-		Mode:            launch.ModeHeadless,
-		Intent:          serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(ordinaryCallerRuntimeID)),
-		CallerSessionID: &ordinaryCallerID,
-		Overrides:       serverapi.RunPromptOverrides{AgentRole: &worker},
-	}); err != nil {
-		t.Fatalf("ordinary caller target: %v", err)
+	for _, role := range []*string{textutil.Value("worker"), textutil.Value(config.DefaultSubagentRole), textutil.Value(config.BuiltInSubagentRoleFast), nil} {
+		_, err = service.PlanLaunchSession(ctx, PlanRequest{
+			Mode:            launch.ModeHeadless,
+			Intent:          serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(workflowCallerRuntimeID)),
+			CallerSessionID: &workflowCallerID,
+			Overrides:       serverapi.RunPromptOverrides{AgentRole: role},
+		})
+		var denied *serverapi.SubagentLaunchDeniedError
+		if !errors.As(err, &denied) || denied.Kind != serverapi.SubagentLaunchDenialNotCallable {
+			t.Fatalf("workflow caller error = %T %v, want not-callable denial", err, err)
+		}
+		if _, err := service.PlanLaunchSession(ctx, PlanRequest{
+			Mode:            launch.ModeHeadless,
+			Intent:          serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(ordinaryCallerRuntimeID)),
+			CallerSessionID: &ordinaryCallerID,
+			Overrides:       serverapi.RunPromptOverrides{AgentRole: role},
+		}); err != nil {
+			t.Fatalf("ordinary caller target: %v", err)
+		}
+	}
+	removed, err := session.Create(containerDir, "removed", workspace, sessioncontract.SessionCategoryMain, meta.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, workflowEnabled := range []bool{false, true} {
+		if err := removed.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("removed")}); err != nil {
+			t.Fatal(err)
+		}
+		cfg.Settings.Workflow.Subagents = workflowEnabled
+		cfg.Settings.Subagents[config.DefaultSubagentRole] = config.SubagentRole{
+			WorkflowSubagent: false, Sources: map[string]config.Origin{"workflow_subagent": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "workflow_subagent"}}},
+		}
+		service := NewService(launch.Planner{
+			Config: cfg, ContainerDir: containerDir, StoreOptions: meta.AuthoritativeSessionStoreOptions(),
+			PersistedSessions: meta, SessionProjects: meta, ManagedWorktreeRoots: meta,
+		}, ChatSettingsOwner{})
+		intent := serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, removed.Meta().SessionID))
+		_, err := service.PlanLaunchSession(ctx, PlanRequest{
+			Mode: launch.ModeHeadless, Intent: intent, CallerSessionID: &workflowCallerID,
+		})
+		var denied *serverapi.SubagentLaunchDeniedError
+		if !errors.As(err, &denied) || denied.Kind != serverapi.SubagentLaunchDenialNotCallable {
+			t.Fatalf("removed role, workflow enabled=%t: error=%v, want not-callable denial", workflowEnabled, err)
+		}
+		if _, err := service.PlanLaunchSession(ctx, PlanRequest{
+			Mode: launch.ModeHeadless, Intent: intent, CallerSessionID: &ordinaryCallerID,
+		}); err != nil {
+			t.Fatalf("ordinary caller resuming removed role: %v", err)
+		}
 	}
 }
 func TestPlanLaunchSessionPreservesLockedAgentRoleAndTools(t *testing.T) {
@@ -542,10 +629,9 @@ func TestPlanLaunchSessionPreservesLockedAgentRoleAndTools(t *testing.T) {
 	persistedSettings.ThinkingLevel = "low"
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		persistedRole: {
-			Settings:         persistedSettings,
-			Sources:          map[string]string{"thinking_level": "file"},
-			AgentCallable:    true,
-			AgentCallableSet: true,
+			Settings:      persistedSettings,
+			Sources:       map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
+			AgentCallable: true,
 		},
 	}
 	service := newSessionLaunchTestService(cfg, containerDir)
@@ -591,10 +677,9 @@ func TestPlanLaunchSessionPreparesOmittedSelectedRoleBeforeMaterialization(t *te
 	roleSettings.ThinkingLevel = "high"
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		role: {
-			Settings:         roleSettings,
-			Sources:          map[string]string{"thinking_level": "file"},
-			AgentCallable:    true,
-			AgentCallableSet: true,
+			Settings:      roleSettings,
+			Sources:       map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
+			AgentCallable: true,
 		},
 	}
 	service := newSessionLaunchTestService(cfg, containerDir)
@@ -622,8 +707,10 @@ func TestPlanLaunchSessionRejectsOmittedTargetBeforeMaterializingSession(t *test
 	cfg := loadSessionLaunchTestConfig(t, workspace, t.TempDir())
 	cfg.Settings.Model = "claude-sonnet-4.5"
 	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolExecCommand: true}
-	cfg.Source.Sources["tools.patch"] = "default"
-	cfg.Source.Sources["tools.edit"] = "default"
+	cfg.Source.Sources["tools.patch"] = config.Origin{Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "tools.patch"}}
+
+	cfg.Source.Sources["tools.edit"] = config.Origin{Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "tools.edit"}}
+
 	service := newSessionLaunchTestService(cfg, containerDir)
 
 	_, err := service.PlanLaunchSession(context.Background(), PlanRequest{
@@ -647,11 +734,12 @@ func loadSessionLaunchTestConfig(t *testing.T, workspace string, persistenceRoot
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv(config.PersistenceRootEnvName, t.TempDir())
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
 	cfg.PersistenceRoot = persistenceRoot
+	cfg.Settings = testsetup.WriteProviderSettings(t, persistenceRoot, cfg.Settings)
 	return cfg
 }
 
@@ -661,8 +749,8 @@ func TestPlanLaunchSessionDefaultRoleClearDoesNotRequireAuthState(t *testing.T) 
 	service := newSessionLaunchTestService(config.App{
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: t.TempDir(),
-		Settings:        config.Settings{Model: "gpt-5.6-sol"},
-	}, containerDir).WithAuthStateReader(failingAuthStateReader{})
+		Settings:        config.Settings{Model: "gpt-6-sol"},
+	}, containerDir)
 
 	if _, err := service.PlanLaunchSession(context.Background(), PlanRequest{
 		Mode:      launch.ModeInteractive,
@@ -684,12 +772,12 @@ func TestPlanLaunchSessionCanProjectDefaultRoleBeforeValidation(t *testing.T) {
 	}
 	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
 	roleSettings := cfg.Settings
-	roleSettings.Model = "gpt-5.3-codex-spark"
-	roleSettings.ContextCompactionThresholdTokens = 200_000
+	roleSettings.Model = "gpt-6-luna"
+	roleSettings.ContextCompactionThresholdTokens = 300_000
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings: roleSettings,
-			Sources:  map[string]string{"model": "file", "context_compaction_threshold_tokens": "file"},
+			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "context_compaction_threshold_tokens": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "context_compaction_threshold_tokens"}}},
 		},
 	}
 	service := newSessionLaunchTestService(cfg, containerDir)
@@ -707,34 +795,6 @@ func TestPlanLaunchSessionCanProjectDefaultRoleBeforeValidation(t *testing.T) {
 	}
 }
 
-func TestPlanLaunchSessionExplicitCurrentAgentProjectsCurrentEndpoint(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	workspace := t.TempDir()
-	persistenceRoot := t.TempDir()
-	containerDir := t.TempDir()
-	store := createLaunchTestSession(t, containerDir, "workspace-a", workspace)
-	if err := store.SetContinuationContext(session.ContinuationContext{
-		OpenAIBaseURL: textutil.Value("https://old.example/v1"),
-	}); err != nil {
-		t.Fatalf("SetContinuationContext: %v", err)
-	}
-	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
-	cfg.Settings.OpenAIBaseURL = "https://new.example/v1"
-	service := newSessionLaunchTestService(cfg, containerDir)
-
-	resp, err := service.PlanLaunchSession(context.Background(), PlanRequest{
-		Mode:      launch.ModeInteractive,
-		Intent:    serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, store.Meta().SessionID)),
-		Overrides: serverapi.RunPromptOverrides{AgentRole: sessionLaunchStringPtr(config.DefaultSubagentRole)},
-	})
-	if err != nil {
-		t.Fatalf("PlanLaunchSession: %v", err)
-	}
-	if got := resp.Plan.ActiveSettings.OpenAIBaseURL; got != cfg.Settings.OpenAIBaseURL {
-		t.Fatalf("planned base URL = %q, want %q", got, cfg.Settings.OpenAIBaseURL)
-	}
-}
-
 func TestPlanLaunchSessionAgentSelectionUsesCompletePreparedBaseline(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
@@ -749,14 +809,8 @@ func TestPlanLaunchSessionAgentSelectionUsesCompletePreparedBaseline(t *testing.
 		AutoCompaction: false,
 	})
 	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
-	cfg.Settings.OpenAIBaseURL = "https://api.openai.com/v1"
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, "https://api.openai.com/v1"))
 	workerSettings := cfg.Settings
-	workerSettings.ProviderOverride = "openai"
-	workerSettings.ProviderCapabilities = config.ProviderCapabilitiesOverride{
-		ProviderID:           "openai",
-		SupportsResponsesAPI: true,
-		IsOpenAIFirstParty:   true,
-	}
 	workerSettings.Reviewer.Frequency = "all"
 	workerSettings.ThinkingLevel = "  high  "
 	workerSettings.PriorityRequestMode = true
@@ -764,22 +818,19 @@ func TestPlanLaunchSessionAgentSelectionUsesCompletePreparedBaseline(t *testing.
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings: workerSettings,
-			Sources: map[string]string{
-				"reviewer.frequency":    "file",
-				"thinking_level":        "file",
-				"priority_request_mode": "file",
-				"tools.ask_question":    "file",
+			Sources: map[string]config.Origin{
+				"reviewer.frequency": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.frequency"}},
+
+				"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}},
+
+				"priority_request_mode": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "priority_request_mode"}},
+
+				"tools.ask_question": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.ask_question"}},
 			},
 		},
 	}
 	service := newSessionLaunchTestService(cfg, containerDir)
 	worker := "worker"
-	if err := store.SetContinuationContext(session.ContinuationContext{
-		OpenAIBaseURL: textutil.Value("https://previous-agent.example/v1"),
-	}); err != nil {
-		t.Fatalf("seed previous Agent base URL: %v", err)
-	}
-
 	selected, err := service.PlanLaunchSession(t.Context(), PlanRequest{
 		Mode:      launch.ModeInteractive,
 		Intent:    serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, store.Meta().SessionID)),
@@ -791,7 +842,6 @@ func TestPlanLaunchSessionAgentSelectionUsesCompletePreparedBaseline(t *testing.
 	if strings.TrimSpace(selected.Plan.ActiveSettings.ThinkingLevel) != "high" ||
 		selected.Plan.ActiveSettings.Reviewer.Frequency != "all" ||
 		!selected.Plan.ActiveSettings.PriorityRequestMode ||
-		selected.Plan.ActiveSettings.OpenAIBaseURL != "https://api.openai.com/v1" ||
 		!selected.Plan.QuestionsEnabled ||
 		!selected.Plan.AutoCompactionEnabled {
 		t.Fatalf("selected plan = %+v, want complete worker baseline", selected.Plan)
@@ -810,7 +860,7 @@ func TestPlanLaunchSessionAgentSelectionUsesCompletePreparedBaseline(t *testing.
 		t.Fatalf("encode Session plan: %v", err)
 	}
 	if generated.Plan.ActivationAgentSelection == nil ||
-		generated.Plan.ActivationAgentSelection.Agent != "worker" ||
+		!textutil.EqualOptional(generated.Plan.ActivationAgentSelection.AgentRole, textutil.Value("worker")) ||
 		generated.Plan.ActivationAgentSelection.Baseline == nil ||
 		generated.Plan.ActivationAgentSelection.Baseline.Thinking != "high" {
 		t.Fatalf(
@@ -832,13 +882,12 @@ func TestPlanLaunchSessionProjectsUnavailableAgentWithCompleteDefaultBaseline(t 
 		t.Fatalf("seed removed Agent: %v", err)
 	}
 	if err := store.SetContinuationContext(session.ContinuationContext{
-		AgentRole:     &removed,
-		OpenAIBaseURL: textutil.Value("https://removed-agent.example/v1"),
+		AgentRole: &removed,
 	}); err != nil {
 		t.Fatalf("seed removed Agent base URL: %v", err)
 	}
 	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
-	cfg.Settings.OpenAIBaseURL = "https://api.openai.com/v1"
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, "https://api.openai.com/v1"))
 	cfg.Settings.Reviewer.Frequency = "edits"
 	cfg.Settings.ThinkingLevel = "medium"
 	cfg.Settings.PriorityRequestMode = false
@@ -852,8 +901,7 @@ func TestPlanLaunchSessionProjectsUnavailableAgentWithCompleteDefaultBaseline(t 
 	if err != nil {
 		t.Fatalf("PlanLaunchSession repair removed Agent: %v", err)
 	}
-	if repaired.Plan.ActiveSettings.OpenAIBaseURL != "https://api.openai.com/v1" ||
-		repaired.Plan.ActiveSettings.Reviewer.Frequency != "edits" ||
+	if repaired.Plan.ActiveSettings.Reviewer.Frequency != "edits" ||
 		repaired.Plan.ActiveSettings.ThinkingLevel != "medium" ||
 		repaired.Plan.ActiveSettings.PriorityRequestMode ||
 		!repaired.Plan.QuestionsEnabled ||
@@ -937,7 +985,7 @@ func assertSessionLaunchChatSettings(t *testing.T, sessionDir string, want sessi
 	if !reflect.DeepEqual(got, want) {
 		gotJSON, _ := json.Marshal(got.Settings)
 		wantJSON, _ := json.Marshal(want.Settings)
-		t.Fatalf("Chat settings state = agent %q settings %s, want agent %q settings %s", got.Agent, gotJSON, want.Agent, wantJSON)
+		t.Fatalf("Chat settings state = agent %q settings %s, want agent %q settings %s", got.AgentSelector(), gotJSON, want.AgentSelector(), wantJSON)
 	}
 }
 
@@ -952,12 +1000,12 @@ func TestPlanLaunchSessionConfigOnlyOverrideDoesNotSkipInvalidPersistedRoleValid
 	}
 	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
 	roleSettings := cfg.Settings
-	roleSettings.Model = "gpt-5.3-codex-spark"
-	roleSettings.ContextCompactionThresholdTokens = 200_000
+	roleSettings.Model = "gpt-6-luna"
+	roleSettings.ContextCompactionThresholdTokens = 300_000
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings: roleSettings,
-			Sources:  map[string]string{"model": "file", "context_compaction_threshold_tokens": "file"},
+			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "context_compaction_threshold_tokens": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "context_compaction_threshold_tokens"}}},
 		},
 	}
 	service := newSessionLaunchTestService(cfg, containerDir)
@@ -965,7 +1013,7 @@ func TestPlanLaunchSessionConfigOnlyOverrideDoesNotSkipInvalidPersistedRoleValid
 	_, err := service.PlanLaunchSession(context.Background(), PlanRequest{
 		Mode:      launch.ModeInteractive,
 		Intent:    serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, store.Meta().SessionID)),
-		Overrides: serverapi.RunPromptOverrides{Model: "gpt-5.6-sol"},
+		Overrides: serverapi.RunPromptOverrides{Model: "gpt-6-sol"},
 	})
 	if err == nil {
 		t.Fatal("expected invalid persisted role validation to fail")
@@ -985,8 +1033,8 @@ func TestPlanLaunchSessionHeadlessSelectedSessionAllowsHumanContinuationOfNonCal
 	cfg := loadSessionLaunchTestConfig(t, workspace, t.TempDir())
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
-			AgentCallableSet: true,
-			AgentCallable:    false,
+
+			AgentCallable: false, Sources: map[string]config.Origin{"agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
 		},
 	}
 	service := newSessionLaunchTestService(cfg, containerDir)
@@ -1055,12 +1103,12 @@ func TestPlanLaunchSessionInvalidRoleOverridePrecedesPersistedRoleValidation(t *
 	}
 	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
 	roleSettings := cfg.Settings
-	roleSettings.Model = "gpt-5.3-codex-spark"
-	roleSettings.ContextCompactionThresholdTokens = 200_000
+	roleSettings.Model = "gpt-6-luna"
+	roleSettings.ContextCompactionThresholdTokens = 300_000
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings: roleSettings,
-			Sources:  map[string]string{"model": "file", "context_compaction_threshold_tokens": "file"},
+			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "context_compaction_threshold_tokens": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "context_compaction_threshold_tokens"}}},
 		},
 	}
 	service := newSessionLaunchTestService(cfg, containerDir)

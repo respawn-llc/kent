@@ -21,6 +21,14 @@ import (
 // ErrResultUnavailable means a shell ID is unknown or its completed result was evicted.
 var ErrResultUnavailable = errors.New("shell result no longer available")
 
+type ConcurrentShellLimitError struct {
+	Limit int
+}
+
+func (e *ConcurrentShellLimitError) Error() string {
+	return fmt.Sprintf("Concurrent shell limit of %d reached. You can: a) help the user investigate why so many shells are running; b) wait for system load to decrease; c) clean up only shells you own; or d) raise the limit with the user's approval.", e.Limit)
+}
+
 const (
 	defaultMinimumExecToBgTime     = 15 * time.Second
 	defaultWriteYieldTime          = 250 * time.Millisecond
@@ -122,30 +130,27 @@ func newTerminalBackgroundEvent(eventType EventType, snapshot Snapshot, output c
 }
 
 type Snapshot struct {
-	ID                      string
-	ActivityID              uuid.UUID
-	OwnerSessionID          string
-	OwnerRunID              string
-	OwnerStepID             string
-	ExecutionCorrelation    *runtimeids.ExecutionCorrelation
-	State                   string
-	Command                 string
-	Workdir                 string
-	StartedAt               time.Time
-	FinishedAt              time.Time
-	ExitCode                *int
-	LogPath                 string
-	RecentOutput            string
-	OutputAvailable         bool
-	OutputRetainedFromBytes int64
-	OutputRetainedToBytes   int64
-	RawOutputRequested      bool
-	RawOutput               bool
-	Running                 bool
-	StdinOpen               bool
-	Backgrounded            bool
-	KillRequested           bool
-	LastUpdatedAt           time.Time
+	ID                   string
+	ActivityID           uuid.UUID
+	OwnerSessionID       string
+	OwnerRunID           string
+	OwnerStepID          string
+	ExecutionCorrelation *runtimeids.ExecutionCorrelation
+	State                string
+	Command              string
+	Workdir              string
+	StartedAt            time.Time
+	FinishedAt           time.Time
+	ExitCode             *int
+	LogPath              string
+	RecentOutput         string
+	RawOutputRequested   bool
+	RawOutput            bool
+	Running              bool
+	StdinOpen            bool
+	Backgrounded         bool
+	KillRequested        bool
+	LastUpdatedAt        time.Time
 }
 
 type ExecRequest struct {
@@ -266,7 +271,6 @@ type processEntry struct {
 	lastSignaledAt       time.Time
 	recentOutput         []byte
 	pendingOutput        []byte
-	outputBytes          int64
 	notify               chan struct{}
 	done                 chan struct{}
 	outputFinalized      chan struct{}
@@ -291,30 +295,27 @@ func (p *processEntry) snapshotLocked() Snapshot {
 		recentOutput = postprocess.SanitizeOutput(recentOutput)
 	}
 	return Snapshot{
-		ID:                      p.id,
-		ActivityID:              p.activityID,
-		OwnerSessionID:          p.ownerSessionID,
-		OwnerRunID:              p.ownerRunID,
-		OwnerStepID:             p.ownerStepID,
-		ExecutionCorrelation:    cloneExecutionCorrelation(p.executionCorrelation),
-		State:                   p.state,
-		Command:                 p.command,
-		Workdir:                 p.workdir,
-		StartedAt:               p.startedAt,
-		FinishedAt:              p.finishedAt,
-		ExitCode:                textutil.Pointer(p.exitCode),
-		LogPath:                 p.logPath,
-		RecentOutput:            recentOutput,
-		OutputAvailable:         p.logPath != "",
-		OutputRetainedFromBytes: 0,
-		OutputRetainedToBytes:   p.outputBytes,
-		RawOutputRequested:      p.raw,
-		RawOutput:               p.preserveOutput,
-		Running:                 p.running,
-		StdinOpen:               p.stdinOpen,
-		Backgrounded:            p.backgrounded,
-		KillRequested:           p.killRequested,
-		LastUpdatedAt:           p.lastUpdatedAt,
+		ID:                   p.id,
+		ActivityID:           p.activityID,
+		OwnerSessionID:       p.ownerSessionID,
+		OwnerRunID:           p.ownerRunID,
+		OwnerStepID:          p.ownerStepID,
+		ExecutionCorrelation: cloneExecutionCorrelation(p.executionCorrelation),
+		State:                p.state,
+		Command:              p.command,
+		Workdir:              p.workdir,
+		StartedAt:            p.startedAt,
+		FinishedAt:           p.finishedAt,
+		ExitCode:             textutil.Pointer(p.exitCode),
+		LogPath:              p.logPath,
+		RecentOutput:         recentOutput,
+		RawOutputRequested:   p.raw,
+		RawOutput:            p.preserveOutput,
+		Running:              p.running,
+		StdinOpen:            p.stdinOpen,
+		Backgrounded:         p.backgrounded,
+		KillRequested:        p.killRequested,
+		LastUpdatedAt:        p.lastUpdatedAt,
 	}
 }
 
@@ -371,7 +372,6 @@ func (p *processEntry) writeOutput(chunk []byte) error {
 			return err
 		}
 	}
-	p.outputBytes += int64(len(chunk))
 	p.pendingOutput = append(p.pendingOutput, chunk...)
 	if len(p.pendingOutput) > maxPendingOutputBytes {
 		p.pendingOutput = append([]byte(nil), p.pendingOutput[len(p.pendingOutput)-maxPendingOutputBytes:]...)
@@ -391,11 +391,7 @@ func (p *processEntry) writeOutput(chunk []byte) error {
 
 func (p *processEntry) setExited(exitCode int, state string) {
 	p.mu.Lock()
-	p.running = false
-	p.finishedAt = time.Now().UTC()
-	p.lastUpdatedAt = p.finishedAt
-	p.exitCode = &exitCode
-	p.state = state
+	p.recordExitLocked(exitCode, state)
 	stdin, log := p.detachResourcesLocked()
 	p.publishSnapshotLocked()
 	p.mu.Unlock()
@@ -411,11 +407,7 @@ func (p *processEntry) isBackgrounded() bool {
 
 func (p *processEntry) closeOnExit(exitCode int, state string) Snapshot {
 	p.mu.Lock()
-	p.running = false
-	p.finishedAt = time.Now().UTC()
-	p.lastUpdatedAt = p.finishedAt
-	p.exitCode = &exitCode
-	p.state = state
+	p.recordExitLocked(exitCode, state)
 	stdin, log := p.detachResourcesLocked()
 	p.mu.Unlock()
 	closeDetachedResources(stdin, log)
@@ -425,6 +417,17 @@ func (p *processEntry) closeOnExit(exitCode int, state string) Snapshot {
 	snapshot := p.publishSnapshotLocked()
 	p.mu.Unlock()
 	return snapshot
+}
+
+func (p *processEntry) recordExitLocked(exitCode int, state string) {
+	p.running = false
+	p.finishedAt = time.Now().UTC()
+	p.lastUpdatedAt = p.finishedAt
+	p.exitCode = &exitCode
+	p.state = state
+	if p.killRequested {
+		p.state = "killed"
+	}
 }
 
 func (p *processEntry) snapshot() Snapshot {

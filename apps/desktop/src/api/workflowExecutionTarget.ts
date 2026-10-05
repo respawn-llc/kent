@@ -21,6 +21,16 @@ export type WorkflowExecutionTargetUnavailableCause =
 
 export type WorkflowExecutionTargetSelectionRequirement =
   | Readonly<{
+      reason: "original_target_unavailable";
+      originalTargetCause:
+        | "detached_head"
+        | "invalid_root"
+        | "root_inaccessible"
+        | "missing_branch"
+        | "conflict"
+        | "git_failure";
+    }>
+  | Readonly<{
       reason: "policy_requires_selection";
     }>
   | Readonly<{

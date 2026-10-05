@@ -8,6 +8,7 @@ import (
 	serverbootstrap "core/server/bootstrap"
 	"core/server/capabilityfacts"
 	"core/server/chatcontext"
+	"core/server/chatmutation"
 	"core/server/metadata"
 
 	"core/server/processview"
@@ -32,10 +33,11 @@ import (
 
 type Bundles struct {
 	Auth        *AuthBundle
-	Capability  *CapabilityBundle
+	Capability  *capabilityfacts.Service
+	Chat        *ChatBundle
 	cleanup     []lifecycleResource
 	Persistence *PersistenceBundle
-	Processes   *ProcessBundle
+	Processes   *processview.ProcessViewService
 	Projects    *ProjectBundle
 	Prompts     *PromptBundle
 	Runtime     *RuntimeBundle
@@ -49,21 +51,16 @@ type AuthBundle struct {
 	authBootstrap apicontract.AuthBootstrapService
 	authStatus    apicontract.AuthStatusService
 	serverStatus  apicontract.ServerStatusService
-	authRequired  bool
 }
 
-type CapabilityBundle struct {
-	facts apicontract.CapabilityFactsService
+type ChatBundle struct {
+	operations *chatmutation.OperationOwner
+	mutations  apicontract.ChatMutationService
 }
 
 type PersistenceBundle struct {
 	rootLock      *RootLockLease
 	metadataStore *metadata.Store
-}
-
-type ProcessBundle struct {
-	processControls apicontract.ProcessControlService
-	processViews    apicontract.ProcessViewService
 }
 
 type ProjectBundle struct {
@@ -96,7 +93,6 @@ type SessionBundle struct {
 	sessionLaunchMap    map[string]apicontract.SessionLaunchService
 	sessionServices     map[string]*sessionlaunch.Service
 	runPromptMap        map[string]apicontract.RunPromptService
-	draftOwner          *sessionlaunch.WorkspaceChatDraftOwner
 	sessionLaunch       apicontract.SessionLaunchService
 	sessionViews        apicontract.SessionViewService
 	sessionContextOwner chatcontext.SessionOwner
@@ -128,14 +124,11 @@ func (b *Bundles) withDefaults() *Bundles {
 	if withDefaults.Auth == nil {
 		withDefaults.Auth = &AuthBundle{}
 	}
-	if withDefaults.Capability == nil {
-		withDefaults.Capability = &CapabilityBundle{}
+	if withDefaults.Chat == nil {
+		withDefaults.Chat = &ChatBundle{}
 	}
 	if withDefaults.Persistence == nil {
 		withDefaults.Persistence = &PersistenceBundle{}
-	}
-	if withDefaults.Processes == nil {
-		withDefaults.Processes = &ProcessBundle{}
 	}
 	if withDefaults.Projects == nil {
 		withDefaults.Projects = &ProjectBundle{}
@@ -166,7 +159,6 @@ func emptySessionBundle() *SessionBundle {
 		sessionLaunchMap: make(map[string]apicontract.SessionLaunchService),
 		sessionServices:  make(map[string]*sessionlaunch.Service),
 		runPromptMap:     make(map[string]apicontract.RunPromptService),
-		draftOwner:       nil,
 	}
 }
 
@@ -175,7 +167,7 @@ type bundleCompositionInput struct {
 	workspaceConfigResolver chatcontext.FixedRootWorkspaceResolver
 	authSupport             serverbootstrap.AuthSupport
 	capabilityFactsService  *capabilityfacts.Service
-	runtimeSupport          serverbootstrap.RuntimeSupport
+	background              *shelltool.Manager
 	rootLease               *RootLockLease
 	metadataStore           *metadata.Store
 	runtimeRegistry         *registry.RuntimeRegistry
@@ -199,16 +191,18 @@ type bundleCompositionInput struct {
 	workflowRuntimeStarter  *workflowrunner.Starter
 	worktreeService         *worktree.Service
 	sleepManager            *sleepguard.Manager
+	chatOperationOwner      *chatmutation.OperationOwner
 }
 
 func composeBundles(in bundleCompositionInput) *Bundles {
 	return &Bundles{
-		Auth:       newAuthBundle(in.authSupport, in.authBootstrapService, in.authStatusService, in.serverStatusService, authservice.StartupAuthRequired(in.cfg.Settings)),
-		Capability: newCapabilityBundle(in.capabilityFactsService),
+		Auth:       newAuthBundle(in.authSupport, in.authBootstrapService, in.authStatusService, in.serverStatusService),
+		Capability: in.capabilityFactsService,
+		Chat:       &ChatBundle{operations: in.chatOperationOwner},
 		cleanup: []lifecycleResource{
 			{name: "persistence root lock", close: in.rootLease.Close},
 			{name: "metadata store", close: in.metadataStore.Close},
-			{name: "background manager", close: in.runtimeSupport.Background.Close},
+			{name: "background manager", close: in.background.Close},
 			{name: "update status service", close: in.updateStatusService.Close},
 			{name: "worktree transitions", close: func() error {
 				if in.worktreeService == nil {
@@ -240,43 +234,37 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 				}
 				return nil
 			}},
+			{name: "Chat operations", close: func() error {
+				if in.chatOperationOwner == nil {
+					return nil
+				}
+				return in.chatOperationOwner.Close()
+			}},
 		},
 		Persistence: newPersistenceBundle(in.rootLease, in.metadataStore),
-		Processes:   newProcessBundle(in.processService),
+		Processes:   in.processService,
 		Projects:    newProjectBundle(in.cfg, in.workspaceConfigResolver, in.projectViews),
 		Prompts:     newPromptBundle(in.askService, in.approvalService, in.promptControlService, in.attentionService),
-		Runtime:     newRuntimeBundle(in.runtimeSupport, in.runtimeRegistry, in.runtimeAuthority, in.runtimeControlService, in.sessionRuntimeAPI),
+		Runtime:     newRuntimeBundle(in.background, in.runtimeRegistry, in.runtimeAuthority, in.runtimeControlService, in.sessionRuntimeAPI),
 		Sessions:    newSessionBundle(in.sessionViewService, in.sessionLifecycleService, in.metadataStore),
 		Workflows:   newWorkflowBundle(in.workflowService, in.workflowController),
 		Worktrees:   &WorktreeBundle{worktrees: in.worktreeService},
 	}
 }
 
-func newAuthBundle(authSupport serverbootstrap.AuthSupport, bootstrapService *authservice.BootstrapService, statusService *authservice.StatusService, serverStatusService *serverstatus.ServerStatusService, authRequired bool) *AuthBundle {
+func newAuthBundle(authSupport serverbootstrap.AuthSupport, bootstrapService *authservice.BootstrapService, statusService *authservice.StatusService, serverStatusService *serverstatus.ServerStatusService) *AuthBundle {
 	return &AuthBundle{
 		support:       authSupport,
 		authBootstrap: bootstrapService,
 		authStatus:    statusService,
 		serverStatus:  serverStatusService,
-		authRequired:  authRequired,
 	}
-}
-
-func newCapabilityBundle(factsService *capabilityfacts.Service) *CapabilityBundle {
-	return &CapabilityBundle{facts: factsService}
 }
 
 func newPersistenceBundle(rootLease *RootLockLease, metadataStore *metadata.Store) *PersistenceBundle {
 	return &PersistenceBundle{
 		rootLock:      rootLease,
 		metadataStore: metadataStore,
-	}
-}
-
-func newProcessBundle(processService *processview.ProcessViewService) *ProcessBundle {
-	return &ProcessBundle{
-		processControls: processService,
-		processViews:    processService,
 	}
 }
 
@@ -300,9 +288,9 @@ func newPromptBundle(askService *promptcontrol.AskViewService, approvalService *
 	}
 }
 
-func newRuntimeBundle(runtimeSupport serverbootstrap.RuntimeSupport, runtimeRegistry *registry.RuntimeRegistry, runtimeAuthority *sessionruntime.Authority, runtimeControlService *runtimecontrol.Service, sessionRuntimeAPI *sessionruntime.API) *RuntimeBundle {
+func newRuntimeBundle(background *shelltool.Manager, runtimeRegistry *registry.RuntimeRegistry, runtimeAuthority *sessionruntime.Authority, runtimeControlService *runtimecontrol.Service, sessionRuntimeAPI *sessionruntime.API) *RuntimeBundle {
 	return &RuntimeBundle{
-		background:          runtimeSupport.Background,
+		background:          background,
 		runtimeRegistry:     runtimeRegistry,
 		runtimeAuthority:    runtimeAuthority,
 		runtimeControls:     runtimeControlService,
@@ -321,7 +309,6 @@ func newSessionBundle(sessionViewService *sessionview.Service, sessionLifecycleS
 		sessionLaunchMap:    make(map[string]apicontract.SessionLaunchService),
 		sessionServices:     make(map[string]*sessionlaunch.Service),
 		runPromptMap:        make(map[string]apicontract.RunPromptService),
-		draftOwner:          sessionlaunch.NewWorkspaceChatDraftOwner(metadataStore),
 		sessionLaunch:       unregisteredSessionLaunchClient{},
 		sessionViews:        sessionViewService,
 		sessionContextOwner: sessionViewService,
@@ -337,8 +324,8 @@ func validateAuthBundleSupport(authSupport serverbootstrap.AuthSupport) error {
 	return nil
 }
 
-func validateRuntimeBundleSupport(runtimeSupport serverbootstrap.RuntimeSupport) error {
-	if runtimeSupport.Background == nil {
+func validateRuntimeBundleSupport(background *shelltool.Manager) error {
+	if background == nil {
 		return bundleResourceRequiredError("runtime", "background manager")
 	}
 	return nil

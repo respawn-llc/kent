@@ -3,27 +3,31 @@ package app
 import (
 	"context"
 	"io"
-	"strings"
 	"testing"
 
 	"core/cli/app/internal/projectbinding"
+	"core/internal/testharness/testsetup"
 	serverstartup "core/server/startup"
 	"core/shared/clientui"
+	"core/shared/config"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
 )
 
 func TestRemoteNoAuthUnregisteredWorkspaceBindingCanPrepareRuntime(t *testing.T) {
+	useStartupTestTerminal(t)
 	newAppTestHome(t)
 	workspace := t.TempDir()
 	configureAppTestServerPort(t)
-	fakeResponses, hits := newNoAuthFakeResponsesServer(t, []string{"rebound no-auth reply"})
+	fakeResponses, hits := newFakeResponsesServer(t, []string{"rebound no-auth reply"})
 	defer fakeResponses.Close()
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, fakeResponses.URL))
 
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
-		Model:                "gpt-5",
-		AllowUnauthenticated: true,
-	}, memoryAuthHandler{}, autoOnboarding)
+		Model: "gpt-6-sol",
+	})
+
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
@@ -52,10 +56,11 @@ func TestRemoteNoAuthUnregisteredWorkspaceBindingCanPrepareRuntime(t *testing.T)
 			if authPickerCalls > 1 {
 				t.Fatal("remote no-auth binding flow must not re-enter auth picker")
 			}
-			return authMethodPickerResult{Choice: authMethodChoiceSkip}, nil
+			t.Fatal("configured auth-less connections must not open a sign-in picker")
+			return authMethodPickerResult{}, nil
 		},
 	}
-	server, err := startSessionServer(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, Model: "gpt-5"}, interactor, true)
+	server, err := startSessionServer(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, Model: "gpt-6-sol"}, interactor, true)
 	if err != nil {
 		t.Fatalf("startSessionServer: %v", err)
 	}
@@ -64,7 +69,7 @@ func TestRemoteNoAuthUnregisteredWorkspaceBindingCanPrepareRuntime(t *testing.T)
 	if err != nil {
 		t.Fatalf("ensureInteractiveProjectBinding: %v", err)
 	}
-	_, runtimePlan := prepareAppRuntimePlanWithOpenAIBaseURL(t, bound, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, fakeResponses.URL, io.Discard, "test remote no-auth rebound runtime")
+	_, runtimePlan := prepareAppRuntimePlan(t, bound, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test remote no-auth rebound runtime")
 	submission, err := submitRuntimeClientForTest(t, runtimePlan.Wiring.runtimeClient, "hello after rebound no auth")
 	requireQueuedAppTestUserTurn(t, submission, err)
 	waitForRemoteTranscriptAssistantFinal(
@@ -83,35 +88,34 @@ func TestStartSessionServerUsesInvocationOverridesWhenAttachingToDiscoveredDaemo
 
 	defaultResponses, defaultHits := newFakeResponsesServer(t, []string{"interactive daemon default"})
 	defer defaultResponses.Close()
-	overrideResponses, overrideHits := newFakeResponsesServer(t, []string{"interactive daemon override"})
-	defer overrideResponses.Close()
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, defaultResponses.URL))
 
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5.4",
-		OpenAIBaseURL:         defaultResponses.URL,
-		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"))
+		Model:                 "gpt-6-sol",
+	})
 
-	server := fixture.attachRemoteSessionServer(t, Options{
+	options := Options{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5.3-codex",
+		Model:                 "gpt-6-luna",
 		Tools:                 "shell",
-		OpenAIBaseURL:         overrideResponses.URL,
-		OpenAIBaseURLExplicit: true,
-	}, newHeadlessAuthInteractor())
+	}
+	server := fixture.attachRemoteSessionServer(t, options, newHeadlessAuthInteractor())
 
-	plan, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test remote interactive runtime override")
+	plan, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{
+		Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+		Overrides: runPromptOverridesFromOptions(options),
+	}, io.Discard, "test remote interactive runtime override")
 	defer closeRuntimeLaunchPlan(t, runtimePlan)
-	if plan.ActiveSettings.Model != "gpt-5.3-codex" {
-		t.Fatalf("model = %q, want gpt-5.3-codex", plan.ActiveSettings.Model)
+	if plan.ActiveSettings.Model != "gpt-6-luna" {
+		t.Fatalf("model = %q, want gpt-6-luna", plan.ActiveSettings.Model)
 	}
 	if plan.StatusConfig.AuthSelection == nil ||
-		plan.StatusConfig.AuthSelection.OpenaiBaseUrl == nil ||
-		!strings.HasPrefix(*plan.StatusConfig.AuthSelection.OpenaiBaseUrl, "http://127.0.0.1:") {
-		t.Fatalf("status auth selection = %+v, want invocation override", plan.StatusConfig.AuthSelection)
+		plan.StatusConfig.AuthSelection.ConnectionId != "test" {
+		t.Fatalf("status auth selection = %+v, want configured connection", plan.StatusConfig.AuthSelection)
 	}
 	if len(plan.EnabledTools) != 1 || plan.EnabledTools[0] != toolspec.ToolExecCommand {
 		t.Fatalf("enabled tools = %+v, want only shell", plan.EnabledTools)
@@ -122,13 +126,10 @@ func TestStartSessionServerUsesInvocationOverridesWhenAttachingToDiscoveredDaemo
 	waitForRemoteTranscriptAssistantFinal(
 		t,
 		runtimePlan.Wiring.eventDispatcher.transcriptEvents,
-		"interactive daemon override",
+		"interactive daemon default",
 	)
-	if overrideHits.Load() != 1 {
-		t.Fatalf("expected override llm call once, got %d", overrideHits.Load())
-	}
-	if defaultHits.Load() != 0 {
-		t.Fatalf("expected daemon default llm endpoint unused, got %d", defaultHits.Load())
+	if defaultHits.Load() != 1 {
+		t.Fatalf("expected configured endpoint called once, got %d", defaultHits.Load())
 	}
 }
 
@@ -145,35 +146,35 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 		appTestModelStep{Final: "prompt round trip complete"},
 	)
 	defer model.Close()
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, model.URL()))
 
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
-		OpenAIBaseURL:         model.URL(),
-		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"))
+		Model:                 "gpt-6-sol",
+	})
 
-	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, readyMemoryAuthHandler())
+	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
 	_, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test remote prompt round trip")
 	defer closeRuntimeLaunchPlan(t, runtimePlan)
 
 	submissionDone, submissionFailed := startAppTestRuntimeSubmission(t, runtimePlan.Wiring.runtimeClient, "start prompt round trip")
 	requireQueuedAppTestRuntimeSubmission(t, submissionDone)
 	askPrompt := waitForRemoteTranscriptPrompt(t, runtimePlan.Wiring.eventDispatcher.transcriptEvents, "ask-1", submissionFailed)
-	if askPrompt.Kind != clientui.TranscriptPromptKindQuestion || askPrompt.Question != "Pick one" {
+	if askPrompt.GetQuestion() == nil || transcriptPromptQuestion(askPrompt) != "Pick one" {
 		t.Fatalf("unexpected ask prompt: %+v", askPrompt)
 	}
 	answerRemoteTranscriptPrompt(t, runtimePlan.Wiring.promptAnswers, askPrompt, clientui.PromptAnswer{
-		PromptID:             string(askPrompt.PromptID),
+		ToolCallID:           clientui.ToolCallID(transcriptPromptToolCallID(askPrompt)),
 		SelectedOptionNumber: func() *int { selected := 2; return &selected }(),
 	})
 	approvalPrompt := waitForRemoteTranscriptPrompt(t, runtimePlan.Wiring.eventDispatcher.transcriptEvents, "", submissionFailed)
-	if approvalPrompt.Kind != clientui.TranscriptPromptKindApproval {
+	if approvalPrompt.GetApproval() == nil {
 		t.Fatalf("unexpected approval prompt: %+v", approvalPrompt)
 	}
 	answerRemoteTranscriptPrompt(t, runtimePlan.Wiring.promptAnswers, approvalPrompt, clientui.PromptAnswer{
-		PromptID: string(approvalPrompt.PromptID),
+		ToolCallID: clientui.ToolCallID(transcriptPromptToolCallID(approvalPrompt)),
 		Approval: &clientui.ApprovalPromptAnswer{
 			Decision:   clientui.ApprovalDecisionAllowOnce,
 			Commentary: "trusted",

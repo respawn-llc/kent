@@ -100,38 +100,6 @@ func (t *QuestionBatchTracker) MarkMaterialized(stepID string, askID string) err
 	return t.publishBatch(batch)
 }
 
-func (t *QuestionBatchTracker) EnqueueSnapshot(sub *Subscription, batch QuestionBatch, materializedAskIDs []string) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if err := t.prepareLocked(batch); err != nil {
-		return err
-	}
-	if len(materializedAskIDs) == 0 {
-		return fmt.Errorf("question batch snapshot materialized ask ids are required")
-	}
-	current := t.byStep[batch.StepID]
-	if current.resolved {
-		return nil
-	}
-	for _, askID := range materializedAskIDs {
-		if _, ok := current.status[askID]; !ok {
-			return fmt.Errorf("question batch Step %q does not contain ask %q", batch.StepID, askID)
-		}
-		if current.status[askID] == questionAskPending {
-			current.status[askID] = questionAskMaterialized
-		}
-	}
-	current.emitted = true
-	if current.revision == 0 {
-		current.revision = 1
-	}
-	return t.broker.EnqueueInitial(sub, current.Route, clientui.AttentionNotificationEvent{
-		Source:  clientui.AttentionNotificationSourceSnapshot,
-		Type:    clientui.AttentionNotificationEventPending,
-		Pending: current.notification(),
-	})
-}
-
 func (t *QuestionBatchTracker) MarkSkipped(stepID string, askID string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()

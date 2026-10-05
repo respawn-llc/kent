@@ -45,18 +45,18 @@ func httpTransportFromOpenAIClient(t *testing.T, client *OpenAIClient) *HTTPTran
 
 type providerTestAuth struct{}
 
-func (providerTestAuth) AuthorizationHeader(context.Context) (string, error) {
-	return "Bearer test", nil
+func (providerTestAuth) ResolveDispatchAuth(context.Context) (*DispatchAuth, error) {
+	return &DispatchAuth{Header: "Bearer test"}, nil
 }
 
 type providerTestMissingAuth struct{}
 
-func (providerTestMissingAuth) AuthorizationHeader(context.Context) (string, error) {
-	return "", auth.ErrAuthNotConfigured
+func (providerTestMissingAuth) ResolveDispatchAuth(context.Context) (*DispatchAuth, error) {
+	return nil, auth.ErrAuthNotConfigured
 }
 
 func TestInferProviderFromModel(t *testing.T) {
-	got, err := InferProviderFromModel("gpt-5")
+	got, err := InferProviderFromModel("gpt-6-sol")
 	if err != nil {
 		t.Fatalf("infer openai provider: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestNewProviderClient_OpenAI(t *testing.T) {
 	httpClient := &http.Client{Timeout: 7 * time.Second}
 	providerIdentifier := "factory-agent"
 	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
-		Model:              "gpt-5.3-codex",
+		Model:              "gpt-6-sol",
 		Auth:               providerTestAuth{},
 		HTTPClient:         httpClient,
 		ModelVerbosity:     "HIGH",
@@ -89,7 +89,7 @@ func TestNewProviderClient_OpenAI(t *testing.T) {
 	if transport.Client != httpClient {
 		t.Fatal("expected provider HTTP client override to be used")
 	}
-	if transport.ContextWindowTokens != 400_000 {
+	if transport.ContextWindowTokens != 272_000 {
 		t.Fatalf("expected context window from model metadata, got %d", transport.ContextWindowTokens)
 	}
 	if transport.ModelVerbosity != "high" {
@@ -137,7 +137,7 @@ func TestNewProviderClient_OpenAIClientPathCompressesCodexRequest(t *testing.T) 
 	}
 }
 
-func TestNewProviderClient_AuthManagerOAuthPathCompressesCodexRequest(t *testing.T) {
+func TestNewProviderClient_OAuthPathCompressesCodexRequest(t *testing.T) {
 	var requestEncoding string
 	var acceptEncoding string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -148,15 +148,9 @@ func TestNewProviderClient_AuthManagerOAuthPathCompressesCodexRequest(t *testing
 	}))
 	defer server.Close()
 
-	manager := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Method: auth.Method{
-			Type:  auth.MethodOAuth,
-			OAuth: &auth.OAuthMethod{AccessToken: "oauth-token", AccountID: "account-1"},
-		},
-	}), nil, nil)
 	client, err := NewProviderClient(ProviderClientOptions{
 		Model:      "gpt-5.6-sol",
-		Auth:       manager,
+		Auth:       oauthStaticAuth{},
 		HTTPClient: newRewritingHTTPClient(t, server),
 	})
 	if err != nil {
@@ -180,14 +174,14 @@ func TestNewProviderClient_AuthManagerOAuthPathCompressesCodexRequest(t *testing
 	}
 }
 
-func TestNewProviderClient_CodexSparkUsesSparkMetadata(t *testing.T) {
+func TestNewProviderClient_LunaUsesCatalogMetadata(t *testing.T) {
 	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
-		Model: "gpt-5.3-codex-spark",
+		Model: "gpt-6-luna",
 		Auth:  providerTestAuth{},
 	})
 	transport := httpTransportFromOpenAIClient(t, openAIClient)
-	if transport.ContextWindowTokens != 128_000 {
-		t.Fatalf("expected spark context window from model metadata, got %d", transport.ContextWindowTokens)
+	if transport.ContextWindowTokens != 272_000 {
+		t.Fatalf("expected luna context window from model metadata, got %d", transport.ContextWindowTokens)
 	}
 }
 
@@ -265,7 +259,7 @@ func TestNewProviderClient_RemoteOpenAICompatibleBaseURLAllowsCustomModelFamily(
 func TestNewProviderClient_RemoteOpenAICompatibleBaseURLAllowsAnonymousCapabilitiesResolution(t *testing.T) {
 	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
 		Model:         "vendor-custom-model",
-		Auth:          providerTestMissingAuth{},
+		Auth:          anonymousAuth{},
 		OpenAIBaseURL: "https://example.openrouter.ai/api/v1",
 	})
 
@@ -280,7 +274,7 @@ func TestNewProviderClient_RemoteOpenAICompatibleBaseURLAllowsAnonymousCapabilit
 
 func TestNewProviderClient_KeepsExplicitOpenAIBaseURLExplicit(t *testing.T) {
 	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		Auth:          providerTestMissingAuth{},
 		OpenAIBaseURL: "https://api.openai.com",
 	})

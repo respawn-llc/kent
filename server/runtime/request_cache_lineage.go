@@ -6,15 +6,20 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"core/server/llm"
 	"core/server/session"
 	"core/shared/config"
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 	"core/shared/transcript"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -35,12 +40,17 @@ type persistedCacheRequestObserved struct {
 }
 
 type persistedCacheResponseObserved struct {
-	DigestVersion     int                          `json:"digest_version,omitempty"`
-	CacheKey          string                       `json:"cache_key"`
-	Scope             transcript.CacheWarningScope `json:"scope,omitempty"`
-	ChunkCount        int                          `json:"chunk_count"`
-	TerminalHash      string                       `json:"terminal_hash"`
-	CachedInputTokens *int                         `json:"cached_input_tokens,omitempty"`
+	DigestVersion     int                                     `json:"digest_version,omitempty"`
+	CacheKey          string                                  `json:"cache_key"`
+	Scope             transcript.CacheWarningScope            `json:"scope,omitempty"`
+	ChunkCount        int                                     `json:"chunk_count"`
+	TerminalHash      string                                  `json:"terminal_hash"`
+	CachedInputTokens *int                                    `json:"cached_input_tokens,omitempty"`
+	OperationID       *string                                 `json:"operation_id,omitempty"`
+	SessionID         *string                                 `json:"session_id,omitempty"`
+	Purpose           *modelcontract.ProviderOperationPurpose `json:"purpose,omitempty"`
+	ObservedAt        *time.Time                              `json:"observed_at,omitempty"`
+	ProviderUsage     *modelcontract.ProviderUsageEvidence    `json:"provider_usage,omitempty"`
 }
 
 type requestCacheLineage struct {
@@ -69,7 +79,7 @@ const (
 
 type cacheObservedRequest struct {
 	request         llm.Request
-	observeResponse func(llm.Usage) error
+	observeResponse func(modelcontract.ProviderUsageEvidence, llm.Usage) error
 }
 
 type requestCacheTracker struct {
@@ -234,6 +244,7 @@ func (e *Engine) observePromptCacheRequest(stepID string, prepared preparedCache
 func (e *Engine) prepareCacheObservedRequest(
 	stepID string,
 	request llm.Request,
+	purpose modelcontract.ProviderOperationPurpose,
 	responseMode cacheResponseObservationMode,
 ) (cacheObservedRequest, error) {
 	prepared, err := e.modelRequests().RequestCache().Prepare(request)
@@ -243,12 +254,12 @@ func (e *Engine) prepareCacheObservedRequest(
 	if err := e.observePromptCacheRequest(stepID, prepared); err != nil {
 		return cacheObservedRequest{}, err
 	}
-	observeResponse := func(usage llm.Usage) error {
+	observeResponse := func(evidence modelcontract.ProviderUsageEvidence, usage llm.Usage) error {
 		switch responseMode {
 		case cacheResponseObservationExactStep:
-			return e.observePromptCacheResponse(stepID, prepared, usage)
+			return e.observeProviderResponse(stepID, request, purpose, prepared, evidence, usage)
 		case cacheResponseObservationRuntime:
-			return e.observePromptCacheResponseRuntime(prepared, usage)
+			return e.observeProviderResponseRuntime(request, purpose, prepared, evidence, usage)
 		default:
 			panic(fmt.Sprintf("unsupported cache response observation mode %d", responseMode))
 		}
@@ -259,11 +270,11 @@ func (e *Engine) prepareCacheObservedRequest(
 	}, nil
 }
 
-func (r cacheObservedRequest) complete(usage llm.Usage) error {
+func (r cacheObservedRequest) complete(evidence modelcontract.ProviderUsageEvidence, usage llm.Usage) error {
 	if r.observeResponse == nil {
 		panic("cache-observed request has no response observer")
 	}
-	return r.observeResponse(usage)
+	return r.observeResponse(evidence, usage)
 }
 
 func cacheWarningEntryVisibility(mode config.CacheWarningMode) transcript.EntryVisibility {
@@ -273,26 +284,64 @@ func cacheWarningEntryVisibility(mode config.CacheWarningMode) transcript.EntryV
 	return transcript.EntryVisibilityDetail
 }
 
-func (e *Engine) observePromptCacheResponse(stepID string, prepared preparedCacheRequestObservation, usage llm.Usage) error {
+func (e *Engine) observeProviderResponse(
+	stepID string,
+	request llm.Request,
+	purpose modelcontract.ProviderOperationPurpose,
+	prepared preparedCacheRequestObservation,
+	evidence modelcontract.ProviderUsageEvidence,
+	usage llm.Usage,
+) error {
 	provenance, err := exactSteeringProvenance(stepID)
 	if err != nil {
 		return err
 	}
-	return e.observePromptCacheResponseWithProvenance(
+	return e.observeProviderResponseWithProvenance(
 		provenance,
+		request,
+		purpose,
 		prepared,
+		evidence,
 		usage,
 	)
 }
 
-func (e *Engine) observePromptCacheResponseRuntime(prepared preparedCacheRequestObservation, usage llm.Usage) error {
-	return e.observePromptCacheResponseWithProvenance(sessionSteeringProvenance(), prepared, usage)
+func (e *Engine) observeProviderResponseRuntime(
+	request llm.Request,
+	purpose modelcontract.ProviderOperationPurpose,
+	prepared preparedCacheRequestObservation,
+	evidence modelcontract.ProviderUsageEvidence,
+	usage llm.Usage,
+) error {
+	return e.observeProviderResponseWithProvenance(
+		sessionSteeringProvenance(),
+		request,
+		purpose,
+		prepared,
+		evidence,
+		usage,
+	)
 }
 
-func (e *Engine) observePromptCacheResponseWithProvenance(provenance steeringProvenance, prepared preparedCacheRequestObservation, usage llm.Usage) error {
-	if e == nil || e.modelRequests().RequestCache() == nil || strings.TrimSpace(prepared.request.CacheKey) == "" {
-		return nil
+func (e *Engine) observeProviderResponseWithProvenance(
+	provenance steeringProvenance,
+	request llm.Request,
+	purpose modelcontract.ProviderOperationPurpose,
+	prepared preparedCacheRequestObservation,
+	evidence modelcontract.ProviderUsageEvidence,
+	usage llm.Usage,
+) error {
+	if e == nil {
+		return errors.New("provider response observer is unavailable")
 	}
+	evidence = evidence.Clone()
+	if strings.TrimSpace(evidence.RequestedModel) == "" {
+		evidence.RequestedModel = request.Model
+	}
+	operationID := uuid.NewString()
+	sessionID := e.SessionID()
+	observedPurpose := purpose
+	observedAt := time.Now().UTC()
 	response := persistedCacheResponseObserved{
 		DigestVersion:     prepared.request.DigestVersion,
 		CacheKey:          prepared.request.CacheKey,
@@ -300,10 +349,16 @@ func (e *Engine) observePromptCacheResponseWithProvenance(provenance steeringPro
 		ChunkCount:        prepared.request.ChunkCount,
 		TerminalHash:      prepared.request.TerminalHash,
 		CachedInputTokens: textutil.Pointer(usage.CachedInputTokens),
+		OperationID:       &operationID,
+		SessionID:         &sessionID,
+		Purpose:           &observedPurpose,
+		ObservedAt:        &observedAt,
+		ProviderUsage:     &evidence,
 	}
 	records := make([]session.EventRecordPayload, 0, 2)
+	hasCacheFacts := strings.TrimSpace(prepared.request.CacheKey) != ""
 	var warning *transcript.CacheWarning
-	if prepared.exactWarning != nil && e.cfg.CacheWarningMode != config.CacheWarningModeOff {
+	if hasCacheFacts && prepared.exactWarning != nil && e.cfg.CacheWarningMode != config.CacheWarningModeOff {
 		lostInputTokens := lostCachedInputTokens(prepared, usage)
 		if lostInputTokens > 0 {
 			warning = prepared.exactWarning
@@ -314,7 +369,7 @@ func (e *Engine) observePromptCacheResponseWithProvenance(provenance steeringPro
 			}
 			records = append(records, record)
 		}
-	} else if shouldWarnOnCacheReuseDrop(e.cfg.CacheWarningMode, prepared, usage) {
+	} else if hasCacheFacts && shouldWarnOnCacheReuseDrop(e.cfg.CacheWarningMode, prepared, usage) {
 		lostInputTokens := lostCachedInputTokens(prepared, usage)
 		if lostInputTokens > 0 {
 			warning = &transcript.CacheWarning{
@@ -329,14 +384,14 @@ func (e *Engine) observePromptCacheResponseWithProvenance(provenance steeringPro
 			records = append(records, record)
 		}
 	}
-	responseRecord, err := sessionCacheResponseRecordFromRuntime(response)
-	if err != nil {
-		return fmt.Errorf("adapt cache response record: %w", err)
+	responseRecord, responseErr := sessionCacheResponseRecordFromRuntime(response)
+	if responseErr != nil {
+		return fmt.Errorf("adapt cache response record: %w", responseErr)
 	}
 	records = append(records, responseRecord)
-	_, err = e.steerWithCommitReceiptRaw(
+	_, err := e.steerWithCommitReceiptRaw(
 		provenance,
-		steerCacheObservationIntent(records, response, warning, cacheWarningEntryVisibility(e.cfg.CacheWarningMode), true),
+		steerProviderObservationIntent(records, response, warning, cacheWarningEntryVisibility(e.cfg.CacheWarningMode), true),
 	)
 	return err
 }

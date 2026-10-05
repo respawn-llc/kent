@@ -65,7 +65,7 @@ export type BoardNodeCardsInput = Readonly<{
 export const workflowPageSize = 40;
 
 export type WorkflowListInput = Readonly<{
-  offset?: number | undefined;
+  offset?: bigint | undefined;
   limit?: number | undefined;
   projectID?: string | undefined;
   query?: string | undefined;
@@ -135,6 +135,7 @@ export type TaskEditInput = Readonly<{
 
 export type TaskMoveInput = Readonly<{
   taskID: string;
+  branchName?: string | undefined;
   targetNodeID: string;
   transitionKey?: string | undefined;
   values?: Readonly<Record<string, Readonly<Record<string, string>>>>;
@@ -154,11 +155,12 @@ export type TaskResumeInput = Readonly<{
   taskID: string;
   setupOperationID?: SetupOperationID | undefined;
   executionTarget?: WorkflowExecutionTargetSelection | undefined;
+  branchName?: string | undefined;
 }>;
 
 export type OrdinaryQuestionAnswerInput = Readonly<{
   kind: "ordinary";
-  promptID: string;
+  toolCallID: string;
   sessionID: string;
   stepID: string;
   selectedOptionNumber: number | null;
@@ -167,7 +169,7 @@ export type OrdinaryQuestionAnswerInput = Readonly<{
 
 export type ApprovalQuestionAnswerInput = Readonly<{
   kind: "approval";
-  promptID: string;
+  toolCallID: string;
   sessionID: string;
   stepID: string;
   decision: ApprovalDecision;
@@ -179,19 +181,19 @@ export type QuestionAnswerInput = OrdinaryQuestionAnswerInput | ApprovalQuestion
 export type PromptAnswerBatchEntryInput =
   | Readonly<{
       kind: "question";
-      promptID: string;
+      toolCallID: string;
       selectedOptionNumber: number | null;
       freeform: string | null;
     }>
   | Readonly<{
       kind: "approval";
-      promptID: string;
+      toolCallID: string;
       decision: ApprovalDecision;
       commentary: string | null;
     }>
   | Readonly<{
       kind: "declined";
-      promptID: string;
+      toolCallID: string;
     }>;
 
 export type PromptAnswerBatchInput = Readonly<{
@@ -202,7 +204,7 @@ export type PromptAnswerBatchInput = Readonly<{
 
 export type PromptAnswerBatchResponse = Readonly<{
   results: readonly Readonly<{
-    promptID: string;
+    toolCallID: string;
     outcome: "resolved" | "skipped";
   }>[];
 }>;

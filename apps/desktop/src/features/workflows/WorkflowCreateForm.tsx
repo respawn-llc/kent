@@ -1,21 +1,20 @@
-import { useEffect, useState, type SyntheticEvent } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, type SyntheticEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
-import type { ProjectWorkflowLink, WorkflowRecord } from "@/api";
-import { errorMessage, isProjectMissingError } from "@/api";
-import { queryKeys, useAppServices, useTextFieldSubmitShortcut } from "@/app-facade";
-import { Button, ErrorState, TextArea, TextInput } from "@/ui";
-
-export type WorkflowCreateResult = Readonly<{
-  workflow: WorkflowRecord;
-  link: ProjectWorkflowLink | null;
-}>;
+import {
+  useAppServices,
+  useQueryAction,
+  useStatusController,
+  useTextFieldSubmitShortcut,
+} from "@/app-facade";
+import { Button, TextArea, TextInput } from "@/ui";
+import { createWorkflowCreateModel, type WorkflowCreateResult } from "./WorkflowCreateModel";
 
 export function WorkflowCreateForm({
   onCreated,
   onProjectMissing,
-  projectID = "",
+  projectID,
 }: Readonly<{
   onCreated: (result: WorkflowCreateResult) => void;
   onProjectMissing?: (() => void) | undefined;
@@ -24,29 +23,11 @@ export function WorkflowCreateForm({
   const { t } = useTranslation();
   const { api } = useAppServices();
   const queryClient = useQueryClient();
+  const { push } = useStatusController();
+  const [model] = useState(() => createWorkflowCreateModel({ api, client: queryClient, projectID, push, t }));
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const create = useMutation({
-    mutationFn: async () => {
-      const input = { name: name.trim(), description: description.trim() };
-      if (projectID.length === 0) {
-        const workflow = await api.createWorkflow(input);
-        return { link: null, workflow };
-      }
-      return api.createAndLinkWorkflowToProject({ ...input, projectID });
-    },
-    onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.allWorkflows });
-      if (projectID.length > 0) {
-        await queryClient.invalidateQueries({ queryKey: queryKeys.allProjectWorkflowLinks });
-        await queryClient.invalidateQueries({ queryKey: queryKeys.allBoards });
-      }
-      onCreated(result);
-    },
-  });
-  useEffect(() => {
-    if (create.isError && isProjectMissingError(create.error)) onProjectMissing?.();
-  }, [create.error, create.isError, onProjectMissing]);
+  const create = useQueryAction(model);
   const canSubmit = name.trim().length > 0 && !create.isPending;
   const formShortcut = useTextFieldSubmitShortcut({
     available: canSubmit,
@@ -58,19 +39,11 @@ export function WorkflowCreateForm({
     if (!canSubmit) {
       return;
     }
-    void create.mutateAsync();
+    create.submit({ name: name.trim(), description: description.trim(), onCreated, onProjectMissing });
   }
 
   return (
     <form className="grid gap-[var(--space-4)]" onKeyDown={formShortcut} onSubmit={submit}>
-      {create.isError ? (
-        <ErrorState
-          body={errorMessage(create.error)}
-          fullPage={false}
-          reveal={false}
-          title={t("workflowLibrary.createFailed")}
-        />
-      ) : null}
       <TextInput
         autoFocus
         label={t("workflowLibrary.name")}

@@ -40,7 +40,7 @@ export default defineConfig({
       },
       {
         find: "@app/ui-kit",
-        replacement: fileURLToPath(new URL("../packages/ui-kit/src/ReorderableList.tsx", import.meta.url)),
+        replacement: fileURLToPath(new URL("../packages/ui-kit/src/index.ts", import.meta.url)),
       },
     ],
   },

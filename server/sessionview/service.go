@@ -4,70 +4,85 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
-	"core/server/auth"
 	"core/server/chatcontext"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/session"
-	"core/server/worktree"
 	servicecontract "core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/invariant"
-	authpb "core/shared/protoapi/gen/kent/api/auth"
+	"core/shared/protoapi"
+	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
 
 type PersistedSessionResolver = session.PersistedSessionResolver
 
+type promptHistoryReader interface {
+	ReadPromptHistory(context.Context, string) ([]string, error)
+}
+
 type ExecutionTargetResolver interface {
-	ResolveSessionExecutionTarget(ctx context.Context, sessionID string) (clientui.SessionExecutionTarget, error)
+	ResolveSessionExecutionTarget(ctx context.Context, sessionID string) (*worktreepb.SessionExecutionTarget, error)
 }
 
 type chatContextWorkspaceResolver interface {
 	Resolve(workspaceRoot string) (config.App, error)
 }
 
-type chatContextAuthReader interface {
-	Load(context.Context) (auth.State, error)
+type workflowSessionStatusResolver interface {
+	SessionWorkflowStatus(context.Context, string) (*runtimepb.WorkflowSessionStatus, error)
+}
+
+type dormantChatProjection struct {
+	target                *worktreepb.SessionExecutionTarget
+	settings              config.Settings
+	autoCompactionEnabled bool
+	questionsEnabled      bool
+	fastModeAvailable     bool
+	context               *contextpb.Context
+	workflow              *runtimepb.WorkflowSessionStatus
 }
 
 type Service struct {
+	promptHistory     promptHistoryReader
 	persisted         PersistedSessionResolver
 	mainViews         runtimeMainViewSnapshotProvider
 	targets           ExecutionTargetResolver
-	app               config.App
-	auth              servicecontract.AuthStatusService
-	git               *worktree.GitInspector
 	cacheWarningMode  config.CacheWarningMode
 	contextWorkspaces chatContextWorkspaceResolver
-	contextAuth       chatContextAuthReader
+	workflowSessions  workflowSessionStatusResolver
 }
 
-func (s *Service) WithExecutionEnvironmentConfig(app config.App) *Service {
-	if s != nil {
-		s.app = app
-	}
+func (s *Service) WithPromptHistoryReader(reader promptHistoryReader) *Service {
+	s.promptHistory = reader
 	return s
 }
 
-func (s *Service) WithExecutionEnvironmentAuth(provider servicecontract.AuthStatusService) *Service {
-	if s != nil {
-		s.auth = provider
+func (s *Service) GetPromptHistory(ctx context.Context, req *sessionpb.PromptHistoryRequest) (*sessionpb.PromptHistorySuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	return s
-}
-
-func (s *Service) WithExecutionEnvironmentGit(inspector *worktree.GitInspector) *Service {
-	if s != nil {
-		s.git = inspector
+	if _, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, req.SessionId); err != nil {
+		return nil, err
 	}
-	return s
+	if s.promptHistory == nil {
+		return nil, errors.New("prompt history reader is required")
+	}
+	prompts, err := s.promptHistory.ReadPromptHistory(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	return &sessionpb.PromptHistorySuccess{Prompts: prompts}, nil
 }
 
 func NewService(
@@ -81,24 +96,27 @@ func NewService(
 		targets:          targets,
 		cacheWarningMode: config.CacheWarningModeDefault,
 	}
+	if workflowSessions, ok := sessions.(workflowSessionStatusResolver); ok {
+		svc.workflowSessions = workflowSessions
+	}
 	return svc
 }
 
 func (s *Service) SubscribeQuestionHistory(
 	ctx context.Context,
-	req serverapi.QuestionHistorySubscribeRequest,
+	req *sessionpb.QuestionHistorySubscribeRequest,
 ) (serverapi.QuestionHistorySubscription, error) {
-	if err := req.Validate(); err != nil {
+	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
 	if s == nil || s.persisted == nil {
 		return nil, session.ErrPersistedSessionResolverRequired
 	}
-	record, err := s.persisted.ResolvePersistedSession(ctx, req.SessionID)
+	record, err := s.persisted.ResolvePersistedSession(ctx, req.SessionId)
 	if err != nil {
 		return nil, err
 	}
-	cursor, err := session.OpenQuestionHistoryCursor(record.SessionDir, req.MaxHandoffs)
+	cursor, err := session.OpenQuestionHistoryCursor(record.SessionDir, int(req.MaxHandoffs))
 	if err != nil {
 		return nil, err
 	}
@@ -112,57 +130,59 @@ func (s *Service) WithChatContextWorkspaceResolver(resolver chatContextWorkspace
 	return s
 }
 
-func (s *Service) WithChatContextAuthReader(reader chatContextAuthReader) *Service {
-	if s != nil {
-		s.contextAuth = reader
-	}
-	return s
-}
-
-func (s *Service) ReadSessionChatContext(ctx context.Context, sessionID runtimeids.SessionID) (serverapi.ChatContext, error) {
+func (s *Service) ReadSessionChatContext(ctx context.Context, sessionID runtimeids.SessionID) (*contextpb.Context, error) {
 	if s == nil || s.persisted == nil {
-		return serverapi.ChatContext{}, errors.New("persisted Session resolver is required")
+		return nil, errors.New("persisted Session resolver is required")
 	}
 	return s.readDormantSessionChatContext(ctx, sessionID)
 }
 
-func (s *Service) readDormantSessionChatContext(ctx context.Context, sessionID runtimeids.SessionID) (serverapi.ChatContext, error) {
-	if s.targets == nil {
-		return serverapi.ChatContext{}, errors.New("Session execution-target resolver is required")
-	}
-	if s.contextWorkspaces == nil {
-		return serverapi.ChatContext{}, errors.New("fresh workspace config resolver is required")
-	}
+func (s *Service) readDormantSessionChatContext(ctx context.Context, sessionID runtimeids.SessionID) (*contextpb.Context, error) {
 	record, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, sessionID.String())
 	if err != nil {
-		return serverapi.ChatContext{}, err
+		return nil, err
 	}
-	snapshot := session.ContextSnapshot{Meta: *record.Meta, Facts: record.ContextFacts}
-	target, err := s.targets.ResolveSessionExecutionTarget(ctx, sessionID.String())
+	projection, err := s.resolveDormantChatProjection(ctx, session.ContextSnapshot{
+		Meta:  *record.Meta,
+		Facts: record.ContextFacts,
+	})
 	if err != nil {
-		return serverapi.ChatContext{}, err
+		return nil, err
+	}
+	return projection.context, nil
+}
+
+func (s *Service) resolveDormantChatProjection(ctx context.Context, snapshot session.ContextSnapshot) (dormantChatProjection, error) {
+	if s.targets == nil {
+		return dormantChatProjection{}, errors.New("Session execution-target resolver is required")
+	}
+	if s.contextWorkspaces == nil {
+		return dormantChatProjection{}, errors.New("fresh workspace config resolver is required")
+	}
+	target, err := s.targets.ResolveSessionExecutionTarget(ctx, snapshot.Meta.SessionID)
+	if err != nil {
+		return dormantChatProjection{}, err
 	}
 	executionRoot, err := clientui.SessionExecutionWorkspaceRoot(target, target.WorkspaceRoot)
 	if err != nil {
-		return serverapi.ChatContext{}, err
+		return dormantChatProjection{}, err
 	}
 	app, err := s.contextWorkspaces.Resolve(executionRoot)
 	if err != nil {
-		return serverapi.ChatContext{}, err
+		return dormantChatProjection{}, err
 	}
 	current, err := launch.ResolveReadOnlySessionContextSettings(app, snapshot.Meta, false)
 	if err != nil {
-		return serverapi.ChatContext{}, err
+		return dormantChatProjection{}, err
 	}
-	provider, err := llm.ResolveEffectiveProviderCapabilities(
-		ctx,
+	capabilities, err := llm.ResolveEffectiveProviderCapabilities(
 		snapshot.Meta.Locked,
 		current.Settings,
-		s.contextAuth,
 	)
 	if err != nil {
-		return serverapi.ChatContext{}, err
+		return dormantChatProjection{}, err
 	}
+	policy := chatcontext.ResolvePolicy(current.Settings, capabilities, snapshot.Meta.Locked)
 	usedTokens := int64(0)
 	if snapshot.Meta.UsageState != nil {
 		usedTokens = int64(snapshot.Meta.UsageState.InputTokens)
@@ -172,13 +192,29 @@ func (s *Service) readDormantSessionChatContext(ctx context.Context, sessionID r
 		completedCount = int64(*snapshot.Facts.CompletedCompactionCount)
 	}
 	manualEligible := snapshot.Facts.ManualCompactEligible != nil && *snapshot.Facts.ManualCompactEligible
-	return chatcontext.Project(chatcontext.ProjectionInput{
-		Policy:                   chatcontext.ResolvePolicy(current.Settings, provider.Capabilities, snapshot.Meta.Locked),
+	contextView := chatcontext.Project(chatcontext.ProjectionInput{
+		Policy:                   policy,
 		UsedTokens:               usedTokens,
 		AutoCompactionEnabled:    current.AutoCompactionEnabled,
 		CompletedCompactionCount: completedCount,
 		ManualCompactEligible:    manualEligible,
-	}), nil
+	})
+	var workflowSession *runtimepb.WorkflowSessionStatus
+	if s.workflowSessions != nil {
+		workflowSession, err = s.workflowSessions.SessionWorkflowStatus(ctx, snapshot.Meta.SessionID)
+		if err != nil {
+			return dormantChatProjection{}, err
+		}
+	}
+	return dormantChatProjection{
+		target:                target,
+		settings:              chatcontext.ApplyPolicy(current.Settings, policy),
+		autoCompactionEnabled: current.AutoCompactionEnabled,
+		questionsEnabled:      current.QuestionsEnabled,
+		fastModeAvailable:     llm.SupportsFastModeProvider(capabilities),
+		context:               contextView,
+		workflow:              workflowSession,
+	}, nil
 }
 
 func (s *Service) WithCacheWarningMode(mode config.CacheWarningMode) *Service {
@@ -200,22 +236,15 @@ func normalizeServiceCacheWarningMode(mode config.CacheWarningMode) config.Cache
 	}
 }
 
-func (s *Service) GetSessionMainView(ctx context.Context, req serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.SessionMainViewResponse{}, err
+func (s *Service) GetSessionMainView(ctx context.Context, req *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	view, err := s.resolveMainView(ctx, req.SessionID)
+	view, err := s.resolveMainView(ctx, req.SessionId)
 	if err != nil {
-		return serverapi.SessionMainViewResponse{}, err
+		return nil, err
 	}
-	if s.targets != nil && strings.TrimSpace(view.Session.SessionID) != "" {
-		target, err := s.targets.ResolveSessionExecutionTarget(ctx, view.Session.SessionID)
-		if err != nil {
-			return serverapi.SessionMainViewResponse{}, err
-		}
-		view.Session.ExecutionTarget = target
-	}
-	return serverapi.SessionMainViewResponse{MainView: view}, nil
+	return &sessionpb.MainViewSuccess{MainView: view}, nil
 }
 
 func (s *Service) SessionTranscriptTailEntries(ctx context.Context, sessionID string) ([]runtime.ChatEntry, error) {
@@ -229,32 +258,31 @@ func (s *Service) SessionTranscriptTailEntries(ctx context.Context, sessionID st
 	return (dormantSessionSnapshot{view: view, cacheWarningMode: s.cacheWarningMode}).TranscriptTailEntries(ctx)
 }
 
-func (s *Service) GetSessionTranscriptPage(ctx context.Context, req serverapi.SessionTranscriptPageRequest) (serverapi.SessionTranscriptPageResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.SessionTranscriptPageResponse{}, err
+func (s *Service) GetSessionTranscriptPage(ctx context.Context, req *transcriptpb.PageRequest) (*transcriptpb.PageSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	pageReq := clientui.TranscriptPageRequest{Cursor: req.Cursor, NewerCursor: req.NewerCursor}
-	view, err := session.ResolvePersistedSessionView(ctx, s.persisted, req.SessionID)
+	view, err := session.ResolvePersistedSessionView(ctx, s.persisted, req.SessionId)
 	if err != nil {
-		return serverapi.SessionTranscriptPageResponse{}, err
+		return nil, err
 	}
-	page, err := (dormantSessionSnapshot{view: view, cacheWarningMode: s.cacheWarningMode}).TranscriptPage(ctx, pageReq)
+	page, err := (dormantSessionSnapshot{view: view, cacheWarningMode: s.cacheWarningMode}).TranscriptPage(ctx, req)
 	if err != nil {
-		return serverapi.SessionTranscriptPageResponse{}, err
+		return nil, err
 	}
-	response := serverapi.SessionTranscriptPageResponse{Transcript: page}
+	response := &transcriptpb.PageSuccess{Transcript: page}
 	if err := validateSessionTranscriptPageResponse(response); err != nil {
-		return serverapi.SessionTranscriptPageResponse{}, err
+		return nil, err
 	}
 	return response, nil
 }
 
-func validateSessionTranscriptPageResponse(response serverapi.SessionTranscriptPageResponse) error {
-	if err := response.Validate(); err != nil {
+func validateSessionTranscriptPageResponse(response *transcriptpb.PageSuccess) error {
+	if err := protoapi.Validate(response); err != nil {
 		invariant.NewPolicy().Check(false, invariant.ReadModelPublicationDiagnostic(
 			invariant.ReadModelPublicationDiagnosticInput{
 				Operation:        "session_view.transcript_page",
-				SessionID:        response.Transcript.SessionID,
+				SessionID:        response.GetTranscript().GetSessionId(),
 				PublicationCause: err.Error(),
 				OwnerSnapshots:   "canonical_transcript_page",
 				ResolverInputs:   "session_transcript_page",
@@ -265,190 +293,25 @@ func validateSessionTranscriptPageResponse(response serverapi.SessionTranscriptP
 	return nil
 }
 
-func (s *Service) GetLatestCommittedAssistantFinalAnswer(ctx context.Context, req serverapi.SessionLatestCommittedAssistantFinalAnswerRequest) (serverapi.SessionLatestCommittedAssistantFinalAnswerResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.SessionLatestCommittedAssistantFinalAnswerResponse{}, err
+func (s *Service) GetLatestCommittedAssistantFinalAnswer(ctx context.Context, req *transcriptpb.LatestFinalAnswerRequest) (*transcriptpb.LatestFinalAnswerSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
 	if s == nil {
-		return serverapi.SessionLatestCommittedAssistantFinalAnswerResponse{}, session.ErrPersistedSessionResolverRequired
+		return nil, session.ErrPersistedSessionResolverRequired
 	}
-	view, err := session.ResolvePersistedSessionView(ctx, s.persisted, req.SessionID)
+	view, err := session.ResolvePersistedSessionView(ctx, s.persisted, req.SessionId)
 	if err != nil {
-		return serverapi.SessionLatestCommittedAssistantFinalAnswerResponse{}, err
+		return nil, err
 	}
 	answer, err := runtime.LatestCommittedAssistantFinalAnswerFromEventLog(view)
 	if err != nil {
-		return serverapi.SessionLatestCommittedAssistantFinalAnswerResponse{}, err
+		return nil, err
 	}
 	if answer != nil && strings.TrimSpace(*answer) == "" {
-		return serverapi.SessionLatestCommittedAssistantFinalAnswerResponse{}, errors.New("latest committed assistant final answer must not be blank")
+		return nil, errors.New("latest committed assistant final answer must not be blank")
 	}
-	return serverapi.SessionLatestCommittedAssistantFinalAnswerResponse{Answer: answer}, nil
-}
-
-func (s *Service) GetSessionExecutionEnvironment(ctx context.Context, req serverapi.SessionExecutionEnvironmentRequest) (serverapi.SessionExecutionEnvironmentResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.SessionExecutionEnvironmentResponse{}, err
-	}
-	if s == nil || s.persisted == nil {
-		return serverapi.SessionExecutionEnvironmentResponse{}, session.ErrPersistedSessionResolverRequired
-	}
-	record, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, req.SessionID.String())
-	if err != nil {
-		return serverapi.SessionExecutionEnvironmentResponse{}, err
-	}
-	meta := *record.Meta
-	if strings.TrimSpace(meta.SessionID) != req.SessionID.String() {
-		return serverapi.SessionExecutionEnvironmentResponse{}, fmt.Errorf("session execution environment identity mismatch: requested %q, resolved %q", req.SessionID.String(), meta.SessionID)
-	}
-	environment := serverapi.SessionExecutionEnvironment{SessionID: req.SessionID}
-	target, targetErr := s.resolveExecutionTarget(ctx, req.SessionID.String())
-	if targetErr != nil {
-		environment.Workspace = serverapi.FailedSessionExecutionWorkspace(serverapi.SessionExecutionFieldError{Code: serverapi.SessionExecutionFieldErrorSourceFailure, Message: targetErr.Error()})
-	} else {
-		environment.Workspace = resolveSessionExecutionWorkspace(target)
-	}
-	environment.Branch = s.resolveBranch(ctx, target, environment.Workspace)
-	model, modelErr := launch.ResolveReadOnlySessionModel(s.app, meta)
-	if modelErr != nil {
-		var unavailable *launch.ReadOnlySessionModelUnavailableError
-		if errors.As(modelErr, &unavailable) {
-			environment.Model = serverapi.UnavailableSessionExecutionModel(unavailable.Reason)
-		} else {
-			environment.Model = serverapi.FailedSessionExecutionModel(serverapi.SessionExecutionFieldError{Code: serverapi.SessionExecutionFieldErrorInvalidConfiguration, Message: modelErr.Error()})
-		}
-	} else {
-		environment.Model = serverapi.AvailableSessionExecutionModel(serverapi.SessionExecutionModel{
-			Name:     model.Name,
-			Provider: model.Provider.ID(),
-			Locked:   model.Locked,
-		})
-	}
-	environment.Auth = s.resolveAuth(ctx, environment.Model)
-	return serverapi.SessionExecutionEnvironmentResponse{Environment: environment}, nil
-}
-
-func (s *Service) resolveExecutionTarget(ctx context.Context, sessionID string) (clientui.SessionExecutionTarget, error) {
-	if s.targets == nil {
-		return clientui.SessionExecutionTarget{}, nil
-	}
-	return s.targets.ResolveSessionExecutionTarget(ctx, sessionID)
-}
-
-func resolveSessionExecutionWorkspace(target clientui.SessionExecutionTarget) serverapi.SessionExecutionWorkspaceField {
-	target = clientui.NormalizeSessionExecutionTarget(target)
-	if clientui.SessionExecutionTargetIsZero(target) {
-		return serverapi.UnavailableSessionExecutionWorkspace(
-			serverapi.SessionExecutionWorkspaceUnavailableNotConfigured,
-		)
-	}
-	availability := string(target.WorkspaceAvailability)
-	targetKind := "workspace"
-	if target.Worktree != nil {
-		availability = target.Worktree.Availability
-		targetKind = "worktree"
-	}
-	switch strings.TrimSpace(availability) {
-	case "missing", "inaccessible":
-		return serverapi.FailedSessionExecutionWorkspace(serverapi.SessionExecutionFieldError{
-			Code: serverapi.SessionExecutionFieldErrorSourceFailure,
-			Message: fmt.Sprintf(
-				"session execution %s target is %s",
-				targetKind,
-				strings.TrimSpace(availability),
-			),
-		})
-	}
-	if strings.TrimSpace(target.EffectiveWorkdir) == "" {
-		return serverapi.FailedSessionExecutionWorkspace(serverapi.SessionExecutionFieldError{
-			Code:    serverapi.SessionExecutionFieldErrorSourceFailure,
-			Message: "session execution target has no effective workdir",
-		})
-	}
-	return serverapi.AvailableSessionExecutionWorkspace(target.EffectiveWorkdir)
-}
-
-func (s *Service) resolveBranch(
-	ctx context.Context,
-	target clientui.SessionExecutionTarget,
-	workspace serverapi.SessionExecutionWorkspaceField,
-) serverapi.SessionExecutionBranchField {
-	if workspace.Kind() != serverapi.SessionExecutionFieldAvailable {
-		return serverapi.UnavailableSessionExecutionBranch(serverapi.SessionExecutionBranchUnavailableNotGitRepository)
-	}
-	if s.git == nil {
-		return serverapi.UnavailableSessionExecutionBranch(serverapi.SessionExecutionBranchUnavailableNotGitRepository)
-	}
-	entries, err := s.git.List(ctx, target.EffectiveWorkdir)
-	if err != nil {
-		var listErr *worktree.GitWorktreeListError
-		if errors.As(err, &listErr) && listErr.Kind == worktree.GitWorktreeListErrorNotRepository {
-			return serverapi.UnavailableSessionExecutionBranch(serverapi.SessionExecutionBranchUnavailableNotGitRepository)
-		}
-		return serverapi.FailedSessionExecutionBranch(serverapi.SessionExecutionFieldError{Code: serverapi.SessionExecutionFieldErrorSourceFailure, Message: err.Error()})
-	}
-	canonicalWorkdir, err := config.CanonicalWorkspaceRoot(target.EffectiveWorkdir)
-	if err != nil {
-		return serverapi.FailedSessionExecutionBranch(serverapi.SessionExecutionFieldError{Code: serverapi.SessionExecutionFieldErrorSourceFailure, Message: err.Error()})
-	}
-	for _, entry := range entries {
-		relative, err := filepath.Rel(entry.Root, canonicalWorkdir)
-		if err != nil || !filepath.IsLocal(relative) {
-			continue
-		}
-		if relative == "." || filepath.IsLocal(relative) {
-			if entry.Detached {
-				return serverapi.UnavailableSessionExecutionBranch(serverapi.SessionExecutionBranchUnavailableDetachedHead)
-			}
-			if entry.Branch == nil {
-				return serverapi.UnavailableSessionExecutionBranch(serverapi.SessionExecutionBranchUnavailableNotGitRepository)
-			}
-			return serverapi.AvailableSessionExecutionBranch(entry.Branch.Name())
-		}
-	}
-	return serverapi.UnavailableSessionExecutionBranch(serverapi.SessionExecutionBranchUnavailableNotGitRepository)
-}
-
-func (s *Service) resolveAuth(ctx context.Context, model serverapi.SessionExecutionModelField) serverapi.SessionExecutionAuthField {
-	if model.Kind() != serverapi.SessionExecutionFieldAvailable || s.auth == nil {
-		return serverapi.UnavailableSessionExecutionAuth(serverapi.SessionExecutionAuthUnavailableNotApplicable)
-	}
-	effectiveModel, ok := model.Value()
-	if !ok || !sessionExecutionProviderUsesKentManagedAuth(effectiveModel.Provider) {
-		return serverapi.UnavailableSessionExecutionAuth(serverapi.SessionExecutionAuthUnavailableNotApplicable)
-	}
-	status, err := s.auth.GetStatus(ctx, &authpb.GetStatusRequest{})
-	if err != nil {
-		return serverapi.FailedSessionExecutionAuth(serverapi.SessionExecutionFieldError{Code: serverapi.SessionExecutionFieldErrorSourceFailure, Message: err.Error()})
-	}
-	if unavailable := status.GetResolution().GetUnavailable(); unavailable != nil {
-		return serverapi.FailedSessionExecutionAuth(serverapi.SessionExecutionFieldError{
-			Code:    serverapi.SessionExecutionFieldErrorSourceFailure,
-			Message: unavailable.GetCause(),
-		})
-	}
-	return serverapi.AvailableSessionExecutionAuth(serverapi.SessionExecutionAuth{
-		Provider: effectiveModel.Provider,
-		Method:   sessionExecutionAuthMethodFromProto(status.GetResolution().GetKnown().GetMethod()),
-	})
-}
-
-func sessionExecutionAuthMethodFromProto(method authpb.AuthMethod) serverapi.SessionExecutionAuthMethod {
-	switch method {
-	case authpb.AuthMethod_AUTH_METHOD_NONE:
-		return serverapi.SessionExecutionAuthMethodNone
-	case authpb.AuthMethod_AUTH_METHOD_API_KEY:
-		return serverapi.SessionExecutionAuthMethodAPIKey
-	case authpb.AuthMethod_AUTH_METHOD_OAUTH:
-		return serverapi.SessionExecutionAuthMethodOAuth
-	default:
-		return serverapi.SessionExecutionAuthMethod("")
-	}
-}
-
-func sessionExecutionProviderUsesKentManagedAuth(provider string) bool {
-	capabilities, err := llm.InferProviderCapabilities(strings.TrimSpace(provider))
-	return err == nil && capabilities.IsOpenAIFirstParty
+	return &transcriptpb.LatestFinalAnswerSuccess{Answer: answer}, nil
 }
 
 var _ servicecontract.SessionViewService = (*Service)(nil)

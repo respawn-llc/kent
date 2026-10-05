@@ -10,13 +10,13 @@ import (
 	"sync"
 	"time"
 
+	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
+
 	"github.com/google/uuid"
 )
-
-const eventsFile = "events.jsonl"
 
 var ErrSessionNotFound = sessioncontract.ErrSessionNotFound
 
@@ -191,29 +191,11 @@ func MaterializeSessionDescriptor(persistenceRoot string, descriptor SessionDesc
 		}
 		return OpenByID(persistenceRoot, value.sessionID.String(), options...)
 	case createSessionDescriptor:
-		store, err := NewLazyWithID(
-			value.sessionID,
-			value.containerDir,
-			value.containerName,
-			value.workspaceRoot,
-			value.category,
-			options...,
-		)
+		plan, err := PrepareCreation(CreationRequest{Descriptor: descriptor}, options...)
 		if err != nil {
 			return nil, err
 		}
-		if err := InitializeCreationContext(
-			store,
-			nil,
-			SessionCreationSourceIndependent,
-			ChildContextOptions{},
-		); err != nil {
-			return nil, err
-		}
-		if err := store.EnsureDurable(); err != nil {
-			return nil, err
-		}
-		return store, nil
+		return MaterializeCreation(context.Background(), plan, options...)
 	default:
 		return nil, fmt.Errorf("unsupported session descriptor %T", descriptor.value)
 	}
@@ -453,6 +435,7 @@ type ArtifactRelocationTarget struct {
 	WorkspaceContainer string
 	UpdatedAt          time.Time
 	RebindReminder     *SessionRebindReminder
+	WorktreeReminder   *WorktreeReminderState
 }
 
 func (s *Store) RunArtifactRelocation(target ArtifactRelocationTarget, relocate func() error) error {
@@ -499,7 +482,7 @@ func (s *Store) RunArtifactRelocation(target ArtifactRelocationTarget, relocate 
 	}
 	s.meta.WorkspaceRoot = target.WorkspaceRoot
 	s.meta.WorkspaceContainer = target.WorkspaceContainer
-	s.meta.WorktreeReminder = nil
+	s.meta.WorktreeReminder = CloneWorktreeReminderState(target.WorktreeReminder)
 	if target.RebindReminder != nil {
 		s.meta.RebindReminder = CloneSessionRebindReminder(target.RebindReminder)
 	}
@@ -546,7 +529,11 @@ func (s *Store) Meta() Meta {
 
 func (s *Store) PromptFacingMetadataSnapshot() PromptFacingMetadataSnapshot {
 	meta := s.Meta()
+	if meta.ChatSettings != nil {
+		meta.ChatSettings.Thinking = nil
+	}
 	return PromptFacingMetadataSnapshot{
+		ConnectionID:                  meta.ConnectionID,
 		Name:                          meta.Name,
 		FirstPromptPreview:            meta.FirstPromptPreview,
 		Continuation:                  cloneContinuationContext(meta.Continuation),
@@ -560,9 +547,17 @@ func (s *Store) PromptFacingMetadataSnapshot() PromptFacingMetadataSnapshot {
 func (s *Store) RestorePromptFacingMetadata(snapshot PromptFacingMetadataSnapshot) error {
 	return s.mutateAndPersist(func() error {
 		s.meta.Name = snapshot.Name
+		s.meta.ConnectionID = textutil.Pointer(snapshot.ConnectionID)
 		s.meta.FirstPromptPreview = snapshot.FirstPromptPreview
 		s.meta.Continuation = cloneContinuationContext(snapshot.Continuation)
-		s.meta.ChatSettings = cloneChatSettingsOverrides(snapshot.ChatSettings)
+		settings := cloneChatSettingsOverrides(snapshot.ChatSettings)
+		if s.meta.ChatSettings != nil && s.meta.ChatSettings.Thinking != nil {
+			if settings == nil {
+				settings = &ChatSettingsOverrides{}
+			}
+			settings.Thinking = s.meta.ChatSettings.Thinking
+		}
+		s.meta.ChatSettings = settings
 		s.meta.Locked = cloneLockedContract(snapshot.Locked)
 		s.meta.ActiveWorkflowAssignment = cloneMessageRecord(snapshot.ActiveWorkflowAssignment)
 		s.meta.ActiveWorkflowAssignmentState = cloneActiveWorkflowAssignmentState(snapshot.ActiveWorkflowAssignmentState)
@@ -655,27 +650,10 @@ func (s *Store) mutateLockedContractWithCommitStatus(mutator func(*LockedContrac
 	if mutator == nil {
 		return LockedContractMutationResult{}, nil
 	}
-	return s.mutateMetaAndReplaceLockedContractWithCommitStatus(nil, func(locked *LockedContract) *LockedContract {
-		mutator(locked)
-		return locked
-	}, true)
-}
-
-func (s *Store) mutateMetaAndLockedContractWithCommitStatus(metaMutator func(*Meta), lockedMutator func(*LockedContract), requireLocked bool) (LockedContractMutationResult, error) {
-	if lockedMutator == nil {
-		return s.mutateMetaAndReplaceLockedContractWithCommitStatus(metaMutator, nil, requireLocked)
-	}
-	return s.mutateMetaAndReplaceLockedContractWithCommitStatus(metaMutator, func(locked *LockedContract) *LockedContract {
-		lockedMutator(locked)
-		return locked
-	}, requireLocked)
-}
-
-func (s *Store) mutateMetaAndReplaceLockedContractWithCommitStatus(metaMutator func(*Meta), lockedMutator func(*LockedContract) *LockedContract, requireLocked bool) (LockedContractMutationResult, error) {
 	s.mutationMu.Lock()
 	defer s.mutationMu.Unlock()
 	s.mu.Lock()
-	if requireLocked && s.meta.Locked == nil {
+	if s.meta.Locked == nil {
 		s.mu.Unlock()
 		return LockedContractMutationResult{}, nil
 	}
@@ -684,12 +662,8 @@ func (s *Store) mutateMetaAndReplaceLockedContractWithCommitStatus(metaMutator f
 		return LockedContractMutationResult{}, err
 	}
 	checkpoint := s.metadataMutationCheckpointLocked()
-	if metaMutator != nil {
-		metaMutator(&s.meta)
-	}
-	if lockedMutator != nil && s.meta.Locked != nil {
-		s.meta.Locked = lockedMutator(cloneLockedContract(s.meta.Locked))
-	}
+	s.meta.Locked = cloneLockedContract(s.meta.Locked)
+	mutator(s.meta.Locked)
 	s.meta.UpdatedAt = time.Now().UTC()
 	committed := cloneLockedContract(s.meta.Locked)
 	receipt, err := s.persistMetadataMutationWithCommitReceiptLocked(checkpoint)
@@ -766,12 +740,26 @@ func (s *Store) SetWorkspaceRoot(workspaceRoot string) error {
 	})
 }
 
-func (s *Store) SetInputDraft(inputDraft string) error {
+type ProtectedInputDraftUpdate struct {
+	Text *string
+}
+
+func (s *Store) SetInputDraft(inputDraft string, protectedUpdate *ProtectedInputDraftUpdate) error {
 	s.mutationMu.Lock()
 	defer s.mutationMu.Unlock()
 	s.mu.Lock()
 
-	if s.meta.InputDraft == inputDraft && (!s.persisted || s.hasDurableMetadataLocked()) {
+	protected := s.meta.ProtectedInputDraft
+	if protectedUpdate != nil {
+		protected = protectedUpdate.Text
+		if protected != nil && *protected == "" {
+			s.mu.Unlock()
+			return errors.New("protected input draft must not be empty")
+		}
+	}
+	protectedUnchanged := protected == nil && s.meta.ProtectedInputDraft == nil ||
+		protected != nil && s.meta.ProtectedInputDraft != nil && *protected == *s.meta.ProtectedInputDraft
+	if s.meta.InputDraft == inputDraft && protectedUnchanged && (!s.persisted || s.hasDurableMetadataLocked()) {
 		s.mu.Unlock()
 		return nil
 	}
@@ -780,8 +768,13 @@ func (s *Store) SetInputDraft(inputDraft string) error {
 		return err
 	}
 	s.meta.InputDraft = inputDraft
+	s.meta.ProtectedInputDraft = nil
+	if protected != nil {
+		text := *protected
+		s.meta.ProtectedInputDraft = &text
+	}
 	s.meta.UpdatedAt = time.Now().UTC()
-	if !s.persisted && inputDraft == "" {
+	if !s.persisted && inputDraft == "" && protected == nil {
 		s.mu.Unlock()
 		return nil
 	}
@@ -1159,6 +1152,16 @@ func (s *Store) SetUsageState(state *UsageState) (CommitReceipt, error) {
 	return s.persistMetadataMutationWithCommitReceiptLocked(checkpoint)
 }
 
+func (s *Store) SetConnectionID(id config.ConnectionID) error {
+	if _, err := config.ParseConnectionID(string(id)); err != nil {
+		return err
+	}
+	return s.mutateAndPersist(func() error {
+		s.meta.ConnectionID = &id
+		return nil
+	})
+}
+
 func (s *Store) SetContinuationContext(ctx ContinuationContext) error {
 	normalized, err := NormalizeContinuationContext(ctx)
 	if err != nil {
@@ -1182,16 +1185,6 @@ func (s *Store) SetContinuationContext(ctx ContinuationContext) error {
 	return s.unlockAndObservePersistence(s.persistMetaAfterRecoveryVerifiedLocked())
 }
 
-func (s *Store) SetContinuationContextAndMarkLockedPromptFacingContractStale(ctx ContinuationContext) (LockedContractMutationResult, error) {
-	normalized, err := NormalizeContinuationContext(ctx)
-	if err != nil {
-		return LockedContractMutationResult{}, err
-	}
-	return s.mutateMetaAndLockedContractWithCommitStatus(func(meta *Meta) {
-		meta.Continuation = normalized
-	}, markLockedPromptFacingContractStale, false)
-}
-
 func (s *Store) MarkGeneratedRecoveredWarningIssued() error {
 	return s.mutateAndPersist(func() error {
 		s.meta.GeneratedRecoveredWarningIssued = true
@@ -1212,45 +1205,6 @@ func (s *Store) MarkModelDispatchLocked(contract LockedContract) error {
 		s.meta.UpdatedAt = time.Now().UTC()
 		return nil
 	})
-}
-
-func (s *Store) ResetLockedContractForCompactionBoundary() error {
-	_, err := s.mutateMetaAndReplaceLockedContractWithCommitStatus(func(*Meta) {
-	}, func(*LockedContract) *LockedContract {
-		return nil
-	}, false)
-	return err
-}
-
-func (s *Store) BackfillLockedContextBudget(contextWindow, contextPercent int) error {
-	if contextWindow <= 0 || contextPercent <= 0 {
-		return nil
-	}
-	s.mutationMu.Lock()
-	defer s.mutationMu.Unlock()
-	s.mu.Lock()
-	if s.meta.Locked == nil {
-		s.mu.Unlock()
-		return nil
-	}
-	setContextWindow := s.meta.Locked.ContextWindow <= 0
-	setContextPercent := s.meta.Locked.ContextPercent <= 0
-	if !setContextWindow && !setContextPercent {
-		s.mu.Unlock()
-		return nil
-	}
-	if err := s.requireMetadataPersistenceLocked(); err != nil {
-		s.mu.Unlock()
-		return err
-	}
-	if setContextWindow {
-		s.meta.Locked.ContextWindow = contextWindow
-	}
-	if setContextPercent {
-		s.meta.Locked.ContextPercent = contextPercent
-	}
-	s.meta.UpdatedAt = time.Now().UTC()
-	return s.unlockAndObservePersistence(s.persistMetaAfterRecoveryVerifiedLocked())
 }
 
 func (s *Store) BackfillLockedProviderContract(contract LockedProviderCapabilities) error {
@@ -1309,24 +1263,6 @@ func (s *Store) BackfillLockedReviewerPrompt(reviewerPrompt string) error {
 	s.meta.Locked.HasReviewerPrompt = true
 	s.meta.UpdatedAt = time.Now().UTC()
 	return s.unlockAndObservePersistence(s.persistMetaAfterRecoveryVerifiedLocked())
-}
-
-func (s *Store) MarkLockedPromptFacingSnapshotsStale() (LockedContractMutationResult, error) {
-	return s.mutateLockedContractWithCommitStatus(func(locked *LockedContract) {
-		*locked = locked.WithPromptFacingSnapshotsStale()
-	})
-}
-
-func (s *Store) MarkLockedPromptFacingContractStale() (LockedContractMutationResult, error) {
-	return s.mutateLockedContractWithCommitStatus(markLockedPromptFacingContractStale)
-}
-
-func markLockedPromptFacingContractStale(locked *LockedContract) {
-	*locked = locked.WithPromptFacingSnapshotsStale()
-	locked.EnabledTools = nil
-	locked.HasEnabledTools = false
-	locked.WebSearchMode = ""
-	locked.ToolPreambles = nil
 }
 
 func (s *Store) RefreshLockedMainPromptSnapshot(snapshot LockedMainPromptSnapshot) (LockedContractMutationResult, error) {
@@ -1395,8 +1331,12 @@ func (s *Store) ensurePersistedLocked() error {
 	if err := os.MkdirAll(s.sessionDir, 0o755); err != nil {
 		return fmt.Errorf("create session dir: %w", err)
 	}
-	if err := os.WriteFile(s.eventsFP, nil, 0o644); err != nil {
+	fp, err := os.OpenFile(s.eventsFP, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
 		return fmt.Errorf("initialize events file: %w", err)
+	}
+	if err := fp.Close(); err != nil {
+		return fmt.Errorf("close initialized events file: %w", err)
 	}
 	if err := initializeEventLogPersistenceLock(s.sessionDir); err != nil {
 		return err

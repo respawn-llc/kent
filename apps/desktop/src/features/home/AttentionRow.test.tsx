@@ -1,0 +1,188 @@
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { I18nextProvider } from "react-i18next";
+import { RegistryProvider, useAtomSet } from "@effect/atom-react";
+import { QueryClient } from "@tanstack/react-query";
+
+import type { ApprovalAttentionItem, AttentionItem, InterruptedCurrentNodeAttentionItem } from "@/api";
+import { appI18n, initializeI18n } from "@/i18n";
+import { AttentionRow } from "./AttentionRow";
+import { createHomeViewModel } from "./HomeViewModel";
+import { createTestServices } from "@/test-support/app-services";
+import { createTestSidebarController } from "@/test-support/sidebar";
+
+const fixture = vi.hoisted(() => ({
+  featureFlags: { desktopChatEnabled: true },
+  openSessionChat: vi.fn(async () => undefined),
+}));
+
+vi.mock("@/shared/feature-flags", () => fixture.featureFlags);
+
+beforeAll(async () => initializeI18n());
+beforeEach(() => {
+  fixture.featureFlags.desktopChatEnabled = true;
+  fixture.openSessionChat.mockClear();
+});
+
+function renderAttention(item: AttentionItem) {
+  const openSidebar = vi.fn(createTestSidebarController().open);
+  const model = createHomeViewModel({
+    services: createTestServices([]),
+    client: new QueryClient(),
+    push: vi.fn(),
+    t: appI18n.t,
+    openProject: vi.fn(async () => undefined),
+  });
+  function Row() {
+    const task = useAtomSet(model.attentionTask);
+    const chat = useAtomSet(model.attentionChat);
+    return (
+      <AttentionRow
+        item={item}
+        onTaskDetail={(item) => {
+          task({ item, open: openSidebar, mode: "shift" });
+        }}
+        onSessionChat={(target) => {
+          chat({ target, open: fixture.openSessionChat });
+        }}
+      />
+    );
+  }
+  const view = render(
+    <I18nextProvider i18n={appI18n}>
+      <RegistryProvider>
+        <Row />
+      </RegistryProvider>
+    </I18nextProvider>,
+  );
+  return { openSidebar, view };
+}
+
+it("opens Task Detail from the attention row and Chat only from its separate action", () => {
+  const { openSidebar } = renderAttention(questionAttention);
+  const row = screen.getByTestId("attention-row");
+
+  expect(within(row).getAllByRole("button")).toHaveLength(2);
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("task.openChat", { name: base.taskTitle }) }));
+  fireEvent.click(screen.getByRole("button", { name: `${base.taskShortID} ${base.taskTitle}` }));
+
+  expect(fixture.openSessionChat).toHaveBeenCalledWith({
+    projectID: "project-1",
+    sessionID: "session-1",
+  });
+  expect(openSidebar).toHaveBeenCalledOnce();
+});
+
+it("renders structured access approval paths without a message", () => {
+  renderAttention({
+    ...questionAttention,
+    message: null,
+    question: {
+      ...questionAttention.question,
+      kind: "approval",
+      approvalDecisions: ["allow_once", "deny"],
+      accessTargets: [
+        { requestedPath: "../outside", resolvedPath: "/outside" },
+        { requestedPath: "/other", resolvedPath: "/other" },
+      ],
+    },
+  });
+  expect(screen.getByText(appI18n.t("task.accessApprovalIntro", { count: 2 }))).toBeInTheDocument();
+  expect(screen.getByText("- ../outside → /outside")).toBeInTheDocument();
+  expect(screen.getByText("- /other")).toBeInTheDocument();
+  expect(screen.getByText(appI18n.t("task.accessApprovalQuestion"))).toBeInTheDocument();
+});
+
+const base = {
+  id: "attention-1",
+  occurredAt: 1,
+  projectID: "project-1",
+  taskID: "task-1",
+  taskShortID: "T-1",
+  taskTitle: "Resolve blocker",
+  workflowID: "workflow-1",
+} as const;
+
+const currentNode = {
+  effectiveAssignee: null,
+  effectiveThinking: null,
+  nodeID: "node-1",
+  sessionID: "session-2",
+  transitionBranchKey: null,
+} as const;
+
+const interruptedWithSession = {
+  ...base,
+  currentNode,
+  detailJSON: null,
+  kind: "interrupted_current_node",
+  message: null,
+  sessionID: "session-2",
+} satisfies InterruptedCurrentNodeAttentionItem;
+
+const interruptedWithoutSession = {
+  ...interruptedWithSession,
+  sessionID: null,
+} satisfies InterruptedCurrentNodeAttentionItem;
+
+const approval = {
+  ...base,
+  approvalID: "approval-1",
+  approvalSnapshot: {
+    commentary: "",
+    outputValues: {},
+    sourceNodeName: "Implement",
+    targets: [],
+    version: 1,
+  },
+  kind: "approval",
+  message: null,
+} satisfies ApprovalAttentionItem;
+
+const questionAttention = {
+  ...base,
+  currentNode: { ...currentNode, sessionID: null },
+  kind: "question",
+  message: "Choose",
+  question: {
+    kind: "ordinary",
+    toolCallID: "prompt-1",
+    recommendedOptionIndex: null,
+    sessionID: "session-1",
+    stepID: "step-1",
+    suggestions: ["One"],
+  },
+  sessionName: null,
+} satisfies AttentionItem;
+
+it.each([
+  ["interrupted Session", interruptedWithSession, { projectID: "project-1", sessionID: "session-2" }],
+  ["interrupted attention without Session", interruptedWithoutSession, null],
+  ["Task Approval", approval, null],
+] as const)("keeps the typed Chat affordance for %s", (_name, item, expectedTarget) => {
+  const { openSidebar } = renderAttention(item);
+  const chatHeader = screen.queryByRole("button", {
+    name: appI18n.t("task.openChat", { name: item.taskTitle }),
+  });
+
+  expect(chatHeader !== null).toBe(expectedTarget !== null);
+  if (expectedTarget !== null) {
+    if (chatHeader === null) throw new Error("Expected Chat header.");
+    fireEvent.click(chatHeader);
+    expect(fixture.openSessionChat).toHaveBeenCalledWith(expectedTarget);
+  } else {
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button"));
+    expect(openSidebar).toHaveBeenCalledOnce();
+  }
+});
+
+it("keeps production attention rows as one Task Detail interaction", () => {
+  fixture.featureFlags.desktopChatEnabled = false;
+  const { openSidebar } = renderAttention(questionAttention);
+  const row = screen.getByTestId("attention-row");
+
+  expect(within(row).queryByTestId("attention-chat-header")).not.toBeInTheDocument();
+  expect(screen.getAllByRole("button")).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button"));
+  expect(openSidebar).toHaveBeenCalledOnce();
+});

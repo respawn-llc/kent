@@ -17,6 +17,7 @@ import (
 	"core/server/workflowstore"
 	servicecontract "core/shared/apicontract"
 	"core/shared/clientui"
+	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	"core/shared/serverapi"
 
@@ -147,13 +148,13 @@ func (s *Service) ResolveProjectPath(ctx context.Context, req *projectpb.Resolve
 	if err != nil {
 		return nil, err
 	}
-	availability, err := projectAvailabilityToGenerated(clientui.ProjectAvailability(availabilityForProjectPath(canonicalRoot)))
+	availability, err := protoapi.ProjectAvailabilityToProto(clientui.ProjectAvailability(availabilityForProjectPath(canonicalRoot)))
 	if err != nil {
 		return nil, err
 	}
 	resp := &projectpb.ResolvePathSuccess{CanonicalRoot: canonicalRoot, PathAvailability: availability}
 	if binding != nil {
-		resp.Binding, err = projectBindingToGenerated(*binding)
+		resp.Binding, err = BindingToProto(*binding)
 		if err != nil {
 			return nil, err
 		}
@@ -168,7 +169,7 @@ func (s *Service) PlanWorkspaceBinding(ctx context.Context, req *projectpb.PlanW
 	resolved, err := s.ResolveProjectPath(ctx, &projectpb.ResolvePathRequest{Path: req.Path})
 	if err != nil {
 		if ambiguous, ok := serverapi.AsWorkspaceBindingAmbiguous(err); ok {
-			availability, availabilityErr := projectAvailabilityToGenerated(clientui.ProjectAvailability(availabilityForProjectPath(ambiguous.CanonicalRoot)))
+			availability, availabilityErr := protoapi.ProjectAvailabilityToProto(clientui.ProjectAvailability(availabilityForProjectPath(ambiguous.CanonicalRoot)))
 			if availabilityErr != nil {
 				return nil, availabilityErr
 			}
@@ -529,33 +530,35 @@ func rejectSymlinkComponents(root string, target string) error {
 }
 
 func (s *Service) selectSingleAvailableWorkspace(ctx context.Context) (*projectpb.SelectedProjectWorkspace, bool, error) {
-	projects, err := s.metadata.ListProjects(ctx)
+	projects, err := s.metadata.Queries().ListProjectKeyRows(ctx)
 	if err != nil {
 		return nil, false, err
 	}
 	var selection *projectpb.SelectedProjectWorkspace
-	count := 0
 	for _, project := range projects {
-		overview, err := s.metadata.GetProjectOverview(ctx, project.ProjectID)
-		if err != nil {
-			return nil, false, err
-		}
-		for _, workspace := range overview.Workspaces {
-			availability := strings.TrimSpace(string(workspace.Availability))
-			if availability != "" && workspace.Availability != clientui.ProjectAvailabilityAvailable {
-				continue
+		offset := 0
+		for {
+			page, err := s.metadata.ListProjectWorkspaceCatalogPage(ctx, project.ID, offset, metadata.MaxProjectWorkspacePageSize)
+			if err != nil {
+				return nil, false, err
 			}
-			count++
-			selection = &projectpb.SelectedProjectWorkspace{ProjectId: project.ProjectID, WorkspaceId: workspace.WorkspaceID}
-			if count > 1 {
-				return nil, false, nil
+			for _, workspace := range page.Workspaces {
+				info, err := os.Stat(workspace.CanonicalRoot)
+				if err != nil || !info.IsDir() {
+					continue
+				}
+				if selection != nil {
+					return nil, false, nil
+				}
+				selection = &projectpb.SelectedProjectWorkspace{ProjectId: project.ID, WorkspaceId: workspace.WorkspaceID}
 			}
+			if page.NextOffset == nil {
+				break
+			}
+			offset = *page.NextOffset
 		}
 	}
-	if count == 0 {
-		return nil, false, nil
-	}
-	return selection, true, nil
+	return selection, selection != nil, nil
 }
 
 func (s *Service) ListProjectWorkspaces(ctx context.Context, req *projectpb.ProjectWorkspaceListRequest) (*projectpb.ListProjectWorkspacesSuccess, error) {
@@ -678,34 +681,6 @@ func projectMutationStorageError(err error, projectKey string) error {
 	}
 }
 
-func (s *Service) GetProjectOverview(ctx context.Context, req *projectpb.GetOverviewRequest) (*projectpb.GetOverviewSuccess, error) {
-	if req == nil {
-		return nil, errors.New("get project overview request is required")
-	}
-	if s == nil {
-		return nil, errors.New("project service is required")
-	}
-	overview, err := s.metadata.GetProjectOverview(ctx, req.ProjectId)
-	if err != nil {
-		return nil, err
-	}
-	project, err := projectSummaryToGenerated(overview.Project)
-	if err != nil {
-		return nil, err
-	}
-	workspaces := make([]*projectpb.ProjectWorkspaceSummary, 0, len(overview.Workspaces))
-	for _, workspace := range overview.Workspaces {
-		generated, err := projectWorkspaceSummaryToGenerated(workspace)
-		if err != nil {
-			return nil, err
-		}
-		workspaces = append(workspaces, generated)
-	}
-	return &projectpb.GetOverviewSuccess{
-		Overview: &projectpb.ProjectOverview{Project: project, Workspaces: workspaces},
-	}, nil
-}
-
 func (s *Service) ListSessionPage(ctx context.Context, req *projectpb.SessionPageRequest) (*projectpb.SessionPageSuccess, error) {
 	if req == nil {
 		return nil, errors.New("session page request is required")
@@ -713,7 +688,7 @@ func (s *Service) ListSessionPage(ctx context.Context, req *projectpb.SessionPag
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
-	category, err := sessionCategoryFromGenerated(req.Category)
+	category, err := protoapi.SessionCategoryFromProto(req.Category)
 	if err != nil {
 		return nil, err
 	}

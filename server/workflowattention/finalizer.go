@@ -106,52 +106,6 @@ func (f *Finalizer) PublishPendingInterruptedCurrentNode(ctx context.Context, re
 	f.publishPendingInterruptedCurrentNode(projection)
 }
 
-func (f *Finalizer) EnqueuePendingApprovalSnapshot(
-	ctx context.Context,
-	approvalID workflow.ApprovalID,
-	enqueue func(clientui.AttentionNotification) error,
-) (bool, error) {
-	if f == nil || f.approvals == nil {
-		return false, nil
-	}
-	if enqueue == nil {
-		return false, errors.New("workflow approval attention snapshot enqueue is required")
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	projection, ok, err := f.pendingApprovalProjection(ctx, approvalID)
-	if err != nil || !ok {
-		return false, err
-	}
-	if err := enqueue(approvalNotification(projection)); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-func (f *Finalizer) EnqueuePendingInterruptedCurrentNodeSnapshot(
-	ctx context.Context,
-	reference workflow.CurrentNodeReference,
-	enqueue func(clientui.AttentionNotification) error,
-) (bool, error) {
-	if f == nil || f.interruptedCurrentNodes == nil {
-		return false, nil
-	}
-	if enqueue == nil {
-		return false, errors.New("workflow interrupted-current-node attention snapshot enqueue is required")
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	projection, ok, err := f.pendingInterruptedCurrentNodeProjection(ctx, reference)
-	if err != nil || !ok {
-		return false, err
-	}
-	if err := enqueue(interruptedCurrentNodeNotification(projection)); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
 func (f *Finalizer) pendingApprovalProjection(ctx context.Context, approvalID workflow.ApprovalID) (ApprovalProjection, bool, error) {
 	projection, ok, err := f.approvals.PendingApprovalProjection(ctx, approvalID)
 	if err != nil || !ok {

@@ -4,6 +4,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/transcript"
@@ -46,6 +47,7 @@ const (
 	EventPromptHistoryPersistFailed EventKind = "prompt_history_persist_failed"
 	EventContextFactsPersistFailed  EventKind = "context_facts_persist_failed"
 	EventProviderTurnStateInvalid   EventKind = "provider_turn_state_invalid"
+	EventConnectionReplaced         EventKind = "connection_replaced"
 	EventGoalStatusUpdated          EventKind = "goal_status_updated"
 	EventQueuedUserMessageStatus    EventKind = "queued_user_message_status"
 	EventPendingWorkChanged         EventKind = "pending_work_changed"
@@ -110,6 +112,7 @@ type HumanInputInterruptedEvent struct {
 }
 
 type Event struct {
+	ConnectionReplacement        *config.ConnectionReplacement
 	Kind                         EventKind
 	StepID                       *string
 	CommittedTranscriptChanged   bool
@@ -216,14 +219,6 @@ type BackgroundShellEvent struct {
 	ExitCode          *int
 	UserRequestedKill bool
 	NoticeSuppressed  bool
-}
-
-type ReviewerStatus struct {
-	Outcome               string `json:"outcome,omitempty"`
-	SuggestionsCount      int    `json:"suggestions_count,omitempty"`
-	CacheHitPercent       int    `json:"cache_hit_percent,omitempty"`
-	HasCacheHitPercentage bool   `json:"has_cache_hit_percentage,omitempty"`
-	Error                 string `json:"error,omitempty"`
 }
 
 type ModelResponseTrace struct {

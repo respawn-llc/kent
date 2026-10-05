@@ -60,6 +60,9 @@ func (s *Store) PreflightTaskResume(
 	if err != nil {
 		return nil, err
 	}
+	if err := s.requireTaskContextSelectionResolved(ctx, s.queries, taskID); err != nil {
+		return nil, err
+	}
 	definition, _, err := s.GetDefinition(ctx, task.WorkflowID)
 	if err != nil {
 		return nil, err

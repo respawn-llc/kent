@@ -1,11 +1,12 @@
 package workflowview
 
 import (
+	"core/internal/testharness/workflowfixture"
 	"testing"
 
 	"core/server/workflow"
 	"core/server/workflowstore"
-	"core/shared/serverapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
 func TestNewTaskDependenciesRequiresTaskStatusProjection(t *testing.T) {
@@ -38,7 +39,7 @@ func TestTaskDependenciesProjectsCompleteDirectionsOrderingAndAvailability(t *te
 	if err != nil {
 		t.Fatalf("GetDefinition: %v", err)
 	}
-	if _, err := fixture.store.ManualMoveTask(fixture.ctx, workflowstore.ManualMoveRequest{
+	if _, err := workflowfixture.MoveTask(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.ManualMoveRequest{
 		TaskID:       doneBlocker.ID,
 		TargetNodeID: terminalNodeID(t, definition),
 	}); err != nil {
@@ -52,27 +53,27 @@ func TestTaskDependenciesProjectsCompleteDirectionsOrderingAndAvailability(t *te
 	if projected.BlockerCount != 2 || projected.UnsatisfiedBlockerCount != 1 || projected.DirectlyBlockedTaskCount != 1 {
 		t.Fatalf("summary = %+v, want 2 blockers, 1 unsatisfied, 1 directly blocked", projected)
 	}
-	blockedBy := dependencyDirection(t, projected, serverapi.WorkflowTaskDependencyDirectionBlockedBy)
-	if len(blockedBy.Items) != 2 || blockedBy.Items[0].TaskID != string(openBlocker.ID) || blockedBy.Items[1].TaskID != string(doneBlocker.ID) {
+	blockedBy := dependencyDirection(t, projected, taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY)
+	if len(blockedBy.Items) != 2 || blockedBy.Items[0].TaskId != string(openBlocker.ID) || blockedBy.Items[1].TaskId != string(doneBlocker.ID) {
 		t.Fatalf("blocked-by items = %+v, want unfinished first then short-id order", blockedBy.Items)
 	}
-	if blockedBy.Items[0].Satisfaction == nil || *blockedBy.Items[0].Satisfaction != serverapi.WorkflowTaskDependencyUnsatisfied {
+	if blockedBy.Items[0].Satisfaction == nil || *blockedBy.Items[0].Satisfaction != taskpb.DependencySatisfaction_DEPENDENCY_SATISFACTION_UNSATISFIED {
 		t.Fatalf("open blocker satisfaction = %+v, want unsatisfied", blockedBy.Items[0].Satisfaction)
 	}
-	if blockedBy.Items[1].Satisfaction == nil || *blockedBy.Items[1].Satisfaction != serverapi.WorkflowTaskDependencySatisfied {
+	if blockedBy.Items[1].Satisfaction == nil || *blockedBy.Items[1].Satisfaction != taskpb.DependencySatisfaction_DEPENDENCY_SATISFACTION_SATISFIED {
 		t.Fatalf("done blocker satisfaction = %+v, want satisfied", blockedBy.Items[1].Satisfaction)
 	}
-	blocks := dependencyDirection(t, projected, serverapi.WorkflowTaskDependencyDirectionBlocks)
-	if len(blocks.Items) != 1 || blocks.Items[0].TaskID != string(directlyBlocked.ID) {
+	blocks := dependencyDirection(t, projected, taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS)
+	if len(blocks.Items) != 1 || blocks.Items[0].TaskId != string(directlyBlocked.ID) {
 		t.Fatalf("blocks items = %+v, want directly blocked task", blocks.Items)
 	}
 	if blocks.Items[0].Satisfaction != nil {
 		t.Fatalf("blocks item satisfaction = %+v, want absent", blocks.Items[0].Satisfaction)
 	}
-	if blockedBy.AddAvailability == nil || blockedBy.AddAvailability.Available == nil || blockedBy.AddAvailability.Available.RemainingCapacity != workflow.MaxTaskDependencies-2 {
+	if blockedBy.AddAvailability == nil || blockedBy.AddAvailability.GetAvailable() == nil || blockedBy.AddAvailability.GetAvailable().RemainingCapacity != workflow.MaxTaskDependencies-2 {
 		t.Fatalf("blocked-by availability = %+v, want remaining capacity %d", blockedBy.AddAvailability, workflow.MaxTaskDependencies-2)
 	}
-	if blocks.AddAvailability == nil || blocks.AddAvailability.Available == nil || blocks.AddAvailability.Available.RemainingCapacity != workflow.MaxTaskDependencies-1 {
+	if blocks.AddAvailability == nil || blocks.AddAvailability.GetAvailable() == nil || blocks.AddAvailability.GetAvailable().RemainingCapacity != workflow.MaxTaskDependencies-1 {
 		t.Fatalf("blocks availability = %+v, want remaining capacity %d", blocks.AddAvailability, workflow.MaxTaskDependencies-1)
 	}
 }
@@ -95,7 +96,7 @@ func TestTaskDependenciesEmptyProjectionAndFocusedCountFollowSatisfactionWithout
 		if direction.Items == nil || len(direction.Items) != 0 {
 			t.Fatalf("empty direction items = %+v, want non-nil empty array", direction.Items)
 		}
-		if direction.AddAvailability == nil || direction.AddAvailability.Available == nil {
+		if direction.AddAvailability == nil || direction.AddAvailability.GetAvailable() == nil {
 			t.Fatalf("empty direction availability = %+v, want available", direction.AddAvailability)
 		}
 	}
@@ -115,14 +116,14 @@ func TestTaskDependenciesEmptyProjectionAndFocusedCountFollowSatisfactionWithout
 	if err != nil {
 		t.Fatalf("GetTaskDependencies after add: %v", err)
 	}
-	if projected.UnsatisfiedBlockerCount != focused {
+	if int(projected.UnsatisfiedBlockerCount) != focused {
 		t.Fatalf("summary unsatisfied count = %d, focused = %d", projected.UnsatisfiedBlockerCount, focused)
 	}
 	doneDefinition, _, err := fixture.store.GetDefinition(fixture.ctx, fixture.workflowID)
 	if err != nil {
 		t.Fatalf("GetDefinition: %v", err)
 	}
-	if _, err := fixture.store.ManualMoveTask(fixture.ctx, workflowstore.ManualMoveRequest{
+	if _, err := workflowfixture.MoveTask(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.ManualMoveRequest{
 		TaskID:       blocker.ID,
 		TargetNodeID: terminalNodeID(t, doneDefinition),
 	}); err != nil {
@@ -145,7 +146,7 @@ func TestTaskDependenciesEmptyProjectionAndFocusedCountFollowSatisfactionWithout
 	if got := viewTaskUpdatedAt(t, fixture, emptyTask.ID); got != beforeUpdatedAt {
 		t.Fatalf("blocked task timestamp = %d, want unchanged %d", got, beforeUpdatedAt)
 	}
-	if _, err := fixture.store.ManualMoveTask(fixture.ctx, workflowstore.ManualMoveRequest{
+	if _, err := workflowfixture.MoveTask(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.ManualMoveRequest{
 		TaskID:       blocker.ID,
 		TargetNodeID: backlogNodeID(t, doneDefinition),
 	}); err != nil {
@@ -175,7 +176,7 @@ func TestListTaskDependenciesOmitsEmptyDirections(t *testing.T) {
 	if listed.Directions == nil || len(listed.Directions) != 0 {
 		t.Fatalf("directions = %+v, want empty list", listed.Directions)
 	}
-	direction := serverapi.WorkflowTaskDependencyDirectionBlocks
+	direction := taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS
 	filtered, err := dependencies.ListTaskDependencies(
 		fixture.ctx,
 		string(task.ID),
@@ -217,7 +218,7 @@ func TestListTaskDependenciesSortsBothDirectionsUnfinishedFirstThenShortID(t *te
 		t.Fatalf("GetDefinition: %v", err)
 	}
 	for _, task := range []workflowstore.TaskRecord{blockerDone, blockedDone} {
-		if _, err := fixture.store.ManualMoveTask(fixture.ctx, workflowstore.ManualMoveRequest{
+		if _, err := workflowfixture.MoveTask(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.ManualMoveRequest{
 			TaskID:       task.ID,
 			TargetNodeID: terminalNodeID(t, definition),
 		}); err != nil {
@@ -230,11 +231,11 @@ func TestListTaskDependenciesSortsBothDirectionsUnfinishedFirstThenShortID(t *te
 		t.Fatalf("ListTaskDependencies: %v", err)
 	}
 	assertDependencyItemOrder(t,
-		listedDependencyDirection(t, listed, serverapi.WorkflowTaskDependencyDirectionBlockedBy).Items,
+		listedDependencyDirection(t, listed, taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY).Items,
 		blockerOpenFirst, blockerOpenSecond, blockerDone,
 	)
 	assertDependencyItemOrder(t,
-		listedDependencyDirection(t, listed, serverapi.WorkflowTaskDependencyDirectionBlocks).Items,
+		listedDependencyDirection(t, listed, taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS).Items,
 		blockedOpenFirst, blockedOpenSecond, blockedDone,
 	)
 }
@@ -275,7 +276,7 @@ func backlogNodeID(t *testing.T, definition workflow.Definition) workflow.NodeID
 	return workflow.NodeID("unreachable")
 }
 
-func dependencyDirection(t *testing.T, dependencies serverapi.WorkflowTaskDependencies, direction serverapi.WorkflowTaskDependencyDirection) serverapi.WorkflowTaskDependencyDirectionProjection {
+func dependencyDirection(t *testing.T, dependencies *taskpb.TaskDependencies, direction taskpb.DependencyDirection) *taskpb.DependencyDirectionProjection {
 	t.Helper()
 	for _, candidate := range dependencies.Directions {
 		if candidate.Direction == direction {
@@ -283,10 +284,10 @@ func dependencyDirection(t *testing.T, dependencies serverapi.WorkflowTaskDepend
 		}
 	}
 	t.Fatalf("dependency direction %q missing from %+v", direction, dependencies.Directions)
-	return serverapi.WorkflowTaskDependencyDirectionProjection{}
+	return &taskpb.DependencyDirectionProjection{}
 }
 
-func listedDependencyDirection(t *testing.T, dependencies serverapi.WorkflowTaskDependencyListResponse, direction serverapi.WorkflowTaskDependencyDirection) serverapi.WorkflowTaskDependencyListDirectionProjection {
+func listedDependencyDirection(t *testing.T, dependencies *taskpb.DependencyListSuccess, direction taskpb.DependencyDirection) *taskpb.DependencyListDirection {
 	t.Helper()
 	for _, candidate := range dependencies.Directions {
 		if candidate.Direction == direction {
@@ -294,16 +295,16 @@ func listedDependencyDirection(t *testing.T, dependencies serverapi.WorkflowTask
 		}
 	}
 	t.Fatalf("dependency direction %q missing from %+v", direction, dependencies.Directions)
-	return serverapi.WorkflowTaskDependencyListDirectionProjection{}
+	return &taskpb.DependencyListDirection{}
 }
 
-func assertDependencyItemOrder(t *testing.T, items []serverapi.WorkflowTaskDependencyItem, expected ...workflowstore.TaskRecord) {
+func assertDependencyItemOrder(t *testing.T, items []*taskpb.DependencyItem, expected ...workflowstore.TaskRecord) {
 	t.Helper()
 	if len(items) != len(expected) {
 		t.Fatalf("items = %+v, want %d items", items, len(expected))
 	}
 	for index, task := range expected {
-		if items[index].TaskID != string(task.ID) {
+		if items[index].TaskId != string(task.ID) {
 			t.Fatalf("items = %+v, want task %q at index %d", items, task.ShortID, index)
 		}
 	}

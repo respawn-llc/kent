@@ -114,7 +114,7 @@ func TestQuestionBarrierCommitsReadyHostedSiblingBeforeInteraction(t *testing.T)
 			ID:      toolspec.ToolAskQuestion,
 			Handler: tools.NewAskQuestionTool(broker, func() bool { return true }),
 		}),
-		Config{Model: "gpt-5", DurabilityObserver: flushes},
+		Config{Model: "gpt-6-sol", DurabilityObserver: flushes},
 	)
 	stepID := runtimeTestStepID("step")
 	restoreStep := setTestActiveStep(engine, stepID)
@@ -151,12 +151,11 @@ func (p approvalBarrierProbe) Call(
 	call tools.Call,
 ) (tools.Result, error) {
 	_, err := p.broker.Ask(ctx, tools.AskQuestionRequest{
-		ID:       call.ID + "-approval",
-		Question: "Approve?",
-		Approval: true,
+		ToolCallID: call.ID,
+		Question:   "Approve?",
+		Approval:   true,
 		ApprovalOptions: []tools.AskQuestionApprovalOption{{
 			Decision: tools.AskQuestionApprovalDecisionAllowOnce,
-			Label:    "Allow once",
 		}},
 	})
 	if err != nil {
@@ -192,7 +191,7 @@ func TestApprovalBarrierUsesRuntimeFlushBeforeNestedApprovalVisibility(t *testin
 			ID:      toolspec.ToolPatch,
 			Handler: approvalBarrierProbe{broker: broker},
 		}),
-		Config{Model: "gpt-5", DurabilityObserver: flushes},
+		Config{Model: "gpt-6-sol", DurabilityObserver: flushes},
 	)
 	stepID := runtimeTestStepID("step")
 	restoreStep := setTestActiveStep(engine, stepID)

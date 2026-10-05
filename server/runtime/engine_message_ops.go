@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -199,7 +200,7 @@ func (e *Engine) prepareStoredToolCompletion(
 		CondensedText:  r.CondensedText,
 		Presentation:   r.Presentation,
 		ProviderItems:  e.providerItemsForToolCompletion(r),
-		QuestionAnswer: r.QuestionAnswer,
+		QuestionAnswer: cloneAskQuestionAnswer(r.QuestionAnswer),
 	}
 	return payload, backgroundSessionID, hasBackgroundSession, nil
 }
@@ -422,8 +423,11 @@ type preparedMessageProjection struct {
 }
 
 func (e *Engine) prepareMessageProjection(stepID *string, msg llm.Message) (preparedMessageProjection, error) {
-	msg = normalizeMessageForTranscript(msg, e.transcriptWorkingDir())
-	msg, err := normalizePersistedMessageWorktreeContext(msg)
+	msg, err := normalizeMessageForTranscriptChecked(msg, e.transcriptWorkingDir())
+	if err != nil {
+		return preparedMessageProjection{}, fmt.Errorf("normalize message transcript presentation: %w", err)
+	}
+	msg, err = normalizePersistedMessageWorktreeContext(msg)
 	if err != nil {
 		return preparedMessageProjection{}, err
 	}
@@ -561,27 +565,11 @@ func (e *Engine) shouldEmitCommittedMessageEvent(msg llm.Message) bool {
 	return !completed
 }
 
-func (e *Engine) appendQueuedUserMessageFlush(stepID *string, message llm.Message, batch []string, queueItems []QueuedUserMessage) (session.CommitReceipt, error) {
-	prepared, err := e.prepareMessageProjection(stepID, message)
-	if err != nil {
-		return session.CommitReceipt{}, err
-	}
-	if prepared.message.Content == nil || strings.TrimSpace(*prepared.message.Content) == "" {
-		return session.CommitReceipt{}, nil
-	}
+func (e *Engine) publishQueuedInput(stepID *string, prepared preparedMessageProjection, batch []string, queueItems []QueuedUserMessage, provenance TranscriptCommittedRowProvenance) {
+	message := prepared.message
 	normalizedItems := normalizedQueuedUserMessageStatusItems(queueItems)
 	normalizedIDs := queuedUserMessageStatusItemIDs(normalizedItems)
-	appended, appendErr := e.appendPreparedMessageEvent(stepID, prepared)
-	if !appended.Committed {
-		return appended.CommitReceipt, appendErr
-	}
-	provenance, provenanceErr := transcriptProvenanceFromRecord(appended.Record)
-	if provenanceErr != nil {
-		return appended.CommitReceipt, errors.Join(appendErr, provenanceErr)
-	}
-	if projectionErr := e.applyPreparedMessageProjection(stepID, prepared, &provenance); projectionErr != nil {
-		return appended.CommitReceipt, errors.Join(appendErr, fmt.Errorf("append queued message projection: %w", projectionErr))
-	}
+	e.markSupervisorSteerRaw(message)
 	event := Event{
 		Kind:                       EventConversationUpdated,
 		CommittedTranscriptChanged: true,
@@ -599,7 +587,9 @@ func (e *Engine) appendQueuedUserMessageFlush(stepID *string, message llm.Messag
 			CommittedProvenance:          &provenance,
 		}.withStepID(stepID)
 	}
-	e.emitRaw(event)
+	if prepared.message.Role == llm.RoleUser || e.shouldEmitCommittedMessageEvent(prepared.message) {
+		e.emitRaw(event)
+	}
 	for _, item := range normalizedItems {
 		e.emitRaw(Event{
 			Kind: EventQueuedUserMessageStatus,
@@ -609,6 +599,75 @@ func (e *Engine) appendQueuedUserMessageFlush(stepID *string, message llm.Messag
 				Status:      QueuedUserMessageSubmitted,
 			},
 		})
+	}
+}
+
+func (e *Engine) appendPreparedModelInput(stepID *string, input steeringPreparedModelInput) (session.CommitReceipt, error) {
+	if err := input.ctx.Err(); err != nil {
+		return session.CommitReceipt{}, err
+	}
+	if input.prepared.queue.ClaimStopped(input.prepared.claim) {
+		return session.CommitReceipt{}, context.Canceled
+	}
+	projections := make([]preparedMessageProjection, 0, len(input.prepared.groups))
+	payloads := make([]session.EventRecordPayload, 0, len(input.prepared.groups)+1)
+	if input.thinking.update != nil {
+		item, err := sessionProviderHistoryItemFromLLM(0, *input.thinking.update)
+		if err != nil {
+			return session.CommitReceipt{}, err
+		}
+		payloads = append(payloads, session.ConfigurationUpdateRecord{Item: item})
+	}
+	for _, group := range input.prepared.groups {
+		prepared, err := e.prepareMessageProjection(stepID, group.message)
+		if err != nil {
+			return session.CommitReceipt{}, err
+		}
+		projections = append(projections, prepared)
+		payloads = append(payloads, prepared.record)
+	}
+	appended, appendErr := e.eventLog.AppendModelInputRecords(stepID, payloads, input.thinking.original)
+	if !appended.Committed {
+		if appendErr != nil {
+			return appended.CommitReceipt, &resultGroupFatal{Committed: false, Cause: appendErr}
+		}
+		return appended.CommitReceipt, appendErr
+	}
+	recordIndex := 0
+	if input.thinking.update != nil {
+		provenance, err := transcriptProvenanceFromRecord(appended.Records[recordIndex])
+		if err != nil {
+			return appended.CommitReceipt, errors.Join(appendErr, err)
+		}
+		e.transcriptRuntimeState().AppendConfigurationItem(stepID, *input.thinking.update, &provenance)
+		entry := configurationUpdateChatEntry(*input.thinking.update)
+		entry.StepID = cloneOptionalStepID(stepID)
+		entry.CommittedProvenance = &provenance
+		appendErr = errors.Join(appendErr, e.emitRaw(Event{
+			Kind: EventLocalEntryAdded, LocalEntry: &entry, LocalEntryProjected: true,
+			CommittedTranscriptChanged: true, CommittedProvenance: &provenance,
+		}.withStepID(stepID)))
+		recordIndex++
+	}
+	for i, projection := range projections {
+		record := appended.Records[recordIndex+i]
+		provenance, err := transcriptProvenanceFromRecord(record)
+		if err != nil {
+			return appended.CommitReceipt, errors.Join(appendErr, err)
+		}
+		if isRollbackCandidateMessage(projection.message) {
+			if appended.EndByteCursor == nil {
+				panic("committed model input has no event-log byte cursor")
+			}
+			e.transcriptRuntimeState().SetLatestRollbackCandidate(rollbacktarget.CandidateLocator{
+				UserMessageSeq: record.Seq(), CandidatePageEndByte: *appended.EndByteCursor,
+			})
+		}
+		if err := e.applyPreparedMessageProjection(stepID, projection, &provenance); err != nil {
+			return appended.CommitReceipt, errors.Join(appendErr, err)
+		}
+		group := input.prepared.groups[i]
+		e.publishQueuedInput(stepID, projection, group.batch, group.queueItems, provenance)
 	}
 	return appended.CommitReceipt, appendErr
 }
@@ -725,6 +784,7 @@ func (e *Engine) FailQueuedUserMessages(reason QueuedUserMessageFailureReason) [
 	pending := e.messageFlow.DrainPendingUserInjections()
 	messages := append([]QueuedUserMessage(nil), pending...)
 	if len(pending) != 0 {
+		e.completeQueuedUserMessages(queuedUserMessageIDSet(pending))
 		for _, item := range pending {
 			e.emitQueuedUserMessageStatus(item, QueuedUserMessageFailed, reason, true)
 		}
@@ -868,11 +928,6 @@ func flushedUserMessageEvent(provenance *TranscriptCommittedRowProvenance, msg l
 	return &event
 }
 
-func (e *Engine) flushPendingUserInjections(stepID string, selection userInjectionSelection) (userInjectionCommitResult, error) {
-	e.ensureOrchestrationCollaborators()
-	return e.messageFlow.FlushPendingUserInjections(stepID, selection)
-}
-
 // resolveGlobalConfigDir returns the directory that owns model-visible global
 // context: the given root verbatim, or <home>/.kent when empty.
 func resolveGlobalConfigDir(globalConfigDir string) (string, error) {
@@ -961,7 +1016,7 @@ func environmentContextMessage(workspaceRoot string, model string, now time.Time
 	rows = append(rows,
 		fmt.Sprintf("OS: %s", osName),
 		fmt.Sprintf("Current TZ: %s (UTC%s)", tzName, formatUTCOffset(tzOffset)),
-		fmt.Sprintf("Date/time: %s", now.Format(time.RFC3339)),
+		fmt.Sprintf("Date/time at conversation start: %s", now.Format("2006-01-02T15:04:05")),
 		fmt.Sprintf("Shell: %s", shell),
 		fmt.Sprintf("CWD: %s", cwd),
 		fmt.Sprintf("CPU arch: %s", cpuArch),

@@ -1,13 +1,12 @@
 package lifecyclehook_test
 
 import (
+	"core/cli/app/internal/lifecyclehook"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
 	"errors"
 	"testing"
 	"time"
-
-	"core/cli/app/internal/lifecyclehook"
-	"core/shared/clientui"
-	"core/shared/runtimeids"
 )
 
 func TestInitialContextUsesTypedSessionTitleAbsence(t *testing.T) {
@@ -48,14 +47,12 @@ func TestEventContextRejectsMalformedObservedFactsWithoutMutating(t *testing.T) 
 		t.Fatalf("InitialContext: %v", err)
 	}
 	context := lifecyclehook.NewEventContext(initial)
-
-	if err := context.AcceptSessionIdentity(clientui.TranscriptSessionIdentity{}); err == nil {
+	if err := context.AcceptSessionIdentity(&transcriptpb.SessionIdentity{}); err == nil {
 		t.Fatal("AcceptSessionIdentity accepted a malformed fact")
 	}
-	if err := context.AcceptSessionStatus(clientui.TranscriptSessionStatus{}); err == nil {
+	if err := context.AcceptSessionStatus(&transcriptpb.SessionStatus{}); err == nil {
 		t.Fatal("AcceptSessionStatus accepted a malformed fact")
 	}
-
 	got := context.Snapshot()
 	if got.SessionID == nil || *got.SessionID != sessionID ||
 		got.SessionTitle == nil || *got.SessionTitle != title ||

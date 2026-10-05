@@ -19,7 +19,7 @@ import (
 )
 
 type execCommandInput struct {
-	Cmd             string `json:"cmd" jsonschema_description:"Shell command to execute."`
+	Cmd             string `json:"cmd" jsonschema_description:"Shell command to execute. Treat shell command text as executable code. Single-quote fully literal prose; single quotes suppress variable expansion too. Put intentional variable expansions in separate double-quoted segments. Double quotes still execute backtick substitutions and $(). For prose containing apostrophes or complex/multiline text, prefer a file/stdin option when the command supports it. JSON escaping is not shell escaping."`
 	Command         string `json:"command,omitempty" jsonschema:"-"`
 	Workdir         string `json:"workdir,omitempty" jsonschema_description:"Optional working directory to run the command in; defaults to the workspace root."`
 	Shell           string `json:"shell,omitempty" jsonschema_description:"Shell binary to launch. Defaults to the user's default shell."`
@@ -47,10 +47,6 @@ type ExecCommandTool struct {
 	ownerSessionID       string
 	postprocessor        *postprocess.Runner
 	executionCorrelation *runtimeids.ExecutionCorrelation
-}
-
-func NewExecCommandTool(workspaceRoot string, outputLimit int, contextWindowTokens int, background *Manager, ownerSessionID string) *ExecCommandTool {
-	return NewExecCommandToolWithConfig(workspaceRoot, outputLimit, contextWindowTokens, background, ownerSessionID, ExecCommandToolConfig{})
 }
 
 type ExecCommandToolConfig struct {
@@ -87,32 +83,32 @@ func NewExecCommandToolWithPostprocessor(workspaceRoot string, outputLimit int, 
 
 func (t *ExecCommandTool) Call(ctx context.Context, c tools.Call) (tools.Result, error) {
 	if t.background == nil {
-		return tools.ErrorResultWith(c, "exec_command is not configured", marshalNoHTMLEscape), nil
+		return ErrorResult(c, "exec_command is not configured"), nil
 	}
 	var in execCommandInput
 	if err := json.Unmarshal(c.Input, &in); err != nil {
-		return tools.ErrorResultWith(c, fmt.Sprintf("invalid input: %v", err), marshalNoHTMLEscape), nil
+		return ErrorResult(c, fmt.Sprintf("invalid input: %v", err)), nil
 	}
 	cmdText := strings.TrimSpace(in.Cmd)
 	if cmdText == "" {
-		return tools.ErrorResultWith(c, "cmd is required", marshalNoHTMLEscape), nil
+		return ErrorResult(c, "cmd is required"), nil
 	}
 	workdir := ResolveWorkdir(t.workspaceRoot, in.Workdir)
 	if workdir != "" {
 		normalizedWorkdir, err := filepath.Abs(workdir)
 		if err != nil {
-			return tools.ErrorResultWith(c, err.Error(), marshalNoHTMLEscape), nil
+			return ErrorResult(c, err.Error()), nil
 		}
 		workdir = normalizedWorkdir
 		info, err := os.Stat(workdir)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
-				return tools.ErrorResultWith(c, formatMissingWorkingDirectoryError(workdir), marshalNoHTMLEscape), nil
+				return ErrorResult(c, formatMissingWorkingDirectoryError(workdir)), nil
 			}
-			return tools.ErrorResultWith(c, err.Error(), marshalNoHTMLEscape), nil
+			return ErrorResult(c, err.Error()), nil
 		}
 		if !info.IsDir() {
-			return tools.ErrorResultWith(c, formatNonDirectoryWorkingDirectoryError(workdir), marshalNoHTMLEscape), nil
+			return ErrorResult(c, formatNonDirectoryWorkingDirectoryError(workdir)), nil
 		}
 	}
 	resolvedShell := strings.TrimSpace(in.Shell)
@@ -152,10 +148,10 @@ func (t *ExecCommandTool) Call(ctx context.Context, c tools.Call) (tools.Result,
 		Postprocessor:        t.postprocessor,
 	})
 	if err != nil {
-		return tools.ErrorResultWith(c, formatToolCallErrorBase(err), marshalNoHTMLEscape), nil
+		return ErrorResult(c, formatToolCallErrorBase(err)), nil
 	}
 	if strings.TrimSpace(result.ToolError) != "" {
-		return tools.ErrorResultWith(c, formatToolError(result.Warning, result.ToolError), marshalNoHTMLEscape), nil
+		return ErrorResult(c, formatToolError(result.Warning, result.ToolError)), nil
 	}
 	presentation := shellResultPresentationDelta(
 		in.Raw,

@@ -1,7 +1,7 @@
-import { queryOptions, type QueryClient } from "@tanstack/react-query";
+import { queryOptions, skipToken, type QueryClient } from "@tanstack/react-query";
 
 import type { ApiService } from "@/api";
-import { queryKeys } from "./queryKeys";
+import { queryKeys, type WorktreeListReadOwner } from "./queryKeys";
 
 export type WorktreeCreateTargetResolutionRequest = Readonly<{
   sessionID: string;
@@ -41,11 +41,35 @@ export const worktreeStatusQueryOptions = (api: ApiService, sessionID: string) =
     queryFn: async () => api.getWorktreeStatus(sessionID),
   });
 
-export const worktreeListQueryOptions = (api: ApiService, sessionID: string) =>
+export const worktreeListQueryOptions = (
+  api: ApiService,
+  sessionID: string | null,
+  owner: WorktreeListReadOwner = "sidebar",
+) =>
   queryOptions({
-    queryKey: queryKeys.worktreeList(sessionID),
-    queryFn: async () => api.listWorktrees(sessionID),
+    queryKey:
+      sessionID === null
+        ? (["worktree", null, "list", owner] as const)
+        : queryKeys.worktreeList(sessionID, owner),
+    queryFn: sessionID === null ? skipToken : async () => api.listWorktrees(sessionID),
+    staleTime: 0,
+    structuralSharing: false,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
+
+export async function replaceWorktreeListRead(
+  queryClient: QueryClient,
+  api: ApiService,
+  sessionID: string,
+  owner: WorktreeListReadOwner = "sidebar",
+): Promise<void> {
+  const options = worktreeListQueryOptions(api, sessionID, owner);
+  await queryClient.cancelQueries({ queryKey: options.queryKey, exact: true });
+  // The query retains the error and previous data for the browser's Error + Retry state.
+  await queryClient.fetchQuery(options).catch(() => undefined);
+}
 
 const createKey = (request: WorktreeCreateTargetResolutionRequest) =>
   queryKeys.worktreeCreateTargetResolution(request.sessionID, request.target);
@@ -89,7 +113,7 @@ function operation<Request, Result extends NonNullable<unknown>>(
 const transient = <T>(queryKey: readonly unknown[], queryFn: () => Promise<T>) =>
   queryOptions({ queryKey, queryFn, refetchOnReconnect: false, retry: false });
 async function fresh<T>(queryClient: QueryClient, options: ReturnType<typeof queryOptions<T>>) {
-  await dispose(queryClient, options.queryKey);
+  await queryClient.resetQueries({ queryKey: options.queryKey, exact: true });
   return queryClient.fetchQuery(options);
 }
 async function dispose(queryClient: QueryClient, queryKey: readonly unknown[]) {

@@ -2,6 +2,7 @@ package startup
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net"
@@ -13,69 +14,29 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
+	"core/internal/testharness/workflowfixture"
 	"core/server/auth"
-	"core/server/authservice"
 	corepkg "core/server/core"
 	"core/server/metadata"
+	metadatamigrations "core/server/metadata/migrations"
 	"core/server/workflow"
-	"core/server/workflowexecution"
 	"core/server/workflowstore"
 	"core/shared/client"
 	"core/shared/config"
+	protoapi "core/shared/protoapi"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/protocol"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 
+	proto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
-
-type envAuthHandler struct {
-	lookupEnv func(string) string
-}
-
-func (h envAuthHandler) WrapStore(base auth.Store) auth.Store {
-	return authservice.WrapStoreWithEnvAPIKeyOverride(base, h.LookupEnv)
-}
-
-func (envAuthHandler) NeedsInteraction(req authservice.FlowInteractionRequest) bool {
-	return !req.Gate.Ready
-}
-
-func (envAuthHandler) Interact(context.Context, authservice.FlowInteractionRequest) (authservice.FlowInteractionOutcome, error) {
-	return authservice.FlowInteractionOutcome{}, auth.ErrAuthNotConfigured
-}
-
-func (h envAuthHandler) LookupEnv(key string) string {
-	if h.lookupEnv != nil {
-		return h.lookupEnv(key)
-	}
-	return testAuthLookupEnv(key)
-}
-
-func testAuthLookupEnv(key string) string {
-	if key == "OPENAI_API_KEY" {
-		return "in-memory-test-key"
-	}
-	return ""
-}
-
-var noopOnboarding = OnboardingHandler(func(_ context.Context, req OnboardingRequest) (config.App, error) {
-	path, created, err := config.WriteDefaultSettingsFile()
-	if err != nil {
-		return config.App{}, err
-	}
-	reloaded, err := req.ReloadConfig()
-	if err != nil {
-		return config.App{}, err
-	}
-	reloaded.Source.CreatedDefaultConfig = created
-	reloaded.Source.SettingsPath = path
-	reloaded.Source.SettingsFileExists = true
-	return reloaded, nil
-})
 
 func releaseServeTestPortForConfig(cfg config.App) {
 	testsetup.ReleaseLoopbackPort(cfg.Settings.ServerHost, cfg.Settings.ServerPort)
@@ -84,11 +45,11 @@ func releaseServeTestPortForConfig(cfg config.App) {
 func registerServeWorkspace(t *testing.T, workspace string) {
 	t.Helper()
 	configureServeTestServerPort(t)
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	if _, _, err := config.WriteDefaultSettingsFileAt(cfg.Source.HomeSettingsPath); err != nil {
+	if _, _, err := config.WriteDefaultSettingsFileAt(cfg.Source.File(config.FileGlobal).Path); err != nil {
 		t.Fatalf("write test settings: %v", err)
 	}
 	if _, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot); err != nil {
@@ -104,9 +65,9 @@ func newServeWorkspace(t *testing.T) string {
 	return workspace
 }
 
-func startServeTestServer(t *testing.T, request Request, authHandler envAuthHandler, onboarding OnboardingHandler) *ServeServer {
+func startServeTestServer(t *testing.T, request Request) *ServeServer {
 	t.Helper()
-	server, err := StartServeServer(context.Background(), request, authHandler, onboarding)
+	server, err := StartServeServer(context.Background(), request)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -117,13 +78,191 @@ func startServeTestServer(t *testing.T, request Request, authHandler envAuthHand
 func TestStartServeServerRejectsSecondPersistenceRootOwner(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	request := Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
-	first := startServeTestServer(t, request, envAuthHandler{}, noopOnboarding)
+	first := startServeTestServer(t, request)
 
-	if _, err := StartServeServer(context.Background(), request, envAuthHandler{}, noopOnboarding); !errors.Is(err, corepkg.ErrPersistenceRootBusy) {
+	if _, err := StartServeServer(context.Background(), request); !errors.Is(err, corepkg.ErrPersistenceRootBusy) {
 		t.Fatalf("second StartServeServer error = %v, want ErrPersistenceRootBusy", err)
 	}
 	if first.Core == nil {
 		t.Fatal("first server lost its core after rejected second owner")
+	}
+}
+
+func TestOccupiedRootDoesNotConvertProviderConfiguration(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config.toml")
+	body := []byte("model = \"gpt-6-sol\"\nprovider_override = \"openai\"\n")
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := corepkg.AcquireRootLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Close()
+	server, err := StartServeServer(context.Background(), Request{LoadOptions: config.LoadOptions{ConfigRoot: root}})
+	if server != nil {
+		_ = server.Close()
+		t.Fatal("occupied root started another server")
+	}
+	if !errors.Is(err, corepkg.ErrPersistenceRootBusy) {
+		t.Fatalf("occupied root must be rejected before configuration loading: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || string(after) != string(body) {
+		t.Fatalf("occupied root configuration changed: %v", err)
+	}
+}
+
+func TestStartupConvertsOldSubscriptionAndRequiresSignIn(t *testing.T) {
+	for _, access := range []string{"", "provider_override = \"openai\"\n"} {
+		t.Run(access, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			configureServeTestServerPort(t)
+			writeServeSettings(t, home, "model = \"gpt-6-sol\"\n"+access)
+			root := filepath.Join(home, config.ConfigDirName)
+			authPath := config.GlobalAuthConfigPath(config.App{PersistenceRoot: root})
+			if err := os.WriteFile(authPath, []byte(`{"scope":"global","method":{"type":"oauth","oauth":{"access_token":"discarded-fixture"}}}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			server := startServeTestServer(t, Request{})
+			connection, err := server.Config().Settings.SelectedConnection()
+			if err != nil || connection.Protocol != config.ConnectionChatGPT {
+				t.Fatalf("converted subscription = %+v, %v", connection, err)
+			}
+			state, err := auth.NewFileStore(authPath).Load(context.Background())
+			if err != nil || len(state.Connections) != 0 {
+				t.Fatalf("old token survived cutover: %+v, %v", state, err)
+			}
+			status, err := server.AuthBootstrapClient().GetBootstrapStatus(context.Background(), &authpb.GetBootstrapStatusRequest{Target: protoapi.ExistingConnectionTarget(*server.Config().Settings.Connection)})
+			if err != nil || status.AuthReady || !status.AuthRequired {
+				t.Fatalf("subscription must be available for sign-in: %+v, %v", status, err)
+			}
+		})
+	}
+}
+
+func TestStartupConversionFailureRetainsSelectionAndReleasesRoot(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config.toml")
+	authPath := config.GlobalAuthConfigPath(config.App{PersistenceRoot: root})
+	body := `provider_override = "openai"`
+	credentials := `{"scope":"global","method":{"type":"api_key","api_key":{"key":"discarded-fixture"}}}`
+	for name, contents := range map[string]string{path: body, authPath: credentials} {
+		if err := os.WriteFile(name, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server, err := StartServeServer(context.Background(), Request{LoadOptions: config.LoadOptions{ConfigRoot: root}})
+	if server != nil {
+		_ = server.Close()
+	}
+	if err == nil {
+		t.Fatal("API-backed installation converted without an explicit reference")
+	}
+	for name, contents := range map[string]string{path: body, authPath: credentials} {
+		after, err := os.ReadFile(name)
+		if err != nil || string(after) != contents {
+			t.Fatalf("failed conversion changed %s: %v", name, err)
+		}
+	}
+	lease, err := corepkg.AcquireRootLock(root)
+	if err != nil {
+		t.Fatalf("startup failure retained root ownership: %v", err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStartupOffersSetupAfterSettingsRemoved(t *testing.T) {
+	workspace := newServeWorkspace(t)
+	request := Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	if err := os.Remove(cfg.Source.File(config.FileGlobal).Path); err != nil {
+		t.Fatalf("remove settings: %v", err)
+	}
+	server := startServeTestServer(t, request)
+	if server.Core != nil || server.deps == nil {
+		t.Fatal("settings removal must reopen setup")
+	}
+}
+
+func TestStartServeServerPanicsWhenWorkspaceChatDraftCutoverFails(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	configureServeTestServerPort(t)
+	writeServeSettings(t, home, "model = \"gpt-6-sol\"\n")
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	blockWorkspaceChatDraftCutover(t, cfg.PersistenceRoot)
+
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("StartServeServer returned instead of panicking")
+		}
+		panicErr, ok := recovered.(error)
+		if !ok {
+			t.Fatalf("panic = %T, want error", recovered)
+		}
+		var migrationErr *metadata.WorkspaceChatDraftCutoverMigrationError
+		if !errors.As(panicErr, &migrationErr) {
+			t.Fatalf("panic error = %v, want metadata migration failure", panicErr)
+		}
+	}()
+	server, err := StartServeServer(
+		context.Background(),
+		Request{
+			WorkspaceRoot:         workspace,
+			WorkspaceRootExplicit: true,
+		})
+
+	if server != nil {
+		_ = server.Close()
+	}
+	t.Fatalf("StartServeServer returned server=%v error=%v", server, err)
+}
+
+func blockWorkspaceChatDraftCutover(t *testing.T, persistenceRoot string) {
+	t.Helper()
+	store, err := metadata.Open(persistenceRoot)
+	if err != nil {
+		t.Fatalf("create current metadata database: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close current metadata database: %v", err)
+	}
+	databasePath := filepath.Join(persistenceRoot, "db", "main.sqlite3")
+	databaseURL, ok := config.LocalFileURL(databasePath)
+	if !ok {
+		t.Fatalf("metadata database path %q is not absolute", databasePath)
+	}
+	db, err := sql.Open("sqlite", databaseURL.String())
+	if err != nil {
+		t.Fatalf("open metadata database fixture: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`
+ALTER TABLE workspaces
+ADD COLUMN chat_draft_json TEXT
+CHECK (chat_draft_json IS NULL OR json_valid(chat_draft_json));
+
+DELETE FROM goose_db_version
+WHERE version_id >= ?;
+
+CREATE VIEW workspace_chat_draft_migration_blocker AS
+SELECT chat_draft_json
+FROM workspaces;
+`, metadatamigrations.WorkspaceChatDraftCutoverVersion); err != nil {
+		t.Fatalf("create blocked workspace Chat draft migration fixture: %v", err)
 	}
 }
 
@@ -182,10 +321,10 @@ func TestServeWaitsForContextCancellation(t *testing.T) {
 	}
 }
 
-func TestStartServeServerRecoversAdmittedCurrentNodeOnRestart(t *testing.T) {
+func TestStartServeServerLeavesAdmittedCurrentNodeUntouchedOnRestart(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	request := Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
-	server, err := StartServeServer(context.Background(), request, envAuthHandler{}, noopOnboarding)
+	server, err := StartServeServer(context.Background(), request)
 	if err != nil {
 		t.Fatalf("StartServeServer: %v", err)
 	}
@@ -194,17 +333,17 @@ func TestStartServeServerRecoversAdmittedCurrentNodeOnRestart(t *testing.T) {
 		t.Fatalf("close initial server: %v", err)
 	}
 
-	restarted, err := StartServeServer(context.Background(), request, envAuthHandler{}, noopOnboarding)
+	restarted, err := StartServeServer(context.Background(), request)
 	if err != nil {
 		t.Fatalf("restart: %v", err)
 	}
 	t.Cleanup(func() { _ = restarted.Close() })
-	detail, err := restarted.WorkflowClient().GetWorkflowTask(context.Background(), serverapi.WorkflowTaskGetRequest{TaskID: string(taskID)})
+	detail, err := restarted.WorkflowClient().GetWorkflowTask(context.Background(), &taskpb.GetRequest{TaskId: proto.String(string(taskID))})
 	if err != nil {
 		t.Fatalf("GetWorkflowTask after restart: %v", err)
 	}
 	if !detail.Task.Actions.CanResume || detail.Task.Actions.CanInterrupt {
-		t.Fatalf("task actions after restart reconciliation = %+v, want resumable and not interruptible", detail.Task.Actions)
+		t.Fatalf("task actions after restart = %+v, want resumable and not interruptible", detail.Task.Actions)
 	}
 	store, err := workflowstore.New(restarted.MetadataStore(), workflowstore.WithRoleResolver(testsetup.QuestionsEnabled("coder")))
 	if err != nil {
@@ -217,13 +356,9 @@ func TestStartServeServerRecoversAdmittedCurrentNodeOnRestart(t *testing.T) {
 	if len(currentNodes) != 1 ||
 		!currentNodes[0].Reference.Equal(currentNode) ||
 		currentNodes[0].Scheduling == nil ||
-		currentNodes[0].Scheduling.State != workflow.CurrentNodeSchedulingInterrupted ||
-		currentNodes[0].Scheduling.Interruption == nil ||
-		currentNodes[0].Scheduling.Interruption.Reason != workflowexecution.ReasonCurrentNodeStartupRecovery ||
-		currentNodes[0].Scheduling.Interruption.Detail.Code != string(workflowexecution.ReasonCurrentNodeStartupRecovery) ||
-		currentNodes[0].Scheduling.Interruption.Detail.Fields == nil ||
-		len(currentNodes[0].Scheduling.Interruption.Detail.Fields) != 0 {
-		t.Fatalf("current nodes after startup recovery = %+v, want interrupted admitted current node %v", currentNodes, currentNode)
+		currentNodes[0].Scheduling.State != workflow.CurrentNodeSchedulingAdmitted ||
+		currentNodes[0].Scheduling.Interruption != nil {
+		t.Fatalf("current nodes after restart = %+v, want untouched admitted current node %v", currentNodes, currentNode)
 	}
 }
 
@@ -231,25 +366,25 @@ func createAdmittedCurrentNodeForRecovery(t *testing.T, server *ServeServer) (wo
 	t.Helper()
 	ctx := context.Background()
 	client := server.WorkflowClient()
-	created, err := client.CreateAndLinkWorkflowToProject(ctx, serverapi.WorkflowCreateAndLinkProjectRequest{
+	created, err := client.CreateAndLinkWorkflowToProject(ctx, &pb.CreateAndLinkProjectRequest{
 		Name:          "Restart recovery",
-		ProjectID:     server.ProjectID(),
-		DefaultPolicy: serverapi.WorkflowProjectLinkDefaultAlways,
+		ProjectId:     server.ProjectID(),
+		DefaultPolicy: pb.ProjectLinkDefaultMode_WORKFLOW_PROJECT_LINK_DEFAULT_MODE_ALWAYS.Enum(),
 	})
 	if err != nil {
 		t.Fatalf("CreateAndLinkWorkflowToProject: %v", err)
 	}
-	definition, err := client.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: created.Workflow.ID})
+	definition, err := client.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: created.Workflow.Id})
 	if err != nil {
 		t.Fatalf("GetWorkflow: %v", err)
 	}
 	var startID, terminalID string
 	for _, node := range definition.Definition.Nodes {
 		switch node.Kind {
-		case "start":
-			startID = node.ID
-		case "terminal":
-			terminalID = node.ID
+		case pb.NodeKind_WORKFLOW_NODE_KIND_START:
+			startID = node.Id
+		case pb.NodeKind_WORKFLOW_NODE_KIND_TERMINAL:
+			terminalID = node.Id
 		}
 	}
 	if startID == "" || terminalID == "" {
@@ -258,28 +393,25 @@ func createAdmittedCurrentNodeForRecovery(t *testing.T, server *ServeServer) (wo
 	agentID := runtimeids.NewGraphEntityID()
 	startGroupID := runtimeids.NewGraphEntityID()
 	doneGroupID := runtimeids.NewGraphEntityID()
-	graph := serverapi.WorkflowGraphDraftFromDefinition(definition.Definition)
-	graph.Nodes = append(graph.Nodes, serverapi.WorkflowGraphDraftNode{
-		ID: agentID, Key: "agent", Kind: "agent", DisplayName: "Agent", SubagentRole: "coder",
+	graph := protoapi.WorkflowGraphDraftFromDefinition(definition.Definition)
+	graph.Nodes = append(graph.Nodes, &pb.GraphDraftNode{
+		Id: agentID, Key: "agent", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_AGENT, DisplayName: "Agent", SubagentRole: proto.String("coder"),
 	})
-	graph.TransitionGroups = append(graph.TransitionGroups,
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: startGroupID, SourceNodeID: startID, TransitionID: "start", DisplayName: "Start"},
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: doneGroupID, SourceNodeID: agentID, TransitionID: "done", DisplayName: "Done"},
-	)
-	graph.Edges = append(graph.Edges,
-		serverapi.WorkflowGraphDraftEdge{ID: runtimeids.NewGraphEntityID(), TransitionGroupID: startGroupID, Key: "start", TargetNodeID: agentID, AssigneeSelection: "configured", ThinkingSelection: "configured", ContextMode: "new_session", PromptTemplate: "Perform the work."},
-		serverapi.WorkflowGraphDraftEdge{ID: runtimeids.NewGraphEntityID(), TransitionGroupID: doneGroupID, Key: "done", TargetNodeID: terminalID, AssigneeSelection: "configured", ThinkingSelection: "configured", ContextMode: "new_session"},
-	)
-	saved, err := client.SaveWorkflowGraph(ctx, serverapi.WorkflowGraphSaveRequest{
-		WorkflowID: created.Workflow.ID, ExpectedVersion: definition.Definition.Workflow.Version, Graph: graph,
+	graph.TransitionGroups = append(graph.TransitionGroups, &pb.GraphDraftTransitionGroup{Id: startGroupID, SourceNodeId: startID, TransitionId: "start", DisplayName: "Start"}, &pb.GraphDraftTransitionGroup{Id: doneGroupID, SourceNodeId: agentID, TransitionId: "done", DisplayName: "Done"})
+	graph.Edges = append(graph.Edges, &pb.GraphDraftEdge{Id: runtimeids.NewGraphEntityID(), TransitionGroupId: startGroupID, Key: "start", TargetNodeId: agentID, AssigneeSelection: pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_CONFIGURED, ThinkingSelection: pb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_CONFIGURED, ContextMode: pb.ContextMode_WORKFLOW_CONTEXT_MODE_NEW_SESSION, PromptTemplate: "Perform the work.", ContextSource: &pb.ContextSource{Kind: pb.ContextSourceKind_WORKFLOW_CONTEXT_SOURCE_KIND_IMMEDIATE_SOURCE}}, &pb.GraphDraftEdge{Id: runtimeids.NewGraphEntityID(), TransitionGroupId: doneGroupID, Key: "done", TargetNodeId: terminalID, AssigneeSelection: pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_CONFIGURED, ThinkingSelection: pb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_CONFIGURED, ContextMode: pb.ContextMode_WORKFLOW_CONTEXT_MODE_NEW_SESSION, ContextSource: &pb.ContextSource{Kind: pb.ContextSourceKind_WORKFLOW_CONTEXT_SOURCE_KIND_IMMEDIATE_SOURCE}})
+	saved, err := client.SaveWorkflowGraph(ctx, &pb.GraphSaveRequest{
+		WorkflowId: created.Workflow.Id, ExpectedVersion: definition.Definition.Workflow.Version, Graph: graph,
 	})
 	if err != nil || !saved.Saved {
 		t.Fatalf("SaveWorkflowGraph recovery fixture = %+v, err = %v", saved, err)
 	}
-	workflowID := created.Workflow.ID
-	task, err := client.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{
-		ProjectID:  server.ProjectID(),
-		WorkflowID: &workflowID,
+	workflowID, err := runtimeids.ParseWorkflowID(created.Workflow.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := client.CreateWorkflowTask(ctx, &taskpb.CreateRequest{
+		ProjectId:  server.ProjectID(),
+		WorkflowId: proto.String(workflowID.String()),
 		Title:      "Recover admitted current node",
 	})
 	if err != nil {
@@ -289,7 +421,18 @@ func createAdmittedCurrentNodeForRecovery(t *testing.T, server *ServeServer) (wo
 	if err != nil {
 		t.Fatalf("workflowstore.New: %v", err)
 	}
-	started, err := store.StartTask(ctx, workflow.TaskID(task.Task.ID))
+	target, err := store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.Id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := store.PlanTaskStart(ctx, workflow.TaskID(task.Task.Id), &workflowstore.ExecutionTargetCandidate{
+		Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
+		Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: target.SourceWorkspaceID, SourceWorkspaceRoot: target.SourceWorkspaceRoot},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := store.CommitTaskStart(ctx, plan, workflowfixture.PrepareCurrentNodeSessions(t, ctx, server.MetadataStore(), plan.StartContexts()))
 	if err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
@@ -297,10 +440,7 @@ func createAdmittedCurrentNodeForRecovery(t *testing.T, server *ServeServer) (wo
 		t.Fatalf("StartTask created current nodes = %+v, want one", started.Mutation.Created)
 	}
 	currentNode := started.Mutation.Created[0].Reference
-	if _, err := store.AdmitCurrentNode(ctx, currentNode); err != nil {
-		t.Fatalf("AdmitCurrentNode: %v", err)
-	}
-	return workflow.TaskID(task.Task.ID), currentNode
+	return workflow.TaskID(task.Task.Id), currentNode
 }
 
 func TestServeRequiresContext(t *testing.T) {
@@ -312,7 +452,7 @@ func TestServeRequiresContext(t *testing.T) {
 
 func TestServeExposesConfiguredHealthEndpoints(t *testing.T) {
 	workspace := newServeWorkspace(t)
-	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{}, noopOnboarding)
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 	startServingTestServer(t, server)
 
 	cfg := server.Config()
@@ -325,9 +465,9 @@ func TestServeExposesConfiguredHealthEndpoints(t *testing.T) {
 
 func TestServeExposesDerivedLocalUnixSocketAndCleansStalePath(t *testing.T) {
 	workspace := newServeWorkspace(t)
-	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{}, noopOnboarding)
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 	cfg := server.Config()
-	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg)
+	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("ServerLocalRPCSocketPath: %v", err)
 	}
@@ -370,7 +510,7 @@ func TestServeExposesDerivedLocalUnixSocketAndCleansStalePath(t *testing.T) {
 
 	var localRemote *client.Remote
 	if !testsetup.Until(deadline, 10*time.Millisecond, func() bool {
-		localRemote, err = client.DialConfiguredRemote(context.Background(), cfg)
+		localRemote, err = client.DialConfiguredRemote(context.Background(), cfg.Connection())
 		return err == nil
 	}) {
 		t.Fatalf("DialConfiguredRemote: %v", err)
@@ -391,7 +531,7 @@ func TestServeDegradesToTCPWhenDerivedLocalSocketFails(t *testing.T) {
 	}
 	t.Cleanup(func() { localSocketListener = originalLocalSocketListener })
 
-	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{}, noopOnboarding)
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 	startServingTestServer(t, server)
 
 	cfg := server.Config()
@@ -407,11 +547,14 @@ func TestServeDegradesToTCPWhenDerivedLocalSocketFails(t *testing.T) {
 
 func TestServeStartsUnauthenticatedAndReportsBootstrapReadiness(t *testing.T) {
 	workspace := newServeWorkspace(t)
+	writeServeSettings(t, os.Getenv("HOME"), `
+connection = "subscription"
+[connections.subscription]
+protocol = "chatgpt-codex"
+`)
 	server := startServeTestServer(t,
-		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, AllowUnauthenticated: true},
-		envAuthHandler{lookupEnv: func(string) string { return "" }},
-		noopOnboarding,
-	)
+		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+
 	startServingTestServer(t, server)
 
 	cfg := server.Config()
@@ -423,17 +566,13 @@ func TestServeStartsUnauthenticatedAndReportsBootstrapReadiness(t *testing.T) {
 	if err := json.NewDecoder(healthResp.Body).Decode(&healthBody); err != nil {
 		t.Fatalf("decode health body: %v", err)
 	}
-	if healthBody["auth_ready"] != false {
-		t.Fatalf("expected auth_ready=false health payload, got %+v", healthBody)
-	}
-
-	readyResp := requireServeResponse(t, http.DefaultClient, readyURL, http.StatusServiceUnavailable)
+	readyResp := requireServeResponse(t, http.DefaultClient, readyURL, http.StatusOK)
 	defer func() { _ = readyResp.Body.Close() }()
 	var readyBody map[string]any
 	if err := json.NewDecoder(readyResp.Body).Decode(&readyBody); err != nil {
 		t.Fatalf("decode ready body: %v", err)
 	}
-	if readyBody["ready"] != false || readyBody["auth_ready"] != false || readyBody["transport_ready"] != true {
+	if readyBody["ready"] != true {
 		t.Fatalf("unexpected readiness payload: %+v", readyBody)
 	}
 
@@ -444,11 +583,14 @@ func TestServeReadinessDoesNotRequireAuthForNonFirstPartyProvider(t *testing.T) 
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 	writeServeSettings(t, home, `
-model = "gpt-5"
-openai_base_url = "http://127.0.0.1:11434/v1"
+model = "gpt-6-sol"
+connection = "local"
+[connections.local]
+protocol = "responses"
+endpoint = "http://127.0.0.1:11434/v1"
 `)
 	configureServeTestServerPort(t)
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load for binding: %v", err)
 	}
@@ -457,10 +599,8 @@ openai_base_url = "http://127.0.0.1:11434/v1"
 	}
 
 	server := startServeTestServer(t,
-		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, AllowUnauthenticated: true},
-		envAuthHandler{lookupEnv: func(string) string { return "" }},
-		noopOnboarding,
-	)
+		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+
 	startServingTestServer(t, server)
 
 	readyURL := config.ServerHTTPBaseURL(server.Config()) + protocol.ReadinessPath
@@ -471,8 +611,8 @@ openai_base_url = "http://127.0.0.1:11434/v1"
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatalf("decode readiness body: %v", err)
 	}
-	if body["ready"] != true || body["auth_ready"] != false {
-		t.Fatalf("readiness body = %+v, want ready with unavailable auth", body)
+	if body["ready"] != true {
+		t.Fatalf("readiness body = %+v, want ready without credentials", body)
 	}
 }
 
@@ -482,9 +622,20 @@ func TestMissingConfigServeStartsBootstrapSurfaceBeforeAuthReady(t *testing.T) {
 	t.Setenv("HOME", home)
 	configureServeTestServerPort(t)
 
-	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{lookupEnv: func(string) string { return "" }}, nil)
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 	if server.Core != nil || server.deps == nil {
 		t.Fatal("expected missing-config serve startup surface without configured core")
+	}
+	startServingTestServer(t, server)
+	healthResp := waitForServeResponse(t, http.DefaultClient, config.ServerHTTPBaseURL(server.Config())+protocol.HealthPath)
+	_ = healthResp.Body.Close()
+	remote, err := client.DialConfiguredRemote(context.Background(), server.Config().Connection())
+	if err != nil {
+		t.Fatalf("DialConfiguredRemote: %v", err)
+	}
+	defer func() { _ = remote.Close() }()
+	if _, err := remote.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{}); err == nil {
+		t.Fatal("provider capability facts require a selected connection")
 	}
 	readinessResponse, err := server.deps.ServerStatusClient().GetReadiness(context.Background(), &emptypb.Empty{})
 	if err != nil {
@@ -513,46 +664,22 @@ func TestMissingConfigServeStartsBootstrapSurfaceBeforeAuthReady(t *testing.T) {
 	}
 }
 
-func TestStartupControlSurfaceRejectsConfigThatAppearsBeforeRootLock(t *testing.T) {
+func TestStartupUsesConfigThatAppearsBeforeRootLock(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 	configureServeTestServerPort(t)
-	loadCfg, err := config.Load(workspace, config.LoadOptions{})
+	loadCfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	if _, _, err := config.WriteDefaultSettingsFileAt(loadCfg.Source.HomeSettingsPath); err != nil {
+	if _, _, err := config.WriteDefaultSettingsFileAt(loadCfg.Source.File(config.FileGlobal).Path); err != nil {
 		t.Fatalf("write settings: %v", err)
 	}
 
-	_, _, err = buildStartupControlSurface(context.Background(), buildRequest(Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{}), envAuthHandler{})
-	if !errors.Is(err, errStartupControlSurfaceNotRequired) {
-		t.Fatalf("buildStartupControlSurface error = %v, want not required", err)
-	}
-}
-
-func TestServeOnboardingHandlerReceivesCapabilityFactsClient(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	configureServeTestServerPort(t)
-
-	receivedFacts := false
-	onboarding := OnboardingHandler(func(ctx context.Context, req OnboardingRequest) (config.App, error) {
-		if req.CapabilityFactsClient == nil {
-			t.Fatal("capability facts client was not threaded into serve onboarding")
-		}
-		if _, err := req.CapabilityFactsClient.GetFacts(ctx, &capabilitypb.GetFactsRequest{}); err != nil {
-			t.Fatalf("GetFacts: %v", err)
-		}
-		receivedFacts = true
-		return req.Config, ErrOnboardingRequired
-	})
-
-	startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{}, onboarding)
-	if !receivedFacts {
-		t.Fatal("expected onboarding handler to receive capability facts")
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	if server.Core == nil {
+		t.Fatal("configuration present before startup must activate Core")
 	}
 }
 
@@ -561,7 +688,11 @@ func TestConfiguredRemoteGetsServerReadinessWhenAuthMissing(t *testing.T) {
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 	writeServeSettings(t, home, `
-model = "gpt-5"
+model = "gpt-6-sol"
+connection = "subscription"
+
+[connections.subscription]
+protocol = "chatgpt-codex"
 
 [subagents.coder]
 model = "coder-model"
@@ -574,10 +705,8 @@ model = "blocked-model"
 	registerServeWorkspace(t, workspace)
 
 	server := startServeTestServer(t,
-		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, AllowUnauthenticated: true},
-		envAuthHandler{lookupEnv: func(string) string { return "" }},
-		noopOnboarding,
-	)
+		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+
 	startServingTestServer(t, server)
 
 	cfg := server.Config()
@@ -585,7 +714,7 @@ model = "blocked-model"
 	healthResp := waitForServeResponse(t, http.DefaultClient, healthURL)
 	_ = healthResp.Body.Close()
 
-	remote, err := client.DialConfiguredRemote(context.Background(), cfg)
+	remote, err := client.DialConfiguredRemote(context.Background(), cfg.Connection())
 	if err != nil {
 		t.Fatalf("DialConfiguredRemote: %v", err)
 	}
@@ -596,29 +725,19 @@ model = "blocked-model"
 		t.Fatalf("GetReadiness: %v", err)
 	}
 	readiness := readinessResponse.Readiness
-	if readiness.Ready {
-		t.Fatalf("ready = true, want false: %+v", readiness)
+	if !readiness.Ready {
+		t.Fatalf("working server is not ready: %+v", readiness)
 	}
 	if readiness.ServerId == "" || readiness.ProtocolVersion != protocol.Version || readiness.ServerVersion == "" {
 		t.Fatalf("missing readiness identity fields: %+v", readiness)
 	}
-	if readiness.AuthReady || !readiness.AuthRequired {
-		t.Fatalf("auth flags = ready:%t required:%t, want ready:false required:true", readiness.AuthReady, readiness.AuthRequired)
-	}
 	if readiness.Endpoint == "" {
 		t.Fatalf("expected endpoint in readiness response: %+v", readiness)
 	}
-	if len(readiness.Causes) != 1 {
-		t.Fatalf("cause count = %d, want 1: %+v", len(readiness.Causes), readiness.Causes)
+	if len(readiness.Causes) != 0 {
+		t.Fatalf("unexpected provider-based readiness causes: %+v", readiness.Causes)
 	}
 	assertReadinessRoles(t, readiness.SubagentRoles, []string{"default", "fast", "blocked", "coder"})
-	cause := readiness.Causes[0]
-	if cause.Code != "server_not_ready" ||
-		cause.Severity != serverpb.ReadinessSeverity_READINESS_SEVERITY_ERROR ||
-		cause.Summary != nil ||
-		cause.NextAction != nil {
-		t.Fatalf("unexpected generic readiness cause: %+v", cause)
-	}
 }
 
 func TestMissingConfigFinalizeActivationFailureIsTypedAndRetryConflicts(t *testing.T) {
@@ -627,11 +746,19 @@ func TestMissingConfigFinalizeActivationFailureIsTypedAndRetryConflicts(t *testi
 	t.Setenv("HOME", home)
 	configureServeTestServerPort(t)
 
-	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{}, nil)
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 	if server.Core != nil || server.deps == nil {
 		t.Fatal("expected missing-config serve startup surface")
 	}
+	if _, err := server.deps.ConnectionManagementClient().ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_PendingSetup{
+		PendingSetup: &authpb.ConnectionDefinition{Id: "local", Protocol: authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES, Endpoint: proto.String("http://localhost:1234/v1")},
+	}}); err != nil {
+		t.Fatal(err)
+	}
 	metadataBlocker := filepath.Join(server.cfg.PersistenceRoot, "db")
+	if err := os.Rename(metadataBlocker, filepath.Join(server.cfg.PersistenceRoot, "saved-db")); err != nil {
+		t.Fatalf("move metadata directory before blocking activation: %v", err)
+	}
 	if err := os.WriteFile(metadataBlocker, []byte("block metadata open"), 0o644); err != nil {
 		t.Fatalf("write metadata blocker: %v", err)
 	}
@@ -729,7 +856,7 @@ func assertReadinessRoles(t *testing.T, roles []*serverpb.SubagentRoleSummary, w
 
 func TestServeFailsWhenConfiguredPortIsOccupied(t *testing.T) {
 	workspace := newServeWorkspace(t)
-	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{}, noopOnboarding)
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 	cfg := server.Config()
 	releaseServeTestPortForConfig(cfg)
 	listener, err := net.Listen("tcp", net.JoinHostPort(cfg.Settings.ServerHost, strconv.Itoa(cfg.Settings.ServerPort)))

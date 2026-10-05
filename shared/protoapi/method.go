@@ -22,6 +22,17 @@ type SubscriptionOperations struct {
 	Completion Operation
 }
 
+func ResolveProgressOperation(descriptor protoreflect.MethodDescriptor) (Operation, error) {
+	operation, err := OperationFromDescriptor(descriptor)
+	if err != nil {
+		return Operation{}, err
+	}
+	if operation.Options.Kind != sharedpb.OperationKind_OPERATION_KIND_PROGRESS {
+		return Operation{}, fmt.Errorf("%s is not a progress operation", descriptor.FullName())
+	}
+	return resolveAssociatedNotification(operation, "progress", operation.Options.Event)
+}
+
 func ResolveSubscriptionOperations(descriptor protoreflect.MethodDescriptor) (SubscriptionOperations, error) {
 	subscribe, err := OperationFromDescriptor(descriptor)
 	if err != nil {
@@ -177,8 +188,9 @@ func validateMethodOptions(options *sharedpb.KentMethodOptions) error {
 		sharedpb.ScopePolicy_SCOPE_POLICY_RUNTIME_LIVE_SESSION_REQUIRED,
 		sharedpb.ScopePolicy_SCOPE_POLICY_RUNTIME_LIVE_SESSION_OPTIONAL,
 		sharedpb.ScopePolicy_SCOPE_POLICY_PROCESS_ACTIVE_PROJECT,
-		sharedpb.ScopePolicy_SCOPE_POLICY_PROCESS_LIST_ACTIVE_PROJECT,
-		sharedpb.ScopePolicy_SCOPE_POLICY_NOTIFICATION:
+		sharedpb.ScopePolicy_SCOPE_POLICY_NOTIFICATION,
+		sharedpb.ScopePolicy_SCOPE_POLICY_CHAT_TARGET,
+		sharedpb.ScopePolicy_SCOPE_POLICY_WORKTREE_MANAGEMENT:
 	default:
 		return fmt.Errorf("scope policy %s is invalid", options.ScopePolicy)
 	}

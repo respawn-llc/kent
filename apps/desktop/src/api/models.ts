@@ -52,10 +52,7 @@ export type ServerReadiness = Readonly<{
   ready: boolean;
   serverID: string;
   serverVersion: string;
-  serverBuild: string;
   protocolVersion: string;
-  authReady: boolean;
-  authRequired: boolean;
   endpoint: string;
   subagentRoles: readonly SubagentRoleSummary[];
   causes: readonly ServerCause[];
@@ -69,7 +66,7 @@ export type WorkspaceSummary = Readonly<{
   rootPath: string;
   availability: WorkspaceAvailability;
   isPrimary: boolean;
-  updatedAt: number;
+  updatedAt: number | null;
 }>;
 
 export type ProjectSummary = Readonly<{
@@ -188,7 +185,7 @@ export type BindingPlan = Readonly<{
 }>;
 
 export type PendingAsk = Readonly<{
-  promptID: string;
+  toolCallID: string;
   sessionID: string;
   stepID: string;
   question: string;
@@ -252,7 +249,7 @@ export type WorkflowRecord = Readonly<{
 
 export type WorkflowPage = Readonly<{
   workflows: readonly WorkflowRecord[];
-  nextOffset: number | null;
+  nextOffset: bigint | null;
 }>;
 
 export type WorkflowNodeGroup = Readonly<{
@@ -590,7 +587,7 @@ export type BoardColumn = Readonly<{
   key: string;
   kind: string;
   name: string;
-  assigneeRole: string;
+  assigneeRole: string | null;
   outputFields: readonly WorkflowOutputField[];
   groupID: string | null;
   sortOrder: number;
@@ -646,7 +643,7 @@ export type ApprovalSnapshot = Readonly<{
 
 export type AttentionPage = Readonly<{
   items: readonly AttentionItem[];
-  nextPageToken: string;
+  nextPageToken: string | null;
   generatedAt: number;
 }>;
 
@@ -691,7 +688,7 @@ export type TaskDetail = Readonly<{
   workflowVersion: number;
   title: string;
   body: string;
-  sourceURL: string;
+  sourceURL: string | null;
   sourceWorkspace: WorkspaceSummary;
   status: TaskStatus;
   actions: TaskActions;

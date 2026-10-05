@@ -18,11 +18,11 @@ Questions are resolved in dependency order. Later branches should not be specifi
 - The browser stays recency ordered and adds no search or additional status filters.
 - Row click opens full-page Chat. Session rows have no secondary actions or context menu; separate-window access lives only in Chat chrome.
 - `Sessions` contains server-visible main Sessions and `Subagents` contains server-visible subagent Sessions. Workflow and headless launch modes create no additional category.
-- Primary New Session uses the Project default workspace and resumes that workspace's outstanding lazy draft, or opens empty when none exists.
-- New in workspace opens a virtualized cursor-paginated workspace-picker sidebar and resumes the selected workspace's outstanding lazy draft when present; worktrees remain post-open.
-- Each Project workspace has at most one outstanding lazy draft. Materialization consumes it into the Session; there is no Drafts destination.
+- Primary New Session opens client-only New Chat for the Project default workspace.
+- New in workspace opens a virtualized cursor-paginated workspace-picker sidebar and opens the same New Chat state for the selected workspace; worktrees remain post-open.
+- New Chats share one best-effort Desktop-local unsent text value. Settings remain transient in each mounted presentation; there is no server-owned workspace draft or Drafts destination.
 - New Session has no setup/name/model/provider/role/worktree fields.
-- Creation is lazy: abandoning untouched new chat leaves no durable session; the first agentic trigger materializes it and replaces the route.
+- Opening, typing in, changing settings in, or abandoning New Chat creates no durable Session. A qualifying action creates the Session and changes the same Chat destination to that Session in place.
 - Session rows show no execution-target availability. Opening preserves the recorded target and follows the ordinary Session open, launch, and runtime path without Desktop-specific fallback, retarget, repair, or read-only behavior.
 
 ## 3. Home And Navigation
@@ -91,18 +91,20 @@ Questions are resolved in dependency order. Later branches should not be specifi
 - A new destination without an explicit target anchors at the newest row/composer. Destination disposal discards position, so reopening starts at the default latest anchor.
 - Chat has no global/window-wide session-position registry, cross-destination restoration map, or persisted marker. Position does not define read/unread state.
 - New committed rows and assistant deltas preserve an away-from-tail viewport.
-- Server opaque cursors remain pagination authority. A deep transcript-list module delegates bidirectional page state/retention to TanStack Query and all virtualization, anchoring, following, and end-scroll behavior to TanStack Virtual's official chat APIs.
+- Server opaque cursors remain pagination authority. The transcript window owns bounded page membership; TanStack Virtual's official chat APIs own virtualization, anchoring, following, and end-scroll behavior.
 - JSONL-backed server pages remain compaction-bounded segments. Roughly 100-row pages are excluded from the JSONL design and belong to the SQLite transcript read model; no side index, projector checkpoint, cumulative offset, or persisted page marker is introduced.
-- TanStack Query retains exactly two segments with `maxPages: 2`, matching the TUI's current-plus-one-adjacent bounded window. Query owns far-segment eviction.
+- The existing transcript window retains at most two neighboring server segments and owns far-segment eviction. Tail navigation does not migrate pagination to TanStack Query.
 - Adjacent-segment loading/error uses the existing UI-kit infinite-list boundary row. Loading is compact; failure is inline and actionable with Retry for the same cursor; loaded content remains usable.
 - The absolute oldest transcript edge has no terminal marker or dated divider; the boundary slot disappears.
 - Feature code performs no manual anchor capture, offset/index compensation, `scrollTop` mutation, scroll registry, or custom virtual-range rule.
 - Jump to latest copies Respawn's visual treatment: a 40px circular glass control with a 24px `ArrowDown`, bottom-end aligned 12px above/inset from the composer, and scale animated.
 - Visibility is the inverse of TanStack Virtual `isAtEnd()` with one semantic 80px `scrollEndThreshold`; the previous Respawn two-item condition is superseded by native TanStack ownership.
-- Global tail is derived from both native facts: no newer Query page and Virtual `isAtEnd()`. A local historical-window end never hides Jump to latest.
+- Global tail is derived from the server page's absent newer boundary and Virtual `isAtEnd()`. A local historical-window end never hides Jump to latest.
 - Jump to latest has no visible label or count, has the accessible name Jump to latest, animates to the tail, and honors reduced motion.
-- When the newest segment is evicted, Jump to latest resets the infinite query to its cursorless newest initial page in one request, then calls Virtual `scrollToEnd()`; it never fetches every intermediate newer segment.
+- When the newest segment is evicted, Jump to latest loads one cursorless newest page, replaces the existing bounded window, then calls Virtual `scrollToEnd()`; it never fetches every intermediate newer segment.
+- The shared list exposes an opt-in Chat mode using native anchoring/follow/end-scroll APIs. The transcript view has no before/after row-offset correction machinery. Status belongs to measured content; already-following viewport size changes, including composer growth, invoke native end scrolling without a second composer-height store.
 - One native `isAtEnd()` result owns control visibility and following. Hidden means tail-follow is active; shown means incoming growth preserves the viewport. Clicking the control or manually returning resumes following.
+- Native resize following at a historical local bottom is desired: expanding a row keeps its bottom visible, even when its beginning no longer fits. Jump remains visible when newer history exists. This does not add expansion-reveal behavior for arbitrary rows elsewhere.
 - Committed rows use a typed server locator `(durable session-event sequence, event-local projected-row ordinal)`, scoped by session and identical across page, hydration, and live projections. It adds no JSONL marker or client registry.
 - Every Chat entry point opens the latest transcript row and composer. There are no message-specific deep links, open-at-message instructions, target-page resolvers, target highlights, or transcript-target route/search params; attention and task entry points do not jump to particular rows.
 - Stable prepend and streaming growth behavior.
@@ -162,7 +164,7 @@ Questions are resolved in dependency order. Later branches should not be specifi
 - Transient TUI status-line notices/errors map to Sonner; no per-feature error surfaces are invented.
 - Worktree-transition outcomes create no transcript row; initiating controls update and transient feedback uses Sonner.
 - Sleep-guard and prompt-history persistence failures are Sonner-only. Input reconciliation enum states appear nowhere.
-- Malformed row integrity branches are impossible contract violations, not UI item types. No fallback/placeholder rows are designed; debug fails fast and release contract-failure recovery remains to be designed.
+- Malformed rows are impossible contract violations, not UI item types. Handling follows the [Desktop Chat failure contract](../specs/desktop-chat.md#failure-and-recovery).
 - Empty known developer context creates no row. Empty unknown developer content creates one expanded Diagnostic row with type/source metadata. Legacy explicit Hidden entries remain omitted.
 - Expandable flat rows use a full-width semantic disclosure header with localized label/summary, independent trailing actions/status, and right/down chevron. Header space toggles reversibly.
 - Flat-row expansion is row-local and resets to the audited type default after virtualizer unmount. No expansion registry or persistence exists.
@@ -223,8 +225,9 @@ Questions are resolved in dependency order. Later branches should not be specifi
 ## 6. Composer
 
 - Idle Send starts a user turn. Busy Send steers the active turn at the next safe boundary. Queue remains a separate explicit action for a later turn.
+- Send and automatic Steer use ordinary Submit User Turn. Queue uses the server-owned post-turn Queue and accepts typed ordinary text or a catalog-recognized prompt/Agent command, which the server expands at admission.
 - `Enter` sends, `Ctrl+Enter` queues, and `Shift+Enter` inserts a newline. `Tab` remains focus navigation.
-- `/compact` preserves the TUI command flow. Optional text after the command is manual-compaction guidance.
+- `/compact` preserves the TUI command flow. One typed lexical invocation preserves its exact token, separator whitespace, and raw guidance; the server derives both the exact draft and normalized manual-compaction guidance from that value.
 - Idle `/compact` requests compaction immediately. During an Agent Step it is an ordinary typed Steer item that executes after that step and before the next; it never waits for turn completion or reaches the model.
 - Active `@` autocomplete is the sole Tab exception: Tab or Enter accepts the visible path; otherwise Tab navigates focus.
 - Queue has no visible button. The busy empty-input placeholder says `Ctrl+Enter to queue`.
@@ -240,8 +243,8 @@ Questions are resolved in dependency order. Later branches should not be specifi
 - Idle placeholder copy remains unresolved for visual product review.
 - Visible buttons and remaining keyboard shortcuts.
 - Multiline submission shortcut.
-- Draft persistence boundaries.
-- One server-owned text/settings draft aggregate; no GUI-local/per-window store and no live collaborative synchronization.
+- New Chat text uses one best-effort Desktop-local persisted value; mounted presentations may diverge and overwrite it.
+- Existing Sessions use ordinary server-owned per-Session drafts. New Chat setting changes remain transient until the complete displayed settings aggregate is sent with its first intent-level mutation.
 - Prompt history.
 - File/path references.
 - No client-side repository scan or full-corpus transfer.
@@ -306,7 +309,7 @@ Questions are resolved in dependency order. Later branches should not be specifi
 - Settings order is Agent, Supervisor, Thinking, Fast mode when supported, Questions, and Auto-compaction.
 - All controls form one settings group with no subgroup separator, heading, inset section, or extra inter-group spacing.
 - Agent and Supervisor are the first two dropdowns. Agent locks after the first model request; workflow Agent is locked from open. Both use the `Locked by caching policy` tooltip.
-- Before a new lazy session's first prompt, all six settings are draft state rather than standalone requests. First Send atomically launches with the complete settings draft and user message; partial application creates no session and sends no prompt. Agent then locks at first model dispatch, while later non-Agent changes use runtime controls.
+- Before Session creation, New Chat reads stateless Project/workspace defaults and keeps setting changes only in the mounted presentation. Its first intent-level mutation sends the complete displayed settings aggregate; the server creates the Session and prepares its Runtime when required without a client-visible prerequisite. Agent locks at first model dispatch, while later non-Agent changes use runtime controls.
 - Agent options use role name plus effective model and Thinking effort; configured role descriptions are omitted. A role change preserves supported explicit per-session choices and resets only incompatible choices.
 - One compact muted line outside and directly below Agent shows `effective model • Thinking effort` plus an icon-only lock with `Locked by caching policy` tooltip when locked; provider is omitted.
 - Incompatible choices reset silently by updating their controls; no confirmation, Sonner, or inline warning is added.
@@ -329,16 +332,16 @@ Questions are resolved in dependency order. Later branches should not be specifi
 - Workflow-linked Chat shows a Task short-ID/title navigation row and omits raw Run/Workflow IDs.
 - Previous session appears as the first session-facts action, with left-arrow icon and label `To parent chat`; parent-agent session is omitted from ordinary Chat.
 - Changes preserve existing server runtime-control and persistence semantics with minimal RPC expansion and no client-owned settings model.
-- Successful changes create no transcript row. Controls update immediately, reject repeat input while pending, remain changed on success, and restore authoritative state with Sonner on failure.
-- Pending controls use disabled styling only.
+- Successful changes create no transcript row. Every activation sends an independent request, requested values appear immediately, and delivered authoritative results apply without client-side sequencing. Failures use Sonner.
+- Pending controls show their request-scoped loading presentation without suppressing another activation.
 - Non-Agent settings remain mutable during active work and affect only the next applicable operation, never work already in flight.
 - Send remains enabled during pending setting changes. Desktop adds no local ordering barrier; server operation order decides which value a concurrent submission observes.
-- The unsent message and complete settings draft persist as one aggregate across navigation, detach, and app/server restart.
+- The one New Chat text value persists best-effort across navigation and Desktop restart. Pre-Session settings do not persist.
 - Kent has no Advanced disclosure or advanced/non-advanced settings grouping.
-- Before first Send, every setting updates the lazy draft immediately. After launch, Supervisor applies immediately and Agent is locked. Agent/Supervisor selection never closes either level.
+- Before Session creation, every setting updates only the mounted New Chat presentation. After creation, Supervisor applies immediately and Agent locks after the first model request. Agent/Supervisor selection never closes either level.
 - Context remains a separate meter below the editor and remains available while a prompt picker replaces the editor. Its normal trigger shows used percentage plus a 20px circular used-context meter.
-- Untouched lazy New Chat shows a 0%-used empty ring and draft-configured window, threshold, Auto-compaction, and zero-compaction facts. The server-owned draft updates them when effective Agent/settings change.
-- Compact is unavailable before the first Agent Step. Pre-Session `/compact` remains recognized, creates no Session, and surfaces the typed unavailable/too-soon failure.
+- New Chat hides Context until Session creation succeeds.
+- Compact is unavailable before the first Agent Step. New Chat `/compact` remains recognized, creates the ordinary Session first, and then may surface the typed unavailable/too-soon failure.
 - Click/tap opens the compact usage pop-up. Enter/Space opens it only through ordinary browser button behavior while the meter has focus; neither is a global shortcut. Escape/click-away closes it.
 - The pop-up matches the TUI Context summary: remaining percentage/tokens against the window, automatic-compaction threshold tokens/percentage, Auto-compaction on/off, and completed compaction count.
 - Reuse ordinary authoritative broadcasts to update an open pop-up. Add no Context-specific polling or reconciliation path.
@@ -361,7 +364,7 @@ Questions are resolved in dependency order. Later branches should not be specifi
 - Goal is a Session control, not a setting, and uses one typed adaptive-sidebar destination.
 - Target icon + `Goal` is always present on the left of the under-composer control row. Active uses a primary chip; paused, complete, and absent use the neutral affordance. It never becomes icon-only and shows no objective or state text.
 - Desktop does not implement `/goal`. The visible control and sidebar are the only Goal entry path.
-- Existing Goal opens through one fresh authoritative ShowGoal read with standard compact Loading and Error+Retry. Lazy create opens directly. Later ordinary broadcasts update the clean sidebar state; no poll or server-refresh timer exists.
+- Existing Goal opens through one fresh authoritative ShowGoal read with standard compact Loading and Error+Retry. New Chat Goal creation opens directly. Later ordinary broadcasts update the clean sidebar state; no poll or server-refresh timer exists.
 - If a Goal broadcast overlaps that open read, the broadcast wins and the late read response is discarded without retry, revision, timestamp ordering, or polling.
 - The sidebar shows ordinary-text status plus muted `Set <age> ago`, then the complete objective through the shared Task Description Markdown field. Omit Goal ID and updated time.
 - Age copy is: under 1m `Set just now`; under 1h `Set N min ago`; under 1d `Set HhMm ago`; 1d+ `Set DdHhMm ago`. Omit zero units, keep days unbounded, refresh once per minute.
@@ -376,7 +379,7 @@ Questions are resolved in dependency order. Later branches should not be specifi
 - Goal status uses ordinary foreground in every state. Only age is muted; no status badge or semantic status color.
 - A selected Agent without locked `ask_question` leaves Goal visible but makes Save and Resume unavailable with `Unavailable for this Agent`; Pause/Clear remain. Questions off does not block Goal.
 - Workflow-controlled Sessions use the same Goal affordance, sidebar, and mutations as ordinary Sessions. Workflow ownership never hides Goal or makes it read-only.
-- In untouched lazy New Chat, Goal Save may materialize the Session before Goal validation/admission completes. Rejected validation/admission retains that Session, starts no Goal work, preserves the dirty sidebar draft, and adds no rollback or compensation. Failure after accepted work starts follows ordinary Session failure and retains Goal.
+- In New Chat, Goal Save creates an ordinary Session before Goal validation/admission completes. Rejected validation/admission retains that Session, starts no Goal work, preserves the dirty sidebar draft, and adds no rollback or compensation. Failure after accepted work starts follows ordinary Session failure and retains Goal.
 - Goal stays available with the rest of the bottom row during Question/Approval pickers and does not alter the picker.
 - Process inspection and control.
 - Worktree is a first-class Session execution-target control in the under-composer row.
@@ -388,8 +391,8 @@ Questions are resolved in dependency order. Later branches should not be specifi
 - `switch <target>` uses the ordinary Switch action directly without opening the sidebar.
 - `delete [target]`, `remove [target]`, and `rm [target]` open the ordinary delete flow. Omitted target means current Worktree; a supplied selector resolves authoritatively before preview.
 - Malformed or unsupported arguments clear from the composer, change nothing, and use one localized error Sonner. They never create a transcript row or reach the model.
-- Recognized Worktree commands in lazy New Chat follow the same clear + error-Sonner path and never materialize a Session.
-- Untouched lazy New Chat omits Worktree until the Session materializes. Worktree management never materializes the Session.
+- Recognized Worktree commands in New Chat follow the same clear + error-Sonner path and never create a Session.
+- New Chat omits Worktree until Session creation. Worktree management never creates a Session.
 - Task-owned Workflow Sessions use the same Worktree controls and mutations as ordinary Sessions. A Session Switch does not rewrite the Task's locked Execution Target, and existing Task/worktree safety blockers remain authoritative.
 - The Worktree control identifies the current concise target and opens the shared adaptive contextual sidebar.
 - Concise target naming is branch name for a branch-backed worktree, Kent display name for a detached or other non-branch worktree, and workspace name for the main workspace.
@@ -400,8 +403,8 @@ Questions are resolved in dependency order. Later branches should not be specifi
 - The sidebar opens directly to a simple complete authoritative topology list. A primary icon-only `+` action in the header opens worktree creation; creation is not a list row.
 - A secondary icon-only Refresh action sits beside `+`. Open performs one fresh list read, successful mutations refresh, and manual Refresh catches out-of-band Git changes. No poll or timer exists.
 - Initial list loading/error uses standard compact Loading and Error + Retry.
-- Reconnection refreshes the authoritative current target and any open Worktree list. Desktop retains no pending Worktree operation to reconstruct or retry and shows no speculative lost-operation warning.
-- Connection loss during Create/setup stops waiting for that request and never retries it. After reconnection, an open Worktree surface returns to a fresh list; retained worktrees appear there, and automatic Switch requires an actual successful Create result.
+- Worktree reads and failures follow the [Desktop Chat failure contract](../specs/desktop-chat.md#failure-and-recovery). Desktop retains no pending Worktree operation to reconstruct or retry and shows no speculative lost-operation warning.
+- Connection loss during Create/setup stops waiting for that request and never retries it. Automatic Switch requires an actual successful Create result.
 - The current row uses the shared UI kit's established selected-list-row treatment, with no bespoke Current badge or marker.
 - Every switchable row has an explicit primary `Switch` action; row activation itself does not switch.
 - Switch copies TUI lifecycle: request-scoped pending only until scheduling acknowledgement, then close the sidebar immediately. Never wait through the Agent Step, never optimistically move selection, and let authoritative target/outcome updates refresh state.
@@ -456,10 +459,8 @@ Questions are resolved in dependency order. Later branches should not be specifi
 
 ## 11. Failure And Recovery
 
-- Reuse the existing persistent global disconnect/reconnect notice; Chat adds no connection surface. Server mutations are unavailable while disconnected and visible input remains.
-- Reconnect refreshes visible authoritative state, recreates the subscription, and Scratch Rehydrates without replaying ambiguous mutations or showing success feedback.
-- Sequence/subscription continuity loss discards provisional live state and Scratch Rehydrates. Committed content never becomes fake empty/idle state.
-- Initial Retry repeats the complete ordinary Session open path. Missing/inaccessible targets receive no Desktop-specific repair path.
+- Request, observation, and Retry behavior follows the [Desktop Chat failure contract](../specs/desktop-chat.md#failure-and-recovery).
+- Missing/inaccessible targets receive no Desktop-specific repair path.
 - A hydrated refresh failure preserves the last authoritative visible state.
 - Transcript edge failure owns only its boundary Retry for the same cursor.
 - Mutation failures preserve the operation's initiating state and use shared status/Sonner feedback without optimistic transcript rows or client replay.

@@ -7,8 +7,9 @@ import (
 
 	"core/server/runtime"
 	"core/server/runtimeactivity"
-	"core/shared/clientui"
 	"core/shared/invariant"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 )
 
 const (
@@ -17,13 +18,13 @@ const (
 )
 
 type recordingRuntimeReadModelPublisher struct {
-	snapshots     []clientui.RuntimeReadModelUpdate
+	snapshots     []*runtimepb.ReadModelUpdate
 	panicNext     bool
 	panicMessage  string
 	panicConsumed bool
 }
 
-func (p *recordingRuntimeReadModelPublisher) PublishRuntimeReadModelUpdate(_ string, snapshot clientui.RuntimeReadModelUpdate) {
+func (p *recordingRuntimeReadModelPublisher) PublishRuntimeReadModelUpdate(_ string, snapshot *runtimepb.ReadModelUpdate) {
 	if p.panicNext && !p.panicConsumed {
 		p.panicConsumed = true
 		panic(p.panicMessage)
@@ -69,23 +70,23 @@ func TestStepLifecycleSinkPublishesVersionedRunningThenIdleActivity(t *testing.T
 	if len(publisher.snapshots) != 2 {
 		t.Fatalf("snapshot count = %d, want 2", len(publisher.snapshots))
 	}
-	if publisher.snapshots[0].Activity.State != clientui.RuntimeActivityRunning ||
+	if publisher.snapshots[0].Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING ||
 		publisher.snapshots[0].Activity.ActiveStep == nil ||
-		publisher.snapshots[0].Activity.ActiveStep.ActiveKind != clientui.RuntimeActivityActiveKindGoalLoop {
+		publisher.snapshots[0].Activity.ActiveStep.ActiveKind != runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_GOAL_LOOP {
 		t.Fatalf("began snapshot = %+v, want running goal_loop", publisher.snapshots[0].Activity)
 	}
-	if publisher.snapshots[1].Activity.State != clientui.RuntimeActivityRegisteredIdle {
+	if publisher.snapshots[1].Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE {
 		t.Fatalf("ended snapshot = %+v, want registered idle", publisher.snapshots[1].Activity)
 	}
-	if !publisher.snapshots[1].Version.NewerThan(publisher.snapshots[0].Version) {
+	if !protoapi.ReadModelVersionNewerThan(publisher.snapshots[1].Version, publisher.snapshots[0].Version) {
 		t.Fatalf("ended version must be newer than began: began=%+v ended=%+v", publisher.snapshots[0].Version, publisher.snapshots[1].Version)
 	}
 }
 
 func TestStepLifecycleSinkPublishesAuxiliaryRuntimeActivityKinds(t *testing.T) {
-	tests := map[runtime.ActiveKind]clientui.RuntimeActivityActiveKind{
-		runtime.ActiveKindUserShell:          clientui.RuntimeActivityActiveKindUserShell,
-		runtime.ActiveKindRuntimeMaintenance: clientui.RuntimeActivityActiveKindRuntimeMaintenance,
+	tests := map[runtime.ActiveKind]runtimepb.ActivityActiveKind{
+		runtime.ActiveKindUserShell:          runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_SHELL,
+		runtime.ActiveKindRuntimeMaintenance: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_RUNTIME_MAINTENANCE,
 	}
 	for kind, want := range tests {
 		t.Run(string(kind), func(t *testing.T) {
@@ -124,7 +125,7 @@ func TestStepLifecycleSinkUsesPublisherRegistrySnapshotForTerminalActivity(t *te
 	if len(publisher.snapshots) != 1 {
 		t.Fatalf("snapshot count = %d, want 1", len(publisher.snapshots))
 	}
-	if publisher.snapshots[0].Activity.State != clientui.RuntimeActivityDraining || publisher.snapshots[0].Activity.QueueAccepting {
+	if publisher.snapshots[0].Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_DRAINING || publisher.snapshots[0].Activity.QueueAccepting {
 		t.Fatalf("terminal activity = %+v, want draining and not queue accepting", publisher.snapshots[0].Activity)
 	}
 }

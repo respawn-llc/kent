@@ -1,5 +1,12 @@
 {
   "compilerOptions": {
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "ignoreEffectErrorsInTscExitCode": false,
+        "ignoreEffectWarningsInTscExitCode": false
+      }
+    ],
     "composite": true,
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
     "target": "ES2022",
@@ -21,7 +28,7 @@
       "@app/native-bridge": ["./packages/native-bridge/src/index.ts"],
       "@app/server-api-contract": ["./packages/server-api-contract/src/index.ts"],
       "@app/server-api-contract/*": ["./packages/server-api-contract/src/*"],
-      "@app/ui-kit": ["./packages/ui-kit/src/ReorderableList.tsx"],
+      "@app/ui-kit": ["./packages/ui-kit/src/index.ts"],
       "@xyflow/react": ["./src/vendor/xyflow-react-types.ts"],
       "elkjs/lib/elk-api": ["./src/vendor/elkjs-types.ts"],
       "elkjs/lib/elk.bundled.js": ["./src/vendor/elkjs-bundled-types.ts"]
@@ -32,7 +39,7 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": ["vitest/globals", "@testing-library/jest-dom/vitest"]
+    "types": ["vitest/globals", "./test/jest-dom.d.ts"]
   },
   "include": ["src", "test", "packages/ui-kit/src/jsx.d.ts"],
   "references": [

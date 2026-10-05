@@ -1,7 +1,6 @@
 package serverapi
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,40 +8,14 @@ import (
 	"core/shared/clientui"
 )
 
-type AttentionNotificationSubscribeRequest struct{}
-
-func (r AttentionNotificationSubscribeRequest) Validate() error {
-	return nil
-}
-
-type AttentionSessionNotificationSubscribeRequest struct {
-	SessionID                    string `json:"session_id"`
-	IncludePendingPromptSnapshot bool   `json:"include_pending_prompt_snapshot,omitempty"`
-}
-
-func (r AttentionSessionNotificationSubscribeRequest) Validate() error {
-	return validateRequiredSessionID(r.SessionID)
-}
-
-type AttentionNotificationSubscription interface {
-	Next(context.Context) (clientui.AttentionNotificationEvent, error)
-	Close() error
-}
-
 type attentionEventValidator func(clientui.AttentionNotificationEvent) error
 type attentionTargetValidator func(clientui.AttentionNotificationTarget) error
 type attentionFocusValidator func(clientui.AttentionNotificationTaskDetailFocus) error
 type attentionPayloadValidator func(clientui.AttentionNotification) error
 
 var attentionEventValidators = map[clientui.AttentionNotificationEventType]attentionEventValidator{
-	clientui.AttentionNotificationEventPending:          validatePendingAttentionEvent,
-	clientui.AttentionNotificationEventResolved:         validateResolvedAttentionEvent,
-	clientui.AttentionNotificationEventSnapshotComplete: validateSnapshotCompleteAttentionEvent,
-}
-
-var attentionSources = map[clientui.AttentionNotificationSource]struct{}{
-	clientui.AttentionNotificationSourceLive:     {},
-	clientui.AttentionNotificationSourceSnapshot: {},
+	clientui.AttentionNotificationEventPending:  validatePendingAttentionEvent,
+	clientui.AttentionNotificationEventResolved: validateResolvedAttentionEvent,
 }
 
 var attentionTargetValidators = map[clientui.AttentionNotificationTargetKind]attentionTargetValidator{
@@ -75,9 +48,6 @@ func ValidateAttentionNotificationEvent(event clientui.AttentionNotificationEven
 }
 
 func validatePendingAttentionEvent(event clientui.AttentionNotificationEvent) error {
-	if err := validateAttentionNotificationSource(event.Source); err != nil {
-		return err
-	}
 	if event.ID != nil || event.Kind != "" || event.OccurredAt != nil {
 		return errors.New("pending attention notification must not carry id, kind, or time envelope payload")
 	}
@@ -88,9 +58,6 @@ func validatePendingAttentionEvent(event clientui.AttentionNotificationEvent) er
 }
 
 func validateResolvedAttentionEvent(event clientui.AttentionNotificationEvent) error {
-	if err := validateAttentionNotificationSource(event.Source); err != nil {
-		return err
-	}
 	if event.Pending != nil {
 		return errors.New("resolved attention notification must not carry pending payload")
 	}
@@ -111,19 +78,6 @@ func validateResolvedAttentionEvent(event clientui.AttentionNotificationEvent) e
 	}
 	if event.OccurredAt == nil || event.OccurredAt.IsZero() {
 		return errors.New("resolved attention notification occurred_at is required")
-	}
-	return nil
-}
-
-func validateSnapshotCompleteAttentionEvent(event clientui.AttentionNotificationEvent) error {
-	if event.Source != clientui.AttentionNotificationSourceSnapshot {
-		return errors.New("snapshot_complete attention notification source must be snapshot")
-	}
-	if event.Pending != nil || event.ID != nil || event.Kind != "" || event.OccurredAt != nil {
-		return errors.New("snapshot_complete attention notification must not carry id, kind, time, or pending payload")
-	}
-	if event.SessionID == "" {
-		return errors.New("snapshot_complete attention notification session_id is required")
 	}
 	return nil
 }
@@ -167,13 +121,6 @@ func validateAttentionNotificationID(id clientui.AttentionNotificationID) error 
 	return nil
 }
 
-func validateAttentionNotificationSource(source clientui.AttentionNotificationSource) error {
-	if _, ok := attentionSources[source]; ok {
-		return nil
-	}
-	return fmt.Errorf("unsupported attention notification source %q", source)
-}
-
 func supportedAttentionKind(kind clientui.AttentionNotificationKind) bool {
 	_, ok := attentionPayloadValidators[kind]
 	return ok
@@ -201,6 +148,9 @@ func validateWorkflowTaskAttentionTarget(target clientui.AttentionNotificationTa
 }
 
 func validateSessionPromptAttentionTarget(target clientui.AttentionNotificationTarget) error {
+	if strings.TrimSpace(target.ProjectID) == "" {
+		return errors.New("session-prompt attention notification target project_id is required")
+	}
 	if target.SessionID == "" {
 		return errors.New("session-prompt attention notification target session_id is required")
 	}
@@ -276,8 +226,18 @@ func validateApprovalAttentionPayload(notification clientui.AttentionNotificatio
 	if notification.Question != nil || notification.WorkflowApproval != nil || notification.InterruptedCurrentNode != nil {
 		return errors.New("approval attention notification must not carry question, workflow-approval, or interrupted-current-node payloads")
 	}
-	if strings.TrimSpace(notification.Approval.Message) == "" {
-		return errors.New("approval attention notification payload message is required")
+	hasMessage := notification.Approval.Message != nil
+	hasAccessTargets := len(notification.Approval.AccessTargets) > 0
+	if hasMessage == hasAccessTargets {
+		return errors.New("approval attention notification requires either message or access_targets")
+	}
+	if hasMessage && strings.TrimSpace(*notification.Approval.Message) == "" {
+		return errors.New("approval attention notification payload message must be non-empty when present")
+	}
+	for index, target := range notification.Approval.AccessTargets {
+		if err := target.Validate(); err != nil {
+			return fmt.Errorf("approval attention notification access target %d: %w", index, err)
+		}
 	}
 	if notification.Target.Kind != clientui.AttentionNotificationTargetSessionPrompt {
 		return errors.New("approval attention notification target must be session prompt")

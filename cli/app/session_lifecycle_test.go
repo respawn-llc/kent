@@ -2,19 +2,22 @@ package app
 
 import (
 	"context"
-	"errors"
-	"os"
-	"path/filepath"
-	"testing"
-
 	"core/server/metadata"
 	"core/server/session"
 	"core/shared/apicontract"
-	"core/shared/clientui"
 	"core/shared/config"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
+	"errors"
+	"google.golang.org/protobuf/types/known/emptypb"
+	"os"
+	"path/filepath"
+	"testing"
 )
 
 func sessionLifecycleStringPtr(value string) *string { return &value }
@@ -74,15 +77,11 @@ func TestMaybeHandlePickedSessionWorkspaceChangeCanonicalizesAliases(t *testing.
 	action, err := maybeHandlePickedSessionWorkspaceChange(
 		context.Background(),
 		&remoteAppServer{
-			cfg:      config.App{WorkspaceRoot: aliasRoot, Settings: config.Settings{Theme: "dark"}},
-			retarget: &sessionWorkspaceRetargetContext{workspaceRoot: aliasRoot, theme: "dark"},
-		},
-		"session-1",
-		clientui.SessionExecutionTarget{
+			connection: config.Connection{WorkspaceRoot: aliasRoot},
+			retarget:   &sessionWorkspaceRetargetContext{workspaceRoot: aliasRoot, theme: "dark"}},
+		"session-1", &worktreepb.SessionExecutionTarget{
 			WorkspaceRoot:         realRoot,
-			WorkspaceAvailability: clientui.ProjectAvailabilityAvailable,
-		},
-	)
+			WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE})
 	if err != nil {
 		t.Fatalf("maybeHandlePickedSessionWorkspaceChange: %v", err)
 	}
@@ -103,15 +102,11 @@ func TestMaybeHandlePickedSessionWorkspaceChangeUsesRemoteServerBindingRoot(t *t
 	action, err := maybeHandlePickedSessionWorkspaceChange(
 		context.Background(),
 		&remoteAppServer{
-			cfg:      config.App{WorkspaceRoot: "/source-client-workspace", Settings: config.Settings{Theme: "dark"}},
-			retarget: &sessionWorkspaceRetargetContext{workspaceRoot: "/active-server-workspace", theme: "dark"},
-		},
-		"session-1",
-		clientui.SessionExecutionTarget{
+			connection: config.Connection{WorkspaceRoot: "/source-client-workspace"},
+			retarget:   &sessionWorkspaceRetargetContext{workspaceRoot: "/active-server-workspace", theme: "dark"}},
+		"session-1", &worktreepb.SessionExecutionTarget{
 			WorkspaceRoot:         "/target-server-workspace",
-			WorkspaceAvailability: clientui.ProjectAvailabilityAvailable,
-		},
-	)
+			WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE})
 	if err != nil {
 		t.Fatalf("maybeHandlePickedSessionWorkspaceChange: %v", err)
 	}
@@ -124,12 +119,9 @@ func TestMaybeHandlePickedSessionWorkspaceChangeRejectsMissingBindingContext(t *
 	_, err := maybeHandlePickedSessionWorkspaceChange(
 		context.Background(),
 		narrowSessionLifecycleServer{},
-		"session-1",
-		clientui.SessionExecutionTarget{
+		"session-1", &worktreepb.SessionExecutionTarget{
 			WorkspaceRoot:         "/target-server-workspace",
-			WorkspaceAvailability: clientui.ProjectAvailabilityAvailable,
-		},
-	)
+			WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE})
 	if err == nil {
 		t.Fatal("expected missing workspace retarget context error")
 	}
@@ -137,22 +129,20 @@ func TestMaybeHandlePickedSessionWorkspaceChangeRejectsMissingBindingContext(t *
 
 func TestResolveSessionActionPreservesInitialPromptHistoryRecorded(t *testing.T) {
 	client := &recordingSessionLifecycleClient{
-		resolveTransition: func(_ context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
+		resolveTransition: func(_ context.Context, req *sessionlaunchpb.SessionResolveTransitionRequest) (*sessionlaunchpb.SessionDirective, error) {
 			if !req.Transition.InitialPromptHistoryRecorded {
 				t.Fatal("expected transition request to preserve initial prompt-history flag")
 			}
-			prompt := serverapi.SessionInitialPromptMetadata{
+			prompt := &sessionlaunchpb.SessionInitialPromptMetadata{
 				Text:            req.Transition.InitialPrompt,
 				HistoryRecorded: req.Transition.InitialPromptHistoryRecorded,
 			}
-			return serverapi.LaunchSessionDirective(
-				serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
-				serverapi.NewSessionLaunchPreparation(
-					&prompt,
-					serverapi.RestoreStoredDraftSessionDraftDisposition(),
-					serverapi.SessionAuthPreparationKeepCurrent,
-				),
-			), nil
+			directive, err := defaultSessionLaunchDirective(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
+			if err != nil {
+				return nil, err
+			}
+			directive.GetLaunch().Preparation.InitialPrompt = prompt
+			return directive, nil
 		},
 	}
 
@@ -166,22 +156,22 @@ func TestResolveSessionActionPreservesInitialPromptHistoryRecorded(t *testing.T)
 	if err != nil {
 		t.Fatalf("resolve session action: %v", err)
 	}
-	preparation, present := resolved.LaunchPreparation()
-	if !present {
+	preparation := resolved.GetLaunch().GetPreparation()
+	if preparation == nil {
 		t.Fatal("resolved transition omitted launch preparation")
 	}
-	prompt, present := preparation.InitialPrompt()
-	if !present || !prompt.HistoryRecorded {
+	prompt := preparation.InitialPrompt
+	if prompt == nil || !prompt.HistoryRecorded {
 		t.Fatal("expected resolved transition to preserve initial prompt-history flag")
 	}
 }
 
 func TestPersistSessionDraftIncludesOnlyComposerInput(t *testing.T) {
-	var captured serverapi.SessionPersistInputDraftRequest
+	var captured *sessionlaunchpb.SessionPersistInputDraftRequest
 	client := &recordingSessionLifecycleClient{
-		persistInputDraft: func(_ context.Context, req serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
+		persistInputDraft: func(_ context.Context, req *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error) {
 			captured = req
-			return serverapi.SessionPersistInputDraftResponse{}, nil
+			return &emptypb.Empty{}, nil
 		},
 	}
 	model := newUIModelDefaults(nil)
@@ -197,7 +187,7 @@ func TestPersistSessionDraftIncludesOnlyComposerInput(t *testing.T) {
 	if err := persistSessionDraftToServer(context.Background(), narrowSessionLifecycleServer{lifecycle: client}, " session-1 ", model); err != nil {
 		t.Fatalf("persistSessionDraftToServer: %v", err)
 	}
-	if captured.Input != "visible draft" || captured.SessionID != "session-1" {
+	if captured.Input != "visible draft" || captured.SessionId != "session-1" {
 		t.Fatalf("captured draft request = %+v, want composer input only", captured)
 	}
 }
@@ -237,12 +227,12 @@ func TestReopenRetargetedSessionPersistsDraftBeforeReleasingSourceRuntime(t *tes
 	released := false
 	var persistedDraft string
 	sourceLifecycle := &recordingSessionLifecycleClient{
-		persistInputDraft: func(_ context.Context, req serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
+		persistInputDraft: func(_ context.Context, req *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error) {
 			if released {
-				return serverapi.SessionPersistInputDraftResponse{}, errors.New("source runtime was released before draft persistence")
+				return nil, errors.New("source runtime was released before draft persistence")
 			}
 			persistedDraft = req.Input
-			return serverapi.SessionPersistInputDraftResponse{}, nil
+			return &emptypb.Empty{}, nil
 		},
 	}
 	var server *reattachSessionLifecycleServer
@@ -293,9 +283,9 @@ func TestReopenRetargetedSessionPreservesDraftWhenDestinationReattachmentFails(t
 	var persistedDraft string
 	server := &reattachSessionLifecycleServer{
 		lifecycle: &recordingSessionLifecycleClient{
-			persistInputDraft: func(_ context.Context, req serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
+			persistInputDraft: func(_ context.Context, req *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error) {
 				persistedDraft = req.Input
-				return serverapi.SessionPersistInputDraftResponse{}, nil
+				return &emptypb.Empty{}, nil
 			},
 		},
 		reattach: func(context.Context, string) error {
@@ -330,7 +320,6 @@ func TestReopenRetargetedSessionPreservesDraftWhenDestinationReattachmentFails(t
 
 type narrowSessionLifecycleServer struct {
 	lifecycle      apicontract.SessionLifecycleService
-	cfg            config.App
 	reauthenticate func(context.Context, authInteractor) error
 }
 
@@ -338,13 +327,11 @@ func (s narrowSessionLifecycleServer) SessionLifecycleClient() apicontract.Sessi
 	return s.lifecycle
 }
 
-func (s narrowSessionLifecycleServer) Config() config.App { return s.cfg }
-
-func (s narrowSessionLifecycleServer) Reauthenticate(ctx context.Context, interactor authInteractor, _ bool) error {
+func (s narrowSessionLifecycleServer) Reauthenticate(ctx context.Context) error {
 	if s.reauthenticate == nil {
 		return nil
 	}
-	return s.reauthenticate(ctx, interactor)
+	return s.reauthenticate(ctx, nil)
 }
 
 type reattachSessionLifecycleServer struct {
@@ -368,38 +355,46 @@ func (s *reattachSessionLifecycleServer) ReattachSession(ctx context.Context, se
 }
 
 type recordingSessionLifecycleClient struct {
-	getInitialInput          func(context.Context, serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error)
-	persistInputDraft        func(context.Context, serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error)
-	retargetSessionWorkspace func(context.Context, serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error)
-	resolveTransition        func(context.Context, serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error)
+	getInitialInput          func(context.Context, *sessionlaunchpb.SessionInitialInputRequest) (*sessionlaunchpb.SessionInitialInputSuccess, error)
+	persistInputDraft        func(context.Context, *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error)
+	retargetSessionWorkspace func(context.Context, *sessionlaunchpb.SessionRetargetWorkspaceRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error)
+	resolveTransition        func(context.Context, *sessionlaunchpb.SessionResolveTransitionRequest) (*sessionlaunchpb.SessionDirective, error)
 }
 
 func (c *recordingSessionLifecycleClient) Close() error { return nil }
 
-func (c *recordingSessionLifecycleClient) GetInitialInput(ctx context.Context, req serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error) {
+func (c *recordingSessionLifecycleClient) GetInitialInput(ctx context.Context, req *sessionlaunchpb.SessionInitialInputRequest) (*sessionlaunchpb.SessionInitialInputSuccess, error) {
 	if c.getInitialInput == nil {
-		return serverapi.SessionInitialInputResponse{}, errors.New("unexpected GetInitialInput call")
+		return nil, errors.New("unexpected GetInitialInput call")
 	}
 	return c.getInitialInput(ctx, req)
 }
 
-func (c *recordingSessionLifecycleClient) PersistInputDraft(ctx context.Context, req serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
+func (c *recordingSessionLifecycleClient) PersistInputDraft(ctx context.Context, req *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error) {
 	if c.persistInputDraft == nil {
-		return serverapi.SessionPersistInputDraftResponse{}, errors.New("unexpected PersistInputDraft call")
+		return nil, errors.New("unexpected PersistInputDraft call")
 	}
 	return c.persistInputDraft(ctx, req)
 }
 
-func (c *recordingSessionLifecycleClient) RetargetSessionWorkspace(ctx context.Context, req serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
+func (c *recordingSessionLifecycleClient) RetargetSessionWorkspace(ctx context.Context, req *sessionlaunchpb.SessionRetargetWorkspaceRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
 	if c.retargetSessionWorkspace == nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, errors.New("unexpected RetargetSessionWorkspace call")
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, errors.New("unexpected RetargetSessionWorkspace call")
 	}
 	return c.retargetSessionWorkspace(ctx, req)
 }
 
-func (c *recordingSessionLifecycleClient) ResolveTransition(ctx context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
+func (c *recordingSessionLifecycleClient) ResolveTransition(ctx context.Context, req *sessionlaunchpb.SessionResolveTransitionRequest) (*sessionlaunchpb.SessionDirective, error) {
 	if c.resolveTransition == nil {
-		return serverapi.SessionResolveTransitionResponse{}, errors.New("unexpected ResolveTransition call")
+		return &sessionlaunchpb.SessionDirective{}, errors.New("unexpected ResolveTransition call")
 	}
 	return c.resolveTransition(ctx, req)
+}
+
+func (*recordingSessionLifecycleClient) ArchiveSession(context.Context, *sessionlaunchpb.SessionArchiveRequest) (*sessionlaunchpb.SessionArchiveSuccess, error) {
+	return nil, errors.New("unexpected ArchiveSession call")
+}
+
+func (*recordingSessionLifecycleClient) DeleteSession(context.Context, *sessionlaunchpb.SessionDeleteRequest) (*sessionlaunchpb.SessionDeleteSuccess, error) {
+	return nil, errors.New("unexpected DeleteSession call")
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"unicode"
@@ -25,20 +26,14 @@ func filesystemRootForTest(t *testing.T, path string) FilesystemRoot {
 	return FilesystemRoot{LexicalPath: path, RealPath: real, Info: info}
 }
 
-func filesystemContextForTest(t *testing.T, workingDirectory string, projectRoots ...string) FilesystemContext {
+func filesystemContextForTest(t *testing.T, workingDirectory string) FilesystemContext {
 	t.Helper()
 	root := filesystemRootForTest(t, workingDirectory)
 	context := FilesystemContext{Access: FileAccessScope{
 		WorkingDirectory:    root,
 		ExecutionTargetRoot: root,
-		ProjectWorkspace:    ProjectWorkspaceScope{ProjectID: "test"},
+		ProjectID:           "test",
 	}}
-	for _, projectRoot := range projectRoots {
-		context.Access.ProjectWorkspace.Roots = append(
-			context.Access.ProjectWorkspace.Roots,
-			ProjectWorkspaceRoot{FilesystemRoot: filesystemRootForTest(t, projectRoot)},
-		)
-	}
 	return context
 }
 
@@ -56,17 +51,98 @@ func nonTemporaryDirectoryForTest(t *testing.T) string {
 	return testsetup.NonTemporaryDirectory(t, "kent-file-access-", IsPathInTemporaryDir)
 }
 
+func TestFileAccessLearnsAttachedRootUntilRuntimeEnds(t *testing.T) {
+	working := t.TempDir()
+	secondary := filesystemRootForTest(t, nonTemporaryDirectoryForTest(t))
+	attached := true
+	permissions := NewWorkspacePermissions(func(context.Context, string, string) (*FilesystemRoot, error) {
+		if !attached {
+			return nil, nil
+		}
+		return &secondary, nil
+	})
+	policy := newFileAccessPolicyForTest(t, FileAccessPolicyConfig{
+		Context: filesystemContextForTest(t, working), Mode: FileAccessMutation, Permissions: permissions,
+	})
+	for _, name := range []string{"first.txt", "after-detach.txt"} {
+		path := filepath.Join(secondary.RealPath, name)
+		outcome := policy.BeginCall().Authorize(t.Context(), path, path)
+		if !outcome.IsAllowed() || outcome.Reason != FileAccessReasonTrustedRoot {
+			t.Fatalf("attached access: %+v", outcome)
+		}
+		attached = false
+	}
+}
+
+func TestFileAccessRetriesMembershipAfterUncachedMiss(t *testing.T) {
+	secondary := filesystemRootForTest(t, nonTemporaryDirectoryForTest(t))
+	attached := false
+	permissions := NewWorkspacePermissions(func(context.Context, string, string) (*FilesystemRoot, error) {
+		if attached {
+			return &secondary, nil
+		}
+		return nil, nil
+	})
+	policy := newFileAccessPolicyForTest(t, FileAccessPolicyConfig{
+		Context: filesystemContextForTest(t, t.TempDir()), Mode: FileAccessRead, Permissions: permissions,
+	})
+	path := filepath.Join(secondary.RealPath, "file.txt")
+	if outcome := policy.BeginCall().Authorize(t.Context(), path, path); outcome.Kind != FileAccessDeniedOutsideWorkspace {
+		t.Fatalf("unattached target: %+v", outcome)
+	}
+	attached = true
+	if outcome := policy.BeginCall().Authorize(t.Context(), path, path); !outcome.IsAllowed() {
+		t.Fatalf("later attachment: %+v", outcome)
+	}
+}
+
+type cachedFileAccessApproval struct{}
+
+type testFileAccessApprover func(context.Context, FileAccessApprovalRequest) (FileAccessApproval, error)
+
+func (testFileAccessApprover) SessionAllowed() bool { return false }
+func (f testFileAccessApprover) Approve(ctx context.Context, req FileAccessApprovalRequest) (FileAccessApproval, error) {
+	return f(ctx, req)
+}
+
+func (cachedFileAccessApproval) SessionAllowed() bool { return true }
+func (cachedFileAccessApproval) Approve(context.Context, FileAccessApprovalRequest) (FileAccessApproval, error) {
+	return FileAccessApproval{Kind: FileAccessApprovalSessionCached}, nil
+}
+
+func TestFileAccessSessionApprovalPrecedesMetadata(t *testing.T) {
+	permissions := NewWorkspacePermissions(func(context.Context, string, string) (*FilesystemRoot, error) {
+		return nil, errors.New("metadata unavailable")
+	})
+	policy := newFileAccessPolicyForTest(t, FileAccessPolicyConfig{
+		Context: filesystemContextForTest(t, t.TempDir()), Mode: FileAccessRead,
+		Permissions: permissions, Approver: cachedFileAccessApproval{},
+	})
+	path := filepath.Join(nonTemporaryDirectoryForTest(t), "file.txt")
+	if outcome := policy.BeginCall().Authorize(t.Context(), path, path); !outcome.IsAllowed() || outcome.Reason != FileAccessReasonSessionAllow {
+		t.Fatalf("cached Session approval: %+v", outcome)
+	}
+}
+
 func TestFileAccessPolicyTrustsExecutionTargetAndProjectWorkspaceRoots(t *testing.T) {
 	executionTarget := t.TempDir()
 	projectRoot := nonTemporaryDirectoryForTest(t)
 	outside := nonTemporaryDirectoryForTest(t)
 	policy := newFileAccessPolicyForTest(t, FileAccessPolicyConfig{
-		Context: filesystemContextForTest(t, executionTarget, projectRoot),
-		Mode:    FileAccessRead,
+		Context: filesystemContextForTest(t, executionTarget),
+		Permissions: NewWorkspacePermissions(func(_ context.Context, _ string, path string) (*FilesystemRoot, error) {
+			root := filesystemRootForTest(t, projectRoot)
+			inside, err := FilesystemRootContains(root, path)
+			if err != nil || !inside {
+				return nil, err
+			}
+			return &root, nil
+		}),
+		Mode: FileAccessRead,
 	})
 	call := policy.BeginCall()
 
-	for _, target := range []struct {
+	targets := []struct {
 		requested string
 		resolved  string
 	}{
@@ -78,7 +154,18 @@ func TestFileAccessPolicyTrustsExecutionTargetAndProjectWorkspaceRoots(t *testin
 			requested: filepath.Join(projectRoot, "project.txt"),
 			resolved:  filepath.Join(filesystemRootForTest(t, projectRoot).RealPath, "project.txt"),
 		},
-	} {
+	}
+	preparationTargets := make([]FileAccessTarget, 0, len(targets))
+	for _, target := range targets {
+		preparationTargets = append(preparationTargets, FileAccessTarget{
+			RequestedPath: target.requested,
+			ResolvedPath:  target.resolved,
+		})
+	}
+	if outcome := call.Prepare(context.Background(), preparationTargets); !outcome.IsAllowed() {
+		t.Fatalf("prepare trusted targets = %+v", outcome)
+	}
+	for _, target := range targets {
 		outcome := call.Authorize(context.Background(), target.requested, target.resolved)
 		if outcome.Kind != FileAccessAllowed || outcome.Reason != FileAccessReasonTrustedRoot {
 			t.Fatalf("authorize trusted target %q = %+v", target.requested, outcome)
@@ -86,7 +173,7 @@ func TestFileAccessPolicyTrustsExecutionTargetAndProjectWorkspaceRoots(t *testin
 	}
 
 	target := filepath.Join(outside, "outside.txt")
-	outcome := call.Authorize(context.Background(), target, target)
+	outcome := policy.BeginCall().Authorize(context.Background(), target, target)
 	if outcome.Kind != FileAccessDeniedOutsideWorkspace {
 		t.Fatalf("authorize outside target = %+v", outcome)
 	}
@@ -112,10 +199,10 @@ func TestFileAccessPolicyConfiguredAndTemporaryAllowancesBypassApproval(t *testi
 				Context:               filesystemContextForTest(t, workspace),
 				Mode:                  FileAccessMutation,
 				AllowOutsideWorkspace: test.configured,
-				Approver: func(context.Context, FileAccessRequest) (FileAccessApproval, error) {
+				Approver: testFileAccessApprover(func(context.Context, FileAccessApprovalRequest) (FileAccessApproval, error) {
 					approvalCalls++
 					return FileAccessApproval{Kind: FileAccessApprovalDeny}, nil
-				},
+				}),
 			})
 			outcome := policy.BeginCall().Authorize(context.Background(), test.target, test.target)
 			if outcome.Kind != FileAccessAllowed || outcome.Reason != test.reason {
@@ -137,67 +224,114 @@ func TestFileAccessPolicyAllowOnceIsExactAndCallScoped(t *testing.T) {
 	policy := newFileAccessPolicyForTest(t, FileAccessPolicyConfig{
 		Context: filesystemContextForTest(t, workspace),
 		Mode:    FileAccessMutation,
-		Approver: func(context.Context, FileAccessRequest) (FileAccessApproval, error) {
+		Approver: testFileAccessApprover(func(context.Context, FileAccessApprovalRequest) (FileAccessApproval, error) {
 			approvalCalls++
 			return FileAccessApproval{Kind: FileAccessApprovalAllowOnce}, nil
-		},
+		}),
 	})
 
 	call := policy.BeginCall()
-	assertFileAccessReason(t, call.Authorize(context.Background(), first, first), FileAccessReasonAllowOnce)
+	assertFileAccessReason(t, call.Prepare(context.Background(), []FileAccessTarget{
+		{RequestedPath: first, ResolvedPath: first},
+		{RequestedPath: second, ResolvedPath: second},
+	}), FileAccessReasonAllowOnce)
 	assertFileAccessReason(t, call.Authorize(context.Background(), first, first), FileAccessReasonCallAllow)
-	assertFileAccessReason(t, call.Authorize(context.Background(), second, second), FileAccessReasonAllowOnce)
+	assertFileAccessReason(t, call.Authorize(context.Background(), second, second), FileAccessReasonCallAllow)
 	assertFileAccessReason(t, policy.BeginCall().Authorize(context.Background(), first, first), FileAccessReasonAllowOnce)
-	if approvalCalls != 3 {
-		t.Fatalf("approval calls = %d, want 3", approvalCalls)
+	if approvalCalls != 2 {
+		t.Fatalf("approval calls = %d, want one per prepared call", approvalCalls)
 	}
 }
 
-func TestFileAccessPolicyDoesNotReuseApprovalAfterAliasIdentityChanges(t *testing.T) {
+func TestFileAccessCallRejectsChangedAndUndisclosedTargetsWithoutAnotherApproval(t *testing.T) {
 	workspace := nonTemporaryDirectoryForTest(t)
 	outside := nonTemporaryDirectoryForTest(t)
-	firstRoot := filepath.Join(outside, "first")
-	secondRoot := filepath.Join(outside, "second")
-	for _, root := range []string{firstRoot, secondRoot} {
-		if err := os.Mkdir(root, 0o755); err != nil {
-			t.Fatalf("create alias target %q: %v", root, err)
+	first := filepath.Join(outside, "first.txt")
+	second := filepath.Join(outside, "second.txt")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte(path), 0o644); err != nil {
+			t.Fatalf("write target %q: %v", path, err)
 		}
 	}
-	alias := filepath.Join(outside, "alias")
-	if err := os.Symlink(firstRoot, alias); err != nil {
-		t.Skipf("symlink unavailable: %v", err)
-	}
-	requested := filepath.Join(alias, "new.txt")
-	repointed := false
 	approvalCalls := 0
 	policy := newFileAccessPolicyForTest(t, FileAccessPolicyConfig{
 		Context: filesystemContextForTest(t, workspace),
-		Mode:    FileAccessMutation,
-		Approver: func(context.Context, FileAccessRequest) (FileAccessApproval, error) {
+		Mode:    FileAccessRead,
+		Approver: testFileAccessApprover(func(context.Context, FileAccessApprovalRequest) (FileAccessApproval, error) {
 			approvalCalls++
-			if approvalCalls == 1 {
-				if err := os.Remove(alias); err != nil {
-					t.Fatalf("remove first alias: %v", err)
-				}
-				if err := os.Symlink(secondRoot, alias); err != nil {
-					t.Fatalf("replace alias: %v", err)
-				}
-				repointed = true
-			}
 			return FileAccessApproval{Kind: FileAccessApprovalAllowOnce}, nil
-		},
+		}),
 	})
 	call := policy.BeginCall()
-	assertFileAccessReason(t, call.Authorize(context.Background(), requested, requested), FileAccessReasonAllowOnce)
-	if !repointed {
-		t.Fatal("approval did not repoint alias")
+	if outcome := call.Authorize(context.Background(), first, first); !outcome.IsAllowed() {
+		t.Fatalf("initial target = %+v", outcome)
 	}
-	if call.ReuseApproval(requested, filepath.Join(secondRoot, "new.txt")) {
-		t.Fatal("reused approval after alias target changed")
+	for name, target := range map[string]FileAccessTarget{
+		"changed":     {RequestedPath: first, ResolvedPath: second},
+		"undisclosed": {RequestedPath: second, ResolvedPath: second},
+	} {
+		if outcome := call.Authorize(context.Background(), target.RequestedPath, target.ResolvedPath); outcome.IsAllowed() {
+			t.Fatalf("%s target was allowed: %+v", name, outcome)
+		}
 	}
-	assertFileAccessReason(t, call.Authorize(context.Background(), requested, requested), FileAccessReasonAllowOnce)
-	if approvalCalls != 2 {
-		t.Fatalf("approval calls = %d, want re-approval after identity change", approvalCalls)
+	if approvalCalls != 1 {
+		t.Fatalf("approval calls = %d, want no retry", approvalCalls)
+	}
+}
+
+func TestFileAccessCallPreservesDistinctAliasesWhileSharingCanonicalAuthorization(t *testing.T) {
+	workspace := nonTemporaryDirectoryForTest(t)
+	outside := nonTemporaryDirectoryForTest(t)
+	target := filepath.Join(outside, "target.txt")
+	if err := os.WriteFile(target, []byte("target"), 0o644); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	aliasA := filepath.Join(outside, "alias-a.txt")
+	aliasB := filepath.Join(outside, "alias-b.txt")
+	for _, alias := range []string{aliasA, aliasB} {
+		if err := os.Symlink(target, alias); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+	}
+	approvalCalls := 0
+	var approvalRequest FileAccessApprovalRequest
+	policy := newFileAccessPolicyForTest(t, FileAccessPolicyConfig{
+		Context: filesystemContextForTest(t, workspace),
+		Mode:    FileAccessRead,
+		Approver: testFileAccessApprover(func(_ context.Context, request FileAccessApprovalRequest) (FileAccessApproval, error) {
+			approvalCalls++
+			approvalRequest = request
+			return FileAccessApproval{Kind: FileAccessApprovalAllowOnce}, nil
+		}),
+	})
+	call := policy.BeginCall()
+	requested := []string{aliasA, aliasB, aliasA}
+	prepared := call.Prepare(context.Background(), []FileAccessTarget{
+		{RequestedPath: aliasA, ResolvedPath: target},
+		{RequestedPath: aliasB, ResolvedPath: target},
+		{RequestedPath: aliasA, ResolvedPath: target},
+	})
+	if !prepared.IsAllowed() {
+		t.Fatalf("prepare aliases = %+v", prepared)
+	}
+	wantDisclosures := []FileAccessTarget{
+		{RequestedPath: aliasA, ResolvedPath: target},
+		{RequestedPath: aliasB, ResolvedPath: target},
+	}
+	if !reflect.DeepEqual(approvalRequest.Targets, wantDisclosures) {
+		t.Fatalf("disclosures = %+v, want %+v", approvalRequest.Targets, wantDisclosures)
+	}
+	for index, alias := range requested {
+		outcome := call.Authorize(context.Background(), alias, target)
+		if !outcome.IsAllowed() {
+			t.Fatalf("authorize alias %d = %+v", index, outcome)
+		}
+		if outcome.Request.RequestedPath != alias || outcome.Request.ResolvedPath != target {
+			t.Fatalf("alias %d projection = %+v", index, outcome.Request)
+		}
+	}
+	if approvalCalls != 1 {
+		t.Fatalf("approval calls = %d, want one canonical authorization", approvalCalls)
 	}
 }
 
@@ -216,9 +350,9 @@ func TestFileAccessPolicyApprovalKindsProduceClosedReasons(t *testing.T) {
 			policy := newFileAccessPolicyForTest(t, FileAccessPolicyConfig{
 				Context: filesystemContextForTest(t, workspace),
 				Mode:    FileAccessRead,
-				Approver: func(context.Context, FileAccessRequest) (FileAccessApproval, error) {
+				Approver: testFileAccessApprover(func(context.Context, FileAccessApprovalRequest) (FileAccessApproval, error) {
 					return FileAccessApproval{Kind: test.kind}, nil
-				},
+				}),
 			})
 			assertFileAccessReason(t, policy.BeginCall().Authorize(context.Background(), outside, outside), test.reason)
 		})
@@ -238,16 +372,16 @@ func TestFileAccessPolicySurfacesDenialAndApprovalFailure(t *testing.T) {
 	}{
 		{
 			name: "denied",
-			approver: func(context.Context, FileAccessRequest) (FileAccessApproval, error) {
+			approver: testFileAccessApprover(func(context.Context, FileAccessApprovalRequest) (FileAccessApproval, error) {
 				return FileAccessApproval{Kind: FileAccessApprovalDeny, Commentary: &commentary}, nil
-			},
+			}),
 			kind: FileAccessDeniedByUser,
 		},
 		{
 			name: "approval failed",
-			approver: func(context.Context, FileAccessRequest) (FileAccessApproval, error) {
+			approver: testFileAccessApprover(func(context.Context, FileAccessApprovalRequest) (FileAccessApproval, error) {
 				return FileAccessApproval{}, approvalErr
-			},
+			}),
 			kind: FileAccessApprovalFailed,
 		},
 	} {
@@ -284,19 +418,15 @@ func TestFileAccessPolicyPathDenyWinsBeforeEveryAllowPath(t *testing.T) {
 		Context:               filesystemContextForTest(t, workspace),
 		Mode:                  FileAccessMutation,
 		AllowOutsideWorkspace: true,
-		Approver: func(context.Context, FileAccessRequest) (FileAccessApproval, error) {
+		Approver: testFileAccessApprover(func(context.Context, FileAccessApprovalRequest) (FileAccessApproval, error) {
 			approvalCalls++
 			return FileAccessApproval{Kind: FileAccessApprovalAllowOnce}, nil
-		},
+		}),
 		PathDenyPolicy: policyConfig,
 	})
 	call := policy.BeginCall()
 	approvedOutside := filepath.Join(nonTemporaryDirectoryForTest(t), "approved.txt")
 	assertFileAccessReason(t, call.Authorize(context.Background(), approvedOutside, approvedOutside), FileAccessReasonConfiguredAllow)
-	if call.ReuseApproval(approvedOutside, target) {
-		t.Fatal("configured allowance unexpectedly entered call-scoped approval state")
-	}
-
 	outcome := call.Authorize(context.Background(), target, target)
 	if outcome.Kind != FileAccessDeniedByPathPolicy || outcome.PathDeny == nil || outcome.PathDeny.Message != "deny generated" {
 		t.Fatalf("path-deny outcome = %+v", outcome)
@@ -324,10 +454,10 @@ func TestFileAccessPolicyPathDenyChecksLexicalRequestedPath(t *testing.T) {
 	policy := newFileAccessPolicyForTest(t, FileAccessPolicyConfig{
 		Context: filesystemContextForTest(t, workspace),
 		Mode:    FileAccessMutation,
-		Approver: func(context.Context, FileAccessRequest) (FileAccessApproval, error) {
+		Approver: testFileAccessApprover(func(context.Context, FileAccessApprovalRequest) (FileAccessApproval, error) {
 			approvalCalls++
 			return FileAccessApproval{Kind: FileAccessApprovalAllowOnce}, nil
-		},
+		}),
 		PathDenyPolicy: denyPolicy,
 	})
 
@@ -358,10 +488,10 @@ func TestFileAccessPolicyPathIdentityFailurePrecedesApproval(t *testing.T) {
 	policy := newFileAccessPolicyForTest(t, FileAccessPolicyConfig{
 		Context: filesystemContextForTest(t, workspace),
 		Mode:    FileAccessMutation,
-		Approver: func(context.Context, FileAccessRequest) (FileAccessApproval, error) {
+		Approver: testFileAccessApprover(func(context.Context, FileAccessApprovalRequest) (FileAccessApproval, error) {
 			approvalCalls++
 			return FileAccessApproval{Kind: FileAccessApprovalAllowOnce}, nil
-		},
+		}),
 		PathDenyPolicy: denyPolicy,
 	})
 
@@ -393,10 +523,10 @@ func TestFileAccessPolicyMutationDeniesForeignManagedWorktreeBeforeApproval(t *t
 	policy := newFileAccessPolicyForTest(t, FileAccessPolicyConfig{
 		Context: filesystemContext,
 		Mode:    FileAccessMutation,
-		Approver: func(context.Context, FileAccessRequest) (FileAccessApproval, error) {
+		Approver: testFileAccessApprover(func(context.Context, FileAccessApprovalRequest) (FileAccessApproval, error) {
 			approvalCalls++
 			return FileAccessApproval{Kind: FileAccessApprovalAllowOnce}, nil
-		},
+		}),
 	})
 
 	target := filepath.Join(foreign, "file.txt")

@@ -19,22 +19,6 @@ type AskQuestionAnswer struct {
 
 func (AskQuestionAnswer) askQuestionResolution() {}
 
-// AskQuestionAnswerFromLegacyFields translates the temporary single-prompt
-// wire fields after request-memo admission. KENT-461 deletes those fields.
-func AskQuestionAnswerFromLegacyFields(
-	selectedOptionNumber *int,
-	answer *string,
-	freeformAnswer *string,
-) AskQuestionAnswer {
-	if freeformAnswer == nil {
-		freeformAnswer = answer
-	}
-	return AskQuestionAnswer{
-		SelectedOptionNumber: selectedOptionNumber,
-		Freeform:             freeformAnswer,
-	}
-}
-
 type AskQuestionApproval struct {
 	Decision   AskQuestionApprovalDecision
 	Commentary *string

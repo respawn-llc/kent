@@ -11,12 +11,14 @@ import (
 	"core/shared/toolspec"
 )
 
+const DefaultMaxConcurrentShells = 100
+
 const (
-	defaultModel                         = "gpt-5.6-sol"
+	defaultModel                         = "gpt-6.1-sol"
 	defaultThinkingLevel                 = "medium"
 	defaultModelVerbosity                = ModelVerbosityLow
 	defaultTheme                         = theme.Auto
-	defaultModelContextWindow            = 372_000
+	defaultModelContextWindow            = 272_000
 	minimumModelContextWindow            = 40_000
 	defaultModelTimeoutSeconds           = 400
 	defaultMinimumExecToBgSec            = 15
@@ -47,10 +49,6 @@ func settingsTOMLForOnboarding(settings Settings, preservedDefaults map[string]b
 			preserved[key] = true
 		}
 	}
-	if strings.TrimSpace(settings.ProviderOverride) != "" {
-		// provider_override must round-trip with an explicit model line.
-		preserved["model"] = true
-	}
 	return settingsTOMLWithRenderingOptions(settings, true, preserved, map[string]bool{"debug": true})
 }
 
@@ -58,7 +56,7 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 	state := configRegistry.defaultState()
 	state.Settings = settings
 	rawLines := configRegistry.defaultLines(state)
-	inheritReviewerDefaultsWithSources(&state.Settings, nil)
+	InheritReviewerSettings(&state.Settings, nil)
 	lines := configRegistry.defaultLines(state)
 	defaultLines := configRegistry.defaultLines(configRegistry.defaultState())
 	rootLines := annotateRenderedLines(filterDefaultLines(lines, ""), filterDefaultLines(defaultLines, ""), preservedDefaults)
@@ -79,15 +77,9 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 		out.WriteString("\n[model_capabilities]\n")
 		writeDefaultLines(&out, modelCapabilityLines)
 	}
-	providerCapabilityLines := activeOptionalSectionLines(filterDefaultLines(lines, "provider_capabilities"), filterDefaultLines(defaultLines, "provider_capabilities"))
-	if len(providerCapabilityLines) > 0 {
-		out.WriteString("\n[provider_capabilities]\n")
-		writeDefaultLines(&out, providerCapabilityLines)
-	}
 	if includeToolSection {
 		out.WriteString("\n[tools]\n")
-		out.WriteString("# Leave both patch/edit commented to use Kent's model-based default:\n")
-		out.WriteString("# patch for first-party OpenAI or gpt-* models, edit otherwise.\n")
+		out.WriteString("# Leave patch and edit unset to let Kent choose.\n")
 		writeToolLines(&out, state.Settings.EnabledTools)
 	}
 	shellLines := annotateRenderedLines(filterDefaultLines(lines, "shell"), filterDefaultLines(defaultLines, "shell"), nil)
@@ -124,13 +116,6 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 		out.WriteString("\n[reviewer.model_capabilities]\n")
 		writeDefaultLines(&out, reviewerModelCapabilityLines)
 	}
-	reviewerProviderCapabilityDefaultState := state
-	reviewerProviderCapabilityDefaultState.Settings.Reviewer.ProviderCapabilities = settings.ProviderCapabilities
-	reviewerProviderCapabilityLines := activeOptionalSectionLines(filterDefaultLines(rawLines, "reviewer.provider_capabilities"), filterDefaultLines(configRegistry.defaultLines(reviewerProviderCapabilityDefaultState), "reviewer.provider_capabilities"))
-	if len(reviewerProviderCapabilityLines) > 0 {
-		out.WriteString("\n[reviewer.provider_capabilities]\n")
-		writeDefaultLines(&out, reviewerProviderCapabilityLines)
-	}
 	writeBuiltInSubagentSections(&out)
 	writeSkillTogglesSection(&out, state.Settings.SkillToggles)
 	return out.String()
@@ -141,13 +126,13 @@ func writeBuiltInSubagentSections(builder *strings.Builder) {
 		return
 	}
 	builder.WriteString("\n[subagents.fast]\n")
-	builder.WriteString("# inherits all main settings unless overridden\n")
-	builder.WriteString("# agent_callable = true # set false to hide/block this role from Kent-session subagent calls\n")
-	builder.WriteString("# description = \"\" # model-visible role description for future/catalog uses\n")
-	builder.WriteString("# model = \"gpt-5.6-terra\" # built-in heuristic on exact OpenAI first-party setups\n")
-	builder.WriteString("# thinking_level = \"low\" # built-in heuristic on exact OpenAI first-party setups\n")
-	builder.WriteString("# priority_request_mode = true # built-in heuristic on exact OpenAI first-party setups\n")
-	builder.WriteString("# model_context_window = 372000 # built-in heuristic on exact OpenAI first-party setups\n")
+	builder.WriteString("# Inherits main settings unless overridden.\n")
+	builder.WriteString("# agent_callable = true # Set false to prevent model-originated delegation to this role.\n")
+	builder.WriteString("# description = \"\" # Role description shown to the model.\n")
+	builder.WriteString("# model = \"gpt-6-luna\"\n")
+	builder.WriteString("# thinking_level = \"low\"\n")
+	builder.WriteString("# priority_request_mode = true\n")
+	builder.WriteString("# model_context_window = 272000\n")
 }
 
 func DefaultModel() string {
@@ -232,22 +217,25 @@ func shouldRenderReviewerThinking(settings Settings, preserved map[string]bool) 
 }
 
 func writeReviewerInheritanceLines(builder *strings.Builder, raw Settings, effective Settings, preserved map[string]bool) {
-	modelCommented := !(preserved != nil && preserved["reviewer.model"]) && strings.TrimSpace(raw.Reviewer.Model) == ""
+	modelCommented := reviewerValueInherited("reviewer.model", strings.TrimSpace(raw.Reviewer.Model) == "", preserved)
 	writeCommentedAssignment(builder, "model", effective.Reviewer.Model, modelCommented, "# inherited from main model unless overridden")
-	thinkingCommented := !(preserved != nil && preserved["reviewer.thinking_level"]) && strings.TrimSpace(raw.Reviewer.ThinkingLevel) == ""
+	thinkingCommented := reviewerValueInherited("reviewer.thinking_level", strings.TrimSpace(raw.Reviewer.ThinkingLevel) == "", preserved)
 	thinkingValue := any(effective.Reviewer.ThinkingLevel)
 	if preserved != nil && preserved["reviewer.thinking_level"] && strings.TrimSpace(raw.Reviewer.ThinkingLevel) == "" {
 		thinkingValue = raw.Reviewer.ThinkingLevel
 	}
 	writeCommentedAssignment(builder, "thinking_level", thinkingValue, thinkingCommented, "# inherited from main thinking_level unless overridden")
-	verbosityCommented := !(preserved != nil && preserved["reviewer.model_verbosity"]) && strings.TrimSpace(string(raw.Reviewer.ModelVerbosity)) == ""
+	verbosityCommented := reviewerValueInherited("reviewer.model_verbosity", strings.TrimSpace(string(raw.Reviewer.ModelVerbosity)) == "", preserved)
 	writeCommentedAssignment(builder, "model_verbosity", effective.Reviewer.ModelVerbosity, verbosityCommented, "# inherited from main model_verbosity unless overridden")
-	providerCommented := !(preserved != nil && preserved["reviewer.provider_override"]) && strings.TrimSpace(raw.Reviewer.ProviderOverride) == ""
-	writeCommentedAssignment(builder, "provider_override", effective.Reviewer.ProviderOverride, providerCommented, "# inherited from main provider_override unless overridden")
-	baseURLCommented := !(preserved != nil && preserved["reviewer.openai_base_url"]) && strings.TrimSpace(raw.Reviewer.OpenAIBaseURL) == ""
-	writeCommentedAssignment(builder, "openai_base_url", effective.Reviewer.OpenAIBaseURL, baseURLCommented, "# inherited from main openai_base_url for OpenAI-family reviewer providers")
-	contextCommented := !(preserved != nil && preserved["reviewer.model_context_window"]) && raw.Reviewer.ModelContextWindow <= 0
+	contextCommented := reviewerValueInherited("reviewer.model_context_window", raw.Reviewer.ModelContextWindow <= 0, preserved)
 	writeCommentedAssignment(builder, "model_context_window", effective.Reviewer.ModelContextWindow, contextCommented, "# inherited from main model_context_window unless overridden")
+}
+
+func reviewerValueInherited(key string, absent bool, declarations map[string]bool) bool {
+	if declarations != nil {
+		return !declarations[key]
+	}
+	return absent
 }
 
 func writeCommentedAssignment(builder *strings.Builder, key string, value any, commented bool, trailingComment string) {

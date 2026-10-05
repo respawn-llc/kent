@@ -1,9 +1,4 @@
-import {
-  infiniteQueryOptions,
-  queryOptions,
-  type InfiniteData,
-  type QueryClient,
-} from "@tanstack/react-query";
+import { infiniteQueryOptions, queryOptions, type InfiniteData } from "@tanstack/react-query";
 import type { ApiService, SessionCatalogPage, SessionCategory, WorkspaceCatalogPage } from "@/api";
 import { sessionCatalogPageSize } from "@/api";
 import { workspaceCatalogPageSize } from "@/api";
@@ -60,16 +55,6 @@ export function projectWorkspaceQueryOptions(
       return api.getProjectWorkspace(projectID, { workspaceID });
     },
     retry: false,
-  });
-}
-
-export async function invalidateProjectSessionCatalogs(
-  queryClient: QueryClient,
-  projectID: string,
-): Promise<void> {
-  await queryClient.invalidateQueries({
-    queryKey: queryKeys.projectSessionCatalogs(projectID),
-    refetchType: "active",
   });
 }
 

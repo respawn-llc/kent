@@ -7,19 +7,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/openai/openai-go/v3/responses"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/openai/openai-go/v3/responses"
 )
 
 func TestBuildPayload_AppliesStructuredOutputJSONSchema(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		StructuredOutput: &StructuredOutput{
 			Name:   "reviewer_suggestions",
 			Schema: mustTestStructuredSchema(t, testReviewerStructuredOutput{}),
@@ -53,7 +54,7 @@ func TestBuildPayload_ForwardsPreparedStructuredOutputSchemaUnchanged(t *testing
 	transport := NewHTTPTransport(staticAuth{})
 	prepared := mustTestStructuredSchema(t, testWorkflowStructuredOutput{})
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		StructuredOutput: &StructuredOutput{
 			Name:   "workflow_completion",
 			Schema: prepared,
@@ -99,7 +100,7 @@ func mustDecodeSchemaObject(t *testing.T, raw []byte) map[string]any {
 func TestBuildPayload_AppliesConfiguredModelVerbosityForSupportedModels(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	transport.ModelVerbosity = "high"
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-5"}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
+	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
 	}
@@ -118,7 +119,7 @@ func TestBuildPayload_MergesConfiguredModelVerbosityWithStructuredOutput(t *test
 	transport := NewHTTPTransport(staticAuth{})
 	transport.ModelVerbosity = "low"
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		StructuredOutput: &StructuredOutput{
 			Name:   "reviewer_suggestions",
 			Schema: mustTestStructuredSchema(t, testReviewerStructuredOutput{}),
@@ -144,7 +145,7 @@ func TestBuildPayload_MergesConfiguredModelVerbosityWithStructuredOutput(t *test
 func TestBuildPayload_AppliesReasoningEffortForOpenAIModels(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model:           "gpt-5",
+		Model:           "gpt-6-sol",
 		ReasoningEffort: "xhigh",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
@@ -192,20 +193,35 @@ func TestBuildPayload_SkipsReasoningSummaryForUnknownModels(t *testing.T) {
 
 func TestBuildPayload_AppliesFastModeForOpenAIProvider(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
+	capabilities := ProviderCapabilities{
+		ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsFastMode: true,
+	}
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model:    "gpt-5.3-codex",
+		Model:    "gpt-6-sol",
 		FastMode: true,
-	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
+	}, OpenAIAuthMode{}, capabilities)
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
 	}
 	if payload.ServiceTier != responses.ResponseNewParamsServiceTierPriority {
-		t.Fatalf("expected priority service tier for openai provider, got %q", payload.ServiceTier)
+		t.Fatalf("expected priority service tier for a fast-mode-capable connection, got %q", payload.ServiceTier)
 	}
 
 	jsonPayload := mustMarshalObject(t, payload)
 	if got := jsonPayload["service_tier"]; got != "priority" {
 		t.Fatalf("expected service_tier=priority, got %#v", got)
+	}
+
+	unsupportedPayload, err := transport.buildPayload(OpenAIRequest{
+		ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", FastMode: true,
+	}, OpenAIAuthMode{}, ProviderCapabilities{
+		ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true,
+	})
+	if err != nil {
+		t.Fatalf("build payload without the fast-mode capability: %v", err)
+	}
+	if unsupportedPayload.ServiceTier != "" {
+		t.Fatalf("service tier without fast-mode capability = %q, want omitted", unsupportedPayload.ServiceTier)
 	}
 }
 
@@ -243,7 +259,7 @@ func TestBuildPayload_ForwardsPreparedFunctionSchemaUnchanged(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	prepared := mustTestFunctionSchema(t, testNestedFunctionInput{})
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Tools: []Tool{
 			{
 				Name:   "ask_question",
@@ -430,7 +446,7 @@ func TestAPIKeyCompactRequestTargetsStreamingResponsesV2(t *testing.T) {
 	transport.Client = newRewritingHTTPClient(t, server)
 
 	resp, err := transport.Compact(context.Background(), OpenAIRequest{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		SessionID:      textutil.Value("test-session"),
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		Items: PrepareOpenAIInputItems([]ResponseItem{
@@ -629,6 +645,45 @@ func TestOAuthCompactRequestUsesStreamedCompactionWhenCompletedOutputIsEmpty(t *
 	}
 }
 
+func TestOAuthCompactRequestUsesCompletedCheckpointAtStreamedPosition(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		streamedID  *string
+		completedID *string
+	}{
+		{name: "different IDs", streamedID: textutil.Value("cmp_streamed"), completedID: textutil.Value("cmp_completed")},
+		{name: "streamed ID absent", completedID: textutil.Value("cmp_completed")},
+		{name: "completed ID absent", streamedID: textutil.Value("cmp_streamed")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			checkpoint := func(id *string, encrypted string) string {
+				t.Helper()
+				data, err := json.Marshal(struct {
+					Type             string  `json:"type"`
+					ID               *string `json:"id,omitempty"`
+					EncryptedContent string  `json:"encrypted_content"`
+				}{Type: "compaction", ID: id, EncryptedContent: encrypted})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return string(data)
+			}
+			server := newOAuthCompactStreamServer(t, []string{
+				fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, checkpoint(test.streamedID, "enc_streamed")),
+				fmt.Sprintf(`{"type":"response.completed","response":{"output":[%s]}}`, checkpoint(test.completedID, "enc_completed")),
+			})
+			resp, err := newCanonicalOAuthTestTransport(t, server).Compact(context.Background(), testOAuthCompactionRequest(t, "gpt-5.6-sol"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !textutil.EqualOptional(resp.Checkpoint.ID, test.completedID) ||
+				!textutil.EqualOptional(resp.Checkpoint.EncryptedContent, textutil.Value("enc_completed")) {
+				t.Fatalf("checkpoint = %+v, want completed checkpoint", resp.Checkpoint)
+			}
+		})
+	}
+}
+
 func TestOAuthCompactRequestRejectsStreamWithoutResponseCompleted(t *testing.T) {
 	server := newOAuthCompactStreamServer(t, []string{
 		`{"type":"response.output_item.done","output_index":0,"item":{"type":"compaction","id":"cmp_1","encrypted_content":"enc_1"}}`,
@@ -775,11 +830,11 @@ func TestOpenAIRequestBuildersRejectUnpreparedViewImageInputFileOutput(t *testin
 		}
 	}
 
-	_, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-5", Items: unpreparedItems}, OpenAIAuthMode{}, caps)
+	_, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", Items: unpreparedItems}, OpenAIAuthMode{}, caps)
 	checkErr("buildPayload", err)
 
-	_, err = newOpenAIRequestPayloadBuilder(transport.Store, transport.ModelVerbosity, caps).BuildCompactV2(OpenAIRequest{
-		Model:          "gpt-5",
+	_, err = transport.requestPayloadBuilder(caps).BuildCompactV2(OpenAIRequest{
+		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		Items:          unpreparedItems,
 	}, OpenAIAuthMode{})
@@ -797,7 +852,7 @@ func unmaterializedViewImageInputFileOutput() ResponseItem {
 
 func TestResolveModelContextWindowUsesModelMetadataFromAPI(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/models/gpt-5" {
+		if r.URL.Path != "/v1/models/gpt-6-sol" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -807,7 +862,7 @@ func TestResolveModelContextWindowUsesModelMetadataFromAPI(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
-			"id":"gpt-5",
+			"id":"gpt-6-sol",
 			"object":"model",
 			"created":1731459200,
 			"owned_by":"openai",
@@ -821,7 +876,7 @@ func TestResolveModelContextWindowUsesModelMetadataFromAPI(t *testing.T) {
 	transport.Client = server.Client()
 	transport.ContextWindowTokens = 0
 
-	window, err := transport.ResolveModelContextWindow(context.Background(), "gpt-5")
+	window, err := transport.ResolveModelContextWindow(context.Background(), "gpt-6-sol")
 	if err != nil {
 		t.Fatalf("resolve model context window failed: %v", err)
 	}
@@ -832,13 +887,13 @@ func TestResolveModelContextWindowUsesModelMetadataFromAPI(t *testing.T) {
 
 func TestResolveModelContextWindowFallsBackToInputTokenLimitField(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/models/gpt-5" {
+		if r.URL.Path != "/v1/models/gpt-6-sol" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
-			"id":"gpt-5",
+			"id":"gpt-6-sol",
 			"object":"model",
 			"created":1731459200,
 			"owned_by":"openai",
@@ -852,7 +907,7 @@ func TestResolveModelContextWindowFallsBackToInputTokenLimitField(t *testing.T) 
 	transport.Client = server.Client()
 	transport.ContextWindowTokens = 0
 
-	window, err := transport.ResolveModelContextWindow(context.Background(), "gpt-5")
+	window, err := transport.ResolveModelContextWindow(context.Background(), "gpt-6-sol")
 	if err != nil {
 		t.Fatalf("resolve model context window failed: %v", err)
 	}

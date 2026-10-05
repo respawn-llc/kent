@@ -1,9 +1,77 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { useCallback } from "react";
+import { act, fireEvent, render as renderReact, renderHook, screen, waitFor } from "@testing-library/react";
+import { useCallback, type ReactElement } from "react";
+import { createTestServices, TestAppProviders } from "@/test-support/app-services";
+import { deferred } from "@/test-support/chat-runtime";
 
 import { appI18n, initializeI18n } from "@/i18n";
+import { clearLastProjectRoute, type SessionChatTarget } from "@/app-facade";
 import type { ProjectTasksViewMemory } from "./projectTasksViewMemory";
 import { HomeProjectContent } from "./HomeProjectContent";
+import { useHomeSessionPages } from "./HomeProjectModel";
+
+it.each(["main", "subagent"] as const)(
+  "rejects repeated %s paging and retry while retaining a pending page",
+  async (category) => {
+    const services = createTestServices([]);
+    const list = vi.spyOn(services.api, "listSessionPage").mockResolvedValue({
+      projectID: "project-1",
+      category,
+      sessions: [],
+      nextOffset: 50,
+    });
+    const view = renderHook(() => useHomeSessionPages("project-1", category, true), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <TestAppProviders services={services}>{children}</TestAppProviders>
+      ),
+    });
+    await waitFor(() => {
+      expect(view.result.current.isSuccess).toBe(true);
+    });
+    const response = deferred<Awaited<ReturnType<typeof services.api.listSessionPage>>>();
+    list.mockReturnValue(response.promise);
+    await act(async () => {
+      view.result.current.fetchNextPage();
+      view.result.current.fetchNextPage();
+      view.result.current.refetch();
+    });
+    expect(list).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      response.resolve({ projectID: "project-1", category, sessions: [], nextOffset: null });
+    });
+  },
+);
+
+it.each(["main", "subagent"] as const)(
+  "ignores disabled %s requests and missing continuation edges",
+  async (category) => {
+    const services = createTestServices([]);
+    const list = vi.spyOn(services.api, "listSessionPage").mockResolvedValue({
+      projectID: "project-1",
+      category,
+      sessions: [],
+      nextOffset: null,
+    });
+    const view = renderHook(({ enabled }) => useHomeSessionPages("project-1", category, enabled), {
+      initialProps: { enabled: false },
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <TestAppProviders services={services}>{children}</TestAppProviders>
+      ),
+    });
+    await act(async () => {
+      view.result.current.fetchNextPage();
+      view.result.current.refetch();
+    });
+    expect(list).not.toHaveBeenCalled();
+    view.rerender({ enabled: true });
+    await waitFor(() => {
+      expect(view.result.current.isSuccess).toBe(true);
+    });
+    await act(async () => {
+      view.result.current.fetchNextPage();
+    });
+    expect(list).toHaveBeenCalledOnce();
+  },
+);
 
 type ProjectQueryFixture = Readonly<{
   data: Readonly<{ displayName: string; projectKey: string }> | undefined;
@@ -11,36 +79,58 @@ type ProjectQueryFixture = Readonly<{
   isPending: boolean;
 }>;
 
-const fixture = vi.hoisted((): { projectQuery: ProjectQueryFixture } => ({
-  projectQuery: {
-    data: { displayName: "Kent", projectKey: "KNT" },
-    error: null,
-    isPending: false,
-  },
-}));
-
-vi.mock("@tanstack/react-query", async (importOriginal) => ({
-  ...(await importOriginal()),
-  useQueryClient: () => ({ invalidateQueries: vi.fn(), resetQueries: vi.fn() }),
-  useQuery: () => fixture.projectQuery,
-  useInfiniteQuery: () => ({
-    data: { pages: [] },
-    error: null,
-    fetchNextPage: vi.fn(),
-    hasNextPage: false,
-    isError: false,
-    isFetchingNextPage: false,
-    isPending: false,
-    refetch: vi.fn(),
+const fixture = vi.hoisted(
+  (): {
+    projectQuery: ProjectQueryFixture;
+    sessions: readonly {
+      id: string;
+      category: "main" | "subagent";
+      name: string | null;
+      firstPromptPreview: string | null;
+      updatedAt: number;
+    }[];
+    sessionTargets: SessionChatTarget[];
+  } => ({
+    projectQuery: {
+      data: { displayName: "Kent", projectKey: "KNT" },
+      error: null,
+      isPending: false,
+    },
+    sessions: [],
+    sessionTargets: [],
   }),
-}));
+);
 
 vi.mock("@/app-facade", async (importOriginal) => ({
   ...(await importOriginal()),
-  useAppNavigation: () => ({ selectHomeProject: vi.fn() }),
-  useAppServices: () => ({ api: {} }),
+  useAppNavigation: () => ({
+    openSessionChat: async (target: SessionChatTarget) => {
+      fixture.sessionTargets.push(target);
+    },
+    selectHomeProject: vi.fn(),
+  }),
+  useSessionChatCatalogReturn: () => null,
   useOwnedSidebarRoots: () => ({ open: vi.fn() }),
 }));
+
+function render(content: ReactElement) {
+  const services = createTestServices([]);
+  vi.spyOn(services.api, "getProjectEdit").mockImplementation(async () => {
+    if (fixture.projectQuery.isPending) {
+      return deferred<Awaited<ReturnType<typeof services.api.getProjectEdit>>>().promise;
+    }
+    if (fixture.projectQuery.error !== null) throw fixture.projectQuery.error;
+    return { projectID: "project-1", displayName: "Kent", projectKey: "KNT" };
+  });
+  vi.spyOn(services.api, "listSessionPage").mockImplementation(async (_projectID, category, offset) => ({
+    projectID: "project-1",
+    category,
+    offset,
+    nextOffset: null,
+    sessions: fixture.sessions,
+  }));
+  return renderReact(<TestAppProviders services={services}>{content}</TestAppProviders>);
+}
 
 vi.mock("./ProjectTasksSurface", () => ({
   ProjectTasksSurface: ({ viewMemory }: Readonly<{ viewMemory: ProjectTasksViewMemory }>) => {
@@ -69,14 +159,17 @@ vi.mock("./ProjectTasksSurface", () => ({
 beforeAll(async () => initializeI18n());
 
 beforeEach(() => {
+  clearLastProjectRoute("project-1");
   fixture.projectQuery = {
     data: { displayName: "Kent", projectKey: "KNT" },
     error: null,
     isPending: false,
   };
+  fixture.sessions = [];
+  fixture.sessionTargets = [];
 });
 
-it("shows the generic loading state until the selected Project resolves", () => {
+it("renders the Task surface while selected Project metadata is pending", () => {
   fixture.projectQuery = {
     data: undefined,
     error: null,
@@ -85,11 +178,9 @@ it("shows the generic loading state until the selected Project resolves", () => 
 
   render(<HomeProjectContent projectID="project-1" sessionsVisible={false} sidebarMode="shift" />);
 
-  expect(screen.getByTestId("loading-state")).toBeInTheDocument();
-  expect(screen.getByText(appI18n.t("states.loading"))).toBeInTheDocument();
   expect(
-    screen.queryByRole("grid", { name: appI18n.t("home.prototype.projectTasksGrid") }),
-  ).not.toBeInTheDocument();
+    screen.getByRole("grid", { name: appI18n.t("home.prototype.projectTasksGrid") }),
+  ).toBeInTheDocument();
 });
 
 it("restores Task-grid pixels after visiting another Project tab", () => {
@@ -117,4 +208,47 @@ it("renders Tasks directly when Desktop Sessions are unavailable", () => {
   expect(
     screen.getByRole("grid", { name: appI18n.t("home.prototype.projectTasksGrid") }),
   ).toBeInTheDocument();
+});
+
+it.each([
+  ["main", "sessions"],
+  ["subagent", "subagents"],
+] as const)("opens a %s catalog row through Session Chat navigation", async (category, tabLabel) => {
+  const sessionName = "Review chat";
+  fixture.sessions = [
+    {
+      category,
+      firstPromptPreview: "Review the change",
+      id: `${category}-session`,
+      name: sessionName,
+      updatedAt: 1,
+    },
+  ];
+
+  render(<HomeProjectContent projectID="project-1" sessionsVisible sidebarMode="shift" />);
+  fireEvent.click(screen.getByRole("tab", { name: appI18n.t(`home.prototype.${tabLabel}`) }));
+  fireEvent.click(await screen.findByRole("button", { name: sessionName }));
+
+  expect(fixture.sessionTargets).toEqual([
+    {
+      catalogOrigin: { category },
+      projectID: "project-1",
+      sessionID: `${category}-session`,
+    },
+  ]);
+});
+
+it("uses the Session ID as an unnamed row title and shows its supplied preview only once", async () => {
+  const session = {
+    category: "main" as const,
+    firstPromptPreview: "A supplied preview",
+    id: "unnamed-session",
+    name: null,
+    updatedAt: 1,
+  };
+  fixture.sessions = [session];
+  render(<HomeProjectContent projectID="project-1" sessionsVisible sidebarMode="shift" />);
+  fireEvent.click(screen.getByRole("tab", { name: appI18n.t("home.prototype.sessions") }));
+  expect(await screen.findByRole("button", { name: session.id })).toBeVisible();
+  expect(screen.getAllByText(session.firstPromptPreview)).toHaveLength(1);
 });

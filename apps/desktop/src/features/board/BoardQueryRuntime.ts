@@ -1,4 +1,6 @@
 import { createContext, useContext } from "react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import type { createBoardQueryModel } from "./BoardQueryModel";
 
 import type { BoardFilter, BoardNodeCardsSort } from "@/api";
 
@@ -10,12 +12,21 @@ export type BoardQueryState = Readonly<{
   sort: BoardNodeCardsSort;
 }>;
 
-export const BoardQueryContext = createContext<BoardQueryState | null>(null);
+export const BoardQueryContext = createContext<ReturnType<typeof createBoardQueryModel> | null>(null);
 
-export function useBoardQuery(): BoardQueryState {
+export function useBoardQueryModel() {
   const value = useContext(BoardQueryContext);
   if (value === null) {
     throw new Error("BoardQueryProvider is required");
   }
   return value;
+}
+
+export function useBoardQuery(): BoardQueryState {
+  const model = useBoardQueryModel();
+  return {
+    ...useAtomValue(model.state),
+    setDependencyFilter: useAtomSet(model.setDependencyFilter, { mode: "value" }),
+    setSort: useAtomSet(model.setSort, { mode: "value" }),
+  };
 }

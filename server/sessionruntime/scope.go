@@ -9,8 +9,6 @@ import (
 	"core/shared/runtimeids"
 )
 
-type ExecutionGeneration uint64
-
 type WorkflowExecutionRef struct {
 	ProjectID   string
 	WorkflowID  runtimeids.WorkflowID
@@ -38,11 +36,9 @@ const (
 )
 
 type executionScopeData struct {
-	id                  runtimeids.ExecutionScopeID
-	kind                ExecutionScopeKind
-	executionGeneration ExecutionGeneration
-	resourceGeneration  runtimeids.ResourceGeneration
-	workflow            *WorkflowExecutionRef
+	id       runtimeids.ExecutionScopeID
+	kind     ExecutionScopeKind
+	workflow *WorkflowExecutionRef
 }
 
 type executionScopeVariant interface {
@@ -72,22 +68,17 @@ type ExecutionScope struct {
 
 func newScriptExecutionScope(
 	id runtimeids.ExecutionScopeID,
-	executionGeneration ExecutionGeneration,
-	resourceGeneration runtimeids.ResourceGeneration,
 	workflowRef *WorkflowExecutionRef,
 ) ExecutionScope {
 	return ExecutionScope{value: scriptExecutionScope{executionScopeData: executionScopeData{
-		id:                  id,
-		kind:                ExecutionScopeScript,
-		executionGeneration: executionGeneration,
-		resourceGeneration:  resourceGeneration,
-		workflow:            cloneWorkflowExecutionRef(workflowRef),
+		id:       id,
+		kind:     ExecutionScopeScript,
+		workflow: cloneWorkflowExecutionRef(workflowRef),
 	}}}
 }
 
 func newAgentExecutionScope(
 	id runtimeids.ExecutionScopeID,
-	executionGeneration ExecutionGeneration,
 	resource runtimeids.SessionResourceRef,
 	workflowRef *WorkflowExecutionRef,
 ) ExecutionScope {
@@ -96,11 +87,9 @@ func newAgentExecutionScope(
 	}
 	return ExecutionScope{value: agentExecutionScope{
 		executionScopeData: executionScopeData{
-			id:                  id,
-			kind:                ExecutionScopeAgent,
-			executionGeneration: executionGeneration,
-			resourceGeneration:  resource.Generation(),
-			workflow:            cloneWorkflowExecutionRef(workflowRef),
+			id:       id,
+			kind:     ExecutionScopeAgent,
+			workflow: cloneWorkflowExecutionRef(workflowRef),
 		},
 		resource: resource,
 	}}
@@ -119,14 +108,6 @@ func (s ExecutionScope) ID() runtimeids.ExecutionScopeID {
 
 func (s ExecutionScope) Kind() ExecutionScopeKind {
 	return s.data().kind
-}
-
-func (s ExecutionScope) ExecutionGeneration() ExecutionGeneration {
-	return s.data().executionGeneration
-}
-
-func (s ExecutionScope) ResourceGeneration() runtimeids.ResourceGeneration {
-	return s.data().resourceGeneration
 }
 
 func (s ExecutionScope) Workflow() (WorkflowExecutionRef, bool) {

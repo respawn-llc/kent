@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ContractError, parseTaskSetupRecoveryDetail, type AttentionItem, type TaskDetail } from "@/api";
+import type { AttentionItem, TaskDetail } from "@/api";
 import type { TaskDetailInitialFocus } from "@/app-facade";
 import { sameTaskDetailInitialFocus } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
@@ -8,28 +8,26 @@ import { taskDetailAttentionRowKey } from "./TaskDetailAttentionRowKey";
 import { emptyQuestionSelection, type QuestionSelectionState } from "./TaskDetailQuestionState";
 import { promptAnswerKey, type PromptAnswerKey, type PromptAnswerState } from "./PromptAnswerState";
 import { PromptPrimaryControlRegistry, type PromptPrimaryFocusRequest } from "./PromptPrimaryControlRegistry";
-import type { useTaskMutations } from "./useTaskDetailData";
-import type { QuestionAnswerMutation } from "./TaskDetailQuestionAnswer";
+import type { TaskDetailLifecycle } from "./TaskDetailLifecycleActions";
+import type { QuestionAnswerAction } from "./TaskDetailQuestionAnswer";
 
 export function TaskInbox({
   answerQuestion,
   attentionItems,
   currentVersion,
   detail,
-  disabled,
   initialFocus,
   mutations,
   primaryFocusRequest,
   promptAnswerState,
   onQuestionSelectionChange,
 }: Readonly<{
-  answerQuestion: QuestionAnswerMutation;
+  answerQuestion: QuestionAnswerAction;
   attentionItems: readonly AttentionItem[];
   currentVersion: number;
   detail: TaskDetail;
-  disabled: boolean;
   initialFocus?: TaskDetailInitialFocus | undefined;
-  mutations: ReturnType<typeof useTaskMutations>;
+  mutations: TaskDetailLifecycle;
   primaryFocusRequest?: PromptPrimaryFocusRequest | undefined;
   promptAnswerState: PromptAnswerState;
   onQuestionSelectionChange: (key: PromptAnswerKey, selection: QuestionSelectionState) => void;
@@ -66,7 +64,6 @@ export function TaskInbox({
           answerQuestion={answerQuestion}
           attention={item}
           currentVersion={currentVersion}
-          disabled={disabled}
           focusOnMount={item.id === focusedAttentionID}
           key={taskDetailAttentionRowKey(item)}
           mutations={mutations}
@@ -103,8 +100,8 @@ function focusedAttentionItemID(
   if (initialFocus.kind === "question") {
     const itemIDByAskID = new Map<string, string>();
     for (const item of attentionItems) {
-      if (item.kind === "question" && !itemIDByAskID.has(item.question.promptID)) {
-        itemIDByAskID.set(item.question.promptID, item.id);
+      if (item.kind === "question" && !itemIDByAskID.has(item.question.toolCallID)) {
+        itemIDByAskID.set(item.question.toolCallID, item.id);
       }
     }
     return initialFocus.askIDs
@@ -116,24 +113,13 @@ function focusedAttentionItemID(
       (item) => item.kind === "approval" && item.approvalID === initialFocus.approvalID,
     )?.id;
   }
-  return (
-    attentionItems.find((item) => {
-      if (item.kind !== "interrupted_current_node") return false;
-      try {
-        return parseTaskSetupRecoveryDetail(item.detailJSON) !== null;
-      } catch (error) {
-        if (error instanceof ContractError) return false;
-        throw error;
-      }
-    })?.id ?? attentionItems.find((item) => item.kind === "interrupted_current_node")?.id
-  );
+  return attentionItems.find((item) => item.kind === "interrupted_current_node")?.id;
 }
 
 function InboxItem({
   answerQuestion,
   attention,
   currentVersion,
-  disabled,
   focusOnMount,
   mutations,
   onQuestionSelectionChange,
@@ -141,12 +127,11 @@ function InboxItem({
   promptAnswerState,
   task,
 }: Readonly<{
-  answerQuestion: QuestionAnswerMutation;
+  answerQuestion: QuestionAnswerAction;
   attention: AttentionItem;
   currentVersion: number;
-  disabled: boolean;
   focusOnMount: boolean;
-  mutations: ReturnType<typeof useTaskMutations>;
+  mutations: TaskDetailLifecycle;
   onQuestionSelectionChange: (key: PromptAnswerKey, selection: QuestionSelectionState) => void;
   primaryControls: PromptPrimaryControlRegistry;
   promptAnswerState: PromptAnswerState;
@@ -180,7 +165,6 @@ function InboxItem({
         <QuestionBox
           attention={attention}
           answerQuestion={answerQuestion}
-          disabled={disabled}
           onSelectionStateChange={(selection) => {
             onQuestionSelectionChange(key, selection);
           }}
@@ -193,22 +177,13 @@ function InboxItem({
   if (attention.kind === "approval") {
     return (
       <div ref={focusTargetRef}>
-        <ApprovalBox
-          attention={attention}
-          currentVersion={currentVersion}
-          disabled={disabled}
-          mutations={mutations}
-        />
+        <ApprovalBox attention={attention} currentVersion={currentVersion} mutations={mutations} />
       </div>
     );
   }
   return (
     <div ref={focusTargetRef}>
-      <InterruptedCurrentNodeBox
-        attention={attention}
-        canResume={task.actions.canResume}
-        disabled={disabled}
-      />
+      <InterruptedCurrentNodeBox attention={attention} canResume={task.actions.canResume} />
     </div>
   );
 }

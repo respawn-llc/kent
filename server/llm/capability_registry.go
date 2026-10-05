@@ -21,17 +21,29 @@ type ModelKnowledgeCutoff struct {
 // provider capability flags, and model metadata.
 
 type ModelCapabilityContract struct {
-	Model                     string
-	ContextWindowTokens       int
-	LargeContextWindowTokens  int
-	KnowledgeCutoff           ModelKnowledgeCutoff
-	HasKnowledgeCutoff        bool
-	SupportsReasoningEffort   bool
-	SupportedReasoningEfforts []string
-	SupportsReasoningSummary  bool
-	SupportsVerbosity         bool
-	SupportedVerbosityLevels  []string
-	SupportsVisionInputs      bool
+	Model                         string
+	ContextWindowTokens           int
+	LargeContextWindowTokens      int
+	SubscriptionContext           *ModelMetadata
+	KnowledgeCutoff               ModelKnowledgeCutoff
+	HasKnowledgeCutoff            bool
+	SupportsReasoningEffort       bool
+	SupportsNativeThinkingUpdates bool
+	SupportedReasoningEfforts     []string
+	SupportsReasoningSummary      bool
+	SupportsVerbosity             bool
+	SupportedVerbosityLevels      []string
+	SupportsVisionInputs          bool
+}
+
+func (c ModelCapabilityContract) ContextMetadata(provider ProviderCapabilities) ModelMetadata {
+	if provider.ProviderID == "chatgpt-codex" && c.SubscriptionContext != nil {
+		return *c.SubscriptionContext
+	}
+	return ModelMetadata{
+		ContextWindowTokens:      c.ContextWindowTokens,
+		LargeContextWindowTokens: c.LargeContextWindowTokens,
+	}
 }
 
 func lookupProviderVariantContract(providerID string) (providerVariantRegistration, bool) {
@@ -151,25 +163,11 @@ func IsOpenAIFirstPartyBaseURL(baseURL string) bool {
 	return strings.EqualFold(strings.TrimSpace(parsed.Hostname()), "api.openai.com")
 }
 
-func LockedModelCapabilitiesForModel(model string) session.LockedModelCapabilities {
-	contract, ok := LookupModelCapabilityContract(model)
-	if !ok {
-		return session.LockedModelCapabilities{}
-	}
+func LockedModelCapabilitiesForModel(model string, provider ProviderCapabilities) session.LockedModelCapabilities {
 	return session.LockedModelCapabilities{
-		SupportsReasoningEffort: contract.SupportsReasoningEffort,
-		SupportsVisionInputs:    contract.SupportsVisionInputs,
+		SupportsReasoningEffort: SupportsReasoningEffortModel(model),
+		SupportsVisionInputs:    SupportsVisionInputsModel(model, provider),
 	}
-}
-
-func LockedModelCapabilitiesForConfig(model string, override config.ModelCapabilitiesOverride) session.LockedModelCapabilities {
-	if override.SupportsReasoningEffort || override.SupportsVisionInputs {
-		return session.LockedModelCapabilities{
-			SupportsReasoningEffort: override.SupportsReasoningEffort,
-			SupportsVisionInputs:    override.SupportsVisionInputs,
-		}
-	}
-	return LockedModelCapabilitiesForModel(model)
 }
 
 func LockedProviderCapabilitiesFromContract(contract ProviderCapabilities) session.LockedProviderCapabilities {
@@ -196,6 +194,7 @@ func ProviderCapabilitiesFromOverride(override config.ProviderCapabilitiesOverri
 	return ProviderCapabilities{
 		ProviderID:                    providerID,
 		SupportsResponsesAPI:          override.SupportsResponsesAPI,
+		SupportsFastMode:              override.SupportsFastMode,
 		SupportsResponsesCompact:      override.SupportsResponsesCompact,
 		SupportsPromptCacheKey:        override.SupportsPromptCacheKey,
 		SupportsNativeWebSearch:       override.SupportsNativeWebSearch,
@@ -259,5 +258,5 @@ func LockedContractSupportsVisionInputs(locked *session.LockedContract, model st
 	if locked != nil && (locked.ModelCapabilities.SupportsReasoningEffort || locked.ModelCapabilities.SupportsVisionInputs) {
 		return locked.ModelCapabilities.SupportsVisionInputs
 	}
-	return SupportsVisionInputsModel(model)
+	return SupportsVisionInputsModel(model, ProviderCapabilities{})
 }

@@ -12,8 +12,33 @@ export type BoardCardMotionParticipants = Readonly<{
 
 export type PendingBoardCardMove = Readonly<{
   targetColumnID: string;
-  taskID: string;
+  card: KanbanCardVM;
+  dropRect: DOMRectReadOnly;
 }>;
+
+export function projectPendingBoardCardMove(
+  columns: BoardCardColumnsSnapshot,
+  pending: PendingBoardCardMove | null,
+): BoardCardColumnsSnapshot {
+  if (pending === null) return columns;
+  const projected = new Map(columns);
+  let pendingCard = pending.card;
+  for (const [id, cards] of columns) {
+    if (id !== pending.targetColumnID) {
+      const serverCard = cards.find((card) => card.id === pending.card.id);
+      if (serverCard !== undefined) pendingCard = serverCard;
+      projected.set(
+        id,
+        cards.filter((card) => card.id !== pending.card.id),
+      );
+    }
+  }
+  const target = projected.get(pending.targetColumnID) ?? [];
+  if (!target.some((card) => card.id === pending.card.id)) {
+    projected.set(pending.targetColumnID, [pendingCard, ...target]);
+  }
+  return projected;
+}
 
 export function boardCardViewTransitionName(taskID: string): string {
   const encoded = Array.from(taskID, (char) => {

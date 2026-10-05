@@ -31,6 +31,7 @@ type uiProgramComposition struct {
 type uiLoopRequest struct {
 	ctx                          context.Context
 	wiring                       *runtimeWiring
+	projectID                    string
 	active                       config.Settings
 	commandRegistry              *commands.Registry
 	initialPrompt                string
@@ -151,7 +152,7 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 	}
 	sessionID := ""
 	if runtimeClient != nil {
-		sessionID = runtimeClient.MainView().Session.SessionID
+		sessionID = runtimeClient.MainView().Session.SessionId
 	}
 
 	uiOptions := []UIOption{
@@ -169,9 +170,8 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		WithUIPromptCommandCatalog(request.promptCatalog),
 		WithUIPromptCommandCatalogEntries(request.promptCatalogEntries),
 		WithUITurnQueueHook(request.wiring.turnQueueHook),
-		WithUIProcessClient(newUIProcessClientWithReads(request.wiring.processViews, request.wiring.processControls)),
+		WithUIProcessClient(newUIProcessClientWithReads(request.projectID, request.wiring.processViews, request.wiring.processControls)),
 		WithUIWorktreeClient(request.wiring.worktrees),
-		WithUIPromptHistory(request.wiring.promptHistory),
 		WithUIStartupSubmit(request.initialPrompt),
 		WithUIStartupSubmitPromptHistoryRecorded(request.initialPromptHistoryRecorded),
 		WithUIInitialInput(request.initialInput),

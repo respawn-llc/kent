@@ -6,7 +6,9 @@ import "buf/validate/validate.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "kent/api/attention/attention.proto";
+import "kent/api/auth/auth.proto";
 import "kent/api/prompt/prompt.proto";
+import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
 import "kent/api/workflow_definition/workflow_definition.proto";
@@ -30,13 +32,6 @@ enum AttentionNotificationEventType {
   ATTENTION_NOTIFICATION_EVENT_UNSPECIFIED = 0;
   ATTENTION_NOTIFICATION_EVENT_PENDING = 1;
   ATTENTION_NOTIFICATION_EVENT_RESOLVED = 2;
-  ATTENTION_NOTIFICATION_EVENT_SNAPSHOT_COMPLETE = 3;
-}
-
-enum AttentionNotificationSource {
-  ATTENTION_NOTIFICATION_SOURCE_UNSPECIFIED = 0;
-  ATTENTION_NOTIFICATION_SOURCE_LIVE = 1;
-  ATTENTION_NOTIFICATION_SOURCE_SNAPSHOT = 2;
 }
 
 enum AttentionNotificationKind {
@@ -67,20 +62,6 @@ enum ExecutionTargetUnavailableCause {
   EXECUTION_TARGET_UNAVAILABLE_CAUSE_DEFAULT_BRANCH_MISSING = 3;
   EXECUTION_TARGET_UNAVAILABLE_CAUSE_DEFAULT_BRANCH_AMBIGUOUS = 4;
   EXECUTION_TARGET_UNAVAILABLE_CAUSE_GIT_FAILURE = 5;
-}
-
-enum AttentionSetupRecoveryCause {
-  ATTENTION_SETUP_RECOVERY_CAUSE_UNSPECIFIED = 0;
-  ATTENTION_SETUP_RECOVERY_CAUSE_PROCESS_EXIT = 1;
-  ATTENTION_SETUP_RECOVERY_CAUSE_TIMEOUT = 2;
-  ATTENTION_SETUP_RECOVERY_CAUSE_TARGET_PREPARATION = 3;
-  ATTENTION_SETUP_RECOVERY_CAUSE_OPERATIONAL = 4;
-}
-
-enum AttentionSetupRequirement {
-  ATTENTION_SETUP_REQUIREMENT_UNSPECIFIED = 0;
-  ATTENTION_SETUP_REQUIREMENT_REQUIRED = 1;
-  ATTENTION_SETUP_REQUIREMENT_ALREADY_COMPLETED = 2;
 }
 
 enum AttentionRequestValidationCode {
@@ -140,6 +121,7 @@ message ApprovalQuestion {
       }
     }
   }];
+  repeated kent.api.prompt.FileAccessTarget access_targets = 2 [(buf.validate.field).repeated.items.required = true];
 }
 
 message AttentionQuestionPrompt {
@@ -148,11 +130,11 @@ message AttentionQuestionPrompt {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
-  string prompt_id = 3 [
+  string tool_call_id = 3 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
-      id: "kent.workflow_task.attention_question_prompt_id_trimmed"
-      message: "prompt_id must not have surrounding whitespace"
+      id: "kent.workflow_task.attention_question_tool_call_id_trimmed"
+      message: "tool_call_id must not have surrounding whitespace"
       expression: "this == this.trim()"
     }
   ];
@@ -268,103 +250,21 @@ message ConfiguredExecutionTargetUnavailableDetails {
   };
 }
 
-message SetupExecutionTarget {
-  kent.api.workflow_definition.ExecutionTargetMode mode = 1 [(buf.validate.field).enum = {
+enum LockedExecutionTargetCause {
+  LOCKED_EXECUTION_TARGET_CAUSE_UNSPECIFIED = 0;
+  LOCKED_EXECUTION_TARGET_CAUSE_DETACHED_HEAD = 1;
+  LOCKED_EXECUTION_TARGET_CAUSE_INVALID_ROOT = 2;
+  LOCKED_EXECUTION_TARGET_CAUSE_ROOT_INACCESSIBLE = 3;
+  LOCKED_EXECUTION_TARGET_CAUSE_MISSING_BRANCH = 4;
+  LOCKED_EXECUTION_TARGET_CAUSE_CONFLICT = 5;
+  LOCKED_EXECUTION_TARGET_CAUSE_GIT_FAILURE = 6;
+}
+
+message LockedExecutionTargetDetails {
+  LockedExecutionTargetCause cause = 1 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
   }];
-  optional string custom_ref = 2 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_task.setup_custom_ref_nonblank"
-      message: "custom_ref must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
-
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.setup_execution_target"
-    message: "custom_ref is required only for custom-ref mode"
-    expression:
-      "(this.mode == 4 && has(this.custom_ref)) || "
-      "(this.mode != 4 && !has(this.custom_ref))"
-  };
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.setup_execution_target_concrete"
-    message: "setup recovery execution target must be concrete"
-    expression: "this.mode in [1, 2, 3, 4]"
-  };
-}
-
-message RetainedWorktree {
-  string worktree_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_task.retained_worktree_id_nonblank"
-      message: "worktree_id must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
-  string root = 2 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_task.retained_worktree_root_nonblank"
-      message: "root must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
-}
-
-message SetupRecoveryDetails {
-  string setup_operation_id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
-  AttentionSetupRecoveryCause cause = 2 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-  string diagnostic = 3 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_task.setup_recovery_diagnostic_nonblank"
-      message: "diagnostic must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
-  optional string script_path = 4 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_task.setup_recovery_script_path_nonblank"
-      message: "script_path must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
-  AttentionSetupRequirement setup_requirement = 5 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-  SetupExecutionTarget execution_target = 6 [(buf.validate.field).required = true];
-  optional RetainedWorktree retained_worktree = 7;
-  optional RetainedWorktree retained_previous_worktree = 8;
-
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.setup_recovery_script_facts"
-    message: "setup script recovery requires script and retained-worktree facts; target preparation does not carry a script"
-    expression:
-      "(this.cause == 3 && !has(this.script_path)) || "
-      "(this.cause != 3 && has(this.script_path) && this.setup_requirement == 1 && has(this.retained_worktree))"
-  };
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.setup_recovery_completed_worktree"
-    message: "completed setup recovery requires a retained worktree"
-    expression: "this.setup_requirement != 2 || has(this.retained_worktree)"
-  };
-}
-
-message ConfiguredExecutionTargetSetupRecoveryDetails {
-  ConfiguredExecutionTargetUnavailableDetails configured_execution_target_unavailable = 1 [(buf.validate.field).required = true];
-  SetupRecoveryDetails setup_recovery = 2 [(buf.validate.field).required = true];
 }
 
 message InterruptedCurrentNodeDetails {
@@ -381,8 +281,7 @@ message InterruptedCurrentNodeDetails {
     option (buf.validate.oneof).required = true;
     GenericInterruptionDetails generic = 3;
     ConfiguredExecutionTargetUnavailableDetails configured_execution_target_unavailable = 4;
-    SetupRecoveryDetails setup_recovery = 5;
-    ConfiguredExecutionTargetSetupRecoveryDetails configured_execution_target_unavailable_with_setup_recovery = 6;
+    LockedExecutionTargetDetails original_execution_target_unavailable = 5;
   }
 
   option (buf.validate.message).cel = {
@@ -390,22 +289,10 @@ message InterruptedCurrentNodeDetails {
     message: "interruption detail field names must be unique"
     expression: "this.fields.map(field, field.name).unique()"
   };
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.setup_recovery_diagnostic_not_duplicated"
-    message: "setup recovery diagnostic must not be duplicated in interruption fields"
-    expression: "!has(this.setup_recovery) || !this.fields.exists(field, field.name == 'error')"
-  };
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.combined_setup_recovery_diagnostic_not_duplicated"
-    message: "combined setup recovery diagnostic must not be duplicated in interruption fields"
-    expression:
-      "!has(this.configured_execution_target_unavailable_with_setup_recovery) || "
-      "!this.fields.exists(field, field.name == 'error')"
-  };
 }
 
 message QuestionAttention {
-  string message = 1 [
+  optional string message = 1 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
       id: "kent.workflow_task.question_attention_message_nonblank"
@@ -423,6 +310,12 @@ message QuestionAttention {
     }
   ];
   AttentionQuestionPrompt question = 4 [(buf.validate.field).required = true];
+
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.question_attention_message"
+    message: "message is required unless an approval has access targets"
+    expression: "has(this.message) || (has(this.question.approval) && size(this.question.approval.access_targets) > 0)"
+  };
 
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.question_attention_current_node_session_absent"
@@ -529,6 +422,8 @@ message AttentionListError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     AttentionRequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -563,6 +458,8 @@ message TaskAttentionListError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     AttentionRequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -667,6 +564,7 @@ message WorkflowTaskAttentionTarget {
 
 message SessionPromptAttentionTarget {
   string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 2 [(buf.validate.field).string.min_len = 1];
 }
 
 message AttentionNotificationTarget {
@@ -772,18 +670,10 @@ message ResolvedAttentionNotification {
   };
 }
 
-message AttentionSnapshotComplete {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
-}
-
 message AttentionNotificationEvent {
   uint64 sequence = 1 [(buf.validate.field).uint64 = {
     gte: 1
     lte: 9007199254740991
-  }];
-  AttentionNotificationSource source = 2 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
   }];
   AttentionNotificationEventType type = 3 [(buf.validate.field).enum = {
     defined_only: true
@@ -793,7 +683,6 @@ message AttentionNotificationEvent {
     option (buf.validate.oneof).required = true;
     AttentionNotification pending = 4;
     ResolvedAttentionNotification resolved = 5;
-    AttentionSnapshotComplete snapshot_complete = 6;
   }
 
   option (buf.validate.message).cel = {
@@ -801,13 +690,7 @@ message AttentionNotificationEvent {
     message: "attention event type must match its payload"
     expression:
       "(this.type == 1 && has(this.pending)) || "
-      "(this.type == 2 && has(this.resolved)) || "
-      "(this.type == 3 && has(this.snapshot_complete))"
-  };
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.notification_snapshot_source"
-    message: "snapshot-complete events must have snapshot source"
-    expression: "!has(this.snapshot_complete) || this.source == 2"
+      "(this.type == 2 && has(this.resolved))"
   };
 }
 
@@ -817,6 +700,8 @@ message AttentionNotificationStartError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
@@ -840,7 +725,6 @@ service AttentionReadService {
       scope_policy: SCOPE_POLICY_NONE
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.attention.list"
     };
   }
   rpc ListTask(TaskAttentionListRequest) returns (TaskAttentionListResult) {
@@ -850,7 +734,6 @@ service AttentionReadService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.task.attention.list"
     };
   }
 }
@@ -864,7 +747,6 @@ service AttentionNotificationService {
       direction: DIRECTION_CLIENT_TO_SERVER
       event: {package: "kent.api.workflow_task" service: "AttentionNotificationService" method: "Event"}
       completion: {package: "kent.api.workflow_task" service: "AttentionNotificationService" method: "Complete"}
-      legacy_wire_name: "attention.notification.subscribe"
     };
   }
   rpc Event(AttentionNotificationEvent) returns (google.protobuf.Empty) {
@@ -873,7 +755,6 @@ service AttentionNotificationService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "attention.notification"
     };
   }
   rpc Complete(kent.api.shared.StreamCompletion) returns (google.protobuf.Empty) {
@@ -882,7 +763,6 @@ service AttentionNotificationService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "attention.notification.complete"
     };
   }
 }

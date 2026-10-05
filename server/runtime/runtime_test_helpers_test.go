@@ -376,7 +376,7 @@ func mustOpenTestSession(t *testing.T, dir string) *session.Store {
 func mustNewTestEngine(t *testing.T, store *session.Store, client llm.Client, registry *tools.Registry, cfg Config) *Engine {
 	t.Helper()
 	if cfg.Model == "" {
-		cfg.Model = "gpt-5"
+		cfg.Model = "gpt-6-sol"
 	}
 	if cfg.ContextWindowTokens <= 0 {
 		settings := config.DefaultOnboardingSettings()
@@ -390,6 +390,15 @@ func mustNewTestEngine(t *testing.T, store *session.Store, client llm.Client, re
 	}
 	if cfg.EffectiveContextWindowPercent <= 0 || cfg.EffectiveContextWindowPercent > 100 {
 		cfg.EffectiveContextWindowPercent = 95
+	}
+	var engine *Engine
+	if cfg.SubmitAgentSteer == nil {
+		// This fixture owns a standalone Engine. Authority-backed submission is
+		// exercised by the Session runtime integration tests.
+		cfg.SubmitAgentSteer = func(ctx context.Context, steer AgentSteer) error {
+			_, err := engine.QueueAgentSteer(ctx, steer, nil)
+			return err
+		}
 	}
 	eventLog := mustMaterializeTestEventLog(t, store)
 	engine, err := New(store, eventLog, client, registry, cfg)
@@ -689,7 +698,9 @@ func mustNewFakeToolEngine(t *testing.T, store *session.Store, client llm.Client
 
 func mustNewExecTestEngine(t *testing.T, store *session.Store, client llm.Client, cfg Config) *Engine {
 	t.Helper()
-	return mustNewFakeToolEngine(t, store, client, cfg, toolspec.ToolExecCommand)
+	return mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{
+		ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand, out: mustJSON("done")},
+	}), cfg)
 }
 
 func mustNewHandoffTestEngine(t *testing.T, store *session.Store, client llm.Client, cfg Config) *Engine {

@@ -14,7 +14,10 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	"core/server/internal/testprocess"
+	"core/server/tools/shell/postprocess"
+	"core/shared/config"
 )
 
 const (
@@ -37,6 +40,7 @@ func TestManagerKillTerminatesDescendantsInIndependentProcessGroups(t *testing.T
 		t.Fatalf("resolve test executable: %v", err)
 	}
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{executable, "-test.run=^TestManagedProcessDescendantHelper$"},
 		DisplayCommand: "managed descendant test helper",
 		Workdir:        t.TempDir(),
@@ -66,10 +70,8 @@ func TestManagerKillTerminatesDescendantsInIndependentProcessGroups(t *testing.T
 }
 
 func TestManagerCloseForceKillsIndependentDescendantsAfterGracePeriod(t *testing.T) {
-	manager, err := NewManager(
-		WithMinimumExecToBgTime(50*time.Millisecond),
-		WithCloseTimeouts(50*time.Millisecond, 500*time.Millisecond),
-	)
+	manager, err := NewManager(t.TempDir(), WithMinimumExecToBgTime(50*time.Millisecond),
+		WithCloseTimeouts(50*time.Millisecond, 500*time.Millisecond))
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}
@@ -84,6 +86,7 @@ func TestManagerCloseForceKillsIndependentDescendantsAfterGracePeriod(t *testing
 		t.Fatalf("resolve test executable: %v", err)
 	}
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{executable, "-test.run=^TestManagedProcessDescendantHelper$"},
 		DisplayCommand: "managed descendant test helper",
 		Workdir:        t.TempDir(),
@@ -92,6 +95,12 @@ func TestManagerCloseForceKillsIndependentDescendantsAfterGracePeriod(t *testing
 	if err != nil {
 		t.Fatalf("start managed helper: %v", err)
 	}
+	t.Cleanup(func() {
+		if t.Failed() {
+			snapshot, snapshotErr := manager.Snapshot(result.SessionID)
+			t.Logf("managed helper at failure: %+v; snapshot error: %v", snapshot, snapshotErr)
+		}
+	})
 	if !result.MovedToBackground || !result.Running {
 		t.Fatalf("managed helper did not move to background: %+v", result)
 	}
@@ -120,6 +129,7 @@ func TestManagerKillRejectsCompletedRetainedProcess(t *testing.T) {
 		t.Fatalf("resolve test executable: %v", err)
 	}
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{executable, "-test.run=^TestManagedProcessDescendantHelper$"},
 		DisplayCommand: "completed managed helper",
 		Workdir:        t.TempDir(),
@@ -161,6 +171,7 @@ func TestManagerCloseTerminatesInheritedProcessGroupAfterRootExit(t *testing.T) 
 		t.Fatalf("resolve test executable: %v", err)
 	}
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{executable, "-test.run=^TestManagedProcessDescendantHelper$"},
 		DisplayCommand: "completed managed process group helper",
 		Workdir:        t.TempDir(),
@@ -173,7 +184,7 @@ func TestManagerCloseTerminatesInheritedProcessGroupAfterRootExit(t *testing.T) 
 		t.Fatalf("managed helper did not move to background: %+v", result)
 	}
 
-	descendantPID := waitForDescendantPIDWithin(t, pidFile, 10*time.Second)
+	descendantPID := waitForDescendantPID(t, pidFile)
 	exited := false
 	t.Cleanup(func() {
 		if exited {
@@ -239,7 +250,7 @@ func TestManagedProcessDescendantHelper(t *testing.T) {
 		if err := child.Start(); err != nil {
 			t.Fatalf("start inherited-group descendant: %v", err)
 		}
-		waitForDescendantPIDWithin(t, os.Getenv(descendantPIDFileEnv), 10*time.Second)
+		waitForDescendantPID(t, os.Getenv(descendantPIDFileEnv))
 		time.Sleep(100 * time.Millisecond)
 		return
 	}
@@ -253,12 +264,15 @@ func TestManagedProcessDescendantHelper(t *testing.T) {
 	}
 	child := exec.CommandContext(context.Background(), executable, "-test.run=^TestManagedProcessDescendantHelper$")
 	child.Env = append(os.Environ(), descendantChildMarker+"=1")
+	child.Stdout = os.Stdout
+	child.Stderr = os.Stderr
 	child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := child.Start(); err != nil {
 		t.Fatalf("start descendant: %v", err)
 	}
-	_ = child.Wait()
-	select {}
+	if err := child.Wait(); err != nil {
+		t.Fatalf("wait for descendant: %v", err)
+	}
 }
 
 func publishDescendantPID(t *testing.T, path string, pid int) {
@@ -276,12 +290,9 @@ func publishDescendantPID(t *testing.T, path string, pid int) {
 }
 
 func waitForDescendantPID(t *testing.T, path string) int {
-	return waitForDescendantPIDWithin(t, path, 2*time.Second)
-}
-
-func waitForDescendantPIDWithin(t *testing.T, path string, timeout time.Duration) int {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
+	// Starting both helper processes is fixture setup, not the shutdown deadline.
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		raw, err := os.ReadFile(path)
 		if err == nil {

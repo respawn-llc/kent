@@ -2,15 +2,34 @@
 
 ## Authority, Connection, And Shared Behavior
 
+- All surface elevations use the shared global shadow styles in light and dark themes. Shadows must provide soft, low-contrast separation with diffuse edges. Individual screens use those shared styles rather than defining their own shadow treatments.
+
+- Desktop must buffer at most 1,000 pending events per discrete shell observation: notification activation, file drops, Project deletion, attention events, and navigation history. When an observation reaches this limit, production Desktop must drop each incoming overflow event, log it, and continue observing. Debug Desktop must surface a fatal UI error instead of a retryable status. The native process and browser may stay open after this error. Desktop must not replay dropped events. Overflow must not change server-owned work.
+
+- On macOS and Linux, dropping local files into a Desktop window must insert their absolute paths as plain text at the focused editable text input's selection. Multiple paths must be separated by spaces. If no editable text input is focused, Desktop must ignore the drop.
+- File drops must never replace the application with the dropped file or create attachments. Windows and browser presentation must ignore file drops while preserving internal board dragging.
+
 - Desktop is a thin remote-control client of an already-running Kent server. The server is authoritative for Projects, workspaces, Workflows, Tasks, runtime, Workflow Execution live state, validation, Approvals, Questions, comments, worktrees, and durable state.
 - Desktop never starts or bundles the Kent server. It connects using Kent's configured host and port and does not store a separate endpoint. It maps configured listener host `0.0.0.0` to `127.0.0.1` and `::` to `::1`, preserves the configured port, leaves concrete hosts unchanged, and does not edit Kent configuration.
 - A compatible, ready server is required before feature content opens. If protocols are incompatible, show `Update Kent`, the client and server protocol values, instructions to update the service and desktop from the same build, and Retry. Use the same blocker whichever side is newer.
 - If the server is unavailable or authentication is not ready, show a concise failure and next action, including instructions to run the server when unreachable.
 - A safe application shell remains available when startup fails. Home omits endpoint, version, authentication mode, and other runtime identity.
-- On connection loss, disable mutations while retaining cached content where available. Show persistent disconnected status until reconnection; closing that notice does not change connection state.
-- Keep unsent local drafts for new Tasks, comments, and editable Task or Project text while the window stays open. Do not queue or replay mutations. After reconnection, reissue server reads and let the operator submit preserved drafts manually; each mutation revalidates its safety-critical facts, and an accepted save overwrites remote changes.
+- Every Desktop request or observation must make one independent attempt and complete or fail. Desktop must not automatically retry, replace a failed observation, replay an operation, or issue a repair read after failure.
+- Desktop must permit otherwise valid subsequent actions and destination/input-driven reads without a global connectivity gate. Desktop must not pause operations for online status or resume them when connectivity changes. Internal transport reuse and required authentication remain supported.
+- Desktop must retain available content and required drafts after failure and show the failure in the owning operation or destination. Read failures must offer Retry in their failure state, which may be shared by the screen. Retrying a write must use its ordinary action path. Desktop must not show a global recovery banner.
+- Desktop must not refresh reads because of generic window-focus, online, or reconnection changes. Ordinary domain events, successful actions, destination/input changes, and explicit actions may start their normal independent reads.
+- Processes observation and its failure presentation must follow the [Desktop Chat Processes contract](desktop-chat.md#tools-and-processes).
+- When the operator leaves a destination, Desktop must stop its observations and dispose of its pending local action handling. Submitted mutations must retain their ordinary completion behavior, including feedback and content refresh after navigation. Local disposal must not cancel accepted server work or discard drafts retained by navigation.
+- The Workflow editor must retain its five-second Script-path validation schedule after a failed check. Each check must make one attempt. This scheduled observation must not enable generic focus, online, or reconnection-driven recovery.
+- Keep unsent local drafts for new Tasks, comments, and editable Task or Project text while the window stays open. Except for rapid Task Label assignment edits, Desktop must not queue mutations. Desktop must not automatically replay mutations after reconnection. Each mutation revalidates its safety-critical facts, and an accepted save overwrites remote changes.
+- Shared Task, Label, dependency, and Workflow actions, New Task creation, and Processes actions must show loading per submitted action instead of imposing a screen-wide busy restriction. Independent actions must be allowed to race without client reconciliation. Loading must prevent repeated submission of the same non-rapid action without blocking unrelated actions or local Draft editing. Workflow linking has the narrow row-lifetime exception defined in [Workflow Library and Project links](workflow-editor.md#workflow-library-and-project-links). Validation and readiness restrictions remain applicable.
+- Start and Manual Move must share loading for the same Task until its request finishes. Other Tasks and unrelated actions must remain usable. Dependency confirmation and Execution Target selection must retain their interaction, with loading when the action is submitted.
+- When independent Task actions return competing confirmations, Board and Home must show the newest received confirmation in their single confirmation dialog. It must replace the previous confirmation without changing the displaced Task; the operator can start that Task's action again. Desktop must not queue confirmations or retain a confirmation backlog.
+- Board Manual Move previews must share per-Task Start/Move loading and participate in the same newest-confirmation presentation. Previewing or confirming one Task must not block unrelated Tasks.
+- Process termination loading must end when its request settles. Other Processes must remain independently actionable.
+- Desktop must buffer at most 1,000 pending Project subscription events. When the buffer is full, production Desktop must drop the incoming event, log each dropped event, and continue observation. Debug Desktop must surface overflow as a fatal UI error, not a retryable status; it need not terminate the native process or host browser. Overflow must not change server-owned work.
 - Local capabilities such as clipboard, directory selection, separate windows, window controls, and notifications are distinct from server readiness. When unavailable, explain the unavailable action; cosmetic shell behavior may be absent in a browser presentation.
-- Text input is plain multiline Markdown. Rich Markdown preserves every source newline as a visible line break. Rich Markdown remains within its available surface width; only a code block may scroll horizontally inside its own block. Task Detail and Workflow Editor content use the approved rich Markdown presentation with sanitized raw-HTML and link behavior. Board previews are flattened text previews: they strip Markdown formatting and raw HTML without rendering rich structure or controls, preserve readable text labels, and remain bounded for dense boards. Completed supported code is syntax-highlighted and selectable in rich content; incomplete code remains selectable plain text.
+- Text input is plain multiline Markdown. Rich Markdown preserves every source newline as a visible line break. Rich Markdown remains within its available surface width; only a code block may scroll horizontally inside its own block. Task Detail and Workflow Editor content use the shared rich Markdown presentation with sanitized raw-HTML and link behavior. Board previews are flattened text previews: they strip Markdown formatting and raw HTML without rendering rich structure or controls, preserve readable text labels, and remain bounded for dense boards. Completed supported code is syntax-highlighted and selectable in rich content; incomplete code remains selectable plain text.
 - Task Description and Goal objective use one shared large Markdown field. Desktop does not maintain feature-specific copies of its read or edit presentation.
 - The shared Markdown field has one base read-and-edit presentation and one optional collapsible presentation. The collapsible presentation adds overflow detection, a fade, and an accessible Expand action without creating another Markdown editor.
 - Each destination configures the editor's minimum height and the collapsible presentation's height clamp.
@@ -20,16 +39,19 @@
 - A plain click or tap with no text selection enters editing. Dragging selects rendered Markdown without editing. Links and task-list checkboxes perform their own actions. Keyboard focus keeps the rendered presentation, and Enter or Space enters editing.
 - In disabled mode, the field renders read-only rich Markdown or its empty placeholder. It offers no editing focus or task-list interaction, and it does not change destination-owned presentation state.
 - Leaving the active editor returns the field to rendered Markdown without discarding its Draft.
-- When focus is in a Desktop text field outside the Workflow editor, Command+Enter on macOS and Ctrl+Enter on Windows or Linux must invoke that field's existing submit, save, or selection action. The shortcut must follow the same validation, disabled state, and confirmation behavior as that action.
-- The shortcut must do nothing when the focused text field has no existing submission action.
+- When focus is in a Desktop text field outside the Workflow editor, Command+Enter on macOS and Ctrl+Enter on Windows or Linux must invoke that field's configured submit, save, or selection action. The shortcut must follow the same validation, disabled state, and confirmation behavior as that action.
+- The shortcut must do nothing when the focused text field has no submission action.
 - The shortcut must not change the field's ordinary Enter behavior.
 - Desktop uses localized user-facing text, accessible controls, standard compact loading, error, and empty states, and motion that respects reduced-motion preference. macOS, Linux, and browser presentation use a contrast fade for readable top chrome; Windows uses progressive blur without a darkening fade.
-- Dialogs, popups, confirmation flows, and dropdowns only collect an operator
-  result. They close before returning that result to their parent destination.
-  The parent destination owns navigation, server requests, pending state,
-  failures, and retries through its existing action paths.
+- Dialogs, popups, confirmation flows, and dropdowns only collect an operator result. They close before returning that result to their parent destination. The parent destination owns navigation, server requests, pending state, failures, and retries through its action paths.
 - Cards are reserved for board Task cards. Navigation, browsing, and selection collections use list rows.
 - Workflow browsing rows show the Workflow name, description, version, and an Edit action. Selecting the row opens the Workflow editor. Edit opens Workflow settings without loading the Workflow graph.
+
+## Transcript Configuration Notices
+
+- Desktop must show the committed Thinking-update entries defined in Model Requests And Cache Continuity in its ordinary transcript.
+- Each Thinking-update entry must use a compact, non-expandable row labeled `Thinking set: <level>` with a settings-cog icon.
+- Workflow Mode entry/exit notices must use a graph icon. Headless Mode entry/exit notices must use an information icon. Worktree Mode entry/exit notices must retain their branch icon, and Session rebind notices must retain their information icon.
 
 ## Home And Navigation
 
@@ -52,6 +74,8 @@
 
 ## Projects And Workspaces
 
+- If native Project-created notifications exceed Home's bounded observation capacity, Home must stop that observation and show a temporary error. Home must not automatically restart the observation or replay notifications. This failure must not affect Project creation or accepted server work.
+
 - Shared Project-workspace relationships and detach safety follow the [Projects And Workspaces](project-workspaces.md) specification.
 - Choosing a directory already attached to a Project opens that Project. Choosing an unattached directory opens Project creation with an editable name and Project Key; the default name is the directory basename.
 - A Project Key is editable at any time, is unique, uses 2–8 uppercase letters or digits, begins with a letter, and is the prefix for future Task Short IDs. Existing Task Short IDs remain unchanged and resolvable.
@@ -59,10 +83,14 @@
 - Changing the default workspace or attaching or detaching a workspace applies immediately.
 - Workspace catalogs use infinite scroll, contain at most 100 entries per request, retain a bounded page window, show the default first, and then use newest attachment first.
 - A workspace-catalog page-edge failure retains loaded rows and offers Retry at that edge. A first-page failure uses the standard retryable error state.
-- Raw Project Settings catalog pages are not deduplicated or reconciled. Workspace mutations do not refresh retained pages, which may overlap or remain stale.
-- A workspace row shows the existing shortened-path presentation, default status, and unlink action. Choosing an already attached path focuses its existing row or gives equivalent feedback.
+- Raw Project Settings catalog pages are not deduplicated or reconciled. Detach must refresh the retained Workspace catalog from the server, including when the Workspace was already detached. Other Workspace mutations do not refresh retained pages, which may overlap or remain stale.
+- Workspace detach confirmation must use an in-window modal over the destination, outside the sidebar layout. Confirm must close the modal and submit the detach through Project Settings. Project Settings must show request progress and success, blocker, or error feedback in the main window.
+- A workspace row shows the shared shortened-path presentation, default status, and unlink action. Choosing an already attached path focuses its row or gives equivalent feedback.
 - Choosing an already attached path outside the retained pages keeps the current list and scroll position and shows success-style feedback without adding or finding its row.
 - Project Settings loads Project metadata and the Workspace catalog independently.
+- Project Settings must follow the shared independent-request and local-failure behavior.
+- Project Settings must not combine distinct mutation requests or confirmation choices.
+- Leaving Project Settings must stop its screen observations without canceling accepted server work. While the window remains open, leaving Project Settings must not suppress a started mutation's failure feedback or ordinary content refresh.
 - Project Settings metadata contains no Workspace rows or Workspace pagination. Project Settings and New Task obtain Workspace rows from the same Project Workspace catalog.
 - A Workspace-catalog first-page failure leaves Project name and Project Key editable and saveable, keeps Attach available, and gives the Workspace area its own Retry state.
 - A recoverable Project-metadata failure gives the metadata area its own Retry state while loaded Workspace attach, default, and unlink actions remain available. A missing Project retains the Back behavior.
@@ -73,7 +101,7 @@
 
 - The Project Task list is the unified Project-wide view of Tasks across every linked Workflow. The Home Project workspace's `Tasks` tab and the standalone Project Tasks destination use the same surface.
 - With one or more linked Workflows, the Workflow chip strip remains above the list. Its controls appear in the order `Sort`, `Link Workflow`, then every linked Workflow. With no linked Workflows, the strip is absent and the empty state provides the only `Link Workflow` action. Each Workflow chip presents no Project-default or validation indicator. Selecting a Workflow opens its board.
-- The Workflow chip strip owns its loading and error state independently from Task counts and rows. Before Workflow results are available, it shows `Sort`, `Link Workflow`, then the existing loading or retryable error presentation. A Workflow-list delay or failure does not block already available Task-list content.
+- The Workflow chip strip owns its loading and error state independently from Task counts and rows. Before Workflow results are available, it shows `Sort`, `Link Workflow`, then the standard loading or retryable error presentation. A Workflow-list delay or failure does not block already available Task-list content.
 - The Task list uses the Project workspace backdrop directly without its own border, island backdrop, or custom surface color. It has no repeated title, separate action strip, search, or filter controls.
 - Project Task sorting uses the same Sort chip and popover as Workflow boards. The popover offers `Updated`, `Created`, `Status`, `Title`, `Labels`, and `Short ID`, in that order, followed by the same `Asc`/`Desc` direction selector.
 - Sort changes apply immediately while the popover remains open. The popover has no Apply, Done, Clear, or Reset action. Changing the field retains the selected direction.
@@ -102,15 +130,15 @@
 - An expanded group's first-page loading or failure boundary appears beneath that group header and retries only that group. Later page failures preserve loaded rows and use the standard retry boundary at the affected paging edge.
 - During refresh, each group header retains its last exact count and loaded rows remain visible. Counts and rows may briefly disagree while separate bounded requests converge.
 - Project updates refresh exact counts and retained bounded pages, move Tasks between groups, and restore the selected order without a manual refresh action.
-- A sort change keeps the currently rendered groups and rows visible while replacement pages load. A replacement failure keeps the selected order and rendered rows and shows the existing retryable error for the affected group.
+- A sort change keeps rendered groups and rows visible while replacement pages load. A replacement failure keeps the selected order and rendered rows and shows the retryable error for the affected group.
 - A sort change retains the current numeric vertical pixel offset when that offset remains valid for the replacement content. If the replacement content is shorter, the scroll position clamps to the nearest valid offset. Desktop does not load extra pages solely to preserve an otherwise invalid offset. A sort change preserves group disclosure and open Task interactions.
 - Live refresh preserves the leading visible Task and its screen position when possible. If that Task becomes hidden, the list retains the nearest visible position and does not expand a group.
 - An open Task Detail remains open when its Task moves off-screen or into a collapsed group. Live reordering does not scroll to keep the selected Task visible.
 - The visual vertical scrollbar is hidden while wheel, trackpad, touch, and keyboard scrolling remain available. The Task list never scrolls horizontally.
 - Task-list scrolling is smooth, including programmatic position restoration and live-refresh anchoring. Reduced-motion presentation positions the list immediately.
 - When exactly one Workflow is linked, the Task list hides Workflow because every Task belongs to that Workflow. With multiple linked Workflows, responsive Task columns hide Workflow first, before otherwise-fitting Label chips collapse into their `+N` counter. Labels then hide, followed by Dependencies, as available width narrows. Title receives the remaining width and truncates; it hides only when less than seven characters would remain. Status and Short ID never hide. Group headers continue to span the full list width.
-- Every Interrupted status icon offers Resume through the board's existing operation, including its pending, error, dependency-confirmation, and Execution Target continuation behavior. The server remains authoritative, and an unavailable Resume uses the ordinary failure treatment. Other status icons are informational. Activating Dependencies, ID, Title, or Workflow opens the Task's general Task Detail. The Dependencies chip does not focus the Dependencies section from this list.
-- Activating Labels opens the existing Task Label assignment chooser without opening Task Detail. Successful assignment updates the row; pending and failure behavior follows the existing assignment flow.
+- Every Interrupted status icon offers Resume through the board operation, including its pending, error, dependency-confirmation, and Execution Target continuation behavior. The server remains authoritative, and an unavailable Resume uses the ordinary failure treatment. Other status icons are informational. Activating Dependencies, ID, Title, or Workflow opens the Task's general Task Detail. The Dependencies chip does not focus the Dependencies section from this list.
+- Activating Labels opens the Task Label assignment chooser without opening Task Detail. Successful assignment updates the row; pending and failure behavior follows the assignment flow.
 - An open Task Detail or Label chooser gives its Task row the selected treatment. Only the most recently opened interaction shows selection. Closing a Label chooser restores an already-open Task Detail's selection when its row is visible.
 - Task Detail uses the containing destination's sidebar mode.
 - Opening Task Detail adds no route or browser-history entry. Closing it clears its selected treatment.
@@ -120,9 +148,9 @@
 - Before the Workflow request establishes a result, the zero-Task empty state offers `Link Workflow`. The established Workflow result determines the final empty-state action.
 - With no linked Workflows, the empty state's primary action is `Link Workflow`.
 - With linked Workflows but no Tasks, the empty state says `No tasks yet`. Its primary action is `New Task` when exactly one Workflow is linked or when multiple are linked with a default; otherwise it is `Link Workflow`.
-- A successful Link Workflow action opened from the Tasks empty state returns to Tasks rather than opening the Workflow board. Cancel uses the existing close behavior. Failure keeps the linking page open with its entered state and existing error behavior.
+- A successful Link Workflow action opened from the Tasks empty state returns to Tasks rather than opening the Workflow board. Cancel closes the linking page. Failure keeps the linking page open with its entered state and error presentation.
 - A successful New Task action closes creation and reissues the Task-list reads. The successful creation response is authoritative for that operation, while list responses remain stale-tolerant. The action preserves the current Backlog disclosure state and does not programmatically reveal the created Task or open Task Detail.
-- Canceling New Task uses the existing close behavior. Creation failure keeps the form open with its Draft and existing error behavior.
+- Canceling New Task closes the form. Creation failure keeps the form open with its Draft and error presentation.
 - The Project Task list has no persistent New Task action outside its empty state.
 
 ## Workflow Boards
@@ -171,12 +199,13 @@
 - Close and ordinary dialog dismissal leave the Task unchanged.
 - `View deps` closes the confirmation and returns that result to the board. The
   board opens the Blocked Task's own Task Detail focused on Dependencies.
-- `Start` closes the confirmation and returns one proceed intent to the board.
-  The board applies that result through its existing start or move action path.
+- `Start` closes the confirmation and returns one proceed intent to the board. The board applies that result through its start or move action path.
 - Dismissing a later continuation leaves the Task unchanged and discards that
   proceed intent.
 - Every manual workflow override requires confirmation. Submitting required values confirms a move that needs them; a move without required values uses a generic manual-override confirmation.
 - When a Task has several Current Nodes, dragging any one card copy represents moving the whole Task. Dropping onto any Node that is already Current is a no-op.
+- Board card dragging must coexist with local file-path drops on macOS and Linux. A card drag must show a floating preview that follows the pointer, with lift and release motion that respects reduced-motion preferences.
+- An accepted card drop must animate from the release position into the destination immediately and stay there while server evaluation, confirmation, or execution is pending. Success must preserve that placement without returning through the source column. Cancellation or failure must animate the card back to its server-owned position.
 - A Manual Move drop asks the server to evaluate that Task and destination without changing the Task. The board does not receive or retain a per-Task list of executable Manual Move destinations, and dragging over a destination makes no server request.
 - Columns remain neutral while dragging. Red marks only destinations that available authoritative or structural facts already prove ineligible; the desktop does not predict eligible destinations before a drop.
 - An ineligible drop makes no workflow change and shows a reason-specific Toast. Unexpected failures use the generic move-failure treatment.
@@ -188,7 +217,7 @@
 - Starting or manually moving to executable work opens Execution Target selection when the Workflow asks on first execution. Manual Move also opens it when its configured target is unavailable; its dialog closes before Execution Target selection opens. A usable fixed policy is not overridden.
 - Execution Target selection offers no managed worktree, source `HEAD`, repository default branch, and custom Git ref, defaulting to repository default branch. An unavailable configured target explains the failure and preserves the useful prior selection and custom ref where possible.
 - Closing Execution Target selection leaves the Task unchanged. Manual Move does not interrupt live work until required target selection succeeds. During Manual Move resolution or setup, preserve the complete Move input and whether it uses configured policy or an explicit target, prevent duplicate submission, and show one generic pending state rather than setup-attempt progress. An actual typed setup failure keeps its diagnostic and retained worktree in the originating dialog with Retry current target, Choose another Execution Target, and Cancel. Other Manual Move failures use the ordinary error surface.
-- Desktop keeps a Task Start action pending while the server prepares execution, and the card remains in Backlog until the atomic Start cutover succeeds. Preparation progress is operation feedback, not Task or Current Node state. Preparation failure leaves the Task unchanged and surfaces the typed failure with Retry Start or Execution Target selection where applicable; it never creates a setup interruption or Resume action. Leaving the route, disconnecting, or closing Desktop stops only local observation and never changes the server operation; reconnect refreshes authoritative Task state without replaying Start.
+- Desktop must keep Task Start, Resume, and Move pending while the server prepares execution and commits the action's atomic cutover. A Task being started must remain in Backlog during preparation. Preparation progress must remain operation feedback, not Task or Current Node state. Preparation failure must surface the typed diagnostic and applicable ordinary retry or Execution Target selection without creating a canonical setup-recovery item. Failure must not trigger client-side restoration of Task placement or automatic retry. Leaving the route, disconnecting, or closing Desktop must stop only local observation. Reconnection must not refresh Task state or replay the action.
 - Board movement, Done permission, paging, status, Resume, and Interrupt follow server-authoritative live execution facts. The desktop never infers blockers from stored Task state.
 - Submitting a Manual Move revalidates it. If the Task or Workflow changed while its dialog was open, the desktop uses the ordinary move error and provides no dedicated stale-preflight recovery flow.
 - Invalid and default-Node-only Workflows remain visible with their Tasks. Invalid Workflows permit Backlog creation, editing where allowed, and comments, but disable drag, Start, Resume, manual move, and Done. Existing executable Nodes created under an earlier valid definition retain their server-provided Resume and Interrupt actions.
@@ -213,7 +242,7 @@
 - Search and its blurred backdrop appear above the main content and an open Task sidebar. Opening Search does not close or otherwise change the sidebar.
 - The search input is an inline top row separated from the results by one thin divider. The input is not a nested island.
 - The dialog focuses the input when it opens.
-- Search uses the existing case-insensitive literal Task Search contract.
+- Search uses the case-insensitive literal Task Search contract.
 - Search includes Task Short IDs, titles, complete bodies, and Comments.
 - Desktop submits a nonblank searchable query 300 milliseconds after the last
   edit.
@@ -245,7 +274,7 @@
 - Task Short ID uses the ordinary foreground color. The title uses the same
   typographic hierarchy as a Task card.
 - A result previews at most the first three returned non-Short-ID hits in their server-provided order. Desktop does not rerank hits.
-- A returned Short ID hit uses the existing Task Short ID header without additional emphasis or a duplicate preview and does not consume a preview position.
+- A returned Short ID hit uses the Task Short ID header without additional emphasis or a duplicate preview and does not consume a preview position.
 - Desktop applies the preview allowance independently to each returned Task group, including a repeated group on a continuation page.
 - Each hit preview shows the server-provided matching fragment and emphasizes
   the matching text. It does not show a text source-kind label or a general
@@ -281,8 +310,8 @@
 - Each newly opened Workflow board starts at `Updated Desc`. Switching away and back or relaunching Desktop resets the sort.
 - One selected sort applies inside every board column. Board field comparison and tie-breaking follow the Workflow orchestration specification.
 - Label filtering, Unblocked filtering, and sorting never change each other's selected state. Every active board filter combines with logical AND before the server sorts.
-- A sort change keeps rendered cards visible while replacement pages load. If replacement fails, Desktop keeps the selected sort and rendered cards and shows the existing retryable board or column error.
-- A sort replacement keeps each column mounted and uses the board's existing card movement animation, subject to reduced-motion preference. Desktop makes a best effort to retain the visible position, but that position may move as replacement card heights settle or normal bounds clamp it.
+- A sort change keeps rendered cards visible while replacement pages load. If replacement fails, Desktop keeps the selected sort and rendered cards and shows the retryable board or column error.
+- A sort replacement keeps each column mounted and uses the board's card movement animation, subject to reduced-motion preference. Desktop makes a best effort to retain the visible position, but that position may move as replacement card heights settle or normal bounds clamp it.
 - The Unblocked filter uses a two-state chip labeled `Unblocked`. Its inactive state applies no dependency restriction. Its selected state includes only Tasks with no direct Task Dependencies or no unsatisfied direct Task Dependencies.
 - The Unblocked chip uses the same styling and padding as the other filter chips. It appears after the other filters and before search.
 - The Unblocked filter applies to every board column and every column count.
@@ -302,20 +331,21 @@
 - In board filtering, activating a named Label row cycles from neutral to included, from included to excluded, and from excluded to neutral. Included shows a green checkmark. Excluded shows a red X. Neutral shows neither state icon. A Label created from the filter chooser remains neutral.
 - In the board filter chooser, `No labels` remains fixed before the Project Labels and has no reorder handle. Each Project Label has a six-dot reorder handle when at least two Project Labels exist.
 - Only the reorder handle starts a drag. Pointer dragging scrolls the result list near its vertical edges. Keyboard reordering keeps the destination in view and supports start, movement, drop, and cancellation.
-- Dragging previews the requested sequence. Dropping persists it once. The chooser immediately projects the requested sequence, disables Label catalog mutation controls and reorder handles while saving, adopts the authoritative response on success, and reloads the catalog with a reorder failure notification on failure.
-- While create, rename, delete, or reorder is pending in an open chooser, Label selection remains available but that chooser's Label catalog mutation controls and reorder handles are unavailable. Separate choosers and windows do not coordinate their requests.
+- Dragging previews the requested sequence. Dropping persists it once. The chooser must immediately project the requested sequence and show reorder loading while saving. It must adopt the authoritative response on success. On failure, the chooser must restore its prior catalog only if its own projection remains installed, preserve a newer admitted catalog, and show the reorder failure notification without a repair read. The operator may submit another reorder through the ordinary action.
+- While create, rename, delete, or reorder is pending, the chooser must show loading for that action and prevent its repeated submission. Label selection and unrelated catalog actions must remain available. Unrelated catalog actions must be allowed to race without client reconciliation. Separate choosers and windows do not coordinate their requests.
 - Rename edits in place and can be committed or cancelled; validation failures remain inline. Deleting a Label requires confirmation and removes it from all Tasks.
 - Assignment omits OR/AND and `No labels` and keeps binary row selection. It otherwise has the same chooser search and Label-management behavior. A Label created from an assignment chooser appears and becomes selected after creation succeeds. Labels are neutral chips ordered by the Project's manual Label sequence in the chooser, Task Detail, and board cards.
 - Board cards show fitting complete Labels in their footer and replace the last fitting position with `+N` when needed. Task Detail places Labels directly after Task ID; the entire Label value opens the chooser.
-- A board card lays out its dependency-progress chip before Label chips. Labels
-  use only the remaining width and retain their existing `+N` behavior.
+- A board card lays out its dependency-progress chip before Label chips. Labels use only the remaining width and retain their `+N` behavior.
 - Task Label assignments can change in every Task state. Assignment changes update immediately, then adopt the server result; failures restore the prior state and show a persistent Retry error.
+- During connected use, Task Label assignment must accept rapid edits eagerly and queue them without requiring the operator to wait after each selection. Assignment loading must not block further Label selection.
+- Leaving the destination that owns queued Task Label edits must discard selections that remain unsent when its scheduled local cleanup finishes. Queued selections may submit before cleanup finishes. Submitted requests must finish normally.
 
 ## Tasks
 
 - New Task requires title and accepts optional body, Project Labels, hidden source information, and source workspace. Workflow selection is outside the form.
 - The source-workspace selector uses the Project Workspace catalog with infinite scroll and bounded page retention.
-- Source-workspace options keep the existing Workspace-name presentation.
+- Source-workspace options use the Workspace-name presentation.
 - The source workspace defaults to the opened attached Workspace or Project default Workspace. A detached initiating Workspace is omitted and the Project default is selected.
 - An attached initiating Workspace outside the retained pages remains one pinned option for the dialog lifetime and appears before loaded rows.
 - The selector presents one option per Workspace identity even when raw catalog pages overlap.
@@ -335,7 +365,7 @@
 - Task Description uses the shared collapsible large Markdown field.
 - Long descriptions start collapsed only when they overflow, at roughly half the available height and never fewer than about five or more than about ten rendered lines, with an expand action. Expansion lasts until that Task Detail closes, keeps the description top anchored, grows downward, and occurs automatically for editing.
 - A Markdown task-list item uses one product-styled checkbox in place of its list bullet.
-- Selecting a checkbox in an editable Task description updates the local Markdown body Draft without saving it. The existing Task Save action persists the changed body.
+- Selecting a checkbox in an editable Task description updates the local Markdown body Draft without saving it. Task Save persists the changed body.
 - From an editable Task description with a valid title and a dirty Draft, the text-field submission shortcut must submit the current Task title and body together.
 - From an editable Task description with a clean Draft, the text-field submission shortcut must close description editing without a Task mutation.
 - While a dirty Task Description Save is pending, editing must remain active and the Draft must remain complete.
@@ -346,12 +376,12 @@
 - Source root and Execution Root are not separate facts. Unavailable expected facts are hidden; useful continuity facts may be empty or unassigned; unexpected meaningful absence is an unavailable or error state. Unavailable managed worktrees have no managed-worktree fact.
 - Visible values copy by selecting the value itself, with clipboard feedback that identifies the copied value on success and includes the error on failure. Short commit display copies the complete commit. Actions that copy deliberately hidden content remain explicit controls.
 - Source URL is read-only. Valid web, secure web, and mail links use their host as the label and open externally; other values are plain source text.
-- Core Task Detail, Task attention, Comments, and Activity load independently. Comments and Activity start their first page asynchronously and in parallel without blocking other Task Detail content. Attention has its own loading and retry state and never blocks core detail. Opening from Inbox focuses its requested attention item once available. Live server changes update open Task Detail without replacing unsaved title or body edits or collapsing the surface.
+- Core Task Detail, Task attention, Comments, and Activity load independently. Comments and Activity start their first page asynchronously and in parallel without blocking other Task Detail content. Attention loading must not block core detail. Opening from Inbox focuses its requested attention item once available. Live server changes update open Task Detail without replacing unsaved title or body edits or collapsing the surface.
 - Comments and Activity use 50 rows per page, newest first, and retain at most 10 nearby pages per feed.
 - Each feed uses edge-driven infinite scroll in both directions. Loading beyond the page budget evicts the farthest page on the opposite side, and returning to an evicted side reloads it.
 - Live feed changes refresh the retained bounded pages. Desktop keeps the visible row steady when it remains loaded and otherwise uses the nearest loaded position.
 - A page-edge failure retains loaded rows and offers Retry at that edge. A first-page failure and an empty feed use the standard feed error and empty states.
-- A non-attention Task Detail failure uses the standard error state; reopening or refreshing Task Detail is its recovery path. Deleted comments are hidden.
+- If core Task Detail, Task attention, or live Task observation fails, Task Detail must replace its page content with the standard error state. The error must not appear above a separate scrollable Task body. Attention and observation failures must offer Retry for the failed operation; core detail failures recover by reopening or refreshing Task Detail. Deleted comments are hidden.
 
 ## Task Dependencies
 
@@ -449,19 +479,20 @@
 
 ## Inbox, Questions, Approvals, And Notifications
 
+- If the attention-notification observation fails, Desktop must show an ordinary temporary error notification with Retry. Retry must restart only that observation without disabling actions or refreshing unrelated screens.
 - Inbox lists the global infinite-scrolling attention feed. Task Detail owns Question and Approval actions through its bounded Task attention view.
 - Inbox-opened Task Detail can move through the live Inbox order with Previous and Next. After resolution removes the open Task, Next advances to the replacement item. These controls are unavailable outside Inbox.
-- The top Task Detail action opens or focuses the highest-priority unresolved attention. Every unresolved item not awaiting an answer result retains its applicable inline controls; sibling setup interruptions represented by a canonical recovery item are informational as defined by [Workflow Orchestration](workflow-orchestration.md#execution-targets-and-worktrees).
+- The top Task Detail action opens or focuses the highest-priority unresolved attention. Every unresolved item not awaiting an answer result retains its applicable inline controls. Preparation failures use the ordinary Task action failure presentation defined by [Workflow Orchestration](workflow-orchestration.md#execution-targets-and-worktrees).
 - Home Inbox shows only task-scoped attention. It has no Workflow-validity badge or section.
 - Questions support suggestions, freeform commentary, recommendations, pointer or keyboard selection, and ordinary focus navigation. An option Question selects its valid recommended option by default and otherwise selects option 1; malformed recommendation metadata follows the same option-1 fallback. Live refresh preserves the user's selection and draft. Selection and recommendation remain distinct states. A Question with no suggestions has only freeform response and does not offer `Neither`.
-- Runtime Approvals use the actual prompt, approval-specific choices, select the one-time allow choice when offered and otherwise the first offered choice, and do not offer `Neither`; Deny requires commentary. Workflow transition approval offers only Approve and shows source Node, Transition Key and label, target Nodes, required values, commentary, Workflow Version, and stale warning.
+- Runtime Approvals use the actual prompt, approval-specific choices, select the one-time allow choice when offered and otherwise the first offered choice, and do not offer `Neither`; Deny requires commentary. A consolidated outside-workspace Approval begins with `Agent wants to access a batch of files, but <count> are outside workspace dir:`, shows every unique model-provided path and any different real resolved path as an ordered bullet, and ends with `Allow this access?` before its choices. Workflow transition approval offers only Approve and shows source Node, Transition Key and label, target Nodes, required values, commentary, Workflow Version, and stale warning.
 - Task Detail sends each `Submit answer` independently and does not collect responses across Questions or runtime Approvals.
 - Selecting `Submit answer` removes that prompt from local attention before Kent reports the result.
 - Task Detail moves focus to the next unresolved prompt's first answer control.
 - The next prompt accepts edits and submission while earlier answer deliveries are in progress. Answer deliveries may finish in a different order.
-- After every answer attempt settles, Task Detail refetches Task attention. It restores the submitted selection and commentary only if refreshed attention still contains the exact Session, Step, and prompt identity; otherwise it discards that answer state.
-- If delivery fails while the same Task Detail is present and refreshed attention still contains the prompt, Task Detail restores it in server order, surfaces the failure, and permits manual retry without moving focus away from another prompt being edited.
-- If the attention refetch fails, Task Detail restores the prompt from cached attention with its submitted selection and commentary, surfaces the reconciliation failure, and permits manual retry. A retry may report that the prompt was already resolved.
+- Task Detail must apply ordinary server broadcasts and answer results to its available attention state. Successful answers may refresh attention through the ordinary domain refresh path.
+- If delivery fails while the same Task Detail is present, Task Detail must restore the submitted selection and commentary for the exact Session, Step, and Tool Call ID in its latest available server order unless that state identifies the prompt as resolved. It must surface the failure and permit resubmission without moving focus away from another prompt being edited.
+- A failed answer must not trigger an additional pending-prompt read. If delivery and observation both fail, an already-resolved prompt may remain visible until a later broadcast, independent read, or explicit resubmission supplies its authoritative outcome.
 - Task Detail does not replay a failed answer automatically.
 - If delivery fails after the operator leaves the originating Task Detail, Desktop discards the submitted answer state and identifies the Task in the failure notification. Reopening the Task uses server-provided defaults for an unresolved prompt.
 - Leaving Task Detail discards unsubmitted Question and runtime Approval answer state.

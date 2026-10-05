@@ -21,20 +21,10 @@ func SessionPlanErrorFromProto(failure *sessionlaunchpb.SessionPlanError) error 
 		return err
 	}
 	switch detail := failure.Detail.(type) {
-	case *sessionlaunchpb.SessionPlanError_AuthRequired:
-		return serverapi.ErrServerAuthRequired
 	case *sessionlaunchpb.SessionPlanError_WorkspaceNotRegistered:
 		return serverapi.ErrWorkspaceNotRegistered
 	case *sessionlaunchpb.SessionPlanError_SubagentLaunchDenied:
-		kind, err := subagentLaunchDenialKindFromProto(detail.SubagentLaunchDenied.Kind)
-		if err != nil {
-			return err
-		}
-		return &serverapi.SubagentLaunchDeniedError{
-			Kind:           kind,
-			Target:         clonePointer(detail.SubagentLaunchDenied.Target),
-			AvailableRoles: append([]string(nil), detail.SubagentLaunchDenied.AvailableRoles...),
-		}
+		return SubagentLaunchDeniedFromProto(detail.SubagentLaunchDenied)
 	case *sessionlaunchpb.SessionPlanError_MaxDepthExceeded:
 		return protocol.NewMaxDepthExceededSubagentLaunchPolicyError(
 			int(detail.MaxDepthExceeded.AttemptedDepth),
@@ -54,8 +44,6 @@ func SessionPlanErrorFromProto(failure *sessionlaunchpb.SessionPlanError) error 
 			visited = append(visited, sessionID)
 		}
 		return protocol.NewLineageCorruptSubagentLaunchPolicyError(repeated, visited)
-	case *sessionlaunchpb.SessionPlanError_InternalFailure:
-		return InternalFailureFromProto(detail.InternalFailure)
 	default:
 		return fmt.Errorf("session plan failure %q has unsupported detail %T", failure.Code, failure.Detail)
 	}
@@ -80,16 +68,13 @@ func SessionPlanErrorToProto(
 	default:
 		var denied *serverapi.SubagentLaunchDeniedError
 		if errors.As(err, &denied) {
-			kind, conversionErr := subagentLaunchDenialKindToProto(denied.Kind)
+			details, conversionErr := SubagentLaunchDeniedToProto(denied)
 			if conversionErr != nil {
 				return nil, true, conversionErr
 			}
 			failure.Code = "subagent_launch_denied"
 			failure.Detail = &sessionlaunchpb.SessionPlanError_SubagentLaunchDenied{
-				SubagentLaunchDenied: &sessionlaunchpb.SubagentLaunchDeniedDetails{
-					Kind: kind, Target: clonePointer(denied.Target),
-					AvailableRoles: append([]string(nil), denied.AvailableRoles...),
-				},
+				SubagentLaunchDenied: details,
 			}
 			break
 		}
@@ -102,11 +87,11 @@ func SessionPlanErrorToProto(
 		}
 		switch policy.Kind {
 		case protocol.SubagentLaunchPolicyMaxDepthExceeded:
-			attempted, conversionErr := projectInt32(*policy.AttemptedDepth, "attempted subagent depth")
+			attempted, conversionErr := Int32(*policy.AttemptedDepth, "attempted subagent depth")
 			if conversionErr != nil {
 				return nil, true, conversionErr
 			}
-			maximum, conversionErr := projectInt32(*policy.MaxDepth, "maximum subagent depth")
+			maximum, conversionErr := Int32(*policy.MaxDepth, "maximum subagent depth")
 			if conversionErr != nil {
 				return nil, true, conversionErr
 			}
@@ -136,6 +121,33 @@ func SessionPlanErrorToProto(
 		return nil, true, validationErr
 	}
 	return failure, true, nil
+}
+
+func SubagentLaunchDeniedFromProto(details *sessionlaunchpb.SubagentLaunchDeniedDetails) error {
+	if err := Validate(details); err != nil {
+		return err
+	}
+	kind, err := subagentLaunchDenialKindFromProto(details.Kind)
+	if err != nil {
+		return err
+	}
+	return &serverapi.SubagentLaunchDeniedError{
+		Kind:           kind,
+		Target:         clonePointer(details.Target),
+		AvailableRoles: append([]string(nil), details.AvailableRoles...),
+	}
+}
+
+func SubagentLaunchDeniedToProto(denied *serverapi.SubagentLaunchDeniedError) (*sessionlaunchpb.SubagentLaunchDeniedDetails, error) {
+	kind, err := subagentLaunchDenialKindToProto(denied.Kind)
+	if err != nil {
+		return nil, err
+	}
+	details := &sessionlaunchpb.SubagentLaunchDeniedDetails{
+		Kind: kind, Target: clonePointer(denied.Target),
+		AvailableRoles: append([]string(nil), denied.AvailableRoles...),
+	}
+	return details, Validate(details)
 }
 
 func SessionLaunchIntentToProto(intent serverapi.SessionLaunchIntent) (*sessionlaunchpb.SessionLaunchIntent, error) {
@@ -241,13 +253,11 @@ func RunPromptOverridesToProto(overrides serverapi.RunPromptOverrides) (*session
 	}
 	message := &sessionlaunchpb.RunPromptOverrides{AgentRole: clonePointer(overrides.AgentRole)}
 	setOptionalNonblank(&message.Model, overrides.Model)
-	setOptionalNonblank(&message.ProviderOverride, overrides.ProviderOverride)
 	setOptionalNonblank(&message.ThinkingLevel, overrides.ThinkingLevel)
 	setOptionalNonblank(&message.Theme, overrides.Theme)
 	setOptionalNonblank(&message.Tools, overrides.Tools)
-	setOptionalNonblank(&message.OpenaiBaseUrl, overrides.OpenAIBaseURL)
 	if overrides.ModelTimeoutSeconds != 0 {
-		value, err := projectInt32(overrides.ModelTimeoutSeconds, "model timeout seconds")
+		value, err := Int32(overrides.ModelTimeoutSeconds, "model timeout seconds")
 		if err != nil {
 			return nil, err
 		}
@@ -261,13 +271,11 @@ func RunPromptOverridesFromProto(message *sessionlaunchpb.RunPromptOverrides) (s
 		return serverapi.RunPromptOverrides{}, errors.New("generated Run Prompt overrides are required")
 	}
 	overrides := serverapi.RunPromptOverrides{
-		AgentRole:        clonePointer(message.AgentRole),
-		Model:            dereference(message.Model),
-		ProviderOverride: dereference(message.ProviderOverride),
-		ThinkingLevel:    dereference(message.ThinkingLevel),
-		Theme:            dereference(message.Theme),
-		Tools:            dereference(message.Tools),
-		OpenAIBaseURL:    dereference(message.OpenaiBaseUrl),
+		AgentRole:     clonePointer(message.AgentRole),
+		Model:         dereference(message.Model),
+		ThinkingLevel: dereference(message.ThinkingLevel),
+		Theme:         dereference(message.Theme),
+		Tools:         dereference(message.Tools),
 	}
 	if message.ModelTimeoutSeconds != nil {
 		overrides.ModelTimeoutSeconds = int(*message.ModelTimeoutSeconds)
@@ -293,7 +301,7 @@ func SessionRuntimeAgentSelectionFromProto(
 		return nil, err
 	}
 	return &serverapi.SessionRuntimeAgentSelection{
-		Agent: message.Agent,
+		AgentRole: clonePointer(message.AgentRole),
 		Baseline: serverapi.SessionRuntimeChatSettings{
 			Supervisor:     message.Baseline.Supervisor,
 			Thinking:       message.Baseline.Thinking,
@@ -302,6 +310,22 @@ func SessionRuntimeAgentSelectionFromProto(
 			AutoCompaction: message.Baseline.AutoCompaction,
 		},
 	}, nil
+}
+
+func SessionRuntimeAgentSelectionToProto(selection *serverapi.SessionRuntimeAgentSelection) *sessionlaunchpb.SessionRuntimeAgentSelection {
+	if selection == nil {
+		return nil
+	}
+	return &sessionlaunchpb.SessionRuntimeAgentSelection{
+		AgentRole: clonePointer(selection.AgentRole),
+		Baseline: &sessionlaunchpb.SessionRuntimeChatSettings{
+			Supervisor:     selection.Baseline.Supervisor,
+			Thinking:       selection.Baseline.Thinking,
+			Fast:           selection.Baseline.Fast,
+			Questions:      selection.Baseline.Questions,
+			AutoCompaction: selection.Baseline.AutoCompaction,
+		},
+	}
 }
 
 func SessionToolIDToProto(toolID toolspec.ID) (sessionlaunchpb.ToolID, error) {

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"core/shared/serverapi"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -73,8 +73,11 @@ func (m *uiModel) startFinalAnswerOperation(purpose uiFinalAnswerOperationPurpos
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), finalAnswerLookupTimeout)
 		defer cancel()
-		resp, err := reads.GetLatestCommittedAssistantFinalAnswer(ctx, serverapi.SessionLatestCommittedAssistantFinalAnswerRequest{SessionID: op.sessionID})
-		return latestFinalAnswerDoneMsg{token: op.token, purpose: op.purpose, sessionID: op.sessionID, parentSessionID: op.parentSessionID, answer: resp.Answer, err: err}
+		resp, err := reads.GetLatestCommittedAssistantFinalAnswer(ctx, &transcriptpb.LatestFinalAnswerRequest{SessionId: op.sessionID})
+		if err != nil {
+			return latestFinalAnswerDoneMsg{token: op.token, purpose: op.purpose, sessionID: op.sessionID, parentSessionID: op.parentSessionID, err: err}
+		}
+		return latestFinalAnswerDoneMsg{token: op.token, purpose: op.purpose, sessionID: op.sessionID, parentSessionID: op.parentSessionID, answer: resp.Answer, err: nil}
 	}
 	timeout := tea.Tick(finalAnswerLookupTimeout, func(time.Time) tea.Msg { return latestFinalAnswerTimeoutMsg{token: op.token} })
 	return tea.Batch(lookup, timeout)

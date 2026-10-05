@@ -2,6 +2,12 @@
 
 Use these terms consistently in specs and product surfaces. These terms extend common English for Kent's domain.
 
+## Provider Access
+
+### Provider Connection
+
+A named server-owned provider-access configuration containing provider implementation, endpoint, authentication selection, and connection/protocol capabilities. Agents and roles select it by its user-chosen configuration ID; model and context policy remain agent or role settings.
+
 ## Workflow
 
 ### Task
@@ -48,7 +54,7 @@ A workflow-level rule for choosing where a task's executable nodes run. The five
 
 ### Execution Target
 
-The target-selection provenance locked to a task when its first executable action succeeds. For a managed target it records the requested Git revision and resolved commit while the current managed-worktree relation, root, and named branch may be conservatively restored or changed by the operator. A no-managed-worktree target follows the task's current source workspace. Later nodes and retries reuse the locked mode and managed selection provenance despite workflow edits or Git ref movement.
+The target-selection provenance locked to a task when its first executable action succeeds. For a managed target it records the requested Git revision and resolved commit while the current managed-worktree relation, root, and named branch may be conservatively restored or changed by the operator. A no-managed-worktree target follows the task's current source workspace. Later nodes and retries reuse the locked mode and managed selection provenance despite workflow edits or Git ref movement, except for unavailable-original-target replacement defined in [Workflow Orchestration](workflow-orchestration.md#execution-targets-and-worktrees).
 
 ### Execution Root
 
@@ -65,6 +71,14 @@ The directory Kent uses as the shell working directory and relative-path base fo
 ### Execution Target Root
 
 The Workspace root or current managed Worktree root that contains a Session's Working Directory. It is the Workspace root when the Session does not use a managed Worktree.
+
+### Main Workspace
+
+The Workspace root a Session uses when it is not targeting another Worktree. Main Workspace identity belongs to Kent and does not indicate Git's main worktree.
+
+### Git main worktree
+
+Git's non-linked worktree prepared by `git init` or `git clone`. A repository has one Git main worktree when it is not bare. The Git main worktree can differ from the Main Workspace when the Workspace root is a linked worktree.
 
 ### Workflow Draft
 
@@ -92,7 +106,7 @@ A state in a Workflow. Start, Agent, Script, and Terminal Nodes can appear as wo
 
 ### Current Nodes
 
-The Node or Nodes that contain a Task at this moment. A Task usually has one Current Node. It can have several Current Nodes only while parallel branches are active. Current Nodes belong to the Task and have no independent identity. A Current Node entered through a Transition retains that Transition Branch so Kent can resolve its live prompt and context policy from the latest Workflow definition. Leaving a Node removes its current execution state.
+The Node or Nodes that contain a Task at this moment. A Task usually has one Current Node. It can have several Current Nodes only while parallel branches are active. Current Nodes belong to the Task and have no independent identity. A non-Terminal Current Node entered through a Transition retains that Transition Branch so Kent can resolve its live prompt and context policy from the latest Workflow definition. A Terminal Current Node must not retain its incoming Transition Branch reference. Pending Approvals must retain their captured branch dependencies until applied, including branches targeting Terminal Nodes. Leaving a Node removes its current execution state.
 
 ### Node Group
 
@@ -198,7 +212,9 @@ A workflow executable node that runs a local executable on the Kent server inste
 
 The model, provider, generation settings, enabled tools, and native web-search mode that a Session uses for one contract generation. These values stay fixed until a product operation creates a new contract generation. `compact_and_continue_session` establishes a fresh target-node generation when that target starts, including when the selected history was compacted eagerly after an earlier assignment completed. Ordinary compaction can refresh system and reviewer instructions within the existing contract generation. Developer context remains part of the transcript.
 
-The automatic-compaction threshold and Compaction Mode are activation policy, not Session Contract fields. A Session preserves its context window and provider-capability facts across runs for continuity, but those facts and the activation policy do not independently invalidate prompt caches or rotate cache lineage.
+The context window, automatic-compaction threshold, and Compaction Mode are activation policy, not Session Contract fields. A Session preserves its provider-capability facts across runs for continuity. These facts and the activation policy do not independently invalidate prompt caches or rotate cache lineage.
+
+Thinking effort is Session-owned state outside the Session Contract, as defined in [Model Requests And Cache Continuity](core-runtime-tools.md#model-requests-and-cache-continuity).
 
 ### Runtime Parameter Contract
 
@@ -210,7 +226,7 @@ A durable Kent conversation associated with an Agent Node on a Task and, during 
 
 ### Compaction Mode
 
-The implementation used to compact a Session's context. The modes are disabled, local, and provider-native.
+The strategy used to compact a Session's context. The modes are disabled, local, and provider-native.
 
 ### Compaction Trigger
 
@@ -352,9 +368,13 @@ Comparing retained or received transcript data to emitted terminal content to de
 
 ### Scratch Rehydration
 
-Recovery that erases the Mutable Band, reopens the Session, and appends the active transcript segment below existing Scrollback. It does not inspect or change the Immutable Area.
+Recovery that erases the Mutable Band, reopens the Session, and appends the active transcript segment below Scrollback. It does not inspect or change the Immutable Area.
 
 ## Runtime Steering And Goals
+
+### Chat Operation
+
+A server-owned operation that resolves a Chat target, optionally creates a Session, prepares an Active Session Runtime when required, requests the selected Chat mutation, and finalizes its Runtime attachment. A client request may wait for and receive the result, but client connection and request lifecycles do not own or cancel the Chat Operation.
 
 ### Active Session Runtime
 
@@ -367,6 +387,10 @@ The authoritative live status of a Session. It reports whether the Session is un
 ### Steering Intent
 
 A typed request accepted by an Active Session Runtime to apply one Session mutation in acceptance order. While an Agent Step executes, a Steering Intent that needs a Step Boundary waits for that boundary. An Idle Runtime may apply it immediately. A Steering Intent carries only its concrete operation and acknowledgement or result. A Steering Intent in Pending Work reuses its concrete operation identity and adds no second generic request identity, replay, or reconciliation behavior.
+
+### Engine Intent Queue
+
+The process-local internal queue that serializes Engine intents and drains them during the Step Boundary window. It is not Steering or Pending Work, carries no Pending Work identity, and is not exposed to clients.
 
 ### Engine Intent Queue
 
@@ -402,7 +426,7 @@ An atomic ordered durable unit containing one or more compatible complete tool r
 
 ### Agent Turn
 
-A complete agent run from a user submission until the runtime returns to idle. An Agent Turn is composed of one or more Agent Steps.
+A complete agent run from accepted input until the runtime returns to idle. An Agent Turn is composed of one or more Agent Steps.
 
 ### Step Boundary
 
@@ -410,17 +434,17 @@ The interval after one Agent Step ends and before another provider request begin
 
 ### Queue
 
-The user-facing TUI action that holds user messages until the current turn ends. Queued messages wait for the runtime to go idle, then drain into the next turn.
+A user-facing action that accepts one input into the server-owned post-turn Queue. During an Agent Turn, queued input waits until that turn ends and then drains in Queue order. When the Active Session Runtime is idle and ordinary work is eligible, queued input starts the next turn immediately.
 
 ### Steer
 
-The user-facing TUI action that injects a message to take effect after the current step ends, mid-turn between steps, rather than waiting for the turn to finish.
+A user-facing action that accepts one input into the Active Session Runtime's mutation order. During an Agent Step, steered input takes effect at the next eligible Step Boundary instead of waiting for the Agent Turn to finish. When the Active Session Runtime is idle, Steer starts ordinary work immediately.
 
 ### Equal Full-Control Attach
 
 Every client attached to a Session has the same control capabilities over the shared Active Session Runtime. Kent has no controller client, limited-control client, read-only attachment, or client lease.
 
-Client connection state is not server-work state. A client connection, disconnection, request cancellation, request closure, navigation, or UI closure never starts, stops, pauses, cancels, closes, retries, replays, restores, duplicates, authorizes, or otherwise changes a Session, Agent Turn, Goal, Queue, Steer, Worktree operation, Workflow operation, or other accepted server command. Only the server-owned operation lifecycle changes server work. The server publishes every event without using subscriber count as a condition: zero connected clients do not suppress publication, and every connected client receives each applicable broadcast.
+The client and Runtime boundary for this attach is defined in [Core Runtime And Tools](core-runtime-tools.md).
 
 ### Goal
 

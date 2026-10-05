@@ -5,11 +5,30 @@ import (
 
 	"core/server/workflow"
 	"core/server/workflowexecution"
-	"core/shared/serverapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
 type staticTaskStatusLiveObservationSource struct {
 	observation workflowexecution.WorkflowTaskExecutionObservation
+}
+
+func TestTaskDetailOffersResumeForSavedAdmissionWithoutLiveExecution(t *testing.T) {
+	fixture := newCurrentNodeViewFixture(t, false)
+	started := fixture.startTask(t, "saved admission")
+	projected, err := fixture.detail.GetTask(t.Context(), string(started.task.ID))
+	if err != nil {
+		t.Fatalf("TaskDetail.GetTask: %v", err)
+	}
+	if !projected.Actions.CanResume || projected.Actions.CanInterrupt {
+		t.Fatalf("saved admission actions = %+v, want Resume without Interrupt", projected.Actions)
+	}
+	nodes, err := fixture.store.ListCurrentNodes(t.Context(), started.task.ID)
+	if err != nil {
+		t.Fatalf("ListCurrentNodes: %v", err)
+	}
+	if len(nodes) != 1 || nodes[0].Scheduling.State != workflow.CurrentNodeSchedulingAdmitted {
+		t.Fatalf("nodes after detail read = %+v, want unchanged admission", nodes)
+	}
 }
 
 func (s staticTaskStatusLiveObservationSource) ObserveWorkflowTaskExecutions([]workflow.TaskID) (workflowexecution.WorkflowTaskExecutionObservation, error) {
@@ -40,7 +59,7 @@ func TestTaskDetailProjectsConcurrencyQueuedCurrentNodeAsResumable(t *testing.T)
 	if err != nil {
 		t.Fatalf("TaskDetail.GetTask: %v", err)
 	}
-	if projected.Status.Kind != serverapi.WorkflowTaskStatusKindQueued ||
+	if projected.Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_QUEUED ||
 		!projected.Actions.CanResume ||
 		projected.Actions.CanInterrupt {
 		t.Fatalf("concurrency-queued Task detail = %+v", projected)

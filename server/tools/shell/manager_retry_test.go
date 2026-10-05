@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 )
@@ -19,10 +20,11 @@ func TestRetryTerminalEventsRedeliversOnlyUndeliveredCompletion(t *testing.T) {
 		"#!/bin/sh\nprintf x >> %q\nprintf '{\"processed\":true,\"replaced_output\":\"processed\"}'\n",
 		hookCallsPath,
 	))
-	manager := newManagerWithPostprocessor(t, mustPostprocessRunner(t, postprocess.Settings{
+	runner := postprocessfixture.NewRunner(t, postprocess.Settings{
 		Mode:     config.ShellPostprocessingModeUser,
 		HookPath: &hookPath,
-	}))
+	})
+	manager := newShellTestManager(t, 50*time.Millisecond)
 	manager.SetMinimumExecToBgTime(50 * time.Millisecond)
 	var attempts atomic.Int32
 	deliveries := make(chan Event, 2)
@@ -37,6 +39,7 @@ func TestRetryTerminalEventsRedeliversOnlyUndeliveredCompletion(t *testing.T) {
 
 	releasePath := filepath.Join(t.TempDir(), "release")
 	started, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  runner,
 		Command:        []string{"/bin/sh", "-c", fmt.Sprintf("while [ ! -f %q ]; do sleep 0.01; done; printf done", releasePath)},
 		DisplayCommand: "wait for release",
 		OwnerSessionID: "session-retry",

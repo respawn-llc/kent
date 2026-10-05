@@ -2,14 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
-	"io"
-	"net"
-	"os"
-	"path/filepath"
-	"strconv"
-	"testing"
-
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/toolfixture"
 	"core/server/llm"
@@ -22,12 +14,19 @@ import (
 	"core/shared/apicontract"
 	"core/shared/config"
 	"core/shared/sessioncontract"
+	"errors"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
+	"strconv"
+	"testing"
 )
 
 func registerAppWorkspace(t *testing.T, workspace string) {
 	t.Helper()
 	configureAppTestServerPort(t)
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -46,10 +45,20 @@ func newRegisteredAppWorkspace(t *testing.T) (home string, workspace string) {
 	home = newAppTestHome(t)
 	workspace = t.TempDir()
 	registerAppWorkspace(t, workspace)
-	if _, _, err := config.WriteDefaultSettingsFileAt(filepath.Join(home, config.ConfigDirName, "config.toml")); err != nil {
+	writeAppTestSettings(t)
+	return home, workspace
+}
+
+func writeAppTestSettings(t *testing.T) {
+	t.Helper()
+	if _, _, err := config.WriteDefaultSettingsFile(); err != nil {
 		t.Fatalf("write test settings: %v", err)
 	}
-	return home, workspace
+	cfg, err := config.LoadGlobal(config.LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 }
 
 func newRegisteredAppWorkspaceWithoutSettings(t *testing.T) (home string, workspace string) {
@@ -62,7 +71,7 @@ func newRegisteredAppWorkspaceWithoutSettings(t *testing.T) (home string, worksp
 
 func loadAppTestConfig(t *testing.T, workspace string, opts config.LoadOptions) config.App {
 	t.Helper()
-	cfg, err := config.Load(workspace, opts)
+	cfg, err := config.Load(workspace, workspace, opts)
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -84,25 +93,18 @@ func newAppMetadataProjectViewClient(t *testing.T, cfg config.App) apicontract.P
 	return service
 }
 
-// startStandingRunPromptServer starts an in-process standing serve server for
-// the workspace and waits until it is reachable for headless run-prompt attach.
-// kent run is a pure client and never starts its own server, so integration
-// tests that drive RunPrompt end-to-end must provide a server to attach to.
-// Callers defer the returned cleanup, which stops serving and closes the server.
 func startStandingRunPromptServer(t *testing.T, workspace, openAIBaseURL string) func() {
-	return startStandingRunPromptServerWithAuth(t, workspace, openAIBaseURL, apiKeyMemoryAuthHandler("test-key"))
-}
-
-func startStandingRunPromptServerWithAuth(t *testing.T, workspace, openAIBaseURL string, authHandler serverstartup.AuthHandler) func() {
 	t.Helper()
+	writeAppTestSettings(t)
 	releasePortProbe := reserveAppTestServerPort(t)
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, openAIBaseURL))
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
-		OpenAIBaseURL:         openAIBaseURL,
-		OpenAIBaseURLExplicit: openAIBaseURL != "",
-	}, authHandler, autoOnboarding)
+		Model:                 "gpt-6-sol",
+	})
+
 	if err != nil {
 		t.Fatalf("StartServeServer: %v", err)
 	}
@@ -178,21 +180,6 @@ func prepareAppRuntimePlan(t *testing.T, server launchPlannerServer, req session
 	return plan, runtimePlan
 }
 
-func prepareAppRuntimePlanWithOpenAIBaseURL(t *testing.T, server launchPlannerServer, req sessionLaunchRequest, openAIBaseURL string, diagnosticWriter io.Writer, startLogLine string) (sessionLaunchPlan, *runtimeLaunchPlan) {
-	t.Helper()
-	planner := newSessionLaunchPlanner(server)
-	plan, err := planner.PlanSession(context.Background(), req)
-	if err != nil {
-		t.Fatalf("PlanSession: %v", err)
-	}
-	plan.ActiveSettings.OpenAIBaseURL = openAIBaseURL
-	runtimePlan, err := planner.PrepareRuntime(context.Background(), plan, diagnosticWriter, startLogLine)
-	if err != nil {
-		t.Fatalf("PrepareRuntime: %v", err)
-	}
-	return plan, runtimePlan
-}
-
 func newAppRuntimeEngine(t *testing.T, client llm.Client, cfg runtime.Config, handlers ...tools.HandlerRegistration) (*session.Store, *runtime.Engine) {
 	t.Helper()
 	store := createAppRuntimeSession(t)
@@ -214,7 +201,7 @@ func createAppRuntimeSessionAt(t *testing.T, root string, workspaceContainerName
 func newAppRuntimeEngineWithStore(t *testing.T, store *session.Store, client llm.Client, cfg runtime.Config, handlers ...tools.HandlerRegistration) *runtime.Engine {
 	t.Helper()
 	if cfg.Model == "" {
-		cfg.Model = "gpt-5"
+		cfg.Model = "gpt-6-sol"
 	}
 	if cfg.GlobalConfigDir == "" {
 		cfg.GlobalConfigDir = t.TempDir()
@@ -280,3 +267,11 @@ func openAuthoritativeAppSession(t *testing.T, persistenceRoot string, sessionID
 	t.Cleanup(func() { _ = metadataStore.Close() })
 	return store
 }
+
+// startStandingRunPromptServer starts an in-process standing serve server for
+// the workspace and waits until it is reachable for headless run-prompt attach.
+// kent run is a pure client and never starts its own server, so integration
+// tests that drive RunPrompt end-to-end must provide a server to attach to.
+// Callers defer the returned cleanup, which stops serving and closes the server.
+// Keep the metadata store alive for the lifetime of the session store so
+// persistence observer writes continue to succeed during the test.

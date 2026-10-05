@@ -2,15 +2,16 @@ package app
 
 import (
 	"bytes"
+	"core/cli/tui/transcriptrender"
+	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
+	"core/shared/textutil"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
-
-	"core/cli/tui/transcriptrender"
-	"core/shared/clientui"
-	"core/shared/runtimeids"
-	"core/shared/transcript"
 )
 
 type countRinger struct {
@@ -284,7 +285,7 @@ func TestUIAskLifecycleDoesNotDuplicateAttentionNotifications(t *testing.T) {
 	model = next.(*uiModel)
 	next, _ = model.Update(askEventMsg{event: askEvent{prompt: bellTestPrompt("ask-2", "Second?")}})
 	model = next.(*uiModel)
-	_, _ = model.Update(askEventMsg{event: askEvent{resolvedPromptID: "ask-1"}})
+	_, _ = model.Update(askEventMsg{event: askEvent{resolvedToolCallID: "ask-1"}})
 
 	if ringer.total() != 0 {
 		t.Fatalf("UI ask lifecycle emitted %d notification events", ringer.total())
@@ -468,7 +469,7 @@ func TestBellHooksCompactionCompletionPolicy(t *testing.T) {
 func testAttentionPendingEvent(id string, kind clientui.AttentionNotificationKind, body string) clientui.AttentionNotificationEvent {
 	notification := clientui.AttentionNotification{ID: attentionNotificationID(kind, id), Kind: kind}
 	if kind == clientui.AttentionNotificationKindApproval {
-		notification.Approval = &clientui.AttentionNotificationApprovalState{Message: body}
+		notification.Approval = &clientui.AttentionNotificationApprovalState{Message: textutil.Value(body)}
 	} else if kind == clientui.AttentionNotificationKindInterruptedCurrentNode {
 		notification.InterruptedCurrentNode = &clientui.AttentionNotificationInterruptedCurrentNodeState{Message: body}
 	} else {
@@ -488,11 +489,8 @@ func attentionNotificationID(kind clientui.AttentionNotificationKind, uuid strin
 	return clientui.AttentionNotificationID{Kind: kind, UUID: uuid}
 }
 
-func bellTestPrompt(id, question string) clientui.TranscriptPrompt {
-	prompt := ongoingTranscriptMessage(2, clientui.TranscriptMessagePrompt).Payload().(clientui.TranscriptPrompt)
-	prompt.PromptID = clientui.PromptID(id)
-	prompt.Question = question
-	return prompt
+func bellTestPrompt(id, question string) *transcriptpb.Prompt {
+	return testQuestionPrompt(id, question)
 }
 
 func bellTestStepID(index int) runtimeids.StepID {
@@ -511,52 +509,40 @@ func bellTestStepID(index int) runtimeids.StepID {
 	return id
 }
 
-func bellToolStartMessage(step int) clientui.TranscriptMessage {
-	return clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(clientui.TranscriptToolStart{
-		StepID: bellTestStepID(step), ToolCallID: "tool-call", ToolName: "exec_command",
-	}))
+func bellToolStartMessage(step int) *transcriptpb.Message {
+	return transcriptTestMessage(2, &transcriptpb.ToolStart{StepId: bellTestStepID(step).String(), ToolCallId: "tool-call", ToolName: "exec_command"})
 
 }
 
-func bellAssistantFinalMessage(step int) clientui.TranscriptMessage {
+func bellAssistantFinalMessage(step int) *transcriptpb.Message {
 	return bellAssistantFinalMessageWithText(step, "turn complete")
 }
 
-func bellAssistantFinalMessageWithText(step int, text string) clientui.TranscriptMessage {
-	return clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(clientui.TranscriptCommittedRow{
-		Visibility: transcript.EntryVisibilityOngoing,
-		Integrity:  transcript.RowIntegrityValid,
-		Kind:       clientui.TranscriptRowAssistant,
-		Assistant: &clientui.TranscriptAssistantRow{
-			StepID: bellTestStepID(step), Text: text, Phase: transcript.AssistantPhaseFinal,
-		},
-	}))
+func bellAssistantFinalMessageWithText(step int, text string) *transcriptpb.Message {
+	return transcriptTestMessage(2, &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
+		Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID, Row: &transcriptpb.CommittedRow_Assistant{Assistant: &transcriptpb.AssistantRow{StepId: bellTestStepID(step).String(), Text: text, Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL}}})
 
 }
 
-func bellStepFinishedMessage(step int) clientui.TranscriptMessage {
-	return clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(clientui.TranscriptStepState{
-		StepID:    bellTestStepID(step),
-		Lifecycle: clientui.StepLifecycleFinished,
-	}))
+func bellStepFinishedMessage(step int) *transcriptpb.Message {
+	return transcriptTestMessage(2, &transcriptpb.StepState{StepId: bellTestStepID(step).String(),
+		Lifecycle: transcriptpb.StepLifecycle_STEP_LIFECYCLE_FINISHED})
 
 }
 
-func bellAssistantDeltaMessage(step int, delta string) clientui.TranscriptMessage {
-	return clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(clientui.TranscriptAssistantDelta{
-		StepID: bellTestStepID(step), StreamID: runtimeids.NewAssistantStreamID(), Delta: delta, Phase: transcript.AssistantPhaseFinal,
-	}))
+func bellAssistantDeltaMessage(step int, delta string) *transcriptpb.Message {
+	return transcriptTestMessage(2, &transcriptpb.AssistantDelta{StepId: bellTestStepID(step).String(), StreamId: runtimeids.NewAssistantStreamID().String(), Delta: delta, Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL})
 
 }
 
-func bellLiveRunNoFinalMessage() clientui.TranscriptMessage {
+func bellLiveRunNoFinalMessage() *transcriptpb.Message {
 	startedAt := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
-	return clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(clientui.TranscriptLiveRunResult{
-		Status:     clientui.LiveRunStatusCompleted,
-		ResultKind: clientui.LiveRunResultNoFinalAnswer,
-		StartedAt:  startedAt,
-		FinishedAt: startedAt.Add(time.Second),
-	}))
+	return transcriptTestMessage(2, &transcriptpb.LiveRunFinished{
+		Status:     transcriptpb.LiveRunStatus_LIVE_RUN_STATUS_COMPLETED,
+		ResultKind: transcriptpb.LiveRunResultKind_LIVE_RUN_RESULT_KIND_NO_FINAL_ANSWER,
+		StartedAt:  timestamppb.New(startedAt),
+		FinishedAt: timestamppb.New(startedAt.Add(time.Second))})
 }
 
 func recordToolHeavyBellTurn(hooks *bellHooks, step int) {

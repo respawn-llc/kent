@@ -5,8 +5,10 @@ import (
 
 	"core/server/llm"
 	"core/server/runtime"
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/transcript"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestCommittedRowLocatorIsStableAcrossPageHydrationAndLiveProjection(t *testing.T) {
@@ -26,37 +28,70 @@ func TestCommittedRowLocatorIsStableAcrossPageHydrationAndLiveProjection(t *test
 	page, err := TranscriptPageFromSegment(
 		sessionID,
 		"session",
-		clientui.ConversationFreshness(0),
+		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{Snapshot: snapshot},
 	)
 	if err != nil {
 		t.Fatalf("project page: %v", err)
 	}
-	hydration := TranscriptHydrationFromSnapshot(runtime.TranscriptHydrationSnapshot{
+	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
 		CommittedRows: runtime.TranscriptCommittedRowFactsFromSnapshot(snapshot),
 	})
-	live := TranscriptMessagesFromRuntimeEvent(runtime.Event{
+	live, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:                runtime.EventUserMessageFlushed,
 		StepID:              runtimeStepIDPointer(stepID),
 		UserMessage:         "hello",
 		CommittedProvenance: provenance,
 	})
-
-	if len(page.Entries) != 1 || len(hydration.CommittedRows) != 1 || len(live) != 1 {
-		t.Fatalf("projected rows: page=%d hydration=%d live=%d, want one each", len(page.Entries), len(hydration.CommittedRows), len(live))
+	if err != nil {
+		t.Fatalf("project live user message: %v", err)
 	}
-	liveRow := transcriptPayload[clientui.TranscriptCommittedRow](t, live[0])
-	if page.Entries[0].Locator != hydration.CommittedRows[0].Locator ||
-		page.Entries[0].Locator != liveRow.Locator {
+
+	if len(page.Entries) != 1 || len(hydration.TailSegment.Entries) != 1 || len(live) != 1 {
+		t.Fatalf("projected rows: page=%d hydration=%d live=%d, want one each", len(page.Entries), len(hydration.TailSegment.Entries), len(live))
+	}
+	liveRow := live[0].GetCommittedRow()
+	if !proto.Equal(page.Entries[0].Locator, hydration.TailSegment.Entries[0].Locator) ||
+		!proto.Equal(page.Entries[0].Locator, liveRow.Locator) {
 		t.Fatalf(
 			"locators disagree: page=%+v hydration=%+v live=%+v",
 			page.Entries[0].Locator,
-			hydration.CommittedRows[0].Locator,
+			hydration.TailSegment.Entries[0].Locator,
 			liveRow.Locator,
 		)
 	}
-	if err := page.Entries[0].Locator.Validate(); err != nil {
+	if err := protoapi.Validate(page.Entries[0].Locator); err != nil {
 		t.Fatalf("projected locator is invalid: %v", err)
+	}
+}
+
+func TestTranscriptTailSegmentProjectsRowsAndClosedOlderBoundary(t *testing.T) {
+	const stepID = "22222222-2222-4222-8222-222222222222"
+	olderCursor := int64(41)
+	tail, err := TranscriptTailSegmentFromSegment(runtime.TranscriptSegmentPage{
+		Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{
+			StepID:              runtimeStepIDPointer(stepID),
+			Visibility:          transcript.EntryVisibilityOngoing,
+			Role:                "user",
+			Text:                "newest",
+			CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 17},
+		}}},
+		OlderCursor:  olderCursor,
+		HasMoreAbove: true,
+	})
+	if err != nil {
+		t.Fatalf("project nonempty tail: %v", err)
+	}
+	if len(tail.Entries) != 1 || tail.OlderCursor == nil || *tail.OlderCursor != olderCursor || !tail.HasMoreAbove {
+		t.Fatalf("nonempty tail = %+v", tail)
+	}
+
+	empty, err := TranscriptTailSegmentFromSegment(runtime.TranscriptSegmentPage{})
+	if err != nil {
+		t.Fatalf("project empty tail: %v", err)
+	}
+	if len(empty.Entries) != 0 || empty.OlderCursor != nil || empty.HasMoreAbove {
+		t.Fatalf("empty tail = %+v", empty)
 	}
 }
 
@@ -118,14 +153,14 @@ func TestCheckedTranscriptProjectionReturnsMalformedLocatorErrors(t *testing.T) 
 			User:       &runtime.TranscriptUserRowFact{Text: "malformed"},
 		}},
 	}
-	if _, err := TranscriptHydrationFromSnapshotChecked(snapshot); err == nil {
+	if _, err := transcriptTailSegmentFromFactsChecked(snapshot.CommittedRows, nil, false); err == nil {
 		t.Fatal("checked hydration projection accepted malformed locator")
 	}
 
 	_, err := TranscriptPageFromSegment(
 		sessionID,
 		"session",
-		clientui.ConversationFreshness(0),
+		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{
 			StepID:              runtimeStepIDPointer(stepID),
 			Visibility:          transcript.EntryVisibilityOngoing,

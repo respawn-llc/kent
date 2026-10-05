@@ -1,12 +1,4 @@
-import {
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type DragEvent,
-  type RefObject,
-} from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { BoardColumn, SelectedWorkflowBoard } from "@/api";
@@ -26,7 +18,6 @@ import { useColumnVisibility } from "./useColumnVisibility";
 
 export type BoardColumnMotionBoundaryProps = Readonly<{
   activeDrag: ActiveBoardCardDrag | null;
-  actionsDisabled: boolean;
   board: SelectedWorkflowBoard;
   displayedCards: readonly KanbanCardVM[] | undefined;
   column: BoardColumn;
@@ -36,10 +27,8 @@ export type BoardColumnMotionBoundaryProps = Readonly<{
   isFirstActive: boolean;
   latestIsCollapsed: boolean;
   onCardClick: (taskID: string) => void;
-  onCardDragEnd: () => void;
   onCardDragStart: (drag: ActiveBoardCardDrag) => void;
   onDeleteTask: (taskID: string) => void;
-  onDropTask: (event: DragEvent<HTMLElement>, column: BoardColumn) => void;
   onExpandColumn: (columnID: string) => void;
   onInterruptTask: (taskID: string) => void;
   onReportColumnSnapshot: (columnID: string, snapshot: BoardColumnQuerySnapshot) => void;
@@ -48,6 +37,7 @@ export type BoardColumnMotionBoundaryProps = Readonly<{
   onResumeTask: (taskID: string) => void;
   pendingInterruptTaskIDs?: ReadonlySet<string> | undefined;
   pendingResumeTaskIDs?: ReadonlySet<string> | undefined;
+  pendingStartMoveTaskIDs?: ReadonlySet<string> | undefined;
   scrollportRef: RefObject<HTMLDivElement | null>;
 }>;
 
@@ -75,7 +65,6 @@ const inactivePresentation: BoardColumnPresentation = {
 
 export function BoardColumnMotionBoundary({
   activeDrag,
-  actionsDisabled,
   board,
   displayedCards,
   column,
@@ -85,10 +74,8 @@ export function BoardColumnMotionBoundary({
   isFirstActive,
   latestIsCollapsed,
   onCardClick,
-  onCardDragEnd,
   onCardDragStart,
   onDeleteTask,
-  onDropTask,
   onExpandColumn,
   onInterruptTask,
   onReportColumnSnapshot,
@@ -97,6 +84,7 @@ export function BoardColumnMotionBoundary({
   onResumeTask,
   pendingInterruptTaskIDs,
   pendingResumeTaskIDs,
+  pendingStartMoveTaskIDs,
   scrollportRef,
 }: BoardColumnMotionBoundaryProps) {
   const { t } = useTranslation();
@@ -151,7 +139,6 @@ export function BoardColumnMotionBoundary({
   const pinnedItemKeys = useMemo(() => pinnedKeys(sourceDrag), [sourceDrag]);
   const presentation = presentedDataView(dataOwnerActive, activeDataView);
   const stableOnCardClick = useStableCallback(onCardClick);
-  const stableOnCardDragEnd = useStableCallback(onCardDragEnd);
   const stableOnCardDragStart = useStableCallback(onCardDragStart);
   const stableOnDeleteTask = useStableCallback(onDeleteTask);
   const stableOnInterruptTask = useStableCallback(onInterruptTask);
@@ -180,7 +167,6 @@ export function BoardColumnMotionBoundary({
         />
       ) : null}
       <KanbanColumn
-        actionsDisabled={actionsDisabled}
         cards={renderedCards}
         column={columnVM}
         columnRef={setRegisteredColumnElement}
@@ -196,12 +182,8 @@ export function BoardColumnMotionBoundary({
         isLoadingPreviousCards={presentation.isLoadingPreviousCards}
         nextBoundary={presentation.nextBoundary}
         onCardClick={stableOnCardClick}
-        onCardDragEnd={stableOnCardDragEnd}
         onCardDragStart={stableOnCardDragStart}
         onDeleteTask={stableOnDeleteTask}
-        onDropTask={(event) => {
-          onDropTask(event, column);
-        }}
         onExpandColumn={() => {
           onExpandColumn(column.id);
         }}
@@ -211,6 +193,7 @@ export function BoardColumnMotionBoundary({
         onResumeTask={stableOnResumeTask}
         pendingInterruptTaskIDs={pendingInterruptTaskIDs}
         pendingResumeTaskIDs={pendingResumeTaskIDs}
+        pendingStartMoveTaskIDs={pendingStartMoveTaskIDs}
         pinnedItemKeys={pinnedItemKeys}
         previousBoundary={presentation.previousBoundary}
         replacementBoundary={presentation.replacementBoundary}

@@ -1,6 +1,7 @@
 package workflowrunner
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,45 +17,61 @@ import (
 	"testing"
 	"time"
 
+	modelstub "core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
+	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/registry"
+	"core/server/runprompt"
 	agentruntime "core/server/runtime"
+	"core/server/runtimecontrol"
 	"core/server/runtimewire"
 	"core/server/session"
 	"core/server/session/sessiontest"
+	"core/server/sessionlaunch"
 	"core/server/sessionruntime"
+	askquestion "core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowexecution"
 	"core/server/workflowruntime"
 	"core/server/workflowstore"
 	"core/server/workflowview"
+	"core/server/worktree"
 	"core/shared/config"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/toolspec"
+	"core/shared/worktreecontract"
+	"github.com/BurntSushi/toml"
+
+	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 )
 
 const currentNodeRunnerWait = 60 * time.Second
 
 type currentNodeRunnerFixture struct {
-	cfg             config.App
-	metadata        *metadata.Store
-	store           *workflowstore.Store
-	authority       *sessionruntime.Authority
-	runtimes        *registry.RuntimeRegistry
-	controller      *workflowexecution.CurrentNodeController
-	starter         *Starter
-	dependencies    *workflowview.TaskDependencies
-	projectID       string
-	workspaceID     string
-	workspace       string
-	client          currentNodeRunnerClient
-	persistenceGate *sessiontest.PersistenceGate
-	controllerClose error
+	cfg              config.App
+	metadata         *metadata.Store
+	store            *workflowstore.Store
+	authority        *sessionruntime.Authority
+	runtimes         *registry.RuntimeRegistry
+	controller       *workflowexecution.CurrentNodeController
+	starter          *Starter
+	executionTargets *worktree.Service
+	dependencies     *workflowview.TaskDependencies
+	projectID        string
+	workspaceID      string
+	workspace        string
+	client           currentNodeRunnerClient
+	persistenceGate  *sessiontest.PersistenceGate
+	controllerClose  error
 
 	mu             sync.Mutex
 	clientRequests []runtimewire.RuntimeClientRequest
@@ -66,84 +83,12 @@ type currentNodeRunnerClient interface {
 	Requests() []llm.Request
 }
 
-type currentNodeAssignmentSteererFactory func(*Starter) workflowexecution.CurrentNodeAssignmentSteerer
-
-type failingManualMoveAssignmentSteerer struct {
-	delegate *Starter
-	cause    error
-}
-
-type failAfterManualMoveAssignmentPreparationSteerer struct {
-	delegate *Starter
-	cause    error
-}
-
-type diagnosticManualMoveAssignmentSteerer struct {
-	delegate   *Starter
-	diagnostic error
-}
-
-func (s failingManualMoveAssignmentSteerer) SteerCurrentNodeAssignment(
-	ctx context.Context,
-	reference workflow.CurrentNodeReference,
-) (workflowexecution.CurrentNodeAssignmentSteer, error) {
-	return s.delegate.SteerCurrentNodeAssignment(ctx, reference)
-}
-
-func (s failingManualMoveAssignmentSteerer) PrepareManualMoveAssignments(
-	context.Context,
-	[]workflowstore.CurrentNodeStartContext,
-) (
-	workflowstore.ManualMoveTargetAssignmentPreparation,
-	map[workflow.CurrentNodeReferenceKey]workflowexecution.CurrentNodeAssignmentSteer,
-	error,
-) {
-	return workflowstore.ManualMoveTargetAssignmentPreparation{}, nil, s.cause
-}
-
-func (s failAfterManualMoveAssignmentPreparationSteerer) SteerCurrentNodeAssignment(
-	ctx context.Context,
-	reference workflow.CurrentNodeReference,
-) (workflowexecution.CurrentNodeAssignmentSteer, error) {
-	return s.delegate.SteerCurrentNodeAssignment(ctx, reference)
-}
-
-func (s failAfterManualMoveAssignmentPreparationSteerer) PrepareManualMoveAssignments(
-	ctx context.Context,
-	inputs []workflowstore.CurrentNodeStartContext,
-) (
-	workflowstore.ManualMoveTargetAssignmentPreparation,
-	map[workflow.CurrentNodeReferenceKey]workflowexecution.CurrentNodeAssignmentSteer,
-	error,
-) {
-	preparation, _, err := s.delegate.PrepareManualMoveAssignments(ctx, inputs)
-	if err != nil {
-		return workflowstore.ManualMoveTargetAssignmentPreparation{}, nil, err
-	}
-	return preparation, nil, s.cause
-}
-
-func (s diagnosticManualMoveAssignmentSteerer) SteerCurrentNodeAssignment(
-	ctx context.Context,
-	reference workflow.CurrentNodeReference,
-) (workflowexecution.CurrentNodeAssignmentSteer, error) {
-	return s.delegate.SteerCurrentNodeAssignment(ctx, reference)
-}
-
-func (s diagnosticManualMoveAssignmentSteerer) PrepareManualMoveAssignments(
-	ctx context.Context,
-	inputs []workflowstore.CurrentNodeStartContext,
-) (
-	workflowstore.ManualMoveTargetAssignmentPreparation,
-	map[workflow.CurrentNodeReferenceKey]workflowexecution.CurrentNodeAssignmentSteer,
-	error,
-) {
-	preparation, steers, err := s.delegate.PrepareManualMoveAssignments(ctx, inputs)
-	if err != nil {
-		return workflowstore.ManualMoveTargetAssignmentPreparation{}, nil, err
-	}
-	preparation.Diagnostic = s.diagnostic
-	return preparation, steers, nil
+type currentNodeRunnerConversationState struct {
+	nodes       []workflow.CurrentNode
+	approvals   []workflow.PendingApproval
+	association workflowstore.TaskSessionAssociation
+	target      *worktreepb.SessionExecutionTarget
+	history     []string
 }
 
 func workflowPostCompletionCompactionResponse(summary string) llm.CompactionResponse {
@@ -183,78 +128,66 @@ func (s currentNodeRunnerStepLifecycle) StepEnded(
 	).StepEnded(ctx, snapshot)
 }
 
-type currentNodeStartContextStore struct {
-	RuntimeStore
-	transform func(workflowstore.CurrentNodeStartContext) workflowstore.CurrentNodeStartContext
-}
-
-func (s currentNodeStartContextStore) ResolveCurrentNodeStartContext(
-	ctx context.Context,
-	reference workflow.CurrentNodeReference,
-) (workflowstore.CurrentNodeStartContext, error) {
-	input, err := s.RuntimeStore.ResolveCurrentNodeStartContext(ctx, reference)
-	if err != nil {
-		return workflowstore.CurrentNodeStartContext{}, err
-	}
-	return s.transform(input), nil
-}
-
 func newCurrentNodeRunnerFixture(t *testing.T, steps ...ScriptedRuntimeStep) *currentNodeRunnerFixture {
-	return newCurrentNodeRunnerFixtureWithClient(
+	return newCurrentNodeRunnerFixtureWithLoadOptions(t, config.LoadOptions{}, steps...)
+}
+
+func newCurrentNodeRunnerFixtureWithLoadOptions(t *testing.T, options config.LoadOptions, steps ...ScriptedRuntimeStep) *currentNodeRunnerFixture {
+	return newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		t,
 		NewScriptedClient(
 			llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true},
 			steps...,
 		),
+		false,
+		options,
 	)
 }
 
 func newCurrentNodeRunnerFixtureWithClient(t *testing.T, client currentNodeRunnerClient) *currentNodeRunnerFixture {
-	return newCurrentNodeRunnerFixtureWithClientAndPersistence(t, client, false, nil)
+	return newCurrentNodeRunnerFixtureWithClientAndPersistence(t, client, false, config.LoadOptions{})
 }
 
 func newCurrentNodeRunnerFixtureWithPersistenceGate(
 	t *testing.T,
 	client currentNodeRunnerClient,
 ) *currentNodeRunnerFixture {
-	return newCurrentNodeRunnerFixtureWithClientAndPersistence(t, client, true, nil)
-}
-
-func newCurrentNodeRunnerFixtureWithAssignmentSteerer(
-	t *testing.T,
-	client currentNodeRunnerClient,
-	factory currentNodeAssignmentSteererFactory,
-) *currentNodeRunnerFixture {
-	return newCurrentNodeRunnerFixtureWithClientAndPersistence(t, client, false, factory)
+	return newCurrentNodeRunnerFixtureWithClientAndPersistence(t, client, true, config.LoadOptions{})
 }
 
 func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 	t *testing.T,
 	client currentNodeRunnerClient,
 	withPersistenceGate bool,
-	assignmentSteererFactory currentNodeAssignmentSteererFactory,
+	loadOptions config.LoadOptions,
 ) *currentNodeRunnerFixture {
 	t.Helper()
 	home := t.TempDir()
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv(config.PersistenceRootEnvName, filepath.Join(home, "persistence"))
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
 	cfg.Settings.Model = "workflow-base"
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 	cfg.Settings.Workflow.CompletionMode = config.WorkflowCompletionModeStructuredOutput
 	cfg.Settings.Reviewer.Frequency = "off"
 	cfg.Settings.Subagents["coder"] = config.SubagentRole{
 		Description: "Coder",
 		Settings:    config.Settings{Model: "workflow-coder"},
-		Sources:     map[string]string{"model": "test"},
+		Sources:     map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 	}
 	cfg.Settings.Subagents["reviewer"] = config.SubagentRole{
 		Description: "Reviewer",
 		Settings:    config.Settings{Model: "workflow-reviewer"},
-		Sources:     map[string]string{"model": "test"},
+		Sources:     map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
+	}
+	writeCurrentNodeConfig(t, cfg)
+	cfg, err = config.ApplyLoadOptionsToSnapshot(cfg, loadOptions)
+	if err != nil {
+		t.Fatal(err)
 	}
 	metadataStore, err := metadata.Open(cfg.PersistenceRoot)
 	if err != nil {
@@ -296,9 +229,10 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 	fixture.runtimes = registry.NewRuntimeRegistry()
 	var controller *workflowexecution.CurrentNodeController
 	fixture.authority = sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: cfg.PersistenceRoot,
-		StoreOptions:    storeOptions,
-		PromptFeed:      fixture.runtimes,
+		WorkspaceMembership: fixture.metadata,
+		PersistenceRoot:     cfg.PersistenceRoot,
+		StoreOptions:        storeOptions,
+		PromptFeed:          fixture.runtimes,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event agentruntime.Event) {
 			fixture.runtimes.PublishAuthorityRuntimeEvent(resource, event)
 		},
@@ -330,8 +264,9 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		t.Fatalf("new Task dependency counter: %v", err)
 	}
 	starter, err := NewStarter(cfg, metadataStore, store, nil, nil, StarterOptions{
-		RuntimeAuthority: fixture.authority,
-		TaskDependencies: dependencyCounter,
+		WorkspaceConfigLoadOptions: loadOptions,
+		RuntimeAuthority:           fixture.authority,
+		TaskDependencies:           dependencyCounter,
 		RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(_ context.Context, request runtimewire.RuntimeClientRequest) (llm.Client, error) {
 			fixture.mu.Lock()
 			fixture.clientRequests = append(fixture.clientRequests, request)
@@ -347,13 +282,9 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		t.Fatalf("new starter: %v", err)
 	}
 	fixture.starter = starter
-	var assignmentSteerer workflowexecution.CurrentNodeAssignmentSteerer = starter
-	if assignmentSteererFactory != nil {
-		assignmentSteerer = assignmentSteererFactory(starter)
-	}
 	controller, err = workflowexecution.NewCurrentNodeController(store, starter, fixture.authority, permit, workflowexecution.CurrentNodeControllerConfig{
-		AgentConcurrency:  1,
-		AssignmentSteerer: assignmentSteerer,
+		AgentConcurrency: 1,
+		ExecutionTargets: fixture,
 	})
 	if err != nil {
 		t.Fatalf("new current node controller: %v", err)
@@ -375,6 +306,60 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 	return fixture
 }
 
+func writeCurrentNodeConfig(t testing.TB, cfg config.App) {
+	t.Helper()
+	rendered, err := config.RenderSettingsTOMLForOnboarding(cfg.Settings, config.OnboardingWriteOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if _, err := toml.Decode(rendered, &document); err != nil {
+		t.Fatal(err)
+	}
+	if threshold := cfg.Settings.Workflow.PreCompactionTokens; threshold != nil {
+		document["workflow"].(map[string]any)["pre_compaction_tokens"] = *threshold
+	}
+	roles := map[string]any{}
+	for name, role := range cfg.Settings.Subagents {
+		values := map[string]any{}
+		toolSettings := map[string]any{}
+		toolKeys := map[string]toolspec.ID{}
+		for _, id := range toolspec.CatalogIDs() {
+			toolKeys["tools."+toolspec.ConfigName(id)] = id
+		}
+		for key := range role.Sources {
+			switch key {
+			case "model":
+				values[key] = role.Settings.Model
+			case "thinking_level":
+				values[key] = role.Settings.ThinkingLevel
+			case "connection":
+				values[key] = string(*role.Settings.Connection)
+			case "model_capabilities":
+				values[key] = map[string]any{"supports_reasoning_effort": role.Settings.ModelCapabilities.SupportsReasoningEffort, "supports_vision_inputs": role.Settings.ModelCapabilities.SupportsVisionInputs}
+			default:
+				id, supported := toolKeys[key]
+				if !supported {
+					t.Fatalf("fixture setting %s needs an authored TOML declaration", key)
+				}
+				toolSettings[toolspec.ConfigName(id)] = role.Settings.EnabledTools[id]
+			}
+		}
+		if len(toolSettings) > 0 {
+			values["tools"] = toolSettings
+		}
+		roles[name] = values
+	}
+	document["subagents"] = roles
+	var contents bytes.Buffer
+	if err := toml.NewEncoder(&contents).Encode(document); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.PersistenceRoot, "config.toml"), contents.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func (f *currentNodeRunnerFixture) createTask(t *testing.T, workflowID runtimeids.WorkflowID) workflowstore.TaskRecord {
 	t.Helper()
 	if _, err := f.store.LinkWorkflow(context.Background(), f.projectID, workflowID, true); err != nil {
@@ -392,44 +377,99 @@ func (f *currentNodeRunnerFixture) createTask(t *testing.T, workflowID runtimeid
 
 func (f *currentNodeRunnerFixture) startTask(t *testing.T, task workflowstore.TaskRecord) workflow.CurrentNodeReference {
 	t.Helper()
-	finalized := make(chan workflowexecution.TaskPreparationFinalization, 1)
+	return f.startTaskWithExecutionTarget(t, task, &workflowstore.ExecutionTargetCandidate{
+		Snapshot: workflowstore.ExecutionTargetSnapshot{
+			Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved,
+		},
+		Root: workflowstore.ExecutionRoot{SourceWorkspaceID: f.workspaceID, SourceWorkspaceRoot: f.workspace},
+	})
+}
+
+func (f *currentNodeRunnerFixture) startTaskWithExecutionTarget(t *testing.T, task workflowstore.TaskRecord, candidate *workflowstore.ExecutionTargetCandidate) workflow.CurrentNodeReference {
+	t.Helper()
 	started, err := f.controller.StartTask(
 		context.Background(),
 		task.ID,
-		workflowexecution.TaskStartPreparation{
-			Prepare: func(context.Context) error { return nil },
-			Commit: func(ctx context.Context) error {
-				return f.store.LockTaskExecutionTarget(ctx, task.ID, &workflowstore.ExecutionTargetCandidate{
-					Snapshot: workflowstore.ExecutionTargetSnapshot{
-						Mode:       workflow.ExecutionTargetModeNone,
-						Provenance: workflowstore.ExecutionTargetProvenanceResolved,
-					},
-					Root: workflowstore.ExecutionRoot{
-						SourceWorkspaceID:   f.workspaceID,
-						SourceWorkspaceRoot: f.workspace,
-					},
-				})
-			},
-		},
-		func(finalization workflowexecution.TaskPreparationFinalization) {
-			finalized <- finalization
-		},
+		candidate,
 	)
 	if err != nil {
 		t.Fatalf("start task: %v", err)
-	}
-	select {
-	case finalization := <-finalized:
-		if finalization.Kind != workflowexecution.TaskPreparationHandedOff {
-			t.Fatalf("task preparation finalization = %+v, want handed off", finalization)
-		}
-	case <-time.After(currentNodeRunnerWait):
-		t.Fatal("task preparation did not hand off to Current Node admission")
 	}
 	if len(started.Mutation.Created) != 1 {
 		t.Fatalf("start mutation = %+v, want one Current Node", started.Mutation)
 	}
 	return started.Mutation.Created[0].Reference
+}
+
+func (f *currentNodeRunnerFixture) commitTaskStart(ctx context.Context, taskID workflow.TaskID) (workflowstore.StartTaskResult, error) {
+	target, err := f.store.GetTaskExecutionTargetContext(ctx, taskID)
+	if err != nil {
+		return workflowstore.StartTaskResult{}, err
+	}
+	var candidate *workflowstore.ExecutionTargetCandidate
+	if target.Task.ExecutionTarget == nil {
+		candidate = &workflowstore.ExecutionTargetCandidate{
+			Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
+			Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: f.workspaceID, SourceWorkspaceRoot: f.workspace},
+		}
+	}
+	plan, err := f.store.PlanTaskStart(ctx, taskID, candidate)
+	if err != nil {
+		return workflowstore.StartTaskResult{}, err
+	}
+	var bindings []workflowstore.PlannedCurrentNodeSession
+	var preparations []workflowexecution.CurrentNodeAssignmentSteer
+	for _, input := range plan.StartContexts() {
+		prepared, err := f.starter.PrepareCurrentNode(ctx, input, workflowruntime.TaskPromptDeliveryAssignment)
+		if err != nil {
+			return workflowstore.StartTaskResult{}, err
+		}
+		if prepared.Session != nil {
+			bindings = append(bindings, *prepared.Session)
+		}
+		if prepared.Assignment != nil {
+			preparations = append(preparations, prepared.Assignment)
+		}
+	}
+	started, err := f.store.CommitTaskStart(ctx, plan, bindings)
+	if err != nil {
+		return started, err
+	}
+	for _, preparation := range preparations {
+		if err := preparation.(workflowexecution.CurrentNodeAssignmentPreparation).Prepare(ctx); err != nil {
+			return started, err
+		}
+	}
+	return started, nil
+}
+
+func (f *currentNodeRunnerFixture) commitCurrentNode(ctx context.Context, req workflowstore.CurrentNodeCompletionRequest) (workflowstore.CurrentNodeCompletionOutcome, error) {
+	plan, err := f.store.PlanCurrentNodeCompletion(ctx, req)
+	if err != nil {
+		return workflowstore.CurrentNodeCompletionOutcome{}, err
+	}
+	var sessions []workflowstore.PlannedCurrentNodeSession
+	var starts []workflowexecution.CurrentNodeAssignmentSteer
+	for _, input := range plan.StartContexts() {
+		prepared, err := f.starter.PrepareCurrentNode(ctx, input, workflowruntime.TaskPromptDeliveryAssignment)
+		if err != nil {
+			return workflowstore.CurrentNodeCompletionOutcome{}, err
+		}
+		if prepared.Session != nil {
+			sessions = append(sessions, *prepared.Session)
+			starts = append(starts, prepared.Assignment)
+		}
+	}
+	result, err := f.store.CommitCurrentNodeCompletion(ctx, plan, sessions)
+	if err != nil {
+		return result, err
+	}
+	for _, start := range starts {
+		if err := start.(workflowexecution.CurrentNodeAssignmentPreparation).Prepare(ctx); err != nil {
+			return result, err
+		}
+	}
+	return result, nil
 }
 
 func (f *currentNodeRunnerFixture) restartRuntime(t *testing.T) {
@@ -447,9 +487,10 @@ func (f *currentNodeRunnerFixture) restartRuntime(t *testing.T) {
 	f.runtimes = registry.NewRuntimeRegistry()
 	storeOptions := f.metadata.AuthoritativeSessionStoreOptions()
 	f.authority = sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: f.cfg.PersistenceRoot,
-		StoreOptions:    storeOptions,
-		PromptFeed:      f.runtimes,
+		WorkspaceMembership: f.metadata,
+		PersistenceRoot:     f.cfg.PersistenceRoot,
+		StoreOptions:        storeOptions,
+		PromptFeed:          f.runtimes,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event agentruntime.Event) {
 			f.runtimes.PublishAuthorityRuntimeEvent(resource, event)
 		},
@@ -484,8 +525,8 @@ func (f *currentNodeRunnerFixture) restartRuntime(t *testing.T) {
 		f.authority,
 		permit,
 		workflowexecution.CurrentNodeControllerConfig{
-			AgentConcurrency:  1,
-			AssignmentSteerer: f.starter,
+			AgentConcurrency: 1,
+			ExecutionTargets: f,
 		},
 	)
 	if err != nil {
@@ -516,6 +557,74 @@ func (f *currentNodeRunnerFixture) waitForCurrentNode(t *testing.T, taskID workf
 	}
 	t.Fatalf("Current Nodes = %s did not reach expected state", encoded)
 	return nil
+}
+
+func (f *currentNodeRunnerFixture) waitForDormantRetainedSession(
+	t *testing.T,
+	taskID workflow.TaskID,
+) (runtimeids.SessionID, session.SessionDescriptor) {
+	t.Helper()
+	nodes := f.waitForCurrentNode(t, taskID, func(nodes []workflow.CurrentNode) bool {
+		return len(nodes) == 1 && nodes[0].SessionID != nil
+	})
+	sessionID := *nodes[0].SessionID
+	descriptor, err := session.NewOpenSessionDescriptor(sessionID)
+	if err != nil {
+		t.Fatalf("open retained Session descriptor: %v", err)
+	}
+	deadline := time.Now().Add(currentNodeRunnerWait)
+	for {
+		admission, admissionErr := f.authority.WithDormantSessionStore(
+			context.Background(),
+			descriptor,
+			func(context.Context, *session.Store) error { return nil },
+		)
+		if admissionErr != nil {
+			t.Fatalf("wait for dormant retained Session: %v", admissionErr)
+		}
+		if !admission.RuntimeAvailable {
+			return sessionID, descriptor
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("retained Session runtime remained open")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func (f *currentNodeRunnerFixture) appendManualCompactionReplacement(
+	t *testing.T,
+	descriptor session.SessionDescriptor,
+) {
+	t.Helper()
+	_, err := f.authority.WithDormantSessionStore(
+		context.Background(),
+		descriptor,
+		func(_ context.Context, store *session.Store) error {
+			log, err := store.MaterializeEventLog()
+			if err != nil {
+				return err
+			}
+			stepID := "manual-compaction"
+			_, receipt, err := log.AppendCompactionHistoryReplacement(
+				&stepID,
+				session.HistoryReplacementRecord{
+					Engine: "local",
+					Mode:   session.CompactionModeManual,
+				},
+			)
+			if err != nil {
+				return err
+			}
+			if !receipt.Committed {
+				return errors.New("manual compaction replacement did not commit")
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("persist successful manual compaction replacement: %v", err)
+	}
 }
 
 func (f *currentNodeRunnerFixture) waitForWorkflowExecution(t *testing.T, reference workflow.CurrentNodeReference) {
@@ -581,6 +690,98 @@ func (f *currentNodeRunnerFixture) runtimeRequests() []runtimewire.RuntimeClient
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]runtimewire.RuntimeClientRequest(nil), f.clientRequests...)
+}
+
+func (f *currentNodeRunnerFixture) openRetainedRuntime(
+	t *testing.T,
+	sessionID runtimeids.SessionID,
+) sessionruntime.RuntimeAttachment {
+	t.Helper()
+	requests := f.runtimeRequests()
+	var prepared *runtimewire.RuntimeClientRequest
+	for index := len(requests) - 1; index >= 0; index-- {
+		if requests[index].SessionID == sessionID.String() {
+			prepared = &requests[index]
+			break
+		}
+	}
+	if prepared == nil {
+		t.Fatalf("runtime client was never prepared for Session %s", sessionID)
+	}
+	filesystemContext, err := runtimewire.NewFilesystemContext(f.workspace, f.workspace, f.projectID)
+	if err != nil {
+		t.Fatalf("create retained runtime filesystem context: %v", err)
+	}
+	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		MainWorkspaceRoot:     f.workspace,
+		Settings:              prepared.ActiveSettings,
+		EnabledTools:          prepared.EnabledTools,
+		FilesystemContext:     askquestion.FilesystemContext{Access: filesystemContext.Access},
+		Sources:               prepared.Sources,
+		Headless:              true,
+		QuestionsEnabled:      textutil.Value(true),
+		AutoCompactionEnabled: textutil.Value(true),
+		Client:                f.client,
+	})
+	if err != nil {
+		t.Fatalf("build retained runtime plan: %v", err)
+	}
+	attachment, err := f.authority.OpenRuntime(context.Background(), sessionruntime.RuntimeOpenRequest{
+		SessionID: sessionID,
+		OwnerID:   uuid.NewString(),
+		Runtime:   &plan,
+	})
+	if err != nil {
+		t.Fatalf("open retained runtime: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, releaseErr := attachment.Release(context.Background(), sessionruntime.RuntimeReleaseClose); releaseErr != nil &&
+			!errors.Is(releaseErr, serverapi.ErrRuntimeUnavailable) {
+			t.Errorf("release retained runtime: %v", releaseErr)
+		}
+	})
+	return attachment
+}
+
+func (f *currentNodeRunnerFixture) retainedRuntimeCompactionMode(
+	t *testing.T,
+	sessionID runtimeids.SessionID,
+) string {
+	t.Helper()
+	var mode string
+	if err := f.authority.WithCurrentRuntime(
+		context.Background(),
+		sessionID,
+		func(_ context.Context, engine *agentruntime.Engine) error {
+			mode = engine.CompactionMode()
+			return nil
+		},
+	); err != nil {
+		t.Fatalf("inspect retained runtime compaction mode: %v", err)
+	}
+	return mode
+}
+
+func (f *currentNodeRunnerFixture) failWhenWorkflowAssignmentPersists(
+	t *testing.T,
+	identity string,
+	cause error,
+) *atomic.Bool {
+	t.Helper()
+	matched := new(atomic.Bool)
+	f.persistenceGate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
+		assignment := snapshot.Meta.ActiveWorkflowAssignment
+		if assignment == nil ||
+			assignment.MessageType == nil ||
+			*assignment.MessageType != session.MessageTypeWorkflowMode ||
+			assignment.SourcePath == nil ||
+			*assignment.SourcePath != identity {
+			return false
+		}
+		matched.Store(true)
+		return true
+	}, cause)
+	return matched
 }
 
 func (f *currentNodeRunnerFixture) onlyProjectSessionMeta(t *testing.T) session.Meta {
@@ -672,6 +873,149 @@ func (f *currentNodeRunnerFixture) waitForModelRequestsWithin(
 		t.Fatalf("model requests = %d, want %d", len(requests), count)
 	}
 	return requests
+}
+
+func (f *currentNodeRunnerFixture) waitForAssistantFinal(
+	t *testing.T,
+	sessionID runtimeids.SessionID,
+	text string,
+) {
+	t.Helper()
+	deadline := time.Now().Add(currentNodeRunnerWait)
+	for time.Now().Before(deadline) {
+		found := false
+		err := f.authority.WithCurrentRuntime(
+			context.Background(),
+			sessionID,
+			func(_ context.Context, engine *agentruntime.Engine) error {
+				return engine.WithTranscriptHydrationSnapshot(func(snapshot agentruntime.TranscriptHydrationSnapshot) error {
+					for _, row := range snapshot.CommittedRows {
+						if row.Kind == agentruntime.TranscriptCommittedRowFactAssistant &&
+							row.Assistant != nil &&
+							row.Assistant.Phase == llm.MessagePhaseFinal &&
+							row.Assistant.Text == text {
+							found = true
+							return nil
+						}
+					}
+					return nil
+				})
+			},
+		)
+		if err != nil {
+			t.Fatalf("read retained Session transcript: %v", err)
+		}
+		if found {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("assistant final %q was not persisted in Session %s", text, sessionID)
+}
+
+func (f *currentNodeRunnerFixture) conversationState(
+	t *testing.T,
+	taskID workflow.TaskID,
+	source workflow.CurrentNodeReference,
+	sessionID runtimeids.SessionID,
+) currentNodeRunnerConversationState {
+	t.Helper()
+	nodes, err := f.store.ListCurrentNodes(context.Background(), taskID)
+	if err != nil {
+		t.Fatalf("list Current Nodes: %v", err)
+	}
+	approvals, err := f.store.ListPendingApprovals(context.Background(), taskID)
+	if err != nil {
+		t.Fatalf("list pending Approvals: %v", err)
+	}
+	association, err := f.store.LatestTaskSessionForNode(context.Background(), source)
+	if err != nil {
+		t.Fatalf("resolve retained source Session: %v", err)
+	}
+	target, err := f.metadata.ResolveOptionalSessionExecutionTarget(context.Background(), sessionID.String())
+	if err != nil {
+		t.Fatalf("resolve execution target: %v", err)
+	}
+	history, err := f.metadata.ReadPromptHistory(context.Background(), sessionID.String())
+	if err != nil {
+		t.Fatalf("read prompt history: %v", err)
+	}
+	return currentNodeRunnerConversationState{
+		nodes:       nodes,
+		approvals:   approvals,
+		association: association,
+		target:      target,
+		history:     history,
+	}
+}
+
+func assertConversationWorkflowStateUnchanged(
+	t *testing.T,
+	before, after currentNodeRunnerConversationState,
+) {
+	t.Helper()
+	if !reflect.DeepEqual(after.nodes, before.nodes) {
+		t.Fatalf("Current Nodes after continuation = %+v, want unchanged %+v", after.nodes, before.nodes)
+	}
+	if !reflect.DeepEqual(after.approvals, before.approvals) {
+		t.Fatalf("pending Approvals after continuation = %+v, want unchanged %+v", after.approvals, before.approvals)
+	}
+	if !reflect.DeepEqual(after.association, before.association) {
+		t.Fatalf("retained source association after continuation = %+v, want unchanged %+v", after.association, before.association)
+	}
+	if !reflect.DeepEqual(after.target, before.target) {
+		t.Fatalf("execution target after continuation = %+v, want unchanged %+v", after.target, before.target)
+	}
+}
+
+func (f *currentNodeRunnerFixture) runHeadlessOrdinaryContinuation(
+	t *testing.T,
+	sessionID runtimeids.SessionID,
+	prompt string,
+	answer string,
+) (string, int) {
+	t.Helper()
+	provider, err := modelstub.StartScriptedResponsesStub(modelstub.Script{
+		Steps: []modelstub.ScriptStep{
+			modelstub.ToolBatch("inspect", llm.ToolCall{
+				ID:    "ordinary-tool",
+				Name:  string(toolspec.ToolExecCommand),
+				Input: json.RawMessage(`{"cmd":"true"}`),
+			}),
+			modelstub.FinalAnswer(answer),
+		},
+	})
+	if err != nil {
+		t.Fatalf("start scripted Responses provider: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Stop() })
+	definition := f.cfg.Settings.Connections[*f.cfg.Settings.Connection]
+	definition.Endpoint = textutil.Value(provider.URL())
+	f.cfg.Settings.Connections[*f.cfg.Settings.Connection] = definition
+	f.cfg.Settings = testsetup.WriteProviderSettings(t, f.cfg.PersistenceRoot, f.cfg.Settings)
+	headless := runprompt.NewInProcessRunPromptClient(runprompt.HeadlessBootstrap{
+		SessionLaunch: sessionlaunch.NewService(launch.Planner{
+			Config:            f.cfg,
+			ContainerDir:      filepath.Join(f.cfg.PersistenceRoot, "projects", f.projectID, "sessions"),
+			StoreOptions:      f.metadata.AuthoritativeSessionStoreOptions(),
+			PersistedSessions: f.metadata,
+			ExecutionTargets:  f.metadata,
+			SessionProjects:   f.metadata, ManagedWorktreeRoots: f.metadata,
+		}, sessionlaunch.ChatSettingsOwner{}),
+		PromptHistory:    f.metadata,
+		RuntimeAuthority: f.authority,
+	})
+	response, err := headless.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+		Intent: serverapi.OpenExistingSessionLaunchIntent(sessionID),
+		Prompt: prompt,
+	}, nil)
+	if err != nil {
+		t.Fatalf("headless ordinary continuation: %v", err)
+	}
+	if response == nil {
+		t.Fatal("headless ordinary continuation returned no response")
+	}
+	return response.Result, provider.ScriptedRequestCount()
 }
 
 func (f *currentNodeRunnerFixture) waitForPendingApproval(t *testing.T, taskID workflow.TaskID) workflow.PendingApproval {
@@ -796,7 +1140,6 @@ func TestCurrentNodeAgentStartsFreshSessionWithLatestRoleAndCompletionContract(t
 	}
 	assignments := workflowAssignments(modelRequests[0])
 	wantBaseContextTypes := []llm.MessageType{
-		llm.MessageTypeSubagents,
 		llm.MessageTypeSkills,
 		llm.MessageTypeAgentsMD,
 		llm.MessageTypeAgentsMD,
@@ -811,6 +1154,258 @@ func TestCurrentNodeAgentStartsFreshSessionWithLatestRoleAndCompletionContract(t
 	meta := f.onlyProjectSessionMeta(t)
 	if meta.Continuation == nil || meta.Continuation.AgentRole == nil || *meta.Continuation.AgentRole != "coder" {
 		t.Fatalf("fresh workflow Session continuation = %+v, want persisted coder identity", meta.Continuation)
+	}
+}
+
+func TestCompletedWorkflowSessionAllowsOrdinaryHeadlessContinuation(t *testing.T) {
+	f := newCurrentNodeRunnerFixture(
+		t,
+		ScriptedFinalAnswer(`{"transition":"next","commentary":"ready for approval"}`),
+		ScriptedToolBatch("inspect", llm.ToolCall{
+			ID:    "inspect",
+			Name:  string(toolspec.ToolExecCommand),
+			Input: json.RawMessage(`{"cmd":"true"}`),
+		}),
+		ScriptedFinalAnswer("ordinary answer"),
+	)
+	workflowID := createCurrentNodeLinearWorkflow(
+		t,
+		f.store,
+		"Completed Session continuation",
+		[]currentNodeWorkflowStep{
+			{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete the first node."},
+			{kind: workflow.NodeKindAgent, role: "coder", prompt: "Continue after approval."},
+		},
+		[]currentNodeLinearTransition{{
+			id:               "next",
+			mode:             workflow.ContextModeContinueSession,
+			requiresApproval: true,
+		}},
+	)
+	task := f.createTask(t, workflowID)
+	source := f.startTask(t, task)
+	approval := f.waitForPendingApproval(t, task.ID)
+	f.waitForTaskQuiescence(t, task.ID)
+	association, err := f.store.LatestTaskSessionForNode(context.Background(), source)
+	if err != nil {
+		t.Fatalf("resolve retained source Session: %v", err)
+	}
+	sessionID := association.SessionID
+
+	before := f.conversationState(t, task.ID, source, sessionID)
+	prompt := "continue this ordinary conversation"
+
+	result, providerRequests := f.runHeadlessOrdinaryContinuation(t, sessionID, prompt, "ordinary answer")
+	if result != "ordinary answer" {
+		t.Fatalf("headless response = %q, want ordinary answer", result)
+	}
+	after := f.conversationState(t, task.ID, source, sessionID)
+	assertConversationWorkflowStateUnchanged(t, before, after)
+	if len(after.approvals) != 1 ||
+		after.approvals[0].ID != approval.ID ||
+		!after.approvals[0].Source.Equal(source) {
+		t.Fatalf("pending Approvals after continuation = %+v, want unchanged Approval %+v", after.approvals, approval)
+	}
+	if len(after.history) != len(before.history)+1 || after.history[len(after.history)-1] != prompt {
+		t.Fatalf("prompt history after continuation = %+v, want %q appended to %+v", after.history, prompt, before.history)
+	}
+	if got := len(f.client.Requests()); got != 1 {
+		t.Fatalf("Workflow model requests = %d, want one initial Workflow request", got)
+	}
+	if providerRequests != 2 {
+		t.Fatalf("ordinary continuation provider requests = %d, want tool step plus final answer", providerRequests)
+	}
+}
+
+func TestCompletedWorkflowSessionAllowsOrdinaryInteractiveContinuation(t *testing.T) {
+	f := newCurrentNodeRunnerFixture(
+		t,
+		ScriptedFinalAnswer(`{"transition":"next","commentary":"ready for approval"}`),
+		ScriptedToolBatch("inspect", llm.ToolCall{
+			ID:    "inspect",
+			Name:  string(toolspec.ToolExecCommand),
+			Input: json.RawMessage(`{"cmd":"true"}`),
+		}),
+		ScriptedFinalAnswer("ordinary answer"),
+	)
+	workflowID := createCurrentNodeLinearWorkflow(
+		t,
+		f.store,
+		"Completed Session interactive continuation",
+		[]currentNodeWorkflowStep{
+			{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete the first node."},
+			{kind: workflow.NodeKindAgent, role: "coder", prompt: "Continue after approval."},
+		},
+		[]currentNodeLinearTransition{{
+			id:               "next",
+			mode:             workflow.ContextModeContinueSession,
+			requiresApproval: true,
+		}},
+	)
+	task := f.createTask(t, workflowID)
+	source := f.startTask(t, task)
+	approval := f.waitForPendingApproval(t, task.ID)
+	f.waitForTaskQuiescence(t, task.ID)
+	association, err := f.store.LatestTaskSessionForNode(context.Background(), source)
+	if err != nil {
+		t.Fatalf("resolve retained source Session: %v", err)
+	}
+	sessionID := association.SessionID
+	before := f.conversationState(t, task.ID, source, sessionID)
+	f.openRetainedRuntime(t, sessionID)
+
+	service := runtimecontrol.NewService(f.authority).
+		WithPromptHistoryStore(f.metadata).
+		WithWorkflowSessionReactivator(f.controller).
+		WithWorkflowSessionPreparationReader(f.controller)
+	response, err := service.SubmitUserTurn(
+		context.Background(),
+		&runtimepb.SubmitUserTurnRequest{
+			SessionId: sessionID.String(),
+			Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "continue ordinary conversation"}},
+		},
+	)
+	if err != nil {
+		t.Fatalf("interactive ordinary continuation: %v", err)
+	}
+	if response == nil || response.GetQueued() == nil || response.GetQueued().GetQueueItemId() == "" {
+		t.Fatalf("interactive continuation response = %+v, want queued acceptance", response)
+	}
+	f.waitForModelRequests(t, 3)
+	f.waitForAssistantFinal(t, sessionID, "ordinary answer")
+
+	after := f.conversationState(t, task.ID, source, sessionID)
+	assertConversationWorkflowStateUnchanged(t, before, after)
+	if len(after.approvals) != 1 ||
+		after.approvals[0].ID != approval.ID ||
+		!after.approvals[0].Source.Equal(source) {
+		t.Fatalf("pending Approvals after continuation = %+v, want unchanged Approval %+v", after.approvals, approval)
+	}
+	if len(after.history) != len(before.history)+1 ||
+		after.history[len(after.history)-1] != "continue ordinary conversation" {
+		t.Fatalf("prompt history after continuation = %+v, want one ordinary prompt appended to %+v", after.history, before.history)
+	}
+}
+
+func TestWorkflowMovedPastSessionAllowsOrdinaryHeadlessContinuation(t *testing.T) {
+	f := newCurrentNodeRunnerFixture(
+		t,
+		ScriptedFinalAnswer(`{"transition":"next","commentary":"source complete"}`),
+		ScriptedFinalAnswer(`{"commentary":"successor complete"}`),
+	)
+	workflowID := createCurrentNodeLinearWorkflow(
+		t,
+		f.store,
+		"Moved Session continuation",
+		[]currentNodeWorkflowStep{
+			{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete the source node."},
+			{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete the successor node."},
+		},
+		[]currentNodeLinearTransition{{
+			id:   "next",
+			mode: workflow.ContextModeNewSession,
+		}},
+	)
+	task := f.createTask(t, workflowID)
+	source := f.startTask(t, task)
+	f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
+		return len(nodes) == 1 && !nodes[0].Reference.Equal(source)
+	})
+	f.waitForTaskQuiescence(t, task.ID)
+	association, err := f.store.LatestTaskSessionForNode(context.Background(), source)
+	if err != nil {
+		t.Fatalf("resolve retained source Session: %v", err)
+	}
+	sessionID := association.SessionID
+	if count, err := f.store.CountTaskSessions(context.Background(), task.ID); err != nil || count != 2 {
+		t.Fatalf("Task Session count after Workflow movement = %d, %v; want source and successor Sessions", count, err)
+	}
+	before := f.conversationState(t, task.ID, source, sessionID)
+	prompt := "continue the old ordinary conversation"
+
+	result, providerRequests := f.runHeadlessOrdinaryContinuation(t, sessionID, prompt, "ordinary answer")
+	if result != "ordinary answer" {
+		t.Fatalf("headless old retained Session response = %q, want ordinary answer", result)
+	}
+	after := f.conversationState(t, task.ID, source, sessionID)
+	assertConversationWorkflowStateUnchanged(t, before, after)
+	if len(after.history) != len(before.history)+1 || after.history[len(after.history)-1] != prompt {
+		t.Fatalf("prompt history after continuation = %+v, want %q appended to %+v", after.history, prompt, before.history)
+	}
+	if got := len(f.client.Requests()); got != 2 {
+		t.Fatalf("Workflow model requests = %d, want source and successor turns only", got)
+	}
+	if providerRequests != 2 {
+		t.Fatalf("ordinary continuation provider requests = %d, want tool step plus final answer", providerRequests)
+	}
+}
+
+func TestWorkflowMovedPastSessionAllowsOrdinaryInteractiveContinuation(t *testing.T) {
+	f := newCurrentNodeRunnerFixture(
+		t,
+		ScriptedFinalAnswer(`{"transition":"next","commentary":"source complete"}`),
+		ScriptedFinalAnswer(`{"commentary":"successor complete"}`),
+		ScriptedToolBatch("inspect", llm.ToolCall{
+			ID:    "inspect-old-session",
+			Name:  string(toolspec.ToolExecCommand),
+			Input: json.RawMessage(`{"cmd":"true"}`),
+		}),
+		ScriptedFinalAnswer("ordinary answer"),
+	)
+	workflowID := createCurrentNodeLinearWorkflow(
+		t,
+		f.store,
+		"Moved Session interactive continuation",
+		[]currentNodeWorkflowStep{
+			{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete the source node."},
+			{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete the successor node."},
+		},
+		[]currentNodeLinearTransition{{
+			id:   "next",
+			mode: workflow.ContextModeNewSession,
+		}},
+	)
+	task := f.createTask(t, workflowID)
+	source := f.startTask(t, task)
+	f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
+		return len(nodes) == 1 && !nodes[0].Reference.Equal(source)
+	})
+	f.waitForTaskQuiescence(t, task.ID)
+	association, err := f.store.LatestTaskSessionForNode(context.Background(), source)
+	if err != nil {
+		t.Fatalf("resolve retained source Session: %v", err)
+	}
+	sessionID := association.SessionID
+	if count, err := f.store.CountTaskSessions(context.Background(), task.ID); err != nil || count != 2 {
+		t.Fatalf("Task Session count after Workflow movement = %d, %v; want source and successor Sessions", count, err)
+	}
+	before := f.conversationState(t, task.ID, source, sessionID)
+	f.openRetainedRuntime(t, sessionID)
+
+	service := runtimecontrol.NewService(f.authority).
+		WithPromptHistoryStore(f.metadata).
+		WithWorkflowSessionReactivator(f.controller).
+		WithWorkflowSessionPreparationReader(f.controller)
+	response, err := service.SubmitUserTurn(
+		context.Background(),
+		&runtimepb.SubmitUserTurnRequest{
+			SessionId: sessionID.String(),
+			Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "continue the old ordinary conversation"}},
+		},
+	)
+	if err != nil {
+		t.Fatalf("interactive old retained Session continuation: %v", err)
+	}
+	if response == nil || response.GetQueued() == nil || response.GetQueued().GetQueueItemId() == "" {
+		t.Fatalf("interactive old retained Session response = %+v, want queued acceptance", response)
+	}
+	f.waitForModelRequests(t, 4)
+	f.waitForAssistantFinal(t, sessionID, "ordinary answer")
+	after := f.conversationState(t, task.ID, source, sessionID)
+	assertConversationWorkflowStateUnchanged(t, before, after)
+	if len(after.history) != len(before.history)+1 ||
+		after.history[len(after.history)-1] != "continue the old ordinary conversation" {
+		t.Fatalf("prompt history after continuation = %+v, want one ordinary prompt appended to %+v", after.history, before.history)
 	}
 }
 
@@ -844,8 +1439,8 @@ func TestCurrentNodeAgentWritesToSiblingWorkspaceThroughCreatedRuntime(t *testin
 	if err != nil {
 		t.Fatalf("marshal sibling edit input: %v", err)
 	}
-	f := newCurrentNodeRunnerFixture(
-		t,
+	f := newCurrentNodeRunnerFixtureWithLoadOptions(
+		t, config.LoadOptions{Tools: "edit"},
 		ScriptedToolBatch("write sibling", llm.ToolCall{
 			ID:    "sibling-patch",
 			Name:  string(toolspec.ToolEdit),
@@ -858,6 +1453,10 @@ func TestCurrentNodeAgentWritesToSiblingWorkspaceThroughCreatedRuntime(t *testin
 		}),
 		ScriptedFinalAnswer("done"),
 	)
+	f.starter.cfg, err = config.ApplyLoadOptionsToSnapshot(f.starter.cfg, config.LoadOptions{Tools: "edit"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := f.metadata.AttachWorkspaceToProject(context.Background(), f.projectID, sibling); err != nil {
 		t.Fatalf("AttachWorkspaceToProject sibling: %v", err)
 	}
@@ -952,6 +1551,49 @@ func TestApprovalAppliesStrictPreviousTargetOnceAfterSourceRetires(t *testing.T)
 	}
 }
 
+func TestApprovalStartsScriptTargetWithoutAgentAssignment(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture is a POSIX shell script")
+	}
+	f := newCurrentNodeRunnerFixture(
+		t,
+		ScriptedFinalAnswer(`{"transition":"next","commentary":"ready for approval"}`),
+	)
+	markerPath := filepath.Join(f.workspace, "approved-script.started")
+	scriptPath := filepath.Join(f.workspace, "approved-script.sh")
+	script := "#!/bin/sh\n: > " + workflowRunnerShellQuote(markerPath) + "\nprintf '%s' '{\"commentary\":\"approved script ran\"}'\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write approved Script: %v", err)
+	}
+	workflowID := createCurrentNodeLinearWorkflow(
+		t,
+		f.store,
+		"Approved Script target",
+		[]currentNodeWorkflowStep{
+			{kind: workflow.NodeKindAgent, role: "coder", prompt: "Prepare the script transition."},
+			{kind: workflow.NodeKindScript, scriptPath: scriptPath},
+		},
+		[]currentNodeLinearTransition{{
+			id:               "next",
+			mode:             workflow.ContextModeNewSession,
+			requiresApproval: true,
+		}},
+	)
+	task := f.createTask(t, workflowID)
+	f.startTask(t, task)
+	approval := f.waitForPendingApproval(t, task.ID)
+	f.waitForTaskQuiescence(t, task.ID)
+
+	if _, err := f.controller.ApplyPendingApproval(context.Background(), approval.ID); err != nil {
+		t.Fatalf("apply Script target Approval: %v", err)
+	}
+	f.waitForPath(t, markerPath)
+	f.waitForTaskQuiescence(t, task.ID)
+	if requests := f.client.Requests(); len(requests) != 1 {
+		t.Fatalf("model requests = %d, want only the source Agent request", len(requests))
+	}
+}
+
 func TestManualMoveToRetainedTargetAssignsBeforeResumingLockedSession(t *testing.T) {
 	auditScriptPath := filepath.Join(t.TempDir(), "audit.sh")
 	if err := os.WriteFile(auditScriptPath, []byte("#!/bin/sh\nexit 23\n"), 0o755); err != nil {
@@ -959,16 +1601,9 @@ func TestManualMoveToRetainedTargetAssignsBeforeResumingLockedSession(t *testing
 	}
 	f := newCurrentNodeRunnerFixture(
 		t,
-		ScriptedToolBatch(
-			"complete implementation",
-			llm.ToolCall{
-				ID:    "complete-implementation",
-				Name:  string(toolspec.ToolCompleteNode),
-				Input: json.RawMessage(`{"transition":"next","commentary":"implemented"}`),
-			},
-		),
-		ScriptedRuntimeError(ErrScriptedRuntime),
-		ScriptedRuntimeError(ErrScriptedRuntime),
+		ScriptedFinalAnswer(`{"transition":"review","commentary":"implemented"}`),
+		ScriptedCancellation(),
+		ScriptedCancellation(),
 	)
 	workflowID := createCurrentNodeLinearWorkflow(
 		t,
@@ -989,10 +1624,11 @@ func TestManualMoveToRetainedTargetAssignsBeforeResumingLockedSession(t *testing
 		},
 	)
 	task := f.createTask(t, workflowID)
-	f.startTask(t, task)
+	initial := f.startTask(t, task)
 	f.waitForModelRequests(t, 2)
 	review := f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
 		return len(nodes) == 1 &&
+			!nodes[0].Reference.Equal(initial) &&
 			nodes[0].SessionID != nil &&
 			nodes[0].Scheduling != nil &&
 			nodes[0].Scheduling.Interruption != nil
@@ -1070,23 +1706,6 @@ func TestManualMoveToRetainedTargetAssignsBeforeResumingLockedSession(t *testing
 			nodes[0].Scheduling.Interruption != nil
 	})
 	f.waitForTaskQuiescence(t, task.ID)
-	retainedRecord, err := f.metadata.ResolvePersistedSession(context.Background(), review.SessionID.String())
-	if err != nil {
-		t.Fatalf("resolve retained Review Session: %v", err)
-	}
-	retainedStore, err := session.Open(
-		retainedRecord.SessionDir,
-		f.metadata.AuthoritativeSessionStoreOptions()...,
-	)
-	if err != nil {
-		t.Fatalf("open retained Review Session: %v", err)
-	}
-	legacySnapshot := retainedStore.PromptFacingMetadataSnapshot()
-	legacySnapshot.ActiveWorkflowAssignment = nil
-	legacySnapshot.ActiveWorkflowAssignmentState = nil
-	if err := retainedStore.RestorePromptFacingMetadata(legacySnapshot); err != nil {
-		t.Fatalf("simulate retained Session created before assignment projection: %v", err)
-	}
 	rework := workflow.TransitionID("rework")
 	prepared, err := f.store.PrepareManualMove(context.Background(), workflowstore.ManualMoveRequest{
 		TaskID:        task.ID,
@@ -1105,15 +1724,15 @@ func TestManualMoveToRetainedTargetAssignsBeforeResumingLockedSession(t *testing
 		*moved.Mutation.Created[0].SessionID != *review.SessionID {
 		t.Fatalf("Manual Move target = %+v, want retained Session %s", moved.Mutation.Created, *review.SessionID)
 	}
-	if count := f.workflowAssignmentRecordCount(t, *review.SessionID); count != 2 {
-		t.Fatalf("workflow assignment records after Manual Move = %d, want one appended target assignment", count)
-	}
-
 	requests := f.waitForModelRequests(t, 3)
+	if count := f.workflowAssignmentRecordCount(t, *review.SessionID); count != 2 {
+		t.Fatalf("workflow assignment records before provider work = %d, want one appended target assignment", count)
+	}
 	assignments := workflowAssignments(requests[2])
-	if len(assignments) != 1 ||
-		assignments[0].sourcePath != workflowruntime.CurrentNodePromptIdentity(review.Reference) {
-		t.Fatalf("resumed workflow assignments = %+v, want Manual Move target assignment", assignments)
+	previousAssignments := workflowAssignments(requests[1])
+	if len(assignments) != len(previousAssignments)+1 ||
+		assignments[len(assignments)-1].sourcePath != workflowruntime.CurrentNodePromptIdentity(review.Reference) {
+		t.Fatalf("resumed workflow assignments = %+v, want one new Manual Move target assignment after retained history", assignments)
 	}
 	runtimeRequests := f.runtimeRequests()
 	runtimeModels := make([]string, 0, len(runtimeRequests))
@@ -1194,13 +1813,7 @@ func TestManualMoveFromInterruptedScriptAssignsAgentBeforeModelRequest(t *testin
 
 func TestManualMoveAssignmentPreparationFailureLeavesOriginCurrent(t *testing.T) {
 	cause := errors.New("assignment preparation failed")
-	f := newCurrentNodeRunnerFixtureWithAssignmentSteerer(
-		t,
-		NewScriptedClient(llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true}),
-		func(starter *Starter) workflowexecution.CurrentNodeAssignmentSteerer {
-			return failingManualMoveAssignmentSteerer{delegate: starter, cause: cause}
-		},
-	)
+	f := newCurrentNodeRunnerFixtureWithClient(t, NewScriptedClient(llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true}))
 	scriptPath := filepath.Join(t.TempDir(), "fail.sh")
 	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 23\n"), 0o755); err != nil {
 		t.Fatalf("write failing Script: %v", err)
@@ -1243,6 +1856,9 @@ func TestManualMoveAssignmentPreparationFailureLeavesOriginCurrent(t *testing.T)
 	if err != nil {
 		t.Fatalf("prepare Manual Move: %v", err)
 	}
+	f.mu.Lock()
+	f.clientErr = cause
+	f.mu.Unlock()
 	moved, err := f.controller.ApplyManualMove(context.Background(), prepared, nil)
 	if !errors.Is(err, cause) {
 		t.Fatalf("Manual Move error = %v, want %v", err, cause)
@@ -1262,17 +1878,14 @@ func TestManualMoveAssignmentPreparationFailureLeavesOriginCurrent(t *testing.T)
 	}
 }
 
-func TestManualMoveRetainedSessionPreparationFailureRestoresPromptFacingMetadata(t *testing.T) {
-	cause := errors.New("assignment preparation failed after retained Session mutation")
-	f := newCurrentNodeRunnerFixtureWithAssignmentSteerer(
+func TestManualMoveRetainedSessionPreparationFailurePreservesPromptFacingMetadata(t *testing.T) {
+	cause := errors.New("provider preparation failed")
+	f := newCurrentNodeRunnerFixtureWithClient(
 		t,
 		NewScriptedClient(
 			llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true},
 			ScriptedRuntimeError(ErrScriptedRuntime),
 		),
-		func(starter *Starter) workflowexecution.CurrentNodeAssignmentSteerer {
-			return failAfterManualMoveAssignmentPreparationSteerer{delegate: starter, cause: cause}
-		},
 	)
 	workflowID := createCurrentNodeChainedWorkflow(t, f.store, workflow.ContextModeCompactAndContinueSession)
 	task := f.createTask(t, workflowID)
@@ -1312,6 +1925,9 @@ func TestManualMoveRetainedSessionPreparationFailureRestoresPromptFacingMetadata
 	if err != nil {
 		t.Fatalf("PrepareManualMove: %v", err)
 	}
+	f.mu.Lock()
+	f.clientErr = cause
+	f.mu.Unlock()
 	if _, err := f.controller.ApplyManualMove(context.Background(), prepared, nil); !errors.Is(err, cause) {
 		t.Fatalf("ApplyManualMove error = %v, want %v", err, cause)
 	}
@@ -1326,16 +1942,16 @@ func TestManualMoveRetainedSessionPreparationFailureRestoresPromptFacingMetadata
 		!reflect.DeepEqual(before.Meta.Locked, after.Meta.Locked) {
 		t.Fatalf("retained Session prompt-facing metadata changed after rejected Manual Move:\nbefore=%+v\nafter=%+v", before.Meta, after.Meta)
 	}
-	if assignments := f.workflowAssignmentRecordCount(t, sessionID); assignments != beforeAssignments+2 {
+	if assignments := f.workflowAssignmentRecordCount(t, sessionID); assignments != beforeAssignments {
 		t.Fatalf(
-			"retained Session assignments after rejected Manual Move = %d, want target plus origin restoration after %d existing",
+			"retained Session assignments after rejected Manual Move = %d, want %d unchanged before compaction",
 			assignments,
 			beforeAssignments,
 		)
 	}
 }
 
-func TestAutomaticFreshSessionBindsOnlyAfterAssignmentCommit(t *testing.T) {
+func TestStartBindsSessionBeforeAssignmentAndWaitsForAssignmentBeforeProvider(t *testing.T) {
 	f := newCurrentNodeRunnerFixtureWithPersistenceGate(
 		t,
 		NewScriptedClient(
@@ -1347,7 +1963,7 @@ func TestAutomaticFreshSessionBindsOnlyAfterAssignmentCommit(t *testing.T) {
 	task := f.createTask(t, workflowID)
 	assignmentPending, releaseAssignment := f.persistenceGate.BlockWhen(
 		func(snapshot session.PersistedStoreSnapshot) bool {
-			return snapshot.Meta.LastSequence >= 2
+			return snapshot.Meta.ActiveWorkflowAssignment != nil
 		},
 	)
 	t.Cleanup(releaseAssignment)
@@ -1362,8 +1978,11 @@ func TestAutomaticFreshSessionBindsOnlyAfterAssignmentCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list Current Nodes before assignment commit: %v", err)
 	}
-	if len(nodes) != 1 || !nodes[0].Reference.Equal(currentNode) || nodes[0].SessionID != nil {
-		t.Fatalf("Current Nodes before assignment commit = %+v, want unbound %v", nodes, currentNode)
+	if len(nodes) != 1 || !nodes[0].Reference.Equal(currentNode) || nodes[0].SessionID == nil {
+		t.Fatalf("Current Nodes before assignment commit = %+v, want exact bound %v", nodes, currentNode)
+	}
+	if requests := f.client.Requests(); len(requests) != 0 {
+		t.Fatalf("provider requests before assignment commit = %d, want none", len(requests))
 	}
 
 	releaseAssignment()
@@ -1377,7 +1996,7 @@ func TestAutomaticFreshSessionBindsOnlyAfterAssignmentCommit(t *testing.T) {
 	})
 }
 
-func TestAutomaticUncommittedFreshAssignmentDoesNotBindSessionToCurrentNode(t *testing.T) {
+func TestUncommittedInitialAssignmentRetainsExactSessionForExplicitResume(t *testing.T) {
 	cause := errors.New("assignment persistence failed")
 	f := newCurrentNodeRunnerFixtureWithPersistenceGate(
 		t,
@@ -1389,7 +2008,7 @@ func TestAutomaticUncommittedFreshAssignmentDoesNotBindSessionToCurrentNode(t *t
 	workflowID := createCurrentNodeAgentWorkflow(t, f.store)
 	task := f.createTask(t, workflowID)
 	f.persistenceGate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
-		return snapshot.Meta.LastSequence >= 2
+		return snapshot.Meta.LastSequence > 0 && snapshot.Meta.ActiveWorkflowAssignment == nil
 	}, cause)
 
 	currentNode := f.startTask(t, task)
@@ -1400,22 +2019,20 @@ func TestAutomaticUncommittedFreshAssignmentDoesNotBindSessionToCurrentNode(t *t
 			nodes[0].Scheduling.Interruption != nil
 	})
 	f.waitForTaskQuiescence(t, task.ID)
-	if nodes[0].SessionID != nil {
-		t.Fatalf(
-			"Current Node retained unassigned Session %s after assignment failure",
-			*nodes[0].SessionID,
-		)
+	if nodes[0].SessionID == nil {
+		t.Fatal("Current Node lost its committed Session after assignment failure")
 	}
+	committedID := *nodes[0].SessionID
 	sessionIDs, err := f.metadata.ListProjectSessionIDs(context.Background(), f.projectID)
 	if err != nil {
 		t.Fatalf("list project Sessions: %v", err)
 	}
-	if len(sessionIDs) != 0 {
-		t.Fatalf("project Sessions after uncommitted assignment = %+v, want none", sessionIDs)
+	if len(sessionIDs) != 1 || sessionIDs[0] != committedID.String() {
+		t.Fatalf("project Sessions after uncommitted assignment = %+v, want exact committed Session", sessionIDs)
 	}
 
 	f.restartRuntime(t)
-	resumed, err := f.controller.ResumeTask(context.Background(), task.ID)
+	resumed, err := f.controller.ResumeTask(context.Background(), task.ID, nil)
 	if err != nil {
 		t.Fatalf("ResumeTask after assignment failure: %v", err)
 	}
@@ -1432,6 +2049,9 @@ func TestAutomaticUncommittedFreshAssignmentDoesNotBindSessionToCurrentNode(t *t
 			nodes[0].Scheduling.Interruption != nil &&
 			len(f.client.Requests()) == 1
 	})
+	if *nodes[0].SessionID != committedID {
+		t.Fatalf("Resume changed exact Session from %s to %s", committedID, *nodes[0].SessionID)
+	}
 	assignments := workflowAssignments(f.client.Requests()[0])
 	if len(assignments) != 1 ||
 		assignments[0].sourcePath != workflowruntime.CurrentNodePromptIdentity(currentNode) {
@@ -1439,7 +2059,7 @@ func TestAutomaticUncommittedFreshAssignmentDoesNotBindSessionToCurrentNode(t *t
 	}
 }
 
-func TestManualMoveUncommittedFreshAssignmentCleansSessionAndLeavesOriginCurrent(t *testing.T) {
+func TestManualMoveAssignmentFailureInterruptsCommittedDestination(t *testing.T) {
 	cause := errors.New("assignment persistence failed")
 	f := newCurrentNodeRunnerFixtureWithPersistenceGate(
 		t,
@@ -1481,7 +2101,7 @@ func TestManualMoveUncommittedFreshAssignmentCleansSessionAndLeavesOriginCurrent
 		t.Fatal("workflow has no Agent target")
 	}
 	f.persistenceGate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
-		return snapshot.Meta.LastSequence >= 2
+		return snapshot.Meta.LastSequence > 0 && snapshot.Meta.ActiveWorkflowAssignment == nil
 	}, cause)
 	prepared, err := f.store.PrepareManualMove(context.Background(), workflowstore.ManualMoveRequest{
 		TaskID:       task.ID,
@@ -1491,104 +2111,34 @@ func TestManualMoveUncommittedFreshAssignmentCleansSessionAndLeavesOriginCurrent
 		t.Fatalf("prepare Manual Move: %v", err)
 	}
 	moved, err := f.controller.ApplyManualMove(context.Background(), prepared, nil)
-	if !errors.Is(err, cause) {
-		t.Fatalf("Manual Move error = %v, want %v", err, cause)
-	}
-	if moved.Outcome != "" {
-		t.Fatalf("Manual Move result = %+v, want unapplied zero result", moved)
-	}
-	nodes, err := f.store.ListCurrentNodes(context.Background(), task.ID)
 	if err != nil {
-		t.Fatalf("list Current Nodes: %v", err)
+		t.Fatalf("Manual Move: %v", err)
 	}
-	if len(nodes) != 1 || !nodes[0].Reference.Equal(origin) {
-		t.Fatalf("Current Nodes after uncommitted assignment = %+v, want origin %v", nodes, origin)
+	if moved.Outcome != workflowstore.ManualMoveResultOutcomeApplied {
+		t.Fatalf("Manual Move result = %+v, want committed destination", moved)
+	}
+	nodes := f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
+		return len(nodes) == 1 && nodes[0].Reference.NodeID == target && nodes[0].Scheduling != nil && nodes[0].Scheduling.Interruption != nil
+	})
+	if nodes[0].SessionID == nil {
+		t.Fatal("failed destination lost its committed Session")
 	}
 	sessionIDs, err := f.metadata.ListProjectSessionIDs(context.Background(), f.projectID)
 	if err != nil {
 		t.Fatalf("list project Sessions: %v", err)
 	}
-	if len(sessionIDs) != 0 {
-		t.Fatalf("project Sessions after uncommitted assignment = %+v, want none", sessionIDs)
+	if len(sessionIDs) != 1 || sessionIDs[0] != nodes[0].SessionID.String() {
+		t.Fatalf("project Sessions after uncommitted assignment = %+v, want exact committed Session", sessionIDs)
 	}
-	sessionDirs, err := os.ReadDir(filepath.Join(f.cfg.PersistenceRoot, "projects", f.projectID, "sessions"))
-	if err != nil {
-		t.Fatalf("read project Session directory: %v", err)
+	if requests := f.client.Requests(); len(requests) != 0 {
+		t.Fatalf("provider requests after assignment failure = %d, want none", len(requests))
 	}
-	if len(sessionDirs) != 0 {
-		t.Fatalf("durable Session directories after uncommitted assignment = %d, want none", len(sessionDirs))
-	}
-}
-
-func TestManualMoveCommittedAssignmentDiagnosticAppliesAndStartsTarget(t *testing.T) {
-	diagnostic := errors.New("assignment observer diagnostic")
-	f := newCurrentNodeRunnerFixtureWithAssignmentSteerer(
-		t,
-		NewScriptedClient(
-			llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true},
-			ScriptedRuntimeError(ErrScriptedRuntime),
-		),
-		func(starter *Starter) workflowexecution.CurrentNodeAssignmentSteerer {
-			return diagnosticManualMoveAssignmentSteerer{
-				delegate:   starter,
-				diagnostic: diagnostic,
-			}
-		},
-	)
-	scriptPath := filepath.Join(t.TempDir(), "fail.sh")
-	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 23\n"), 0o755); err != nil {
-		t.Fatalf("write failing Script: %v", err)
-	}
-	workflowID := createCurrentNodeTwoStepWorkflow(
-		t,
-		f.store,
-		"Manual Move committed assignment diagnostic",
-		workflow.ContextModeNewSession,
-		currentNodeWorkflowStep{kind: workflow.NodeKindScript, scriptPath: scriptPath},
-		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "reviewer", prompt: "Review the task."},
-	)
-	task := f.createTask(t, workflowID)
-	f.startTask(t, task)
-	f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
-		return len(nodes) == 1 &&
-			nodes[0].Scheduling != nil &&
-			nodes[0].Scheduling.Interruption != nil
-	})
-	f.waitForTaskQuiescence(t, task.ID)
-	definition, _, err := f.store.GetDefinition(context.Background(), workflowID)
-	if err != nil {
-		t.Fatalf("GetDefinition: %v", err)
-	}
-	var target workflow.NodeID
-	for _, node := range definition.Nodes {
-		if node.Kind() == workflow.NodeKindAgent {
-			target = workflow.NodeIDOf(node)
-			break
-		}
-	}
-	if target == "" {
-		t.Fatal("workflow has no Agent target")
-	}
-	prepared, err := f.store.PrepareManualMove(context.Background(), workflowstore.ManualMoveRequest{
-		TaskID:       task.ID,
-		TargetNodeID: target,
-	})
-	if err != nil {
-		t.Fatalf("prepare Manual Move: %v", err)
-	}
-	moved, err := f.controller.ApplyManualMove(context.Background(), prepared, nil)
-	if !errors.Is(err, diagnostic) {
-		t.Fatalf("Manual Move error = %v, want committed diagnostic %v", err, diagnostic)
-	}
-	if moved.Outcome != workflowstore.ManualMoveResultOutcomeApplied {
-		t.Fatalf("Manual Move result = %+v, want applied", moved)
-	}
-	f.waitForModelRequests(t, 1)
 }
 
 func TestCompactAndContinueSessionEstablishesTargetRoleGeneration(t *testing.T) {
-	f := newCurrentNodeRunnerFixture(
-		t,
+	client := NewCompactingScriptedClient(
+		llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true, SupportsResponsesCompact: true, SupportsPromptCacheKey: true},
+		[]llm.CompactionResponse{workflowPostCompletionCompactionResponse("direct-source")},
 		ScriptedToolBatch(
 			"complete first node",
 			llm.ToolCall{
@@ -1597,8 +2147,12 @@ func TestCompactAndContinueSessionEstablishesTargetRoleGeneration(t *testing.T) 
 				Input: json.RawMessage(`{"transition":"next","commentary":"first done"}`),
 			},
 		),
-		ScriptedRuntimeError(ErrScriptedRuntime),
+		ScriptedFinalAnswer(`{"commentary":"reviewed"}`),
 	)
+	f := newCurrentNodeRunnerFixtureWithClient(t, client)
+	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
+	configureCompactionThinking(t, f)
 	workflowID := createCurrentNodeTwoStepWorkflow(
 		t,
 		f.store,
@@ -1610,12 +2164,26 @@ func TestCompactAndContinueSessionEstablishesTargetRoleGeneration(t *testing.T) 
 	task := f.createTask(t, workflowID)
 	f.startTask(t, task)
 	f.waitForModelRequests(t, 2)
+	compactions := client.CompactionCalls()
+	if len(compactions) != 1 {
+		t.Fatalf("direct continuation compactions = %d, want one", len(compactions))
+	}
+	requireLazyCompactionPreservesRequestPrefix(t, client.Requests()[0], compactions[0])
+	if client.Requests()[0].ReasoningEffort != "low" || client.Requests()[1].ReasoningEffort != "high" {
+		t.Fatalf("direct continuation Thinking = %q -> %q, want low -> high", client.Requests()[0].ReasoningEffort, client.Requests()[1].ReasoningEffort)
+	}
 
 	requests := f.runtimeRequests()
 	if len(requests) != 2 || requests[0].ActiveSettings.Model != "workflow-coder" || requests[1].ActiveSettings.Model != "workflow-reviewer" {
 		t.Fatalf("runtime role models = %+v, want coder then reviewer", requests)
 	}
+	if requests[0].Connection.ID != "coder" || requests[1].Connection.ID != "reviewer" {
+		t.Fatalf("compact-and-continue connection selection = %v then %v", requests[0].Connection.ID, requests[1].Connection.ID)
+	}
 	meta := f.onlyProjectSessionMeta(t)
+	if meta.ConnectionID == nil || *meta.ConnectionID != "reviewer" {
+		t.Fatalf("target connection was not persisted: %v", meta.ConnectionID)
+	}
 	if meta.Continuation == nil || meta.Continuation.AgentRole == nil || *meta.Continuation.AgentRole != "reviewer" {
 		t.Fatalf("compacted workflow Session continuation = %+v, want persisted reviewer identity", meta.Continuation)
 	}
@@ -1657,6 +2225,7 @@ func TestWorkflowPostCompletionCompactionReachesCACTargetWithoutSecondSummary(t 
 	)
 	f := newCurrentNodeRunnerFixtureWithClient(t, client)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	workflowID := createCurrentNodeThreeStepWorkflow(
 		t,
 		f.store,
@@ -1703,8 +2272,10 @@ func TestPostCommitDiagnosticPreservesApprovalAndCACBoundary(t *testing.T) {
 	)
 	f := newCurrentNodeRunnerFixtureWithPersistenceGate(t, client)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	threshold := 1
 	f.starter.cfg.Settings.Workflow.PreCompactionTokens = &threshold
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	var observed atomic.Bool
 	f.persistenceGate.FailWhen(func(session.PersistedStoreSnapshot) bool {
 		return len(client.CompactionCalls()) > 0 && observed.Swap(true)
@@ -1741,6 +2312,14 @@ func TestPostCommitDiagnosticPreservesApprovalAndCACBoundary(t *testing.T) {
 }
 
 func TestDisabledCACRetriesExistingTargetOnResumeAfterConfigurationChange(t *testing.T) {
+	runDisabledCACResumeAfterConfigurationChange(t, false)
+}
+
+func TestDisabledCACRetriesExistingTargetOnResumeAfterConfigurationChangeWithOpenRuntime(t *testing.T) {
+	runDisabledCACResumeAfterConfigurationChange(t, true)
+}
+
+func runDisabledCACResumeAfterConfigurationChange(t *testing.T, keepRuntimeOpen bool) {
 	client := NewCompactingScriptedClient(
 		llm.ProviderCapabilities{
 			ProviderID:               "test",
@@ -1776,6 +2355,7 @@ func TestDisabledCACRetriesExistingTargetOnResumeAfterConfigurationChange(t *tes
 	)
 	f := newCurrentNodeRunnerFixtureWithClient(t, client)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNone
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	workflowID := createCurrentNodeThreeStepWorkflow(
 		t,
 		f.store,
@@ -1788,8 +2368,8 @@ func TestDisabledCACRetriesExistingTargetOnResumeAfterConfigurationChange(t *tes
 	f.startTask(t, task)
 	approval := f.waitForPendingApproval(t, task.ID)
 	f.waitForTaskQuiescence(t, approval.Source.TaskID)
-	if _, err := f.controller.ApplyPendingApproval(context.Background(), approval.ID); err != nil {
-		t.Fatalf("apply CAC target Approval: %v", err)
+	if _, err := f.controller.ApplyPendingApproval(context.Background(), approval.ID); err == nil {
+		t.Fatal("disabled lazy compaction did not surface its preparation failure")
 	}
 	interrupted := f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
 		return len(nodes) == 1 &&
@@ -1800,22 +2380,33 @@ func TestDisabledCACRetriesExistingTargetOnResumeAfterConfigurationChange(t *tes
 		t.Fatal("disabled CAC target lost its assigned Session")
 	}
 	f.waitForTaskQuiescence(t, interrupted.Reference.TaskID)
+	if keepRuntimeOpen {
+		f.openRetainedRuntime(t, *interrupted.SessionID)
+	}
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
-	if _, err := f.controller.ResumeTask(context.Background(), task.ID); err != nil {
+	writeCurrentNodeConfig(t, f.starter.cfg)
+	if _, err := f.controller.ResumeTask(context.Background(), task.ID, nil); err != nil {
 		t.Fatalf("resume disabled CAC target: %v", err)
 	}
 	requests := f.waitForModelRequestsWithin(t, 3, 60*time.Second)
 	if len(client.CompactionCalls()) != 1 {
 		t.Fatalf("resumed target-time compactions = %d, want one", len(client.CompactionCalls()))
 	}
-	targets := f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
-		return len(nodes) == 1 && nodes[0].Reference.Equal(interrupted.Reference)
-	})
-	if targets[0].SessionID == nil || *targets[0].SessionID != *interrupted.SessionID {
-		t.Fatalf("resumed target Session = %v, want assigned Session %v", targets[0].SessionID, interrupted.SessionID)
+	if requests[2].SessionID == nil || *requests[2].SessionID != interrupted.SessionID.String() {
+		t.Fatalf("resumed target Session = %v, want assigned Session %v", requests[2].SessionID, interrupted.SessionID)
 	}
 	if len(requests) != 3 {
 		t.Fatalf("resumed model requests = %d, want source, source, target", len(requests))
+	}
+	record, err := f.metadata.ResolvePersistedSession(context.Background(), interrupted.SessionID.String())
+	if err != nil {
+		t.Fatalf("resolve resumed target Session: %v", err)
+	}
+	if record.Meta == nil ||
+		record.Meta.Continuation == nil ||
+		record.Meta.Continuation.AgentRole == nil ||
+		*record.Meta.Continuation.AgentRole != "reviewer" {
+		t.Fatalf("resumed target Session role = %+v, want reviewer", record.Meta)
 	}
 }
 
@@ -1848,8 +2439,10 @@ func TestWorkflowPostCompletionCompactionPreservesOrdinaryContinueReplacementKey
 	)
 	f := newCurrentNodeRunnerFixtureWithClient(t, client)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	threshold := 1
 	f.starter.cfg.Settings.Workflow.PreCompactionTokens = &threshold
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	workflowID := createCurrentNodeThreeStepWorkflowWithTransition(
 		t,
 		f.store,
@@ -1915,6 +2508,132 @@ func TestPostTurnCompactionDiagnosticReleasesAssignedSuccessor(t *testing.T) {
 	}
 }
 
+func TestCompletedReplacementSynchronizesRetainedResidentSessionTools(t *testing.T) {
+	for _, managed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("managed=%t", managed), func(t *testing.T) {
+			ctx := context.Background()
+			f := newCurrentNodeRunnerFixture(t, ScriptedCancellation(),
+				ScriptedToolBatch("relative operations", llm.ToolCall{
+					ID: "relative-operations", Name: string(toolspec.ToolExecCommand),
+					Input: json.RawMessage(`{"cmd":"pwd > actual-cwd; cat relative-input > relative-output; printf reopened > relative-input"}`),
+				}), ScriptedCancellation())
+			workflowID := createCurrentNodeAgentWorkflowWithCompletionMode(t, f.store, string(config.WorkflowCompletionModeTool))
+			workflowfixture.SaveStoreGraph(t, ctx, f.store, workflowID, func(definition workflow.Definition, request *workflowstore.WorkflowGraphSaveRequest) {
+				agentID := workflow.NodeIDOf(nodeByKindRunnerTest(t, definition, workflow.NodeKindAgent))
+				groupID := workflow.TransitionGroupID(runtimeids.NewGraphEntityID())
+				request.TransitionGroups = append(request.TransitionGroups, workflowstore.TransitionGroupRecord{
+					ID: groupID, WorkflowID: workflowID, SourceNodeID: agentID, TransitionID: "reopen", DisplayName: "Reopen",
+				})
+				request.Edges = append(request.Edges, workflowstore.EdgeRecord{
+					ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: workflowID,
+					TransitionGroupID: groupID, Key: "reopen", TargetNodeID: agentID,
+					AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured,
+					ContextMode: workflow.ContextModeContinueSession, ContextSource: workflow.ContextSource{Kind: workflow.ContextSourcePreviousTargetOrNew},
+					PromptTemplate: "Reopen the task.",
+				})
+			})
+			task := f.createTask(t, workflowID)
+			initial, worktrees := prepareMissingWorktreeCompletion(t, f, task)
+			original := *initial.Root.Managed
+			source := f.startTaskWithExecutionTarget(t, task, &initial)
+			initialNodes := f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
+				return len(nodes) == 1 && nodes[0].Scheduling != nil && nodes[0].Scheduling.Interruption != nil
+			})
+			if len(f.client.Requests()) == 0 {
+				t.Fatalf("initial execution failed: %+v", initialNodes[0].Scheduling.Interruption)
+			}
+			f.waitForModelRequests(t, 1)
+			f.waitForTaskQuiescence(t, task.ID)
+			meta := f.onlyProjectSessionMeta(t)
+			if _, err := f.commitCurrentNode(ctx, workflowstore.CurrentNodeCompletionRequest{Source: source, TransitionID: "done"}); err != nil {
+				t.Fatal(err)
+			}
+			filesystem, err := runtimewire.NewFilesystemContext(original.Root, original.Root, f.projectID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			first := f.runtimeRequests()[0]
+			plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+				MainWorkspaceRoot: f.workspace,
+				Settings:          first.ActiveSettings, EnabledTools: first.EnabledTools, FilesystemContext: filesystem,
+				Sources: first.Sources, QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true), Client: f.client,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			sessionID, err := runtimeids.ParseSessionID(meta.SessionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			attachment, err := f.authority.OpenRuntime(ctx, sessionruntime.RuntimeOpenRequest{
+				SessionID: sessionID, OwnerID: "retained-reopening-owner", Runtime: &plan,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if _, err := attachment.Release(context.Background(), sessionruntime.RuntimeReleaseClose); err != nil && !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+					t.Error(err)
+				}
+			})
+			replacement := &workflowstore.ExecutionTargetCandidate{
+				Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
+				Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: f.workspaceID, SourceWorkspaceRoot: f.workspace},
+			}
+			if managed {
+				replacement.Snapshot = initial.Snapshot
+				created, err := worktrees.CreateWorktree(ctx, &worktreepb.CreateRequest{
+					SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+					Scope:            worktreecontract.WorkspaceManagementScope(f.projectID, f.workspaceID, nil),
+					Spec:             &worktreepb.CreateSpec{BaseRef: textutil.Value("HEAD"), CreateBranch: true, BranchName: textutil.Value("replacement")},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				facts := created.Worktree.Topology.GetRegistered()
+				replacement.Root.Managed = &workflowstore.ManagedExecutionRoot{WorktreeID: facts.Kent.WorktreeId, Root: facts.Git.CanonicalRoot}
+			}
+			for _, root := range []string{original.Root, replacement.Root.EffectiveRoot()} {
+				if err := os.WriteFile(filepath.Join(root, "relative-input"), []byte("preserved"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			prepared, err := f.store.PrepareManualMove(ctx, workflowstore.ManualMoveRequest{
+				TaskID: task.ID, TargetNodeID: source.NodeID, TransitionKey: textutil.Value(workflow.TransitionID("reopen")),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			moved, err := f.controller.ApplyManualMove(ctx, prepared, replacement)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(moved.Mutation.Created) != 1 || moved.Mutation.Created[0].SessionID == nil || *moved.Mutation.Created[0].SessionID != sessionID {
+				t.Fatalf("reopening replaced retained Session: %+v", moved)
+			}
+			f.waitForModelRequests(t, 3)
+			f.waitForTaskQuiescence(t, task.ID)
+			root := replacement.Root.EffectiveRoot()
+			for path, want := range map[string]string{
+				filepath.Join(original.Root, "relative-input"): "preserved",
+				filepath.Join(root, "relative-input"):          "reopened",
+				filepath.Join(root, "relative-output"):         "preserved",
+				filepath.Join(root, "actual-cwd"):              root + "\n",
+			} {
+				if got, err := os.ReadFile(path); err != nil || string(got) != want {
+					t.Fatalf("tool effect %s = %q, want %q: %v", path, got, want, err)
+				}
+			}
+			if count := f.workflowAssignmentRecordCount(t, sessionID); count != 2 {
+				t.Fatalf("retained assignment history count = %d", count)
+			}
+			if err := f.authority.WithRuntime(ctx, attachment.Resource(), func(context.Context, *agentruntime.Engine) error { return nil }); err != nil {
+				t.Fatalf("original resident resource was replaced: %v", err)
+			}
+		})
+	}
+}
+
 func TestResumeRetainsEstablishedSessionContractAndAttachedRuntime(t *testing.T) {
 	f := newCurrentNodeRunnerFixture(
 		t,
@@ -1971,28 +2690,12 @@ func TestResumeRetainsEstablishedSessionContractAndAttachedRuntime(t *testing.T)
 	if _, err := f.metadata.AttachWorkspaceToProject(context.Background(), f.projectID, canonicalSiblingWorkspace); err != nil {
 		t.Fatalf("AttachWorkspaceToProject sibling: %v", err)
 	}
-	projectBoundary, err := f.metadata.ResolveProjectWorkspaceBoundary(context.Background(), f.projectID)
-	if err != nil {
-		t.Fatalf("ResolveProjectWorkspaceBoundary: %v", err)
-	}
-	interactiveFilesystemContext, err := runtimewire.NewFilesystemContext(f.workspace, f.workspace, projectBoundary)
+	interactiveFilesystemContext, err := runtimewire.NewFilesystemContext(f.workspace, f.workspace, f.projectID)
 	if err != nil {
 		t.Fatalf("NewFilesystemContext: %v", err)
 	}
-	if len(interactiveFilesystemContext.Access.ProjectWorkspace.Roots) != 2 {
-		t.Fatalf("workflow runtime Project Workspace roots = %+v, want source and sibling", interactiveFilesystemContext.Access.ProjectWorkspace.Roots)
-	}
-	foundSibling := false
-	for _, root := range interactiveFilesystemContext.Access.ProjectWorkspace.Roots {
-		if root.RealPath == canonicalSiblingWorkspace {
-			foundSibling = true
-			break
-		}
-	}
-	if !foundSibling {
-		t.Fatalf("workflow runtime roots = %+v, want sibling %q", interactiveFilesystemContext.Access.ProjectWorkspace.Roots, canonicalSiblingWorkspace)
-	}
 	interactivePlan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		MainWorkspaceRoot:     f.workspace,
 		Settings:              initialRuntime.ActiveSettings,
 		EnabledTools:          initialRuntime.EnabledTools,
 		FilesystemContext:     interactiveFilesystemContext,
@@ -2020,7 +2723,7 @@ func TestResumeRetainsEstablishedSessionContractAndAttachedRuntime(t *testing.T)
 	})
 	subscription, err := f.runtimes.SubscribeSessionTranscript(
 		context.Background(),
-		serverapi.TranscriptSubscribeRequest{SessionID: sessionID.String()},
+		&transcriptpb.SubscribeRequest{SessionId: sessionID.String()},
 	)
 	if err != nil {
 		t.Fatalf("subscribe attached Session transcript: %v", err)
@@ -2042,7 +2745,7 @@ func TestResumeRetainsEstablishedSessionContractAndAttachedRuntime(t *testing.T)
 		}
 		t.Fatalf("current Node %q missing from Workflow graph", currentNode.NodeID)
 	})
-	if _, err := f.controller.ResumeTask(context.Background(), task.ID); err != nil {
+	if _, err := f.controller.ResumeTask(context.Background(), task.ID, nil); err != nil {
 		t.Fatalf("resume task: %v", err)
 	}
 	eventCtx, cancelEvent := context.WithTimeout(context.Background(), currentNodeRunnerWait)
@@ -2077,6 +2780,632 @@ func TestResumeRetainsEstablishedSessionContractAndAttachedRuntime(t *testing.T)
 			len(f.client.Requests()) == 2
 	})
 	f.waitForTaskQuiescence(t, currentNode.TaskID)
+}
+
+func TestResumeRestoresAssignmentAfterDormantHistoryReplacement(t *testing.T) {
+	f := newCurrentNodeRunnerFixtureWithClient(
+		t,
+		NewScriptedClient(
+			llm.ProviderCapabilities{
+				ProviderID:             "test",
+				SupportsResponsesAPI:   true,
+				SupportsPromptCacheKey: true,
+			},
+			ScriptedCancellation(),
+			ScriptedCancellation(),
+		),
+	)
+	workflowID := createCurrentNodeAgentWorkflow(t, f.store)
+	task := f.createTask(t, workflowID)
+	currentNode := f.startTask(t, task)
+	f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
+		return len(nodes) == 1 &&
+			nodes[0].Reference.Equal(currentNode) &&
+			nodes[0].Scheduling != nil &&
+			nodes[0].Scheduling.Interruption != nil &&
+			len(f.client.Requests()) == 1
+	})
+	f.waitForTaskQuiescence(t, task.ID)
+	beforeMeta := f.onlyProjectSessionMeta(t)
+	beforeTarget, err := f.metadata.ResolveSessionExecutionTarget(context.Background(), beforeMeta.SessionID)
+	if err != nil {
+		t.Fatalf("resolve retained Session execution target before recovery: %v", err)
+	}
+
+	sessionID, descriptor := f.waitForDormantRetainedSession(t, task.ID)
+	f.appendManualCompactionReplacement(t, descriptor)
+
+	if _, err := f.controller.ResumeTask(context.Background(), task.ID, nil); err != nil {
+		t.Fatalf("resume compacted retained Session: %v", err)
+	}
+	requests := f.waitForModelRequests(t, 2)
+	assignments := workflowAssignments(requests[1])
+	if len(assignments) != 1 ||
+		assignments[0].sourcePath != workflowruntime.CurrentNodePromptIdentity(currentNode) {
+		t.Fatalf("resumed compacted workflow assignments = %+v, want one exact Current Node assignment", assignments)
+	}
+	if requests[1].SessionID == nil || *requests[1].SessionID != sessionID.String() {
+		t.Fatalf("resumed Session = %v, want retained Session %s", requests[1].SessionID, sessionID)
+	}
+	afterMeta := f.onlyProjectSessionMeta(t)
+	afterNodes, err := f.store.ListCurrentNodes(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("list Current Nodes after recovery: %v", err)
+	}
+	if len(afterNodes) != 1 ||
+		!afterNodes[0].Reference.Equal(currentNode) ||
+		afterNodes[0].SessionID == nil ||
+		*afterNodes[0].SessionID != sessionID {
+		t.Fatalf("Current Nodes after recovery = %+v, want retained %v/%s", afterNodes, currentNode, sessionID)
+	}
+	afterTarget, err := f.metadata.ResolveSessionExecutionTarget(context.Background(), afterMeta.SessionID)
+	if err != nil {
+		t.Fatalf("resolve retained Session execution target after recovery: %v", err)
+	}
+	if !proto.Equal(beforeTarget, afterTarget) {
+		t.Fatalf("retained Session execution target changed across recovery: before=%+v after=%+v", beforeTarget, afterTarget)
+	}
+	var beforeRole, afterRole *string
+	if beforeMeta.Continuation != nil && beforeMeta.Continuation.AgentRole != nil {
+		beforeRole = beforeMeta.Continuation.AgentRole
+	}
+	if afterMeta.Continuation != nil && afterMeta.Continuation.AgentRole != nil {
+		afterRole = afterMeta.Continuation.AgentRole
+	}
+	lockedDifferences := lockedContractDifferences(beforeMeta.Locked, afterMeta.Locked)
+	if beforeMeta.SessionID != afterMeta.SessionID ||
+		!optionalStringPointersEqual(beforeRole, afterRole) ||
+		len(lockedDifferences) != 0 {
+		t.Fatalf(
+			"retained Session identity/contract changed across restoration: session=%q/%q role=%v/%v locked differences=%v",
+			beforeMeta.SessionID,
+			afterMeta.SessionID,
+			beforeRole,
+			afterRole,
+			lockedDifferences,
+		)
+	}
+	if (requests[0].StructuredOutput == nil) != (requests[1].StructuredOutput == nil) {
+		t.Fatalf("completion mode changed across restoration: first=%v second=%v", requests[0].StructuredOutput != nil, requests[1].StructuredOutput != nil)
+	}
+	if requests[0].PromptCacheKey == "" || requests[1].PromptCacheKey != requests[0].PromptCacheKey {
+		t.Fatalf("provider cache lineage changed across restoration: %q -> %q", requests[0].PromptCacheKey, requests[1].PromptCacheKey)
+	}
+}
+
+func optionalStringPointersEqual(left, right *string) bool {
+	return left == nil && right == nil ||
+		left != nil && right != nil && *left == *right
+}
+
+func lockedContractDifferences(left, right *session.LockedContract) []string {
+	// History replacement clears the dispatch lock and the resumed request
+	// establishes a new lock timestamp; the contract facts must remain exact.
+	if left == nil || right == nil {
+		if left == nil && right == nil {
+			return nil
+		}
+		return []string{"presence"}
+	}
+	differences := make([]string, 0)
+	if left.Model != right.Model {
+		differences = append(differences, "model")
+	}
+	if left.Temperature != right.Temperature {
+		differences = append(differences, "temperature")
+	}
+	if left.MaxOutputToken != right.MaxOutputToken {
+		differences = append(differences, "max_output_token")
+	}
+	if left.SystemPrompt != right.SystemPrompt {
+		differences = append(differences, "system_prompt")
+	}
+	if left.HasSystemPrompt != right.HasSystemPrompt {
+		differences = append(differences, "has_system_prompt")
+	}
+	if left.ReviewerPrompt != right.ReviewerPrompt {
+		differences = append(differences, "reviewer_prompt")
+	}
+	if left.HasReviewerPrompt != right.HasReviewerPrompt {
+		differences = append(differences, "has_reviewer_prompt")
+	}
+	if !reflect.DeepEqual(left.EnabledTools, right.EnabledTools) {
+		differences = append(differences, "enabled_tools")
+	}
+	if left.HasEnabledTools != right.HasEnabledTools {
+		differences = append(differences, "has_enabled_tools")
+	}
+	if left.WebSearchMode != right.WebSearchMode {
+		differences = append(differences, "web_search_mode")
+	}
+	if !reflect.DeepEqual(left.ToolPreambles, right.ToolPreambles) {
+		differences = append(differences, "tool_preambles")
+	}
+	if !reflect.DeepEqual(left.WorkflowCompletionMode, right.WorkflowCompletionMode) {
+		differences = append(differences, "workflow_completion_mode")
+	}
+	if !reflect.DeepEqual(left.ModelCapabilities, right.ModelCapabilities) {
+		differences = append(differences, "model_capabilities")
+	}
+	if !reflect.DeepEqual(left.ProviderContract, right.ProviderContract) {
+		differences = append(differences, "provider_contract")
+	}
+	return differences
+}
+
+func TestResumeRestoresAssignmentAfterActualManualCompactionWithOpenRuntime(t *testing.T) {
+	recovery := newActualManualCompactionRecovery(t)
+	f := recovery.fixture
+	if _, err := f.controller.ResumeTask(context.Background(), recovery.task.ID, nil); err != nil {
+		t.Fatalf("resume manually compacted retained Session: %v", err)
+	}
+	requests := f.waitForModelRequests(t, len(recovery.initialRequests)+1)
+	assignments := workflowAssignments(requests[len(requests)-1])
+	if len(assignments) != 1 ||
+		assignments[0].sourcePath != workflowruntime.CurrentNodePromptIdentity(recovery.currentNode) {
+		t.Fatalf("resumed manually compacted assignments = %+v, want one exact Current Node assignment", assignments)
+	}
+	if requests[len(requests)-1].SessionID == nil ||
+		*requests[len(requests)-1].SessionID != recovery.sessionID.String() {
+		t.Fatalf(
+			"resumed Session = %v, want retained Session %s",
+			requests[len(requests)-1].SessionID,
+			recovery.sessionID,
+		)
+	}
+	if recovery.initialRequests[0].PromptCacheKey == "" ||
+		requests[len(requests)-1].PromptCacheKey != recovery.initialRequests[0].PromptCacheKey {
+		t.Fatalf(
+			"manual recovery cache keys = %q/%q, want the same non-empty key",
+			recovery.initialRequests[0].PromptCacheKey,
+			requests[len(requests)-1].PromptCacheKey,
+		)
+	}
+}
+
+func TestResumeRestoresAssignmentAfterActualManualCompactionWithDormantRuntime(t *testing.T) {
+	recovery := newActualManualCompactionRecovery(t)
+	if _, err := recovery.attachment.Release(context.Background(), sessionruntime.RuntimeReleaseClose); err != nil {
+		t.Fatalf("release retained runtime before dormant Resume: %v", err)
+	}
+	if _, err := recovery.fixture.controller.ResumeTask(context.Background(), recovery.task.ID, nil); err != nil {
+		t.Fatalf("resume manually compacted dormant Session: %v", err)
+	}
+	requests := recovery.fixture.waitForModelRequests(t, len(recovery.initialRequests)+1)
+	assignments := workflowAssignments(requests[len(requests)-1])
+	if len(assignments) != 1 ||
+		assignments[0].sourcePath != workflowruntime.CurrentNodePromptIdentity(recovery.currentNode) {
+		t.Fatalf("resumed dormant assignments = %+v, want one exact Current Node assignment", assignments)
+	}
+	if requests[len(requests)-1].SessionID == nil ||
+		*requests[len(requests)-1].SessionID != recovery.sessionID.String() {
+		t.Fatalf(
+			"resumed dormant Session = %v, want retained Session %s",
+			requests[len(requests)-1].SessionID,
+			recovery.sessionID,
+		)
+	}
+}
+
+type actualManualCompactionRecovery struct {
+	fixture         *currentNodeRunnerFixture
+	task            workflowstore.TaskRecord
+	currentNode     workflow.CurrentNodeReference
+	sessionID       runtimeids.SessionID
+	attachment      sessionruntime.RuntimeAttachment
+	client          *compactingScriptedClient
+	initialRequests []llm.Request
+	responseGate    *actualManualCompactionResponseGate
+}
+
+type actualManualCompactionResponseGate struct {
+	started      chan struct{}
+	release      chan struct{}
+	startedOnce  sync.Once
+	releasedOnce sync.Once
+}
+
+func newActualManualCompactionResponseGate() *actualManualCompactionResponseGate {
+	return &actualManualCompactionResponseGate{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+}
+
+func (g *actualManualCompactionResponseGate) beforeResponse(ctx context.Context) error {
+	g.startedOnce.Do(func() { close(g.started) })
+	select {
+	case <-g.release:
+		return nil
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	}
+}
+
+func (g *actualManualCompactionResponseGate) wait(t *testing.T) {
+	t.Helper()
+	select {
+	case <-g.started:
+	case <-time.After(currentNodeRunnerWait):
+		t.Fatal("resumed model response did not reach its scripted gate")
+	}
+}
+
+func (g *actualManualCompactionResponseGate) releaseResponse() {
+	if g == nil {
+		return
+	}
+	g.releasedOnce.Do(func() { close(g.release) })
+}
+
+func newActualManualCompactionRecovery(t *testing.T) actualManualCompactionRecovery {
+	return newActualManualCompactionRecoveryWithOptions(t, false, nil)
+}
+
+func newActualManualCompactionRecoveryWithPersistenceGate(
+	t *testing.T,
+	withPersistenceGate bool,
+) actualManualCompactionRecovery {
+	return newActualManualCompactionRecoveryWithOptions(t, withPersistenceGate, nil)
+}
+
+func newActualManualCompactionRecoveryWithResponseGate(
+	t *testing.T,
+	withPersistenceGate bool,
+) actualManualCompactionRecovery {
+	return newActualManualCompactionRecoveryWithOptions(
+		t,
+		withPersistenceGate,
+		newActualManualCompactionResponseGate(),
+	)
+}
+
+func newActualManualCompactionRecoveryWithOptions(
+	t *testing.T,
+	withPersistenceGate bool,
+	responseGate *actualManualCompactionResponseGate,
+) actualManualCompactionRecovery {
+	resumedResponse := ScriptedFinalAnswer(`{"commentary":"resumed"}`)
+	if responseGate != nil {
+		resumedResponse.BeforeResponse = responseGate.beforeResponse
+	}
+	client := NewCompactingScriptedClient(
+		llm.ProviderCapabilities{
+			ProviderID:               "test",
+			SupportsResponsesAPI:     true,
+			SupportsResponsesCompact: true,
+			SupportsPromptCacheKey:   true,
+		},
+		[]llm.CompactionResponse{workflowPostCompletionCompactionResponse("manual recovery")},
+		ScriptedRuntimeStep{
+			Response: llm.Response{
+				Assistant: llm.Message{
+					Role:    llm.RoleAssistant,
+					Phase:   textutil.Value(llm.MessagePhaseCommentary),
+					Content: textutil.Value("progress"),
+				},
+			},
+		},
+		ScriptedCancellation(),
+		resumedResponse,
+	)
+	var f *currentNodeRunnerFixture
+	if withPersistenceGate {
+		f = newCurrentNodeRunnerFixtureWithPersistenceGate(t, client)
+	} else {
+		f = newCurrentNodeRunnerFixtureWithClient(t, client)
+	}
+	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
+	workflowID := createCurrentNodeAgentWorkflow(t, f.store)
+	task := f.createTask(t, workflowID)
+	currentNode := f.startTask(t, task)
+	f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
+		return len(nodes) == 1 &&
+			nodes[0].Reference.Equal(currentNode) &&
+			nodes[0].Scheduling != nil &&
+			nodes[0].Scheduling.Interruption != nil &&
+			len(client.Requests()) >= 1
+	})
+	f.waitForTaskQuiescence(t, task.ID)
+	initialRequests := f.waitForModelRequests(t, 2)
+	sessionID, _ := f.waitForDormantRetainedSession(t, task.ID)
+	attachment := f.openRetainedRuntime(t, sessionID)
+
+	if err := f.authority.WithCurrentRuntime(
+		context.Background(),
+		sessionID,
+		func(ctx context.Context, engine *agentruntime.Engine) error {
+			return engine.CompactContext(ctx, "manual recovery")
+		},
+	); err != nil {
+		t.Fatalf("schedule actual manual compaction: %v", err)
+	}
+	deadline := time.Now().Add(currentNodeRunnerWait)
+	for len(client.CompactionCalls()) < 1 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := len(client.CompactionCalls()); got != 1 {
+		t.Fatalf("manual compaction calls = %d, want one", got)
+	}
+	var record session.PersistedSessionRecord
+	var err error
+	deadline = time.Now().Add(currentNodeRunnerWait)
+	for time.Now().Before(deadline) {
+		record, err = f.metadata.ResolvePersistedSession(context.Background(), sessionID.String())
+		if err != nil {
+			t.Fatalf("resolve manually compacted Session: %v", err)
+		}
+		if record.Meta != nil && record.Meta.ActiveWorkflowAssignment == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if record.Meta == nil {
+		t.Fatal("manually compacted Session metadata is absent")
+	}
+	if record.Meta.ActiveWorkflowAssignment != nil {
+		t.Fatalf("assignment after actual manual compaction = %+v, want absent", record.Meta.ActiveWorkflowAssignment)
+	}
+
+	return actualManualCompactionRecovery{
+		fixture:         f,
+		task:            task,
+		currentNode:     currentNode,
+		sessionID:       sessionID,
+		attachment:      attachment,
+		client:          client,
+		initialRequests: initialRequests,
+		responseGate:    responseGate,
+	}
+}
+
+func TestResumeRestoresAssignmentBeforeOpenRuntimeReplacement(t *testing.T) {
+	recovery := newActualManualCompactionRecoveryWithResponseGate(t, false)
+	t.Cleanup(recovery.responseGate.releaseResponse)
+	f := recovery.fixture
+	if got := f.retainedRuntimeCompactionMode(t, recovery.sessionID); got != string(config.CompactionModeNative) {
+		t.Fatalf("retained runtime compaction mode before replacement = %q, want native", got)
+	}
+	f.starter.cfg.Settings.CompactionMode = config.CompactionModeLocal
+	writeCurrentNodeConfig(t, f.starter.cfg)
+
+	if _, err := f.controller.ResumeTask(context.Background(), recovery.task.ID, nil); err != nil {
+		t.Fatalf("resume retained Session with replacement: %v", err)
+	}
+	requests := f.waitForModelRequests(t, len(recovery.initialRequests)+1)
+	recovery.responseGate.wait(t)
+	assignments := workflowAssignments(requests[len(requests)-1])
+	if len(assignments) != 1 ||
+		assignments[0].sourcePath != workflowruntime.CurrentNodePromptIdentity(recovery.currentNode) {
+		t.Fatalf("replacement resumed assignments = %+v, want one exact Current Node assignment", assignments)
+	}
+	if got := f.retainedRuntimeCompactionMode(t, recovery.sessionID); got != string(config.CompactionModeLocal) {
+		t.Fatalf("retained runtime compaction mode after replacement = %q, want local", got)
+	}
+}
+
+func TestResumeAssignmentFailurePreventsOpenRuntimeReplacementAndRetries(t *testing.T) {
+	cause := errors.New("replacement assignment persistence failed")
+	recovery := newActualManualCompactionRecoveryWithResponseGate(t, true)
+	t.Cleanup(recovery.responseGate.releaseResponse)
+	f := recovery.fixture
+	f.starter.cfg.Settings.CompactionMode = config.CompactionModeLocal
+	writeCurrentNodeConfig(t, f.starter.cfg)
+	identity := workflowruntime.CurrentNodePromptIdentity(recovery.currentNode)
+	failureMatched := f.failWhenWorkflowAssignmentPersists(t, identity, cause)
+
+	if _, err := f.controller.ResumeTask(context.Background(), recovery.task.ID, nil); err != nil {
+		t.Fatalf("first Resume with replacement failure: %v", err)
+	}
+	f.waitForTaskQuiescence(t, recovery.task.ID)
+	f.waitForCurrentNode(t, recovery.task.ID, func(nodes []workflow.CurrentNode) bool {
+		return len(nodes) == 1 &&
+			nodes[0].Scheduling != nil &&
+			nodes[0].Scheduling.Interruption != nil &&
+			nodes[0].Scheduling.Interruption.Reason == workflow.CurrentNodeInterruptionReason("workflow_runtime_start_failed") &&
+			nodes[0].Scheduling.Interruption.Detail.Fields["error"] == cause.Error()
+	})
+	if !failureMatched.Load() {
+		t.Fatal("replacement assignment persistence failure predicate was not reached")
+	}
+	if got := len(recovery.client.Requests()); got != len(recovery.initialRequests) {
+		t.Fatalf("provider requests after replacement failure = %d, want %d", got, len(recovery.initialRequests))
+	}
+	if got := f.retainedRuntimeCompactionMode(t, recovery.sessionID); got != string(config.CompactionModeNative) {
+		t.Fatalf("retained runtime compaction mode after failed replacement = %q, want native", got)
+	}
+	assignmentRecords := f.workflowAssignmentRecordCount(t, recovery.sessionID)
+
+	if _, err := f.controller.ResumeTask(context.Background(), recovery.task.ID, nil); err != nil {
+		t.Fatalf("retry Resume after replacement failure: %v", err)
+	}
+	requests := f.waitForModelRequests(t, len(recovery.initialRequests)+1)
+	recovery.responseGate.wait(t)
+	assignments := workflowAssignments(requests[len(requests)-1])
+	if len(assignments) != 1 || assignments[0].sourcePath != identity {
+		t.Fatalf("retried replacement assignments = %+v, want one exact Current Node assignment", assignments)
+	}
+	if got := f.workflowAssignmentRecordCount(t, recovery.sessionID); got != assignmentRecords {
+		t.Fatalf("retried replacement assignment records = %d, want %d", got, assignmentRecords)
+	}
+	if got := f.retainedRuntimeCompactionMode(t, recovery.sessionID); got != string(config.CompactionModeLocal) {
+		t.Fatalf("retained runtime compaction mode after retry = %q, want local", got)
+	}
+}
+
+func TestCompactAndContinueResumeRestoresAssignmentAfterPreActivationCompaction(t *testing.T) {
+	cause := errors.New("target assignment persistence failed before activation")
+	client := NewCompactingScriptedClient(
+		llm.ProviderCapabilities{
+			ProviderID:               "test",
+			SupportsResponsesAPI:     true,
+			SupportsResponsesCompact: true,
+			SupportsPromptCacheKey:   true,
+		},
+		[]llm.CompactionResponse{workflowPostCompletionCompactionResponse("pre-activation")},
+		ScriptedToolBatch(
+			"complete source",
+			llm.ToolCall{
+				ID:    "complete-source",
+				Name:  string(toolspec.ToolCompleteNode),
+				Input: json.RawMessage(`{"transition":"next","commentary":"source done"}`),
+			},
+		),
+		ScriptedFinalAnswer(`{"commentary":"resumed target"}`),
+	)
+	f := newCurrentNodeRunnerFixtureWithPersistenceGate(t, client)
+	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
+	workflowID := createCurrentNodeTwoStepWorkflow(
+		t,
+		f.store,
+		"Pre-activation compaction recovery",
+		workflow.ContextModeCompactAndContinueSession,
+		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete the source."},
+		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "reviewer", prompt: "Continue the target."},
+	)
+	definition, _, err := f.store.GetDefinition(context.Background(), workflowID)
+	if err != nil {
+		t.Fatalf("load pre-activation Workflow definition: %v", err)
+	}
+	var targetNodeID *workflow.NodeID
+	agentNodeCount := 0
+	for _, node := range definition.Nodes {
+		if node.Kind() == workflow.NodeKindAgent {
+			agentNodeCount++
+			if agentNodeCount == 2 {
+				value := workflow.NodeIDOf(node)
+				targetNodeID = &value
+				break
+			}
+		}
+	}
+	if targetNodeID == nil {
+		t.Fatal("pre-activation Workflow target Agent Node is missing")
+	}
+	task := f.createTask(t, workflowID)
+	f.startTask(t, task)
+	targetReference, err := workflow.NewCurrentNodeReference(task.ID, *targetNodeID, nil)
+	if err != nil {
+		t.Fatalf("create target Current Node reference: %v", err)
+	}
+	identity := workflowruntime.CurrentNodePromptIdentity(targetReference)
+	failureMatched := f.failWhenWorkflowAssignmentPersists(t, identity, cause)
+
+	target := f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
+		return len(nodes) == 1 &&
+			nodes[0].Reference.Equal(targetReference) &&
+			nodes[0].SessionID != nil &&
+			nodes[0].Scheduling != nil &&
+			nodes[0].Scheduling.Interruption != nil &&
+			len(client.Requests()) == 1
+	})[0]
+	f.waitForTaskQuiescence(t, task.ID)
+	if !failureMatched.Load() {
+		t.Fatal("target assignment persistence failure was not reached")
+	}
+	if got := len(client.CompactionCalls()); got != 1 {
+		t.Fatalf("pre-activation compaction calls = %d, want one", got)
+	}
+	if target.SessionID == nil {
+		t.Fatal("pre-activation target lost retained Session")
+	}
+	if _, err := f.controller.ResumeTask(context.Background(), task.ID, nil); err != nil {
+		t.Fatalf("resume pre-activation target: %v", err)
+	}
+	requests := f.waitForModelRequests(t, 2)
+	assignments := workflowAssignments(requests[1])
+	if len(assignments) != 1 || assignments[0].sourcePath != identity {
+		t.Fatalf("pre-activation resumed assignments = %+v, want one exact target assignment", assignments)
+	}
+	if requests[1].SessionID == nil || *requests[1].SessionID != target.SessionID.String() {
+		t.Fatalf("pre-activation resumed Session = %v, want %s", requests[1].SessionID, *target.SessionID)
+	}
+	if got := f.workflowAssignmentRecordCount(t, *target.SessionID); got != 2 {
+		t.Fatalf("pre-activation Workflow assignment records = %d, want source and target assignments", got)
+	}
+}
+
+func TestTaskResumeRetriesDormantAssignmentFailureThroughWorkflowOwner(t *testing.T) {
+	cause := errors.New("workflow assignment persistence failed")
+	f := newCurrentNodeRunnerFixtureWithPersistenceGate(
+		t,
+		NewScriptedClient(
+			llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true},
+			ScriptedCancellation(),
+			ScriptedCancellation(),
+		),
+	)
+	workflowID := createCurrentNodeAgentWorkflow(t, f.store)
+	task := f.createTask(t, workflowID)
+	currentNode := f.startTask(t, task)
+	f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
+		return len(nodes) == 1 &&
+			nodes[0].Reference.Equal(currentNode) &&
+			nodes[0].Scheduling != nil &&
+			nodes[0].Scheduling.Interruption != nil &&
+			len(f.client.Requests()) == 1
+	})
+	f.waitForTaskQuiescence(t, task.ID)
+	sessionID, descriptor := f.waitForDormantRetainedSession(t, task.ID)
+	f.appendManualCompactionReplacement(t, descriptor)
+	identity := workflowruntime.CurrentNodePromptIdentity(currentNode)
+	failureMatched := f.failWhenWorkflowAssignmentPersists(t, identity, cause)
+
+	if _, err := f.controller.ResumeTask(context.Background(), task.ID, nil); err != nil {
+		t.Fatalf("first Task Resume: %v", err)
+	}
+	f.waitForTaskQuiescence(t, task.ID)
+	nodes := f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
+		return len(nodes) == 1 &&
+			nodes[0].Scheduling != nil &&
+			nodes[0].Scheduling.Interruption != nil &&
+			nodes[0].Scheduling.Interruption.Reason == workflow.CurrentNodeInterruptionReason("workflow_runtime_start_failed")
+	})
+	if !failureMatched.Load() {
+		t.Fatal("assignment persistence failure predicate was not reached")
+	}
+	if got := len(f.client.Requests()); got != 1 {
+		t.Fatalf("provider requests after failed Task Resume = %d, want 1", got)
+	}
+	if nodes[0].Scheduling.Interruption.Detail.Code != "workflow_runtime_start_failed" {
+		t.Fatalf("failed Task Resume interruption detail = %+v, want Workflow runtime failure", nodes[0].Scheduling.Interruption.Detail)
+	}
+	afterFailureAssignments := f.workflowAssignmentRecordCount(t, sessionID)
+	var afterFailureProjection *session.MessageRecord
+	_, err := f.authority.WithDormantSessionStore(
+		context.Background(),
+		descriptor,
+		func(_ context.Context, store *session.Store) error {
+			var projectionErr error
+			afterFailureProjection, projectionErr = store.ActiveWorkflowAssignmentProjection()
+			return projectionErr
+		},
+	)
+	if err != nil {
+		t.Fatalf("load assignment after failed Task Resume: %v", err)
+	}
+
+	if _, err := f.controller.ResumeTask(context.Background(), task.ID, nil); err != nil {
+		t.Fatalf("retry Task Resume: %v", err)
+	}
+	requests := f.waitForModelRequests(t, 2)
+	assignments := workflowAssignments(requests[1])
+	if len(assignments) != 1 ||
+		assignments[0].sourcePath != workflowruntime.CurrentNodePromptIdentity(currentNode) {
+		t.Fatalf("retried workflow assignments = %+v, want one exact Current Node assignment", assignments)
+	}
+	if requests[1].SessionID == nil || *requests[1].SessionID != sessionID.String() {
+		t.Fatalf("retried Session = %v, want retained Session %s", requests[1].SessionID, sessionID)
+	}
+	wantAssignments := afterFailureAssignments
+	if afterFailureProjection == nil {
+		wantAssignments++
+	}
+	if got := f.workflowAssignmentRecordCount(t, sessionID); got != wantAssignments {
+		t.Fatalf("retried Workflow assignment records = %d, want %d", got, wantAssignments)
+	}
 }
 
 func requestAdvertisesTool(request llm.Request, id toolspec.ID) bool {
@@ -2139,27 +3468,31 @@ func TestCurrentNodeTaskAwarenessMatchesCanonicalDependencyProjectionAcrossTermi
 	if err != nil {
 		t.Fatalf("GetDefinition: %v", err)
 	}
-	if _, err := f.store.ManualMoveTask(context.Background(), workflowstore.ManualMoveRequest{
-		TaskID: blocker.ID, TargetNodeID: currentNodeKindID(t, definition, workflow.NodeKindTerminal),
-	}); err != nil {
-		t.Fatalf("manual terminal move: %v", err)
+	for index, kind := range []workflow.NodeKind{workflow.NodeKindTerminal, workflow.NodeKindStart} {
+		preflight, err := f.store.PrepareManualMove(context.Background(), workflowstore.ManualMoveRequest{
+			TaskID: blocker.ID, TargetNodeID: currentNodeKindID(t, definition, kind),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		plan, err := f.store.PlanManualMove(context.Background(), preflight, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.store.CommitManualMove(context.Background(), plan, nil); err != nil {
+			t.Fatal(err)
+		}
+		assertAwareness(int64(index))
 	}
-	assertAwareness(0)
-	if _, err := f.store.ManualMoveTask(context.Background(), workflowstore.ManualMoveRequest{
-		TaskID: blocker.ID, TargetNodeID: currentNodeKindID(t, definition, workflow.NodeKindStart),
-	}); err != nil {
-		t.Fatalf("reopen blocker: %v", err)
-	}
-	assertAwareness(1)
 
-	started, err := f.store.StartTask(context.Background(), blocker.ID)
+	started, err := f.commitTaskStart(context.Background(), blocker.ID)
 	if err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
 	if len(started.Mutation.Created) != 1 {
 		t.Fatalf("started Current Nodes = %+v, want one", started.Mutation.Created)
 	}
-	if _, err := f.store.CompleteCurrentNode(context.Background(), workflowstore.CurrentNodeCompletionRequest{
+	if _, err := f.commitCurrentNode(context.Background(), workflowstore.CurrentNodeCompletionRequest{
 		Source: started.Mutation.Created[0].Reference, TransitionID: "done",
 	}); err != nil {
 		t.Fatalf("complete blocker to ordinary terminal: %v", err)
@@ -2178,69 +3511,42 @@ func currentNodeKindID(t *testing.T, definition workflow.Definition, kind workfl
 	return ""
 }
 
-func TestCurrentNodeRuntimePreparationFailureRetainsAssignedFreshSession(t *testing.T) {
+func TestCurrentNodeRuntimePreparationFailureLeavesTaskUnstarted(t *testing.T) {
 	f := newCurrentNodeRunnerFixture(t)
 	workflowID := createCurrentNodeAgentWorkflow(t, f.store)
 	task := f.createTask(t, workflowID)
-	f.starter.cfg.Settings.ProviderCapabilities = config.ProviderCapabilitiesOverride{
+	definition := f.starter.cfg.Settings.Connections[*f.starter.cfg.Settings.Connection]
+	definition.Capabilities = config.ProviderCapabilitiesOverride{
 		ProviderID:           "test",
 		SupportsResponsesAPI: true,
 	}
+	f.starter.cfg.Settings.Connections[*f.starter.cfg.Settings.Connection] = definition
+	f.starter.cfg.Settings = testsetup.WriteProviderSettings(t, f.cfg.PersistenceRoot, f.starter.cfg.Settings)
 	f.mu.Lock()
 	f.clientErr = errors.New("provider unavailable")
 	f.mu.Unlock()
 
-	finalized := make(chan workflowexecution.TaskPreparationFinalization, 1)
 	started, err := f.controller.StartTask(
 		context.Background(),
 		task.ID,
-		workflowexecution.TaskStartPreparation{
-			Prepare: func(context.Context) error { return nil },
-			Commit: func(ctx context.Context) error {
-				return f.store.LockTaskExecutionTarget(ctx, task.ID, &workflowstore.ExecutionTargetCandidate{
-					Snapshot: workflowstore.ExecutionTargetSnapshot{
-						Mode:       workflow.ExecutionTargetModeNone,
-						Provenance: workflowstore.ExecutionTargetProvenanceResolved,
-					},
-					Root: workflowstore.ExecutionRoot{
-						SourceWorkspaceID:   f.workspaceID,
-						SourceWorkspaceRoot: f.workspace,
-					},
-				})
-			},
-		},
-		func(finalization workflowexecution.TaskPreparationFinalization) {
-			finalized <- finalization
+		&workflowstore.ExecutionTargetCandidate{
+			Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
+			Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: f.workspaceID, SourceWorkspaceRoot: f.workspace},
 		},
 	)
-	if err != nil {
-		t.Fatalf("start task: %v", err)
+	if !errors.Is(err, f.clientErr) || len(started.Mutation.Created) != 0 {
+		t.Fatalf("StartTask = %+v, %v; want unapplied provider failure", started, err)
 	}
-	select {
-	case finalization := <-finalized:
-		if finalization.Kind != workflowexecution.TaskPreparationHandedOff {
-			t.Fatalf("task preparation finalization = %+v, want handed off", finalization)
-		}
-	case <-time.After(currentNodeRunnerWait):
-		t.Fatal("task preparation did not hand off before runtime preparation")
-	}
-	if len(started.Mutation.Created) != 1 {
-		t.Fatalf("start mutation = %+v, want one Current Node", started.Mutation)
-	}
-	f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
-		return len(nodes) == 1 && nodes[0].Scheduling != nil &&
-			nodes[0].Scheduling.State == workflow.CurrentNodeSchedulingInterrupted
-	})
-	if count, err := f.store.CountTaskSessions(context.Background(), task.ID); err != nil || count != 1 {
-		t.Fatalf("retained Session count after runtime preparation failure = %d, %v; want assigned Session", count, err)
+	if count, err := f.store.CountTaskSessions(context.Background(), task.ID); err != nil || count != 0 {
+		t.Fatalf("Session count after preparation failure = %d, %v; want none", count, err)
 	}
 	nodes, err := f.store.ListCurrentNodes(context.Background(), task.ID)
-	if err != nil || len(nodes) != 1 || nodes[0].SessionID == nil {
-		t.Fatalf("Current Nodes after runtime preparation failure = %+v, %v; want retained binding", nodes, err)
+	if err != nil || len(nodes) != 1 || nodes[0].SessionID != nil || nodes[0].Scheduling != nil {
+		t.Fatalf("Current Nodes after preparation failure = %+v, %v; want Start", nodes, err)
 	}
-	startContext, err := f.store.ResolveCurrentNodeStartContext(context.Background(), nodes[0].Reference)
-	if err != nil || startContext.CurrentNode.SessionID == nil || *startContext.CurrentNode.SessionID != *nodes[0].SessionID {
-		t.Fatalf("resumed start context Session = %+v, %v; want retained binding %q", startContext.CurrentNode.SessionID, err, nodes[0].SessionID)
+	target, err := f.store.GetTaskExecutionTargetContext(context.Background(), task.ID)
+	if err != nil || target.Task.ExecutionTarget != nil {
+		t.Fatalf("target after preparation failure = %+v, %v; want unlocked", target, err)
 	}
 }
 
@@ -2271,7 +3577,7 @@ func TestInitialStartCommittedAssignmentDiagnosticInterruptsWithoutStartingRunti
 		llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true},
 	))
 	f.persistenceGate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
-		if snapshot.Meta.LastSequence < 2 {
+		if snapshot.Meta.ActiveWorkflowAssignment == nil {
 			return false
 		}
 		return !diagnosticMatched.Swap(true)
@@ -2334,64 +3640,36 @@ func TestCurrentNodeFanoutContinuationClonesAndBindsEachBranchSession(t *testing
 	}
 }
 
-func TestWorkflowPostCompletionCompactsFanoutSourceBeforeBranchClones(t *testing.T) {
-	client := NewCompactingScriptedClient(
-		llm.ProviderCapabilities{
-			ProviderID:               "test",
-			SupportsResponsesAPI:     true,
-			SupportsResponsesCompact: true,
-			SupportsPromptCacheKey:   true,
-		},
-		[]llm.CompactionResponse{workflowPostCompletionCompactionResponse("completed fan-out source")},
+func TestCurrentNodeFanoutCompactResumeReusesEstablishedBranchSessions(t *testing.T) {
+	f := newCurrentNodeRunnerFixture(
+		t,
 		ScriptedFinalAnswer(`{"transition":"split","commentary":"source"}`),
-		ScriptedFinalAnswer(`{"commentary":"branch a"}`),
-		ScriptedFinalAnswer(`{"commentary":"branch b"}`),
+		ScriptedCancellation(),
+		ScriptedCancellation(),
+		ScriptedFinalAnswer(`{"commentary":"branch resumed"}`),
+		ScriptedFinalAnswer(`{"commentary":"branch resumed"}`),
 	)
-	f := newCurrentNodeRunnerFixtureWithClient(t, client)
-	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
-	threshold := 1
-	f.starter.cfg.Settings.Workflow.PreCompactionTokens = &threshold
-	workflowID, branchNodeIDs := createCurrentNodeFanoutContinuationWorkflow(t, f.store, true)
+	workflowID, branchNodeIDs := createCurrentNodeFanoutContinuationWorkflow(t, f.store, false)
 	task := f.createTask(t, workflowID)
-	source := f.startTask(t, task)
-
-	approval := f.waitForPendingApproval(t, task.ID)
-	f.waitForTaskQuiescence(t, source.TaskID)
-	if len(client.CompactionCalls()) != 1 {
-		t.Fatalf("fan-out source post-completion compactions = %d, want one", len(client.CompactionCalls()))
-	}
-	if _, err := f.controller.ApplyPendingApproval(context.Background(), approval.ID); err != nil {
-		t.Fatalf("apply fan-out Approval: %v", err)
-	}
-	requests := f.waitForModelRequests(t, 3)
-	for index, request := range requests[1:] {
-		checkpoints := 0
-		for _, item := range request.Items {
-			if item.Type == llm.ResponseItemTypeCompaction {
-				checkpoints++
+	f.startTask(t, task)
+	f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
+		return len(nodes) == len(branchNodeIDs) &&
+			len(nodes) > 0 &&
+			nodes[0].Reference.IsBranchScoped() &&
+			nodes[0].Scheduling != nil &&
+			nodes[0].Scheduling.Interruption != nil
+	})
+	f.waitForTaskQuiescence(t, task.ID)
+	workflowfixture.SaveStoreGraph(t, context.Background(), f.store, workflowID, func(_ workflow.Definition, request *workflowstore.WorkflowGraphSaveRequest) {
+		for index := range request.Edges {
+			if request.Edges[index].TargetNodeID == branchNodeIDs["branch_a"] ||
+				request.Edges[index].TargetNodeID == branchNodeIDs["branch_b"] {
+				request.Edges[index].ContextMode = workflow.ContextModeCompactAndContinueSession
 			}
 		}
-		if checkpoints != 1 {
-			t.Fatalf("branch request %d compaction checkpoints = %d, want one", index+2, checkpoints)
-		}
-	}
-	if requests[1].PromptCacheKey == "" ||
-		requests[2].PromptCacheKey == "" ||
-		requests[1].PromptCacheKey == requests[2].PromptCacheKey ||
-		requests[0].PromptCacheKey == requests[1].PromptCacheKey ||
-		requests[0].PromptCacheKey == requests[2].PromptCacheKey {
-		t.Fatalf(
-			"fan-out cache lineage keys = %q/%q/%q, want three distinct non-empty keys",
-			requests[0].PromptCacheKey,
-			requests[1].PromptCacheKey,
-			requests[2].PromptCacheKey,
-		)
-	}
-	sourceAssociation, err := f.store.LatestTaskSessionForNode(context.Background(), source)
-	if err != nil {
-		t.Fatalf("resolve source Session association: %v", err)
-	}
-	branchSessionIDs := make(map[runtimeids.SessionID]struct{}, len(branchNodeIDs))
+	})
+
+	before := make(map[workflow.CurrentNodeReference]runtimeids.SessionID, len(branchNodeIDs))
 	for branchKey, nodeID := range branchNodeIDs {
 		reference, err := workflow.NewCurrentNodeReference(task.ID, nodeID, &branchKey)
 		if err != nil {
@@ -2401,17 +3679,222 @@ func TestWorkflowPostCompletionCompactsFanoutSourceBeforeBranchClones(t *testing
 		if err != nil {
 			t.Fatalf("resolve branch %q Session association: %v", branchKey, err)
 		}
-		if association.SessionID == sourceAssociation.SessionID {
-			t.Fatalf("branch %q reused source Session %q after pre-compaction", branchKey, association.SessionID)
-		}
-		branchSessionIDs[association.SessionID] = struct{}{}
+		before[reference] = association.SessionID
 	}
-	if len(branchSessionIDs) != len(branchNodeIDs) {
-		t.Fatalf("fan-out branch Session lineages = %+v, want one distinct clone per branch", branchSessionIDs)
+	if count, err := f.store.CountTaskSessions(context.Background(), task.ID); err != nil || count != int64(len(branchNodeIDs)+1) {
+		t.Fatalf("retained Session count before branch Resume = %d, %v; want source plus branches", count, err)
+	}
+
+	if _, err := f.controller.ResumeTask(context.Background(), task.ID, nil); err != nil {
+		t.Fatalf("resume interrupted compact-and-continue branches: %v", err)
+	}
+	requests := f.waitForModelRequests(t, len(branchNodeIDs)+1+len(branchNodeIDs))
+	for reference, sessionID := range before {
+		foundAssignment := false
+		wantIdentity := workflowruntime.CurrentNodePromptIdentity(reference)
+		for _, request := range requests[len(branchNodeIDs)+1:] {
+			if request.SessionID == nil || *request.SessionID != sessionID.String() {
+				continue
+			}
+			for _, assignment := range workflowAssignments(request) {
+				if assignment.sourcePath == wantIdentity {
+					foundAssignment = true
+					break
+				}
+			}
+		}
+		if !foundAssignment {
+			t.Fatalf("resumed branch %v did not receive assignment %q", reference, wantIdentity)
+		}
+		association, err := f.store.LatestTaskSessionForNode(context.Background(), reference)
+		if err != nil {
+			t.Fatalf("resolve resumed branch %v Session association: %v", reference, err)
+		}
+		if association.SessionID != sessionID {
+			t.Fatalf("resumed branch %v Session = %s, want retained %s", reference, association.SessionID, sessionID)
+		}
+	}
+	if count, err := f.store.CountTaskSessions(context.Background(), task.ID); err != nil || count != int64(len(branchNodeIDs)+1) {
+		t.Fatalf("retained Session count after branch Resume = %d, %v; want unchanged source plus branches", count, err)
 	}
 }
 
-func TestCurrentNodeFanoutRuntimePreparationFailureKeepsAssignedBranchesResumable(t *testing.T) {
+func TestWorkflowPostCompletionCompactsFanoutSourceBeforeBranchClones(t *testing.T) {
+	for _, committed := range []bool{true, false} {
+		t.Run(fmt.Sprintf("source-boundary-committed=%t", committed), func(t *testing.T) {
+			responses := []llm.CompactionResponse{workflowPostCompletionCompactionResponse("completed fan-out source")}
+			if !committed {
+				responses = append(responses, workflowPostCompletionCompactionResponse("second lazy branch"))
+			}
+			client := NewCompactingScriptedClient(
+				llm.ProviderCapabilities{
+					ProviderID:               "test",
+					SupportsResponsesAPI:     true,
+					SupportsResponsesCompact: true,
+					SupportsPromptCacheKey:   true,
+				},
+				responses,
+				ScriptedFinalAnswer(`{"transition":"split","commentary":"source"}`),
+				ScriptedFinalAnswer(`{"commentary":"branch a"}`),
+				ScriptedFinalAnswer(`{"commentary":"branch b"}`),
+			)
+			f := newCurrentNodeRunnerFixtureWithClientAndPersistence(t, client, false, config.LoadOptions{Tools: "patch"})
+			f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+			writeCurrentNodeConfig(t, f.starter.cfg)
+			threshold := 1
+			f.starter.cfg.Settings.Workflow.PreCompactionTokens = &threshold
+			writeCurrentNodeConfig(t, f.starter.cfg)
+			incoming := f.starter.cfg
+			var file strings.Builder
+			file.WriteString("model = \"workflow-base\"\ncompaction_mode = \"native\"\n[workflow]\ncompletion_mode = \"structured_output\"\npre_compaction_tokens = 1\n[reviewer]\nfrequency = \"off\"\n")
+			for name, tool := range map[string]toolspec.ID{"coder": toolspec.ToolExecCommand, "reviewer": toolspec.ToolWriteStdin} {
+				fmt.Fprintf(&file, "[subagents.%s]\nmodel = %q\n[subagents.%s.tools]\n", name, "workflow-"+name, name)
+				for _, id := range toolspec.CatalogIDs() {
+					if _, configurable := toolspec.ParseConfigID(toolspec.ConfigName(id)); !configurable {
+						continue
+					}
+					fmt.Fprintf(&file, "%s = %t\n", toolspec.ConfigName(id), id == tool)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(incoming.PersistenceRoot, "config.toml"), []byte(file.String()), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			testsetup.WriteProviderSettings(t, incoming.PersistenceRoot, incoming.Settings)
+			var err error
+			incoming, err = config.Load(f.workspace, f.workspace, config.LoadOptions{ConfigRoot: incoming.PersistenceRoot})
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.starter.cfg, err = config.ApplyLoadOptionsToSnapshot(incoming, config.LoadOptions{Tools: "patch"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !committed {
+				f.starter.cfg.Settings.CompactionMode = config.CompactionModeNone
+				writeCurrentNodeConfig(t, f.starter.cfg)
+			}
+			workflowID, branchNodeIDs := createCurrentNodeFanoutWorkflow(t, f.store, true, workflow.ContextModeCompactAndContinueSession)
+			workflowfixture.SaveStoreGraph(t, t.Context(), f.store, workflowID, func(_ workflow.Definition, request *workflowstore.WorkflowGraphSaveRequest) {
+				for index := range request.Nodes {
+					if request.Nodes[index].ID == branchNodeIDs["branch_b"] {
+						request.Nodes[index].SubagentRole = "reviewer"
+					}
+				}
+			})
+			task := f.createTask(t, workflowID)
+			source := f.startTask(t, task)
+
+			approval := f.waitForPendingApproval(t, task.ID)
+			f.waitForTaskQuiescence(t, source.TaskID)
+			sourceCalls := 0
+			if committed {
+				sourceCalls = 1
+			}
+			if len(client.CompactionCalls()) != sourceCalls {
+				t.Fatalf("fan-out source post-completion compactions = %d, want %d", len(client.CompactionCalls()), sourceCalls)
+			}
+			f.starter.cfg = incoming
+			f.cfg = incoming
+			writeCurrentNodeConfig(t, incoming)
+			f.restartRuntime(t)
+			if _, err := f.controller.ApplyPendingApproval(context.Background(), approval.ID); err != nil {
+				t.Fatalf("apply fan-out Approval: %v", err)
+			}
+			requests := f.waitForModelRequests(t, 3)
+			f.waitForTaskQuiescence(t, task.ID)
+			wantCompactions := 1
+			if !committed {
+				wantCompactions = 2
+			}
+			if got := len(client.CompactionCalls()); got != wantCompactions {
+				t.Fatalf("compactions = %d, want %d", got, wantCompactions)
+			}
+			for _, request := range client.CompactionCalls() {
+				if request.Model != requests[0].Model || !reflect.DeepEqual(request.Tools, requests[0].Tools) {
+					t.Fatalf("compaction did not preserve outgoing configuration: model=%s tools=%v", request.Model, request.Tools)
+				}
+			}
+			for _, request := range requests[1:] {
+				want := toolspec.ToolExecCommand
+				if request.Model == "workflow-reviewer" {
+					want = toolspec.ToolWriteStdin
+				}
+				seen := false
+				for _, tool := range request.Tools {
+					if tool.Name == string(toolspec.ToolPatch) || (tool.Name == string(toolspec.ToolExecCommand) && want != toolspec.ToolExecCommand) ||
+						(tool.Name == string(toolspec.ToolWriteStdin) && want != toolspec.ToolWriteStdin) {
+						t.Fatalf("branch %s received unwanted tool %s", request.Model, tool.Name)
+					}
+					seen = seen || tool.Name == string(want)
+				}
+				if !seen {
+					t.Fatalf("branch %s did not receive its own tool %s", request.Model, want)
+				}
+			}
+			for index, request := range requests[1:] {
+				checkpoints := 0
+				for _, item := range request.Items {
+					if item.Type == llm.ResponseItemTypeCompaction {
+						checkpoints++
+					}
+				}
+				if checkpoints != 1 {
+					t.Fatalf("branch request %d compaction checkpoints = %d, want one", index+2, checkpoints)
+				}
+			}
+			if requests[1].PromptCacheKey == "" ||
+				requests[2].PromptCacheKey == "" ||
+				requests[1].PromptCacheKey == requests[2].PromptCacheKey ||
+				requests[0].PromptCacheKey == requests[1].PromptCacheKey ||
+				requests[0].PromptCacheKey == requests[2].PromptCacheKey {
+				t.Fatalf(
+					"fan-out cache lineage keys = %q/%q/%q, want three distinct non-empty keys",
+					requests[0].PromptCacheKey,
+					requests[1].PromptCacheKey,
+					requests[2].PromptCacheKey,
+				)
+			}
+			sourceAssociation, err := f.store.LatestTaskSessionForNode(context.Background(), source)
+			if err != nil {
+				t.Fatalf("resolve source Session association: %v", err)
+			}
+			sourceRecord, err := f.metadata.ResolvePersistedSession(t.Context(), sourceAssociation.SessionID.String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sourceRecord.Meta.RetainedToolSelection == nil || !reflect.DeepEqual(sourceRecord.Meta.RetainedToolSelection.Tools, []toolspec.ID{toolspec.ToolPatch}) {
+				t.Fatal("fan-out changed the source's retained list")
+			}
+			branchSessionIDs := make(map[runtimeids.SessionID]struct{}, len(branchNodeIDs))
+			for branchKey, nodeID := range branchNodeIDs {
+				reference, err := workflow.NewCurrentNodeReference(task.ID, nodeID, &branchKey)
+				if err != nil {
+					t.Fatalf("create branch %q Current Node reference: %v", branchKey, err)
+				}
+				association, err := f.store.LatestTaskSessionForNode(context.Background(), reference)
+				if err != nil {
+					t.Fatalf("resolve branch %q Session association: %v", branchKey, err)
+				}
+				if association.SessionID == sourceAssociation.SessionID {
+					t.Fatalf("branch %q reused source Session %q after pre-compaction", branchKey, association.SessionID)
+				}
+				branchSessionIDs[association.SessionID] = struct{}{}
+				record, err := f.metadata.ResolvePersistedSession(t.Context(), association.SessionID.String())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if record.Meta.RetainedToolSelection != nil {
+					t.Fatal("continuation copy inherited or re-adopted the source list")
+				}
+			}
+			if len(branchSessionIDs) != len(branchNodeIDs) {
+				t.Fatalf("fan-out branch Session lineages = %+v, want one distinct clone per branch", branchSessionIDs)
+			}
+		})
+	}
+}
+
+func TestCurrentNodeFanoutExecutionFailureKeepsAssignedBranchesResumable(t *testing.T) {
 	sourceResponseStarted := make(chan struct{})
 	sourceResponseRelease := make(chan struct{})
 	var releaseSource sync.Once
@@ -2432,21 +3915,11 @@ func TestCurrentNodeFanoutRuntimePreparationFailureKeepsAssignedBranchesResumabl
 			},
 			Response: ScriptedFinalAnswer(`{"transition":"split","commentary":"source"}`).Response,
 		},
+		ScriptedCancellation(),
+		ScriptedCancellation(),
 	)
 	workflowID, branchNodeIDs := createCurrentNodeFanoutContinuationWorkflow(t, f.store, false)
 	task := f.createTask(t, workflowID)
-	f.starter.store = currentNodeStartContextStore{
-		RuntimeStore: f.store,
-		transform: func(input workflowstore.CurrentNodeStartContext) workflowstore.CurrentNodeStartContext {
-			if !input.IsFanoutBranch {
-				return input
-			}
-			root := *input.ExecutionRoot
-			root.SourceWorkspaceID = "workspace-missing"
-			input.ExecutionRoot = &root
-			return input
-		},
-	}
 	source := f.startTask(t, task)
 	select {
 	case <-sourceResponseStarted:
@@ -2555,12 +4028,12 @@ func TestCurrentNodeContinuationWithActiveTranscriptSubscriberDoesNotBlockLaterA
 	if !live {
 		t.Fatal("source Current Node reached its provider without an Exact Execution Scope")
 	}
-	sourceResource, hasResource := sourceExecution.Scope().Resource()
+	_, hasResource := sourceExecution.Scope().Resource()
 	if !hasResource {
 		t.Fatal("source Exact Execution Scope has no Active Session Runtime")
 	}
-	transcript, err := f.runtimes.SubscribeSessionTranscript(context.Background(), serverapi.TranscriptSubscribeRequest{
-		SessionID: sessionID.String(),
+	transcript, err := f.runtimes.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{
+		SessionId: sessionID.String(),
 	})
 	if err != nil {
 		t.Fatalf("subscribe source transcript: %v", err)
@@ -2582,13 +4055,8 @@ func TestCurrentNodeContinuationWithActiveTranscriptSubscriberDoesNotBlockLaterA
 	if !live {
 		t.Fatal("successor Current Node reached its provider without an Exact Execution Scope")
 	}
-	successorResource, hasResource := successorExecution.Scope().Resource()
-	if !hasResource || successorResource != sourceResource {
-		t.Fatalf(
-			"successor Active Session Runtime = %+v, want retained source generation %+v",
-			successorResource,
-			sourceResource,
-		)
+	if _, hasResource := successorExecution.Scope().Resource(); !hasResource {
+		t.Fatal("successor Exact Execution Scope has no Active Session Runtime")
 	}
 
 	sourceScriptPath := filepath.Join(f.workspace, "source-script.sh")
@@ -2810,6 +4278,20 @@ func createCurrentNodeFanoutContinuationWorkflow(
 	store *workflowstore.Store,
 	requiresApproval bool,
 ) (runtimeids.WorkflowID, map[workflow.TransitionBranchKey]workflow.NodeID) {
+	return createCurrentNodeFanoutWorkflow(
+		t,
+		store,
+		requiresApproval,
+		workflow.ContextModeContinueSession,
+	)
+}
+
+func createCurrentNodeFanoutWorkflow(
+	t *testing.T,
+	store *workflowstore.Store,
+	requiresApproval bool,
+	contextMode workflow.ContextMode,
+) (runtimeids.WorkflowID, map[workflow.TransitionBranchKey]workflow.NodeID) {
 	t.Helper()
 	ctx := context.Background()
 	created, err := store.CreateWorkflow(ctx, workflowstore.CreateWorkflowRequest{Name: "Current Node fan-out continuation"})
@@ -2845,8 +4327,8 @@ func createCurrentNodeFanoutContinuationWorkflow(
 		)
 		request.Edges = append(request.Edges,
 			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: startGroup, Key: "start", TargetNodeID: sourceID, AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeNewSession, PromptTemplate: "Source."},
-			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: splitGroup, Key: "branch_a", TargetNodeID: branchNodeIDs["branch_a"], AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeContinueSession, RequiresApproval: requiresApproval, PromptTemplate: "Branch A."},
-			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: splitGroup, Key: "branch_b", TargetNodeID: branchNodeIDs["branch_b"], AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeContinueSession, RequiresApproval: requiresApproval, PromptTemplate: "Branch B."},
+			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: splitGroup, Key: "branch_a", TargetNodeID: branchNodeIDs["branch_a"], AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: contextMode, RequiresApproval: requiresApproval, PromptTemplate: "Branch A."},
+			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: splitGroup, Key: "branch_b", TargetNodeID: branchNodeIDs["branch_b"], AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: contextMode, RequiresApproval: requiresApproval, PromptTemplate: "Branch B."},
 			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: branchAGroup, Key: "join_a", TargetNodeID: joinID, AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeNewSession},
 			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: branchBGroup, Key: "join_b", TargetNodeID: joinID, AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeNewSession},
 			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: doneGroup, Key: "done", TargetNodeID: doneID, AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeNewSession},

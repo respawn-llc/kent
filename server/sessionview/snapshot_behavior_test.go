@@ -9,9 +9,12 @@ import (
 
 	"core/server/session"
 	"core/server/sessionruntime"
-	"core/shared/clientui"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/rollbacktarget"
-	"core/shared/serverapi"
+
+	"google.golang.org/protobuf/proto"
 )
 
 func TestServiceDormantTranscriptPagesPreserveRollbackLocatorAcrossCandidateFreeCompactions(t *testing.T) {
@@ -32,6 +35,10 @@ func TestServiceDormantTranscriptPagesPreserveRollbackLocatorAcrossCandidateFree
 		UserMessageSeq:       appended.Record.Seq(),
 		CandidatePageEndByte: *appended.EndByteCursor,
 	}
+	wantLocator := &transcriptpb.RollbackCandidate{
+		UserMessageSeq:       locator.UserMessageSeq,
+		CandidatePageEndByte: locator.CandidatePageEndByte,
+	}
 	for index := 0; index < 3; index++ {
 		appendSessionViewHistoryReplacement(t, store, compactStepID, session.HistoryReplacementRecord{
 			Engine:                  "local",
@@ -42,19 +49,19 @@ func TestServiceDormantTranscriptPagesPreserveRollbackLocatorAcrossCandidateFree
 	dormant := NewService(newTestSessionResolver(store), nil, nil)
 
 	dormantNewest := mustTranscriptPage(t, dormant, store.Meta().SessionID, nil, nil)
-	if dormantNewest.LatestRollbackCandidate == nil || *dormantNewest.LatestRollbackCandidate != locator {
+	if !proto.Equal(dormantNewest.LatestRollbackCandidate, wantLocator) {
 		t.Fatalf("dormant newest locator = %#v, want %#v", dormantNewest.LatestRollbackCandidate, locator)
 	}
 
 	cursor := locator.CandidatePageEndByte
 	dormantCandidate := mustTranscriptPage(t, dormant, store.Meta().SessionID, &cursor, nil)
-	if dormantCandidate.LatestRollbackCandidate == nil || *dormantCandidate.LatestRollbackCandidate != locator {
+	if !proto.Equal(dormantCandidate.LatestRollbackCandidate, wantLocator) {
 		t.Fatalf("dormant candidate-page locator = %#v, want %#v", dormantCandidate.LatestRollbackCandidate, locator)
 	}
 	wantTarget := rollbacktarget.EncodeUserMessageSeq(locator.UserMessageSeq)
 	found := false
 	for _, row := range dormantCandidate.Entries {
-		if row.User != nil && row.User.RollbackTargetID != nil && *row.User.RollbackTargetID == wantTarget {
+		if user := row.GetUser(); user != nil && user.RollbackTargetId != nil && *user.RollbackTargetId == wantTarget {
 			found = true
 			break
 		}
@@ -64,7 +71,7 @@ func TestServiceDormantTranscriptPagesPreserveRollbackLocatorAcrossCandidateFree
 	}
 
 	dormantNewer := mustTranscriptPage(t, dormant, store.Meta().SessionID, nil, &cursor)
-	if dormantNewer.LatestRollbackCandidate == nil || *dormantNewer.LatestRollbackCandidate != locator {
+	if !proto.Equal(dormantNewer.LatestRollbackCandidate, wantLocator) {
 		t.Fatalf("dormant newer-page locator = %#v, want %#v", dormantNewer.LatestRollbackCandidate, locator)
 	}
 }
@@ -73,10 +80,10 @@ func TestServiceTranscriptReadsHonorCanceledContext(t *testing.T) {
 	store := newSessionViewStore(t, t.TempDir(), "ws", t.TempDir())
 	service := NewService(newTestSessionResolver(store), nil, nil)
 	cursor := int64(1)
-	requests := map[string]serverapi.SessionTranscriptPageRequest{
-		"newest page": {SessionID: store.Meta().SessionID},
-		"older page":  {SessionID: store.Meta().SessionID, Cursor: &cursor},
-		"newer page":  {SessionID: store.Meta().SessionID, NewerCursor: &cursor},
+	requests := map[string]*transcriptpb.PageRequest{
+		"newest page": {SessionId: store.Meta().SessionID},
+		"older page":  {SessionId: store.Meta().SessionID, Direction: &transcriptpb.PageRequest_Cursor{Cursor: cursor}},
+		"newer page":  {SessionId: store.Meta().SessionID, Direction: &transcriptpb.PageRequest_NewerCursor{NewerCursor: cursor}},
 	}
 	for name, request := range requests {
 		t.Run(name, func(t *testing.T) {
@@ -99,11 +106,11 @@ func TestRuntimeMainViewSnapshotDoesNotRequirePersistedSessionResolution(t *test
 	live := NewService(nil, fixture.activity, nil)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := live.GetSessionMainView(ctx, serverapi.SessionMainViewRequest{SessionID: store.Meta().SessionID}); !errors.Is(err, context.Canceled) {
+	if _, err := live.GetSessionMainView(ctx, &sessionpb.MainViewRequest{SessionId: store.Meta().SessionID}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled live main-view error = %v, want context canceled", err)
 	}
 	liveMain := mustMainView(t, live, store.Meta().SessionID)
-	if liveMain.Activity.State == clientui.RuntimeActivityUnavailable {
+	if liveMain.Activity.State == runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE {
 		t.Fatalf("expected completed Runtime Main View, got %+v", liveMain.Activity)
 	}
 
@@ -134,22 +141,25 @@ func startBlockingRuntimeRun(t *testing.T) (*session.Store, sessionViewRuntimeFi
 	return store, fixture, release, handle
 }
 
-func mustMainView(t *testing.T, svc *Service, sessionID string) clientui.RuntimeMainView {
+func mustMainView(t *testing.T, svc *Service, sessionID string) *runtimepb.MainView {
 	t.Helper()
-	resp, err := svc.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: sessionID})
+	resp, err := svc.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{SessionId: sessionID})
 	if err != nil {
 		t.Fatalf("get main view: %v", err)
 	}
 	return resp.MainView
 }
 
-func mustTranscriptPage(t *testing.T, svc *Service, sessionID string, cursor, newerCursor *int64) clientui.TranscriptPage {
+func mustTranscriptPage(t *testing.T, svc *Service, sessionID string, cursor, newerCursor *int64) *transcriptpb.Page {
 	t.Helper()
-	response, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{
-		SessionID:   sessionID,
-		Cursor:      cursor,
-		NewerCursor: newerCursor,
-	})
+	request := &transcriptpb.PageRequest{SessionId: sessionID}
+	if cursor != nil {
+		request.Direction = &transcriptpb.PageRequest_Cursor{Cursor: *cursor}
+	}
+	if newerCursor != nil {
+		request.Direction = &transcriptpb.PageRequest_NewerCursor{NewerCursor: *newerCursor}
+	}
+	response, err := svc.GetSessionTranscriptPage(context.Background(), request)
 	if err != nil {
 		t.Fatalf("get transcript page: %v", err)
 	}

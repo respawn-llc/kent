@@ -16,6 +16,7 @@ import (
 	"core/server/auth"
 	"core/shared/config"
 	"core/shared/llmerrors"
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 
 	openai "github.com/openai/openai-go/v3"
@@ -32,12 +33,14 @@ const (
 
 const openAIResponsesStreamEndedBeforeTerminalMessage = "OpenAI-compatible Responses SSE stream ended before a terminal Responses event"
 
-type AuthHeaderProvider interface {
-	AuthorizationHeader(ctx context.Context) (string, error)
+type DispatchAuthProvider interface {
+	// A nil result explicitly selects auth-less access; errors never do.
+	ResolveDispatchAuth(context.Context) (*DispatchAuth, error)
 }
 
-type OpenAIAuthMetadataProvider interface {
-	OpenAIAuthMetadata(ctx context.Context) (method string, accountID string, err error)
+type DispatchAuth struct {
+	Header string
+	Mode   OpenAIAuthMode
 }
 
 type OpenAIAuthMode struct {
@@ -57,19 +60,20 @@ type HTTPTransport struct {
 	BaseURL                      string
 	BaseURLExplicit              bool
 	Client                       *http.Client
-	Auth                         AuthHeaderProvider
+	Auth                         DispatchAuthProvider
 	Provider                     Provider
 	Store                        bool
 	ModelVerbosity               string
 	ContextWindowTokens          int
 	ProviderIdentifier           string
 	ProviderCapabilitiesOverride *ProviderCapabilities
+	RequestCapabilities          *ProviderCapabilities
 
 	mu                  sync.RWMutex
 	modelContextWindows map[string]int
 }
 
-func NewHTTPTransport(auth AuthHeaderProvider) *HTTPTransport {
+func NewHTTPTransport(auth DispatchAuthProvider) *HTTPTransport {
 	window := 200000
 	if raw := strings.TrimSpace(os.Getenv("KENT_CONTEXT_WINDOW")); raw != "" {
 		if value, err := strconv.Atoi(raw); err == nil && value > 0 {
@@ -127,6 +131,7 @@ func (t *HTTPTransport) Generate(ctx context.Context, request OpenAIRequest, cal
 	defer func() { _ = stream.Close() }()
 
 	turnStateObserver := codexTurnStateObserver(preparation.projection, request.CodexDispatch)
+	requestEvidence := t.providerUsageRequestEvidence(request, preparation, payload)
 	return consumeResponsesStream(
 		ctx,
 		stream,
@@ -135,6 +140,7 @@ func (t *HTTPTransport) Generate(ctx context.Context, request OpenAIRequest, cal
 		preparation.providerCaps.ProviderID,
 		windowTokens,
 		callbacks,
+		requestEvidence,
 	)
 }
 
@@ -146,6 +152,7 @@ func consumeResponsesStream(
 	providerID string,
 	windowTokens int,
 	callbacks StreamCallbacks,
+	requestEvidence modelcontract.ProviderUsageEvidence,
 ) (OpenAIResponse, error) {
 	accumulator := newResponseStreamAccumulator(callbacks, windowTokens)
 	headersObserved := false
@@ -164,7 +171,7 @@ func consumeResponsesStream(
 	observeCodexTurnStateResponseHeader(dispatch, rawResp, &headersObserved)
 	if err := stream.Err(); err != nil {
 		if accumulator.hasCompleted() && !callerCanceledStreamRead(ctx) {
-			return responseFromStreamAccumulator(accumulator, providerID, rawResp)
+			return responseFromStreamAccumulator(accumulator, providerID, rawResp, requestEvidence)
 		}
 		if rawResp != nil && isOpenAIResponsesStreamFramingError(err) {
 			return OpenAIResponse{}, fmt.Errorf(
@@ -191,10 +198,15 @@ func consumeResponsesStream(
 			),
 		)
 	}
-	return responseFromStreamAccumulator(accumulator, providerID, rawResp)
+	return responseFromStreamAccumulator(accumulator, providerID, rawResp, requestEvidence)
 }
 
-func responseFromStreamAccumulator(accumulator *responseStreamAccumulator, providerID string, rawResp *http.Response) (OpenAIResponse, error) {
+func responseFromStreamAccumulator(
+	accumulator *responseStreamAccumulator,
+	providerID string,
+	rawResp *http.Response,
+	requestEvidence modelcontract.ProviderUsageEvidence,
+) (OpenAIResponse, error) {
 	response, err := accumulator.Response()
 	if err != nil {
 		return OpenAIResponse{}, fmt.Errorf(
@@ -204,7 +216,37 @@ func responseFromStreamAccumulator(accumulator *responseStreamAccumulator, provi
 	}
 	response.ServedModel = servedModelMetadata(rawResp, optionalStringValue(response.ServedModel))
 	response.ReasoningIncluded = reasoningIncludedMetadata(rawResp)
+	response.ProviderEvidence.ProviderID = requestEvidence.ProviderID
+	response.ProviderEvidence.RequestedModel = requestEvidence.RequestedModel
+	response.ProviderEvidence.RequestedServiceTier = requestEvidence.RequestedServiceTier
+	response.ProviderEvidence.RequestedHostedTools = requestEvidence.RequestedHostedTools
+	if response.ServedModel != nil {
+		response.ProviderEvidence.ServedModel = textutil.Pointer(response.ServedModel)
+	}
 	return response, nil
+}
+
+func (t *HTTPTransport) providerUsageRequestEvidence(
+	request OpenAIRequest,
+	preparation openAIDispatchPreparation,
+	payload responses.ResponseNewParams,
+) modelcontract.ProviderUsageEvidence {
+	evidence := modelcontract.ProviderUsageEvidence{
+		ProviderID:     textutil.Value(preparation.providerCaps.ProviderID),
+		RequestedModel: request.Model,
+	}
+	if tier := strings.TrimSpace(string(payload.ServiceTier)); tier != "" {
+		evidence.RequestedServiceTier = textutil.Value(tier)
+	}
+	for _, tool := range payload.Tools {
+		if tool.OfWebSearch == nil {
+			continue
+		}
+		evidence.RequestedHostedTools = append(evidence.RequestedHostedTools, modelcontract.HostedToolConfiguration{
+			Type: string(tool.OfWebSearch.Type),
+		})
+	}
+	return evidence
 }
 
 func isOpenAIResponsesStreamFramingError(err error) bool {
@@ -328,7 +370,7 @@ func (t *HTTPTransport) prepareDispatch(
 		model,
 		dispatch,
 		isChatGPTCodex,
-		effectiveServiceTier(fastMode, providerCaps),
+		effectiveServiceTier(fastMode, t.effectiveRequestCapabilities(providerCaps)),
 	)
 	if err != nil {
 		return openAIDispatchPreparation{}, err
@@ -343,7 +385,7 @@ func (t *HTTPTransport) prepareDispatch(
 }
 
 func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request OpenAIRequest, authHeader string, mode OpenAIAuthMode, variant ProviderVariantContract, providerCaps ProviderCapabilities, windowTokens int, projection *codexDispatchProjection) (OpenAICompactionResponse, error) {
-	payload, err := newOpenAIRequestPayloadBuilder(t.Store, t.ModelVerbosity, providerCaps).BuildCompactV2(request, mode)
+	payload, err := t.requestPayloadBuilder(providerCaps).BuildCompactV2(request, mode)
 	if err != nil {
 		return OpenAICompactionResponse{}, err
 	}
@@ -366,6 +408,11 @@ func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request O
 	accumulator := newResponseStreamAccumulator(StreamCallbacks{}, windowTokens)
 	turnStateObserver := codexTurnStateObserver(projection, request.CodexDispatch)
 	headersObserved := false
+	requestEvidence := t.providerUsageRequestEvidence(
+		request,
+		openAIDispatchPreparation{mode: mode, providerCaps: providerCaps},
+		payload,
+	)
 	observeCodexTurnStateResponseHeader(turnStateObserver, rawResp, &headersObserved)
 	for stream.Next() {
 		observeCodexTurnStateResponseHeader(turnStateObserver, rawResp, &headersObserved)
@@ -386,7 +433,7 @@ func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request O
 	if !accumulator.hasCompleted() {
 		return OpenAICompactionResponse{}, newOpenAIProviderContractError(providerCaps.ProviderID, rawResp, errors.New(openAIResponsesStreamEndedBeforeTerminalMessage))
 	}
-	response, err := responseFromStreamAccumulator(accumulator, providerCaps.ProviderID, rawResp)
+	response, err := responseFromStreamAccumulator(accumulator, providerCaps.ProviderID, rawResp, requestEvidence)
 	if err != nil {
 		return OpenAICompactionResponse{}, err
 	}
@@ -395,7 +442,11 @@ func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request O
 		return OpenAICompactionResponse{}, newOpenAIProviderContractError(providerCaps.ProviderID, rawResp, err)
 	}
 	checkpoint = CloneResponseItems([]ResponseItem{checkpoint})[0]
-	return OpenAICompactionResponse{Checkpoint: checkpoint, Usage: response.Usage}, nil
+	return OpenAICompactionResponse{
+		Checkpoint:       checkpoint,
+		Usage:            response.Usage,
+		ProviderEvidence: response.ProviderEvidence,
+	}, nil
 }
 
 func requireSingleEncryptedCompactionOutput(items []ResponseItem) (ResponseItem, error) {
@@ -496,27 +547,17 @@ func (t *HTTPTransport) ProviderCapabilities(ctx context.Context) (ProviderCapab
 
 func (t *HTTPTransport) resolveAuth(ctx context.Context) (string, OpenAIAuthMode, error) {
 	if t.Auth == nil {
-		if t.BaseURLExplicit {
-			return "", OpenAIAuthMode{}, nil
-		}
 		return "", OpenAIAuthMode{}, &AuthError{Err: auth.ErrAuthNotConfigured}
 	}
-	authHeader, err := t.Auth.AuthorizationHeader(ctx)
+	result, err := t.Auth.ResolveDispatchAuth(ctx)
 	if err != nil {
-		if t.BaseURLExplicit && errors.Is(err, auth.ErrAuthNotConfigured) {
-			return "", OpenAIAuthMode{}, nil
-		}
 		return "", OpenAIAuthMode{}, &AuthError{Err: err}
 	}
-
-	mode := OpenAIAuthMode{}
-	if provider, ok := t.Auth.(OpenAIAuthMetadataProvider); ok {
-		method, accountID, err := provider.OpenAIAuthMetadata(ctx)
-		if err != nil {
-			return "", OpenAIAuthMode{}, &AuthError{Err: err}
-		}
-		mode.IsOAuth = method == "oauth"
-		mode.AccountID = strings.TrimSpace(accountID)
+	if result == nil {
+		return "", OpenAIAuthMode{}, nil
 	}
-	return authHeader, mode, nil
+	if strings.TrimSpace(result.Header) == "" {
+		return "", OpenAIAuthMode{}, &AuthError{Err: errors.New("dispatch credential is empty")}
+	}
+	return result.Header, result.Mode, nil
 }

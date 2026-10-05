@@ -1,4 +1,8 @@
 export { Badge } from "./Badge";
+export { PromptOptionRow } from "./PromptOptionRow";
+export { PromptAccessTargets } from "./PromptAccessTargets";
+export { ScrollRegion } from "./ScrollRegion";
+export { GrowingTextArea } from "./GrowingTextArea";
 export type { BadgeTone } from "./Badge";
 export { AdaptiveLineClamp } from "./AdaptiveLineClamp";
 export type { AdaptiveLineClampProps } from "./AdaptiveLineClamp";
@@ -12,18 +16,25 @@ export type {
   InteractiveChipTone,
 } from "./InteractiveChip";
 export { AnimatedChipSummary } from "./AnimatedChipSummary";
+export { AnimatedReveal } from "./AnimatedReveal";
+export { AnimatedSize } from "./AnimatedSize";
 export { ProgressChip, ProgressInteractiveChip } from "./ProgressChip";
 export type { ProgressChipProps, ProgressInteractiveChipProps } from "./ProgressChip";
 export { ActionableListRow } from "./ActionableListRow";
 export type { ActionableListRowProps } from "./ActionableListRow";
 export { TranscriptDisclosure } from "./TranscriptDisclosure";
-export type { TranscriptDisclosureIconTone, TranscriptDisclosureProps } from "./TranscriptDisclosure";
+export type {
+  TranscriptDisclosureIconTone,
+  TranscriptDisclosureProps,
+  TranscriptDisclosureSummaryMode,
+} from "./TranscriptDisclosure";
 export { OneLineOverflowRow } from "./OneLineOverflowRow";
 export type { OneLineOverflowItem, OneLineOverflowRowProps } from "./OneLineOverflowRow";
 export { SegmentedControl } from "./SegmentedControl";
 export type { SegmentedControlOption, SegmentedControlProps } from "./SegmentedControl";
 export { CopyableValueButton } from "./CopyableValueButton";
 export { IconTooltipButton } from "./IconTooltipButton";
+export { PeekingSurface } from "./PeekingSurface";
 export { HelpHint } from "./HelpHint";
 export type { HelpHintProps } from "./HelpHint";
 export { DisabledInteractionGuard } from "./DisabledInteractionGuard";
@@ -41,7 +52,7 @@ export { fieldLabelClassName } from "./fieldStyles";
 export { identifierInputAttributes } from "./inputAttributes";
 export { SelectField } from "./SelectField";
 export type { SelectFieldOption, SelectFieldPaging, SelectFieldProps } from "./SelectField";
-export { EmptyState, ErrorState, LoadingState } from "./StateViews";
+export { EmptyState, ErrorState, LoadingState, useDelayedAppearance } from "./StateViews";
 export { FloatingNoticeIsland } from "./FloatingNoticeIsland";
 export type { FloatingNoticeIslandProps, FloatingNoticeTone } from "./FloatingNoticeIsland";
 export { Item, ItemContent, ItemGroup, ItemTitle } from "./Item";
@@ -53,15 +64,11 @@ export type { IslandTabAction, IslandTabItem, IslandTabsProps } from "./IslandTa
 export { islandSurfaceClassName } from "./islandSurfaceStyles";
 export type { IslandLevel } from "./islandSurfaceStyles";
 export { chromeContentPaddingClassName, nativeChromeContentPaddingClassName } from "./chromePadding";
-export {
-  HomeListCard,
-  homeListCardButtonClassName,
-  homeListCardListMaxWidthClassName,
-  homeListCardMaxWidthClassName,
-  homeListCardShellClassName,
-} from "./HomeListCard";
 export { StaticMarkdown, StreamingMarkdown, TaskBodyMarkdown } from "./MarkdownText";
+export { CollapsibleMarkdownViewport } from "./CollapsibleMarkdownViewport";
 export type { StaticMarkdownProps, StreamingMarkdownProps, TaskBodyMarkdownProps } from "./MarkdownText";
+export { SyntaxHighlightedCode } from "./SyntaxHighlightedCode";
+export type { SyntaxHighlightedCodeProps } from "./SyntaxHighlightedCode";
 export { compactExternalUrlLabel, safeExternalUrl } from "./externalLinks";
 export { readEffectiveTheme, type AppTheme } from "./theme";
 export { cx } from "./classes";
@@ -115,6 +122,7 @@ export { dismissStatusToast, showStatusToast } from "./statusToast";
 export {
   VirtualizedInfiniteList,
   type VirtualizedInfiniteListProps,
+  type VirtualizedEndAnchoring,
   type VirtualizedItemVisibilityTrigger,
 } from "./VirtualizedInfiniteList";
 export {
@@ -128,4 +136,6 @@ export {
   type VirtualizedInfiniteListBoundaryState,
 } from "./InfiniteListBoundary";
 export { useStableCallback } from "./useStableCallback";
+export { Shimmer } from "./Shimmer";
+export { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./radix/collapsible";
 export type { StatusNotice, ToastTone } from "./statusToast";

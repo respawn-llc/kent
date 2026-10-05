@@ -30,7 +30,7 @@ func TestExecuteToolCallsPropagatesContextCancellation(t *testing.T) {
 				started: started,
 			},
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -76,7 +76,7 @@ func TestExecuteToolCallsClosesCompletedAndInterruptedResultsInRosterOrder(t *te
 			Handler: handler,
 		}),
 		Config{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 		},
 	)
 	publishTestWorkflowExecution(t, engine, testWorkflowConfig(
@@ -130,10 +130,10 @@ func TestExecuteToolCallsClosesCompletedAndInterruptedResultsInRosterOrder(t *te
 		!outcome.results[1].IsError ||
 		!bytes.Equal(outcome.results[1].Output, json.RawMessage(`{"error":"honest"}`)) ||
 		outcome.results[2].CallID != "interrupted" ||
-		!outcome.results[2].IsError ||
-		!bytes.Equal(outcome.results[2].Output, missingToolOutputInterruptedOutput) {
+		!outcome.results[2].IsError {
 		t.Fatalf("semantic close results = %+v", outcome.results)
 	}
+	assertSyntheticFailureOutput(t, outcome.results[2].Output, string(outcome.results[2].Name), missingToolOutputInterruptedMessage)
 
 	window, err := mustMaterializeTestEventLog(t, store).ReadRecentRecords(16)
 	if err != nil {
@@ -160,7 +160,8 @@ func TestExecuteToolCallsClosesCompletedAndInterruptedResultsInRosterOrder(t *te
 		if item.CallID != nil &&
 			*item.CallID == "interrupted" &&
 			item.Type == llm.ResponseItemTypeCustomToolOutput {
-			foundCustomOutput = bytes.Equal(item.Output, missingToolOutputInterruptedOutput)
+			assertSyntheticFailureOutput(t, item.Output, string(toolspec.ToolPatch), missingToolOutputInterruptedMessage)
+			foundCustomOutput = true
 		}
 	}
 	if !foundCustomOutput {

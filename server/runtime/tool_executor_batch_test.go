@@ -16,31 +16,6 @@ import (
 	"core/shared/toolspec"
 )
 
-func TestExecuteToolCallsRejectsMissingProviderCallIDBeforeToolExecution(t *testing.T) {
-	t.Parallel()
-	probe := &toolExecutionProbe{}
-	engine := mustNewTestEngine(
-		t,
-		mustCreateTestSession(t),
-		&fakeClient{},
-		newTestToolRegistry(t, tools.HandlerRegistration{
-			ID:      toolspec.ToolExecCommand,
-			Handler: probe,
-		}),
-		Config{Model: "gpt-5"},
-	)
-
-	_, err := engine.executeToolCalls(context.Background(), "step", []llm.ToolCall{{
-		Name: string(toolspec.ToolExecCommand),
-	}})
-	if !errors.Is(err, ErrMissingProviderToolCallID) {
-		t.Fatalf("execute tool calls error = %v, want missing provider call ID", err)
-	}
-	if probe.calls.Load() != 0 {
-		t.Fatal("missing provider call ID reached a local tool handler")
-	}
-}
-
 type toolExecutionProbe struct {
 	called   bool
 	calls    atomic.Int32
@@ -87,9 +62,19 @@ func (r *toolDurabilityObservationRecorder) snapshot() ([]session.EventLogAppend
 		append([]session.EventLogSyncObservation(nil), r.syncs...)
 }
 
-type durabilityToolHandler struct{}
+type durabilityToolHandler struct {
+	verifyApprovalAdmission bool
+}
 
-func (durabilityToolHandler) Call(_ context.Context, call tools.Call) (tools.Result, error) {
+func (h durabilityToolHandler) Call(ctx context.Context, call tools.Call) (tools.Result, error) {
+	if h.verifyApprovalAdmission {
+		if err := tools.ConsumeApprovalPresentation(ctx); err != nil {
+			return tools.Result{}, fmt.Errorf("%s first Approval: %w", call.ID, err)
+		}
+		if err := tools.ConsumeApprovalPresentation(ctx); err == nil {
+			return tools.Result{}, fmt.Errorf("%s second Approval was admitted", call.ID)
+		}
+	}
 	return tools.Result{
 		CallID: call.ID,
 		Name:   call.Name,
@@ -174,7 +159,7 @@ func TestLocalToolHandlerStartsAfterAcceptedIntentIsDurable(t *testing.T) {
 				observed: observed,
 			},
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 
 	if _, err := engine.SubmitUserMessage(t.Context(), "run"); err != nil {
@@ -199,7 +184,7 @@ func TestExecuteToolCallsCommitsHandlerErrorAsHonestResult(t *testing.T) {
 			ID:      toolspec.ToolExecCommand,
 			Handler: failingToolHandler{err: handlerErr},
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 
 	stepID := runtimeTestStepID("step")
@@ -244,7 +229,7 @@ func TestToolExecutionDurabilityObservationBaseline(t *testing.T) {
 					ID:      toolspec.ToolExecCommand,
 					Handler: durabilityToolHandler{},
 				}),
-				Config{Model: "gpt-5"},
+				Config{Model: "gpt-6-sol"},
 			)
 			calls := make([]llm.ToolCall, count)
 			for index := range calls {
@@ -308,7 +293,7 @@ func TestToolExecutionDurabilityObservationBaseline(t *testing.T) {
 	}
 }
 
-func TestExecuteToolCallsCommitsSuccessfulResultsAsOneGroup(t *testing.T) {
+func TestExecuteSiblingToolCallsIndependentlyAdmitOneApprovalAndCommitOneGroup(t *testing.T) {
 	observer := &toolDurabilityObservationRecorder{}
 	store := mustCreateTestSessionAt(
 		t,
@@ -321,9 +306,9 @@ func TestExecuteToolCallsCommitsSuccessfulResultsAsOneGroup(t *testing.T) {
 		&fakeClient{},
 		newTestToolRegistry(t, tools.HandlerRegistration{
 			ID:      toolspec.ToolExecCommand,
-			Handler: durabilityToolHandler{},
+			Handler: durabilityToolHandler{verifyApprovalAdmission: true},
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	calls := []llm.ToolCall{
 		{
@@ -405,7 +390,7 @@ func (h *closeEngineBeforeResultReportHandler) Call(
 	return tools.Result{
 		CallID: call.ID,
 		Name:   call.Name,
-		Output: json.RawMessage(`{"ok":true}`),
+		Output: json.RawMessage(`"ok"`),
 	}, nil
 }
 

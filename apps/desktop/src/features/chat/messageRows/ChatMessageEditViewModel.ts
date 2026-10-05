@@ -1,0 +1,89 @@
+import { useAtomMount, useAtomSet } from "@effect/atom-react";
+import { MutationObserver, type QueryClient } from "@tanstack/react-query";
+import * as Effect from "effect/Effect";
+import * as Atom from "effect/reactivity/Atom";
+import type { TFunction } from "i18next";
+
+import type { ChatApi, ChatForkEditInput, ChatSessionTarget } from "@/api";
+import { queryAtom, type StatusController } from "@/app-facade";
+import { chatOperationFailureMessage } from "../chatSettingsPresentation";
+import type { ChatUserMessageItem } from "./ChatUserMessage";
+
+export type ChatMessageEditHandoff = Readonly<{ sessionID: string; draft: string }>;
+export type ChatMessageEditActivation = Readonly<{
+  item: ChatUserMessageItem;
+  draft: string;
+  onSuccess(handoff: ChatMessageEditHandoff): void | Promise<void>;
+}>;
+
+export function createChatMessageEditViewModel({
+  api,
+  client,
+  target,
+  t,
+  push,
+}: Readonly<{
+  api: ChatApi;
+  client: QueryClient;
+  target: ChatSessionTarget | null;
+  t: TFunction;
+  push: StatusController["push"];
+}>) {
+  const observer = new MutationObserver(client, {
+    mutationFn: async (
+      input: Readonly<{
+        target: ChatSessionTarget;
+        fork: ChatForkEditInput;
+        onSuccess: ChatMessageEditActivation["onSuccess"];
+      }>,
+    ) => {
+      const sessionID = await api.forkEdit(input.target, input.fork);
+      await api.persistDraft({ projectID: input.target.projectID, sessionID }, input.fork.initialInput, null);
+      return sessionID;
+    },
+    retry: false,
+    networkMode: "always",
+    onSuccess: async (sessionID, input) => {
+      await input.onSuccess({ sessionID, draft: input.fork.initialInput });
+    },
+    onError: (error) => {
+      push({
+        id: "chat-message-edit-failed",
+        title: t("chatTranscript.editFailed"),
+        body: t("chatTranscript.editFailureRecovery", {
+          diagnostic: chatOperationFailureMessage(t, error, "edit"),
+        }),
+        tone: "danger",
+      });
+    },
+  });
+  const request = queryAtom(observer);
+  const activate = Atom.fn<ChatMessageEditActivation>()(
+    (input) =>
+      Effect.gen(function* () {
+        const rollbackTargetID = input.item.value.RollbackTargetID;
+        if (target === null || rollbackTargetID == null || observer.getCurrentResult().isPending) return;
+        yield* Effect.tryPromise(async () =>
+          observer.mutate({
+            target,
+            fork: { rollbackTargetID, initialInput: combineDraft(input.item.value.Text, input.draft) },
+            onSuccess: input.onSuccess,
+          }),
+        ).pipe(Effect.ignore);
+      }),
+    { concurrent: true },
+  );
+  return { request, activate } as const;
+}
+
+export type ChatMessageEditViewModel = ReturnType<typeof createChatMessageEditViewModel>;
+
+function combineDraft(original: string, draft: string): string {
+  return draft === "" ? original : `${original}\n\n${draft}`;
+}
+
+export function useChatMessageEditActions(model: ChatMessageEditViewModel) {
+  useAtomMount(model.request);
+  const activate = useAtomSet(model.activate);
+  return { activate };
+}

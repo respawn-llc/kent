@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Pencil } from "lucide-react";
 
 import type { WorkflowRecord } from "@/api";
+import { Spinner } from "@/ui";
 import { WorkflowActionsContextMenu } from "./WorkflowActionsContextMenu";
 
 export function WorkflowRow({
@@ -14,7 +15,7 @@ export function WorkflowRow({
   workflow: WorkflowRecord;
 }>) {
   const { t } = useTranslation();
-  const row = (
+  const row = (loading: boolean) => (
     <div className="group relative flex min-w-0 select-none flex-col gap-[var(--space-1)] rounded-[var(--radius-m)] px-[calc(var(--space-3)/2)] py-[var(--space-1)] text-[var(--color-on-island)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-on-island)_4%,transparent)]">
       <button
         aria-label={workflow.name}
@@ -39,6 +40,7 @@ export function WorkflowRow({
         <span className="min-w-0 flex-1 truncate text-xs text-[var(--color-muted)]">
           {workflow.description.length > 0 ? workflow.description : t("workflowLibrary.reusableDefinition")}
         </span>
+        {loading ? <Spinner size="sm" /> : null}
         <span className="shrink-0 font-mono text-[0.78rem] text-[var(--color-muted)]">
           v{workflow.version}
         </span>
@@ -46,7 +48,7 @@ export function WorkflowRow({
     </div>
   );
   if (contextActions === undefined) {
-    return row;
+    return row(false);
   }
   return (
     <WorkflowActionsContextMenu onEdit={contextActions.onEdit} workflowID={workflow.id}>

@@ -1,34 +1,33 @@
 import { useEffect, useState } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { Plus } from "lucide-react";
+import { desktopChatEnabled } from "@/shared/feature-flags";
 
-import type { SessionCatalogSummary } from "@/api";
-import { errorMessage, isProjectMissingError } from "@/api";
+import type { SessionCatalogSummary, SessionCategory } from "@/api";
+import { errorMessage } from "@/api";
 import {
-  clearLastProjectRoute,
   formatRelativeTime,
-  mainSessionCatalogInfiniteQueryOptions,
-  queryKeys,
-  subagentSessionCatalogInfiniteQueryOptions,
+  type ProjectContentTab,
+  useSessionChatCatalogReturn,
   useAppNavigation,
-  useAppServices,
+  readLastProjectRoute,
+  writeLastProjectContentTab,
   type SidebarMode,
 } from "@/app-facade";
 import {
   directionalBoundary,
   EmptyState,
-  homeListCardListMaxWidthClassName,
-  HomeListCard,
+  Item,
+  ItemContent,
+  ItemTitle,
   InfiniteListBoundary,
   IslandTabs,
-  LoadingState,
   VirtualizedInfiniteList,
 } from "@/ui";
 import { OverlappingCrossfade } from "./OverlappingCrossfade";
 import { ProjectTasksSurface } from "./ProjectTasksSurface";
 import { createProjectTasksViewMemory } from "./projectTasksViewMemory";
-
-type ProjectContentTab = "tasks" | "sessions" | "subagents";
+import { useHomeProjectModel, useHomeSessionPages } from "./HomeProjectModel";
 
 export function HomeProjectContent({
   projectID,
@@ -39,24 +38,16 @@ export function HomeProjectContent({
   sessionsVisible: boolean;
   sidebarMode: SidebarMode;
 }>) {
-  const { t } = useTranslation();
-  const { api } = useAppServices();
   const navigation = useAppNavigation();
+  const catalogReturn = useSessionChatCatalogReturn(projectID);
   const [taskListViewMemory] = useState(createProjectTasksViewMemory);
-  const projectQuery = useQuery({
-    queryKey: queryKeys.projectEdit(projectID),
-    queryFn: async () => api.getProjectEdit(projectID),
-  });
   useEffect(() => {
-    if (!isProjectMissingError(projectQuery.error)) return;
-    clearLastProjectRoute(projectID);
-    void navigation.selectHomeProject(null);
-  }, [navigation, projectID, projectQuery.error]);
-  if (projectQuery.isPending) {
-    return <LoadingState appearanceDelayMs={0} reveal={false} title={t("states.loading")} />;
-  }
+    catalogReturn?.consume();
+  }, [catalogReturn]);
+  useHomeProjectModel(projectID, async () => navigation.selectHomeProject(null));
   return sessionsVisible ? (
     <ProjectContentTabs
+      catalogReturn={catalogReturn?.category ?? null}
       projectID={projectID}
       sidebarMode={sidebarMode}
       taskListViewMemory={taskListViewMemory}
@@ -67,25 +58,32 @@ export function HomeProjectContent({
 }
 
 function ProjectContentTabs({
+  catalogReturn,
   projectID,
   sidebarMode,
   taskListViewMemory,
 }: Readonly<{
+  catalogReturn: SessionCategory | null;
   projectID: string;
   sidebarMode: SidebarMode;
   taskListViewMemory: ReturnType<typeof createProjectTasksViewMemory>;
 }>) {
+  const navigation = useAppNavigation();
   const { t } = useTranslation();
-  const { api } = useAppServices();
-  const [tab, setTab] = useState<ProjectContentTab>("tasks");
-  const mainSessionsQuery = useInfiniteQuery({
-    ...mainSessionCatalogInfiniteQueryOptions(api, projectID),
-    enabled: tab === "sessions",
+  const [tab, setTab] = useState<ProjectContentTab>(() => {
+    if (catalogReturn === "main") return "sessions";
+    if (catalogReturn === "subagent") return "subagents";
+    const lastProjectRoute = readLastProjectRoute();
+    if (lastProjectRoute?.kind === "home_project" && lastProjectRoute.projectId === projectID) {
+      return lastProjectRoute.contentTab;
+    }
+    return "tasks";
   });
-  const subagentSessionsQuery = useInfiniteQuery({
-    ...subagentSessionCatalogInfiniteQueryOptions(api, projectID),
-    enabled: tab === "subagents",
-  });
+  useEffect(() => {
+    writeLastProjectContentTab(projectID, tab);
+  }, [projectID, tab]);
+  const mainSessionsQuery = useHomeSessionPages(projectID, "main", tab === "sessions");
+  const subagentSessionsQuery = useHomeSessionPages(projectID, "subagent", tab === "subagents");
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -95,7 +93,19 @@ function ProjectContentTabs({
           className="grid-cols-3"
           items={[
             { label: t("home.prototype.tasks"), value: "tasks" },
-            { label: t("home.prototype.sessions"), value: "sessions" },
+            {
+              label: t("home.prototype.sessions"),
+              value: "sessions",
+              action: desktopChatEnabled
+                ? {
+                    ariaLabel: t("chat.newChat"),
+                    children: <Plus size={14} />,
+                    onClick: () => {
+                      void navigation.openNewChat(projectID);
+                    },
+                  }
+                : undefined,
+            },
             { label: t("home.prototype.subagents"), value: "subagents" },
           ]}
           onValueChange={(value) => {
@@ -113,7 +123,11 @@ function ProjectContentTabs({
               viewMemory={taskListViewMemory}
             />
           ) : (
-            <SessionList query={tab === "sessions" ? mainSessionsQuery : subagentSessionsQuery} />
+            <SessionList
+              category={tab === "sessions" ? "main" : "subagent"}
+              projectID={projectID}
+              query={tab === "sessions" ? mainSessionsQuery : subagentSessionsQuery}
+            />
           )}
         </OverlappingCrossfade>
       </div>
@@ -122,8 +136,12 @@ function ProjectContentTabs({
 }
 
 function SessionList({
+  category,
+  projectID,
   query,
 }: Readonly<{
+  category: "main" | "subagent";
+  projectID: string;
   query: Readonly<{
     data:
       | Readonly<{
@@ -131,15 +149,16 @@ function SessionList({
         }>
       | undefined;
     error: Error | null;
-    fetchNextPage: () => Promise<unknown>;
+    fetchNextPage: () => void;
     hasNextPage: boolean;
     isError: boolean;
     isFetchingNextPage: boolean;
     isPending: boolean;
-    refetch: () => Promise<unknown>;
+    refetch: () => void;
   }>;
 }>) {
   const { t } = useTranslation();
+  const navigation = useAppNavigation();
   const sessions = query.data?.pages.flatMap((page) => page.sessions) ?? [];
   const initialBoundary = directionalBoundary({
     failed: query.isError,
@@ -147,13 +166,13 @@ function SessionList({
     loadingLabel: t("states.loading"),
     message: query.isError ? errorMessage(query.error) : "",
     onRetry: () => {
-      void query.refetch();
+      query.refetch();
     },
     retryLabel: t("app.retry"),
   });
   return (
     <VirtualizedInfiniteList
-      className={`h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [&>*]:mx-auto [&>*]:w-full ${homeListCardListMaxWidthClassName}`}
+      className="h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict"
       empty={
         initialBoundary === undefined ? (
           <EmptyState
@@ -172,28 +191,35 @@ function SessionList({
       items={sessions}
       loadingLabel={t("app.loadingMore")}
       onLoadMore={() => {
-        void query.fetchNextPage();
+        query.fetchNextPage();
       }}
       paddingEnd={16}
       paddingStart={16}
       renderItem={(session) => (
-        <HomeListCard
-          ariaLabel={session.name ?? session.firstPromptPreview ?? session.id}
-          onClick={unavailableSessionAction}
+        <Item
+          className="min-w-0 px-[var(--space-2)] py-[var(--space-3)]"
+          aria-label={session.name ?? session.id}
+          onClick={() => {
+            void navigation.openSessionChat({
+              catalogOrigin: { category },
+              projectID,
+              sessionID: session.id,
+            });
+          }}
         >
-          <span className="truncate text-sm text-[var(--color-muted)]">
-            {formatRelativeTime(session.updatedAt)}
-          </span>
-          <strong className="truncate">{session.name ?? session.firstPromptPreview ?? session.id}</strong>
-          <span className="truncate text-sm text-[var(--color-muted)]">
-            {session.firstPromptPreview ?? t("home.prototype.noPromptPreview")}
-          </span>
-        </HomeListCard>
+          <ItemContent className="min-w-0">
+            <ItemTitle className="max-w-full">
+              <strong className="truncate">{session.name ?? session.id}</strong>
+            </ItemTitle>
+            {session.firstPromptPreview === null ? null : (
+              <span className="line-clamp-2 break-words text-sm text-[var(--color-muted)]">
+                {session.firstPromptPreview}
+              </span>
+            )}
+            <span className="text-xs text-[var(--color-muted)]">{formatRelativeTime(session.updatedAt)}</span>
+          </ItemContent>
+        </Item>
       )}
     />
   );
-}
-
-function unavailableSessionAction(): void {
-  return;
 }

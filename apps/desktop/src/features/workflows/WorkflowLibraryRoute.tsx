@@ -6,7 +6,6 @@ import type { WorkflowRecord } from "@/api";
 import { errorMessage } from "@/api";
 import { useAppNavigation } from "@/app-facade";
 import { SidebarRootOwner, useOwnedSidebarRoots } from "@/app-facade";
-import { useConnectionSnapshot } from "@/app-facade";
 import { WorkflowRow, useWorkflowPages } from "@/shared/workflow-library";
 import { Button, EmptyState, ErrorState, LoadingState, VirtualizedInfiniteList } from "@/ui";
 
@@ -23,9 +22,7 @@ export function WorkflowLibraryRoute() {
 function WorkflowLibraryContent() {
   const { t } = useTranslation();
   const { open } = useOwnedSidebarRoots();
-  const connection = useConnectionSnapshot();
   const workflowsQuery = useWorkflowPages();
-  const createDisabled = connection.phase !== "connected";
   const workflows = useMemo(
     () => workflowsQuery.data?.pages.flatMap((page) => page.workflows) ?? [],
     [workflowsQuery.data],
@@ -42,7 +39,9 @@ function WorkflowLibraryContent() {
       <ErrorState
         body={errorMessage(workflowsQuery.error)}
         chromePadding
-        onRetry={() => void workflowsQuery.refetch()}
+        onRetry={() => {
+          workflowsQuery.refetch();
+        }}
         retryLabel={t("app.retry")}
         title={t("workflowLibrary.loadFailed")}
       />
@@ -53,7 +52,7 @@ function WorkflowLibraryContent() {
       <section className="h-full min-h-0" data-testid="workflow-library-route">
         <EmptyState
           action={
-            <Button disabled={createDisabled} onClick={openCreateWorkflow} variant="primary">
+            <Button onClick={openCreateWorkflow} variant="primary">
               {t("workflowLibrary.createWorkflow")}
             </Button>
           }
@@ -72,11 +71,13 @@ function WorkflowLibraryContent() {
           estimateSize={() => 96}
           getItemKey={(workflow) => workflow.id}
           hasNextPage={workflowsQuery.hasNextPage}
-          header={<WorkflowLibraryHeader disabled={createDisabled} onCreate={openCreateWorkflow} />}
+          header={<WorkflowLibraryHeader onCreate={openCreateWorkflow} />}
           isFetchingNextPage={workflowsQuery.isFetchingNextPage}
           items={workflows}
           loadingLabel={t("app.loadingMore")}
-          onLoadMore={() => void workflowsQuery.fetchNextPage()}
+          onLoadMore={() => {
+            workflowsQuery.fetchNextPage();
+          }}
           paddingEnd={16}
           paddingStart={16}
           renderItem={(workflow) => <WorkflowLibraryCard workflow={workflow} />}
@@ -105,10 +106,7 @@ function WorkflowLibraryCard({ workflow }: Readonly<{ workflow: WorkflowRecord }
   );
 }
 
-function WorkflowLibraryHeader({
-  disabled,
-  onCreate,
-}: Readonly<{ disabled: boolean; onCreate: () => void }>) {
+function WorkflowLibraryHeader({ onCreate }: Readonly<{ onCreate: () => void }>) {
   const { t } = useTranslation();
   return (
     <div className="flex items-center justify-between gap-[var(--space-3)] pb-[var(--space-2)]">
@@ -118,7 +116,6 @@ function WorkflowLibraryHeader({
       <button
         aria-label={t("workflowLibrary.createWorkflow")}
         className="grid h-9 w-9 place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] text-[var(--color-on-island)] disabled:cursor-not-allowed disabled:opacity-55"
-        disabled={disabled}
         onClick={onCreate}
         type="button"
       >

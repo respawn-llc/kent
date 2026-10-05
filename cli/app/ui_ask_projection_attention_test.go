@@ -1,12 +1,11 @@
 package app
 
 import (
+	"context"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	tea "github.com/charmbracelet/bubbletea"
 	"strings"
 	"testing"
-
-	"core/shared/clientui"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestAskVisibleActivationUsesCompletedProjectionNotificationPreview(t *testing.T) {
@@ -37,6 +36,29 @@ func TestAskVisibleActivationUsesCompletedProjectionNotificationPreview(t *testi
 	}
 	if strings.Contains(ringer.messages[0], "raw Markdown source") {
 		t.Fatalf("activation notification reparsed the raw question: %q", ringer.messages[0])
+	}
+}
+
+func TestHydratedPendingPromptIsShownWithoutNotification(t *testing.T) {
+	ringer := &countRinger{}
+	model := sizedTestUIModel(newProjectedStaticUIModel(), 64, 20)
+	model.promptAttention = newUnfocusedBellHooks(ringer)
+	model.questionProjector = func(request questionRenderRequest) questionRenderResultMsg {
+		return questionRenderResultMsg{request: request, rows: []string{"Question"}}
+	}
+
+	prompt := testQuestionAskEvent("ask-hydrated", "Proceed?", "yes").prompt
+	command := model.reconcileTranscriptPrompts([]*transcriptpb.Prompt{prompt})
+	if command == nil {
+		t.Fatal("hydrated prompt did not schedule presentation")
+	}
+	next, _ := model.Update(command())
+	ready := next.(*uiModel)
+	if ready.ask.activeProjection == nil || ready.ask.current == nil {
+		t.Fatal("hydrated pending prompt was not presented")
+	}
+	if ringer.notifications != 0 || len(ringer.messages) != 0 {
+		t.Fatalf("hydration replayed notifications: count=%d, messages=%q", ringer.notifications, ringer.messages)
 	}
 }
 
@@ -108,8 +130,11 @@ func TestAskInitialProjectionReadinessKeepsHelpAndGlobalCtrlC(t *testing.T) {
 		}
 	})
 
-	t.Run("ctrl c uses global runtime handling", func(t *testing.T) {
-		model, control := newProjectedPromptTestUIModel(t)
+	t.Run("ctrl c interrupts the pending question before projection completes", func(t *testing.T) {
+		client := &runtimeControlFakeClient{}
+		control := newRecordingPromptControl()
+		model := newProjectedTestUIModel(client)
+		model.promptAnswers = newTranscriptPromptAnswerer(context.Background(), control)
 		model = sizedTestUIModel(model, 64, 20)
 		next, _ := model.Update(askEventMsg{event: testQuestionAskEvent("ask-1", "Question?")})
 		pending := next.(*uiModel)
@@ -119,8 +144,12 @@ func TestAskInitialProjectionReadinessKeepsHelpAndGlobalCtrlC(t *testing.T) {
 		if updated.ask.current == nil || updated.ask.activeDelivery != nil {
 			t.Fatal("pending ctrl-c answered or cancelled the invisible prompt")
 		}
-		if updated.exitAction != UIActionExit || command == nil {
-			t.Fatal("pending ctrl-c did not reach global runtime/terminal handling")
+		if updated.exitAction == UIActionExit || command == nil {
+			t.Fatal("pending ctrl-c exited instead of interrupting the Question execution")
+		}
+		_ = collectCmdMessages(t, command)
+		if client.interruptCalls != 1 {
+			t.Fatalf("runtime interrupt calls = %d, want one", client.interruptCalls)
 		}
 		if len(control.batchRequests) != 0 {
 			t.Fatal("pending ctrl-c sent an invisible prompt answer")
@@ -133,7 +162,7 @@ func TestAskVisibleActivationOwnsNotificationTiming(t *testing.T) {
 	model := sizedTestUIModel(newProjectedStaticUIModel(), 64, 20)
 	model.promptAttention = newUnfocusedBellHooks(ringer)
 	prompt := testQuestionPrompt("ask-1", "Question?", "yes")
-	message := clientui.NewTranscriptMessage(0, clientui.NewTranscriptEvent(prompt))
+	message := transcriptTestMessage(0, prompt)
 
 	command := model.applyAdmittedTranscriptMessageState(message, runtimeTupleMergeResult{})
 	if ringer.total() != 0 {
@@ -164,7 +193,7 @@ func TestAskVisibleActivationOwnsNotificationTiming(t *testing.T) {
 	if queuedCommand != nil || ringer.total() != 1 {
 		t.Fatal("queued prompt emitted attention before promotion")
 	}
-	next, promotionCommand := ready.Update(askEventMsg{event: askEvent{resolvedPromptID: "ask-1"}})
+	next, promotionCommand := ready.Update(askEventMsg{event: askEvent{resolvedToolCallID: "ask-1"}})
 	promoted := next.(*uiModel)
 	if promotionCommand == nil || ringer.total() != 1 {
 		t.Fatal("queued prompt promotion did not defer attention until projection")
@@ -175,7 +204,7 @@ func TestAskVisibleActivationOwnsNotificationTiming(t *testing.T) {
 		t.Fatalf("promoted prompt notifications = %d, want 2 total", ringer.total())
 	}
 
-	next, _ = ready.Update(askEventMsg{event: askEvent{resolvedPromptID: "ask-2"}})
+	next, _ = ready.Update(askEventMsg{event: askEvent{resolvedToolCallID: "ask-2"}})
 	reopenedBase := next.(*uiModel)
 	next, reopenedCommand := reopenedBase.Update(askEventMsg{event: testQuestionAskEvent("ask-2", "Second?", "yes")})
 	reopened := next.(*uiModel)
@@ -185,13 +214,13 @@ func TestAskVisibleActivationOwnsNotificationTiming(t *testing.T) {
 	}
 }
 
-func TestAskHydrationAdmissionEmitsNoAttentionBeforeProjection(t *testing.T) {
+func TestAskHydrationAdmissionEmitsNoAttentionBeforeOrAfterProjection(t *testing.T) {
 	ringer := &countRinger{}
 	model := sizedTestUIModel(newProjectedStaticUIModel(), 64, 20)
 	model.promptAttention = newUnfocusedBellHooks(ringer)
 	prompt := testQuestionPrompt("ask-1", "Hydrated question?", "yes")
 
-	command := model.reconcileTranscriptPrompts([]clientui.TranscriptPrompt{prompt})
+	command := model.reconcileTranscriptPrompts([]*transcriptpb.Prompt{prompt})
 	if command == nil {
 		t.Fatal("hydration did not return the initial projection command")
 	}
@@ -200,7 +229,10 @@ func TestAskHydrationAdmissionEmitsNoAttentionBeforeProjection(t *testing.T) {
 	}
 	next, _ := model.Update(command())
 	ready := next.(*uiModel)
-	if ready.ask.activeProjection == nil || ringer.total() != 1 {
-		t.Fatalf("hydrated visible activation notifications = %d, want 1", ringer.total())
+	if ready.ask.activeProjection == nil {
+		t.Fatal("hydrated prompt did not become visible")
+	}
+	if ringer.total() != 0 {
+		t.Fatalf("hydrated visible activation notifications = %d, want 0", ringer.total())
 	}
 }

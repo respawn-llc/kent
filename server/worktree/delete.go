@@ -7,37 +7,30 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"core/server/metadata"
-	"core/server/sessionruntime"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
-	"core/shared/runtimeids"
 	"core/shared/worktreecontract"
 )
 
 func (s *Service) DeleteWorktree(ctx context.Context, req *worktreepb.DeleteRequest) (*worktreepb.DeleteSuccess, error) {
-	release, workspaceCtx, err := s.beginWorkspaceMutation(ctx, req.SessionId)
+	release, management, err := s.beginManagementMutation(ctx, req.Scope)
 	if err != nil {
 		return nil, err
 	}
-	topology, err := s.projectTopology(ctx, workspaceCtx.workspaceID, workspaceCtx.workspaceRoot)
-	if err != nil {
-		release()
-		return nil, err
-	}
-	match, err := resolveTopologySelector(topology, req.Selector)
+	workspaceCtx := management.binding
+	resolution, err := s.resolveWorktreeSelector(ctx, workspaceCtx, req.Selector)
 	if err != nil {
 		release()
 		return nil, err
 	}
-	if _, err := deletionSelector(match.entry); err != nil {
+	if _, err := deletionSelector(resolution.match.entry); err != nil {
 		release()
 		return nil, err
 	}
 	defer release()
-	result, err := s.executeDeleteLocked(ctx, workspaceCtx, match.entry, req)
+	result, err := s.executeDeleteLocked(ctx, workspaceCtx, resolution.match.entry, req)
 	if err != nil {
 		return nil, err
 	}
@@ -46,10 +39,12 @@ func (s *Service) DeleteWorktree(ctx context.Context, req *worktreepb.DeleteRequ
 
 func (s *Service) executeDeleteLocked(
 	ctx context.Context,
-	workspaceCtx sessionWorkspaceContext,
+	workspaceCtx metadata.Binding,
 	entry *worktreepb.TopologyEntry,
 	req *worktreepb.DeleteRequest,
-) (*worktreepb.DeleteSuccess, error) {
+) (result *worktreepb.DeleteSuccess, resultErr error) {
+	var retargeted uint64
+	defer func() { resultErr = deletionProgressError(retargeted, resultErr) }()
 	target, record, err := s.deleteTarget(ctx, workspaceCtx, entry)
 	if err != nil {
 		return nil, err
@@ -64,37 +59,32 @@ func (s *Service) executeDeleteLocked(
 	} else if record != nil {
 		targetRoot = &record.CanonicalRoot
 	}
-	activityLease, err := s.acquireDeleteTargetActivity(ctx, record, targetRoot)
-	if err != nil {
+	if err := s.checkDeleteTargetActivity(ctx, record, targetRoot); err != nil {
 		return nil, err
 	}
-	defer activityLease.Close()
-	mutationCtx := activityLease.Context()
 	if err := s.ensureDeleteFolderRemovalAuthorized(ctx, entry, req.ForceFolderRemoval); err != nil {
 		return nil, err
 	}
-	retargetCompensation := worktreeSessionRetargetCompensation{}
 	if record != nil {
-		retargetCompensation, err = s.retargetDeleteSessions(mutationCtx, workspaceCtx, *record)
+		retargeted, err = s.retargetDeleteSessions(ctx, workspaceCtx, *record)
 		if err != nil {
 			return nil, err
 		}
 	}
 	leftoverRoot := missingLeftoverRoot(entry)
+	if err := s.checkDeleteBackgroundProcesses(targetRoot); err != nil {
+		return nil, err
+	}
 	if target != nil {
 		var err error
 		if req.ForceFolderRemoval && entry.GetRegistered() != nil &&
 			entry.GetRegistered().GetGit().PrunableReason != nil {
-			err = s.git.ForceRemovePrunableWorktree(ctx, workspaceCtx.workspaceRoot, target.record.CanonicalRoot)
+			err = s.git.ForceRemovePrunableWorktree(ctx, workspaceCtx.CanonicalRoot, target.record.CanonicalRoot)
 		} else {
-			err = s.git.Remove(ctx, workspaceCtx.workspaceRoot, target.record.CanonicalRoot, req.ForceFolderRemoval)
+			err = s.git.Remove(ctx, workspaceCtx.CanonicalRoot, target.record.CanonicalRoot, req.ForceFolderRemoval)
 		}
 		if err != nil {
-			var recoveryError *PrunableWorktreeRecoveryError
-			if errors.As(err, &recoveryError) && recoveryError.Destructive {
-				return nil, err
-			}
-			return nil, errors.Join(err, retargetCompensation.rollback(mutationCtx))
+			return nil, err
 		}
 	}
 	if record != nil && !retainRecord {
@@ -102,8 +92,15 @@ func (s *Service) executeDeleteLocked(
 			return nil, err
 		}
 	}
-	cleanup := s.cleanupDeletedBranch(ctx, workspaceCtx.workspaceRoot, entry, record, req.BranchCleanupPolicy)
+	cleanup := s.cleanupDeletedBranch(ctx, workspaceCtx.CanonicalRoot, entry, record, req.BranchCleanupPolicy)
 	return &worktreepb.DeleteSuccess{Cleanup: cleanup, LeftoverRoot: leftoverRoot}, nil
+}
+
+func deletionProgressError(retargeted uint64, err error) error {
+	if err == nil || retargeted == 0 {
+		return err
+	}
+	return &worktreecontract.DeletePartialError{RetargetedSessions: retargeted, Cause: err}
 }
 
 func (s *Service) ensureDeleteFolderRemovalAuthorized(
@@ -123,7 +120,7 @@ func (s *Service) ensureDeleteFolderRemovalAuthorized(
 
 func (s *Service) deleteTarget(
 	ctx context.Context,
-	workspaceCtx sessionWorkspaceContext,
+	workspaceCtx metadata.Binding,
 	entry *worktreepb.TopologyEntry,
 ) (*syncedWorktree, *metadata.WorktreeRecord, error) {
 	switch {
@@ -145,7 +142,7 @@ func (s *Service) deleteTarget(
 		}
 		target := syncedWorktree{
 			record: metadata.WorktreeRecord{
-				WorkspaceID:   workspaceCtx.workspaceID,
+				WorkspaceID:   workspaceCtx.WorkspaceID,
 				CanonicalRoot: entry.GetExternal().GetGit().GetCanonicalRoot(),
 				DisplayName:   filepath.Base(entry.GetExternal().GetGit().GetCanonicalRoot()),
 			},
@@ -177,112 +174,63 @@ func (s *Service) retainManagedTaskWorktreeRecord(ctx context.Context, record *m
 	return taskManagers > 0, nil
 }
 
-func (s *Service) acquireDeleteTargetActivity(
+func (s *Service) checkDeleteTargetActivity(
 	ctx context.Context,
 	record *metadata.WorktreeRecord,
 	worktreeRoot *string,
-) (deleteTargetActivityLease, error) {
-	lease := deleteTargetActivityLease{ctx: ctx, close: func() {}}
+) error {
 	if worktreeRoot != nil && strings.TrimSpace(*worktreeRoot) == "" {
-		return deleteTargetActivityLease{}, errors.New("delete target root must not be blank when present")
+		return errors.New("delete target root must not be blank when present")
+	}
+	if err := s.checkDeleteBackgroundProcesses(worktreeRoot); err != nil {
+		return err
 	}
 	if record != nil {
-		sessions, err := s.metadata.ListSessionsTargetingWorktree(ctx, record.ID)
-		if err != nil {
-			return deleteTargetActivityLease{}, err
-		}
-		type targetSession struct {
-			id      runtimeids.SessionID
-			blocker metadata.WorktreeSessionBlocker
-		}
-		targets := make([]targetSession, 0, len(sessions))
-		for _, target := range sessions {
-			sessionID, err := runtimeids.ParseSessionID(target.SessionID)
+		const blockerLimit = 50
+		activeBlockers := &worktreepb.ActiveSessionBlockers{}
+		var cursor *metadata.WorktreeSessionCursor
+		for {
+			page, err := s.metadata.ListSessionsTargetingWorktreePage(ctx, record.ID, cursor)
 			if err != nil {
-				return deleteTargetActivityLease{}, fmt.Errorf("parse worktree-targeting session id %q: %w", target.SessionID, err)
+				return err
 			}
-			targets = append(targets, targetSession{id: sessionID, blocker: target})
-		}
-		if len(targets) > 0 {
-			sessionIDs := make([]runtimeids.SessionID, 0, len(targets))
-			for _, target := range targets {
-				sessionIDs = append(sessionIDs, target.id)
-			}
-			startBlock, err := s.acquireSessionStartAdmission(ctx, sessionIDs, sessionStartAdmissionTry)
-			if err != nil {
-				if errors.Is(err, sessionruntime.ErrSessionStartAdmissionBusy) {
-					return deleteTargetActivityLease{}, errors.Join(worktreecontract.ErrWorktreeBlocked, err)
+			for _, target := range page.Sessions {
+				active, err := s.authority.HasBlockingRuntimeActivity(ctx, target.SessionID)
+				if err != nil {
+					return err
 				}
-				return deleteTargetActivityLease{}, err
+				if !active {
+					continue
+				}
+				if len(activeBlockers.Sessions) == blockerLimit {
+					activeBlockers.HasMore = true
+					return &worktreecontract.BlockedError{Details: &worktreepb.BlockedDetails{ActiveSessions: activeBlockers}}
+				}
+				activeBlockers.Sessions = append(activeBlockers.Sessions, &worktreepb.BlockingSession{
+					SessionId: target.SessionID, Name: nonblankPointer(target.SessionName),
+				})
 			}
-			lease.close = func() { releaseSessionStarts(startBlock) }
-			lease.ctx = authorizeSessionMaintenance(ctx, startBlock)
+			if page.Next == nil {
+				break
+			}
+			cursor = page.Next
 		}
-		activeBlockers := make([]metadata.WorktreeSessionBlocker, 0, len(targets))
-		for _, target := range targets {
-			active, err := s.authority.HasBlockingRuntimeActivity(ctx, target.id.String())
-			if err != nil {
-				lease.Close()
-				return deleteTargetActivityLease{}, err
-			}
-			if active {
-				activeBlockers = append(activeBlockers, target.blocker)
-				continue
-			}
-			retired, err := s.authority.RetireIdleRuntime(lease.ctx, target.id.String())
-			if err != nil {
-				lease.Close()
-				return deleteTargetActivityLease{}, err
-			}
-			if !retired {
-				activeBlockers = append(activeBlockers, target.blocker)
-			}
-		}
-		if len(activeBlockers) > 0 {
-			lease.Close()
-			return deleteTargetActivityLease{}, activeDeleteBlockerError(activeBlockers)
+		if len(activeBlockers.Sessions) > 0 {
+			return &worktreecontract.BlockedError{Details: &worktreepb.BlockedDetails{
+				ActiveSessions: activeBlockers,
+			}}
 		}
 	}
+	return nil
+}
+
+func (s *Service) checkDeleteBackgroundProcesses(worktreeRoot *string) error {
 	if worktreeRoot != nil {
 		if processBlockers := s.backgroundProcessBlockers(*worktreeRoot); len(processBlockers) > 0 {
-			lease.Close()
-			return deleteTargetActivityLease{}, errors.Join(worktreecontract.ErrWorktreeBlocked, fmt.Errorf("worktree has active background processes: %s", strings.Join(processBlockers, ", ")))
+			return errors.Join(worktreecontract.ErrWorktreeBlocked, fmt.Errorf("worktree has active background processes: %s", strings.Join(processBlockers, ", ")))
 		}
 	}
-	return lease, nil
-}
-
-func activeDeleteBlockerError(blockers []metadata.WorktreeSessionBlocker) error {
-	sort.Slice(blockers, func(i int, j int) bool {
-		return blockers[i].UpdatedAt.After(blockers[j].UpdatedAt)
-	})
-	names := make([]string, 0, len(blockers))
-	for _, blocker := range blockers {
-		name := strings.TrimSpace(blocker.SessionName)
-		if name == "" {
-			name = strings.TrimSpace(blocker.SessionID)
-		}
-		names = append(names, name)
-	}
-	return errors.Join(worktreecontract.ErrWorktreeBlocked, fmt.Errorf("worktree is still targeted by active runs: %s", strings.Join(names, ", ")))
-}
-
-func (s *Service) retargetDeleteSessions(
-	ctx context.Context,
-	workspaceCtx sessionWorkspaceContext,
-	record metadata.WorktreeRecord,
-) (worktreeSessionRetargetCompensation, error) {
-	return s.retargetSessionsFromWorktree(
-		ctx,
-		workspaceCtx.workspaceID,
-		workspaceCtx.workspaceRoot,
-		record,
-		worktreeSessionRetargetOptions{
-			reminder:        worktreeReminderStateForExitedWorktree,
-			sync:            s.syncExecutionTarget,
-			rollbackOnError: true,
-		},
-	)
+	return nil
 }
 
 func missingLeftoverRoot(entry *worktreepb.TopologyEntry) *string {

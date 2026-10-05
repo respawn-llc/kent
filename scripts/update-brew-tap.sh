@@ -242,11 +242,12 @@ class ${formula_class} < Formula
     bin.install "kent_#{version}_#{os}_#{arch}" => "kent"
   end
 
-  def post_install
-    output = Utils.safe_popen_read(bin/"kent", "service", "restart", "--if-installed").strip
-    ohai output unless output.empty?
-  rescue => e
-    opoo "Kent background service restart failed after update: #{e.message}"
+  post_install_steps do
+    run "kent",
+        args:         ["service", "restart", "--if-installed"],
+        base:         :bin,
+        must_succeed: false,
+        print_stdout: true
   end
 
   def caveats
@@ -290,9 +291,9 @@ cask "${desktop_cask}" do
   desc "Desktop client for the Kent coding agent"
   homepage "https://github.com/respawn-llc/kent"
 
+  depends_on arch: :arm64
   depends_on formula: "kent"
   depends_on macos: :sequoia
-  depends_on arch: :arm64
 
   app "Kent.app"
 
@@ -301,22 +302,35 @@ cask "${desktop_cask}" do
   # writing the desktop settings file. Do NOT add \`auto_updates true\` — that would
   # make \`brew upgrade\` skip this cask and let the app self-update ahead of the
   # server. See docs/dev/specs/release-distribution.md.
-  postflight do
-    require "json"
-    settings_path = File.expand_path("~/Library/Application Support/sh.kent/settings.json")
-    FileUtils.mkdir_p(File.dirname(settings_path))
-    data = {}
-    if File.exist?(settings_path)
-      begin
-        parsed = JSON.parse(File.read(settings_path))
-        data = parsed if parsed.is_a?(Hash)
-      rescue JSON::ParserError
-        data = {}
-      end
+  postflight_steps do
+    mkdir_p "Library/Application Support/sh.kent", base: :home
+    unless_path_exists "Library/Application Support/sh.kent/settings.json", base: :home do
+      write_file "Library/Application Support/sh.kent/settings.json", "{}\n", base: :home
     end
-    data["version"] = 1
-    data["selfUpdate"] = "disabled"
-    File.write(settings_path, "#{JSON.pretty_generate(data)}\n")
+    run "/usr/bin/ruby",
+        args:           ["-rjson", "-rtempfile", "-e", <<~RUBY],
+          path = "settings.json"
+          data = begin
+            parsed = JSON.parse(File.read(path))
+            parsed.is_a?(Hash) ? parsed : {}
+          rescue Errno::ENOENT, JSON::ParserError
+            {}
+          end
+          data["version"] = 1
+          data["selfUpdate"] = "disabled"
+
+          Tempfile.create(["settings", ".json"], File.dirname(path)) do |file|
+            file.write(JSON.pretty_generate(data))
+            file.write("\n")
+            file.flush
+            file.fsync
+            file.close
+            File.rename(file.path, path)
+          end
+        RUBY
+        chdir:          "~/Library/Application Support/sh.kent",
+        writable_paths: ["Library/Application Support/sh.kent"],
+        writable_base:  :home
   end
 
   uninstall quit: "sh.kent"

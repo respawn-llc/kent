@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"core/server/session"
+	"core/shared/serverapi"
 
 	"core/internal/testharness/recordstore"
 )
@@ -163,6 +164,13 @@ func (p *Persistence) ResolvePersistedSession(_ context.Context, sessionID strin
 	return record, nil
 }
 
+func (*Persistence) ChatSettingsTaskIdentityForSession(
+	context.Context,
+	string,
+) (*serverapi.ChatSettingsTaskIdentity, error) {
+	return nil, nil
+}
+
 func clonePersistedSessionRecord(record session.PersistedSessionRecord) session.PersistedSessionRecord {
 	record.Meta = cloneMeta(record.Meta)
 	record.ContextFacts = record.ContextFacts.Clone()
@@ -223,7 +231,7 @@ func CommitChatSettingsTestState(t testing.TB, store *session.Store, update func
 	if err != nil {
 		t.Fatalf("complete Chat settings: %v", err)
 	}
-	state = CompleteChatSettingsState(t, state.Agent, settings.Supervisor, settings.Thinking, settings.Fast, settings.Questions, settings.AutoCompaction)
+	state.Settings = CompleteChatSettingsState(t, state.AgentSelector(), settings.Supervisor, settings.Thinking, settings.Fast, settings.Questions, settings.AutoCompaction).Settings
 	update(state.Settings)
 	if _, err := store.CommitChatSettingsState(state); err != nil {
 		t.Fatalf("commit Chat settings: %v", err)

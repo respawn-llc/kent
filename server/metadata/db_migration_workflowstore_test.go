@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"core/internal/testharness/workflowfixture"
 	"core/server/metadata"
 	metadatamigrations "core/server/metadata/migrations"
 	"core/server/workflow"
@@ -118,6 +119,16 @@ WHERE id = 'edge-start'`, version71CutoverPrompt); err != nil {
 		t.Fatalf("open migrated metadata store: %v", err)
 	}
 	t.Cleanup(func() { _ = metadataStore.Close() })
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "scripts", "run"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := metadataStore.DB().ExecContext(ctx, `UPDATE workspaces SET canonical_root_path = ? WHERE id = ?`, workspace, "workspace-cutover"); err != nil {
+		t.Fatal(err)
+	}
 	store, err := workflowstore.New(metadataStore, workflowstore.WithRoleResolver(cutoverRoleResolver{}))
 	if err != nil {
 		t.Fatalf("workflowstore.New: %v", err)
@@ -180,9 +191,20 @@ WHERE name IN ('prompt_template', 'input_fields_json', 'output_fields_json')`).S
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
-	started, err := store.StartTask(ctx, task.ID)
+	plan, err := store.PlanTaskStart(ctx, task.ID, &workflowstore.ExecutionTargetCandidate{
+		Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
+		Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: "workspace-cutover", SourceWorkspaceRoot: workspace},
+	})
 	if err != nil {
-		t.Fatalf("StartTask: %v", err)
+		t.Fatalf("PlanTaskStart: %v", err)
+	}
+	inputs := plan.StartContexts()
+	if len(inputs) != 1 {
+		t.Fatalf("migrated start contexts = %d, want one", len(inputs))
+	}
+	started, err := store.CommitTaskStart(ctx, plan, workflowfixture.PrepareCurrentNodeSessions(t, ctx, metadataStore, inputs))
+	if err != nil {
+		t.Fatalf("CommitTaskStart: %v", err)
 	}
 	startEdge := findWorkflowEdgeByKey(t, loaded, "start")
 	if len(started.Mutation.Created) != 1 ||
@@ -197,7 +219,7 @@ WHERE name IN ('prompt_template', 'input_fields_json', 'output_fields_json')`).S
 	if startContext.TransitionPrompt != version71CutoverPrompt {
 		t.Fatalf("start Transition Prompt = %q, want migrated prompt", startContext.TransitionPrompt)
 	}
-	completed, err := store.CompleteCurrentNode(ctx, workflowstore.CurrentNodeCompletionRequest{
+	completed, err := workflowfixture.CompleteCurrentNode(t, ctx, metadataStore, store, workflowstore.CurrentNodeCompletionRequest{
 		Source:       started.Mutation.Created[0].Reference,
 		TransitionID: "fanout",
 		OutputValues: map[string]string{"summary": "migrated summary"},

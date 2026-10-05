@@ -452,7 +452,7 @@ function Install-ArchiveBinary([string]$Source, [string]$Target) {
         if ($isReparsePoint -and -not $Force) {
             Fail "Refusing to overwrite symlink $Target. Re-run with -Force to replace it."
         }
-        if (-not $Force -and -not (Confirm-Action "Overwrite existing $Target?" $true)) {
+        if (-not $Force -and -not (Confirm-Action "Overwrite existing ${Target}?" $true)) {
             Fail "Install cancelled."
         }
         Remove-Item -LiteralPath $Target -Force

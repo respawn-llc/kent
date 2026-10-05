@@ -6,16 +6,18 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 )
 
 func TestBackgroundTransitionRegistersBeforePresentationFailureAndTerminalExit(t *testing.T) {
 	hookPath := writeExecutableScript(t, "#!/bin/sh\nsleep 1\nprintf '{\"processed\":true,\"replaced_output\":\"processed\"}'\n")
-	manager := newManagerWithPostprocessor(t, mustPostprocessRunner(t, postprocess.Settings{
+	runner := postprocessfixture.NewRunner(t, postprocess.Settings{
 		Mode:     config.ShellPostprocessingModeUser,
 		HookPath: &hookPath,
-	}))
+	})
+	manager := newShellTestManager(t, 50*time.Millisecond)
 	events := make(chan Event, 2)
 	manager.SetEventHandler(func(event Event) bool {
 		if event.Type == EventBackgrounded || event.Type == EventCompleted || event.Type == EventKilled {
@@ -27,6 +29,7 @@ func TestBackgroundTransitionRegistersBeforePresentationFailureAndTerminalExit(t
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 	_, err := manager.Start(ctx, ExecRequest{
+		Postprocessor:  runner,
 		Command:        []string{"/bin/sh", "-c", "sleep 0.1"},
 		DisplayCommand: "sleep briefly",
 		Workdir:        t.TempDir(),

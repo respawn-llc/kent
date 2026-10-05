@@ -11,8 +11,11 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
+	"core/server/session"
+	"core/server/session/sessiontest"
 	"core/server/tools"
-	"core/shared/clientui"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
@@ -101,6 +104,256 @@ func TestRuntimeOperationFIFODefersAcceptedOperationsUntilTheProtectedStepBounda
 	}
 }
 
+func TestAgentStepBoundaryDrainsEveryAcceptedSteerBeforeNextRequest(t *testing.T) {
+	first := commentaryResponse("working", llm.ToolCall{
+		ID:    "boundary-tool",
+		Name:  string(toolspec.ToolExecCommand),
+		Input: json.RawMessage(`{"command":"true"}`),
+	})
+	client, requestStarted, releaseRequest := newGatedHookClient(first, finalTextResponse("done"))
+	engine := mustNewTestEngine(
+		t,
+		mustCreateTestSession(t),
+		client,
+		newTestToolRegistry(t, tools.HandlerRegistration{
+			ID:      toolspec.ToolExecCommand,
+			Handler: fakeTool{name: toolspec.ToolExecCommand},
+		}),
+		Config{Model: "gpt-6-sol"},
+	)
+
+	runDone := make(chan error, 1)
+	go func() {
+		_, err := engine.SubmitUserMessage(t.Context(), "start")
+		runDone <- err
+	}()
+	select {
+	case <-requestStarted:
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("initial Agent Step did not start")
+	}
+
+	texts := []string{"first steer", "second steer", "third steer"}
+	expectedMessages := make([]string, 0, len(texts))
+	steerDone := make(chan error, len(texts))
+	for _, text := range texts {
+		steer, err := NewAgentSteer(runtimeids.NewSessionID(), text)
+		if err != nil {
+			t.Fatalf("create Agent Steer %q: %v", text, err)
+		}
+		expectedMessages = append(expectedMessages, messageContent(steer.Message()))
+		go func() {
+			_, accepted, err := engine.QueueAgentSteerForActiveRun(t.Context(), steer, nil)
+			if err == nil && !accepted {
+				err = errors.New("Agent Steer was not accepted")
+			}
+			steerDone <- err
+		}()
+	}
+	for range texts {
+		select {
+		case err := <-steerDone:
+			if err != nil {
+				t.Fatalf("accept Agent Steer: %v", err)
+			}
+		case <-time.After(runtimeTestSynchronizationTimeout):
+			t.Fatal("Agent Steer acceptance waited for the Step Boundary")
+		}
+	}
+	if pending := pendingWorkTestSnapshot(t, engine); len(pending.Items) != len(texts) {
+		t.Fatalf("Pending Work before boundary = %+v, want every accepted Steer", pending.Items)
+	}
+	releaseRequest()
+	if err := <-runDone; err != nil {
+		t.Fatalf("Agent Turn: %v", err)
+	}
+
+	client.mu.Lock()
+	requests := append([]llm.Request(nil), client.calls...)
+	client.mu.Unlock()
+	if len(requests) != 2 {
+		t.Fatalf("provider requests = %d, want 2", len(requests))
+	}
+	found := make(map[string]bool, len(expectedMessages))
+	for _, message := range requestMessages(requests[1]) {
+		if message.Role == llm.RoleDeveloper &&
+			message.MessageType != nil &&
+			*message.MessageType == llm.MessageTypeAgentSteer {
+			found[messageContent(message)] = true
+		}
+	}
+	for _, message := range expectedMessages {
+		if !found[message] {
+			t.Fatalf("next provider request omitted an accepted Agent Steer: %+v", requestMessages(requests[1]))
+		}
+	}
+	if pending := pendingWorkTestSnapshot(t, engine); len(pending.Items) != 0 {
+		t.Fatalf("Pending Work after next request = %+v, want empty", pending.Items)
+	}
+}
+
+func TestAgentStepBoundaryDrainsSteersAcceptedWhileFollowingRequestIsPreparing(t *testing.T) {
+	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
+	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
+	first := commentaryResponse("working", llm.ToolCall{
+		ID:    "live-tail-boundary-tool",
+		Name:  string(toolspec.ToolExecCommand),
+		Input: json.RawMessage(`{"command":"true"}`),
+	})
+	requestStarted := make(chan struct{})
+	releaseRequest := make(chan struct{})
+	followingRequestStarted := make(chan struct{})
+	releaseFollowingRequest := make(chan struct{})
+	client := &hookClient{response: first}
+	client.beforeReturn = func() error {
+		close(requestStarted)
+		<-releaseRequest
+		client.mu.Lock()
+		client.response = finalTextResponse("done")
+		client.beforeReturn = func() error {
+			client.mu.Lock()
+			client.beforeReturn = nil
+			client.mu.Unlock()
+			close(followingRequestStarted)
+			<-releaseFollowingRequest
+			return nil
+		}
+		client.mu.Unlock()
+		return nil
+	}
+	var releaseRequestOnce sync.Once
+	releaseInitialRequest := func() {
+		releaseRequestOnce.Do(func() { close(releaseRequest) })
+	}
+	var releaseFollowingRequestOnce sync.Once
+	releaseNextRequest := func() {
+		releaseFollowingRequestOnce.Do(func() { close(releaseFollowingRequest) })
+	}
+	t.Cleanup(releaseInitialRequest)
+	t.Cleanup(releaseNextRequest)
+	engine := mustNewTestEngine(
+		t,
+		store,
+		client,
+		newTestToolRegistry(t, tools.HandlerRegistration{
+			ID:      toolspec.ToolExecCommand,
+			Handler: fakeTool{name: toolspec.ToolExecCommand},
+		}),
+		Config{Model: "gpt-6-sol"},
+	)
+
+	runDone := make(chan error, 1)
+	go func() {
+		_, err := engine.SubmitUserMessage(t.Context(), "start")
+		runDone <- err
+	}()
+	select {
+	case <-requestStarted:
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("initial Agent Step did not start")
+	}
+
+	queueSteer := func(text string, beforeQueue func() error) (<-chan error, string) {
+		t.Helper()
+		done := make(chan error, 1)
+		steer, err := NewAgentSteer(runtimeids.NewSessionID(), text)
+		if err != nil {
+			t.Fatalf("create Agent Steer %q: %v", text, err)
+		}
+		go func() {
+			_, accepted, queueErr := engine.QueueAgentSteerForActiveRun(t.Context(), steer, beforeQueue)
+			if queueErr == nil && !accepted {
+				queueErr = errors.New("Agent Steer was not accepted")
+			}
+			done <- queueErr
+		}()
+		return done, messageContent(steer.Message())
+	}
+
+	type persistenceBlock struct {
+		entered <-chan struct{}
+		release func()
+	}
+	persistenceBlockReady := make(chan persistenceBlock, 1)
+	firstSteerDone, firstSteerMessage := queueSteer("first steer", func() error {
+		persistenceObservations := 0
+		entered, release := gate.BlockWhen(func(session.PersistedStoreSnapshot) bool {
+			persistenceObservations++
+			// The first observation commits the tool result and first Steer.
+			// The second prepares durable state for the following request.
+			return persistenceObservations == 2
+		})
+		persistenceBlockReady <- persistenceBlock{entered: entered, release: release}
+		return nil
+	})
+	block := <-persistenceBlockReady
+	t.Cleanup(block.release)
+	if err := <-firstSteerDone; err != nil {
+		t.Fatalf("accept first Agent Steer: %v", err)
+	}
+	releaseInitialRequest()
+	select {
+	case <-block.entered:
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("timed out waiting for following-request preparation to enter persistence")
+	}
+
+	secondSteerDone, secondSteerMessage := queueSteer("second steer", nil)
+	var secondSteerErr, thirdSteerErr error
+	select {
+	case secondSteerErr = <-secondSteerDone:
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("timed out waiting for the second Steer to be accepted")
+	}
+	thirdSteerDone, thirdSteerMessage := queueSteer("third steer", nil)
+	select {
+	case thirdSteerErr = <-thirdSteerDone:
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("timed out waiting for the third Steer to be accepted")
+	}
+	block.release()
+	select {
+	case <-followingRequestStarted:
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("following provider request did not start")
+	}
+
+	client.mu.Lock()
+	requests := append([]llm.Request(nil), client.calls...)
+	client.mu.Unlock()
+	if len(requests) != 2 {
+		t.Fatalf("provider requests at following boundary = %d, want 2", len(requests))
+	}
+	var actualSteers []string
+	for _, message := range requestMessages(requests[1]) {
+		if message.Role == llm.RoleDeveloper &&
+			message.MessageType != nil &&
+			*message.MessageType == llm.MessageTypeAgentSteer {
+			actualSteers = append(actualSteers, messageContent(message))
+		}
+	}
+	expectedSteers := []string{firstSteerMessage, secondSteerMessage, thirdSteerMessage}
+	if !slices.Equal(actualSteers, expectedSteers) {
+		t.Fatalf("following provider request Steers = %+v, want %+v", actualSteers, expectedSteers)
+	}
+
+	releaseNextRequest()
+	if secondSteerErr != nil {
+		t.Fatalf("accept second Agent Steer: %v", secondSteerErr)
+	}
+	if thirdSteerErr != nil {
+		t.Fatalf("accept third Agent Steer: %v", thirdSteerErr)
+	}
+	if err := <-runDone; err != nil {
+		t.Fatalf("Agent Turn: %v", err)
+	}
+	waitEngineLifecycleTasks(t, engine)
+
+	if pending := pendingWorkTestSnapshot(t, engine); len(pending.Items) != 0 {
+		t.Fatalf("Pending Work after following request = %+v, want empty", pending.Items)
+	}
+}
+
 func TestRuntimeOperationFIFOLongOwnerReentersAtTheCurrentTail(t *testing.T) {
 	fifo := newRuntimeOperationFIFO()
 	t.Cleanup(fifo.Close)
@@ -182,7 +435,7 @@ func TestWorktreeTransitionRunsBeforeQueuedHumanProviderTurn(t *testing.T) {
 				release: releaseTool,
 			},
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 
 	initialDone := make(chan error, 1)
@@ -214,19 +467,18 @@ func TestWorktreeTransitionRunsBeforeQueuedHumanProviderTurn(t *testing.T) {
 		}
 		humanDone <- err
 	}()
-	waitForAcceptedRuntimeOperationCount(t, engine, 1)
-	close(releaseTool)
 	select {
 	case <-humanApplying:
 	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("queued Human input did not apply at the preceding Step Boundary")
+		t.Fatal("Human input did not enter acceptance during the protected Step")
 	}
 
 	transitionStarted := make(chan struct{})
+	transitionScheduled := make(chan struct{})
 	releaseTransition := make(chan struct{})
 	transitionDone := make(chan error, 1)
 	go func() {
-		transitionDone <- engine.RunExecutionTargetTransition(t.Context(), nil, func() error {
+		transitionDone <- engine.RunExecutionTargetTransition(t.Context(), func() { close(transitionScheduled) }, func() error {
 			close(transitionStarted)
 			<-releaseTransition
 			return nil
@@ -236,6 +488,8 @@ func TestWorktreeTransitionRunsBeforeQueuedHumanProviderTurn(t *testing.T) {
 	if err := <-humanDone; err != nil {
 		t.Fatalf("accept queued Human input: %v", err)
 	}
+	pendingWorkTestWait(t, transitionScheduled, "Worktree transition scheduling")
+	close(releaseTool)
 
 	select {
 	case <-transitionStarted:
@@ -286,7 +540,7 @@ func TestWorktreeTransitionWaitsForActiveAgentStepBoundary(t *testing.T) {
 				release: releaseTool,
 			},
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 
 	initialDone := make(chan error, 1)
@@ -360,10 +614,10 @@ func newHeldReviewerWorktreeEngine(t *testing.T, mainClient llm.Client) (*Engine
 		mainClient,
 		tools.NewRegistry(),
 		Config{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 			Reviewer: ReviewerConfig{
 				Frequency:     "all",
-				Model:         "gpt-5",
+				Model:         "gpt-6-sol",
 				ThinkingLevel: "low",
 				Client:        reviewerClient,
 			},
@@ -462,11 +716,11 @@ func TestWorktreeTransitionUsesReviewerFollowUpStepAtToolBoundary(t *testing.T) 
 			},
 		}),
 		Config{
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			StepLifecycle: stepLifecycle,
 			Reviewer: ReviewerConfig{
 				Frequency:     "all",
-				Model:         "gpt-5",
+				Model:         "gpt-6-sol",
 				ThinkingLevel: "low",
 				Client:        reviewerClient,
 			},
@@ -487,7 +741,7 @@ func TestWorktreeTransitionUsesReviewerFollowUpStepAtToolBoundary(t *testing.T) 
 	case <-time.After(runtimeTestSynchronizationTimeout):
 		t.Fatal("timed out waiting for Reviewer follow-up tool")
 	}
-	if got := engine.ReviewerActivity(); got != clientui.ReviewerActivityAddressingFeedback {
+	if got := engine.ReviewerActivity(); got != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_ADDRESSING_FEEDBACK {
 		t.Fatalf("Reviewer activity completed before its follow-up tool boundary: %q", got)
 	}
 
@@ -518,7 +772,7 @@ func TestWorktreeTransitionUsesReviewerFollowUpStepAtToolBoundary(t *testing.T) 
 		t.Fatal("Worktree transition callback did not run")
 	}
 	waitEngineLifecycleTasks(t, engine)
-	if got := engine.ReviewerActivity(); got != clientui.ReviewerActivityInactive {
+	if got := engine.ReviewerActivity(); got != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE {
 		t.Fatal("Reviewer activity remained active after its follow-up completed")
 	}
 }
@@ -747,7 +1001,7 @@ func TestEngineDefersOrdinaryRuntimeMutationUntilProtectedStepFinishes(t *testin
 		mustCreateTestSession(t),
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	stepStarted := make(chan struct{})
 	releaseStep := make(chan struct{})
@@ -794,14 +1048,14 @@ func TestActiveSessionRuntimeFIFOsAreIndependent(t *testing.T) {
 		mustCreateTestSession(t),
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	second := mustNewTestEngine(
 		t,
 		mustCreateTestSession(t),
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5", SupportedThinkingValues: []string{"low"}},
+		Config{Model: "gpt-6-sol", SupportedThinkingValues: []string{"low"}},
 	)
 	firstStarted := make(chan struct{})
 	releaseFirst := make(chan struct{})
@@ -840,7 +1094,7 @@ func TestEngineAppliesStreamingStateAndItsEventAsOneOrderedMutation(t *testing.T
 		mustCreateTestSession(t),
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	stepStarted := make(chan struct{})
 	releaseStep := make(chan struct{})
@@ -899,7 +1153,7 @@ func TestForegroundShellReleasesRuntimeFIFOAfterScheduling(t *testing.T) {
 			ID:      toolspec.ToolExecCommand,
 			Handler: handler,
 		}),
-		Config{Model: "gpt-5", SupportedThinkingValues: []string{"low"}},
+		Config{Model: "gpt-6-sol", SupportedThinkingValues: []string{"low"}},
 	)
 
 	firstStarted := make(chan struct{})
@@ -968,7 +1222,7 @@ func TestForegroundShellTerminalEffectReentersAtTheCurrentRuntimeTail(t *testing
 			ID:      toolspec.ToolExecCommand,
 			Handler: handler,
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	shellDone := make(chan error, 1)
 	go func() {
@@ -1025,7 +1279,7 @@ func TestWorktreeTerminalEffectReentersAtTheCurrentRuntimeTail(t *testing.T) {
 		mustCreateTestSession(t),
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	transitionStarted := make(chan struct{})
 	releaseTransition := make(chan struct{})
@@ -1100,7 +1354,7 @@ func TestManualCompactionReleasesRuntimeFIFOAfterScheduling(t *testing.T) {
 		mustCreateTestSession(t),
 		client,
 		tools.NewRegistry(),
-		Config{Model: "gpt-5", SupportedThinkingValues: []string{"low"}},
+		Config{Model: "gpt-6-sol", SupportedThinkingValues: []string{"low"}},
 	)
 	engine.compactionRuntimeState().SetManualCompactionEligible(true)
 
@@ -1127,6 +1381,72 @@ func TestManualCompactionReleasesRuntimeFIFOAfterScheduling(t *testing.T) {
 	close(client.release)
 }
 
+func TestSteersAcceptedDuringCompactionFullyDrainIntoTheFollowingAgentStep(t *testing.T) {
+	client := &heldRuntimeCompactionClient{
+		fakeCompactionClient: &fakeCompactionClient{
+			compactionResponses: []llm.CompactionResponse{{
+				Checkpoint: llm.ResponseItem{
+					Type:             llm.ResponseItemTypeCompaction,
+					EncryptedContent: textutil.Value("checkpoint"),
+				},
+				Usage: llm.Usage{WindowTokens: 200000},
+			}},
+			responses: []llm.Response{finalTextResponse("done")},
+		},
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	engine := mustNewTestEngine(
+		t,
+		mustCreateTestSession(t),
+		client,
+		tools.NewRegistry(),
+		Config{Model: "gpt-6-sol", SupportedThinkingValues: []string{"low"}},
+	)
+	engine.compactionRuntimeState().SetManualCompactionEligible(true)
+
+	if err := engine.CompactContext(t.Context(), ""); err != nil {
+		t.Fatalf("schedule manual compaction: %v", err)
+	}
+	select {
+	case <-client.started:
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("timed out waiting for manual compaction")
+	}
+
+	texts := []string{"first steer", "second steer", "third steer"}
+	for _, text := range texts {
+		if _, err := engine.Steer(t.Context(), text, nil); err != nil {
+			t.Fatalf("accept %q during compaction: %v", text, err)
+		}
+	}
+	if pending := pendingWorkTestSnapshot(t, engine); len(pending.Items) != len(texts) {
+		t.Fatalf("Pending Work during compaction = %+v, want every accepted Steer", pending.Items)
+	}
+
+	close(client.release)
+	waitEngineLifecycleTasks(t, engine)
+
+	client.mu.Lock()
+	requests := append([]llm.Request(nil), client.calls...)
+	client.mu.Unlock()
+	if len(requests) != 1 {
+		t.Fatalf("post-compaction provider requests = %d, want 1", len(requests))
+	}
+	var actual []string
+	for _, message := range requestMessages(requests[0]) {
+		if message.Role == llm.RoleUser {
+			actual = append(actual, messageContent(message))
+		}
+	}
+	if !slices.Equal(actual, texts) {
+		t.Fatalf("post-compaction human messages = %q, want distinct ordered messages %q", actual, texts)
+	}
+	if pending := pendingWorkTestSnapshot(t, engine); len(pending.Items) != 0 {
+		t.Fatalf("Pending Work after post-compaction request = %+v, want empty", pending.Items)
+	}
+}
+
 type heldRuntimeShell struct {
 	started  chan struct{}
 	release  chan struct{}
@@ -1143,7 +1463,7 @@ func (h *heldRuntimeShell) Call(ctx context.Context, call tools.Call) (tools.Res
 		return tools.Result{
 			CallID: call.ID,
 			Name:   toolspec.ToolExecCommand,
-			Output: []byte(`{"output":"done"}`),
+			Output: []byte(`"done"`),
 		}, nil
 	case <-ctx.Done():
 		return tools.Result{}, context.Cause(ctx)

@@ -1,13 +1,10 @@
 package serverapi
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
-
-	"core/shared/protocol"
 )
 
 var ErrSessionRetarget = errors.New("session workspace retarget failed")
@@ -40,7 +37,7 @@ func (e *SessionRetargetError) Error() string {
 	if e == nil {
 		return ErrSessionRetarget.Error()
 	}
-	return fmt.Sprintf("%s: %s", ErrSessionRetarget, e.Reason)
+	return fmt.Sprintf("%s: %s", ErrSessionRetarget, sessionRetargetReasonLabel(e.Reason))
 }
 
 func (e *SessionRetargetError) Is(target error) bool {
@@ -101,36 +98,19 @@ func (e *SessionRetargetError) SortedCandidateProjects() []ProjectReference {
 	return sorted
 }
 
-func (e *SessionRetargetError) RPCErrorCode() int {
-	return protocol.ErrCodeSessionRetarget
-}
-
-func (e *SessionRetargetError) RPCErrorData() json.RawMessage {
-	if e == nil || e.Validate() != nil {
-		return nil
+func sessionRetargetReasonLabel(reason SessionRetargetErrorReason) string {
+	switch reason {
+	case SessionRetargetTargetProjectRequired:
+		return "target Project selection is ambiguous"
+	case SessionRetargetTargetProjectConflict:
+		return "target Project conflicts with an existing workspace binding"
+	case SessionRetargetWorkflowOwned:
+		return "Session is owned by a Workflow"
+	case SessionRetargetBackgroundProcess:
+		return "Session has an active background process"
+	case SessionRetargetRuntimeActive:
+		return "Session is active"
+	default:
+		return string(reason)
 	}
-	normalized := *e
-	normalized.CandidateProjects = e.SortedCandidateProjects()
-	return marshalRPCErrorData(struct {
-		Type string `json:"type"`
-		SessionRetargetError
-	}{
-		Type:                 "session_retarget_error",
-		SessionRetargetError: normalized,
-	})
-}
-
-func DecodeSessionRetargetError(data json.RawMessage, message string) error {
-	var envelope struct {
-		Type string `json:"type"`
-		SessionRetargetError
-	}
-	if err := json.Unmarshal(data, &envelope); err != nil || envelope.Type != "session_retarget_error" || envelope.SessionRetargetError.Validate() != nil {
-		trimmed := strings.TrimSpace(message)
-		if trimmed == "" {
-			trimmed = ErrSessionRetarget.Error()
-		}
-		return errors.New(trimmed)
-	}
-	return &envelope.SessionRetargetError
 }

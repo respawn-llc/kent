@@ -13,6 +13,7 @@ import (
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/clientui"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -21,10 +22,17 @@ import (
 )
 
 type ActiveRuntimeMaintenance struct {
-	PreviousFilesystemContext tools.FilesystemContext
-	Replace                   func(tools.FilesystemContext) error
-	steerSessionRebindFailure func(session.SessionRebindReminder) (session.CommitReceipt, error)
-	retire                    bool
+	PreviousFilesystemContext           tools.FilesystemContext
+	Replace                             func(tools.FilesystemContext) error
+	steerSessionRebindFailureDiagnostic func(error) (session.CommitReceipt, error)
+	steerSessionRebindFailure           func(session.SessionRebindReminder) (session.CommitReceipt, error)
+}
+
+func (m *ActiveRuntimeMaintenance) SteerSessionRebindFailureDiagnostic(cause error) (session.CommitReceipt, error) {
+	if m == nil || m.steerSessionRebindFailureDiagnostic == nil {
+		return session.CommitReceipt{}, errors.New("active runtime Session rebind failure diagnostic steering is unavailable")
+	}
+	return m.steerSessionRebindFailureDiagnostic(cause)
 }
 
 func (m *ActiveRuntimeMaintenance) SteerSessionRebindFailure(reminder session.SessionRebindReminder) (session.CommitReceipt, error) {
@@ -34,17 +42,7 @@ func (m *ActiveRuntimeMaintenance) SteerSessionRebindFailure(reminder session.Se
 	return m.steerSessionRebindFailure(reminder)
 }
 
-func (m *ActiveRuntimeMaintenance) RetireRuntime() {
-	if m != nil {
-		m.retire = true
-	}
-}
-
-func (m *ActiveRuntimeMaintenance) RetirementScheduled() bool {
-	return m != nil && m.retire
-}
-
-func (a *Authority) SyncExecutionTarget(ctx context.Context, sessionID string, target clientui.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
+func (a *Authority) SyncExecutionTarget(ctx context.Context, sessionID string, target *worktreepb.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
 	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
 	if err != nil {
 		return err
@@ -72,7 +70,7 @@ func (a *Authority) SyncExecutionTarget(ctx context.Context, sessionID string, t
 
 type WorktreeTransitionAuthority func(func(context.Context) error) error
 
-type WorktreeTransitionTargetSync func(context.Context, clientui.SessionExecutionTarget, *session.WorktreeReminderState) error
+type WorktreeTransitionTargetSync func(context.Context, *worktreepb.SessionExecutionTarget, *session.WorktreeReminderState) error
 
 type WorktreeTransitionExecutor func(context.Context, WorktreeTransitionAuthority, WorktreeTransitionTargetSync, func(clientui.WorktreeTransitionOutcome) error) error
 
@@ -101,8 +99,9 @@ func (a *Authority) RunWorktreeTransition(
 		if resource == nil {
 			runErr := fn(
 				runCtx,
-				nil,
-				func(syncCtx context.Context, target clientui.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
+				// Dormant maintenance already holds Session admission for this callback.
+				func(apply func(context.Context) error) error { return apply(runCtx) },
+				func(syncCtx context.Context, target *worktreepb.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
 					if err := context.Cause(syncCtx); err != nil {
 						return err
 					}
@@ -134,7 +133,7 @@ func (a *Authority) RunWorktreeTransition(
 					func(apply func(context.Context) error) error {
 						return engine.ApplyWorktreeTransitionTerminal(executionCtx, apply)
 					},
-					func(syncCtx context.Context, target clientui.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
+					func(syncCtx context.Context, target *worktreepb.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
 						normalizedTarget, normalizedReminder, err := normalizeTarget(target, reminder)
 						if err != nil {
 							return err
@@ -200,44 +199,10 @@ func (a *Authority) RunSessionMaintenance(
 	})
 }
 
-func (a *Authority) RunSessionMaintenanceIfIdle(
-	ctx context.Context,
-	sessionID string,
-	fn func(context.Context, *session.Store, *ActiveRuntimeMaintenance) error,
-) error {
-	if fn == nil {
-		return nil
-	}
-	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
-	if err != nil {
-		return err
-	}
-	return a.withMaintenanceResource(ctx, id, func(runCtx context.Context, store *session.Store, resource *agentResource, engine *runtime.Engine) (bool, error) {
-		if resource == nil {
-			return false, fn(runCtx, store, nil)
-		}
-		if hasBlockingRuntimeActivity(resource) {
-			return false, ErrRuntimeActivityBusy
-		}
-		var retire bool
-		started, runErr := engine.RunIfIdleBeforeQueuedUserWork(runCtx, runtime.ActiveKindRuntimeMaintenance, func() error {
-			var maintenanceErr error
-			retire, maintenanceErr = runActiveRuntimeMaintenance(resource, engine, func(maintenance *ActiveRuntimeMaintenance) error {
-				return fn(runCtx, store, maintenance)
-			})
-			return maintenanceErr
-		})
-		if !started && errors.Is(runErr, runtime.ErrAgentBusy) {
-			return false, ErrRuntimeActivityBusy
-		}
-		return retire, runErr
-	})
-}
-
 func (a *Authority) RunSessionMaintenanceAtStepBoundary(
 	ctx context.Context,
 	sessionID string,
-	origin serverapi.RuntimeStepOrigin,
+	origin *sessionlaunchpb.RuntimeStepOrigin,
 	onScheduled func(),
 	fn func(context.Context, *session.Store, *ActiveRuntimeMaintenance) error,
 ) error {
@@ -248,13 +213,22 @@ func (a *Authority) RunSessionMaintenanceAtStepBoundary(
 	if err != nil {
 		return err
 	}
-	return a.withExactStepBoundaryMaintenanceResource(ctx, id, func(runCtx context.Context, store *session.Store, resource *agentResource, engine *runtime.Engine) (bool, error) {
+	admission := maintenanceAdmissionAuthorized
+	if origin != nil {
+		admission = maintenanceAdmissionExactStepBoundary
+	}
+	return a.withMaintenanceResourceAdmission(ctx, id, admission, false, func(runCtx context.Context, store *session.Store, resource *agentResource, engine *runtime.Engine) (bool, error) {
 		if resource == nil {
-			return false, runtime.ErrActiveStepInactive
+			if origin != nil {
+				return false, runtime.ErrActiveStepInactive
+			}
+			return false, fn(runCtx, store, nil)
 		}
-		activeStep := runtimeactivity.ActiveStepFromProvider(engine)
-		if activeStep == nil || activeStep.RunID != origin.RunID || activeStep.StepID != origin.StepID {
-			return false, runtime.ErrActiveStepInactive
+		if origin != nil {
+			activeStep := runtimeactivity.ActiveStepFromProvider(engine)
+			if activeStep == nil || activeStep.RunID != origin.RunId || activeStep.StepID != origin.StepId {
+				return false, runtime.ErrActiveStepInactive
+			}
 		}
 		var retire bool
 		err := engine.RunExecutionTargetTransition(runCtx, onScheduled, func() error {
@@ -291,11 +265,15 @@ func runActiveRuntimeMaintenance(
 			currentContext = next.Clone()
 			return nil
 		},
-		steerSessionRebindFailure: engine.SteerSessionRebindFailure,
+		steerSessionRebindFailureDiagnostic: engine.SteerSessionRebindFailureDiagnostic,
+		steerSessionRebindFailure:           engine.SteerSessionRebindFailure,
 	}
 	callbackErr := fn(maintenance)
 	active = false
-	retire := maintenance.retire
+	retire := false
+	if callbackErr == nil && resource.localTools != nil && !currentContext.Equal(previousContext) {
+		resource.localTools.RetainExecutionTarget(previousContext.Access.ExecutionTargetRoot)
+	}
 	if callbackErr == nil || currentContext.Equal(previousContext) {
 		return retire, callbackErr
 	}
@@ -378,7 +356,8 @@ func (a *Authority) RetireIdleRuntime(ctx context.Context, sessionID string) (bo
 	if err != nil {
 		return false, err
 	}
-	gate := a.gateFor(id)
+	gate, releaseGate := a.gateFor(id)
+	defer releaseGate()
 	if err := gate.lock.LockContext(ctx); err != nil {
 		return false, err
 	}
@@ -649,10 +628,6 @@ func (a *Authority) withMaintenanceResource(ctx context.Context, sessionID runti
 	return a.withMaintenanceResourceAdmission(ctx, sessionID, maintenanceAdmissionAuthorized, false, callback)
 }
 
-func (a *Authority) withExactStepBoundaryMaintenanceResource(ctx context.Context, sessionID runtimeids.SessionID, callback maintenanceCallback) error {
-	return a.withMaintenanceResourceAdmission(ctx, sessionID, maintenanceAdmissionExactStepBoundary, false, callback)
-}
-
 func (a *Authority) withMaintenanceResourceAdmission(
 	ctx context.Context,
 	sessionID runtimeids.SessionID,
@@ -669,7 +644,8 @@ func (a *Authority) withMaintenanceResourceAdmission(
 	if err := context.Cause(ctx); err != nil {
 		return err
 	}
-	gate := a.gateFor(sessionID)
+	gate, releaseGate := a.gateFor(sessionID)
+	defer releaseGate()
 	gate.lock.Lock()
 	if block := gate.unauthorizedMaintenanceBlock(ctx); block != nil &&
 		((admission != maintenanceAdmissionExactStepBoundary &&
@@ -725,7 +701,8 @@ func (a *Authority) withMaintenanceResourceAdmission(
 
 func (a *Authority) retireExactResource(ctx context.Context, resource *agentResource) error {
 	sessionID := resource.ref.SessionID()
-	gate := a.gateFor(sessionID)
+	gate, releaseGate := a.gateFor(sessionID)
+	defer releaseGate()
 	gate.lock.Lock()
 	defer gate.lock.Unlock()
 	a.mu.Lock()
@@ -740,22 +717,22 @@ func (a *Authority) retireExactResource(ctx context.Context, resource *agentReso
 	return resource.closeResource(ctx)
 }
 
-func normalizeTarget(target clientui.SessionExecutionTarget, reminder *session.WorktreeReminderState) (clientui.SessionExecutionTarget, *session.WorktreeReminderState, error) {
+func normalizeTarget(target *worktreepb.SessionExecutionTarget, reminder *session.WorktreeReminderState) (*worktreepb.SessionExecutionTarget, *session.WorktreeReminderState, error) {
 	normalizedTarget := clientui.NormalizeSessionExecutionTarget(target)
 	if normalizedTarget.EffectiveWorkdir == "" {
-		return clientui.SessionExecutionTarget{}, nil, errors.New("execution target effective workdir is required")
+		return &worktreepb.SessionExecutionTarget{}, nil, errors.New("execution target effective workdir is required")
 	}
 	if reminder == nil {
 		return normalizedTarget, nil, nil
 	}
 	normalized, err := session.NormalizeWorktreeReminderState(*reminder)
 	if err != nil {
-		return clientui.SessionExecutionTarget{}, nil, err
+		return &worktreepb.SessionExecutionTarget{}, nil, err
 	}
 	return normalizedTarget, &normalized, nil
 }
 
-func syncResourceExecutionTarget(resource *agentResource, engine *runtime.Engine, target clientui.SessionExecutionTarget, reminder *session.WorktreeReminderState) (bool, error) {
+func syncResourceExecutionTarget(resource *agentResource, engine *runtime.Engine, target *worktreepb.SessionExecutionTarget, reminder *session.WorktreeReminderState) (bool, error) {
 	previousReminder := engine.WorktreeReminderState()
 	previousContext := tools.FilesystemContext{}
 	if resource.localTools != nil {
@@ -771,6 +748,9 @@ func syncResourceExecutionTarget(resource *agentResource, engine *runtime.Engine
 			return true, errors.Join(err, rollbackErr)
 		}
 		return false, err
+	}
+	if resource.localTools != nil {
+		resource.localTools.RetainExecutionTarget(previousContext.Access.ExecutionTargetRoot)
 	}
 	return false, nil
 }
@@ -788,7 +768,7 @@ func rebindResourceContext(resource *agentResource, engine *runtime.Engine, cont
 	return nil
 }
 
-func rebindResourceExecutionTarget(resource *agentResource, engine *runtime.Engine, target clientui.SessionExecutionTarget) error {
+func rebindResourceExecutionTarget(resource *agentResource, engine *runtime.Engine, target *worktreepb.SessionExecutionTarget) error {
 	if resource == nil || engine == nil {
 		return errors.New("active runtime resource is required")
 	}

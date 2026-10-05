@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"core/server/metadata"
@@ -17,8 +16,9 @@ import (
 	sessionruntime "core/server/sessionruntime"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
-	"core/shared/clientui"
 	"core/shared/config"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/worktreecontract"
@@ -27,9 +27,7 @@ import (
 type sessionRetargetMetadata interface {
 	PlanSessionWorkspaceRetarget(context.Context, metadata.SessionWorkspaceRetargetRequest) (metadata.SessionWorkspaceRetargetPlan, error)
 	CommitSessionWorkspaceRetarget(context.Context, metadata.SessionWorkspaceRetargetPlan, time.Time) (metadata.SessionWorkspaceRetargetResult, error)
-	ResolveProjectWorkspaceBoundary(context.Context, string) (metadata.ProjectWorkspaceBoundary, error)
-	ProjectWorkspaceAttached(context.Context, string, string) (bool, error)
-	ResolveSessionExecutionTarget(context.Context, string) (clientui.SessionExecutionTarget, error)
+	ResolveSessionExecutionTarget(context.Context, string) (*worktreepb.SessionExecutionTarget, error)
 }
 
 type sessionIdentityPublisher interface {
@@ -47,32 +45,6 @@ type SessionWorkspaceRetargeter struct {
 	processes sessionProcessSource
 }
 
-type scheduledRetargetAdmission struct {
-	state atomic.Uint32
-}
-
-const (
-	scheduledRetargetPending uint32 = iota
-	scheduledRetargetAccepted
-	scheduledRetargetCanceled
-)
-
-func (a *scheduledRetargetAdmission) accept() bool {
-	return a.state.CompareAndSwap(scheduledRetargetPending, scheduledRetargetAccepted)
-}
-
-func (a *scheduledRetargetAdmission) cancelPending() bool {
-	return a.state.CompareAndSwap(scheduledRetargetPending, scheduledRetargetCanceled)
-}
-
-func (a *scheduledRetargetAdmission) accepted() bool {
-	return a.state.Load() == scheduledRetargetAccepted
-}
-
-func (a *scheduledRetargetAdmission) canceled() bool {
-	return a.state.Load() == scheduledRetargetCanceled
-}
-
 func NewSessionWorkspaceRetargeter(
 	metadataStore sessionRetargetMetadata,
 	authority *sessionruntime.Authority,
@@ -87,151 +59,180 @@ func NewSessionWorkspaceRetargeter(
 	}
 }
 
-func (s *SessionWorkspaceRetargeter) RetargetWorkspace(ctx context.Context, req metadata.SessionWorkspaceRetargetRequest) (metadata.SessionWorkspaceRetargetResult, error) {
-	if s == nil || s.metadata == nil || s.authority == nil || s.publisher == nil || s.processes == nil {
-		return metadata.SessionWorkspaceRetargetResult{}, errors.New("session workspace retarget dependencies are required")
-	}
-	plan, err := s.metadata.PlanSessionWorkspaceRetarget(ctx, req)
-	if err != nil {
-		return metadata.SessionWorkspaceRetargetResult{}, err
-	}
-	releaseStarts, maintenanceCtx, err := s.blockSessionStarts(ctx, plan.SessionID)
-	if err != nil {
-		return metadata.SessionWorkspaceRetargetResult{}, err
-	}
-	plan, err = s.metadata.PlanSessionWorkspaceRetarget(maintenanceCtx, req)
-	if err != nil {
-		return metadata.SessionWorkspaceRetargetResult{}, errors.Join(err, releaseStarts.Close(context.Background()))
-	}
-
-	var result metadata.SessionWorkspaceRetargetResult
-	var publicationErr error
-	retirementScheduled := false
-	runMaintenance := s.authority.RunSessionMaintenance
-	if plan.CrossProject() {
-		runMaintenance = s.authority.RunSessionMaintenanceIfIdle
-	}
-	err = runMaintenance(maintenanceCtx, plan.SessionID, func(runCtx context.Context, store *session.Store, activeRuntime *sessionruntime.ActiveRuntimeMaintenance) error {
-		var applyErr error
-		result, applyErr = s.applyWorkspaceRetarget(runCtx, req, store, activeRuntime, false)
-		if applyErr != nil {
-			return applyErr
-		}
-		retirementScheduled, publicationErr = s.publishCommittedWorkspaceRetarget(plan.SessionID, activeRuntime)
-		return nil
-	})
-	if errors.Is(err, sessionruntime.ErrRuntimeActivityBusy) {
-		err = &serverapi.SessionRetargetError{
-			Reason:        serverapi.SessionRetargetRuntimeActive,
-			SessionID:     plan.SessionID,
-			SourceProject: plan.SourceProject,
-			TargetRoot:    plan.TargetWorkspaceRoot,
-		}
-	} else if err != nil && retirementScheduled {
-		slog.ErrorContext(
-			context.WithoutCancel(ctx),
-			"retire committed Session rebind Runtime",
-			"session_id", plan.SessionID,
-			"error", err,
-		)
-		err = nil
-	}
-	if publicationErr != nil {
-		slog.ErrorContext(
-			context.WithoutCancel(ctx),
-			"publish committed Session rebind identity",
-			"session_id", plan.SessionID,
-			"error", publicationErr,
-		)
-	}
-	closeErr := releaseStarts.Close(context.Background())
-	return result, errors.Join(err, closeErr)
+func (s *SessionWorkspaceRetargeter) RetargetWorkspace(ctx context.Context, req metadata.SessionWorkspaceRetargetRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
+	return s.retargetWorkspaceResolution(ctx, req, nil, worktreecontract.NewOperationID(),
+		func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error) { return req, nil }, nil)
 }
 
 func (s *SessionWorkspaceRetargeter) ScheduleWorkspaceRetarget(
 	ctx context.Context,
 	req metadata.SessionWorkspaceRetargetRequest,
-	origin serverapi.RuntimeStepOrigin,
+	origin *sessionlaunchpb.RuntimeStepOrigin,
 	operationID worktreecontract.OperationID,
-) (serverapi.SessionWorkspaceRetargetScheduledAcknowledgement, error) {
+) (*worktreepb.ScheduledAcknowledgement, error) {
+	return s.ScheduleWorkspaceRetargetResolutionWithCompletion(
+		ctx,
+		req,
+		origin,
+		operationID,
+		func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error) {
+			return req, nil
+		},
+		nil,
+	)
+}
+
+func (s *SessionWorkspaceRetargeter) ScheduleWorkspaceRetargetResolutionWithCompletion(
+	ctx context.Context,
+	request metadata.SessionWorkspaceRetargetRequest,
+	origin *sessionlaunchpb.RuntimeStepOrigin,
+	operationID worktreecontract.OperationID,
+	resolve func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error),
+	completion func(error),
+) (*worktreepb.ScheduledAcknowledgement, error) {
+	_, err := s.retargetWorkspaceResolution(ctx, request, origin, operationID, resolve, completion)
+	if err != nil {
+		return &worktreepb.ScheduledAcknowledgement{}, err
+	}
+	return &worktreepb.ScheduledAcknowledgement{OperationId: operationID.String()}, nil
+}
+
+func (s *SessionWorkspaceRetargeter) retargetWorkspaceResolution(
+	ctx context.Context,
+	request metadata.SessionWorkspaceRetargetRequest,
+	origin *sessionlaunchpb.RuntimeStepOrigin,
+	operationID worktreecontract.OperationID,
+	resolve func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error),
+	completion func(error),
+) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
 	if s == nil || s.metadata == nil || s.authority == nil || s.publisher == nil || s.processes == nil {
-		return serverapi.SessionWorkspaceRetargetScheduledAcknowledgement{}, errors.New("session workspace retarget dependencies are required")
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, errors.New("session workspace retarget dependencies are required")
 	}
-	plan, err := s.metadata.PlanSessionWorkspaceRetarget(ctx, req)
+	if resolve == nil {
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, errors.New("session workspace retarget resolver is required")
+	}
+	parsedSessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(request.SessionID))
 	if err != nil {
-		return serverapi.SessionWorkspaceRetargetScheduledAcknowledgement{}, err
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
 	}
-	sourceTarget, err := s.metadata.ResolveSessionExecutionTarget(ctx, plan.SessionID)
-	if err != nil {
-		return serverapi.SessionWorkspaceRetargetScheduledAcknowledgement{}, err
+	sessionID := parsedSessionID.String()
+	if err := context.Cause(ctx); err != nil {
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
 	}
-	result := make(chan error, 1)
-	var admission scheduledRetargetAdmission
+	if _, err := s.metadata.PlanSessionWorkspaceRetarget(ctx, request); err != nil {
+		return nil, err
+	}
+	type outcome struct {
+		response *sessionlaunchpb.SessionRetargetWorkspaceSuccess
+		err      error
+	}
+	result := make(chan outcome, 1)
 	runCtx, cancelRun := context.WithCancel(context.WithoutCancel(ctx))
 	go func() {
 		defer cancelRun()
+		var completionErr error
+		var scheduled *worktreepb.ScheduledAcknowledgement
+		var completed *sessionlaunchpb.SessionRetargetWorkspaceSuccess
+		defer func() {
+			if completion != nil {
+				completion(completionErr)
+			}
+			if scheduled == nil {
+				result <- outcome{response: completed, err: completionErr}
+			}
+		}()
 		failurePersisted := false
-		retirementScheduled := false
 		var publicationErr error
 		var failureCause error
-		maintenanceCtx := runCtx
-		var releaseStarts sessionruntime.SessionStartBlockRelease
-		var runErr error
-		if plan.CrossProject() {
-			releaseStarts, maintenanceCtx, runErr = s.blockSessionStarts(runCtx, plan.SessionID)
-		}
-		if runErr == nil {
-			runErr = s.authority.RunSessionMaintenanceAtStepBoundary(
-				maintenanceCtx,
-				plan.SessionID,
-				origin,
-				func() {
-					if admission.accept() {
-						result <- nil
+		var plan *metadata.SessionWorkspaceRetargetPlan
+		var sourceWorkdir string
+		runErr := s.authority.RunSessionMaintenanceAtStepBoundary(
+			runCtx,
+			sessionID,
+			origin,
+			func() {
+				scheduled = &worktreepb.ScheduledAcknowledgement{OperationId: operationID.String()}
+				result <- outcome{response: &sessionlaunchpb.SessionRetargetWorkspaceSuccess{Scheduled: scheduled}}
+			},
+			func(boundaryCtx context.Context, store *session.Store, activeRuntime *sessionruntime.ActiveRuntimeMaintenance) (callbackErr error) {
+				steerUnplannedFailure := func(cause error) error {
+					if activeRuntime == nil {
+						return cause
 					}
-				},
-				func(boundaryCtx context.Context, store *session.Store, activeRuntime *sessionruntime.ActiveRuntimeMaintenance) error {
-					_, applyErr := s.applyWorkspaceRetarget(boundaryCtx, req, store, activeRuntime, true)
-					if applyErr != nil {
-						failureCause = applyErr
-						reminder := rebindFailureReminder(plan, sourceTarget.EffectiveWorkdir, applyErr)
-						receipt, steerErr := activeRuntime.SteerSessionRebindFailure(reminder)
-						failurePersisted = receipt.Committed
-						if failurePersisted {
-							return errors.Join(applyErr, steerErr)
-						}
-						persistErr := store.SetSessionRebindReminder(&reminder)
-						failurePersisted = persistErr == nil
-						return errors.Join(applyErr, steerErr, persistErr)
+					receipt, steerErr := activeRuntime.SteerSessionRebindFailureDiagnostic(cause)
+					failurePersisted = receipt.Committed
+					return errors.Join(cause, steerErr)
+				}
+				req, resolveErr := resolve(boundaryCtx)
+				if resolveErr != nil {
+					failureCause = resolveErr
+					return steerUnplannedFailure(resolveErr)
+				}
+				if strings.TrimSpace(req.SessionID) != sessionID {
+					failureCause = errors.New("resolved Session workspace retarget does not match the scheduled Session")
+					return steerUnplannedFailure(failureCause)
+				}
+				currentPlan, planErr := s.metadata.PlanSessionWorkspaceRetarget(boundaryCtx, req)
+				if planErr != nil {
+					failureCause = planErr
+					return steerUnplannedFailure(planErr)
+				}
+				plan = &currentPlan
+				sourceTarget, targetErr := s.metadata.ResolveSessionExecutionTarget(boundaryCtx, currentPlan.SessionID)
+				if targetErr != nil {
+					failureCause = targetErr
+					return steerUnplannedFailure(targetErr)
+				}
+				sourceWorkdir = sourceTarget.EffectiveWorkdir
+				steerPlannedFailure := func(cause error) error {
+					if activeRuntime == nil {
+						return cause
 					}
-					retirementScheduled, publicationErr = s.publishCommittedWorkspaceRetarget(plan.SessionID, activeRuntime)
-					return nil
-				},
-			)
-		}
-		if releaseStarts != nil {
-			runErr = errors.Join(runErr, releaseStarts.Close(context.Background()))
-		}
-		if admission.canceled() {
-			return
-		}
-		if admission.accepted() {
-			if runErr != nil && retirementScheduled {
-				slog.ErrorContext(
-					context.WithoutCancel(runCtx),
-					"retire committed scheduled Session rebind Runtime",
-					"session_id", plan.SessionID,
-					"error", runErr,
-				)
-				runErr = nil
-			}
+					reminder := rebindFailureReminder(currentPlan, sourceWorkdir, cause)
+					receipt, steerErr := activeRuntime.SteerSessionRebindFailure(reminder)
+					failurePersisted = receipt.Committed
+					if failurePersisted {
+						return errors.Join(cause, steerErr)
+					}
+					persistErr := store.SetSessionRebindReminder(&reminder)
+					failurePersisted = persistErr == nil
+					return errors.Join(cause, steerErr, persistErr)
+				}
+				applyCtx := boundaryCtx
+				var releaseStarts sessionruntime.SessionStartBlockRelease
+				if activeRuntime != nil && currentPlan.CrossProject() {
+					releaseStarts, applyCtx, planErr = s.blockSessionStarts(boundaryCtx, currentPlan.SessionID)
+					if planErr != nil {
+						failureCause = planErr
+						return steerPlannedFailure(planErr)
+					}
+					defer func() {
+						callbackErr = errors.Join(callbackErr, releaseStarts.Close(context.Background()))
+					}()
+				}
+				applied, applyErr := s.applyWorkspaceRetarget(applyCtx, req, store, activeRuntime, activeRuntime != nil)
+				if applyErr != nil {
+					failureCause = applyErr
+					return steerPlannedFailure(applyErr)
+				}
+				var projectionErr error
+				completed, projectionErr = completedWorkspaceRetargetResponse(applied)
+				if projectionErr != nil {
+					return projectionErr
+				}
+				publicationErr = s.publisher.PublishSessionIdentity(currentPlan.SessionID)
+				return nil
+			},
+		)
+		if scheduled != nil {
 			if runErr != nil {
+				completionErr = runErr
 				persistCtx := context.WithoutCancel(runCtx)
 				if failureCause == nil {
 					failureCause = runErr
 				}
-				if !failurePersisted {
-					persistErr := s.persistRebindFailure(persistCtx, plan, sourceTarget.EffectiveWorkdir, failureCause)
+				if !failurePersisted && plan != nil {
+					persistErr := s.persistRebindFailure(persistCtx, *plan, sourceWorkdir, failureCause)
 					if persistErr == nil {
 						return
 					}
@@ -242,6 +243,9 @@ func (s *SessionWorkspaceRetargeter) ScheduleWorkspaceRetarget(
 						"rebind_error", runErr,
 						"persistence_error", persistErr,
 					)
+				}
+				if !failurePersisted && plan == nil {
+					slog.ErrorContext(persistCtx, "scheduled Session rebind failed before a location plan was available", "session_id", sessionID, "error", runErr)
 				}
 				return
 			}
@@ -255,20 +259,16 @@ func (s *SessionWorkspaceRetargeter) ScheduleWorkspaceRetarget(
 			}
 			return
 		}
-		result <- runErr
+		completionErr = runErr
+		if publicationErr != nil {
+			slog.ErrorContext(runCtx, "publish committed Session rebind identity", "session_id", sessionID, "error", publicationErr)
+		}
 	}()
 	select {
-	case err := <-result:
-		if err != nil {
-			cancelRun()
-			return serverapi.SessionWorkspaceRetargetScheduledAcknowledgement{}, err
-		}
-		return serverapi.SessionWorkspaceRetargetScheduledAcknowledgement{OperationID: operationID}, nil
+	case outcome := <-result:
+		return outcome.response, outcome.err
 	case <-ctx.Done():
-		if admission.cancelPending() {
-			cancelRun()
-		}
-		return serverapi.SessionWorkspaceRetargetScheduledAcknowledgement{}, context.Cause(ctx)
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, context.Cause(ctx)
 	}
 }
 
@@ -289,13 +289,6 @@ func (s *SessionWorkspaceRetargeter) blockSessionStarts(
 		return nil, nil, err
 	}
 	return release, release.AuthorizeMaintenance(ctx), nil
-}
-
-func (s *SessionWorkspaceRetargeter) publishCommittedWorkspaceRetarget(
-	sessionID string,
-	activeRuntime *sessionruntime.ActiveRuntimeMaintenance,
-) (bool, error) {
-	return activeRuntime.RetirementScheduled(), s.publisher.PublishSessionIdentity(sessionID)
 }
 
 func (s *SessionWorkspaceRetargeter) applyWorkspaceRetarget(
@@ -353,9 +346,9 @@ func (s *SessionWorkspaceRetargeter) applyWorkspaceRetarget(
 			return metadata.SessionWorkspaceRetargetResult{}, err
 		}
 	}
-	workingDirectoryChanged := sourceTarget.EffectiveWorkdir != currentPlan.TargetWorkspaceRoot
+	workingDirectoryChanged := sourceTarget.EffectiveWorkdir != currentPlan.TargetExecutionRoot
 	if currentPlan.CrossProject() || workingDirectoryChanged {
-		workingDirectory := currentPlan.TargetWorkspaceRoot
+		workingDirectory := currentPlan.TargetExecutionRoot
 		currentPlan.RebindReminder = &session.SessionRebindReminder{
 			Kind:          session.SessionRebindReminderSucceeded,
 			SourceProject: currentPlan.SourceProject,
@@ -373,6 +366,7 @@ func (s *SessionWorkspaceRetargeter) applyWorkspaceRetarget(
 		WorkspaceContainer: filepath.Base(currentPlan.TargetWorkspaceRoot),
 		UpdatedAt:          updatedAt,
 		RebindReminder:     currentPlan.RebindReminder,
+		WorktreeReminder:   currentPlan.WorktreeReminder,
 	}, func() error {
 		if activeRuntime != nil {
 			if err := activeRuntime.Replace(targetFilesystemContext); err != nil {
@@ -407,9 +401,6 @@ func (s *SessionWorkspaceRetargeter) applyWorkspaceRetarget(
 		runtimeRebound = false
 		return nil
 	})
-	if err == nil && currentPlan.CrossProject() && activeRuntime != nil {
-		activeRuntime.RetireRuntime()
-	}
 	return result, err
 }
 
@@ -425,28 +416,25 @@ func (s *SessionWorkspaceRetargeter) targetFilesystemContext(
 	var target tools.FilesystemContext
 	var err error
 	if plan.CrossProject() {
-		targetBoundary, boundaryErr := s.metadata.ResolveProjectWorkspaceBoundary(ctx, plan.TargetProject.ID)
-		if boundaryErr != nil {
-			return tools.FilesystemContext{}, boundaryErr
-		}
-		attached, attachedErr := s.metadata.ProjectWorkspaceAttached(ctx, plan.TargetProject.ID, plan.TargetWorkspaceRoot)
-		if attachedErr != nil {
-			return tools.FilesystemContext{}, attachedErr
-		}
-		if !attached {
-			targetBoundary, _, err = targetBoundary.WithWorkspace(metadata.ProjectWorkspace{CanonicalRoot: plan.TargetWorkspaceRoot})
+		target, err = runtimewire.NewFilesystemContext(plan.TargetExecutionRoot, plan.TargetExecutionRoot, plan.TargetProject.ID)
+	} else {
+		managed := previous.ManagedWorktree
+		if managed != nil {
+			var currentRoot *string
+			if plan.TargetWorktreeID != nil {
+				currentRoot = &plan.TargetExecutionRoot
+			}
+			managed, err = managed.WithCurrentWorktreeRoot(currentRoot)
 			if err != nil {
 				return tools.FilesystemContext{}, err
 			}
 		}
-		target, err = runtimewire.NewFilesystemContext(plan.TargetWorkspaceRoot, plan.TargetWorkspaceRoot, targetBoundary)
-	} else {
-		target, err = runtimewire.WithExecutionTarget(previous, plan.TargetWorkspaceRoot, plan.TargetWorkspaceRoot, nil)
+		target, err = runtimewire.WithExecutionTarget(previous, plan.TargetExecutionRoot, plan.TargetExecutionRoot, managed)
 	}
 	if err != nil {
 		return tools.FilesystemContext{}, err
 	}
-	if previous.ManagedWorktree != nil {
+	if previous.ManagedWorktree != nil && plan.TargetWorktreeID == nil {
 		target.ManagedWorktree, err = previous.ManagedWorktree.WithCurrentWorktreeRoot(nil)
 	}
 	return target, err
@@ -489,7 +477,7 @@ func rebindFailureReminder(
 	workingDirectory string,
 	cause error,
 ) session.SessionRebindReminder {
-	diagnostic := cause.Error()
+	diagnostic := serverapi.SessionRetargetFailureText(config.Command, cause)
 	return session.SessionRebindReminder{
 		Kind:              session.SessionRebindReminderFailed,
 		SourceProject:     plan.SourceProject,

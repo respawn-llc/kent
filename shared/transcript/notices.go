@@ -9,6 +9,7 @@ const (
 	NoticeReasonRuntimeDiagnostic     = "runtime_diagnostic"
 	NoticeReasonToolOutputRepair      = "tool_output_repair"
 	NoticeReasonProviderModelMismatch = "provider_model_mismatch"
+	NoticeReasonThinkingUpdate        = "thinking_update"
 
 	NoticeSeverityInfo    = "info"
 	NoticeSeverityWarning = "warning"

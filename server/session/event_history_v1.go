@@ -13,14 +13,15 @@ import (
 type ProviderHistoryItemType string
 
 const (
-	ProviderHistoryItemTypeMessage            ProviderHistoryItemType = "message"
-	ProviderHistoryItemTypeFunctionCall       ProviderHistoryItemType = "function_call"
-	ProviderHistoryItemTypeFunctionCallOutput ProviderHistoryItemType = "function_call_output"
-	ProviderHistoryItemTypeCustomToolCall     ProviderHistoryItemType = "custom_tool_call"
-	ProviderHistoryItemTypeCustomToolOutput   ProviderHistoryItemType = "custom_tool_call_output"
-	ProviderHistoryItemTypeReasoning          ProviderHistoryItemType = "reasoning"
-	ProviderHistoryItemTypeCompaction         ProviderHistoryItemType = "compaction"
-	ProviderHistoryItemTypeOther              ProviderHistoryItemType = "other"
+	ProviderHistoryItemTypeMessage             ProviderHistoryItemType = "message"
+	ProviderHistoryItemTypeFunctionCall        ProviderHistoryItemType = "function_call"
+	ProviderHistoryItemTypeFunctionCallOutput  ProviderHistoryItemType = "function_call_output"
+	ProviderHistoryItemTypeCustomToolCall      ProviderHistoryItemType = "custom_tool_call"
+	ProviderHistoryItemTypeCustomToolOutput    ProviderHistoryItemType = "custom_tool_call_output"
+	ProviderHistoryItemTypeReasoning           ProviderHistoryItemType = "reasoning"
+	ProviderHistoryItemTypeCompaction          ProviderHistoryItemType = "compaction"
+	ProviderHistoryItemTypeConfigurationUpdate ProviderHistoryItemType = "configuration_update"
+	ProviderHistoryItemTypeOther               ProviderHistoryItemType = "other"
 )
 
 type ProviderHistoryReasoningEntry struct {
@@ -50,6 +51,7 @@ type ProviderHistoryItem struct {
 	Output               json.RawMessage                 `json:"output,omitempty"`
 	ReasoningSummary     []ProviderHistoryReasoningEntry `json:"reasoning_summary,omitempty"`
 	EncryptedContent     *string                         `json:"encrypted_content,omitempty"`
+	ConfigurationEffort  *string                         `json:"configuration_effort,omitempty"`
 	Raw                  json.RawMessage                 `json:"raw,omitempty"`
 	LinkedCallID         *string                         `json:"linked_call_id,omitempty"`
 	LinkKind             *ProviderItemLinkKind           `json:"link_kind,omitempty"`
@@ -67,6 +69,20 @@ type HistoryReplacementRecord struct {
 }
 
 var ErrProviderHistoryItem = errors.New("invalid provider history item")
+
+type ConfigurationUpdateRecord struct {
+	Item ProviderHistoryItem `json:"item"`
+}
+
+func (ConfigurationUpdateRecord) eventKind() EventKind { return EventKindConfigurationUpdate }
+
+func (r ConfigurationUpdateRecord) validate() error {
+	if r.Item.Type != ProviderHistoryItemTypeConfigurationUpdate {
+		return errors.New("configuration update requires a configuration history item")
+	}
+	_, err := normalizeProviderHistoryItem(0, r.Item)
+	return err
+}
 
 type ProviderHistoryItemErrorReason string
 
@@ -174,6 +190,7 @@ func normalizeProviderHistoryItem(
 		ProviderHistoryItemTypeCustomToolOutput,
 		ProviderHistoryItemTypeReasoning,
 		ProviderHistoryItemTypeCompaction,
+		ProviderHistoryItemTypeConfigurationUpdate,
 		ProviderHistoryItemTypeOther:
 	default:
 		return ProviderHistoryItem{}, providerHistoryItemError(
@@ -183,6 +200,12 @@ func normalizeProviderHistoryItem(
 		)
 	}
 
+	if item.Type == ProviderHistoryItemTypeConfigurationUpdate && item.ConfigurationEffort == nil {
+		return ProviderHistoryItem{}, providerHistoryItemError(index, item.Type, ProviderHistoryItemInvalidFacts)
+	}
+	if item.Type != ProviderHistoryItemTypeConfigurationUpdate && item.ConfigurationEffort != nil {
+		return ProviderHistoryItem{}, providerHistoryItemError(index, item.Type, ProviderHistoryItemInvalidFacts)
+	}
 	if item.Role != nil {
 		if err := validateMessageRole(*item.Role); err != nil {
 			return ProviderHistoryItem{}, providerHistoryItemError(index, item.Type, ProviderHistoryItemInvalidFacts)
@@ -221,6 +244,7 @@ func normalizeProviderHistoryItem(
 		{name: "background activity identity", value: &item.BackgroundActivityID},
 		{name: "custom input", value: &item.CustomInput},
 		{name: "encrypted content", value: &item.EncryptedContent},
+		{name: "configuration effort", value: &item.ConfigurationEffort},
 		{name: "linked call identity", value: &item.LinkedCallID},
 	}
 	for _, optional := range optionalTexts {
@@ -429,6 +453,9 @@ func encodeProviderHistoryItemV1(buffer *bytes.Buffer, item ProviderHistoryItem)
 		}
 	}
 	if err := writeOptionalHistoryField(buffer, "encrypted_content", item.EncryptedContent); err != nil {
+		return err
+	}
+	if err := writeOptionalHistoryField(buffer, "configuration_effort", item.ConfigurationEffort); err != nil {
 		return err
 	}
 	if err := writeJSONField(buffer, "raw", item.Raw, true); err != nil {

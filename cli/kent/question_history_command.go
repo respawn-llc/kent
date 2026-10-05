@@ -12,12 +12,14 @@ import (
 	"time"
 
 	"core/shared/config"
+	"core/shared/protoapi"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
 )
 
 type questionHistoryRemote interface {
-	SubscribeQuestionHistory(context.Context, serverapi.QuestionHistorySubscribeRequest) (serverapi.QuestionHistorySubscription, error)
+	SubscribeQuestionHistory(context.Context, *sessionpb.QuestionHistorySubscribeRequest) (serverapi.QuestionHistorySubscription, error)
 }
 
 func (c questionCommand) listSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -35,6 +37,11 @@ func (c questionCommand) listSubcommand(args []string, stdout io.Writer, stderr 
 	}
 	if *maxHandoffs < 1 {
 		fmt.Fprintln(stderr, "--max-handoffs must be at least 1")
+		return 2
+	}
+	handoffs, err := protoapi.Int32(*maxHandoffs, "max handoffs")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
 		return 2
 	}
 	rawSessionID := ""
@@ -60,8 +67,8 @@ func (c questionCommand) listSubcommand(args []string, stdout io.Writer, stderr 
 		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
-		sub, err := historyRemote.SubscribeQuestionHistory(ctx, serverapi.QuestionHistorySubscribeRequest{
-			SessionID: sessionID.String(), MaxHandoffs: *maxHandoffs,
+		sub, err := historyRemote.SubscribeQuestionHistory(ctx, &sessionpb.QuestionHistorySubscribeRequest{
+			SessionId: sessionID.String(), MaxHandoffs: handoffs,
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -112,9 +119,9 @@ func streamQuestionHistoryHuman(
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		switch event.Kind {
-		case serverapi.QuestionHistoryEventStarted:
-			if event.LargeHistory != nil && *event.LargeHistory {
+		switch selected := event.Event.(type) {
+		case *sessionpb.QuestionHistoryEvent_Started:
+			if selected.Started.LargeHistory {
 				if err := writeBlock(func() error {
 					_, err := fmt.Fprintln(stdout, "[Session history is large, this command may take a while to finish]")
 					return err
@@ -122,18 +129,18 @@ func streamQuestionHistoryHuman(
 					return reportWriteFailure(err)
 				}
 			}
-		case serverapi.QuestionHistoryEventQuestion:
-			if event.Question == nil {
+		case *sessionpb.QuestionHistoryEvent_Question:
+			if selected.Question == nil {
 				fmt.Fprintln(stderr, "Question-history question event is missing its Question")
 				return 1
 			}
 			questions++
 			if err := writeBlock(func() error {
-				return writeQuestionHistoryHumanItem(stdout, *event.Question)
+				return writeQuestionHistoryHumanItem(stdout, selected.Question)
 			}); err != nil {
 				return reportWriteFailure(err)
 			}
-		case serverapi.QuestionHistoryEventCompleted:
+		case *sessionpb.QuestionHistoryEvent_Completed:
 			if questions == 0 {
 				if err := writeBlock(func() error {
 					_, err := fmt.Fprintln(stdout, "No answered questions found")
@@ -142,7 +149,7 @@ func streamQuestionHistoryHuman(
 					return reportWriteFailure(err)
 				}
 			}
-			if event.HistoryOmitted != nil && *event.HistoryOmitted {
+			if selected.Completed.HistoryOmitted {
 				if err := writeBlock(func() error {
 					_, err := fmt.Fprintln(stdout, "[Older Question history omitted; increase --max-handoffs to include more]")
 					return err
@@ -157,7 +164,7 @@ func streamQuestionHistoryHuman(
 	}
 }
 
-func writeQuestionHistoryHumanItem(stdout io.Writer, question serverapi.QuestionHistoryQuestion) error {
+func writeQuestionHistoryHumanItem(stdout io.Writer, question *sessionpb.QuestionHistoryQuestion) error {
 	if _, err := fmt.Fprintln(stdout, question.Question); err != nil {
 		return err
 	}
@@ -173,8 +180,8 @@ func writeQuestionHistoryHumanItem(stdout io.Writer, question serverapi.Question
 			return err
 		}
 	}
-	if question.At != nil {
-		at := time.UnixMilli(question.At.UnixMs()).Local()
+	if question.CommittedAt != nil {
+		at := question.CommittedAt.AsTime().Local()
 		if _, err := fmt.Fprintf(stdout, "At: %s\n", at.Format("2006-01-02 15:04:05")); err != nil {
 			return err
 		}
@@ -215,10 +222,11 @@ func streamQuestionHistoryJSON(
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		switch event.Kind {
-		case serverapi.QuestionHistoryEventStarted:
-		case serverapi.QuestionHistoryEventQuestion:
-			if event.Question == nil {
+		switch selected := event.Event.(type) {
+		case *sessionpb.QuestionHistoryEvent_Started:
+		case *sessionpb.QuestionHistoryEvent_Question:
+			question := selected.Question
+			if question == nil {
 				fmt.Fprintln(stderr, "Question-history question event is missing its Question")
 				return 1
 			}
@@ -229,13 +237,13 @@ func streamQuestionHistoryJSON(
 				}
 			}
 			projected := questionHistoryJSONRecord{
-				Question:             event.Question.Question,
-				Answer:               event.Question.Answer,
-				SelectedOptionNumber: event.Question.SelectedOptionNumber,
-				Commentary:           event.Question.Commentary,
+				Question:             question.Question,
+				Answer:               question.Answer,
+				SelectedOptionNumber: question.SelectedOptionNumber,
+				Commentary:           question.Commentary,
 			}
-			if event.Question.At != nil {
-				at := time.UnixMilli(event.Question.At.UnixMs()).UTC()
+			if question.CommittedAt != nil {
+				at := question.CommittedAt.AsTime().UTC()
 				projected.At = &at
 			}
 			encoded, err := json.Marshal(projected)
@@ -248,8 +256,8 @@ func streamQuestionHistoryJSON(
 				return 1
 			}
 			first = false
-		case serverapi.QuestionHistoryEventCompleted:
-			historyOmitted = event.HistoryOmitted
+		case *sessionpb.QuestionHistoryEvent_Completed:
+			historyOmitted = &selected.Completed.HistoryOmitted
 		default:
 			fmt.Fprintln(stderr, "Question-history stream returned an unknown event")
 			return 1
@@ -260,7 +268,7 @@ func streamQuestionHistoryJSON(
 type questionHistoryJSONRecord struct {
 	Question             string     `json:"question"`
 	Answer               string     `json:"answer"`
-	SelectedOptionNumber *int       `json:"selected_option_number"`
+	SelectedOptionNumber *int32     `json:"selected_option_number"`
 	Commentary           *string    `json:"commentary"`
 	At                   *time.Time `json:"at"`
 }

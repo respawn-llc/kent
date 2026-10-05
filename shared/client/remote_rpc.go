@@ -14,12 +14,10 @@ import (
 	"time"
 
 	"core/shared/config"
-	"core/shared/jsoncontract"
 	"core/shared/llmerrors"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/serverapi"
-	"core/shared/serverjsoncontract"
 )
 
 var errRemoteClosed = errors.New("remote client is closed")
@@ -82,14 +80,20 @@ type remoteControlResponse struct {
 	err    error
 }
 
-func configuredRemoteDialPlan(cfg config.App) (remoteDialPlan, error) {
-	tcpEndpoint, err := rpcwire.ParseWebSocketEndpoint(config.ServerRPCURL(cfg))
+type remoteSessionControl struct {
+	sessionID      string
+	remote         *Remote
+	initialControl *remoteControlConn
+}
+
+func configuredRemoteDialPlan(cfg config.Connection) (remoteDialPlan, error) {
+	tcpEndpoint, err := rpcwire.ParseWebSocketEndpoint(cfg.RPCURL())
 	if err != nil {
 		return remoteDialPlan{}, err
 	}
 	endpoints := make([]rpcwire.Endpoint, 0, 2)
 	if shouldPreferConfiguredLocalSocket(cfg) {
-		if socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg); err != nil {
+		if socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg.PersistenceRoot); err != nil {
 			return remoteDialPlan{}, err
 		} else if ok {
 			if _, statErr := os.Stat(socketPath); statErr == nil {
@@ -105,13 +109,13 @@ func configuredRemoteDialPlan(cfg config.App) (remoteDialPlan, error) {
 	return remoteDialPlan{endpoints: endpoints}, nil
 }
 
-func shouldPreferConfiguredLocalSocket(cfg config.App) bool {
+func shouldPreferConfiguredLocalSocket(cfg config.Connection) bool {
 	// Explicit TCP target overrides must stay authoritative; the derived unix socket
 	// is only a default local optimization for the standard local attach target.
 	if hasExplicitTCPServerTarget(cfg) {
 		return false
 	}
-	host := strings.TrimSpace(cfg.Settings.ServerHost)
+	host := strings.TrimSpace(cfg.ServerHost)
 	if host == "" || strings.EqualFold(host, "localhost") {
 		return true
 	}
@@ -119,20 +123,15 @@ func shouldPreferConfiguredLocalSocket(cfg config.App) bool {
 	return ip != nil && (ip.IsLoopback() || ip.IsUnspecified())
 }
 
-func hasExplicitTCPServerTarget(cfg config.App) bool {
+func hasExplicitTCPServerTarget(cfg config.Connection) bool {
 	sources := cfg.Source.Sources
 	if len(sources) == 0 {
 		return false
 	}
-	return sources["server_host"] != "default" || sources["server_port"] != "default"
+	return sources["server_host"].Configured() || sources["server_port"].Configured()
 }
 
 func dialRemoteWithTransport(ctx context.Context, plan remoteDialPlan, transport rpcwire.ClientTransport, attachIntent *remoteAttachmentIntent) (*Remote, error) {
-	preparer := jsoncontract.NewPreparer(false)
-	sessionExecutionResponseContract, err := serverjsoncontract.PrepareSessionExecutionEnvironmentResponse(preparer)
-	if err != nil {
-		return nil, err
-	}
 	conn, err := plan.dial(ctx, transport)
 	if err != nil {
 		return nil, err
@@ -146,15 +145,21 @@ func dialRemoteWithTransport(ctx context.Context, plan remoteDialPlan, transport
 		cleanup()
 		return nil, err
 	}
+	if state.attachment != nil && state.attachment.session != nil {
+		attachIntent, err = newRemoteSessionReattachmentIntent(*state.attachment.session)
+		if err != nil {
+			cleanup()
+			return nil, err
+		}
+	}
 	control := newRemoteControlConn(conn)
 	return &Remote{
-		plan:                             plan,
-		transport:                        transport,
-		control:                          control,
-		identity:                         state.identity,
-		attachIntent:                     attachIntent,
-		attachment:                       state.attachment,
-		sessionExecutionResponseContract: sessionExecutionResponseContract,
+		plan:         plan,
+		transport:    transport,
+		control:      control,
+		identity:     state.identity,
+		attachIntent: attachIntent,
+		attachment:   state.attachment,
 	}, nil
 }
 
@@ -221,6 +226,19 @@ func (c *Remote) openSetupRPCConn(
 	ctx context.Context,
 	additionalAttachmentIntent *remoteAttachmentIntent,
 ) (rpcwire.Conn, func(), remoteConnectionState, error) {
+	c.mu.Lock()
+	attachmentIntent := c.attachIntent
+	attachment := c.attachment
+	c.mu.Unlock()
+	return c.openSetupRPCConnForAttachment(ctx, additionalAttachmentIntent, attachmentIntent, attachment)
+}
+
+func (c *Remote) openSetupRPCConnForAttachment(
+	ctx context.Context,
+	additionalAttachmentIntent *remoteAttachmentIntent,
+	attachmentIntent *remoteAttachmentIntent,
+	attachment *remoteAttachment,
+) (rpcwire.Conn, func(), remoteConnectionState, error) {
 	if err := c.ensureOpen(); err != nil {
 		return nil, nil, remoteConnectionState{}, err
 	}
@@ -230,13 +248,12 @@ func (c *Remote) openSetupRPCConn(
 	}
 	cleanup := func() { _ = conn.Close() }
 	setup := remoteConnectionSetup{
-		attachmentIntent:           c.attachIntent,
+		attachmentIntent:           attachmentIntent,
 		additionalAttachmentIntent: additionalAttachmentIntent,
 		expectation: &remoteConnectionExpectation{
 			rootID:     c.rootID(),
-			attachment: c.attachment,
+			attachment: attachment,
 		},
-		acknowledgeNoAuth: c.acknowledgeNoAuthOnConn,
 	}
 	state, err := setup.run(ctx, conn)
 	if err != nil {
@@ -244,6 +261,150 @@ func (c *Remote) openSetupRPCConn(
 		return nil, nil, remoteConnectionState{}, err
 	}
 	return conn, cleanup, state, nil
+}
+
+func (c *Remote) prepareDraftHandoff(ctx context.Context, sessionID string) (*remoteSessionControl, bool, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	c.mu.Lock()
+	attachmentIntent := c.attachIntent
+	c.mu.Unlock()
+	attachedSessionID, attachedToSession := attachmentIntent.sessionID()
+	if attachedToSession {
+		if attachedSessionID != sessionID {
+			return nil, false, fmt.Errorf(
+				"remote is attached to session %q, cannot prepare draft handoff for session %q",
+				attachedSessionID,
+				sessionID,
+			)
+		}
+		return nil, false, nil
+	}
+	if _, attachedToProject := attachmentIntent.projectRequest(); !attachedToProject {
+		return nil, false, nil
+	}
+	// A Project-attached control connection loses access as soon as the Session
+	// moves. Establish the exact-Session control while the source Project still
+	// owns it so the composer draft can be persisted before TUI reattachment.
+	intent, err := newRemoteSessionAttachmentIntent(sessionID)
+	if err != nil {
+		return nil, false, err
+	}
+	c.mu.Lock()
+	if c.closed.Load() {
+		c.mu.Unlock()
+		return nil, false, errors.New("remote client is closed")
+	}
+	current := c.draftHandoff
+	if current != nil && current.sessionID == sessionID {
+		c.mu.Unlock()
+		return current, false, nil
+	}
+	c.mu.Unlock()
+	conn, cleanup, state, err := c.openSetupRPCConn(ctx, intent)
+	if err != nil {
+		return nil, false, err
+	}
+	if state.attachment == nil || state.attachment.session == nil {
+		cleanup()
+		return nil, false, errors.New("Session handoff attachment is required")
+	}
+	handoffIntent, err := newRemoteSessionReattachmentIntent(*state.attachment.session)
+	if err != nil {
+		cleanup()
+		return nil, false, err
+	}
+	handoffControl := newRemoteControlConn(conn)
+	handoffRemote := &Remote{
+		plan:         c.plan,
+		transport:    c.transport,
+		control:      handoffControl,
+		identity:     state.identity,
+		attachIntent: handoffIntent,
+		attachment:   state.attachment,
+	}
+	handoffRemote.expectedRootID.Store(c.rootID())
+	return &remoteSessionControl{
+		sessionID:      sessionID,
+		remote:         handoffRemote,
+		initialControl: handoffControl,
+	}, true, nil
+}
+
+func (c *Remote) installDraftHandoff(candidate *remoteSessionControl) error {
+	if candidate == nil {
+		return nil
+	}
+	c.mu.Lock()
+	if c.closed.Load() {
+		c.mu.Unlock()
+		return errors.Join(errors.New("remote client is closed"), candidate.remote.Close())
+	}
+	current := c.draftHandoff
+	if current != nil && current.sessionID == candidate.sessionID {
+		c.mu.Unlock()
+		return candidate.remote.Close()
+	}
+	c.draftHandoff = candidate
+	c.mu.Unlock()
+	if current != nil {
+		_ = current.remote.Close()
+	}
+	return nil
+}
+
+func (c *Remote) draftControl(ctx context.Context, sessionID string) (*remoteControlConn, error) {
+	if err := c.ensureOpen(); err != nil {
+		return nil, err
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	c.mu.Lock()
+	attachmentIntent := c.attachIntent
+	handoff := c.draftHandoff
+	c.mu.Unlock()
+	attachedSessionID, attachedToSession := attachmentIntent.sessionID()
+	if attachedToSession && attachedSessionID == sessionID {
+		return c.ensureControl(ctx)
+	}
+	if handoff != nil && handoff.sessionID == sessionID {
+		return handoff.remote.ensureControl(ctx)
+	}
+	return c.ensureControl(ctx)
+}
+
+// TakeSessionHandoff promotes the exact-Session connection prepared by the
+// transcript subscription. The prepared socket predates any Session move, so
+// promotion refreshes it once unless an earlier draft operation already did.
+func (c *Remote) TakeSessionHandoff(ctx context.Context, sessionID string) (*Remote, bool, error) {
+	if err := c.ensureOpen(); err != nil {
+		return nil, false, err
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	c.mu.Lock()
+	handoff := c.draftHandoff
+	c.mu.Unlock()
+	if handoff == nil || handoff.sessionID != sessionID {
+		return nil, false, nil
+	}
+	handoff.remote.mu.Lock()
+	initialControl := handoff.remote.control
+	if initialControl == handoff.initialControl {
+		handoff.remote.control = nil
+	}
+	handoff.remote.mu.Unlock()
+	if initialControl == handoff.initialControl {
+		_ = initialControl.Close()
+	}
+	if _, err := handoff.remote.ensureControl(ctx); err != nil {
+		return nil, true, err
+	}
+	c.mu.Lock()
+	if c.draftHandoff != handoff {
+		c.mu.Unlock()
+		return nil, true, errors.New("Session handoff changed while reattaching")
+	}
+	c.draftHandoff = nil
+	c.mu.Unlock()
+	return handoff.remote, true, nil
 }
 
 func (c *Remote) callDedicated(ctx context.Context, requestID string, method string, params any, out any) error {
@@ -500,62 +661,14 @@ func protocolError(resp *protocol.ResponseError) error {
 		return nil
 	}
 	message := strings.TrimSpace(resp.Message)
-	if resp.Code == protocol.ErrCodeRuntimeCommandNotAccepted {
-		return decodeRuntimeCommandNotAcceptedError(resp.Data)
-	}
 	if resp.Code == protocol.ErrCodeServerNotReady && len(resp.Data) > 0 {
 		return serverapi.DecodeServerNotReadyError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskListScope && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskListScopeError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskSearch && len(resp.Data) > 0 {
-		return serverapi.DecodeTaskSearchError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskCreateSelection && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskCreateSelectionError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskCreateConflict && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskCreateConflictError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskMutationSelfTarget && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskMutationSelfTargetError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskStartConflict && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskStartConflictError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskInitialBranch && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskInitialBranchError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorktreeSetupRetained && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowSetupRetainedError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskDependency && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskDependencyError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowLabel && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowLabelError(resp.Data, message)
 	}
 	if resp.Code == protocol.ErrCodeSubagentLaunchDenied && len(resp.Data) > 0 {
 		return serverapi.DecodeSubagentLaunchDeniedError(resp.Data, message)
 	}
 	if resp.Code == protocol.ErrCodeSubagentLaunchPolicy {
 		return protocol.DecodeSubagentLaunchPolicyError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowExecutionTargetResolution && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowExecutionTargetResolutionError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowLockedExecutionTarget && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowLockedExecutionTargetError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeSessionRetarget && len(resp.Data) > 0 {
-		return serverapi.DecodeSessionRetargetError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodePromptCommands && len(resp.Data) > 0 {
-		return serverapi.DecodePromptCommandError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeChatSettingsAgentPreparation {
-		return serverapi.DecodeChatSettingsAgentPreparationError(resp.Data, message)
 	}
 	if resp.Code == protocol.ErrCodeRequestCanceled {
 		return requestCanceledError{message: message}
@@ -587,16 +700,6 @@ func protocolError(resp *protocol.ResponseError) error {
 		return protocol.NewSentinelErrorWithRendering(serverapi.ErrRuntimeNoActiveRun, message, protocol.SentinelErrorJoined)
 	case protocol.ErrCodeRuntimeNoFinalAnswer:
 		return protocol.NewSentinelErrorWithRendering(serverapi.ErrRuntimeNoFinalAnswer, message, protocol.SentinelErrorJoined)
-	case protocol.ErrCodeManualCompactionTooSoon:
-		return serverapi.DecodeManualCompactionError(resp.Code, resp.Data)
-	case protocol.ErrCodeManualCompactionDisabled:
-		return serverapi.DecodeManualCompactionError(resp.Code, resp.Data)
-	case protocol.ErrCodeManualCompactionActive:
-		return serverapi.DecodeManualCompactionError(resp.Code, resp.Data)
-	case protocol.ErrCodePendingWorkNotPending:
-		return serverapi.DecodePendingWorkNotPendingError(resp.Data)
-	case protocol.ErrCodePendingWorkCapacity:
-		return serverapi.DecodePendingWorkCapacityError(resp.Data)
 	case protocol.ErrCodeStreamUnavailable:
 		return errors.Join(serverapi.ErrStreamUnavailable, errors.New(message))
 	case protocol.ErrCodeStreamFailed:
@@ -616,50 +719,4 @@ func protocolError(resp *protocol.ResponseError) error {
 	default:
 		return errors.New(message)
 	}
-}
-
-func decodeRuntimeCommandNotAcceptedError(data json.RawMessage) error {
-	var payload struct {
-		Cause *protocol.ResponseError `json:"cause"`
-	}
-	if len(data) == 0 {
-		return errors.New("runtime command not-accepted response is missing cause data")
-	}
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return fmt.Errorf("decode runtime command not-accepted response: %w", err)
-	}
-	if payload.Cause == nil ||
-		payload.Cause.Code == 0 ||
-		strings.TrimSpace(payload.Cause.Message) == "" ||
-		payload.Cause.Code == protocol.ErrCodeRuntimeCommandNotAccepted {
-		return errors.New("runtime command not-accepted response contains an invalid cause")
-	}
-	cause := protocolError(payload.Cause)
-	if cause == nil {
-		return errors.New("runtime command not-accepted response contains an empty cause")
-	}
-	switch payload.Cause.Code {
-	case protocol.ErrCodePromptCommands:
-		var typed *serverapi.PromptCommandError
-		if !errors.As(cause, &typed) {
-			return errors.New("runtime command not-accepted response contains invalid prompt-command cause data")
-		}
-	case protocol.ErrCodeManualCompactionTooSoon:
-		if !errors.Is(cause, serverapi.ErrManualCompactionTooSoon) {
-			return errors.New("runtime command not-accepted response contains invalid manual-compaction cause data")
-		}
-	case protocol.ErrCodeManualCompactionDisabled:
-		if !errors.Is(cause, serverapi.ErrManualCompactionDisabled) {
-			return errors.New("runtime command not-accepted response contains invalid manual-compaction cause data")
-		}
-	case protocol.ErrCodeManualCompactionActive:
-		if !errors.Is(cause, serverapi.ErrManualCompactionActive) {
-			return errors.New("runtime command not-accepted response contains invalid manual-compaction cause data")
-		}
-	case protocol.ErrCodePendingWorkCapacity:
-		if !errors.Is(cause, serverapi.ErrPendingWorkCapacity) {
-			return errors.New("runtime command not-accepted response contains invalid Pending Work capacity cause data")
-		}
-	}
-	return errors.Join(serverapi.ErrRuntimeCommandNotAccepted, cause)
 }

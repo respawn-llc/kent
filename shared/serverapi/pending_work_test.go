@@ -1,43 +1,27 @@
 package serverapi
 
 import (
-	"encoding/json"
 	"errors"
 	"testing"
 
 	"core/shared/clientui"
-	"core/shared/protocol"
 	"core/shared/runtimeids"
+	"core/shared/runtimeinput"
 )
 
-func TestPendingWorkCapacityStructuredRPCDirectAndNested(t *testing.T) {
+func TestPendingWorkCapacityDirectAndNested(t *testing.T) {
 	direct := &PendingWorkCapacityError{}
-	decoded := DecodePendingWorkCapacityError(direct.RPCErrorData())
 	var typed *PendingWorkCapacityError
-	if direct.RPCErrorCode() != protocol.ErrCodePendingWorkCapacity ||
-		!errors.Is(decoded, ErrPendingWorkCapacity) ||
-		!errors.As(decoded, &typed) {
-		t.Fatalf("direct capacity error = %T %v", decoded, decoded)
+	if !errors.Is(direct, ErrPendingWorkCapacity) ||
+		!errors.As(direct, &typed) {
+		t.Fatalf("direct capacity error = %T %v", direct, direct)
 	}
 
 	nested := NewRuntimeCommandNotAcceptedError(&PendingWorkCapacityError{})
-	var payload struct {
-		Cause protocol.ResponseError `json:"cause"`
-	}
-	if err := json.Unmarshal(nested.RPCErrorData(), &payload); err != nil {
-		t.Fatalf("decode nested capacity error: %v", err)
-	}
-	if payload.Cause.Code != protocol.ErrCodePendingWorkCapacity {
-		t.Fatalf("nested capacity code = %d", payload.Cause.Code)
-	}
-	decoded = DecodePendingWorkCapacityError(payload.Cause.Data)
-	if !errors.Is(decoded, ErrPendingWorkCapacity) || !errors.As(decoded, &typed) {
-		t.Fatalf("nested capacity error = %T %v", decoded, decoded)
+	if !errors.Is(nested, ErrPendingWorkCapacity) || !errors.As(nested, &typed) {
+		t.Fatalf("nested capacity error = %T %v", nested, nested)
 	}
 
-	if err := DecodePendingWorkCapacityError(json.RawMessage(`{"reason":"other"}`)); err == nil {
-		t.Fatal("invalid capacity reason decoded as typed capacity")
-	}
 }
 
 func TestPendingWorkIdentityViewsReuseDomainUUID(t *testing.T) {
@@ -56,12 +40,12 @@ func TestPendingWorkIdentityViewsReuseDomainUUID(t *testing.T) {
 
 func TestPendingWorkRemovalResponseValidatesTypedCanonicalRestoration(t *testing.T) {
 	t.Parallel()
-	valid := RuntimeRemovePendingWorkResponse{Restoration: PendingWorkRestoration{Kind: PendingWorkItemKindWorktreeTransition, CanonicalInput: "/wt leave"}}
+	valid := runtimeinput.PendingWorkRestoration{Kind: runtimeinput.PendingWorkItemKindWorktreeTransition, CanonicalInput: "/wt leave"}
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
 	invalid := valid
-	invalid.Restoration.CanonicalInput = ""
+	invalid.CanonicalInput = ""
 	if err := invalid.Validate(); err == nil {
 		t.Fatal("Validate accepted missing canonical input")
 	}

@@ -17,11 +17,17 @@ type SessionStartBlockReason uint8
 
 var ErrSessionStartAdmissionBusy = errors.New("session start admission is busy")
 
-var ErrRuntimeActivityBusy = errors.New("session runtime activity is busy")
-
 const (
 	SessionStartBlockMaintenance SessionStartBlockReason = iota + 1
 )
+
+type SessionInUseError struct {
+	SessionID runtimeids.SessionID
+}
+
+func (e *SessionInUseError) Error() string {
+	return fmt.Sprintf("Session %q is in use", e.SessionID)
+}
 
 type SessionStartBlockRelease interface {
 	AuthorizeMaintenance(context.Context) context.Context
@@ -39,6 +45,7 @@ type sessionAdmissionLock struct {
 type sessionAdmissionGate struct {
 	lock   sessionAdmissionLock
 	blocks map[*sessionAdmissionBlock]struct{}
+	users  int
 }
 
 type sessionStartBlockRelease struct {
@@ -96,15 +103,31 @@ func (l *sessionAdmissionLock) Unlock() {
 	}
 }
 
-func (a *Authority) gateFor(sessionID runtimeids.SessionID) *sessionAdmissionGate {
+func (a *Authority) gateFor(sessionID runtimeids.SessionID) (*sessionAdmissionGate, func()) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	gate := a.gates[sessionID]
 	if gate == nil {
 		gate = &sessionAdmissionGate{lock: newSessionAdmissionLock()}
 		a.gates[sessionID] = gate
 	}
-	return gate
+	gate.users++
+	a.mu.Unlock()
+	return gate, func() {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		gate.users--
+		if gate.users < 0 {
+			panic("Session admission gate released more than once")
+		}
+		// Release follows unlocking. At zero users no caller can mutate blocks;
+		// an outstanding start block keeps the gate available until Close.
+		if gate.users == 0 && len(gate.blocks) == 0 {
+			delete(a.gates, sessionID)
+			if len(a.gates) == 0 {
+				a.gates = make(map[runtimeids.SessionID]*sessionAdmissionGate)
+			}
+		}
+	}
 }
 
 func (a *Authority) BlockSessionStarts(ctx context.Context, sessionIDs []runtimeids.SessionID, reason SessionStartBlockReason) (SessionStartBlockRelease, error) {
@@ -123,10 +146,11 @@ func (a *Authority) BlockSessionStarts(ctx context.Context, sessionIDs []runtime
 		return nil, err
 	}
 	for _, sessionID := range normalizedSessionIDs {
-		gate := a.gateFor(sessionID)
+		gate, releaseGate := a.gateFor(sessionID)
 		gate.lock.Lock()
 		if err := context.Cause(ctx); err != nil {
 			gate.lock.Unlock()
+			releaseGate()
 			return nil, errors.Join(err, release.Close(context.Background()))
 		}
 		if gate.blocks == nil {
@@ -135,6 +159,7 @@ func (a *Authority) BlockSessionStarts(ctx context.Context, sessionIDs []runtime
 		gate.blocks[release.block] = struct{}{}
 		release.sessionIDs = append(release.sessionIDs, sessionID)
 		gate.lock.Unlock()
+		releaseGate()
 	}
 	return release, nil
 }
@@ -157,20 +182,23 @@ func (a *Authority) TryBlockSessionStarts(ctx context.Context, sessionIDs []runt
 	type lockedGate struct {
 		sessionID runtimeids.SessionID
 		gate      *sessionAdmissionGate
+		release   func()
 	}
 	locked := make([]lockedGate, 0, len(normalizedSessionIDs))
 	unlock := func() {
 		for index := len(locked) - 1; index >= 0; index-- {
 			locked[index].gate.lock.Unlock()
+			locked[index].release()
 		}
 	}
 	for _, sessionID := range normalizedSessionIDs {
-		gate := a.gateFor(sessionID)
+		gate, releaseGate := a.gateFor(sessionID)
 		if !gate.lock.TryLock() {
+			releaseGate()
 			unlock()
 			return nil, sessionStartAdmissionBusyError(sessionID)
 		}
-		locked = append(locked, lockedGate{sessionID: sessionID, gate: gate})
+		locked = append(locked, lockedGate{sessionID: sessionID, gate: gate, release: releaseGate})
 	}
 	defer unlock()
 	if err := context.Cause(ctx); err != nil {
@@ -252,13 +280,14 @@ func (r *sessionStartBlockRelease) Close(context.Context) error {
 	}
 	for index := len(r.sessionIDs) - 1; index >= 0; index-- {
 		sessionID := r.sessionIDs[index]
-		gate := r.authority.gateFor(sessionID)
+		gate, releaseGate := r.authority.gateFor(sessionID)
 		gate.lock.Lock()
 		if _, exists := gate.blocks[r.block]; !exists {
 			panic(fmt.Sprintf("session start block %d for session %s underflow", r.block.reason, sessionID))
 		}
 		delete(gate.blocks, r.block)
 		gate.lock.Unlock()
+		releaseGate()
 	}
 	r.released = true
 	return nil
@@ -291,6 +320,80 @@ func sessionStartsBlockedError(sessionID runtimeids.SessionID) error {
 	return errors.Join(ErrSessionStartsBlocked, fmt.Errorf("session %s starts are blocked", sessionID))
 }
 
+func (a *Authority) WithDestructiveSessionAdmission(
+	ctx context.Context,
+	sessionID runtimeids.SessionID,
+	callback func(context.Context) error,
+) (resultErr error) {
+	if a == nil {
+		return errors.New("session runtime authority is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := context.Cause(ctx); err != nil {
+		return err
+	}
+	if sessionID.IsZero() {
+		return errors.New("session id is required")
+	}
+	if callback == nil {
+		return errors.New("destructive Session callback is required")
+	}
+	release, err := a.BlockSessionStarts(
+		ctx,
+		[]runtimeids.SessionID{sessionID},
+		SessionStartBlockMaintenance,
+	)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, release.Close(context.Background()))
+	}()
+
+	gate, releaseGate := a.gateFor(sessionID)
+	defer releaseGate()
+	if err := gate.lock.LockContext(ctx); err != nil {
+		return err
+	}
+	defer gate.lock.Unlock()
+	if err := context.Cause(ctx); err != nil {
+		return err
+	}
+
+	a.mu.Lock()
+	if a.closed {
+		a.mu.Unlock()
+		return ErrAuthorityClosed
+	}
+	resource := a.resources[sessionID]
+	a.mu.Unlock()
+	if resource != nil {
+		resource.mu.Lock()
+		if resource.state != AgentResourceReady ||
+			resource.current != nil ||
+			resource.callbacks != 0 ||
+			resource.steps != 0 ||
+			resource.engine == nil ||
+			!resource.engine.BeginRetirement() {
+			resource.mu.Unlock()
+			return &SessionInUseError{SessionID: sessionID}
+		}
+		closed, closeErr := a.closeAdmittedResourceLocked(ctx, resource)
+		if closeErr != nil {
+			return closeErr
+		}
+		if !closed {
+			return a.invariant(
+				"destructive Session admission",
+				fmt.Errorf("Session %s Runtime did not close after retirement", sessionID),
+			)
+		}
+	}
+	return callback(ctx)
+}
+
 func (a *Authority) WithSessionStore(ctx context.Context, descriptor session.SessionDescriptor, callback func(context.Context, *session.Store) error) error {
 	if a == nil {
 		return errors.New("session runtime authority is required")
@@ -308,7 +411,8 @@ func (a *Authority) WithSessionStore(ctx context.Context, descriptor session.Ses
 	if callback == nil {
 		return errors.New("session store callback is required")
 	}
-	gate := a.gateFor(sessionID)
+	gate, releaseGate := a.gateFor(sessionID)
+	defer releaseGate()
 	var resource *agentResource
 	callbackErr := func() error {
 		gate.lock.Lock()
@@ -359,7 +463,8 @@ func (a *Authority) WithDormantSessionStore(
 	if callback == nil {
 		return DormantSessionStoreAdmission{}, errors.New("session store callback is required")
 	}
-	gate := a.gateFor(sessionID)
+	gate, releaseGate := a.gateFor(sessionID)
+	defer releaseGate()
 	gate.lock.Lock()
 	defer gate.lock.Unlock()
 	if len(gate.blocks) != 0 {

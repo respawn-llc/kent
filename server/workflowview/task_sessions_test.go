@@ -10,10 +10,13 @@ import (
 	"core/server/runtimeactivity"
 	"core/server/workflow"
 	"core/server/workflowstore"
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
+
 	"core/shared/sessioncontract"
+	"google.golang.org/protobuf/proto"
 )
 
 type taskSessionActivitySource struct {
@@ -55,10 +58,10 @@ func TestTaskSessionsProjectsActiveParallelOrdinaryAndIdleMetadata(t *testing.T)
 
 	readModel := newTaskSessionsForTest(t, fixture, taskSessionActivitySource{
 		snapshots: []runtimeactivity.ActiveSessionSnapshot{
-			taskSessionSnapshot(t, questionID, clientui.RuntimeActivityAwaitingPrompt),
-			taskSessionSnapshot(t, registeredIdleID, clientui.RuntimeActivityRegisteredIdle),
-			taskSessionSnapshot(t, runningID, clientui.RuntimeActivityRunning),
-			taskSessionSnapshot(t, ordinaryID, clientui.RuntimeActivityRunning),
+			taskSessionSnapshot(t, questionID, runtimepb.ActivityState_RUNTIME_ACTIVITY_AWAITING_PROMPT),
+			taskSessionSnapshot(t, registeredIdleID, runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE),
+			taskSessionSnapshot(t, runningID, runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING),
+			taskSessionSnapshot(t, ordinaryID, runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING),
 		},
 	})
 	response := listTaskSessionsForTest(t, readModel, string(started.task.ID), 0, 10)
@@ -67,18 +70,18 @@ func TestTaskSessionsProjectsActiveParallelOrdinaryAndIdleMetadata(t *testing.T)
 	}
 	want := []struct {
 		id     runtimeids.SessionID
-		status serverapi.WorkflowTaskSessionStatus
+		status taskpb.SessionStatus
 	}{
-		{id: ordinaryID, status: serverapi.WorkflowTaskSessionStatusRunning},
-		{id: runningID, status: serverapi.WorkflowTaskSessionStatusRunning},
-		{id: questionID, status: serverapi.WorkflowTaskSessionStatusQuestion},
-		{id: namedIdleID, status: serverapi.WorkflowTaskSessionStatusIdle},
-		{id: registeredIdleID, status: serverapi.WorkflowTaskSessionStatusIdle},
-		{id: missingNodeID, status: serverapi.WorkflowTaskSessionStatusIdle},
+		{id: ordinaryID, status: taskpb.SessionStatus_SESSION_STATUS_RUNNING},
+		{id: runningID, status: taskpb.SessionStatus_SESSION_STATUS_RUNNING},
+		{id: questionID, status: taskpb.SessionStatus_SESSION_STATUS_QUESTION},
+		{id: namedIdleID, status: taskpb.SessionStatus_SESSION_STATUS_IDLE},
+		{id: registeredIdleID, status: taskpb.SessionStatus_SESSION_STATUS_IDLE},
+		{id: missingNodeID, status: taskpb.SessionStatus_SESSION_STATUS_IDLE},
 	}
 	for index, expected := range want {
 		item := response.Items[index]
-		if item.SessionID != expected.id.String() || item.Status != expected.status {
+		if item.SessionId != expected.id.String() || item.Status != expected.status {
 			t.Fatalf("item %d = %+v, want Session %s status %s", index, item, expected.id, expected.status)
 		}
 	}
@@ -96,6 +99,7 @@ func TestTaskSessionsProjectsActiveParallelOrdinaryAndIdleMetadata(t *testing.T)
 func TestTaskSessionsPaginatesActiveThenLargeIdleHistoryBoundedly(t *testing.T) {
 	fixture := newCurrentNodeViewFixture(t, false)
 	started := fixture.startTask(t, "Paginated Task Sessions")
+	fixture.setSessionCreatedAt(t, fixture.bindCurrentNodeSession(t, started), 500)
 	runningID := insertRetainedTaskSessionForViewTest(t, fixture, started, 2_000)
 	questionID := insertRetainedTaskSessionForViewTest(t, fixture, started, 3_000)
 	idleIDs := make([]runtimeids.SessionID, 0, 105)
@@ -106,8 +110,8 @@ func TestTaskSessionsPaginatesActiveThenLargeIdleHistoryBoundedly(t *testing.T) 
 	readModel := newTaskSessionsForTest(t, fixture, taskSessionActivitySource{
 		calls: &activityCalls,
 		snapshots: []runtimeactivity.ActiveSessionSnapshot{
-			taskSessionSnapshot(t, questionID, clientui.RuntimeActivityAwaitingPrompt),
-			taskSessionSnapshot(t, runningID, clientui.RuntimeActivityRunning),
+			taskSessionSnapshot(t, questionID, runtimepb.ActivityState_RUNTIME_ACTIVITY_AWAITING_PROMPT),
+			taskSessionSnapshot(t, runningID, runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING),
 		},
 	})
 
@@ -131,8 +135,8 @@ func TestTaskSessionsPaginatesActiveThenLargeIdleHistoryBoundedly(t *testing.T) 
 			if len(response.Items) != test.wantCount {
 				t.Fatalf("items = %+v, want %d", response.Items, test.wantCount)
 			}
-			if test.wantCount > 0 && response.Items[0].SessionID != test.wantFirst.String() {
-				t.Fatalf("first item = %s, want %s", response.Items[0].SessionID, test.wantFirst)
+			if test.wantCount > 0 && response.Items[0].SessionId != test.wantFirst.String() {
+				t.Fatalf("first item = %s, want %s", response.Items[0].SessionId, test.wantFirst)
 			}
 			if !equalOptionalInt(response.NextOffset, test.wantNext) {
 				t.Fatalf("next offset = %v, want %v", response.NextOffset, test.wantNext)
@@ -163,12 +167,12 @@ func listTaskSessionsForTest(
 	taskID string,
 	offset int,
 	limit int,
-) serverapi.WorkflowTaskSessionListResponse {
+) *taskpb.SessionListSuccess {
 	t.Helper()
-	response, err := readModel.List(t.Context(), serverapi.WorkflowTaskOffsetPageRequest{
-		TaskID: taskID,
-		Offset: &offset,
-		Limit:  &limit,
+	response, err := readModel.List(t.Context(), &taskpb.TaskOffsetPageRequest{
+		TaskId: taskID,
+		Offset: proto.Int32(int32(offset)),
+		Limit:  proto.Int32(int32(limit)),
 	})
 	if err != nil {
 		t.Fatalf("List Task Sessions: %v", err)
@@ -241,7 +245,7 @@ func associateHistoricalTaskSessionForViewTest(t *testing.T, fixture currentNode
 func taskSessionSnapshot(
 	t *testing.T,
 	sessionID runtimeids.SessionID,
-	state clientui.RuntimeActivityState,
+	state runtimepb.ActivityState,
 ) runtimeactivity.ActiveSessionSnapshot {
 	t.Helper()
 	return runtimeactivity.ActiveSessionSnapshot{
@@ -250,13 +254,13 @@ func taskSessionSnapshot(
 	}
 }
 
-func taskSessionRuntimeActivity(t *testing.T, state clientui.RuntimeActivityState) clientui.RuntimeActivity {
+func taskSessionRuntimeActivity(t *testing.T, state runtimepb.ActivityState) *runtimepb.Activity {
 	t.Helper()
-	if !(clientui.RuntimeActivity{State: state}).ActiveForControl() {
-		return clientui.RuntimeActivity{
+	if !protoapi.RuntimeActivityActiveForControl(&runtimepb.Activity{State: state}) {
+		return &runtimepb.Activity{
 			State:          state,
-			Reviewer:       clientui.ReviewerActivityInactive,
-			QueueAccepting: state == clientui.RuntimeActivityRegisteredIdle,
+			Reviewer:       runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
+			QueueAccepting: state == runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
 		}
 	}
 	runID, err := runtimeids.ParseRunID("11111111-1111-4111-8111-111111111111")
@@ -267,19 +271,19 @@ func taskSessionRuntimeActivity(t *testing.T, state clientui.RuntimeActivityStat
 	if err != nil {
 		t.Fatalf("ParseStepID: %v", err)
 	}
-	return clientui.RuntimeActivity{
+	return &runtimepb.Activity{
 		State:    state,
-		Reviewer: clientui.ReviewerActivityInactive,
-		ActiveStep: &clientui.RuntimeActiveStep{
-			RunID: runID, StepID: stepID, ActiveKind: clientui.RuntimeActivityActiveKindWorkflowTurn,
+		Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
+		ActiveStep: &runtimepb.ActiveStep{
+			RunId: runID.String(), StepId: stepID.String(), ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_WORKFLOW_TURN,
 		},
 		QueueAccepting: true,
 	}
 }
 
-func equalOptionalInt(left *int, right *int) bool {
+func equalOptionalInt(left *int32, right *int) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}
-	return *left == *right
+	return int(*left) == *right
 }

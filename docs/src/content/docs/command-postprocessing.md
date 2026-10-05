@@ -1,9 +1,9 @@
 ---
-title: Bash Hooks
+title: Bash hooks
 description: Configure Kent's shell command post-processing and ship your own hook.
 ---
 
-Kent post-processes shell command output before it is shown to the model to normalize output, reduce command noise, and add useful execution context.
+Kent post-processes shell command output before it is shown to the model to normalize output, reduce command noise, and add useful execution context. Post-processing implements hooks for tools like `rtk` while also giving the model control over when they are used.
 
 ## Config
 
@@ -15,22 +15,20 @@ postprocessing_mode = "all" # none | builtin | user | all
 postprocess_hook = "~/.kent/shell_postprocess_hook"
 ```
 
-Omit `postprocess_hook` when no hook is configured; Kent silently skips the hook stage.
-
 ### `postprocessing_mode`
 
 Allowed values:
 
 - `none`: disable command post-processing.
-- `builtin`: run Kent's output cleanup and built-in processing.
-- `user`: run Kent's output cleanup, then run the configured hook when present; an omitted hook is skipped.
-- `all`: run Kent's output cleanup and built-in processing, then run the configured hook when present; an omitted hook is skipped.
+- `builtin`: run Kent's output cleanup and built-in processing. This is the default.
+- `user`: only run user-configured hooks when present.
+- `all`: run Kent's output cleanup and built-in processing, then run the configured hook.
 
-In `builtin`, `user`, and `all`, Kent's final model-visible command-output pass limits each line to 1,000 Unicode code points; oversized lines keep only their prefix and end with `… [N characters omitted]`, where `N` is exact. This runs after user-hook replacement; `none` bypasses the limit, and Kent operational warnings are not command-output lines.
+Kent's built-in hooks add useful context info about file size, line counts, git commands, compress escape symbols, limit maximum tool output and max line width to prevent overload, and clean up some test output.
 
-Kent applies an oversized-output guard when both an explicit `max_output_tokens` request is greater than half the active model context window and the processed model-visible result is estimated above that threshold. The command executes normally and its complete output remains in the shell log, while the model receives a failed tool result that omits command output and identifies the retained log path; each later call is evaluated independently.
+## Custom hook config
 
-## Protocol
+For custom hooks, make the script follow this protocol:
 
 ### Input
 
@@ -43,8 +41,8 @@ Kent sends JSON like:
   "parsed_args": ["go", "test", "./..."],
   "command_name": "go",
   "workdir": "/abs/workdir",
-  "original_output": "...sanitized command output...",
-  "current_output": "...built-in processed output or original output...",
+  "original_output": "...raw command output...",
+  "current_output": "...sanitized and built-in processed output...",
   "exit_code": 0,
   "backgrounded": false,
   "max_display_chars": 16000
@@ -53,8 +51,8 @@ Kent sends JSON like:
 
 Your hook receives both:
 
-- `original_output`: sanitized command output before built-in processing
-- `current_output`: command output after built-in processing, or `original_output` when unchanged
+- `original_output`: raw command output before sanitization or built-in processing
+- `current_output`: command output after sanitization and enabled built-in processing
 
 Hook **must** return JSON like:
 
@@ -65,4 +63,4 @@ Hook **must** return JSON like:
 }
 ```
 
-Return `{"processed": false}` for no-op passthrough. An omitted `postprocess_hook` is skipped without a warning. If a configured hook executable is missing, times out, exits nonzero, or returns invalid JSON, Kent falls back to the current output and reports a warning.
+Return `{"processed": false}` for no-op passthrough. If a configured hook executable is missing, times out, exits nonzero, or returns invalid JSON, Kent falls back to the current output and reports a warning.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"buf.build/go/protovalidate"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -50,4 +51,18 @@ func Validate(message proto.Message) error {
 		return fmt.Errorf("validate generated message: %w", err)
 	}
 	return nil
+}
+
+func EncodeJSON(message proto.Message) ([]byte, error) {
+	if err := Validate(message); err != nil {
+		return nil, err
+	}
+	encoded, err := (protojson.MarshalOptions{
+		UseProtoNames:     true,
+		EmitDefaultValues: true,
+	}).Marshal(message)
+	if err != nil {
+		return nil, fmt.Errorf("marshal generated JSON message: %w", err)
+	}
+	return encoded, nil
 }

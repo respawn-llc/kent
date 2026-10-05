@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"core/shared/clientui"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/transcript"
 )
 
 func TestReviewerStartupFailureSurfacesWithoutReenteringProtectedRuntimeFIFO(t *testing.T) {
-	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-5"})
+	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-6-sol"})
 	startupErr := errors.New("publish Reviewer activity")
 	done := make(chan error, 1)
 	go func() {
@@ -45,7 +45,7 @@ func TestReviewerStartupFailureSurfacesWithoutReenteringProtectedRuntimeFIFO(t *
 }
 
 func TestReviewerPreparationFailureLeavesActivityInactive(t *testing.T) {
-	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-5"})
+	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-6-sol"})
 	pipeline := reviewerPipelineWithPreparationError{err: errors.New("prepare Reviewer request")}
 	stepID := runtimeTestStepID("reviewer-preparation-failure")
 
@@ -53,19 +53,19 @@ func TestReviewerPreparationFailureLeavesActivityInactive(t *testing.T) {
 		t.Fatalf("start Reviewer: %v", err)
 	}
 	waitEngineLifecycleTasks(t, engine)
-	if got := engine.ReviewerActivity(); got != clientui.ReviewerActivityInactive {
+	if got := engine.ReviewerActivity(); got != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE {
 		t.Fatalf("Reviewer activity after preparation failure = %q, want inactive", got)
 	}
 }
 
 func TestPreparedReviewerReservationBlocksRetirementBeforeInvocation(t *testing.T) {
-	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-5"})
+	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-6-sol"})
 	stepID := runtimeTestStepID("reviewer-reservation")
 
 	if !engine.reserveReviewerActivity(stepID) {
 		t.Fatal("reserve Reviewer activity returned false")
 	}
-	if engine.ReviewerActivity() != clientui.ReviewerActivityInactive {
+	if engine.ReviewerActivity() != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE {
 		t.Fatalf("reserved Reviewer activity = %q, want inactive", engine.ReviewerActivity())
 	}
 	if engine.BeginRetirement() {

@@ -5,6 +5,11 @@ description: Kent GUI design guide for desktop/web UI work. Use when designing o
 
 ## Product Principles
 
+- Pages own their read-error presentation. Sidebar content is an independent page. A page must never use callbacks, navigation events, event buses, or reach outside itself to signal errors to another page.
+- Do not render widget-local server-error UI. Local validation errors may remain at their field or control. Pagination errors are the exception: virtualized read failures keep the small Retry control inside `VirtualizedInfiniteList`. Initial and refresh read failures use the owning page's Error state with Retry.
+- Failed server-changing actions use Sonner only, preserving the initiating input and presentation, except explicitly specified typed field-validation errors. Worktree Create retains its typed Base ref validation beneath that field; operational failures are not field validation.
+- Classify reads performed inside a write command under that command's write-error handling, not as independent page reads.
+
 - 3 Big Principles: **Clean, elegant, effective.** . Everything reachable, everything dynamic.
 - GUI is a remote-control surface. Server owns workflow/runtime truth; UI presents read models and sends explicit actions. Never try to circumvent server communication in GUI clients. Assume server api expansion as needed is part of feature work.
 - Every visible state must explain what the operator can do next or why they cannot continue. Example: errors include "Try again" or "Go back" CTAs. Terminal states include "Return" or "Close" (for modals). Empty states include "Create project"/"Create task" etc. Error or empty state without at least one button is a failure.
@@ -45,7 +50,7 @@ description: Kent GUI design guide for desktop/web UI work. Use when designing o
 - Every widget, page, and destination is built using **adaptive layouts**. Define ONE layout that resizes dynamically to whatever window size. Always define proper text ellipsis, wrapping, truncation policy, content wrapping, relayout rules for different window sizes, assume range from mobile vertical to 4k ultrawide desktop. **Avoid dynamically sizing fonts and UI breakpoints.**
 - Relaunch restores last known state, build state restoration support, including restoring content of input fields, forms, unsaved changes.
 - Dialogs/sheets/popups are terminal destinations: A modal does not open another page on main surface, does not navigate to another modal, does not stack destinations, does not have an embedded navgraph. If user asks for a design that violates this principle, warn them and confirm they want to build bad UX.
-- Every page, modal, and sometimes widgets has Loading and Error states. Reuse generic loading/error layouts defined in UI kit, but **always** account for screen-wide loading state. User shouldn't have to mention that loading and error states should be built, build them yourself, don't let the app crash, don't show blank screens or stale content.
+- Every page, modal, and sometimes widgets has Loading and Error states. Reuse generic loading/error layouts defined in UI kit, but **always** account for screen-wide loading state. The user shouldn't have to mention that loading and error states should be built, build them yourself, don't let the app crash, don't show blank screens or stale content.
 - Implement progressive loading whenever something is loaded in parallel, for example different lists, status labels etc. if you have or need async promise/coroutine fanout in logic, then you also need progressive loading on UI.
 - Never allow unbounded growth of collections in memory - implement pagination and use it as part of feature work if dealing with any sort of collections that can grow beyond fixed points. Pagination uses infinite scroll, not buttons or page numbers.
 
@@ -72,3 +77,4 @@ description: Kent GUI design guide for desktop/web UI work. Use when designing o
 ## Components
 
 - Never invent single-use widgets. First check the list of existing components before any layout work. If needed component is missing, define it not inside the feature, but directly in the UI Kit code. Built a card? Make it customizable and place it in the ui kit. When the user asks for a new feature, assume expanding and reusing ui-kit is part of the feature work, plan for it, account for it.
+- Every disabled interactive control must have a tooltip that explains the exact typed reason when known, or the possible reasons only when one exact reason is unavailable. Use concise localized product language and reuse the UI-kit tooltip treatment established by Workflow Editor.

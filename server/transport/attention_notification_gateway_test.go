@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	testharness "core/internal/testharness/testsetup"
 	"core/server/attentionnotify"
 	"core/server/core"
 	"core/server/registry"
@@ -13,10 +14,51 @@ import (
 	"core/shared/apicontract"
 	remoteclient "core/shared/client"
 	"core/shared/clientui"
-	"core/shared/protocol"
+	attentionpb "core/shared/protoapi/gen/kent/api/attention"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
+	"core/shared/textutil"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+func TestGatewayAttentionSubscriptionAllowsMissingProviderCredentials(t *testing.T) {
+	app, server, _ := newGatewayTestServerWithAuth(t, false)
+	defer func() { _ = app.Close() }()
+	defer server.Close()
+	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = remote.Close() }()
+	subscription, err := remote.SubscribeAttentionNotifications(t.Context(), &emptypb.Empty{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = subscription.Close() }()
+}
+
+func TestGatewayAttentionReadsAllowMissingProviderCredentials(t *testing.T) {
+	appCore, server, _ := newGatewayTestServerWithAuth(t, false)
+	defer func() { _ = appCore.Close() }()
+	defer server.Close()
+	task := createGatewaySearchableTask(t, appCore)
+	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = remote.Close() }()
+	_, err = remote.ListWorkflowAttention(t.Context(), &taskpb.AttentionListRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := remote.ListWorkflowTaskAttention(t.Context(), &taskpb.TaskAttentionListRequest{TaskId: task.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response == nil {
+		t.Fatal("List Task attention returned nil response")
+	}
+}
 
 func TestGatewayRemoteAttentionDesktopRouteIsRootGlobalAndKeepsQuestionsLiveOnly(t *testing.T) {
 	appCore, _, broker, server := newGatewayAttentionTestServer(t)
@@ -34,7 +76,7 @@ func TestGatewayRemoteAttentionDesktopRouteIsRootGlobalAndKeepsQuestionsLiveOnly
 		t.Fatalf("DialRemoteURL: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
-	desktop, err := remote.SubscribeAttentionNotifications(context.Background(), serverapi.AttentionNotificationSubscribeRequest{})
+	desktop, err := remote.SubscribeAttentionNotifications(context.Background(), &emptypb.Empty{})
 	if err != nil {
 		t.Fatalf("SubscribeAttentionNotifications: %v", err)
 	}
@@ -46,13 +88,13 @@ func TestGatewayRemoteAttentionDesktopRouteIsRootGlobalAndKeepsQuestionsLiveOnly
 	beginGatewayPendingPrompt(t, broker, sessionTwo.Meta().SessionID, gatewayTaskBatchAskRequest("ask-b", "project-b", "task-b", sessionTwo.Meta().SessionID))
 	first := nextGatewayAttentionEvent(t, desktop)
 	second := nextGatewayAttentionEvent(t, desktop)
-	if first.Pending.Target.ProjectID != "project-a" || second.Pending.Target.ProjectID != "project-b" {
+	if first.GetPending().GetTarget().GetWorkflowTask().GetProjectId() != "project-a" || second.GetPending().GetTarget().GetWorkflowTask().GetProjectId() != "project-b" {
 		t.Fatalf("desktop cross-project events = %+v then %+v", first, second)
 	}
 
-	beginGatewayPendingPrompt(t, broker, sessionOne.Meta().SessionID, askquestion.AskQuestionRequest{ID: "generic-ask", StepID: gatewayAttentionStepID, Question: "Generic?"})
-	if event, err := desktop.Next(shortGatewayAttentionContext(t)); err == nil {
-		t.Fatalf("desktop received generic session prompt: %+v", event)
+	beginGatewayPendingPrompt(t, broker, sessionOne.Meta().SessionID, askquestion.AskQuestionRequest{ToolCallID: "generic-ask", StepID: gatewayAttentionStepID, Question: "Generic?"})
+	if event := nextGatewayAttentionEvent(t, desktop); event.GetPending().GetTarget().GetSessionPrompt().GetProjectId() != "project-1" || event.GetPending().GetTarget().GetSessionPrompt().GetSessionId() != sessionOne.Meta().SessionID {
+		t.Fatalf("desktop generic session prompt = %+v", event)
 	}
 }
 
@@ -68,9 +110,11 @@ func TestGatewaySessionAttentionRouteRequiresAttachedSession(t *testing.T) {
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 	handshakeGateway(t, conn)
-	errResp := callGatewayExpectError(t, conn, "attention-without-attach", protocol.MethodAttentionSessionNotificationSubscribe, serverapi.AttentionSessionNotificationSubscribeRequest{SessionID: sessionOne.Meta().SessionID})
-	if errResp.Code != protocol.ErrCodeInvalidRequest {
-		t.Fatalf("missing attach error = %+v", errResp)
+	method := attentionpb.File_kent_api_attention_attention_proto.Services().ByName("SessionService").Methods().ByName("Subscribe")
+	var missing attentionpb.StartResult
+	callGatewayDescriptor(t, conn, "attention-without-attach", method, &attentionpb.SubscribeRequest{SessionId: sessionOne.Meta().SessionID}, &missing)
+	if missing.GetError() == nil {
+		t.Fatalf("missing attach accepted: %+v", &missing)
 	}
 	_ = conn.Close()
 
@@ -80,9 +124,10 @@ func TestGatewaySessionAttentionRouteRequiresAttachedSession(t *testing.T) {
 	if result := attachGatewaySession(t, conn, "attach-session-one", sessionOne.Meta().SessionID); result.GetSuccess() == nil {
 		t.Fatalf("attach Session one failed: %+v", result.GetError())
 	}
-	errResp = callGatewayExpectError(t, conn, "attention-wrong-session", protocol.MethodAttentionSessionNotificationSubscribe, serverapi.AttentionSessionNotificationSubscribeRequest{SessionID: sessionTwo.Meta().SessionID})
-	if errResp.Code != protocol.ErrCodeInvalidRequest {
-		t.Fatalf("wrong attach error = %+v", errResp)
+	var wrong attentionpb.StartResult
+	callGatewayDescriptor(t, conn, "attention-wrong-session", method, &attentionpb.SubscribeRequest{SessionId: sessionTwo.Meta().SessionID}, &wrong)
+	if wrong.GetError() == nil {
+		t.Fatalf("wrong attach accepted: %+v", &wrong)
 	}
 }
 
@@ -98,13 +143,18 @@ func TestGatewayRemoteSessionAttentionReceivesAuthorizedGenericPrompt(t *testing
 		t.Fatalf("DialRemoteURL: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
-	sub, err := remote.SubscribeSessionAttentionNotifications(context.Background(), serverapi.AttentionSessionNotificationSubscribeRequest{SessionID: sessionStore.Meta().SessionID})
+	sub, err := remote.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: sessionStore.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("SubscribeSessionAttentionNotifications: %v", err)
 	}
-	beginGatewayPendingPrompt(t, broker, sessionStore.Meta().SessionID, askquestion.AskQuestionRequest{ID: "generic-ask", StepID: gatewayAttentionStepID, Question: "Generic?"})
-	pending := nextGatewayAttentionEvent(t, sub)
-	if pending.Pending.Target.Kind != clientui.AttentionNotificationTargetSessionPrompt || pending.Pending.Target.SessionID != sessionStore.Meta().SessionID {
+	beginGatewayPendingPrompt(t, broker, sessionStore.Meta().SessionID, askquestion.AskQuestionRequest{ToolCallID: "generic-ask", StepID: gatewayAttentionStepID, Question: "Generic?"})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	pending, err := sub.Next(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.GetPending() == nil || pending.GetPending().SessionId != sessionStore.Meta().SessionID {
 		t.Fatalf("session prompt pending = %+v", pending)
 	}
 }
@@ -122,7 +172,7 @@ func newGatewayAttentionTestServer(t *testing.T) (*core.Core, *registry.RuntimeR
 	t.Helper()
 	appCore, _ := newGatewayTestCore(t, true, true)
 	broker := attentionnotify.NewBroker()
-	prompts := registry.NewRuntimeRegistry().WithAttentionNotifications(broker)
+	prompts := registry.NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	gateway, err := NewGateway(
 		&gatewayAttentionDependencies{Core: appCore, attention: prompts},
 		gatewayTestIdentity(),
@@ -139,22 +189,22 @@ func beginGatewayPendingPrompt(t *testing.T, broker *attentionnotify.Broker, ses
 	if request.Approval && !request.IsTaskScopedApprovalQuestion() {
 		kind = clientui.AttentionNotificationKindApproval
 	}
-	target := clientui.AttentionNotificationTarget{Kind: clientui.AttentionNotificationTargetSessionPrompt, SessionID: sessionID}
+	target := clientui.AttentionNotificationTarget{Kind: clientui.AttentionNotificationTargetSessionPrompt, ProjectID: "project-1", SessionID: sessionID}
 	scope := attentionnotify.RoutingScope{Kind: attentionnotify.RoutingSessionPrompt, SessionID: sessionID}
 	if request.AttentionTarget != nil && request.AttentionTarget.Kind == clientui.AttentionNotificationTargetWorkflowTask {
 		target = *request.AttentionTarget
 		scope = attentionnotify.RoutingScope{Kind: attentionnotify.RoutingWorkflowTask, TaskID: target.TaskID, SessionID: sessionID}
 	}
 	notification := clientui.AttentionNotification{
-		ID:   clientui.AttentionNotificationID{Kind: kind, UUID: request.ID},
+		ID:   clientui.AttentionNotificationID{Kind: kind, UUID: request.ToolCallID},
 		Kind: kind, OccurredAt: time.Now().UTC(), Revision: 1, Target: target,
 	}
 	if kind == clientui.AttentionNotificationKindApproval {
-		notification.Approval = &clientui.AttentionNotificationApprovalState{Message: request.Question}
+		notification.Approval = &clientui.AttentionNotificationApprovalState{Message: textutil.Value(request.Question)}
 	} else {
 		notification.Question = &clientui.AttentionNotificationQuestionState{
-			PreparedAskIDs: []string{request.ID}, MaterializedAskIDs: []string{request.ID},
-			CurrentUnresolvedAskIDs: []string{request.ID}, Preview: request.Question,
+			PreparedAskIDs: []string{request.ToolCallID}, MaterializedAskIDs: []string{request.ToolCallID},
+			CurrentUnresolvedAskIDs: []string{request.ToolCallID}, Preview: request.Question,
 			DisplayCount: 1, MaterializedCount: 1,
 		}
 	}
@@ -179,15 +229,15 @@ func gatewayTaskBatchAskRequest(askID string, projectID string, taskID string, s
 	currentNodeID := "node-" + taskID
 	workflowID := runtimeids.NewWorkflowID()
 	return askquestion.AskQuestionRequest{
-		ID:       askID,
-		StepID:   gatewayAttentionStepID,
-		Question: "Task question?",
+		ToolCallID: askID,
+		StepID:     gatewayAttentionStepID,
+		Question:   "Task question?",
 		QuestionBatch: &askquestion.AskQuestionBatchMetadata{
 			Origin:              askquestion.AskQuestionOriginModelTool,
 			RunID:               "run-" + taskID,
 			StepID:              gatewayAttentionStepID,
-			PromptID:            askID,
-			BatchPromptIDs:      []string{askID},
+			ToolCallID:          askID,
+			BatchToolCallIDs:    []string{askID},
 			CandidateOrdinal:    0,
 			PreparedPromptCount: 1,
 		},
@@ -208,7 +258,7 @@ func gatewayTaskBatchAskRequest(askID string, projectID string, taskID string, s
 
 const gatewayAttentionStepID = "11111111-1111-4111-8111-111111111111"
 
-func nextGatewayAttentionEvent(t *testing.T, sub serverapi.AttentionNotificationSubscription) clientui.AttentionNotificationEvent {
+func nextGatewayAttentionEvent(t *testing.T, sub apicontract.AttentionNotificationSubscription) *taskpb.AttentionNotificationEvent {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

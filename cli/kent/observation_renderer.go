@@ -5,7 +5,11 @@ import (
 	"io"
 	"strings"
 
+	"core/cli/tui"
+	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/serverapi"
 )
 
@@ -23,10 +27,14 @@ func writeObservedQuestion(w io.Writer, question serverapi.ObservationQuestion, 
 			}
 		}
 	} else if question.Approval != nil {
-		fmt.Fprintln(w, question.Approval.Question)
+		if len(question.Approval.AccessTargets) > 0 {
+			fmt.Fprintln(w, clientui.FormatFileAccessApprovalMarkdown(question.Approval.AccessTargets))
+		} else {
+			fmt.Fprintln(w, question.Approval.Question)
+		}
 		fmt.Fprintln(w, questionSuggestionsHeading)
 		for i, option := range question.Approval.Options {
-			fmt.Fprintf(w, "%d. %s\n", i+1, option.Label)
+			fmt.Fprintf(w, "%d. %s\n", i+1, tui.ApprovalDecisionLabel(option.Decision))
 		}
 	}
 	if strings.TrimSpace(hint) != "" {
@@ -34,50 +42,48 @@ func writeObservedQuestion(w io.Writer, question serverapi.ObservationQuestion, 
 	}
 }
 
-func observationQuestionHint(sessionID string, question serverapi.ObservationQuestion) string {
-	args := []string{config.Command, "question", "answer", "--session", sessionID}
-	return commandString(append(args, observationQuestionAnswerArgs(question)...))
-}
-
-func observationQuestionAnswerArgs(question serverapi.ObservationQuestion) []string {
+func observationQuestionHint(targetArgs []string, question serverapi.ObservationQuestion) string {
+	args := append([]string{config.Command, "question", "answer"}, targetArgs...)
 	if question.Approval != nil || question.Ask != nil && len(question.Ask.Suggestions) > 0 {
-		return []string{"--option", "<number>"}
+		return commandString(append(args, "--option", "<number>")) + ` [--commentary "optional freeform answer or additions"]`
 	}
-	return []string{"--commentary", "<answer>"}
+	return commandString(append(args, "--commentary", "<answer>"))
 }
 
-func writeRunWatchResponse(w io.Writer, stderr io.Writer, response serverapi.RuntimeLiveWatchResponse, continueHint string) int {
+func writeRunWatchResponse(w io.Writer, stderr io.Writer, response *promptpb.LiveWatchSuccess, continueHint string) int {
 	if stderr == nil {
 		stderr = io.Discard
 	}
-	switch response.Outcome.Kind {
-	case serverapi.RuntimeLiveWatchQuestion:
-		if response.Outcome.Question == nil {
-			fmt.Fprintf(stderr, "invalid live watch response: %s outcome has no question payload\n", response.Outcome.Kind)
-			return 1
-		}
-		writeObservedQuestion(w, *response.Outcome.Question, observationQuestionHint(response.SessionID, *response.Outcome.Question))
-	case serverapi.RuntimeLiveWatchFinalAnswer:
-		if response.Outcome.FinalAnswer != nil {
-			result := ""
-			if response.Outcome.FinalAnswer.Result != nil {
-				result = *response.Outcome.FinalAnswer.Result
-			}
-			emitRunFinalText(w, nil, result, continueHint)
-		}
-	case serverapi.RuntimeLiveWatchNoFinalResult, serverapi.RuntimeLiveWatchExecutionError, serverapi.RuntimeLiveWatchInterrupted:
-		if response.Outcome.Failure == nil {
-			fmt.Fprintf(stderr, "invalid live watch response: %s outcome has no failure payload\n", response.Outcome.Kind)
-			return 1
-		}
-		fmt.Fprintln(w, response.Outcome.Failure.Reason)
-		if response.Outcome.Failure.Diagnostic != nil {
-			fmt.Fprintln(w, *response.Outcome.Failure.Diagnostic)
-		}
-		if response.Outcome.Kind == serverapi.RuntimeLiveWatchInterrupted {
-			return 130
-		}
+	if err := protoapi.Validate(response); err != nil {
+		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	var failure *promptpb.LiveWatchFailure
+	code := 1
+	switch outcome := response.Outcome.Outcome.(type) {
+	case *promptpb.LiveWatchOutcome_Question:
+		question, err := protoapi.ObservationQuestionFromProto(outcome.Question)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		writeObservedQuestion(w, question, observationQuestionHint([]string{"--session", response.SessionId}, question))
+	case *promptpb.LiveWatchOutcome_FinalAnswer:
+		emitRunFinalText(w, nil, outcome.FinalAnswer.GetResult(), continueHint)
+	case *promptpb.LiveWatchOutcome_NoFinalResult:
+		failure = outcome.NoFinalResult
+	case *promptpb.LiveWatchOutcome_ExecutionError:
+		failure = outcome.ExecutionError
+	case *promptpb.LiveWatchOutcome_Interrupted:
+		failure = outcome.Interrupted
+		code = 130
+	}
+	if failure != nil {
+		fmt.Fprintln(w, failure.Reason)
+		if failure.Diagnostic != nil {
+			fmt.Fprintln(w, *failure.Diagnostic)
+		}
+		return code
 	}
 	return 0
 }

@@ -349,7 +349,7 @@ func (l uiViewLayout) renderStatusContextBar(style uiStyles) string {
 
 func (l uiViewLayout) renderStatusContextUsageParts(style uiStyles) (string, string) {
 	usage := l.model.cachedRuntimeStatus().ContextUsage
-	if usage.WindowTokens <= 0 {
+	if usage == nil || usage.WindowTokens <= 0 {
 		return "", ""
 	}
 	used := usage.UsedTokens

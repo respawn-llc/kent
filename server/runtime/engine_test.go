@@ -70,15 +70,14 @@ func (f *fakeClient) ProviderCapabilities(context.Context) (llm.ProviderCapabili
 		return f.caps, nil
 	}
 	return llm.ProviderCapabilities{
-		ProviderID:                     "openai",
-		SupportsResponsesAPI:           true,
-		SupportsResponsesCompact:       true,
-		SupportsRequestInputTokenCount: true,
-		SupportsPromptCacheKey:         true,
-		SupportsNativeWebSearch:        true,
-		SupportsReasoningEncrypted:     true,
-		SupportsServerSideContextEdit:  true,
-		IsOpenAIFirstParty:             true,
+		ProviderID:                    "openai",
+		SupportsResponsesAPI:          true,
+		SupportsResponsesCompact:      true,
+		SupportsPromptCacheKey:        true,
+		SupportsNativeWebSearch:       true,
+		SupportsReasoningEncrypted:    true,
+		SupportsServerSideContextEdit: true,
+		IsOpenAIFirstParty:            true,
 	}, nil
 }
 
@@ -111,15 +110,14 @@ func (c *hookClient) ProviderCapabilities(context.Context) (llm.ProviderCapabili
 		return c.caps, nil
 	}
 	return llm.ProviderCapabilities{
-		ProviderID:                     "openai",
-		SupportsResponsesAPI:           true,
-		SupportsResponsesCompact:       true,
-		SupportsRequestInputTokenCount: true,
-		SupportsPromptCacheKey:         true,
-		SupportsNativeWebSearch:        true,
-		SupportsReasoningEncrypted:     true,
-		SupportsServerSideContextEdit:  true,
-		IsOpenAIFirstParty:             true,
+		ProviderID:                    "openai",
+		SupportsResponsesAPI:          true,
+		SupportsResponsesCompact:      true,
+		SupportsPromptCacheKey:        true,
+		SupportsNativeWebSearch:       true,
+		SupportsReasoningEncrypted:    true,
+		SupportsServerSideContextEdit: true,
+		IsOpenAIFirstParty:            true,
 	}, nil
 }
 
@@ -129,10 +127,6 @@ type fakeCompactionClient struct {
 	responses []llm.Response
 	errors    []error
 	calls     []llm.Request
-
-	inputTokenCount      int
-	inputTokenCountFn    func(req llm.Request) int
-	countInputTokenCalls int
 
 	compactionResponses []llm.CompactionResponse
 	compactionErr       error
@@ -173,68 +167,6 @@ func (c *contextWindowClient) ProviderCapabilities(context.Context) (llm.Provide
 	}, nil
 }
 
-type preciseCompactionClient struct {
-	inputTokenCount int
-	contextWindow   int
-	countErr        error
-	countSupported  *bool
-	supportErr      error
-
-	countCalls   int
-	resolveCalls int
-}
-
-func (c *preciseCompactionClient) Generate(_ context.Context, _ llm.Request, _ llm.StreamCallbacks) (llm.Response, error) {
-	return llm.Response{}, nil
-}
-
-func (c *preciseCompactionClient) CountRequestInputTokens(_ context.Context, _ llm.Request) (int, error) {
-	c.countCalls++
-	if c.countErr != nil {
-		return 0, c.countErr
-	}
-	if c.inputTokenCount < 0 {
-		return 0, nil
-	}
-	return c.inputTokenCount, nil
-}
-
-func (c *preciseCompactionClient) SupportsRequestInputTokenCount(_ context.Context) (bool, error) {
-	if c.supportErr != nil {
-		return false, c.supportErr
-	}
-	if c.countSupported != nil {
-		return *c.countSupported, nil
-	}
-	return true, nil
-}
-
-func (c *preciseCompactionClient) ResolveModelContextWindow(_ context.Context, _ string) (int, error) {
-	c.resolveCalls++
-	if c.contextWindow <= 0 {
-		return 0, nil
-	}
-	return c.contextWindow, nil
-}
-
-func (c *preciseCompactionClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
-	supportsExactCount := true
-	if c.countSupported != nil {
-		supportsExactCount = *c.countSupported
-	}
-	return llm.ProviderCapabilities{
-		ProviderID:                     "openai",
-		SupportsResponsesAPI:           true,
-		SupportsResponsesCompact:       true,
-		SupportsRequestInputTokenCount: supportsExactCount,
-		SupportsPromptCacheKey:         true,
-		SupportsNativeWebSearch:        true,
-		SupportsReasoningEncrypted:     true,
-		SupportsServerSideContextEdit:  true,
-		IsOpenAIFirstParty:             true,
-	}, nil
-}
-
 func (f *fakeCompactionClient) Generate(_ context.Context, req llm.Request, _ llm.StreamCallbacks) (llm.Response, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -252,23 +184,6 @@ func (f *fakeCompactionClient) Generate(_ context.Context, req llm.Request, _ ll
 	resp := f.responses[0]
 	f.responses = f.responses[1:]
 	return resp, nil
-}
-
-func (f *fakeCompactionClient) CountRequestInputTokens(_ context.Context, req llm.Request) (int, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.countInputTokenCalls++
-	if f.inputTokenCountFn != nil {
-		count := f.inputTokenCountFn(req)
-		if count < 0 {
-			return 0, nil
-		}
-		return count, nil
-	}
-	if f.inputTokenCount < 0 {
-		return 0, nil
-	}
-	return f.inputTokenCount, nil
 }
 
 func (f *fakeCompactionClient) Compact(_ context.Context, req llm.CompactionRequest) (llm.CompactionResponse, error) {
@@ -296,15 +211,14 @@ func (f *fakeCompactionClient) Compact(_ context.Context, req llm.CompactionRequ
 func (f *fakeCompactionClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
 	if strings.TrimSpace(f.caps.ProviderID) == "" {
 		return llm.ProviderCapabilities{
-			ProviderID:                     "openai",
-			SupportsResponsesAPI:           true,
-			SupportsResponsesCompact:       true,
-			SupportsRequestInputTokenCount: true,
-			SupportsPromptCacheKey:         true,
-			SupportsNativeWebSearch:        true,
-			SupportsReasoningEncrypted:     true,
-			SupportsServerSideContextEdit:  true,
-			IsOpenAIFirstParty:             true,
+			ProviderID:                    "openai",
+			SupportsResponsesAPI:          true,
+			SupportsResponsesCompact:      true,
+			SupportsPromptCacheKey:        true,
+			SupportsNativeWebSearch:       true,
+			SupportsReasoningEncrypted:    true,
+			SupportsServerSideContextEdit: true,
+			IsOpenAIFirstParty:            true,
 		}, nil
 	}
 	return f.caps, nil
@@ -385,15 +299,14 @@ type fakeReasoningStreamClient struct{}
 
 func defaultTestProviderCapabilities() llm.ProviderCapabilities {
 	return llm.ProviderCapabilities{
-		ProviderID:                     "openai",
-		SupportsResponsesAPI:           true,
-		SupportsResponsesCompact:       true,
-		SupportsRequestInputTokenCount: true,
-		SupportsPromptCacheKey:         true,
-		SupportsNativeWebSearch:        true,
-		SupportsReasoningEncrypted:     true,
-		SupportsServerSideContextEdit:  true,
-		IsOpenAIFirstParty:             true,
+		ProviderID:                    "openai",
+		SupportsResponsesAPI:          true,
+		SupportsResponsesCompact:      true,
+		SupportsPromptCacheKey:        true,
+		SupportsNativeWebSearch:       true,
+		SupportsReasoningEncrypted:    true,
+		SupportsServerSideContextEdit: true,
+		IsOpenAIFirstParty:            true,
 	}
 }
 
@@ -445,7 +358,7 @@ func TestLastCommittedAssistantFinalAnswerSkipsTrailingReminderEntries(t *testin
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("final handoff")}})); err != nil {
 		t.Fatalf("append assistant final: %v", err)
 	}
@@ -462,7 +375,7 @@ func TestLastCommittedAssistantFinalAnswerClearsAtBlankFinal(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	for _, message := range []llm.Message{
 		{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("final handoff")},
 		{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("")},
@@ -481,7 +394,7 @@ func TestLastCommittedAssistantFinalAnswerSkipsTrailingErrorFeedback(t *testing.
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("final handoff")}})); err != nil {
 		t.Fatalf("append assistant final: %v", err)
 	}
@@ -498,7 +411,7 @@ func TestLastCommittedAssistantFinalAnswerSkipsTrailingHandoffFutureMessage(t *t
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("final handoff")}})); err != nil {
 		t.Fatalf("append assistant final: %v", err)
 	}
@@ -515,7 +428,7 @@ func TestLastCommittedAssistantFinalAnswerSkipsTrailingReviewerFeedback(t *testi
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("final handoff")}})); err != nil {
 		t.Fatalf("append assistant final: %v", err)
 	}
@@ -532,7 +445,7 @@ func TestLastCommittedAssistantFinalAnswerSkipsTrailingGoalFeedback(t *testing.T
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("final handoff")}})); err != nil {
 		t.Fatalf("append assistant final: %v", err)
 	}
@@ -549,7 +462,7 @@ func TestLastCommittedAssistantFinalAnswerDoesNotSkipTrailingUntypedDeveloperMes
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("final handoff")}})); err != nil {
 		t.Fatalf("append assistant final: %v", err)
 	}
@@ -613,7 +526,7 @@ func (c *authFailClient) Generate(_ context.Context, _ llm.Request, _ llm.Stream
 	c.mu.Lock()
 	c.calls++
 	c.mu.Unlock()
-	return llm.Response{}, &llm.APIStatusError{StatusCode: 401, Body: `{"error":"invalid_api_key"}`}
+	return llm.Response{}, &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 401, Code: llm.UnifiedErrorCodeAuthentication, ProviderCode: "invalid_api_key"}
 }
 
 func (c *authFailClient) Calls() int {
@@ -671,7 +584,7 @@ func (c *statusFailClient) Generate(_ context.Context, _ llm.Request, _ llm.Stre
 	c.calls++
 	status := c.status
 	c.mu.Unlock()
-	return llm.Response{}, &llm.APIStatusError{StatusCode: status, Body: `{"error":"request_failed"}`}
+	return llm.Response{}, &llm.ProviderAPIError{ProviderID: "openai", StatusCode: status, Code: llm.UnifiedErrorCodeUnknown, ProviderCode: "request_failed"}
 }
 
 func (c *statusFailClient) Calls() int {
@@ -707,7 +620,7 @@ func TestLocksAtFirstDispatch(t *testing.T) {
 	}}}
 
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		Temperature:   1,
 		ThinkingLevel: "xhigh",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
@@ -721,7 +634,7 @@ func TestLocksAtFirstDispatch(t *testing.T) {
 	if meta.Locked == nil {
 		t.Fatalf("expected locked contract after first dispatch")
 	}
-	if meta.Locked.Model != "gpt-5" {
+	if meta.Locked.Model != "gpt-6-sol" {
 		t.Fatalf("locked model = %q", meta.Locked.Model)
 	}
 	if len(meta.Locked.EnabledTools) != 1 || meta.Locked.EnabledTools[0] != string(toolspec.ToolExecCommand) {
@@ -754,7 +667,7 @@ func TestHeadlessSessionLocksToolPreamblesOff(t *testing.T) {
 	}}}
 
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		Temperature:   1,
 		ThinkingLevel: "high",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
@@ -783,7 +696,7 @@ func TestLockedToolPreamblesPersistAcrossResume(t *testing.T) {
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 	firstEngine := mustNewTestEngine(t, store, firstClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
 		ToolPreambles: false,
 	})
@@ -799,7 +712,7 @@ func TestLockedToolPreamblesPersistAcrossResume(t *testing.T) {
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 	resumedEngine := mustNewTestEngine(t, store, resumedClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
 		ToolPreambles: true,
 	})
@@ -811,7 +724,7 @@ func TestLockedToolPreamblesPersistAcrossResume(t *testing.T) {
 	}
 }
 
-func TestLockedContextWindowKeepsSystemPromptToolCallEstimateStableAcrossResume(t *testing.T) {
+func TestCurrentContextWindowPreservesSystemPromptAndCacheAcrossResume(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
@@ -820,19 +733,15 @@ func TestLockedContextWindowKeepsSystemPromptToolCallEstimateStableAcrossResume(
 		Usage:     llm.Usage{WindowTokens: 272_000},
 	}}}
 	firstEngine := mustNewTestEngine(t, store, firstClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:               "gpt-5",
+		Model:               "gpt-6-sol",
 		EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
 		ContextWindowTokens: 272_000,
 	})
 	if _, err := firstEngine.SubmitUserMessage(context.Background(), "first"); err != nil {
 		t.Fatalf("submit first: %v", err)
 	}
-	locked := store.Meta().Locked
-	if locked == nil || locked.ContextWindow != 272_000 || locked.ContextPercent != 95 {
-		t.Fatalf("expected locked context budget, got %+v", locked)
-	}
-	if got := firstEngine.estimatedToolCallsForLockedContext(*locked); got != 185 {
-		t.Fatalf("estimated tool calls = %d, want 185", got)
+	if got := firstEngine.LiveChatContextSnapshot().Policy.ContextWindowTokens; got != 272_000 {
+		t.Fatalf("context window = %d, want 272000", got)
 	}
 	firstPrompt := firstClient.calls[0].SystemPrompt
 	if strings.TrimSpace(firstPrompt) == "" {
@@ -848,34 +757,22 @@ func TestLockedContextWindowKeepsSystemPromptToolCallEstimateStableAcrossResume(
 		Usage:     llm.Usage{WindowTokens: 400_000},
 	}}}
 	resumedEngine := mustNewTestEngine(t, store, resumedClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:               "gpt-5",
-		EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
-		ContextWindowTokens: 400_000,
+		Model:                         "gpt-6-sol",
+		EnabledTools:                  []toolspec.ID{toolspec.ToolExecCommand},
+		ContextWindowTokens:           400_000,
+		EffectiveContextWindowPercent: 80,
 	})
 	if _, err := resumedEngine.SubmitUserMessage(context.Background(), "second"); err != nil {
 		t.Fatalf("submit second: %v", err)
 	}
-	if strings.TrimSpace(resumedClient.calls[0].SystemPrompt) == "" {
-		t.Fatal("expected resumed system prompt to stay non-empty")
+	if resumedClient.calls[0].SystemPrompt != firstPrompt {
+		t.Fatal("system prompt changed after resuming with a new context budget")
 	}
 	if resumedClient.calls[0].PromptCacheKey != firstPromptCacheKey {
 		t.Fatalf("expected resumed prompt cache key = %q, got %q", firstPromptCacheKey, resumedClient.calls[0].PromptCacheKey)
 	}
-	if got := resumedEngine.estimatedToolCallsForLockedContext(*store.Meta().Locked); got != 185 {
-		t.Fatalf("resumed estimated tool calls = %d, want 185", got)
-	}
-
-	alteredLocked := *store.Meta().Locked
-	alteredLocked.ContextWindow = 400_000
-	if got := resumedEngine.estimatedToolCallsForLockedContext(alteredLocked); got != 271 {
-		t.Fatalf("altered estimated tool calls = %d, want 271", got)
-	}
-	alteredPrompt, err := resumedEngine.systemPrompt(alteredLocked)
-	if err != nil {
-		t.Fatalf("altered system prompt: %v", err)
-	}
-	if alteredPrompt != firstPrompt {
-		t.Fatal("expected locked system prompt snapshot to stay stable when locked context budget changes")
+	if got := resumedEngine.LiveChatContextSnapshot().Policy.ContextWindowTokens; got != 400_000 {
+		t.Fatalf("resumed context window = %d, want 400000", got)
 	}
 }
 
@@ -898,7 +795,7 @@ func TestSystemPromptSnapshotUsesLocalFileAndSurvivesMidSessionFileChanges(t *te
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                "gpt-5",
+		Model:                "gpt-6-sol",
 		EnabledTools:         []toolspec.ID{toolspec.ToolExecCommand},
 		ContextWindowTokens:  272_000,
 		TranscriptWorkingDir: workspace,
@@ -928,7 +825,7 @@ func TestSystemPromptSnapshotUsesLocalFileAndSurvivesMidSessionFileChanges(t *te
 		Usage:     llm.Usage{WindowTokens: 400000},
 	}}}
 	reopenedEngine := mustNewTestEngine(t, reopened, reopenedClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                "gpt-5",
+		Model:                "gpt-6-sol",
 		EnabledTools:         []toolspec.ID{toolspec.ToolExecCommand},
 		ContextWindowTokens:  400_000,
 		TranscriptWorkingDir: workspace,
@@ -966,7 +863,7 @@ func TestSystemPromptSnapshotRefreshesAfterCompaction(t *testing.T) {
 		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("third")}, Usage: llm.Usage{WindowTokens: 200000}},
 	}}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		EnabledTools:          []toolspec.ID{toolspec.ToolExecCommand},
 		CompactionMode:        "local",
 		AutoCompactionEnabled: &autoCompactionEnabled,
@@ -1005,7 +902,7 @@ func TestSystemPromptSnapshotRefreshesAfterCompaction(t *testing.T) {
 	}
 }
 
-func TestSystemPromptRefreshFailureKeepsStaleLockAndRetries(t *testing.T) {
+func TestSystemPromptRefreshFailureKeepsContractAbsentAndRetries(t *testing.T) {
 	t.Parallel()
 	workspace := t.TempDir()
 	systemPath := filepath.Join(workspace, "system.md")
@@ -1021,9 +918,7 @@ func TestSystemPromptRefreshFailureKeepsStaleLockAndRetries(t *testing.T) {
 		CompactionMode:        "local",
 		AutoCompactionEnabled: &autoCompactionEnabled,
 		ToolPreambles:         false,
-		SystemPromptFiles: []config.SystemPromptFile{
-			{Path: systemPath, Scope: config.SystemPromptFileScopeWorkspaceConfig},
-		},
+		SystemPromptFile:      &config.SystemPromptFile{Path: systemPath, Scope: config.SystemPromptFileScopeWorkspaceConfig},
 	})
 	if _, err := eng.SubmitUserMessage(context.Background(), "first"); err != nil {
 		t.Fatalf("submit first: %v", err)
@@ -1033,8 +928,8 @@ func TestSystemPromptRefreshFailureKeepsStaleLockAndRetries(t *testing.T) {
 	if _, err := eng.SubmitUserMessage(context.Background(), "fails"); err == nil {
 		t.Fatal("expected invalid prompt refresh to fail")
 	}
-	if locked := store.Meta().Locked; locked == nil || locked.HasSystemPrompt || strings.TrimSpace(locked.SystemPrompt) != "" {
-		t.Fatalf("locked prompt after failed refresh = %+v, want stale cleared lock", locked)
+	if locked := store.Meta().Locked; locked != nil {
+		t.Fatalf("contract after failed refresh = %+v, want absent", locked)
 	}
 	writeTestFile(t, systemPath, "prompt B")
 	if _, err := eng.SubmitUserMessage(context.Background(), "second"); err != nil {
@@ -1072,8 +967,8 @@ func TestPendingSystemPromptRefreshRunsAfterReopen(t *testing.T) {
 	}
 	writeTestFile(t, systemPath, "prompt B")
 	scheduleManualCompactionAndWait(t, eng)
-	if locked := store.Meta().Locked; locked == nil || locked.HasSystemPrompt || locked.SystemPrompt != "" {
-		t.Fatalf("locked prompt after compaction = %+v, want stale", locked)
+	if locked := store.Meta().Locked; locked != nil {
+		t.Fatalf("contract after compaction = %+v, want absent", locked)
 	}
 	if err := eng.Close(); err != nil {
 		t.Fatalf("close engine: %v", err)
@@ -1102,14 +997,14 @@ func TestLegacyNonBooleanSystemPromptSnapshotIsNotRefreshed(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model:           "gpt-5",
+		Model:           "gpt-6-sol",
 		SystemPrompt:    "legacy prompt",
 		HasSystemPrompt: false,
 	}); err != nil {
 		t.Fatalf("mark locked: %v", err)
 	}
 	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok")}, Usage: llm.Usage{WindowTokens: 200000}}}}
-	eng := mustNewExecTestEngine(t, store, client, Config{SystemPromptFiles: []config.SystemPromptFile{{Path: filepath.Join(t.TempDir(), "new.md"), Scope: config.SystemPromptFileScopeWorkspaceConfig}}})
+	eng := mustNewExecTestEngine(t, store, client, Config{SystemPromptFile: &config.SystemPromptFile{Path: filepath.Join(t.TempDir(), "new.md"), Scope: config.SystemPromptFileScopeWorkspaceConfig}})
 	if _, err := eng.SubmitUserMessage(context.Background(), "hello"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -1127,7 +1022,7 @@ func TestLockedRequestShapeSurvivesRuntimeConfigToolAndWebSearchToggles(t *testi
 		tools.HandlerRegistration{ID: toolspec.ToolAskQuestion, Handler: fakeTool{name: toolspec.ToolAskQuestion}},
 		tools.HandlerRegistration{ID: toolspec.ToolWebSearch, Handler: fakeTool{name: toolspec.ToolWebSearch}},
 	), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWebSearch},
 		WebSearchMode: "native",
 		ToolPreambles: false,

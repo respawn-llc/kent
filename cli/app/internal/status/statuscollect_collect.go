@@ -10,11 +10,11 @@ import (
 	"core/prompts"
 	"core/server/runtime"
 	"core/shared/apicontract"
-	"core/shared/clientui"
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 	"core/shared/textutil"
 )
 
@@ -22,25 +22,6 @@ type Collector struct {
 	RequestTimeout         time.Duration
 	GitTimeout             time.Duration
 	SessionNameReadTimeout time.Duration
-	EnvSanitizer           func([]string) []string
-}
-
-func (c Collector) Collect(ctx context.Context, req Request) (Snapshot, error) {
-	snapshot := c.EnrichBase(ctx, req, c.CollectBase(req))
-	authResult := c.CollectAuth(ctx, req, snapshot)
-	gitResult := c.CollectGit(ctx, req, snapshot)
-	envResult := c.CollectEnvironment(ctx, req, snapshot)
-	snapshot.Auth = authResult.Auth
-	snapshot.Subscription = authResult.Subscription
-	snapshot.Git = gitResult.Git
-	snapshot.SkillPolicy = envResult.SkillPolicy
-	snapshot.Skills = envResult.Skills
-	snapshot.SkillTokenCounts = envResult.SkillTokenCounts
-	snapshot.AgentsPaths = envResult.AgentsPaths
-	snapshot.AgentTokenCounts = envResult.AgentTokenCounts
-	snapshot.CollectorWarning = JoinWarnings(snapshot.CollectorWarning, authResult.Warning)
-	snapshot.CollectorWarning = JoinWarnings(snapshot.CollectorWarning, envResult.CollectorWarning)
-	return snapshot, nil
 }
 
 func (c Collector) CollectBase(req Request) Snapshot {
@@ -57,21 +38,27 @@ func (c Collector) CollectBase(req Request) Snapshot {
 	if req.Runtime != nil {
 		status := req.Runtime.Status()
 		usage := status.ContextUsage
-		contextInfo.UsedTokens = usage.UsedTokens
-		contextInfo.WindowTokens = usage.WindowTokens
-		contextInfo.AvailableTokens = usage.WindowTokens - usage.UsedTokens
+		contextInfo.UsedTokens = int(usage.GetUsedTokens())
+		contextInfo.WindowTokens = int(usage.GetWindowTokens())
+		contextInfo.AvailableTokens = int(usage.GetWindowTokens() - usage.GetUsedTokens())
 		if contextInfo.AvailableTokens < 0 {
 			contextInfo.AvailableTokens = 0
 		}
-		if status.PreviousSessionID != nil {
-			id := *status.PreviousSessionID
+		if status.PreviousSessionId != nil {
+			id, err := runtimeids.ParseSessionID(*status.PreviousSessionId)
+			if err != nil {
+				panic(err)
+			}
 			previousSessionID = &id
 		}
-		if status.ParentAgentSessionID != nil {
-			id := *status.ParentAgentSessionID
+		if status.ParentAgentSessionId != nil {
+			id, err := runtimeids.ParseSessionID(*status.ParentAgentSessionId)
+			if err != nil {
+				panic(err)
+			}
 			parentAgentSessionID = &id
 		}
-		compactionCount = status.CompactionCount
+		compactionCount = int(status.CompactionCount)
 	}
 	return Snapshot{
 		CollectedAt:          collectedAt,
@@ -84,7 +71,7 @@ func (c Collector) CollectBase(req Request) Snapshot {
 		Context:              contextInfo,
 		Model:                ModelInfo{Summary: ModelSummary(req)},
 		Config: ConfigInfo{
-			SettingsPath:    filepath.ToSlash(strings.TrimSpace(req.Source.SettingsPath)),
+			Files:           ConfigFiles(req.Source),
 			OverrideSources: ConfigOverrideSources(req.Source),
 			Supervisor:      SupervisorLabel(req.ReviewerEnabled, strings.TrimSpace(req.ReviewerMode)),
 			AutoCompaction:  req.AutoCompactionEnabled,
@@ -127,13 +114,13 @@ func (c Collector) relatedSessionName(ctx context.Context, sessionViews apicontr
 	if err != nil {
 		return "", label + ": " + err.Error()
 	}
-	return strings.TrimSpace(sessionView.SessionName), ""
+	return strings.TrimSpace(sessionView.GetSessionName()), ""
 }
 
-func (c Collector) resolveSessionView(ctx context.Context, sessionViews apicontract.SessionViewService, sessionID string) (clientui.RuntimeSessionView, error) {
+func (c Collector) resolveSessionView(ctx context.Context, sessionViews apicontract.SessionViewService, sessionID string) (*runtimepb.SessionView, error) {
 	id := strings.TrimSpace(sessionID)
 	if sessionViews == nil || id == "" {
-		return clientui.RuntimeSessionView{}, nil
+		return &runtimepb.SessionView{}, nil
 	}
 	readTimeout := c.SessionNameReadTimeout
 	if readTimeout <= 0 {
@@ -144,9 +131,9 @@ func (c Collector) resolveSessionView(ctx context.Context, sessionViews apicontr
 	}
 	readCtx, cancel := context.WithTimeout(ctx, readTimeout)
 	defer cancel()
-	resp, err := sessionViews.GetSessionMainView(readCtx, serverapi.SessionMainViewRequest{SessionID: id})
+	resp, err := sessionViews.GetSessionMainView(readCtx, &sessionpb.MainViewRequest{SessionId: id})
 	if err != nil {
-		return clientui.RuntimeSessionView{}, err
+		return &runtimepb.SessionView{}, err
 	}
 	return resp.MainView.Session, nil
 }
@@ -169,7 +156,7 @@ func (c Collector) CollectGit(ctx context.Context, req Request, _ Snapshot) GitS
 	if gitTimeout <= 0 {
 		gitTimeout = 4 * time.Second
 	}
-	return GitStageResult{Git: CollectGitStatus(ctx, GitRoot(req), gitTimeout, c.EnvSanitizer)}
+	return GitStageResult{Git: CollectGitStatus(ctx, GitRoot(req), gitTimeout)}
 }
 
 func (Collector) CollectEnvironment(_ context.Context, req Request, _ Snapshot) EnvironmentStageResult {

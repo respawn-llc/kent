@@ -2,11 +2,13 @@ package runtimewire
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"core/server/auth"
+	"core/server/authservice"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/runtime"
@@ -23,12 +25,10 @@ import (
 )
 
 type RuntimeWiring struct {
-	Engine        *runtime.Engine
-	AskBroker     *askquestion.AskQuestionBroker
-	EventBridge   *EventBridge
-	Background    *shelltool.Manager
-	LocalTools    *LocalToolRegistryBinding
-	PromptHistory []string
+	Engine     *runtime.Engine
+	AskBroker  *askquestion.AskQuestionBroker
+	Background *shelltool.Manager
+	LocalTools *LocalToolRegistryBinding
 }
 
 func (w *RuntimeWiring) Close() error {
@@ -39,13 +39,17 @@ func (w *RuntimeWiring) Close() error {
 }
 
 type RuntimeWiringOptions struct {
+	Environment                         func(string) (string, bool)
+	WorkspaceMembership                 WorkspaceMembership
+	MainWorkspaceRoot                   string
+	RequiredTools                       []toolspec.ID
 	FilesystemContext                   tools.FilesystemContext
 	Context                             context.Context
 	OnEvent                             func(evt runtime.Event)
 	Headless                            bool
 	QuestionsEnabled                    *bool
 	AutoCompactionEnabled               *bool
-	Sources                             map[string]string
+	Sources                             map[string]config.Origin
 	Client                              llm.Client
 	ClientFactory                       RuntimeClientFactory
 	ReviewerClientFactory               RuntimeClientFactory
@@ -57,6 +61,7 @@ type RuntimeWiringOptions struct {
 	StepLifecycle                       runtime.StepLifecycleSink
 	LifecycleTaskFinished               func() error
 	LifecycleRuntimeAbort               func() error
+	SubmitAgentSteer                    func(context.Context, runtime.AgentSteer) error
 	DurabilityObserver                  runtime.ResultGroupDurabilityObserver
 	// GlobalConfigDir is the absolute persistence root that owns model-visible
 	// global context (AGENTS.md, system prompt, skills). Empty falls back to
@@ -78,12 +83,16 @@ func NewRuntimeWiringWithBackground(
 	background *shelltool.Manager,
 	opts RuntimeWiringOptions,
 ) (*RuntimeWiring, error) {
+	if opts.PromptFacingSnapshotReloader == nil && strings.TrimSpace(opts.MainWorkspaceRoot) == "" {
+		return nil, errors.New("Main Workspace root is required for configuration reload")
+	}
 	if opts.Client != nil && opts.ClientFactory != nil {
 		return nil, ErrRuntimeClientFactoryConflict
 	}
 	shellPostprocessor, err := postprocess.NewRunner(postprocess.Settings{
-		Mode:     active.Shell.PostprocessingMode,
-		HookPath: active.Shell.PostprocessHook,
+		PersistenceRoot: opts.GlobalConfigDir,
+		Mode:            active.Shell.PostprocessingMode,
+		HookPath:        active.Shell.PostprocessHook,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("compile effective shell postprocessor: %w", err)
@@ -93,16 +102,86 @@ func NewRuntimeWiringWithBackground(
 		return nil, err
 	}
 	workingDirectory := filesystemContext.Access.WorkingDirectory.LexicalPath
+	factoryContext := opts.Context
+	if factoryContext == nil {
+		factoryContext = context.Background()
+	}
+
+	resolver := authservice.NewConnectionResolver(opts.GlobalConfigDir, mgr, opts.Environment)
+	newClient := func(settings config.Settings, purpose RuntimeClientPurpose, factory RuntimeClientFactory, capabilities llm.ProviderCapabilities) (llm.Client, error) {
+		connection, err := resolver.Resolve(settings)
+		if err != nil {
+			return nil, err
+		}
+		return NewRuntimeClient(factoryContext, factory, RuntimeClientRequest{
+			Purpose: purpose, SessionID: store.Meta().SessionID, ActiveSettings: settings,
+			EnabledTools: enabledTools, Sources: opts.Sources, Connection: connection,
+			RequestCapabilities: capabilities,
+		})
+	}
+	providerCapabilities, err := llm.ResolveEffectiveProviderCapabilities(store.Meta().Locked, active)
+	if err != nil {
+		return nil, err
+	}
+	if opts.ProviderCapabilitiesOverride != nil {
+		providerCapabilities = *opts.ProviderCapabilitiesOverride
+	}
+	var client llm.Client
+	if opts.Client != nil {
+		client = opts.Client
+	} else {
+		client, err = newClient(active, RuntimeClientPurposeMain, opts.ClientFactory, providerCapabilities)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	newReviewerClient := func() (llm.Client, error) {
+		factory := opts.ClientFactory
+		if factory == nil {
+			factory = opts.ReviewerClientFactory
+		}
+		settings := active
+		settings.Connection = active.Reviewer.Connection
+		settings.Model = active.Reviewer.Model
+		settings.ThinkingLevel = active.Reviewer.ThinkingLevel
+		settings.ModelVerbosity = active.Reviewer.ModelVerbosity
+		settings.ModelContextWindow = active.Reviewer.ModelContextWindow
+		settings.ModelCapabilities = active.Reviewer.ModelCapabilities
+		settings.Timeouts.ModelRequestSeconds = active.Reviewer.TimeoutSeconds
+		settings.Store = false
+		capabilities, err := llm.ResolveRuntimeProviderCapabilities(settings)
+		if err != nil {
+			return nil, err
+		}
+		return newClient(settings, RuntimeClientPurposeReviewer, factory, capabilities)
+	}
+
+	var reviewerClient llm.Client
+	if strings.ToLower(strings.TrimSpace(active.Reviewer.Frequency)) != "off" {
+		reviewerClient, err = newReviewerClient()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	modelCapabilities := lockedModelCapabilitiesForConfig(active.Model, active.ModelCapabilities, providerCapabilities, opts.Sources, "model_capabilities.supports_reasoning_effort", "model_capabilities.supports_vision_inputs")
 	var eng *runtime.Engine
 	localTools, askBroker, background, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{
-		FilesystemContext:        filesystemContext,
-		OwnerSessionID:           store.Meta().SessionID,
-		Enabled:                  enabledTools,
-		MinimumExecToBgTime:      time.Duration(active.MinimumExecToBgSeconds) * time.Second,
-		ShellOutputMaxChars:      active.ShellOutputMaxChars,
-		ModelContextWindow:       active.ModelContextWindow,
-		AllowNonCwdEdits:         active.AllowNonCwdEdits,
-		SupportsVision:           llm.LockedContractSupportsVisionInputs(store.Meta().Locked, active.Model),
+		WorkspaceMembership: opts.WorkspaceMembership,
+		FilesystemContext:   filesystemContext,
+		OwnerSessionID:      store.Meta().SessionID,
+		Enabled:             enabledTools,
+		MinimumExecToBgTime: time.Duration(active.MinimumExecToBgSeconds) * time.Second,
+		ShellOutputMaxChars: active.ShellOutputMaxChars,
+		ModelContextWindow:  active.ModelContextWindow,
+		AllowNonCwdEdits:    active.AllowNonCwdEdits,
+		SupportsVision: func() bool {
+			if locked := store.Meta().Locked; locked != nil {
+				return llm.LockedContractSupportsVisionInputs(locked, active.Model)
+			}
+			return modelCapabilities.SupportsVisionInputs
+		},
 		Logger:                   logger,
 		Background:               background,
 		ShellPostprocessor:       shellPostprocessor,
@@ -119,100 +198,19 @@ func NewRuntimeWiringWithBackground(
 	if err != nil {
 		return nil, err
 	}
-	toolRegistry := localTools.Registry()
-	factoryContext := opts.Context
-	if factoryContext == nil {
-		factoryContext = context.Background()
-	}
-
-	mainProvider := mainProviderRuntimeSettings(active)
-	if resolvedCapabilities, ok := llm.ProviderCapabilitiesFromLockedOrOverride(store.Meta().Locked, active.ProviderCapabilities); ok {
-		mainProvider.ProviderCapabilitiesOverride = &resolvedCapabilities
-	}
-	var client llm.Client
-	if opts.Client != nil {
-		client = opts.Client
-	} else if opts.ClientFactory != nil {
-		client, err = newRuntimeClientFromFactory(factoryContext, opts.ClientFactory, RuntimeClientPurposeMain, store.Meta().SessionID, active, enabledTools, filesystemContext.Access.WorkingDirectory.LexicalPath, opts.Sources, mainProvider)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		var mainAuth llm.AuthHeaderProvider
-		if mgr != nil && !strings.EqualFold(strings.TrimSpace(mainProvider.Auth), "none") {
-			mainAuth = mgr
-		}
-		client, err = llm.NewProviderClient(llm.ProviderClientOptions{
-			Provider:                     llm.Provider(strings.TrimSpace(mainProvider.ProviderOverride)),
-			Model:                        mainProvider.Model,
-			Auth:                         mainAuth,
-			HTTPClient:                   llm.NewProviderHTTPClient(mainProvider.OpenAIBaseURL, time.Duration(active.Timeouts.ModelRequestSeconds)*time.Second),
-			OpenAIBaseURL:                mainProvider.OpenAIBaseURL,
-			ModelVerbosity:               string(mainProvider.ModelVerbosity),
-			ProviderIdentifier:           &mainProvider.ProviderIdentifier,
-			Store:                        mainProvider.Store,
-			ContextWindowTokens:          mainProvider.ContextWindowTokens,
-			ProviderCapabilitiesOverride: mainProvider.ProviderCapabilitiesOverride,
-		})
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	reviewerProvider := reviewerProviderRuntimeSettings(active)
-	newReviewerClient := func() (llm.Client, error) {
-		if opts.ClientFactory != nil {
-			return newRuntimeClientFromFactory(factoryContext, opts.ClientFactory, RuntimeClientPurposeReviewer, store.Meta().SessionID, active, enabledTools, workingDirectory, opts.Sources, reviewerProvider)
-		}
-		if opts.ReviewerClientFactory != nil {
-			return newRuntimeClientFromFactory(factoryContext, opts.ReviewerClientFactory, RuntimeClientPurposeReviewer, store.Meta().SessionID, active, enabledTools, workingDirectory, opts.Sources, reviewerProvider)
-		}
-		var reviewerAuth llm.AuthHeaderProvider
-		if mgr != nil && !strings.EqualFold(strings.TrimSpace(reviewerProvider.Auth), "none") {
-			reviewerAuth = mgr
-		}
-		return llm.NewProviderClient(llm.ProviderClientOptions{
-			Provider:                     llm.Provider(strings.TrimSpace(reviewerProvider.ProviderOverride)),
-			Model:                        reviewerProvider.Model,
-			Auth:                         reviewerAuth,
-			HTTPClient:                   llm.NewProviderHTTPClient(reviewerProvider.OpenAIBaseURL, time.Duration(active.Reviewer.TimeoutSeconds)*time.Second),
-			OpenAIBaseURL:                reviewerProvider.OpenAIBaseURL,
-			ModelVerbosity:               string(reviewerProvider.ModelVerbosity),
-			ProviderIdentifier:           &reviewerProvider.ProviderIdentifier,
-			Store:                        reviewerProvider.Store,
-			ContextWindowTokens:          reviewerProvider.ContextWindowTokens,
-			ProviderCapabilitiesOverride: reviewerProvider.ProviderCapabilitiesOverride,
-		})
-	}
-
-	var reviewerClient llm.Client
-	if strings.ToLower(strings.TrimSpace(active.Reviewer.Frequency)) != "off" {
-		reviewerClient, err = newReviewerClient()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	eventBridge := NewEventBridge(2048, func(total uint64, evt runtime.Event) {
-		if logger == nil {
-			return
-		}
-		if total == 1 || total%100 == 0 {
-			logger.Logf("runtime.event.drop count=%d kind=%s", total, evt.Kind)
-		}
-	})
+	toolRegistry := localTools.registry
 	promptReloader := opts.PromptFacingSnapshotReloader
 	if promptReloader == nil {
 		promptReloader = launchPromptFacingSnapshotReloader{
 			store:                               store,
-			workspaceRoot:                       workingDirectory,
+			localTools:                          localTools,
 			configRoot:                          opts.GlobalConfigDir,
+			mainWorkspaceRoot:                   opts.MainWorkspaceRoot,
 			skipContinuationAgentRoleValidation: opts.SkipContinuationAgentRoleValidation,
 		}
 	}
-	providerCapabilitiesOverride := mainProvider.ProviderCapabilitiesOverride
-	if opts.ProviderCapabilitiesOverride != nil {
-		providerCapabilitiesOverride = opts.ProviderCapabilitiesOverride
+	if len(opts.RequiredTools) != 0 {
+		promptReloader = requiredToolsSnapshotReloader{base: promptReloader, required: append([]toolspec.ID(nil), opts.RequiredTools...)}
 	}
 	eng, err = runtime.New(store, eventLog, client, toolRegistry, runtime.Config{
 		Model:                           active.Model,
@@ -221,15 +219,16 @@ func NewRuntimeWiringWithBackground(
 		MaxTokens:                       0,
 		ThinkingLevel:                   active.ThinkingLevel,
 		SupportedThinkingValues:         launch.SupportedChatThinkingValues(active.Model, active.ThinkingLevel),
-		ModelCapabilities:               llm.LockedModelCapabilitiesForConfig(active.Model, active.ModelCapabilities),
+		ModelCapabilities:               &modelCapabilities,
 		FastModeEnabled:                 active.PriorityRequestMode,
 		WebSearchMode:                   active.WebSearch,
 		PromptFacingSnapshotReloader:    promptReloader,
-		ProviderCapabilitiesOverride:    providerCapabilitiesOverride,
+		ProviderCapabilitiesOverride:    &providerCapabilities,
 		EnabledTools:                    enabledTools,
 		SkillPolicy:                     config.ResolveSkillPolicy(active),
-		SubagentCatalogSettings:         active,
-		SystemPromptFiles:               active.SystemPromptFiles,
+		SubagentCatalog:                 config.App{Settings: active, Source: config.SourceReport{Sources: opts.Sources}},
+		SystemPromptFile:                active.SystemPromptFile,
+		RefreshToolRegistry:             localTools.ReplaceEnabledTools,
 		AutoCompactTokenLimit:           active.ContextCompactionThresholdTokens,
 		PreSubmitCompactionLeadTokens:   active.PreSubmitCompactionLeadTokens,
 		ContextWindowTokens:             active.ModelContextWindow,
@@ -242,6 +241,7 @@ func NewRuntimeWiringWithBackground(
 		HeadlessMode:                    opts.Headless,
 		ToolPreambles:                   active.ToolPreambles,
 		WorkflowPrompt:                  opts.WorkflowPrompt,
+		BackgroundShellManager:          background,
 		AskQuestionBatchSkipped:         opts.AskQuestionBatchSkipped,
 		TranscriptWorkingDir:            workingDirectory,
 		GlobalConfigDir:                 opts.GlobalConfigDir,
@@ -250,44 +250,59 @@ func NewRuntimeWiringWithBackground(
 			Frequency:         active.Reviewer.Frequency,
 			Model:             active.Reviewer.Model,
 			ThinkingLevel:     active.Reviewer.ThinkingLevel,
-			ModelCapabilities: lockedModelCapabilitiesForConfig(active.Reviewer.Model, active.Reviewer.ModelCapabilities, opts.Sources, "reviewer.model_capabilities.supports_reasoning_effort", "reviewer.model_capabilities.supports_vision_inputs"),
+			ModelCapabilities: lockedModelCapabilitiesForConfig(active.Reviewer.Model, active.Reviewer.ModelCapabilities, llm.ProviderCapabilities{}, opts.Sources, "reviewer.model_capabilities.supports_reasoning_effort", "reviewer.model_capabilities.supports_vision_inputs"),
 			SystemPromptFile:  active.Reviewer.SystemPromptFile,
 			VerboseOutput:     active.Reviewer.VerboseOutput,
 			Client:            reviewerClient,
 			ClientFactory:     newReviewerClient,
 		},
-		OnEvent: func(evt runtime.Event) {
-			if opts.OnEvent != nil {
-				opts.OnEvent(evt)
-			}
-			eventBridge.Publish(evt)
-		},
+		OnEvent:               opts.OnEvent,
 		StepLifecycle:         opts.StepLifecycle,
 		LifecycleTaskFinished: opts.LifecycleTaskFinished,
 		LifecycleRuntimeAbort: opts.LifecycleRuntimeAbort,
+		SubmitAgentSteer:      opts.SubmitAgentSteer,
 		DurabilityObserver:    opts.DurabilityObserver,
 	})
 	if err != nil {
 		return nil, err
 	}
 	return &RuntimeWiring{
-		Engine:      eng,
-		AskBroker:   askBroker,
-		EventBridge: eventBridge,
-		Background:  background,
-		LocalTools:  localTools,
+		Engine:     eng,
+		AskBroker:  askBroker,
+		Background: background,
+		LocalTools: localTools,
 	}, nil
 }
 
 type launchPromptFacingSnapshotReloader struct {
 	store                               *session.Store
-	workspaceRoot                       string
+	localTools                          *LocalToolRegistryBinding
 	configRoot                          string
+	mainWorkspaceRoot                   string
 	skipContinuationAgentRoleValidation bool
 }
 
+type requiredToolsSnapshotReloader struct {
+	base     runtime.PromptFacingSnapshotReloader
+	required []toolspec.ID
+}
+
+func (r requiredToolsSnapshotReloader) ReloadPromptFacingSnapshotConfig(ctx context.Context, sessionID string) (runtime.PromptFacingSnapshotConfig, error) {
+	snapshot, err := r.base.ReloadPromptFacingSnapshotConfig(ctx, sessionID)
+	if err != nil {
+		return runtime.PromptFacingSnapshotConfig{}, err
+	}
+	plan, err := launch.WithRequiredRunPromptTools(launch.SessionPlan{ActiveSettings: snapshot.Settings, EnabledTools: snapshot.ActiveToolIDs}, r.required)
+	if err != nil {
+		return runtime.PromptFacingSnapshotConfig{}, err
+	}
+	snapshot.Settings, snapshot.ActiveToolIDs = plan.ActiveSettings, plan.EnabledTools
+	return snapshot, nil
+}
+
 func (r launchPromptFacingSnapshotReloader) ReloadPromptFacingSnapshotConfig(context.Context, string) (runtime.PromptFacingSnapshotConfig, error) {
-	app, err := config.Load(r.workspaceRoot, config.LoadOptions{ConfigRoot: r.configRoot})
+	workingDirectory := r.localTools.FilesystemContext().Access.WorkingDirectory.LexicalPath
+	app, err := config.Load(workingDirectory, r.mainWorkspaceRoot, config.LoadOptions{ConfigRoot: r.configRoot})
 	if err != nil {
 		return runtime.PromptFacingSnapshotConfig{}, err
 	}
@@ -295,57 +310,35 @@ func (r launchPromptFacingSnapshotReloader) ReloadPromptFacingSnapshotConfig(con
 	if err != nil {
 		return runtime.PromptFacingSnapshotConfig{}, err
 	}
+	meta := r.store.Meta()
+	meta.ChatSettings = nil
+	configured, err := launch.ResolveReadOnlySessionContextSettings(app, meta, r.skipContinuationAgentRoleValidation)
+	if err != nil {
+		return runtime.PromptFacingSnapshotConfig{}, err
+	}
 	return runtime.PromptFacingSnapshotConfig{
-		Settings:      resolved.Settings,
-		Source:        resolved.Source,
-		ActiveToolIDs: append([]toolspec.ID(nil), resolved.ActiveToolIDs...),
-		WebSearchMode: resolved.WebSearchMode,
+		ConfiguredThinking: configured.Settings.ThinkingLevel,
+		Settings:           resolved.Settings,
+		Source:             resolved.Source,
+		ActiveToolIDs:      append([]toolspec.ID(nil), resolved.ActiveToolIDs...),
+		WebSearchMode:      resolved.WebSearchMode,
 	}, nil
 }
 
-type providerRuntimeSettings struct {
-	Model                        string
-	ProviderOverride             string
-	OpenAIBaseURL                string
-	ModelVerbosity               config.ModelVerbosity
-	ProviderIdentifier           string
-	Store                        bool
-	ContextWindowTokens          int
-	Auth                         string
-	ProviderCapabilitiesOverride *llm.ProviderCapabilities
-}
-
-func mainProviderRuntimeSettings(active config.Settings) providerRuntimeSettings {
-	return providerRuntimeSettings{
-		Model:                        active.Model,
-		ProviderOverride:             active.ProviderOverride,
-		OpenAIBaseURL:                active.OpenAIBaseURL,
-		ModelVerbosity:               active.ModelVerbosity,
-		ProviderIdentifier:           active.ProviderIdentifier,
-		Store:                        active.Store,
-		ContextWindowTokens:          active.ModelContextWindow,
-		Auth:                         "inherit",
-		ProviderCapabilitiesOverride: providerCapabilitiesOverridePtr(active.ProviderCapabilities),
-	}
-}
-
-func lockedModelCapabilitiesForConfig(model string, override config.ModelCapabilitiesOverride, sources map[string]string, reasoningKey string, visionKey string) session.LockedModelCapabilities {
-	locked := llm.LockedModelCapabilitiesForModel(model)
+func lockedModelCapabilitiesForConfig(model string, override config.ModelCapabilitiesOverride, provider llm.ProviderCapabilities, sources map[string]config.Origin, reasoningKey string, visionKey string) session.LockedModelCapabilities {
+	locked := llm.LockedModelCapabilitiesForModel(model, provider)
 	reasoningConfigured := inheritedModelCapabilitySourceConfigured(sources, reasoningKey)
 	visionConfigured := inheritedModelCapabilitySourceConfigured(sources, visionKey)
-	if reasoningConfigured {
+	if reasoningConfigured || override.SupportsReasoningEffort {
 		locked.SupportsReasoningEffort = override.SupportsReasoningEffort
 	}
-	if visionConfigured {
+	if visionConfigured || override.SupportsVisionInputs {
 		locked.SupportsVisionInputs = override.SupportsVisionInputs
 	}
-	if reasoningConfigured || visionConfigured {
-		return locked
-	}
-	return llm.LockedModelCapabilitiesForConfig(model, override)
+	return locked
 }
 
-func inheritedModelCapabilitySourceConfigured(sources map[string]string, key string) bool {
+func inheritedModelCapabilitySourceConfigured(sources map[string]config.Origin, key string) bool {
 	if modelCapabilitySourceConfigured(sources, key) {
 		return true
 	}
@@ -359,41 +352,8 @@ func inheritedModelCapabilitySourceConfigured(sources map[string]string, key str
 	}
 }
 
-func modelCapabilitySourceConfigured(sources map[string]string, key string) bool {
-	switch strings.TrimSpace(sources[key]) {
-	case "file", "env", "cli", "subagent":
-		return true
-	default:
-		return false
-	}
-}
-
-func reviewerProviderRuntimeSettings(active config.Settings) providerRuntimeSettings {
-	reviewer := active.Reviewer
-	reviewerProvider := config.ResolveReviewerProviderSettings(config.Settings{
-		ProviderOverride: active.ProviderOverride,
-		OpenAIBaseURL:    active.OpenAIBaseURL,
-		Reviewer:         reviewer,
-	})
-	return providerRuntimeSettings{
-		Model:                        reviewer.Model,
-		ProviderOverride:             reviewerProvider.ProviderOverride,
-		OpenAIBaseURL:                reviewerProvider.OpenAIBaseURL,
-		ModelVerbosity:               reviewer.ModelVerbosity,
-		ProviderIdentifier:           active.ProviderIdentifier,
-		Store:                        false,
-		ContextWindowTokens:          reviewer.ModelContextWindow,
-		Auth:                         reviewer.Auth,
-		ProviderCapabilitiesOverride: providerCapabilitiesOverridePtr(reviewer.ProviderCapabilities),
-	}
-}
-
-func providerCapabilitiesOverridePtr(override config.ProviderCapabilitiesOverride) *llm.ProviderCapabilities {
-	caps, ok := llm.ProviderCapabilitiesFromOverride(override)
-	if !ok {
-		return nil
-	}
-	return &caps
+func modelCapabilitySourceConfigured(sources map[string]config.Origin, key string) bool {
+	return sources[key].Configured()
 }
 
 func boolRef(v bool) *bool { return &v }

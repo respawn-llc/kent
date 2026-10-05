@@ -51,6 +51,7 @@ const (
 	MessageTypeHandoffFutureMessage           = clientui.MessageTypeHandoffFutureMessage
 	MessageTypeReviewerFeedback               = clientui.MessageTypeReviewerFeedback
 	MessageTypeBackgroundNotice               = clientui.MessageTypeBackgroundNotice
+	MessageTypeUserShellCommand               = clientui.MessageTypeUserShellCommand
 	MessageTypeCustomToolCallOutput           = clientui.MessageTypeCustomToolCallOutput
 	MessageTypeCompactionPreservedUserMessage = clientui.MessageTypeCompactionPreservedUserMessage
 	MessageTypeHeadlessMode                   = clientui.MessageTypeHeadlessMode
@@ -85,14 +86,15 @@ type ResponseItemType string
 type ResponseItemLinkKind string
 
 const (
-	ResponseItemTypeMessage            ResponseItemType = "message"
-	ResponseItemTypeFunctionCall       ResponseItemType = "function_call"
-	ResponseItemTypeFunctionCallOutput ResponseItemType = "function_call_output"
-	ResponseItemTypeCustomToolCall     ResponseItemType = "custom_tool_call"
-	ResponseItemTypeCustomToolOutput   ResponseItemType = "custom_tool_call_output"
-	ResponseItemTypeReasoning          ResponseItemType = "reasoning"
-	ResponseItemTypeCompaction         ResponseItemType = "compaction"
-	ResponseItemTypeOther              ResponseItemType = "other"
+	ResponseItemTypeMessage             ResponseItemType = "message"
+	ResponseItemTypeFunctionCall        ResponseItemType = "function_call"
+	ResponseItemTypeFunctionCallOutput  ResponseItemType = "function_call_output"
+	ResponseItemTypeCustomToolCall      ResponseItemType = "custom_tool_call"
+	ResponseItemTypeCustomToolOutput    ResponseItemType = "custom_tool_call_output"
+	ResponseItemTypeReasoning           ResponseItemType = "reasoning"
+	ResponseItemTypeCompaction          ResponseItemType = "compaction"
+	ResponseItemTypeConfigurationUpdate ResponseItemType = "configuration_update"
+	ResponseItemTypeOther               ResponseItemType = "other"
 )
 
 const (
@@ -137,6 +139,7 @@ type ResponseItem struct {
 	CustomInput          *string                  `json:"custom_input,omitempty"`
 	Output               json.RawMessage          `json:"output,omitempty"`
 	ReasoningSummary     []ReasoningEntry         `json:"reasoning_summary,omitempty"`
+	ConfigurationEffort  *string                  `json:"configuration_effort,omitempty"`
 	EncryptedContent     *string                  `json:"encrypted_content,omitempty"`
 	Raw                  json.RawMessage          `json:"raw,omitempty"`
 	LinkedCallID         *string                  `json:"linked_call_id,omitempty"`
@@ -158,6 +161,7 @@ func CloneResponseItems(items []ResponseItem) []ResponseItem {
 		copyItem.Name = textutil.Pointer(item.Name)
 		copyItem.CallID = textutil.Pointer(item.CallID)
 		copyItem.Content = textutil.Pointer(item.Content)
+		copyItem.ConfigurationEffort = textutil.Pointer(item.ConfigurationEffort)
 		copyItem.CompactContent = textutil.Pointer(item.CompactContent)
 		copyItem.BackgroundActivityID = textutil.Pointer(item.BackgroundActivityID)
 		copyItem.BackgroundExitCode = textutil.Pointer(item.BackgroundExitCode)
@@ -697,22 +701,24 @@ func (u Usage) CacheHitPercent() (int, bool) {
 }
 
 type Response struct {
-	Assistant         Message          `json:"assistant"`
-	ProviderPhase     *ProviderPhase   `json:"-"`
-	ServedModel       *string          `json:"served_model,omitempty"`
-	ReasoningIncluded bool             `json:"reasoning_included,omitempty"`
-	ToolCalls         []ToolCall       `json:"tool_calls,omitempty"`
-	Reasoning         []ReasoningEntry `json:"reasoning,omitempty"`
-	ReasoningItems    []ReasoningItem  `json:"reasoning_items,omitempty"`
-	OutputItems       []ResponseItem   `json:"output_items,omitempty"`
-	Usage             Usage            `json:"usage"`
+	Assistant         Message                             `json:"assistant"`
+	ProviderPhase     *ProviderPhase                      `json:"-"`
+	ServedModel       *string                             `json:"served_model,omitempty"`
+	ProviderEvidence  modelcontract.ProviderUsageEvidence `json:"-"`
+	ReasoningIncluded bool                                `json:"reasoning_included,omitempty"`
+	ToolCalls         []ToolCall                          `json:"tool_calls,omitempty"`
+	Reasoning         []ReasoningEntry                    `json:"reasoning,omitempty"`
+	ReasoningItems    []ReasoningItem                     `json:"reasoning_items,omitempty"`
+	OutputItems       []ResponseItem                      `json:"output_items,omitempty"`
+	Usage             Usage                               `json:"usage"`
 }
 
 type CompactionRequest = Request
 
 type CompactionResponse struct {
-	Checkpoint ResponseItem
-	Usage      Usage
+	Checkpoint       ResponseItem
+	Usage            Usage
+	ProviderEvidence modelcontract.ProviderUsageEvidence
 }
 
 type CompactionClient interface {
@@ -750,14 +756,6 @@ type StreamCallbacks struct {
 	OnAssistantDelta        func(delta AssistantDelta)
 	OnReasoningSummaryDelta func(delta ReasoningSummaryDelta)
 	OnStreamActivity        func()
-}
-
-type RequestInputTokenCountClient interface {
-	CountRequestInputTokens(ctx context.Context, request Request) (int, error)
-}
-
-type RequestInputTokenCountSupportClient interface {
-	SupportsRequestInputTokenCount(ctx context.Context) (bool, error)
 }
 
 type ModelContextWindowClient interface {

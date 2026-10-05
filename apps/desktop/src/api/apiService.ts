@@ -1,4 +1,6 @@
-import type { AttentionNotificationEventHandler } from "./attentionNotifications";
+import type { AttentionNotificationLifecycle } from "./attentionNotifications";
+import type * as Stream from "effect/Stream";
+import type { ProjectObservation } from "./projectEvents";
 import type {
   BoardNodeCardsInput,
   PromptAnswerBatchInput,
@@ -21,7 +23,6 @@ import type {
   WorkflowProjectLinkInput,
   WorkflowScriptPathValidateInput,
 } from "./clientInputs";
-import type { ConnectionSnapshot } from "./connectionStore";
 import type {
   ActivityPage,
   AttentionPage,
@@ -88,25 +89,22 @@ import type {
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 import type { WorkflowProjectEventHandler } from "./workflowProjectEvents";
 import type { TaskSearchInput, TaskSearchResponse } from "./taskSearch";
-import type {
-  CompactionRequestID,
-  PendingWork,
-  PendingWorkIdentity,
-  PendingWorkRestoration,
-} from "./pendingWork";
-
-export type ApiConnectionSource = Readonly<{
-  snapshot(): ConnectionSnapshot;
-  subscribe(listener: () => void): () => void;
-}>;
+import type { ChatApi } from "./chat";
+import type { ChatSessionTarget } from "./chatTypes";
+import type { PendingPrompt } from "./promptModels";
+import type { DesktopProcess, ProcessObservationError } from "./processes";
 
 export type ApiSubscription = Readonly<{
   close(): void;
 }>;
 
 export interface ApiService {
-  readonly connection: ApiConnectionSource;
+  readonly chat: ChatApi;
 
+  observeProcesses(
+    target: ChatSessionTarget,
+  ): Stream.Stream<readonly DesktopProcess[], ProcessObservationError>;
+  killProcess(processID: string): Promise<void>;
   getReadiness(): Promise<ServerReadiness>;
   listProjects(pageToken: string | null): Promise<ProjectPage>;
   listSessionPage(projectID: string, category: SessionCategory, offset: number): Promise<SessionCatalogPage>;
@@ -165,7 +163,7 @@ export interface ApiService {
   deleteWorkflow(input: WorkflowDeleteInput): Promise<WorkflowDeleteResponse>;
   listProjectWorkflowLinks(projectID: string): Promise<readonly ProjectWorkflowLink[]>;
   listBoardNodeCards(input: BoardNodeCardsInput): Promise<BoardNodeCardsPage>;
-  listAttention(pageToken: string): Promise<AttentionPage>;
+  listAttention(pageToken: string | null): Promise<AttentionPage>;
   listTaskAttention(taskID: string): Promise<TaskAttention>;
   createTask(input: TaskMutationInput): Promise<CreatedTaskSummary>;
   addTaskDependency(blockerTaskID: string, blockedTaskID: string): Promise<TaskDependencyMutationResponse>;
@@ -193,19 +191,22 @@ export interface ApiService {
   deleteComment(commentID: string): Promise<void>;
   answerPromptBatch(input: PromptAnswerBatchInput): Promise<PromptAnswerBatchResponse>;
   listPendingAsks(sessionID: string): Promise<readonly PendingAsk[]>;
-  submitManualCompaction(sessionID: string, guidance: string | null): Promise<CompactionRequestID>;
-  listPendingWork(sessionID: string): Promise<PendingWork>;
-  removePendingWork(sessionID: string, itemID: PendingWorkIdentity): Promise<PendingWorkRestoration>;
-  subscribeProject(projectID: string, handler: WorkflowProjectEventHandler): ApiSubscription;
+  listPendingPrompts(sessionID: string): Promise<readonly PendingPrompt[]>;
+  subscribeProject(projectID: string): Stream.Stream<ProjectObservation>;
   subscribeWorkflow(workflowID: string, handler: WorkflowProjectEventHandler): ApiSubscription;
-  subscribeAttentionNotifications(handler: AttentionNotificationEventHandler): ApiSubscription;
+  subscribeAttentionNotifications(
+    reportOverflow: () => Promise<void>,
+  ): Stream.Stream<AttentionNotificationLifecycle>;
   getWorktreeStatus(sessionID: string): Promise<StatusSuccess>;
   listWorktrees(sessionID: string): Promise<ListSuccess>;
   resolveWorktreeSelector(sessionID: string, selector: string): Promise<SelectorResolveSuccess>;
   resolveWorktreeCreateTarget(sessionID: string, target: string): Promise<CreateTargetResolveSuccess>;
   previewWorktreeDelete(sessionID: string, selector: string): Promise<worktree.WorktreeDeletePreview>;
   createWorktree(input: worktree.WorktreeCreateInput): Promise<CreateSuccess>;
-  switchWorktree(sessionID: string, operation: worktree.WorktreeSwitch): Promise<ScheduledAcknowledgement>;
+  switchWorktree(
+    sessionID: string,
+    operation: worktree.WorktreeTransition,
+  ): Promise<ScheduledAcknowledgement>;
   deleteWorktree(
     sessionID: string,
     preview: worktree.WorktreeDeletePreview,

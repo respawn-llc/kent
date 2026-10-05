@@ -223,6 +223,95 @@ func TestAlwaysManagerReacquiresAfterInhibitorRestartFailure(t *testing.T) {
 	waitForCondition(t, func() bool { return guard.held() }, "always-mode reacquire after retry")
 }
 
+func TestAlwaysManagerReturnsStartupErrorAndKeepsRetrying(t *testing.T) {
+	startupErr := errors.New("startup acquire failed")
+	guard := &fakeSleepInhibitor{err: startupErr}
+	timers := &manualTimerFactory{}
+	reported := make(chan error, 2)
+	manager, err := NewManager(config.SleepPreventionModeAlways, func(err error) {
+		reported <- err
+	}, withGuard(guard), withReleaseTimerFactory(timers.AfterFunc))
+	if manager == nil {
+		t.Fatal("startup failure must return a usable manager")
+	}
+	defer manager.Close()
+	if !errors.Is(err, startupErr) {
+		t.Fatalf("startup error = %v, want %v", err, startupErr)
+	}
+	select {
+	case err := <-reported:
+		if !errors.Is(err, startupErr) {
+			t.Fatalf("reported error = %v, want %v", err, startupErr)
+		}
+	default:
+		t.Fatal("startup error must be reported before construction returns")
+	}
+
+	retry := timers.waitForTimer(t, 0)
+	if guard.acquireCount() != 2 || guard.held() {
+		t.Fatalf("expected startup and immediate retry to fail, acquires=%d held=%v", guard.acquireCount(), guard.held())
+	}
+	if err := <-reported; !errors.Is(err, startupErr) {
+		t.Fatalf("retry error = %v, want %v", err, startupErr)
+	}
+	guard.setAcquireError(nil)
+	retry.Fire()
+	waitForCondition(t, func() bool {
+		return guard.acquireCount() == 3 && guard.held()
+	}, "always-mode recovery after startup failure")
+}
+
+func TestActiveManagerCancelsRetryWhenInactive(t *testing.T) {
+	manager, guard, timers := newTestManager(t)
+	defer manager.Close()
+	guard.setAcquireError(errors.New("acquire failed"))
+	manager.RuntimeActiveObserver()(true)
+	retry := timers.waitForTimer(t, 0)
+
+	manager.RuntimeActiveObserver()(false)
+	waitForCondition(t, retry.stopped, "inactive retry cancellation")
+	guard.setAcquireError(nil)
+	retry.Fire()
+	guard.failFromGuard(errors.New("inhibitor exited while inactive"))
+	manager.Close()
+	if guard.acquireCount() != 1 || guard.held() {
+		t.Fatalf("inactive manager reacquired guard, acquires=%d held=%v", guard.acquireCount(), guard.held())
+	}
+}
+
+func TestManagerConcurrentCloseCancelsRetry(t *testing.T) {
+	for _, mode := range []config.SleepPreventionMode{config.SleepPreventionModeAlways, config.SleepPreventionModeActive} {
+		t.Run(string(mode), func(t *testing.T) {
+			guard := &fakeSleepInhibitor{}
+			timers := &manualTimerFactory{}
+			manager := requireManager(t, mode, withGuard(guard), withReleaseTimerFactory(timers.AfterFunc))
+			defer manager.Close()
+			if observer := manager.RuntimeActiveObserver(); observer != nil {
+				observer(true)
+			}
+			waitForCondition(t, guard.held, "initial acquisition")
+			guard.setAcquireError(errors.New("reacquire failed"))
+			guard.failFromGuard(errors.New("inhibitor exited"))
+			retry := timers.waitForTimer(t, 0)
+
+			var closers sync.WaitGroup
+			for range 8 {
+				closers.Go(manager.Close)
+			}
+			closers.Wait()
+			if !retry.stopped() {
+				t.Fatal("close must cancel pending retry")
+			}
+			guard.setAcquireError(nil)
+			retry.Fire()
+			guard.failFromGuard(errors.New("late inhibitor failure"))
+			if guard.acquireCount() != 2 || guard.held() {
+				t.Fatalf("closed manager reacquired guard, acquires=%d held=%v", guard.acquireCount(), guard.held())
+			}
+		})
+	}
+}
+
 func newTestManager(t *testing.T) (*Manager, *fakeSleepInhibitor, *manualTimerFactory) {
 	t.Helper()
 	guard := &fakeSleepInhibitor{}

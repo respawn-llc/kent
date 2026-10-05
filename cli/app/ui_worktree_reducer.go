@@ -6,26 +6,26 @@ import (
 
 	"core/cli/app/internal/runtimeattach"
 	"core/cli/app/internal/worktreeui"
-	"core/shared/clientui"
 	"core/shared/invariant"
 	"core/shared/protoapi"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeinput"
 	"core/shared/worktreecontract"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func (m *uiModel) reconcileTranscriptWorktreeTransitionOutcome(outcome clientui.TranscriptWorktreeTransitionOutcome) tea.Cmd {
+func (m *uiModel) reconcileTranscriptWorktreeTransitionOutcome(outcome *transcriptpb.WorktreeTransitionOutcome) tea.Cmd {
 	if m == nil {
 		return nil
 	}
 	var statusCmd tea.Cmd
-	if outcome.State == clientui.WorktreeTransitionFailed {
+	if outcome.State == transcriptpb.WorktreeTransitionState_WORKTREE_TRANSITION_STATE_FAILED {
 		failureText := ""
-		if selector := outcome.SelectorError; selector != nil {
+		if selector := outcome.GetSelectorError(); selector != nil {
 			failureText = fmt.Sprintf("Worktree selector %q did not resolve to one available Worktree; choose an exact Worktree ID or path", selector.Input)
 		} else {
-			failureText = outcome.Failure.Detail
+			failureText = outcome.GetFailure().Detail
 		}
 		statusCmd = m.sendTransientStatusWithNoticeID(
 			failureText,
@@ -36,18 +36,31 @@ func (m *uiModel) reconcileTranscriptWorktreeTransitionOutcome(outcome clientui.
 		)
 	} else {
 		statusCmd = m.sendTransientStatusWithNoticeID(
-			"Worktree "+string(outcome.Transition)+" completed",
+			"Worktree "+transcriptWorktreeTransitionLabel(outcome.Transition)+" completed",
 			uiStatusNoticeSuccess,
 			transientStatusDuration,
 			uiStatusNoticeReplace,
 			"",
 		)
 	}
-	refresh := m.startRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequestForCause(runtimeMainViewRefreshCauseWorktreeMutation)).cmd
+	refresh := m.startRuntimeMainViewRefresh(nil)
 	if m.worktrees.open {
 		return tea.Batch(statusCmd, refresh, m.requestWorktreeListCmd())
 	}
 	return tea.Batch(statusCmd, refresh)
+}
+
+func transcriptWorktreeTransitionLabel(kind transcriptpb.WorktreeTransitionKind) string {
+	switch kind {
+	case transcriptpb.WorktreeTransitionKind_WORKTREE_TRANSITION_KIND_ENTER:
+		return "enter"
+	case transcriptpb.WorktreeTransitionKind_WORKTREE_TRANSITION_KIND_LEAVE:
+		return "leave"
+	case transcriptpb.WorktreeTransitionKind_WORKTREE_TRANSITION_KIND_DELETE:
+		return "delete"
+	default:
+		panic("invalid worktree transition kind")
+	}
 }
 
 func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
@@ -165,11 +178,11 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 			status = "Created worktree " + worktreeui.DisplayName(created) + " but could not select it: " + err.Error()
 			feedbackCmd = m.sendTransientStatusWithNoticeID(status, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 			m.layout().syncViewport()
-			return handledUIFeatureUpdate(m, tea.Batch(overlayCmd, feedbackCmd, m.startRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequestForCause(runtimeMainViewRefreshCauseWorktreeMutation)).cmd, m.reconcileSpinnerTicking(false)))
+			return handledUIFeatureUpdate(m, tea.Batch(overlayCmd, feedbackCmd, m.startRuntimeMainViewRefresh(nil), m.reconcileSpinnerTicking(false)))
 		}
 		enterCmd := m.worktreeSwitchCommandForTarget(targetToken)
 		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, tea.Batch(overlayCmd, feedbackCmd, enterCmd, m.startRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequestForCause(runtimeMainViewRefreshCauseWorktreeMutation)).cmd, m.reconcileSpinnerTicking(false)))
+		return handledUIFeatureUpdate(m, tea.Batch(overlayCmd, feedbackCmd, enterCmd, m.startRuntimeMainViewRefresh(nil), m.reconcileSpinnerTicking(false)))
 	case worktreeSetupEventMsg:
 		if msg.token != m.worktrees.mutationToken {
 			m.layout().syncViewport()
@@ -218,7 +231,7 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 		feedbackCmd := m.sendTransientStatusWithNoticeID(status, uiStatusNoticeSuccess, transientStatusDuration, uiStatusNoticeReplace, "")
 		followUp = m.takeQueuedWorktreeTransitionCmd()
 		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, tea.Batch(overlayCmd, feedbackCmd, pendingWorkRefreshCmd, m.startRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequestForCause(runtimeMainViewRefreshCauseWorktreeMutation)).cmd, followUp, m.reconcileSpinnerTicking(false)))
+		return handledUIFeatureUpdate(m, tea.Batch(overlayCmd, feedbackCmd, pendingWorkRefreshCmd, m.startRuntimeMainViewRefresh(nil), followUp, m.reconcileSpinnerTicking(false)))
 	case worktreeDeleteDoneMsg:
 		if msg.token != m.worktrees.mutationToken {
 			m.layout().syncViewport()
@@ -252,7 +265,7 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 		}
 		feedbackCmd := m.sendTransientStatusWithNoticeID(worktreeDeleteSuccessStatus(msg.target, msg.resp), uiStatusNoticeSuccess, transientStatusDuration, uiStatusNoticeReplace, "")
 		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, tea.Batch(feedbackCmd, listCmd, m.startRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequestForCause(runtimeMainViewRefreshCauseWorktreeMutation)).cmd, m.reconcileSpinnerTicking(false)))
+		return handledUIFeatureUpdate(m, tea.Batch(feedbackCmd, listCmd, m.startRuntimeMainViewRefresh(nil), m.reconcileSpinnerTicking(false)))
 	case worktreeCreateTargetResolveDebounceMsg:
 		if !m.worktrees.open || m.worktrees.phase != uiWorktreeOverlayPhaseCreate {
 			m.layout().syncViewport()

@@ -2,15 +2,12 @@ package app
 
 import (
 	"context"
-	"fmt"
-	"sync"
-
 	checkpoint "core/internal/testharness/pty/analyzer"
 	"core/internal/testharness/pty/appfixture"
-	"core/shared/clientui"
-	"core/shared/transcript"
-
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
+	"sync"
 )
 
 type ptyCheckpointModel struct {
@@ -33,16 +30,14 @@ type ptyCheckpointScenarioState struct {
 }
 
 func newPTYCheckpointScenarioState(
-	targetFinalAssistantOrdinal appfixture.ScriptFinalAssistantOrdinal,
-) *ptyCheckpointScenarioState {
+	targetFinalAssistantOrdinal appfixture.ScriptFinalAssistantOrdinal) *ptyCheckpointScenarioState {
 	if targetFinalAssistantOrdinal == 0 {
 		panic("create PTY checkpoint scenario state with invalid target final assistant ordinal")
 	}
 	return &ptyCheckpointScenarioState{
 		targetFinalAssistantOrdinal: targetFinalAssistantOrdinal,
 		completed:                   make(chan struct{}),
-		finalApplied:                make(chan struct{}),
-	}
+		finalApplied:                make(chan struct{})}
 }
 
 func (state *ptyCheckpointScenarioState) markScenarioComplete() {
@@ -135,8 +130,7 @@ func (state *ptyCheckpointScenarioState) claimToolStarted() bool {
 func newPTYCheckpointModel(
 	inner tea.Model,
 	output *checkpoint.Writer,
-	scenario *ptyCheckpointScenarioState,
-) *ptyCheckpointModel {
+	scenario *ptyCheckpointScenarioState) *ptyCheckpointModel {
 	if inner == nil {
 		panic("create PTY checkpoint model with nil inner model")
 	}
@@ -245,8 +239,7 @@ func ongoingAssistantFinalCandidate(model tea.Model, msg tea.Msg) ptyOngoingAssi
 	}
 	return ptyOngoingAssistantFinalCandidate{
 		acceptance:        acceptance,
-		terminalImmediate: appModel.ongoingTranscript.normalOwned && appModel.nativeOngoingSurfaceActive(),
-	}
+		terminalImmediate: appModel.ongoingTranscript.normalOwned && appModel.nativeOngoingSurfaceActive()}
 }
 
 func (candidate ptyOngoingAssistantFinalCandidate) acceptedBy(model tea.Model) bool {
@@ -268,8 +261,7 @@ type ptyOngoingTranscriptAcceptanceCandidate struct {
 
 func ongoingTranscriptAcceptanceCandidate(
 	model tea.Model,
-	event ongoingTranscriptEvent,
-) ptyOngoingTranscriptAcceptanceCandidate {
+	event ongoingTranscriptEvent) ptyOngoingTranscriptAcceptanceCandidate {
 	appModel, ok := model.(*uiModel)
 	if !ok ||
 		event.Kind != ongoingTranscriptEventMessage ||
@@ -280,8 +272,7 @@ func ongoingTranscriptAcceptanceCandidate(
 	}
 	return ptyOngoingTranscriptAcceptanceCandidate{
 		sequence: event.Message.Sequence,
-		valid:    true,
-	}
+		valid:    true}
 }
 
 func (candidate ptyOngoingTranscriptAcceptanceCandidate) acceptedBy(model tea.Model) bool {
@@ -297,12 +288,10 @@ func (candidate ptyOngoingTranscriptAcceptanceCandidate) acceptedBy(model tea.Mo
 
 func ongoingToolStartCandidate(
 	model tea.Model,
-	msg tea.Msg,
-) ptyOngoingTranscriptAcceptanceCandidate {
+	msg tea.Msg) ptyOngoingTranscriptAcceptanceCandidate {
 	event, ok := ptyCheckpointTranscriptEvent(msg)
 	if !ok ||
-		event.Kind != ongoingTranscriptEventMessage ||
-		!isTranscriptMessageKind(event.Message, clientui.TranscriptMessageToolStart) {
+		event.Kind != ongoingTranscriptEventMessage || event.Message.GetEvent().GetToolStart() == nil {
 		return ptyOngoingTranscriptAcceptanceCandidate{}
 	}
 	return ongoingTranscriptAcceptanceCandidate(model, event)
@@ -328,8 +317,7 @@ type ptyOngoingTargetFinalDrainCandidate struct {
 func ongoingTargetFinalDrainCandidate(
 	model tea.Model,
 	msg tea.Msg,
-	scenario *ptyCheckpointScenarioState,
-) ptyOngoingTargetFinalDrainCandidate {
+	scenario *ptyCheckpointScenarioState) ptyOngoingTargetFinalDrainCandidate {
 	ownership, ok := msg.(ongoingNormalBufferOwnedMsg)
 	if !ok || !ownership.owned {
 		return ptyOngoingTargetFinalDrainCandidate{}
@@ -350,8 +338,7 @@ func ongoingTargetFinalDrainCandidate(
 		if message.Sequence == targetSequence && isCommittedAssistantFinal(message) {
 			return ptyOngoingTargetFinalDrainCandidate{
 				sequence: targetSequence,
-				valid:    true,
-			}
+				valid:    true}
 		}
 	}
 	return ptyOngoingTargetFinalDrainCandidate{}
@@ -372,27 +359,8 @@ func (candidate ptyOngoingTargetFinalDrainCandidate) terminalAppliedBy(model tea
 		appModel.ongoingTranscript.lastSequence >= candidate.sequence
 }
 
-func isTranscriptMessageKind(message clientui.TranscriptMessage, kind clientui.TranscriptMessageKind) bool {
-	if message.Event().IsZero() {
-		return false
-	}
-	return message.Kind() == kind
-}
-
-func isCommittedAssistantFinal(message clientui.TranscriptMessage) bool {
-	if !isTranscriptMessageKind(message, clientui.TranscriptMessageCommittedRow) {
-		return false
-	}
-	row := message.Payload().(clientui.TranscriptCommittedRow)
-	if row.Kind != clientui.TranscriptRowAssistant || row.Assistant == nil {
-		return false
-	}
-	switch row.Assistant.Phase {
-	case transcript.AssistantPhaseFinal:
-		return true
-	default:
-		return false
-	}
+func isCommittedAssistantFinal(message *transcriptpb.Message) bool {
+	return message.GetEvent().GetCommittedRow().GetAssistant().GetPhase() == transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL
 }
 
 func (model *ptyCheckpointModel) View() string {

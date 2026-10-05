@@ -1,42 +1,41 @@
 package app
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
+	"core/shared/protoapi"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-func requireSessionLifecycleResult(t *testing.T, result serverapi.SessionDirective) serverapi.SessionDirective {
+func requireSessionLifecycleResult(t *testing.T, result *sessionlaunchpb.SessionDirective) *sessionlaunchpb.SessionDirective {
 	t.Helper()
-	if err := result.Validate(); err != nil {
+	if err := protoapi.Validate(result); err != nil {
 		t.Fatalf("expected valid session directive: %v", err)
 	}
 	return result
 }
 
-func requireSessionPickerDestination(t *testing.T, result serverapi.SessionDirective) {
+func requireSessionPickerDestination(t *testing.T, result *sessionlaunchpb.SessionDirective) {
 	t.Helper()
 	result = requireSessionLifecycleResult(t, result)
-	if result.Kind() != serverapi.SessionDirectiveSelectSession {
-		t.Fatalf("result kind = %q, want session picker", result.Kind())
+	if result.GetSelectSession() == nil {
+		t.Fatalf("result = %v, want session picker", result)
 	}
 }
 
-func requireSessionOpenDestination(t *testing.T, result serverapi.SessionDirective) string {
+func requireSessionOpenDestination(t *testing.T, result *sessionlaunchpb.SessionDirective) string {
 	t.Helper()
 	result = requireSessionLifecycleResult(t, result)
-	if result.Kind() != serverapi.SessionDirectiveLaunch {
-		t.Fatalf("result kind = %q, want existing session launch", result.Kind())
-	}
-	intent, present := result.LaunchIntent()
-	if !present || intent.Kind() != serverapi.SessionLaunchIntentOpenExisting {
+	intent, err := protoapi.SessionLaunchIntentFromProto(result.GetLaunch().GetIntent())
+	if err != nil || intent.Kind() != serverapi.SessionLaunchIntentOpenExisting {
 		t.Fatalf("launch intent = %+v, want existing session", intent)
 	}
 	sessionID, present := intent.SessionID()
@@ -46,14 +45,11 @@ func requireSessionOpenDestination(t *testing.T, result serverapi.SessionDirecti
 	return sessionID.String()
 }
 
-func requireSessionCreateDestination(t *testing.T, result serverapi.SessionDirective) *string {
+func requireSessionCreateDestination(t *testing.T, result *sessionlaunchpb.SessionDirective) *string {
 	t.Helper()
 	result = requireSessionLifecycleResult(t, result)
-	if result.Kind() != serverapi.SessionDirectiveLaunch {
-		t.Fatalf("result kind = %q, want new session launch", result.Kind())
-	}
-	intent, present := result.LaunchIntent()
-	if !present || intent.Kind() != serverapi.SessionLaunchIntentCreateNew {
+	intent, err := protoapi.SessionLaunchIntentFromProto(result.GetLaunch().GetIntent())
+	if err != nil || intent.Kind() != serverapi.SessionLaunchIntentCreateNew {
 		t.Fatalf("launch intent = %+v, want new session", intent)
 	}
 	origin, present := intent.CreateOrigin()
@@ -68,12 +64,12 @@ func requireSessionCreateDestination(t *testing.T, result serverapi.SessionDirec
 	return &value
 }
 
-func sessionLaunchRequestFromLifecycleResult(t *testing.T, result serverapi.SessionDirective, overrides serverapi.RunPromptOverrides) sessionLaunchRequest {
+func sessionLaunchRequestFromLifecycleResult(t *testing.T, result *sessionlaunchpb.SessionDirective, overrides serverapi.RunPromptOverrides) sessionLaunchRequest {
 	t.Helper()
 	result = requireSessionLifecycleResult(t, result)
-	intent, present := result.LaunchIntent()
-	if !present {
-		t.Fatal("lifecycle result omitted launch intent")
+	intent, err := protoapi.SessionLaunchIntentFromProto(result.GetLaunch().GetIntent())
+	if err != nil {
+		t.Fatal(err)
 	}
 	request, err := sessionLaunchRequestFromIntent(intent, overrides)
 	if err != nil {
@@ -102,27 +98,24 @@ func TestSessionLifecycleResultExitIsClientLocalStop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveSessionAction: %v", err)
 	}
-	if result.Kind() != serverapi.SessionDirectiveStop {
-		t.Fatalf("result kind = %q, want stop", result.Kind())
+	if result.GetStop() == nil {
+		t.Fatalf("result = %v, want stop", result)
 	}
 }
 
 func TestSessionLifecycleResultReauthenticationCompletesBeforeDispatch(t *testing.T) {
 	events := make([]string, 0, 3)
-	target := sessionLifecycleSessionID(t, "target-session")
-	want := serverapi.LaunchSessionDirective(
-		serverapi.OpenExistingSessionLaunchIntent(target),
-		serverapi.NewSessionLaunchPreparation(
-			nil,
-			serverapi.RestoreStoredDraftSessionDraftDisposition(),
-			serverapi.SessionAuthPreparationReauthenticate,
-		),
-	)
+	target := runtimeids.NewSessionID()
+	want, err := defaultSessionLaunchDirective(serverapi.OpenExistingSessionLaunchIntent(target))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want.GetLaunch().Preparation.Auth = sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_REAUTHENTICATE
 	result, err := resolveSessionAction(
 		context.Background(),
 		narrowSessionLifecycleServer{
 			lifecycle: &recordingSessionLifecycleClient{
-				resolveTransition: func(context.Context, serverapi.SessionResolveTransitionRequest) (serverapi.SessionDirective, error) {
+				resolveTransition: func(context.Context, *sessionlaunchpb.SessionResolveTransitionRequest) (*sessionlaunchpb.SessionDirective, error) {
 					events = append(events, "resolve")
 					return want, nil
 				},
@@ -148,20 +141,18 @@ func TestSessionLifecycleResultReauthenticationCompletesBeforeDispatch(t *testin
 
 func TestSessionLifecycleResultAuthFailureDoesNotFabricateResult(t *testing.T) {
 	authErr := errors.New("authentication canceled")
-	target := sessionLifecycleSessionID(t, "target-session")
+	target := runtimeids.NewSessionID()
 	result, err := resolveSessionAction(
 		context.Background(),
 		narrowSessionLifecycleServer{
 			lifecycle: &recordingSessionLifecycleClient{
-				resolveTransition: func(context.Context, serverapi.SessionResolveTransitionRequest) (serverapi.SessionDirective, error) {
-					return serverapi.LaunchSessionDirective(
-						serverapi.OpenExistingSessionLaunchIntent(target),
-						serverapi.NewSessionLaunchPreparation(
-							nil,
-							serverapi.RestoreStoredDraftSessionDraftDisposition(),
-							serverapi.SessionAuthPreparationReauthenticate,
-						),
-					), nil
+				resolveTransition: func(context.Context, *sessionlaunchpb.SessionResolveTransitionRequest) (*sessionlaunchpb.SessionDirective, error) {
+					directive, err := defaultSessionLaunchDirective(serverapi.OpenExistingSessionLaunchIntent(target))
+					if err != nil {
+						return nil, err
+					}
+					directive.GetLaunch().Preparation.Auth = sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_REAUTHENTICATE
+					return directive, nil
 				},
 			},
 			reauthenticate: func(context.Context, authInteractor) error {
@@ -175,40 +166,28 @@ func TestSessionLifecycleResultAuthFailureDoesNotFabricateResult(t *testing.T) {
 	if !errors.Is(err, authErr) {
 		t.Fatalf("error = %v, want auth cancellation", err)
 	}
-	if err := result.Validate(); err == nil {
+	if err := protoapi.Validate(result); err == nil {
 		t.Fatalf("auth failure fabricated lifecycle result %+v", result)
 	}
 }
 
-func requireSessionDirectiveWireEqual(t *testing.T, got serverapi.SessionDirective, want serverapi.SessionDirective) {
+func requireSessionDirectiveWireEqual(t *testing.T, got *sessionlaunchpb.SessionDirective, want *sessionlaunchpb.SessionDirective) {
 	t.Helper()
-	gotJSON, err := json.Marshal(got)
-	if err != nil {
-		t.Fatalf("Marshal directive: %v", err)
-	}
-	wantJSON, err := json.Marshal(want)
-	if err != nil {
-		t.Fatalf("Marshal expected directive: %v", err)
-	}
-	if !bytes.Equal(gotJSON, wantJSON) {
-		t.Fatalf("directive JSON = %s, want %s", gotJSON, wantJSON)
+	if !proto.Equal(got, want) {
+		t.Fatalf("directive = %v, want %v", got, want)
 	}
 }
 
 func TestInitialInputPolicyComesFromLifecycleResultNotTransitionAction(t *testing.T) {
-	target := sessionLifecycleSessionID(t, "target-session")
-	want := serverapi.LaunchSessionDirective(
-		serverapi.OpenExistingSessionLaunchIntent(target),
-		serverapi.NewSessionLaunchPreparation(
-			nil,
-			serverapi.RestoreStoredDraftSessionDraftDisposition(),
-			serverapi.SessionAuthPreparationKeepCurrent,
-		),
-	)
+	target := runtimeids.NewSessionID()
+	want, err := defaultSessionLaunchDirective(serverapi.OpenExistingSessionLaunchIntent(target))
+	if err != nil {
+		t.Fatal(err)
+	}
 	result, err := resolveSessionAction(
 		context.Background(),
 		narrowSessionLifecycleServer{lifecycle: &recordingSessionLifecycleClient{
-			resolveTransition: func(context.Context, serverapi.SessionResolveTransitionRequest) (serverapi.SessionDirective, error) {
+			resolveTransition: func(context.Context, *sessionlaunchpb.SessionResolveTransitionRequest) (*sessionlaunchpb.SessionDirective, error) {
 				return want, nil
 			},
 		}},
@@ -223,24 +202,24 @@ func TestInitialInputPolicyComesFromLifecycleResultNotTransitionAction(t *testin
 	if err != nil {
 		t.Fatalf("resolveSessionAction: %v", err)
 	}
-	preparation, ok := result.LaunchPreparation()
-	if !ok {
+	preparation := result.GetLaunch().GetPreparation()
+	if preparation == nil {
 		t.Fatal("launch result omitted preparation")
 	}
-	if preparation.DraftDisposition().Kind() != serverapi.SessionDraftDispositionRestoreStoredDraft {
-		t.Fatalf("input policy = %q, want restore stored draft", preparation.DraftDisposition().Kind())
+	if preparation.InputPolicy.GetRestoreStoredDraft() == nil {
+		t.Fatalf("input policy = %v, want restore stored draft", preparation.InputPolicy)
 	}
 }
 
 func TestSessionTransitionInitialInputPreservesOpenSessionOmission(t *testing.T) {
-	target := sessionLifecycleSessionID(t, "target-session")
-	var recorded serverapi.SessionResolveTransitionRequest
+	target := runtimeids.NewSessionID()
+	var recorded *sessionlaunchpb.SessionResolveTransitionRequest
 	_, err := resolveSessionAction(
 		context.Background(),
 		narrowSessionLifecycleServer{lifecycle: &recordingSessionLifecycleClient{
-			resolveTransition: func(_ context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionDirective, error) {
+			resolveTransition: func(_ context.Context, req *sessionlaunchpb.SessionResolveTransitionRequest) (*sessionlaunchpb.SessionDirective, error) {
 				recorded = req
-				return serverapi.StopSessionDirective(), nil
+				return &sessionlaunchpb.SessionDirective{Directive: &sessionlaunchpb.SessionDirective_Stop{Stop: &emptypb.Empty{}}}, nil
 			},
 		}},
 		nil,
@@ -258,17 +237,14 @@ func TestSessionTransitionInitialInputPreservesOpenSessionOmission(t *testing.T)
 	}
 }
 
-func requireAppLifecycleLaunch(t *testing.T, result serverapi.SessionDirective) (serverapi.SessionLaunchIntent, serverapi.SessionLaunchPreparation) {
+func requireAppLifecycleLaunch(t *testing.T, result *sessionlaunchpb.SessionDirective) (serverapi.SessionLaunchIntent, *sessionlaunchpb.SessionLaunchPreparation) {
 	t.Helper()
-	if result.Kind() != serverapi.SessionDirectiveLaunch {
-		t.Fatalf("result kind = %q, want launch", result.Kind())
+	intent, err := protoapi.SessionLaunchIntentFromProto(result.GetLaunch().GetIntent())
+	if err != nil {
+		t.Fatal(err)
 	}
-	intent, ok := result.LaunchIntent()
-	if !ok {
-		t.Fatal("launch result omitted intent")
-	}
-	preparation, ok := result.LaunchPreparation()
-	if !ok {
+	preparation := result.GetLaunch().GetPreparation()
+	if preparation == nil {
 		t.Fatal("launch result omitted preparation")
 	}
 	return intent, preparation

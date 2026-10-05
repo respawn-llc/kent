@@ -284,11 +284,11 @@ func TestForkAndCloneLeaveContextFactsAbsent(t *testing.T) {
 		t.Fatalf("append fork target: %v", err)
 	}
 
-	forked, _, err := ForkAtUserMessage(log, target.Seq(), "fork", testSessionCategory)
+	forked, _, err := ForkAtUserMessage(log, target.Seq(), "fork", testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("ForkAtUserMessage: %v", err)
 	}
-	cloned, err := CloneSession(log, "clone", testSessionCategory)
+	cloned, err := CloneSession(log, "clone", testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("CloneSession: %v", err)
 	}

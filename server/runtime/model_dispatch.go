@@ -39,7 +39,7 @@ func newObservedModelClient(client llm.Client) *observedModelClient {
 			if err != nil {
 				return llm.Response{}, err
 			}
-			if err := request.complete(response.Usage); err != nil {
+			if err := request.complete(response.ProviderEvidence, response.Usage); err != nil {
 				return llm.Response{}, &cacheObservationDispatchError{cause: err}
 			}
 			return response, nil
@@ -54,7 +54,7 @@ func newObservedModelClient(client llm.Client) *observedModelClient {
 			if err != nil {
 				return llm.CompactionResponse{}, err
 			}
-			if err := request.complete(response.Usage); err != nil {
+			if err := request.complete(response.ProviderEvidence, response.Usage); err != nil {
 				return llm.CompactionResponse{}, &cacheObservationDispatchError{cause: err}
 			}
 			return response, nil

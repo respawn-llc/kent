@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	"maps"
 	"sort"
 	"strings"
@@ -11,6 +12,23 @@ import (
 	askquestion "core/server/tools"
 	"core/shared/runtimeids"
 )
+
+func (s *pendingPromptStore) Visit(ctx context.Context, emit func(string, PendingPromptSnapshot) error) error {
+	var err error
+	s.sessions.Range(func(key, _ any) bool {
+		sessionID := key.(string)
+		for _, prompt := range s.List(sessionID) {
+			if err = ctx.Err(); err != nil {
+				return false
+			}
+			if err = emit(sessionID, prompt); err != nil {
+				return false
+			}
+		}
+		return true
+	})
+	return err
+}
 
 type PendingPromptSnapshot struct {
 	Request   askquestion.AskQuestionRequest
@@ -25,8 +43,8 @@ type pendingPromptStore struct {
 }
 
 func (s *pendingPromptStore) Begin(sessionID string, resource runtimeids.SessionResourceRef, scopeID runtimeids.ExecutionScopeID, req askquestion.AskQuestionRequest, createdAt time.Time) (PendingPromptSnapshot, bool) {
-	id, requestID := strings.TrimSpace(sessionID), strings.TrimSpace(req.ID)
-	if id == "" || requestID == "" {
+	id, toolCallID := strings.TrimSpace(sessionID), strings.TrimSpace(req.ToolCallID)
+	if id == "" || toolCallID == "" {
 		return PendingPromptSnapshot{}, false
 	}
 	snapshot := PendingPromptSnapshot{Request: req.Clone(), CreatedAt: createdAt, Resource: resource, ScopeID: scopeID}
@@ -35,7 +53,7 @@ func (s *pendingPromptStore) Begin(sessionID string, resource runtimeids.Session
 	if pending == nil {
 		pending = make(map[string]PendingPromptSnapshot)
 	}
-	pending[requestID] = snapshot
+	pending[toolCallID] = snapshot
 	s.sessions.Store(id, pending)
 	s.mu.Unlock()
 	return clonePendingPromptSnapshot(snapshot), true
@@ -107,7 +125,7 @@ func listPendingPrompts(pending map[string]PendingPromptSnapshot) []PendingPromp
 		items = append(items, clonePendingPromptSnapshot(item))
 	}
 	sort.Slice(items, func(i, j int) bool {
-		return sessionruntime.PendingPromptOrderLess(items[i].CreatedAt, items[i].Request.ID, items[j].CreatedAt, items[j].Request.ID)
+		return sessionruntime.PendingPromptOrderLess(items[i].CreatedAt, items[i].Request.ToolCallID, items[j].CreatedAt, items[j].Request.ToolCallID)
 	})
 	return items
 }

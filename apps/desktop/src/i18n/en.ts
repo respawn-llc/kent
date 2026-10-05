@@ -1,7 +1,14 @@
 import { workflowEditorEnglish } from "./workflowEditorEn";
+import { chatComposerEnglish } from "./chatComposerEn";
+import { chatSettingsEnglish } from "./chatSettingsEn";
+import { chatEnglish } from "./chatEn";
+import { chatGoalEnglish } from "./chatGoalEn";
+import { executionTargetEnglish } from "./executionTargetEn";
 
 export const englishResources = {
   translation: {
+    chatComposer: chatComposerEnglish,
+    chatSettings: chatSettingsEnglish,
     app: {
       title: "Kent",
       subtitle: "Workflow remote control",
@@ -40,11 +47,8 @@ export const englishResources = {
       collapse: "Collapse",
       expand: "Expand",
       loadingMore: "Loading more",
-      disconnected: "Server disconnected. Cached data remains visible; mutations are disabled.",
-      connected: "Connected",
-      reconnecting: "Reconnecting",
-      readOnly: "Read-only until connection returns.",
       attention: {
+        listenerFailed: "Live attention updates stopped",
         open: "Open",
         questionTitle: "Question",
         approvalTitle: "Action required",
@@ -52,12 +56,54 @@ export const englishResources = {
         questionFallback: "question from agent",
         approvalFallback: "action required",
         interruptedCurrentNodeFallback: "current node interrupted",
-        interruptedCurrentNodeStartupRecovery: "Kent recovered this node after restarting.",
         interruptedCurrentNodeScriptFailed: "The workflow script did not complete successfully.",
         interruptedCurrentNodeRuntimeFailed: "The workflow execution stopped unexpectedly.",
         interruptedCurrentNodeProtocolCap: "The workflow execution exceeded its safety limit.",
-        permissionDeniedTitle: "Native notifications are disabled",
-        permissionDeniedBody: "Kent will keep attention notifications inside the app.",
+      },
+    },
+    chatTranscript: {
+      thinking: "Thinking...",
+      working: "Working…",
+      compacting: "Compacting…",
+      running: "Running…",
+      reviewing: "Reviewing…",
+      thoughtDuration: "Thought for {{seconds}} seconds",
+      copy: "Copy",
+      copied: "Copied",
+      copyFailed: "Could not copy transcript content.",
+      edit: "Edit in a new Session",
+      editFailed: "Could not create an edited Session.",
+      editUnknownFailure: "Could not create an edited Session ({{code}}).",
+      editFailureRecovery:
+        "Your draft is unchanged. Try Edit again. If it keeps failing, report these details:\n\n{{diagnostic}}",
+      reviewerSuggestions_one: "Supervisor made {{count}} suggestion",
+      reviewerSuggestions_other: "Supervisor made {{count}} suggestions",
+      notice: {
+        thinkingSet: "Thinking set: {{effort}}",
+        cacheMiss: "Cache miss: {{reason}}",
+        cacheMissWithTokens: "Cache miss: {{reason}}, -{{tokens}} tokens",
+        cacheReasonCompaction: "compaction",
+        cacheReasonNonPostfix: "request was not a postfix of the previous request for the same cache key",
+        cacheReasonReviewerNonPostfix:
+          "supervisor request was not a postfix of the previous request for the same cache key",
+        cacheReasonReuseDropped: "postfix-compatible cache reuse disappeared",
+        cacheReasonReviewerReuseDropped: "postfix-compatible supervisor cache reuse disappeared",
+        cacheReasonUnknown: "{{reason}}",
+        compaction: "Context compacted",
+        compactionCount: "Context compacted for the {{ordinal}} time.",
+        repairFreshResource: "Closed {{count}} {{noun}} with no committed output while restoring the session",
+        repairLiveProviderRejection:
+          "Closed {{count}} interrupted {{noun}} with a synthetic result to repair the transcript after a provider error",
+        toolCall: "tool call",
+        toolCalls: "tool calls",
+        providerModelMismatch: "The provider served the request with {{served}} instead of {{requested}}",
+        worktreeEnter: "Switched worktree to {{name}}{{cwd}}",
+        worktreeEnterCwd: "Switched worktree to {{name}}: {{cwd}}",
+        worktreeExit: "Switched worktree to main workspace{{cwd}}",
+        worktreeExitCwd: "Switched worktree to main workspace: {{cwd}}",
+        worktree: "worktree",
+        sessionRebind: "Session rebound",
+        agentSteer: "Message from another agent",
       },
     },
     labels: {
@@ -142,6 +188,8 @@ export const englishResources = {
       workspacePickerError: "Workspace picker failed",
       workspacePlanError: "Workspace check failed",
       projectCreateWindowError: "Project creation window failed",
+      projectCreationObservationOverflow:
+        "Project creation notifications stopped because too many events arrived.",
       workspaceSelectionRequired: "Choose an existing project",
       workspaceSelectionRequiredBody:
         "This workspace is already linked to Kent projects. Open one from the project list instead of creating another.",
@@ -191,6 +239,7 @@ export const englishResources = {
         noPromptPreview: "No prompt preview",
       },
     },
+    chat: { ...chatEnglish, goal: chatGoalEnglish },
     projectEdit: {
       title: "Project",
       loadingTitle: "Loading project",
@@ -217,7 +266,6 @@ export const englishResources = {
       projectSaved: "Project saved.",
       defaultWorkspaceSaved: "Default workspace saved.",
       workspaceUnlinkBlocked: "Workspace cannot be unlinked yet.",
-      unlinkWindowError: "Workspace unlink window failed",
       unlinkWorkspace: "Unlink {{path}}",
       unlinkTitle: "Unlink workspace?",
       unlinkBody:
@@ -307,35 +355,15 @@ export const englishResources = {
       interruptFailed: "Task interrupt failed",
       resumeFailed: "Task resume failed",
       deleteFailed: "Task delete failed",
+      deleteTaskWorktreeBlocked:
+        "Task deletion is blocked by its worktree. Finish or move the other work using it, then retry.",
       invalidWorkflow: "Workflow validation blocks automation. Backlog tasks and comments remain available.",
       workflowIssues: "Workflow issues",
       invalidWorkflowUnknown: "Workflow must be fixed before automation can run.",
       editWorkflow: "Edit workflow {{name}}",
       horizontalScroll: "Board horizontal scroll",
     },
-    executionTargetContinuation: {
-      title: "Choose where this task runs",
-      choice: "Execution target",
-      policyRequiresSelection:
-        "This workflow asks you to choose an execution target the first time automation runs.",
-      configuredTargetUnavailable:
-        "The workflow's configured target is unavailable. Choose a task-local target to continue.",
-      mode_none: "Source workspace",
-      mode_noneHelp: "Run in the task's source workspace without a managed worktree.",
-      mode_head: "Current source HEAD",
-      mode_headHelp: "Create the managed worktree from the source repository's current commit.",
-      mode_default_branch: "Repository default branch",
-      mode_default_branchHelp: "Create the managed worktree from the repository's default branch.",
-      mode_custom_ref: "Custom Git revision",
-      mode_custom_refHelp: "Create the managed worktree from a branch, tag, or commit you specify.",
-      customRef: "Git revision",
-      continue: "Continue",
-      unavailable_invalid_revision: "The configured Git revision could not be resolved.",
-      unavailable_non_commit: "The configured Git revision does not resolve to a commit.",
-      unavailable_default_branch_missing: "The repository has no detectable default branch.",
-      unavailable_default_branch_ambiguous: "The repository default branch is ambiguous.",
-      unavailable_git_failure: "Git could not resolve the configured target.",
-    },
+    executionTargetContinuation: executionTargetEnglish,
     taskDependencyConfirmation: {
       title: "Start task ahead of deps?",
       body: "This task has {{count}} unsatisfied dependencies. Do you still want to start it?",
@@ -372,7 +400,24 @@ export const englishResources = {
       edit: "Edit",
       delete: "Delete",
     },
+    processes: {
+      activeCount_one: "{{count}} shell",
+      activeCount_other: "{{count}} shells",
+      sessionRequired: "Create a Session before opening its processes.",
+      title: "Processes",
+      loading: "Loading processes",
+      loadFailed: "Processes could not be loaded",
+      emptyTitle: "No background processes",
+      emptyBody: "Background processes will appear here.",
+      terminate: "Terminate {{id}}",
+      terminateFailed: "Process termination failed",
+      stopping: "Stopping",
+    },
     task: {
+      contextSelectionRequired:
+        "Move this Task and choose its context to continue. Move replaces all parallel positions and Join progress; existing conversations and files are preserved.",
+      accessApprovalIntro: "Agent wants to access a batch of files, but {{count}} are outside workspace dir:",
+      accessApprovalQuestion: "Allow this access?",
       sessionStarted: "Session started",
       title: "Task",
       identifier: "ID",
@@ -457,6 +502,7 @@ export const englishResources = {
       noCommentsTitle: "No comments yet",
       sessions: "Sessions",
       openInCli: "Open {{name}} in CLI",
+      openChat: "Open {{name}} in Chat",
       interruptChat: "Interrupt {{name}} Chat",
       openScript: "Open script",
       cliCommandCopied: "Copied command to clipboard",
@@ -472,6 +518,7 @@ export const englishResources = {
       submittingAnswer: "Submitting…",
       optionNumber: "Option number",
       recommended: "Recommended",
+      recommendedByAgent: "Recommended by the agent",
       neitherOption: "Neither",
       approvalDecisionAllowOnce: "Allow once",
       approvalDecisionAllowSession: "Allow for this session",

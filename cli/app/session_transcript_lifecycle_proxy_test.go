@@ -1,15 +1,15 @@
 package app
 
 import (
+	"core/internal/testharness/pty/appfixture"
+	"core/shared/clientui"
+	"core/shared/lifecyclecontract"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"core/internal/testharness/pty/appfixture"
-	"core/shared/clientui"
-	"core/shared/lifecyclecontract"
 )
 
 func TestClientLifecycleProxyEmitsInputRequiredWhenPendingPromptIsObserved(t *testing.T) {
@@ -20,7 +20,7 @@ func TestClientLifecycleProxyEmitsInputRequiredWhenPendingPromptIsObserved(t *te
 		"continue",
 	)
 
-	proxy.AcceptTranscript(clientui.NewTranscriptMessage(0, clientui.NewTranscriptEvent(prompt)))
+	proxy.AcceptTranscript(transcriptTestMessage(0, prompt))
 
 	event := appfixture.DecodeLifecycleHookEvents(
 		t,
@@ -31,10 +31,10 @@ func TestClientLifecycleProxyEmitsInputRequiredWhenPendingPromptIsObserved(t *te
 		t.Fatalf("decode lifecycle input details: %v", err)
 	}
 	if event.Category != lifecyclecontract.CategoryInputRequired ||
-		!event.OccurredAt.Equal(prompt.CreatedAt) ||
+		!event.OccurredAt.Equal(transcriptPromptCreatedAt(prompt)) ||
 		!event.Focused ||
 		details.Kind != lifecyclecontract.InputKindQuestion ||
-		details.Summary != prompt.Question {
+		details.Summary != transcriptPromptQuestion(prompt) {
 		t.Fatalf("observed pending prompt lifecycle event = %+v details=%+v", event, details)
 	}
 }
@@ -49,9 +49,9 @@ func TestClientLifecycleProxyEmitsInputRequiredForEachHydratedPendingPrompt(t *t
 		clientui.ApprovalDecisionDeny,
 	)
 	hydration := ongoingHydrationMessage(1)
-	hydrationPayload := hydration.Payload().(clientui.TranscriptHydration)
-	hydrationPayload.PendingPrompts = []clientui.TranscriptPrompt{question, approval}
-	hydration = clientui.NewTranscriptMessage(1, clientui.NewTranscriptEvent(hydrationPayload))
+	hydrationPayload := hydration.Event.GetHydration()
+	hydrationPayload.PendingPrompts = []*transcriptpb.Prompt{question, approval}
+	hydration = transcriptTestMessage(1, hydrationPayload)
 
 	proxy.AcceptTranscript(hydration)
 
@@ -70,8 +70,8 @@ func TestClientLifecycleProxyEmitsInputRequiredForEachHydratedPendingPrompt(t *t
 		}
 		summaries[details.Kind] = details.Summary
 	}
-	if summaries[lifecyclecontract.InputKindQuestion] != question.Question ||
-		summaries[lifecyclecontract.InputKindApproval] != approval.Question {
+	if summaries[lifecyclecontract.InputKindQuestion] != transcriptPromptQuestion(question) ||
+		summaries[lifecyclecontract.InputKindApproval] != transcriptPromptQuestion(approval) {
 		t.Fatalf("hydrated input-required summaries = %+v", summaries)
 	}
 }
@@ -100,9 +100,9 @@ func TestTurnQueueHooksEmitFocusedTaskCompletionWithoutNotificationEligibility(t
 	if err := json.Unmarshal(event.Details, &details); err != nil {
 		t.Fatalf("decode lifecycle completion details: %v", err)
 	}
-	result := message.Payload().(clientui.TranscriptLiveRunResult)
+	result := message.Event.GetLiveRunFinished()
 	if event.Category != lifecyclecontract.CategoryTaskComplete ||
-		!event.OccurredAt.Equal(result.FinishedAt) ||
+		!event.OccurredAt.Equal(result.FinishedAt.AsTime()) ||
 		!event.Focused ||
 		details.FinalAnswer != *result.FinalAnswer ||
 		details.WorkPerformed != result.WorkPerformed {

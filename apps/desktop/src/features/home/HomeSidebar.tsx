@@ -14,7 +14,6 @@ import type { useProjectPages } from "./useHomeData";
 export type HomeSidebarCategory = "projects" | "workflows";
 
 export function HomeSidebar({
-  disabled,
   onCategorySelect,
   onChooseWorkspace,
   onCreateWorkflow,
@@ -25,7 +24,6 @@ export function HomeSidebar({
   selectedCategory,
   selectedProjectID,
 }: Readonly<{
-  disabled: boolean;
   onCategorySelect: (category: HomeSidebarCategory) => void;
   onChooseWorkspace: () => void;
   onCreateWorkflow: () => void;
@@ -51,7 +49,7 @@ export function HomeSidebar({
     loadingLabel: t("states.loading"),
     message: activeQuery.isError ? errorMessage(activeQuery.error) : "",
     onRetry: () => {
-      void activeQuery.refetch();
+      activeQuery.refetch();
     },
     retryLabel: t("app.retry"),
   });
@@ -70,7 +68,6 @@ export function HomeSidebar({
       <div className="relative z-20 grid shrink-0 gap-[var(--space-2)] pt-[var(--space-3)]">
         <CategoryRow
           actionLabel={t("home.newProject")}
-          disabled={disabled}
           icon={<Folder size={18} strokeWidth={1.5} />}
           label={t("home.projectsPane")}
           onAction={onChooseWorkspace}
@@ -81,7 +78,6 @@ export function HomeSidebar({
         />
         <CategoryRow
           actionLabel={t("workflowLibrary.createWorkflow")}
-          disabled={disabled}
           icon={<Workflow size={18} strokeWidth={1.5} />}
           label={t("workflowLibrary.homeIslandTitle")}
           onAction={onCreateWorkflow}
@@ -104,7 +100,7 @@ export function HomeSidebar({
               items={projectItems}
               loadingLabel={t("app.loadingMore")}
               onLoadMore={() => {
-                void projectsQuery.fetchNextPage();
+                projectsQuery.fetchNextPage();
               }}
               paddingEnd={24}
               paddingStart={24}
@@ -131,7 +127,7 @@ export function HomeSidebar({
               items={workflows}
               loadingLabel={t("app.loadingMore")}
               onLoadMore={() => {
-                void workflowsQuery.fetchNextPage();
+                workflowsQuery.fetchNextPage();
               }}
               paddingEnd={24}
               paddingStart={24}
@@ -159,7 +155,6 @@ export function HomeSidebar({
 
 function CategoryRow({
   actionLabel,
-  disabled,
   icon,
   label,
   onAction,
@@ -167,7 +162,6 @@ function CategoryRow({
   selected,
 }: Readonly<{
   actionLabel: string;
-  disabled: boolean;
   icon: ReactNode;
   label: string;
   onAction: () => void;
@@ -194,7 +188,6 @@ function CategoryRow({
       <button
         aria-label={actionLabel}
         className="absolute right-[calc(var(--space-3)/2)] top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center justify-items-end rounded-full text-[var(--color-on-island)] disabled:opacity-55"
-        disabled={disabled}
         onClick={onAction}
         type="button"
       >

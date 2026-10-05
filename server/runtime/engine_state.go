@@ -30,13 +30,12 @@ func (e *Engine) overlayLiveStreaming(snapshot *ChatSnapshot) {
 }
 
 type TranscriptSegmentPage struct {
-	Snapshot                          ChatSnapshot
-	OlderCursor                       int64
-	HasMoreAbove                      bool
-	NewerCursor                       int64
-	HasMoreBelow                      bool
-	LatestRollbackCandidate           *rollbacktarget.CandidateLocator
-	LastCommittedAssistantFinalAnswer *string
+	Snapshot                ChatSnapshot
+	OlderCursor             int64
+	HasMoreAbove            bool
+	NewerCursor             int64
+	HasMoreBelow            bool
+	LatestRollbackCandidate *rollbacktarget.CandidateLocator
 }
 
 type TranscriptEventLogReader interface {
@@ -103,12 +102,11 @@ func segmentPageFromWindow(window session.EventRecordWindow, cacheWarningMode co
 		}
 	}
 	return TranscriptSegmentPage{
-		Snapshot:                          scan.CollectedPageSnapshot(),
-		OlderCursor:                       window.StartOffset,
-		HasMoreAbove:                      !window.ReachedStart,
-		NewerCursor:                       window.EndOffset,
-		HasMoreBelow:                      !window.ReachedEnd,
-		LastCommittedAssistantFinalAnswer: scan.LastCommittedAssistantFinalAnswer(),
+		Snapshot:     scan.CollectedPageSnapshot(),
+		OlderCursor:  window.StartOffset,
+		HasMoreAbove: !window.ReachedStart,
+		NewerCursor:  window.EndOffset,
+		HasMoreBelow: !window.ReachedEnd,
 	}, nil
 }
 
@@ -376,11 +374,11 @@ func (e *Engine) SetThinkingLevel(ctx context.Context, level string) error {
 	return err
 }
 
-// ApplyPreparedChatSettings updates the exact live runtime in one ordered
-// operation after Chat Settings has completed all fallible preparation and
+// AcceptPreparedChatSettings accepts one ordered update for the exact live
+// runtime after Chat Settings has completed all fallible preparation and
 // persistence.
-func (e *Engine) ApplyPreparedChatSettings(settings session.ChatSettings) error {
-	_, err := awaitEngineRuntimeOperation(context.Background(), e, func(context.Context) (struct{}, error) {
+func (e *Engine) AcceptPreparedChatSettings(settings session.ChatSettings) error {
+	_, accepted := trySubmitEngineRuntimeOperation(e, func(context.Context) (struct{}, error) {
 		e.mu.Lock()
 		e.cfg.ThinkingLevel = strings.TrimSpace(settings.Thinking)
 		e.cfg.FastModeEnabled = settings.Fast
@@ -396,7 +394,10 @@ func (e *Engine) ApplyPreparedChatSettings(settings session.ChatSettings) error 
 		e.mu.Unlock()
 		return struct{}{}, nil
 	})
-	return err
+	if !accepted {
+		return ErrEngineClosed
+	}
+	return nil
 }
 
 // SetWorkflowThinkingValue applies a workflow-owned thinking value through the
@@ -414,13 +415,30 @@ func (e *Engine) SetWorkflowThinkingValue(value workflow.ThinkingValue) error {
 // ClearWorkflowThinkingValue removes a workflow-owned thinking override while
 // preserving the current prompt-cache lineage and contract generation.
 func (e *Engine) ClearWorkflowThinkingValue() error {
-	_, err := awaitEngineRuntimeOperation(context.Background(), e, func(context.Context) (struct{}, error) {
-		return struct{}{}, e.setThinkingValue("")
+	_, err := awaitEngineRuntimeOperation(context.Background(), e, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, e.clearThinkingValue(ctx)
 	})
 	return err
 }
 
+func (e *Engine) clearThinkingValue(ctx context.Context) error {
+	prepared, err := e.reloadPromptFacingSnapshotConfig(ctx)
+	if err != nil {
+		return err
+	}
+	if err := e.store.SetThinkingOverride(nil); err != nil {
+		return err
+	}
+	e.mu.Lock()
+	e.cfg.ThinkingLevel = prepared.ConfiguredThinking
+	e.mu.Unlock()
+	return nil
+}
+
 func (e *Engine) setThinkingValue(value string) error {
+	if err := e.store.SetThinkingOverride(&value); err != nil {
+		return err
+	}
 	e.mu.Lock()
 	e.cfg.ThinkingLevel = strings.TrimSpace(value)
 	e.mu.Unlock()
@@ -429,7 +447,7 @@ func (e *Engine) setThinkingValue(value string) error {
 
 func (e *Engine) SetFastModeEnabled(enabled bool) (bool, error) {
 	if enabled && !e.FastModeAvailable() {
-		return false, errors.New("fast mode is only available for OpenAI-based Responses providers")
+		return false, errors.New("fast mode is unavailable for the selected provider connection")
 	}
 	return awaitEngineRuntimeOperation(context.Background(), e, func(context.Context) (bool, error) {
 		changed := e.localFastModeEnabledChange(enabled)
@@ -669,11 +687,11 @@ func (e *Engine) FastModeEnabled() bool {
 }
 
 func (e *Engine) FastModeAvailable() bool {
-	caps, err := e.providerCapabilities(context.Background())
-	if err != nil {
+	caps := e.cfg.ProviderCapabilitiesOverride
+	if caps == nil {
 		return false
 	}
-	return llm.SupportsFastModeProvider(caps)
+	return llm.SupportsFastModeProvider(*caps)
 }
 
 func (e *Engine) ReviewerFrequency() string {

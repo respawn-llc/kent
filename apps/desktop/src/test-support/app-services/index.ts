@@ -5,17 +5,31 @@ import {
   ServerService,
 } from "@app/server-api-contract/gen/kent/api/server/server_pb";
 import { ProjectCatalogService } from "@app/server-api-contract/gen/kent/api/project/project_pb";
+import {
+  ProjectLabelService,
+  ProjectSubscriptionService,
+  WorkflowSubscriptionService,
+} from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
+import {
+  AttentionNotificationService,
+  AttentionReadService,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
+import { TaskCommentService } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RegistryProvider } from "@effect/atom-react";
 import { createElement, useMemo, type ReactNode } from "react";
 import { I18nextProvider } from "react-i18next";
 
 import { ApiClient, protocolVersion } from "@/api/composition";
 import {
   AppServicesProvider,
+  createAppLogger,
+  projectEventDiagnostics,
   StatusProvider,
   TaskSearchMemoryProvider,
+  WindowFocusProvider,
   WindowChromeTitleProvider,
-  type AppLogger,
+  type AppObservationLogger,
   type AppLogLevel,
   type AppServices,
 } from "@/app-facade";
@@ -30,7 +44,7 @@ export type TestLogEntry = Readonly<{
   message: string;
 }>;
 
-export type TestLogger = AppLogger &
+export type TestLogger = AppObservationLogger &
   Readonly<{
     entries(): readonly TestLogEntry[];
   }>;
@@ -52,19 +66,22 @@ export type CreateTestServicesOptions = Readonly<{
 export function TestAppProviders({
   children,
   services,
+  queryClient: suppliedQueryClient,
 }: Readonly<{
   children: ReactNode;
   services: AppServices;
+  queryClient?: QueryClient;
 }>) {
   const queryClient = useMemo(
     () =>
+      suppliedQueryClient ??
       new QueryClient({
         defaultOptions: {
           mutations: { retry: false },
           queries: { retry: false },
         },
       }),
-    [],
+    [suppliedQueryClient],
   );
   return createElement(
     I18nextProvider,
@@ -72,11 +89,15 @@ export function TestAppProviders({
     createElement(
       QueryClientProvider,
       { client: queryClient },
-      createElement(AppServicesProvider, {
-        services,
-        children: createElement(WindowChromeTitleProvider, {
-          children: createElement(StatusProvider, {
-            children: createElement(TaskSearchMemoryProvider, { children }),
+      createElement(RegistryProvider, {
+        children: createElement(AppServicesProvider, {
+          services,
+          children: createElement(WindowFocusProvider, {
+            children: createElement(WindowChromeTitleProvider, {
+              children: createElement(StatusProvider, {
+                children: createElement(TaskSearchMemoryProvider, { children }),
+              }),
+            }),
           }),
         }),
       }),
@@ -90,15 +111,16 @@ export function createTestServices(
   options: CreateTestServicesOptions = {},
 ): TestAppServices {
   const transport = new FakeRpcTransport(routes);
+  const logger = createTestLogger();
   const resolvedNativeBridge =
     nativeBridge ??
     createBrowserNativeBridge(options.platform === undefined ? {} : { platform: options.platform });
   return {
-    api: new ApiClient(transport),
+    api: new ApiClient(transport, projectEventDiagnostics(logger)),
     debugThemeOverrideEnabled: options.debugThemeOverrideEnabled ?? false,
     endpoint: "ws://127.0.0.1:53082/rpc",
     homePath: options.homePath ?? "",
-    logger: createTestLogger(),
+    logger,
     nativeBridge: resolvedNativeBridge,
     protocolVersion,
     storageNamespace: {
@@ -111,10 +133,11 @@ export function createTestServices(
 
 function createTestLogger(): TestLogger {
   const entries: TestLogEntry[] = [];
+  const logger = createAppLogger(async (level, message, context = {}) => {
+    entries.push({ context, level, message });
+  });
   return {
-    async append(level, message, context = {}) {
-      entries.push({ context, level, message });
-    },
+    ...logger,
     entries() {
       return entries.slice();
     },
@@ -122,6 +145,24 @@ function createTestLogger(): TestLogger {
 }
 
 export const startupRoutes: readonly FakeRoute[] = [
+  {
+    subscriptionDescriptor: ProjectSubscriptionService.method.subscribe,
+    startResult: create(ProjectSubscriptionService.method.subscribe.output, {
+      outcome: { case: "success", value: {} },
+    }),
+  },
+  {
+    subscriptionDescriptor: WorkflowSubscriptionService.method.subscribe,
+    startResult: create(WorkflowSubscriptionService.method.subscribe.output, {
+      outcome: { case: "success", value: {} },
+    }),
+  },
+  {
+    subscriptionDescriptor: AttentionNotificationService.method.subscribe,
+    startResult: create(AttentionNotificationService.method.subscribe.output, {
+      outcome: { case: "success", value: {} },
+    }),
+  },
   {
     descriptor: ServerService.method.getReadiness,
     result: create(GetReadinessResultSchema, {
@@ -132,10 +173,7 @@ export const startupRoutes: readonly FakeRoute[] = [
             ready: true,
             serverId: "server-1",
             serverVersion: "1.3.0",
-            serverBuild: "1.3.0",
             protocolVersion,
-            authReady: true,
-            authRequired: true,
             endpoint: "ws://127.0.0.1:53082/rpc",
             subagentRoles: [{ name: "default" }, { name: "fast" }, { name: "coder" }, { name: "reviewer" }],
             causes: [],
@@ -157,28 +195,24 @@ export const startupRoutes: readonly FakeRoute[] = [
     }),
   },
   {
-    method: "workflow.attention.list",
-    result: {
-      items: [],
-      next_page_token: "",
-      generated_at_unix_ms: 1,
-    },
-  },
-  {
-    method: "workflow.task.comment.list",
-    result: {
-      items: [],
-      next_offset: null,
-      total_count: 0,
-    },
-  },
-  {
-    method: "workflow.project.label.list",
-    result: {
-      catalog: {
-        project_id: "project-1",
-        labels: [],
+    descriptor: AttentionReadService.method.list,
+    result: create(AttentionReadService.method.list.output, {
+      outcome: {
+        case: "success",
+        value: {
+          generatedAt: { seconds: 0n, nanos: 1_000_000 },
+        },
       },
-    },
+    }),
+  },
+  {
+    descriptor: TaskCommentService.method.list,
+    result: create(TaskCommentService.method.list.output, { outcome: { case: "success", value: {} } }),
+  },
+  {
+    descriptor: ProjectLabelService.method.list,
+    result: create(ProjectLabelService.method.list.output, {
+      outcome: { case: "success", value: { catalog: { projectId: "project-1", labels: [] } } },
+    }),
   },
 ];

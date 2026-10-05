@@ -2,6 +2,7 @@ package workflowview
 
 import (
 	"context"
+	"core/internal/testharness/workflowfixture"
 	"os/exec"
 	"slices"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"core/server/workflow"
 	"core/server/workflowexecution"
 	"core/server/workflowstore"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
 )
 
@@ -54,36 +56,36 @@ func TestTaskSearchFindsAndFiltersCanonicalTaskSources(t *testing.T) {
 		t.Fatalf("CreateTask second project: %v", err)
 	}
 
-	response, err := search.Search(fixture.ctx, serverapi.TaskSearchRequest{
-		Mode:            serverapi.TaskSearchModeLiteral,
+	response, err := search.Search(fixture.ctx, &taskpb.SearchRequest{
+		Mode:            taskpb.SearchMode_SEARCH_MODE_LITERAL,
 		Query:           "needle",
 		Context:         serverapi.TaskSearchDefaultContext,
-		ProjectIDs:      []string{fixture.binding.ProjectID},
-		StatusKinds:     []serverapi.WorkflowTaskStatusKind{serverapi.WorkflowTaskStatusKindBacklog},
+		ProjectIds:      []string{fixture.binding.ProjectID},
+		StatusKinds:     []taskpb.TaskStatusKind{taskpb.TaskStatusKind_TASK_STATUS_KIND_BACKLOG},
 		IncludeComments: true,
 		PageSize:        serverapi.TaskSearchDefaultPageSize,
 	})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if len(response.Groups) != 1 || response.Groups[0].TaskID != string(first.ID) {
+	if len(response.Groups) != 1 || response.Groups[0].TaskId != string(first.ID) {
 		t.Fatalf("filtered search response = %+v", response)
 	}
 	group := response.Groups[0]
-	if group.Status.Kind != serverapi.WorkflowTaskStatusKindBacklog ||
+	if group.Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_BACKLOG ||
 		group.TotalHitCount != 4 ||
 		len(group.Hits) != 4 ||
-		group.Hits[0].Source.Kind != serverapi.TaskSearchSourceKindTitle ||
-		group.Hits[1].Source.Kind != serverapi.TaskSearchSourceKindBody ||
-		group.Hits[2].Source.Kind != serverapi.TaskSearchSourceKindBody ||
-		group.Hits[3].Source.Kind != serverapi.TaskSearchSourceKindComment ||
-		group.Hits[3].Source.CommentID == nil ||
-		*group.Hits[3].Source.CommentID != comment.ID {
+		group.Hits[0].Source.Kind != taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_TITLE ||
+		group.Hits[1].Source.Kind != taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_BODY ||
+		group.Hits[2].Source.Kind != taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_BODY ||
+		group.Hits[3].Source.Kind != taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_COMMENT ||
+		group.Hits[3].Source.CommentId == nil ||
+		*group.Hits[3].Source.CommentId != comment.ID {
 		t.Fatalf("filtered search group = %+v", group)
 	}
 
-	withoutComments, err := search.Search(fixture.ctx, serverapi.TaskSearchRequest{
-		Mode:     serverapi.TaskSearchModeFTS5,
+	withoutComments, err := search.Search(fixture.ctx, &taskpb.SearchRequest{
+		Mode:     taskpb.SearchMode_SEARCH_MODE_FTS5,
 		Query:    "comment:needle",
 		Context:  serverapi.TaskSearchDefaultContext,
 		PageSize: serverapi.TaskSearchDefaultPageSize,
@@ -129,27 +131,27 @@ func TestTaskSearchProjectScopedNumericShortIDRanksExactTaskFirst(t *testing.T) 
 		t.Fatalf("CreateTask second Project: %v", err)
 	}
 
-	response, err := search.Search(fixture.ctx, serverapi.TaskSearchRequest{
-		Mode:       serverapi.TaskSearchModeLiteral,
+	response, err := search.Search(fixture.ctx, &taskpb.SearchRequest{
+		Mode:       taskpb.SearchMode_SEARCH_MODE_LITERAL,
 		Query:      "345",
 		Context:    serverapi.TaskSearchDefaultContext,
-		ProjectIDs: []string{fixture.binding.ProjectID},
+		ProjectIds: []string{fixture.binding.ProjectID},
 		PageSize:   serverapi.TaskSearchDefaultPageSize,
 	})
 	if err != nil {
 		t.Fatalf("Search numeric Short ID: %v", err)
 	}
 	if len(response.Groups) != 2 ||
-		response.Groups[0].TaskID != string(exact.ID) ||
-		response.Groups[1].TaskID != string(text.ID) {
+		response.Groups[0].TaskId != string(exact.ID) ||
+		response.Groups[1].TaskId != string(text.ID) {
 		t.Fatalf("Project-scoped numeric Short ID response = %+v", response)
 	}
 	hits := response.Groups[0].Hits
 	if len(hits) != 1 ||
 		hits[0].Ordinal != 1 ||
-		hits[0].Source.Kind != serverapi.TaskSearchSourceKindShortID ||
-		hits[0].Literal == nil ||
-		hits[0].Literal.Match != "345" {
+		hits[0].Source.Kind != taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_SHORT_ID ||
+		hits[0].GetLiteral() == nil ||
+		hits[0].GetLiteral().Match != "345" {
 		t.Fatalf("exact Short ID hits = %+v", hits)
 	}
 }
@@ -165,11 +167,11 @@ func TestTaskSearchFullShortIDIgnoresTextCaseSensitivity(t *testing.T) {
 		t.Fatalf("Search lowercase full Short ID: %v", err)
 	}
 	if len(response.Groups) != 1 ||
-		response.Groups[0].TaskID != string(task.ID) ||
+		response.Groups[0].TaskId != string(task.ID) ||
 		len(response.Groups[0].Hits) != 1 ||
-		response.Groups[0].Hits[0].Source.Kind != serverapi.TaskSearchSourceKindShortID ||
-		response.Groups[0].Hits[0].Literal == nil ||
-		response.Groups[0].Hits[0].Literal.Match != task.ShortID {
+		response.Groups[0].Hits[0].Source.Kind != taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_SHORT_ID ||
+		response.Groups[0].Hits[0].GetLiteral() == nil ||
+		response.Groups[0].Hits[0].GetLiteral().Match != task.ShortID {
 		t.Fatalf("lowercase full Short ID response = %+v", response)
 	}
 }
@@ -211,9 +213,9 @@ func TestTaskSearchGlobalNumericShortIDReturnsEveryProjectWithDeterministicTies(
 	}
 	for index, wantTaskID := range wantTaskIDs {
 		group := response.Groups[index]
-		if group.TaskID != wantTaskID ||
+		if group.TaskId != wantTaskID ||
 			len(group.Hits) != 1 ||
-			group.Hits[0].Source.Kind != serverapi.TaskSearchSourceKindShortID {
+			group.Hits[0].Source.Kind != taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_SHORT_ID {
 			t.Fatalf("global numeric Short ID group %d = %+v, want Task %s", index, group, wantTaskID)
 		}
 	}
@@ -247,12 +249,12 @@ func TestTaskSearchShortIDMaterializesFirstRepeatedOccurrence(t *testing.T) {
 		t.Fatalf("Search repeated Short ID substring: %v", err)
 	}
 	if len(response.Groups) != 1 ||
-		response.Groups[0].TaskID != string(task.ID) ||
+		response.Groups[0].TaskId != string(task.ID) ||
 		len(response.Groups[0].Hits) != 1 ||
-		response.Groups[0].Hits[0].Literal == nil {
+		response.Groups[0].Hits[0].GetLiteral() == nil {
 		t.Fatalf("repeated Short ID response = %+v", response)
 	}
-	literal := response.Groups[0].Hits[0].Literal
+	literal := response.Groups[0].Hits[0].GetLiteral()
 	if literal.Before != "" || literal.Match != "KENT" || literal.After != "KENT-1" {
 		t.Fatalf("repeated Short ID fragment = %+v, want first left-to-right occurrence", literal)
 	}
@@ -262,7 +264,7 @@ func TestTaskSearchReflectsTaskAndCommentMutationsImmediately(t *testing.T) {
 	fixture, search := newTaskSearchFixture(t, false)
 	task := createTaskSearchTask(t, fixture, "Mutation", "needle body")
 	request := taskSearchRequest("needle")
-	assertTaskSearchTask(t, fixture.ctx, search, request, task.ID, serverapi.WorkflowTaskStatusKindBacklog)
+	assertTaskSearchTask(t, fixture.ctx, search, request, task.ID, taskpb.TaskStatusKind_TASK_STATUS_KIND_BACKLOG)
 
 	replacement := "replacement body"
 	if _, err := fixture.store.UpdateTask(fixture.ctx, workflowstore.UpdateTaskRequest{TaskID: task.ID, Body: &replacement}); err != nil {
@@ -279,7 +281,7 @@ func TestTaskSearchReflectsTaskAndCommentMutationsImmediately(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search after comment create: %v", err)
 	}
-	if len(response.Groups) != 1 || len(response.Groups[0].Hits) != 1 || response.Groups[0].Hits[0].Source.Kind != serverapi.TaskSearchSourceKindComment {
+	if len(response.Groups) != 1 || len(response.Groups[0].Hits) != 1 || response.Groups[0].Hits[0].Source.Kind != taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_COMMENT {
 		t.Fatalf("search after Comment create = %+v", response)
 	}
 	if err := fixture.store.DeleteComment(fixture.ctx, comment.ID); err != nil {
@@ -293,18 +295,18 @@ func TestTaskSearchFiltersDurableCurrentNodeStatuses(t *testing.T) {
 		name             string
 		requiresApproval bool
 		prepare          func(t *testing.T, fixture currentNodeViewFixture, task workflowstore.TaskRecord)
-		want             serverapi.WorkflowTaskStatusKind
+		want             taskpb.TaskStatusKind
 	}{
 		{
 			name: "backlog",
-			want: serverapi.WorkflowTaskStatusKindBacklog,
+			want: taskpb.TaskStatusKind_TASK_STATUS_KIND_BACKLOG,
 		},
 		{
 			name: "active",
 			prepare: func(t *testing.T, fixture currentNodeViewFixture, task workflowstore.TaskRecord) {
 				startTaskSearchTask(t, fixture, task)
 			},
-			want: serverapi.WorkflowTaskStatusKindActive,
+			want: taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE,
 		},
 		{
 			name: "interrupted",
@@ -319,34 +321,34 @@ func TestTaskSearchFiltersDurableCurrentNodeStatuses(t *testing.T) {
 					t.Fatalf("InterruptCurrentNode: %v", err)
 				}
 			},
-			want: serverapi.WorkflowTaskStatusKindInterrupted,
+			want: taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED,
 		},
 		{
 			name:             "waiting approval",
 			requiresApproval: true,
 			prepare: func(t *testing.T, fixture currentNodeViewFixture, task workflowstore.TaskRecord) {
 				started := startTaskSearchTask(t, fixture, task)
-				if _, err := fixture.store.CompleteCurrentNode(fixture.ctx, workflowstore.CurrentNodeCompletionRequest{
+				if _, err := workflowfixture.CompleteCurrentNode(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.CurrentNodeCompletionRequest{
 					Source:       started.currentNode,
 					TransitionID: "done",
 				}); err != nil {
 					t.Fatalf("CompleteCurrentNode: %v", err)
 				}
 			},
-			want: serverapi.WorkflowTaskStatusKindWaitingApproval,
+			want: taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_APPROVAL,
 		},
 		{
 			name: "done",
 			prepare: func(t *testing.T, fixture currentNodeViewFixture, task workflowstore.TaskRecord) {
 				started := startTaskSearchTask(t, fixture, task)
-				if _, err := fixture.store.CompleteCurrentNode(fixture.ctx, workflowstore.CurrentNodeCompletionRequest{
+				if _, err := workflowfixture.CompleteCurrentNode(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.CurrentNodeCompletionRequest{
 					Source:       started.currentNode,
 					TransitionID: "done",
 				}); err != nil {
 					t.Fatalf("CompleteCurrentNode: %v", err)
 				}
 			},
-			want: serverapi.WorkflowTaskStatusKindDone,
+			want: taskpb.TaskStatusKind_TASK_STATUS_KIND_DONE,
 		},
 	}
 	for _, test := range tests {
@@ -357,7 +359,7 @@ func TestTaskSearchFiltersDurableCurrentNodeStatuses(t *testing.T) {
 				test.prepare(t, fixture, task)
 			}
 			request := taskSearchRequest("needle")
-			request.StatusKinds = []serverapi.WorkflowTaskStatusKind{test.want}
+			request.StatusKinds = []taskpb.TaskStatusKind{test.want}
 			assertTaskSearchTask(t, fixture.ctx, search, request, task.ID, test.want)
 		})
 	}
@@ -410,13 +412,13 @@ func TestTaskSearchFiltersQueuedAndRunningCurrentNodeExecutions(t *testing.T) {
 	search = newTaskSearch(t, fixture.metadata, projection)
 	for _, test := range []struct {
 		task workflowstore.TaskRecord
-		kind serverapi.WorkflowTaskStatusKind
+		kind taskpb.TaskStatusKind
 	}{
-		{task: queued.task, kind: serverapi.WorkflowTaskStatusKindQueued},
-		{task: running.task, kind: serverapi.WorkflowTaskStatusKindRunning},
+		{task: queued.task, kind: taskpb.TaskStatusKind_TASK_STATUS_KIND_QUEUED},
+		{task: running.task, kind: taskpb.TaskStatusKind_TASK_STATUS_KIND_RUNNING},
 	} {
 		request := taskSearchRequest("needle")
-		request.StatusKinds = []serverapi.WorkflowTaskStatusKind{test.kind}
+		request.StatusKinds = []taskpb.TaskStatusKind{test.kind}
 		assertTaskSearchTask(t, fixture.ctx, search, request, test.task.ID, test.kind)
 	}
 }
@@ -441,8 +443,8 @@ func TestTaskSearchFiltersWaitingQuestionCurrentNodeExecution(t *testing.T) {
 		t.Fatalf("NewTaskSearch: %v", err)
 	}
 	request := taskSearchRequest("needle")
-	request.StatusKinds = []serverapi.WorkflowTaskStatusKind{serverapi.WorkflowTaskStatusKindWaitingQuestion}
-	assertTaskSearchTask(t, fixture.ctx, search, request, task.ID, serverapi.WorkflowTaskStatusKindWaitingQuestion)
+	request.StatusKinds = []taskpb.TaskStatusKind{taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_QUESTION}
+	assertTaskSearchTask(t, fixture.ctx, search, request, task.ID, taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_QUESTION)
 	question.resolve(t, fixture.ctx)
 }
 
@@ -461,8 +463,8 @@ func TestTaskSearchProjectsLiveSessionApprovalStatus(t *testing.T) {
 						Executions: []sessionruntime.TaskExecution{{
 							Agent: &sessionruntime.TaskAgentExecutionTarget{SessionID: sessionID},
 							PendingPrompts: []sessionruntime.PendingPromptReference{{
-								ID:   "approval",
-								Kind: sessionruntime.PendingPromptKindSessionApproval,
+								ToolCallID: "approval",
+								Kind:       sessionruntime.PendingPromptKindSessionApproval,
 							}},
 						}},
 					},
@@ -478,16 +480,16 @@ func TestTaskSearchProjectsLiveSessionApprovalStatus(t *testing.T) {
 		t.Fatalf("NewTaskSearch: %v", err)
 	}
 	request := taskSearchRequest("needle")
-	request.StatusKinds = []serverapi.WorkflowTaskStatusKind{serverapi.WorkflowTaskStatusKindWaitingApproval}
+	request.StatusKinds = []taskpb.TaskStatusKind{taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_APPROVAL}
 	response, err := search.Search(fixture.ctx, request)
 	if err != nil {
 		t.Fatalf("TaskSearch.Search: %v", err)
 	}
 	if len(response.Groups) != 1 ||
-		response.Groups[0].TaskID != string(task.ID) ||
-		response.Groups[0].Status.Kind != serverapi.WorkflowTaskStatusKindWaitingApproval ||
+		response.Groups[0].TaskId != string(task.ID) ||
+		response.Groups[0].Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_APPROVAL ||
 		len(response.Groups[0].Status.AttentionTypes) != 1 ||
-		response.Groups[0].Status.AttentionTypes[0] != serverapi.WorkflowTaskAttentionKindApproval {
+		response.Groups[0].Status.AttentionTypes[0] != taskpb.TaskAttentionKind_TASK_ATTENTION_KIND_APPROVAL {
 		t.Fatalf("live approval search response = %+v", response)
 	}
 }
@@ -546,14 +548,7 @@ func createTaskSearchTaskAtSequence(
 
 func startTaskSearchTask(t *testing.T, fixture currentNodeViewFixture, task workflowstore.TaskRecord) startedCurrentNodeViewTask {
 	t.Helper()
-	started, err := fixture.store.StartTask(fixture.ctx, task.ID)
-	if err != nil {
-		t.Fatalf("StartTask: %v", err)
-	}
-	if len(started.Mutation.Created) != 1 {
-		t.Fatalf("StartTask mutation = %+v", started.Mutation)
-	}
-	return startedCurrentNodeViewTask{task: task, currentNode: started.Mutation.Created[0].Reference}
+	return fixture.startExistingTask(t, task)
 }
 
 func startTaskSearchScript(
@@ -585,29 +580,29 @@ func startTaskSearchScript(
 	return handle
 }
 
-func taskSearchRequest(query string) serverapi.TaskSearchRequest {
-	return serverapi.TaskSearchRequest{
-		Mode:     serverapi.TaskSearchModeLiteral,
+func taskSearchRequest(query string) *taskpb.SearchRequest {
+	return &taskpb.SearchRequest{
+		Mode:     taskpb.SearchMode_SEARCH_MODE_LITERAL,
 		Query:    query,
 		Context:  serverapi.TaskSearchDefaultContext,
 		PageSize: serverapi.TaskSearchDefaultPageSize,
 	}
 }
 
-func assertTaskSearchTask(t *testing.T, ctx context.Context, search *TaskSearch, request serverapi.TaskSearchRequest, taskID workflow.TaskID, kind serverapi.WorkflowTaskStatusKind) {
+func assertTaskSearchTask(t *testing.T, ctx context.Context, search *TaskSearch, request *taskpb.SearchRequest, taskID workflow.TaskID, kind taskpb.TaskStatusKind) {
 	t.Helper()
 	response, err := search.Search(ctx, request)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 	if len(response.Groups) != 1 ||
-		response.Groups[0].TaskID != string(taskID) ||
+		response.Groups[0].TaskId != string(taskID) ||
 		response.Groups[0].Status.Kind != kind {
 		t.Fatalf("search response = %+v", response)
 	}
 }
 
-func assertTaskSearchEmpty(t *testing.T, ctx context.Context, search *TaskSearch, request serverapi.TaskSearchRequest) {
+func assertTaskSearchEmpty(t *testing.T, ctx context.Context, search *TaskSearch, request *taskpb.SearchRequest) {
 	t.Helper()
 	response, err := search.Search(ctx, request)
 	if err != nil {

@@ -2,9 +2,13 @@ import { createRoute, createRouter, createRootRoute } from "@tanstack/react-rout
 import { z } from "zod";
 
 import { workflowIDSchema } from "@/api";
-import { createNativeDialogRoutes, workspaceUnlinkNativeDialogPath } from "./nativeDialogRoutes";
+import { newChatRoutePath, sessionChatRoutePath } from "@/app-facade";
+import { desktopChatEnabled } from "@/shared/feature-flags";
+import { createNativeDialogRoutes } from "./nativeDialogRoutes";
 import {
   HomeShellRoute,
+  ChatRoute,
+  NewChatRoute,
   ProjectRoute,
   ProjectTasksRoute,
   RootRoute,
@@ -71,6 +75,17 @@ const taskRoute = createRoute({
   component: TaskRoute,
 });
 
+const chatRoute = desktopChatEnabled
+  ? createRoute({
+      getParentRoute: () => rootRoute,
+      path: sessionChatRoutePath,
+      component: ChatRoute,
+    })
+  : undefined;
+const newChatRoute = desktopChatEnabled
+  ? createRoute({ getParentRoute: () => rootRoute, path: newChatRoutePath, component: NewChatRoute })
+  : undefined;
+
 const nativeDialogRoutes = createNativeDialogRoutes(rootRoute);
 
 const routeTree = rootRoute.addChildren([
@@ -80,6 +95,8 @@ const routeTree = rootRoute.addChildren([
   workflowLibraryRoute,
   workflowEditorRoute,
   taskRoute,
+  ...(chatRoute === undefined ? [] : [chatRoute]),
+  ...(newChatRoute === undefined ? [] : [newChatRoute]),
   ...nativeDialogRoutes,
 ]);
 
@@ -88,10 +105,6 @@ export function createAppRouter() {
 }
 
 export type AppRouter = ReturnType<typeof createAppRouter>;
-
-export function shouldSkipNativeDialogStartupGate(pathname: string): boolean {
-  return pathname === workspaceUnlinkNativeDialogPath;
-}
 
 declare module "@tanstack/react-router" {
   interface Register {

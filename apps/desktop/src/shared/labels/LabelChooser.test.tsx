@@ -3,11 +3,16 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type * as AppFacade from "@/app-facade";
+import type { ProjectLabelCatalog } from "@/api";
 import { createLabelFilterState, type LabelFilterAction } from "./labelFilterState";
 import { LabelChooser } from "./LabelChooser";
 import type * as ProjectLabelHooks from "./projectLabelHooks";
 
 const createdLabelID = "f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf";
+type SubmittedInput<F extends (...args: never[]) => unknown> = Exclude<
+  Parameters<F>[0],
+  symbol | ((...args: never[]) => unknown)
+>;
 
 Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
   configurable: true,
@@ -43,7 +48,9 @@ const hooks = vi.hoisted(() => ({
   },
   create: vi.fn(async () => ({ id: createdLabelID, name: "New label" })),
   createPending: false,
-  reorder: vi.fn(async () => hooks.catalog.data),
+  reorder: vi.fn<(labelIDs: readonly string[]) => Promise<ProjectLabelCatalog>>(
+    async (): Promise<ProjectLabelCatalog> => hooks.catalog.data,
+  ),
   reorderPending: false,
   reset: vi.fn(),
 }));
@@ -68,30 +75,33 @@ vi.mock("./projectLabelHooks", async (importOriginal) => {
         error: null,
         isError: false,
         isPending: hooks.createPending,
-        mutateAsync: hooks.create,
-        reset: hooks.reset,
-      },
-      delete: {
-        error: null,
-        isError: false,
-        isPending: false,
-        mutateAsync: vi.fn(),
-        reset: hooks.reset,
-      },
-      rename: {
-        error: null,
-        isError: false,
-        isPending: false,
-        mutateAsync: vi.fn(),
+        submit(
+          input: SubmittedInput<
+            ReturnType<typeof ProjectLabelHooks.useProjectLabelCatalogMutations>["create"]["submit"]
+          >,
+        ) {
+          input.onStart?.();
+          void hooks.create().then(input.onSuccess).catch(input.onError).finally(input.onSettled);
+        },
         reset: hooks.reset,
       },
       reorder: {
         error: null,
         isError: false,
         isPending: hooks.reorderPending,
-        mutateAsync: hooks.reorder,
+        submit(
+          input: SubmittedInput<
+            ReturnType<typeof ProjectLabelHooks.useProjectLabelCatalogMutations>["reorder"]["submit"]
+          >,
+        ) {
+          void hooks.reorder(input.labelIDs).catch(input.onError);
+        },
         reset: hooks.reset,
       },
+    }),
+    useProjectLabelActions: () => ({
+      rename: { isError: false, isPending: false, error: null, submit: vi.fn(), reset: hooks.reset },
+      delete: { isError: false, isPending: false, error: null, submit: vi.fn(), reset: hooks.reset },
     }),
   };
 });
@@ -225,11 +235,11 @@ describe("LabelChooser", () => {
     await user.click(screen.getByRole("button", { name: "Open label chooser" }));
 
     expect(screen.getByRole("button", { name: "Reorder Alpha" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Rename Alpha" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Delete Alpha" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Rename Alpha" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Delete Alpha" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: /^Alpha/ }));
     await user.type(screen.getByRole("textbox", { name: "Search or create labels" }), "Gamma");
-    expect(screen.getByRole("button", { name: "Create “Gamma”" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create “Gamma”" })).toBeEnabled();
     expect(onAction).toHaveBeenCalledWith({
       labelID: "38bf0da7-a3f7-4c15-bc5f-c8fca538e667",
       type: "named.cycle",

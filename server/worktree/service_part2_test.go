@@ -7,7 +7,6 @@ import (
 	"core/server/session"
 	"core/server/sessionruntime"
 	shelltool "core/server/tools/shell"
-	"core/shared/clientui"
 	"core/shared/config"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/sessioncontract"
@@ -35,6 +34,7 @@ func TestDeleteWorktreeBlocksWhenBackgroundProcessUsesDescendantPath(t *testing.
 		t.Fatalf("DeleteWorktree error = %v, want ErrWorktreeBlocked", err)
 	}
 	snapshots := env.processes.CurrentSnapshots()
+	assertForeignManagementDeleteBlocked(t, env, busy.WorktreeID)
 	if len(snapshots) != 1 || !snapshots[0].Running {
 		t.Fatalf("background process snapshot changed after blocked delete: %+v", snapshots)
 	}
@@ -101,7 +101,7 @@ func TestBeginMutationReacquiresWorkspaceLaneWhenSessionWorkspaceChanges(t *test
 	env := newServiceTestEnv(t)
 	secondWorkspace := t.TempDir()
 	initGitRepo(t, secondWorkspace)
-	secondCfg, err := config.Load(secondWorkspace, config.LoadOptions{})
+	secondCfg, err := config.Load(secondWorkspace, secondWorkspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load second workspace: %v", err)
 	}
@@ -200,10 +200,11 @@ func newServiceTestEnvWithResourceLifecycle(t *testing.T, lifecycle sessionrunti
 	t.Setenv("HOME", home)
 	t.Setenv(config.PersistenceRootEnvName, filepath.Join(home, ".kent-test"))
 	initGitRepo(t, workspace)
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 	store := testsetup.OpenStore(t, cfg.PersistenceRoot)
 	binding, err := store.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
 	if err != nil {
@@ -226,7 +227,7 @@ func newServiceTestEnvWithResourceLifecycle(t *testing.T, lifecycle sessionrunti
 	})
 	publisher := &serviceTestPublisher{}
 	processes := &serviceTestProcessSource{}
-	service := NewService(store, nil, authority, publisher, processes, ServiceOptions{BaseDir: cfg.Settings.Worktrees.BaseDir})
+	service := NewService(store, nil, authority, publisher, processes, ServiceOptions{PersistenceRoot: cfg.PersistenceRoot, BaseDir: cfg.Settings.Worktrees.BaseDir})
 	return &serviceTestEnv{
 		t:             t,
 		ctx:           ctx,
@@ -357,7 +358,7 @@ func assertServiceTestSessionTarget(t *testing.T, env *serviceTestEnv, worktreeI
 	}
 }
 
-func mustResolveServiceTestTarget(t *testing.T, env *serviceTestEnv) clientui.SessionExecutionTarget {
+func mustResolveServiceTestTarget(t *testing.T, env *serviceTestEnv) *worktreepb.SessionExecutionTarget {
 	t.Helper()
 	target, err := env.store.ResolveSessionExecutionTarget(env.ctx, env.session.Meta().SessionID)
 	if err != nil {
@@ -386,7 +387,7 @@ func mustCreateWorktree(t *testing.T, env *serviceTestEnv, branchName string) se
 	baseRef := "HEAD"
 	resp, err := env.service.CreateWorktree(env.ctx, &worktreepb.CreateRequest{
 		SetupOperationId: setupOperationID.String(),
-		SessionId:        env.session.Meta().SessionID,
+		Scope:            worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
 		Spec: &worktreepb.CreateSpec{
 			BaseRef:      &baseRef,
 			CreateBranch: true,
@@ -401,7 +402,7 @@ func mustCreateWorktree(t *testing.T, env *serviceTestEnv, branchName string) se
 
 func worktreeDeleteRequest(env *serviceTestEnv, worktreeID string) *worktreepb.DeleteRequest {
 	return &worktreepb.DeleteRequest{
-		SessionId:           env.session.Meta().SessionID,
+		Scope:               worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
 		Selector:            worktreeID,
 		BranchCleanupPolicy: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_RETAIN,
 	}
@@ -459,7 +460,7 @@ func worktreeViewFromListEntryForTest(entry *worktreepb.ListEntry) serviceTestWo
 		view.BranchRef = git.GetBranchRef()
 		view.BranchName = git.GetBranchName()
 		view.Detached = git.GetDetached()
-		view.IsMain = git.GetIsMain()
+		view.IsMain = git.GetIsMainWorktree()
 		view.Managed = kent.GetManaged()
 		view.CreatedBranch = kent.GetCreatedBranch()
 		view.OriginSessionID = kent.GetOriginSessionId()
@@ -470,7 +471,7 @@ func worktreeViewFromListEntryForTest(entry *worktreepb.ListEntry) serviceTestWo
 		view.BranchRef = git.GetBranchRef()
 		view.BranchName = git.GetBranchName()
 		view.Detached = git.GetDetached()
-		view.IsMain = git.GetIsMain()
+		view.IsMain = git.GetIsMainWorktree()
 	} else if missing := entry.GetTopology().GetMissing(); missing != nil {
 		kent := missing.GetKent()
 		view.WorktreeID = kent.GetWorktreeId()

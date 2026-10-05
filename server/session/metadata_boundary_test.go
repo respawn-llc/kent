@@ -75,7 +75,7 @@ func TestMetadataMutationsLeaveOpaqueEventLogUnchanged(t *testing.T) {
 		t.Fatalf("open metadata-bound store: %v", err)
 	}
 
-	if err := store.SetInputDraft("draft"); err != nil {
+	if err := store.SetInputDraft("draft", nil); err != nil {
 		t.Fatalf("set input draft: %v", err)
 	}
 	if _, _, err := store.SetGoal("ship metadata boundary", GoalActorUser); err != nil {
@@ -127,7 +127,7 @@ func TestCurrentMetadataOperationsLeaveEventLogUnchanged(t *testing.T) {
 	}
 
 	_ = store.Meta()
-	if err := store.SetInputDraft("draft"); err != nil {
+	if err := store.SetInputDraft("draft", nil); err != nil {
 		t.Fatalf("set input draft: %v", err)
 	}
 	role := "fast"

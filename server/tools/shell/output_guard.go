@@ -34,10 +34,9 @@ func (g oversizedOutputGuard) FailedResult(
 	if !g.shouldGuard(requestedOutputTokens, modelVisibleOutput) {
 		return tools.Result{}, false
 	}
-	result := tools.ErrorResultWith(
+	result := ErrorResult(
 		call,
 		fmt.Sprintf(oversizedOutputMessageTemplate, outputPath),
-		marshalNoHTMLEscape,
 	)
 	result.PresentationDelta = presentation
 	return result, true

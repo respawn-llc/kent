@@ -7,8 +7,11 @@ import (
 
 	"core/cli/app/commands"
 	"core/shared/clientui"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	processpb "core/shared/protoapi/gen/kent/api/process"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 
 	"github.com/google/uuid"
 )
@@ -49,13 +52,6 @@ type committedEntryPersistDoneMsg struct {
 	err      error
 }
 
-type authSlashCommandRefreshedMsg struct {
-	token      uint64
-	generation uint64
-	kind       authSlashCommandKind
-	err        error
-}
-
 type goalRuntimeOperation string
 
 const (
@@ -75,8 +71,10 @@ type goalRuntimeDoneMsg struct {
 	mutationSerial uint64
 	operation      goalRuntimeOperation
 	objective      string
-	goal           *clientui.RuntimeGoal
-	mutation       clientui.GoalMutationResult
+	goal           *runtimepb.GoalView
+	setResult      *runtimepb.GoalSetSuccess
+	mutation       *runtimepb.GoalMutationSuccess
+	diagnostic     error
 	err            error
 }
 
@@ -97,19 +95,18 @@ type runtimeControlDoneMsg struct {
 }
 
 type chatSettingsDoneMsg struct {
-	operation serverapi.ChatSettingsMutationOperationKind
-	response  serverapi.ChatSettingsMutationResponse
+	operation *chatsettingspb.MutationOperation
+	response  *chatsettingspb.MutationSuccess
 	err       error
 }
 
 type injectedQueueCreateDoneMsg struct {
-	token                    uint64
-	sessionID                runtimeids.SessionID
-	localID                  string
-	item                     clientui.QueuedUserMessage
-	completed                bool
-	approvalCommentaryAnswer *clientui.PromptAnswer
-	err                      error
+	token     uint64
+	sessionID runtimeids.SessionID
+	localID   string
+	item      clientui.QueuedUserMessage
+	completed bool
+	err       error
 }
 
 type injectedQueueDiscardDoneMsg struct {
@@ -154,7 +151,7 @@ type processListRefreshTickMsg struct{}
 
 type processListRefreshDoneMsg struct {
 	token   uint64
-	entries []clientui.BackgroundProcess
+	entries []*processpb.BackgroundProcess
 	err     error
 }
 
@@ -193,22 +190,15 @@ type runtimeReconnectWarningMsg struct {
 
 type runtimeMainViewRefreshedMsg struct {
 	token                    uint64
-	req                      runtimeMainViewRefreshRequest
+	interruptedSubmitToken   *uint64
 	metadataBaselineRevision *uint64
-	view                     clientui.RuntimeMainView
+	view                     *runtimepb.MainView
 	err                      error
 }
 
-type runtimeMainViewRefreshCause string
-
-const (
-	runtimeMainViewRefreshCauseWorktreeMutation runtimeMainViewRefreshCause = "worktree_mutation"
-	runtimeMainViewRefreshCauseManual           runtimeMainViewRefreshCause = "manual"
-)
-
 type detailTranscriptLoadMsg struct {
 	requestID uuid.UUID
-	page      clientui.TranscriptPage
+	page      *transcriptpb.Page
 	err       error
 }
 
@@ -233,24 +223,36 @@ type clipboardTextCopyDoneMsg struct {
 	Err            error
 }
 
+type promptDeliveryOrigin uint8
+
+const (
+	promptDeliveryLive promptDeliveryOrigin = iota
+	promptDeliveryHydration
+)
+
 type askEvent struct {
-	prompt           clientui.TranscriptPrompt
-	resolvedPromptID clientui.PromptID
+	prompt             *transcriptpb.Prompt
+	resolvedToolCallID clientui.ToolCallID
+	origin             promptDeliveryOrigin
 }
 
-func (e askEvent) promptID() string {
-	if strings.TrimSpace(string(e.resolvedPromptID)) != "" {
-		return strings.TrimSpace(string(e.resolvedPromptID))
+func (e askEvent) toolCallID() string {
+	if strings.TrimSpace(string(e.resolvedToolCallID)) != "" {
+		return strings.TrimSpace(string(e.resolvedToolCallID))
 	}
-	return strings.TrimSpace(string(e.prompt.PromptID))
+	return strings.TrimSpace(string(transcriptPromptToolCallID(e.prompt)))
 }
 
 func (e askEvent) isResolution() bool {
-	return strings.TrimSpace(string(e.resolvedPromptID)) != ""
+	return strings.TrimSpace(string(e.resolvedToolCallID)) != ""
 }
 
 type askEventMsg struct {
 	event askEvent
+}
+
+type missingPromptRehydrationMsg struct {
+	scope missingPromptRecoveryScope
 }
 
 type uiStatusNoticeKind uint8

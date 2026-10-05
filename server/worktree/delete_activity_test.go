@@ -19,12 +19,12 @@ import (
 	"core/server/session"
 	"core/server/sessionruntime"
 	"core/server/tools"
-	"core/shared/clientui"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/worktreecontract"
+	"google.golang.org/protobuf/proto"
 )
 
 type deleteInFlightStartLifecycle struct {
@@ -109,21 +109,22 @@ func deleteActivityRuntimePlan(
 ) sessionruntime.AgentRuntimePlan {
 	t.Helper()
 	settings := env.cfg.Settings
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = reviewerFrequency
-	settings.Reviewer.Model = "gpt-5"
+	settings.Reviewer.Model = "gpt-6-sol"
 	settings.Reviewer.ThinkingLevel = "low"
 	var eventObserver func(runtime.Event)
 	if len(onEvent) > 0 {
 		eventObserver = onEvent[0]
 	}
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		MainWorkspaceRoot:     workdir,
 		Settings:              settings,
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		FilesystemContext: func() tools.FilesystemContext {
-			context, err := runtimewire.NewFilesystemContext(workdir, workdir, metadata.ProjectWorkspaceBoundary{ProjectID: "test"})
+			context, err := runtimewire.NewFilesystemContext(workdir, workdir, "test")
 			if err != nil {
 				t.Fatalf("NewFilesystemContext: %v", err)
 			}
@@ -140,7 +141,7 @@ func deleteActivityRuntimePlan(
 }
 
 type deleteTargetState struct {
-	sessionTarget clientui.SessionExecutionTarget
+	sessionTarget *worktreepb.SessionExecutionTarget
 	topology      serviceTestWorktree
 	record        metadata.WorktreeRecord
 	git           GitWorktree
@@ -215,7 +216,7 @@ func (state deleteTargetState) assertUnchanged(t *testing.T, env *serviceTestEnv
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget after rejected delete: %v", err)
 	}
-	if !reflect.DeepEqual(target, state.sessionTarget) {
+	if !proto.Equal(target, state.sessionTarget) {
 		t.Fatalf("busy session target changed after rejected delete: before=%+v after=%+v", state.sessionTarget, target)
 	}
 	topology := findWorktreeByID(t, mustListWorktrees(t, env).Worktrees, worktreeID)
@@ -248,14 +249,6 @@ func deleteServiceTestWorktree(env *serviceTestEnv, worktreeID string) <-chan de
 		deleted <- deleteActivityResult{result: result, err: err}
 	}()
 	return deleted
-}
-
-func TestAcquireDeleteTargetActivityRejectsBlankPresentOptions(t *testing.T) {
-	env := newServiceTestEnv(t)
-	blankRoot := " \t "
-	if _, err := env.service.acquireDeleteTargetActivity(env.ctx, nil, &blankRoot); err == nil {
-		t.Fatal("acquireDeleteTargetActivity accepted a blank present target root")
-	}
 }
 
 func TestDeleteWorktreeRejectsInFlightStartAndCompletesUnrelatedWorktree(t *testing.T) {
@@ -376,6 +369,7 @@ func TestDeleteWorktreeRejectsLiveRunAndCompletesUnrelatedWorktree(t *testing.T)
 	case <-time.After(3 * time.Second):
 		t.Fatal("busy delete waited for the live run to finish")
 	}
+	assertForeignManagementDeleteBlocked(t, env, busy.WorktreeID)
 	state.assertUnchanged(t, env, busySession.Meta().SessionID, busy.WorktreeID)
 
 	unrelatedDeleted := deleteServiceTestWorktree(env, unrelated.WorktreeID)
@@ -595,6 +589,7 @@ func TestDeleteTaskWorktreeRejectsInFlightStartUnchanged(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("DeleteTaskWorktree waited for the in-flight start")
 	}
+	assertForeignManagementDeleteBlocked(t, env, busy.WorktreeID)
 	state.assertUnchanged(t, env, busySession.Meta().SessionID, busy.WorktreeID)
 
 	lifecycle.Unblock()
@@ -679,8 +674,8 @@ func TestDeleteWorktreeRechecksDirtyStateBeforeRemoval(t *testing.T) {
 			updateServiceTestSessionTarget(t, env, env.session.Meta().SessionID, env.binding.WorkspaceID, target.WorktreeID, ".")
 			state := captureDeleteTargetState(t, env, env.session.Meta().SessionID, target)
 			preview, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
-				SessionId: env.session.Meta().SessionID,
-				Selector:  target.WorktreeID,
+				Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+				Selector: target.WorktreeID,
 			})
 			if err != nil {
 				t.Fatalf("PreviewWorktreeDelete: %v", err)

@@ -1,17 +1,26 @@
 package auth
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
-func TestEvaluateStartupGateDoesNotTreatNoAuthPreferenceAsReady(t *testing.T) {
-	gate := EvaluateStartupGate(State{
-		Scope:               ScopeGlobal,
-		Method:              Method{Type: MethodNone},
-		EnvAPIKeyPreference: EnvAPIKeyPreferencePreferSaved,
-	})
-	if gate.Ready {
-		t.Fatal("no-auth preference must not satisfy auth-required startup gate")
+func TestOAuthCredentialValidation(t *testing.T) {
+	credential := OAuthMethod{AccessToken: "access-only"}
+	if err := credential.Validate(); err != nil {
+		t.Fatalf("access-only credential: %v", err)
 	}
-	if gate.Reason != ErrAuthNotConfigured.Error() {
-		t.Fatalf("reason = %q, want %q", gate.Reason, ErrAuthNotConfigured.Error())
+	header, err := credential.AuthHeaderValue()
+	if err != nil || header != "Bearer access-only" {
+		t.Fatalf("credential header = %q, %v", header, err)
+	}
+	for _, token := range []string{"", " \t\n"} {
+		invalid := OAuthMethod{AccessToken: token}
+		if err := invalid.Validate(); !errors.Is(err, ErrInvalidAuthMethod) {
+			t.Fatalf("invalid token accepted: %v", err)
+		}
+		if _, err := invalid.AuthHeaderValue(); !errors.Is(err, ErrInvalidAuthMethod) {
+			t.Fatalf("invalid credential produced a header: %v", err)
+		}
 	}
 }

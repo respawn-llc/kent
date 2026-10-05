@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
-	"unicode"
 
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/textutil"
@@ -15,16 +13,16 @@ import (
 var ErrMainWorkspaceNotDeletable = errors.New("main workspace is not deletable")
 
 type Item struct {
-	Entry         *worktreepb.ListEntry
-	DisplayName   string
-	CanonicalRoot string
-	WorktreeID    *string
-	BranchName    *string
-	Detached      bool
-	IsMain        bool
-	IsCurrent     bool
-	Managed       bool
-	CreatedBranch bool
+	Entry           *worktreepb.ListEntry
+	DisplayName     string
+	CanonicalRoot   string
+	WorktreeID      *string
+	BranchName      *string
+	Detached        bool
+	IsMainWorkspace bool
+	IsCurrent       bool
+	Managed         bool
+	CreatedBranch   bool
 }
 
 func ProjectItems(entries []*worktreepb.ListEntry) ([]Item, error) {
@@ -45,6 +43,13 @@ func ProjectItem(entry *worktreepb.ListEntry) (Item, error) {
 	}
 	item := Item{Entry: entry, IsCurrent: entry.Projection.IsCurrent}
 	switch {
+	case entry.Topology.GetMainWorkspace() != nil:
+		git := entry.Topology.GetMainWorkspace().Git
+		item.DisplayName = "main"
+		item.CanonicalRoot = git.CanonicalRoot
+		item.BranchName = git.BranchName
+		item.Detached = git.Detached
+		item.IsMainWorkspace = true
 	case entry.Topology.GetRegistered() != nil:
 		git := entry.Topology.GetRegistered().Git
 		kent := entry.Topology.GetRegistered().Kent
@@ -53,7 +58,6 @@ func ProjectItem(entry *worktreepb.ListEntry) (Item, error) {
 		item.WorktreeID = textutil.OptionalTrimmedString(kent.WorktreeId)
 		item.BranchName = git.BranchName
 		item.Detached = git.Detached
-		item.IsMain = git.IsMain
 		item.Managed = kent.Managed
 		item.CreatedBranch = kent.CreatedBranch
 	case entry.Topology.GetExternal() != nil:
@@ -62,7 +66,6 @@ func ProjectItem(entry *worktreepb.ListEntry) (Item, error) {
 		item.CanonicalRoot = git.CanonicalRoot
 		item.BranchName = git.BranchName
 		item.Detached = git.Detached
-		item.IsMain = git.IsMain
 	case entry.Topology.GetMissing() != nil:
 		kent := entry.Topology.GetMissing().Kent
 		item.DisplayName = kent.DisplayName
@@ -101,48 +104,24 @@ func DisplayName(item Item) string {
 	return item.DisplayName
 }
 
-func SanitizeBranchSuggestion(raw string) string {
-	trimmed := strings.TrimSpace(strings.ToLower(raw))
-	if trimmed == "" {
-		return ""
-	}
-	var builder strings.Builder
-	lastDash := false
-	for _, r := range trimmed {
-		switch {
-		case unicode.IsLetter(r) || unicode.IsDigit(r):
-			builder.WriteRune(r)
-			lastDash = false
-		case r == '/' || r == '-' || r == '_':
-			if builder.Len() == 0 || lastDash {
-				continue
-			}
-			builder.WriteRune('-')
-			lastDash = true
-		default:
-			if builder.Len() == 0 || lastDash {
-				continue
-			}
-			builder.WriteRune('-')
-			lastDash = true
-		}
-	}
-	result := strings.Trim(builder.String(), "-/")
-	for strings.Contains(result, "--") {
-		result = strings.ReplaceAll(result, "--", "-")
-	}
-	return result
-}
-
 func DeleteCanAutoDeleteBranch(item Item) bool {
 	return item.Managed && item.CreatedBranch && item.BranchName != nil
 }
 
+func CanDelete(item Item) bool {
+	return item.Entry != nil &&
+		item.Entry.Projection != nil &&
+		item.Entry.Projection.DeletePreview != nil
+}
+
 func ValidateDeletionTarget(item Item) error {
-	if item.IsMain {
+	if CanDelete(item) {
+		return nil
+	}
+	if item.Entry != nil && item.Entry.Topology != nil && item.Entry.Topology.GetMainWorkspace() != nil {
 		return ErrMainWorkspaceNotDeletable
 	}
-	return nil
+	return worktreecontract.ErrWorktreeBlocked
 }
 
 func ResolveCurrentDeletionTarget(entries []Item) (Item, error) {

@@ -3,7 +3,8 @@ package workflowview
 import (
 	"testing"
 
-	"core/shared/serverapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestActivityProjectsOnlyCommentsAndRetainedSessionCreation(t *testing.T) {
@@ -15,9 +16,9 @@ func TestActivityProjectsOnlyCommentsAndRetainedSessionCreation(t *testing.T) {
 		t.Fatalf("AddComment: %v", err)
 	}
 
-	activity, err := fixture.activity.List(fixture.ctx, serverapi.WorkflowTaskOffsetPageRequest{
-		TaskID: string(started.task.ID),
-		Limit:  intPointer(20),
+	activity, err := fixture.activity.List(fixture.ctx, &taskpb.TaskOffsetPageRequest{
+		TaskId: string(started.task.ID),
+		Limit:  proto.Int32(20),
 	})
 	if err != nil {
 		t.Fatalf("Activity.List: %v", err)
@@ -25,20 +26,22 @@ func TestActivityProjectsOnlyCommentsAndRetainedSessionCreation(t *testing.T) {
 	if len(activity.Items) != 2 {
 		t.Fatalf("activity items = %+v, want comment and retained session creation", activity.Items)
 	}
-	items := map[string]serverapi.WorkflowTaskActivityItem{}
+	var commentItem *taskpb.Comment
+	var sessionItem *taskpb.SessionStarted
 	for _, item := range activity.Items {
-		items[item.Type] = item
+		switch source := item.Activity.(type) {
+		case *taskpb.ActivityItem_Comment:
+			commentItem = source.Comment
+		case *taskpb.ActivityItem_SessionStarted:
+			sessionItem = source.SessionStarted
+		default:
+			t.Fatalf("unexpected Activity source: %T", source)
+		}
 	}
-	if commentItem, ok := items["comment"]; !ok ||
-		commentItem.Comment == nil ||
-		commentItem.Comment.ID != comment.ID ||
-		commentItem.SessionStarted != nil {
+	if commentItem == nil || commentItem.Id != comment.ID {
 		t.Fatalf("comment activity = %+v, want comment only", commentItem)
 	}
-	if sessionItem, ok := items["session_started"]; !ok ||
-		sessionItem.SessionStarted == nil ||
-		sessionItem.SessionStarted.SessionID != sessionID.String() ||
-		sessionItem.Comment != nil {
+	if sessionItem == nil || sessionItem.SessionId != sessionID.String() {
 		t.Fatalf("session activity = %+v, want retained session creation only", sessionItem)
 	}
 }
@@ -59,24 +62,24 @@ func TestActivityOrdersAndPaginatesCanonicalSources(t *testing.T) {
 	fixture.setCommentUpdatedAt(t, older.ID, 2_000)
 	fixture.setCommentUpdatedAt(t, newer.ID, 3_000)
 
-	limit := 2
-	first, err := fixture.activity.List(fixture.ctx, serverapi.WorkflowTaskOffsetPageRequest{
-		TaskID: string(started.task.ID),
+	limit := int32(2)
+	first, err := fixture.activity.List(fixture.ctx, &taskpb.TaskOffsetPageRequest{
+		TaskId: string(started.task.ID),
 		Limit:  &limit,
 	})
 	if err != nil {
 		t.Fatalf("Activity.List first: %v", err)
 	}
 	if len(first.Items) != 2 ||
-		first.Items[0].Comment == nil ||
-		first.Items[0].Comment.ID != newer.ID ||
-		first.Items[1].Comment == nil ||
-		first.Items[1].Comment.ID != older.ID ||
+		first.Items[0].GetComment() == nil ||
+		first.Items[0].GetComment().Id != newer.ID ||
+		first.Items[1].GetComment() == nil ||
+		first.Items[1].GetComment().Id != older.ID ||
 		first.NextOffset == nil || *first.NextOffset != 2 {
 		t.Fatalf("first activity page = %+v, next offset %v", first.Items, first.NextOffset)
 	}
-	second, err := fixture.activity.List(fixture.ctx, serverapi.WorkflowTaskOffsetPageRequest{
-		TaskID: string(started.task.ID),
+	second, err := fixture.activity.List(fixture.ctx, &taskpb.TaskOffsetPageRequest{
+		TaskId: string(started.task.ID),
 		Offset: first.NextOffset,
 		Limit:  &limit,
 	})
@@ -84,14 +87,14 @@ func TestActivityOrdersAndPaginatesCanonicalSources(t *testing.T) {
 		t.Fatalf("Activity.List second: %v", err)
 	}
 	if len(second.Items) != 1 ||
-		second.Items[0].SessionStarted == nil ||
-		second.Items[0].SessionStarted.SessionID != sessionID.String() ||
+		second.Items[0].GetSessionStarted() == nil ||
+		second.Items[0].GetSessionStarted().SessionId != sessionID.String() ||
 		second.NextOffset != nil {
 		t.Fatalf("second activity page = %+v, next offset %v", second.Items, second.NextOffset)
 	}
-	beyondEnd := 100
-	empty, err := fixture.activity.List(fixture.ctx, serverapi.WorkflowTaskOffsetPageRequest{
-		TaskID: string(started.task.ID),
+	beyondEnd := int32(100)
+	empty, err := fixture.activity.List(fixture.ctx, &taskpb.TaskOffsetPageRequest{
+		TaskId: string(started.task.ID),
 		Offset: &beyondEnd,
 		Limit:  &limit,
 	})
@@ -106,6 +109,7 @@ func TestActivityOrdersAndPaginatesCanonicalSources(t *testing.T) {
 func TestActivityUsesActivityIDAsEqualTimeTieBreakerAndReflectsCommentEdits(t *testing.T) {
 	fixture := newCurrentNodeViewFixture(t, false)
 	started := fixture.startTask(t, "Activity ordering")
+	fixture.setSessionCreatedAt(t, fixture.bindCurrentNodeSession(t, started), 1_000)
 	first, err := fixture.store.AddComment(fixture.ctx, started.task.ID, "First", "user", "user-1")
 	if err != nil {
 		t.Fatalf("AddComment first: %v", err)
@@ -117,15 +121,15 @@ func TestActivityUsesActivityIDAsEqualTimeTieBreakerAndReflectsCommentEdits(t *t
 	fixture.setCommentUpdatedAt(t, first.ID, 5_000)
 	fixture.setCommentUpdatedAt(t, second.ID, 5_000)
 
-	limit := 10
-	page, err := fixture.activity.List(fixture.ctx, serverapi.WorkflowTaskOffsetPageRequest{
-		TaskID: string(started.task.ID),
+	limit := int32(2)
+	page, err := fixture.activity.List(fixture.ctx, &taskpb.TaskOffsetPageRequest{
+		TaskId: string(started.task.ID),
 		Limit:  &limit,
 	})
 	if err != nil {
 		t.Fatalf("Activity.List equal-time: %v", err)
 	}
-	if len(page.Items) != 2 || page.Items[0].ActivityID <= page.Items[1].ActivityID {
+	if len(page.Items) != 2 || page.Items[0].ActivityId <= page.Items[1].ActivityId {
 		t.Fatalf("equal-time activity page = %+v", page.Items)
 	}
 
@@ -134,14 +138,14 @@ func TestActivityUsesActivityIDAsEqualTimeTieBreakerAndReflectsCommentEdits(t *t
 	}
 	editedAt := int64(6_000)
 	fixture.setCommentUpdatedAt(t, first.ID, editedAt)
-	page, err = fixture.activity.List(fixture.ctx, serverapi.WorkflowTaskOffsetPageRequest{
-		TaskID: string(started.task.ID),
+	page, err = fixture.activity.List(fixture.ctx, &taskpb.TaskOffsetPageRequest{
+		TaskId: string(started.task.ID),
 		Limit:  &limit,
 	})
 	if err != nil {
 		t.Fatalf("Activity.List after edit: %v", err)
 	}
-	if len(page.Items) != 2 || page.Items[0].Comment == nil || page.Items[0].Comment.ID != first.ID {
+	if len(page.Items) != 2 || page.Items[0].GetComment() == nil || page.Items[0].GetComment().Id != first.ID {
 		t.Fatalf("edited activity page = %+v", page.Items)
 	}
 }
@@ -155,19 +159,19 @@ func TestActivityPaginatesLargeTaskHistoryByOffset(t *testing.T) {
 		}
 	}
 
-	limit := 50
-	var offset *int
+	limit := int32(50)
+	var offset *int32
 	total := 0
 	for pageNumber := 0; pageNumber < 4; pageNumber++ {
-		page, err := fixture.activity.List(fixture.ctx, serverapi.WorkflowTaskOffsetPageRequest{
-			TaskID: string(started.task.ID),
+		page, err := fixture.activity.List(fixture.ctx, &taskpb.TaskOffsetPageRequest{
+			TaskId: string(started.task.ID),
 			Offset: offset,
 			Limit:  &limit,
 		})
 		if err != nil {
 			t.Fatalf("Activity.List page %d: %v", pageNumber, err)
 		}
-		if len(page.Items) > limit {
+		if len(page.Items) > int(limit) {
 			t.Fatalf("activity page %d has %d items, want at most %d", pageNumber, len(page.Items), limit)
 		}
 		total += len(page.Items)
@@ -183,7 +187,7 @@ func TestActivityPaginatesLargeTaskHistoryByOffset(t *testing.T) {
 		}
 		break
 	}
-	if total != 123 {
-		t.Fatalf("activity history returned %d items, want 123", total)
+	if total != 124 {
+		t.Fatalf("activity history returned %d items, want 123 comments and one Session", total)
 	}
 }

@@ -4,13 +4,83 @@ import (
 	"slices"
 	"testing"
 
-	"core/server/auth"
+	"core/internal/testharness/testsetup"
 	"core/server/launch"
 	"core/server/session"
 	"core/shared/config"
-	"core/shared/serverapi"
+	"core/shared/protoapi"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/toolspec"
+
+	"google.golang.org/protobuf/proto"
 )
+
+func TestNewChatCatalogCarriesCompletePreparedBaselines(t *testing.T) {
+	app := testNewChatSettingsApp(t)
+	prepared, err := launch.PrepareChatAgentCatalog(app, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := NewService(launch.Planner{Config: app}, ChatSettingsOwner{}).NewChatSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := response.GetNewChat()
+	if catalog == nil || response.GetSession() != nil {
+		t.Fatalf("New Chat response = %+v", response)
+	}
+	entries := prepared.Entries()
+	if len(catalog.Choices) != len(entries) {
+		t.Fatalf("choices = %d, want %d", len(catalog.Choices), len(entries))
+	}
+	for i, choice := range catalog.Choices {
+		entry := entries[i]
+		supervisor, err := protoapi.ChatSettingsSupervisorFromProto(choice.Baseline.Supervisor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !proto.Equal(choice.Agent, entry.Choice) ||
+			choice.Baseline.AgentRole != entry.Choice.Role ||
+			supervisor != entry.Settings.Baseline.Supervisor ||
+			choice.Baseline.GetQuestionsEnabled() != entry.Settings.Baseline.Questions ||
+			choice.Baseline.GetAutoCompactionEnabled() != entry.Settings.Baseline.AutoCompaction ||
+			(choice.Thinking != nil) != (choice.Baseline.Thinking != nil) ||
+			(choice.Fast != nil) != (choice.Baseline.Fast != nil) ||
+			choice.AutoCompaction.Policy != chatsettingspb.AutoCompactionPolicy_AUTO_COMPACTION_POLICY_DISABLED {
+			t.Fatalf("choice does not preserve prepared baseline: %+v, entry %+v", choice, entry)
+		}
+		if choice.Baseline.Thinking != nil && *choice.Baseline.Thinking != entry.Settings.Baseline.Thinking {
+			t.Fatalf("Thinking baseline = %s", *choice.Baseline.Thinking)
+		}
+		if choice.Baseline.Fast != nil && *choice.Baseline.Fast != entry.Settings.Baseline.Fast {
+			t.Fatalf("Fast baseline = %v", *choice.Baseline.Fast)
+		}
+	}
+	if !proto.Equal(catalog.InitialSettings, catalog.Choices[0].Baseline) {
+		t.Fatalf("initial selection differs from default baseline")
+	}
+}
+
+func TestNewChatCatalogRejectsIncompleteAgentSelection(t *testing.T) {
+	app := testNewChatSettingsApp(t)
+	response, err := NewService(launch.Planner{Config: app}, ChatSettingsOwner{}).NewChatSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := protoapi.Validate(response); err != nil {
+		t.Fatal(err)
+	}
+	for _, choice := range response.GetNewChat().Choices {
+		if choice.Fast != nil {
+			choice.Baseline.Fast = nil
+			if err := protoapi.Validate(response); err == nil {
+				t.Fatal("catalog accepted a capable Agent without its Fast baseline selection")
+			}
+			return
+		}
+	}
+	t.Fatal("fixture requires a Fast-capable Agent")
+}
 
 func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 	catalog := testChatSettingsCatalog(t)
@@ -29,9 +99,9 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 	}
 	if repaired.SelectedAgent.Role != "default" ||
 		repaired.SelectedAgent.Thinking != baseline.Settings.Baseline.Thinking ||
-		repaired.AgentEditability != serverapi.ChatSettingsWorkflowLock ||
+		repaired.AgentEditability != chatsettingspb.Editability_EDITABILITY_WORKFLOW_LOCK ||
 		!repaired.AutoCompaction.Effective ||
-		repaired.AutoCompaction.Policy != serverapi.ChatSettingsAutoCompactionRequired {
+		repaired.AutoCompaction.Policy != chatsettingspb.AutoCompactionPolicy_AUTO_COMPACTION_POLICY_REQUIRED {
 		t.Fatalf("repaired projection = %+v", repaired)
 	}
 
@@ -46,7 +116,7 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 		t.Fatalf("project custom settings: %v", err)
 	}
 	if custom.Thinking == nil ||
-		custom.Thinking.Kind != serverapi.ChatSettingsThinkingCustom ||
+		custom.Thinking.Kind != chatsettingspb.ThinkingKind_THINKING_KIND_CUSTOM ||
 		custom.Fast == nil || !custom.Fast.Value ||
 		custom.Questions.Capable ||
 		!custom.Questions.Enabled {
@@ -61,7 +131,7 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 			AutoCompaction: true,
 		},
 		Locked: &session.LockedContract{
-			Model:        "gpt-5",
+			Model:        "gpt-6-sol",
 			EnabledTools: []string{},
 			ProviderContract: session.LockedProviderCapabilities{
 				ProviderID: "anthropic",
@@ -72,11 +142,11 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 		t.Fatalf("project caching lock: %v", err)
 	}
 	if locked.SelectedAgent.Role != "historical" ||
-		locked.SelectedAgent.Model != "gpt-5" ||
-		locked.AgentEditability != serverapi.ChatSettingsCachingLock ||
+		locked.SelectedAgent.Model != "gpt-6-sol" ||
+		locked.AgentEditability != chatsettingspb.Editability_EDITABILITY_CACHING_LOCK ||
 		!locked.AgentLocked || !locked.CachingLocked ||
 		locked.Questions.Capable || !locked.Questions.Enabled ||
-		locked.Fast != nil {
+		locked.Fast == nil || !locked.Fast.Value {
 		t.Fatalf("locked projection = %+v", locked)
 	}
 
@@ -89,10 +159,10 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("project disabled compaction: %v", err)
 	}
-	if disabled.AutoCompaction.Policy != serverapi.ChatSettingsAutoCompactionDisabled ||
+	if disabled.AutoCompaction.Policy != chatsettingspb.AutoCompactionPolicy_AUTO_COMPACTION_POLICY_DISABLED ||
 		disabled.AutoCompaction.Effective ||
 		disabled.AutoCompaction.Stored != baseline.Settings.Baseline.AutoCompaction ||
-		disabled.AutoCompaction.Editability != serverapi.ChatSettingsPolicyDisabled {
+		disabled.AutoCompaction.Editability != chatsettingspb.Editability_EDITABILITY_POLICY_DISABLED {
 		t.Fatalf("disabled compaction = %+v", disabled.AutoCompaction)
 	}
 	if got := choiceRoles(disabled.AgentChoices); !slices.Equal(
@@ -105,38 +175,49 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 
 func testChatSettingsCatalog(t *testing.T) launch.PreparedChatAgentCatalog {
 	t.Helper()
-	settings := config.DefaultOnboardingSettings()
-	settings.Model = "gpt-5"
-	settings.ThinkingLevel = "medium"
-	settings.ProviderCapabilities.ProviderID = "anthropic"
-	settings.EnabledTools = map[toolspec.ID]bool{
-		toolspec.ToolAskQuestion: true,
-		toolspec.ToolExecCommand: true,
-	}
-	settings.Subagents = map[string]config.SubagentRole{
-		config.BuiltInSubagentRoleFast: {
-			Settings: config.Settings{Model: "gpt-5", ThinkingLevel: "low"},
-			Sources:  map[string]string{"model": "file", "thinking_level": "file"},
-		},
-		"no-questions": {
-			Settings: config.Settings{
-				EnabledTools: map[toolspec.ID]bool{toolspec.ToolAskQuestion: false},
-			},
-			Sources: map[string]string{"tools.ask_question": "file"},
-		},
-	}
-	catalog, err := launch.PrepareChatAgentCatalog(
-		config.App{Settings: settings},
-		auth.EmptyState(),
-		true,
-	)
+	catalog, err := launch.PrepareChatAgentCatalog(testChatSettingsApp(t), true)
 	if err != nil {
 		t.Fatalf("PrepareChatAgentCatalog: %v", err)
 	}
 	return catalog
 }
 
-func choiceRoles(choices []serverapi.ChatSettingsAgentChoice) []string {
+func testChatSettingsApp(t *testing.T) config.App {
+	settings := config.DefaultOnboardingSettings()
+	settings.Model = "gpt-6-sol"
+	settings.ThinkingLevel = "medium"
+	settings.EnabledTools = map[toolspec.ID]bool{
+		toolspec.ToolAskQuestion: true,
+		toolspec.ToolExecCommand: true,
+	}
+	settings.Subagents = map[string]config.SubagentRole{
+		config.BuiltInSubagentRoleFast: {
+			Settings: config.Settings{Model: "gpt-6-sol", ThinkingLevel: "low"},
+			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
+		},
+		"no-questions": {
+			Settings: config.Settings{
+				EnabledTools: map[toolspec.ID]bool{toolspec.ToolAskQuestion: false},
+			},
+			Sources: map[string]config.Origin{"tools.ask_question": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.ask_question"}}},
+		},
+	}
+	return testsetup.ProgrammaticConfig(t, settings)
+}
+
+func testNewChatSettingsApp(t *testing.T) config.App {
+	t.Helper()
+	app := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
+	settings := testChatSettingsApp(t).Settings
+	app.Settings.Model = settings.Model
+	app.Settings.ThinkingLevel = settings.ThinkingLevel
+	app.Settings.Subagents = settings.Subagents
+	app.Settings.EnabledTools = settings.EnabledTools
+	app.Settings.CompactionMode = config.CompactionModeNone
+	return app
+}
+
+func choiceRoles(choices []*chatsettingspb.AgentChoice) []string {
 	roles := make([]string, len(choices))
 	for i, choice := range choices {
 		roles[i] = choice.Role

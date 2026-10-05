@@ -9,124 +9,53 @@ import (
 
 	"core/server/attentionnotify"
 	askquestion "core/server/tools"
+	"core/shared/apicontract"
 	"core/shared/clientui"
+	"core/shared/protoapi"
+	attentionpb "core/shared/protoapi/gen/kent/api/attention"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-func (r *RuntimeRegistry) WithAttentionNotifications(broker *attentionnotify.Broker) *RuntimeRegistry {
+func (r *RuntimeRegistry) WithAttentionNotifications(broker *attentionnotify.Broker, navigation func(context.Context, string) (*sessionlaunchpb.SessionNavigationBinding, error)) *RuntimeRegistry {
 	if r == nil {
 		return r
 	}
 	r.attentionBroker = broker
+	r.attentionNavigation = navigation
 	if broker != nil {
 		r.questionBatches = attentionnotify.NewQuestionBatchTracker(broker)
 	}
 	return r
 }
 
-func (r *RuntimeRegistry) SubscribeAttentionNotifications(_ context.Context, req serverapi.AttentionNotificationSubscribeRequest) (serverapi.AttentionNotificationSubscription, error) {
-	if err := req.Validate(); err != nil {
+func (r *RuntimeRegistry) SubscribeAttentionNotifications(_ context.Context, req *emptypb.Empty) (apicontract.AttentionNotificationSubscription, error) {
+	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
 	if r == nil || r.attentionBroker == nil {
 		return nil, fmt.Errorf("attention notification stream is unavailable: %w", serverapi.ErrStreamUnavailable)
 	}
-	live, err := r.attentionBroker.SubscribeDesktop()
+	sub, err := r.attentionBroker.SubscribeDesktop()
 	if err != nil {
 		return nil, err
 	}
-	return newWorkflowAttentionNotificationSubscription(live, r.workflowAttentionSnapshot), nil
+	return &attentionSubscription{native: sub}, nil
 }
 
-func (r *RuntimeRegistry) SubscribeSessionAttentionNotifications(_ context.Context, req serverapi.AttentionSessionNotificationSubscribeRequest) (serverapi.AttentionNotificationSubscription, error) {
-	if err := req.Validate(); err != nil {
+func (r *RuntimeRegistry) SubscribeSessionAttentionNotifications(_ context.Context, req *attentionpb.SubscribeRequest) (serverapi.SessionAttentionNotificationSubscription, error) {
+	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
 	if r == nil || r.attentionBroker == nil {
 		return nil, fmt.Errorf("attention notification stream is unavailable: %w", serverapi.ErrStreamUnavailable)
 	}
-	if !req.IncludePendingPromptSnapshot {
-		return r.attentionBroker.SubscribeSession(req.SessionID)
-	}
-	sub, err := r.attentionBroker.SubscribeSession(req.SessionID)
+	sub, err := r.attentionBroker.SubscribeSession(req.SessionId)
 	if err != nil {
 		return nil, err
 	}
-	items := r.pendingPrompts.List(req.SessionID)
-	taskBatches := taskQuestionBatchSnapshotGroups(items)
-	processedTaskSteps := map[string]struct{}{}
-	for _, item := range items {
-		if item.Request.QuestionBatch != nil && item.Request.AttentionTarget != nil && item.Request.AttentionTarget.Kind == clientui.AttentionNotificationTargetWorkflowTask {
-			stepID := questionBatchStepID(*item.Request.QuestionBatch)
-			if _, ok := processedTaskSteps[stepID]; ok {
-				continue
-			}
-			processedTaskSteps[stepID] = struct{}{}
-			if err := r.enqueueTaskQuestionBatchSnapshot(sub, req.SessionID, taskBatches[stepID]); err != nil {
-				_ = sub.Close()
-				return nil, err
-			}
-			continue
-		}
-		event := attentionPendingEventFromPrompt(req.SessionID, item, clientui.AttentionNotificationSourceSnapshot)
-		if event.Pending == nil {
-			continue
-		}
-		scope := attentionScopeForRequest(req.SessionID, item.Request)
-		if err := r.attentionBroker.EnqueueInitial(sub, scope, event); err != nil {
-			_ = sub.Close()
-			return nil, err
-		}
-	}
-	complete := clientui.AttentionNotificationEvent{
-		Source:    clientui.AttentionNotificationSourceSnapshot,
-		Type:      clientui.AttentionNotificationEventSnapshotComplete,
-		SessionID: req.SessionID,
-	}
-	if err := r.attentionBroker.EnqueueInitial(sub, attentionnotify.RoutingScope{Kind: attentionnotify.RoutingSessionPrompt, SessionID: req.SessionID}, complete); err != nil {
-		_ = sub.Close()
-		return nil, err
-	}
-	return sub, nil
-}
-
-func taskQuestionBatchSnapshotGroups(items []PendingPromptSnapshot) map[string][]PendingPromptSnapshot {
-	groups := map[string][]PendingPromptSnapshot{}
-	for _, item := range items {
-		req := item.Request
-		if req.QuestionBatch == nil || req.AttentionTarget == nil || req.AttentionTarget.Kind != clientui.AttentionNotificationTargetWorkflowTask {
-			continue
-		}
-		stepID := questionBatchStepID(*req.QuestionBatch)
-		groups[stepID] = append(groups[stepID], item)
-	}
-	return groups
-}
-
-func (r *RuntimeRegistry) enqueueTaskQuestionBatchSnapshot(sub serverapi.AttentionNotificationSubscription, sessionID string, items []PendingPromptSnapshot) error {
-	if len(items) == 0 {
-		return nil
-	}
-	if r.questionBatches == nil {
-		r.questionBatches = attentionnotify.NewQuestionBatchTracker(r.attentionBroker)
-	}
-	subscription, ok := sub.(*attentionnotify.Subscription)
-	if !ok {
-		return fmt.Errorf("attention notification snapshot subscription has unexpected type %T", sub)
-	}
-	req := items[0].Request
-	materializedAskIDs := make([]string, 0, len(items))
-	for _, item := range items {
-		materializedAskIDs = append(materializedAskIDs, item.Request.ID)
-	}
-	return r.questionBatches.EnqueueSnapshot(subscription, attentionnotify.QuestionBatch{
-		StepID:         questionBatchStepID(*req.QuestionBatch),
-		Route:          attentionScopeForRequest(sessionID, req),
-		Target:         *req.AttentionTarget,
-		Preview:        strings.TrimSpace(req.Question),
-		PreparedAskIDs: append([]string(nil), req.QuestionBatch.BatchPromptIDs...),
-		OccurredAt:     items[0].CreatedAt,
-	}, materializedAskIDs)
+	return &sessionAttentionSubscription{native: sub}, nil
 }
 
 func (r *RuntimeRegistry) publishAttentionPending(sessionID string, snapshot PendingPromptSnapshot) {
@@ -137,18 +66,22 @@ func (r *RuntimeRegistry) publishAttentionPending(sessionID string, snapshot Pen
 	if req.QuestionBatch != nil && req.AttentionTarget != nil && req.AttentionTarget.Kind == clientui.AttentionNotificationTargetWorkflowTask {
 		stepID := questionBatchStepID(*req.QuestionBatch)
 		if err := r.PrepareTaskQuestionBatch(*req.QuestionBatch, sessionID, req.AttentionTarget, strings.TrimSpace(req.Question), snapshot.CreatedAt); err != nil {
-			logAttentionNotificationOperationFailure("prepare task question batch", sessionID, req.ID, err)
+			logAttentionNotificationOperationFailure("prepare task question batch", sessionID, req.ToolCallID, err)
 			return
 		}
-		if err := r.questionBatches.MarkMaterialized(stepID, req.ID); err != nil {
-			logAttentionNotificationOperationFailure("materialize task question batch", sessionID, req.ID, err)
+		if err := r.questionBatches.MarkMaterialized(stepID, req.ToolCallID); err != nil {
+			logAttentionNotificationOperationFailure("materialize task question batch", sessionID, req.ToolCallID, err)
 		}
 		return
 	}
-	event := attentionPendingEventFromPrompt(sessionID, snapshot, clientui.AttentionNotificationSourceLive)
+	event, err := r.attentionPendingEventFromPrompt(sessionID, snapshot)
+	if err != nil {
+		logAttentionNotificationOperationFailure("resolve prompt navigation", sessionID, req.ToolCallID, err)
+		return
+	}
 	if event.Pending != nil {
 		if err := r.attentionBroker.PublishPending(attentionScopeForRequest(sessionID, req), *event.Pending); err != nil {
-			logAttentionNotificationOperationFailure("publish pending prompt", sessionID, req.ID, err)
+			logAttentionNotificationOperationFailure("publish pending prompt", sessionID, req.ToolCallID, err)
 		}
 	}
 }
@@ -167,10 +100,10 @@ func (r *RuntimeRegistry) publishAttentionResolved(sessionID string, snapshot Pe
 	kind := promptNotificationKind(req)
 	id := clientui.AttentionNotificationID{
 		Kind: kind,
-		UUID: strings.TrimSpace(req.ID),
+		UUID: strings.TrimSpace(req.ToolCallID),
 	}
 	if err := r.attentionBroker.PublishResolved(attentionScopeForRequest(sessionID, req), id, kind, time.Now().UTC()); err != nil {
-		logAttentionNotificationOperationFailure("publish resolved prompt", sessionID, req.ID, err)
+		logAttentionNotificationOperationFailure("publish resolved prompt", sessionID, req.ToolCallID, err)
 	}
 }
 
@@ -205,7 +138,7 @@ func (r *RuntimeRegistry) PrepareTaskQuestionBatch(batch askquestion.AskQuestion
 		Route:          attentionnotify.RoutingScope{Kind: attentionnotify.RoutingWorkflowTask, TaskID: target.TaskID, SessionID: sessionID},
 		Target:         *target,
 		Preview:        strings.TrimSpace(preview),
-		PreparedAskIDs: append([]string(nil), batch.BatchPromptIDs...),
+		PreparedAskIDs: append([]string(nil), batch.BatchToolCallIDs...),
 		OccurredAt:     occurredAt,
 	})
 }
@@ -223,8 +156,8 @@ func (r *RuntimeRegistry) MarkTaskQuestionSkipped(batch askquestion.AskQuestionB
 	if r == nil || r.questionBatches == nil {
 		return
 	}
-	if err := r.questionBatches.MarkSkipped(questionBatchStepID(batch), batch.PromptID); err != nil {
-		logAttentionNotificationOperationFailure("mark task question skipped", "", batch.PromptID, err)
+	if err := r.questionBatches.MarkSkipped(questionBatchStepID(batch), batch.ToolCallID); err != nil {
+		logAttentionNotificationOperationFailure("mark task question skipped", "", batch.ToolCallID, err)
 	}
 }
 
@@ -235,7 +168,7 @@ func logAttentionNotificationOperationFailure(operation string, sessionID string
 	slog.Warn("attention notification operation failed", "operation", operation, "session_id", sessionID, "ask_id", askID, "error", err)
 }
 
-func attentionPendingEventFromPrompt(sessionID string, snapshot PendingPromptSnapshot, source clientui.AttentionNotificationSource) clientui.AttentionNotificationEvent {
+func (r *RuntimeRegistry) attentionPendingEventFromPrompt(sessionID string, snapshot PendingPromptSnapshot) (clientui.AttentionNotificationEvent, error) {
 	kind := promptNotificationKind(snapshot.Request)
 	target := clientui.AttentionNotificationTarget{
 		Kind:      clientui.AttentionNotificationTargetSessionPrompt,
@@ -243,11 +176,17 @@ func attentionPendingEventFromPrompt(sessionID string, snapshot PendingPromptSna
 	}
 	if snapshot.Request.IsTaskScopedApprovalQuestion() && snapshot.Request.AttentionTarget != nil {
 		target = *snapshot.Request.AttentionTarget
+	} else {
+		binding, err := r.attentionNavigation(context.Background(), sessionID)
+		if err != nil {
+			return clientui.AttentionNotificationEvent{}, err
+		}
+		target.ProjectID = binding.ProjectId
 	}
 	notification := clientui.AttentionNotification{
 		ID: clientui.AttentionNotificationID{
 			Kind: kind,
-			UUID: strings.TrimSpace(snapshot.Request.ID),
+			UUID: strings.TrimSpace(snapshot.Request.ToolCallID),
 		},
 		Kind:       kind,
 		OccurredAt: snapshot.CreatedAt,
@@ -256,23 +195,26 @@ func attentionPendingEventFromPrompt(sessionID string, snapshot PendingPromptSna
 	}
 	if snapshot.Request.Approval && !snapshot.Request.IsTaskScopedApprovalQuestion() {
 		notification.Approval = &clientui.AttentionNotificationApprovalState{
-			Message: strings.TrimSpace(snapshot.Request.Question),
+			AccessTargets: append([]clientui.FileAccessTarget(nil), snapshot.Request.AccessTargets...),
+		}
+		if message := strings.TrimSpace(snapshot.Request.Question); message != "" {
+			notification.Approval.Message = &message
 		}
 	} else {
 		notification.Question = &clientui.AttentionNotificationQuestionState{
-			PreparedAskIDs:          []string{snapshot.Request.ID},
-			MaterializedAskIDs:      []string{snapshot.Request.ID},
-			CurrentUnresolvedAskIDs: []string{snapshot.Request.ID},
+			PreparedAskIDs:          []string{snapshot.Request.ToolCallID},
+			MaterializedAskIDs:      []string{snapshot.Request.ToolCallID},
+			CurrentUnresolvedAskIDs: []string{snapshot.Request.ToolCallID},
+			SkippedAskIDs:           []string{},
 			Preview:                 strings.TrimSpace(snapshot.Request.Question),
 			DisplayCount:            1,
 			MaterializedCount:       1,
 		}
 	}
 	return clientui.AttentionNotificationEvent{
-		Source:  source,
 		Type:    clientui.AttentionNotificationEventPending,
 		Pending: &notification,
-	}
+	}, nil
 }
 
 func attentionScopeForRequest(sessionID string, req askquestion.AskQuestionRequest) attentionnotify.RoutingScope {

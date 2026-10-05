@@ -75,7 +75,7 @@ func TestCompleteNodeBarrierCommitsReadySiblingBeforeWorkflowMutation(t *testing
 		&fakeClient{},
 		tools.NewRegistry(),
 		Config{
-			Model:              "gpt-5",
+			Model:              "gpt-6-sol",
 			DurabilityObserver: flushes,
 		},
 	)
@@ -132,7 +132,7 @@ func TestCompleteNodeValidatesBeforeEffectBarrier(t *testing.T) {
 		&fakeClient{},
 		tools.NewRegistry(),
 		Config{
-			Model:              "gpt-5",
+			Model:              "gpt-6-sol",
 			DurabilityObserver: flushes,
 		},
 	)
@@ -181,14 +181,14 @@ func TestCompleteNodeOperationalFailureDoesNotConsumeProtocolBudget(t *testing.T
 		mustCreateTestSession(t),
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	publishTestWorkflowExecution(t, engine, testWorkflowConfig(controller, config.WorkflowCompletionModeTool))
 	stepID := "22222222-2222-4222-8222-222222222222"
 	restoreStep := setTestActiveStep(engine, stepID)
 	defer restoreStep()
 
-	result, err := (&defaultToolExecutor{engine: engine}).executeCompleteNodeTool(
+	result, err := engine.executeCompleteNodeTool(
 		context.Background(),
 		stepID,
 		llm.ToolCall{

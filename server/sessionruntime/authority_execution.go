@@ -11,6 +11,7 @@ import (
 
 	"core/server/runtime"
 	"core/server/tools"
+	"core/shared/clientui"
 	"core/shared/runtimeids"
 )
 
@@ -23,8 +24,7 @@ type ExecutionHandle interface {
 }
 
 type ExecutionResult struct {
-	Script               *ScriptResult
-	DroppedRuntimeEvents uint64
+	Script *ScriptResult
 }
 
 type executionPhase uint8
@@ -179,27 +179,35 @@ func (e *execution) stopError() error {
 }
 
 func (e *execution) finish(result ExecutionResult, runErr error, stopErr error) {
+	releaseAdmission, workErr := e.awaitModelWorkAndLockAdmission()
+	if workErr != nil {
+		if runErr == nil {
+			runErr = workErr
+		} else {
+			runErr = errors.Join(runErr, workErr)
+		}
+	}
 	cleanupErr := e.cleanup()
+	if releaseAdmission != nil {
+		releaseAdmission()
+	}
 	cleanupErr = errors.Join(cleanupErr, e.retire())
 	authority := e.authority
 	executionErr := runErr
-	abort, abortErr := runtimeAbortFromError(runErr)
+	if cleanupErr != nil {
+		executionErr = errors.Join(executionErr, cleanupErr)
+	}
+	abort, abortErr := runtimeAbortFromError(executionErr)
 	if abortErr != nil {
 		executionErr = errors.Join(executionErr, abortErr)
 	}
 	var closeErr error
 	if e.resource != nil {
-		if e.resource.eventBridge != nil {
-			result.DroppedRuntimeEvents = e.resource.eventBridge.Dropped.Load()
-		}
 		if e.resource.logger != nil {
 			if executionErr != nil {
 				e.resource.logger.Logf("runtime.execution.exit scope_id=%s error=%q", e.scope.ID(), executionErr.Error())
 			} else {
 				e.resource.logger.Logf("runtime.execution.exit scope_id=%s ok", e.scope.ID())
-			}
-			if result.DroppedRuntimeEvents != 0 {
-				e.resource.logger.Logf("runtime.event.drop.total=%d", result.DroppedRuntimeEvents)
 			}
 		}
 		if e.closeResource {
@@ -214,8 +222,8 @@ func (e *execution) finish(result ExecutionResult, runErr error, stopErr error) 
 		}
 	}
 	finalErr := executionErr
-	if cleanupErr != nil || closeErr != nil {
-		finalErr = errors.Join(finalErr, cleanupErr, closeErr)
+	if closeErr != nil {
+		finalErr = errors.Join(finalErr, closeErr)
 	}
 	e.resultMu.Lock()
 	e.result = result
@@ -313,6 +321,29 @@ func (e *execution) retireWorkflowLocked() error {
 	return nil
 }
 
+func (e *execution) awaitModelWorkAndLockAdmission() (release func(), workErr error) {
+	if e.resource == nil {
+		return nil, nil
+	}
+	// Admission and removal share the resource's turn lock. A callback that joins
+	// this execution may start more model work as the prior worker ends.
+	e.resource.turnMu.Lock()
+	engine := e.resource.engine
+	for context.Cause(e.ctx) == nil &&
+		(engine.HasScheduledQueuedUserWork() || engine.GoalLoopRunning()) {
+		e.resource.turnMu.Unlock()
+		workErr = engine.WaitForScheduledQueuedUserWork(e.ctx)
+		if workErr == nil {
+			workErr = engine.WaitForGoalLoop(e.ctx)
+		}
+		e.resource.turnMu.Lock()
+		if workErr != nil {
+			break
+		}
+	}
+	return e.resource.turnMu.Unlock, workErr
+}
+
 func (e *execution) cleanup() error {
 	promptErr := e.prompts.Close(context.Canceled)
 	var bindingErr error
@@ -328,7 +359,7 @@ func (e *execution) cleanup() error {
 	defer resource.mu.Unlock()
 	if resource.current != e {
 		return errors.Join(
-			bindingErr,
+			promptErr, bindingErr,
 			fmt.Errorf(
 				"agent execution scope %s is not current for resource %s generation %d",
 				e.scope.ID(),
@@ -339,19 +370,7 @@ func (e *execution) cleanup() error {
 	}
 	cleanupErr := errors.Join(promptErr, bindingErr)
 	if resource.askBroker != nil {
-		switch {
-		case resource.askScope == nil:
-			cleanupErr = errors.New("agent execution prompt binding is missing")
-		case *resource.askScope != e.scope.ID():
-			cleanupErr = fmt.Errorf(
-				"agent execution prompt binding scope %s does not match finalizing scope %s",
-				*resource.askScope,
-				e.scope.ID(),
-			)
-		default:
-			resource.askBroker.SetAskHandler(nil)
-			resource.askScope = nil
-		}
+		resource.askBroker.SetAskHandler(nil)
 	}
 	if resource.localTools != nil {
 		cleanupErr = errors.Join(cleanupErr, resource.localTools.BindExecutionCorrelation(nil))
@@ -361,29 +380,52 @@ func (e *execution) cleanup() error {
 	return cleanupErr
 }
 
+type executionPromptResultKind uint8
+
+const (
+	executionPromptResolved executionPromptResultKind = iota + 1
+	executionPromptDeclined
+	executionPromptFailed
+)
+
 type executionPromptResult struct {
+	kind       executionPromptResultKind
 	resolution tools.AskQuestionResolution
 	err        error
+}
+
+func resolvedExecutionPromptResult(resolution tools.AskQuestionResolution) executionPromptResult {
+	return executionPromptResult{kind: executionPromptResolved, resolution: resolution}
+}
+
+func declinedExecutionPromptResult(err error) executionPromptResult {
+	return executionPromptResult{kind: executionPromptDeclined, err: err}
+}
+
+func failedExecutionPromptResult(err error) executionPromptResult {
+	return executionPromptResult{kind: executionPromptFailed, err: err}
 }
 
 type executionPromptEntry struct {
 	snapshot        ExecutionPromptSnapshot
 	response        chan executionPromptResult
 	publicationDone chan struct{}
+	approval        *approvalPromptLifecycle
 }
 
 type executionPromptClosure struct {
-	err     error
-	entries []*executionPromptEntry
+	err       error
+	questions []*executionPromptEntry
+	approvals []*executionPromptEntry
 }
 
 type PromptBatchInvariantError struct {
-	PromptID string
-	Detail   string
+	ToolCallID string
+	Detail     string
 }
 
 func (e PromptBatchInvariantError) Error() string {
-	return fmt.Sprintf("prepared question batch for prompt %q is invalid: %s", e.PromptID, e.Detail)
+	return fmt.Sprintf("prepared question batch for tool call %q is invalid: %s", e.ToolCallID, e.Detail)
 }
 
 type executionPromptStore struct {
@@ -412,9 +454,9 @@ func (s *executionPromptStore) Await(ctx context.Context, req tools.AskQuestionR
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	requestID := strings.TrimSpace(req.ID)
-	if requestID == "" {
-		return nil, errors.New("prompt request id is required")
+	toolCallID := strings.TrimSpace(req.ToolCallID)
+	if toolCallID == "" {
+		return nil, errors.New("prompt tool call id is required")
 	}
 	snapshot := ExecutionPromptSnapshot{
 		Scope:     s.scope,
@@ -426,6 +468,10 @@ func (s *executionPromptStore) Await(ctx context.Context, req tools.AskQuestionR
 		response:        make(chan executionPromptResult, 1),
 		publicationDone: make(chan struct{}),
 	}
+	if req.Approval {
+		entry.response = make(chan executionPromptResult)
+		entry.approval = newApprovalPromptLifecycle()
+	}
 	if s.authority == nil {
 		return nil, errors.New("session runtime authority is required")
 	}
@@ -434,28 +480,31 @@ func (s *executionPromptStore) Await(ctx context.Context, req tools.AskQuestionR
 		s.mu.Unlock()
 		return nil, context.Canceled
 	}
-	if _, exists := s.pending[requestID]; exists {
+	if _, exists := s.pending[toolCallID]; exists {
 		s.mu.Unlock()
-		return nil, fmt.Errorf("prompt %q is already pending", requestID)
+		return nil, fmt.Errorf("prompt %q is already pending", toolCallID)
 	}
-	s.pending[requestID] = entry
+	s.pending[toolCallID] = entry
 	s.mu.Unlock()
 	if err := s.publishPending(snapshot); err != nil {
 		s.mu.Lock()
-		delete(s.pending, requestID)
+		delete(s.pending, toolCallID)
 		s.mu.Unlock()
 		close(entry.publicationDone)
 		return nil, err
 	}
 	close(entry.publicationDone)
 	s.mu.Lock()
-	s.observePromptFollowUpsLocked(req.StepID, requestID)
+	s.observePromptFollowUpsLocked(req.StepID, toolCallID)
 	s.mu.Unlock()
+	if entry.approval != nil {
+		return s.awaitApproval(ctx, entry)
+	}
 	defer func() {
 		s.mu.Lock()
-		current := s.pending[requestID]
+		current := s.pending[toolCallID]
 		if current == entry {
-			delete(s.pending, requestID)
+			delete(s.pending, toolCallID)
 		}
 		s.mu.Unlock()
 		if current == entry {
@@ -484,24 +533,28 @@ func (s *executionPromptStore) Close(err error) error {
 	s.mu.Unlock()
 	publicationErr := s.publishClosure(closure)
 	s.releaseClosure(closure)
-	return publicationErr
+	return errors.Join(publicationErr, s.closeApprovals(closure, false))
 }
 
 func (s *executionPromptStore) closeLocked(err error) executionPromptClosure {
 	if err == nil {
 		err = context.Canceled
 	}
-	if s.closed {
-		return executionPromptClosure{}
+	if !s.closed {
+		s.closed = true
+		s.closePromptFollowUpsLocked()
 	}
-	s.closed = true
-	s.closePromptFollowUpsLocked()
 	closure := executionPromptClosure{
-		err:     err,
-		entries: make([]*executionPromptEntry, 0, len(s.pending)),
+		err:       err,
+		questions: make([]*executionPromptEntry, 0, len(s.pending)),
+		approvals: make([]*executionPromptEntry, 0, len(s.pending)),
 	}
 	for requestID, entry := range s.pending {
-		closure.entries = append(closure.entries, entry)
+		if entry.approval != nil {
+			closure.approvals = append(closure.approvals, entry)
+			continue
+		}
+		closure.questions = append(closure.questions, entry)
 		delete(s.pending, requestID)
 	}
 	return closure
@@ -509,7 +562,7 @@ func (s *executionPromptStore) closeLocked(err error) executionPromptClosure {
 
 func (s *executionPromptStore) publishClosure(closure executionPromptClosure) error {
 	var publicationErr error
-	for _, entry := range closure.entries {
+	for _, entry := range closure.questions {
 		<-entry.publicationDone
 		publicationErr = errors.Join(publicationErr, s.publishResolved(entry.snapshot))
 	}
@@ -517,11 +570,20 @@ func (s *executionPromptStore) publishClosure(closure executionPromptClosure) er
 }
 
 func (s *executionPromptStore) releaseClosure(closure executionPromptClosure) {
-	for _, entry := range closure.entries {
-		entry.response <- executionPromptResult{
-			err: closure.err,
-		}
+	for _, entry := range closure.questions {
+		entry.response <- failedExecutionPromptResult(closure.err)
 	}
+}
+
+func (s *executionPromptStore) closeApprovals(
+	closure executionPromptClosure,
+	waitForClaim bool,
+) error {
+	var closeErr error
+	for _, entry := range closure.approvals {
+		closeErr = errors.Join(closeErr, s.closeApproval(entry, closure.err, waitForClaim))
+	}
+	return closeErr
 }
 
 func (s *executionPromptStore) hasPending() bool {
@@ -559,7 +621,7 @@ func (s *executionPromptStore) pendingReferencesLocked() ([]PendingPromptReferen
 			return nil, errors.New("pending prompt store contains a nil entry")
 		}
 		reference := PendingPromptReference{
-			ID: requestID,
+			ToolCallID: clientui.ToolCallID(requestID),
 		}
 		if entry.snapshot.Request.Approval {
 			reference.Kind = PendingPromptKindSessionApproval
@@ -569,8 +631,8 @@ func (s *executionPromptStore) pendingReferencesLocked() ([]PendingPromptReferen
 		references = append(references, reference)
 	}
 	sort.Slice(references, func(i, j int) bool {
-		if references[i].ID != references[j].ID {
-			return references[i].ID < references[j].ID
+		if references[i].ToolCallID != references[j].ToolCallID {
+			return references[i].ToolCallID < references[j].ToolCallID
 		}
 		return references[i].Kind < references[j].Kind
 	})
@@ -588,7 +650,7 @@ func (s *executionPromptStore) publishResolved(snapshot ExecutionPromptSnapshot)
 	if s.feed == nil {
 		return nil
 	}
-	return s.feed.PromptResolvedScope(snapshot.Scope, snapshot.Request.ID)
+	return s.feed.PromptResolvedScope(snapshot.Scope, snapshot.Request.ToolCallID)
 }
 
 func (a *Authority) AwaitPromptResolution(

@@ -1,11 +1,11 @@
 package app
 
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+
 import (
 	"errors"
 	"sync"
 	"time"
-
-	"core/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 	xansi "github.com/charmbracelet/x/ansi"
@@ -86,7 +86,7 @@ func (m *uiModel) nativeProgressEligible() bool {
 		return false
 	}
 	return m.isCompacting() ||
-		m.runtimeActivityProjection.Reviewer == clientui.ReviewerActivityInvoking ||
+		m.runtimeActivityProjection.GetReviewer() == runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INVOKING ||
 		(m.pendingDetailTranscript != nil && m.pendingDetailTranscript.detailMode) ||
 		m.worktrees.create.submitting ||
 		m.worktrees.deleteConfirm.submitting

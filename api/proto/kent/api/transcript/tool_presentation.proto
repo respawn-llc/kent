@@ -1,0 +1,161 @@
+syntax = "proto3";
+
+package kent.api.transcript;
+
+import "buf/validate/validate.proto";
+
+option go_package = "core/shared/protoapi/gen/kent/api/transcript;transcriptpb";
+
+enum ToolPresentationKind {
+  TOOL_PRESENTATION_KIND_UNSPECIFIED = 0;
+  TOOL_PRESENTATION_KIND_DEFAULT = 1;
+  TOOL_PRESENTATION_KIND_SHELL = 2;
+  TOOL_PRESENTATION_KIND_ASK_QUESTION = 3;
+}
+
+enum ToolRenderKind {
+  TOOL_RENDER_KIND_UNSPECIFIED = 0;
+  TOOL_RENDER_KIND_SHELL = 1;
+  TOOL_RENDER_KIND_DIFF = 2;
+  TOOL_RENDER_KIND_SOURCE = 3;
+  TOOL_RENDER_KIND_PLAIN = 4;
+}
+
+enum ToolShellDialect {
+  TOOL_SHELL_DIALECT_UNSPECIFIED = 0;
+  TOOL_SHELL_DIALECT_POSIX = 1;
+  TOOL_SHELL_DIALECT_POWER_SHELL = 2;
+  TOOL_SHELL_DIALECT_WINDOWS_COMMAND = 3;
+}
+
+message ToolRenderHint {
+  ToolRenderKind kind = 1 [(buf.validate.field).enum = {defined_only: true not_in: [0]}];
+  optional string path = 2 [(buf.validate.field).string.min_len = 1];
+  bool result_only = 3;
+  optional ToolShellDialect shell_dialect = 4 [(buf.validate.field).enum = {defined_only: true not_in: [0]}];
+}
+
+message ToolPresentation {
+  ToolPresentationKind presentation = 1 [(buf.validate.field).enum = {defined_only: true not_in: [0]}];
+  ToolPresentationKind render_behavior = 2 [(buf.validate.field).enum = {defined_only: true not_in: [0]}];
+  bool is_shell = 3;
+  bool user_initiated = 4;
+  optional string command = 5;
+  optional string compact_text = 6;
+  optional string inline_meta = 7;
+  optional string timeout_label = 8;
+  optional string question = 9;
+  repeated string suggestions = 10;
+  optional int32 recommended_option_index = 11 [(buf.validate.field).int32.gte = 1];
+  bool omit_successful_result = 12;
+  bool raw_output_requested = 13;
+  bool output_truncated = 14;
+  bool moved_to_background = 15;
+  optional int32 shell_exit_code = 16;
+  optional ToolRenderHint render_hint = 17;
+  optional PatchPresentation patch_presentation = 18;
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.tool_question_recommendation"
+    message: "Ask Question recommendation must identify an offered suggestion"
+    expression: "this.presentation != 3 || !has(this.recommended_option_index) || this.recommended_option_index <= size(this.suggestions)"
+  };
+}
+
+message PatchPath {
+  string absolute = 1 [(buf.validate.field).string.min_len = 1];
+  string relative = 2 [(buf.validate.field).string.min_len = 1];
+}
+
+enum PatchChangedLineKind {
+  PATCH_CHANGED_LINE_KIND_UNSPECIFIED = 0;
+  PATCH_CHANGED_LINE_KIND_ADDED = 1;
+  PATCH_CHANGED_LINE_KIND_REMOVED = 2;
+}
+
+message PatchChangedLine {
+  PatchChangedLineKind kind = 1 [(buf.validate.field).enum = {defined_only: true not_in: [0]}];
+  string content = 2;
+}
+
+message PatchChangeGroup {
+  repeated PatchChangedLine lines = 1 [(buf.validate.field).repeated.min_items = 1];
+}
+
+message PatchDeletionOperationID {
+  int32 hunk_ordinal = 1 [(buf.validate.field).int32.gte = 0];
+}
+
+message PatchDeletionGroupID {
+  PatchDeletionOperationID first_operation = 1 [(buf.validate.field).required = true];
+}
+
+message PatchDeletionDisposition {
+  PatchDeletionGroupID physical_group = 1 [(buf.validate.field).required = true];
+  int32 removed = 2 [(buf.validate.field).int32.gte = 0];
+}
+
+message PatchDeletionOperation {
+  PatchDeletionOperationID id = 1 [(buf.validate.field).required = true];
+  optional PatchDeletionDisposition disposition = 2;
+}
+
+message PatchAddOperation {
+  repeated PatchChangeGroup groups = 1 [(buf.validate.field).repeated.min_items = 1];
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.patch_added_lines"
+    message: "added file groups contain only added lines"
+    expression: "this.groups.all(group, group.lines.all(line, line.kind == 1))"
+  };
+}
+
+message PatchUpdateOperation {
+  repeated PatchChangeGroup groups = 1;
+}
+
+message PatchMoveOperation {
+  PatchPath source = 1 [(buf.validate.field).required = true];
+  repeated PatchChangeGroup groups = 2;
+}
+
+message PatchFileOperation {
+  oneof operation {
+    option (buf.validate.oneof).required = true;
+    PatchAddOperation add = 1;
+    PatchUpdateOperation update = 2;
+    PatchMoveOperation move = 3;
+    PatchDeletionOperation delete = 4;
+  }
+}
+
+message PatchFileChange {
+  PatchPath path = 1 [(buf.validate.field).required = true];
+  int32 added = 2 [(buf.validate.field).int32.gte = 0];
+  optional int32 removed = 3 [(buf.validate.field).int32.gte = 0];
+  repeated PatchFileOperation operations = 4 [(buf.validate.field).repeated.min_items = 1];
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.patch_removed_presence"
+    message: "removed count must be absent exactly when a deletion is pending"
+    expression: "has(this.removed) == !this.operations.exists(op, has(op.delete) && !has(op.delete.disposition))"
+  };
+}
+
+message PatchChanges {
+  repeated PatchFileChange files = 1 [(buf.validate.field).repeated.min_items = 1];
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.patch_unique_paths"
+    message: "patch file paths must be unique"
+    expression: "this.files.map(file, file.path.absolute).unique()"
+  };
+}
+
+message PatchInvalidInput {
+  string input_detail = 1;
+}
+
+message PatchPresentation {
+  oneof presentation {
+    option (buf.validate.oneof).required = true;
+    PatchChanges changes = 1;
+    PatchInvalidInput invalid_input = 2;
+  }
+}

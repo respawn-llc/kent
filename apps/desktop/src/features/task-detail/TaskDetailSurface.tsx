@@ -1,4 +1,6 @@
-import { useCallback } from "react";
+import { useEffect, useState } from "react";
+import { useAtomValue } from "@effect/atom-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage, isTaskMissingError } from "@/api";
@@ -9,19 +11,26 @@ import type {
   SidebarRootController,
   TaskDetailInitialFocus,
 } from "@/app-facade";
-import { useSidebarBackWhen } from "@/app-facade";
+import { useAppServices, useSidebarBackWhen } from "@/app-facade";
 import { useStatusController } from "@/app-facade";
 import { ProjectLabelsProvider, TaskLabelAssignmentProvider } from "@/shared/labels";
 import { ErrorState, LoadingState } from "@/ui";
 import { TaskDetailContent } from "./TaskDetailContent";
 import type { TaskDetailDeleteDismissal } from "./taskDetailDismissal";
-import { useTaskActivity, useTaskAttention, useTaskComments, useTaskDetail } from "./useTaskDetailData";
+import type { TaskDetailSessionChatEntry } from "./taskDetailSessionChat";
+import {
+  createTaskDetailViewModel,
+  useTaskDetailActions,
+  useTaskDetailObservation,
+  useTaskDetailReads,
+} from "./TaskDetailViewModel";
 
 type TaskDetailSurfaceCommonProps = Readonly<{
   taskId: string;
   enabled: boolean;
   initialFocus?: TaskDetailInitialFocus | undefined;
   onMutated?: (() => void) | undefined;
+  openSessionChat?: TaskDetailSessionChatEntry | undefined;
   openSidebar?: SidebarRootController["open"] | undefined;
   retainedState?: unknown;
   sidebarDestination?: Extract<SidebarDestination, { kind: "taskDetail" }> | undefined;
@@ -40,13 +49,18 @@ export type TaskDetailSurfaceProps = TaskDetailSurfaceCommonProps &
       }>
   );
 
-export function TaskDetailSurface({
+export function TaskDetailSurface(props: TaskDetailSurfaceProps) {
+  return <TaskDetailDestination key={props.taskId} {...props} />;
+}
+
+function TaskDetailDestination({
   taskId,
   enabled,
   initialFocus,
   navigator,
   onDeleteDismiss,
   onMutated,
+  openSessionChat,
   openSidebar,
   retainedState,
   sidebarDestination,
@@ -54,22 +68,19 @@ export function TaskDetailSurface({
 }: TaskDetailSurfaceProps) {
   const { t } = useTranslation();
   const { push } = useStatusController();
-  const reportLabelError = useCallback(
-    (error: unknown) => {
-      push({
-        body: errorMessage(error),
-        durationMs: Infinity,
-        id: "task-label-load-error",
-        title: t("labels.loadFailed"),
-        tone: "danger",
-      });
-    },
-    [push, t],
+  const services = useAppServices();
+  const client = useQueryClient();
+  const [model] = useState(() =>
+    createTaskDetailViewModel({ services, client, taskID: taskId, enabled, retainedState, t, push }),
   );
-  const detail = useTaskDetail(taskId, enabled);
-  const attention = useTaskAttention(taskId, enabled);
-  const activity = useTaskActivity(taskId, enabled);
-  const comments = useTaskComments(taskId, enabled);
+  const { detail, attention, activity, comments } = useTaskDetailReads(model, enabled);
+  const actions = useTaskDetailActions(model);
+  const observation = useTaskDetailObservation(model);
+  const capture = useAtomValue(model.editing.capture);
+  useEffect(() => {
+    if (navigator === undefined || detail.data === undefined) return;
+    return navigator.registerCapture(capture);
+  }, [capture, detail.data, navigator]);
   const deleteDismissal: TaskDetailDeleteDismissal =
     navigator === undefined ? onDeleteDismiss : async () => ({ kind: navigator.close() });
   const taskMissing = detail.isError && isTaskMissingError(detail.error);
@@ -79,10 +90,42 @@ export function TaskDetailSurface({
   }
   if (detail.isError) {
     if (taskMissing && navigator !== undefined) return null;
-    return <ErrorState body={errorMessage(detail.error)} reveal={false} title={t("states.error")} />;
+    return (
+      <ErrorState
+        body={errorMessage(detail.error)}
+        reveal={false}
+        title={t("states.error")}
+        onRetry={() => {
+          detail.refetch();
+        }}
+        retryLabel={t("app.retry")}
+      />
+    );
   }
-  const content = (
-    <ProjectLabelsProvider onBackgroundError={reportLabelError} projectID={detail.data.projectID}>
+  const failure = [
+    {
+      error: attention.error,
+      retry: () => {
+        attention.refetch();
+      },
+    },
+    observation,
+  ].find(({ error }) => error !== null);
+  if (failure !== undefined)
+    return (
+      <ErrorState
+        body={errorMessage(failure.error)}
+        title={t("states.error")}
+        onRetry={failure.retry}
+        retryLabel={t("app.retry")}
+      />
+    );
+  return (
+    <ProjectLabelsProvider
+      onBackgroundError={model.reportLabelError}
+      projectID={detail.data.projectID}
+      subscribeToProject={false}
+    >
       <TaskLabelAssignmentProvider key={detail.data.id} taskID={detail.data.id}>
         <TaskDetailContent
           key={detail.data.id}
@@ -90,34 +133,18 @@ export function TaskDetailSurface({
           attention={attention}
           comments={comments}
           detail={detail.data}
+          model={model}
+          actions={actions}
           initialFocus={initialFocus}
           navigator={navigator}
           onDeleteDismiss={deleteDismissal}
           onMutated={onMutated}
+          openSessionChat={openSessionChat}
           openSidebar={openSidebar}
-          retainedState={retainedState}
           sidebarDestination={sidebarDestination}
           sidebarMode={sidebarMode}
         />
       </TaskLabelAssignmentProvider>
     </ProjectLabelsProvider>
-  );
-  if (!attention.isError) {
-    return content;
-  }
-  return (
-    <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-[var(--space-2)]">
-      <ErrorState
-        body={errorMessage(attention.error)}
-        fullPage={false}
-        onRetry={() => {
-          void attention.refetch();
-        }}
-        retryLabel={t("app.retry")}
-        reveal={false}
-        title={t("states.error")}
-      />
-      <div className="min-h-0">{content}</div>
-    </div>
   );
 }

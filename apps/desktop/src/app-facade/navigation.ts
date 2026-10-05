@@ -1,11 +1,24 @@
-import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate, useRouter, useRouterState, type RouterHistory } from "@tanstack/react-router";
+import { createContext, useCallback, useContext, useMemo } from "react";
+import { nativeObservation } from "@app/native-bridge";
 
 import { errorMessage } from "@/api";
 import { runNavigationTransition } from "./navigationTransitions";
+import type { SessionChatCatalogOrigin, SessionChatHistoryState } from "./sessionChatHistory";
 import { useAppServices } from "./useAppServices";
 
 type NavigationStackAction = "PUSH" | "REPLACE" | "FORWARD" | "BACK" | "GO";
+
+export const sessionChatRoutePath = "/projects/$projectId/sessions/$sessionId" as const;
+export const newChatRoutePath = "/projects/$projectId/chat" as const;
+
+export type { SessionChatCatalogOrigin, SessionChatHistoryState } from "./sessionChatHistory";
+
+export type SessionChatTarget = Readonly<{
+  projectID: string;
+  sessionID: string;
+  catalogOrigin?: SessionChatCatalogOrigin;
+}>;
 
 export type AppNavigation = Readonly<{
   back(): Promise<void>;
@@ -19,6 +32,8 @@ export type AppNavigation = Readonly<{
   openTask(taskID: string): Promise<void>;
   replaceTask(taskID: string): Promise<void>;
   openProjectTask(projectID: string, workflowID: string, taskID: string): Promise<void>;
+  openSessionChat(target: SessionChatTarget): Promise<void>;
+  openNewChat(projectID: string): Promise<void>;
   closeProjectTask(projectID: string, workflowID?: string): Promise<void>;
 }>;
 
@@ -27,6 +42,12 @@ export type NavigationStackState = Readonly<{
   canGoForward: boolean;
   hasHistory: boolean;
 }>;
+export const NavigationStackContext = createContext<NavigationStackState | null>(null);
+
+export function navigationHistoryChanges(history: RouterHistory, reportOverflow: () => Promise<void>) {
+  type Change = Parameters<Parameters<typeof history.subscribe>[0]>[0];
+  return nativeObservation<Change>(async (emit) => history.subscribe(emit), reportOverflow);
+}
 
 export function useAppNavigation(): AppNavigation {
   const navigate = useNavigate();
@@ -155,6 +176,40 @@ export function useAppNavigation(): AppNavigation {
           });
         });
       },
+      async openSessionChat(target) {
+        const sessionChatState: SessionChatHistoryState = {
+          sessionChat: {
+            catalogOrigin: target.catalogOrigin ?? null,
+            projectID: target.projectID,
+          },
+        };
+        await runNavigation(async () => {
+          await navigate({
+            to: sessionChatRoutePath,
+            params: { projectId: target.projectID, sessionId: target.sessionID },
+            state: (previous) => ({
+              ...previous,
+              ...sessionChatState,
+            }),
+          });
+        });
+      },
+      async openNewChat(projectID) {
+        await runNavigation(async () => {
+          await navigate({
+            to: newChatRoutePath,
+            params: { projectId: projectID },
+            state: (previous) => ({
+              ...previous,
+              sessionChat: {
+                projectID,
+                catalogOrigin: { category: "main" },
+                deliveredSessionID: null,
+              },
+            }),
+          });
+        });
+      },
       async closeProjectTask(projectID, workflowID) {
         await runImmediateNavigation(async () => {
           await navigate({
@@ -179,26 +234,9 @@ function searchValue(searchStr: string, key: string): string | null {
 }
 
 export function useNavigationStackState(): NavigationStackState {
-  const router = useRouter();
-  const currentIndex = useRouterState({
-    select: (state) => state.location.state.__TSR_index,
-  });
-  const [maxReachableIndex, setMaxReachableIndex] = useState(() => currentIndex);
-
-  useEffect(() => {
-    return router.history.subscribe(({ action, location }) => {
-      const nextIndex = location.state.__TSR_index;
-      setMaxReachableIndex((currentMax) => nextReachableHistoryIndex(currentMax, action.type, nextIndex));
-    });
-  }, [currentIndex, router.history]);
-
-  const canGoBack = currentIndex > 0;
-  const canGoForward = currentIndex < maxReachableIndex;
-  return {
-    canGoBack,
-    canGoForward,
-    hasHistory: canGoBack || canGoForward,
-  };
+  const state = useContext(NavigationStackContext);
+  if (state === null) throw new Error("SessionChatCatalogReturnProvider is required.");
+  return state;
 }
 
 export function nextReachableHistoryIndex(

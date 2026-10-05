@@ -134,6 +134,99 @@ func TestCustomToolCallOutputProjectsAsRegularToolResultEntry(t *testing.T) {
 	}
 }
 
+func TestWebSearchCompletionContent(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		output          string
+		failed          bool
+		wantFailure     bool
+		wantDetail      bool
+		wantFirstResult *transcript.WebSearchResult
+	}{
+		{
+			name:       "populated",
+			output:     `{"action":{"type":"search"},"results":[{"title":"Result","url":"https://example.com","snippet":"excluded"}]}`,
+			wantDetail: true,
+		},
+		{
+			name:   "absent",
+			output: `{"action":{"type":"search"}}`,
+		},
+		{
+			name:        "malformed",
+			output:      `{"action":{"type":"search"},"results":[{"url":42}]}`,
+			wantFailure: true,
+		},
+		{
+			name:        "provider failure",
+			output:      `{"error":"provider failure"}`,
+			failed:      true,
+			wantFailure: true,
+		},
+		{
+			name:            "untitled result remains successful",
+			output:          `{"action":{"type":"search","query":"site.lucide.dev clock-idle-right"},"results":[{"type":"text_result","title":"","url":"https://example.com/clock-idle-right","snippet":"excluded"}]}`,
+			wantDetail:      true,
+			wantFirstResult: &transcript.WebSearchResult{Destination: textutil.Value("https://example.com/clock-idle-right")},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tools.Result{CallID: "search-1", Name: toolspec.ToolWebSearch, Output: json.RawMessage(tc.output), IsError: tc.failed}
+			entries := TranscriptEntriesFromEvent(Event{Kind: EventToolCallCompleted, ToolResult: &result})
+			if len(entries) != 1 {
+				t.Fatalf("lost completion: %+v", entries)
+			}
+			entry := entries[0]
+			if (entry.Role == "tool_result_error") != tc.wantFailure || (entry.WebSearch != nil) != tc.wantDetail {
+				t.Fatalf("incorrect projection: %+v", entry)
+			}
+			if tc.wantFailure && entry.Text == "" {
+				t.Fatal("failure diagnostic lost")
+			}
+			if !tc.wantFailure && entry.Text != "" {
+				t.Fatalf("successful raw output exposed: %q", entry.Text)
+			}
+			if tc.wantFirstResult != nil {
+				if entry.WebSearch == nil || len(entry.WebSearch.Results) != 1 {
+					t.Fatalf("untitled result was not projected as useful detail: %+v", entry)
+				}
+				got := entry.WebSearch.Results[0]
+				if got.Title != nil || got.Destination == nil || *got.Destination != *tc.wantFirstResult.Destination || got.Image {
+					t.Fatalf("untitled result projection = %+v, want absent title and supplied destination", got)
+				}
+			}
+			if string(result.Output) != tc.output || result.IsError != tc.failed {
+				t.Fatal("saved authority changed")
+			}
+		})
+	}
+}
+
+func TestFailedWebSearchCompletionExposesOnlyDiagnostic(t *testing.T) {
+	raw := json.RawMessage(`{"type":"web_search_call","id":"search-1","status":"failed","action":{"type":"search","query":"example"},"results":[{"type":"text_result","title":"Example","url":"https://example.com","snippet":"excluded content"}],"error":"search timed out"}`)
+	result := tools.Result{CallID: "search-1", Name: toolspec.ToolWebSearch, Output: raw, IsError: true}
+	entries := TranscriptEntriesFromEvent(Event{Kind: EventToolCallCompleted, ToolResult: &result})
+	if len(entries) != 1 {
+		t.Fatalf("lost failed completion: %+v", entries)
+	}
+	entry := entries[0]
+	if entry.Role != "tool_result_error" || entry.WebSearch != nil || entry.Text != "search timed out" {
+		t.Fatalf("failure projection exposed non-diagnostic provider fields: %+v", entry)
+	}
+	if string(result.Output) != string(raw) {
+		t.Fatal("saved completion changed")
+	}
+}
+
+func TestFailedWebSearchCompletionPreservesStructuredDiagnosticMessage(t *testing.T) {
+	raw := json.RawMessage(`{"type":"web_search_call","status":"failed","action":{"type":"search"},"results":[{"type":"text_result","snippet":"excluded content"}],"error":{"message":"search timed out","type":"provider_error"}}`)
+	result := tools.Result{CallID: "search-1", Name: toolspec.ToolWebSearch, Output: raw, IsError: true}
+	entries := TranscriptEntriesFromEvent(Event{Kind: EventToolCallCompleted, ToolResult: &result})
+	if len(entries) != 1 || entries[0].Text != "search timed out" || entries[0].Role != "tool_result_error" {
+		t.Fatalf("supplied diagnostic was lost or excluded fields exposed: %+v", entries)
+	}
+}
+
 func TestTranscriptEntriesFromEventOmitsPrePersistCompactionStatusRows(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {

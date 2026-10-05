@@ -3,10 +3,10 @@ package status
 import (
 	"context"
 	"core/shared/apicontract"
-	"core/shared/clientui"
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
-	"core/shared/serverapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,7 +18,7 @@ import (
 type statusSessionViewStub struct {
 	apicontract.SessionViewService
 	mainViewCalls int
-	view          clientui.RuntimeMainView
+	view          *runtimepb.MainView
 }
 
 type statusAuthStatusStub struct {
@@ -46,9 +46,9 @@ func (s *recordingStatusAuthStatusStub) GetStatus(
 	return s.response, nil
 }
 
-func (s *statusSessionViewStub) GetSessionMainView(_ context.Context, _ serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error) {
+func (s *statusSessionViewStub) GetSessionMainView(_ context.Context, _ *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
 	s.mainViewCalls++
-	return serverapi.SessionMainViewResponse{MainView: s.view}, nil
+	return &sessionpb.MainViewSuccess{MainView: s.view}, nil
 }
 
 func TestCollectEnvironmentDisabledSkillRemainsVisibleAndStillCollectsAgents(t *testing.T) {
@@ -91,7 +91,7 @@ func TestCollectorUsesTypedAuthStatusService(t *testing.T) {
 	email := "user@example.com"
 	plan := "pro"
 	collector := Collector{}
-	snapshot, err := collector.Collect(context.Background(), Request{
+	result := collector.CollectAuth(context.Background(), Request{
 		WorkspaceRoot: t.TempDir(),
 		AuthStatus: statusAuthStatusStub{response: &authpb.Status{
 			Resolution: &authpb.StatusResolution{
@@ -101,21 +101,21 @@ func TestCollectorUsesTypedAuthStatusService(t *testing.T) {
 						Kind:       authpb.ProviderKind_PROVIDER_KIND_OPENAI,
 						Identifier: "openai",
 					},
-					EnvPreference: authpb.EnvironmentPreference_ENVIRONMENT_PREFERENCE_PREFER_SAVED_AUTH,
-					MethodFacts:   &authpb.StatusFacts_Oauth{Oauth: &authpb.OAuthFacts{Email: &email}},
+					ConnectionId: "work",
+					MethodFacts:  &authpb.StatusFacts_Oauth{Oauth: &authpb.OAuthFacts{Email: &email}},
 				}},
 			},
 			Subscription: &authpb.SubscriptionFacts{Applicable: true, Plan: &plan},
 		}},
-	})
-	if err != nil {
-		t.Fatalf("collect status: %v", err)
+	}, Snapshot{})
+	if result.Warning != "" {
+		t.Fatalf("collect auth: %s", result.Warning)
 	}
-	if snapshot.Auth.Summary != email {
-		t.Fatalf("auth summary = %q", snapshot.Auth.Summary)
+	if result.Auth.Summary != email {
+		t.Fatalf("auth summary = %q", result.Auth.Summary)
 	}
-	if snapshot.Subscription.Summary != "Pro subscription" {
-		t.Fatalf("subscription summary = %q", snapshot.Subscription.Summary)
+	if !result.Subscription.Applicable {
+		t.Fatalf("subscription = %+v", result.Subscription)
 	}
 }
 
@@ -132,17 +132,16 @@ func TestCollectorRequestsEffectiveSessionAuthProvider(t *testing.T) {
 		response: &authpb.Status{
 			Resolution: &authpb.StatusResolution{
 				Resolution: &authpb.StatusResolution_Known{Known: &authpb.StatusFacts{
-					Method:        authpb.AuthMethod_AUTH_METHOD_NONE,
-					Provider:      provider,
-					EnvPreference: authpb.EnvironmentPreference_ENVIRONMENT_PREFERENCE_UNSPECIFIED,
-					MethodFacts:   &authpb.StatusFacts_NoAuth{NoAuth: &emptypb.Empty{}},
+					Method:       authpb.AuthMethod_AUTH_METHOD_NONE,
+					Provider:     provider,
+					ConnectionId: "local",
+					MethodFacts:  &authpb.StatusFacts_NoAuth{NoAuth: &emptypb.Empty{}},
 				}},
 			},
 			Subscription: &authpb.SubscriptionFacts{},
 		},
 	}
-	baseURL := "https://session.example/v1"
-	selection := authpb.ProviderSelection{OpenaiBaseUrl: &baseURL}
+	selection := authpb.ProviderSelection{ConnectionId: "local"}
 
 	result := (Collector{}).CollectAuth(context.Background(), Request{
 		AuthStatus:    authStatus,
@@ -183,16 +182,9 @@ func TestCollectBasePreservesOptionalAgentRole(t *testing.T) {
 func TestEnrichBaseUsesCurrentSessionRoleAsAuthoritative(t *testing.T) {
 	cachedRole := "stale"
 	storedRole := "qa_tester"
-	for name, role := range map[string]*string{
-		"named agent":   &storedRole,
-		"default agent": nil,
-	} {
+	for name, role := range map[string]*string{"named agent": &storedRole, "default agent": nil} {
 		t.Run(name, func(t *testing.T) {
-			sessionViews := &statusSessionViewStub{
-				view: clientui.RuntimeMainView{
-					Session: clientui.RuntimeSessionView{SessionID: "session-1", AgentRole: role},
-				},
-			}
+			sessionViews := &statusSessionViewStub{view: &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: "session-1", AgentRole: role}}}
 			snapshot := (Collector{}).EnrichBase(context.Background(), Request{
 				SessionID:    "session-1",
 				SessionViews: sessionViews,
@@ -200,7 +192,6 @@ func TestEnrichBaseUsesCurrentSessionRoleAsAuthoritative(t *testing.T) {
 				SessionID: "session-1",
 				AgentRole: &cachedRole,
 			})
-
 			if sessionViews.mainViewCalls != 1 {
 				t.Fatalf("current session view calls = %d, want 1", sessionViews.mainViewCalls)
 			}

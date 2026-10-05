@@ -29,8 +29,8 @@ func TestDeleteWorktreeRechecksDirtyStateAfterCleanPreview(t *testing.T) {
 	env := newServiceTestEnv(t)
 	created := mustCreateWorktree(t, env, "feature/delete-preview-race-dirty")
 	preview, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
-		SessionId: env.session.Meta().SessionID,
-		Selector:  created.WorktreeID,
+		Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+		Selector: created.WorktreeID,
 	})
 	if err != nil {
 		t.Fatalf("PreviewWorktreeDelete: %v", err)
@@ -56,8 +56,8 @@ func TestDeleteWorktreeRechecksUnknownStateAfterCleanPreview(t *testing.T) {
 	env := newServiceTestEnv(t)
 	created := mustCreateWorktree(t, env, "feature/delete-preview-race-unknown")
 	preview, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
-		SessionId: env.session.Meta().SessionID,
-		Selector:  created.WorktreeID,
+		Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+		Selector: created.WorktreeID,
 	})
 	if err != nil {
 		t.Fatalf("PreviewWorktreeDelete: %v", err)
@@ -153,8 +153,8 @@ func TestMissingWorktreeDeletePreviewIsCleanAndPreservesLeftoverRoot(t *testing.
 	}
 
 	preview, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
-		SessionId: env.session.Meta().SessionID,
-		Selector:  record.ID,
+		Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+		Selector: record.ID,
 	})
 	if err != nil {
 		t.Fatalf("PreviewWorktreeDelete: %v", err)
@@ -166,7 +166,7 @@ func TestMissingWorktreeDeletePreviewIsCleanAndPreservesLeftoverRoot(t *testing.
 	}
 
 	result, err := env.service.DeleteWorktree(env.ctx, &worktreepb.DeleteRequest{
-		SessionId:           env.session.Meta().SessionID,
+		Scope:               worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
 		Selector:            preview.DeletionSelector,
 		BranchCleanupPolicy: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_RETAIN,
 	})

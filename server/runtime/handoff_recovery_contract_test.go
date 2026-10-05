@@ -27,8 +27,8 @@ func TestForkedSessionRecoversCompletedTriggerHandoff(t *testing.T) {
 		mustMaterializeTestEventLog(t, store),
 		userMessageSeqAt(t, store, 2),
 		"fork",
-		sessioncontract.SessionCategoryMain,
-	)
+		sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+
 	if err != nil {
 		t.Fatalf("fork handoff session: %v", err)
 	}

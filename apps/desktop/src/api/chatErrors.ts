@@ -1,0 +1,219 @@
+import type { DescMethod, Message, MessageShape } from "@app/server-api-contract";
+import type { ChatOperationError as WireChatOperationError } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
+import { AgentPreparationCategory } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
+import type { ReadError } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
+import type { GetCatalogError } from "@app/server-api-contract/gen/kent/api/prompt_command/prompt_command_pb";
+import { GoalService } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
+import type {
+  GoalSetError,
+  ListPendingWorkError,
+  LiveStopError,
+  RemovePendingWorkError,
+} from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
+import type {
+  SessionResolveTransitionError,
+  SessionInitialInputError,
+  SessionPersistInputDraftError,
+} from "@app/server-api-contract/gen/kent/api/session_launch/session_lifecycle_pb";
+
+import { ContractError, RpcError } from "./errors";
+import { protobufRpcError } from "./protobufRpc";
+
+export type ChatError =
+  | Readonly<{ kind: "prompt_catalog_read"; command: string | null }>
+  | Readonly<{ kind: "prompt_command_not_found" | "prompt_command_read"; command: string }>
+  | Readonly<{ kind: "session_not_found"; sessionID: string }>
+  | Readonly<{ kind: "workspace_not_registered" }>
+  | Readonly<{
+      kind: "agent_preparation";
+      agent: string;
+      category: "invalid_configuration" | "provider_unavailable" | "internal_preparation";
+    }>
+  | Readonly<{ kind: "auth_required" }>
+  | Readonly<{ kind: "server_not_ready" }>
+  | Readonly<{ kind: "runtime_unavailable"; sessionID: string }>
+  | Readonly<{ kind: "internal_failure"; operation: string | null; cause: string | null }>
+  | Readonly<{
+      kind: "unknown";
+      code: string;
+      knownDetail: Readonly<
+        | { kind: "runtime_unavailable"; sessionID: string }
+        | { kind: "internal_failure"; operation: string | null; cause: string | null }
+      > | null;
+    }>;
+
+export class ChatOperationError extends RpcError {
+  constructor(
+    rpcError: RpcError,
+    readonly detail: ChatError,
+  ) {
+    super(rpcError);
+    this.name = "ChatOperationError";
+  }
+}
+
+type ChatWireError =
+  | GetCatalogError
+  | WireChatOperationError
+  | GoalSetError
+  | ReadError
+  | ListPendingWorkError
+  | LiveStopError
+  | RemovePendingWorkError
+  | SessionInitialInputError
+  | SessionPersistInputDraftError
+  | SessionResolveTransitionError;
+type KnownChatError = Exclude<ChatError, Readonly<{ kind: "unknown"; code: string; knownDetail: unknown }>>;
+
+type ChatRpcResult = Readonly<{
+  outcome:
+    | Readonly<{ case: "success"; value: Message }>
+    | Readonly<{ case: "error"; value: ChatWireError }>
+    | Readonly<{ case: undefined; value?: undefined }>;
+}>;
+type MethodOutcome<Method extends DescMethod> =
+  MessageShape<Method["output"]> extends Readonly<{ outcome: infer Outcome }> ? Outcome : never;
+type MethodSuccess<Method extends DescMethod> =
+  Extract<MethodOutcome<Method>, Readonly<{ case: "success" }>> extends Readonly<{
+    value: infer Success;
+  }>
+    ? Success
+    : never;
+
+export function requireChatSuccess<Method extends DescMethod>(
+  method: Method,
+  result: ChatRpcResult,
+): MethodSuccess<Method>;
+export function requireChatSuccess(method: DescMethod, result: ChatRpcResult): Message {
+  switch (result.outcome.case) {
+    case "success":
+      return result.outcome.value;
+    case "error":
+      throw chatOperationError(method, result.outcome.value);
+    case undefined:
+      throw new ContractError("Chat operation returned no outcome.");
+  }
+}
+
+export function chatOperationError(method: DescMethod, failure: ChatWireError): ChatOperationError {
+  const generic = protobufRpcError(method, failure);
+  if (method === GoalService.method.set) {
+    return goalSetOperationError(generic, failure);
+  }
+  return standardChatOperationError(generic, failure);
+}
+
+function goalSetOperationError(generic: RpcError, failure: ChatWireError): ChatOperationError {
+  const detail = chatErrorDetailFromWire(failure);
+  switch (failure.code) {
+    case "runtime_unavailable":
+      if (detail?.kind !== "runtime_unavailable") {
+        throw new ContractError("Goal Set runtime-unavailable error detail is missing.");
+      }
+      return new ChatOperationError(generic, detail);
+    case "internal_failure":
+      if (detail?.kind !== "internal_failure") {
+        throw new ContractError("Goal Set internal-failure error detail is missing.");
+      }
+      return new ChatOperationError(generic, detail);
+    case "":
+      throw new ContractError("Chat operation returned an empty error code.");
+    default:
+      return new ChatOperationError(generic, {
+        kind: "unknown",
+        code: failure.code,
+        knownDetail:
+          detail?.kind === "runtime_unavailable" || detail?.kind === "internal_failure" ? detail : null,
+      });
+  }
+}
+
+function standardChatOperationError(generic: RpcError, failure: ChatWireError): ChatOperationError {
+  const detail = chatErrorDetailFromWire(failure);
+  if (detail !== null) {
+    return new ChatOperationError(generic, detail);
+  }
+  if (failure.code.length === 0) {
+    throw new ContractError("Chat operation returned an empty error code.");
+  }
+  return new ChatOperationError(generic, { kind: "unknown", code: failure.code, knownDetail: null });
+}
+
+type PromptCommandWireDetail = Extract<
+  GetCatalogError["detail"],
+  {
+    case: "catalogRead" | "commandNotFound" | "commandRead";
+  }
+>;
+
+function chatErrorDetailFromWire(failure: ChatWireError): KnownChatError | null {
+  const detail = failure.detail;
+  if (detail.case === "catalogRead" || detail.case === "commandNotFound" || detail.case === "commandRead") {
+    return promptCommandErrorDetail(detail);
+  }
+  return standardChatErrorDetail(detail);
+}
+
+function standardChatErrorDetail(
+  detail: Exclude<ChatWireError["detail"], PromptCommandWireDetail>,
+): KnownChatError | null {
+  switch (detail.case) {
+    case "sessionNotFound":
+      return {
+        kind: "session_not_found",
+        sessionID: detail.value.sessionId,
+      };
+    case "workspaceNotRegistered":
+      return { kind: "workspace_not_registered" };
+    case "chatSettingsAgentPreparation":
+      return {
+        kind: "agent_preparation",
+        agent: detail.value.agent,
+        category: agentPreparationCategory(detail.value.category),
+      };
+    case "authRequired":
+      return { kind: "auth_required" };
+    case "serverNotReady":
+      return { kind: "server_not_ready" };
+    case "runtimeUnavailable":
+      return {
+        kind: "runtime_unavailable",
+        sessionID: detail.value.sessionId,
+      };
+    case "internalFailure":
+      return {
+        kind: "internal_failure",
+        operation: detail.value.operation ?? null,
+        cause: detail.value.cause ?? null,
+      };
+    case "pendingWorkNotPending":
+    case undefined:
+      return null;
+  }
+}
+
+function promptCommandErrorDetail(detail: PromptCommandWireDetail): KnownChatError {
+  switch (detail.case) {
+    case "catalogRead":
+      return { kind: "prompt_catalog_read", command: detail.value.command ?? null };
+    case "commandNotFound":
+      return { kind: "prompt_command_not_found", command: detail.value.command };
+    case "commandRead":
+      return { kind: "prompt_command_read", command: detail.value.command };
+  }
+}
+
+function agentPreparationCategory(
+  category: AgentPreparationCategory,
+): "invalid_configuration" | "provider_unavailable" | "internal_preparation" {
+  switch (category) {
+    case AgentPreparationCategory.INVALID_CONFIGURATION:
+      return "invalid_configuration";
+    case AgentPreparationCategory.PROVIDER_UNAVAILABLE:
+      return "provider_unavailable";
+    case AgentPreparationCategory.INTERNAL_PREPARATION:
+      return "internal_preparation";
+    case AgentPreparationCategory.UNSPECIFIED:
+      throw new ContractError("Chat operation returned an invalid Agent preparation category.");
+  }
+}

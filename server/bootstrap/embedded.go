@@ -3,16 +3,15 @@ package bootstrap
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"time"
 
-	"core/prompts"
 	"core/server/auth"
+	"core/server/authservice"
+	"core/server/chatcontext"
 	"core/server/launch"
 	shelltool "core/server/tools/shell"
-	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 	"core/shared/textutil"
 )
@@ -21,142 +20,84 @@ type Request struct {
 	WorkspaceRoot         string
 	WorkspaceRootExplicit bool
 	SessionID             string
-	OpenAIBaseURL         string
-	OpenAIBaseURLExplicit bool
 	LoadOptions           config.LoadOptions
-	InitialConfig         *InitialConfigSnapshot
-	LookupEnv             func(string) string
+	Environment           func(string) (string, bool)
 	Now                   func() time.Time
-}
-
-type InitialConfigSnapshot struct {
-	Config           config.App
-	WorkspaceRoot    string
-	OpenAIBaseURL    string
-	UseOpenAIBaseURL bool
 }
 
 type ConfigPlan struct {
 	Config config.App
-}
-
-func ValidateSessionExists(persistenceRoot string, sessionID string) error {
-	return launch.ValidateSessionExists(persistenceRoot, sessionID)
+	Client config.ClientSettings
 }
 
 type AuthSupport struct {
 	OAuthOptions auth.OpenAIOAuthOptions
 	AuthManager  *auth.Manager
-}
-
-type RuntimeSupport struct {
-	Background *shelltool.Manager
-	Generated  prompts.GeneratedSyncResult
+	Environment  func(string) (string, bool)
+	Connections  *authservice.BootstrapService
 }
 
 func ResolveConfig(req Request) (ConfigPlan, error) {
-	bootstrapPlan := launch.BootstrapPlan{
-		WorkspaceRoot:    strings.TrimSpace(req.WorkspaceRoot),
-		OpenAIBaseURL:    strings.TrimSpace(req.OpenAIBaseURL),
-		UseOpenAIBaseURL: req.OpenAIBaseURLExplicit,
+	persistenceRoot, err := config.ResolvePersistenceRoot(req.LoadOptions.ConfigRoot)
+	if err != nil {
+		return ConfigPlan{}, err
 	}
-	var cfg config.App
-	var err error
-	if req.InitialConfig == nil {
-		cfg, err = loadConfig(req.LoadOptions, bootstrapPlan.WorkspaceRoot, bootstrapPlan.OpenAIBaseURL, bootstrapPlan.UseOpenAIBaseURL)
-		if err != nil {
-			return ConfigPlan{}, err
-		}
-	} else {
-		if req.InitialConfig.WorkspaceRoot != bootstrapPlan.WorkspaceRoot ||
-			req.InitialConfig.OpenAIBaseURL != bootstrapPlan.OpenAIBaseURL ||
-			req.InitialConfig.UseOpenAIBaseURL != bootstrapPlan.UseOpenAIBaseURL {
-			return ConfigPlan{}, errors.New("initial config snapshot does not match bootstrap target")
-		}
-		cfg = req.InitialConfig.Config
-	}
-	bootstrapPlan, err = launch.ResolveBootstrapPlan(cfg.PersistenceRoot, launch.BootstrapRequest{
+	bootstrapPlan, err := launch.ResolveBootstrapPlan(persistenceRoot, launch.BootstrapRequest{
 		WorkspaceRoot:         strings.TrimSpace(req.WorkspaceRoot),
 		WorkspaceRootExplicit: req.WorkspaceRootExplicit,
 		SessionID:             strings.TrimSpace(req.SessionID),
-		OpenAIBaseURL:         strings.TrimSpace(req.OpenAIBaseURL),
-		OpenAIBaseURLExplicit: req.OpenAIBaseURLExplicit,
 	})
 	if err != nil {
 		return ConfigPlan{}, err
 	}
-	if req.InitialConfig != nil &&
-		bootstrapPlan.WorkspaceRoot == strings.TrimSpace(req.WorkspaceRoot) &&
-		bootstrapPlan.OpenAIBaseURL == strings.TrimSpace(req.OpenAIBaseURL) &&
-		bootstrapPlan.UseOpenAIBaseURL == req.OpenAIBaseURLExplicit {
-		return ConfigPlan{Config: cfg}, nil
-	}
-	cfg, err = loadConfig(req.LoadOptions, bootstrapPlan.WorkspaceRoot, bootstrapPlan.OpenAIBaseURL, bootstrapPlan.UseOpenAIBaseURL)
-	if err != nil {
-		return ConfigPlan{}, err
-	}
-	return ConfigPlan{Config: cfg}, nil
+	return loadConfig(req.LoadOptions, persistenceRoot, bootstrapPlan)
 }
 
-func BuildAuthSupport(store auth.Store, lookupEnv func(string) string, now func() time.Time) (AuthSupport, error) {
+func BuildAuthSupport(ctx context.Context, root string, store auth.Store, lookupEnv func(string) (string, bool), now func() time.Time) (AuthSupport, error) {
 	if store == nil {
 		return AuthSupport{}, errors.New("auth store is required")
 	}
 	if lookupEnv == nil {
-		lookupEnv = os.Getenv
+		lookupEnv = os.LookupEnv
 	}
 	if now == nil {
 		now = time.Now
 	}
+	clientID, _ := lookupEnv("KENT_OAUTH_CLIENT_ID")
 	oauthOpts := auth.OpenAIOAuthOptions{
 		Issuer:   auth.DefaultOpenAIIssuer,
-		ClientID: textutil.FirstNonEmpty(strings.TrimSpace(lookupEnv("KENT_OAUTH_CLIENT_ID")), auth.DefaultOpenAIClientID),
+		ClientID: textutil.FirstNonEmpty(strings.TrimSpace(clientID), auth.DefaultOpenAIClientID),
 	}
+	manager := auth.NewManager(store, auth.NewOpenAIOAuthRefresher(oauthOpts, now, 5*time.Minute))
+	connections := authservice.NewBootstrapService(ctx, authservice.NewConnectionResolver(root, manager, lookupEnv), oauthOpts)
 	return AuthSupport{
 		OAuthOptions: oauthOpts,
-		AuthManager: auth.NewManager(
-			store,
-			auth.NewOpenAIOAuthRefresher(oauthOpts, now, 5*time.Minute),
-			now,
-		),
+		Environment:  lookupEnv,
+		AuthManager:  manager,
+		Connections:  connections,
 	}, nil
 }
 
-func BuildRuntimeSupport(cfg config.App) (RuntimeSupport, error) {
-	runner, err := postprocess.NewRunner(postprocess.Settings{
-		Mode:     cfg.Settings.Shell.PostprocessingMode,
-		HookPath: cfg.Settings.Shell.PostprocessHook,
-	})
-	if err != nil {
-		return RuntimeSupport{}, fmt.Errorf("compile shell postprocessor: %w", err)
-	}
-	background, err := shelltool.NewManager(
+func BuildShellManager(cfg config.App) (*shelltool.Manager, error) {
+	return shelltool.NewManager(cfg.PersistenceRoot,
+		shelltool.WithMaxConcurrent(cfg.Settings.Shell.MaxConcurrent),
 		shelltool.WithMinimumExecToBgTime(time.Duration(cfg.Settings.MinimumExecToBgSeconds)*time.Second),
-		shelltool.WithPostprocessor(runner),
 	)
-	if err != nil {
-		return RuntimeSupport{}, err
-	}
-	return RuntimeSupport{
-		Background: background,
-	}, nil
 }
 
-func BuildGeneratedSupport(ctx context.Context, persistenceRoot string) (prompts.GeneratedSyncResult, error) {
-	if ctx == nil {
-		ctx = context.Background()
+func loadConfig(loadOpts config.LoadOptions, persistenceRoot string, plan launch.BootstrapPlan) (ConfigPlan, error) {
+	if strings.TrimSpace(plan.WorkspaceRoot) == "" {
+		app, err := config.LoadGlobal(loadOpts)
+		return ConfigPlan{Config: app}, err
 	}
-	return prompts.GeneratedSync(ctx, prompts.GeneratedSyncOptions{ConfigRoot: strings.TrimSpace(persistenceRoot)})
-}
-
-func loadConfig(loadOpts config.LoadOptions, workspaceRoot, openAIBaseURL string, useOpenAIBaseURL bool) (config.App, error) {
-	if useOpenAIBaseURL {
-		loadOpts.OpenAIBaseURL = openAIBaseURL
-	} else {
-		loadOpts.OpenAIBaseURL = ""
+	mainRoot := plan.MainWorkspaceRoot
+	if mainRoot == nil {
+		root, err := chatcontext.ResolveMainWorkspaceRoot(persistenceRoot, plan.WorkspaceRoot)
+		if err != nil {
+			return ConfigPlan{}, err
+		}
+		mainRoot = &root
 	}
-	if strings.TrimSpace(workspaceRoot) == "" {
-		return config.LoadGlobal(loadOpts)
-	}
-	return config.Load(workspaceRoot, loadOpts)
+	app, client, err := config.LoadInteractive(plan.WorkspaceRoot, *mainRoot, loadOpts)
+	return ConfigPlan{Config: app, Client: client}, err
 }

@@ -9,10 +9,10 @@ import (
 type OAuthRefresher struct {
 	now           func() time.Time
 	refreshBefore time.Duration
-	refresh       func(ctx context.Context, method Method) (Method, error)
+	refresh       func(ctx context.Context, method OAuthMethod) (OAuthMethod, error)
 }
 
-func NewOAuthRefresher(now func() time.Time, refreshBefore time.Duration, refresh func(context.Context, Method) (Method, error)) *OAuthRefresher {
+func NewOAuthRefresher(now func() time.Time, refreshBefore time.Duration, refresh func(context.Context, OAuthMethod) (OAuthMethod, error)) *OAuthRefresher {
 	if now == nil {
 		now = time.Now
 	}
@@ -26,31 +26,28 @@ func NewOAuthRefresher(now func() time.Time, refreshBefore time.Duration, refres
 	}
 }
 
-func (r *OAuthRefresher) MaybeRefresh(ctx context.Context, method Method) (Method, bool, error) {
-	if method.Type != MethodOAuth {
-		return method, false, nil
-	}
+func (r *OAuthRefresher) MaybeRefresh(ctx context.Context, method OAuthMethod) (OAuthMethod, bool, error) {
 	if err := method.Validate(); err != nil {
-		return Method{}, false, err
+		return OAuthMethod{}, false, err
 	}
 	if r == nil {
 		return method, false, nil
 	}
 	if r.now == nil {
-		return Method{}, false, fmt.Errorf("%w: refresh clock is required", ErrOAuthRefreshFailed)
+		return OAuthMethod{}, false, fmt.Errorf("%w: refresh clock is required", ErrOAuthRefreshFailed)
 	}
 
 	now := r.now().UTC()
-	expiry := method.OAuth.Expiry.UTC()
+	expiry := method.Expiry.UTC()
 	if expiry.IsZero() || expiry.After(now.Add(r.refreshBefore)) {
 		return method, false, nil
 	}
 	if r.refresh == nil {
-		return Method{}, false, fmt.Errorf("%w: refresh operation is required", ErrOAuthRefreshFailed)
+		return OAuthMethod{}, false, fmt.Errorf("%w: refresh operation is required", ErrOAuthRefreshFailed)
 	}
 	updated, err := r.refresh(ctx, method)
 	if err != nil {
-		return Method{}, false, err
+		return OAuthMethod{}, false, err
 	}
 	return updated, true, nil
 }

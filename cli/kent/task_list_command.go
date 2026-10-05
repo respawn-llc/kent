@@ -9,8 +9,12 @@ import (
 
 	"core/shared/client"
 	"core/shared/config"
+	"core/shared/protoapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
+
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const taskListDefaultLimit = 100
@@ -35,7 +39,7 @@ func taskListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs.Var(&notLabelFlags, "not-label", "excluded label name or canonical UUIDv4; repeat for multiple labels")
 	unblocked := fs.Bool("unblocked", false, "only include tasks with no unsatisfied direct dependencies")
 	blocked := fs.Bool("blocked", false, "only include tasks with unsatisfied direct dependencies")
-	labelMatchRaw := fs.String("label-match", string(serverapi.WorkflowTaskNamedLabelFilterModeAny), "label match mode: any or all")
+	labelMatchRaw := fs.String("label-match", "any", "label match mode: any or all")
 	unlabeled := fs.Bool("unlabeled", false, "only include tasks without labels")
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
@@ -98,20 +102,20 @@ func taskListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		}
 		selectedWorkflowID = &selector
 	}
-	var recoveryLabelMatch *serverapi.WorkflowTaskNamedLabelFilterMode
+	var recoveryLabelMatch *string
 	if labelMatchExplicit {
-		value := labelMatch
+		value := *labelMatchRaw
 		recoveryLabelMatch = &value
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		projectID, err := resolveWorkflowProjectID(context.Background(), cfg, remote, *projectRef)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		labelFilter := serverapi.WorkflowTaskLabelFilterNone()
+		labelFilter := &taskpb.LabelFilter{Filter: &taskpb.LabelFilter_None{None: &emptypb.Empty{}}}
 		if *unlabeled {
-			labelFilter = serverapi.WorkflowTaskLabelFilter{Kind: serverapi.WorkflowTaskLabelFilterKindUnlabeled}
+			labelFilter = &taskpb.LabelFilter{Filter: &taskpb.LabelFilter_Unlabeled{Unlabeled: &emptypb.Empty{}}}
 		} else if len(labelFlags)+len(notLabelFlags) > 0 {
 			_, snapshot, err := loadWorkflowProjectLabelCatalog(context.Background(), remote, projectID)
 			if err != nil {
@@ -124,17 +128,26 @@ func taskListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 				return 1
 			}
 		}
-		request := serverapi.WorkflowTaskListRequest{
-			ProjectID:        &projectID,
-			WorkflowID:       selectedWorkflowID,
+		pageOffset, err := protoapi.Int32(*offset, "offset")
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		var workflowSelector *string
+		if selectedWorkflowID != nil {
+			workflowSelector = proto.String(selectedWorkflowID.String())
+		}
+		request := &taskpb.ListRequest{
+			ProjectId:        &projectID,
+			WorkflowId:       workflowSelector,
 			LabelFilter:      labelFilter,
 			DependencyFilter: dependencyFilter,
 			ColumnKeys:       columnKeys,
 			StatusKinds:      statusKinds,
 			AttentionKinds:   attentionKinds,
 			Sort:             sortSelectors,
-			Offset:           offset,
-			Limit:            limit,
+			Offset:           &pageOffset,
+			Limit:            proto.Int32(int32(*limit)),
 		}
 		resp, err := workflowTaskList(context.Background(), remote, request)
 		if err != nil {
@@ -143,9 +156,9 @@ func taskListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 				ResolvedProjectID:      projectID,
 				SelectedWorkflowID:     selectedWorkflowID,
 				ColumnKeys:             columnKeys,
-				StatusKinds:            statusKinds,
-				AttentionKinds:         attentionKinds,
-				Sort:                   sortSelectors,
+				StatusKinds:            statusFlags,
+				AttentionKinds:         attentionFlags,
+				Sort:                   sortFlags,
 				LabelSelectors:         append([]string(nil), labelFlags...),
 				ExcludedLabelSelectors: append([]string(nil), notLabelFlags...),
 				LabelMatch:             recoveryLabelMatch,
@@ -184,21 +197,26 @@ func parseTaskListDependencyFilter(
 	return nil, nil
 }
 
-func parseTaskListLabelMatch(raw string, explicit bool, selectorCount int, unlabeled bool) (serverapi.WorkflowTaskNamedLabelFilterMode, error) {
-	mode := serverapi.WorkflowTaskNamedLabelFilterMode(raw)
-	if mode != serverapi.WorkflowTaskNamedLabelFilterModeAny && mode != serverapi.WorkflowTaskNamedLabelFilterModeAll {
-		return "", errors.New("--label-match is invalid")
+func parseTaskListLabelMatch(raw string, explicit bool, selectorCount int, unlabeled bool) (taskpb.NamedLabelFilterMode, error) {
+	mode, err := protoapi.TaskLabelFilterMode.Encode(raw)
+	if err != nil {
+		return taskpb.NamedLabelFilterMode_NAMED_LABEL_FILTER_MODE_UNSPECIFIED, errors.New("--label-match is invalid")
 	}
 	if unlabeled && (selectorCount > 0 || explicit) {
-		return "", errors.New("--unlabeled cannot be combined with --label, --not-label, or --label-match")
+		return taskpb.NamedLabelFilterMode_NAMED_LABEL_FILTER_MODE_UNSPECIFIED, errors.New("--unlabeled cannot be combined with --label, --not-label, or --label-match")
 	}
 	if explicit && selectorCount == 0 {
-		return "", errors.New("--label-match requires at least one --label or --not-label")
+		return taskpb.NamedLabelFilterMode_NAMED_LABEL_FILTER_MODE_UNSPECIFIED, errors.New("--label-match requires at least one --label or --not-label")
 	}
 	return mode, nil
 }
 
-func writeTaskListResponse(stdout io.Writer, stderr io.Writer, resp serverapi.WorkflowTaskListResponse, jsonOut bool) int {
+func writeTaskListResponse(stdout io.Writer, stderr io.Writer, response *taskpb.ListSuccess, jsonOut bool) int {
+	resp, err := taskListOutput(response)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	if jsonOut {
 		return writeCommandJSON(stdout, stderr, resp)
 	}
@@ -212,7 +230,7 @@ func writeTaskListResponse(stdout io.Writer, stderr io.Writer, resp serverapi.Wo
 			}
 			fmt.Fprintln(stdout)
 		}
-		if resp.MatchingWorkflowCardinality == serverapi.WorkflowTaskListMatchingWorkflowCardinalityMultiple &&
+		if response.MatchingWorkflowCardinality == taskpb.MatchingWorkflowCardinality_MATCHING_WORKFLOW_CARDINALITY_MULTIPLE &&
 			task.WorkflowName != nil {
 			fmt.Fprintf(stdout, "Workflow: %s\n", *task.WorkflowName)
 		}
@@ -231,7 +249,7 @@ func writeTaskListResponse(stdout io.Writer, stderr io.Writer, resp serverapi.Wo
 		}
 	}
 	if resp.NextOffset != nil {
-		if err := writeNextOffset(stderr, *resp.NextOffset); err != nil {
+		if err := writeNextOffset(stderr, int(*resp.NextOffset)); err != nil {
 			return 1
 		}
 	}
@@ -239,12 +257,12 @@ func writeTaskListResponse(stdout io.Writer, stderr io.Writer, resp serverapi.Wo
 }
 
 func writeTaskListError(stderr io.Writer, err error, commandContext taskListCommandContext) {
-	var scopeErr *serverapi.WorkflowTaskListScopeError
-	if !errors.As(err, &scopeErr) {
+	var listError *client.TaskListError
+	if !errors.As(err, &listError) || listError.Failure.GetScopeError() == nil {
 		fmt.Fprintln(stderr, err)
 		return
 	}
-	recovery, projectionErr := taskListRecoveryForScopeError(scopeErr, commandContext)
+	recovery, projectionErr := taskListRecoveryForScopeError(listError.Failure.GetScopeError(), commandContext)
 	if projectionErr != nil {
 		fmt.Fprintln(stderr, projectionErr)
 		return
@@ -300,43 +318,39 @@ func tokenizeTaskListValues(raw []string, name string) ([]string, error) {
 	return values, nil
 }
 
-func parseTaskListStatusKinds(raw []string) ([]serverapi.WorkflowTaskStatusKind, error) {
+func parseTaskListStatusKinds(raw []string) ([]taskpb.TaskStatusKind, error) {
 	values, err := parseTaskListFilterValues(raw, "status")
 	if err != nil {
 		return nil, err
 	}
-	statuses := make([]serverapi.WorkflowTaskStatusKind, 0, len(values))
+	statuses := make([]taskpb.TaskStatusKind, 0, len(values))
 	for _, value := range values {
-		status := serverapi.WorkflowTaskStatusKind(value)
-		switch status {
-		case serverapi.WorkflowTaskStatusKindDone, serverapi.WorkflowTaskStatusKindWaitingQuestion, serverapi.WorkflowTaskStatusKindWaitingApproval, serverapi.WorkflowTaskStatusKindInterrupted, serverapi.WorkflowTaskStatusKindRunning, serverapi.WorkflowTaskStatusKindQueued, serverapi.WorkflowTaskStatusKindBacklog, serverapi.WorkflowTaskStatusKindActive:
-			statuses = append(statuses, status)
-		default:
+		status, err := protoapi.TaskStatusKind.Encode(value)
+		if err != nil {
 			return nil, fmt.Errorf("--status is invalid")
 		}
+		statuses = append(statuses, status)
 	}
 	return statuses, nil
 }
 
-func parseTaskListAttentionKinds(raw []string) ([]serverapi.WorkflowTaskAttentionKind, error) {
+func parseTaskListAttentionKinds(raw []string) ([]taskpb.TaskAttentionKind, error) {
 	values, err := parseTaskListFilterValues(raw, "attention")
 	if err != nil {
 		return nil, err
 	}
-	out := make([]serverapi.WorkflowTaskAttentionKind, 0, len(values))
+	out := make([]taskpb.TaskAttentionKind, 0, len(values))
 	for _, value := range values {
-		kind := serverapi.WorkflowTaskAttentionKind(value)
-		switch kind {
-		case serverapi.WorkflowTaskAttentionKindQuestion, serverapi.WorkflowTaskAttentionKindApproval, serverapi.WorkflowTaskAttentionKindInterrupted:
-			out = append(out, kind)
-		default:
+		kind, err := protoapi.TaskAttentionKind.Encode(value)
+		if err != nil {
 			return nil, fmt.Errorf("--attention is invalid")
 		}
+		out = append(out, kind)
 	}
 	return out, nil
 }
 
-func parseTaskListSortSelectors(raw []string) ([]serverapi.WorkflowTaskListSort, error) {
+func parseTaskListSortSelectors(raw []string) ([]*taskpb.ListSort, error) {
 	values, err := tokenizeTaskListValues(raw, "sort")
 	if err != nil {
 		return nil, err
@@ -344,8 +358,8 @@ func parseTaskListSortSelectors(raw []string) ([]serverapi.WorkflowTaskListSort,
 	if len(values) == 0 {
 		return nil, nil
 	}
-	selectors := make([]serverapi.WorkflowTaskListSort, 0, len(values))
-	seen := map[serverapi.WorkflowTaskListSortField]bool{}
+	selectors := make([]*taskpb.ListSort, 0, len(values))
+	seen := map[taskpb.ListSortField]bool{}
 	for _, value := range values {
 		fieldValue, directionValue, ok := strings.Cut(value, ":")
 		if !ok {
@@ -359,34 +373,32 @@ func parseTaskListSortSelectors(raw []string) ([]serverapi.WorkflowTaskListSort,
 			return nil, fmt.Errorf("--sort field %q must not be repeated", field)
 		}
 		seen[field] = true
-		direction := serverapi.WorkflowTaskListSortDirection(strings.TrimSpace(directionValue))
-		switch direction {
-		case serverapi.WorkflowTaskListSortDirectionAsc, serverapi.WorkflowTaskListSortDirectionDesc:
-		default:
+		direction, err := protoapi.TaskListSortDirection.Encode(strings.TrimSpace(directionValue))
+		if err != nil {
 			return nil, fmt.Errorf("--sort direction must be asc or desc")
 		}
-		selectors = append(selectors, serverapi.WorkflowTaskListSort{Field: field, Direction: direction})
+		selectors = append(selectors, &taskpb.ListSort{Field: field, Direction: direction})
 	}
 	return selectors, nil
 }
 
-func parseTaskListSortField(value string) (serverapi.WorkflowTaskListSortField, error) {
+func parseTaskListSortField(value string) (taskpb.ListSortField, error) {
 	switch value {
 	case "created", "created_at":
-		return serverapi.WorkflowTaskListSortFieldCreated, nil
+		return taskpb.ListSortField_LIST_SORT_FIELD_CREATED, nil
 	case "updated", "updated_at":
-		return serverapi.WorkflowTaskListSortFieldUpdated, nil
+		return taskpb.ListSortField_LIST_SORT_FIELD_UPDATED, nil
 	case "status":
-		return serverapi.WorkflowTaskListSortFieldStatus, nil
+		return taskpb.ListSortField_LIST_SORT_FIELD_STATUS, nil
 	case "column":
-		return serverapi.WorkflowTaskListSortFieldColumn, nil
+		return taskpb.ListSortField_LIST_SORT_FIELD_COLUMN, nil
 	case "title":
-		return serverapi.WorkflowTaskListSortFieldTitle, nil
+		return taskpb.ListSortField_LIST_SORT_FIELD_TITLE, nil
 	case "labels":
-		return serverapi.WorkflowTaskListSortFieldLabels, nil
+		return taskpb.ListSortField_LIST_SORT_FIELD_LABELS, nil
 	case "short-id", "short_id":
-		return serverapi.WorkflowTaskListSortFieldShortID, nil
+		return taskpb.ListSortField_LIST_SORT_FIELD_SHORT_ID, nil
 	default:
-		return "", fmt.Errorf("--sort field must be created, updated, status, column, title, labels, or short_id")
+		return taskpb.ListSortField_LIST_SORT_FIELD_UNSPECIFIED, fmt.Errorf("--sort field must be created, updated, status, column, title, labels, or short_id")
 	}
 }

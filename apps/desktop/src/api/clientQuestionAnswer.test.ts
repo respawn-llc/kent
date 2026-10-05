@@ -1,53 +1,89 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
+import { create, operationName } from "@app/server-api-contract";
+import {
+  AnswerService,
+  AnswerBatchOutcome,
+  ApprovalDecision,
+} from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
 import { ApiClient } from "./client";
 import { FakeRpcTransport } from "@/test-support/api";
-const sessionID = "session-1";
+const sessionID = "11111111-1111-4111-8111-111111111111";
 const stepID = "22222222-2222-4222-8222-222222222222";
 const batchRequest = {
   sessionID,
   stepID,
   entries: [
-    { kind: "question" as const, promptID: "q", selectedOptionNumber: 2, freeform: "because" },
-    { kind: "approval" as const, promptID: "a", decision: "allow_once" as const, commentary: null },
-    { kind: "declined" as const, promptID: "d" },
+    { kind: "question" as const, toolCallID: "q", selectedOptionNumber: 2, freeform: "because" },
+    { kind: "approval" as const, toolCallID: "a", decision: "allow_once" as const, commentary: null },
+    { kind: "declined" as const, toolCallID: "d" },
   ],
 } as const;
-const resolvedQuestion = { prompt_id: "q", outcome: "resolved" } as const;
-const skippedApproval = { prompt_id: "a", outcome: "skipped" };
-const resolvedDeclined = { prompt_id: "d", outcome: "resolved" };
+const resolvedQuestion = { toolCallId: "q", outcome: AnswerBatchOutcome.RESOLVED } as const;
+const skippedApproval = { toolCallId: "a", outcome: AnswerBatchOutcome.SKIPPED };
+const resolvedDeclined = { toolCallId: "d", outcome: AnswerBatchOutcome.RESOLVED };
 const results = [resolvedQuestion, skippedApproval, resolvedDeclined];
 describe("ApiClient prompt answer batches", () => {
-  it("encodes Question, Approval, and Declined entries and parses identity-keyed outcomes", async () => {
-    const transport = new FakeRpcTransport([{ method: "prompt.answerBatch", result: { results } }]);
-    const client = new ApiClient(transport);
+  it("encodes Tool Call keyed entries and parses Tool Call keyed outcomes", async () => {
+    const transport = new FakeRpcTransport([
+      {
+        descriptor: AnswerService.method.answerBatch,
+        result: create(AnswerService.method.answerBatch.output, {
+          outcome: { case: "success", value: { results } },
+        }),
+      },
+    ]);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     const response = await client.answerPromptBatch(batchRequest);
     expect(transport.calls).toEqual([]);
     expect(transport.attachedSessionCalls).toEqual([
       {
         sessionID,
-        method: "prompt.answerBatch",
-        params: {
-          session_id: sessionID,
-          step_id: stepID,
-          entries: [
-            { prompt_id: "q", question_answer: { selected_option_number: 2, freeform: "because" } },
-            { prompt_id: "a", approval_answer: { decision: "allow_once" } },
-            { prompt_id: "d", declined: {} },
-          ],
-        },
+        method: operationName(AnswerService.method.answerBatch),
       },
     ]);
+    expect(transport.descriptorCalls[0]?.request).toMatchObject({
+      sessionId: sessionID,
+      stepId: stepID,
+      entries: [
+        {
+          toolCallId: "q",
+          answer: { case: "questionAnswer", value: { selectedOptionNumber: 2, freeform: "because" } },
+        },
+        {
+          toolCallId: "a",
+          answer: { case: "approvalAnswer", value: { decision: ApprovalDecision.ALLOW_ONCE } },
+        },
+        { toolCallId: "d", answer: { case: "declined", value: {} } },
+      ],
+    });
     expect(response.results).toEqual([
-      { promptID: "q", outcome: "resolved" },
-      { promptID: "a", outcome: "skipped" },
-      { promptID: "d", outcome: "resolved" },
+      { toolCallID: "q", outcome: "resolved" },
+      { toolCallID: "a", outcome: "skipped" },
+      { toolCallID: "d", outcome: "resolved" },
     ]);
   });
   it.each([
-    { results: [] },
-    { results: [{ prompt_id: "foreign", outcome: "resolved" }] },
-    { results: [resolvedQuestion, { ...resolvedQuestion, outcome: "skipped" }] },
-  ])("rejects malformed result identity sets", async (result) => {
-    const client = new ApiClient(new FakeRpcTransport([{ method: "prompt.answerBatch", result }]));
+    ["missing", { results: [] }],
+    ["foreign", { results: [{ toolCallId: "foreign", outcome: AnswerBatchOutcome.RESOLVED }] }],
+    [
+      "duplicate",
+      { results: [resolvedQuestion, { ...resolvedQuestion, outcome: AnswerBatchOutcome.SKIPPED }] },
+    ],
+    [
+      "whitespace-padded",
+      { results: [{ ...resolvedQuestion, toolCallId: " q " }, skippedApproval, resolvedDeclined] },
+    ],
+  ])("rejects %s result identity sets", async (_case, result) => {
+    const transport = new FakeRpcTransport([
+      {
+        descriptor: AnswerService.method.answerBatch,
+        result: create(AnswerService.method.answerBatch.output, {
+          outcome: { case: "success", value: result },
+        }),
+      },
+    ]);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     await expect(client.answerPromptBatch(batchRequest)).rejects.toThrow();
+    expect(transport.attachedSessionCalls).toHaveLength(1);
   });
 });

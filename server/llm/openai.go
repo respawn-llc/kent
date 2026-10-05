@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 	"core/shared/transcript"
 )
@@ -60,6 +61,7 @@ type OpenAIResponse struct {
 	AssistantText     *string
 	ProviderPhase     *ProviderPhase
 	ServedModel       *string
+	ProviderEvidence  modelcontract.ProviderUsageEvidence
 	ReasoningIncluded bool
 	ToolCalls         []ToolCall
 	Reasoning         []ReasoningEntry
@@ -69,8 +71,9 @@ type OpenAIResponse struct {
 }
 
 type OpenAICompactionResponse struct {
-	Checkpoint ResponseItem
-	Usage      Usage
+	Checkpoint       ResponseItem
+	Usage            Usage
+	ProviderEvidence modelcontract.ProviderUsageEvidence
 }
 
 type OpenAITransport interface {
@@ -131,6 +134,7 @@ func responseFromOpenAI(providerResp OpenAIResponse) (Response, error) {
 		},
 		ProviderPhase:     providerResp.ProviderPhase,
 		ServedModel:       textutil.Pointer(providerResp.ServedModel),
+		ProviderEvidence:  providerResp.ProviderEvidence.Clone(),
 		ReasoningIncluded: providerResp.ReasoningIncluded,
 		ToolCalls:         providerResp.ToolCalls,
 		Reasoning:         append([]ReasoningEntry(nil), providerResp.Reasoning...),
@@ -169,8 +173,9 @@ func (c *OpenAIClient) Compact(ctx context.Context, request CompactionRequest) (
 		return CompactionResponse{}, fmt.Errorf("openai compact: %w", err)
 	}
 	return CompactionResponse{
-		Checkpoint: CloneResponseItems([]ResponseItem{providerResp.Checkpoint})[0],
-		Usage:      providerResp.Usage,
+		Checkpoint:       CloneResponseItems([]ResponseItem{providerResp.Checkpoint})[0],
+		Usage:            providerResp.Usage,
+		ProviderEvidence: providerResp.ProviderEvidence.Clone(),
 	}, nil
 }
 

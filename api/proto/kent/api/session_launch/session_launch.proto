@@ -5,8 +5,8 @@ package kent.api.session_launch;
 import "buf/validate/validate.proto";
 import "google/protobuf/empty.proto";
 import "kent/api/auth/auth.proto";
+import "kent/api/chat_settings/chat_settings.proto";
 import "kent/api/project/project.proto";
-import "kent/api/runtime/runtime.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
@@ -57,11 +57,6 @@ message RunPromptOverrides {
     }
   ];
   optional string model = 2 [(buf.validate.field).string.min_len = 1];
-  optional string provider_override = 3 [
-    (buf.validate.field).string = {
-      in: ["openai", "anthropic"]
-    }
-  ];
   optional string thinking_level = 4 [(buf.validate.field).string.min_len = 1];
   optional string theme = 5 [
     (buf.validate.field).string = {
@@ -70,13 +65,6 @@ message RunPromptOverrides {
   ];
   optional int32 model_timeout_seconds = 6 [(buf.validate.field).int32.gte = 1];
   optional string tools = 7 [(buf.validate.field).string.min_len = 1];
-  optional string openai_base_url = 8 [(buf.validate.field).string.min_len = 1];
-  option (buf.validate.message).cel = {
-    id: "kent.session_launch.run_prompt_openai_base_url_provider"
-    message: "openai_base_url requires provider_override=openai or no provider override"
-    expression:
-      "!has(this.openai_base_url) || !has(this.provider_override) || this.provider_override == 'openai'"
-  };
 }
 
 enum ModelVerbosity {
@@ -153,19 +141,6 @@ message ModelCapabilitiesOverride {
   bool supports_vision_inputs = 2;
 }
 
-message ProviderCapabilitiesOverride {
-  string provider_id = 1;
-  bool supports_responses_api = 2;
-  bool supports_responses_compact = 3;
-  bool supports_request_input_token_count = 4;
-  bool supports_prompt_cache_key = 5;
-  bool supports_native_web_search = 6;
-  bool supports_reasoning_encrypted = 7;
-  bool supports_server_side_context_edit = 8;
-  bool supports_provider_verbosity = 9;
-  bool is_openai_first_party = 10;
-}
-
 message TimeoutSettings {
   int32 model_request_seconds = 1 [(buf.validate.field).int32.gt = 0];
 }
@@ -205,30 +180,74 @@ message ReviewerSettings {
   string model = 2;
   string thinking_level = 3;
   ModelVerbosity model_verbosity = 4 [(buf.validate.field).enum.defined_only = true];
-  string provider_override = 5;
-  string openai_base_url = 6;
   ModelCapabilitiesOverride model_capabilities = 7 [(buf.validate.field).required = true];
-  ProviderCapabilitiesOverride provider_capabilities = 8 [(buf.validate.field).required = true];
   int32 model_context_window = 9 [(buf.validate.field).int32.gte = 40000];
-  string auth = 10;
-  string system_prompt_file = 11;
+  optional string connection = 15 [(buf.validate.field).string.min_len = 1];
+  optional string system_prompt_file = 14 [(buf.validate.field).string.min_len = 1];
   int32 timeout_seconds = 12 [(buf.validate.field).int32.gt = 0];
   bool verbose_output = 13;
 }
 
 message SubagentRole {
   Settings settings = 1 [(buf.validate.field).required = true];
-  repeated StringFact sources = 2;
+  repeated SourceFact sources = 8;
   string description = 3 [(buf.validate.field).string.max_len = 5000];
   bool agent_callable = 4;
-  bool agent_callable_set = 5;
   bool workflow_subagent = 6;
-  bool workflow_subagent_set = 7;
 }
 
-message StringFact {
+enum ConfigFileLayer {
+  CONFIG_FILE_LAYER_UNSPECIFIED = 0;
+  CONFIG_FILE_LAYER_GLOBAL = 1;
+  CONFIG_FILE_LAYER_WORKSPACE = 2;
+  CONFIG_FILE_LAYER_PRIVATE = 3;
+}
+
+message ConfigFileSource {
+  ConfigFileLayer layer = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  string path = 2 [(buf.validate.field).string.min_len = 1];
+}
+
+message ConfigPropertyAddress {
   string key = 1 [(buf.validate.field).string.min_len = 1];
-  string value = 2;
+  optional string role = 2 [(buf.validate.field).string.min_len = 1];
+}
+
+message ConfigOrigin {
+  ConfigPropertyAddress property = 1 [(buf.validate.field).required = true];
+  optional string retained_session_id = 8 [(buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  oneof source {
+    option (buf.validate.oneof).required = true;
+    google.protobuf.Empty default_value = 2;
+    ConfigFileSource file = 3;
+    string environment = 4 [(buf.validate.field).string.min_len = 1];
+    string cli_option = 5 [(buf.validate.field).string.min_len = 1];
+    google.protobuf.Empty input = 6;
+    google.protobuf.Empty session = 7;
+  }
+}
+
+message SourceFact {
+  string key = 1 [(buf.validate.field).string.min_len = 1];
+  ConfigOrigin origin = 2 [(buf.validate.field).required = true];
+}
+
+message ToolSelection {
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.tool_selection_origin"
+    message: "tool selection requires an unscoped tools declaration from a nonblank environment variable or CLI option"
+    expression: "this.origin.property.key == 'tools' && !has(this.origin.property.role) && "
+      "((has(this.origin.environment) && this.origin.environment.trim() != '') || "
+      "(has(this.origin.cli_option) && this.origin.cli_option.trim() != ''))"
+  };
+  repeated ToolID tools = 1 [(buf.validate.field).repeated = {
+    unique: true
+    items: {enum: {defined_only: true, not_in: [0]}}
+  }];
+  ConfigOrigin origin = 2 [(buf.validate.field).required = true];
 }
 
 message BooleanFact {
@@ -272,12 +291,12 @@ message Settings {
   string model = 1;
   string thinking_level = 2;
   ModelVerbosity model_verbosity = 3 [(buf.validate.field).enum.defined_only = true];
-  string system_prompt_file = 4;
-  repeated SystemPromptFile system_prompt_files = 5;
+  SystemPromptFile system_prompt_file = 39;
   ModelCapabilitiesOverride model_capabilities = 6 [(buf.validate.field).required = true];
   string theme = 7 [(buf.validate.field).string = {
     in: ["auto", "light", "dark"]
   }];
+  bool tui_native_progress_bar = 41;
   string notification_method = 8;
   bool tool_preambles = 9;
   bool priority_request_mode = 10;
@@ -290,10 +309,8 @@ message Settings {
     }
   ];
   string web_search = 14;
-  string provider_override = 15;
   string provider_identifier = 16;
-  string openai_base_url = 17;
-  ProviderCapabilitiesOverride provider_capabilities = 18 [(buf.validate.field).required = true];
+  optional string connection = 40 [(buf.validate.field).string.min_len = 1];
   bool store = 19;
   bool allow_non_cwd_edits = 20;
   int32 model_context_window = 21 [(buf.validate.field).int32.gte = 40000];
@@ -329,15 +346,16 @@ message Settings {
 }
 
 message SourceReport {
-  string settings_path = 1;
-  bool settings_file_exists = 2;
   bool created_default_config = 3;
-  string home_settings_path = 4;
-  bool home_settings_file_exists = 5;
-  string workspace_settings_path = 6;
-  bool workspace_settings_file_exists = 7;
-  bool workspace_settings_layer_enabled = 8;
-  repeated StringFact sources = 9;
+  repeated SourceFact sources = 10;
+  repeated ConfigFileReport files = 11;
+}
+
+message ConfigFileReport {
+  ConfigFileSource file = 1 [(buf.validate.field).required = true];
+  bool exists = 2;
+  bool enabled = 3;
+  bool applied = 4;
 }
 
 message SessionPlanRequest {
@@ -350,6 +368,14 @@ message SessionPlanRequest {
   SessionLaunchIntent intent = 2 [(buf.validate.field).required = true];
   optional string caller_session_id = 3 [(buf.validate.field).string.min_len = 1];
   RunPromptOverrides overrides = 4;
+  kent.api.chat_settings.InitialChatSettings initial_chat_settings = 5;
+  optional string initial_input_draft = 6;
+
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.initial_input_draft_settings"
+    message: "initial_input_draft requires initial_chat_settings"
+    expression: "!has(this.initial_input_draft) || has(this.initial_chat_settings)"
+  };
 }
 
 message SessionRuntimeChatSettings {
@@ -361,11 +387,11 @@ message SessionRuntimeChatSettings {
 }
 
 message SessionRuntimeAgentSelection {
-  string agent = 1 [
+  optional string agent_role = 1 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
       id: "kent.session_launch.runtime_agent_selection_nonblank"
-      message: "agent must be non-blank"
+      message: "agent_role must be non-blank when present"
       expression: "this.trim() != ''"
     }
   ];
@@ -391,13 +417,13 @@ message SessionPlan {
       expression: "this.trim() != ''"
     }
   ];
-  repeated string prompt_history = 6 [(buf.validate.field).repeated.max_items = 100];
   bool model_contract_locked = 7;
   bool questions_enabled = 8;
   bool auto_compaction_enabled = 9;
   bool thinking_override_explicit = 10;
   SourceReport source = 11 [(buf.validate.field).required = true];
   SessionRuntimeAgentSelection activation_agent_selection = 12;
+  ToolSelection explicit_tool_selection = 13;
 }
 
 message SessionPlanSuccess {
@@ -508,115 +534,6 @@ message SessionPlanResult {
   }
 }
 
-message WorkspaceChatDraftRequest {
-  oneof operation {
-    option (buf.validate.oneof).required = true;
-
-    google.protobuf.Empty read_message = 1;
-    string update_message = 2;
-    google.protobuf.Empty clear = 3;
-  }
-}
-
-message WorkspaceChatDraftSuccess {
-  string message = 1;
-  kent.api.runtime.GoalAvailability goal_availability = 2 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-}
-
-message WorkspaceChatDraftError {
-  string code = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
-  ];
-  oneof detail {
-    kent.api.shared.InternalFailureDetails internal_failure = 2 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "internal_failure"
-      }
-    ];
-    kent.api.auth.AuthRequiredDetails auth_required = 3 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "auth_required"
-      }
-    ];
-    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 4 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "workspace_not_registered"
-      }
-    ];
-    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "server_not_ready"
-      }
-    ];
-  }
-}
-
-message WorkspaceChatDraftResult {
-  oneof outcome {
-    option (buf.validate.oneof).required = true;
-
-    WorkspaceChatDraftSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
-    WorkspaceChatDraftError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
-  }
-}
-
-message MaterializeWorkspaceChatSuccess {
-  string session_id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
-}
-
-message MaterializeWorkspaceChatError {
-  string code = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
-  ];
-  oneof detail {
-    kent.api.shared.InternalFailureDetails internal_failure = 2 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "internal_failure"
-      }
-    ];
-    kent.api.auth.AuthRequiredDetails auth_required = 3 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "auth_required"
-      }
-    ];
-    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 4 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "workspace_not_registered"
-      }
-    ];
-    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "server_not_ready"
-      }
-    ];
-  }
-}
-
-message MaterializeWorkspaceChatResult {
-  oneof outcome {
-    option (buf.validate.oneof).required = true;
-
-    MaterializeWorkspaceChatSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
-    MaterializeWorkspaceChatError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
-  }
-}
-
 service SessionLaunchService {
   rpc Plan(SessionPlanRequest) returns (SessionPlanResult) {
     option (kent.api.shared.kent_method) = {
@@ -628,23 +545,4 @@ service SessionLaunchService {
     };
   }
 
-  rpc WorkspaceChatDraft(WorkspaceChatDraftRequest) returns (WorkspaceChatDraftResult) {
-    option (kent.api.shared.kent_method) = {
-      kind: OPERATION_KIND_UNARY
-      authentication_stage: AUTHENTICATION_STAGE_SERVER
-      scope_policy: SCOPE_POLICY_PROJECT_WORKSPACE
-      direction: DIRECTION_CLIENT_TO_SERVER
-      unary_connection: UNARY_CONNECTION_MULTIPLEXED
-    };
-  }
-
-  rpc MaterializeWorkspaceChat(google.protobuf.Empty) returns (MaterializeWorkspaceChatResult) {
-    option (kent.api.shared.kent_method) = {
-      kind: OPERATION_KIND_UNARY
-      authentication_stage: AUTHENTICATION_STAGE_SERVER
-      scope_policy: SCOPE_POLICY_PROJECT_WORKSPACE
-      direction: DIRECTION_CLIENT_TO_SERVER
-      unary_connection: UNARY_CONNECTION_MULTIPLEXED
-    };
-  }
 }

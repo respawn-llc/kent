@@ -1,18 +1,19 @@
 package app
 
 import (
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"errors"
+	"google.golang.org/protobuf/types/known/timestamppb"
+	"reflect"
 	"testing"
 	"time"
-
-	"core/shared/clientui"
 )
 
 type recordingTaskCompletionSink struct {
-	results []clientui.TranscriptLiveRunResult
+	results []*transcriptpb.LiveRunFinished
 }
 
-func (s *recordingTaskCompletionSink) enqueueTaskCompletion(result clientui.TranscriptLiveRunResult) {
+func (s *recordingTaskCompletionSink) enqueueTaskCompletion(result *transcriptpb.LiveRunFinished) {
 	s.results = append(s.results, result)
 }
 
@@ -28,13 +29,12 @@ func TestTurnQueueHooksEmitEachAdmittedAssistantFinalOnceAfterIdleDrain(t *testi
 
 	first := testAssistantFinalLiveRunMessage(2, "first queued answer", true)
 	second := testAssistantFinalLiveRunMessage(3, "second queued answer", false)
-	for _, message := range []clientui.TranscriptMessage{
+	for _, message := range []*transcriptpb.Message{
 		ongoingHydrationMessage(1),
 		first,
 		second,
 		second,
-		ongoingHydrationMessage(1),
-	} {
+		ongoingHydrationMessage(1)} {
 		model.handleOngoingTranscriptEvent(ongoingTranscriptEvent{
 			Kind:    ongoingTranscriptEventMessage,
 			Message: message,
@@ -103,10 +103,9 @@ func TestAdmittedAssistantFinalFlushesWhenQueueAbortsIdle(t *testing.T) {
 	model := newTurnQueueHookTestModel(hooks)
 	model.activeSubmit = activeSubmitState{token: 1, text: "turn"}
 
-	for _, message := range []clientui.TranscriptMessage{
+	for _, message := range []*transcriptpb.Message{
 		ongoingHydrationMessage(1),
-		testAssistantFinalLiveRunMessage(2, "answer before submission error", true),
-	} {
+		testAssistantFinalLiveRunMessage(2, "answer before submission error", true)} {
 		model.handleOngoingTranscriptEvent(ongoingTranscriptEvent{
 			Kind:    ongoingTranscriptEventMessage,
 			Message: message,
@@ -135,11 +134,10 @@ func deletedTestAdmittedAssistantFinalWaitsForLocallyOwnedQueuedPromptDrain(t *t
 		submissionOrder: inputSubmissionOrder{sequence: 1},
 	}}
 
-	for _, message := range []clientui.TranscriptMessage{
+	for _, message := range []*transcriptpb.Message{
 		ongoingHydrationMessage(1),
-		ongoingTranscriptMessage(2, clientui.TranscriptMessageQueuedMessageState),
-		testAssistantFinalLiveRunMessage(3, "current answer", true),
-	} {
+		ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_QueuedMessageState]()),
+		testAssistantFinalLiveRunMessage(3, "current answer", true)} {
 		model.handleOngoingTranscriptEvent(ongoingTranscriptEvent{
 			Kind:    ongoingTranscriptEventMessage,
 			Message: message,
@@ -157,7 +155,7 @@ func deletedTestAdmittedAssistantFinalWaitsForLocallyOwnedQueuedPromptDrain(t *t
 
 	model.handleOngoingTranscriptEvent(ongoingTranscriptEvent{
 		Kind:    ongoingTranscriptEventMessage,
-		Message: ongoingTranscriptMessage(4, clientui.TranscriptMessageQueuedMessageState),
+		Message: ongoingTranscriptMessage(4, reflect.TypeFor[*transcriptpb.Event_QueuedMessageState]()),
 	})
 
 	if got := len(completions.results); got != 1 {
@@ -177,21 +175,18 @@ func newTurnQueueHookTestModel(hooks turnQueueHook) *uiModel {
 }
 
 func TestTurnQueueHooksDoNotCompleteNonCompletedAssistantFinalResult(t *testing.T) {
-	for _, status := range []clientui.LiveRunStatus{
-		clientui.LiveRunStatusFailed,
-		clientui.LiveRunStatusInterrupted,
-	} {
-		t.Run(string(status), func(t *testing.T) {
+	for _, status := range []transcriptpb.LiveRunStatus{transcriptpb.LiveRunStatus_LIVE_RUN_STATUS_FAILED, transcriptpb.LiveRunStatus_LIVE_RUN_STATUS_INTERRUPTED} {
+		t.Run(status.String(), func(t *testing.T) {
 			completions := &recordingTaskCompletionSink{}
 			hooks := newTurnQueueHooks(newUnfocusedBellHooks(&countRinger{}), completions)
 			message := testAssistantFinalLiveRunMessage(2, "answer before non-completed outcome", true)
-			result := message.Payload().(clientui.TranscriptLiveRunResult)
+			result := message.GetEvent().GetLiveRunFinished()
 			result.Status = status
-			if status == clientui.LiveRunStatusFailed {
+			if status == transcriptpb.LiveRunStatus_LIVE_RUN_STATUS_FAILED {
 				failure := "terminal failure"
 				result.Failure = &failure
 			}
-			message = clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(result))
+			message = transcriptTestMessage(2, result)
 
 			hooks.OnTranscriptMessage(message)
 			hooks.OnTurnQueueDrained()
@@ -206,17 +201,14 @@ func TestTurnQueueHooksDoNotCompleteNonCompletedAssistantFinalResult(t *testing.
 func testAssistantFinalLiveRunMessage(
 	sequence uint64,
 	answer string,
-	workPerformed bool,
-) clientui.TranscriptMessage {
+	workPerformed bool) *transcriptpb.Message {
 	startedAt := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
 	finishedAt := startedAt.Add(time.Duration(sequence) * time.Second)
-	return clientui.NewTranscriptMessage(sequence, clientui.NewTranscriptEvent(clientui.TranscriptLiveRunResult{
-		Status:        clientui.LiveRunStatusCompleted,
-		ResultKind:    clientui.LiveRunResultAssistantFinalAnswer,
+	return transcriptTestMessage(sequence, &transcriptpb.LiveRunFinished{
+		Status:        transcriptpb.LiveRunStatus_LIVE_RUN_STATUS_COMPLETED,
+		ResultKind:    transcriptpb.LiveRunResultKind_LIVE_RUN_RESULT_KIND_ASSISTANT_FINAL_ANSWER,
 		WorkPerformed: workPerformed,
 		FinalAnswer:   &answer,
-		StartedAt:     startedAt,
-		FinishedAt:    finishedAt,
-	}))
-
+		StartedAt:     timestamppb.New(startedAt),
+		FinishedAt:    timestamppb.New(finishedAt)})
 }

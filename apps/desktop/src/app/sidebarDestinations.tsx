@@ -3,17 +3,19 @@ import { useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage } from "@/api";
-import { ProjectDeleteButton, ProjectEditRoute } from "@/features/project-edit";
+import { WorktreeDestination } from "@/features/chat";
+import { ProjectEditRoute } from "@/features/project-edit";
+import { ProcessesSidebar } from "@/features/processes";
 import { SidebarInboxNav } from "@/features/home";
-import { TaskDetailSurface } from "@/features/task-detail";
+import { TaskDetailSurface, type TaskDetailSessionChatEntry } from "@/features/task-detail";
 import { NewTaskForm } from "@/features/tasks";
 import {
-  WorkflowDeleteButton,
   WorkflowEditorRoute,
   WorkflowInspectorSidebar,
+  WorkflowInspectorHeader,
 } from "@/features/workflow-editor";
 import { LinkWorkflowSidebar, WorkflowCreateForm } from "@/features/workflows";
-import { writeClipboardText } from "@/shared/native-clipboard";
+import { desktopChatEnabled } from "@/shared/feature-flags";
 import {
   sidebarTitle,
   useAppNavigation,
@@ -23,7 +25,7 @@ import {
   type SidebarDestination,
   type SidebarPageNavigator,
 } from "@/app-facade";
-import { Button, CopyableValueButton, IconTooltipButton, showStatusToast } from "@/ui";
+import { Button, IconTooltipButton } from "@/ui";
 import { sidebarPopOutOptions } from "./sidebarPopOut";
 
 export function SidebarDestinationView({
@@ -35,6 +37,9 @@ export function SidebarDestinationView({
   navigator: SidebarPageNavigator;
   retainedState?: unknown;
 }>): ReactElement {
+  if (destination.kind === "worktree") {
+    return <WorktreeDestination destination={destination} navigator={navigator} />;
+  }
   if (destination.kind === "newTask")
     return (
       <NewTaskDestination destination={destination} navigator={navigator} retainedState={retainedState} />
@@ -70,7 +75,9 @@ export function SidebarDestinationView({
     );
   if (destination.kind === "projectEdit")
     return <ProjectEditDestination destination={destination} navigator={navigator} />;
-  return <>{destination.content}</>;
+  if (destination.kind === "processes")
+    return <ProcessesSidebar key={destination.sessionID} target={destination} />;
+  return <>{destination.content(navigator)}</>;
 }
 
 function TaskDetailDestination({
@@ -82,6 +89,15 @@ function TaskDetailDestination({
   navigator: SidebarPageNavigator;
   retainedState?: unknown;
 }>): ReactElement {
+  const navigation = useAppNavigation();
+  const openSessionChat: TaskDetailSessionChatEntry | undefined = desktopChatEnabled
+    ? async (target) => {
+        if (navigator.close() !== "accepted") {
+          return;
+        }
+        await navigation.openSessionChat(target);
+      }
+    : undefined;
   usePublishSidebarHeaderAction(<TaskDetailHeaderActions destination={destination} navigator={navigator} />);
   return (
     <TaskDetailSurface
@@ -89,6 +105,7 @@ function TaskDetailDestination({
       initialFocus={destination.initialFocus}
       navigator={navigator}
       onMutated={destination.onMutated}
+      openSessionChat={openSessionChat}
       retainedState={retainedState}
       sidebarDestination={destination}
       sidebarMode={destination.mode}
@@ -183,13 +200,7 @@ function ProjectEditDestination({
   destination: Extract<SidebarDestination, { kind: "projectEdit" }>;
   navigator: SidebarPageNavigator;
 }>): ReactElement {
-  return (
-    <ProjectEditRoute
-      headerAccessory={<ProjectDeleteButton navigator={navigator} projectID={destination.projectID} />}
-      navigator={navigator}
-      projectId={destination.projectID}
-    />
-  );
+  return <ProjectEditRoute navigator={navigator} projectId={destination.projectID} />;
 }
 
 function LinkWorkflowDestinationView({
@@ -265,63 +276,20 @@ function WorkflowInspectorDestination({
   destination: Extract<SidebarDestination, { kind: "workflowInspect" }>;
   navigator: SidebarPageNavigator;
 }>): ReactElement {
-  usePublishSidebarHeaderAction(
-    destination.selection.kind === "workflow" ? (
-      <WorkflowDeleteButton onDeleted={navigator.close} workflowID={destination.workflowID} />
-    ) : destination.selection.kind === "node" ? (
-      <WorkflowEntityIDHeader entityID={destination.selection.nodeID} entityKind="node" />
-    ) : destination.selection.kind === "edge" ? (
-      <WorkflowEntityIDHeader entityID={destination.selection.edgeID} entityKind="edge" />
-    ) : null,
-  );
   return (
-    <WorkflowInspectorSidebar
-      initialFocus={destination.initialFocus}
-      onMissingSelectedNode={navigator.close}
-      selection={destination.selection}
-      workflowID={destination.workflowID}
-    />
-  );
-}
-
-function WorkflowEntityIDHeader({
-  entityID,
-  entityKind,
-}: Readonly<{
-  entityID: string;
-  entityKind: "edge" | "node";
-}>): ReactElement {
-  const { t } = useTranslation();
-  const { nativeBridge } = useAppServices();
-  const node = entityKind === "node";
-  return (
-    <CopyableValueButton
-      accessibleLabel={
-        node
-          ? t("workflowEditor.copyNodeId", { id: entityID })
-          : t("workflowEditor.copyEdgeId", { id: entityID })
-      }
-      className="max-w-full justify-self-end overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs"
-      onActivate={() => {
-        void writeClipboardText(entityID, nativeBridge)
-          .then(() => {
-            showStatusToast({
-              id: `workflow-${entityKind}-id-copied-${entityID}`,
-              title: node ? t("workflowEditor.nodeIdCopied") : t("workflowEditor.edgeIdCopied"),
-              tone: "success",
-            });
-          })
-          .catch(() => {
-            showStatusToast({
-              id: `workflow-${entityKind}-id-copy-failed-${entityID}`,
-              title: node ? t("workflowEditor.nodeIdCopyFailed") : t("workflowEditor.edgeIdCopyFailed"),
-              tone: "danger",
-            });
-          });
-      }}
-    >
-      {entityID}
-    </CopyableValueButton>
+    <>
+      <WorkflowInspectorHeader
+        selection={destination.selection}
+        workflowID={destination.workflowID}
+        onDeleted={navigator.close}
+      />
+      <WorkflowInspectorSidebar
+        initialFocus={destination.initialFocus}
+        onMissingSelectedNode={navigator.close}
+        selection={destination.selection}
+        workflowID={destination.workflowID}
+      />
+    </>
   );
 }
 

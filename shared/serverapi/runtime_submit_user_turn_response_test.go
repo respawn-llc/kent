@@ -1,106 +1,86 @@
-package serverapi
+package serverapi_test
 
 import (
 	"testing"
 
-	"core/shared/clientui"
-	"core/shared/textutil"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	"core/shared/runtimeids"
 )
 
 func TestRuntimeSubmitUserTurnResponseValidatesTypedOutcome(t *testing.T) {
 	t.Parallel()
-	blank := ""
 	tests := []struct {
 		name     string
-		response RuntimeSubmitUserTurnResponse
+		response *runtimepb.SubmitUserTurnSuccess
 		wantErr  bool
 	}{
-		{name: "missing result kind", response: RuntimeSubmitUserTurnResponse{}, wantErr: true},
-		{
-			name:     "unknown result kind",
-			response: RuntimeSubmitUserTurnResponse{ResultKind: clientui.UserTurnResultKind("future")},
-			wantErr:  true,
-		},
+		{name: "missing result", response: &runtimepb.SubmitUserTurnSuccess{}, wantErr: true},
 		{
 			name: "valid queued",
-			response: RuntimeSubmitUserTurnResponse{
-				ResultKind:  clientui.UserTurnResultKindQueued,
-				Steered:     true,
-				QueueItemID: "queue-1",
-			},
+			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_Queued{
+				Queued: &runtimepb.SubmitUserTurnQueued{Steered: true, QueueItemId: runtimeids.NewQueueItemID().String()},
+			}},
 		},
 		{
 			name: "queued requires queue identity",
-			response: RuntimeSubmitUserTurnResponse{
-				ResultKind: clientui.UserTurnResultKindQueued,
-				Steered:    true,
-			},
+			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_Queued{
+				Queued: &runtimepb.SubmitUserTurnQueued{Steered: true},
+			}},
+			wantErr: true,
+		},
+		{
+			name: "queued must be steered",
+			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_Queued{
+				Queued: &runtimepb.SubmitUserTurnQueued{QueueItemId: runtimeids.NewQueueItemID().String()},
+			}},
 			wantErr: true,
 		},
 		{
 			name: "valid assistant final",
-			response: RuntimeSubmitUserTurnResponse{
-				ResultKind: clientui.UserTurnResultKindAssistantFinal,
-				Message:    textutil.Value("answer"),
-			},
+			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_AssistantFinal{
+				AssistantFinal: &runtimepb.SubmitUserTurnAssistantFinal{Message: "answer"},
+			}},
 		},
 		{
 			name: "assistant final requires message",
-			response: RuntimeSubmitUserTurnResponse{
-				ResultKind: clientui.UserTurnResultKindAssistantFinal,
-			},
+			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_AssistantFinal{
+				AssistantFinal: &runtimepb.SubmitUserTurnAssistantFinal{},
+			}},
 			wantErr: true,
 		},
 		{
 			name: "assistant final rejects blank message",
-			response: RuntimeSubmitUserTurnResponse{
-				ResultKind: clientui.UserTurnResultKindAssistantFinal,
-				Message:    textutil.Value(" \n\t "),
-			},
+			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_AssistantFinal{
+				AssistantFinal: &runtimepb.SubmitUserTurnAssistantFinal{Message: " \n\t "},
+			}},
 			wantErr: true,
 		},
 		{
 			name: "valid no final",
-			response: RuntimeSubmitUserTurnResponse{
-				ResultKind: clientui.UserTurnResultKindNoFinal,
-			},
+			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_NoFinal{
+				NoFinal: &runtimepb.SubmitUserTurnNoFinal{},
+			}},
 		},
 		{
-			name: "no final rejects message",
-			response: RuntimeSubmitUserTurnResponse{
-				ResultKind: clientui.UserTurnResultKindNoFinal,
-				Message:    textutil.Value("unexpected"),
-			},
-			wantErr: true,
-		},
-		{
-			name: "valid silent final preserves present empty message",
-			response: RuntimeSubmitUserTurnResponse{
-				ResultKind: clientui.UserTurnResultKindSilentFinal,
-				Message:    &blank,
-			},
-		},
-		{
-			name: "silent final requires present empty message",
-			response: RuntimeSubmitUserTurnResponse{
-				ResultKind: clientui.UserTurnResultKindSilentFinal,
-			},
-			wantErr: true,
+			name: "valid silent final",
+			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_SilentFinal{
+				SilentFinal: &runtimepb.SubmitUserTurnSilentFinal{},
+			}},
 		},
 		{
 			name: "silent final rejects nonempty message",
-			response: RuntimeSubmitUserTurnResponse{
-				ResultKind: clientui.UserTurnResultKindSilentFinal,
-				Message:    textutil.Value("not blank"),
-			},
+			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_SilentFinal{
+				SilentFinal: &runtimepb.SubmitUserTurnSilentFinal{Message: "not blank"},
+			}},
 			wantErr: true,
 		},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			err := testCase.response.Validate()
+			_, err := protoapi.Encode(testCase.response)
 			if (err != nil) != testCase.wantErr {
-				t.Fatalf("Validate() error = %v, wantErr=%t", err, testCase.wantErr)
+				t.Fatalf("Encode() error = %v, wantErr=%t", err, testCase.wantErr)
 			}
 		})
 	}

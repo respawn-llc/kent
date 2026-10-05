@@ -1,30 +1,25 @@
 package transcriptrender
 
 import (
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"strings"
 	"testing"
 	"unicode"
-
-	"core/shared/clientui"
-	"core/shared/transcript"
 )
 
 func TestUserAndAssistantRowsAlwaysRenderTheirFullSource(t *testing.T) {
 	condensed := "forbidden compact preview"
 	source := "Complete first paragraph with enough words to wrap.\n\nComplete second paragraph."
-	rows := []clientui.TranscriptCommittedRow{
-		{
-			Kind: clientui.TranscriptRowUser,
-			User: &clientui.TranscriptUserRow{Text: source, CondensedText: &condensed},
-		},
-		{
-			Kind: clientui.TranscriptRowAssistant,
-			Assistant: &clientui.TranscriptAssistantRow{
-				Text:          source,
-				CondensedText: &condensed,
-				Phase:         transcript.AssistantPhaseCommentary,
-			},
-		},
+	rows := []*transcriptpb.CommittedRow{
+		{Row: &transcriptpb.CommittedRow_User{User: &transcriptpb.UserRow{
+			Text:          source,
+			CondensedText: &condensed,
+		}}},
+		{Row: &transcriptpb.CommittedRow_Assistant{Assistant: &transcriptpb.AssistantRow{
+			Text:          source,
+			CondensedText: &condensed,
+			Phase:         transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY,
+		}}},
 	}
 	modes := []Mode{
 		ModeOngoing,
@@ -37,7 +32,7 @@ func TestUserAndAssistantRowsAlwaysRenderTheirFullSource(t *testing.T) {
 
 	for _, row := range rows {
 		role := StyleRoleUser
-		if row.Kind == clientui.TranscriptRowAssistant {
+		if GroupForRow(row) == GroupAssistant {
 			role = StyleRoleAssistant
 		}
 		for _, mode := range modes {
@@ -65,10 +60,10 @@ func TestUserAndAssistantRowsAlwaysRenderTheirFullSource(t *testing.T) {
 				return r
 			}, source)
 			if !strings.Contains(compactText, compactSource) {
-				t.Fatalf("kind=%s mode=%d omitted source content: %q", row.Kind, mode, text)
+				t.Fatalf("group=%d mode=%d omitted source content: %q", GroupForRow(row), mode, text)
 			}
 			if strings.Contains(text, condensed) || strings.Contains(text, "…") {
-				t.Fatalf("kind=%s mode=%d used compact or ellipsized content: %q", row.Kind, mode, text)
+				t.Fatalf("group=%d mode=%d used compact or ellipsized content: %q", GroupForRow(row), mode, text)
 			}
 		}
 	}

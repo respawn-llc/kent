@@ -3,9 +3,14 @@ syntax = "proto3";
 package kent.api.runtime;
 
 import "buf/validate/validate.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
+import "kent/api/auth/auth.proto";
+import "kent/api/chat/chat.proto";
+import "kent/api/prompt_command/prompt_command.proto";
 import "kent/api/prompt_command/validation.proto";
+import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
 import "kent/api/worktree/worktree.proto";
@@ -31,6 +36,24 @@ enum GoalAvailability {
   GOAL_AVAILABILITY_AGENT_CAPABILITY_MISSING = 2;
 }
 
+enum GoalMutationResultKind {
+  GOAL_MUTATION_RESULT_KIND_UNSPECIFIED = 0;
+  GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL = 1;
+  GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_CLEAR = 2;
+}
+
+enum GoalExecutionPolicy {
+  GOAL_EXECUTION_POLICY_UNSPECIFIED = 0;
+  GOAL_EXECUTION_POLICY_START_OR_CONTINUE = 1;
+  GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE = 2;
+}
+
+enum GoalObservationKind {
+  GOAL_OBSERVATION_KIND_UNSPECIFIED = 0;
+  GOAL_OBSERVATION_KIND_HYDRATION = 1;
+  GOAL_OBSERVATION_KIND_UPDATE = 2;
+}
+
 enum ActivityState {
   RUNTIME_ACTIVITY_STATE_UNSPECIFIED = 0;
   RUNTIME_ACTIVITY_UNAVAILABLE = 1;
@@ -52,6 +75,13 @@ enum ActivityActiveKind {
   RUNTIME_ACTIVITY_ACTIVE_KIND_USER_SHELL = 6;
   RUNTIME_ACTIVITY_ACTIVE_KIND_BACKGROUND = 7;
   RUNTIME_ACTIVITY_ACTIVE_KIND_RUNTIME_MAINTENANCE = 8;
+}
+
+enum ReviewerActivity {
+  REVIEWER_ACTIVITY_UNSPECIFIED = 0;
+  REVIEWER_ACTIVITY_INACTIVE = 1;
+  REVIEWER_ACTIVITY_INVOKING = 2;
+  REVIEWER_ACTIVITY_ADDRESSING_FEEDBACK = 3;
 }
 
 message ReadModelVersion {
@@ -96,6 +126,10 @@ message Activity {
   optional ActiveStep active_step = 2;
   bool queue_accepting = 3;
   bool diagnostic_recovery = 4;
+  ReviewerActivity reviewer = 5 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
 
   option (buf.validate.message).cel = {
     id: "kent.runtime.activity_active_step"
@@ -121,30 +155,17 @@ message ContextUsage {
 }
 
 message GoalView {
-  string id = 1 [(buf.validate.field).string.min_len = 1];
-  string objective = 2 [(buf.validate.field).string.min_len = 1];
-  GoalStatus status = 3 [(buf.validate.field).enum = {
+  optional Goal goal = 1;
+  optional GoalAvailability availability = 2 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
   }];
-  google.protobuf.Timestamp created_at = 4 [
-    (buf.validate.field).required = true,
-    (buf.validate.field).timestamp.gt = {seconds: 0}
-  ];
-  google.protobuf.Timestamp updated_at = 5 [
-    (buf.validate.field).required = true,
-    (buf.validate.field).timestamp.gt = {seconds: 0}
-  ];
-  optional GoalAvailability availability = 6 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-  bool suspended = 7;
+  bool suspended = 3;
 
   option (buf.validate.message).cel = {
     id: "kent.runtime.goal_suspension"
-    message: "paused and complete goals cannot be suspended"
-    expression: "this.status == 1 || !this.suspended"
+    message: "goal suspension requires an active goal"
+    expression: "!this.suspended || (has(this.goal) && this.goal.status == 1)"
   };
 }
 
@@ -154,6 +175,7 @@ message WorkflowSessionStatus {
 }
 
 message Status {
+
   string reviewer_frequency = 1 [(buf.validate.field).string.min_len = 1];
   bool reviewer_enabled = 2;
   bool auto_compaction_enabled = 3;
@@ -167,11 +189,14 @@ message Status {
   optional string previous_session_id = 8 [(buf.validate.field).string.min_len = 1];
   optional string parent_agent_session_id = 9 [(buf.validate.field).string.min_len = 1];
   optional string navigation_target_session_id = 10 [(buf.validate.field).string.min_len = 1];
-  optional string last_committed_assistant_final_answer = 11;
   string thinking_level = 12 [(buf.validate.field).string.min_len = 1];
-  string compaction_mode = 13 [
-    (buf.validate.field).string = {in: ["native", "local", "none"]}
-  ];
+  string compaction_mode = 13 [(buf.validate.field).string = {
+    in: [
+      "native",
+      "local",
+      "none"
+    ]
+  }];
   ContextUsage context_usage = 14 [(buf.validate.field).required = true];
   int32 compaction_count = 15 [(buf.validate.field).int32.gte = 0];
   optional GoalView goal = 16;
@@ -186,7 +211,7 @@ message Status {
 
 message SessionView {
   string session_id = 1 [(buf.validate.field).string.min_len = 1];
-  string session_name = 2;
+  optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
   optional string agent_role = 3 [(buf.validate.field).string.min_len = 1];
   ConversationFreshness conversation_freshness = 4 [(buf.validate.field).enum = {
     defined_only: true
@@ -213,10 +238,15 @@ message RuntimeCommandNotAcceptedDetails {
     RuntimeUnavailableDetails runtime_unavailable = 2;
     google.protobuf.Empty no_active_run = 3;
     kent.api.shared.InternalFailureDetails internal_failure = 4;
+    kent.api.chat.ManualCompactionTooSoonDetails manual_compaction_too_soon = 5;
+    kent.api.chat.ManualCompactionDisabledDetails manual_compaction_disabled = 6;
+    kent.api.chat.ManualCompactionActiveDetails manual_compaction_active = 7;
+    kent.api.chat.PendingWorkCapacityDetails pending_work_capacity = 8;
+    kent.api.prompt_command.CatalogReadDetails prompt_catalog_read = 9;
+    kent.api.prompt_command.CommandNotFoundDetails prompt_command_not_found = 10;
+    kent.api.prompt_command.CommandReadDetails prompt_command_read = 11;
   }
 }
-
-message ManualCompactionDetails {}
 
 message SetSessionNameRequest {
   string session_id = 1 [
@@ -239,9 +269,7 @@ message ShouldCompactSuccess {
 }
 
 message PromptCommandInput {
-  string name = 1 [
-    (buf.validate.field).string.(kent.api.prompt_command.canonical_name) = true
-  ];
+  string name = 1 [(buf.validate.field).string.(kent.api.prompt_command.canonical_name) = true];
   string arguments = 2;
 }
 
@@ -364,7 +392,7 @@ message InterruptRequest {
   ];
 }
 
-message InterruptSuccess {
+message ReadModelUpdate {
   ReadModelVersion version = 1 [(buf.validate.field).required = true];
   Activity activity = 2 [(buf.validate.field).required = true];
 }
@@ -465,10 +493,10 @@ message LiveWaitSuccess {
       expression: "this.trim() != ''"
     }
   ];
-  int64 duration_millis = 3 [(buf.validate.field).int64 = {
-    gte: 0
-    lte: 9007199254740991
-  }];
+  google.protobuf.Duration duration = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).duration.gte = {}
+  ];
   string live_run_group_id = 4 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -528,7 +556,10 @@ message PendingWorkMessage {
 }
 
 message PendingWorkWorktreeTransition {
-  PendingWorkWorktreeTransitionKind transition = 1 [(buf.validate.field).enum = { defined_only: true not_in: [0] }];
+  PendingWorkWorktreeTransitionKind transition = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
   optional string selector = 2 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).string.(kent.api.shared.nonblank) = true
@@ -547,15 +578,24 @@ message PendingWorkItem {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
-  PendingWorkLane lane = 2 [(buf.validate.field).enum = { defined_only: true not_in: [0] }];
-  PendingWorkItemKind kind = 3 [(buf.validate.field).enum = { defined_only: true not_in: [0] }];
+  PendingWorkLane lane = 2 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  PendingWorkItemKind kind = 3 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
   oneof payload {
     option (buf.validate.oneof).required = true;
     PendingWorkMessage message = 4;
     ManualCompactionAdmission manual_compaction = 5;
     PendingWorkWorktreeTransition worktree_transition = 8;
   }
-  PendingWorkItemState state = 6 [(buf.validate.field).enum = { defined_only: true not_in: [0] }];
+  PendingWorkItemState state = 6 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
   string canonical_input = 7 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).string.(kent.api.shared.nonblank) = true
@@ -602,7 +642,10 @@ message RemovePendingWorkRequest {
 }
 
 message PendingWorkRestoration {
-  PendingWorkItemKind kind = 1 [(buf.validate.field).enum = { defined_only: true not_in: [0] }];
+  PendingWorkItemKind kind = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
   string canonical_input = 2 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).string.(kent.api.shared.nonblank) = true
@@ -644,14 +687,6 @@ message Goal {
   ];
 }
 
-message GoalPreview {
-  string objective = 1 [(buf.validate.field).string.min_len = 1];
-  GoalStatus status = 2 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-}
-
 message GoalShowRequest {
   string session_id = 1 [
     (buf.validate.field).string.min_len = 1,
@@ -677,10 +712,7 @@ message GoalMutationRequest {
 }
 
 message GoalSetRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
-  ];
+  kent.api.chat.ChatTarget target = 1 [(buf.validate.field).required = true];
   string objective = 2 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -697,8 +729,41 @@ message GoalSetRequest {
       expression: "this.trim() in ['user', 'agent', 'system']"
     }
   ];
-  optional string run_id = 4 [(buf.validate.field).string.min_len = 1];
-  optional string step_id = 5 [(buf.validate.field).string.min_len = 1];
+  GoalExecutionPolicy execution_policy = 4 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  optional string initial_input_draft = 5;
+  optional string run_id = 6 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).cel = {
+      id: "kent.runtime.goal_set_run_id_nonblank"
+      message: "run_id must not be blank when present"
+      expression: "this.trim() != ''"
+    }
+  ];
+  optional string step_id = 7 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).cel = {
+      id: "kent.runtime.goal_set_step_id_nonblank"
+      message: "step_id must not be blank when present"
+      expression: "this.trim() != ''"
+    }
+  ];
+
+  option (buf.validate.message).cel = {
+    id: "kent.runtime.goal_set_target_execution"
+    message: "Goal Set target, actor, execution policy, draft, and execution identity must form a legal combination"
+    expression:
+      "has(this.target.new_chat) && this.execution_policy == 1 && this.actor.trim() == 'user' && "
+      "!has(this.run_id) && !has(this.step_id) || "
+      "has(this.target.session) && !has(this.initial_input_draft) && ("
+      "(this.execution_policy == 1 && this.actor.trim() == 'user' && !has(this.run_id) && !has(this.step_id)) || "
+      "(this.execution_policy == 2 && ("
+      "(this.actor.trim() == 'agent' && has(this.run_id) && has(this.step_id)) || "
+      "(this.actor.trim() != 'agent' && !has(this.run_id) && !has(this.step_id))"
+      ")))"
+  };
 }
 
 message GoalClearRequest {
@@ -725,8 +790,11 @@ message GoalShowSuccess {
 }
 
 message GoalMutationSuccess {
-  optional Goal goal = 1;
-  optional GoalPreview pending = 2;
+  GoalMutationResultKind kind = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  optional Goal goal = 2;
   optional GoalAvailability availability = 3 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
@@ -734,8 +802,38 @@ message GoalMutationSuccess {
 
   option (buf.validate.message).cel = {
     id: "kent.runtime.goal_mutation_result"
-    message: "goal mutation success cannot contain both a goal and pending preview"
-    expression: "!(has(this.goal) && has(this.pending))"
+    message: "goal mutation success fields must match its kind"
+    expression: "(this.kind == 1 && has(this.goal)) || (this.kind == 2 && !has(this.goal))"
+  };
+}
+
+message GoalObserveRequest {
+  string session_id = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+  ];
+}
+
+message GoalProjection {
+  optional Goal goal = 1;
+  optional GoalAvailability availability = 2 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+}
+
+message GoalObservation {
+  uint64 sequence = 1 [(buf.validate.field).uint64.gt = 0];
+  GoalObservationKind kind = 2 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  GoalProjection status = 3 [(buf.validate.field).required = true];
+
+  option (buf.validate.message).cel = {
+    id: "kent.runtime.goal_observation_sequence"
+    message: "goal observation hydration must be sequence 1 and updates must follow it"
+    expression: "(this.kind == 1 && this.sequence == 1u) || (this.kind == 2 && this.sequence >= 2u)"
   };
 }
 
@@ -753,14 +851,151 @@ message SetSessionNameError {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
     }];
+
+    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
   }
 }
 
-message ShouldCompactError { string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE]; oneof detail { RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "runtime_unavailable" }]; kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure" }]; } }
-message ListPendingWorkError { string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE]; oneof detail { RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "runtime_unavailable" }]; kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure" }]; } }
-message RemovePendingWorkError { string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE]; oneof detail { RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "runtime_unavailable" }]; kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure" }]; } }
+message ShouldCompactError {
+  string code = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
+  ];
+  oneof detail {
+    RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "runtime_unavailable"
+    }];
+    kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "internal_failure"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+  }
+}
+message ListPendingWorkError {
+  string code = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
+  ];
+  oneof detail {
+    RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "runtime_unavailable"
+    }];
+    kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "internal_failure"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+  }
+}
+message PendingWorkNotPendingDetails {
+  string item_id = 1 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
+}
+
+message RemovePendingWorkError {
+  string code = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
+  ];
+  oneof detail {
+    RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "runtime_unavailable"
+    }];
+    kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "internal_failure"
+    }];
+    PendingWorkNotPendingDetails pending_work_not_pending = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "pending_work_not_pending"
+    }];
+
+    kent.api.auth.AuthRequiredDetails auth_required = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+  }
+}
 
 message SubmitUserTurnError {
+  string code = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
+  ];
+  oneof detail {
+    kent.api.prompt_command.CatalogReadDetails prompt_catalog_read = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "prompt_catalog_read"
+    }];
+    kent.api.prompt_command.CommandNotFoundDetails prompt_command_not_found = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "prompt_command_not_found"
+    }];
+    kent.api.prompt_command.CommandReadDetails prompt_command_read = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "prompt_command_read"
+    }];
+    RuntimeCommandNotAcceptedDetails runtime_command_not_accepted = 2 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "runtime_command_not_accepted"
+    }];
+    RuntimeUnavailableDetails runtime_unavailable = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "runtime_unavailable"
+    }];
+    kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "internal_failure"
+    }];
+
+    kent.api.auth.AuthRequiredDetails auth_required = 8 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 9 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+  }
+}
+
+message SubmitUserShellCommandError {
   string code = 1 [
     (buf.validate.field).string.min_len = 1,
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
@@ -778,11 +1013,46 @@ message SubmitUserTurnError {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
     }];
+    kent.api.auth.AuthRequiredDetails auth_required = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
   }
 }
+message InterruptError {
+  string code = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
+  ];
+  oneof detail {
+    RuntimeCommandNotAcceptedDetails runtime_command_not_accepted = 2 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "runtime_command_not_accepted"
+    }];
+    RuntimeUnavailableDetails runtime_unavailable = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "runtime_unavailable"
+    }];
+    kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "internal_failure"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
 
-message SubmitUserShellCommandError { string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE]; oneof detail { RuntimeCommandNotAcceptedDetails runtime_command_not_accepted = 2 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "runtime_command_not_accepted" }]; RuntimeUnavailableDetails runtime_unavailable = 3 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "runtime_unavailable" }]; kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure" }]; } }
-message InterruptError { string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE]; oneof detail { RuntimeCommandNotAcceptedDetails runtime_command_not_accepted = 2 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "runtime_command_not_accepted" }]; RuntimeUnavailableDetails runtime_unavailable = 3 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "runtime_unavailable" }]; kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure" }]; } }
+    kent.api.server.ServerNotReadyDetails server_not_ready = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+  }
+}
 
 message CompactContextError {
   string code = 1 [
@@ -798,21 +1068,31 @@ message CompactContextError {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "runtime_unavailable"
     }];
-    ManualCompactionDetails manual_compaction_too_soon = 4 [(kent.api.shared.kent_result_field) = {
+    kent.api.chat.ManualCompactionTooSoonDetails manual_compaction_too_soon = 4 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "manual_compaction_too_soon"
     }];
-    ManualCompactionDetails manual_compaction_disabled = 5 [(kent.api.shared.kent_result_field) = {
+    kent.api.chat.ManualCompactionDisabledDetails manual_compaction_disabled = 5 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "manual_compaction_disabled"
     }];
-    ManualCompactionDetails manual_compaction_active = 6 [(kent.api.shared.kent_result_field) = {
+    kent.api.chat.ManualCompactionActiveDetails manual_compaction_active = 6 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "manual_compaction_active"
     }];
     kent.api.shared.InternalFailureDetails internal_failure = 7 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
+    }];
+
+    kent.api.auth.AuthRequiredDetails auth_required = 8 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 9 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
     }];
   }
 }
@@ -835,6 +1115,16 @@ message LiveSteerError {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
     }];
+
+    kent.api.auth.AuthRequiredDetails auth_required = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
   }
 }
 
@@ -847,6 +1137,20 @@ message LiveStopError {
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
+    }];
+    RuntimeUnavailableDetails runtime_unavailable = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "runtime_unavailable"
+    }];
+
+    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
     }];
   }
 }
@@ -873,6 +1177,16 @@ message LiveWaitError {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
     }];
+
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
   }
 }
 
@@ -885,6 +1199,16 @@ message GoalShowError {
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
+    }];
+
+    kent.api.auth.AuthRequiredDetails auth_required = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
     }];
   }
 }
@@ -903,13 +1227,166 @@ message GoalSetError {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
     }];
+
+    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
   }
+
+  option (buf.validate.message).cel = {
+    id: "kent.runtime.goal_set_error_detail"
+    message: "Goal Set error code and detail must match"
+    expression:
+      "(this.code == 'runtime_unavailable' && has(this.runtime_unavailable)) || "
+      "(this.code == 'internal_failure' && has(this.internal_failure)) || "
+      "(this.code != 'runtime_unavailable' && this.code != 'internal_failure')"
+  };
 }
 
-message GoalPauseError { string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE]; oneof detail { RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "runtime_unavailable" }]; kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure" }]; } }
-message GoalResumeError { string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE]; oneof detail { RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "runtime_unavailable" }]; kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure" }]; } }
-message GoalCompleteError { string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE]; oneof detail { RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "runtime_unavailable" }]; kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure" }]; } }
-message GoalClearError { string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE]; oneof detail { RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "runtime_unavailable" }]; kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure" }]; } }
+message GoalSetSuccess {
+  kent.api.chat.ExistingSessionTarget session = 1 [(buf.validate.field).required = true];
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+
+    GoalMutationSuccess mutation = 2;
+    GoalSetError rejected = 3;
+  }
+  optional GoalSetError diagnostic = 4;
+
+  option (buf.validate.message).cel = {
+    id: "kent.runtime.goal_set_success_diagnostic"
+    message: "Goal Set diagnostics require a committed mutation and cannot report runtime unavailability"
+    expression: "!has(this.diagnostic) || (has(this.mutation) && this.diagnostic.code != 'runtime_unavailable')"
+  };
+}
+
+message GoalPauseError {
+  string code = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
+  ];
+  oneof detail {
+    RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "runtime_unavailable"
+    }];
+    kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "internal_failure"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+  }
+}
+message GoalResumeError {
+  string code = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
+  ];
+  oneof detail {
+    RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "runtime_unavailable"
+    }];
+    kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "internal_failure"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+  }
+}
+message GoalCompleteError {
+  string code = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
+  ];
+  oneof detail {
+    RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "runtime_unavailable"
+    }];
+    kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "internal_failure"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+  }
+}
+message GoalClearError {
+  string code = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
+  ];
+  oneof detail {
+    RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "runtime_unavailable"
+    }];
+    kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "internal_failure"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+  }
+}
+message GoalObserveError {
+  string code = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
+  ];
+  oneof detail {
+    kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "internal_failure"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+  }
+}
 
 message SetSessionNameResult {
   oneof outcome {
@@ -954,7 +1431,7 @@ message SubmitUserTurnResult {
 message InterruptResult {
   oneof outcome {
     option (buf.validate.oneof).required = true;
-    InterruptSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    ReadModelUpdate success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
     InterruptError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
   }
 }
@@ -1010,15 +1487,46 @@ message GoalShowResult {
 message GoalSetResult {
   oneof outcome {
     option (buf.validate.oneof).required = true;
-    GoalMutationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    GoalSetSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
     GoalSetError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
   }
 }
 
-message GoalPauseResult { oneof outcome { option (buf.validate.oneof).required = true; GoalMutationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS]; GoalPauseError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR]; } }
-message GoalResumeResult { oneof outcome { option (buf.validate.oneof).required = true; GoalMutationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS]; GoalResumeError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR]; } }
-message GoalCompleteResult { oneof outcome { option (buf.validate.oneof).required = true; GoalMutationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS]; GoalCompleteError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR]; } }
-message GoalClearResult { oneof outcome { option (buf.validate.oneof).required = true; GoalMutationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS]; GoalClearError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR]; } }
+message GoalPauseResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    GoalMutationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    GoalPauseError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
+}
+message GoalResumeResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    GoalMutationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    GoalResumeError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
+}
+message GoalCompleteResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    GoalMutationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    GoalCompleteError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
+}
+message GoalClearResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    GoalMutationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    GoalClearError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
+}
+message GoalObserveResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    google.protobuf.Empty success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    GoalObserveError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
+}
 
 service SettingsService {
   rpc SetSessionName(SetSessionNameRequest) returns (SetSessionNameResult) {
@@ -1028,7 +1536,6 @@ service SettingsService {
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "runtime.setSessionName"
     };
   }
 }
@@ -1041,7 +1548,6 @@ service TurnService {
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "runtime.shouldCompactBeforeUserMessage"
     };
   }
   rpc SubmitUserTurn(SubmitUserTurnRequest) returns (SubmitUserTurnResult) {
@@ -1051,7 +1557,6 @@ service TurnService {
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_DEDICATED
-      legacy_wire_name: "runtime.submitUserTurn"
     };
   }
   rpc SubmitUserShellCommand(ShellCommandRequest) returns (SubmitUserShellCommandResult) {
@@ -1061,7 +1566,6 @@ service TurnService {
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_DEDICATED
-      legacy_wire_name: "runtime.submitUserShellCommand"
     };
   }
   rpc CompactContext(CompactContextRequest) returns (CompactContextResult) {
@@ -1071,7 +1575,6 @@ service TurnService {
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_DEDICATED
-      legacy_wire_name: "runtime.compactContext"
     };
   }
   rpc Interrupt(InterruptRequest) returns (InterruptResult) {
@@ -1081,7 +1584,6 @@ service TurnService {
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_DEDICATED
-      legacy_wire_name: "runtime.interrupt"
     };
   }
   rpc ListPendingWork(ListPendingWorkRequest) returns (ListPendingWorkResult) {
@@ -1091,7 +1593,6 @@ service TurnService {
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "runtime.pendingWork.list"
     };
   }
   rpc RemovePendingWork(RemovePendingWorkRequest) returns (RemovePendingWorkResult) {
@@ -1101,7 +1602,6 @@ service TurnService {
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "runtime.pendingWork.remove"
     };
   }
 }
@@ -1114,7 +1614,6 @@ service LiveService {
       scope_policy: SCOPE_POLICY_RUNTIME_LIVE_SESSION_REQUIRED
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "runtime.liveSteer"
     };
   }
   rpc Stop(LiveStopRequest) returns (LiveStopResult) {
@@ -1124,7 +1623,6 @@ service LiveService {
       scope_policy: SCOPE_POLICY_RUNTIME_LIVE_SESSION_OPTIONAL
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_DEDICATED
-      legacy_wire_name: "runtime.liveStop"
     };
   }
   rpc Wait(LiveWaitRequest) returns (LiveWaitResult) {
@@ -1134,7 +1632,6 @@ service LiveService {
       scope_policy: SCOPE_POLICY_RUNTIME_LIVE_SESSION_REQUIRED
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_DEDICATED
-      legacy_wire_name: "runtime.liveWait"
     };
   }
 }
@@ -1147,17 +1644,15 @@ service GoalService {
       scope_policy: SCOPE_POLICY_GOAL_SESSION
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "runtime.goal.show"
     };
   }
   rpc Set(GoalSetRequest) returns (GoalSetResult) {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
       authentication_stage: AUTHENTICATION_STAGE_SERVER
-      scope_policy: SCOPE_POLICY_GOAL_SESSION
+      scope_policy: SCOPE_POLICY_CHAT_TARGET
       direction: DIRECTION_CLIENT_TO_SERVER
-      unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "runtime.goal.set"
+      unary_connection: UNARY_CONNECTION_DEDICATED
     };
   }
   rpc Pause(GoalMutationRequest) returns (GoalPauseResult) {
@@ -1167,7 +1662,6 @@ service GoalService {
       scope_policy: SCOPE_POLICY_GOAL_SESSION
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "runtime.goal.pause"
     };
   }
   rpc Resume(GoalMutationRequest) returns (GoalResumeResult) {
@@ -1177,7 +1671,6 @@ service GoalService {
       scope_policy: SCOPE_POLICY_GOAL_SESSION
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "runtime.goal.resume"
     };
   }
   rpc Complete(GoalMutationRequest) returns (GoalCompleteResult) {
@@ -1187,7 +1680,6 @@ service GoalService {
       scope_policy: SCOPE_POLICY_GOAL_SESSION
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "runtime.goal.complete"
     };
   }
   rpc Clear(GoalClearRequest) returns (GoalClearResult) {
@@ -1197,7 +1689,40 @@ service GoalService {
       scope_policy: SCOPE_POLICY_GOAL_SESSION
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "runtime.goal.clear"
+    };
+  }
+  rpc Observe(GoalObserveRequest) returns (GoalObserveResult) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_SUBSCRIPTION
+      authentication_stage: AUTHENTICATION_STAGE_SERVER
+      scope_policy: SCOPE_POLICY_GOAL_SESSION
+      direction: DIRECTION_CLIENT_TO_SERVER
+      event: {
+        package: "kent.api.runtime"
+        service: "GoalService"
+        method: "Observation"
+      }
+      completion: {
+        package: "kent.api.runtime"
+        service: "GoalService"
+        method: "ObservationComplete"
+      }
+    };
+  }
+  rpc Observation(GoalObservation) returns (google.protobuf.Empty) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_NOTIFICATION
+      authentication_stage: AUTHENTICATION_STAGE_NONE
+      scope_policy: SCOPE_POLICY_NOTIFICATION
+      direction: DIRECTION_SERVER_TO_CLIENT
+    };
+  }
+  rpc ObservationComplete(kent.api.shared.StreamCompletion) returns (google.protobuf.Empty) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_NOTIFICATION
+      authentication_stage: AUTHENTICATION_STAGE_NONE
+      scope_policy: SCOPE_POLICY_NOTIFICATION
+      direction: DIRECTION_SERVER_TO_CLIENT
     };
   }
 }

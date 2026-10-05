@@ -4,7 +4,6 @@ import { z } from "zod";
 import { StartupConfigurationError } from "@/api";
 import {
   ApiClient,
-  ConnectionStore,
   createJsonRpcTransport,
   protocolVersion,
   type DescriptorRpcTransport,
@@ -12,7 +11,7 @@ import {
   type RpcEventHandler,
   type RpcSubscription,
 } from "@/api/composition";
-import type { AppServices, AppStorageNamespace } from "@/app-facade";
+import { projectEventDiagnostics, type AppServices, type AppStorageNamespace } from "@/app-facade";
 import { readEffectiveTheme, type AppTheme } from "@/ui";
 import { createGuiLogger } from "../logging";
 
@@ -41,7 +40,7 @@ export async function createDefaultAppServices(): Promise<AppServices> {
       error: context.message,
     });
     return {
-      api: new ApiClient(new BootstrapErrorTransport(context)),
+      api: new ApiClient(new BootstrapErrorTransport(context), projectEventDiagnostics(logger)),
       debugThemeOverrideEnabled: import.meta.env.DEV,
       endpoint: defaultServerEndpoint,
       homePath: "",
@@ -59,7 +58,7 @@ export async function createDefaultAppServices(): Promise<AppServices> {
       error: browserEndpoint.message,
     });
     return {
-      api: new ApiClient(new BootstrapErrorTransport(browserEndpoint)),
+      api: new ApiClient(new BootstrapErrorTransport(browserEndpoint), projectEventDiagnostics(logger)),
       debugThemeOverrideEnabled: import.meta.env.DEV,
       endpoint: defaultServerEndpoint,
       homePath: context.homePath,
@@ -75,7 +74,10 @@ export async function createDefaultAppServices(): Promise<AppServices> {
   // to the native-resolved server. context.persistenceRootId is empty for the
   // default root (validation skipped).
   const expectedRootId = browserEndpoint === null ? context.persistenceRootId : "";
-  const api = new ApiClient(createJsonRpcTransport(endpoint, expectedRootId));
+  const api = new ApiClient(
+    createJsonRpcTransport(endpoint, expectedRootId),
+    projectEventDiagnostics(logger),
+  );
   return {
     api,
     debugThemeOverrideEnabled: import.meta.env.DEV,
@@ -225,12 +227,10 @@ export function installProductionContextMenuGuard(isProduction: boolean): void {
 }
 
 class BootstrapErrorTransport implements DescriptorRpcTransport {
-  readonly connection = new ConnectionStore();
   readonly #error: Error;
 
   constructor(error: Error) {
     this.#error = error;
-    this.connection.set("disconnected", error.message);
   }
 
   async call(): Promise<unknown> {
@@ -238,6 +238,10 @@ class BootstrapErrorTransport implements DescriptorRpcTransport {
   }
 
   async callDescriptor(): Promise<never> {
+    throw this.#error;
+  }
+
+  async callDescriptorAttachedProject(): Promise<never> {
     throw this.#error;
   }
 
@@ -254,7 +258,15 @@ class BootstrapErrorTransport implements DescriptorRpcTransport {
     throw this.#error;
   }
 
-  async callAttachedSession(): Promise<unknown> {
+  async callDescriptorAttachedSession(): Promise<never> {
+    throw this.#error;
+  }
+
+  async callAttachedProject(): Promise<never> {
+    throw this.#error;
+  }
+
+  async runRuntimeOwner(): Promise<never> {
     throw this.#error;
   }
 

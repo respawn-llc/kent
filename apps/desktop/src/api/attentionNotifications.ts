@@ -1,7 +1,7 @@
+import type { FileAccessTarget } from "./promptModels";
+
 export type AttentionNotificationKind =
   "question" | "approval" | "workflow_approval" | "interrupted_current_node";
-
-export type AttentionNotificationSource = "live" | "snapshot";
 
 export type AttentionNotificationID = Readonly<{
   kind: AttentionNotificationKind;
@@ -27,7 +27,8 @@ export type AttentionNotificationWorkflowTaskTarget = Readonly<{
 }>;
 
 export type AttentionNotificationTarget =
-  AttentionNotificationWorkflowTaskTarget | Readonly<{ kind: "session_prompt"; sessionID: string }>;
+  | AttentionNotificationWorkflowTaskTarget
+  | Readonly<{ kind: "session_prompt"; projectID: string; sessionID: string }>;
 
 export type AttentionNotificationQuestionState = Readonly<{
   preparedAskIDs: readonly string[];
@@ -40,7 +41,8 @@ export type AttentionNotificationQuestionState = Readonly<{
 }>;
 
 export type AttentionNotificationApprovalState = Readonly<{
-  message: string;
+  message?: string | undefined;
+  accessTargets: readonly FileAccessTarget[];
 }>;
 
 export type AttentionNotificationWorkflowApprovalState = Readonly<{
@@ -70,24 +72,20 @@ export type AttentionNotificationEvent =
   | Readonly<{
       type: "pending";
       sequence: number;
-      source: AttentionNotificationSource;
       pending: AttentionNotification;
     }>
   | Readonly<{
       type: "resolved";
       sequence: number;
-      source: AttentionNotificationSource;
       id: AttentionNotificationID;
       kind: AttentionNotificationKind;
       occurredAt: string;
-    }>
-  | Readonly<{ type: "snapshot_complete"; sequence: number; source: "snapshot"; sessionID: string }>;
+    }>;
 
 export type AttentionNotificationEventParams = Readonly<{ event: AttentionNotificationEvent }>;
 
-export type AttentionNotificationEventHandler = Readonly<{
-  onOpen?(): void;
-  onEvent(event: AttentionNotificationEvent): void;
-  onComplete(code: number, message: string): void;
-  onError(error: Error): void;
-}>;
+export type AttentionNotificationLifecycle =
+  | Readonly<{ kind: "open" }>
+  | Readonly<{ kind: "event"; event: AttentionNotificationEvent }>
+  | Readonly<{ kind: "complete"; code: number; message: string }>
+  | Readonly<{ kind: "error"; error: Error }>;

@@ -3,7 +3,6 @@ package runtimeattach
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"core/shared/llmerrors"
@@ -20,14 +19,6 @@ func FormatSubmissionError(err error) string {
 	}
 	if formatted := llmerrors.UserFacingError(err); strings.TrimSpace(formatted) != "" {
 		return formatted
-	}
-	var statusErr *llmerrors.APIStatusError
-	if errors.As(err, &statusErr) {
-		body := statusErr.Body
-		if strings.TrimSpace(body) == "" {
-			body = "<empty error body>"
-		}
-		return fmt.Sprintf("openai status %d\nresponse body:\n%s", statusErr.StatusCode, body)
 	}
 	return err.Error()
 }

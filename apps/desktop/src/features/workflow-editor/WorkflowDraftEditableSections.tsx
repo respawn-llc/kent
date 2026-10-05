@@ -14,11 +14,12 @@ import {
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
+  DisabledInteractionGuard,
 } from "@/ui";
 import { cx, fieldInputClassName } from "@/ui";
 import { DetailSection } from "./WorkflowInspectorPrimitives";
 import { type DraftWorkflowEdge, type DraftWorkflowNode } from "./workflowEditorDraft";
-import { type WorkflowEditorDraftController } from "./workflowEditorDraftBridgeCore";
+import { type WorkflowEditorView } from "./useWorkflowEditorView";
 import {
   transitionKeyedParameterPlaceholderExample,
   workflowPromptTemplatePlaceholders,
@@ -31,10 +32,12 @@ export function PromptTemplateEditor({
   onPromptChange,
   parameters,
   promptTemplate,
+  sourceKind,
 }: Readonly<{
   onPromptChange: (promptTemplate: string) => void;
   parameters: readonly Pick<WorkflowParameter, "key">[];
   promptTemplate: string;
+  sourceKind: string;
 }>) {
   const { t } = useTranslation();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -81,7 +84,11 @@ export function PromptTemplateEditor({
           ref={textareaRef}
           value={promptTemplate}
         />
-        <PromptPlaceholderChips onInsert={insertPlaceholder} parameters={parameters} />
+        <PromptPlaceholderChips
+          onInsert={insertPlaceholder}
+          parameters={parameters}
+          sourceKind={sourceKind}
+        />
       </div>
     </DetailSection>
   );
@@ -90,12 +97,17 @@ export function PromptTemplateEditor({
 function PromptPlaceholderChips({
   onInsert,
   parameters,
+  sourceKind,
 }: Readonly<{
   onInsert: (placeholder: string) => void;
   parameters: readonly Pick<WorkflowParameter, "key">[];
+  sourceKind: string;
 }>) {
   const { t } = useTranslation();
-  const placeholders = workflowPromptTemplatePlaceholders(parameters);
+  const placeholders = workflowPromptTemplatePlaceholders(parameters, {
+    sessionIdDisabledReason: t("workflowEditor.promptSessionIdUnavailable"),
+    sourceKind,
+  });
   return (
     <div
       aria-label={t("workflowEditor.promptPlaceholders")}
@@ -122,11 +134,14 @@ function PromptPlaceholderChip({
   const [infoOpen, setInfoOpen] = useState(false);
   const tone = placeholder.tone === "primary" ? "primary" : "neutral";
   if (placeholder.kind === "insert") {
-    return (
+    const chip = (
       <InteractiveChip
         data-placeholder-tone={placeholder.tone}
+        disabled={placeholder.disabled}
         onClick={() => {
-          onInsert(placeholder.value);
+          if (placeholder.disabled !== true) {
+            onInsert(placeholder.value);
+          }
         }}
         onPointerDown={(event) => {
           event.preventDefault();
@@ -136,6 +151,13 @@ function PromptPlaceholderChip({
       >
         {placeholder.label}
       </InteractiveChip>
+    );
+    return placeholder.disabled === true ? (
+      <DisabledInteractionGuard disabled reason={placeholder.disabledReason}>
+        {chip}
+      </DisabledInteractionGuard>
+    ) : (
+      chip
     );
   }
   return (
@@ -190,7 +212,7 @@ export function EditableEdgeParameters({
   edge,
   protectedParameterVisibility,
 }: Readonly<{
-  controller: WorkflowEditorDraftController;
+  controller: WorkflowEditorView;
   edge: DraftWorkflowEdge;
   protectedParameterVisibility?: Readonly<{
     target_assignee?: boolean;
@@ -255,7 +277,7 @@ function SortableEdgeParameter({
   parameter,
   sortable,
 }: Readonly<{
-  controller: WorkflowEditorDraftController;
+  controller: WorkflowEditorView;
   edgeID: string;
   parameter: WorkflowParameter & Readonly<{ rowID: string }>;
   sortable: ReorderableListItemRenderProps;
@@ -365,7 +387,7 @@ export function EditableJoinProviders({
   definition,
   node,
 }: Readonly<{
-  controller: WorkflowEditorDraftController;
+  controller: WorkflowEditorView;
   definition: WorkflowDefinition;
   node: DraftWorkflowNode;
 }>) {

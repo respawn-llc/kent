@@ -1,7 +1,22 @@
-import { useInfiniteQuery, type InfiniteData, type UseInfiniteQueryResult } from "@tanstack/react-query";
+import {
+  InfiniteQueryObserver,
+  useQueryClient,
+  type InfiniteData,
+  type QueryClient,
+} from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import * as Atom from "effect/reactivity/Atom";
 
-import { workflowPageSize, type WorkflowPage, type WorkflowRecord } from "@/api";
-import { queryKeys, useAppServices, useRetainedQueryData } from "@/app-facade";
+import { workflowPageSize, type WorkflowPage, type WorkflowRecord, type ApiService } from "@/api";
+import {
+  infiniteQueryReadActions,
+  queryAtom,
+  queryKeys,
+  useAppServices,
+  retainQueryData,
+  type RetainedQueryData,
+} from "@/app-facade";
 
 export type ProjectTaskWorkflowItem = Readonly<{
   description: string;
@@ -12,22 +27,37 @@ export type ProjectTaskWorkflowItem = Readonly<{
 
 export type ProjectTaskWorkflowPage = Readonly<{
   workflows: readonly ProjectTaskWorkflowItem[];
-  nextOffset: number | null;
+  nextOffset: bigint | null;
 }>;
 
 const retainedProjectTaskWorkflowPages = 3;
 
-export function useProjectTaskWorkflowPages(
-  projectID: string,
-): UseInfiniteQueryResult<InfiniteData<ProjectTaskWorkflowPage, number>> {
-  const { api } = useAppServices();
-  return useInfiniteQuery<
+export function useProjectTaskWorkflowPages(projectID: string) {
+  const services = useAppServices();
+  const [api] = useState(() => services.api);
+  const client = useQueryClient();
+  const model = useMemo(
+    () => createProjectTaskWorkflowModel(api, client, projectID),
+    [api, client, projectID],
+  );
+  return {
+    ...useAtomValue(model.request),
+    newTaskAvailable: useAtomValue(model.available),
+    fetchNextPage: useAtomSet(model.nextPage),
+    fetchPreviousPage: useAtomSet(model.previousPage),
+    refetch: useAtomSet(model.retry),
+    model,
+  };
+}
+
+export function createProjectTaskWorkflowModel(api: ApiService, client: QueryClient, projectID: string) {
+  const observer = new InfiniteQueryObserver<
     ProjectTaskWorkflowPage,
     Error,
-    InfiniteData<ProjectTaskWorkflowPage, number>,
+    InfiniteData<ProjectTaskWorkflowPage, bigint>,
     readonly unknown[],
-    number
-  >({
+    bigint
+  >(client, {
     queryKey: queryKeys.projectTaskWorkflows(projectID),
     queryFn: async ({ pageParam }) =>
       projectTaskWorkflowPage(
@@ -37,13 +67,40 @@ export function useProjectTaskWorkflowPages(
           projectID,
         }),
       ),
-    initialPageParam: 0,
+    initialPageParam: 0n,
     getPreviousPageParam: (_firstPage, _allPages, firstPageParam) =>
-      firstPageParam === 0 ? undefined : Math.max(0, firstPageParam - workflowPageSize),
+      firstPageParam === 0n
+        ? undefined
+        : firstPageParam > BigInt(workflowPageSize)
+          ? firstPageParam - BigInt(workflowPageSize)
+          : 0n,
     getNextPageParam: (lastPage) => lastPage.nextOffset ?? undefined,
     maxPages: retainedProjectTaskWorkflowPages,
     gcTime: 0,
   });
+  const request = queryAtom(observer);
+  const retained = Atom.make<RetainedQueryData<boolean, string> | null>(null);
+  const available = Atom.make((get) => {
+    get.mount(retained);
+    const data = get(request).data;
+    const previous = get.once(retained);
+    const next = retainQueryData(
+      previous,
+      {
+        scope: projectID,
+        data: data === undefined ? false : firstPageNewTaskAvailability(data),
+        retain: true,
+      },
+      (left, right) => left === right,
+    );
+    if (previous !== next.retained) get.set(retained, next.retained);
+    return next.data ?? false;
+  });
+  return {
+    request,
+    available,
+    ...infiniteQueryReadActions(observer),
+  };
 }
 
 function projectTaskWorkflowPage(page: WorkflowPage): ProjectTaskWorkflowPage {
@@ -66,23 +123,15 @@ function projectTaskWorkflowItem(workflow: WorkflowRecord): ProjectTaskWorkflowI
 }
 
 export function projectTaskWorkflowItems(
-  data: InfiniteData<ProjectTaskWorkflowPage, number> | undefined,
+  data: InfiniteData<ProjectTaskWorkflowPage, bigint> | undefined,
 ): readonly ProjectTaskWorkflowItem[] {
   return data?.pages.flatMap((page) => page.workflows) ?? [];
 }
 
-export function useProjectTaskNewTaskAvailable(
-  projectID: string,
-  data: InfiniteData<ProjectTaskWorkflowPage, number> | undefined,
-): boolean {
-  const currentAvailability = data === undefined ? false : firstPageNewTaskAvailability(data);
-  return useRetainedQueryData(projectID, currentAvailability, (left, right) => left === right) ?? false;
-}
-
 function firstPageNewTaskAvailability(
-  data: InfiniteData<ProjectTaskWorkflowPage, number>,
+  data: InfiniteData<ProjectTaskWorkflowPage, bigint>,
 ): boolean | undefined {
-  const firstPage = data.pages.find((_page, index) => data.pageParams[index] === 0);
+  const firstPage = data.pages.find((_page, index) => data.pageParams[index] === 0n);
   if (firstPage === undefined) {
     return undefined;
   }

@@ -50,13 +50,12 @@ func (*persistedBoundaryClient) ProviderCapabilities(
 	context.Context,
 ) (llm.ProviderCapabilities, error) {
 	return llm.ProviderCapabilities{
-		ProviderID:                     "openai",
-		SupportsResponsesAPI:           true,
-		SupportsResponsesCompact:       true,
-		SupportsRequestInputTokenCount: true,
-		SupportsPromptCacheKey:         true,
-		SupportsReasoningEncrypted:     true,
-		SupportsServerSideContextEdit:  true,
+		ProviderID:                    "openai",
+		SupportsResponsesAPI:          true,
+		SupportsResponsesCompact:      true,
+		SupportsPromptCacheKey:        true,
+		SupportsReasoningEncrypted:    true,
+		SupportsServerSideContextEdit: true,
 	}, nil
 }
 
@@ -177,7 +176,7 @@ func TestPersistedSessionCrashWithBlockedPrefixRepairsWholeUncommittedGroup(t *t
 		store,
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	customInput := "later custom input"
 	calls := []llm.ToolCall{
@@ -247,7 +246,7 @@ func TestPersistedSessionCrashWithBlockedPrefixRepairsWholeUncommittedGroup(t *t
 		firstStore,
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	assertFreshResourceRepairOnEngine(t, first, firstStore, calls[0].ID)
 	assertFreshResourceRepairOnEngine(t, first, firstStore, calls[1].ID)
@@ -273,8 +272,8 @@ func TestPersistedSessionCrashWithBlockedPrefixRepairsWholeUncommittedGroup(t *t
 		if outputKind != wantKind {
 			t.Fatalf("crash repair output kind for %q = %q, want %q", call.ID, outputKind, wantKind)
 		}
-		if !completion.IsError ||
-			!bytes.Equal(completion.Output, missingToolOutputUnavailableOutput) {
+		assertSyntheticFailureOutput(t, completion.Output, completion.Name, missingToolOutputUnavailableMessage)
+		if !completion.IsError {
 			t.Fatalf(
 				"crash repair for %q = error:%t output:%s",
 				call.ID,
@@ -290,7 +289,7 @@ func TestPersistedSessionCrashWithBlockedPrefixRepairsWholeUncommittedGroup(t *t
 		secondStore,
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	for _, call := range calls {
 		assertFreshResourceRepairOnEngine(t, second, secondStore, call.ID)
@@ -327,7 +326,7 @@ func TestPersistedSessionGroupCommitPrecedesNextProviderAndStepCompletion(t *tes
 			Handler: fakeTool{name: toolspec.ToolExecCommand},
 		}),
 		Config{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 			OnEvent: func(event Event) {
 				eventsMu.Lock()
 				events = append(events, event)
@@ -445,7 +444,7 @@ func runPersistedEffectRecoveryCase(
 			ID:      toolID,
 			Handler: fixture.handler,
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	stepID := runtimeTestStepID("effect-step")
 	restoreStep := setTestActiveStep(engine, stepID)
@@ -505,8 +504,8 @@ func runPersistedEffectRecoveryCase(
 					fixture.outputKind,
 				)
 			}
-			if !completion.IsError ||
-				!bytes.Equal(completion.Output, missingToolOutputUnavailableOutput) {
+			assertSyntheticFailureOutput(t, completion.Output, completion.Name, missingToolOutputUnavailableMessage)
+			if !completion.IsError {
 				t.Fatalf(
 					"%s recovered neutral completion = error:%t output:%s",
 					toolID,
@@ -527,16 +526,20 @@ func newPersistedEffectFixture(
 	broker *tools.AskQuestionBroker,
 ) persistedEffectFixture {
 	t.Helper()
-	approver := func(
-		ctx context.Context,
-		_ tools.FileAccessRequest,
-	) (tools.FileAccessApproval, error) {
+	approver := runtimewirefixture.FileAccessApprover(func(ctx context.Context,
+		_ tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
+		identity, err := tools.ExecutionIdentityFromContext(ctx)
+		if err != nil {
+			return tools.FileAccessApproval{Kind: tools.FileAccessApprovalDeny}, err
+		}
 		response, err := broker.Ask(ctx, tools.AskQuestionRequest{
-			Question: "Approve outside-workspace access?",
-			Approval: true,
+			Question:   "Approve outside-workspace access?",
+			Approval:   true,
+			RunID:      identity.RunID,
+			StepID:     identity.StepID,
+			ToolCallID: string(identity.ToolCallID),
 			ApprovalOptions: []tools.AskQuestionApprovalOption{{
 				Decision: tools.AskQuestionApprovalDecisionAllowOnce,
-				Label:    "Allow once",
 			}},
 		})
 		if err != nil {
@@ -547,7 +550,7 @@ func newPersistedEffectFixture(
 			return tools.FileAccessApproval{Kind: tools.FileAccessApprovalDeny}, nil
 		}
 		return tools.FileAccessApproval{Kind: tools.FileAccessApprovalAllowOnce}, nil
-	}
+	})
 	filesystemContext := runtimewirefixture.FilesystemContext(t, workspace)
 	switch toolID {
 	case toolspec.ToolPatch:
@@ -617,7 +620,7 @@ func newPersistedEffectFixture(
 		}
 		handler, err := readimagetool.New(
 			filesystemContext,
-			true,
+			func() bool { return true },
 			readimagetool.WithOutsideWorkspaceApprover(approver),
 		)
 		if err != nil {

@@ -1,0 +1,14 @@
+@keyframes prompt-picker-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .prompt-picker-content {
+    animation: prompt-picker-enter var(--motion-fast) ease-out;
+  }
+}

@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -16,6 +18,68 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+func TestBindingCommandRemoteIgnoresOperationalConfigWithoutClientSetup(t *testing.T) {
+	fixture := newWorktreeCommandFixture(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(config.PersistenceRootEnvName, "")
+	workspace := t.TempDir()
+	directory := filepath.Join(workspace, config.ConfigDirName)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "config.toml"), []byte(`
+model = false
+tools = 42
+[worktrees]
+base_dir = false
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, remote, err := openBindingCommandRemote(context.Background(), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remote.Close()
+	response, err := remote.ResolveProjectPath(context.Background(), &projectpb.ResolvePathRequest{Path: fixture.a.CanonicalRoot})
+	if err != nil || response.GetBinding().GetProjectId() != fixture.a.ProjectID {
+		t.Fatalf("RPC did not reach the selected server: %v, %v", response, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, config.ConfigDirName)); !os.IsNotExist(err) {
+		t.Fatalf("client prepared server persistence: %v", err)
+	}
+}
+
+func TestBindingConnectionDiscoveryUsesSharedAndEnvironmentWithoutMetadata(t *testing.T) {
+	root, workspace := t.TempDir(), t.TempDir()
+	t.Setenv(config.PersistenceRootEnvName, root)
+	if err := os.MkdirAll(filepath.Join(workspace, config.ConfigDirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for path, body := range map[string]string{
+		filepath.Join(root, "config.toml"):                                  "server_host = \"server.example\"\nserver_port = 53000\n",
+		filepath.Join(root, "db"):                                           "metadata access must not be needed",
+		filepath.Join(workspace, config.ConfigDirName, "config.toml"):       "server_port = 53001\n",
+		filepath.Join(workspace, config.ConfigDirName, "config.local.toml"): "malformed = [",
+	} {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app, err := loadBindingCommandConfig(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.ServerHost != "server.example" || app.ServerPort != 53001 {
+		t.Fatalf("connection settings = %s:%d", app.ServerHost, app.ServerPort)
+	}
+	t.Setenv("KENT_SERVER_PORT", "53002")
+	app, err = loadBindingCommandConfig(workspace)
+	if err != nil || app.ServerPort != 53002 {
+		t.Fatalf("environment endpoint = %d, error=%v", app.ServerPort, err)
+	}
+}
 
 func TestBindingMutationArgumentsAndSelector(t *testing.T) {
 	var stderr bytes.Buffer
@@ -31,13 +95,13 @@ func TestBindingMutationArgumentsAndSelector(t *testing.T) {
 	if args.ProjectID != "project-1" || args.WorkspaceID == nil || *args.WorkspaceID != "workspace-1" || !args.JSON {
 		t.Fatalf("arguments=%+v", args)
 	}
-	selector, err := bindingMutationSelector(config.App{}, args)
+	selector, err := bindingMutationSelector(config.Connection{}, args)
 	if err != nil || selector.WorkspaceIDValue() == nil || *selector.WorkspaceIDValue() != "workspace-1" {
 		t.Fatalf("selector=%+v err=%v", selector, err)
 	}
 
 	root := filepath.Join(t.TempDir(), "workspace")
-	pathSelector, err := bindingMutationSelector(config.App{WorkspaceRoot: root}, bindingMutationArguments{
+	pathSelector, err := bindingMutationSelector(config.Connection{WorkspaceRoot: root}, bindingMutationArguments{
 		ProjectID: "project-1",
 		Workspace: ".",
 	})

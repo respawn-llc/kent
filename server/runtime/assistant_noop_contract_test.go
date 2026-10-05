@@ -24,20 +24,17 @@ func TestBlankFinalStaysHiddenAndSkipsReviewer(t *testing.T) {
 		Usage: llm.Usage{WindowTokens: 200_000},
 	}}}
 	reviewerClient := &fakeClient{}
-	var (
-		assistantFinalPublications atomic.Int32
-		reviewerStarts             atomic.Int32
-	)
+	var assistantFinalPublications atomic.Int32
 	engine := mustNewTestEngine(
 		t,
 		store,
 		mainClient,
 		tools.NewRegistry(),
 		Config{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 			Reviewer: ReviewerConfig{
 				Frequency: "all",
-				Model:     "gpt-5",
+				Model:     "gpt-6-sol",
 				Client:    reviewerClient,
 			},
 			OnEvent: func(event Event) {
@@ -48,8 +45,6 @@ func TestBlankFinalStaysHiddenAndSkipsReviewer(t *testing.T) {
 						*event.Message.Phase == llm.MessagePhaseFinal {
 						assistantFinalPublications.Add(1)
 					}
-				case EventRuntimeActivityChanged:
-					reviewerStarts.Add(1)
 				}
 			},
 		},
@@ -67,9 +62,6 @@ func TestBlankFinalStaysHiddenAndSkipsReviewer(t *testing.T) {
 	}
 	if calls := len(reviewerClient.calls); calls != 0 {
 		t.Fatalf("reviewer provider dispatches = %d, want zero", calls)
-	}
-	if starts := reviewerStarts.Load(); starts != 0 {
-		t.Fatalf("reviewer starts = %d, want zero", starts)
 	}
 	if publications := assistantFinalPublications.Load(); publications != 0 {
 		t.Fatalf("assistant final publications = %d, want zero", publications)
@@ -123,10 +115,10 @@ func TestBlankFinalWhitespaceStaysHiddenAndSkipsReviewer(t *testing.T) {
 		mainClient,
 		tools.NewRegistry(),
 		Config{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 			Reviewer: ReviewerConfig{
 				Frequency: "all",
-				Model:     "gpt-5",
+				Model:     "gpt-6-sol",
 				Client:    reviewerClient,
 			},
 		},
@@ -173,7 +165,7 @@ func TestBlankFinalWithAcceptedToolCallsFailsBeforeExecution(t *testing.T) {
 			Handler: fakeTool{name: toolspec.ToolPatch},
 		}),
 		Config{
-			Model:        "gpt-5",
+			Model:        "gpt-6-sol",
 			EnabledTools: []toolspec.ID{toolspec.ToolPatch},
 			OnEvent: func(event Event) {
 				if event.Kind == EventToolCallStarted {
@@ -194,7 +186,7 @@ func TestBlankFinalWithAcceptedToolCallsFailsBeforeExecution(t *testing.T) {
 func TestFormerMarkerIsOrdinaryFinal(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{finalTextResponse("NO_OP")}}
-	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 
 	message, err := engine.SubmitUserMessage(context.Background(), "turn")
 	if err != nil {

@@ -1,7 +1,6 @@
 package config
 
 import (
-	"core/shared/protocol"
 	"core/shared/toolspec"
 	"net"
 	"path/filepath"
@@ -76,12 +75,10 @@ const (
 
 type LoadOptions struct {
 	Model               string
-	ProviderOverride    string
 	ThinkingLevel       string
 	Theme               string
 	ModelTimeoutSeconds int
 	Tools               string
-	OpenAIBaseURL       string
 	ConfigRoot          string
 }
 
@@ -90,6 +87,7 @@ type Timeouts struct {
 }
 
 type ShellSettings struct {
+	MaxConcurrent      int
 	PostprocessingMode ShellPostprocessingMode
 	PostprocessHook    *string
 }
@@ -107,13 +105,11 @@ func (h ClientHooks) LifecycleCommand() []string {
 }
 
 type SubagentRole struct {
-	Settings            Settings
-	Sources             map[string]string
-	Description         string
-	AgentCallable       bool
-	AgentCallableSet    bool
-	WorkflowSubagent    bool
-	WorkflowSubagentSet bool
+	Settings         Settings
+	Sources          map[string]Origin
+	Description      string
+	AgentCallable    bool
+	WorkflowSubagent bool
 }
 
 type SystemPromptFileScope string
@@ -184,11 +180,12 @@ func (p SkillPolicy) Equivalent(other SkillPolicy) bool {
 }
 
 type Settings struct {
+	Connection                       *ConnectionID
+	Connections                      map[ConnectionID]ProviderConnection
 	Model                            string
 	ThinkingLevel                    string
 	ModelVerbosity                   ModelVerbosity
-	SystemPromptFile                 string
-	SystemPromptFiles                []SystemPromptFile
+	SystemPromptFile                 *SystemPromptFile
 	ModelCapabilities                ModelCapabilitiesOverride
 	Theme                            string
 	NotificationMethod               string
@@ -199,10 +196,7 @@ type Settings struct {
 	ServerHost                       string
 	ServerPort                       int
 	WebSearch                        string
-	ProviderOverride                 string
 	ProviderIdentifier               string
-	OpenAIBaseURL                    string
-	ProviderCapabilities             ProviderCapabilitiesOverride
 	Store                            bool
 	AllowNonCwdEdits                 bool
 	ModelContextWindow               int
@@ -231,48 +225,42 @@ type ModelCapabilitiesOverride struct {
 }
 
 type ProviderCapabilitiesOverride struct {
-	ProviderID                    string
-	SupportsResponsesAPI          bool
-	SupportsResponsesCompact      bool
-	SupportsPromptCacheKey        bool
-	SupportsNativeWebSearch       bool
-	SupportsReasoningEncrypted    bool
-	SupportsServerSideContextEdit bool
-	SupportsProviderVerbosity     bool
-	IsOpenAIFirstParty            bool
+	ProviderID                    string `toml:"provider_id"`
+	SupportsResponsesAPI          bool   `toml:"supports_responses_api"`
+	SupportsFastMode              bool   `toml:"supports_fast_mode"`
+	SupportsResponsesCompact      bool   `toml:"supports_responses_compact"`
+	SupportsPromptCacheKey        bool   `toml:"supports_prompt_cache_key"`
+	SupportsNativeWebSearch       bool   `toml:"supports_native_web_search"`
+	SupportsReasoningEncrypted    bool   `toml:"supports_reasoning_encrypted"`
+	SupportsServerSideContextEdit bool   `toml:"supports_server_side_context_edit"`
+	SupportsProviderVerbosity     bool   `toml:"supports_provider_verbosity"`
+	IsOpenAIFirstParty            bool   `toml:"is_openai_first_party"`
 }
 
 type ReviewerSettings struct {
-	Frequency            string
-	Model                string
-	ThinkingLevel        string
-	ModelVerbosity       ModelVerbosity
-	ProviderOverride     string
-	OpenAIBaseURL        string
-	ModelCapabilities    ModelCapabilitiesOverride
-	ProviderCapabilities ProviderCapabilitiesOverride
-	ModelContextWindow   int
-	Auth                 string
-	SystemPromptFile     string
-	TimeoutSeconds       int
-	VerboseOutput        bool
-}
-
-type ReviewerProviderSettings struct {
-	ProviderOverride string
-	OpenAIBaseURL    string
+	Connection         *ConnectionID
+	Frequency          string
+	Model              string
+	ThinkingLevel      string
+	ModelVerbosity     ModelVerbosity
+	ModelCapabilities  ModelCapabilitiesOverride
+	ModelContextWindow int
+	SystemPromptFile   *string
+	TimeoutSeconds     int
+	VerboseOutput      bool
 }
 
 type SourceReport struct {
-	SettingsPath                  string
-	SettingsFileExists            bool
-	CreatedDefaultConfig          bool
-	HomeSettingsPath              string
-	HomeSettingsFileExists        bool
-	WorkspaceSettingsPath         string
-	WorkspaceSettingsFileExists   bool
-	WorkspaceSettingsLayerEnabled bool
-	Sources                       map[string]string
+	Files                []ConfigFileReport
+	CreatedDefaultConfig bool
+	Sources              map[string]Origin
+}
+
+type ConfigFileReport struct {
+	SourceFile
+	Exists  bool
+	Enabled bool
+	Applied bool
 }
 
 type App struct {
@@ -304,7 +292,14 @@ func GlobalAuthConfigPath(cfg App) string {
 }
 
 func ServerRPCURL(cfg App) string {
-	return "ws://" + net.JoinHostPort(cfg.Settings.ServerHost, strconv.Itoa(cfg.Settings.ServerPort)) + protocol.RPCPath
+	return cfg.Connection().RPCURL()
+}
+
+func (cfg App) Connection() Connection {
+	return Connection{
+		WorkspaceRoot: cfg.WorkspaceRoot, PersistenceRoot: cfg.PersistenceRoot,
+		ServerHost: cfg.Settings.ServerHost, ServerPort: cfg.Settings.ServerPort, Source: cfg.Source,
+	}
 }
 
 func ServerHTTPBaseURL(cfg App) string {

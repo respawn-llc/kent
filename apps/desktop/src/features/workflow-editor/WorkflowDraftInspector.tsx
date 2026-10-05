@@ -32,7 +32,7 @@ import {
   type DraftWorkflowEdge,
   type DraftWorkflowNode,
 } from "./workflowEditorDraft";
-import { type WorkflowEditorDraftController } from "./workflowEditorDraftBridgeCore";
+import { type WorkflowEditorView } from "./useWorkflowEditorView";
 import { ApprovalToggle, Bindings, FieldSummary } from "./WorkflowInspectorSharedSections";
 import { EditableJoinProviders } from "./WorkflowDraftEditableSections";
 import { EdgeInvocationSections } from "./WorkflowDraftEdgeInvocationSections";
@@ -57,7 +57,7 @@ export function WorkflowDraftInspectorContent({
   initialFocus,
   selection,
 }: Readonly<{
-  controller: WorkflowEditorDraftController;
+  controller: WorkflowEditorView;
   initialFocus?: WorkflowInspectorInitialFocus | undefined;
   selection: WorkflowInspectorSelection;
 }>) {
@@ -110,7 +110,7 @@ function WorkflowDraftNodeDetails({
   nodeID,
   validation,
 }: Readonly<{
-  controller: WorkflowEditorDraftController;
+  controller: WorkflowEditorView;
   definition: WorkflowDefinition;
   nodeID: string;
   validation: WorkflowValidation;
@@ -162,7 +162,7 @@ function EdgeDraftDetails({
   initialFocus,
   validation,
 }: Readonly<{
-  controller: WorkflowEditorDraftController;
+  controller: WorkflowEditorView;
   definition: WorkflowDefinition;
   edge: DraftWorkflowEdge;
   initialFocus?: WorkflowInspectorInitialFocus | undefined;
@@ -336,9 +336,7 @@ function DerivedEdgeSections({
   );
 }
 
-export function WorkflowDraftDetails({
-  controller,
-}: Readonly<{ controller: WorkflowEditorDraftController }>) {
+export function WorkflowDraftDetails({ controller }: Readonly<{ controller: WorkflowEditorView }>) {
   const { t } = useTranslation();
   return (
     <InspectorStack>
@@ -473,7 +471,7 @@ function AgentNodeDraftDetails({
   node,
   validation,
 }: Readonly<{
-  controller: WorkflowEditorDraftController;
+  controller: WorkflowEditorView;
   definition: WorkflowDefinition;
   node: DraftWorkflowNode;
   validation: WorkflowValidation;
@@ -551,7 +549,7 @@ function FixedNodeDraftDetails({
   node,
   validation,
 }: Readonly<{
-  controller: WorkflowEditorDraftController;
+  controller: WorkflowEditorView;
   node: DraftWorkflowNode;
   validation: WorkflowValidation;
 }>) {
@@ -597,7 +595,7 @@ function JoinNodeDraftDetails({
   node,
   validation,
 }: Readonly<{
-  controller: WorkflowEditorDraftController;
+  controller: WorkflowEditorView;
   definition: WorkflowDefinition;
   node: DraftWorkflowNode;
   validation: WorkflowValidation;

@@ -1,11 +1,12 @@
 package app
 
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+
 import (
 	"context"
-	"testing"
-
 	"core/shared/clientui"
 	"core/shared/runtimeinput"
+	"testing"
 )
 
 func (m *uiModel) setRuntimeActivityBusyForTest(busy bool) {
@@ -13,21 +14,16 @@ func (m *uiModel) setRuntimeActivityBusyForTest(busy bool) {
 		return
 	}
 	if !busy {
-		_ = m.applyRuntimeActivityProjection(clientui.RuntimeActivity{
-			State:    clientui.RuntimeActivityRegisteredIdle,
-			Reviewer: clientui.ReviewerActivityInactive,
-		})
+		_ = m.applyRuntimeActivityProjection(&runtimepb.Activity{
+			State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
+			Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE})
 		return
 	}
-	_ = m.applyRuntimeActivityProjection(clientui.RuntimeActivity{
-		State:    clientui.RuntimeActivityRunning,
-		Reviewer: clientui.ReviewerActivityInactive,
-		ActiveStep: &clientui.RuntimeActiveStep{
-			ActiveKind: clientui.RuntimeActivityActiveKindUserTurn,
-			RunID:      ongoingTestRunID(),
-			StepID:     ongoingTestStepID(),
-		},
-	})
+	_ = m.applyRuntimeActivityProjection(&runtimepb.Activity{
+		State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING,
+		Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
+		ActiveStep: &runtimepb.ActiveStep{
+			ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN, RunId: ongoingTestRunID().String(), StepId: ongoingTestStepID().String()}})
 }
 
 func submitRuntimeClientForTest(t *testing.T, client clientui.RuntimeClient, text string) (clientui.UserTurnSubmission, error) {

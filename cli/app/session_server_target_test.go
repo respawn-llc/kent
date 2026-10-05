@@ -2,15 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
-	"time"
-
 	"core/cli/app/internal/startupconfig"
 	modelstub "core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/testsetup"
@@ -21,13 +12,20 @@ import (
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/config"
-	authpb "core/shared/protoapi/gen/kent/api/auth"
-	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/protocol"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
 
-	"google.golang.org/protobuf/types/known/emptypb"
+	creackpty "github.com/creack/pty"
 )
 
 type configuredDaemonFixture struct {
@@ -124,10 +122,10 @@ func startConfiguredDaemonFixture(
 	t *testing.T,
 	workspace string,
 	request serverstartup.Request,
-	authHandler serverstartup.AuthHandler,
 ) *configuredDaemonFixture {
 	t.Helper()
-	daemon, err := serverstartup.StartServeServer(context.Background(), request, authHandler, autoOnboarding)
+	writeAppTestSettings(t)
+	daemon, err := serverstartup.StartServeServer(context.Background(), request)
 	if err != nil {
 		t.Fatalf("StartServeServer: %v", err)
 	}
@@ -201,16 +199,18 @@ func waitForConfiguredRemoteIdentity(t *testing.T, workspace string) protocol.Se
 }
 
 func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) {
+	useStartupTestTerminal(t)
 	_, workspace := newRegisteredAppWorkspace(t)
-	fakeResponses, hits := newNoAuthFakeResponsesServer(t, []string{"first no-auth reply", "second no-auth reply"})
+	fakeResponses, hits := newFakeResponsesServer(t, []string{"first no-auth reply", "second no-auth reply"})
 	defer fakeResponses.Close()
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, fakeResponses.URL))
 
 	startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
-		AllowUnauthenticated:  true,
-	}, memoryAuthHandler{})
+		Model:                 "gpt-6-sol",
+	})
 
 	pickerCalls := 0
 	firstInteractor := &interactiveAuthInteractor{
@@ -219,18 +219,19 @@ func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) 
 			if pickerCalls > 1 {
 				t.Fatal("no-auth selection must not re-enter the auth picker")
 			}
-			return authMethodPickerResult{Choice: authMethodChoiceSkip}, nil
+			t.Fatal("configured auth-less connections must not open a sign-in picker")
+			return authMethodPickerResult{}, nil
 		},
 	}
 	firstServer, err := startSessionServer(context.Background(), Options{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 	}, firstInteractor, true)
 	if err != nil {
 		t.Fatalf("first startSessionServer: %v", err)
 	}
-	_, firstRuntimePlan := prepareAppRuntimePlanWithOpenAIBaseURL(t, firstServer, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, fakeResponses.URL, io.Discard, "test remote no-auth runtime")
+	_, firstRuntimePlan := prepareAppRuntimePlan(t, firstServer, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test remote no-auth runtime")
 	firstSubmission, err := submitRuntimeClientForTest(t, firstRuntimePlan.Wiring.runtimeClient, "hello after no auth")
 	requireQueuedAppTestUserTurn(t, firstSubmission, err)
 	waitForRemoteTranscriptAssistantFinal(
@@ -252,13 +253,13 @@ func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) 
 	secondServer, err := startSessionServer(context.Background(), Options{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 	}, secondInteractor, true)
 	if err != nil {
 		t.Fatalf("second startSessionServer: %v", err)
 	}
 	t.Cleanup(func() { closeInteractiveSessionServer(t, secondServer) })
-	_, secondRuntimePlan := prepareAppRuntimePlanWithOpenAIBaseURL(t, secondServer, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, fakeResponses.URL, io.Discard, "test remote persisted no-auth runtime")
+	_, secondRuntimePlan := prepareAppRuntimePlan(t, secondServer, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test remote persisted no-auth runtime")
 	secondSubmission, err := submitRuntimeClientForTest(t, secondRuntimePlan.Wiring.runtimeClient, "hello after persisted no auth")
 	requireQueuedAppTestUserTurn(t, secondSubmission, err)
 	waitForRemoteTranscriptAssistantFinal(
@@ -272,69 +273,29 @@ func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) 
 	}
 }
 
-func TestStartupReadinessAllowsActivatedNoAuthOnboarding(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspaceWithoutSettings(t)
-	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-
-	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
-		WorkspaceRoot:         workspace,
-		WorkspaceRootExplicit: true,
-		AllowUnauthenticated:  true,
-	}, memoryAuthHandler{}, nil)
+func useStartupTestTerminal(t *testing.T) {
+	t.Helper()
+	master, terminal, err := creackpty.Open()
 	if err != nil {
-		t.Fatalf("serve.Start: %v", err)
+		t.Fatal(err)
 	}
-	defer func() { _ = srv.Close() }()
-	stopServing := serveAppServer(t, srv)
-	defer stopServing()
-
-	var remote *client.Remote
-	deadline := time.Now().Add(5 * time.Second)
-	var attachErr error
-	for remote == nil && time.Now().Before(deadline) {
-		remote, attachErr = attachConfiguredStartupRemote(context.Background(), cfg)
-		if remote == nil {
-			time.Sleep(10 * time.Millisecond)
+	stdin, stdout := os.Stdin, os.Stdout
+	os.Stdin, os.Stdout = terminal, terminal
+	drained := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, master)
+		close(drained)
+	}()
+	t.Cleanup(func() {
+		os.Stdin, os.Stdout = stdin, stdout
+		if err := terminal.Close(); err != nil {
+			t.Error(err)
 		}
-	}
-	if remote == nil {
-		t.Fatalf("attach configured startup remote: %v", attachErr)
-	}
-	defer func() { _ = remote.Close() }()
-	bootstrap, err := remote.CompleteBootstrap(context.Background(), &authpb.CompleteBootstrapRequest{
-		Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_NONE,
+		if err := master.Close(); err != nil {
+			t.Error(err)
+		}
+		<-drained
 	})
-	if err != nil {
-		t.Fatalf("CompleteAuthBootstrap: %v", err)
-	}
-	if !bootstrap.NoAuthSelected {
-		t.Fatalf("bootstrap response = %+v, want no-auth selection", bootstrap)
-	}
-	if err := remote.EnableNoAuthBootstrapAcknowledgement(context.Background()); err != nil {
-		t.Fatalf("EnableNoAuthBootstrapAcknowledgement: %v", err)
-	}
-
-	selectedTheme := onboardingpb.Theme_THEME_DARK
-	_, err = remote.Finalize(context.Background(), &onboardingpb.FinalizeRequest{
-		Theme: &selectedTheme,
-		CommandsImport: &onboardingpb.ImportSelection{
-			Mode: onboardingpb.ImportMode_IMPORT_MODE_NONE,
-		},
-	})
-	if err != nil {
-		t.Fatalf("FinalizeOnboarding: %v", err)
-	}
-	readinessResponse, err := remote.GetReadiness(context.Background(), &emptypb.Empty{})
-	if err != nil {
-		t.Fatalf("GetReadiness: %v", err)
-	}
-	readiness := readinessResponse.GetReadiness()
-	if readiness.GetReady() {
-		t.Fatal("no-auth startup readiness must remain false while server-managed auth is absent")
-	}
-	if !startupReadinessAllowsSession(remote, readiness) {
-		t.Fatalf("activated no-auth readiness must allow startup: %+v", readiness)
-	}
 }
 
 func TestConfiguredDaemonPlanSessionUsesSessionWorkspaceLocalConfig(t *testing.T) {
@@ -357,12 +318,13 @@ func TestConfiguredDaemonPlanSessionUsesSessionWorkspaceLocalConfig(t *testing.T
 	if err != nil {
 		t.Fatalf("LoadGlobal: %v", err)
 	}
+	testsetup.WriteProviderSettings(t, glob.PersistenceRoot, testsetup.ProviderSettings(glob.Settings))
 	if _, err := metadata.RegisterBinding(context.Background(), glob.PersistenceRoot, workspace); err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
 
-	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{AllowUnauthenticated: true}, readyMemoryAuthHandler())
-	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, readyMemoryAuthHandler())
+	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{})
+	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
 	bound, err := ensureInteractiveProjectBinding(context.Background(), server)
 	if err != nil {
 		t.Fatalf("ensureInteractiveProjectBinding: %v", err)
@@ -379,7 +341,7 @@ func TestConfiguredDaemonPlanSessionUsesSessionWorkspaceLocalConfig(t *testing.T
 	if plan.ConfiguredModelName == nil || *plan.ConfiguredModelName != "workspace-model" {
 		t.Fatalf("configured model = %v, want workspace-model", plan.ConfiguredModelName)
 	}
-	if !plan.Source.WorkspaceSettingsFileExists {
+	if shared := plan.Source.File(config.FileWorkspace); shared == nil || !shared.Exists {
 		t.Fatalf("expected workspace settings source, got %+v", plan.Source)
 	}
 }
@@ -389,14 +351,15 @@ func TestConfiguredDaemonEnvironmentContextUsesSessionWorkspaceRootForCWD(t *tes
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"interactive daemon reply"})
 	defer fakeResponses.Close()
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, fakeResponses.URL))
 
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
-		OpenAIBaseURL:         fakeResponses.URL,
-		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"))
+		Model:                 "gpt-6-sol",
+	})
+
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
 
 	plan, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test daemon environment cwd")
@@ -412,7 +375,7 @@ func TestConfiguredDaemonEnvironmentContextUsesSessionWorkspaceRootForCWD(t *tes
 	if hits.Load() != 1 {
 		t.Fatalf("expected daemon-backed llm call once, got %d", hits.Load())
 	}
-	store := openAuthoritativeWorkspaceSessionStore(t, workspace, fakeResponses.URL, plan.SessionID)
+	store := openAuthoritativeWorkspaceSessionStore(t, workspace, plan.SessionID)
 	messages, err := readStoredMessages(store)
 	if err != nil {
 		t.Fatalf("readStoredMessages: %v", err)
@@ -462,8 +425,8 @@ func TestRemoteInteractiveRuntimeAnswersPromptsFromAnyAttachedClientAcrossWorksp
 	if got, want := fixture.serverA.ProjectID(), fixture.serverB.ProjectID(); got != want {
 		t.Fatalf("project id mismatch across clients: a=%q b=%q", got, want)
 	}
-	if fixture.serverA.Config().WorkspaceRoot == fixture.serverB.Config().WorkspaceRoot {
-		t.Fatalf("expected distinct workspace roots across clients, both=%q", fixture.serverA.Config().WorkspaceRoot)
+	if fixture.serverA.Connection().WorkspaceRoot == fixture.serverB.Connection().WorkspaceRoot {
+		t.Fatalf("expected distinct workspace roots across clients, both=%q", fixture.serverA.Connection().WorkspaceRoot)
 	}
 	if fixture.planB.SessionID != fixture.planA.SessionID {
 		t.Fatalf("expected second client to attach same session, a=%q b=%q", fixture.planA.SessionID, fixture.planB.SessionID)
@@ -471,38 +434,37 @@ func TestRemoteInteractiveRuntimeAnswersPromptsFromAnyAttachedClientAcrossWorksp
 	submissionDone, submissionFailed := startAppTestRuntimeSubmission(t, fixture.runtimePlanA.Wiring.runtimeClient, "start prompt flow")
 	requireQueuedAppTestRuntimeSubmission(t, submissionDone)
 	askPrompt := waitForRemoteTranscriptPrompt(t, fixture.runtimePlanA.Wiring.eventDispatcher.transcriptEvents, "ask-race-1", submissionFailed)
-	if askPrompt.Kind != clientui.TranscriptPromptKindQuestion || askPrompt.Question != "Who answers first?" {
+	if askPrompt.GetQuestion() == nil || transcriptPromptQuestion(askPrompt) != "Who answers first?" {
 		t.Fatalf("unexpected ask prompt: %+v", askPrompt)
 	}
 	runtimeClientsB := fixture.serverB.RuntimeAttachmentClients()
 
 	askAnswer := "answer from client B"
-	if _, err := runtimeClientsB.PromptControl.AnswerPromptBatch(context.Background(), serverapi.PromptAnswerBatchRequest{
-		SessionID: askPrompt.SessionID,
-		StepID:    askPrompt.StepID,
-		Entries: []serverapi.PromptAnswerBatchEntry{{
-			PromptID:       askPrompt.PromptID,
-			QuestionAnswer: &serverapi.PromptQuestionAnswer{Freeform: &askAnswer},
+	if _, err := runtimeClientsB.PromptControl.AnswerPromptBatch(context.Background(), &promptpb.AnswerBatchRequest{
+		SessionId: transcriptPromptSessionID(askPrompt),
+		StepId:    transcriptPromptStepID(askPrompt),
+		Entries: []*promptpb.AnswerBatchEntry{{
+			ToolCallId: transcriptPromptToolCallID(askPrompt),
+			Answer:     &promptpb.AnswerBatchEntry_QuestionAnswer{QuestionAnswer: &promptpb.QuestionAnswer{Freeform: &askAnswer}},
 		}},
 	}); err != nil {
 		t.Fatalf("AnswerPromptBatch Question from attached client B: %v", err)
 	}
 
 	approvalPrompt := waitForRemoteTranscriptPrompt(t, fixture.runtimePlanA.Wiring.eventDispatcher.transcriptEvents, "", submissionFailed)
-	if approvalPrompt.Kind != clientui.TranscriptPromptKindApproval {
+	if approvalPrompt.GetApproval() == nil {
 		t.Fatalf("unexpected approval prompt: %+v", approvalPrompt)
 	}
 
 	commentary := "approved by client B"
-	if _, err := runtimeClientsB.PromptControl.AnswerPromptBatch(context.Background(), serverapi.PromptAnswerBatchRequest{
-		SessionID: approvalPrompt.SessionID,
-		StepID:    approvalPrompt.StepID,
-		Entries: []serverapi.PromptAnswerBatchEntry{{
-			PromptID: approvalPrompt.PromptID,
-			ApprovalAnswer: &serverapi.PromptApprovalAnswer{
-				Decision:   clientui.ApprovalDecisionAllowOnce,
-				Commentary: &commentary,
-			},
+	if _, err := runtimeClientsB.PromptControl.AnswerPromptBatch(context.Background(), &promptpb.AnswerBatchRequest{
+		SessionId: transcriptPromptSessionID(approvalPrompt),
+		StepId:    transcriptPromptStepID(approvalPrompt),
+		Entries: []*promptpb.AnswerBatchEntry{{
+			ToolCallId: transcriptPromptToolCallID(approvalPrompt),
+			Answer: &promptpb.AnswerBatchEntry_ApprovalAnswer{ApprovalAnswer: &promptpb.ApprovalAnswer{
+				Decision:   promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE,
+				Commentary: &commentary}},
 		}},
 	}); err != nil {
 		t.Fatalf("AnswerPromptBatch Approval from attached client B: %v", err)
@@ -534,14 +496,15 @@ func startRemoteMultiClientRuntimeFixture(t *testing.T, openAIBaseURL string) *r
 	t.Setenv("HOME", t.TempDir())
 	registerAppWorkspace(t, workspaceA)
 	registerAppWorkspace(t, workspaceB)
+	cfg := loadAppTestConfig(t, workspaceA, config.LoadOptions{})
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, openAIBaseURL))
 
 	configured := startConfiguredDaemonFixture(t, workspaceA, serverstartup.Request{
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
-		OpenAIBaseURL:         openAIBaseURL,
-		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"))
+		Model:                 "gpt-6-sol",
+	})
+
 	fixture.daemon = configured.daemon
 	fixture.serverA = configured.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspaceA, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
 
@@ -550,11 +513,11 @@ func startRemoteMultiClientRuntimeFixture(t *testing.T, openAIBaseURL string) *r
 		t.Fatalf("loadSessionServerConfig workspace B: %v", err)
 	}
 	cfgB := resolvedB.Config
-	remoteB, err := client.DialRemoteURL(context.Background(), config.ServerRPCURL(cfgB))
+	remoteB, err := client.DialRemoteURL(context.Background(), cfgB.RPCURL())
 	if err != nil {
 		t.Fatalf("DialRemote workspace B: %v", err)
 	}
-	fixture.serverB = newRemoteAppServerWithAuth(remoteB, cfgB)
+	fixture.serverB = newRemoteAppServerWithAuth(remoteB, cfgB, resolvedB.Local)
 	t.Cleanup(func() { closeInteractiveSessionServer(t, fixture.serverB) })
 
 	fixture.planA, fixture.runtimePlanA = prepareAppRuntimePlan(t, fixture.serverA, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test remote multi-client runtime A")

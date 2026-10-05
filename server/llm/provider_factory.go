@@ -24,7 +24,7 @@ type ProviderClientOptions struct {
 	Provider Provider
 	Model    string
 
-	Auth                         AuthHeaderProvider
+	Auth                         DispatchAuthProvider
 	HTTPClient                   *http.Client
 	OpenAIBaseURL                string
 	ModelVerbosity               string
@@ -32,6 +32,7 @@ type ProviderClientOptions struct {
 	Store                        bool
 	ContextWindowTokens          int
 	ProviderCapabilitiesOverride *ProviderCapabilities
+	RequestCapabilities          *ProviderCapabilities
 }
 
 type ProviderClientFactory func(opts ProviderClientOptions) (Client, error)
@@ -129,7 +130,9 @@ func providerContracts() []ProviderContract {
 					RemoteCompactionProtocol: remoteCompactionResponsesTriggerV2,
 					Capabilities: ProviderCapabilities{
 						ProviderID:                    "openai",
+						SupportsNativeThinkingUpdates: true,
 						SupportsResponsesAPI:          true,
+						SupportsFastMode:              true,
 						SupportsResponsesCompact:      true,
 						SupportsPromptCacheKey:        true,
 						SupportsNativeWebSearch:       true,
@@ -162,7 +165,9 @@ func providerContracts() []ProviderContract {
 					RemoteCompactionProtocol: remoteCompactionResponsesTriggerV2,
 					Capabilities: ProviderCapabilities{
 						ProviderID:                    "chatgpt-codex",
+						SupportsNativeThinkingUpdates: true,
 						SupportsResponsesAPI:          true,
+						SupportsFastMode:              true,
 						SupportsResponsesCompact:      true,
 						SupportsPromptCacheKey:        true,
 						SupportsNativeWebSearch:       true,
@@ -175,17 +180,33 @@ func providerContracts() []ProviderContract {
 				},
 			},
 			ModelContracts: []ModelCapabilityContract{
-				{Model: "gpt-5", KnowledgeCutoff: ModelKnowledgeCutoff{Month: time.September, Year: 2024}, HasKnowledgeCutoff: true, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
+				gpt6ModelContract("gpt-6-astra", time.April, []string{"low", "medium", "high", "xhigh", "max"}),
+				gpt6ModelContract("gpt-6.1-sol", time.April, []string{"low", "medium", "high", "xhigh", "max"}),
+				gpt6ModelContract("gpt-6-sol", time.April, []string{"none", "low", "medium", "high", "xhigh", "max"}),
+				gpt6ModelContract("gpt-6-luna", time.May, []string{"none", "low", "medium", "high", "xhigh", "max"}),
 				{Model: "gpt-5.6-sol", ContextWindowTokens: 372_000, LargeContextWindowTokens: 372_000, KnowledgeCutoff: ModelKnowledgeCutoff{Month: time.February, Year: 2026}, HasKnowledgeCutoff: true, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
 				{Model: "gpt-5.6-terra", ContextWindowTokens: 372_000, LargeContextWindowTokens: 372_000, KnowledgeCutoff: ModelKnowledgeCutoff{Month: time.February, Year: 2026}, HasKnowledgeCutoff: true, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
 				{Model: "gpt-5.6-luna", ContextWindowTokens: 372_000, LargeContextWindowTokens: 372_000, KnowledgeCutoff: ModelKnowledgeCutoff{Month: time.February, Year: 2026}, HasKnowledgeCutoff: true, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
-				{Model: "gpt-5.4", ContextWindowTokens: 272_000, LargeContextWindowTokens: 1_000_000, KnowledgeCutoff: ModelKnowledgeCutoff{Month: time.August, Year: 2025}, HasKnowledgeCutoff: true, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
-				{Model: "gpt-5.4-mini", ContextWindowTokens: 272_000, LargeContextWindowTokens: 400_000, KnowledgeCutoff: ModelKnowledgeCutoff{Month: time.August, Year: 2025}, HasKnowledgeCutoff: true, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
-				{Model: "gpt-5.4-nano", ContextWindowTokens: 272_000, LargeContextWindowTokens: 400_000, KnowledgeCutoff: ModelKnowledgeCutoff{Month: time.August, Year: 2025}, HasKnowledgeCutoff: true, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: false},
-				{Model: "gpt-5.3-codex", ContextWindowTokens: 400_000, KnowledgeCutoff: ModelKnowledgeCutoff{Month: time.August, Year: 2025}, HasKnowledgeCutoff: true, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
-				{Model: "gpt-5.3-codex-spark", ContextWindowTokens: 128_000, KnowledgeCutoff: ModelKnowledgeCutoff{Month: time.August, Year: 2025}, HasKnowledgeCutoff: true, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high"}, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: false},
 			},
 		},
+	}
+}
+
+func gpt6ModelContract(model string, cutoff time.Month, efforts []string) ModelCapabilityContract {
+	return ModelCapabilityContract{
+		Model:                         model,
+		ContextWindowTokens:           272_000,
+		LargeContextWindowTokens:      1_050_000,
+		SubscriptionContext:           &ModelMetadata{ContextWindowTokens: 272_000, LargeContextWindowTokens: 872_000},
+		KnowledgeCutoff:               ModelKnowledgeCutoff{Month: cutoff, Year: 2026},
+		HasKnowledgeCutoff:            true,
+		SupportsReasoningEffort:       true,
+		SupportsNativeThinkingUpdates: true,
+		SupportedReasoningEfforts:     efforts,
+		SupportsReasoningSummary:      true,
+		SupportsVerbosity:             true,
+		SupportedVerbosityLevels:      []string{"low", "medium", "high"},
+		SupportsVisionInputs:          true,
 	}
 }
 
@@ -259,7 +280,7 @@ func newUnsupportedProviderClientFactory(provider Provider) ProviderClientFactor
 }
 
 func newOpenAIProviderClient(opts ProviderClientOptions) (Client, error) {
-	if opts.Auth == nil && !allowsAnonymousOpenAIBaseURL(opts.OpenAIBaseURL) {
+	if opts.Auth == nil {
 		return nil, fmt.Errorf("openai auth provider is required")
 	}
 	transport, err := newOpenAIHTTPTransport(opts)
@@ -300,13 +321,12 @@ func newOpenAIHTTPTransport(opts ProviderClientOptions) (*HTTPTransport, error) 
 		caps := *opts.ProviderCapabilitiesOverride
 		transport.ProviderCapabilitiesOverride = &caps
 	}
+	if opts.RequestCapabilities != nil {
+		caps := *opts.RequestCapabilities
+		transport.RequestCapabilities = &caps
+	}
 	transport.Store = opts.Store
 	return transport, nil
-}
-
-func allowsAnonymousOpenAIBaseURL(baseURL string) bool {
-	trimmed := strings.TrimSpace(baseURL)
-	return trimmed != "" && !IsOpenAIFirstPartyBaseURL(trimmed)
 }
 
 func NewProviderClient(opts ProviderClientOptions) (Client, error) {

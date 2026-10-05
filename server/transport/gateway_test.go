@@ -2,7 +2,6 @@ package transport
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,43 +18,396 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	serverbootstrap "core/server/bootstrap"
+	"core/server/chatmutation"
 	"core/server/core"
 	"core/server/metadata"
+	"core/server/promptcommands"
+	"core/server/runtimecontrol"
 	"core/server/session"
-	shelltool "core/server/tools/shell"
+	"core/server/sessionruntime"
+
 	"core/shared/apicontract"
 	remoteclient "core/shared/client"
-	"core/shared/clientui"
 	"core/shared/llmerrors"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
-	serverpb "core/shared/protoapi/gen/kent/api/server"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
-	"core/shared/rpcwire"
+
 	"core/shared/runtimeids"
+	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-func gatewaySessionExecutionTarget(t *testing.T, conn *websocket.Conn, requestID, sessionID string) clientui.SessionExecutionTarget {
+type gatewayChatLifecycleDependencies struct {
+	GatewayDependencies
+	chat apicontract.ChatMutationService
+}
+
+func (d *gatewayChatLifecycleDependencies) ChatMutationClient() apicontract.ChatMutationService {
+	return d.chat
+}
+
+type gatewayChatLifecycleResolver struct {
+	started chan context.Context
+	proceed chan struct{}
+	target  chatmutation.ResolvedTarget
+}
+
+func (*gatewayChatLifecycleResolver) SelectPlacement(_ context.Context, target chatmutation.ResolvedTarget, _ promptcommands.Placement) (chatmutation.ResolvedTarget, error) {
+	return target, nil
+}
+
+func (r *gatewayChatLifecycleResolver) Resolve(
+	ctx context.Context,
+	_ chatmutation.TargetResolutionRequest,
+) (chatmutation.ResolvedTarget, error) {
+	r.started <- ctx
+	select {
+	case <-r.proceed:
+		return r.target, nil
+	case <-ctx.Done():
+		return chatmutation.ResolvedTarget{}, context.Cause(ctx)
+	}
+}
+
+type gatewayChatLifecyclePlanner struct {
+	attachment chatmutation.RuntimeAttachment
+}
+
+func (p gatewayChatLifecyclePlanner) Open(
+	context.Context,
+	runtimeids.SessionID,
+) (chatmutation.RuntimeAttachment, error) {
+	return p.attachment, nil
+}
+
+type gatewayChatLifecycleAttachment struct {
+	sessionID runtimeids.SessionID
+	released  chan sessionruntime.RuntimeReleasePolicy
+}
+
+func (a *gatewayChatLifecycleAttachment) SessionID() runtimeids.SessionID {
+	return a.sessionID
+}
+
+func (a *gatewayChatLifecycleAttachment) Release(
+	_ context.Context,
+	policy sessionruntime.RuntimeReleasePolicy,
+) error {
+	a.released <- policy
+	return nil
+}
+
+type gatewayChatLifecycleAdmission struct {
+	queueItemID runtimeids.QueueItemID
+}
+
+type gatewayChatLifecycleGoal struct{}
+
+func (gatewayChatLifecycleGoal) SetResolvedGoal(
+	context.Context,
+	*runtimepb.GoalSetRequest,
+) (serverapi.ResolvedGoalSetCommit, error) {
+	return serverapi.ResolvedGoalSetCommit{}, errors.New("unexpected Goal Set")
+}
+
+func (gatewayChatLifecycleAdmission) PrepareUserTurn(ctx context.Context, sessionID string, input runtimeinput.Input) (runtimecontrol.PreparedUserTurn, error) {
+	return (*runtimecontrol.Service)(nil).PrepareUserTurn(ctx, sessionID, input)
+}
+
+func (a gatewayChatLifecycleAdmission) AdmitChatUserTurn(
+	context.Context,
+	string,
+	runtimecontrol.PreparedUserTurn,
+) (serverapi.ChatInputAdmissionResult, error) {
+	return serverapi.ChatInputAdmissionResult{
+		QueueItemID: a.queueItemID,
+		Accepted:    true,
+	}, nil
+}
+
+func (gatewayChatLifecycleAdmission) AdmitChatQueuedUserInput(
+	context.Context,
+	string,
+	runtimecontrol.PreparedUserTurn,
+) (serverapi.ChatInputAdmissionResult, error) {
+	panic("unexpected Queue admission")
+}
+
+func (gatewayChatLifecycleAdmission) AdmitManualCompaction(
+	context.Context,
+	*runtimepb.CompactContextRequest,
+) (bool, error) {
+	panic("unexpected compaction admission")
+}
+
+type gatewayChatAuthorizationService struct {
+	sessionID string
+}
+
+func (s gatewayChatAuthorizationService) Steer(
+	context.Context,
+	*chatpb.SteerRequest,
+) (*chatpb.InputMutationSuccess, error) {
+	return &chatpb.InputMutationSuccess{
+		Session: &chatpb.ExistingSessionTarget{SessionId: s.sessionID},
+		Outcome: &chatpb.InputMutationSuccess_Accepted{
+			Accepted: &chatpb.InputAccepted{
+				QueueItem: &chatpb.QueueItemIdentity{Id: runtimeids.NewQueueItemID().String()},
+			},
+		},
+	}, nil
+}
+
+func (gatewayChatAuthorizationService) Queue(
+	context.Context,
+	*chatpb.QueueRequest,
+) (*chatpb.InputMutationSuccess, error) {
+	panic("unexpected Queue")
+}
+
+func (gatewayChatAuthorizationService) Compact(
+	context.Context,
+	*chatpb.CompactRequest,
+) (*chatpb.CompactionMutationSuccess, error) {
+	panic("unexpected Compact")
+}
+
+func (gatewayChatAuthorizationService) SetGoal(
+	context.Context,
+	*runtimepb.GoalSetRequest,
+) (*runtimepb.GoalSetSuccess, error) {
+	return nil, errors.New("unexpected Set")
+}
+
+func TestGatewayAuthorizesChatTargetModes(t *testing.T) {
+	fixture := newRoutePolicyFixture(t)
+	gateway, err := NewGateway(
+		&gatewayChatLifecycleDependencies{
+			GatewayDependencies: fixture.appCore,
+			chat: gatewayChatAuthorizationService{
+				sessionID: fixture.ownSessionID,
+			},
+		},
+		gatewayTestIdentity(),
+	)
+	if err != nil {
+		t.Fatalf("NewGateway: %v", err)
+	}
+	server := httptest.NewServer(gateway.Handler())
+	t.Cleanup(server.Close)
+	method := chatpb.File_kent_api_chat_chat_proto.Services().
+		ByName("ChatService").
+		Methods().
+		ByName("Steer")
+
+	for _, test := range []struct {
+		name     string
+		target   *chatpb.ChatTarget
+		attached bool
+		wantCode string
+	}{
+		{
+			name: "projectless existing Session outside startup Project",
+			target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
+				Session: &chatpb.ExistingSessionTarget{SessionId: fixture.foreignSessionID},
+			}},
+		},
+		{
+			name: "attached Project existing Session",
+			target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
+				Session: &chatpb.ExistingSessionTarget{SessionId: fixture.ownSessionID},
+			}},
+			attached: true,
+		},
+		{
+			name: "attached Project rejects foreign Session",
+			target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
+				Session: &chatpb.ExistingSessionTarget{SessionId: fixture.foreignSessionID},
+			}},
+			attached: true,
+			wantCode: "session_not_found",
+		},
+		{
+			name:     "exact New Chat binding",
+			target:   routePolicyNewChatTarget(fixture.bindingA.ProjectID, fixture.bindingA.WorkspaceID),
+			attached: true,
+		},
+		{
+			name:     "mismatched New Chat binding",
+			target:   routePolicyNewChatTarget(fixture.bindingB.ProjectID, fixture.bindingB.WorkspaceID),
+			attached: true,
+			wantCode: "workspace_not_registered",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			conn := dialGateway(t, server)
+			t.Cleanup(func() { _ = conn.Close() })
+			handshakeGateway(t, conn)
+			if test.attached {
+				requireGatewayProjectAttachment(
+					t,
+					conn,
+					"attach-project",
+					&connectionpb.AttachProjectRequest{ProjectId: fixture.bindingA.ProjectID},
+				)
+			}
+			result := &chatpb.SteerResult{}
+			callGatewayDescriptor(
+				t,
+				conn,
+				"authorize-chat",
+				method,
+				&chatpb.SteerRequest{
+					Target: test.target,
+					Activation: &chatpb.Activation{
+						Input: &chatpb.Activation_Text{Text: "continue"},
+					},
+				},
+				result,
+			)
+			classified, err := protoapi.ClassifyResult(result)
+			if err != nil {
+				t.Fatalf("classify Chat result: %v", err)
+			}
+			if test.wantCode == "" {
+				if classified.Outcome != protoapi.OperationSuccess {
+					t.Fatalf("outcome = %+v, want success", classified)
+				}
+				return
+			}
+			if classified.Failure == nil || classified.Failure.Code != test.wantCode {
+				t.Fatalf("failure = %+v, want code %q", classified.Failure, test.wantCode)
+			}
+		})
+	}
+}
+
+func TestGatewayDisconnectStopsDeliveryWithoutCancelingChatOperation(t *testing.T) {
+	appCore, _ := newGatewayTestCore(t, true, true)
+	t.Cleanup(func() { _ = appCore.Close() })
+	store := createGatewayAuthoritativeSession(t, appCore)
+	sessionID, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+	if err != nil {
+		t.Fatalf("parse Session ID: %v", err)
+	}
+	owner, err := chatmutation.NewOperationOwner(time.Second)
+	if err != nil {
+		t.Fatalf("NewOperationOwner: %v", err)
+	}
+	t.Cleanup(func() { _ = owner.Close() })
+	resolver := &gatewayChatLifecycleResolver{
+		started: make(chan context.Context, 1),
+		proceed: make(chan struct{}),
+		target:  chatmutation.ResolvedTarget{SessionID: sessionID},
+	}
+	attachment := &gatewayChatLifecycleAttachment{
+		sessionID: sessionID,
+		released:  make(chan sessionruntime.RuntimeReleasePolicy, 1),
+	}
+	service := chatmutation.NewService(
+		owner,
+		resolver,
+		gatewayChatLifecyclePlanner{attachment: attachment},
+		gatewayChatLifecycleAdmission{queueItemID: runtimeids.NewQueueItemID()},
+		gatewayChatLifecycleGoal{},
+	)
+	gateway, err := NewGateway(
+		&gatewayChatLifecycleDependencies{GatewayDependencies: appCore, chat: service},
+		gatewayTestIdentity(),
+	)
+	if err != nil {
+		t.Fatalf("NewGateway: %v", err)
+	}
+	server := httptest.NewServer(gateway.Handler())
+	t.Cleanup(server.Close)
+	conn := dialGateway(t, server)
+	handshakeGateway(t, conn)
+
+	method := chatpb.File_kent_api_chat_chat_proto.Services().
+		ByName("ChatService").
+		Methods().
+		ByName("Steer")
+	operation, err := protoapi.OperationFromDescriptor(method)
+	if err != nil {
+		t.Fatalf("resolve Chat operation: %v", err)
+	}
+	payload, err := protoapi.Marshal(&chatpb.SteerRequest{
+		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
+			Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
+		}},
+		Activation: &chatpb.Activation{
+			Input: &chatpb.Activation_Text{Text: "continue"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal Chat request: %v", err)
+	}
+	correlation := "disconnect-chat"
+	envelope, err := protoapi.EncodeEnvelope(&sharedpb.Envelope{
+		Frame: &sharedpb.Envelope_Call{Call: &sharedpb.Call{
+			Operation:   operation.Name,
+			Correlation: &correlation,
+			Payload:     payload,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("encode Chat request: %v", err)
+	}
+	if err := websocket.Message.Send(conn, envelope); err != nil {
+		t.Fatalf("send Chat request: %v", err)
+	}
+
+	operationCtx := <-resolver.started
+	if err := conn.Close(); err != nil {
+		t.Fatalf("close caller connection: %v", err)
+	}
+	select {
+	case <-operationCtx.Done():
+		t.Fatalf("Gateway disconnect canceled Chat operation: %v", context.Cause(operationCtx))
+	default:
+	}
+	close(resolver.proceed)
+	select {
+	case policy := <-attachment.released:
+		if policy != sessionruntime.RuntimeReleaseDetach {
+			t.Fatalf("release policy = %v, want detach", policy)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Chat operation did not finish after Gateway disconnect")
+	}
+}
+
+func gatewaySessionExecutionTarget(t *testing.T, conn *websocket.Conn, requestID, sessionID string) *worktreepb.SessionExecutionTarget {
 	t.Helper()
-	var response serverapi.SessionMainViewResponse
-	callGateway(
+	var response sessionpb.MainViewResult
+	callGatewayDescriptor(
 		t,
 		conn,
 		requestID,
-		protocol.MethodSessionGetMainView,
-		serverapi.SessionMainViewRequest{SessionID: sessionID},
+		sessionpb.File_kent_api_session_session_proto.Services().ByName("ReadService").Methods().ByName("GetMainView"),
+		&sessionpb.MainViewRequest{SessionId: sessionID},
 		&response,
 	)
-	return response.MainView.Session.ExecutionTarget
+	return response.GetSuccess().GetMainView().GetSession().GetExecutionTarget()
 }
 
 func registerGatewayWorkspace(t *testing.T, workspace string) {
@@ -132,53 +484,6 @@ func TestProtocolErrorMapsStreamFailureAsStreamFailure(t *testing.T) {
 	}
 }
 
-func TestResponseForErrorPreservesRuntimeCommandNotAcceptedCause(t *testing.T) {
-	command := "prompt:review"
-	cause := &serverapi.PromptCommandError{
-		Kind:    serverapi.PromptCommandErrorKindCommandNotFound,
-		Command: &command,
-	}
-	source := serverapi.NewRuntimeCommandNotAcceptedError(cause)
-	response := responseForError("runtime-command", source)
-	if response.Error == nil || response.Error.Code != protocol.ErrCodeRuntimeCommandNotAccepted {
-		t.Fatalf("runtime command response = %+v, want structured not-accepted error", response.Error)
-	}
-	var payload struct {
-		Cause protocol.ResponseError `json:"cause"`
-	}
-	if err := json.Unmarshal(response.Error.Data, &payload); err != nil {
-		t.Fatalf("decode nested cause: %v", err)
-	}
-	if payload.Cause.Code != protocol.ErrCodePromptCommands {
-		t.Fatalf("nested cause code = %d, want %d", payload.Cause.Code, protocol.ErrCodePromptCommands)
-	}
-	decoded := serverapi.DecodePromptCommandError(payload.Cause.Data, payload.Cause.Message)
-	var promptErr *serverapi.PromptCommandError
-	if !errors.As(decoded, &promptErr) || promptErr.Kind != cause.Kind || promptErr.Command == nil || *promptErr.Command != command {
-		t.Fatalf("nested cause = %T %+v, want %+v", decoded, promptErr, cause)
-	}
-}
-
-func TestResponseForErrorPreservesRuntimeCommandNotAcceptedUnavailableCause(t *testing.T) {
-	source := serverapi.NewRuntimeCommandNotAcceptedError(errors.Join(
-		serverapi.ErrRuntimeUnavailable,
-		errors.New("session has no Ready runtime"),
-	))
-	response := responseForError("runtime-command", source)
-	if response.Error == nil || response.Error.Code != protocol.ErrCodeRuntimeCommandNotAccepted {
-		t.Fatalf("runtime command response = %+v, want structured not-accepted error", response.Error)
-	}
-	var payload struct {
-		Cause protocol.ResponseError `json:"cause"`
-	}
-	if err := json.Unmarshal(response.Error.Data, &payload); err != nil {
-		t.Fatalf("decode nested cause: %v", err)
-	}
-	if payload.Cause.Code != protocol.ErrCodeRuntimeUnavailable {
-		t.Fatalf("nested cause code = %d, want %d", payload.Cause.Code, protocol.ErrCodeRuntimeUnavailable)
-	}
-}
-
 func TestResponseForErrorSurfacesIrreconcilableRecoveryEvidence(t *testing.T) {
 	detail := &session.IrreconcilableRecoveryDetail{
 		SessionID:             "session-1",
@@ -242,77 +547,18 @@ func TestNewGatewayRejectsTypedNilDependencies(t *testing.T) {
 	}
 }
 
-func TestCancellationMessageRoundTripsThroughRemoteClient(t *testing.T) {
-	code, message := protocolError(&shelltool.PollingCanceledError{SessionID: "1000", Active: true})
-	if code != protocol.ErrCodeRequestCanceled {
-		t.Fatalf("protocol error code = %d, want %d", code, protocol.ErrCodeRequestCanceled)
-	}
-
-	handlerErrs := make(chan error, 8)
-	server := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(func(ctx context.Context, conn rpcwire.Conn) {
-		for event := range conn.Events() {
-			if event.Err != nil {
-				return
-			}
-			if event.Frame.Kind == rpcwire.FrameBinary {
-				if err := serveGatewayRemoteTestHandshake(ctx, conn, event.Frame); err != nil {
-					reportGatewayHandlerError(handlerErrs, "send handshake: %v", err)
-					return
-				}
-				continue
-			}
-			req, err := event.Frame.DecodeRequest()
-			if err != nil {
-				reportGatewayHandlerError(handlerErrs, "decode request: %v", err)
-				return
-			}
-			switch req.Method {
-			case protocol.MethodChatContextGet:
-				resp := protocol.NewErrorResponse(req.ID, code, message)
-				if err := conn.Send(ctx, rpcwire.FrameFromResponse(resp)); err != nil {
-					reportGatewayHandlerError(handlerErrs, "send project list error: %w", err)
-				}
-				return
-			default:
-				reportGatewayHandlerError(handlerErrs, "unexpected method %q", req.Method)
-				return
-			}
-		}
-	}))
-	defer server.Close()
-
-	remote, err := remoteclient.DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
-	if err != nil {
-		t.Fatalf("DialRemoteURL: %v", err)
-	}
-	defer func() { _ = remote.Close() }()
-
-	_, err = remote.GetChatContext(context.Background(), serverapi.NewWorkspaceChatContextRequest())
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("GetChatContext error = %v, want context.Canceled", err)
-	}
-	if err == nil || err.Error() != message {
-		t.Fatalf("expected cancellation message %q, got %v", message, err)
-	}
-	if message == context.Canceled.Error() {
-		t.Fatalf("test precondition failed: expected normalized message, got %q", message)
-	}
-	requireNoGatewayHandlerError(t, handlerErrs)
-}
-
-func newGatewayTestAuthSupport(t *testing.T, ready bool) serverbootstrap.AuthSupport {
+func newGatewayTestAuthSupport(t *testing.T, root string, ready bool) serverbootstrap.AuthSupport {
 	t.Helper()
 	store := auth.NewMemoryStore(auth.EmptyState())
-	authSupport, err := serverbootstrap.BuildAuthSupport(store, nil, nil)
+	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), root, store, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
 	if ready {
-		if _, err := authSupport.AuthManager.SwitchMethod(context.Background(), auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		}, true); err != nil {
-			t.Fatalf("SwitchMethod: %v", err)
+		if err := authSupport.AuthManager.SaveOAuth(context.Background(), "test", auth.OAuthMethod{
+			AccessToken: "test-token",
+		}); err != nil {
+			t.Fatalf("SaveOAuth: %v", err)
 		}
 	}
 	return authSupport
@@ -322,11 +568,9 @@ func activateGatewayController(t *testing.T, appCore *core.Core, sessionID strin
 	t.Helper()
 	settings := appCore.Config().Settings
 	if strings.TrimSpace(settings.Model) == "" {
-		settings.Model = "gpt-5"
+		settings.Model = "gpt-6-sol"
 	}
-	if strings.TrimSpace(settings.ProviderOverride) == "" && strings.TrimSpace(settings.OpenAIBaseURL) == "" {
-		settings.ProviderOverride = "openai"
-	}
+	settings = testsetup.WriteProviderSettings(t, appCore.Config().PersistenceRoot, settings)
 	response, err := appCore.SessionRuntimeClient().ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
 		SessionID:             strings.TrimSpace(sessionID),
 		OwnerID:               "gateway-test-owner",
@@ -341,7 +585,7 @@ func activateGatewayController(t *testing.T, appCore *core.Core, sessionID strin
 	if err := response.ValidateForSession(sessionID); err != nil {
 		t.Fatalf("validate activation response: %v", err)
 	}
-	return response.Attachment
+	return response
 }
 
 func releaseGatewayController(t *testing.T, appCore *core.Core, attachment serverapi.SessionRuntimeAttachment) {
@@ -357,11 +601,9 @@ func releaseGatewayController(t *testing.T, appCore *core.Core, attachment serve
 func gatewayRuntimeActivateRequest(appCore *core.Core, sessionID string) serverapi.SessionRuntimeActivateRequest {
 	settings := appCore.Config().Settings
 	if strings.TrimSpace(settings.Model) == "" {
-		settings.Model = "gpt-5"
+		settings.Model = "gpt-6-sol"
 	}
-	if strings.TrimSpace(settings.ProviderOverride) == "" && strings.TrimSpace(settings.OpenAIBaseURL) == "" {
-		settings.ProviderOverride = "openai"
-	}
+	settings = testsetup.ProviderSettings(settings)
 	return serverapi.SessionRuntimeActivateRequest{
 		SessionID:             strings.TrimSpace(sessionID),
 		ActiveSettings:        settings,
@@ -382,10 +624,10 @@ type countingSessionRuntimeClient struct {
 	activateRequests    chan serverapi.SessionRuntimeActivateRequest
 	releaseRequests     chan serverapi.SessionRuntimeReleaseRequest
 	activateAttachments []*serverapi.SessionRuntimeAttachment
-	releaseResponse     *serverapi.SessionRuntimeReleaseResponse
+	releaseResponse     *sessionlaunchpb.SessionRuntimeReleaseSuccess
 }
 
-func (c *countingSessionRuntimeClient) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
+func (c *countingSessionRuntimeClient) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error) {
 	if c.activateRequests != nil {
 		c.activateRequests <- req
 	}
@@ -393,22 +635,24 @@ func (c *countingSessionRuntimeClient) ActivateSessionRuntime(ctx context.Contex
 		attachment := c.activateAttachments[0]
 		c.activateAttachments = c.activateAttachments[1:]
 		if attachment == nil {
-			return serverapi.SessionRuntimeActivateResponse{}, nil
+			return serverapi.SessionRuntimeAttachment{}, nil
 		}
 		value := *attachment
 		value.SessionID = req.SessionID
-		return serverapi.SessionRuntimeActivateResponse{Attachment: value}, nil
+		return value, nil
 	}
 	return c.SessionRuntimeService.ActivateSessionRuntime(ctx, req)
 }
 
-func (c *countingSessionRuntimeClient) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
-	c.releaseCount.Add(1)
-	if c.releaseRequests != nil {
-		c.releaseRequests <- req
-	}
+func (c *countingSessionRuntimeClient) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
+	defer func() {
+		c.releaseCount.Add(1)
+		if c.releaseRequests != nil {
+			c.releaseRequests <- req
+		}
+	}()
 	if c.releaseResponse != nil {
-		return *c.releaseResponse, nil
+		return c.releaseResponse, nil
 	}
 	return c.SessionRuntimeService.ReleaseSessionRuntime(ctx, req)
 }
@@ -422,14 +666,14 @@ func (d *gatewayRuntimeClientOverride) SessionRuntimeClient() apicontract.Sessio
 	return d.runtimeClient
 }
 
-func TestGatewayConnectionCloseReleasesOwnedIdleRuntime(t *testing.T) {
+func TestGatewayConnectionCloseDetachesOwnedRuntime(t *testing.T) {
 	appCore, _ := newGatewayTestCore(t, true, true)
 	counter := &countingSessionRuntimeClient{
 		SessionRuntimeService: appCore.SessionRuntimeClient(),
 		activateRequests:      make(chan serverapi.SessionRuntimeActivateRequest, 2),
 		releaseRequests:       make(chan serverapi.SessionRuntimeReleaseRequest, 3),
 		activateAttachments:   []*serverapi.SessionRuntimeAttachment{{Generation: 1}, {Generation: 2}},
-		releaseResponse:       &serverapi.SessionRuntimeReleaseResponse{Released: true},
+		releaseResponse:       &sessionlaunchpb.SessionRuntimeReleaseSuccess{Released: true},
 	}
 	gateway, err := NewGateway(&gatewayRuntimeClientOverride{Core: appCore, runtimeClient: counter}, gatewayTestIdentity())
 	if err != nil {
@@ -440,32 +684,55 @@ func TestGatewayConnectionCloseReleasesOwnedIdleRuntime(t *testing.T) {
 	defer server.Close()
 	store := createGatewayAuthoritativeSession(t, appCore)
 
-	conn := dialGateway(t, server)
-	handshakeGateway(t, conn)
-	var activation serverapi.SessionRuntimeActivateResponse
+	conn, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
 	request := gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID)
 	request.OwnerID = "client-spoof"
-	callGateway(t, conn, "activate-runtime", protocol.MethodSessionRuntimeActivate, request, &activation)
+	request.AgentSelection = &serverapi.SessionRuntimeAgentSelection{
+		AgentRole: textutil.Value("worker"),
+		Baseline: serverapi.SessionRuntimeChatSettings{
+			Supervisor: "off", Thinking: "high", Fast: true, Questions: false, AutoCompaction: true,
+		},
+	}
+	activation, err := conn.ActivateSessionRuntime(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var activationRequest serverapi.SessionRuntimeActivateRequest
 	select {
 	case activationRequest = <-counter.activateRequests:
 		if activationRequest.OwnerID == "" || activationRequest.OwnerID == "client-spoof" {
 			t.Fatalf("gateway did not inject connection owner id: %+v", activationRequest)
 		}
+		if activationRequest.AgentSelection == nil ||
+			!textutil.EqualOptional(activationRequest.AgentSelection.AgentRole, request.AgentSelection.AgentRole) ||
+			activationRequest.AgentSelection.Baseline != request.AgentSelection.Baseline {
+			t.Fatalf("planned Agent selection changed: %v", activationRequest.AgentSelection)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for activation request")
 	}
-	var successor serverapi.SessionRuntimeActivateResponse
-	callGateway(t, conn, "activate-runtime-2", protocol.MethodSessionRuntimeActivate, gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID), &successor)
-	callGateway(t, conn, "release-runtime-1", protocol.MethodSessionRuntimeRelease, serverapi.SessionRuntimeReleaseRequest{
-		Attachment:  activation.Attachment,
+	successor, err := conn.ActivateSessionRuntime(t.Context(), gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if (<-counter.activateRequests).AgentSelection != nil {
+		t.Fatal("absent Agent selection became present")
+	}
+	_, err = conn.ReleaseSessionRuntime(t.Context(), serverapi.SessionRuntimeReleaseRequest{
+		Attachment:  activation,
 		OwnerID:     "client-spoof",
 		DropOwner:   true,
 		ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
-	}, nil)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case request := <-counter.releaseRequests:
-		if request.Attachment != activation.Attachment || request.OwnerID != activationRequest.OwnerID {
+		if request.Attachment != activation || request.OwnerID != activationRequest.OwnerID {
 			t.Fatalf("explicit stale release request = %+v", request)
 		}
 	case <-time.After(time.Second):
@@ -476,11 +743,11 @@ func TestGatewayConnectionCloseReleasesOwnedIdleRuntime(t *testing.T) {
 	}
 	select {
 	case request := <-counter.releaseRequests:
-		if request.Attachment != successor.Attachment {
-			t.Fatalf("disconnect release attachment = %+v, want successor %+v", request.Attachment, successor.Attachment)
+		if request.Attachment != successor {
+			t.Fatalf("disconnect release attachment = %+v, want successor %+v", request.Attachment, successor)
 		}
-		if request.OwnerID != activationRequest.OwnerID || !request.DropOwner || request.ClosePolicy != serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle {
-			t.Fatalf("disconnect release request = %+v, want exact close-if-idle owner drop", request)
+		if request.OwnerID != activationRequest.OwnerID || !request.DropOwner || request.ClosePolicy != serverapi.SessionRuntimeReleaseClosePolicyDetachOnly {
+			t.Fatalf("disconnect release request = %+v, want exact detach-only owner drop", request)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for disconnect runtime release")
@@ -498,7 +765,7 @@ func TestGatewayDetachOnlyReleaseInjectsOwnerAndSkipsDisconnectRelease(t *testin
 		SessionRuntimeService: appCore.SessionRuntimeClient(),
 		releaseRequests:       make(chan serverapi.SessionRuntimeReleaseRequest, 4),
 		activateAttachments:   []*serverapi.SessionRuntimeAttachment{{Generation: 1}},
-		releaseResponse:       &serverapi.SessionRuntimeReleaseResponse{Active: true},
+		releaseResponse:       &sessionlaunchpb.SessionRuntimeReleaseSuccess{Active: true},
 	}
 	gateway, err := NewGateway(&gatewayRuntimeClientOverride{Core: appCore, runtimeClient: counter}, gatewayTestIdentity())
 	if err != nil {
@@ -509,17 +776,20 @@ func TestGatewayDetachOnlyReleaseInjectsOwnerAndSkipsDisconnectRelease(t *testin
 	defer server.Close()
 	store := createGatewayAuthoritativeSession(t, appCore)
 
-	conn := dialGateway(t, server)
-	handshakeGateway(t, conn)
-	var activation serverapi.SessionRuntimeActivateResponse
-	callGateway(t, conn, "activate-runtime", protocol.MethodSessionRuntimeActivate, gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID), &activation)
-	var release serverapi.SessionRuntimeReleaseResponse
-	callGateway(t, conn, "release-runtime", protocol.MethodSessionRuntimeRelease, serverapi.SessionRuntimeReleaseRequest{
-		Attachment:  activation.Attachment,
+	conn := dialGatewayRemote(t, server)
+	activation, err := conn.ActivateSessionRuntime(t.Context(), gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := conn.ReleaseSessionRuntime(t.Context(), serverapi.SessionRuntimeReleaseRequest{
+		Attachment:  activation,
 		OwnerID:     "client-spoof",
 		DropOwner:   true,
 		ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
-	}, &release)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if release.Released || !release.Active {
 		t.Fatalf("detach-only release response = %+v, want active unreleased response", release)
 	}
@@ -549,7 +819,7 @@ func TestGatewayCloseIfIdleReleasePropagatesPolicy(t *testing.T) {
 		SessionRuntimeService: appCore.SessionRuntimeClient(),
 		releaseRequests:       make(chan serverapi.SessionRuntimeReleaseRequest, 4),
 		activateAttachments:   []*serverapi.SessionRuntimeAttachment{{Generation: 1}},
-		releaseResponse:       &serverapi.SessionRuntimeReleaseResponse{Released: true},
+		releaseResponse:       &sessionlaunchpb.SessionRuntimeReleaseSuccess{Released: true},
 	}
 	gateway, err := NewGateway(&gatewayRuntimeClientOverride{Core: appCore, runtimeClient: counter}, gatewayTestIdentity())
 	if err != nil {
@@ -560,16 +830,19 @@ func TestGatewayCloseIfIdleReleasePropagatesPolicy(t *testing.T) {
 	defer server.Close()
 	store := createGatewayAuthoritativeSession(t, appCore)
 
-	conn := dialGateway(t, server)
-	handshakeGateway(t, conn)
-	var activation serverapi.SessionRuntimeActivateResponse
-	callGateway(t, conn, "activate-runtime", protocol.MethodSessionRuntimeActivate, gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID), &activation)
-	var release serverapi.SessionRuntimeReleaseResponse
-	callGateway(t, conn, "release-runtime", protocol.MethodSessionRuntimeRelease, serverapi.SessionRuntimeReleaseRequest{
-		Attachment:  activation.Attachment,
+	conn := dialGatewayRemote(t, server)
+	activation, err := conn.ActivateSessionRuntime(t.Context(), gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := conn.ReleaseSessionRuntime(t.Context(), serverapi.SessionRuntimeReleaseRequest{
+		Attachment:  activation,
 		DropOwner:   true,
 		ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle,
-	}, &release)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !release.Released {
 		t.Fatalf("close-if-idle release response = %+v, want released", release)
 	}
@@ -578,11 +851,64 @@ func TestGatewayCloseIfIdleReleasePropagatesPolicy(t *testing.T) {
 		if req.OwnerID == "" {
 			t.Fatalf("gateway did not inject owner id: %+v", req)
 		}
-		if req.Attachment != activation.Attachment || !req.DropOwner || req.ClosePolicy != serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle {
+		if req.Attachment != activation || !req.DropOwner || req.ClosePolicy != serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle {
 			t.Fatalf("gateway release request = %+v, want explicit close-if-idle drop owner", req)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for explicit close-if-idle release")
+	}
+}
+
+func TestGatewayDisconnectKeepsRuntimeAvailableUntilExplicitCloseIfIdle(t *testing.T) {
+	appCore, _ := newGatewayTestCore(t, true, true)
+	counter := &countingSessionRuntimeClient{SessionRuntimeService: appCore.SessionRuntimeClient()}
+	gateway, err := NewGateway(&gatewayRuntimeClientOverride{Core: appCore, runtimeClient: counter}, gatewayTestIdentity())
+	if err != nil {
+		t.Fatalf("NewGateway: %v", err)
+	}
+	server := httptest.NewServer(gateway.Handler())
+	defer func() { _ = appCore.Close() }()
+	defer server.Close()
+	store := createGatewayAuthoritativeSession(t, appCore)
+
+	first := dialGatewayRemote(t, server)
+	firstActivation, err := first.ActivateSessionRuntime(t.Context(), gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("close first gateway connection: %v", err)
+	}
+	waitForGatewayCondition(t, "completed first connection owner release", func() bool {
+		return counter.releaseCount.Load() == 1
+	})
+
+	second := dialGatewayRemote(t, server)
+	defer second.Close()
+	secondActivation, err := second.ActivateSessionRuntime(t.Context(), gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondActivation.Generation != firstActivation.Generation {
+		t.Fatalf(
+			"disconnect replaced the runtime: first generation %d, second generation %d",
+			firstActivation.Generation,
+			secondActivation.Generation,
+		)
+	}
+
+	release, err := second.ReleaseSessionRuntime(t.Context(),
+		serverapi.SessionRuntimeReleaseRequest{
+			Attachment:  secondActivation,
+			DropOwner:   true,
+			ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !release.Released || release.Active {
+		t.Fatalf("explicit close-if-idle release = %+v, want released inactive runtime", release)
 	}
 }
 
@@ -601,9 +927,10 @@ func TestGatewayMissingActivationAttachmentDoesNotRecordRuntimeOwnership(t *test
 	defer server.Close()
 	store := createGatewayAuthoritativeSession(t, appCore)
 
-	conn := dialGateway(t, server)
-	handshakeGateway(t, conn)
-	_ = callGatewayExpectError(t, conn, "activate-runtime", protocol.MethodSessionRuntimeActivate, gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
+	conn := dialGatewayRemote(t, server)
+	if _, err := conn.ActivateSessionRuntime(t.Context(), gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID)); err == nil {
+		t.Fatal("activation without an attachment succeeded")
+	}
 	if err := conn.Close(); err != nil {
 		t.Fatalf("close gateway connection: %v", err)
 	}
@@ -611,6 +938,16 @@ func TestGatewayMissingActivationAttachmentDoesNotRecordRuntimeOwnership(t *test
 	if got := counter.releaseCount.Load(); got != 0 {
 		t.Fatalf("runtime release call count after invalid activation response = %d, want 0", got)
 	}
+}
+
+func dialGatewayRemote(t *testing.T, server *httptest.Server) *remoteclient.Remote {
+	t.Helper()
+	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = remote.Close() })
+	return remote
 }
 
 func TestGatewayHandshakeAndProjectList(t *testing.T) {
@@ -694,41 +1031,39 @@ func TestGatewayTaskSearchDispatchesIndexedResponseAndTypedValidationError(t *te
 	defer func() { _ = conn.Close() }()
 	handshakeGateway(t, conn)
 
-	request := serverapi.TaskSearchRequest{
-		Mode:     serverapi.TaskSearchModeLiteral,
+	request := &taskpb.SearchRequest{
+		Mode:     taskpb.SearchMode_SEARCH_MODE_LITERAL,
 		Query:    "needle",
 		Context:  serverapi.TaskSearchDefaultContext,
 		PageSize: serverapi.TaskSearchDefaultPageSize,
 	}
-	var response serverapi.TaskSearchResponse
-	callGateway(t, conn, "search", protocol.MethodWorkflowTaskSearch, request, &response)
-	if err := response.Validate(); err != nil {
-		t.Fatalf("search response validation: %v", err)
+	method := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService").Methods().ByName("Search")
+	var result taskpb.SearchResult
+	callGatewayDescriptor(t, conn, "search", method, request, &result)
+	response := result.GetSuccess()
+	if response == nil {
+		t.Fatalf("Search failed: %v", &result)
 	}
 	if response.Mode != request.Mode ||
 		len(response.Groups) != 1 ||
-		response.Groups[0].TaskID != task.ID ||
+		response.Groups[0].TaskId != task.Id ||
 		response.Groups[0].TotalHitCount != 1 ||
 		len(response.Groups[0].Hits) != 1 ||
-		response.Groups[0].Hits[0].Source.Kind != serverapi.TaskSearchSourceKindBody ||
-		response.Groups[0].Hits[0].Literal == nil ||
+		response.Groups[0].Hits[0].Source.Kind != taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_BODY ||
+		response.Groups[0].Hits[0].GetLiteral() == nil ||
 		response.NextOffset != nil {
 		t.Fatalf("indexed search response = %+v", response)
 	}
 
-	responseError := callGatewayExpectError(t, conn, "short", protocol.MethodWorkflowTaskSearch, serverapi.TaskSearchRequest{
-		Mode:     serverapi.TaskSearchModeLiteral,
+	var rejected taskpb.SearchResult
+	callGatewayDescriptor(t, conn, "short", method, &taskpb.SearchRequest{
+		Mode:     taskpb.SearchMode_SEARCH_MODE_LITERAL,
 		Query:    "ab",
 		Context:  serverapi.TaskSearchDefaultContext,
 		PageSize: serverapi.TaskSearchDefaultPageSize,
-	})
-	if responseError.Code != protocol.ErrCodeWorkflowTaskSearch {
-		t.Fatalf("short literal error = %+v, want task search code", responseError)
-	}
-	decoded := serverapi.DecodeTaskSearchError(responseError.Data, responseError.Message)
-	var typed *serverapi.TaskSearchError
-	if !errors.As(decoded, &typed) || typed.Reason != serverapi.TaskSearchErrorReasonNormalizedTooShort {
-		t.Fatalf("short literal decoded error = %T %v", decoded, decoded)
+	}, &rejected)
+	if rejected.GetError().GetNormalizedTooShort() == nil {
+		t.Fatalf("short literal error = %v", &rejected)
 	}
 }
 
@@ -748,8 +1083,8 @@ func TestGatewayRemoteTaskSearchRoundsTripIndexedResponse(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	response, err := remote.SearchWorkflowTasks(context.Background(), serverapi.TaskSearchRequest{
-		Mode:     serverapi.TaskSearchModeFTS5,
+	response, err := remote.SearchWorkflowTasks(context.Background(), &taskpb.SearchRequest{
+		Mode:     taskpb.SearchMode_SEARCH_MODE_FTS5,
 		Query:    "body:needle",
 		Context:  serverapi.TaskSearchDefaultContext,
 		PageSize: serverapi.TaskSearchDefaultPageSize,
@@ -757,15 +1092,15 @@ func TestGatewayRemoteTaskSearchRoundsTripIndexedResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SearchWorkflowTasks: %v", err)
 	}
-	if err := response.Validate(); err != nil {
+	if err := protoapi.Validate(response); err != nil {
 		t.Fatalf("validate remote task-search response: %v", err)
 	}
-	if response.Mode != serverapi.TaskSearchModeFTS5 ||
+	if response.Mode != taskpb.SearchMode_SEARCH_MODE_FTS5 ||
 		len(response.Groups) != 1 ||
-		response.Groups[0].TaskID != task.ID ||
+		response.Groups[0].TaskId != task.Id ||
 		len(response.Groups[0].Hits) != 1 ||
-		response.Groups[0].Hits[0].Source.Kind != serverapi.TaskSearchSourceKindBody ||
-		response.Groups[0].Hits[0].FTS5 == nil {
+		response.Groups[0].Hits[0].Source.Kind != taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_BODY ||
+		response.Groups[0].Hits[0].GetFts5() == nil {
 		t.Fatalf("remote indexed task-search response = %+v", response)
 	}
 }
@@ -786,36 +1121,36 @@ func TestGatewayRemoteWorkflowTaskSessionsRoundsTripPage(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	response, err := remote.ListWorkflowTaskSessions(context.Background(), serverapi.WorkflowTaskOffsetPageRequest{
-		TaskID: task.ID,
+	response, err := remote.ListWorkflowTaskSessions(context.Background(), &taskpb.TaskOffsetPageRequest{
+		TaskId: task.Id,
 	})
 	if err != nil {
 		t.Fatalf("ListWorkflowTaskSessions: %v", err)
 	}
-	if response.TaskID != task.ID || response.Items == nil || len(response.Items) != 0 || response.NextOffset != nil {
+	if response.TaskId != task.Id || len(response.Items) != 0 || response.NextOffset != nil {
 		t.Fatalf("response = %+v", response)
 	}
 }
 
-func createGatewaySearchableTask(t *testing.T, appCore *core.Core) serverapi.WorkflowTaskSummary {
+func createGatewaySearchableTask(t *testing.T, appCore *core.Core) *taskpb.TaskSummary {
 	t.Helper()
 	ctx := context.Background()
 	workflows := appCore.WorkflowClient()
-	created, err := workflows.CreateWorkflow(ctx, serverapi.WorkflowCreateRequest{Name: "Search Workflow"})
+	created, err := workflows.CreateWorkflow(ctx, &pb.CreateRequest{Name: "Search Workflow"})
 	if err != nil {
 		t.Fatalf("CreateWorkflow: %v", err)
 	}
-	definition, err := workflows.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: created.Workflow.ID})
+	definition, err := workflows.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: created.Workflow.Id})
 	if err != nil {
 		t.Fatalf("GetWorkflow: %v", err)
 	}
 	startID, terminalID := "", ""
 	for _, node := range definition.Definition.Nodes {
 		switch node.Kind {
-		case "start":
-			startID = node.ID
-		case "terminal":
-			terminalID = node.ID
+		case pb.NodeKind_WORKFLOW_NODE_KIND_START:
+			startID = node.Id
+		case pb.NodeKind_WORKFLOW_NODE_KIND_TERMINAL:
+			terminalID = node.Id
 		}
 	}
 	if startID == "" || terminalID == "" {
@@ -826,38 +1161,27 @@ func createGatewaySearchableTask(t *testing.T, appCore *core.Core) serverapi.Wor
 	startGroupID := runtimeids.NewGraphEntityID()
 	doneGroupID := runtimeids.NewGraphEntityID()
 	finishGroupID := runtimeids.NewGraphEntityID()
-	graph := serverapi.WorkflowGraphDraftFromDefinition(definition.Definition)
-	graph.Nodes = append(graph.Nodes,
-		serverapi.WorkflowGraphDraftNode{ID: agentID, Key: "agent", Kind: "agent", DisplayName: "Agent", SubagentRole: "coder"},
-		serverapi.WorkflowGraphDraftNode{ID: reviewID, Key: "review", Kind: "agent", DisplayName: "Review", SubagentRole: "coder"},
-	)
-	graph.TransitionGroups = append(graph.TransitionGroups,
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: startGroupID, SourceNodeID: startID, TransitionID: "start", DisplayName: "Start"},
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: doneGroupID, SourceNodeID: agentID, TransitionID: "done", DisplayName: "Done"},
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: finishGroupID, SourceNodeID: reviewID, TransitionID: "finish", DisplayName: "Finish"},
-	)
-	graph.Edges = append(graph.Edges,
-		serverapi.WorkflowGraphDraftEdge{ID: runtimeids.NewGraphEntityID(), TransitionGroupID: startGroupID, Key: "start", TargetNodeID: agentID, AssigneeSelection: "configured", ThinkingSelection: "configured", ContextMode: "new_session", PromptTemplate: "Search work."},
-		serverapi.WorkflowGraphDraftEdge{ID: runtimeids.NewGraphEntityID(), TransitionGroupID: doneGroupID, Key: "done", TargetNodeID: reviewID, AssigneeSelection: "configured", ThinkingSelection: "configured", ContextMode: "new_session", PromptTemplate: "Review the search work."},
-		serverapi.WorkflowGraphDraftEdge{ID: runtimeids.NewGraphEntityID(), TransitionGroupID: finishGroupID, Key: "finish", TargetNodeID: terminalID, AssigneeSelection: "configured", ThinkingSelection: "configured", ContextMode: "new_session"},
-	)
-	saved, err := workflows.SaveWorkflowGraph(ctx, serverapi.WorkflowGraphSaveRequest{
-		WorkflowID: created.Workflow.ID, ExpectedVersion: definition.Definition.Workflow.Version, Graph: graph,
+	graph := protoapi.WorkflowGraphDraftFromDefinition(definition.Definition)
+	graph.Nodes = append(graph.Nodes, &pb.GraphDraftNode{Id: agentID, Key: "agent", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_AGENT, DisplayName: "Agent", SubagentRole: proto.String("coder")}, &pb.GraphDraftNode{Id: reviewID, Key: "review", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_AGENT, DisplayName: "Review", SubagentRole: proto.String("coder")})
+	graph.TransitionGroups = append(graph.TransitionGroups, &pb.GraphDraftTransitionGroup{Id: startGroupID, SourceNodeId: startID, TransitionId: "start", DisplayName: "Start"}, &pb.GraphDraftTransitionGroup{Id: doneGroupID, SourceNodeId: agentID, TransitionId: "done", DisplayName: "Done"}, &pb.GraphDraftTransitionGroup{Id: finishGroupID, SourceNodeId: reviewID, TransitionId: "finish", DisplayName: "Finish"})
+	graph.Edges = append(graph.Edges, &pb.GraphDraftEdge{Id: runtimeids.NewGraphEntityID(), TransitionGroupId: startGroupID, Key: "start", TargetNodeId: agentID, AssigneeSelection: pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_CONFIGURED, ThinkingSelection: pb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_CONFIGURED, ContextMode: pb.ContextMode_WORKFLOW_CONTEXT_MODE_NEW_SESSION, PromptTemplate: "Search work.", ContextSource: &pb.ContextSource{Kind: pb.ContextSourceKind_WORKFLOW_CONTEXT_SOURCE_KIND_IMMEDIATE_SOURCE}}, &pb.GraphDraftEdge{Id: runtimeids.NewGraphEntityID(), TransitionGroupId: doneGroupID, Key: "done", TargetNodeId: reviewID, AssigneeSelection: pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_CONFIGURED, ThinkingSelection: pb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_CONFIGURED, ContextMode: pb.ContextMode_WORKFLOW_CONTEXT_MODE_NEW_SESSION, PromptTemplate: "Review the search work.", ContextSource: &pb.ContextSource{Kind: pb.ContextSourceKind_WORKFLOW_CONTEXT_SOURCE_KIND_IMMEDIATE_SOURCE}}, &pb.GraphDraftEdge{Id: runtimeids.NewGraphEntityID(), TransitionGroupId: finishGroupID, Key: "finish", TargetNodeId: terminalID, AssigneeSelection: pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_CONFIGURED, ThinkingSelection: pb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_CONFIGURED, ContextMode: pb.ContextMode_WORKFLOW_CONTEXT_MODE_NEW_SESSION, ContextSource: &pb.ContextSource{Kind: pb.ContextSourceKind_WORKFLOW_CONTEXT_SOURCE_KIND_IMMEDIATE_SOURCE}})
+	saved, err := workflows.SaveWorkflowGraph(ctx, &pb.GraphSaveRequest{
+		WorkflowId: created.Workflow.Id, ExpectedVersion: definition.Definition.Workflow.Version, Graph: graph,
 	})
 	if err != nil || !saved.Saved {
 		t.Fatalf("SaveWorkflowGraph searchable task fixture = %+v, err = %v", saved, err)
 	}
-	if _, err := workflows.LinkWorkflowToProject(ctx, serverapi.WorkflowLinkProjectRequest{
-		ProjectID:     appCore.ProjectID(),
-		WorkflowID:    created.Workflow.ID,
-		DefaultPolicy: serverapi.WorkflowProjectLinkDefaultAlways,
+	if _, err := workflows.LinkWorkflowToProject(ctx, &pb.LinkProjectRequest{
+		ProjectId:     appCore.ProjectID(),
+		WorkflowId:    created.Workflow.Id,
+		DefaultPolicy: pb.ProjectLinkDefaultMode_WORKFLOW_PROJECT_LINK_DEFAULT_MODE_ALWAYS.Enum(),
 	}); err != nil {
 		t.Fatalf("LinkWorkflowToProject: %v", err)
 	}
-	task, err := workflows.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{
-		ProjectID: appCore.ProjectID(),
+	task, err := workflows.CreateWorkflowTask(ctx, &taskpb.CreateRequest{
+		ProjectId: appCore.ProjectID(),
 		Title:     "Search Task",
-		Body:      "needle body",
+		Body:      proto.String("needle body"),
 	})
 	if err != nil {
 		t.Fatalf("CreateWorkflowTask: %v", err)
@@ -872,105 +1196,30 @@ func TestGatewayRejectsMethodsBeforeHandshake(t *testing.T) {
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 
-	sendGatewayRequest(t, conn, "1", protocol.MethodProcessList, serverapi.ProcessListRequest{})
-	var response protocol.Response
-	if err := websocket.JSON.Receive(conn, &response); err == nil {
+	sendGatewayDescriptor(t, conn, "1",
+		taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService").Methods().ByName("Get"),
+		&taskpb.GetRequest{TaskId: proto.String("task-1")})
+	var response []byte
+	if err := websocket.Message.Receive(conn, &response); err == nil {
 		t.Fatalf("pre-handshake application traffic unexpectedly received %+v", response)
 	}
 }
 
-func TestGatewayPreAuthMethodPolicy(t *testing.T) {
-	registration, err := productionGatewayRegistration()
-	if err != nil {
-		t.Fatalf("production Gateway registration: %v", err)
-	}
-	if err := registration.Validate(); err != nil {
-		t.Fatalf("validate production Gateway registration: %v", err)
-	}
-	executor := newRoutePolicyExecutor(&Gateway{registration: registration})
-	for name, operation := range registration.operations {
-		activeIdentity := name
-		if route, legacy := registration.legacy[name]; legacy {
-			activeIdentity = route.Method
-		}
-		got := executor.requiresServerAuth(activeIdentity)
-		want := operation.Options.AuthenticationStage == sharedpb.AuthenticationStage_AUTHENTICATION_STAGE_SERVER
-		if got != want {
-			t.Fatalf("requiresServerAuth(%q) = %t, want %t from descriptor", activeIdentity, got, want)
-		}
-	}
-}
-
-func TestGatewayAuthBootstrapAPIKeyCompletionEnablesAuthRequiredMethods(t *testing.T) {
-	appCore, server, authSupport := newGatewayTestServerWithAuth(t, false)
+func TestGatewayAuthBootstrapAuthlessConnectionIsReady(t *testing.T) {
+	appCore, server := newGatewayTestServer(t)
 	defer func() { _ = appCore.Close() }()
 	defer server.Close()
 
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 	handshakeGateway(t, conn)
-	updateStatusMethod := serverpb.File_kent_api_server_server_proto.Services().
-		ByName("ServerService").Methods().ByName("GetUpdateStatus")
-	var updateStatusResult serverpb.GetUpdateStatusResult
-	callGatewayDescriptor(t, conn, "update-status-before-auth", updateStatusMethod, &emptypb.Empty{}, &updateStatusResult)
-	if failure := updateStatusResult.GetError(); failure == nil ||
-		failure.Code != "auth_required" ||
-		failure.GetAuthRequired() == nil {
-		t.Fatalf("Get Update Status before auth = %+v, want auth_required", &updateStatusResult)
-	}
-
 	requireGatewayProjectAttachment(t, conn, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
-	if respErr := callGatewayExpectError(t, conn, "run-1", protocol.MethodRunPrompt, serverapi.RunPromptRequest{Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()), Prompt: "test"}); respErr.Code != protocol.ErrCodeAuthRequired {
-		t.Fatalf("run.prompt error = %+v, want auth required", respErr)
-	}
-
-	apiKey := "server-key"
-	callGatewayAuthCompleteBootstrap(t, conn, "complete-1", &authpb.CompleteBootstrapRequest{
-		Mode:   authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY,
-		ApiKey: &apiKey,
+	complete := callGatewayAuthCompleteBootstrap(t, conn, "complete-no-auth", &authpb.CompleteBootstrapRequest{
+		Target: protoapi.ExistingConnectionTarget("test"),
+		Mode:   authpb.BootstrapMode_BOOTSTRAP_MODE_NONE,
 	})
-	status := callGatewayAuthBootstrapStatus(t, conn, "status-2")
-	if !status.AuthReady {
-		t.Fatal("expected bootstrap completion to configure server auth")
-	}
-	state, err := authSupport.AuthManager.StoredState(context.Background())
-	if err != nil {
-		t.Fatalf("StoredState: %v", err)
-	}
-	if state.Method.APIKey == nil || state.Method.APIKey.Key != "server-key" {
-		t.Fatalf("unexpected stored auth method: %+v", state.Method)
-	}
-
-	secondAPIKey := "server-key-2"
-	secondComplete := callGatewayAuthCompleteBootstrap(t, conn, "complete-2", &authpb.CompleteBootstrapRequest{Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY, ApiKey: &secondAPIKey})
-	if !secondComplete.AuthReady || secondComplete.GetMethodType() != string(auth.MethodAPIKey) {
-		t.Fatalf("unexpected second CompleteBootstrap result: %+v", secondComplete)
-	}
-	state, err = authSupport.AuthManager.StoredState(context.Background())
-	if err != nil {
-		t.Fatalf("StoredState after second complete: %v", err)
-	}
-	if state.Method.APIKey == nil || state.Method.APIKey.Key != "server-key" {
-		t.Fatalf("unexpected stored auth method after retry: %+v", state.Method)
-	}
-}
-
-func TestGatewayAuthBootstrapNoneAuthorizesSameConnectionOnly(t *testing.T) {
-	appCore, server, _ := newGatewayTestServerWithAuth(t, false)
-	defer func() { _ = appCore.Close() }()
-	defer server.Close()
-
-	conn := dialGateway(t, server)
-	defer func() { _ = conn.Close() }()
-	handshakeGateway(t, conn)
-	requireGatewayProjectAttachment(t, conn, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
-	if result := callGatewaySessionPlanResult(t, conn, "plan-before-no-auth", gatewaySessionPlanRequest(t)); result.GetError().Code != "auth_required" {
-		t.Fatalf("Session Plan before no-auth = %+v, want auth_required", result.GetError())
-	}
-
-	complete := callGatewayAuthCompleteBootstrap(t, conn, "complete-no-auth", &authpb.CompleteBootstrapRequest{Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_NONE})
-	if complete.AuthReady || !complete.NoAuthSelected {
-		t.Fatalf("CompleteBootstrap none = %+v, want not ready and no-auth selected", complete)
+	if !complete.AuthReady || complete.Method != authpb.AuthMethod_AUTH_METHOD_NONE {
+		t.Fatalf("CompleteBootstrap auth-less = %+v", complete)
 	}
 
 	plan := callGatewaySessionPlan(t, conn, "plan-after-no-auth", gatewaySessionPlanRequest(t))
@@ -980,34 +1229,7 @@ func TestGatewayAuthBootstrapNoneAuthorizesSameConnectionOnly(t *testing.T) {
 	}
 }
 
-func TestGatewayPersistedNoAuthDoesNotAuthorizeFreshConnectionsWithoutAck(t *testing.T) {
-	appCore, server, authSupport := newGatewayTestServerWithAuth(t, false)
-	defer func() { _ = appCore.Close() }()
-	store := createGatewayAuthoritativeSession(t, appCore)
-	defer server.Close()
-	if _, err := authSupport.AuthManager.SwitchMethodAndSetEnvAPIKeyPreference(context.Background(), auth.Method{Type: auth.MethodNone}, auth.EnvAPIKeyPreferencePreferSaved, true, true); err != nil {
-		t.Fatalf("SwitchMethodAndSetEnvAPIKeyPreference: %v", err)
-	}
-
-	control := dialGateway(t, server)
-	defer func() { _ = control.Close() }()
-	handshakeGateway(t, control)
-	requireGatewayProjectAttachment(t, control, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
-	if result := callGatewaySessionPlanResult(t, control, "plan-fresh-no-ack", gatewaySessionPlanRequest(t)); result.GetError().Code != "auth_required" {
-		t.Fatalf("fresh Session Plan = %+v, want auth_required", result.GetError())
-	}
-
-	subscription := dialGateway(t, server)
-	defer func() { _ = subscription.Close() }()
-	handshakeGateway(t, subscription)
-	requireGatewayProjectAttachment(t, subscription, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
-	requireGatewaySessionAttachment(t, subscription, "attach-session", store.Meta().SessionID)
-	if respErr := callGatewayExpectError(t, subscription, "subscribe-fresh-no-ack", protocol.MethodSessionSubscribeTranscript, serverapi.TranscriptSubscribeRequest{SessionID: store.Meta().SessionID}); respErr.Code != protocol.ErrCodeAuthRequired {
-		t.Fatalf("fresh session transcript subscribe = %+v, want auth required", respErr)
-	}
-}
-
-func TestGatewayRejectsProjectWorkspaceMutationBeforeServerAuthReady(t *testing.T) {
+func TestGatewayAllowsProjectWorkspaceMutationWithoutProviderCredentials(t *testing.T) {
 	appCore, server, _ := newGatewayTestServerWithAuth(t, false)
 	defer func() { _ = appCore.Close() }()
 	defer server.Close()
@@ -1023,8 +1245,8 @@ func TestGatewayRejectsProjectWorkspaceMutationBeforeServerAuthReady(t *testing.
 	callGatewayDescriptor(t, conn, "attach-workspace", method, &projectpb.AttachWorkspaceRequest{
 		ProjectId: appCore.ProjectID(), WorkspaceRoot: "/tmp/workspace",
 	}, &result)
-	if failure := result.GetError(); failure == nil || failure.Code != "auth_required" {
-		t.Fatalf("Project AttachWorkspace result = %+v, want auth_required", &result)
+	if result.GetSuccess() == nil {
+		t.Fatalf("Project AttachWorkspace result = %+v, want success", &result)
 	}
 }
 
@@ -1041,37 +1263,17 @@ func TestGatewaySessionTranscriptSubscriptionReturnsHydrationOnDedicatedRoute(t 
 	handshakeGateway(t, conn)
 	requireGatewayProjectAttachment(t, conn, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
 	requireGatewaySessionAttachment(t, conn, "attach-session", store.Meta().SessionID)
-	callGateway(t, conn, "subscribe-transcript", protocol.MethodSessionSubscribeTranscript, serverapi.TranscriptSubscribeRequest{SessionID: store.Meta().SessionID}, nil)
-
-	var notification protocol.Request
-	if err := websocket.JSON.Receive(conn, &notification); err != nil {
-		t.Fatalf("receive transcript notification: %v", err)
+	service := transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("StreamService")
+	var result transcriptpb.SubscribeResult
+	callGatewayDescriptor(t, conn, "subscribe-transcript", service.Methods().ByName("Subscribe"),
+		&transcriptpb.SubscribeRequest{SessionId: store.Meta().SessionID}, &result)
+	if result.GetSuccess() == nil {
+		t.Fatalf("subscribe: %v", &result)
 	}
-	if notification.Method != protocol.MethodSessionTranscriptEvent {
-		t.Fatalf("notification method = %q, want transcript event", notification.Method)
-	}
-	var params protocol.SessionTranscriptEventParams
-	if err := json.Unmarshal(notification.Params, &params); err != nil {
-		t.Fatalf("decode transcript event: %v", err)
-	}
-	if params.Message.Sequence != 1 || params.Message.Kind() != clientui.TranscriptMessageHydration {
-		t.Fatalf("transcript message = %+v, want seq=1 hydration", params.Message)
-	}
-	var paramsWire map[string]json.RawMessage
-	if err := json.Unmarshal(notification.Params, &paramsWire); err != nil {
-		t.Fatalf("decode transcript event envelope: %v", err)
-	}
-	var messageWire map[string]json.RawMessage
-	if err := json.Unmarshal(paramsWire["message"], &messageWire); err != nil {
-		t.Fatalf("decode transcript message wire envelope: %v", err)
-	}
-	for _, field := range []string{"sequence", "kind", "payload"} {
-		if _, ok := messageWire[field]; !ok {
-			t.Fatalf("transcript wire envelope missing %q: %s", field, notification.Params)
-		}
-	}
-	if string(messageWire["kind"]) != `"hydration"` || string(messageWire["payload"]) == "null" {
-		t.Fatalf("transcript wire envelope = %s, want hydration with payload", notification.Params)
+	var message transcriptpb.Message
+	receiveGatewayDescriptorNotification(t, conn, service.Methods().ByName("Event"), &message)
+	if message.Sequence != 1 || message.GetEvent().GetHydration() == nil {
+		t.Fatalf("transcript message = %+v, want seq=1 hydration", &message)
 	}
 }
 
@@ -1089,36 +1291,24 @@ func TestGatewayQuestionHistorySubscriptionPassesAttachedSessionPreflight(t *tes
 	handshakeGateway(t, conn)
 	requireGatewayProjectAttachment(t, conn, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
 	requireGatewaySessionAttachment(t, conn, "attach-session", store.Meta().SessionID)
-	callGateway(t, conn, "subscribe-question-history", protocol.MethodSessionQuestionHistorySubscribe, serverapi.QuestionHistorySubscribeRequest{
-		SessionID: store.Meta().SessionID, MaxHandoffs: 1,
-	}, nil)
-
-	for _, wantKind := range []serverapi.QuestionHistoryEventKind{
-		serverapi.QuestionHistoryEventStarted,
-		serverapi.QuestionHistoryEventCompleted,
-	} {
-		var notification protocol.Request
-		if err := websocket.JSON.Receive(conn, &notification); err != nil {
-			t.Fatalf("receive Question-history notification: %v", err)
-		}
-		if notification.Method != protocol.MethodSessionQuestionHistoryEvent {
-			t.Fatalf("notification method = %q, want Question-history event", notification.Method)
-		}
-		var params protocol.SessionQuestionHistoryEventParams
-		if err := json.Unmarshal(notification.Params, &params); err != nil {
-			t.Fatalf("decode Question-history event: %v", err)
-		}
-		if params.Event.Kind != string(wantKind) {
-			t.Fatalf("Question-history event kind = %q, want %q", params.Event.Kind, wantKind)
-		}
+	service := sessionpb.File_kent_api_session_session_proto.Services().ByName("QuestionHistoryService")
+	var result sessionpb.QuestionHistorySubscribeResult
+	callGatewayDescriptor(t, conn, "subscribe-question-history", service.Methods().ByName("Subscribe"),
+		&sessionpb.QuestionHistorySubscribeRequest{SessionId: store.Meta().SessionID, MaxHandoffs: 1}, &result)
+	if result.GetSuccess() == nil {
+		t.Fatalf("subscribe Question history: %v", &result)
 	}
-	var complete protocol.Request
-	if err := websocket.JSON.Receive(conn, &complete); err != nil {
-		t.Fatalf("receive Question-history completion: %v", err)
+	var started sessionpb.QuestionHistoryEvent
+	receiveGatewayDescriptorNotification(t, conn, service.Methods().ByName("Event"), &started)
+	if started.GetStarted() == nil {
+		t.Fatalf("expected Question history started: %v", &started)
 	}
-	if complete.Method != protocol.MethodSessionQuestionHistoryComplete {
-		t.Fatalf("completion method = %q, want Question-history complete", complete.Method)
+	var completed sessionpb.QuestionHistoryEvent
+	receiveGatewayDescriptorNotification(t, conn, service.Methods().ByName("Event"), &completed)
+	if completed.GetCompleted() == nil {
+		t.Fatalf("expected Question history completed: %v", &completed)
 	}
+	receiveGatewayDescriptorNotification(t, conn, service.Methods().ByName("Complete"), &sharedpb.StreamCompletion{})
 }
 
 func gatewaySessionPlanRequest(t *testing.T) *sessionlaunchpb.SessionPlanRequest {
@@ -1213,24 +1403,24 @@ func TestGatewayRejectsSessionAccessOutsideAttachedProject(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	if _, err := remote.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: foreignSession.Meta().SessionID}); err == nil {
+	if _, err := remote.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{SessionId: foreignSession.Meta().SessionID}); err == nil {
 		t.Fatal("expected foreign-project session view access to be rejected")
 	}
-	if _, err := remote.GetLatestCommittedAssistantFinalAnswer(context.Background(), serverapi.SessionLatestCommittedAssistantFinalAnswerRequest{SessionID: foreignSession.Meta().SessionID}); err == nil {
+	if _, err := remote.GetLatestCommittedAssistantFinalAnswer(context.Background(), &transcriptpb.LatestFinalAnswerRequest{SessionId: foreignSession.Meta().SessionID}); err == nil {
 		t.Fatal("expected foreign-project final answer access to be rejected")
 	}
-	if _, err := remote.PersistInputDraft(context.Background(), serverapi.SessionPersistInputDraftRequest{SessionID: foreignSession.Meta().SessionID, Input: "should fail"}); err == nil {
+	if _, err := remote.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{SessionId: foreignSession.Meta().SessionID, Input: "should fail"}); err == nil {
 		t.Fatal("expected foreign-project session mutation to be rejected")
 	}
-	if _, err := remote.RetargetSessionWorkspace(context.Background(), serverapi.SessionRetargetWorkspaceRequest{SessionID: foreignSession.Meta().SessionID, WorkspaceRoot: resolvedA.Config.WorkspaceRoot}); err == nil {
+	if _, err := remote.RetargetSessionWorkspace(context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{SessionId: foreignSession.Meta().SessionID, WorkspaceRoot: resolvedA.Config.WorkspaceRoot}); err == nil {
 		t.Fatal("expected foreign-project session retarget to be rejected")
 	}
 	foreignSessionID, err := runtimeids.ParseSessionID(foreignSession.Meta().SessionID)
 	if err != nil {
 		t.Fatalf("ParseSessionID foreign: %v", err)
 	}
-	if _, err := remote.ReadChatSettings(context.Background(), serverapi.ChatSettingsReadRequest{
-		Target: serverapi.SessionChatSettingsTarget(foreignSessionID),
+	if _, err := remote.ReadChatSettings(context.Background(), &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: foreignSessionID.String()}},
 	}); err == nil {
 		t.Fatal("expected foreign-project Chat settings access to be rejected")
 	}
@@ -1244,7 +1434,7 @@ func TestGatewayRejectsSessionAccessOutsideAttachedProject(t *testing.T) {
 	}
 }
 
-func TestGatewayAuthorizesBothChatSettingsTargetArms(t *testing.T) {
+func TestGatewayAuthorizesNewChatAndSessionSettingsTargets(t *testing.T) {
 	appCore, server := newGatewayTestServer(t)
 	defer func() { _ = appCore.Close() }()
 	defer server.Close()
@@ -1270,61 +1460,79 @@ func TestGatewayAuthorizesBothChatSettingsTargetArms(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	lazy, err := remote.ReadChatSettings(t.Context(), serverapi.ChatSettingsReadRequest{
-		Target: serverapi.LazyChatSettingsTarget(appCore.ProjectID(), workspace.ID),
+	newChat, err := remote.ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_NewChat{NewChat: &chatsettingspb.NewChatTarget{ProjectId: appCore.ProjectID(), WorkspaceId: workspace.ID}},
 	})
 	if err != nil {
-		t.Fatalf("ReadChatSettings lazy: %v", err)
+		t.Fatalf("ReadChatSettings New Chat: %v", err)
 	}
-	if lazy.Session != nil {
-		t.Fatalf("lazy response has Session facts: %+v", lazy.Session)
+	if newChat.GetSession() != nil {
+		t.Fatalf("New Chat response has Session facts: %+v", newChat.GetSession())
 	}
-	materialized, err := remote.ReadChatSettings(t.Context(), serverapi.ChatSettingsReadRequest{
-		Target: serverapi.SessionChatSettingsTarget(sessionID),
+	sessionSettings, err := remote.ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()}},
 	})
 	if err != nil {
 		t.Fatalf("ReadChatSettings Session: %v", err)
 	}
-	if materialized.Session == nil || materialized.Session.SessionID != sessionID {
-		t.Fatalf("materialized response = %+v", materialized.Session)
+	if sessionSettings.GetSession() == nil || sessionSettings.GetSession().Session.SessionId != sessionID.String() {
+		t.Fatalf("Session settings response = %+v", sessionSettings.GetSession())
 	}
 
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 	handshakeGateway(t, conn)
 	requireGatewayProjectAttachment(t, conn, "attach-project-chat-settings", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
-	mismatched := callGatewayExpectError(
+	mismatched := &chatsettingspb.ReadResult{}
+	callGatewayDescriptor(
 		t,
 		conn,
 		"chat-settings-project-mismatch",
-		protocol.MethodChatSettingsRead,
-		serverapi.ChatSettingsReadRequest{
-			Target: serverapi.LazyChatSettingsTarget("project-foreign", workspace.ID),
+		chatsettingspb.File_kent_api_chat_settings_chat_settings_proto.Services().ByName("ChatSettingsService").Methods().ByName("Read"),
+		&chatsettingspb.ReadRequest{
+			Target: &chatsettingspb.ReadRequest_NewChat{NewChat: &chatsettingspb.NewChatTarget{
+				ProjectId: "project-foreign", WorkspaceId: workspace.ID,
+			}},
 		},
+		mismatched,
 	)
-	if mismatched.Code == 0 {
-		t.Fatalf("lazy project mismatch unexpectedly succeeded")
+	if mismatched.GetError().GetWorkspaceNotRegistered() == nil {
+		t.Fatalf("New Chat project mismatch unexpectedly succeeded")
 	}
 }
 
 func assertForeignGoalAccessRejected(t *testing.T, conn *websocket.Conn, sessionID string) {
 	t.Helper()
-	wantMessage := "session " + strconv.Quote(sessionID) + " not available"
 	for _, tc := range []struct {
-		name   string
-		method string
-		params any
+		method protoreflect.Name
+		params proto.Message
+		result proto.Message
 	}{
-		{name: "show", method: protocol.MethodRuntimeGoalShow, params: serverapi.RuntimeGoalShowRequest{SessionID: sessionID}},
-		{name: "set", method: protocol.MethodRuntimeGoalSet, params: serverapi.RuntimeGoalSetRequest{SessionID: sessionID, Objective: "ship", Actor: "user"}},
-		{name: "pause", method: protocol.MethodRuntimeGoalPause, params: serverapi.RuntimeGoalStatusRequest{SessionID: sessionID, Actor: "user"}},
-		{name: "resume", method: protocol.MethodRuntimeGoalResume, params: serverapi.RuntimeGoalStatusRequest{SessionID: sessionID, Actor: "user"}},
-		{name: "complete", method: protocol.MethodRuntimeGoalComplete, params: serverapi.RuntimeGoalStatusRequest{SessionID: sessionID, Actor: "agent"}},
-		{name: "clear", method: protocol.MethodRuntimeGoalClear, params: serverapi.RuntimeGoalClearRequest{SessionID: sessionID, Actor: "user"}},
+		{method: "Show", params: &runtimepb.GoalShowRequest{SessionId: sessionID}, result: &runtimepb.GoalShowResult{}},
+		{
+			method: "Set",
+			params: &runtimepb.GoalSetRequest{
+				Target: &chatpb.ChatTarget{
+					Target: &chatpb.ChatTarget_Session{
+						Session: &chatpb.ExistingSessionTarget{SessionId: sessionID},
+					},
+				},
+				Objective:       "ship",
+				Actor:           "user",
+				ExecutionPolicy: runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE,
+			},
+			result: &runtimepb.GoalSetResult{},
+		},
+		{method: "Pause", params: &runtimepb.GoalMutationRequest{SessionId: sessionID, Actor: "user"}, result: &runtimepb.GoalPauseResult{}},
+		{method: "Resume", params: &runtimepb.GoalMutationRequest{SessionId: sessionID, Actor: "user"}, result: &runtimepb.GoalResumeResult{}},
+		{method: "Complete", params: &runtimepb.GoalMutationRequest{SessionId: sessionID, Actor: "user"}, result: &runtimepb.GoalCompleteResult{}},
+		{method: "Clear", params: &runtimepb.GoalClearRequest{SessionId: sessionID, Actor: "user"}, result: &runtimepb.GoalClearResult{}},
 	} {
-		err := callGatewayExpectError(t, conn, "foreign-goal-"+tc.name, tc.method, tc.params)
-		if err.Code != protocol.ErrCodeInternalError || err.Message != wantMessage {
-			t.Fatalf("foreign goal %s error = code %d message %q, want code %d message %q", tc.name, err.Code, err.Message, protocol.ErrCodeInternalError, wantMessage)
+		method := runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("GoalService").Methods().ByName(tc.method)
+		callGatewayDescriptor(t, conn, "foreign-goal-"+string(tc.method), method, tc.params, tc.result)
+		classification, err := protoapi.ClassifyResult(tc.result)
+		if err != nil || classification.Outcome == protoapi.OperationSuccess {
+			t.Fatalf("foreign Goal %s accepted: %v (%v)", tc.method, tc.result, err)
 		}
 	}
 }
@@ -1357,13 +1565,13 @@ func TestGatewayAllowsUnscopedSessionRetargetOutsideServerDefaultProject(t *test
 		t.Fatalf("EnsureDurable foreign: %v", err)
 	}
 
-	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolvedA.Config)
+	authSupport := newGatewayTestAuthSupport(t, resolvedA.Config.PersistenceRoot, true)
+	background, err := serverbootstrap.BuildShellManager(resolvedA.Config)
 	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
+		t.Fatalf("BuildShellManager: %v", err)
 	}
-	defer func() { _ = runtimeSupport.Background.Close() }()
-	appCore, err := core.New(resolvedA.Config, authSupport, runtimeSupport)
+	defer func() { _ = background.Close() }()
+	appCore, err := core.New(resolvedA.Config, authSupport, background)
 	if err != nil {
 		t.Fatalf("core.New: %v", err)
 	}
@@ -1399,34 +1607,38 @@ func TestGatewayAllowsOptionalSessionLifecycleRequestsWithoutSessionID(t *testin
 	}
 	defer func() { _ = remote.Close() }()
 
-	initialInput, err := remote.GetInitialInput(context.Background(), serverapi.SessionInitialInputRequest{TransitionInput: "draft text"})
-	if err != nil {
-		t.Fatalf("GetInitialInput: %v", err)
-	}
-	if initialInput.Input != "draft text" {
-		t.Fatalf("initial input = %q, want draft text", initialInput.Input)
+	conn := dialGateway(t, server)
+	defer func() { _ = conn.Close() }()
+	handshakeGateway(t, conn)
+	requireGatewayProjectAttachment(t, conn, "attach-initial-input", &connectionpb.AttachProjectRequest{ProjectId: binding.ProjectID})
+	initialInput := &sessionlaunchpb.SessionInitialInputResult{}
+	callGatewayDescriptor(t, conn, "initial-input",
+		sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionLifecycleService").Methods().ByName("GetInitialInput"),
+		&sessionlaunchpb.SessionInitialInputRequest{TransitionInput: "draft text"}, initialInput)
+	if initialInput.GetSuccess().GetInput() != "draft text" {
+		t.Fatalf("initial input = %v, want draft text", initialInput)
 	}
 
-	resolvedTransition, err := remote.ResolveTransition(context.Background(), serverapi.SessionResolveTransitionRequest{
-		Transition: serverapi.SessionTransition{
-			Action:        "new_session",
+	resolvedTransition, err := remote.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
+		Transition: &sessionlaunchpb.SessionTransition{
+			Action:        sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_NEW_SESSION,
 			InitialPrompt: "hello",
 		},
 	})
 	if err != nil {
 		t.Fatalf("ResolveTransition: %v", err)
 	}
-	intent, ok := resolvedTransition.LaunchIntent()
-	if !ok || intent.Kind() != serverapi.SessionLaunchIntentCreateNew {
+	intent, err := protoapi.SessionLaunchIntentFromProto(resolvedTransition.GetLaunch().GetIntent())
+	if err != nil || intent.Kind() != serverapi.SessionLaunchIntentCreateNew {
 		t.Fatalf("unexpected transition response: %+v", resolvedTransition)
 	}
-	preparation, ok := resolvedTransition.LaunchPreparation()
-	if !ok {
+	preparation := resolvedTransition.GetLaunch().GetPreparation()
+	if preparation == nil {
 		t.Fatal("transition response omitted launch preparation")
 	}
-	prompt, ok := preparation.InitialPrompt()
-	if !ok || prompt.Text != "hello" {
-		t.Fatalf("initial prompt = %+v/%v, want hello", prompt, ok)
+	prompt := preparation.InitialPrompt
+	if prompt == nil || prompt.Text != "hello" {
+		t.Fatalf("initial prompt = %+v, want hello", prompt)
 	}
 }
 
@@ -1444,14 +1656,14 @@ func TestGatewayComposerDraftRoundTripKeepsServerAvailable(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	if _, err := remote.PersistInputDraft(context.Background(), serverapi.SessionPersistInputDraftRequest{
-		SessionID: store.Meta().SessionID,
+	if _, err := remote.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
+		SessionId: store.Meta().SessionID,
 		Input:     "visible draft",
 	}); err != nil {
 		t.Fatalf("PersistInputDraft: %v", err)
 	}
-	initialInput, err := remote.GetInitialInput(context.Background(), serverapi.SessionInitialInputRequest{
-		SessionID: store.Meta().SessionID,
+	initialInput, err := remote.GetInitialInput(context.Background(), &sessionlaunchpb.SessionInitialInputRequest{
+		SessionId: proto.String(store.Meta().SessionID),
 	})
 	if err != nil {
 		t.Fatalf("GetInitialInput: %v", err)
@@ -1490,8 +1702,11 @@ func TestGatewayProjectReattachClearsStaleSessionAttachment(t *testing.T) {
 	requireGatewaySessionAttachment(t, conn, "attach-session-a", storeA.Meta().SessionID)
 	requireGatewayProjectAttachment(t, conn, "attach-project-b", &connectionpb.AttachProjectRequest{ProjectId: bindingB.ProjectID})
 
-	if respErr := callGatewayExpectError(t, conn, "subscribe", protocol.MethodSessionSubscribeTranscript, serverapi.TranscriptSubscribeRequest{SessionID: storeA.Meta().SessionID}); respErr.Code != protocol.ErrCodeInvalidRequest {
-		t.Fatalf("expected session-attach-required error after project reattach, got %+v", respErr)
+	var result transcriptpb.SubscribeResult
+	callGatewayDescriptor(t, conn, "subscribe", transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("StreamService").Methods().ByName("Subscribe"),
+		&transcriptpb.SubscribeRequest{SessionId: storeA.Meta().SessionID}, &result)
+	if result.GetError() == nil {
+		t.Fatalf("expected session-attach-required error after project reattach, got %+v", &result)
 	}
 }
 

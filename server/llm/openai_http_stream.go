@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	"core/shared/llmerrors"
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 	"github.com/openai/openai-go/v3/responses"
 )
@@ -365,16 +367,100 @@ func (a *responseStreamAccumulator) Response() (OpenAIResponse, error) {
 		finalOutputItems = mergePassthroughOutputItems(repairAssistantOutputItems(parsedItems, finalText, finalTextPresent, finalPhase, streamOutputIndex, hasResolvedStream), a.passthrough.Items())
 	}
 
+	providerEvidence, evidenceErr := providerUsageEvidenceFromResponse(*a.completed, finalOutputItems)
+	if evidenceErr != nil {
+		return OpenAIResponse{}, evidenceErr
+	}
+
 	return OpenAIResponse{
-		AssistantText:  finalText,
-		ProviderPhase:  finalProviderPhase,
-		ServedModel:    textutil.Pointer(a.standardServedModel),
-		ToolCalls:      finalCalls,
-		Reasoning:      finalReasoning,
-		ReasoningItems: finalReasoningItems,
-		OutputItems:    finalOutputItems,
-		Usage:          usage,
+		AssistantText:    finalText,
+		ProviderPhase:    finalProviderPhase,
+		ServedModel:      textutil.Pointer(a.standardServedModel),
+		ToolCalls:        finalCalls,
+		Reasoning:        finalReasoning,
+		ReasoningItems:   finalReasoningItems,
+		OutputItems:      finalOutputItems,
+		Usage:            usage,
+		ProviderEvidence: providerEvidence,
 	}, nil
+}
+
+func providerUsageEvidenceFromResponse(
+	response responses.Response,
+	outputItems []ResponseItem,
+) (modelcontract.ProviderUsageEvidence, error) {
+	evidence := modelcontract.ProviderUsageEvidence{}
+	if id := strings.TrimSpace(response.ID); id != "" {
+		evidence.ResponseID = textutil.Value(id)
+	}
+	if response.CreatedAt > 0 {
+		createdAt := time.Unix(int64(response.CreatedAt), 0).UTC()
+		evidence.ResponseCreatedAt = &createdAt
+	}
+	if model := strings.TrimSpace(string(response.Model)); model != "" {
+		evidence.ServedModel = textutil.Value(model)
+	}
+	if tier := strings.TrimSpace(string(response.ServiceTier)); tier != "" {
+		evidence.ServedServiceTier = textutil.Value(tier)
+	}
+	if response.JSON.Usage.Valid() {
+		raw := json.RawMessage(response.Usage.RawJSON())
+		evidence.Usage = &raw
+	}
+	if field, ok := response.JSON.ExtraFields["usage_metadata"]; ok && field.Raw() != "" {
+		raw := json.RawMessage(field.Raw())
+		evidence.UsageMetadata = &raw
+	}
+	seenHostedIDs := make(map[string]struct{})
+	appendHostedTool := func(output responses.ResponseOutputItemUnion) error {
+		if output.Type != "web_search_call" {
+			return nil
+		}
+		webSearch := output.AsWebSearchCall()
+		actionType := strings.TrimSpace(webSearch.Action.Type)
+		switch actionType {
+		case "search", "open_page", "find_in_page":
+		default:
+			return fmt.Errorf("hosted web search output has unsupported action type %q", actionType)
+		}
+		if strings.TrimSpace(webSearch.ID) == "" || strings.TrimSpace(string(webSearch.Status)) == "" {
+			return fmt.Errorf("hosted web search output is missing required identity fields")
+		}
+		if _, exists := seenHostedIDs[webSearch.ID]; exists {
+			return nil
+		}
+		seenHostedIDs[webSearch.ID] = struct{}{}
+		tool := modelcontract.HostedToolUsageEvidence{
+			ID:     textutil.Value(webSearch.ID),
+			Type:   textutil.Value(string(webSearch.Type)),
+			Status: textutil.Value(string(webSearch.Status)),
+		}
+		tool.ActionKind = textutil.Value(actionType)
+		if field, ok := webSearch.JSON.ExtraFields["usage"]; ok && field.Raw() != "" {
+			raw := json.RawMessage(field.Raw())
+			tool.Usage = &raw
+		}
+		evidence.HostedTools = append(evidence.HostedTools, tool)
+		return nil
+	}
+	for _, item := range response.Output {
+		if err := appendHostedTool(item); err != nil {
+			return modelcontract.ProviderUsageEvidence{}, err
+		}
+	}
+	for _, item := range outputItems {
+		if item.Type != ResponseItemTypeOther || len(item.Raw) == 0 {
+			continue
+		}
+		var output responses.ResponseOutputItemUnion
+		if err := json.Unmarshal(item.Raw, &output); err != nil {
+			return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("decode hosted web search output: %w", err)
+		}
+		if err := appendHostedTool(output); err != nil {
+			return modelcontract.ProviderUsageEvidence{}, err
+		}
+	}
+	return evidence, nil
 }
 
 func responseItemsContainAssistantMessage(items []ResponseItem) bool {
@@ -926,7 +1012,7 @@ func (a *passthroughOutputAccumulator) Upsert(item responses.ResponseOutputItemU
 		a.order = append(a.order, outputIndex)
 	}
 	copyRaw := append(json.RawMessage(nil), raw...)
-	a.byIndex[outputIndex] = ResponseItem{Type: ResponseItemTypeOther, OutputIndex: outputIndex, Raw: copyRaw}
+	a.byIndex[outputIndex] = ResponseItem{Type: ResponseItemTypeOther, ID: textutil.OptionalExactString(item.ID), OutputIndex: outputIndex, Raw: copyRaw}
 }
 
 func (a *passthroughOutputAccumulator) Items() []ResponseItem {
@@ -951,31 +1037,39 @@ func mergePassthroughOutputItems(items []ResponseItem, passthrough []ResponseIte
 		return items
 	}
 	out := CloneResponseItems(items)
-	seen := make(map[string]struct{}, len(out))
-	completedCompactionIndexes := make(map[int64]struct{})
-	for _, item := range out {
+	seenIDs := make(map[string]struct{}, len(out))
+	seenUnidentifiedIndexes := make(map[int64]struct{})
+	seenCompactionIndexes := make(map[int64]struct{})
+	register := func(item ResponseItem) bool {
 		if item.Type == ResponseItemTypeCompaction {
-			completedCompactionIndexes[item.OutputIndex] = struct{}{}
+			_, exists := seenCompactionIndexes[item.OutputIndex]
+			seenCompactionIndexes[item.OutputIndex] = struct{}{}
+			return exists
 		}
-		if (item.Type != ResponseItemTypeOther && item.Type != ResponseItemTypeCompaction) || len(item.Raw) == 0 {
-			continue
+		if item.Type != ResponseItemTypeOther {
+			return false
 		}
-		seen[fmt.Sprintf("%d\x00%s", item.OutputIndex, string(item.Raw))] = struct{}{}
+		if item.ID != nil {
+			_, exists := seenIDs[*item.ID]
+			seenIDs[*item.ID] = struct{}{}
+			return exists
+		}
+		_, exists := seenUnidentifiedIndexes[item.OutputIndex]
+		seenUnidentifiedIndexes[item.OutputIndex] = struct{}{}
+		return exists
+	}
+	// Completed output owns the final payload. JSON bytes can change between
+	// output_item.done and response.completed without changing item identity.
+	for _, item := range out {
+		register(item)
 	}
 	for _, item := range passthrough {
-		if item.Type == ResponseItemTypeCompaction {
-			if _, exists := completedCompactionIndexes[item.OutputIndex]; exists {
-				continue
-			}
-		}
 		if (item.Type != ResponseItemTypeOther && item.Type != ResponseItemTypeCompaction) || len(item.Raw) == 0 {
 			continue
 		}
-		key := fmt.Sprintf("%d\x00%s", item.OutputIndex, string(item.Raw))
-		if _, exists := seen[key]; exists {
+		if register(item) {
 			continue
 		}
-		seen[key] = struct{}{}
 		copyItem := item
 		copyItem.Raw = append(json.RawMessage(nil), item.Raw...)
 		out = append(out, copyItem)

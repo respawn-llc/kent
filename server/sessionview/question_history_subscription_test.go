@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"core/server/session"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	"core/shared/serverapi"
 	"core/shared/transcript"
 )
@@ -36,43 +37,39 @@ func TestQuestionHistorySubscriptionProjectsNewestAnsweredQuestions(t *testing.T
 	))
 
 	sub, err := NewService(newTestSessionResolver(store), nil, nil).
-		SubscribeQuestionHistory(t.Context(), serverapi.QuestionHistorySubscribeRequest{
-			SessionID: store.Meta().SessionID, MaxHandoffs: 2,
+		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
+			SessionId: store.Meta().SessionID, MaxHandoffs: 2,
 		})
 	if err != nil {
 		t.Fatalf("subscribe Question history: %v", err)
 	}
 	defer sub.Close()
 	started := nextQuestionHistoryEvent(t, sub)
-	if started.Kind != serverapi.QuestionHistoryEventStarted ||
-		started.LargeHistory == nil ||
-		*started.LargeHistory {
+	if started.GetStarted() == nil || started.GetStarted().LargeHistory {
 		t.Fatalf("started event = %#v", started)
 	}
-	newer := nextQuestionHistoryEvent(t, sub)
-	if newer.Question == nil ||
-		newer.Question.Question != "newer" ||
-		newer.Question.Answer != "freeform" ||
-		newer.Question.SelectedOptionNumber != nil ||
-		newer.Question.Commentary != nil ||
-		newer.Question.At == nil {
+	newer := nextQuestionHistoryEvent(t, sub).GetQuestion()
+	if newer == nil ||
+		newer.Question != "newer" ||
+		newer.Answer != "freeform" ||
+		newer.SelectedOptionNumber != nil ||
+		newer.Commentary != nil ||
+		newer.CommittedAt == nil {
 		t.Fatalf("newer Question = %#v", newer)
 	}
-	older := nextQuestionHistoryEvent(t, sub)
-	if older.Question == nil ||
-		older.Question.Question != "older" ||
-		older.Question.Answer != "second" ||
-		older.Question.SelectedOptionNumber == nil ||
-		*older.Question.SelectedOptionNumber != 2 ||
-		older.Question.Commentary == nil ||
-		*older.Question.Commentary != "comment" ||
-		older.Question.At == nil {
+	older := nextQuestionHistoryEvent(t, sub).GetQuestion()
+	if older == nil ||
+		older.Question != "older" ||
+		older.Answer != "second" ||
+		older.SelectedOptionNumber == nil ||
+		*older.SelectedOptionNumber != 2 ||
+		older.Commentary == nil ||
+		*older.Commentary != "comment" ||
+		older.CommittedAt == nil {
 		t.Fatalf("older Question = %#v", older)
 	}
 	completed := nextQuestionHistoryEvent(t, sub)
-	if completed.Kind != serverapi.QuestionHistoryEventCompleted ||
-		completed.HistoryOmitted == nil ||
-		*completed.HistoryOmitted {
+	if completed.GetCompleted() == nil || completed.GetCompleted().HistoryOmitted {
 		t.Fatalf("completed event = %#v", completed)
 	}
 	if _, err := sub.Next(t.Context()); err != io.EOF {
@@ -89,15 +86,15 @@ func TestQuestionHistorySubscriptionOmissionEmptyAndCancellation(t *testing.T) {
 		t.Fatalf("materialize event log: %v", err)
 	}
 	sub, err := NewService(newTestSessionResolver(store), nil, nil).
-		SubscribeQuestionHistory(t.Context(), serverapi.QuestionHistorySubscribeRequest{
-			SessionID: store.Meta().SessionID, MaxHandoffs: 1,
+		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
+			SessionId: store.Meta().SessionID, MaxHandoffs: 1,
 		})
 	if err != nil {
 		t.Fatalf("subscribe empty history: %v", err)
 	}
 	_ = nextQuestionHistoryEvent(t, sub)
 	completed := nextQuestionHistoryEvent(t, sub)
-	if completed.HistoryOmitted == nil || *completed.HistoryOmitted {
+	if completed.GetCompleted() == nil || completed.GetCompleted().HistoryOmitted {
 		t.Fatalf("empty completion = %#v", completed)
 	}
 	if err := sub.Close(); err != nil {
@@ -105,8 +102,8 @@ func TestQuestionHistorySubscriptionOmissionEmptyAndCancellation(t *testing.T) {
 	}
 
 	sub, err = NewService(newTestSessionResolver(store), nil, nil).
-		SubscribeQuestionHistory(t.Context(), serverapi.QuestionHistorySubscribeRequest{
-			SessionID: store.Meta().SessionID, MaxHandoffs: 1,
+		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
+			SessionId: store.Meta().SessionID, MaxHandoffs: 1,
 		})
 	if err != nil {
 		t.Fatalf("subscribe for cancellation: %v", err)
@@ -132,8 +129,8 @@ func TestQuestionHistorySubscriptionUsesOnlyPersistedResolver(t *testing.T) {
 		Meta:       sessionViewMetaPointer(store.Meta()),
 	}}
 	sub, err := NewService(resolver, nil, nil).
-		SubscribeQuestionHistory(t.Context(), serverapi.QuestionHistorySubscribeRequest{
-			SessionID: store.Meta().SessionID, MaxHandoffs: 1,
+		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
+			SessionId: store.Meta().SessionID, MaxHandoffs: 1,
 		})
 	if err != nil {
 		t.Fatalf("subscribe with persisted-only resolver: %v", err)
@@ -190,8 +187,8 @@ func TestQuestionHistorySubscriptionChecksCancellationWhileSkippingRecords(t *te
 		},
 	})
 	sub, err := NewService(newTestSessionResolver(store), nil, nil).
-		SubscribeQuestionHistory(t.Context(), serverapi.QuestionHistorySubscribeRequest{
-			SessionID: store.Meta().SessionID, MaxHandoffs: 1,
+		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
+			SessionId: store.Meta().SessionID, MaxHandoffs: 1,
 		})
 	if err != nil {
 		t.Fatalf("subscribe Question history: %v", err)
@@ -245,8 +242,8 @@ func TestQuestionHistorySubscriptionPullsThroughLargeSingleWindow(t *testing.T) 
 	}
 
 	sub, err := NewService(newTestSessionResolver(store), nil, nil).
-		SubscribeQuestionHistory(t.Context(), serverapi.QuestionHistorySubscribeRequest{
-			SessionID: store.Meta().SessionID, MaxHandoffs: 1,
+		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
+			SessionId: store.Meta().SessionID, MaxHandoffs: 1,
 		})
 	if err != nil {
 		t.Fatalf("subscribe Question history: %v", err)
@@ -254,11 +251,11 @@ func TestQuestionHistorySubscriptionPullsThroughLargeSingleWindow(t *testing.T) 
 	defer sub.Close()
 	_ = nextQuestionHistoryEvent(t, sub)
 	question := nextQuestionHistoryEvent(t, sub)
-	if question.Question == nil || question.Question.Question != "valid" {
+	if question.GetQuestion() == nil || question.GetQuestion().Question != "valid" {
 		t.Fatalf("projected Question = %#v", question)
 	}
 	completed := nextQuestionHistoryEvent(t, sub)
-	if completed.Kind != serverapi.QuestionHistoryEventCompleted {
+	if completed.GetCompleted() == nil {
 		t.Fatalf("completed event = %#v", completed)
 	}
 }
@@ -299,7 +296,7 @@ func questionCompletion(
 func nextQuestionHistoryEvent(
 	t *testing.T,
 	sub serverapi.QuestionHistorySubscription,
-) serverapi.QuestionHistoryEvent {
+) *sessionpb.QuestionHistoryEvent {
 	t.Helper()
 	event, err := sub.Next(t.Context())
 	if err != nil {

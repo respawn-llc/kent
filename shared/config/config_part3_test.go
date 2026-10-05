@@ -114,7 +114,7 @@ func TestLoadShellPostprocessingPrecedenceAndValidation(t *testing.T) {
 	assertConfigSource(t, cfg, "shell.postprocess_hook", "env")
 
 	t.Setenv("KENT_SHELL_POSTPROCESSING_MODE", "broken")
-	if _, err := Load(workspace, LoadOptions{}); err == nil {
+	if _, err := Load(workspace, workspace, LoadOptions{}); err == nil {
 		t.Fatal("expected invalid shell.postprocessing_mode")
 	}
 }
@@ -136,23 +136,6 @@ func TestLoadExpandsTildePersistenceRootFromEnv(t *testing.T) {
 	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if got := cfg.PersistenceRoot; got != filepath.Join(home, ".kent-custom") {
 		t.Fatalf("expanded persistence root mismatch: %q", got)
-	}
-}
-
-func TestLoadOpenAIBaseURLPrecedence(t *testing.T) {
-	_, workspace, configPath := newConfigTestFile(t)
-	writeConfigTestFile(t, configPath, `openai_base_url = "http://file.local/v1"`)
-
-	t.Setenv("KENT_OPENAI_BASE_URL", "http://env.local/v1")
-	cfg, err := Load(workspace, LoadOptions{OpenAIBaseURL: "http://cli.local/v1"})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if cfg.Settings.OpenAIBaseURL != "http://cli.local/v1" {
-		t.Fatalf("expected cli openai base url, got %q", cfg.Settings.OpenAIBaseURL)
-	}
-	if got := cfg.Source.Sources["openai_base_url"]; got != "cli" {
-		t.Fatalf("expected openai_base_url source cli, got %q", got)
 	}
 }
 
@@ -208,7 +191,7 @@ provider_identifier = "role-agent"
 
 func TestNormalizeSettingsForPersistence_AllowsDisabledThinkingWithReviewerInheritance(t *testing.T) {
 	settings := configRegistry.defaultState().Settings
-	settings.Model = "gpt-5.6-sol"
+	settings.Model = "gpt-6-sol"
 	settings.ThinkingLevel = ""
 	settings.Reviewer = ReviewerSettings{
 		Frequency:      "edits",
@@ -222,25 +205,11 @@ func TestNormalizeSettingsForPersistence_AllowsDisabledThinkingWithReviewerInher
 	if err != nil {
 		t.Fatalf("normalize settings for persistence: %v", err)
 	}
-	if normalized.Reviewer.Model != "gpt-5.6-sol" {
+	if normalized.Reviewer.Model != "gpt-6-sol" {
 		t.Fatalf("expected reviewer model to inherit main model, got %q", normalized.Reviewer.Model)
 	}
 	if normalized.Reviewer.ThinkingLevel != "" {
 		t.Fatalf("expected reviewer thinking to stay disabled, got %q", normalized.Reviewer.ThinkingLevel)
-	}
-}
-
-func TestNormalizeSettingsForPersistence_AllowsProviderOverrideWithExplicitPersistedModel(t *testing.T) {
-	settings := configRegistry.defaultState().Settings
-	settings.Model = "my-team-alias"
-	settings.ProviderOverride = "openai"
-
-	normalized, err := NormalizeSettingsForPersistenceWithSources(settings, nil)
-	if err != nil {
-		t.Fatalf("normalize settings for persistence: %v", err)
-	}
-	if normalized.ProviderOverride != "openai" {
-		t.Fatalf("expected provider_override preserved, got %q", normalized.ProviderOverride)
 	}
 }
 
@@ -261,7 +230,7 @@ func TestNormalizeSettingsForPersistenceWithSourcesRejectsModelContextWindowBelo
 	settings.ModelContextWindow = 39999
 	settings.ContextCompactionThresholdTokens = 30000
 	sources := configRegistry.defaultSourceMap()
-	sources["model_context_window"] = "file"
+	sources["model_context_window"] = Origin{Kind: SourceInput, Property: PropertyAddress{Key: "model_context_window"}}
 
 	if _, err := NormalizeSettingsForPersistenceWithSources(settings, sources); err == nil {
 		t.Fatal("expected model_context_window below minimum validation error")
@@ -277,7 +246,7 @@ func TestLoadCanonicalTimeoutEnvAndSourceKeys(t *testing.T) {
 	if cfg.Settings.Timeouts.ModelRequestSeconds != 123 {
 		t.Fatalf("expected canonical env model timeout, got %d", cfg.Settings.Timeouts.ModelRequestSeconds)
 	}
-	if got := cfg.Source.Sources["timeouts.model_request_seconds"]; got != "env" {
+	if got := cfg.Source.Sources["timeouts.model_request_seconds"].Kind; got != "env" {
 		t.Fatalf("expected timeouts.model_request_seconds source env, got %q", got)
 	}
 }
@@ -375,7 +344,7 @@ func TestLoadServerHostPortPrecedenceAndValidation(t *testing.T) {
 	}
 
 	t.Setenv("KENT_SERVER_PORT", "broken")
-	if _, err := Load(workspace, LoadOptions{}); err == nil {
+	if _, err := Load(workspace, workspace, LoadOptions{}); err == nil {
 		t.Fatal("expected invalid KENT_SERVER_PORT error")
 	}
 }
@@ -411,7 +380,7 @@ func TestLoadRejectsRemovedUseNativeCompactionSetting(t *testing.T) {
 }
 
 func TestLoadRejectsUnrelatedUnknownSettingKeys(t *testing.T) {
-	if err := loadConfigTestFileError(t, "model = \"gpt-5\"\nfoo = 1\n", LoadOptions{}); err == nil {
+	if err := loadConfigTestFileError(t, "model = \"gpt-6-sol\"\nfoo = 1\n", LoadOptions{}); err == nil {
 		t.Fatal("expected unknown settings key error")
 	} else if !unknownSettingsKeyReported(err, "foo") {
 		t.Fatalf("expected unknown key name in error, got %v", err)
@@ -433,7 +402,7 @@ func TestLoadModelContextWindowPrecedence(t *testing.T) {
 	if cfg.Settings.ModelContextWindow != 420000 {
 		t.Fatalf("expected env model context window override, got %d", cfg.Settings.ModelContextWindow)
 	}
-	if got := cfg.Source.Sources["model_context_window"]; got != "env" {
+	if got := cfg.Source.Sources["model_context_window"].Kind; got != "env" {
 		t.Fatalf("expected model_context_window source env, got %q", got)
 	}
 }

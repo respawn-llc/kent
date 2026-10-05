@@ -12,21 +12,24 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/creack/pty v1.1.24
+	github.com/deepteams/webp v1.2.7
 	github.com/gdamore/tcell/v3 v3.4.1
 	github.com/go-faster/jx v1.2.0
 	github.com/gofrs/flock v0.13.0
 	github.com/google/uuid v1.6.0
 	github.com/invopop/jsonschema v0.14.0
+	github.com/joho/godotenv v1.6.0-pre.4
 	github.com/klauspost/compress v1.19.1
 	github.com/lxzan/gws v1.10.1
 	github.com/mattn/go-runewidth v0.0.27
 	github.com/muesli/termenv v0.16.0
-	github.com/openai/openai-go/v3 v3.50.0
+	github.com/openai/openai-go/v3 v3.56.0
 	github.com/pressly/goose/v3 v3.27.3
 	github.com/rivo/uniseg v0.4.7
 	github.com/sahilm/fuzzy v0.1.3
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/tursodatabase/libsql-client-go v0.0.0-20260528064733-9d5d30a29a60
+	golang.org/x/image v0.44.0
 	golang.org/x/net v0.57.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.45.0

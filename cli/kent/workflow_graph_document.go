@@ -3,12 +3,15 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"core/shared/jsoncontract"
+	"core/shared/protoapi"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 
 	invjsonschema "github.com/invopop/jsonschema"
+	"google.golang.org/protobuf/proto"
 )
 
 type workflowGraphDocument struct {
@@ -18,22 +21,22 @@ type workflowGraphDocument struct {
 }
 
 type workflowGraphDocumentGraph struct {
-	NodeGroups       []serverapi.WorkflowGraphDraftNodeGroup       `json:"node_groups"`
-	Nodes            []workflowGraphDocumentNode                   `json:"nodes"`
-	TransitionGroups []serverapi.WorkflowGraphDraftTransitionGroup `json:"transition_groups"`
-	Edges            []serverapi.WorkflowGraphDraftEdge            `json:"edges"`
+	NodeGroups       []workflowGraphDocumentNodeGroup  `json:"node_groups"`
+	Nodes            []workflowGraphDocumentNode       `json:"nodes"`
+	TransitionGroups []workflowGraphDocumentTransition `json:"transition_groups"`
+	Edges            []workflowGraphDocumentEdge       `json:"edges"`
 }
 
 type workflowGraphDocumentNode struct {
-	ID                 string                                `json:"id"`
-	Key                string                                `json:"key"`
-	Kind               string                                `json:"kind"`
-	DisplayName        string                                `json:"display_name"`
-	GroupID            *string                               `json:"group_id" jsonschema:"nullable"`
-	SubagentRole       string                                `json:"subagent_role,omitempty"`
-	CompletionMode     string                                `json:"completion_mode,omitempty"`
-	ScriptPath         *string                               `json:"script_path,omitempty" jsonschema:"nullable"`
-	JoinInputProviders []serverapi.WorkflowJoinInputProvider `json:"join_input_providers,omitempty"`
+	ID                 string                          `json:"id"`
+	Key                string                          `json:"key"`
+	Kind               string                          `json:"kind"`
+	DisplayName        string                          `json:"display_name"`
+	GroupID            *string                         `json:"group_id" jsonschema:"nullable"`
+	SubagentRole       string                          `json:"subagent_role,omitempty"`
+	CompletionMode     string                          `json:"completion_mode,omitempty"`
+	ScriptPath         *string                         `json:"script_path,omitempty" jsonschema:"nullable"`
+	JoinInputProviders []workflowJoinInputProviderJSON `json:"join_input_providers,omitempty"`
 }
 
 func allowWorkflowGraphUnknownFields(schema *invjsonschema.Schema) {
@@ -96,41 +99,57 @@ func prepareWorkflowGraphDocumentContract() (workflowGraphDocumentContract, erro
 	return workflowGraphDocumentContract{schema: schema}, nil
 }
 
-func workflowGraphDocumentFromDefinition(definition serverapi.WorkflowDefinition) (workflowGraphDocument, error) {
+func workflowGraphDocumentFromDefinition(definition *pb.WorkflowDefinition) (workflowGraphDocument, error) {
+	id, err := runtimeids.ParseWorkflowID(definition.Workflow.Id)
+	if err != nil {
+		return workflowGraphDocument{}, err
+	}
 	return workflowGraphDocumentFromDraft(
-		definition.Workflow.ID,
+		id,
 		definition.Workflow.Version,
-		serverapi.WorkflowGraphDraftFromDefinition(definition),
+		protoapi.WorkflowGraphDraftFromDefinition(definition),
 	)
 }
 
 func workflowGraphDocumentFromDraft(
 	workflowID runtimeids.WorkflowID,
 	expectedVersion int64,
-	graph serverapi.WorkflowGraphDraft,
+	graph *pb.GraphDraft,
 ) (workflowGraphDocument, error) {
 	document := workflowGraphDocument{
 		WorkflowID:      workflowID,
 		ExpectedVersion: expectedVersion,
 		Graph: workflowGraphDocumentGraph{
-			NodeGroups:       graph.NodeGroups,
+			NodeGroups:       make([]workflowGraphDocumentNodeGroup, 0, len(graph.NodeGroups)),
 			Nodes:            make([]workflowGraphDocumentNode, 0, len(graph.Nodes)),
-			TransitionGroups: graph.TransitionGroups,
-			Edges:            graph.Edges,
+			TransitionGroups: make([]workflowGraphDocumentTransition, 0, len(graph.TransitionGroups)),
+			Edges:            make([]workflowGraphDocumentEdge, 0, len(graph.Edges)),
 		},
 	}
-	for _, node := range graph.Nodes {
-		document.Graph.Nodes = append(document.Graph.Nodes, workflowGraphDocumentNode{
-			ID:                 node.ID,
-			Key:                node.Key,
-			Kind:               node.Kind,
-			DisplayName:        node.DisplayName,
-			GroupID:            node.GroupID,
-			SubagentRole:       node.SubagentRole,
-			CompletionMode:     node.CompletionMode,
-			ScriptPath:         node.ScriptPath,
-			JoinInputProviders: node.JoinInputProviders,
+	for _, group := range graph.NodeGroups {
+		document.Graph.NodeGroups = append(document.Graph.NodeGroups, workflowGraphDocumentNodeGroup{
+			ID: group.Id, Key: group.Key, DisplayName: group.DisplayName,
 		})
+	}
+	for _, node := range graph.Nodes {
+		value, err := workflowDocumentNode(node)
+		if err != nil {
+			return workflowGraphDocument{}, err
+		}
+		document.Graph.Nodes = append(document.Graph.Nodes, value)
+	}
+	for _, group := range graph.TransitionGroups {
+		document.Graph.TransitionGroups = append(document.Graph.TransitionGroups, workflowGraphDocumentTransition{
+			ID: group.Id, SourceNodeID: group.SourceNodeId, TransitionID: group.TransitionId,
+			DisplayName: group.DisplayName, Description: group.Description,
+		})
+	}
+	for _, edge := range graph.Edges {
+		value, err := workflowDocumentEdge(edge)
+		if err != nil {
+			return workflowGraphDocument{}, err
+		}
+		document.Graph.Edges = append(document.Graph.Edges, value)
 	}
 	return document, nil
 }
@@ -146,32 +165,56 @@ func (c workflowGraphDocumentContract) Decode(data []byte) (workflowGraphDocumen
 	return document, nil
 }
 
-func (d workflowGraphDocument) WorkflowGraphDraft() (serverapi.WorkflowGraphDraft, error) {
-	graph := serverapi.WorkflowGraphDraft{
-		NodeGroups:       d.Graph.NodeGroups,
-		Nodes:            make([]serverapi.WorkflowGraphDraftNode, 0, len(d.Graph.Nodes)),
-		TransitionGroups: d.Graph.TransitionGroups,
-		Edges:            d.Graph.Edges,
+func (d workflowGraphDocument) WorkflowGraphDraft() (*pb.GraphDraft, error) {
+	graph := &pb.GraphDraft{}
+	for _, group := range d.Graph.NodeGroups {
+		graph.NodeGroups = append(graph.NodeGroups, &pb.GraphDraftNodeGroup{Id: group.ID, Key: group.Key, DisplayName: group.DisplayName})
 	}
 	for _, node := range d.Graph.Nodes {
-		graph.Nodes = append(graph.Nodes, serverapi.WorkflowGraphDraftNode{
-			ID:                 node.ID,
-			Key:                node.Key,
-			Kind:               node.Kind,
-			DisplayName:        node.DisplayName,
-			GroupID:            node.GroupID,
-			SubagentRole:       node.SubagentRole,
-			CompletionMode:     node.CompletionMode,
-			ScriptPath:         node.ScriptPath,
-			JoinInputProviders: node.JoinInputProviders,
+		kind, err := protoapi.WorkflowNodeKind.Encode(strings.TrimSpace(node.Kind))
+		if err != nil {
+			return nil, err
+		}
+		projected := &pb.GraphDraftNode{
+			Id: node.ID, Key: node.Key, Kind: kind, DisplayName: node.DisplayName,
+			GroupId: node.GroupID, ScriptPath: node.ScriptPath,
+		}
+		if node.SubagentRole != "" {
+			projected.SubagentRole = proto.String(node.SubagentRole)
+		}
+		if node.CompletionMode != "" {
+			mode, err := protoapi.WorkflowCompletionMode.Encode(strings.TrimSpace(node.CompletionMode))
+			if err != nil {
+				return nil, err
+			}
+			projected.CompletionMode = &mode
+		}
+		for _, provider := range node.JoinInputProviders {
+			projected.JoinInputProviders = append(projected.JoinInputProviders, &pb.DraftJoinInputProvider{
+				InputName: provider.InputName, ProviderEdgeId: provider.ProviderEdgeID,
+			})
+		}
+		graph.Nodes = append(graph.Nodes, projected)
+	}
+	for _, group := range d.Graph.TransitionGroups {
+		graph.TransitionGroups = append(graph.TransitionGroups, &pb.GraphDraftTransitionGroup{
+			Id: group.ID, SourceNodeId: group.SourceNodeID, TransitionId: group.TransitionID,
+			DisplayName: group.DisplayName, Description: group.Description,
 		})
 	}
-	if err := (serverapi.WorkflowGraphValidateDraftRequest{
-		WorkflowID: d.WorkflowID,
+	for _, edge := range d.Graph.Edges {
+		value, err := workflowDocumentEdgeToProto(edge)
+		if err != nil {
+			return nil, err
+		}
+		graph.Edges = append(graph.Edges, value)
+	}
+	if err := protoapi.Validate(&pb.GraphValidateDraftRequest{
+		WorkflowId: d.WorkflowID.String(),
 		Graph:      graph,
-		Modes:      []serverapi.WorkflowValidationMode{serverapi.WorkflowValidationModeDraft},
-	}).Validate(); err != nil {
-		return serverapi.WorkflowGraphDraft{}, err
+		Modes:      []pb.ValidationMode{pb.ValidationMode_WORKFLOW_VALIDATION_MODE_DRAFT},
+	}); err != nil {
+		return nil, err
 	}
 	return graph, nil
 }

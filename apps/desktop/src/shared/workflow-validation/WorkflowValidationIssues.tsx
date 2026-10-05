@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { WorkflowValidationError } from "@/api";
 import { normalizeWorkflowValidationErrors } from "./workflowValidationIssueNormalization";
 import { workflowValidationErrorDetails } from "./workflowValidationErrorDetails";
+import { workflowValidationErrorMessage } from "./workflowValidationErrorMessage";
 
 export type WorkflowValidationIssuesProps = Readonly<{
   errors: readonly WorkflowValidationError[];
@@ -16,7 +17,7 @@ export function WorkflowValidationIssues({ errors }: WorkflowValidationIssuesPro
       ? displayErrors.map((issue, index) => ({
           id: `${issue.code}-${index.toString()}`,
           details: workflowValidationErrorDetails(issue, t),
-          message: issue.message,
+          message: workflowValidationErrorMessage(issue, t),
         }))
       : [{ details: [], id: "unknown", message: t("board.invalidWorkflowUnknown") }];
   return (

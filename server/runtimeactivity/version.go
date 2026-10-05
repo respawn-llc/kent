@@ -7,7 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 )
 
 var (
@@ -15,12 +16,12 @@ var (
 	fallbackSequence atomic.Uint64
 )
 
-func NextReadModelVersion(sessionID string) clientui.ReadModelVersion {
+func NextReadModelVersion(sessionID string) *runtimepb.ReadModelVersion {
 	id := strings.TrimSpace(sessionID)
 	if id == "" {
 		id = "unknown"
 	}
-	version, err := clientui.NewReadModelVersion(
+	version, err := protoapi.NewReadModelVersion(
 		processEpoch+"-"+id,
 		1,
 		fallbackSequence.Add(1),
@@ -32,16 +33,16 @@ func NextReadModelVersion(sessionID string) clientui.ReadModelVersion {
 }
 
 func BuildFeedSnapshot(
-	version clientui.ReadModelVersion,
+	version *runtimepb.ReadModelVersion,
 	resolver ResolverSnapshot,
-) (clientui.RuntimeReadModelUpdate, error) {
+) (*runtimepb.ReadModelUpdate, error) {
 	activity, err := resolveRuntimeFeedActivity(resolver)
 	if err != nil {
-		return clientui.RuntimeReadModelUpdate{}, err
+		return &runtimepb.ReadModelUpdate{}, err
 	}
-	update := clientui.RuntimeReadModelUpdate{Version: version, Activity: activity}
-	if err := update.Validate(); err != nil {
-		return clientui.RuntimeReadModelUpdate{}, fmt.Errorf("validate runtime feed read-model update: %w", err)
+	update := &runtimepb.ReadModelUpdate{Version: version, Activity: activity}
+	if err := protoapi.Validate(update); err != nil {
+		return &runtimepb.ReadModelUpdate{}, fmt.Errorf("validate runtime feed read-model update: %w", err)
 	}
 	return update, nil
 }

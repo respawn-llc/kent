@@ -4,17 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 
 	"core/cli/app/internal/authui"
 	serverauth "core/server/auth"
 	"core/shared/apicontract"
 	"core/shared/config"
+	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	"core/shared/serverapi"
 
 	"github.com/charmbracelet/lipgloss"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 var (
@@ -22,37 +23,37 @@ var (
 	ErrOAuthStateMismatch = errors.New("oauth state mismatch")
 )
 
-func ensureRemoteAuthReady(ctx context.Context, remote apicontract.AuthBootstrapService, settings config.Settings, interactor authInteractor, interactive bool) error {
+func ensureRemoteAuthReady(ctx context.Context, remote onboardingConnectionClient, settings config.Settings, interactor authInteractor) error {
 	if remote == nil {
 		return errors.New("auth bootstrap client is required")
 	}
-	status, err := remote.GetBootstrapStatus(ctx, &emptypb.Empty{})
+	if settings.Connection == nil {
+		return nil
+	}
+	target := protoapi.ExistingConnectionTarget(*settings.Connection)
+	status, err := remote.GetBootstrapStatus(ctx, &authpb.GetBootstrapStatusRequest{Target: target})
 	if err != nil {
 		return err
 	}
 	if status.AuthReady {
-		disableRemoteNoAuth(remote)
 		return nil
 	}
 	if interactor == nil {
 		return serverapi.ErrServerAuthRequired
 	}
-	if !status.AuthRequired && !interactive {
+	return interactor.authenticateRemote(ctx, remote, settings, status)
+}
+
+func (*headlessAuthInteractor) authenticateRemote(ctx context.Context, remote onboardingConnectionClient, settings config.Settings, status *authpb.BootstrapStatus) error {
+	if !status.AuthRequired {
 		return nil
 	}
-	if interactive, ok := interactor.(*interactiveAuthInteractor); ok {
-		if status.NoAuthSelected {
-			return enableRemoteNoAuth(ctx, remote)
-		}
-		return interactive.completeRemoteAuthBootstrap(ctx, remote, settings, status, false)
-	}
-	apiKey := strings.TrimSpace(interactor.LookupEnv("OPENAI_API_KEY"))
-	if apiKey == "" {
-		return serverapi.ErrServerAuthRequired
+	if status.Method != authpb.AuthMethod_AUTH_METHOD_API_KEY {
+		return fmt.Errorf("connection %s requires sign-in: %w", status.ConnectionId, serverapi.ErrServerAuthRequired)
 	}
 	resp, err := remote.CompleteBootstrap(ctx, &authpb.CompleteBootstrapRequest{
 		Mode:   authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY,
-		ApiKey: &apiKey,
+		Target: protoapi.ExistingConnectionTarget(config.ConnectionID(status.ConnectionId)),
 	})
 	if err != nil {
 		return err
@@ -60,17 +61,35 @@ func ensureRemoteAuthReady(ctx context.Context, remote apicontract.AuthBootstrap
 	if !resp.AuthReady {
 		return serverapi.ErrServerAuthRequired
 	}
-	disableRemoteNoAuth(remote)
 	return nil
 }
 
-func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Context, remote apicontract.AuthBootstrapService, settings config.Settings, status *authpb.BootstrapStatus, force bool) error {
+func (i *interactiveAuthInteractor) authenticateRemote(ctx context.Context, remote onboardingConnectionClient, settings config.Settings, status *authpb.BootstrapStatus) error {
+	if status.Method == authpb.AuthMethod_AUTH_METHOD_API_KEY {
+		catalog, err := remote.GetConnections(ctx, &authpb.GetConnectionsRequest{})
+		if err != nil {
+			return err
+		}
+		for _, value := range catalog.Connections {
+			if value.Id == status.ConnectionId {
+				id, definition, err := protoapi.ConnectionFromProto(value)
+				if err != nil {
+					return err
+				}
+				return editConnectionReference(ctx, remote, string(settings.Theme), id, definition)
+			}
+		}
+		return &config.ConnectionReferenceError{Connection: settings.Connection}
+	}
+	return i.completeRemoteAuthBootstrap(ctx, remote, settings, protoapi.ExistingConnectionTarget(*settings.Connection), status, false)
+}
+
+func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Context, remote apicontract.AuthBootstrapService, settings config.Settings, target *authpb.ConnectionTarget, status *authpb.BootstrapStatus, force bool) error {
 	if i == nil {
 		return errors.New("interactive auth interactor is required")
 	}
 	req := authInteraction{
-		Theme:        string(settings.Theme),
-		HasEnvAPIKey: strings.TrimSpace(i.LookupEnv("OPENAI_API_KEY")) != "",
+		Theme: string(settings.Theme),
 	}
 	for {
 		choice, err := i.chooseMethod(req)
@@ -79,58 +98,51 @@ func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Cont
 		}
 		completeReq, err := i.collectRemoteBootstrapRequest(ctx, req.Theme, choice, status)
 		if err != nil {
+			if errors.Is(err, ErrAuthCanceledByUser) {
+				return err
+			}
+			log.Printf("collect connection sign-in: %v", err)
 			req.FlowErr = err
 			continue
 		}
 		completeReq.Force = force
-		resp, err := remote.CompleteBootstrap(ctx, completeReq)
+		completeReq.Target = target
+		resp, err := runConnectionOperation(ctx, req.Theme, func() (*authpb.BootstrapCompletion, error) {
+			return remote.CompleteBootstrap(ctx, completeReq)
+		})
 		if err != nil {
+			if errors.Is(err, ErrAuthCanceledByUser) {
+				return err
+			}
+			log.Printf("complete connection sign-in: %v", err)
 			req.FlowErr = err
 			continue
 		}
-		if completeReq.Mode == authpb.BootstrapMode_BOOTSTRAP_MODE_NONE && resp.NoAuthSelected {
-			if err := enableRemoteNoAuth(ctx, remote); err != nil {
-				return err
-			}
-			i.printAuthSection(req.Theme, "Server Auth Skipped", []string{lipgloss.NewStyle().Foreground(uiPalette(req.Theme).muted).Faint(true).Render("Kent will proceed without configured server auth.")})
+		if resp.Method == authpb.AuthMethod_AUTH_METHOD_NONE {
+			i.printAuthSection(req.Theme, "Connection", []string{fmt.Sprintf("%s does not require sign-in.", resp.ConnectionId)})
 			return nil
 		}
 		if !resp.AuthReady {
 			req.FlowErr = serverapi.ErrServerAuthRequired
 			continue
 		}
-		disableRemoteNoAuth(remote)
-		i.printAuthSection(req.Theme, "Server Auth Ready", []string{lipgloss.NewStyle().Foreground(uiPalette(req.Theme).muted).Faint(true).Render("Kent configured auth on the server.")})
+		i.printAuthSection(req.Theme, "Connection signed in", []string{lipgloss.NewStyle().Foreground(uiPalette(req.Theme).muted).Faint(true).Render(resp.ConnectionId)})
 		return nil
 	}
 }
 
-type remoteNoAuthAcknowledgementEnabler interface {
-	EnableNoAuthBootstrapAcknowledgement(context.Context) error
-}
-
-type remoteNoAuthAcknowledgementDisabler interface {
-	DisableNoAuthBootstrapAcknowledgement()
-}
-
-func enableRemoteNoAuth(ctx context.Context, remote apicontract.AuthBootstrapService) error {
-	if enabler, ok := remote.(remoteNoAuthAcknowledgementEnabler); ok {
-		return enabler.EnableNoAuthBootstrapAcknowledgement(ctx)
-	}
-	resp, err := remote.AcknowledgeNoAuth(ctx, &emptypb.Empty{})
+func signInConnection(ctx context.Context, remote apicontract.AuthBootstrapService, selectedTheme string, target *authpb.ConnectionTarget, force bool) error {
+	status, err := runConnectionOperation(ctx, selectedTheme, func() (*authpb.BootstrapStatus, error) {
+		return remote.GetBootstrapStatus(ctx, &authpb.GetBootstrapStatusRequest{Target: target})
+	})
 	if err != nil {
 		return err
 	}
-	if resp.NoAuthSelected || resp.AuthReady {
+	if status.AuthReady && !force {
 		return nil
 	}
-	return serverapi.ErrServerAuthRequired
-}
-
-func disableRemoteNoAuth(remote apicontract.AuthBootstrapService) {
-	if disabler, ok := remote.(remoteNoAuthAcknowledgementDisabler); ok {
-		disabler.DisableNoAuthBootstrapAcknowledgement()
-	}
+	interactor := newInteractiveAuthInteractor()
+	return interactor.completeRemoteAuthBootstrap(ctx, remote, config.Settings{Theme: selectedTheme}, target, status, force)
 }
 
 func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Context, theme string, choice authMethodChoice, status *authpb.BootstrapStatus) (*authpb.CompleteBootstrapRequest, error) {
@@ -142,14 +154,6 @@ func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Co
 	}
 	oauthOpts := authui.OAuthOptions{Issuer: status.GetOauth().GetIssuer(), ClientID: status.GetOauth().GetClientId()}
 	switch choice {
-	case authMethodChoiceSkip:
-		return &authpb.CompleteBootstrapRequest{Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_NONE}, nil
-	case authMethodChoiceEnvAPIKey:
-		apiKey := strings.TrimSpace(i.LookupEnv("OPENAI_API_KEY"))
-		if apiKey == "" {
-			return nil, errors.New("OPENAI_API_KEY is not available")
-		}
-		return &authpb.CompleteBootstrapRequest{Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY, ApiKey: &apiKey}, nil
 	case authMethodChoiceBrowserAuto:
 		return i.collectRemoteBrowserAuto(ctx, oauthOpts, theme)
 	case authMethodChoiceDevice:
@@ -190,20 +194,20 @@ func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context
 		OpenErr:      openErr,
 	}, func(waitCtx context.Context) (authui.OAuthBrowserCallback, error) {
 		return listener.Wait(waitCtx, opts.PollTimeout)
-	}, func(_ context.Context, input string) (authui.AuthMethod, error) {
+	}, func(_ context.Context, input string) error {
 		parsed, err := serverauth.ParseOAuthCallbackInput(input)
 		if err != nil {
-			return authui.AuthMethod{}, err
+			return err
 		}
 		sessionState := strings.TrimSpace(session.State)
 		parsedState := strings.TrimSpace(parsed.State)
 		if sessionState != "" && parsedState != "" && parsedState != sessionState {
-			return authui.AuthMethod{}, ErrOAuthStateMismatch
+			return ErrOAuthStateMismatch
 		}
 		if strings.TrimSpace(parsed.Code) == "" {
-			return authui.AuthMethod{}, errors.New("oauth callback is missing code")
+			return errors.New("oauth callback is missing code")
 		}
-		return authui.AuthMethod{Type: "oauth"}, nil
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -244,10 +248,6 @@ func (i *interactiveAuthInteractor) collectRemoteDevice(ctx context.Context, opt
 func supportsBootstrapMode(modes []authpb.BootstrapMode, choice authMethodChoice) bool {
 	need := authpb.BootstrapMode_BOOTSTRAP_MODE_UNSPECIFIED
 	switch choice {
-	case authMethodChoiceSkip:
-		need = authpb.BootstrapMode_BOOTSTRAP_MODE_NONE
-	case authMethodChoiceEnvAPIKey:
-		need = authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY
 	case authMethodChoiceBrowserAuto:
 		need = authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL
 	case authMethodChoiceDevice:

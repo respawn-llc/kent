@@ -11,6 +11,7 @@ import (
 	"core/server/llm"
 	"core/server/skillcatalog"
 	brand "core/shared/config"
+	"core/shared/pathutil"
 	"core/shared/textutil"
 )
 
@@ -39,10 +40,8 @@ func TestSkillsContextMessageIncludesCodexPromptAndSkillEntries(t *testing.T) {
 	}
 
 	for _, required := range []string{
-		skillsAvailableHeader,
-		"- home-skill: " + filepath.ToSlash(homeSkillPath) + " . from home",
-		"- workspace-skill: " + filepath.ToSlash(workspaceSkillPath) + " . from workspace",
-		"For each skill, `SKILL.md` is the main index file to start with.",
+		pathutil.Compact(homeSkillPath, workspace, home),
+		pathutil.Compact(workspaceSkillPath, workspace, home),
 	} {
 		if !strings.Contains(content, required) {
 			t.Fatalf("expected skills context to include %q, got %q", required, content)
@@ -99,7 +98,7 @@ func TestSkillsContextMessageLoadsSymlinkedSkillDirectory(t *testing.T) {
 	if !found {
 		t.Fatal("expected symlinked skill to be discovered")
 	}
-	want := "- linked-skill: " + filepath.ToSlash(targetSkillPath) + " . from symlink"
+	want := pathutil.Compact(targetSkillPath, workspace, home)
 	if !strings.Contains(content, want) {
 		t.Fatalf("expected symlinked skill entry %q, got %q", want, content)
 	}
@@ -133,7 +132,7 @@ func TestSkillsContextMessageLoadsSkillFromSymlinkedGlobalSkillsRoot(t *testing.
 	if !found {
 		t.Fatal("expected skill from symlinked global skills root to be discovered")
 	}
-	want := "- linked-skill: " + filepath.ToSlash(targetSkillPath) + " . from symlinked global root"
+	want := pathutil.Compact(targetSkillPath, workspace, home)
 	if !strings.Contains(content, want) {
 		t.Fatalf("expected symlinked global skill entry %q, got %q", want, content)
 	}
@@ -157,7 +156,7 @@ func TestSkillsContextMessageSkipsBrokenSymlinkedSkillDirectory(t *testing.T) {
 	if !found {
 		t.Fatal("expected valid skill to remain discoverable")
 	}
-	if !strings.Contains(content, "- valid-skill: "+filepath.ToSlash(validSkillPath)+" . from workspace") {
+	if !strings.Contains(content, pathutil.Compact(validSkillPath, workspace, home)) {
 		t.Fatalf("expected valid skill entry to remain, got %q", content)
 	}
 	if strings.Contains(content, "broken-skill") {
@@ -184,73 +183,50 @@ func TestSkillsContextMessageFailsOnUnreadableSkillsDirectory(t *testing.T) {
 	}
 }
 
-func TestSplitMetaContextMessagesSeparatesMetaContextWithoutDeduplication(t *testing.T) {
+func TestReviewerRequestSeparatesContextFromTranscript(t *testing.T) {
 	t.Parallel()
-	skillsMessage := llm.Message{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeSkills), Content: textutil.Value("## Skills\n### Available skills")}
-	messages := []llm.Message{
-		skillsMessage,
-		skillsMessage,
-		{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeEnvironment), Content: textutil.Value(environmentInjectedHeader + "\nOS: darwin")},
-		{Role: llm.RoleUser, Content: textutil.Value("request")},
-	}
-
-	meta, transcript := splitMetaContextMessages(messages)
-	if len(meta) != 3 {
-		t.Fatalf("expected split to preserve duplicate meta candidates, got %d", len(meta))
-	}
-	if meta[0].MessageType == nil || *meta[0].MessageType != llm.MessageTypeSkills {
-		t.Fatalf("expected first meta message to be skills context, got %+v", meta[0])
-	}
-	if meta[1].MessageType == nil || *meta[1].MessageType != llm.MessageTypeSkills {
-		t.Fatalf("expected second meta message to remain duplicate skills context, got %+v", meta[1])
-	}
-	if meta[2].MessageType == nil || *meta[2].MessageType != llm.MessageTypeEnvironment {
-		t.Fatalf("expected third meta message to be environment context, got %+v", meta[2])
-	}
-	if len(transcript) != 1 || transcript[0].Role != llm.RoleUser || messageContent(transcript[0]) != "request" {
-		t.Fatalf("expected transcript to contain only user request, got %+v", transcript)
-	}
-}
-
-func TestSplitMetaContextMessagesTreatsHeadlessContextAsMeta(t *testing.T) {
-	t.Parallel()
-	headless := llm.Message{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeHeadlessMode), Content: textutil.Value("headless mode instructions")}
-	messages := []llm.Message{
-		headless,
-		headless,
-		{Role: llm.RoleUser, Content: textutil.Value("request")},
-	}
-
-	meta, transcript := splitMetaContextMessages(messages)
-	if len(meta) != 2 {
-		t.Fatalf("expected split to preserve duplicate headless meta messages, got %d", len(meta))
-	}
-	if meta[0].MessageType == nil || *meta[0].MessageType != llm.MessageTypeHeadlessMode {
-		t.Fatalf("expected headless meta message, got %+v", meta[0])
-	}
-	if len(transcript) != 1 || transcript[0].Role != llm.RoleUser || messageContent(transcript[0]) != "request" {
-		t.Fatalf("expected transcript to contain only user request, got %+v", transcript)
-	}
-}
-
-func TestSplitMetaContextMessagesTreatsHeadlessExitContextAsMeta(t *testing.T) {
-	t.Parallel()
-	headlessExit := llm.Message{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeHeadlessModeExit), Content: textutil.Value("interactive mode instructions")}
-	messages := []llm.Message{
-		headlessExit,
-		headlessExit,
-		{Role: llm.RoleUser, Content: textutil.Value("request")},
-	}
-
-	meta, transcript := splitMetaContextMessages(messages)
-	if len(meta) != 2 {
-		t.Fatalf("expected split to preserve duplicate headless exit meta messages, got %d", len(meta))
-	}
-	if meta[0].MessageType == nil || *meta[0].MessageType != llm.MessageTypeHeadlessModeExit {
-		t.Fatalf("expected headless exit meta message, got %+v", meta[0])
-	}
-	if len(transcript) != 1 || transcript[0].Role != llm.RoleUser || messageContent(transcript[0]) != "request" {
-		t.Fatalf("expected transcript to contain only user request, got %+v", transcript)
+	for _, messageType := range []llm.MessageType{
+		llm.MessageTypeSkills,
+		llm.MessageTypeHeadlessMode,
+		llm.MessageTypeHeadlessModeExit,
+		llm.MessageTypeSubagents,
+	} {
+		t.Run(string(messageType), func(t *testing.T) {
+			t.Parallel()
+			contextItem := llm.ResponseItem{
+				Type:        llm.ResponseItemTypeMessage,
+				Role:        textutil.Value(llm.RoleDeveloper),
+				MessageType: textutil.Value(messageType),
+				Content:     textutil.Value("context"),
+			}
+			items := []llm.ResponseItem{
+				contextItem,
+				contextItem,
+				{
+					Type:        llm.ResponseItemTypeMessage,
+					Role:        textutil.Value(llm.RoleDeveloper),
+					MessageType: textutil.Value(llm.MessageTypeEnvironment),
+					Content:     textutil.Value("environment"),
+				},
+				{Type: llm.ResponseItemTypeMessage, Role: textutil.Value(llm.RoleUser), Content: textutil.Value("request")},
+			}
+			root := t.TempDir()
+			got, err := buildReviewerRequestItemsWithBuilder(items,
+				newMetaContextBuilder(root, "model", "", brand.SkillPolicy{}, time.Unix(0, 0)).
+					withGlobalConfigDir(filepath.Join(root, "global")), false)
+			if err != nil {
+				t.Fatalf("build reviewer request: %v", err)
+			}
+			messages := llm.MessagesFromItems(got)
+			if len(messages) != 4 {
+				t.Fatalf("expected context, environment, boundary, and one transcript entry, got %+v", messages)
+			}
+			assertMetaContextTypes(t, messages[:2], []llm.MessageType{messageType, llm.MessageTypeEnvironment})
+			if messages[2].Role != llm.RoleDeveloper || messages[2].MessageType != nil ||
+				messages[3].Role != llm.RoleUser {
+				t.Fatalf("expected developer boundary followed by user transcript, got %+v", messages[2:])
+			}
+		})
 	}
 }
 
@@ -313,9 +289,9 @@ func TestGeneratedSkillsAreInjectedAfterUserSkills(t *testing.T) {
 		t.Fatal("expected skills context")
 	}
 	expected := []string{
-		"- Home Skill: " + filepath.ToSlash(homeSkillPath) + " . from home",
-		"- Workspace Skill: " + filepath.ToSlash(workspaceSkillPath) + " . from workspace",
-		"- skill-creator: " + filepath.ToSlash(generatedSkillPath) + " . generated",
+		pathutil.Compact(homeSkillPath, workspace, home),
+		pathutil.Compact(workspaceSkillPath, workspace, home),
+		pathutil.Compact(generatedSkillPath, workspace, home),
 	}
 	previous := -1
 	for _, text := range expected {
@@ -345,8 +321,8 @@ func TestUserSkillDuplicateNameBehaviorIsUnchanged(t *testing.T) {
 	if !found {
 		t.Fatal("expected skills context")
 	}
-	homeEntry := "- same-skill: " + filepath.ToSlash(homeSkillPath) + " . from home"
-	workspaceEntry := "- same-skill: " + filepath.ToSlash(workspaceSkillPath) + " . from workspace"
+	homeEntry := pathutil.Compact(homeSkillPath, workspace, home)
+	workspaceEntry := pathutil.Compact(workspaceSkillPath, workspace, home)
 	homeIdx := strings.Index(content, homeEntry)
 	workspaceIdx := strings.Index(content, workspaceEntry)
 	if homeIdx < 0 || workspaceIdx < 0 {
@@ -372,7 +348,7 @@ func TestGeneratedSkillIsShadowedByUserSkillName(t *testing.T) {
 	if !found {
 		t.Fatal("expected skills context")
 	}
-	if !strings.Contains(content, "- skill-creator: "+filepath.ToSlash(userSkillPath)+" . workspace") {
+	if !strings.Contains(content, pathutil.Compact(userSkillPath, workspace, home)) {
 		t.Fatalf("expected user skill to remain, got %q", content)
 	}
 	if strings.Contains(content, "generated") {
@@ -396,7 +372,7 @@ func TestGeneratedSkillIsDisabledBySkillToggle(t *testing.T) {
 	}
 }
 
-func TestBuildReviewerRequestMessagesDoesNotRediscoverMissingSkills(t *testing.T) {
+func TestBuildReviewerRequestDoesNotRediscoverMissingSkills(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -404,17 +380,17 @@ func TestBuildReviewerRequestMessagesDoesNotRediscoverMissingSkills(t *testing.T
 	writeTestSkill(t, filepath.Join(home, brand.ConfigDirName, "skills", "home-skill"), "Home Skill", "from home")
 	writeTestSkill(t, filepath.Join(workspace, brand.ConfigDirName, "skills", "workspace-skill"), "Workspace Skill", "from workspace")
 
-	messages := []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("request")}}
-	got, err := buildReviewerRequestMessagesWithBuilder(
-		messages,
-		newMetaContextBuilder(workspace, "gpt-5", "high", skillPolicyWithDisabled("workspace skill"), time.Now()),
+	items := []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: textutil.Value(llm.RoleUser), Content: textutil.Value("request")}}
+	got, err := buildReviewerRequestItemsWithBuilder(
+		items,
+		newMetaContextBuilder(workspace, "gpt-6-sol", "high", skillPolicyWithDisabled("workspace skill"), time.Now()),
 		false,
 	)
 	if err != nil {
 		t.Fatalf("buildReviewerRequestMessages: %v", err)
 	}
 	for _, msg := range got {
-		if msg.Role == llm.RoleDeveloper && msg.MessageType != nil && *msg.MessageType == llm.MessageTypeSkills {
+		if msg.Role != nil && *msg.Role == llm.RoleDeveloper && msg.MessageType != nil && *msg.MessageType == llm.MessageTypeSkills {
 			t.Fatalf("reviewer rediscovered skills outside generation reconstruction: %+v", got)
 		}
 	}

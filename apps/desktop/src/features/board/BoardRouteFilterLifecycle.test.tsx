@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { RegistryProvider } from "@effect/atom-react";
 
 import type { TaskLabelFilter } from "@/api";
 import { BoardQueryProvider } from "./BoardQueryContext";
@@ -61,9 +62,11 @@ function TestApp({
   workflowID: string;
 }>) {
   return surface === "board" ? (
-    <BoardQueryProvider key={`${projectID}:${workflowID}`} labelFilter={labelFilter}>
-      <FilterProbe />
-    </BoardQueryProvider>
+    <RegistryProvider>
+      <BoardQueryProvider key={`${projectID}:${workflowID}`} labelFilter={labelFilter}>
+        <FilterProbe />
+      </BoardQueryProvider>
+    </RegistryProvider>
   ) : (
     <div data-testid="non-board">Inbox</div>
   );

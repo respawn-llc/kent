@@ -4,6 +4,7 @@ export {
 } from "./ExecutionTargetContinuationDialog";
 export {
   executeTaskInitiatingAction,
+  executionTargetBranchName,
   moveTaskInitiatingAction,
   proceedWithTaskInitiatingAction,
   resumeTaskInitiatingAction,
@@ -15,5 +16,4 @@ export {
   useTaskInitiatingActionController,
   type TaskInitiatingActionController,
 } from "./useExecutionTargetContinuation";
-export { useTaskLifecycleAction } from "./useTaskLifecycleAction";
-export { useTaskResumeAction } from "./useTaskResumeAction";
+export { useTaskInterruptAction } from "./useTaskInterruptAction";

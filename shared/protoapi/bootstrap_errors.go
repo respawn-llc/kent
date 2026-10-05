@@ -176,10 +176,6 @@ func OnboardingFinalizeErrorFromProto(message *onboardingpb.FinalizeError) error
 			return err
 		}
 		details = serverapi.OnboardingCanceledDetails{Phase: phase}
-	case *onboardingpb.FinalizeError_ServerNotReady:
-		return ServerNotReadyFromProto(detail.ServerNotReady)
-	case *onboardingpb.FinalizeError_InternalFailure:
-		return InternalFailureFromProto(detail.InternalFailure)
 	default:
 		return fmt.Errorf("onboarding finalize error detail %T is unsupported", detail)
 	}

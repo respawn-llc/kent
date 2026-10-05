@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 import { BoardRoute } from "@/features/board";
+import { ChatDestination, NewChatDestination } from "@/features/chat";
 import { createProjectTasksViewMemory, HomeRoute, ProjectTasksSurface } from "@/features/home";
 import { StartupGate } from "@/features/startup";
 import { StandaloneTaskRoute } from "@/features/task-detail";
@@ -11,12 +12,15 @@ import { AppChrome } from "./AppChrome";
 import {
   readBrowserStorage,
   readLastProjectRoute,
+  sessionChatRoutePath,
+  newChatRoutePath,
+  useAppNavigation,
+  useChatHistoryBookmark,
   SidebarRootOwner,
   writeBrowserStorage,
   writeLastProjectRoute,
 } from "@/app-facade";
 import { RouteTransitionFrame } from "./RouteTransitionFrame";
-import { shouldSkipNativeDialogStartupGate } from "./routes";
 import { useWindowChromeTitle } from "@/app-facade";
 
 const LazyWorkflowEditorRoute = lazy(async () => {
@@ -35,6 +39,8 @@ const projectRouteApi = getRouteApi("/projects/$projectId");
 const projectTasksRouteApi = getRouteApi("/projects/$projectId/tasks");
 const workflowEditorRouteApi = getRouteApi("/workflows/$workflowId/editor");
 const taskRouteApi = getRouteApi("/tasks/$taskId");
+const chatRouteApi = getRouteApi(sessionChatRoutePath);
+const newChatRouteApi = getRouteApi(newChatRoutePath);
 
 const routeRestoreSessionKey = "desktop.routeRestoreChecked";
 let routeRestoreCheckedFallback = false;
@@ -43,9 +49,6 @@ export function RootRoute() {
   const isNativeDialogWindow =
     typeof window !== "undefined" && window.location.pathname.startsWith("/native-dialog/");
   if (isNativeDialogWindow) {
-    if (shouldSkipNativeDialogStartupGate(window.location.pathname)) {
-      return <Outlet />;
-    }
     return (
       <StartupGate>
         <Outlet />
@@ -93,7 +96,15 @@ function RoutePersistence() {
       }
     }
     if (homeProjectId !== null) {
-      writeLastProjectRoute({ kind: "home_project", projectId: homeProjectId });
+      const current = readLastProjectRoute();
+      writeLastProjectRoute({
+        contentTab:
+          current?.kind === "home_project" && current.projectId === homeProjectId
+            ? current.contentTab
+            : "tasks",
+        kind: "home_project",
+        projectId: homeProjectId,
+      });
     } else if (projectId !== null) {
       writeLastProjectRoute({ kind: "workflow_board", projectId, workflowId });
     }
@@ -191,4 +202,53 @@ export function TaskRoute() {
   const params = taskRouteApi.useParams();
   useWindowChromeTitle(t("task.title"));
   return <StandaloneTaskRoute taskId={params.taskId} />;
+}
+
+export function ChatRoute() {
+  const params = chatRouteApi.useParams();
+  return (
+    <ChatRouteOpening
+      key={`${params.projectId}:${params.sessionId}`}
+      projectID={params.projectId}
+      sessionID={params.sessionId}
+    />
+  );
+}
+
+export function NewChatRoute() {
+  const params = newChatRouteApi.useParams();
+  return <ChatRouteOpening key={params.projectId} projectID={params.projectId} sessionID={null} />;
+}
+
+function ChatRouteOpening({
+  projectID,
+  sessionID,
+}: Readonly<{ projectID: string; sessionID: string | null }>) {
+  const bookmark = useChatHistoryBookmark(projectID, sessionID);
+  const appNavigation = useAppNavigation();
+  const navigation = {
+    openTask: (taskID: string) => {
+      void appNavigation.openTask(taskID);
+    },
+    openParentSession: async (previousSessionID: string) => {
+      return appNavigation.openSessionChat({ projectID, sessionID: previousSessionID });
+    },
+  };
+  return (
+    <SidebarRootOwner>
+      {bookmark.sessionID === null ? (
+        <NewChatDestination
+          projectID={projectID}
+          navigation={navigation}
+          onSessionDelivered={bookmark.delivered}
+        />
+      ) : (
+        <ChatDestination
+          opening={{ kind: "session", projectID, sessionID: bookmark.sessionID }}
+          navigation={navigation}
+          onSessionDelivered={bookmark.delivered}
+        />
+      )}
+    </SidebarRootOwner>
+  );
 }

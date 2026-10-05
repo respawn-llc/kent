@@ -1,94 +1,104 @@
-import { parseRpcResponse } from "./clientParse";
-import { requireTaskBoundItems } from "./clientParse";
-import type { ActivityPage, CommentPage, PendingAsk, TaskAttention, TaskComment, TaskDetail } from "./models";
+import { create } from "@app/server-api-contract";
+import { QuestionService } from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
+import { TaskReadService } from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import {
-  activityPageSchema,
-  commentAddResponseSchema,
-  commentPageSchema,
-  pendingAskListSchema,
-  taskAttentionSchema,
-  taskDetailSchema,
-} from "./schemas/workflowBoard";
-import type { RpcTransport } from "./transport";
+  TaskCommentService,
+  TaskActivityService,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { pendingQuestion } from "./promptPresentation";
+import { requireUnarySuccess } from "./protobufRpc";
+import { taskDetail, taskComment, taskActivity } from "./clientTaskProjection";
+import { taskCommentAuthor } from "./workflowProtoValues";
+import { requireTaskBoundItems } from "./clientParse";
+import type { ActivityPage, CommentPage, PendingAsk, TaskComment, TaskDetail } from "./models";
+import type { DescriptorRpcTransport, SessionAttachmentTarget } from "./transport";
 
-export async function listTaskAttention(transport: RpcTransport, taskID: string): Promise<TaskAttention> {
-  const response = parseRpcResponse(
-    "workflow.task.attention.list",
-    taskAttentionSchema,
-    await transport.call("workflow.task.attention.list", { task_id: taskID }),
-  );
-  requireTaskBoundItems(taskID, response.items);
-  return response;
-}
-
-export async function getTask(transport: RpcTransport, taskID: string): Promise<TaskDetail> {
-  return parseRpcResponse(
-    "workflow.task.get",
-    taskDetailSchema,
-    await transport.call("workflow.task.get", { task_id: taskID }),
-  );
+export async function getTask(transport: DescriptorRpcTransport, taskID: string): Promise<TaskDetail> {
+  const method = TaskReadService.method.get;
+  const result = await transport.callDescriptor(method, create(method.input, { taskId: taskID }));
+  return taskDetail(requireUnarySuccess(method, result).task);
 }
 
 export async function listTaskActivity(
-  transport: RpcTransport,
+  transport: DescriptorRpcTransport,
   taskID: string,
   offset: number,
 ): Promise<ActivityPage> {
-  const response = parseRpcResponse(
-    "workflow.task.activity.list",
-    activityPageSchema,
-    await transport.call("workflow.task.activity.list", {
-      task_id: taskID,
-      offset,
-      limit: 50,
-    }),
+  const method = TaskActivityService.method.list;
+  const result = await transport.callDescriptor(
+    method,
+    create(method.input, { taskId: taskID, offset, limit: 50 }),
   );
-  requireTaskBoundItems(taskID, response.items);
-  return response;
+  const response = requireUnarySuccess(method, result);
+  const items = response.items.map(taskActivity);
+  requireTaskBoundItems(taskID, items);
+  return { items, nextOffset: response.nextOffset ?? null };
 }
 
 export async function listTaskComments(
-  transport: RpcTransport,
+  transport: DescriptorRpcTransport,
   taskID: string,
   offset: number,
 ): Promise<CommentPage> {
-  return parseRpcResponse(
-    "workflow.task.comment.list",
-    commentPageSchema,
-    await transport.call("workflow.task.comment.list", {
-      task_id: taskID,
-      offset,
-      limit: 50,
-    }),
+  const method = TaskCommentService.method.list;
+  const result = await transport.callDescriptor(
+    method,
+    create(method.input, { taskId: taskID, offset, limit: 50 }),
   );
+  const response = requireUnarySuccess(method, result);
+  return {
+    items: response.items.map(taskComment),
+    nextOffset: response.nextOffset ?? null,
+    totalCount: Number(response.totalCount),
+  };
 }
 
 export async function addComment(
-  transport: RpcTransport,
+  transport: DescriptorRpcTransport,
   taskID: string,
   body: string,
   author: string,
 ): Promise<TaskComment> {
-  return parseRpcResponse(
-    "workflow.task.comment.add",
-    commentAddResponseSchema,
-    await transport.call("workflow.task.comment.add", {
-      task_id: taskID,
+  const method = TaskCommentService.method.add;
+  const result = await transport.callDescriptor(
+    method,
+    create(method.input, {
+      taskId: taskID,
       body,
-      author,
+      author: taskCommentAuthor.encode(author),
     }),
-  ).comment;
+  );
+  return taskComment(requireUnarySuccess(method, result).comment);
+}
+
+export async function replaceComment(
+  transport: DescriptorRpcTransport,
+  commentID: string,
+  body: string,
+): Promise<void> {
+  const method = TaskCommentService.method.replace;
+  const result = await transport.callDescriptor(method, create(method.input, { commentId: commentID, body }));
+  requireUnarySuccess(method, result);
+}
+
+export async function deleteComment(transport: DescriptorRpcTransport, commentID: string): Promise<void> {
+  const method = TaskCommentService.method.delete;
+  const result = await transport.callDescriptor(method, create(method.input, { commentId: commentID }));
+  requireUnarySuccess(method, result);
 }
 
 export async function listPendingAsks(
-  transport: RpcTransport,
-  sessionID: string,
+  transport: DescriptorRpcTransport,
+  target: SessionAttachmentTarget,
 ): Promise<readonly PendingAsk[]> {
-  return parseRpcResponse(
-    "ask.listPendingBySession",
-    pendingAskListSchema,
-    await transport.callAttachedSession(sessionID, "ask.listPendingBySession", {
-      SessionID: sessionID,
-    }),
+  const method = QuestionService.method.listPending;
+  const result = requireUnarySuccess(
+    method,
+    await transport.callDescriptorAttachedSession(
+      target,
+      method,
+      create(method.input, { sessionId: target.sessionID }),
+    ),
   );
+  return result.questions.map(pendingQuestion);
 }

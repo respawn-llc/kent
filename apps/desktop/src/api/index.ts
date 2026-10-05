@@ -1,9 +1,75 @@
-export type { ApiConnectionSource, ApiService, ApiSubscription } from "./apiService";
+export type { ApiService, ApiSubscription } from "./apiService";
+export type { DesktopProcess } from "./processes";
+export type {
+  ChatSettingsAgent,
+  ChatSettingsAgentChoice,
+  ChatSettingsAutoCompaction,
+  ChatSettingsControls,
+  ChatSettingsEditability,
+  ChatSettingsFast,
+  ChatSettingsMutation,
+  ChatSettingsMutationResponse,
+  ChatSettingsRead,
+  ChatSettingsRejection,
+  ChatSettingsSessionFacts,
+  ChatSettingsSupervisor,
+  ChatSettingsThinking,
+  NewChatSettingsCatalog,
+} from "./chatSettingsTypes";
+export { chatExecutionTarget, chatRuntimeActivity } from "./chatProjection";
+export { goalFactFromTranscript } from "./chatGoal";
+export { orderPendingPrompts } from "./promptPresentation";
+export { promptAnswerEntry } from "./promptAnswerEntry";
+export type {
+  ChatApi,
+  ChatAcceptedDiagnostic,
+  ChatActivation,
+  ChatCompactionInvocation,
+  ChatCompactionResult,
+  ChatContext,
+  ChatContextTarget,
+  ChatExecutionTarget,
+  ChatForkEditInput,
+  InitialChatSettings,
+  ChatInputMutationResult,
+  ChatMainView,
+  ChatMainViewRead,
+  ChatMutationTarget,
+  ChatNotAcceptedReason,
+  ChatProjectTarget,
+  ChatRuntimeActivity,
+  ChatRuntimeAttachment,
+  ChatRuntimeRelease,
+  ChatSessionTarget,
+  ChatSettings,
+  ChatSettingsTarget,
+  ChatTranscriptCompletion,
+  ChatTranscriptCommittedRow,
+  ChatTranscriptHandler,
+  ChatGoalObservationHandler,
+  ChatGoal,
+  ChatGoalSetResult,
+  ChatGoalSetTarget,
+  ChatGoalAvailability,
+  ChatGoalFact,
+  ChatGoalMutationResult,
+  ChatGoalObservation,
+  ChatGoalProjection,
+  ChatGoalStatus,
+  ChatTranscriptKind,
+  ChatTranscriptMessage,
+  ChatTranscriptMessageByKind,
+  ChatTranscriptPage,
+  ChatTranscriptPayload,
+  ChatTranscriptPayloadByKind,
+  ChatWorkspaceSelector,
+} from "./chat";
 export type {
   BoardNodeCardsInput,
   PromptAnswerBatchInput,
   PromptAnswerBatchResponse,
   QuestionAnswerInput,
+  PromptAnswerBatchEntryInput,
   TaskEditInput,
   TaskMoveInput,
   TaskResumeInput,
@@ -27,7 +93,7 @@ export { workflowPageSize } from "./clientInputs";
 export type {
   AttentionNotification,
   AttentionNotificationEvent,
-  AttentionNotificationEventHandler,
+  AttentionNotificationLifecycle,
   AttentionNotificationID,
   AttentionNotificationQuestionState,
   AttentionNotificationTarget,
@@ -47,14 +113,13 @@ export {
   ContractError,
   ProtocolMismatchError,
   RpcError,
+  executionTargetChoiceFailure,
+  type ExecutionTargetChoiceFailure,
   WorkflowLabelError,
   WorkflowTaskCreateSelectionError,
   WorkflowTaskDependencyError,
   TaskSearchError,
-  decodeTaskSearchError,
-  decodeWorkflowLabelError,
-  decodeWorkflowTaskCreateSelectionError,
-  decodeWorkflowTaskDependencyError,
+  isTaskContextSelectionRequiredError,
   isProjectMissingError,
   isTaskMissingError,
   ServerRootMismatchError,
@@ -67,6 +132,8 @@ export type { CatalogContractErrorReason } from "./errors";
 export type { WorkflowTaskDependencyErrorReason } from "./errors";
 export type { WorkflowTaskCreateSelectionErrorReason } from "./errors";
 export type { TaskSearchErrorReason } from "./errors";
+export { ChatOperationError } from "./chatErrors";
+export type { ChatError } from "./chatErrors";
 export { guiTaskCommentAuthor } from "./client";
 export type { JsonArray, JsonObject, JsonPrimitive, JsonValue } from "./json";
 export { newSetupOperationID, parseSetupOperationID, SetupOperationID } from "./setupOperationID";
@@ -93,27 +160,22 @@ export type {
   SessionSettingFeedback,
 } from "./pendingWork";
 export type * from "./schemas/worktree";
+export {
+  DirtyStateKind,
+  BranchCleanupOutcomeKind,
+  CreateTargetResolutionKind,
+  SelectorErrorKind,
+} from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 export { rpcErrorCodes } from "./rpcErrorCodes";
-export { decodePendingWorkError, PendingWorkError } from "./clientPendingWork";
-export type {
-  ManualCompactionErrorReason,
-  PendingWorkErrorDetail,
-  PendingWorkFailure,
-} from "./clientPendingWork";
-export { WorktreeError } from "./clientWorktree";
+export { WorktreeError, hasDeletableWorktreeBranch } from "./clientWorktree";
 export type { WorktreeErrorDetail } from "./clientWorktree";
 export { workflowIDSchema } from "./schemas/workflowID";
 export { nonBlankString } from "./schemas/common";
 export type { WorktreeSetupEventHandler } from "./worktreeSetup";
-export {
-  decodeWorktreeSetupRetainedError,
-  parseTaskSetupRecoveryDetail,
-  WorktreeSetupRetainedError,
-  type TaskSetupRecovery,
-} from "./schemas/workflowBoard";
+export { worktreeSetupRecovery, type WorktreeSetupRecovery } from "./taskWorktreeProjection";
 export type { WorkflowProjectEvent, WorkflowProjectEventHandler } from "./workflowProjectEvents";
+export type { ProjectObservation } from "./projectEvents";
 export { workflowLabelMaxIDs } from "./workflowLabelContract";
-export type { ConnectionPhase, ConnectionSnapshot } from "./connectionStore";
 export type {
   ApprovalAttentionItem,
   AttentionItem,
@@ -228,8 +290,11 @@ export type { WorkflowGraphDraft } from "./workflowGraphModels";
 export type {
   AttentionQuestionPrompt,
   ApprovalQuestionPrompt,
+  FileAccessTarget,
   OrdinaryQuestionPrompt,
   PromptIdentity,
+  PendingPrompt,
+  PromptUpdate,
 } from "./promptModels";
 export type { SessionCatalogPage, SessionCatalogSummary, SessionCategory } from "./models";
 export type {

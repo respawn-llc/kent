@@ -2,18 +2,16 @@ package transport
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 
-	"core/server/auth"
-	"core/server/session"
 	rpccontract "core/shared/apicontract"
-	"core/shared/clientui"
-	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
+	processpb "core/shared/protoapi/gen/kent/api/process"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/serverapi"
 )
@@ -77,13 +75,6 @@ func (e routePolicyExecutor) preflight(ctx context.Context, state *connectionSta
 }
 
 func (e routePolicyExecutor) decodeRouteParams(route rpccontract.Route, raw json.RawMessage) (any, error) {
-	if route.Method == protocol.MethodSessionGetExecutionEnvironment && e.gateway != nil {
-		params, err := e.gateway.sessionExecutionRequestContract.Decode(raw)
-		if err != nil {
-			return nil, fmt.Errorf("decode params: %w", err)
-		}
-		return params, nil
-	}
 	return decodeRouteParams(route, raw)
 }
 
@@ -94,97 +85,6 @@ type gatewayRouteError struct {
 
 func (e gatewayRouteError) Error() string {
 	return e.message
-}
-
-func (e routePolicyExecutor) requireAuth(ctx context.Context, state *connectionState, method string) error {
-	stage, known := e.authenticationStage(method)
-	if !known {
-		stage = sharedpb.AuthenticationStage_AUTHENTICATION_STAGE_SERVER
-	}
-	return e.requireAuthenticationStage(ctx, state, stage)
-}
-
-func (e routePolicyExecutor) requireAuthenticationStage(
-	ctx context.Context,
-	state *connectionState,
-	stage sharedpb.AuthenticationStage,
-) error {
-	if stage != sharedpb.AuthenticationStage_AUTHENTICATION_STAGE_SERVER {
-		return nil
-	}
-	ready, err := e.serverAuthReady(ctx, state)
-	if err != nil {
-		return err
-	}
-	if !ready {
-		return serverapi.ErrServerAuthRequired
-	}
-	return nil
-}
-
-func (e routePolicyExecutor) requiresServerAuth(method string) bool {
-	stage, known := e.authenticationStage(method)
-	return !known || stage == sharedpb.AuthenticationStage_AUTHENTICATION_STAGE_SERVER
-}
-
-func (e routePolicyExecutor) authenticationStage(method string) (sharedpb.AuthenticationStage, bool) {
-	trimmed := strings.TrimSpace(method)
-	if trimmed == "" {
-		return sharedpb.AuthenticationStage_AUTHENTICATION_STAGE_NONE, true
-	}
-	var registration gatewayRegistration
-	if e.gateway != nil {
-		registration = e.gateway.registration
-	}
-	if len(registration.operations) == 0 {
-		var err error
-		registration, err = productionGatewayRegistration()
-		if err != nil {
-			panic(err)
-		}
-	}
-	if operation, exists := registration.operations[trimmed]; exists {
-		if _, migrated := registration.BinaryBinding(trimmed); migrated {
-			return operation.Options.AuthenticationStage, true
-		}
-		if operation.Options.Kind == sharedpb.OperationKind_OPERATION_KIND_NOTIFICATION &&
-			operation.LegacyWireName == nil {
-			return operation.Options.AuthenticationStage, true
-		}
-	}
-	operation, _, ok := registration.LegacyOperation(trimmed)
-	if !ok {
-		return sharedpb.AuthenticationStage_AUTHENTICATION_STAGE_UNSPECIFIED, false
-	}
-	return operation.Options.AuthenticationStage, true
-}
-
-func (e routePolicyExecutor) serverAuthReady(ctx context.Context, connection *connectionState) (bool, error) {
-	g := e.gateway
-	if g == nil || g.deps == nil {
-		return false, nil
-	}
-	if !g.deps.ServerAuthRequired() {
-		return true, nil
-	}
-	if g.deps.AuthManager() == nil {
-		return false, nil
-	}
-	state, err := g.deps.AuthManager().Load(ctx)
-	if err != nil {
-		return false, err
-	}
-	if auth.EvaluateStartupGate(state).Ready {
-		return true, nil
-	}
-	if connection != nil && connection.noAuthAccepted {
-		stored, err := g.deps.AuthManager().StoredState(ctx)
-		if err != nil {
-			return false, err
-		}
-		return stored.IsNoAuthSelected(), nil
-	}
-	return false, nil
 }
 
 func decodeRouteParams(route rpccontract.Route, raw json.RawMessage) (any, error) {
@@ -210,12 +110,8 @@ func decodeRouteParams(route rpccontract.Route, raw json.RawMessage) (any, error
 	return params, nil
 }
 
-func (e routePolicyExecutor) authorizeScope(ctx context.Context, state *connectionState, route rpccontract.Route, params any) error {
-	scopeParams, err := routeScopeParamsFor(route, params)
-	if err != nil {
-		return err
-	}
-	return e.authorizeScopeFacts(ctx, state, route.Scope, route.Method, scopeParams)
+func (e routePolicyExecutor) authorizeScope(ctx context.Context, state *connectionState, route rpccontract.Route, _ any) error {
+	return e.authorizeScopeFacts(ctx, state, route.Scope, route.Method, routeScopeParams{})
 }
 
 func (e routePolicyExecutor) authorizeScopeFacts(
@@ -232,26 +128,19 @@ func (e routePolicyExecutor) authorizeScopeFacts(
 		_, err := e.gateway.activeProjectID(ctx, state)
 		return err
 	case rpccontract.ScopeProjectWorkspaceBinding:
-		activeProjectID, err := e.gateway.activeProjectID(ctx, state)
-		if err != nil {
-			return err
-		}
-		if strings.TrimSpace(scopeParams.projectID) != strings.TrimSpace(activeProjectID) {
-			return serverapi.ErrWorkspaceNotRegistered
-		}
-		if strings.TrimSpace(state.attachedWorkspaceID) != strings.TrimSpace(scopeParams.workspaceID) {
-			return serverapi.ErrWorkspaceNotRegistered
-		}
-		binding, err := e.gateway.deps.MetadataStore().LookupWorkspaceBindingByID(ctx, scopeParams.workspaceID)
-		if err != nil {
-			return err
-		}
-		if strings.TrimSpace(binding.ProjectID) != strings.TrimSpace(activeProjectID) {
-			return serverapi.ErrWorkspaceNotRegistered
-		}
-		return nil
+		return e.gateway.requireProjectWorkspaceBinding(
+			ctx,
+			state,
+			scopeParams.projectID,
+			scopeParams.workspaceID,
+		)
 	case rpccontract.ScopeAttachSession:
-		_, err := e.gateway.resolveSessionAttachment(ctx, state, scopeParams.sessionID)
+		_, _, err := e.gateway.resolveSessionAttachmentTargetWithCapability(
+			ctx,
+			state,
+			scopeParams.sessionID,
+			scopeParams.sessionReattachCapability,
+		)
 		return err
 	case rpccontract.ScopeSessionActiveProject:
 		return e.gateway.requireSessionInActiveProject(ctx, state, scopeParams.sessionID)
@@ -261,7 +150,7 @@ func (e routePolicyExecutor) authorizeScopeFacts(
 		}
 		return e.gateway.requireSessionInActiveProject(ctx, state, scopeParams.sessionID)
 	case rpccontract.ScopeSessionDraftHandoffProject:
-		return e.gateway.requireSessionInActiveProjectOrAttached(ctx, state, scopeParams.sessionID)
+		return e.gateway.requireSessionInActiveProject(ctx, state, scopeParams.sessionID)
 	case rpccontract.ScopeSessionAttachedProject:
 		return e.gateway.requireSessionInAttachedProject(ctx, state, scopeParams.sessionID)
 	case rpccontract.ScopeAttachedSession:
@@ -278,170 +167,31 @@ func (e routePolicyExecutor) authorizeScopeFacts(
 	case rpccontract.ScopeProcessActiveProject:
 		_, err := e.gateway.processInActiveProject(ctx, state, scopeParams.processID)
 		return err
-	case rpccontract.ScopeProcessListActiveProject:
-		if strings.TrimSpace(scopeParams.ownerSessionID) != "" {
-			return e.gateway.requireSessionInActiveProject(ctx, state, scopeParams.ownerSessionID)
+	case rpccontract.ScopeChatTarget:
+		return e.gateway.requireChatTargetAccess(ctx, state, scopeParams.chatTarget)
+	case rpccontract.ScopeWorktreeManagement:
+		switch selected := scopeParams.worktreeManagement.GetScope().(type) {
+		case *worktreepb.ManagementScope_SessionId:
+			return e.gateway.requireSessionInActiveProject(ctx, state, selected.SessionId)
+		case *worktreepb.ManagementScope_Workspace:
+			target := selected.Workspace.GetTarget()
+			return e.gateway.requireProjectWorkspaceBinding(ctx, state, target.GetProjectId(), target.GetWorkspaceId())
+		default:
+			return errors.New("worktree management scope is required")
 		}
-		return nil
 	default:
 		return fmt.Errorf("unsupported route scope %q for method %q", scope, method)
 	}
 }
 
 type routeScopeParams struct {
-	sessionID      string
-	processID      string
-	ownerSessionID string
-	projectID      string
-	workspaceID    string
-}
-
-func routeScopeParamsFor(route rpccontract.Route, params any) (routeScopeParams, error) {
-	switch route.Scope {
-	case rpccontract.ScopeAttachSession,
-		rpccontract.ScopeSessionActiveProject,
-		rpccontract.ScopeSessionActiveProjectIfSet,
-		rpccontract.ScopeSessionDraftHandoffProject,
-		rpccontract.ScopeSessionAttachedProject,
-		rpccontract.ScopeAttachedSession,
-		rpccontract.ScopeGoalSession,
-		rpccontract.ScopeRuntimeLiveSessionRequired,
-		rpccontract.ScopeRuntimeLiveSessionOptional:
-		sessionID, ok := routeSessionID(params)
-		if !ok {
-			return routeScopeParams{}, fmt.Errorf("route %q scope %q requires typed session id accessor", route.Method, route.Scope)
-		}
-		return routeScopeParams{sessionID: sessionID}, nil
-	case rpccontract.ScopeProcessActiveProject:
-		processID, ok := routeProcessID(params)
-		if !ok {
-			return routeScopeParams{}, fmt.Errorf("route %q scope %q requires typed process id accessor", route.Method, route.Scope)
-		}
-		return routeScopeParams{processID: processID}, nil
-	case rpccontract.ScopeProcessListActiveProject:
-		ownerSessionID, ok := routeOwnerSessionID(params)
-		if !ok {
-			return routeScopeParams{}, fmt.Errorf("route %q scope %q requires typed owner session id accessor", route.Method, route.Scope)
-		}
-		return routeScopeParams{ownerSessionID: ownerSessionID}, nil
-	case rpccontract.ScopeProjectWorkspaceBinding:
-		projectID, workspaceID, ok := routeProjectWorkspaceBinding(params)
-		if !ok {
-			return routeScopeParams{}, fmt.Errorf("route %q scope %q requires typed project/workspace accessor", route.Method, route.Scope)
-		}
-		return routeScopeParams{projectID: projectID, workspaceID: workspaceID}, nil
-	default:
-		return routeScopeParams{}, nil
-	}
-}
-
-func routeProjectWorkspaceBinding(params any) (string, string, bool) {
-	return "", "", false
-}
-
-func routeSessionID(params any) (string, bool) {
-	switch p := params.(type) {
-	case serverapi.ChatContextRequest:
-		sessionID, selected := p.Target.SessionID()
-		if !selected {
-			return "", true
-		}
-		return sessionID.String(), true
-	case serverapi.SessionMainViewRequest:
-		return p.SessionID, true
-	case serverapi.SessionTranscriptPageRequest:
-		return p.SessionID, true
-	case serverapi.SessionLatestCommittedAssistantFinalAnswerRequest:
-		return p.SessionID, true
-	case serverapi.SessionExecutionEnvironmentRequest:
-		return p.SessionID.String(), true
-	case serverapi.SessionInitialInputRequest:
-		return p.SessionID, true
-	case serverapi.SessionPersistInputDraftRequest:
-		return p.SessionID, true
-	case serverapi.SessionRetargetWorkspaceRequest:
-		return p.SessionID, true
-	case serverapi.SessionResolveTransitionRequest:
-		return p.SessionID, true
-	case serverapi.SessionRuntimeActivateRequest:
-		return p.SessionID, true
-	case serverapi.SessionRuntimeReleaseRequest:
-		return p.Attachment.SessionID, true
-	case serverapi.RuntimeSetSessionNameRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeAppendCommittedEntryRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeShouldCompactBeforeUserMessageRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeSubmitUserTurnRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeSubmitUserShellCommandRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeCompactContextRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeInterruptRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeLiveSteerRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeLiveStopRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeLiveWaitRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeLiveWatchRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeListPendingWorkRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeRemovePendingWorkRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeRecordPromptHistoryRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeGoalShowRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeGoalSetRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeGoalStatusRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeGoalClearRequest:
-		return p.SessionID, true
-	case serverapi.AskListPendingBySessionRequest:
-		return p.SessionID, true
-	case serverapi.PromptAnswerBatchRequest:
-		return p.SessionID.String(), true
-	case serverapi.PromptFollowUpWatchRequest:
-		return p.SessionID.String(), true
-	case serverapi.ApprovalListPendingBySessionRequest:
-		return p.SessionID, true
-	case serverapi.TranscriptSubscribeRequest:
-		return p.SessionID, true
-	case serverapi.QuestionHistorySubscribeRequest:
-		return p.SessionID, true
-	case serverapi.AttentionSessionNotificationSubscribeRequest:
-		return p.SessionID, true
-	default:
-		return "", false
-	}
-}
-
-func routeProcessID(params any) (string, bool) {
-	switch p := params.(type) {
-	case serverapi.ProcessGetRequest:
-		return p.ProcessID, true
-	case serverapi.ProcessKillRequest:
-		return p.ProcessID, true
-	case serverapi.ProcessInlineOutputRequest:
-		return p.ProcessID, true
-	default:
-		return "", false
-	}
-}
-
-func routeOwnerSessionID(params any) (string, bool) {
-	switch p := params.(type) {
-	case serverapi.ProcessListRequest:
-		return p.OwnerSessionID, true
-	default:
-		return "", false
-	}
+	sessionID                 string
+	sessionReattachCapability *string
+	processID                 string
+	projectID                 string
+	workspaceID               string
+	chatTarget                *chatpb.ChatTarget
+	worktreeManagement        *worktreepb.ManagementScope
 }
 
 func (g *Gateway) preflightRouteRequest(ctx context.Context, state *connectionState, route rpccontract.Route, req protocol.Request) (any, protocol.Response, bool) {
@@ -460,11 +210,16 @@ func (g *Gateway) activeProjectID(ctx context.Context, state *connectionState) (
 }
 
 func (g *Gateway) requireSessionInActiveProject(ctx context.Context, state *connectionState, sessionID string) error {
+	trimmedSessionID := strings.TrimSpace(sessionID)
+	if state != nil &&
+		state.attachedSession != nil &&
+		state.attachedSession.String() == trimmedSessionID {
+		return nil
+	}
 	projectID, err := g.activeProjectID(ctx, state)
 	if err != nil {
 		return err
 	}
-	trimmedSessionID := strings.TrimSpace(sessionID)
 	if trimmedSessionID == "" {
 		return fmt.Errorf("session id is required")
 	}
@@ -482,24 +237,65 @@ func (g *Gateway) requireSessionInActiveProject(ctx context.Context, state *conn
 	return nil
 }
 
-func (g *Gateway) requireSessionInActiveProjectOrAttached(ctx context.Context, state *connectionState, sessionID string) error {
-	trimmedSessionID := strings.TrimSpace(sessionID)
-	if trimmedSessionID == "" {
-		return errors.New("session id is required")
-	}
-	if state != nil &&
-		state.attachedSession != nil &&
-		state.attachedSession.String() == trimmedSessionID {
-		return nil
-	}
-	return g.requireSessionInActiveProject(ctx, state, trimmedSessionID)
-}
-
 func (g *Gateway) requireGoalSessionAccess(ctx context.Context, state *connectionState, sessionID string) error {
 	if strings.TrimSpace(state.attachedProject) == "" && strings.TrimSpace(g.deps.ProjectID()) == "" {
 		return nil
 	}
 	return g.requireSessionInActiveProject(ctx, state, sessionID)
+}
+
+func (g *Gateway) requireChatTargetAccess(ctx context.Context, state *connectionState, target *chatpb.ChatTarget) error {
+	switch selected := target.GetTarget().(type) {
+	case *chatpb.ChatTarget_Session:
+		if strings.TrimSpace(state.attachedProject) != "" {
+			return g.requireSessionInActiveProject(ctx, state, selected.Session.SessionId)
+		}
+		metadataStore := g.deps.MetadataStore()
+		if metadataStore == nil {
+			return errors.New("metadata store is required")
+		}
+		_, err := metadataStore.ResolvePersistedSession(ctx, selected.Session.SessionId)
+		return err
+	case *chatpb.ChatTarget_NewChat:
+		return g.requireProjectWorkspaceBinding(
+			ctx,
+			state,
+			selected.NewChat.ProjectId,
+			selected.NewChat.WorkspaceId,
+		)
+	default:
+		return errors.New("Chat target selection is required")
+	}
+}
+
+func (g *Gateway) requireProjectWorkspaceBinding(
+	ctx context.Context,
+	state *connectionState,
+	projectID string,
+	workspaceID string,
+) error {
+	activeProjectID, err := g.activeProjectID(ctx, state)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(projectID) != strings.TrimSpace(activeProjectID) {
+		return serverapi.ErrWorkspaceNotRegistered
+	}
+	if strings.TrimSpace(state.attachedWorkspaceID) != strings.TrimSpace(workspaceID) {
+		return serverapi.ErrWorkspaceNotRegistered
+	}
+	metadataStore := g.deps.MetadataStore()
+	if metadataStore == nil {
+		return errors.New("metadata store is required")
+	}
+	binding, err := metadataStore.LookupWorkspaceBindingByID(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(binding.ProjectID) != strings.TrimSpace(activeProjectID) {
+		return serverapi.ErrWorkspaceNotRegistered
+	}
+	return nil
 }
 
 func (g *Gateway) requireRuntimeLiveSession(ctx context.Context, sessionID string) error {
@@ -525,42 +321,20 @@ func (g *Gateway) requireSessionInAttachedProject(ctx context.Context, state *co
 	return g.deps.SessionBelongsToProject(ctx, sessionID, projectID)
 }
 
-func (g *Gateway) processInActiveProject(ctx context.Context, state *connectionState, processID string) (serverapi.ProcessGetResponse, error) {
-	resp, err := g.deps.ProcessViewClient().GetProcess(ctx, serverapi.ProcessGetRequest{ProcessID: processID})
+func (g *Gateway) processInActiveProject(ctx context.Context, state *connectionState, processID string) (*processpb.GetSuccess, error) {
+	resp, err := g.deps.ProcessViewClient().GetProcess(ctx, &processpb.GetRequest{ProcessId: processID})
 	if err != nil {
-		return serverapi.ProcessGetResponse{}, err
+		return nil, err
 	}
 	if resp.Process == nil {
-		return serverapi.ProcessGetResponse{}, fmt.Errorf("process %q not available", strings.TrimSpace(processID))
+		return nil, fmt.Errorf("process %q not available", strings.TrimSpace(processID))
 	}
-	ownerSessionID := strings.TrimSpace(resp.Process.OwnerSessionID)
+	ownerSessionID := strings.TrimSpace(resp.Process.OwnerSessionId)
 	if ownerSessionID == "" {
-		return serverapi.ProcessGetResponse{}, fmt.Errorf("process %q not available", strings.TrimSpace(processID))
+		return nil, fmt.Errorf("process %q not available", strings.TrimSpace(processID))
 	}
 	if err := g.requireSessionInActiveProject(ctx, state, ownerSessionID); err != nil {
-		return serverapi.ProcessGetResponse{}, err
+		return nil, err
 	}
 	return resp, nil
-}
-
-func (g *Gateway) filterProcessesForActiveProject(ctx context.Context, state *connectionState, processes []clientui.BackgroundProcess) ([]clientui.BackgroundProcess, error) {
-	filtered := make([]clientui.BackgroundProcess, 0, len(processes))
-	for _, process := range processes {
-		ownerSessionID := strings.TrimSpace(process.OwnerSessionID)
-		if ownerSessionID == "" {
-			continue
-		}
-		err := g.requireSessionInActiveProject(ctx, state, ownerSessionID)
-		if err == nil {
-			filtered = append(filtered, process)
-			continue
-		}
-		if !errors.Is(err, errSessionOutsideActiveProject) &&
-			!errors.Is(err, errActiveProjectRequired) &&
-			!errors.Is(err, session.ErrSessionNotFound) &&
-			!errors.Is(err, sql.ErrNoRows) {
-			return nil, err
-		}
-	}
-	return filtered, nil
 }

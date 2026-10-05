@@ -5,12 +5,15 @@ import type {
   WorkflowExecutionTargetSelection,
   WorkflowExecutionTargetSelectionMode,
   WorkflowExecutionTargetSelectionRequirement,
-  TaskSetupRecovery,
+  WorktreeSetupRecovery,
+  ExecutionTargetChoiceFailure,
 } from "@/api";
 import { useTextFieldSubmitShortcut } from "@/app-facade";
-import { Button, compactDialogWidth, Dialog, RadioGroup, RadioGroupItem, TextInput } from "@/ui";
+import { Button, compactDialogWidth, Dialog, RadioGroup, RadioGroupItem, Spinner, TextInput } from "@/ui";
 import {
   executionTargetSelectionFromDraft,
+  executionTargetBranchName,
+  taskActionWithBranchName,
   proceedWithTaskInitiatingAction,
   type ExecutionTargetSelectionDraft,
   type TaskInitiatingAction,
@@ -30,37 +33,46 @@ export function TaskSetupRecoveryDialog({
   recovery,
   retrySelection,
   running,
+  choiceFailure,
 }: Readonly<{
   onClose(): void;
-  onSubmit(selection?: WorkflowExecutionTargetSelection): void;
+  onSubmit(selection?: WorkflowExecutionTargetSelection, branchName?: string): void;
+  choiceFailure: ExecutionTargetChoiceFailure | null;
   open: boolean;
-  recovery: Pick<
-    TaskSetupRecovery,
-    "diagnostic" | "scriptPath" | "retainedWorktree" | "retainedPreviousWorktree"
-  >;
+  recovery: WorktreeSetupRecovery;
   retrySelection?: WorkflowExecutionTargetSelection;
   running: boolean;
 }>) {
   const { t } = useTranslation();
   const [selectionDraft, setSelectionDraft] = useState<ExecutionTargetSelectionDraft | null>(null);
+  const [branchName, setBranchName] = useState<string | null>(null);
   const close = () => {
     setSelectionDraft(null);
+    setBranchName(null);
     onClose();
   };
   const selection = selectionDraft === null ? null : executionTargetSelectionFromDraft(selectionDraft);
   return (
-    <Dialog closeLabel={t("app.close")} onClose={close} open={open} title={t("task.interrupted")}>
+    <Dialog
+      closeLabel={t("app.close")}
+      onClose={close}
+      open={open}
+      title={t("executionTargetContinuation.preparationFailed")}
+    >
       <div className="grid gap-[var(--space-3)]">
         <p className="m-0 whitespace-pre-wrap font-mono text-sm text-[var(--color-error)]">
           {recovery.diagnostic}
         </p>
-        {[recovery.scriptPath, recovery.retainedWorktree?.root, recovery.retainedPreviousWorktree?.root].map(
-          (value) =>
-            value == null ? null : (
-              <p className="m-0 break-all font-mono text-sm" key={value}>
-                {value}
-              </p>
-            ),
+        {[
+          recovery.scriptPath,
+          recovery.worktree.kent.canonicalRoot,
+          recovery.retainedPreviousWorktree?.worktree.kent.canonicalRoot,
+        ].map((value) =>
+          value == null ? null : (
+            <p className="m-0 break-all font-mono text-sm" key={value}>
+              {value}
+            </p>
+          ),
         )}
         {selectionDraft === null ? (
           <div className="flex justify-end gap-[var(--space-2)]">
@@ -73,16 +85,18 @@ export function TaskSetupRecoveryDialog({
             >
               {t("executionTargetContinuation.title")}
             </Button>
-            <Button
-              data-testid="setup-recovery-retry"
-              disabled={running}
-              onClick={() => {
-                onSubmit(retrySelection);
-              }}
-              variant="primary"
-            >
-              {t("app.retry")}
-            </Button>
+            {recovery.recoveryDisposition === "retry_existing" ? (
+              <Button
+                data-testid="setup-recovery-retry"
+                aria-busy={running}
+                onClick={() => {
+                  onSubmit(retrySelection);
+                }}
+                variant="primary"
+              >
+                {running ? <Spinner /> : t("app.retry")}
+              </Button>
+            ) : null}
           </div>
         ) : (
           <>
@@ -96,18 +110,26 @@ export function TaskSetupRecoveryDialog({
                 },
               }}
               pending={{ selection: selectionDraft }}
+              branch={
+                recovery.recoveryDisposition === "fresh_replacement"
+                  ? { value: branchName, onChange: setBranchName }
+                  : undefined
+              }
             />
+            <ExecutionTargetChoiceFailureMessage failure={choiceFailure} />
             <div className="flex justify-end gap-[var(--space-2)]">
               <Button onClick={close}>{t("app.cancel")}</Button>
               <Button
                 data-testid="setup-recovery-target-submit"
-                disabled={selection === null || running}
+                disabled={selection === null}
+                aria-busy={running}
                 onClick={() => {
-                  if (selection !== null) onSubmit(selection);
+                  if (selection !== null)
+                    onSubmit(selection, executionTargetBranchName(selection, branchName));
                 }}
                 variant="primary"
               >
-                {t("executionTargetContinuation.continue")}
+                {running ? <Spinner /> : t("executionTargetContinuation.continue")}
               </Button>
             </div>
           </>
@@ -131,29 +153,11 @@ export type TaskInitiatingActionDialogResult =
 export function TaskInitiatingActionDialogs({
   continuation,
   onResult,
-  setupRecovery,
 }: Readonly<{
   continuation: TaskInitiatingActionController;
   onResult(result: TaskInitiatingActionDialogResult): void;
-  setupRecovery?:
-    | Readonly<{
-        onClose(): void;
-        onSubmit(selection?: WorkflowExecutionTargetSelection): void;
-        recovery: TaskSetupRecovery;
-      }>
-    | undefined;
 }>) {
   const pending = continuation.pending;
-  if (setupRecovery !== undefined && pending === null) {
-    return (
-      <TaskSetupRecoveryDialog
-        {...setupRecovery}
-        open
-        retrySelection={setupRecovery.recovery.executionTarget}
-        running={continuation.running}
-      />
-    );
-  }
   if (pending?.kind === "dependency_confirmation") {
     return <DependencyConfirmationDialog continuation={continuation} onResult={onResult} pending={pending} />;
   }
@@ -162,29 +166,19 @@ export function TaskInitiatingActionDialogs({
     return (
       <TaskSetupRecoveryDialog
         onClose={continuation.close}
-        onSubmit={(selection) => {
+        choiceFailure={pending.choiceFailure}
+        onSubmit={(selection, branchName) => {
           onResult({
             kind: "continue",
-            action: pending.action,
+            action:
+              failure.recoveryDisposition === "fresh_replacement" && selection !== undefined
+                ? taskActionWithBranchName(pending.action, selection, branchName ?? null)
+                : pending.action,
             ...(selection === undefined ? {} : { selection }),
           });
         }}
         open
-        recovery={{
-          diagnostic: failure.diagnostic,
-          scriptPath: failure.scriptPath,
-          retainedWorktree: {
-            root: failure.worktree.kent.canonicalRoot,
-            worktreeID: failure.worktree.kent.worktreeID,
-          },
-          retainedPreviousWorktree:
-            failure.retainedPreviousWorktree === null
-              ? null
-              : {
-                  root: failure.retainedPreviousWorktree.worktree.kent.canonicalRoot,
-                  worktreeID: failure.retainedPreviousWorktree.worktree.kent.worktreeID,
-                },
-        }}
+        recovery={failure}
         {...(pending.retrySelection === undefined ? {} : { retrySelection: pending.retrySelection })}
         running={continuation.running}
       />
@@ -288,6 +282,14 @@ function ExecutionTargetForm({
   pending: ExecutionTargetPending;
 }>) {
   const { t } = useTranslation();
+  const [branchName, setBranchName] = useState<string | null>(
+    pending.action.kind === "move"
+      ? (pending.action.input.branchName ?? null)
+      : pending.action.kind === "resume"
+        ? (pending.action.branchName ?? null)
+        : null,
+  );
+  const replacement = pending.requirement.reason === "original_target_unavailable";
   const selectedTarget = executionTargetSelectionFromDraft(pending.selection);
   const canSubmit = selectedTarget !== null;
   const formShortcut = useTextFieldSubmitShortcut({
@@ -305,17 +307,40 @@ function ExecutionTargetForm({
         }
         onResult({
           kind: "continue",
-          action: pending.action,
+          action: replacement
+            ? taskActionWithBranchName(pending.action, selectedTarget, branchName)
+            : pending.action,
           selection: selectedTarget,
         });
       }}
     >
       <ExecutionTargetRequirementMessage requirement={pending.requirement} />
-      <ExecutionTargetChoices continuation={continuation} pending={pending} />
+      <ExecutionTargetChoices
+        continuation={continuation}
+        pending={pending}
+        branch={
+          replacement
+            ? {
+                value: branchName,
+                onChange: (value) => {
+                  setBranchName(value);
+                  continuation.clearChoiceFailure();
+                },
+              }
+            : undefined
+        }
+      />
+      <ExecutionTargetChoiceFailureMessage failure={pending.choiceFailure} />
       <div className="flex justify-end gap-[var(--space-2)]">
         <Button onClick={continuation.close}>{t("app.cancel")}</Button>
-        <Button data-testid="execution-target-submit" disabled={!canSubmit} type="submit" variant="primary">
-          {t("executionTargetContinuation.continue")}
+        <Button
+          data-testid="execution-target-submit"
+          disabled={!canSubmit}
+          aria-busy={continuation.running}
+          type="submit"
+          variant="primary"
+        >
+          {continuation.running ? <Spinner /> : t("executionTargetContinuation.continue")}
         </Button>
       </div>
     </form>
@@ -325,9 +350,11 @@ function ExecutionTargetForm({
 function ExecutionTargetChoices({
   continuation,
   pending,
+  branch,
 }: Readonly<{
   continuation: Pick<TaskInitiatingActionController, "selectMode" | "setCustomRef">;
   pending: Pick<ExecutionTargetPending, "selection">;
+  branch?: Readonly<{ value: string | null; onChange(value: string | null): void }> | undefined;
 }>) {
   const { t } = useTranslation();
   return (
@@ -368,7 +395,32 @@ function ExecutionTargetChoices({
           value={pending.selection.customRef ?? ""}
         />
       ) : null}
+      {branch !== undefined && pending.selection.mode !== "none" ? (
+        <TextInput
+          data-testid="execution-target-branch-name"
+          label={t("executionTargetContinuation.branchName")}
+          placeholder={t("executionTargetContinuation.branchNameDefault")}
+          value={branch.value ?? ""}
+          onChange={(event) => {
+            branch.onChange(event.currentTarget.value.length === 0 ? null : event.currentTarget.value);
+          }}
+        />
+      ) : null}
     </>
+  );
+}
+
+function ExecutionTargetChoiceFailureMessage({
+  failure,
+}: Readonly<{ failure: ExecutionTargetChoiceFailure | null }>) {
+  const { t } = useTranslation();
+  if (failure === null) return null;
+  return (
+    <p data-testid="execution-target-choice-error" className="m-0 text-sm text-[var(--color-error)]">
+      {failure.kind === "branch"
+        ? t(`executionTargetContinuation.branch_${failure.reason}`, { value: failure.value })
+        : t(`executionTargetContinuation.revision_${failure.reason}`, { value: failure.value })}
+    </p>
   );
 }
 
@@ -380,6 +432,13 @@ function ExecutionTargetRequirementMessage({
     return (
       <p className="m-0 text-[var(--color-muted)]">
         {t("executionTargetContinuation.policyRequiresSelection")}
+      </p>
+    );
+  }
+  if (requirement.reason === "original_target_unavailable") {
+    return (
+      <p className="m-0 text-[var(--color-muted)]">
+        {t(`executionTargetContinuation.original_${requirement.originalTargetCause}`)}
       </p>
     );
   }

@@ -5,6 +5,7 @@ package kent.api.connection;
 import "buf/validate/validate.proto";
 import "kent/api/project/project.proto";
 import "kent/api/server/server.proto";
+import "kent/api/session_launch/session_lifecycle.proto";
 import "kent/api/shared/foundation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/connection;connectionpb";
@@ -114,6 +115,14 @@ message AttachSessionRequest {
       expression: "this == this.trim()"
     }
   ];
+  optional string reattach_capability = 2 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).cel = {
+      id: "kent.connection.attach_session.reattach_capability.trimmed"
+      message: "reattach_capability must not have surrounding whitespace"
+      expression: "this == this.trim()"
+    }
+  ];
 }
 
 message WorkspaceIDSelection {
@@ -148,6 +157,7 @@ message SessionAttachment {
   string workspace_id = 2 [(buf.validate.field).string.min_len = 1];
   string workspace_root = 3 [(buf.validate.field).string.min_len = 1];
   string session_id = 4 [(buf.validate.field).string.min_len = 1];
+  string reattach_capability = 5 [(buf.validate.field).string.min_len = 1];
 }
 
 message SessionAttachmentTargetDetails {
@@ -218,6 +228,12 @@ message AttachSessionError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.session_launch.SessionNotFoundDetails session_not_found = 7 [
+      (kent.api.shared.kent_result_field) = {
+        role: RESULT_FIELD_ROLE_ERROR_DETAIL
+        error_code: "session_not_found"
+      }
+    ];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [
       (kent.api.shared.kent_result_field) = {
         role: RESULT_FIELD_ROLE_ERROR_DETAIL

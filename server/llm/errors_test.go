@@ -4,23 +4,20 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"testing"
-
-	"core/server/auth"
 )
 
 func TestIsAuthenticationError(t *testing.T) {
 	if !IsAuthenticationError(&ProviderAPIError{ProviderID: "openai", StatusCode: 401, Code: UnifiedErrorCodeAuthentication}) {
 		t.Fatal("expected provider authentication code to be auth error")
 	}
-	if !IsAuthenticationError(&APIStatusError{StatusCode: 401, Body: "unauthorized"}) {
+	if !IsAuthenticationError(&ProviderAPIError{ProviderID: "openai", StatusCode: 401, Code: UnifiedErrorCodeUnknown}) {
 		t.Fatal("expected 401 to be auth error")
 	}
-	if !IsAuthenticationError(&APIStatusError{StatusCode: 403, Body: "forbidden"}) {
+	if !IsAuthenticationError(&ProviderAPIError{ProviderID: "openai", StatusCode: 403, Code: UnifiedErrorCodeUnknown}) {
 		t.Fatal("expected 403 to be auth error")
 	}
-	if IsAuthenticationError(&APIStatusError{StatusCode: 429, Body: "rate limit"}) {
+	if IsAuthenticationError(&ProviderAPIError{ProviderID: "openai", StatusCode: 429, Code: UnifiedErrorCodeUnknown}) {
 		t.Fatal("did not expect 429 to be auth error")
 	}
 	if !IsAuthenticationError(&AuthError{Err: errors.New("token refresh failed")}) {
@@ -30,12 +27,12 @@ func TestIsAuthenticationError(t *testing.T) {
 
 func TestIsNonRetriableModelError(t *testing.T) {
 	for _, status := range []int{400, 401, 403, 404} {
-		if !IsNonRetriableModelError(&APIStatusError{StatusCode: status, Body: "x"}) {
+		if !IsNonRetriableModelError(&ProviderAPIError{ProviderID: "openai", StatusCode: status, Code: UnifiedErrorCodeUnknown}) {
 			t.Fatalf("expected %d to be non-retriable", status)
 		}
 	}
 	for _, status := range []int{408, 409, 429, 500} {
-		if IsNonRetriableModelError(&APIStatusError{StatusCode: status, Body: "x"}) {
+		if IsNonRetriableModelError(&ProviderAPIError{ProviderID: "openai", StatusCode: status, Code: UnifiedErrorCodeUnknown}) {
 			t.Fatalf("did not expect %d to be non-retriable", status)
 		}
 	}
@@ -80,10 +77,12 @@ func TestIsContextLengthOverflowError(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "legacy api status error is not overflow typed",
-			err: &APIStatusError{
+			name: "raw body does not override structured classification",
+			err: &ProviderAPIError{
+				ProviderID: "openai",
 				StatusCode: 400,
-				Body:       `{"error":{"code":"context_length_exceeded"}}`,
+				Code:       UnifiedErrorCodeUnknown,
+				Raw:        `{"error":{"code":"context_length_exceeded"}}`,
 			},
 			want: false,
 		},
@@ -96,25 +95,4 @@ func TestIsContextLengthOverflowError(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestUserFacingError(t *testing.T) {
-	if got := UserFacingError(&ProviderSelectionError{Model: "my-model", Err: ErrUnsupportedProvider}); got == "" || !containsAll(got, []string{"provider/auth path", "provider_override", "openai_base_url"}) {
-		t.Fatalf("expected provider selection warning, got %q", got)
-	}
-	if got := UserFacingError(&AuthError{Err: auth.ErrAuthNotConfigured}); got != "Not authenticated, run /login to sign in with your provider" {
-		t.Fatalf("expected unauthenticated warning, got %q", got)
-	}
-	if got := UserFacingError(&ProviderAPIError{ProviderID: "openai-compatible", StatusCode: 401, Code: UnifiedErrorCodeAuthentication}); got == "" || !containsAll(got, []string{"401", "/login", "OPENAI_API_KEY"}) {
-		t.Fatalf("expected authentication failure warning, got %q", got)
-	}
-}
-
-func containsAll(text string, parts []string) bool {
-	for _, part := range parts {
-		if !strings.Contains(text, part) {
-			return false
-		}
-	}
-	return true
 }

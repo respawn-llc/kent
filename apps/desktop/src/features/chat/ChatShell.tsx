@@ -1,0 +1,81 @@
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+
+import { useWindowChromeTitle, type SessionChatTarget } from "@/app-facade";
+import { ErrorState, LoadingState } from "@/ui";
+
+export type SelectedSession = Pick<SessionChatTarget, "projectID" | "sessionID">;
+
+export type ChatShellState =
+  | Readonly<{ kind: "ready" }>
+  | Readonly<{ kind: "loading" }>
+  | Readonly<{
+      kind: "error";
+      diagnostic?: ReactNode;
+      details?: ReactNode;
+      onRetry: () => void;
+    }>;
+
+export type ChatShellProps<Target = SelectedSession> = Readonly<{
+  composer: (session: Target, layout: ChatComposerLayout) => ReactNode;
+  content: (session: Target, bottomInset: number) => ReactNode;
+  selectedSession: Target;
+  sessionName: string | null;
+  state: ChatShellState;
+}>;
+export type ChatComposerLayout = Readonly<{
+  availableHeight: number | null;
+  onHeightChange(height: number): void;
+}>;
+export function ChatShell<Target>({
+  composer,
+  content,
+  selectedSession,
+  sessionName,
+  state,
+}: ChatShellProps<Target>) {
+  const { t } = useTranslation();
+  useWindowChromeTitle(sessionName);
+  const container = useRef<HTMLDivElement>(null);
+  const [availableHeight, setAvailableHeight] = useState<number | null>(null);
+  const [composerHeight, setComposerHeight] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const element = container.current;
+    if (element === null) return;
+    const measure = () => {
+      setAvailableHeight(element.getBoundingClientRect().height);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, [state.kind]);
+
+  if (state.kind === "loading") return <LoadingState title={t("states.loading")} />;
+  if (state.kind === "error") {
+    return (
+      <div className="flex h-full min-h-0 flex-col" data-testid="chat-shell">
+        <div className="min-h-0 flex-1">
+          <ErrorState
+            body={state.diagnostic}
+            details={state.details}
+            onRetry={state.onRetry}
+            retryLabel={t("app.retry")}
+            title={t("states.error")}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative h-full min-h-0" data-testid="chat-shell" ref={container}>
+      <div className="h-full min-h-0">{content(selectedSession, composerHeight ?? 0)}</div>
+      <div className="pointer-events-none absolute inset-x-0 bottom-0">
+        {composer(selectedSession, { availableHeight, onHeightChange: setComposerHeight })}
+      </div>
+    </div>
+  );
+}

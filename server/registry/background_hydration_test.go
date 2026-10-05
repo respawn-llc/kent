@@ -1,13 +1,14 @@
 package registry
 
 import (
+	"core/server/runtimeview"
 	shelltool "core/server/tools/shell"
 	"github.com/google/uuid"
 	"testing"
 )
 
 func TestBackgroundHydrationFiltersSessionProcessesAndOmitsPreview(t *testing.T) {
-	activities, err := transcriptBackgroundActivitiesFromProcessSnapshots("session-1", []shelltool.Snapshot{
+	activities, err := runtimeview.TranscriptBackgroundActivitiesFromProcessSnapshots("session-1", []shelltool.Snapshot{
 		{
 			ID: "process-1", ActivityID: uuid.MustParse("66666666-6666-4666-8666-666666666666"),
 			OwnerSessionID: "session-1", OwnerRunID: "11111111-1111-4111-8111-111111111111",
@@ -25,7 +26,7 @@ func TestBackgroundHydrationFiltersSessionProcessesAndOmitsPreview(t *testing.T)
 		t.Fatalf("background activities = %d, want one", len(activities))
 	}
 	activity := activities[0]
-	if activity.Preview != nil || activity.ProcessID != "process-1" ||
+	if activity.Preview != nil || activity.ProcessId != "process-1" ||
 		activity.Command != "go test ./..." || activity.Workdir != "/workspace" ||
 		activity.LogPath == nil || *activity.LogPath != "/tmp/process.log" {
 		t.Fatalf("background activity = %+v", activity)

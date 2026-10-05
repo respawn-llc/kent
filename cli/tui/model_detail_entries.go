@@ -4,11 +4,11 @@ import (
 	"fmt"
 
 	"core/cli/tui/transcriptrender"
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
 type detailEntry struct {
-	rowData          clientui.TranscriptCommittedRow
+	rowData          *transcriptpb.CommittedRow
 	presentationData transcriptrender.DetailPresentation
 }
 
@@ -36,7 +36,7 @@ func newDetailProjection(
 }
 
 func detailEntryFromCommittedRow(
-	row clientui.TranscriptCommittedRow,
+	row *transcriptpb.CommittedRow,
 	compiler transcriptrender.DetailCompiler,
 ) (detailEntry, bool) {
 	if !detailCommittedRowVisible(row) {
@@ -45,24 +45,21 @@ func detailEntryFromCommittedRow(
 	return newDetailEntry(row, compiler.Compile(row)), true
 }
 
-func detailCommittedRowVisible(row clientui.TranscriptCommittedRow) bool {
+func detailCommittedRowVisible(row *transcriptpb.CommittedRow) bool {
 	switch row.Visibility {
-	case clientui.EntryVisibilityHidden:
+	case transcriptpb.EntryVisibility_ENTRY_VISIBILITY_HIDDEN:
 		return false
-	case clientui.EntryVisibilityOngoing,
-		clientui.EntryVisibilityOngoingCollapsed,
-		clientui.EntryVisibilityDetail:
+	case transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
+		transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING_COLLAPSED,
+		transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL:
 	default:
 		panic(fmt.Sprintf("detail received committed row with unresolved visibility %q", row.Visibility))
-	}
-	if !row.Integrity.Valid() {
-		panic("detail entry has invalid server-projected integrity")
 	}
 	return true
 }
 
 func newDetailEntry(
-	row clientui.TranscriptCommittedRow,
+	row *transcriptpb.CommittedRow,
 	presentation transcriptrender.DetailPresentation,
 ) detailEntry {
 	return detailEntry{
@@ -71,7 +68,7 @@ func newDetailEntry(
 	}
 }
 
-func (entry detailEntry) row() clientui.TranscriptCommittedRow {
+func (entry detailEntry) row() *transcriptpb.CommittedRow {
 	return entry.rowData
 }
 
@@ -79,7 +76,7 @@ func (entry detailEntry) presentation() transcriptrender.DetailPresentation {
 	return entry.presentationData
 }
 
-func (p detailProjection) indexOfRow(row clientui.TranscriptCommittedRow) (int, bool) {
+func (p detailProjection) indexOfRow(row *transcriptpb.CommittedRow) (int, bool) {
 	match := 0
 	found := false
 	for index, entry := range p.entries {
@@ -96,11 +93,11 @@ func (p detailProjection) indexOfRow(row clientui.TranscriptCommittedRow) (int, 
 }
 
 func sameDetailGroup(left, right detailEntry) bool {
-	return left.rowData.Kind == right.rowData.Kind
+	return transcriptrender.GroupForRow(left.rowData) == transcriptrender.GroupForRow(right.rowData)
 }
 
 func (p *detailProjection) replaceSnapshot(
-	rows []clientui.TranscriptCommittedRow,
+	rows []*transcriptpb.CommittedRow,
 	contentWidth int,
 	themeName string,
 	expanded map[int]struct{},

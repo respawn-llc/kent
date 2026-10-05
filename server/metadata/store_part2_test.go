@@ -162,11 +162,14 @@ func TestSessionCategoryResolverRejectsInvalidStoredCategory(t *testing.T) {
 
 func TestSessionExecutionTargetClampsEscapingCwdRelpath(t *testing.T) {
 	t.Parallel()
-	target := sessionExecutionTargetFromRow(sqlitegen.GetSessionExecutionTargetByIDRow{
+	target, err := sessionExecutionTargetFromRow(sqlitegen.GetSessionExecutionTargetByIDRow{
 		WorkspaceID:   "workspace-1",
 		WorkspaceRoot: "/tmp/workspace",
 		CwdRelpath:    "../../other-project",
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if target.CwdRelpath != "." {
 		t.Fatalf("cwd relpath = %q, want .", target.CwdRelpath)
 	}
@@ -174,13 +177,16 @@ func TestSessionExecutionTargetClampsEscapingCwdRelpath(t *testing.T) {
 		t.Fatalf("effective workdir = %q, want /tmp/workspace", target.EffectiveWorkdir)
 	}
 
-	target = sessionExecutionTargetFromRow(sqlitegen.GetSessionExecutionTargetByIDRow{
+	target, err = sessionExecutionTargetFromRow(sqlitegen.GetSessionExecutionTargetByIDRow{
 		WorkspaceID:   "workspace-1",
 		WorkspaceRoot: "/tmp/workspace",
 		WorktreeID:    sql.NullString{String: "worktree-a", Valid: true},
 		WorktreeRoot:  sql.NullString{String: "/tmp/workspace/worktree-a", Valid: true},
 		CwdRelpath:    "/tmp/absolute",
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if target.CwdRelpath != "." {
 		t.Fatalf("absolute cwd relpath = %q, want .", target.CwdRelpath)
 	}
@@ -203,8 +209,8 @@ func TestResolveSessionExecutionTargetUsesMetadataAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CanonicalWorkspaceRoot: %v", err)
 	}
-	if target.WorkspaceID != binding.WorkspaceID {
-		t.Fatalf("workspace id = %q, want %q", target.WorkspaceID, binding.WorkspaceID)
+	if target.GetWorkspaceId() != binding.WorkspaceID {
+		t.Fatalf("workspace id = %q, want %q", target.GetWorkspaceId(), binding.WorkspaceID)
 	}
 	if target.WorkspaceRoot != canonicalRoot {
 		t.Fatalf("workspace root = %q, want %q", target.WorkspaceRoot, canonicalRoot)
@@ -219,175 +225,26 @@ func TestResolveSessionExecutionTargetUsesMetadataAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveSessionNavigationBinding: %v", err)
 	}
-	if navigationBinding.ProjectID != binding.ProjectID || navigationBinding.WorkspaceID != binding.WorkspaceID {
+	if navigationBinding.ProjectId != binding.ProjectID || navigationBinding.WorkspaceId != binding.WorkspaceID {
 		t.Fatalf("navigation binding = %+v, want project=%q workspace=%q", navigationBinding, binding.ProjectID, binding.WorkspaceID)
 	}
 }
 
-func TestResolveSessionProjectWorkspaceBoundaryUsesOwningProject(t *testing.T) {
+func TestResolveSessionProjectIDUsesOwningProject(t *testing.T) {
 	store, cfg, source := newMetadataTestStore(t)
 	sess := createMetadataTestSession(t, store, cfg, source)
-	sourceSibling, err := store.AttachWorkspaceToProject(t.Context(), source.ProjectID, t.TempDir())
+	projectID, err := store.ResolveSessionProjectID(t.Context(), sess.Meta().SessionID)
 	if err != nil {
-		t.Fatalf("AttachWorkspaceToProject source sibling: %v", err)
+		t.Fatalf("ResolveSessionProjectID: %v", err)
 	}
-	foreign, err := store.CreateProjectForWorkspace(t.Context(), t.TempDir(), "Foreign")
-	if err != nil {
-		t.Fatalf("CreateProjectForWorkspace foreign: %v", err)
-	}
-	foreignOnly, err := store.AttachWorkspaceToProject(t.Context(), foreign.ProjectID, t.TempDir())
-	if err != nil {
-		t.Fatalf("AttachWorkspaceToProject foreign-only: %v", err)
-	}
-
-	boundary, err := store.ResolveSessionProjectWorkspaceBoundary(t.Context(), sess.Meta().SessionID)
-	if err != nil {
-		t.Fatalf("ResolveSessionProjectWorkspaceBoundary: %v", err)
-	}
-	if boundary.ProjectID != source.ProjectID {
-		t.Fatalf("boundary project id = %q, want %q", boundary.ProjectID, source.ProjectID)
+	if projectID != source.ProjectID {
+		t.Fatalf("Project ID = %q, want %q", projectID, source.ProjectID)
 	}
 	if _, err := store.db.ExecContext(t.Context(), "UPDATE sessions SET workspace_id = NULL WHERE id = ?", sess.Meta().SessionID); err != nil {
 		t.Fatalf("unlink retained session: %v", err)
 	}
-	if _, err := store.ResolveSessionProjectWorkspaceBoundary(t.Context(), sess.Meta().SessionID); err != nil {
-		t.Fatalf("resolve unlinked retained session boundary: %v", err)
-	}
-	roots := boundary.Workspaces
-	if len(roots) != 2 {
-		t.Fatalf("boundary roots = %+v, want two source project roots", roots)
-	}
-	rootsByPath := map[string]bool{}
-	for _, root := range roots {
-		rootsByPath[root.CanonicalRoot] = true
-	}
-	if !rootsByPath[source.CanonicalRoot] || !rootsByPath[sourceSibling.CanonicalRoot] {
-		t.Fatalf("boundary roots = %+v, want source project roots", roots)
-	}
-	for _, workspace := range roots {
-		if workspace.WorkspaceID != nil && *workspace.WorkspaceID == foreignOnly.WorkspaceID {
-			t.Fatalf("boundary included foreign project workspace %q", foreignOnly.WorkspaceID)
-		}
-	}
-}
-
-func TestResolveProjectWorkspaceBoundaryPreservesRowIDOrderOnTimestampTies(t *testing.T) {
-	store, _, source := newMetadataTestStore(t)
-	ctx := context.Background()
-	first, err := store.AttachWorkspaceToProject(ctx, source.ProjectID, t.TempDir())
-	if err != nil {
-		t.Fatalf("AttachWorkspaceToProject first: %v", err)
-	}
-	second, err := store.AttachWorkspaceToProject(ctx, source.ProjectID, t.TempDir())
-	if err != nil {
-		t.Fatalf("AttachWorkspaceToProject second: %v", err)
-	}
-	if _, err := store.db.ExecContext(ctx,
-		"UPDATE workspaces SET created_at_unix_ms = ? WHERE project_id = ?",
-		int64(123), source.ProjectID,
-	); err != nil {
-		t.Fatalf("set tied workspace timestamps: %v", err)
-	}
-
-	boundary, err := store.ResolveProjectWorkspaceBoundary(ctx, source.ProjectID)
-	if err != nil {
-		t.Fatalf("ResolveProjectWorkspaceBoundary: %v", err)
-	}
-	if len(boundary.Workspaces) != 3 {
-		t.Fatalf("boundary workspace count = %d, want 3", len(boundary.Workspaces))
-	}
-	wantNewestFirst := []string{second.CanonicalRoot, first.CanonicalRoot, source.CanonicalRoot}
-	for index, want := range wantNewestFirst {
-		if got := boundary.Workspaces[index].CanonicalRoot; got != want {
-			t.Fatalf("boundary workspace %d = %q, want %q", index, got, want)
-		}
-	}
-
-	retargeted, added, err := boundary.WithWorkspace(ProjectWorkspace{CanonicalRoot: t.TempDir()})
-	if err != nil {
-		t.Fatalf("WithWorkspace: %v", err)
-	}
-	if !added {
-		t.Fatal("WithWorkspace reported no insertion")
-	}
-	for index, want := range wantNewestFirst {
-		if got := retargeted.Workspaces[index+1].CanonicalRoot; got != want {
-			t.Fatalf("retargeted workspace %d = %q, want %q", index, got, want)
-		}
-	}
-}
-
-func TestProjectWorkspaceCollectionRetainsExactlyNewest500AndExactLookupReachesOmittedWorkspace(t *testing.T) {
-	store, _, source := newMetadataTestStore(t)
-	ctx := context.Background()
-	roots := make([]string, 0, ProjectWorkspaceCollectionLimit+1)
-	roots = append(roots, source.CanonicalRoot)
-	for index := 1; index <= ProjectWorkspaceCollectionLimit; index++ {
-		binding, err := store.AttachWorkspaceToProject(ctx, source.ProjectID, t.TempDir())
-		if err != nil {
-			t.Fatalf("AttachWorkspaceToProject %d: %v", index, err)
-		}
-		roots = append(roots, binding.CanonicalRoot)
-	}
-	if _, err := store.db.ExecContext(ctx,
-		"UPDATE workspaces SET created_at_unix_ms = ? WHERE project_id = ?",
-		int64(123), source.ProjectID,
-	); err != nil {
-		t.Fatalf("set tied workspace timestamps: %v", err)
-	}
-
-	boundary, err := store.ResolveProjectWorkspaceBoundary(ctx, source.ProjectID)
-	if err != nil {
-		t.Fatalf("ResolveProjectWorkspaceBoundary: %v", err)
-	}
-	if len(boundary.Workspaces) != ProjectWorkspaceCollectionLimit {
-		t.Fatalf("boundary count = %d, want %d", len(boundary.Workspaces), ProjectWorkspaceCollectionLimit)
-	}
-	if boundary.Workspaces[0].CanonicalRoot != roots[ProjectWorkspaceCollectionLimit] {
-		t.Fatalf("boundary newest root = %q, want %q", boundary.Workspaces[0].CanonicalRoot, roots[ProjectWorkspaceCollectionLimit])
-	}
-	if boundary.Workspaces[ProjectWorkspaceCollectionLimit-1].CanonicalRoot != roots[1] {
-		t.Fatalf("boundary oldest retained root = %q, want %q", boundary.Workspaces[ProjectWorkspaceCollectionLimit-1].CanonicalRoot, roots[1])
-	}
-	for _, workspace := range boundary.Workspaces {
-		if workspace.CanonicalRoot == source.CanonicalRoot {
-			t.Fatal("boundary included omitted oldest Workspace")
-		}
-	}
-
-	unpaged, err := store.ListProjectWorkspaces(ctx, source.ProjectID)
-	if err != nil {
-		t.Fatalf("ListProjectWorkspaces: %v", err)
-	}
-	if len(unpaged) != ProjectWorkspaceCollectionLimit {
-		t.Fatalf("unpaged workspace count = %d, want %d", len(unpaged), ProjectWorkspaceCollectionLimit)
-	}
-	paged, err := store.ListProjectWorkspacesPage(ctx, source.ProjectID, ProjectWorkspaceCollectionLimit+1, 0)
-	if err != nil {
-		t.Fatalf("ListProjectWorkspacesPage: %v", err)
-	}
-	if len(paged) != ProjectWorkspaceCollectionLimit {
-		t.Fatalf("paged workspace count = %d, want %d", len(paged), ProjectWorkspaceCollectionLimit)
-	}
-	attached, err := store.ProjectWorkspaceAttached(ctx, source.ProjectID, source.CanonicalRoot)
-	if err != nil {
-		t.Fatalf("ProjectWorkspaceAttached omitted oldest: %v", err)
-	}
-	if !attached {
-		t.Fatal("exact Workspace lookup failed for omitted oldest Workspace")
-	}
-
-	target := t.TempDir()
-	retargeted, added, err := boundary.WithWorkspace(ProjectWorkspace{CanonicalRoot: target})
-	if err != nil {
-		t.Fatalf("WithWorkspace: %v", err)
-	}
-	if !added || len(retargeted.Workspaces) != ProjectWorkspaceCollectionLimit {
-		t.Fatalf("retargeted count = %d, added=%t, want %d/true", len(retargeted.Workspaces), added, ProjectWorkspaceCollectionLimit)
-	}
-	if retargeted.Workspaces[0].CanonicalRoot != target ||
-		retargeted.Workspaces[ProjectWorkspaceCollectionLimit-1].CanonicalRoot != roots[2] {
-		t.Fatalf("retargeted boundary first=%q last=%q, want %q/%q", retargeted.Workspaces[0].CanonicalRoot, retargeted.Workspaces[ProjectWorkspaceCollectionLimit-1].CanonicalRoot, target, roots[2])
+	if projectID, err := store.ResolveSessionProjectID(t.Context(), sess.Meta().SessionID); err != nil || projectID != source.ProjectID {
+		t.Fatalf("unlinked retained Session Project: %q, %v", projectID, err)
 	}
 }
 
@@ -424,7 +281,7 @@ func TestObservedSessionMetadataPersistencePreservesExecutionTarget(t *testing.T
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget: %v", err)
 	}
-	if target.Worktree == nil || target.Worktree.ID != "worktree-a" {
+	if target.Worktree == nil || target.Worktree.Id != "worktree-a" {
 		t.Fatalf("worktree = %+v, want worktree-a", target.Worktree)
 	}
 	if target.Worktree == nil || target.Worktree.Root != canonicalWorktreeRoot {
@@ -479,7 +336,7 @@ func TestUpdateSessionExecutionTargetAllowsNullableWorkspaceTargetFromReadModel(
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget: %v", err)
 	}
-	if target.WorkspaceID != "" || target.Worktree != nil {
+	if target.WorkspaceId != nil || target.Worktree != nil {
 		t.Fatalf("target = %+v, want nullable workspace root snapshot target", target)
 	}
 
@@ -553,7 +410,7 @@ func TestSessionLaunchVisibilityTransitions(t *testing.T) {
 			wantVisible: true,
 			mutate: func(t *testing.T, _ *Store, _ config.App, _ Binding, sess *session.Store) {
 				t.Helper()
-				if err := sess.SetInputDraft("draft prompt"); err != nil {
+				if err := sess.SetInputDraft("draft prompt", nil); err != nil {
 					t.Fatalf("SetInputDraft: %v", err)
 				}
 			},
@@ -723,7 +580,7 @@ func newMetadataTestStoreForWorkspace(t *testing.T, workspace string) (*Store, c
 
 func loadMetadataTestConfig(t *testing.T, workspace string, persistenceRoot string) config.App {
 	t.Helper()
-	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: persistenceRoot})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: persistenceRoot})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}

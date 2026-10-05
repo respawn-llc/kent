@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -13,13 +15,112 @@ import (
 	"core/server/tools"
 	"core/shared/textutil"
 	"core/shared/toolspec"
+	"core/shared/transcript"
 
 	"github.com/google/uuid"
 )
 
+func TestConcurrentLiveSteerPendingOrderMatchesDeliveryAndStop(t *testing.T) {
+	for _, stop := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stop=%t", stop), func(t *testing.T) {
+			started, release := make(chan struct{}), make(chan struct{})
+			var first sync.Once
+			client := &hookClient{
+				response: finalTextResponse("done"),
+				beforeReturn: func() error {
+					var err error
+					first.Do(func() {
+						close(started)
+						<-release
+						if stop {
+							err = context.Canceled
+						}
+					})
+					return err
+				},
+			}
+			var mu sync.Mutex
+			var restored []string
+			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
+				Model: "gpt-6-sol",
+				OnEvent: func(event Event) {
+					if event.HumanInputInterrupted != nil {
+						mu.Lock()
+						for _, item := range event.HumanInputInterrupted.Items {
+							restored = append(restored, item.Text)
+						}
+						mu.Unlock()
+					}
+				},
+			})
+			done := make(chan error, 1)
+			go func() {
+				_, err := engine.SubmitUserMessage(t.Context(), "start")
+				done <- err
+			}()
+			pendingWorkTestWait(t, started, "held provider")
+			const count = 64
+			gate := make(chan struct{})
+			results := make(chan error, count)
+			for i := range count {
+				go func() {
+					<-gate
+					_, accepted, err := engine.QueueUserMessageForActiveRun(t.Context(), fmt.Sprintf("input-%d", i), nil)
+					if err == nil && !accepted {
+						err = errors.New("live steer was not accepted")
+					}
+					results <- err
+				}()
+			}
+			close(gate)
+			for range count {
+				pendingWorkTestNoError(t, <-results)
+			}
+			pending := pendingWorkTestSnapshot(t, engine)
+			want := make([]string, 0, count)
+			for _, item := range pending.Items {
+				want = append(want, item.CanonicalInput)
+			}
+			if stop {
+				stopped, err := engine.TryInterruptActiveRun()
+				pendingWorkTestNoError(t, err)
+				if !stopped {
+					t.Fatal("Stop did not stop active execution")
+				}
+			}
+			close(release)
+			if err := <-done; err != nil && !(stop && errors.Is(err, context.Canceled)) {
+				t.Fatal(err)
+			}
+			waitEngineLifecycleTasks(t, engine)
+			var got []string
+			if stop {
+				mu.Lock()
+				got = slices.Clone(restored)
+				mu.Unlock()
+			} else {
+				client.mu.Lock()
+				calls := slices.Clone(client.calls)
+				client.mu.Unlock()
+				if len(calls) != 2 {
+					t.Fatalf("provider calls = %d, want initial and continuation", len(calls))
+				}
+				for _, message := range requestMessages(calls[1]) {
+					if message.Role == llm.RoleUser && messageContent(message) != "start" {
+						got = append(got, messageContent(message))
+					}
+				}
+			}
+			if len(want) != count || !slices.Equal(got, want) {
+				t.Fatalf("observed order = %v\nPending Work order = %v", got, want)
+			}
+		})
+	}
+}
+
 func TestLiveRunWaitIdleReturnsNoActive(t *testing.T) {
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 
 	if _, err := eng.WaitForActiveRunResult(context.Background()); !errors.Is(err, ErrNoActiveLiveRun) {
 		t.Fatalf("WaitForActiveRunResult idle error = %v, want ErrNoActiveLiveRun", err)
@@ -32,7 +133,7 @@ func TestCapturedActiveRunResultSurvivesFastCompletion(t *testing.T) {
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("fast final"), Phase: textutil.Value(llm.MessagePhaseFinal)},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
-	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 
 	var handle *LiveRunWaitHandle
 	var captureErr error
@@ -57,9 +158,12 @@ func TestCapturedActiveRunResultSurvivesFastCompletion(t *testing.T) {
 	}
 }
 
-func TestTryInterruptActiveRunNoopsAfterStepLeavesActiveState(t *testing.T) {
+func TestTryInterruptActiveRunRecoversOrphanedRunningGroup(t *testing.T) {
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{responses: []llm.Response{{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("recovered"), Phase: textutil.Value(llm.MessagePhaseFinal)},
+		Usage:     llm.Usage{WindowTokens: 200000},
+	}}}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	eng.liveRun.beginStep(&RunSnapshot{
 		RunID:      "018fdd67-89ab-4cde-8123-456789abc001",
 		StepID:     "018fdd67-89ab-4cde-8123-456789abc002",
@@ -72,13 +176,40 @@ func TestTryInterruptActiveRunNoopsAfterStepLeavesActiveState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TryInterruptActiveRun: %v", err)
 	}
-	if stopped {
-		t.Fatal("stop reported stopped after active step was already gone")
+	if !stopped || eng.HasActiveLiveRunGroup() {
+		t.Fatal("orphaned running group was not interrupted")
+	}
+	found := false
+	for _, entry := range eng.ChatSnapshot().Entries {
+		found = found || entry.Role == string(transcript.EntryRoleDeveloperErrorFeedback)
+	}
+	if !found {
+		t.Fatal("runtime invariant recovery did not publish transcript diagnostics")
+	}
+	if _, err := eng.SubmitUserMessage(t.Context(), "continue"); err != nil {
+		t.Fatalf("recovered runtime rejected next turn: %v", err)
+	}
+	if eng.ActiveRun() != nil || eng.HasActiveLiveRunGroup() {
+		t.Fatal("next turn did not finish after invariant recovery")
 	}
 }
 
-func TestQueueMessageForActiveRunStopsWhenRuntimeFIFOCloses(t *testing.T) {
-	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+func TestTryInterruptActiveRunPanicsForOrphanedRunningGroupInDebug(t *testing.T) {
+	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol", Debug: true})
+	eng.liveRun.beginStep(&RunSnapshot{
+		RunID: uuid.NewString(), StepID: uuid.NewString(),
+		Status: RunStatusRunning, ActiveKind: ActiveKindUserTurn, StartedAt: time.Now().UTC(),
+	})
+	defer func() {
+		if recover() == nil {
+			t.Fatal("orphaned running group did not trip debug invariant")
+		}
+	}()
+	_, _ = eng.TryInterruptActiveRun()
+}
+
+func TestQueueMessageForActiveRunCancellationPreventsAcceptance(t *testing.T) {
+	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	eng.liveRun.beginStep(&RunSnapshot{
 		RunID:      "018fdd67-89ab-4cde-8123-456789abc001",
 		StepID:     "018fdd67-89ab-4cde-8123-456789abc002",
@@ -93,8 +224,10 @@ func TestQueueMessageForActiveRunStopsWhenRuntimeFIFOCloses(t *testing.T) {
 		err      error
 	}
 	done := make(chan result, 1)
+	caller, cancel := context.WithCancel(t.Context())
+	defer cancel()
 	go func() {
-		_, accepted, err := eng.QueueUserMessageForActiveRun(t.Context(), "queued", func() error {
+		_, accepted, err := eng.QueueUserMessageForActiveRun(caller, "queued", func() error {
 			close(entered)
 			<-release
 			return nil
@@ -104,22 +237,22 @@ func TestQueueMessageForActiveRunStopsWhenRuntimeFIFOCloses(t *testing.T) {
 	select {
 	case <-entered:
 	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("queued message did not enter Runtime operation")
+		t.Fatal("queued message did not enter acceptance")
 	}
-	eng.runtimeFIFO.beginClose()
+	cancel()
 	close(release)
 	got := <-done
 	if got.accepted || !errors.Is(got.err, context.Canceled) {
 		t.Fatalf("queue result accepted=%t err=%v, want unaccepted canceled operation", got.accepted, got.err)
 	}
 	if eng.HasQueuedUserWork() {
-		t.Fatal("Runtime FIFO shutdown admitted queued message")
+		t.Fatal("caller cancellation admitted queued message")
 	}
 }
 
 func TestTryInterruptActiveRunCancelsCompactionStep(t *testing.T) {
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	stepCtxSeen := make(chan context.Context, 1)
 	done := make(chan error, 1)
 	eng.ensureOrchestrationCollaborators()
@@ -154,9 +287,144 @@ func TestTryInterruptActiveRunCancelsCompactionStep(t *testing.T) {
 	}
 }
 
+func TestStopDuringCompactionRestoresRetainedLiveRunContinuation(t *testing.T) {
+	client := &heldRuntimeCompactionClient{
+		fakeCompactionClient: &fakeCompactionClient{
+			responses: []llm.Response{finalTextResponse("unexpected continuation")},
+		},
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	var mu sync.Mutex
+	var restored []InterruptedHumanInput
+	eng := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
+		Model: "gpt-6-sol",
+		OnEvent: func(event Event) {
+			if event.HumanInputInterrupted != nil {
+				mu.Lock()
+				restored = append(restored, event.HumanInputInterrupted.Items...)
+				mu.Unlock()
+			}
+		},
+	})
+	// Let compaction release queued work before the Stop caller resumes.
+	eng.stepLifecycle = &settledInterruptStepLifecycle{
+		exclusiveStepLifecycle: eng.stepLifecycle,
+		settle:                 func() { waitEngineLifecycleTasks(t, eng) },
+	}
+	started, release := make(chan struct{}), make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- eng.stepLifecycle.Run(t.Context(), exclusiveStepOptions{
+			EmitRunState: true, ActiveKind: ActiveKindUserTurn,
+		}, func(context.Context, string) error {
+			close(started)
+			<-release
+			return nil
+		})
+	}()
+	pendingWorkTestWait(t, started, "Agent Step")
+	handle, err := eng.CaptureActiveRunResult(t.Context())
+	pendingWorkTestNoError(t, err)
+	eng.compactionRuntimeState().SetManualCompactionEligible(true)
+	pendingWorkTestNoError(t, eng.CompactContext(t.Context(), ""))
+	steer, err := eng.Steer(t.Context(), "retained steer", nil)
+	pendingWorkTestNoError(t, err)
+	queued, err := eng.QueueUserMessage(t.Context(), "retained queue")
+	pendingWorkTestNoError(t, err)
+	close(release)
+	pendingWorkTestNoError(t, <-done)
+	pendingWorkTestWait(t, client.started, "compaction before continuation")
+
+	stopped, err := eng.TryInterruptActiveRun()
+	pendingWorkTestNoError(t, err)
+	if !stopped {
+		t.Fatal("Stop did not interrupt compaction")
+	}
+	waitEngineLifecycleTasks(t, eng)
+	if _, err := handle.Wait(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("retained Live Run outcome = %v, want cancellation", err)
+	}
+	mu.Lock()
+	items := slices.Clone(restored)
+	mu.Unlock()
+	if len(items) != 2 || items[0].QueueItemID != steer.ID || items[1].QueueItemID != queued.ID {
+		t.Fatalf("restored inputs = %+v, want retained Steer and Queue in acceptance order", items)
+	}
+	if pending := pendingWorkTestSnapshot(t, eng); len(pending.Items) != 0 {
+		t.Fatalf("Stop left Pending Work: %+v", pending.Items)
+	}
+	client.mu.Lock()
+	calls := len(client.calls)
+	client.mu.Unlock()
+	if calls != 0 {
+		t.Fatalf("Stop launched continuation: provider calls = %d", calls)
+	}
+}
+
+type settledInterruptStepLifecycle struct {
+	exclusiveStepLifecycle
+	settle func()
+}
+
+func (s *settledInterruptStepLifecycle) InterruptCurrent(beforeCancel func(*RunSnapshot)) (*RunSnapshot, error) {
+	snapshot, err := s.exclusiveStepLifecycle.InterruptCurrent(beforeCancel)
+	s.settle()
+	return snapshot, err
+}
+
+func TestStopDuringCompactionSuspendsRetainedGoalLoop(t *testing.T) {
+	client := &goalCompactionClient{
+		heldRuntimeCompactionClient: &heldRuntimeCompactionClient{
+			fakeCompactionClient: &fakeCompactionClient{},
+			started:              make(chan struct{}),
+			release:              make(chan struct{}),
+		},
+		goal: newScriptedGoalLoopClient(),
+	}
+	eng := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
+		Model: "gpt-6-sol", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
+	})
+	_, err := eng.SetGoal(t.Context(), "retain goal across compaction", session.GoalActorUser)
+	pendingWorkTestNoError(t, err)
+	pendingWorkTestNoError(t, eng.StartGoalLoop())
+	client.goal.waitStarted(t, 1)
+	handle, err := eng.CaptureActiveRunResult(t.Context())
+	pendingWorkTestNoError(t, err)
+	eng.compactionRuntimeState().SetManualCompactionEligible(true)
+	pendingWorkTestNoError(t, eng.CompactContext(t.Context(), ""))
+	client.goal.releaseCall(1)
+	pendingWorkTestWait(t, client.started, "compaction between Goal Steps")
+
+	stopped, err := eng.TryInterruptActiveRun()
+	pendingWorkTestNoError(t, err)
+	if !stopped {
+		t.Fatal("Stop did not interrupt compaction")
+	}
+	waitGoalLoopRunning(t, eng, false)
+	if !eng.GoalLoopSuspended() {
+		t.Fatal("Stop during compaction did not suspend the retained Goal continuation")
+	}
+	if _, err := handle.Wait(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("retained Goal Live Run outcome = %v, want cancellation", err)
+	}
+	if calls := client.goal.callCount(); calls != 1 {
+		t.Fatalf("Stop launched Goal continuation: provider calls = %d", calls)
+	}
+}
+
+type goalCompactionClient struct {
+	*heldRuntimeCompactionClient
+	goal *scriptedGoalLoopClient
+}
+
+func (c *goalCompactionClient) Generate(ctx context.Context, request llm.Request, callbacks llm.StreamCallbacks) (llm.Response, error) {
+	return c.goal.Generate(ctx, request, callbacks)
+}
+
 func TestExclusiveStepEmitRunStateControlsActiveLiveRunGroup(t *testing.T) {
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	lifecycle := &defaultExclusiveStepLifecycle{engine: eng}
 	eng.stepLifecycle = lifecycle
 
@@ -222,7 +490,7 @@ func TestWaitForActiveRunResultReturnsAssistantFinalAnswer(t *testing.T) {
 			return nil
 		},
 	}
-	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	submitDone := make(chan error, 1)
 	go func() {
 		_, err := eng.SubmitUserMessage(context.Background(), "hello")
@@ -253,7 +521,7 @@ func TestWaitForActiveRunResultReturnsAssistantFinalAnswer(t *testing.T) {
 
 func TestTryInterruptActiveRunCancelsActiveStepAndWaiters(t *testing.T) {
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	lifecycle := &defaultExclusiveStepLifecycle{engine: eng}
 	eng.stepLifecycle = lifecycle
 	started := make(chan struct{})
@@ -315,7 +583,7 @@ func TestInstantStopBroadcastsRemovedHumanInputInAcceptanceOrder(t *testing.T) {
 			release: releaseTool,
 		},
 	}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(event Event) {
 			eventsMu.Lock()
 			events = append(events, event)
@@ -350,39 +618,39 @@ func TestInstantStopBroadcastsRemovedHumanInputInAcceptanceOrder(t *testing.T) {
 		})
 		firstDone <- queuedResult{item: item, accepted: accepted, err: err}
 	}()
-	waitForAcceptedRuntimeOperationCount(t, eng, 1)
-	close(releaseTool)
 	select {
 	case <-firstApplying:
 	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("first queued input did not apply at the preceding Step Boundary")
+		t.Fatal("first queued input did not enter acceptance during the protected Step")
 	}
 
+	close(releaseFirstApplication)
+	first := <-firstDone
+	if first.err != nil || !first.accepted {
+		t.Fatalf("queue first input accepted=%t err=%v", first.accepted, first.err)
+	}
 	secondDone := make(chan queuedResult, 1)
 	go func() {
 		item, accepted, err := eng.QueueUserMessageForActiveRun(t.Context(), "second", nil)
 		secondDone <- queuedResult{item: item, accepted: accepted, err: err}
 	}()
 	transitionStarted := make(chan struct{})
+	transitionScheduled := make(chan struct{})
 	releaseTransition := make(chan struct{})
 	transitionDone := make(chan error, 1)
 	go func() {
-		transitionDone <- eng.RunExecutionTargetTransition(t.Context(), nil, func() error {
+		transitionDone <- eng.RunExecutionTargetTransition(t.Context(), func() { close(transitionScheduled) }, func() error {
 			close(transitionStarted)
 			<-releaseTransition
 			return nil
 		})
 	}()
-	waitForAcceptedRuntimeOperationCount(t, eng, 2)
-	close(releaseFirstApplication)
-	first := <-firstDone
-	if first.err != nil || !first.accepted {
-		t.Fatalf("queue first input accepted=%t err=%v", first.accepted, first.err)
-	}
 	second := <-secondDone
 	if second.err != nil || !second.accepted {
 		t.Fatalf("queue second input accepted=%t err=%v", second.accepted, second.err)
 	}
+	pendingWorkTestWait(t, transitionScheduled, "Worktree transition scheduling")
+	close(releaseTool)
 	select {
 	case <-transitionStarted:
 	case <-time.After(runtimeTestSynchronizationTimeout):
@@ -426,7 +694,7 @@ func TestInstantStopBroadcastsRemovedHumanInputInAcceptanceOrder(t *testing.T) {
 	}
 }
 
-func TestTryInterruptActiveAgentTurnPreservesGoalLoopInterruptBookkeeping(t *testing.T) {
+func TestTryInterruptActiveRunPreservesGoalLoopInterruptBookkeeping(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	client := newScriptedGoalLoopClient()
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
@@ -438,9 +706,9 @@ func TestTryInterruptActiveAgentTurnPreservesGoalLoopInterruptBookkeeping(t *tes
 	}
 	client.waitStarted(t, 1)
 
-	stopped, err := eng.TryInterruptActiveAgentTurn()
+	stopped, err := eng.TryInterruptActiveRun()
 	if err != nil || !stopped {
-		t.Fatalf("TryInterruptActiveAgentTurn stopped=%t err=%v, want active goal stop", stopped, err)
+		t.Fatalf("TryInterruptActiveRun stopped=%t err=%v, want active goal stop", stopped, err)
 	}
 	waitGoalLoopRunning(t, eng, false)
 	if !eng.GoalLoopSuspended() {
@@ -451,9 +719,9 @@ func TestTryInterruptActiveAgentTurnPreservesGoalLoopInterruptBookkeeping(t *tes
 	}
 }
 
-func TestTryInterruptActiveAgentTurnLeavesStaleGoalLiveRunGroupRunning(t *testing.T) {
+func TestTryInterruptActiveRunPreservesDifferentlyIdentifiedGroupDuringActiveStep(t *testing.T) {
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	eng.ensureOrchestrationCollaborators()
 	activeRunID := uuid.NewString()
 	activeStepID := uuid.NewString()
@@ -484,9 +752,9 @@ func TestTryInterruptActiveAgentTurnLeavesStaleGoalLiveRunGroupRunning(t *testin
 	staleDone := staleGroup.done
 	eng.liveRun.mu.Unlock()
 
-	stopped, err := eng.TryInterruptActiveAgentTurn()
+	stopped, err := eng.TryInterruptActiveRun()
 	if err != nil || !stopped {
-		t.Fatalf("TryInterruptActiveAgentTurn stopped=%t err=%v, want exact active step interrupted", stopped, err)
+		t.Fatalf("TryInterruptActiveRun stopped=%t err=%v, want exact active step interrupted", stopped, err)
 	}
 	if !canceled {
 		t.Fatal("exact active Agent Turn was not canceled")
@@ -507,7 +775,7 @@ func TestTryInterruptActiveAgentTurnLeavesStaleGoalLiveRunGroupRunning(t *testin
 
 func TestTryInterruptActiveRunIdleNoops(t *testing.T) {
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 
 	stopped, err := eng.TryInterruptActiveRun()
 	if err != nil || stopped {

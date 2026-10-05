@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"core/cli/tui/transcriptrender"
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/transcript"
 )
 
@@ -15,24 +15,24 @@ func TestErrorNoticesRenderCompletelyThroughNormalOngoingModes(t *testing.T) {
 	legacyText := "legacy error first line\nlegacy error second line"
 	misleadingCompact := "wrong compact source"
 	misleadingCondensed := "wrong condensed source"
-	messageType := clientui.TranscriptMessageErrorFeedback
+	messageType := transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ERROR_FEEDBACK
 	tests := []struct {
 		name       string
-		visibility transcript.EntryVisibility
-		notice     *clientui.TranscriptNoticeRow
+		visibility transcriptpb.EntryVisibility
+		notice     *transcriptpb.NoticeRow
 		wantMode   transcriptrender.Mode
 		wantText   string
 	}{
 		{
 			name:       "runtime diagnostic ongoing",
-			visibility: transcript.EntryVisibilityOngoing,
-			notice: &clientui.TranscriptNoticeRow{
-				Reason:        clientui.TranscriptNoticeRuntimeDiagnostic,
-				Severity:      clientui.TranscriptNoticeError,
+			visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
+			notice: &transcriptpb.NoticeRow{
+				Reason:        transcriptpb.NoticeReason_NOTICE_REASON_RUNTIME_DIAGNOSTIC,
+				Severity:      transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR,
 				CompactLabel:  &misleadingCompact,
 				CondensedText: &misleadingCondensed,
-				Diagnostic: &clientui.TranscriptDiagnostic{
-					Code:   clientui.TranscriptDiagnosticCode(transcript.EntryRoleDeveloperErrorFeedback),
+				Diagnostic: &transcriptpb.Diagnostic{
+					Code:   string(transcript.EntryRoleDeveloperErrorFeedback),
 					Detail: diagnosticDetail,
 				},
 			},
@@ -41,10 +41,10 @@ func TestErrorNoticesRenderCompletelyThroughNormalOngoingModes(t *testing.T) {
 		},
 		{
 			name:       "legacy error ongoing collapsed",
-			visibility: transcript.EntryVisibilityOngoingCollapsed,
-			notice: &clientui.TranscriptNoticeRow{
-				Reason:        clientui.TranscriptNoticeLegacyUntypedNotice,
-				Severity:      clientui.TranscriptNoticeError,
+			visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING_COLLAPSED,
+			notice: &transcriptpb.NoticeRow{
+				Reason:        transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE,
+				Severity:      transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR,
 				MessageType:   &messageType,
 				LegacyText:    &legacyText,
 				CompactLabel:  &misleadingCompact,
@@ -57,7 +57,10 @@ func TestErrorNoticesRenderCompletelyThroughNormalOngoingModes(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			row := clientui.TranscriptCommittedRow{Visibility: test.visibility, Kind: clientui.TranscriptRowNotice, Notice: test.notice}
+			row := &transcriptpb.CommittedRow{
+				Visibility: test.visibility,
+				Row:        &transcriptpb.CommittedRow_Notice{Notice: test.notice},
+			}
 			if got := ongoingRenderMode(row); got != test.wantMode {
 				t.Fatalf("normal ongoing render mode = %d, want %d", got, test.wantMode)
 			}

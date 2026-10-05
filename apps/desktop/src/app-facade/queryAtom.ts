@@ -1,0 +1,64 @@
+import {
+  type InfiniteQueryObserver,
+  type MutationObserver,
+  type QueryObserver,
+  type InfiniteQueryObserverResult,
+  type QueryKey,
+  type QueryObserverResult,
+  type MutationObserverResult,
+  type QueryClient,
+  type MutationFilters,
+  type MutationCache,
+} from "@tanstack/react-query";
+import * as Atom from "effect/reactivity/Atom";
+
+export type QuerySnapshot<R> = R extends unknown
+  ? Readonly<Omit<R, "refetch" | "fetchNextPage" | "fetchPreviousPage" | "mutate" | "reset" | "promise">>
+  : never;
+
+export function queryAtom<Q, E, A, K extends QueryKey, P>(
+  observer: InfiniteQueryObserver<Q, E, A, K, P>,
+): Atom.Atom<QuerySnapshot<InfiniteQueryObserverResult<A, E>>>;
+export function queryAtom<Q, E, A, D, K extends QueryKey>(
+  observer: QueryObserver<Q, E, A, D, K>,
+): Atom.Atom<QuerySnapshot<QueryObserverResult<A, E>>>;
+export function queryAtom<A, E, V, C>(
+  observer: MutationObserver<A, E, V, C>,
+): Atom.Atom<QuerySnapshot<MutationObserverResult<A, E, V>>>;
+export function queryAtom<Q, E, A, D, K extends QueryKey, V, P>(
+  observer:
+    QueryObserver<Q, E, A, D, K> | MutationObserver<A, E, V, P> | InfiniteQueryObserver<Q, E, A, K, P>,
+): Atom.Atom<
+  QuerySnapshot<
+    QueryObserverResult<A, E> | InfiniteQueryObserverResult<A, E> | MutationObserverResult<A, E, V>
+  >
+> {
+  return Atom.make((get) => {
+    // Query owns the result object. Atom owns only this subscription, not a second cache.
+    get.addFinalizer(
+      observer.subscribe((result) => {
+        get.setSelf(result);
+      }),
+    );
+    return observer.getCurrentResult();
+  });
+}
+
+export function mutationPendingAtom(client: QueryClient, filters: MutationFilters): Atom.Atom<boolean> {
+  return mutationCacheAtom(client, () => client.isMutating(filters) > 0);
+}
+
+export function mutationCacheAtom<A>(
+  client: QueryClient,
+  project: (cache: MutationCache) => A,
+): Atom.Atom<A> {
+  return Atom.make((get) => {
+    const cache = client.getMutationCache();
+    get.addFinalizer(
+      cache.subscribe(() => {
+        get.setSelf(project(cache));
+      }),
+    );
+    return project(cache);
+  });
+}

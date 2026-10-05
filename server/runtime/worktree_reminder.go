@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"core/prompts"
 	"core/server/llm"
 	"core/server/session"
 	"core/shared/clientui"
@@ -39,7 +40,9 @@ func (e *Engine) materializePendingWorktreeReminder(stepID string) error {
 	if state == nil {
 		return nil
 	}
-	metaResult, err := e.activeMetaContextBuilder(e.currentModel(), e.cfg.SkillPolicy).Build(metaContextBuildOptions{WorktreeReminder: state})
+	metaResult, err := e.activeMetaContextBuilder(e.currentModel(), e.cfg.SkillPolicy).Build(metaContextBuildOptions{
+		WorktreeReminder: state, WorktreePromptKind: prompts.WorktreePromptSwitch,
+	})
 	if err != nil {
 		return err
 	}

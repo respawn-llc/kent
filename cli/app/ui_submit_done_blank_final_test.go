@@ -1,9 +1,9 @@
 package app
 
 import (
-	"testing"
-
 	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"testing"
 )
 
 func TestSubmitDoneBlankFinalAbortsTurnQueueNotificationState(t *testing.T) {
@@ -49,7 +49,7 @@ type submitDoneTurnQueueHook struct {
 	aborted int
 }
 
-func (h *submitDoneTurnQueueHook) OnTranscriptMessage(clientui.TranscriptMessage) {}
-func (h *submitDoneTurnQueueHook) OnTurnQueueDrained()                            {}
-func (h *submitDoneTurnQueueHook) OnTurnQueueAborted()                            { h.aborted++ }
-func (h *submitDoneTurnQueueHook) OnUserCompactionCompleted(bool)                 {}
+func (h *submitDoneTurnQueueHook) OnTranscriptMessage(*transcriptpb.Message) {}
+func (h *submitDoneTurnQueueHook) OnTurnQueueDrained()                       {}
+func (h *submitDoneTurnQueueHook) OnTurnQueueAborted()                       { h.aborted++ }
+func (h *submitDoneTurnQueueHook) OnUserCompactionCompleted(bool)            {}

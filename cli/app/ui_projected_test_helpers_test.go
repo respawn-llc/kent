@@ -2,12 +2,8 @@ package app
 
 import (
 	"context"
-	"testing"
-	"time"
-
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
-	"core/server/metadata"
 	"core/server/registry"
 	"core/server/runtime"
 	"core/server/runtimecontrol"
@@ -21,12 +17,82 @@ import (
 	"core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 	"core/shared/textutil"
+	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+func transcriptTestMessage(sequence uint64, payload proto.Message) *transcriptpb.Message {
+	event := &transcriptpb.Event{}
+	switch payload := payload.(type) {
+	case *transcriptpb.Hydration:
+		event.Payload = &transcriptpb.Event_Hydration{Hydration: payload}
+	case *transcriptpb.CommittedRow:
+		event.Payload = &transcriptpb.Event_CommittedRow{CommittedRow: payload}
+	case *transcriptpb.AssistantDelta:
+		event.Payload = &transcriptpb.Event_AssistantDelta{AssistantDelta: payload}
+	case *transcriptpb.AssistantStreamAbort:
+		event.Payload = &transcriptpb.Event_AssistantStreamAbort{AssistantStreamAbort: payload}
+	case *transcriptpb.ThinkingStatusUpdate:
+		event.Payload = &transcriptpb.Event_ThinkingStatusUpdate{ThinkingStatusUpdate: payload}
+	case *transcriptpb.ReasoningTraceUpdate:
+		event.Payload = &transcriptpb.Event_ReasoningTraceUpdate{ReasoningTraceUpdate: payload}
+	case *transcriptpb.ReasoningTraceReset:
+		event.Payload = &transcriptpb.Event_ReasoningTraceReset{ReasoningTraceReset: payload}
+	case *transcriptpb.ToolStart:
+		event.Payload = &transcriptpb.Event_ToolStart{ToolStart: payload}
+	case *transcriptpb.ToolAbort:
+		event.Payload = &transcriptpb.Event_ToolAbort{ToolAbort: payload}
+	case *transcriptpb.UserMessageFlushed:
+		event.Payload = &transcriptpb.Event_UserMessageFlushed{UserMessageFlushed: payload}
+	case *transcriptpb.QueuedMessageState:
+		event.Payload = &transcriptpb.Event_QueuedMessageState{QueuedMessageState: payload}
+	case *transcriptpb.StepState:
+		event.Payload = &transcriptpb.Event_StepState{StepState: payload}
+	case *runtimepb.ReadModelUpdate:
+		event.Payload = &transcriptpb.Event_RuntimeReadModelUpdate{RuntimeReadModelUpdate: payload}
+	case *transcriptpb.SessionStatus:
+		event.Payload = &transcriptpb.Event_SessionStatus{SessionStatus: payload}
+	case *transcriptpb.SessionIdentity:
+		event.Payload = &transcriptpb.Event_SessionIdentity{SessionIdentity: payload}
+	case *transcriptpb.CompactionStatus:
+		event.Payload = &transcriptpb.Event_CompactionStatus{CompactionStatus: payload}
+	case *runtimepb.ContextUsage:
+		event.Payload = &transcriptpb.Event_ContextUsage{ContextUsage: payload}
+	case *runtimepb.GoalView:
+		event.Payload = &transcriptpb.Event_GoalStatus{GoalStatus: payload}
+	case *transcriptpb.BackgroundActivity:
+		event.Payload = &transcriptpb.Event_BackgroundActivity{BackgroundActivity: payload}
+	case *transcriptpb.Prompt:
+		event.Payload = &transcriptpb.Event_Prompt{Prompt: payload}
+	case *transcriptpb.WorktreeTransitionOutcome:
+		event.Payload = &transcriptpb.Event_WorktreeTransitionOutcome{WorktreeTransitionOutcome: payload}
+	case *transcriptpb.OperationalDiagnostic:
+		event.Payload = &transcriptpb.Event_OperationalDiagnostic{OperationalDiagnostic: payload}
+	case *transcriptpb.LiveRunFinished:
+		event.Payload = &transcriptpb.Event_LiveRunFinished{LiveRunFinished: payload}
+	case *transcriptpb.PendingWorkChanged:
+		event.Payload = &transcriptpb.Event_PendingWorkChanged{PendingWorkChanged: payload}
+	case *transcriptpb.PendingWorkRestored:
+		event.Payload = &transcriptpb.Event_PendingWorkRestored{PendingWorkRestored: payload}
+	case *transcriptpb.SessionSettingFeedback:
+		event.Payload = &transcriptpb.Event_SessionSettingFeedback{SessionSettingFeedback: payload}
+	case *transcriptpb.HumanInputInterrupted:
+		event.Payload = &transcriptpb.Event_HumanInputInterrupted{HumanInputInterrupted: payload}
+	default:
+		panic("unsupported transcript test payload")
+	}
+	return &transcriptpb.Message{Sequence: sequence, Event: event}
+}
 
 func waitForTestCondition(t *testing.T, timeout time.Duration, label string, condition func() bool) {
 	t.Helper()
@@ -61,41 +127,30 @@ func newProjectedStaticUIModel(opts ...UIOption) *uiModel {
 
 type recordingPromptControl struct {
 	singlePromptOnlyControl
-	batchRequests chan serverapi.PromptAnswerBatchRequest
+	batchRequests chan *promptpb.AnswerBatchRequest
 }
 
 type singlePromptOnlyControl struct{}
 
-func (singlePromptOnlyControl) AnswerPromptBatch(
-	context.Context,
-	serverapi.PromptAnswerBatchRequest,
-) (serverapi.PromptAnswerBatchResponse, error) {
+func (singlePromptOnlyControl) AnswerPromptBatch(context.Context, *promptpb.AnswerBatchRequest) (*promptpb.AnswerBatchSuccess, error) {
 	panic("unexpected prompt batch answer")
 }
 
 func newRecordingPromptControl() *recordingPromptControl {
-	return &recordingPromptControl{
-		batchRequests: make(chan serverapi.PromptAnswerBatchRequest, 8),
-	}
+	return &recordingPromptControl{batchRequests: make(chan *promptpb.AnswerBatchRequest, 8)}
 }
 
-func (c *recordingPromptControl) AnswerPromptBatch(
-	_ context.Context,
-	request serverapi.PromptAnswerBatchRequest,
-) (serverapi.PromptAnswerBatchResponse, error) {
+func (c *recordingPromptControl) AnswerPromptBatch(_ context.Context, request *promptpb.AnswerBatchRequest) (*promptpb.AnswerBatchSuccess, error) {
 	c.batchRequests <- request
 	return resolvedPromptBatchResponse(request), nil
 }
 
-func resolvedPromptBatchResponse(request serverapi.PromptAnswerBatchRequest) serverapi.PromptAnswerBatchResponse {
-	results := make([]serverapi.PromptAnswerBatchResult, 0, len(request.Entries))
+func resolvedPromptBatchResponse(request *promptpb.AnswerBatchRequest) *promptpb.AnswerBatchSuccess {
+	results := make([]*promptpb.AnswerBatchEntryResult, 0, len(request.Entries))
 	for _, entry := range request.Entries {
-		results = append(results, serverapi.PromptAnswerBatchResult{
-			PromptID: entry.PromptID,
-			Outcome:  serverapi.PromptAnswerBatchOutcomeResolved,
-		})
+		results = append(results, &promptpb.AnswerBatchEntryResult{ToolCallId: entry.ToolCallId, Outcome: promptpb.AnswerBatchOutcome_ANSWER_BATCH_OUTCOME_RESOLVED})
 	}
-	return serverapi.PromptAnswerBatchResponse{Results: results}
+	return &promptpb.AnswerBatchSuccess{Results: results}
 }
 
 func newProjectedPromptTestUIModel(t *testing.T, opts ...UIOption) (*uiModel, *recordingPromptControl) {
@@ -116,35 +171,35 @@ func runPromptDeliveryCommand(t *testing.T, model *uiModel, command tea.Cmd) *ui
 	return updateUIModel(t, model, command())
 }
 
-func submitAskPromptKey(t *testing.T, model *uiModel, control *recordingPromptControl, key tea.KeyMsg) (*uiModel, serverapi.PromptAnswerBatchRequest) {
+func submitAskPromptKey(t *testing.T, model *uiModel, control *recordingPromptControl, key tea.KeyMsg) (*uiModel, *promptpb.AnswerBatchRequest) {
 	t.Helper()
 	next, command := model.Update(key)
 	updated := runPromptDeliveryCommand(t, next.(*uiModel), command)
 	return updated, requirePromptAnswerBatchRequest(t, control)
 }
 
-func requirePromptAnswerBatchRequest(t *testing.T, control *recordingPromptControl) serverapi.PromptAnswerBatchRequest {
+func requirePromptAnswerBatchRequest(t *testing.T, control *recordingPromptControl) *promptpb.AnswerBatchRequest {
 	t.Helper()
 	select {
 	case request := <-control.batchRequests:
 		return request
 	default:
 		t.Fatal("completed prompt delivery recorded no prompt answer batch request")
-		return serverapi.PromptAnswerBatchRequest{}
+		return &promptpb.AnswerBatchRequest{}
 	}
 }
 
-func requireQuestionAnswerEntry(t *testing.T, request serverapi.PromptAnswerBatchRequest) serverapi.PromptAnswerBatchEntry {
+func requireQuestionAnswerEntry(t *testing.T, request *promptpb.AnswerBatchRequest) *promptpb.AnswerBatchEntry {
 	t.Helper()
-	if len(request.Entries) != 1 || request.Entries[0].QuestionAnswer == nil {
+	if len(request.Entries) != 1 || request.Entries[0].GetQuestionAnswer() == nil {
 		t.Fatalf("prompt answer batch = %+v, want one Question answer", request)
 	}
 	return request.Entries[0]
 }
 
-func requireApprovalAnswerEntry(t *testing.T, request serverapi.PromptAnswerBatchRequest) serverapi.PromptAnswerBatchEntry {
+func requireApprovalAnswerEntry(t *testing.T, request *promptpb.AnswerBatchRequest) *promptpb.AnswerBatchEntry {
 	t.Helper()
-	if len(request.Entries) != 1 || request.Entries[0].ApprovalAnswer == nil {
+	if len(request.Entries) != 1 || request.Entries[0].GetApprovalAnswer() == nil {
 		t.Fatalf("prompt answer batch = %+v, want one Approval answer", request)
 	}
 	return request.Entries[0]
@@ -179,10 +234,11 @@ func newProjectedAuthorityRuntime(
 		t.Fatalf("parse session id: %v", err)
 	}
 	settings := config.DefaultOnboardingSettings()
-	settings.ProviderOverride = "openai"
+	root := t.TempDir()
+	settings = testsetup.WriteProviderSettings(t, root, settings)
 	settings.Reviewer.Frequency = "off"
 	if cfg.Model == "" {
-		settings.Model = "gpt-5"
+		settings.Model = "gpt-6-sol"
 	} else {
 		settings.Model = cfg.Model
 	}
@@ -190,11 +246,12 @@ func newProjectedAuthorityRuntime(
 		settings.ModelContextWindow = cfg.ContextWindowTokens
 	}
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		MainWorkspaceRoot:     store.Meta().WorkspaceRoot,
 		Settings:              settings,
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		FilesystemContext: func() tools.FilesystemContext {
-			context, err := runtimewire.NewFilesystemContext(store.Meta().WorkspaceRoot, store.Meta().WorkspaceRoot, metadata.ProjectWorkspaceBoundary{ProjectID: "test"})
+			context, err := runtimewire.NewFilesystemContext(store.Meta().WorkspaceRoot, store.Meta().WorkspaceRoot, "test")
 			if err != nil {
 				t.Fatalf("NewFilesystemContext: %v", err)
 			}
@@ -207,7 +264,7 @@ func newProjectedAuthorityRuntime(
 	}
 	activity := registry.NewRuntimeRegistry()
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot:   t.TempDir(),
+		PersistenceRoot:   root,
 		StoreOptions:      persistence.Options(),
 		ResourceLifecycle: activity,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event runtime.Event) {
@@ -228,7 +285,7 @@ func newProjectedAuthorityRuntime(
 	})
 	reads := sessionview.NewService(persistence, activity, nil)
 	controls := runtimecontrol.NewService(authority).WithRuntimeActivityResolver(activity)
-	runtimeClient := newUIRuntimeClientWithReads(sessionID.String(), reads, controls, nil).(*sessionRuntimeClient)
+	runtimeClient := newUIRuntimeClientWithReads(sessionID.String(), reads, controls, nil, nil).(*sessionRuntimeClient)
 	snapshot, err := activity.RuntimeReadModelFeedSnapshot(context.Background(), sessionID.String())
 	if err != nil {
 		t.Fatalf("projected runtime snapshot: %v", err)
@@ -262,36 +319,46 @@ func newUnavailableRuntimeControlService() *runtimecontrol.Service {
 }
 
 func newTestSessionRuntimeClient(reads apicontract.SessionViewService, controls apicontract.RuntimeControlService) *sessionRuntimeClient {
-	return newUIRuntimeClientWithReads("session-1", reads, controls, nil).(*sessionRuntimeClient)
+	return newUIRuntimeClientWithReads("session-1", reads, controls, nil, nil).(*sessionRuntimeClient)
 }
 
 func newTestSessionRuntimeClientWithControls(controls apicontract.RuntimeControlService) *sessionRuntimeClient {
 	return newTestSessionRuntimeClient(&countingSessionViewClient{}, controls)
 }
 
-func testQuestionPrompt(id, question string, suggestions ...string) clientui.TranscriptPrompt {
-	return clientui.TranscriptPrompt{
-		Kind:        clientui.TranscriptPromptKindQuestion,
-		Status:      clientui.TranscriptPromptStatusPending,
-		PromptID:    clientui.PromptID(id),
-		SessionID:   ongoingTestSessionID(),
-		StepID:      ongoingTestStepID(),
-		Question:    question,
-		CreatedAt:   time.Unix(1, 0).UTC(),
-		Suggestions: append([]string(nil), suggestions...),
+func testQuestionPrompt(id, question string, suggestions ...string) *transcriptpb.Prompt {
+	return &transcriptpb.Prompt{
+		Status: transcriptpb.PromptStatus_PROMPT_STATUS_PENDING,
+		Prompt: &transcriptpb.Prompt_Question{Question: &promptpb.Question{
+			ToolCallId:  id,
+			SessionId:   ongoingTestSessionID().String(),
+			StepId:      ongoingTestStepID().String(),
+			Question:    question,
+			CreatedAt:   timestamppb.New(time.Unix(1, 0).UTC()),
+			Suggestions: append([]string(nil), suggestions...),
+		}},
 	}
 }
 
-func testApprovalPrompt(id, question string, decisions ...clientui.ApprovalDecision) clientui.TranscriptPrompt {
-	return clientui.TranscriptPrompt{
-		Kind:            clientui.TranscriptPromptKindApproval,
-		Status:          clientui.TranscriptPromptStatusPending,
-		PromptID:        clientui.PromptID(id),
-		SessionID:       ongoingTestSessionID(),
-		StepID:          ongoingTestStepID(),
-		Question:        question,
-		CreatedAt:       time.Unix(1, 0).UTC(),
-		ApprovalOptions: append([]clientui.ApprovalDecision(nil), decisions...),
+func testApprovalPrompt(id, question string, decisions ...clientui.ApprovalDecision) *transcriptpb.Prompt {
+	options := make([]*promptpb.ApprovalOption, 0, len(decisions))
+	for _, decision := range decisions {
+		generated, err := protoapi.ApprovalDecisionToProto(decision)
+		if err != nil {
+			panic(err)
+		}
+		options = append(options, &promptpb.ApprovalOption{Decision: generated})
+	}
+	return &transcriptpb.Prompt{
+		Status: transcriptpb.PromptStatus_PROMPT_STATUS_PENDING,
+		Prompt: &transcriptpb.Prompt_Approval{Approval: &promptpb.Approval{
+			ToolCallId: id,
+			SessionId:  ongoingTestSessionID().String(),
+			StepId:     ongoingTestStepID().String(),
+			Question:   &question,
+			CreatedAt:  timestamppb.New(time.Unix(1, 0).UTC()),
+			Options:    options,
+		}},
 	}
 }
 

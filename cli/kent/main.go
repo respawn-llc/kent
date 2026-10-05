@@ -19,26 +19,25 @@ import (
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/imagefileio"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
+
 	"golang.org/x/term"
 )
 
 type commonFlags struct {
-	WorkspaceRoot         string
-	WorkspaceExplicit     bool
-	SessionID             string
-	ContinueID            string
-	Model                 string
-	ProviderOverride      string
-	ThinkingLevel         string
-	Theme                 string
-	ModelTimeoutSeconds   int
-	Tools                 string
-	OpenAIBaseURL         string
-	OpenAIBaseURLExplicit bool
-	PersistenceRoot       string
+	WorkspaceRoot       string
+	WorkspaceExplicit   bool
+	SessionID           string
+	ContinueID          string
+	Model               string
+	ThinkingLevel       string
+	Theme               string
+	ModelTimeoutSeconds int
+	Tools               string
+	PersistenceRoot     string
 }
 
 type runProgressMode string
@@ -105,6 +104,9 @@ func rootCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.Wri
 	}
 	if len(args) > 0 && args[0] == "session-id" {
 		return sessionIDSubcommand(args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "session" {
+		return sessionSubcommand(args[1:], stdout, stderr)
 	}
 	if len(args) > 0 && args[0] == "goal" {
 		return goalSubcommand(args[1:], stdout, stderr)
@@ -279,9 +281,9 @@ func runSubcommand(args []string) int {
 	runFS.SetOutput(os.Stderr)
 	runFS.Usage = func() { runUsage.write(runFS) }
 	flags := registerCommonFlags(runFS, true)
-	agentRoleRaw := runFS.String("agent", "", "configured subagent role; use default for base settings")
+	agentRoleRaw := runFS.String("agent", "", "role for this run; default selects the headless default, omission preserves a resumed role")
 	fastRole := runFS.Bool("fast", false, "use the built-in fast subagent role")
-	timeoutRaw := runFS.String("timeout", "", "maximum run duration, such as 30s or 2m")
+	timeoutRaw := runFS.String("timeout", "", "maximum run-completion time after launch preparation and prompt-history saving, such as 30s or 2m")
 	outputModeRaw := runFS.String("output-mode", string(runOutputModeFinalText), "result format: final-text|json")
 	progressModeRaw := runFS.String("progress-mode", string(runProgressModeStderr), "live output: stderr|quiet")
 	quiet := false
@@ -366,13 +368,10 @@ func runSubcommand(args []string) int {
 		WorkspaceContextSessionID: workspaceContextSessionID,
 		AgentRole:                 agentRole,
 		Model:                     flags.Model,
-		ProviderOverride:          flags.ProviderOverride,
 		ThinkingLevel:             flags.ThinkingLevel,
 		Theme:                     flags.Theme,
 		ModelTimeoutSeconds:       flags.ModelTimeoutSeconds,
 		Tools:                     flags.Tools,
-		OpenAIBaseURL:             flags.OpenAIBaseURL,
-		OpenAIBaseURLExplicit:     flags.OpenAIBaseURLExplicit,
 		ConfigRoot:                strings.TrimSpace(flags.PersistenceRoot),
 	}
 
@@ -577,7 +576,7 @@ func runLiveStopSubcommand(args []string) int {
 		fmt.Fprintln(os.Stderr, runErrorMessage(err))
 		return 1
 	}
-	if result.Status == serverapi.RuntimeLiveStopStatusStopped {
+	if result.Status == runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_STOPPED {
 		fmt.Fprintln(os.Stdout, "Stopped")
 	} else {
 		fmt.Fprintln(os.Stdout, "No active run")
@@ -616,7 +615,7 @@ func runLiveWaitSubcommand(args []string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	var result app.RunPromptResult
+	var result *runtimepb.LiveWaitSuccess
 	var runErr error
 	var closeFn func() error
 	if outputMode == runOutputModeJSON {
@@ -626,7 +625,7 @@ func runLiveWaitSubcommand(args []string) int {
 		result, runErr = runLiveWaitApp(ctx, app.Options{ConfigRoot: strings.TrimSpace(*persistenceRoot)}, sessionID)
 	}
 	continueRoot := continueCommandPersistenceRoot(*persistenceRoot)
-	continueHint := buildRunContinueHint(result.SessionID, continueRoot)
+	continueHint := buildRunContinueHint(sessionID.String(), continueRoot)
 	if runErr != nil {
 		if outputMode == runOutputModeJSON {
 			return emitRunWaitJSON(os.Stdout, sessionID.String(), result, runErr, ctx, closeFn)
@@ -645,7 +644,7 @@ func runLiveWaitSubcommand(args []string) int {
 	if outputMode == runOutputModeJSON {
 		return emitRunWaitJSON(os.Stdout, sessionID.String(), result, nil, ctx, closeFn)
 	}
-	emitRunFinalText(os.Stdout, result.Warnings, result.Result, continueHint)
+	emitRunFinalText(os.Stdout, nil, result.GetAssistantFinalAnswer().GetResult(), continueHint)
 	return 0
 }
 
@@ -709,7 +708,7 @@ func runLiveWatchSubcommandWithCleanup(args []string, runWithCleanup liveWatchCl
 	if result.Close != nil {
 		_ = result.Close()
 	}
-	return writeRunWatchResponse(os.Stdout, os.Stderr, response, buildRunContinueHint(response.SessionID, continueCommandPersistenceRoot(*persistenceRoot)))
+	return writeRunWatchResponse(os.Stdout, os.Stderr, response, buildRunContinueHint(response.SessionId, continueCommandPersistenceRoot(*persistenceRoot)))
 }
 
 func runLiveFlagError(err error) int {
@@ -783,12 +782,10 @@ func registerCommonFlags(fs *flag.FlagSet, includeSession bool) *commonFlags {
 		registerSessionFlagVars(fs, flags)
 	}
 	fs.StringVar(&flags.Model, "model", "", "model for this session")
-	fs.StringVar(&flags.ProviderOverride, "provider-override", "", "provider for a custom or aliased model name")
-	fs.StringVar(&flags.ThinkingLevel, "thinking-level", "", "reasoning effort: low|medium|high|xhigh")
+	fs.StringVar(&flags.ThinkingLevel, "thinking-level", "", "reasoning effort supported by the selected model")
 	fs.StringVar(&flags.Theme, "theme", "", "theme: light|dark")
 	fs.IntVar(&flags.ModelTimeoutSeconds, "model-timeout-seconds", 0, "model request timeout in seconds")
 	fs.StringVar(&flags.Tools, "tools", "", "comma-separated enabled tool IDs, such as shell,patch")
-	fs.StringVar(&flags.OpenAIBaseURL, "openai-base-url", "", "base URL for an OpenAI-compatible API")
 	fs.StringVar(&flags.PersistenceRoot, "persistence-root", "", persistenceRootFlagUsage)
 	return flags
 }
@@ -846,8 +843,6 @@ func markExplicitCommonFlags(fs *flag.FlagSet, flags *commonFlags) {
 		switch strings.TrimSpace(f.Name) {
 		case "workspace":
 			flags.WorkspaceExplicit = true
-		case "openai-base-url":
-			flags.OpenAIBaseURLExplicit = true
 		}
 	})
 }

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"errors"
 	"io"
 	"os"
@@ -12,10 +13,15 @@ import (
 	"core/cli/app/internal/runtimeattach"
 	"core/shared/apicontract"
 	"core/shared/lifecyclecontract"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/serverapi"
 )
 
 const runtimeReleaseTimeout = runtimeattach.ReleaseTimeout
+
+type goalSetClient interface {
+	SetGoal(context.Context, *runtimepb.GoalSetRequest) (*runtimepb.GoalSetSuccess, error)
+}
 
 type runtimeAttachmentSource interface {
 	RuntimeAttachmentClients() runtimeAttachmentClients
@@ -26,6 +32,7 @@ type runtimeAttachmentClients struct {
 	ProcessViews      apicontract.ProcessViewService
 	PromptControl     apicontract.PromptControlService
 	RuntimeControls   apicontract.RuntimeControlService
+	GoalSet           goalSetClient
 	ChatSettings      apicontract.ChatSettingsService
 	SessionTranscript apicontract.SessionTranscriptService
 	SessionRuntime    apicontract.SessionRuntimeService
@@ -85,6 +92,7 @@ func activateSharedRuntime(ctx context.Context, clients runtimeAttachmentClients
 		AutoCompactionEnabled:    plan.AutoCompactionEnabled,
 		ThinkingOverrideExplicit: plan.ThinkingOverrideExplicit,
 		AgentSelection:           plan.ActivationAgentSelection,
+		ExplicitToolSelection:    plan.ExplicitToolSelection,
 		Source:                   plan.Source,
 	})
 	if err != nil {
@@ -101,7 +109,13 @@ func prepareSharedRuntimeWiring(
 	plan sessionLaunchPlan,
 	reactivator *runtimeReactivator,
 ) (*runtimeWiring, func(), error) {
-	runtimeClient := newUIRuntimeClientWithReads(plan.SessionID, clients.SessionViews, clients.RuntimeControls, clients.ChatSettings).(*sessionRuntimeClient)
+	runtimeClient := newUIRuntimeClientWithReads(
+		plan.SessionID,
+		clients.SessionViews,
+		clients.RuntimeControls,
+		clients.GoalSet,
+		clients.ChatSettings,
+	).(*sessionRuntimeClient)
 	if reactivator != nil {
 		runtimeClient.SetRuntimeReactivator(reactivator)
 	}
@@ -120,7 +134,7 @@ func prepareSharedRuntimeWiring(
 		initialLifecycleContext,
 		terminalFocus.FocusedForAttention,
 	)
-	subscribeTranscript := func(ctx context.Context, req serverapi.TranscriptSubscribeRequest) (serverapi.TranscriptSubscription, error) {
+	subscribeTranscript := func(ctx context.Context, req *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
 		return clients.SessionTranscript.SubscribeSessionTranscript(ctx, req)
 	}
 	var transcriptStream ongoingTranscriptEventStream
@@ -134,7 +148,7 @@ func prepareSharedRuntimeWiring(
 	requestTranscriptOpen := transcriptStream.RequestRehydration
 	notificationHooks := newBellHooks(newTerminalNotifier(plan.ActiveSettings.NotificationMethod, os.Stdout, os.LookupEnv), func() string {
 		if runtimeClient != nil {
-			if sessionName := strings.TrimSpace(runtimeClient.MainView().Session.SessionName); sessionName != "" {
+			if sessionName := strings.TrimSpace(runtimeClient.MainView().Session.GetSessionName()); sessionName != "" {
 				return sessionName
 			}
 		}
@@ -158,7 +172,6 @@ func prepareSharedRuntimeWiring(
 		worktrees:             clients.Worktrees,
 		processControls:       clients.ProcessControls,
 		processViews:          clients.ProcessViews,
-		promptHistory:         append([]string(nil), plan.PromptHistory...),
 	}
 	if lifecycleProxy != nil {
 		wiring.lifecycleHookIssues = lifecycleProxy.Issues()

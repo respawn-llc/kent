@@ -10,8 +10,11 @@ import (
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
+	"core/shared/protoapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
+
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type TaskDependencies struct {
@@ -32,16 +35,16 @@ type taskDependencyFactRow struct {
 	shortID   string
 	title     string
 	workflow  string
-	status    serverapi.WorkflowTaskStatus
+	status    *taskpb.TaskStatus
 	done      bool
 }
 
 type taskDependencyFacts struct {
-	rows map[serverapi.WorkflowTaskDependencyDirection][]taskDependencyFactRow
+	rows map[taskpb.DependencyDirection][]taskDependencyFactRow
 }
 
 type taskDependencyRowKey struct {
-	direction serverapi.WorkflowTaskDependencyDirection
+	direction taskpb.DependencyDirection
 	taskID    string
 }
 
@@ -67,17 +70,17 @@ func NewTaskDependencies(
 	}, nil
 }
 
-func (d *TaskDependencies) GetTaskDependencies(ctx context.Context, taskID string) (serverapi.WorkflowTaskDependencies, error) {
+func (d *TaskDependencies) GetTaskDependencies(ctx context.Context, taskID string) (*taskpb.TaskDependencies, error) {
 	if d == nil {
-		return serverapi.WorkflowTaskDependencies{}, errors.New("task dependencies are required")
+		return nil, errors.New("task dependencies are required")
 	}
 	trimmedTaskID := strings.TrimSpace(taskID)
 	if trimmedTaskID == "" {
-		return serverapi.WorkflowTaskDependencies{}, errors.New("task id is required")
+		return nil, errors.New("task id is required")
 	}
 	facts, err := d.loadFacts(ctx, trimmedTaskID, false)
 	if err != nil {
-		return serverapi.WorkflowTaskDependencies{}, err
+		return nil, err
 	}
 	return d.projectFacts(facts)
 }
@@ -93,33 +96,33 @@ func (d *TaskDependencies) CountUnsatisfiedBlockers(ctx context.Context, taskID 
 	return d.counter.CountUnsatisfiedBlockers(ctx, trimmedTaskID)
 }
 
-func (d *TaskDependencies) ListTaskDependencies(ctx context.Context, taskID string, requestedDirection *serverapi.WorkflowTaskDependencyDirection) (serverapi.WorkflowTaskDependencyListResponse, error) {
+func (d *TaskDependencies) ListTaskDependencies(ctx context.Context, taskID string, requestedDirection *taskpb.DependencyDirection) (*taskpb.DependencyListSuccess, error) {
 	if d == nil {
-		return serverapi.WorkflowTaskDependencyListResponse{}, errors.New("task dependencies are required")
+		return nil, errors.New("task dependencies are required")
 	}
 	trimmedTaskID := strings.TrimSpace(taskID)
 	if trimmedTaskID == "" {
-		return serverapi.WorkflowTaskDependencyListResponse{}, errors.New("task id is required")
+		return nil, errors.New("task id is required")
 	}
 	if requestedDirection != nil {
 		switch *requestedDirection {
-		case serverapi.WorkflowTaskDependencyDirectionBlockedBy, serverapi.WorkflowTaskDependencyDirectionBlocks:
+		case taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY, taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS:
 		default:
-			return serverapi.WorkflowTaskDependencyListResponse{}, fmt.Errorf("invalid dependency direction %q", *requestedDirection)
+			return nil, fmt.Errorf("invalid dependency direction %v", *requestedDirection)
 		}
 	}
 	subject, err := d.queries.GetTask(ctx, trimmedTaskID)
 	if err != nil {
-		return serverapi.WorkflowTaskDependencyListResponse{}, err
+		return nil, err
 	}
 	facts, err := d.loadFacts(ctx, trimmedTaskID, false)
 	if err != nil {
-		return serverapi.WorkflowTaskDependencyListResponse{}, err
+		return nil, err
 	}
-	directions := make([]serverapi.WorkflowTaskDependencyListDirectionProjection, 0, 2)
-	for _, direction := range []serverapi.WorkflowTaskDependencyDirection{
-		serverapi.WorkflowTaskDependencyDirectionBlockedBy,
-		serverapi.WorkflowTaskDependencyDirectionBlocks,
+	directions := make([]*taskpb.DependencyListDirection, 0, 2)
+	for _, direction := range []taskpb.DependencyDirection{
+		taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY,
+		taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS,
 	} {
 		if requestedDirection != nil && *requestedDirection != direction {
 			continue
@@ -128,14 +131,14 @@ func (d *TaskDependencies) ListTaskDependencies(ctx context.Context, taskID stri
 		if len(rows) == 0 {
 			continue
 		}
-		items := projectDependencyItems(rows, direction == serverapi.WorkflowTaskDependencyDirectionBlockedBy)
-		projection := serverapi.WorkflowTaskDependencyListDirectionProjection{
+		items := projectDependencyItems(rows, direction == taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY)
+		projection := &taskpb.DependencyListDirection{
 			Direction:  direction,
-			TotalCount: len(items),
+			TotalCount: int32(len(items)),
 			Items:      items,
 		}
-		if direction == serverapi.WorkflowTaskDependencyDirectionBlockedBy {
-			unsatisfied := 0
+		if direction == taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY {
+			unsatisfied := int32(0)
 			for _, row := range rows {
 				if !row.done {
 					unsatisfied++
@@ -145,9 +148,9 @@ func (d *TaskDependencies) ListTaskDependencies(ctx context.Context, taskID stri
 		}
 		directions = append(directions, projection)
 	}
-	return serverapi.WorkflowTaskDependencyListResponse{
-		TaskID:     subject.ID,
-		ShortID:    subject.ShortID,
+	return &taskpb.DependencyListSuccess{
+		TaskId:     subject.ID,
+		ShortId:    subject.ShortID,
 		Directions: directions,
 	}, nil
 }
@@ -168,10 +171,10 @@ func (d *TaskDependencies) projectTaskDependencies(
 	taskID string,
 	observation TaskStatusObservation,
 	queries *sqlitegen.Queries,
-) (serverapi.WorkflowTaskDependencies, error) {
+) (*taskpb.TaskDependencies, error) {
 	facts, err := d.loadFactsWithQueries(ctx, taskID, false, observation, queries)
 	if err != nil {
-		return serverapi.WorkflowTaskDependencies{}, err
+		return nil, err
 	}
 	return d.projectFacts(facts)
 }
@@ -188,9 +191,9 @@ func (d *TaskDependencies) loadFactsWithQueries(
 		return taskDependencyFacts{}, err
 	}
 	facts := taskDependencyFacts{
-		rows: map[serverapi.WorkflowTaskDependencyDirection][]taskDependencyFactRow{
-			serverapi.WorkflowTaskDependencyDirectionBlockedBy: {},
-			serverapi.WorkflowTaskDependencyDirectionBlocks:    {},
+		rows: map[taskpb.DependencyDirection][]taskDependencyFactRow{
+			taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY: {},
+			taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS:     {},
 		},
 	}
 	if len(rows) == 0 {
@@ -200,11 +203,9 @@ func (d *TaskDependencies) loadFactsWithQueries(
 	seen := make(map[taskDependencyRowKey]struct{}, len(rows))
 	workflowIDs := make(map[taskDependencyRowKey]runtimeids.WorkflowID, len(rows))
 	for _, row := range rows {
-		direction := serverapi.WorkflowTaskDependencyDirection(row.Direction)
-		switch direction {
-		case serverapi.WorkflowTaskDependencyDirectionBlockedBy, serverapi.WorkflowTaskDependencyDirectionBlocks:
-		default:
-			return taskDependencyFacts{}, fmt.Errorf("task %q dependency projection returned invalid direction %q", taskID, row.Direction)
+		direction, err := protoapi.TaskDependencyDirection.Encode(row.Direction)
+		if err != nil {
+			return taskDependencyFacts{}, err
 		}
 		if strings.TrimSpace(row.TaskID) == "" || strings.TrimSpace(row.ShortID) == "" {
 			return taskDependencyFacts{}, fmt.Errorf("task %q dependency projection returned incomplete related Task %q", taskID, row.TaskID)
@@ -226,7 +227,10 @@ func (d *TaskDependencies) loadFactsWithQueries(
 		return taskDependencyFacts{}, err
 	}
 	for _, row := range rows {
-		direction := serverapi.WorkflowTaskDependencyDirection(row.Direction)
+		direction, err := protoapi.TaskDependencyDirection.Encode(row.Direction)
+		if err != nil {
+			return taskDependencyFacts{}, err
+		}
 		workflowID := workflowIDs[taskDependencyRowKey{direction: direction, taskID: row.TaskID}]
 		projectedStatus := statuses[workflow.TaskID(row.TaskID)]
 		facts.rows[direction] = append(facts.rows[direction], taskDependencyFactRow{
@@ -354,16 +358,16 @@ func (s taskDependencySatisfaction) CountUnsatisfiedBlockers(ctx context.Context
 	return count, nil
 }
 
-func (d *TaskDependencies) projectFacts(facts taskDependencyFacts) (serverapi.WorkflowTaskDependencies, error) {
-	blockedBy := facts.rows[serverapi.WorkflowTaskDependencyDirectionBlockedBy]
-	blocks := facts.rows[serverapi.WorkflowTaskDependencyDirectionBlocks]
+func (d *TaskDependencies) projectFacts(facts taskDependencyFacts) (*taskpb.TaskDependencies, error) {
+	blockedBy := facts.rows[taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY]
+	blocks := facts.rows[taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS]
 	blockedByAvailability, err := d.addAvailability(len(blockedBy))
 	if err != nil {
-		return serverapi.WorkflowTaskDependencies{}, err
+		return nil, err
 	}
 	blocksAvailability, err := d.addAvailability(len(blocks))
 	if err != nil {
-		return serverapi.WorkflowTaskDependencies{}, err
+		return nil, err
 	}
 	unsatisfied := 0
 	for _, row := range blockedBy {
@@ -371,22 +375,22 @@ func (d *TaskDependencies) projectFacts(facts taskDependencyFacts) (serverapi.Wo
 			unsatisfied++
 		}
 	}
-	unsatisfiedCount := unsatisfied
-	return serverapi.WorkflowTaskDependencies{
-		BlockerCount:             len(blockedBy),
-		UnsatisfiedBlockerCount:  unsatisfied,
-		DirectlyBlockedTaskCount: len(blocks),
-		Directions: []serverapi.WorkflowTaskDependencyDirectionProjection{
+	unsatisfiedCount := int32(unsatisfied)
+	return &taskpb.TaskDependencies{
+		BlockerCount:             int32(len(blockedBy)),
+		UnsatisfiedBlockerCount:  unsatisfiedCount,
+		DirectlyBlockedTaskCount: int32(len(blocks)),
+		Directions: []*taskpb.DependencyDirectionProjection{
 			{
-				Direction:        serverapi.WorkflowTaskDependencyDirectionBlockedBy,
-				TotalCount:       len(blockedBy),
+				Direction:        taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY,
+				TotalCount:       int32(len(blockedBy)),
 				UnsatisfiedCount: &unsatisfiedCount,
 				Items:            projectDependencyItems(blockedBy, true),
 				AddAvailability:  blockedByAvailability,
 			},
 			{
-				Direction:       serverapi.WorkflowTaskDependencyDirectionBlocks,
-				TotalCount:      len(blocks),
+				Direction:       taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS,
+				TotalCount:      int32(len(blocks)),
 				Items:           projectDependencyItems(blocks, false),
 				AddAvailability: blocksAvailability,
 			},
@@ -394,20 +398,20 @@ func (d *TaskDependencies) projectFacts(facts taskDependencyFacts) (serverapi.Wo
 	}, nil
 }
 
-func projectDependencyItems(rows []taskDependencyFactRow, includeSatisfaction bool) []serverapi.WorkflowTaskDependencyItem {
-	items := make([]serverapi.WorkflowTaskDependencyItem, 0, len(rows))
+func projectDependencyItems(rows []taskDependencyFactRow, includeSatisfaction bool) []*taskpb.DependencyItem {
+	items := make([]*taskpb.DependencyItem, 0, len(rows))
 	for _, row := range rows {
-		item := serverapi.WorkflowTaskDependencyItem{
-			TaskID:     row.taskID,
-			ShortID:    row.shortID,
+		item := &taskpb.DependencyItem{
+			TaskId:     row.taskID,
+			ShortId:    row.shortID,
 			Title:      row.title,
-			WorkflowID: row.workflow,
+			WorkflowId: row.workflow,
 			Status:     row.status,
 		}
 		if includeSatisfaction {
-			satisfaction := serverapi.WorkflowTaskDependencyUnsatisfied
+			satisfaction := taskpb.DependencySatisfaction_DEPENDENCY_SATISFACTION_UNSATISFIED
 			if row.done {
-				satisfaction = serverapi.WorkflowTaskDependencySatisfied
+				satisfaction = taskpb.DependencySatisfaction_DEPENDENCY_SATISFACTION_SATISFIED
 			}
 			item.Satisfaction = &satisfaction
 		}
@@ -416,7 +420,7 @@ func projectDependencyItems(rows []taskDependencyFactRow, includeSatisfaction bo
 	return items
 }
 
-func (d *TaskDependencies) addAvailability(count int) (*serverapi.WorkflowTaskDependencyAddAvailability, error) {
+func (d *TaskDependencies) addAvailability(count int) (*taskpb.DependencyAddAvailability, error) {
 	availability, err := d.policy.AddAvailability(int64(count))
 	if err != nil {
 		return nil, err
@@ -426,12 +430,14 @@ func (d *TaskDependencies) addAvailability(count int) (*serverapi.WorkflowTaskDe
 		if availability.RemainingCapacity == nil {
 			return nil, errors.New("task dependency availability omitted remaining capacity")
 		}
-		return &serverapi.WorkflowTaskDependencyAddAvailability{
-			Available: &serverapi.WorkflowTaskDependencyAvailable{RemainingCapacity: int(*availability.RemainingCapacity)},
+		return &taskpb.DependencyAddAvailability{
+			Availability: &taskpb.DependencyAddAvailability_Available{
+				Available: &taskpb.DependencyAvailable{RemainingCapacity: int32(*availability.RemainingCapacity)},
+			},
 		}, nil
 	case workflow.TaskDependencyAddLimitReached:
-		return &serverapi.WorkflowTaskDependencyAddAvailability{
-			LimitReached: &serverapi.WorkflowTaskDependencyLimitReached{},
+		return &taskpb.DependencyAddAvailability{
+			Availability: &taskpb.DependencyAddAvailability_LimitReached{LimitReached: &emptypb.Empty{}},
 		}, nil
 	default:
 		return nil, fmt.Errorf("task dependency availability has invalid kind %q", availability.Kind)

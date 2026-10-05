@@ -1,131 +1,112 @@
 package sessionlaunch
 
 import (
+	"errors"
+	"slices"
+	"strings"
+
 	"core/server/launch"
 	"core/server/session"
 	"core/shared/config"
-	"core/shared/serverapi"
-	"errors"
-	"fmt"
-	"slices"
-	"strings"
+	"core/shared/protoapi"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 )
 
-type PreparedChatSettingsOperationInput struct {
-	Raw                session.ChatSettingsState
-	Effective          session.ChatSettings
-	PersistedQuestions bool
-	PersistedThinking  *string
-	Catalog            launch.PreparedChatAgentCatalog
-	Locked             *session.LockedContract
-	WorkflowLocked     bool
-	CompactionMode     config.CompactionMode
+type ChatSettingsMutationContext struct {
+	Raw       session.ChatSettingsState
+	Effective session.ChatSettings
+	// EffectiveAgent reflects availability repair; caching locks retain the persisted role identity.
+	EffectiveAgent string
+	Locked         *session.LockedContract
+	WorkflowLocked bool
+	CompactionMode config.CompactionMode
 }
+
+type ResolvedChatSettingsSelection struct {
+	State    session.ChatSettingsState
+	Settings launch.PreparedChatSettings
+}
+
+type ResolvedChatSettingsOperation struct {
+	ChatSettingsMutationContext
+	Selection ResolvedChatSettingsSelection
+	// Agent-only changes finalize the resolved selection without a setting edit.
+	Edit *chatsettingspb.MutationOperation
+}
+
 type PreparedChatSettingsOperationResult struct {
 	State     session.ChatSettingsState
 	Effective session.ChatSettings
-	Rejection *serverapi.ChatSettingsMutationRejectedResult
+	Rejection *chatsettingspb.MutationRejected
 }
 
-func ProjectPreparedChatSettingsOperation(input PreparedChatSettingsOperationInput, operation serverapi.ChatSettingsMutationOperation) (PreparedChatSettingsOperationResult, error) {
-	rawAgent := input.Raw.Agent
-	defaultEntry, ok := input.Catalog.Lookup(config.DefaultSubagentRole)
-	if !ok {
-		return PreparedChatSettingsOperationResult{}, errors.New("default Chat Agent baseline is missing")
+func ProjectResolvedChatSettingsOperation(input ResolvedChatSettingsOperation) (PreparedChatSettingsOperationResult, error) {
+	effectiveAgent, valid := session.NormalizeChatAgent(input.EffectiveAgent)
+	if !valid || effectiveAgent != input.EffectiveAgent {
+		return PreparedChatSettingsOperationResult{}, errors.New("resolved Chat settings current Agent is invalid")
 	}
-	selectedEntry, selectedAvailable := input.Catalog.Lookup(rawAgent)
-	if !selectedAvailable {
-		selectedEntry = defaultEntry
+	if (input.Locked != nil || input.WorkflowLocked) &&
+		effectiveAgent != input.Selection.State.AgentSelector() {
+		return rejectedChatSettingsOperation(input.ChatSettingsMutationContext, chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AGENT_LOCKED), nil
 	}
+	target := input.Selection.State
+	prepared := input.Selection.Settings
 	if input.Locked != nil {
-		selectedSettings, err := lockedPreparedChatSettings(*input.Locked, selectedEntry.Settings, input.Effective)
+		var err error
+		prepared, err = lockedPreparedChatSettings(*input.Locked, prepared, input.Effective)
 		if err != nil {
 			return PreparedChatSettingsOperationResult{}, err
 		}
-		selectedEntry.Settings = selectedSettings
 	}
-	baseAgent := rawAgent
-	baseSettings := input.Effective
-	if !selectedAvailable && input.Locked == nil {
-		baseAgent = config.DefaultSubagentRole
-		baseSettings = defaultEntry.Settings.Baseline
-		baseSettings.Questions = input.PersistedQuestions
-	} else if selectedAvailable {
-		baseSettings.Questions = input.PersistedQuestions
-		if input.PersistedThinking != nil {
-			persistedThinking := strings.TrimSpace(*input.PersistedThinking)
-			if persistedThinking == "" {
-				return PreparedChatSettingsOperationResult{}, errors.New("persisted Chat settings Thinking is required when present")
-			}
-			if projectChatThinking(persistedThinking, selectedEntry.Settings) != nil {
-				baseSettings.Thinking = persistedThinking
-			}
-		}
-	}
-	base, err := session.ChatSettingsStateFromCompleteSettings(baseAgent, baseSettings)
-	if err != nil {
-		return PreparedChatSettingsOperationResult{}, err
-	}
-	target := base
-	switch operation.Kind {
-	case serverapi.ChatSettingsMutationAgent:
-		agent, ok := session.NormalizeChatAgent(*operation.Role)
-		if !ok {
-			return PreparedChatSettingsOperationResult{}, fmt.Errorf("Chat Agent %q is invalid", *operation.Role)
-		}
-		entry, available := input.Catalog.Lookup(agent)
-		if !available {
-			return rejectedChatSettingsOperation(input, serverapi.ChatSettingsMutationAgentUnavailable), nil
-		}
-		if (input.Locked != nil || input.WorkflowLocked) && agent != rawAgent {
-			return rejectedChatSettingsOperation(input, serverapi.ChatSettingsMutationAgentLocked), nil
-		}
-		if agent != rawAgent || !selectedAvailable {
-			target, err = session.ChatSettingsStateFromCompleteSettings(entry.Choice.Role, entry.Settings.Baseline)
+	if input.Edit != nil {
+		switch operation := input.Edit.Operation.(type) {
+		case *chatsettingspb.MutationOperation_Supervisor:
+			supervisor, err := protoapi.ChatSettingsSupervisorFromProto(operation.Supervisor)
 			if err != nil {
 				return PreparedChatSettingsOperationResult{}, err
 			}
+			target.Settings.Supervisor = &supervisor
+		case *chatsettingspb.MutationOperation_Thinking:
+			thinking := strings.TrimSpace(operation.Thinking)
+			effective, err := session.ResolveEffectiveChatSettings(target.Settings, nil, prepared.Baseline)
+			if err != nil {
+				return PreparedChatSettingsOperationResult{}, err
+			}
+			projection := projectChatThinking(effective.Thinking, prepared)
+			if projection == nil || (projection.Kind == chatsettingspb.ThinkingKind_THINKING_KIND_ENUMERATED &&
+				!slices.Contains(projection.Values, thinking)) {
+				return rejectedChatSettingsOperation(input.ChatSettingsMutationContext, chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_THINKING_UNAVAILABLE), nil
+			}
+			target.Settings.Thinking = &thinking
+		case *chatsettingspb.MutationOperation_FastEnabled:
+			if !prepared.FastAvailable {
+				return rejectedChatSettingsOperation(input.ChatSettingsMutationContext, chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_FAST_UNAVAILABLE), nil
+			}
+			target.Settings.Fast = &operation.FastEnabled
+		case *chatsettingspb.MutationOperation_QuestionsEnabled:
+			target.Settings.Questions = &operation.QuestionsEnabled
+		case *chatsettingspb.MutationOperation_AutoCompactionEnabled:
+			if input.WorkflowLocked || input.CompactionMode == config.CompactionModeNone {
+				return rejectedChatSettingsOperation(input.ChatSettingsMutationContext, chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AUTO_COMPACTION_POLICY_LOCKED), nil
+			}
+			target.Settings.AutoCompaction = &operation.AutoCompactionEnabled
+		default:
+			return PreparedChatSettingsOperationResult{}, errors.New("resolved Chat settings edit must select a setting")
 		}
-		selectedEntry = entry
-	case serverapi.ChatSettingsMutationSupervisor:
-		target.Settings.Supervisor = operation.Value
-	case serverapi.ChatSettingsMutationThinking:
-		thinking := strings.TrimSpace(*operation.Value)
-		thinkingProjection := projectChatThinking(baseSettings.Thinking, selectedEntry.Settings)
-		if thinkingProjection == nil ||
-			(thinkingProjection.Kind == serverapi.ChatSettingsThinkingEnumerated &&
-				!slices.Contains(thinkingProjection.Values, thinking)) {
-			return rejectedChatSettingsOperation(input, serverapi.ChatSettingsMutationThinkingUnavailable), nil
-		}
-		target.Settings.Thinking = &thinking
-	case serverapi.ChatSettingsMutationFast:
-		if !selectedEntry.Settings.FastAvailable {
-			return rejectedChatSettingsOperation(input, serverapi.ChatSettingsMutationFastUnavailable), nil
-		}
-		target.Settings.Fast = operation.Enabled
-	case serverapi.ChatSettingsMutationQuestions:
-		target.Settings.Questions = operation.Enabled
-	case serverapi.ChatSettingsMutationAutoCompaction:
-		if input.WorkflowLocked || input.CompactionMode == config.CompactionModeNone {
-			return rejectedChatSettingsOperation(input, serverapi.ChatSettingsMutationAutoCompactionPolicyLock), nil
-		}
-		target.Settings.AutoCompaction = operation.Enabled
 	}
 	normalized, err := session.NormalizeChatSettingsOverrides(target.Settings)
 	if err != nil {
 		return PreparedChatSettingsOperationResult{}, err
 	}
 	target.Settings = normalized
-	effective, err := session.ResolveEffectiveChatSettings(target.Settings, nil, selectedEntry.Settings.Baseline)
+	effective, err := session.ResolveEffectiveChatSettings(target.Settings, nil, prepared.Baseline)
 	if err != nil {
 		return PreparedChatSettingsOperationResult{}, err
 	}
-	effective = normalizeProjectedChatSettings(effective, selectedEntry.Settings)
+	effective = normalizeProjectedChatSettings(effective, prepared)
 	return PreparedChatSettingsOperationResult{State: target, Effective: effective}, nil
 }
-func rejectedChatSettingsOperation(
-	input PreparedChatSettingsOperationInput,
-	reason serverapi.ChatSettingsMutationRejectionReason,
-) PreparedChatSettingsOperationResult {
-	return PreparedChatSettingsOperationResult{State: input.Raw, Effective: input.Effective, Rejection: &serverapi.ChatSettingsMutationRejectedResult{Reason: reason}}
+
+func rejectedChatSettingsOperation(input ChatSettingsMutationContext, reason chatsettingspb.MutationRejectionReason) PreparedChatSettingsOperationResult {
+	return PreparedChatSettingsOperationResult{State: input.Raw, Effective: input.Effective, Rejection: &chatsettingspb.MutationRejected{Reason: reason}}
 }

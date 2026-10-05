@@ -6,8 +6,15 @@ import {
   type MessageShape,
 } from "@app/server-api-contract";
 
-import { ContractError, RpcError } from "./errors";
+import { ContractError, RpcError, TransportError } from "./errors";
 import { rpcErrorCodes } from "./rpcErrorCodes";
+import type { StreamCompletion } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
+
+export function streamCompletionFailure(value: StreamCompletion): TransportError | undefined {
+  return value.code === undefined
+    ? undefined
+    : new TransportError(`Subscription completed with code ${value.code.toString()}: ${value.message ?? ""}`);
+}
 
 type RpcFailure = Message & Readonly<{ code: string }>;
 type RpcResult = Readonly<{
@@ -62,6 +69,8 @@ function rpcErrorCode(code: string): number {
       return rpcErrorCodes.workspaceNotRegistered;
     case "project_not_found":
       return rpcErrorCodes.projectNotFound;
+    case "task_not_found":
+      return rpcErrorCodes.workflowTaskNotFound;
     case "project_unavailable":
       return rpcErrorCodes.projectUnavailable;
     case "auth_required":
@@ -74,6 +83,8 @@ function rpcErrorCode(code: string): number {
       return rpcErrorCodes.workspaceDetachConflict;
     case "workspace_mutation_failed":
       return rpcErrorCodes.workspaceMutationFailed;
+    case "pending_work_not_pending":
+      return rpcErrorCodes.pendingWorkNotPending;
     default:
       return rpcErrorCodes.internal;
   }

@@ -2,6 +2,9 @@ package shell
 
 import (
 	"context"
+	"core/internal/testharness/postprocessfixture"
+	"core/server/tools/shell/postprocess"
+	"core/shared/config"
 	"errors"
 	"testing"
 	"time"
@@ -27,6 +30,7 @@ func TestWriteStdinHarvestWaitsForTerminalEventDelivery(t *testing.T) {
 	})
 
 	started, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-c", "sleep 0.15; printf done"},
 		DisplayCommand: "sleep briefly",
 		Workdir:        t.TempDir(),
@@ -94,6 +98,7 @@ func TestWriteStdinHarvestCancellationDoesNotWaitForTerminalEventDelivery(t *tes
 	})
 
 	started, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-c", "sleep 0.15; printf done"},
 		DisplayCommand: "sleep briefly",
 		Workdir:        t.TempDir(),

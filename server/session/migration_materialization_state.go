@@ -8,13 +8,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"core/shared/textutil"
 )
 
 const (
-	eventLogMigrationWorkspaceDir            = "events.jsonl.migration"
-	eventLogMigrationWorkspaceMarkerFile     = "kent-session-events-migration-v1"
-	eventLogMigrationStagedLogFile           = "staged-events.jsonl"
-	eventLogMigrationReadyMarkerFile         = "staged-events.ready"
 	eventLogMigrationWorkspaceMarkerContents = "kent.session.events.migration.workspace.v1\n"
 	eventLogMigrationReadyMarkerContents     = "kent.session.events.migration.ready.v1\n"
 )
@@ -192,7 +190,15 @@ func (s *Store) prepareEventLogMaterializationWithStableLockHeld() (
 	foundVersion := classificationResult.foundVersion
 
 	switch classification {
-	case eventLogSourceMissing, eventLogSourceEmpty:
+	case eventLogSourceMissing:
+		return eventLogPreparationResult{}, false, fmt.Errorf("Session event log %q is missing: %w", eventsPath, os.ErrNotExist)
+	case eventLogSourceEmpty:
+		s.mu.Lock()
+		established := s.meta.LastSequence != 0 || s.meta.ConversationEstablished
+		s.mu.Unlock()
+		if established {
+			return eventLogPreparationResult{}, false, errors.New("established Session event log is empty")
+		}
 		if s.eventLogCreationVersion == nil {
 			return eventLogPreparationResult{}, false, errors.New(
 				"event-log materialization invariant violated: creation version is absent",
@@ -267,7 +273,7 @@ func (s *Store) setEventLogMaterializationState(
 	s.eventLogMaterialization = &eventLogMaterializationSnapshot{
 		state:        state,
 		source:       source,
-		foundVersion: cloneEventLogSourceVersion(foundVersion),
+		foundVersion: textutil.Pointer(foundVersion),
 	}
 }
 
@@ -275,14 +281,6 @@ func (s *Store) clearEventLogMaterialization() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.eventLogMaterialization = nil
-}
-
-func cloneEventLogSourceVersion(version *int) *int {
-	if version == nil {
-		return nil
-	}
-	cloned := *version
-	return &cloned
 }
 
 func (s *Store) eventLogPreparationResultLocked() eventLogPreparationResult {
@@ -293,11 +291,8 @@ func (s *Store) eventLogPreparationResultLocked() eventLogPreparationResult {
 	result := eventLogPreparationResult{
 		State:            snapshot.state,
 		Source:           snapshot.source,
+		FoundVersion:     textutil.Pointer(snapshot.foundVersion),
 		SupportedVersion: EventLogVersionV2,
-	}
-	if snapshot.foundVersion != nil {
-		version := *snapshot.foundVersion
-		result.FoundVersion = &version
 	}
 	return result
 }
@@ -678,7 +673,7 @@ func classifyEventLogSource(
 			return classification, nil
 		case eventLogSourceCurrent:
 			return malformedEventLogSource(
-				cloneEventLogSourceVersion(classification.foundVersion),
+				textutil.Pointer(classification.foundVersion),
 				malformedEventLogHeaderUnterminated,
 			)
 		default:

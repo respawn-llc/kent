@@ -1,0 +1,33 @@
+import type { ChatTranscriptCommittedRow } from "@/api";
+
+export type TranscriptTool = NonNullable<ChatTranscriptCommittedRow["Tool"]>;
+export type TranscriptToolPresentation = NonNullable<TranscriptTool["Presentation"]>;
+type TranscriptAskQuestionPresentation = Omit<TranscriptToolPresentation, "Presentation"> &
+  Readonly<{ Presentation: "ask_question" }>;
+
+export type TranscriptAskQuestionToolRow = Omit<ChatTranscriptCommittedRow, "Kind" | "Tool"> &
+  Readonly<{
+    Kind: "tool";
+    Tool: Omit<TranscriptTool, "Presentation"> &
+      Readonly<{ Presentation: TranscriptAskQuestionPresentation }>;
+  }>;
+
+export function isAskQuestionToolRow(row: ChatTranscriptCommittedRow): row is TranscriptAskQuestionToolRow {
+  return row.Kind === "tool" && row.Tool?.Presentation?.Presentation === "ask_question";
+}
+
+export function askQuestionCopyText(row: TranscriptAskQuestionToolRow): string {
+  const tool = row.Tool;
+  const presentation = tool.Presentation;
+  const answer = tool.QuestionAnswer;
+  if (tool.IsError || answer === undefined || answer === null) {
+    return [presentation.Question, tool.Text].join("\n\n");
+  }
+  const sections = [presentation.Question];
+  if (answer.SelectedOptionNumber !== undefined && answer.SelectedOptionNumber !== null) {
+    const selected = presentation.Suggestions[answer.SelectedOptionNumber - 1];
+    if (selected !== undefined) sections.push(selected);
+  }
+  if (answer.Freeform !== undefined && answer.Freeform !== null) sections.push(answer.Freeform);
+  return sections.join("\n\n");
+}

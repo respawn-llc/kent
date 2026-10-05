@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -262,7 +263,7 @@ func (a *managedRootAllocator) reserveRegularRoot(workspaceRoot string) (string,
 	})
 }
 
-func (a *managedRootAllocator) reserveTaskRoot(workspaceRoot string, taskShortID string) (string, error) {
+func (a *managedRootAllocator) reserveTaskRoot(workspaceRoot string, taskShortID string, registeredRoots ...string) (string, error) {
 	parent, err := a.ensureWorkspaceParent(workspaceRoot)
 	if err != nil {
 		return "", err
@@ -272,7 +273,7 @@ func (a *managedRootAllocator) reserveTaskRoot(workspaceRoot string, taskShortID
 		return "", errors.New("task short id must be one path component")
 	}
 	attempted := []string{leaf}
-	if root, collision, err := reserveManagedLeaf(parent, leaf); err != nil {
+	if root, collision, err := reserveManagedLeaf(parent, leaf, registeredRoots...); err != nil {
 		return "", err
 	} else if !collision {
 		return root, nil
@@ -284,7 +285,7 @@ func (a *managedRootAllocator) reserveTaskRoot(workspaceRoot string, taskShortID
 		}
 		candidate := leaf + "-" + suffix
 		attempted = append(attempted, candidate)
-		if root, collision, err := reserveManagedLeaf(parent, candidate); err != nil {
+		if root, collision, err := reserveManagedLeaf(parent, candidate, registeredRoots...); err != nil {
 			return "", err
 		} else if !collision {
 			return root, nil
@@ -318,10 +319,13 @@ func (a *managedRootAllocator) exactTaskRootOccupied(workspaceRoot string, taskS
 	return false, fmt.Errorf("inspect exact managed task root: %w", err)
 }
 
-func reserveManagedLeaf(parent string, leaf string) (string, bool, error) {
+func reserveManagedLeaf(parent string, leaf string, registeredRoots ...string) (string, bool, error) {
 	root := filepath.Join(parent, leaf)
 	if !sameOrDescendantPath(parent, root) {
 		return "", false, fmt.Errorf("managed worktree root %q escapes parent %q", root, parent)
+	}
+	if slices.Contains(registeredRoots, root) {
+		return "", true, nil
 	}
 	if err := os.Mkdir(root, 0o755); err != nil {
 		if errors.Is(err, os.ErrExist) {

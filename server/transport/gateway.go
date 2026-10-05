@@ -16,8 +16,6 @@ import (
 	"core/server/chatcontext"
 	"core/server/metadata"
 	"core/shared/apicontract"
-	"core/shared/invariant"
-	"core/shared/jsoncontract"
 	"core/shared/llmerrors"
 	"core/shared/protoapi"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -25,9 +23,9 @@ import (
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
-	"core/shared/serverjsoncontract"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 )
 
 // ErrGatewayDependenciesRequired is returned by NewGateway when the supplied
@@ -40,10 +38,11 @@ var ErrGatewayDependenciesRequired = errors.New("gateway dependencies are requir
 const canceledByClientMessage = "request canceled by client"
 
 type Gateway struct {
-	deps                            GatewayDependencies
-	identity                        protocol.ServerIdentity
-	registration                    gatewayRegistration
-	sessionExecutionRequestContract serverjsoncontract.SessionExecutionEnvironmentRequest
+	deps              GatewayDependencies
+	identity          protocol.ServerIdentity
+	registration      gatewayRegistration
+	sessionReattachMu sync.Mutex
+	sessionReattach   *sessionReattachAuthority
 }
 
 type GatewayDependencies interface {
@@ -53,6 +52,7 @@ type GatewayDependencies interface {
 	GatewayOnboardingDependencies
 	GatewayProjectDependencies
 	GatewaySessionDependencies
+	GatewayChatDependencies
 	GatewayRuntimeDependencies
 	GatewayPromptDependencies
 	GatewayPromptCommandDependencies
@@ -71,8 +71,8 @@ type GatewayServerStatusDependencies interface {
 type GatewayAuthDependencies interface {
 	AuthManager() *auth.Manager
 	AuthBootstrapClient() apicontract.AuthBootstrapService
+	ConnectionManagementClient() apicontract.ConnectionManagementService
 	AuthStatusClient() apicontract.AuthStatusService
-	ServerAuthRequired() bool
 }
 
 type GatewayCapabilityFactsDependencies interface {
@@ -98,13 +98,16 @@ type GatewaySessionDependencies interface {
 	SessionLifecycleClient() apicontract.SessionLifecycleService
 	SessionRuntimeClient() apicontract.SessionRuntimeService
 	SessionTranscriptClient() apicontract.SessionTranscriptService
+	GoalObservationClient() apicontract.GoalObservationService
 	SessionLaunchClientForProjectWorkspace(context.Context, string, string) (apicontract.SessionLaunchService, error)
 	SessionLaunchClientForProjectWorkspaceID(context.Context, string, string) (apicontract.SessionLaunchService, error)
-	WorkspaceChatContextOwnerForProjectWorkspace(context.Context, string, string) (chatcontext.WorkspaceOwner, error)
-	WorkspaceChatContextOwnerForProjectWorkspaceID(context.Context, string, string) (chatcontext.WorkspaceOwner, error)
 	SessionChatContextOwner() chatcontext.SessionOwner
 	RunPromptClientForProjectWorkspace(context.Context, string, string) (apicontract.RunPromptService, error)
 	RunPromptClientForProjectWorkspaceID(context.Context, string, string) (apicontract.RunPromptService, error)
+}
+
+type GatewayChatDependencies interface {
+	ChatMutationClient() apicontract.ChatMutationService
 }
 
 type GatewayRuntimeDependencies interface {
@@ -125,6 +128,7 @@ type GatewayPromptCommandDependencies interface {
 
 type GatewayProcessDependencies interface {
 	ProcessViewClient() apicontract.ProcessViewService
+	ProcessObservationClient() apicontract.ProcessObservationService
 	ProcessControlClient() apicontract.ProcessControlService
 }
 
@@ -132,15 +136,9 @@ type GatewayWorktreeDependencies interface {
 	WorktreeClient() apicontract.WorktreeService
 }
 
-type gatewayUnaryHandler func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response
+type gatewayUnaryHandler func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request, prepared any) protocol.Response
 
 var gatewayUnaryHandlers = routeHandlersForKind(apicontract.KindUnary, gatewayUnaryHandlerEntries)
-
-var gatewayProgressHandlerEntries = map[string]gatewayProgressHandler{
-	protocol.MethodRunPrompt: (*Gateway).serveRunPrompt,
-}
-
-type gatewayProgressHandler func(g *Gateway, conn rpcwire.Conn, ctx context.Context, state *connectionState, route apicontract.Route, req protocol.Request) bool
 
 type gatewayRequestScheduleKind uint8
 
@@ -152,9 +150,7 @@ const (
 )
 
 type gatewayRequestSchedule struct {
-	kind          gatewayRequestScheduleKind
-	progress      gatewayProgressHandler
-	progressRoute apicontract.Route
+	kind gatewayRequestScheduleKind
 }
 
 type gatewayEstablishedRequest struct {
@@ -163,11 +159,8 @@ type gatewayEstablishedRequest struct {
 	failure *sharedpb.TransportFailure
 }
 
-var gatewayProgressHandlers = routeHandlersForKind(apicontract.KindProgress, gatewayProgressHandlerEntries)
-
 type connectionState struct {
 	handshakeDone         bool
-	noAuthAccepted        bool
 	attachedProject       string
 	attachedWorkspaceID   string
 	attachedWorkspaceRoot string
@@ -179,15 +172,7 @@ type connectionState struct {
 
 type gatewaySubscriptionHandler func(g *Gateway, conn rpcwire.Conn, ctx context.Context, state *connectionState, route apicontract.Route, req protocol.Request)
 
-var gatewaySubscriptionHandlerEntries = map[string]gatewaySubscriptionHandler{
-	protocol.MethodSessionSubscribeTranscript:            (*Gateway).serveSessionTranscriptSubscription,
-	protocol.MethodSessionQuestionHistorySubscribe:       (*Gateway).serveQuestionHistorySubscription,
-	protocol.MethodAttentionNotificationSubscribe:        (*Gateway).serveAttentionNotificationSubscription,
-	protocol.MethodAttentionSessionNotificationSubscribe: (*Gateway).serveSessionAttentionNotificationSubscription,
-	protocol.MethodPromptFollowUpWatch:                   (*Gateway).servePromptFollowUpSubscription,
-	protocol.MethodWorkflowSubscribe:                     (*Gateway).serveWorkflowSubscription,
-	protocol.MethodWorkflowSubscribeProject:              (*Gateway).serveWorkflowProjectSubscription,
-}
+var gatewaySubscriptionHandlerEntries = map[string]gatewaySubscriptionHandler{}
 
 var gatewaySubscriptionHandlers = routeHandlersForKind(apicontract.KindSubscription, gatewaySubscriptionHandlerEntries)
 
@@ -206,17 +191,6 @@ func routeHandlersForKind[T any](kind apicontract.Kind, entries map[string]T) ma
 	return handlers
 }
 
-func gatewayProgressHandlerForRoute(route apicontract.Route) (gatewayProgressHandler, bool) {
-	if route.Kind != apicontract.KindProgress {
-		return nil, false
-	}
-	handler, ok := gatewayProgressHandlers[route.Method]
-	if !ok {
-		return nil, false
-	}
-	return handler, true
-}
-
 func NewGateway(deps GatewayDependencies, identity protocol.ServerIdentity) (*Gateway, error) {
 	if isNilGatewayDependencies(deps) {
 		return nil, ErrGatewayDependenciesRequired
@@ -231,21 +205,32 @@ func NewGateway(deps GatewayDependencies, identity protocol.ServerIdentity) (*Ga
 	if err := registration.Validate(); err != nil {
 		return nil, fmt.Errorf("validate Gateway registration: %w", err)
 	}
-	debugMode := invariant.NewPolicy().Mode() == invariant.ModePanic
-	if debugDeps, ok := deps.(interface{ DebugEnabled() bool }); ok {
-		debugMode = debugMode || debugDeps.DebugEnabled()
+	return &Gateway{
+		deps:         deps,
+		identity:     identity,
+		registration: registration,
+	}, nil
+}
+
+func (g *Gateway) sessionReattachAuthority() (*sessionReattachAuthority, error) {
+	if g == nil || g.deps == nil {
+		return nil, ErrGatewayDependenciesRequired
 	}
-	preparer := jsoncontract.NewPreparer(debugMode)
-	sessionExecutionRequestContract, err := serverjsoncontract.PrepareSessionExecutionEnvironmentRequest(preparer)
+	g.sessionReattachMu.Lock()
+	defer g.sessionReattachMu.Unlock()
+	if g.sessionReattach != nil {
+		return g.sessionReattach, nil
+	}
+	metadataStore := g.deps.MetadataStore()
+	if metadataStore == nil {
+		return nil, errors.New("metadata store is required")
+	}
+	authority, err := loadSessionReattachAuthority(metadataStore.PersistenceRoot())
 	if err != nil {
 		return nil, err
 	}
-	return &Gateway{
-		deps:                            deps,
-		identity:                        identity,
-		registration:                    registration,
-		sessionExecutionRequestContract: sessionExecutionRequestContract,
-	}, nil
+	g.sessionReattach = authority
+	return authority, nil
 }
 
 func isNilGatewayDependencies(deps GatewayDependencies) bool {
@@ -369,6 +354,10 @@ func (g *Gateway) gatewayRequestScheduleForEstablished(request gatewayEstablishe
 		request.binary.binding.operation.Options.Kind == sharedpb.OperationKind_OPERATION_KIND_SUBSCRIPTION {
 		return gatewayRequestSchedule{kind: gatewayRequestScheduleSubscription}
 	}
+	if request.binary != nil &&
+		request.binary.binding.operation.Options.Kind == sharedpb.OperationKind_OPERATION_KIND_PROGRESS {
+		return gatewayRequestSchedule{kind: gatewayRequestScheduleProgress}
+	}
 	if request.binary == nil {
 		panic("established Gateway request is required")
 	}
@@ -388,17 +377,6 @@ func (g *Gateway) gatewayRequestScheduleFor(req protocol.Request) gatewayRequest
 		return gatewayRequestSchedule{kind: gatewayRequestScheduleOrdinary}
 	}
 	switch operation.Options.Kind {
-	case sharedpb.OperationKind_OPERATION_KIND_PROGRESS:
-		route.Scope = routeScopePolicy(operation.Options.ScopePolicy)
-		handler, ok := gatewayProgressHandlerForRoute(route)
-		if !ok {
-			panic(fmt.Sprintf("legacy progress operation %q has no handler", operation.Name))
-		}
-		return gatewayRequestSchedule{
-			kind:          gatewayRequestScheduleProgress,
-			progress:      handler,
-			progressRoute: route,
-		}
 	case sharedpb.OperationKind_OPERATION_KIND_SUBSCRIPTION:
 		return gatewayRequestSchedule{kind: gatewayRequestScheduleSubscription}
 	case sharedpb.OperationKind_OPERATION_KIND_UNARY:
@@ -411,8 +389,6 @@ func (g *Gateway) gatewayRequestScheduleFor(req protocol.Request) gatewayRequest
 
 func (g *Gateway) serveGatewayRequest(conn rpcwire.Conn, ctx context.Context, state *connectionState, req protocol.Request, schedule gatewayRequestSchedule) bool {
 	switch schedule.kind {
-	case gatewayRequestScheduleProgress:
-		return schedule.progress(g, conn, ctx, state, schedule.progressRoute, req)
 	case gatewayRequestScheduleSubscription:
 		g.serveSubscription(conn, ctx, state, req)
 		return false
@@ -499,7 +475,7 @@ func (g *Gateway) cleanupConnectionRuntimes(state *connectionState) {
 		_, _ = client.ReleaseSessionRuntime(ctx, serverapi.SessionRuntimeReleaseRequest{
 			Attachment:  attachment,
 			DropOwner:   true,
-			ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle,
+			ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
 			OwnerID:     ownerID,
 		})
 		cancel()
@@ -520,52 +496,61 @@ func (g *Gateway) dispatch(ctx context.Context, state *connectionState, req prot
 	if err := g.requireCoreActive(); err != nil {
 		return responseForError(req.ID, err)
 	}
-	if err := newRoutePolicyExecutor(g).requireAuthenticationStage(
-		ctx,
-		state,
-		operation.Options.AuthenticationStage,
-	); err != nil {
-		return responseForError(req.ID, err)
-	}
 	route.Scope = routeScopePolicy(operation.Options.ScopePolicy)
-	if _, resp, failed := g.preflightRouteRequest(ctx, state, route, req); failed {
+	prepared, resp, failed := g.preflightRouteRequest(ctx, state, route, req)
+	if failed {
 		return resp
 	}
 	handler := gatewayUnaryHandlers[req.Method]
-	return handler(g, ctx, state, req)
+	return handler(g, ctx, state, req, prepared)
 }
 
-func decodeAndHandle[TReq any, TResp any](req protocol.Request, handler func(TReq) (TResp, error)) protocol.Response {
-	params, err := decodeParams[TReq](req.Params)
-	if err != nil {
-		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error())
-	}
-	var validationErr error
-	if validator, ok := any(params).(interface{ ValidateRPC() error }); ok {
-		validationErr = validator.ValidateRPC()
-	} else if validator, ok := any(params).(interface{ Validate() error }); ok {
-		validationErr = validator.Validate()
-	}
-	if validationErr != nil {
-		var rpcErr interface {
-			RPCErrorCode() int
-			RPCErrorData() json.RawMessage
-		}
-		if errors.As(validationErr, &rpcErr) {
-			return responseForError(req.ID, validationErr)
-		}
-		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, validationErr.Error())
+func handlePrepared[TReq any, TResp any](id string, prepared any, handler func(TReq) (TResp, error)) protocol.Response {
+	params, ok := prepared.(TReq)
+	if !ok {
+		var zero TResp
+		return completeUnaryResponse(id, zero, fmt.Errorf("prepared request has type %T", prepared), nil)
 	}
 	resp, err := handler(params)
-	if err != nil {
-		return responseForError(req.ID, err)
+	return completeUnaryResponse(id, resp, err, nil)
+}
+
+type unaryResponseEncoder func(any) (json.RawMessage, error)
+
+func generatedJSONResponseEncoder(value any) (json.RawMessage, error) {
+	message, ok := value.(proto.Message)
+	if !ok {
+		return nil, fmt.Errorf("generated response has type %T", value)
 	}
-	if validator, ok := any(resp).(interface{ Validate() error }); ok {
+	return protoapi.EncodeJSON(message)
+}
+
+func completeUnaryResponse(id string, resp any, handlerErr error, encoder unaryResponseEncoder) protocol.Response {
+	if handlerErr != nil {
+		return responseForError(id, handlerErr)
+	}
+	if validator, ok := resp.(interface{ Validate() error }); ok {
 		if err := validator.Validate(); err != nil {
-			return responseForError(req.ID, fmt.Errorf("handler returned an invalid response: %w", err))
+			return responseForError(id, fmt.Errorf("handler returned an invalid response: %w", err))
 		}
 	}
-	return protocol.NewSuccessResponse(req.ID, resp)
+	if encoder == nil {
+		encoder = func(value any) (json.RawMessage, error) {
+			if value == nil {
+				return nil, nil
+			}
+			return json.Marshal(value)
+		}
+	}
+	result, err := encoder(resp)
+	if err != nil {
+		return responseForError(id, fmt.Errorf("encode handler response: %w", err))
+	}
+	return protocol.Response{
+		JSONRPC: protocol.JSONRPCVersion,
+		ID:      strings.TrimSpace(id),
+		Result:  result,
+	}
 }
 
 func receiveRequest(ctx context.Context, conn rpcwire.Conn) (protocol.Request, error) {

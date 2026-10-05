@@ -1,33 +1,25 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { FakeRpcTransport } from "@/test-support/api";
 import { create } from "@app/server-api-contract";
+import {
+  TaskLifecycleService,
+  StartResultSchema,
+  MoveResultSchema,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import {
   SetupCompletionSchema,
   SetupEventSchema,
   SetupFailureCauseSchema,
   SetupNotRequiredReason,
   SetupRetryReadiness,
+  SetupRecoveryDisposition,
   SetupService,
   SetupStartResultSchema,
   type SetupEvent,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
-import { z } from "zod";
 
 import { ApiClient } from "./client";
-import { ContractError } from "./errors";
-import { parseTaskSetupRecoveryDetail } from "./schemas/workflowBoard";
-import { newSetupOperationID, parseSetupOperationID, type SetupOperationID } from "./setupOperationID";
-
-const setupOperationIDWireSchema = z.string().transform((value, ctx): SetupOperationID => {
-  try {
-    return parseSetupOperationID(value);
-  } catch {
-    ctx.addIssue({ code: "custom", message: "Expected setup operation id UUID v4." });
-    return z.NEVER;
-  }
-});
-const setupMutationParamsSchema = z.object({
-  setup_operation_id: setupOperationIDWireSchema,
-});
+import { newSetupOperationID, parseSetupOperationID } from "./setupOperationID";
 const setupIDWire = "123e4567-e89b-42d3-a456-426614174000";
 const setupID = parseSetupOperationID(setupIDWire);
 const startedSetupEvent = create(SetupEventSchema, {
@@ -59,6 +51,7 @@ const failedSetupEvent = create(SetupEventSchema, {
   phase: {
     case: "failed",
     value: {
+      recoveryDisposition: SetupRecoveryDisposition.RETRY_EXISTING,
       retryReadiness: SetupRetryReadiness.WORKTREE_SETUP_NON_RETRYABLE,
       cause: create(SetupFailureCauseSchema, {
         cause: { case: "canceled", value: {} },
@@ -69,32 +62,6 @@ const failedSetupEvent = create(SetupEventSchema, {
 });
 
 describe("worktree setup API", () => {
-  it("decodes canonical Task setup recovery without fabricating topology", () => {
-    const recovery = parseTaskSetupRecoveryDetail(
-      JSON.stringify({
-        setup_recovery: {
-          setup_operation_id: "55555555-5555-4555-8555-555555555555",
-          cause: "target_preparation",
-          diagnostic: "target failed",
-          script_path: null,
-          setup_requirement: "required",
-          retained_worktree: null,
-          retained_previous_worktree: null,
-          execution_target: { mode: "head" },
-        },
-      }),
-    );
-
-    expect(recovery).toMatchObject({
-      cause: "target_preparation",
-      diagnostic: "target failed",
-      executionTarget: { mode: "head", customRef: null },
-      retainedWorktree: null,
-    });
-    expect(parseTaskSetupRecoveryDetail(JSON.stringify({ code: "user_interrupt" }))).toBeNull();
-    expect(() => parseTaskSetupRecoveryDetail('{"setup_recovery":{}}')).toThrow(ContractError);
-  });
-
   it("rejects malformed setup operation ids before RPC submission can use them", () => {
     expect(() => parseSetupOperationID("11111111-1111-1111-1111-111111111111")).toThrow(
       "Setup operation id must be a UUID v4.",
@@ -106,26 +73,29 @@ describe("worktree setup API", () => {
     const transport = new FakeRpcTransport([
       setupSubscriptionRoute(),
       {
-        method: "workflow.task.start",
-        result: {
-          outcome: "applied",
-          applied: {
-            current_nodes: [{ node_id: "node-1", transition_branch_key: null, session_id: null }],
+        descriptor: TaskLifecycleService.method.start,
+        result: create(StartResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              outcome: { case: "applied", value: { currentNodes: [{ nodeId: "node-1" }] } },
+            },
           },
-        },
+        }),
       },
       {
-        method: "workflow.task.move",
-        result: {
-          outcome: "applied",
-          applied: {
-            current_nodes: [{ node_id: "node-1", transition_branch_key: null, session_id: null }],
-            retained_previous_worktree: null,
+        descriptor: TaskLifecycleService.method.move,
+        result: create(MoveResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              outcome: { case: "applied", value: { currentNodes: [{ nodeId: "node-1" }] } },
+            },
           },
-        },
+        }),
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     const startSetupID = newSetupOperationID();
 
     client.subscribeWorktreeSetup(startSetupID, {
@@ -151,19 +121,21 @@ describe("worktree setup API", () => {
         setupOperationId: startSetupID.toJSONValue(),
       }),
     });
-    const startCall = transport.calls.find((entry) => entry.method === "workflow.task.start");
-    expect(startCall?.options).toEqual({ timeoutMs: null });
-    expect(setupMutationParamsSchema.parse(startCall?.params).setup_operation_id.toJSONValue()).toBe(
-      startSetupID.toJSONValue(),
+    const startCall = transport.descriptorCalls.find(
+      (entry) => entry.descriptor === TaskLifecycleService.method.start,
     );
-    const moveCall = transport.calls.find((entry) => entry.method === "workflow.task.move");
+    expect(startCall?.options).toEqual({ timeoutMs: null });
+    expect(startCall?.request).toMatchObject({ setupOperationId: startSetupID.toJSONValue() });
+    const moveCall = transport.descriptorCalls.find(
+      (entry) => entry.descriptor === TaskLifecycleService.method.move,
+    );
     expect(moveCall?.options).toEqual({ timeoutMs: null });
-    expect(moveCall?.params).not.toHaveProperty("setup_operation_id");
+    expect(moveCall?.request).not.toHaveProperty("setupOperationId");
   });
 
   it("subscribes to typed worktree setup events and rejects malformed setup ids", () => {
     const transport = successfulTransport();
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     const events: SetupEvent[] = [];
     const errors: Error[] = [];
 
@@ -194,7 +166,7 @@ describe("worktree setup API", () => {
   it("forwards one terminal outcome or error and closes once", () => {
     for (const terminal of [completedSetupEvent, notRequiredSetupEvent, failedSetupEvent]) {
       const transport = successfulTransport();
-      const observed = observe(new ApiClient(transport));
+      const observed = observe(new ApiClient(transport, unexpectedProjectOverflow));
       transport.openDescriptor(SetupService.method.subscribe);
       transport.emitDescriptor(SetupService.method.subscribe, SetupService.method.event, startedSetupEvent);
       transport.emitDescriptor(SetupService.method.subscribe, SetupService.method.event, terminal);
@@ -226,7 +198,7 @@ describe("worktree setup API", () => {
       },
     ]) {
       const transport = successfulTransport();
-      const observed = observe(new ApiClient(transport));
+      const observed = observe(new ApiClient(transport, unexpectedProjectOverflow));
       transport.openDescriptor(SetupService.method.subscribe);
       trigger(transport);
       transport.failDescriptor(SetupService.method.subscribe, new Error("late"));

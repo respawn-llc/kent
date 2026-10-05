@@ -93,16 +93,16 @@ func TestNewWithContextNamesMissingAuthBundleResource(t *testing.T) {
 	cfg := config.App{
 		PersistenceRoot: t.TempDir(),
 		Settings: config.Settings{
-			Shell: config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
+			Shell: config.ShellSettings{MaxConcurrent: config.DefaultMaxConcurrentShells, PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		},
 	}
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(cfg)
+	background, err := serverbootstrap.BuildShellManager(cfg)
 	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
+		t.Fatalf("BuildShellManager: %v", err)
 	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
+	t.Cleanup(func() { _ = background.Close() })
 
-	_, err = NewWithContext(t.Context(), cfg, serverbootstrap.AuthSupport{}, runtimeSupport)
+	_, err = NewWithContext(t.Context(), cfg, serverbootstrap.AuthSupport{}, background)
 	if err == nil {
 		t.Fatal("expected NewWithContext error")
 	}
@@ -114,12 +114,12 @@ func TestNewWithContextNamesMissingAuthBundleResource(t *testing.T) {
 
 func TestNewWithContextNamesMissingRuntimeBundleResource(t *testing.T) {
 	cfg := config.App{PersistenceRoot: t.TempDir()}
-	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), nil, nil)
+	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), cfg.PersistenceRoot, auth.NewMemoryStore(auth.EmptyState()), nil, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
 
-	_, err = NewWithContext(t.Context(), cfg, authSupport, serverbootstrap.RuntimeSupport{})
+	_, err = NewWithContext(t.Context(), cfg, authSupport, nil)
 	if err == nil {
 		t.Fatal("expected NewWithContext error")
 	}
@@ -133,30 +133,30 @@ func TestNewWithContextCleansPersistenceOnAuthBundleFailure(t *testing.T) {
 	cfg := config.App{
 		PersistenceRoot: t.TempDir(),
 		Settings: config.Settings{
-			Shell:    config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
+			Shell:    config.ShellSettings{MaxConcurrent: config.DefaultMaxConcurrentShells, PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 			Workflow: config.WorkflowSettings{Concurrency: 1},
 		},
 	}
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(cfg)
+	background, err := serverbootstrap.BuildShellManager(cfg)
 	if err != nil {
-		t.Fatalf("BuildRuntimeSupport first: %v", err)
+		t.Fatalf("BuildShellManager first: %v", err)
 	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
+	t.Cleanup(func() { _ = background.Close() })
 
-	_, err = NewWithContext(t.Context(), cfg, serverbootstrap.AuthSupport{}, runtimeSupport)
+	_, err = NewWithContext(t.Context(), cfg, serverbootstrap.AuthSupport{}, background)
 	if err == nil {
 		t.Fatal("expected first NewWithContext error")
 	}
 
-	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), nil, nil)
+	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), cfg.PersistenceRoot, auth.NewMemoryStore(auth.EmptyState()), nil, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
-	runtimeSupportSecond, err := serverbootstrap.BuildRuntimeSupport(cfg)
+	backgroundSecond, err := serverbootstrap.BuildShellManager(cfg)
 	if err != nil {
-		t.Fatalf("BuildRuntimeSupport second: %v", err)
+		t.Fatalf("BuildShellManager second: %v", err)
 	}
-	appCore, err := NewWithContext(t.Context(), cfg, authSupport, runtimeSupportSecond)
+	appCore, err := NewWithContext(t.Context(), cfg, authSupport, backgroundSecond)
 	if err != nil {
 		t.Fatalf("NewWithContext after failed construction: %v", err)
 	}

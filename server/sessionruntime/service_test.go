@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"core/internal/testharness/testsetup"
+	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
 	runtimepkg "core/server/runtime"
@@ -21,14 +23,339 @@ import (
 	"core/server/session/sessiontest"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
-	"core/server/tools/shell/postprocess"
 	"core/shared/config"
+	"core/shared/protoapi"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
+
+func TestLaunchRetainsFirstExplicitToolListAcrossReopening(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	client := &sessionRuntimeTestLLMClient{responses: []llm.Response{
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("first"), Phase: textutil.Value(llm.MessagePhaseFinal)}, Usage: llm.Usage{WindowTokens: 200000}},
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("summary"), Phase: textutil.Value(llm.MessagePhaseFinal)}, Usage: llm.Usage{WindowTokens: 200000}},
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("after compaction"), Phase: textutil.Value(llm.MessagePhaseFinal)}, Usage: llm.Usage{WindowTokens: 200000}},
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("after reopening"), Phase: textutil.Value(llm.MessagePhaseFinal)}, Usage: llm.Usage{WindowTokens: 200000}},
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("fork answer"), Phase: textutil.Value(llm.MessagePhaseFinal)}, Usage: llm.Usage{WindowTokens: 200000}},
+	}}
+	fixture.api = NewAPI(fixture.metadata, fixture.authority, APIOptions{
+		RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(context.Context, runtimewire.RuntimeClientRequest) (llm.Client, error) {
+			return client, nil
+		}),
+	})
+	t.Setenv("KENT_TOOLS", "exec_command")
+	cfg, err := config.Load(fixture.config.WorkspaceRoot, fixture.config.WorkspaceRoot, config.LoadOptions{
+		ConfigRoot: fixture.config.PersistenceRoot, Tools: "patch",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	planner := launch.Planner{
+		Config: cfg, ContainerDir: filepath.Dir(fixture.store.Dir()),
+		StoreOptions:      fixture.metadata.AuthoritativeSessionStoreOptions(),
+		PersistedSessions: fixture.metadata, ExecutionTargets: fixture.metadata, SessionProjects: fixture.metadata, ManagedWorktreeRoots: fixture.metadata,
+	}
+	id, err := runtimeids.ParseSessionID(fixture.store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := launch.SessionRequest{Mode: launch.ModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(id)}
+	plan, err := planner.PlanSession(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activation, err := ActivationRequestFromSessionPlan(plan, "tool-retention-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachment, err := fixture.api.ActivateSessionRuntime(t.Context(), activation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := fixture.metadata.ResolvePersistedSession(t.Context(), id.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	override := serverapi.RunPromptOverrides{Tools: "exec_command"}
+	prepared, err := launch.PrepareRunPromptOverridesWithContext(cfg, override, launch.RunPromptPreparationContext{Mode: launch.ModeInteractive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected, _, err := planner.PlanPersistedSessionWithPreparedOverrides(t.Context(), request, *record.Meta, override, prepared, launch.RunPromptOverrideOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(projected.EnabledTools, []toolspec.ID{toolspec.ToolPatch}) {
+		t.Fatalf("prepared later list replaced an unlocked Session selection: %v", projected.EnabledTools)
+	}
+	t.Setenv("KENT_TOOLS", "")
+	if err := fixture.authority.WithCurrentRuntime(t.Context(), id, func(ctx context.Context, engine *runtimepkg.Engine) error {
+		if _, err := engine.SubmitUserMessage(ctx, "first"); err != nil {
+			return err
+		}
+		if err := engine.CompactContext(ctx, ""); err != nil {
+			return err
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for (engine.CompactionCount() == 0 || engine.ActiveRun() != nil) && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		if engine.CompactionCount() == 0 || engine.ActiveRun() != nil {
+			return errors.New("compaction did not complete")
+		}
+		_, err := engine.SubmitUserMessage(ctx, "after compaction")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	requests := client.requestSnapshot()
+	if len(requests) != 3 {
+		t.Fatalf("provider requests = %d, want first turn, compaction, next turn", len(requests))
+	}
+	for _, index := range []int{0, 2} {
+		if len(requests[index].Tools) != 1 || requests[index].Tools[0].Name != string(toolspec.ToolPatch) {
+			t.Fatalf("provider request %d changed retained tools: %+v", index, requests[index].Tools)
+		}
+	}
+	if _, err := fixture.api.ReleaseSessionRuntime(t.Context(), serverapi.SessionRuntimeReleaseRequest{
+		Attachment: attachment, OwnerID: activation.OwnerID, DropOwner: true, ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tools := range []string{"", "exec_command"} {
+		planner.Config, err = config.Load(fixture.config.WorkspaceRoot, fixture.config.WorkspaceRoot, config.LoadOptions{ConfigRoot: fixture.config.PersistenceRoot, Tools: tools})
+		if err != nil {
+			t.Fatal(err)
+		}
+		reopened, err := planner.PlanSession(t.Context(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(reopened.EnabledTools, []toolspec.ID{toolspec.ToolPatch}) {
+			t.Fatalf("reopen with tools %q changed the first list: %v", tools, reopened.EnabledTools)
+		}
+		activation, err := ActivationRequestFromSessionPlan(reopened, "tool-retention-test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		wire, err := protoapi.SessionRuntimeActivateToProto(activation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := protoapi.SessionRuntimeActivateFromProto(wire)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded.OwnerID = activation.OwnerID
+		if _, err := fixture.api.ActivateSessionRuntime(t.Context(), decoded); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reopened, err := planner.PlanSession(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(reopened.EnabledTools, []toolspec.ID{toolspec.ToolPatch}) {
+		t.Fatalf("later activation replaced the retained selection: %v", reopened.EnabledTools)
+	}
+	origin := reopened.Source.Sources["tools.patch"]
+	if origin.Kind != config.SourceCLI || origin.Option == nil || *origin.Option != "--tools" || origin.RetainedSessionID == nil || *origin.RetainedSessionID != id {
+		t.Fatalf("retained selection lost its original source or Session ownership: %+v", origin)
+	}
+	if err := fixture.authority.WithCurrentRuntime(t.Context(), id, func(ctx context.Context, engine *runtimepkg.Engine) error {
+		_, err := engine.SubmitUserMessage(ctx, "after reopening")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	requests = client.requestSnapshot()
+	if len(requests) != 4 || len(requests[3].Tools) != 1 || requests[3].Tools[0].Name != string(toolspec.ToolPatch) {
+		t.Fatal("a recreated runtime lost the original tool list")
+	}
+	parent, err := session.OpenByID(fixture.config.PersistenceRoot, id.String(), fixture.metadata.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentMeta := parent.Meta()
+	log, err := parent.MaterializeEventLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	window, err := log.ReadRecentRecords(64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cut *int64
+	for _, record := range window.Records {
+		payload, err := record.Payload()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if message, ok := payload.(session.MessageRecord); ok && message.Role == session.MessageRoleUser {
+			cut = textutil.Value(record.Seq())
+		}
+	}
+	if cut == nil {
+		t.Fatal("missing rollback user message")
+	}
+	child, _, err := session.ForkAtUserMessage(log, *cut, "tools fork", sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.Meta().RetainedToolSelection != nil {
+		t.Fatal("rollback inherited its parent's retained tool list")
+	}
+	childID, err := runtimeids.ParseSessionID(child.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KENT_WEB_SEARCH", "off")
+	planner.Config, err = config.Load(fixture.config.WorkspaceRoot, fixture.config.WorkspaceRoot, config.LoadOptions{ConfigRoot: fixture.config.PersistenceRoot, Tools: "exec_command", Model: "different-child-config"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	forkPlan, err := planner.PlanSession(t.Context(), launch.SessionRequest{Mode: launch.ModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(childID)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	forkActivation, err := ActivationRequestFromSessionPlan(forkPlan, "fork-tools-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.api.ActivateSessionRuntime(t.Context(), forkActivation); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.authority.WithCurrentRuntime(t.Context(), childID, func(ctx context.Context, engine *runtimepkg.Engine) error {
+		_, err := engine.SubmitUserMessage(ctx, "fork turn")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	requests = client.requestSnapshot()
+	last := requests[len(requests)-1]
+	if len(last.Tools) != 1 || last.Tools[0].Name != string(toolspec.ToolExecCommand) {
+		t.Fatalf("rollback first request used copied tools: %v", last.Tools)
+	}
+	childRecord, err := fixture.metadata.ResolvePersistedSession(t.Context(), childID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	childLock := childRecord.Meta.Locked
+	if last.Model != parentMeta.Locked.Model || childLock.SystemPrompt != parentMeta.Locked.SystemPrompt ||
+		!reflect.DeepEqual(childLock.ProviderContract, parentMeta.Locked.ProviderContract) || childLock.WebSearchMode != parentMeta.Locked.WebSearchMode {
+		t.Fatalf("rollback contract changed: model %s/%s, prompt equal=%t, provider equal=%t, web %s/%s", last.Model, parentMeta.Locked.Model,
+			childLock.SystemPrompt == parentMeta.Locked.SystemPrompt, reflect.DeepEqual(childLock.ProviderContract, parentMeta.Locked.ProviderContract),
+			childLock.WebSearchMode, parentMeta.Locked.WebSearchMode)
+	}
+	parentRecord, err := fixture.metadata.ResolvePersistedSession(t.Context(), id.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(parentMeta.Locked, parentRecord.Meta.Locked) || !reflect.DeepEqual(parentMeta.RetainedToolSelection, parentRecord.Meta.RetainedToolSelection) {
+		t.Fatal("rollback changed its parent's contract or retained list")
+	}
+}
+
+func TestOlderSessionAdoptsToolListAtCompactionBoundary(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	client := &sessionRuntimeTestLLMClient{}
+	for _, answer := range []string{"first", "before compaction", "summary", "after compaction"} {
+		client.responses = append(client.responses, llm.Response{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Content: &answer, Phase: textutil.Value(llm.MessagePhaseFinal)},
+			Usage:     llm.Usage{WindowTokens: 200000},
+		})
+	}
+	fixture.api = NewAPI(fixture.metadata, fixture.authority, APIOptions{
+		RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(context.Context, runtimewire.RuntimeClientRequest) (llm.Client, error) { return client, nil }),
+	})
+	id, err := runtimeids.ParseSessionID(fixture.store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := func(tools string) {
+		t.Helper()
+		cfg, err := config.Load(fixture.config.WorkspaceRoot, fixture.config.WorkspaceRoot, config.LoadOptions{ConfigRoot: fixture.config.PersistenceRoot, Tools: tools})
+		if err != nil {
+			t.Fatal(err)
+		}
+		planner := launch.Planner{Config: cfg, ContainerDir: filepath.Dir(fixture.store.Dir()), PersistedSessions: fixture.metadata, ExecutionTargets: fixture.metadata, SessionProjects: fixture.metadata, ManagedWorktreeRoots: fixture.metadata}
+		plan, err := planner.PlanSession(t.Context(), launch.SessionRequest{Mode: launch.ModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(id)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request, err := ActivationRequestFromSessionPlan(plan, "older-tools-test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fixture.api.ActivateSessionRuntime(t.Context(), request); err != nil {
+			t.Fatal(err)
+		}
+	}
+	turn := func(message string) {
+		t.Helper()
+		if err := fixture.authority.WithCurrentRuntime(t.Context(), id, func(ctx context.Context, engine *runtimepkg.Engine) error {
+			_, err := engine.SubmitUserMessage(ctx, message)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	readMeta := func() session.Meta {
+		t.Helper()
+		record, err := fixture.metadata.ResolvePersistedSession(t.Context(), id.String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return *record.Meta
+	}
+	open("")
+	turn("first")
+	before := readMeta()
+	if before.RetainedToolSelection != nil || before.Locked == nil {
+		t.Fatalf("older Session must have a contract without an inferred list: %+v", before)
+	}
+	open("patch")
+	adopted := readMeta()
+	if adopted.RetainedToolSelection == nil || !reflect.DeepEqual(before.Locked, adopted.Locked) || before.LastSequence != adopted.LastSequence {
+		t.Fatal("adoption must retain the list without changing locked history")
+	}
+	turn("before compaction")
+	requests := client.requestSnapshot()
+	if len(requests) != 2 || !reflect.DeepEqual(requests[0].Tools, requests[1].Tools) {
+		t.Fatal("an adopted list must not change requests before compaction")
+	}
+	if err := fixture.authority.WithCurrentRuntime(t.Context(), id, func(ctx context.Context, engine *runtimepkg.Engine) error {
+		if err := engine.CompactContext(ctx, ""); err != nil {
+			return err
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for (engine.CompactionCount() == 0 || engine.ActiveRun() != nil) && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		if engine.CompactionCount() == 0 || engine.ActiveRun() != nil {
+			return errors.New("compaction did not complete")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	open("")
+	turn("after compaction")
+	requests = client.requestSnapshot()
+	if len(requests) != 4 {
+		t.Fatalf("provider requests = %d, want two turns, compaction and another turn", len(requests))
+	}
+	if len(requests[3].Tools) != 1 || requests[3].Tools[0].Name != string(toolspec.ToolPatch) {
+		names := make([]string, 0, len(requests[3].Tools))
+		for _, tool := range requests[3].Tools {
+			names = append(names, tool.Name)
+		}
+		t.Fatalf("post-compaction request must use the adopted list: %v", names)
+	}
+}
 
 type sessionRuntimeTestLLMClient struct {
 	responses []llm.Response
@@ -40,7 +367,10 @@ type sessionRuntimeTestLLMClient struct {
 
 func (c *sessionRuntimeTestLLMClient) Generate(_ context.Context, request llm.Request, _ llm.StreamCallbacks) (llm.Response, error) {
 	c.mu.Lock()
-	c.requests = append(c.requests, llm.Request{Items: llm.CloneResponseItems(request.Items)})
+	captured := request
+	captured.Items = llm.CloneResponseItems(request.Items)
+	captured.Tools = append([]llm.Tool(nil), request.Tools...)
+	c.requests = append(c.requests, captured)
 	if len(c.responses) == 0 {
 		c.mu.Unlock()
 		return llm.Response{}, nil
@@ -210,8 +540,8 @@ func TestActivateSessionRuntimeRejectsMissingOwnerID(t *testing.T) {
 
 func TestServicePassesRuntimeClientFactoryIntoInteractiveRuntime(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
-	if err := fixture.store.MarkModelDispatchLocked(session.LockedContract{Model: "gpt-5", ContextWindow: 20, ContextPercent: 95}); err != nil {
-		t.Fatalf("lock Session context window: %v", err)
+	if err := fixture.store.MarkModelDispatchLocked(session.LockedContract{Model: "gpt-6-sol"}); err != nil {
+		t.Fatalf("lock Session model: %v", err)
 	}
 	calls := 0
 	factory := runtimewire.RuntimeClientFactoryFunc(func(_ context.Context, req runtimewire.RuntimeClientRequest) (llm.Client, error) {
@@ -219,14 +549,14 @@ func TestServicePassesRuntimeClientFactoryIntoInteractiveRuntime(t *testing.T) {
 		if req.Purpose != runtimewire.RuntimeClientPurposeMain {
 			t.Fatalf("factory purpose = %v, want main", req.Purpose)
 		}
-		if req.ActiveSettings.ModelContextWindow != 20 {
-			t.Fatalf("factory context window = %d, want locked Session window 20", req.ActiveSettings.ModelContextWindow)
+		if req.ActiveSettings.ModelContextWindow != 40 {
+			t.Fatalf("factory context window = %d, want current configured window 40", req.ActiveSettings.ModelContextWindow)
 		}
 		return &sessionRuntimeTestLLMClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok"), Phase: textutil.Value(llm.MessagePhaseFinal)}, Usage: llm.Usage{WindowTokens: 200000}}}}, nil
 	})
 	fixture.api = NewAPI(fixture.metadata, fixture.authority, APIOptions{RuntimeClientFactory: factory})
-	settings := config.DefaultOnboardingSettings()
-	settings.Model = "gpt-5"
+	settings := testsetup.ProviderSettings(config.DefaultOnboardingSettings())
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 40
 	settings.CompactionMode = config.CompactionModeNative
 	settings.Reviewer.Frequency = "off"
@@ -237,7 +567,7 @@ func TestServicePassesRuntimeClientFactoryIntoInteractiveRuntime(t *testing.T) {
 		AutoCompactionEnabled: textutil.Value(true),
 		ActiveSettings:        settings,
 		EnabledToolIDs:        []string{string(toolspec.ToolExecCommand)},
-		Source:                config.SourceReport{Sources: map[string]string{}},
+		Source:                config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -246,7 +576,7 @@ func TestServicePassesRuntimeClientFactoryIntoInteractiveRuntime(t *testing.T) {
 		t.Fatalf("factory calls = %d, want 1", calls)
 	}
 	_, _ = fixture.api.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-		Attachment:  activation.Attachment,
+		Attachment:  activation,
 		OwnerID:     "owner",
 		DropOwner:   true,
 		ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
@@ -319,7 +649,7 @@ func TestActivateSessionRuntimeUsesTypedQuestionAndAutoCompactionSettings(t *tes
 		ActiveSettings:        settings,
 		QuestionsEnabled:      textutil.Value(false),
 		AutoCompactionEnabled: textutil.Value(false),
-		Source:                config.SourceReport{Sources: map[string]string{}},
+		Source:                config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -328,7 +658,7 @@ func TestActivateSessionRuntimeUsesTypedQuestionAndAutoCompactionSettings(t *tes
 	if engine.QuestionsEnabled() || engine.AutoCompactionEnabled() {
 		t.Fatalf("runtime settings = questions %t auto-compaction %t, want false/false", engine.QuestionsEnabled(), engine.AutoCompactionEnabled())
 	}
-	releaseSessionRuntimeForFastTest(t, fixture.api, response.Attachment, "typed-session-settings")
+	releaseSessionRuntimeForFastTest(t, fixture.api, response, "typed-session-settings")
 }
 
 func TestActivateSessionRuntimeCommitsPlannedAgentSelection(t *testing.T) {
@@ -348,7 +678,7 @@ func TestActivateSessionRuntimeCommitsPlannedAgentSelection(t *testing.T) {
 		QuestionsEnabled:      textutil.Value(false),
 		AutoCompactionEnabled: textutil.Value(false),
 		AgentSelection: &serverapi.SessionRuntimeAgentSelection{
-			Agent: "worker",
+			AgentRole: textutil.Value("worker"),
 			Baseline: serverapi.SessionRuntimeChatSettings{
 				Supervisor:     "all",
 				Thinking:       "high",
@@ -357,7 +687,7 @@ func TestActivateSessionRuntimeCommitsPlannedAgentSelection(t *testing.T) {
 				AutoCompaction: false,
 			},
 		},
-		Source: config.SourceReport{Sources: map[string]string{}},
+		Source: config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -370,7 +700,7 @@ func TestActivateSessionRuntimeCommitsPlannedAgentSelection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve persisted Chat settings: %v", err)
 	}
-	if state.Agent != "worker" ||
+	if state.AgentSelector() != "worker" ||
 		state.Settings == nil ||
 		state.Settings.Supervisor == nil || *state.Settings.Supervisor != "all" ||
 		state.Settings.Thinking == nil || *state.Settings.Thinking != "high" ||
@@ -379,7 +709,51 @@ func TestActivateSessionRuntimeCommitsPlannedAgentSelection(t *testing.T) {
 		state.Settings.AutoCompaction == nil || *state.Settings.AutoCompaction {
 		t.Fatalf("persisted Chat settings = %+v, want complete worker selection", state)
 	}
-	releaseSessionRuntimeForFastTest(t, fixture.api, response.Attachment, "planned-agent-selection")
+	releaseSessionRuntimeForFastTest(t, fixture.api, response, "planned-agent-selection")
+}
+
+func TestActivateSessionRuntimePreservesDefaultRoleIdentityAcrossTransport(t *testing.T) {
+	for _, role := range []*string{nil, textutil.Value(config.DefaultSubagentRole)} {
+		fixture := newSessionRuntimeFixture(t)
+		fixture.api = NewAPI(fixture.metadata, fixture.authority, APIOptions{
+			RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(context.Context, runtimewire.RuntimeClientRequest) (llm.Client, error) {
+				return &sessionRuntimeTestLLMClient{}, nil
+			}),
+		})
+		if err := fixture.store.SetContinuationContext(session.ContinuationContext{
+			AgentRole: textutil.Value(config.DefaultSubagentRole),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		settings := sessionRuntimeFastSettings(false)
+		state := sessiontest.CompleteChatSettingsState(t, config.DefaultSubagentRole, settings.Reviewer.Frequency, settings.ThinkingLevel, false, true, true)
+		state.AgentRole = role
+		selection, err := AgentSelectionFromState(&state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		selection, err = protoapi.SessionRuntimeAgentSelectionFromProto(protoapi.SessionRuntimeAgentSelectionToProto(selection))
+		if err != nil {
+			t.Fatal(err)
+		}
+		attachment, err := fixture.api.ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
+			SessionID: fixture.store.Meta().SessionID, OwnerID: "default-role-identity",
+			ActiveSettings: settings, QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true),
+			AgentSelection: selection, Source: config.SourceReport{Sources: map[string]config.Origin{}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		persisted, err := fixture.metadata.ResolvePersistedSession(t.Context(), fixture.store.Meta().SessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		actualRole := session.ContinuationAgentRole(*persisted.Meta)
+		if !textutil.EqualOptional(actualRole, role) {
+			t.Fatalf("activated role=%v, want exact role=%v", actualRole, role)
+		}
+		releaseSessionRuntimeForFastTest(t, fixture.api, attachment, "default-role-identity")
+	}
 }
 
 func TestActivateSessionRuntimeReplacesReadyRuntimeAfterAgentSelection(t *testing.T) {
@@ -405,7 +779,7 @@ func TestActivateSessionRuntimeReplacesReadyRuntimeAfterAgentSelection(t *testin
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		AgentSelection: &serverapi.SessionRuntimeAgentSelection{
-			Agent: "worker",
+			AgentRole: textutil.Value("worker"),
 			Baseline: serverapi.SessionRuntimeChatSettings{
 				Supervisor:     settings.Reviewer.Frequency,
 				Thinking:       settings.ThinkingLevel,
@@ -414,20 +788,20 @@ func TestActivateSessionRuntimeReplacesReadyRuntimeAfterAgentSelection(t *testin
 				AutoCompaction: true,
 			},
 		},
-		Source: config.SourceReport{Sources: map[string]string{}},
+		Source: config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	if second.Attachment.Generation == first.Generation {
-		t.Fatalf("replacement generation = %d, want a generation after %d", second.Attachment.Generation, first.Generation)
+	if second.Generation == first.Generation {
+		t.Fatalf("replacement generation = %d, want a generation after %d", second.Generation, first.Generation)
 	}
 	if !currentSessionRuntimeEngine(t, fixture.authority, fixture.store.Meta().SessionID).FastModeEnabled() {
 		t.Fatal("replacement runtime Fast = false, want selected Agent baseline true")
 	}
 
 	releaseSessionRuntimeForFastTest(t, fixture.api, first, "first-agent")
-	releaseSessionRuntimeForFastTest(t, fixture.api, second.Attachment, "replacement-agent")
+	releaseSessionRuntimeForFastTest(t, fixture.api, second, "replacement-agent")
 }
 
 func TestActivateSessionRuntimeUsesLatestPersistedQuestionAndAutoCompactionSettings(t *testing.T) {
@@ -447,7 +821,7 @@ func TestActivateSessionRuntimeUsesLatestPersistedQuestionAndAutoCompactionSetti
 		ActiveSettings:        sessionRuntimeFastSettings(false),
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
-		Source:                config.SourceReport{Sources: map[string]string{}},
+		Source:                config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -456,7 +830,7 @@ func TestActivateSessionRuntimeUsesLatestPersistedQuestionAndAutoCompactionSetti
 	if engine.QuestionsEnabled() || engine.AutoCompactionEnabled() {
 		t.Fatalf("runtime settings = questions %t auto-compaction %t, want latest persisted false/false", engine.QuestionsEnabled(), engine.AutoCompactionEnabled())
 	}
-	releaseSessionRuntimeForFastTest(t, fixture.api, response.Attachment, "stale-planned-session-settings")
+	releaseSessionRuntimeForFastTest(t, fixture.api, response, "stale-planned-session-settings")
 }
 
 func TestActivateSessionRuntimeUsesLatestPersistedCompleteChatSettings(t *testing.T) {
@@ -479,7 +853,7 @@ func TestActivateSessionRuntimeUsesLatestPersistedCompleteChatSettings(t *testin
 		ActiveSettings:        stale,
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
-		Source:                config.SourceReport{Sources: map[string]string{}},
+		Source:                config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -499,7 +873,7 @@ func TestActivateSessionRuntimeUsesLatestPersistedCompleteChatSettings(t *testin
 			engine.AutoCompactionEnabled(),
 		)
 	}
-	releaseSessionRuntimeForFastTest(t, fixture.api, response.Attachment, "stale-complete-session-settings")
+	releaseSessionRuntimeForFastTest(t, fixture.api, response, "stale-complete-session-settings")
 }
 
 func TestActivateSessionRuntimePreservesExplicitThinkingOverPersistedSetting(t *testing.T) {
@@ -520,7 +894,7 @@ func TestActivateSessionRuntimePreservesExplicitThinkingOverPersistedSetting(t *
 		QuestionsEnabled:         textutil.Value(true),
 		AutoCompactionEnabled:    textutil.Value(true),
 		ThinkingOverrideExplicit: true,
-		Source:                   config.SourceReport{Sources: map[string]string{}},
+		Source:                   config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -529,18 +903,14 @@ func TestActivateSessionRuntimePreservesExplicitThinkingOverPersistedSetting(t *
 	if engine.ThinkingLevel() != "high" {
 		t.Fatalf("runtime Thinking = %q, want explicit high", engine.ThinkingLevel())
 	}
-	releaseSessionRuntimeForFastTest(t, fixture.api, response.Attachment, "explicit-thinking-activation")
+	releaseSessionRuntimeForFastTest(t, fixture.api, response, "explicit-thinking-activation")
 }
 
 func sessionRuntimeFastSettings(enabled bool) config.Settings {
 	settings := config.DefaultOnboardingSettings()
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.PriorityRequestMode = enabled
-	settings.ProviderCapabilities = config.ProviderCapabilitiesOverride{
-		ProviderID:           "openai",
-		SupportsResponsesAPI: true,
-		IsOpenAIFirstParty:   true,
-	}
+	settings = testsetup.ProviderSettings(settings)
 	settings.Reviewer.Frequency = "off"
 	return settings
 }
@@ -553,12 +923,12 @@ func activateSessionRuntimeForFastTest(t *testing.T, api *API, sessionID string,
 		ActiveSettings:        settings,
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
-		Source:                config.SourceReport{Sources: map[string]string{}},
+		Source:                config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime %s: %v", owner, err)
 	}
-	return response.Attachment
+	return response
 }
 
 func releaseSessionRuntimeForFastTest(t *testing.T, api *API, attachment serverapi.SessionRuntimeAttachment, owner string) {
@@ -600,7 +970,7 @@ func TestActivateSessionRuntimeAllowsNativeEditInSiblingWorkspace(t *testing.T) 
 	if err != nil {
 		t.Fatalf("ResolveSessionNavigationBinding: %v", err)
 	}
-	if _, err := fixture.metadata.AttachWorkspaceToProject(context.Background(), binding.ProjectID, sibling); err != nil {
+	if _, err := fixture.metadata.AttachWorkspaceToProject(context.Background(), binding.ProjectId, sibling); err != nil {
 		t.Fatalf("AttachWorkspaceToProject: %v", err)
 	}
 	client := &sessionRuntimeTestLLMClient{responses: []llm.Response{
@@ -628,24 +998,24 @@ func TestActivateSessionRuntimeAllowsNativeEditInSiblingWorkspace(t *testing.T) 
 		OwnerID:               "interactive-owner",
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
-		ActiveSettings: config.Settings{
-			Model:              "gpt-5",
+		ActiveSettings: testsetup.ProviderSettings(config.Settings{
+			Model:              "gpt-6-sol",
 			ThinkingLevel:      "medium",
 			ModelContextWindow: 200000,
 			AllowNonCwdEdits:   false,
 			Reviewer:           config.ReviewerSettings{Frequency: "off"},
 			Timeouts:           config.Timeouts{ModelRequestSeconds: 1},
 			Shell:              config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-		},
+		}),
 		EnabledToolIDs: []string{string(toolspec.ToolEdit)},
-		Source:         config.SourceReport{Sources: map[string]string{}},
+		Source:         config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
 	t.Cleanup(func() {
 		_, _ = fixture.api.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-			Attachment:  activation.Attachment,
+			Attachment:  activation,
 			OwnerID:     "interactive-owner",
 			DropOwner:   true,
 			ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
@@ -696,26 +1066,26 @@ func TestActivateSessionRuntimeDeniesEditInForeignManagedWorktree(t *testing.T) 
 		t.Fatalf("canonical foreign worktree: %v", err)
 	}
 	if err := fixture.metadata.UpsertWorktreeRecord(context.Background(), metadata.WorktreeRecord{
-		ID: "interactive-current", WorkspaceID: binding.WorkspaceID, CanonicalRoot: currentRoot,
+		ID: "interactive-current", WorkspaceID: binding.WorkspaceId, CanonicalRoot: currentRoot,
 		DisplayName: "current", Availability: "available", Managed: true, GitMetadataJSON: `{}`,
 	}); err != nil {
 		t.Fatalf("UpsertWorktreeRecord current: %v", err)
 	}
 	if err := fixture.metadata.UpsertWorktreeRecord(context.Background(), metadata.WorktreeRecord{
-		ID: "interactive-missing", WorkspaceID: binding.WorkspaceID, CanonicalRoot: missingRoot,
+		ID: "interactive-missing", WorkspaceID: binding.WorkspaceId, CanonicalRoot: missingRoot,
 		DisplayName: "missing", Availability: "missing", Managed: true, GitMetadataJSON: `{}`,
 	}); err != nil {
 		t.Fatalf("UpsertWorktreeRecord missing: %v", err)
 	}
 	if err := fixture.metadata.UpdateSessionExecutionTarget(context.Background(), metadata.SessionExecutionTargetUpdate{
 		SessionID:  fixture.store.Meta().SessionID,
-		Workspace:  &metadata.SessionExecutionTargetUpdateWorkspace{ID: binding.WorkspaceID},
+		Workspace:  &metadata.SessionExecutionTargetUpdateWorkspace{ID: binding.WorkspaceId},
 		Worktree:   &metadata.SessionExecutionTargetUpdateWorktree{ID: "interactive-current"},
 		CwdRelpath: ".",
 	}); err != nil {
 		t.Fatalf("UpdateSessionExecutionTarget: %v", err)
 	}
-	foreignBinding, err := fixture.metadata.AttachWorkspaceToProject(context.Background(), binding.ProjectID, foreignRoot)
+	foreignBinding, err := fixture.metadata.AttachWorkspaceToProject(context.Background(), binding.ProjectId, foreignRoot)
 	if err != nil {
 		t.Fatalf("AttachWorkspaceToProject foreign: %v", err)
 	}
@@ -725,21 +1095,9 @@ func TestActivateSessionRuntimeDeniesEditInForeignManagedWorktree(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("UpsertWorktreeRecord foreign workspace: %v", err)
 	}
-	for index := 0; index < metadata.ProjectWorkspaceCollectionLimit; index++ {
-		if _, err := fixture.metadata.AttachWorkspaceToProject(context.Background(), binding.ProjectID, t.TempDir()); err != nil {
+	for index := 0; index < 500; index++ {
+		if _, err := fixture.metadata.AttachWorkspaceToProject(context.Background(), binding.ProjectId, t.TempDir()); err != nil {
 			t.Fatalf("AttachWorkspaceToProject filler %d: %v", index, err)
-		}
-	}
-	boundary, err := fixture.metadata.ResolveProjectWorkspaceBoundary(context.Background(), binding.ProjectID)
-	if err != nil {
-		t.Fatalf("ResolveProjectWorkspaceBoundary: %v", err)
-	}
-	if len(boundary.Workspaces) != metadata.ProjectWorkspaceCollectionLimit {
-		t.Fatalf("project workspace boundary count = %d, want %d", len(boundary.Workspaces), metadata.ProjectWorkspaceCollectionLimit)
-	}
-	for _, workspace := range boundary.Workspaces {
-		if workspace.CanonicalRoot == foreignRoot {
-			t.Fatal("foreign managed Worktree Workspace was not omitted from bounded Project collection")
 		}
 	}
 	target := filepath.Join(foreignRoot, "foreign.txt")
@@ -761,19 +1119,19 @@ func TestActivateSessionRuntimeDeniesEditInForeignManagedWorktree(t *testing.T) 
 	activation, err := fixture.api.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
 		SessionID: fixture.store.Meta().SessionID, OwnerID: "interactive-owner",
 		QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true),
-		ActiveSettings: config.Settings{
-			Model: "gpt-5", ThinkingLevel: "medium", ModelContextWindow: 200000,
+		ActiveSettings: testsetup.ProviderSettings(config.Settings{
+			Model: "gpt-6-sol", ThinkingLevel: "medium", ModelContextWindow: 200000,
 			Reviewer: config.ReviewerSettings{Frequency: "off"}, Timeouts: config.Timeouts{ModelRequestSeconds: 1},
 			Shell: config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-		},
-		EnabledToolIDs: []string{string(toolspec.ToolEdit)}, Source: config.SourceReport{Sources: map[string]string{}},
+		}),
+		EnabledToolIDs: []string{string(toolspec.ToolEdit)}, Source: config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
 	t.Cleanup(func() {
 		_, _ = fixture.api.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-			Attachment: activation.Attachment, OwnerID: "interactive-owner", DropOwner: true,
+			Attachment: activation, OwnerID: "interactive-owner", DropOwner: true,
 			ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
 		})
 	})
@@ -829,14 +1187,14 @@ func TestActivateSessionRuntimeRejectsManagedWorktreeOutsideServerNamespace(t *t
 	}
 	legacyRoot := t.TempDir()
 	if err := fixture.metadata.UpsertWorktreeRecord(context.Background(), metadata.WorktreeRecord{
-		ID: "interactive-legacy-outside-namespace", WorkspaceID: binding.WorkspaceID, CanonicalRoot: legacyRoot,
+		ID: "interactive-legacy-outside-namespace", WorkspaceID: binding.WorkspaceId, CanonicalRoot: legacyRoot,
 		DisplayName: "legacy", Availability: "available", Managed: true, GitMetadataJSON: `{}`,
 	}); err != nil {
 		t.Fatalf("UpsertWorktreeRecord legacy: %v", err)
 	}
 	if err := fixture.metadata.UpdateSessionExecutionTarget(context.Background(), metadata.SessionExecutionTargetUpdate{
 		SessionID:  fixture.store.Meta().SessionID,
-		Workspace:  &metadata.SessionExecutionTargetUpdateWorkspace{ID: binding.WorkspaceID},
+		Workspace:  &metadata.SessionExecutionTargetUpdateWorkspace{ID: binding.WorkspaceId},
 		Worktree:   &metadata.SessionExecutionTargetUpdateWorktree{ID: "interactive-legacy-outside-namespace"},
 		CwdRelpath: ".",
 	}); err != nil {
@@ -850,13 +1208,13 @@ func TestActivateSessionRuntimeRejectsManagedWorktreeOutsideServerNamespace(t *t
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		ActiveSettings: config.Settings{
-			Model: "gpt-5", ThinkingLevel: "medium", ModelContextWindow: 200000,
+			Model: "gpt-6-sol", ThinkingLevel: "medium", ModelContextWindow: 200000,
 			Reviewer: config.ReviewerSettings{Frequency: "off"},
 			Timeouts: config.Timeouts{ModelRequestSeconds: 1},
 			Shell:    config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		},
 		EnabledToolIDs: []string{string(toolspec.ToolEdit)},
-		Source:         config.SourceReport{Sources: map[string]string{}},
+		Source:         config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err == nil {
 		t.Fatal("ActivateSessionRuntime accepted a managed Worktree outside the server namespace")
@@ -865,24 +1223,18 @@ func TestActivateSessionRuntimeRejectsManagedWorktreeOutsideServerNamespace(t *t
 
 func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
-	bootstrapRunner, err := postprocess.NewRunner(postprocess.Settings{
-		Mode: config.ShellPostprocessingModeNone,
-	})
-	if err != nil {
-		t.Fatalf("new bootstrap shell postprocessor: %v", err)
-	}
-	background, err := shelltool.NewManager(
+	background, err := shelltool.NewManager(fixture.config.PersistenceRoot,
 		shelltool.WithMinimumExecToBgTime(time.Second),
-		shelltool.WithPostprocessor(bootstrapRunner),
 	)
 	if err != nil {
 		t.Fatalf("new background shell manager: %v", err)
 	}
 	t.Cleanup(func() { _ = background.Close() })
 	authority := NewAuthority(AuthorityOptions{
-		PersistenceRoot: fixture.config.PersistenceRoot,
-		Background:      background,
-		StoreOptions:    fixture.metadata.AuthoritativeSessionStoreOptions(),
+		PersistenceRoot:     fixture.config.PersistenceRoot,
+		WorkspaceMembership: fixture.metadata,
+		Background:          background,
+		StoreOptions:        fixture.metadata.AuthoritativeSessionStoreOptions(),
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {
@@ -927,8 +1279,8 @@ func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(
 		OwnerID:               "interactive-owner",
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
-		ActiveSettings: config.Settings{
-			Model:                  "gpt-5",
+		ActiveSettings: testsetup.ProviderSettings(config.Settings{
+			Model:                  "gpt-6-sol",
 			ThinkingLevel:          "medium",
 			ModelContextWindow:     200000,
 			MinimumExecToBgSeconds: 1,
@@ -936,14 +1288,14 @@ func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(
 			Reviewer:               config.ReviewerSettings{Frequency: "off"},
 			Timeouts:               config.Timeouts{ModelRequestSeconds: 1},
 			Shell:                  config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-		},
+		}),
 		EnabledToolIDs: []string{string(toolspec.ToolExecCommand)},
-		Source:         config.SourceReport{Sources: map[string]string{}},
+		Source:         config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	attachment = activation.Attachment
+	attachment = activation
 
 	id, err := runtimeids.ParseSessionID(sessionID)
 	if err != nil {
@@ -1045,10 +1397,11 @@ func newSessionRuntimeFixture(t *testing.T) sessionRuntimeFixture {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
-	appCfg, err := config.Load(workspace, config.LoadOptions{})
+	appCfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
+	appCfg.Settings = testsetup.WriteProviderSettings(t, appCfg.PersistenceRoot, appCfg.Settings)
 	metadataStore := testsetup.OpenStore(t, appCfg.PersistenceRoot)
 	binding, err := metadataStore.RegisterWorkspaceBinding(context.Background(), appCfg.WorkspaceRoot)
 	if err != nil {
@@ -1063,8 +1416,9 @@ func newSessionRuntimeFixture(t *testing.T) sessionRuntimeFixture {
 		t.Fatalf("SetName: %v", err)
 	}
 	authority := NewAuthority(AuthorityOptions{
-		PersistenceRoot: appCfg.PersistenceRoot,
-		StoreOptions:    metadataStore.AuthoritativeSessionStoreOptions(),
+		PersistenceRoot:     appCfg.PersistenceRoot,
+		WorkspaceMembership: metadataStore,
+		StoreOptions:        metadataStore.AuthoritativeSessionStoreOptions(),
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {

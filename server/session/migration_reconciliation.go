@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"core/shared/invariant"
+	"core/shared/textutil"
 )
 
 // currentEventLogReconciliationObservation is the current-format observation
@@ -127,7 +128,7 @@ func (s *Store) reclassifyPendingCurrentEventLogWithMutationHeld() error {
 		return errors.New("current event-log reconciliation requires pending materialization")
 	}
 	s.eventLogMaterialization.source = classification.source
-	s.eventLogMaterialization.foundVersion = cloneEventLogSourceVersion(classification.foundVersion)
+	s.eventLogMaterialization.foundVersion = textutil.Pointer(classification.foundVersion)
 	return nil
 }
 

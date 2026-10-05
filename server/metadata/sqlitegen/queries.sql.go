@@ -882,6 +882,18 @@ func (q *Queries) CountTaskEdgeReferences(ctx context.Context, edgeID string) (i
 	return ref_count, err
 }
 
+const countTaskManagedWorktreeReferences = `-- name: CountTaskManagedWorktreeReferences :one
+SELECT COUNT(*) FROM tasks WHERE managed_worktree_id = ?1
+`
+
+func (q *Queries) CountTaskManagedWorktreeReferences(ctx context.Context, managedWorktreeID sql.NullString) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countTaskManagedWorktreeReferences, managedWorktreeID)
+	var count int64
+	err := recordQueryError(ctx, row.Scan(&count), countTaskManagedWorktreeReferences, 1)
+
+	return count, err
+}
+
 const countTaskNodeReferences = `-- name: CountTaskNodeReferences :one
 SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
 FROM (
@@ -1528,6 +1540,56 @@ func (q *Queries) DeleteWorktreeByID(ctx context.Context, id string) (int64, err
 	return result.RowsAffected()
 }
 
+const findContainingProjectWorkspace = `-- name: FindContainingProjectWorkspace :one
+SELECT p.id AS project_id,
+    w.id AS workspace_id,
+    w.canonical_root_path,
+    w.git_metadata_json,
+    w.created_at_unix_ms,
+    w.updated_at_unix_ms
+FROM projects p
+LEFT JOIN workspaces w ON w.id = (
+    SELECT candidate.id
+    FROM json_each(CAST(?1 AS TEXT)) ancestor
+    JOIN workspaces candidate
+      ON candidate.project_id = p.id
+     AND candidate.canonical_root_path = ancestor.value
+    ORDER BY CAST(ancestor.key AS INTEGER) DESC
+    LIMIT 1
+)
+WHERE p.id = ?2
+LIMIT 1
+`
+
+type FindContainingProjectWorkspaceParams struct {
+	AncestorsJson string
+	ProjectID     string
+}
+
+type FindContainingProjectWorkspaceRow struct {
+	ProjectID         string
+	WorkspaceID       sql.NullString
+	CanonicalRootPath sql.NullString
+	GitMetadataJson   sql.NullString
+	CreatedAtUnixMs   sql.NullInt64
+	UpdatedAtUnixMs   sql.NullInt64
+}
+
+func (q *Queries) FindContainingProjectWorkspace(ctx context.Context, arg FindContainingProjectWorkspaceParams) (FindContainingProjectWorkspaceRow, error) {
+	row := q.db.QueryRowContext(ctx, findContainingProjectWorkspace, arg.AncestorsJson, arg.ProjectID)
+	var i FindContainingProjectWorkspaceRow
+	err := recordQueryError(ctx, row.Scan(
+		&i.ProjectID,
+		&i.WorkspaceID,
+		&i.CanonicalRootPath,
+		&i.GitMetadataJson,
+		&i.CreatedAtUnixMs,
+		&i.UpdatedAtUnixMs,
+	), findContainingProjectWorkspace, 2)
+
+	return i, err
+}
+
 const getActiveProjectWorkflowLinkByWorkflow = `-- name: GetActiveProjectWorkflowLinkByWorkflow :one
 SELECT
     id,
@@ -1777,46 +1839,6 @@ func (q *Queries) GetProjectPrimaryWorkspaceID(ctx context.Context, projectID st
 	return primary_workspace_id, err
 }
 
-const getProjectSummary = `-- name: GetProjectSummary :one
-SELECT
-    p.id,
-    p.display_name,
-    p.project_key,
-    COALESCE(w.canonical_root_path, '') AS root_path,
-    CAST(COALESCE(COUNT(s.project_id), 0) AS INTEGER) AS session_count,
-    COALESCE(MAX(s.updated_at_unix_ms), p.updated_at_unix_ms) AS latest_activity_unix_ms
-FROM projects p
-LEFT JOIN workspaces w ON w.id = p.primary_workspace_id AND w.project_id = p.id
-LEFT JOIN sessions s ON s.project_id = p.id AND s.launch_visible <> 0
-WHERE p.id = ?1
-GROUP BY p.id, p.display_name, p.project_key, w.canonical_root_path, p.updated_at_unix_ms
-LIMIT 1
-`
-
-type GetProjectSummaryRow struct {
-	ID                   string
-	DisplayName          string
-	ProjectKey           string
-	RootPath             string
-	SessionCount         int64
-	LatestActivityUnixMs int64
-}
-
-func (q *Queries) GetProjectSummary(ctx context.Context, projectID string) (GetProjectSummaryRow, error) {
-	row := q.db.QueryRowContext(ctx, getProjectSummary, projectID)
-	var i GetProjectSummaryRow
-	err := recordQueryError(ctx, row.Scan(
-		&i.ID,
-		&i.DisplayName,
-		&i.ProjectKey,
-		&i.RootPath,
-		&i.SessionCount,
-		&i.LatestActivityUnixMs,
-	), getProjectSummary, 1)
-
-	return i, err
-}
-
 const getProjectWorkflowLink = `-- name: GetProjectWorkflowLink :one
 SELECT
     id,
@@ -1862,6 +1884,108 @@ func (q *Queries) GetProjectWorkflowUnlinkState(ctx context.Context, projectID s
 	row := q.db.QueryRowContext(ctx, getProjectWorkflowUnlinkState, projectID)
 	var i GetProjectWorkflowUnlinkStateRow
 	err := recordQueryError(ctx, row.Scan(&i.DefaultProjectWorkflowLinkID, &i.ActiveLinkCount), getProjectWorkflowUnlinkState, 1)
+
+	return i, err
+}
+
+const getSessionChatSettingsTaskIdentity = `-- name: GetSessionChatSettingsTaskIdentity :one
+SELECT
+    task.id AS task_id,
+    task.short_id AS task_short_id
+FROM sessions session
+JOIN task_records task ON task.id = session.task_id
+WHERE session.id = ?1
+LIMIT 1
+`
+
+type GetSessionChatSettingsTaskIdentityRow struct {
+	TaskID      string
+	TaskShortID string
+}
+
+func (q *Queries) GetSessionChatSettingsTaskIdentity(ctx context.Context, sessionID string) (GetSessionChatSettingsTaskIdentityRow, error) {
+	row := q.db.QueryRowContext(ctx, getSessionChatSettingsTaskIdentity, sessionID)
+	var i GetSessionChatSettingsTaskIdentityRow
+	err := recordQueryError(ctx, row.Scan(&i.TaskID, &i.TaskShortID), getSessionChatSettingsTaskIdentity, 1)
+
+	return i, err
+}
+
+const getSessionDeletionState = `-- name: GetSessionDeletionState :one
+SELECT
+    CAST(EXISTS (
+        SELECT 1
+        FROM sessions session
+        WHERE session.id = ?1
+    ) AS INTEGER) AS session_exists,
+    CAST(
+        EXISTS (
+            SELECT 1
+            FROM task_current_nodes current_node
+            JOIN workflow_task_status_records status
+                ON status.task_id = current_node.task_id
+            WHERE current_node.session_id = ?1
+              AND status.is_done = 0
+        )
+        OR EXISTS (
+            SELECT 1
+            FROM task_pending_approvals approval
+            WHERE approval.source_session_id = ?1
+        )
+        OR EXISTS (
+            SELECT 1
+            FROM task_pending_approval_branches branch
+            WHERE (
+                json_extract(
+                    branch.context_source_resolution_json,
+                    '$.target_session.kind'
+                ) = 'reuse'
+                AND json_extract(
+                    branch.context_source_resolution_json,
+                    '$.target_session.session_id'
+                ) = ?1
+            )
+            OR (
+                json_extract(
+                    branch.context_source_resolution_json,
+                    '$.active_source.kind'
+                ) = 'exact'
+                AND json_extract(
+                    branch.context_source_resolution_json,
+                    '$.active_source.session_id'
+                ) = ?1
+            )
+            OR (
+                json_type(
+                    branch.context_source_resolution_json,
+                    '$.target_session'
+                ) IS NULL
+                AND json_type(
+                    branch.context_source_resolution_json,
+                    '$.active_source'
+                ) IS NULL
+                AND json_type(
+                    branch.context_source_resolution_json,
+                    '$.session_id'
+                ) = 'text'
+                AND json_extract(
+                    branch.context_source_resolution_json,
+                    '$.session_id'
+                ) = ?1
+            )
+        )
+    AS INTEGER) AS session_in_use
+`
+
+type GetSessionDeletionStateRow struct {
+	SessionExists int64
+	SessionInUse  int64
+}
+
+func (q *Queries) GetSessionDeletionState(ctx context.Context, sessionID string) (GetSessionDeletionStateRow, error) {
+	row := q.db.QueryRowContext(ctx, getSessionDeletionState, sessionID)
+	var i GetSessionDeletionStateRow
+	err := recordQueryError(ctx, row.Scan(&i.SessionExists, &i.SessionInUse), getSessionDeletionState, 1)
 
 	return i, err
 }
@@ -1921,6 +2045,7 @@ SELECT
     s.name,
     s.first_prompt_preview,
     s.input_draft,
+    s.protected_input_draft,
     s.previous_session_id,
     s.parent_agent_session_id,
     s.category,
@@ -1947,6 +2072,7 @@ type GetSessionRecordByIDRow struct {
 	Name                     string
 	FirstPromptPreview       string
 	InputDraft               string
+	ProtectedInputDraft      sql.NullString
 	PreviousSessionID        sql.NullString
 	ParentAgentSessionID     sql.NullString
 	Category                 sql.NullString
@@ -1972,6 +2098,7 @@ func (q *Queries) GetSessionRecordByID(ctx context.Context, sessionID string) (G
 		&i.Name,
 		&i.FirstPromptPreview,
 		&i.InputDraft,
+		&i.ProtectedInputDraft,
 		&i.PreviousSessionID,
 		&i.ParentAgentSessionID,
 		&i.Category,
@@ -2618,8 +2745,7 @@ SELECT
     canonical_root_path,
     git_metadata_json,
     created_at_unix_ms,
-    updated_at_unix_ms,
-    chat_draft_json
+    updated_at_unix_ms
 FROM workspaces
 WHERE id = ?1
 LIMIT 1
@@ -2635,26 +2761,9 @@ func (q *Queries) GetWorkspaceByID(ctx context.Context, id string) (Workspace, e
 		&i.GitMetadataJson,
 		&i.CreatedAtUnixMs,
 		&i.UpdatedAtUnixMs,
-		&i.ChatDraftJson,
 	), getWorkspaceByID, 1)
 
 	return i, err
-}
-
-const getWorkspaceChatDraft = `-- name: GetWorkspaceChatDraft :one
-SELECT
-    chat_draft_json
-FROM workspaces
-WHERE id = ?1
-LIMIT 1
-`
-
-func (q *Queries) GetWorkspaceChatDraft(ctx context.Context, id string) (sql.NullString, error) {
-	row := q.db.QueryRowContext(ctx, getWorkspaceChatDraft, id)
-	var chat_draft_json sql.NullString
-	err := recordQueryError(ctx, row.Scan(&chat_draft_json), getWorkspaceChatDraft, 1)
-
-	return chat_draft_json, err
 }
 
 const getWorktreeByCanonicalRoot = `-- name: GetWorktreeByCanonicalRoot :one
@@ -2662,7 +2771,6 @@ SELECT
     wt.id,
     wt.workspace_id,
     wt.canonical_root_path,
-    CASE WHEN wt.canonical_root_path = w.canonical_root_path THEN 1 ELSE 0 END AS is_main,
     wt.managed,
     wt.created_branch,
     wt.origin_session_id,
@@ -2671,7 +2779,6 @@ SELECT
     wt.created_at_unix_ms,
     wt.updated_at_unix_ms
 FROM worktrees wt
-JOIN workspaces w ON w.id = wt.workspace_id
 WHERE wt.canonical_root_path = ?1
 LIMIT 1
 `
@@ -2680,7 +2787,6 @@ type GetWorktreeByCanonicalRootRow struct {
 	ID                    string
 	WorkspaceID           string
 	CanonicalRootPath     string
-	IsMain                int64
 	Managed               int64
 	CreatedBranch         int64
 	OriginSessionID       string
@@ -2697,7 +2803,6 @@ func (q *Queries) GetWorktreeByCanonicalRoot(ctx context.Context, canonicalRootP
 		&i.ID,
 		&i.WorkspaceID,
 		&i.CanonicalRootPath,
-		&i.IsMain,
 		&i.Managed,
 		&i.CreatedBranch,
 		&i.OriginSessionID,
@@ -2715,7 +2820,6 @@ SELECT
     wt.id,
     wt.workspace_id,
     wt.canonical_root_path,
-    CASE WHEN wt.canonical_root_path = w.canonical_root_path THEN 1 ELSE 0 END AS is_main,
     wt.managed,
     wt.created_branch,
     wt.origin_session_id,
@@ -2724,7 +2828,6 @@ SELECT
     wt.created_at_unix_ms,
     wt.updated_at_unix_ms
 FROM worktrees wt
-JOIN workspaces w ON w.id = wt.workspace_id
 WHERE wt.id = ?1
 LIMIT 1
 `
@@ -2733,7 +2836,6 @@ type GetWorktreeByIDRow struct {
 	ID                    string
 	WorkspaceID           string
 	CanonicalRootPath     string
-	IsMain                int64
 	Managed               int64
 	CreatedBranch         int64
 	OriginSessionID       string
@@ -2750,7 +2852,6 @@ func (q *Queries) GetWorktreeByID(ctx context.Context, id string) (GetWorktreeBy
 		&i.ID,
 		&i.WorkspaceID,
 		&i.CanonicalRootPath,
-		&i.IsMain,
 		&i.Managed,
 		&i.CreatedBranch,
 		&i.OriginSessionID,
@@ -4987,50 +5088,6 @@ func (q *Queries) ListProjectWorkflowTaskActivity(ctx context.Context, projectID
 	return items, nil
 }
 
-const listProjectWorkspaceBoundary = `-- name: ListProjectWorkspaceBoundary :many
-SELECT
-    w.id,
-    w.canonical_root_path AS root_path
-FROM workspaces w
-WHERE w.project_id = ?1
-ORDER BY w.created_at_unix_ms DESC, w.rowid DESC
-LIMIT ?2
-`
-
-type ListProjectWorkspaceBoundaryParams struct {
-	ProjectID                string
-	WorkspaceCollectionLimit int64
-}
-
-type ListProjectWorkspaceBoundaryRow struct {
-	ID       string
-	RootPath string
-}
-
-func (q *Queries) ListProjectWorkspaceBoundary(ctx context.Context, arg ListProjectWorkspaceBoundaryParams) ([]ListProjectWorkspaceBoundaryRow, error) {
-	rows, err := q.db.QueryContext(ctx, listProjectWorkspaceBoundary, arg.ProjectID, arg.WorkspaceCollectionLimit)
-	err = recordQueryError(ctx, err, listProjectWorkspaceBoundary, 2)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListProjectWorkspaceBoundaryRow
-	for rows.Next() {
-		var i ListProjectWorkspaceBoundaryRow
-		if err := recordQueryError(ctx, rows.Scan(&i.ID, &i.RootPath), listProjectWorkspaceBoundary, 2); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := recordQueryError(ctx, rows.Close(), listProjectWorkspaceBoundary, 2); err != nil {
-		return nil, err
-	}
-	if err := recordQueryError(ctx, rows.Err(), listProjectWorkspaceBoundary, 2); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listProjectWorkspaceCatalogPage = `-- name: ListProjectWorkspaceCatalogPage :many
 WITH catalog_page AS (
     SELECT
@@ -5096,152 +5153,6 @@ func (q *Queries) ListProjectWorkspaceCatalogPage(ctx context.Context, arg ListP
 		return nil, err
 	}
 	if err := recordQueryError(ctx, rows.Err(), listProjectWorkspaceCatalogPage, 3); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listProjectWorkspaces = `-- name: ListProjectWorkspaces :many
-SELECT
-    w.id,
-    w.canonical_root_path AS root_path,
-    CASE WHEN w.id = p.primary_workspace_id THEN 1 ELSE 0 END AS is_primary,
-    CAST(COALESCE(COUNT(s.workspace_id), 0) AS INTEGER) AS session_count,
-    COALESCE(MAX(s.updated_at_unix_ms), w.updated_at_unix_ms) AS latest_activity_unix_ms,
-    w.created_at_unix_ms AS attached_at_unix_ms,
-    w.id AS workspace_order_id
-FROM workspaces w
-JOIN projects p ON p.id = w.project_id
-LEFT JOIN sessions s ON s.workspace_id = w.id AND s.launch_visible <> 0
-JOIN (
-    SELECT recent.id
-    FROM workspaces recent
-    WHERE recent.project_id = ?1
-    ORDER BY recent.created_at_unix_ms DESC, recent.rowid DESC
-    LIMIT ?2
-) recent_workspaces ON recent_workspaces.id = w.id
-WHERE w.project_id = ?1
-GROUP BY w.id, w.canonical_root_path, p.primary_workspace_id, w.updated_at_unix_ms, w.created_at_unix_ms
-ORDER BY CASE WHEN w.id = p.primary_workspace_id THEN 1 ELSE 0 END DESC, latest_activity_unix_ms DESC, w.created_at_unix_ms ASC, w.rowid ASC
-`
-
-type ListProjectWorkspacesParams struct {
-	ProjectID                string
-	WorkspaceCollectionLimit int64
-}
-
-type ListProjectWorkspacesRow struct {
-	ID                   string
-	RootPath             string
-	IsPrimary            int64
-	SessionCount         int64
-	LatestActivityUnixMs int64
-	AttachedAtUnixMs     int64
-	WorkspaceOrderID     string
-}
-
-func (q *Queries) ListProjectWorkspaces(ctx context.Context, arg ListProjectWorkspacesParams) ([]ListProjectWorkspacesRow, error) {
-	rows, err := q.db.QueryContext(ctx, listProjectWorkspaces, arg.ProjectID, arg.WorkspaceCollectionLimit)
-	err = recordQueryError(ctx, err, listProjectWorkspaces, 2)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListProjectWorkspacesRow
-	for rows.Next() {
-		var i ListProjectWorkspacesRow
-		if err := recordQueryError(ctx, rows.Scan(
-			&i.ID,
-			&i.RootPath,
-			&i.IsPrimary,
-			&i.SessionCount,
-			&i.LatestActivityUnixMs,
-			&i.AttachedAtUnixMs,
-			&i.WorkspaceOrderID,
-		), listProjectWorkspaces, 2); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := recordQueryError(ctx, rows.Close(), listProjectWorkspaces, 2); err != nil {
-		return nil, err
-	}
-	if err := recordQueryError(ctx, rows.Err(), listProjectWorkspaces, 2); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listProjectWorkspacesPage = `-- name: ListProjectWorkspacesPage :many
-SELECT
-    w.id,
-    w.canonical_root_path AS root_path,
-    CASE WHEN w.id = p.primary_workspace_id THEN 1 ELSE 0 END AS is_primary,
-    CAST(COALESCE(COUNT(s.workspace_id), 0) AS INTEGER) AS session_count,
-    COALESCE(MAX(s.updated_at_unix_ms), w.updated_at_unix_ms) AS latest_activity_unix_ms
-FROM workspaces w
-JOIN projects p ON p.id = w.project_id
-LEFT JOIN sessions s ON s.workspace_id = w.id AND s.launch_visible <> 0
-JOIN (
-    SELECT recent.id
-    FROM workspaces recent
-    WHERE recent.project_id = ?1
-    ORDER BY recent.created_at_unix_ms DESC, recent.rowid DESC
-    LIMIT ?2
-) recent_workspaces ON recent_workspaces.id = w.id
-WHERE w.project_id = ?1
-GROUP BY w.id, w.canonical_root_path, p.primary_workspace_id, w.updated_at_unix_ms
-ORDER BY CASE WHEN w.id = p.primary_workspace_id THEN 1 ELSE 0 END DESC, w.created_at_unix_ms DESC, w.rowid DESC
-LIMIT ?4
-OFFSET ?3
-`
-
-type ListProjectWorkspacesPageParams struct {
-	ProjectID                string
-	WorkspaceCollectionLimit int64
-	OffsetRows               int64
-	LimitRows                int64
-}
-
-type ListProjectWorkspacesPageRow struct {
-	ID                   string
-	RootPath             string
-	IsPrimary            int64
-	SessionCount         int64
-	LatestActivityUnixMs int64
-}
-
-func (q *Queries) ListProjectWorkspacesPage(ctx context.Context, arg ListProjectWorkspacesPageParams) ([]ListProjectWorkspacesPageRow, error) {
-	rows, err := q.db.QueryContext(ctx, listProjectWorkspacesPage,
-		arg.ProjectID,
-		arg.WorkspaceCollectionLimit,
-		arg.OffsetRows,
-		arg.LimitRows,
-	)
-	err = recordQueryError(ctx, err, listProjectWorkspacesPage, 4)
-
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListProjectWorkspacesPageRow
-	for rows.Next() {
-		var i ListProjectWorkspacesPageRow
-		if err := recordQueryError(ctx, rows.Scan(
-			&i.ID,
-			&i.RootPath,
-			&i.IsPrimary,
-			&i.SessionCount,
-			&i.LatestActivityUnixMs,
-		), listProjectWorkspacesPage, 4); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := recordQueryError(ctx, rows.Close(), listProjectWorkspacesPage, 4); err != nil {
-		return nil, err
-	}
-	if err := recordQueryError(ctx, rows.Err(), listProjectWorkspacesPage, 4); err != nil {
 		return nil, err
 	}
 	return items, nil
@@ -5489,41 +5400,52 @@ func (q *Queries) ListSessionWorkflowTaskIDs(ctx context.Context, sessionID stri
 	return items, nil
 }
 
-const listSessionsTargetingWorktree = `-- name: ListSessionsTargetingWorktree :many
+const listSessionsTargetingWorktreePage = `-- name: ListSessionsTargetingWorktreePage :many
 SELECT
     id,
     name,
     updated_at_unix_ms
 FROM sessions
 WHERE worktree_id = ?1
-ORDER BY updated_at_unix_ms DESC, rowid DESC
+  AND (
+    ?2 IS NULL
+    OR id > ?2
+  )
+ORDER BY id ASC
+LIMIT ?3
 `
 
-type ListSessionsTargetingWorktreeRow struct {
+type ListSessionsTargetingWorktreePageParams struct {
+	WorktreeID sql.NullString
+	AfterID    interface{}
+	PageSize   int64
+}
+
+type ListSessionsTargetingWorktreePageRow struct {
 	ID              string
 	Name            string
 	UpdatedAtUnixMs int64
 }
 
-func (q *Queries) ListSessionsTargetingWorktree(ctx context.Context, worktreeID sql.NullString) ([]ListSessionsTargetingWorktreeRow, error) {
-	rows, err := q.db.QueryContext(ctx, listSessionsTargetingWorktree, worktreeID)
-	err = recordQueryError(ctx, err, listSessionsTargetingWorktree, 1)
+func (q *Queries) ListSessionsTargetingWorktreePage(ctx context.Context, arg ListSessionsTargetingWorktreePageParams) ([]ListSessionsTargetingWorktreePageRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSessionsTargetingWorktreePage, arg.WorktreeID, arg.AfterID, arg.PageSize)
+	err = recordQueryError(ctx, err, listSessionsTargetingWorktreePage, 3)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListSessionsTargetingWorktreeRow
+	var items []ListSessionsTargetingWorktreePageRow
 	for rows.Next() {
-		var i ListSessionsTargetingWorktreeRow
-		if err := recordQueryError(ctx, rows.Scan(&i.ID, &i.Name, &i.UpdatedAtUnixMs), listSessionsTargetingWorktree, 1); err != nil {
+		var i ListSessionsTargetingWorktreePageRow
+		if err := recordQueryError(ctx, rows.Scan(&i.ID, &i.Name, &i.UpdatedAtUnixMs), listSessionsTargetingWorktreePage, 3); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
 	}
-	if err := recordQueryError(ctx, rows.Close(), listSessionsTargetingWorktree, 1); err != nil {
+	if err := recordQueryError(ctx, rows.Close(), listSessionsTargetingWorktreePage, 3); err != nil {
 		return nil, err
 	}
-	if err := recordQueryError(ctx, rows.Err(), listSessionsTargetingWorktree, 1); err != nil {
+	if err := recordQueryError(ctx, rows.Err(), listSessionsTargetingWorktreePage, 3); err != nil {
 		return nil, err
 	}
 	return items, nil
@@ -8225,8 +8147,7 @@ SELECT
     canonical_root_path,
     git_metadata_json,
     created_at_unix_ms,
-    updated_at_unix_ms,
-    chat_draft_json
+    updated_at_unix_ms
 FROM workspaces
 WHERE canonical_root_path = ?1
 ORDER BY created_at_unix_ms ASC, rowid ASC
@@ -8249,7 +8170,6 @@ func (q *Queries) ListWorkspacesByCanonicalRoot(ctx context.Context, canonicalRo
 			&i.GitMetadataJson,
 			&i.CreatedAtUnixMs,
 			&i.UpdatedAtUnixMs,
-			&i.ChatDraftJson,
 		), listWorkspacesByCanonicalRoot, 1); err != nil {
 			return nil, err
 		}
@@ -8269,7 +8189,6 @@ SELECT
     wt.id,
     wt.workspace_id,
     wt.canonical_root_path,
-    CASE WHEN wt.canonical_root_path = w.canonical_root_path THEN 1 ELSE 0 END AS is_main,
     wt.managed,
     wt.created_branch,
     wt.origin_session_id,
@@ -8278,7 +8197,6 @@ SELECT
     wt.created_at_unix_ms,
     wt.updated_at_unix_ms
 FROM worktrees wt
-JOIN workspaces w ON w.id = wt.workspace_id
 WHERE wt.workspace_id = ?1
 ORDER BY wt.created_at_unix_ms ASC, wt.rowid ASC
 `
@@ -8287,7 +8205,6 @@ type ListWorktreesByWorkspaceIDRow struct {
 	ID                    string
 	WorkspaceID           string
 	CanonicalRootPath     string
-	IsMain                int64
 	Managed               int64
 	CreatedBranch         int64
 	OriginSessionID       string
@@ -8311,7 +8228,6 @@ func (q *Queries) ListWorktreesByWorkspaceID(ctx context.Context, workspaceID st
 			&i.ID,
 			&i.WorkspaceID,
 			&i.CanonicalRootPath,
-			&i.IsMain,
 			&i.Managed,
 			&i.CreatedBranch,
 			&i.OriginSessionID,
@@ -8446,13 +8362,14 @@ func (q *Queries) ReconcileSessionEventLog(ctx context.Context, arg ReconcileSes
 	return result.RowsAffected()
 }
 
-const recoverExecutableCurrentNodes = `-- name: RecoverExecutableCurrentNodes :many
+const reconcileTaskResume = `-- name: ReconcileTaskResume :execrows
 UPDATE task_current_nodes
 SET scheduling_state = 'interrupted',
     interruption_reason = ?1,
     interruption_detail_json = ?2,
     interrupted_at_unix_ms = ?3
-WHERE scheduling_state IN ('ready', 'admitted')
+WHERE task_id = ?4
+  AND scheduling_state IN ('ready', 'admitted')
   AND NOT EXISTS (
       SELECT 1
       FROM task_pending_approvals approval
@@ -8463,43 +8380,28 @@ WHERE scheduling_state IN ('ready', 'admitted')
             OR approval.source_transition_branch_key = task_current_nodes.transition_branch_key
         )
   )
-RETURNING task_id, node_id, transition_branch_key
 `
 
-type RecoverExecutableCurrentNodesParams struct {
+type ReconcileTaskResumeParams struct {
 	InterruptionReason     sql.NullString
 	InterruptionDetailJson sql.NullString
 	InterruptedAtUnixMs    sql.NullInt64
+	TaskID                 string
 }
 
-type RecoverExecutableCurrentNodesRow struct {
-	TaskID              string
-	NodeID              string
-	TransitionBranchKey sql.NullString
-}
+func (q *Queries) ReconcileTaskResume(ctx context.Context, arg ReconcileTaskResumeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, reconcileTaskResume,
+		arg.InterruptionReason,
+		arg.InterruptionDetailJson,
+		arg.InterruptedAtUnixMs,
+		arg.TaskID,
+	)
+	err = recordQueryError(ctx, err, reconcileTaskResume, 4)
 
-func (q *Queries) RecoverExecutableCurrentNodes(ctx context.Context, arg RecoverExecutableCurrentNodesParams) ([]RecoverExecutableCurrentNodesRow, error) {
-	rows, err := q.db.QueryContext(ctx, recoverExecutableCurrentNodes, arg.InterruptionReason, arg.InterruptionDetailJson, arg.InterruptedAtUnixMs)
-	err = recordQueryError(ctx, err, recoverExecutableCurrentNodes, 3)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	defer rows.Close()
-	var items []RecoverExecutableCurrentNodesRow
-	for rows.Next() {
-		var i RecoverExecutableCurrentNodesRow
-		if err := recordQueryError(ctx, rows.Scan(&i.TaskID, &i.NodeID, &i.TransitionBranchKey), recoverExecutableCurrentNodes, 3); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := recordQueryError(ctx, rows.Close(), recoverExecutableCurrentNodes, 3); err != nil {
-		return nil, err
-	}
-	if err := recordQueryError(ctx, rows.Err(), recoverExecutableCurrentNodes, 3); err != nil {
-		return nil, err
-	}
-	return items, nil
+	return result.RowsAffected()
 }
 
 const renameProjectLabel = `-- name: RenameProjectLabel :one
@@ -8569,6 +8471,55 @@ func (q *Queries) ReplacePendingInitialManagedBranchName(ctx context.Context, ar
 	return result.RowsAffected()
 }
 
+const replaceTaskExecutionTarget = `-- name: ReplaceTaskExecutionTarget :execrows
+UPDATE tasks
+SET
+    managed_worktree_id = ?1,
+    pending_initial_managed_branch_name = NULL,
+    execution_target_mode = ?2,
+    execution_target_requested_ref = ?3,
+    execution_target_resolved_ref = ?4,
+    execution_target_commit_oid = ?5,
+    execution_target_provenance = ?6,
+    updated_at_unix_ms = ?7
+WHERE tasks.id = ?8
+  AND execution_target_mode IS NOT NULL
+  AND execution_target_mode != 'none'
+  AND managed_worktree_id IS ?9
+`
+
+type ReplaceTaskExecutionTargetParams struct {
+	ManagedWorktreeID           sql.NullString
+	ExecutionTargetMode         sql.NullString
+	ExecutionTargetRequestedRef sql.NullString
+	ExecutionTargetResolvedRef  sql.NullString
+	ExecutionTargetCommitOid    sql.NullString
+	ExecutionTargetProvenance   sql.NullString
+	UpdatedAtUnixMs             int64
+	TaskID                      string
+	ExpectedManagedWorktreeID   sql.NullString
+}
+
+func (q *Queries) ReplaceTaskExecutionTarget(ctx context.Context, arg ReplaceTaskExecutionTargetParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, replaceTaskExecutionTarget,
+		arg.ManagedWorktreeID,
+		arg.ExecutionTargetMode,
+		arg.ExecutionTargetRequestedRef,
+		arg.ExecutionTargetResolvedRef,
+		arg.ExecutionTargetCommitOid,
+		arg.ExecutionTargetProvenance,
+		arg.UpdatedAtUnixMs,
+		arg.TaskID,
+		arg.ExpectedManagedWorktreeID,
+	)
+	err = recordQueryError(ctx, err, replaceTaskExecutionTarget, 9)
+
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const replaceUserInterruptionWithAssignmentFailure = `-- name: ReplaceUserInterruptionWithAssignmentFailure :execrows
 UPDATE task_current_nodes
 SET interruption_reason = 'workflow_runtime_start_failed',
@@ -8602,26 +8553,6 @@ func (q *Queries) ReplaceUserInterruptionWithAssignmentFailure(ctx context.Conte
 	)
 	err = recordQueryError(ctx, err, replaceUserInterruptionWithAssignmentFailure, 5)
 
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const replaceWorkspaceChatDraft = `-- name: ReplaceWorkspaceChatDraft :execrows
-UPDATE workspaces
-SET chat_draft_json = ?1
-WHERE id = ?2
-`
-
-type ReplaceWorkspaceChatDraftParams struct {
-	ChatDraftJson sql.NullString
-	ID            string
-}
-
-func (q *Queries) ReplaceWorkspaceChatDraft(ctx context.Context, arg ReplaceWorkspaceChatDraftParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, replaceWorkspaceChatDraft, arg.ChatDraftJson, arg.ID)
-	err = recordQueryError(ctx, err, replaceWorkspaceChatDraft, 2)
 	if err != nil {
 		return 0, err
 	}
@@ -8700,42 +8631,52 @@ UPDATE sessions
 SET
     project_id = ?1,
     workspace_id = ?2,
-    worktree_id = NULL,
+    worktree_id = ?3,
     cwd_relpath = '.',
-    artifact_relpath = ?3,
-    updated_at_unix_ms = ?4,
+    artifact_relpath = ?4,
+    updated_at_unix_ms = ?5,
     metadata_json = json_remove(
-        CASE WHEN CAST(?5 AS TEXT) IS NULL THEN
+        CASE WHEN CAST(?6 AS TEXT) IS NULL THEN
             json_set(
                 CASE WHEN json_valid(metadata_json) THEN metadata_json ELSE '{}' END,
-                '$.workspace_root', CAST(?6 AS TEXT),
-                '$.workspace_container', CAST(?7 AS TEXT),
-                '$.worktree_reminder', json('null')
+                '$.workspace_root', CAST(?7 AS TEXT),
+                '$.workspace_container', CAST(?8 AS TEXT),
+                '$.worktree_reminder',
+                CASE WHEN CAST(?9 AS TEXT) IS NULL
+                    THEN json('null')
+                    ELSE json(CAST(?9 AS TEXT))
+                END
             )
         ELSE
             json_set(
                 CASE WHEN json_valid(metadata_json) THEN metadata_json ELSE '{}' END,
-                '$.workspace_root', CAST(?6 AS TEXT),
-                '$.workspace_container', CAST(?7 AS TEXT),
-                '$.worktree_reminder', json('null'),
-                '$.rebind_reminder', json(CAST(?5 AS TEXT))
+                '$.workspace_root', CAST(?7 AS TEXT),
+                '$.workspace_container', CAST(?8 AS TEXT),
+                '$.worktree_reminder',
+                CASE WHEN CAST(?9 AS TEXT) IS NULL
+                    THEN json('null')
+                    ELSE json(CAST(?9 AS TEXT))
+                END,
+                '$.rebind_reminder', json(CAST(?6 AS TEXT))
             )
         END,
         '$.workflow_session'
     )
-WHERE id = ?8
-  AND project_id = ?9
-  AND artifact_relpath = ?10
+WHERE id = ?10
+  AND project_id = ?11
+  AND artifact_relpath = ?12
 `
 
 type RetargetSessionWorkspaceProjectParams struct {
 	TargetProjectID          string
 	TargetWorkspaceID        sql.NullString
+	TargetWorktreeID         sql.NullString
 	TargetArtifactRelpath    string
 	UpdatedAtUnixMs          int64
 	RebindReminderJson       sql.NullString
 	TargetWorkspaceRoot      string
 	TargetWorkspaceContainer string
+	WorktreeReminderJson     sql.NullString
 	SessionID                string
 	SourceProjectID          string
 	SourceArtifactRelpath    string
@@ -8745,16 +8686,18 @@ func (q *Queries) RetargetSessionWorkspaceProject(ctx context.Context, arg Retar
 	result, err := q.db.ExecContext(ctx, retargetSessionWorkspaceProject,
 		arg.TargetProjectID,
 		arg.TargetWorkspaceID,
+		arg.TargetWorktreeID,
 		arg.TargetArtifactRelpath,
 		arg.UpdatedAtUnixMs,
 		arg.RebindReminderJson,
 		arg.TargetWorkspaceRoot,
 		arg.TargetWorkspaceContainer,
+		arg.WorktreeReminderJson,
 		arg.SessionID,
 		arg.SourceProjectID,
 		arg.SourceArtifactRelpath,
 	)
-	err = recordQueryError(ctx, err, retargetSessionWorkspaceProject, 10)
+	err = recordQueryError(ctx, err, retargetSessionWorkspaceProject, 12)
 
 	if err != nil {
 		return 0, err
@@ -9011,15 +8954,27 @@ UPDATE sessions
 SET
     workspace_id = ?1,
     worktree_id = ?2,
-    cwd_relpath = ?3
-WHERE id = ?4
+    cwd_relpath = ?3,
+    metadata_json = CASE WHEN CAST(?4 AS TEXT) IS NULL
+        THEN metadata_json
+        ELSE json_set(metadata_json, '$.worktree_reminder', json(CAST(?4 AS TEXT)))
+    END,
+    updated_at_unix_ms = CASE WHEN CAST(?4 AS TEXT) IS NULL
+        THEN updated_at_unix_ms
+        ELSE ?5
+    END
+WHERE id = ?6
+    AND (?7 IS NULL OR worktree_id = ?7)
 `
 
 type UpdateSessionExecutionTargetByIDParams struct {
-	WorkspaceID sql.NullString
-	WorktreeID  sql.NullString
-	CwdRelpath  string
-	SessionID   string
+	WorkspaceID          sql.NullString
+	WorktreeID           sql.NullString
+	CwdRelpath           string
+	WorktreeReminderJson sql.NullString
+	UpdatedAtUnixMs      int64
+	SessionID            string
+	ExpectedWorktreeID   interface{}
 }
 
 func (q *Queries) UpdateSessionExecutionTargetByID(ctx context.Context, arg UpdateSessionExecutionTargetByIDParams) (int64, error) {
@@ -9027,9 +8982,12 @@ func (q *Queries) UpdateSessionExecutionTargetByID(ctx context.Context, arg Upda
 		arg.WorkspaceID,
 		arg.WorktreeID,
 		arg.CwdRelpath,
+		arg.WorktreeReminderJson,
+		arg.UpdatedAtUnixMs,
 		arg.SessionID,
+		arg.ExpectedWorktreeID,
 	)
-	err = recordQueryError(ctx, err, updateSessionExecutionTargetByID, 4)
+	err = recordQueryError(ctx, err, updateSessionExecutionTargetByID, 7)
 
 	if err != nil {
 		return 0, err
@@ -9463,6 +9421,7 @@ INSERT INTO sessions (
     name,
     first_prompt_preview,
     input_draft,
+    protected_input_draft,
     previous_session_id,
     parent_agent_session_id,
     category,
@@ -9501,12 +9460,14 @@ INSERT INTO sessions (
     ?20,
     ?21,
     ?22,
-    ?23
+    ?23,
+    ?24
 )
 ON CONFLICT(id) DO UPDATE SET
     name = excluded.name,
     first_prompt_preview = excluded.first_prompt_preview,
     input_draft = excluded.input_draft,
+    protected_input_draft = excluded.protected_input_draft,
     previous_session_id = excluded.previous_session_id,
     parent_agent_session_id = excluded.parent_agent_session_id,
     category = excluded.category,
@@ -9532,6 +9493,7 @@ type UpsertSessionParams struct {
 	Name                     string
 	FirstPromptPreview       string
 	InputDraft               string
+	ProtectedInputDraft      sql.NullString
 	PreviousSessionID        sql.NullString
 	ParentAgentSessionID     sql.NullString
 	Category                 sql.NullString
@@ -9559,6 +9521,7 @@ func (q *Queries) UpsertSession(ctx context.Context, arg UpsertSessionParams) er
 		arg.Name,
 		arg.FirstPromptPreview,
 		arg.InputDraft,
+		arg.ProtectedInputDraft,
 		arg.PreviousSessionID,
 		arg.ParentAgentSessionID,
 		arg.Category,
@@ -9575,7 +9538,7 @@ func (q *Queries) UpsertSession(ctx context.Context, arg UpsertSessionParams) er
 		arg.CompletedCompactionCount,
 		arg.ManualCompactEligible,
 	)
-	err = recordQueryError(ctx, err, upsertSession, 23)
+	err = recordQueryError(ctx, err, upsertSession, 24)
 
 	return err
 }

@@ -1,0 +1,157 @@
+import type { TFunction } from "i18next";
+
+import {
+  ChatOperationError,
+  RpcError,
+  TransportError,
+  errorMessage,
+  type ChatError,
+  type ChatSettings,
+  type ChatSettingsAutoCompaction,
+  type ChatSettingsEditability,
+  type ChatSettingsMutation,
+} from "@/api";
+
+import type { ReadyChatSettings } from "./useChatSettings";
+
+export function activateChatSetting(feature: ReadyChatSettings, operation: ChatSettingsMutation): void {
+  if (feature.kind === "ready-new-chat") {
+    feature.activate(operation);
+    return;
+  }
+  void feature.activate(operation).catch(() => {
+    // Settings owns eager updates, rollback, and error feedback for both surfaces.
+  });
+}
+
+export function settingsPresentation(feature: ReadyChatSettings) {
+  if (feature.kind === "ready-session") return feature.settings;
+  const selection = feature.initialSettings;
+  const choice = feature.catalog.choices.find((entry) => entry.agent.role === selection.agentRole);
+  if (choice === undefined) throw new Error("Selected Agent is not in the New Chat catalog.");
+  return {
+    selectedAgent: choice.agent,
+    agentEditability: { kind: "editable" },
+    supervisor: { ...choice.supervisor, value: selection.supervisor },
+    thinking:
+      choice.thinking.kind === "unsupported"
+        ? choice.thinking
+        : { ...choice.thinking, value: requiredValue(selection.thinking) },
+    fast:
+      choice.fast.kind === "unsupported"
+        ? choice.fast
+        : { ...choice.fast, value: requiredValue(selection.fast) },
+    questions: { ...choice.questions, enabled: selection.questionsEnabled },
+    autoCompaction:
+      choice.autoCompaction.policy === "optional"
+        ? {
+            ...choice.autoCompaction,
+            stored: selection.autoCompactionEnabled,
+            effective: selection.autoCompactionEnabled,
+          }
+        : choice.autoCompaction,
+  } satisfies Pick<
+    ChatSettings,
+    "selectedAgent" | "agentEditability" | "supervisor" | "thinking" | "fast" | "questions" | "autoCompaction"
+  >;
+}
+
+function requiredValue<Value>(value: Value | null): Value {
+  if (value === null) throw new Error("A supported New Chat setting has no selected value.");
+  return value;
+}
+
+export function settingsDisabledReason(
+  t: TFunction,
+  editability: ChatSettingsEditability,
+  autoCompactionPolicy?: ChatSettingsAutoCompaction["policy"],
+): string | undefined {
+  if (autoCompactionPolicy === "required") return t("chatSettings.required");
+  switch (editability.kind) {
+    case "editable":
+      return undefined;
+    case "workflow_lock":
+      return t("chatSettings.workflowLock");
+    case "caching_lock":
+      return t("chatSettings.cachingLock");
+    case "policy_disabled":
+      return t("chatSettings.policyDisabled");
+  }
+}
+
+const operationFailureLabels = {
+  opening: { internal: "chat.openingFailed", unknown: "chat.openingFailed" },
+  settings: { internal: "chatSettings.errors.internalFailure", unknown: "chatSettings.errors.unknown" },
+  edit: { internal: "chatTranscript.editFailed", unknown: "chatTranscript.editUnknownFailure" },
+} as const;
+
+export function chatOperationFailureMessage(
+  t: TFunction,
+  error: unknown,
+  operation: keyof typeof operationFailureLabels,
+): string {
+  if (
+    operation === "opening" &&
+    (error instanceof TransportError || (error instanceof RpcError && !(error instanceof ChatOperationError)))
+  )
+    return t("chat.openingFailed");
+  if (!(error instanceof ChatOperationError)) return errorMessage(error);
+  return typedChatOperationFailureMessage(t, error.detail, operationFailureLabels[operation]);
+}
+
+function typedChatOperationFailureMessage(
+  t: TFunction,
+  detail: ChatError,
+  labels: (typeof operationFailureLabels)[keyof typeof operationFailureLabels],
+): string {
+  switch (detail.kind) {
+    case "prompt_catalog_read":
+    case "prompt_command_not_found":
+    case "prompt_command_read":
+      return t(`chatComposer.rejections.${detail.kind}`);
+    case "session_not_found":
+      return t("chatSettings.errors.sessionNotFound");
+    case "workspace_not_registered":
+      return t("chatSettings.errors.workspaceNotRegistered");
+    case "agent_preparation":
+      return agentPreparationFailureMessage(t, detail);
+    case "auth_required":
+      return t("chatSettings.errors.authRequired");
+    case "server_not_ready":
+      return t("chatSettings.errors.serverNotReady");
+    case "runtime_unavailable":
+      return t("chatSettings.errors.runtimeUnavailable");
+    case "internal_failure":
+      return internalFailureMessage(t, detail, t(labels.internal));
+    case "unknown":
+      return t(labels.unknown, { code: detail.code });
+  }
+}
+
+function agentPreparationFailureMessage(
+  t: TFunction,
+  detail: Extract<ChatError, { kind: "agent_preparation" }>,
+): string {
+  switch (detail.category) {
+    case "invalid_configuration":
+      return t("chatSettings.errors.agentInvalidConfiguration", { agent: detail.agent });
+    case "provider_unavailable":
+      return t("chatSettings.errors.agentProviderUnavailable", { agent: detail.agent });
+    case "internal_preparation":
+      return t("chatSettings.errors.agentInternalPreparation", { agent: detail.agent });
+  }
+}
+
+function internalFailureMessage(
+  t: TFunction,
+  detail: Extract<ChatError, { kind: "internal_failure" }>,
+  internalFailureLabel: string,
+): string {
+  return [
+    internalFailureLabel,
+    detail.operation === null ? null : t("chatSettings.errors.operation", { operation: detail.operation }),
+    detail.cause === null ? null : t("chatSettings.errors.cause", { cause: detail.cause }),
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+}

@@ -13,21 +13,27 @@ import (
 
 	"core/shared/client"
 	"core/shared/config"
-	"core/shared/serverapi"
+	"core/shared/protoapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
 func taskWaitSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	return taskObservationSubcommand(args, stdout, stderr, serverapi.WorkflowTaskObservationWait)
+	return taskObservationSubcommand(args, stdout, stderr, taskpb.ObservationMode_OBSERVATION_MODE_WAIT)
 }
 
 func taskWatchSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	return taskObservationSubcommand(args, stdout, stderr, serverapi.WorkflowTaskObservationWatch)
+	return taskObservationSubcommand(args, stdout, stderr, taskpb.ObservationMode_OBSERVATION_MODE_WATCH)
 }
 
-func taskObservationSubcommand(args []string, stdout io.Writer, stderr io.Writer, mode serverapi.WorkflowTaskObservationMode) int {
+func taskObservationSubcommand(args []string, stdout io.Writer, stderr io.Writer, mode taskpb.ObservationMode) int {
 	var diagnostics bytes.Buffer
-	fs := newCommandFlagSet(config.Command+" task "+string(mode), &diagnostics, leafCommandUsage(
-		config.Command+" task "+string(mode)+" <task>",
+	modeName, err := protoapi.TaskObservationMode.Decode(mode)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fs := newCommandFlagSet(config.Command+" task "+modeName, &diagnostics, leafCommandUsage(
+		config.Command+" task "+modeName+" <task>",
 		"Wait for a Workflow Task outcome.",
 	))
 	project := fs.String("project", ".", "project path or ID")
@@ -56,14 +62,14 @@ func taskObservationSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	if *jsonOut {
 		return taskObservationJSON(ctx, stdout, mode, *project, positionals[0])
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		detail, err := resolveWorkflowTask(ctx, cfg, remote, remote, *project, positionals[0])
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		response, err := remote.ObserveWorkflowTask(ctx, serverapi.WorkflowTaskObservationRequest{
-			TaskID: detail.Summary.ID, ProjectID: detail.Summary.ProjectID, Mode: mode,
+		response, err := remote.ObserveWorkflowTask(ctx, &taskpb.ObserveRequest{
+			TaskId: detail.Summary.Id, ProjectId: detail.Summary.ProjectId, Mode: mode,
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -76,14 +82,14 @@ func taskObservationSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	})
 }
 
-func taskObservationJSON(ctx context.Context, stdout io.Writer, mode serverapi.WorkflowTaskObservationMode, projectRef string, ref string) int {
+func taskObservationJSON(ctx context.Context, stdout io.Writer, mode taskpb.ObservationMode, projectRef string, ref string) int {
 	cfg, remote, err := openBindingCommandRemoteLifecycle(ctx, ".")
 	var closeFn func() error
 	if remote != nil {
 		closeFn = remote.Close
 	}
 	operation := observationOperationTaskWait
-	if mode == serverapi.WorkflowTaskObservationWatch {
+	if mode == taskpb.ObservationMode_OBSERVATION_MODE_WATCH {
 		operation = observationOperationTaskWatch
 	}
 	if err != nil {
@@ -93,22 +99,22 @@ func taskObservationJSON(ctx context.Context, stdout io.Writer, mode serverapi.W
 	if err != nil {
 		return emitObservationError(stdout, operation, nil, ctx, err, nil, closeFn)
 	}
-	target := observationTargetTask(detail.Summary.ID)
-	response, err := remote.ObserveWorkflowTask(ctx, serverapi.WorkflowTaskObservationRequest{
-		TaskID: detail.Summary.ID, ProjectID: detail.Summary.ProjectID, Mode: mode,
+	target := observationTargetTask(detail.Summary.Id)
+	response, err := remote.ObserveWorkflowTask(ctx, &taskpb.ObserveRequest{
+		TaskId: detail.Summary.Id, ProjectId: detail.Summary.ProjectId, Mode: mode,
 	})
 	if err != nil {
 		return emitObservationError(stdout, operation, target, ctx, err, nil, closeFn)
 	}
-	if response.TaskID != detail.Summary.ID {
+	if response.TaskId != detail.Summary.Id {
 		err := &client.InvalidResponseError{
 			Operation: "workflow task observation",
-			Cause:     fmt.Errorf("response task ID %q does not match requested task %q", response.TaskID, detail.Summary.ID),
+			Cause:     fmt.Errorf("response task ID %q does not match requested task %q", response.TaskId, detail.Summary.Id),
 		}
 		envelope, exitCode := projectObservationError(operation, target, ctx, err)
 		return emitObservationJSONWithCleanup(stdout, envelope, exitCode, nil, closeFn)
 	}
-	envelope, exitCode, err := projectTaskObservationJSON(detail.Summary.ID, response)
+	envelope, exitCode, err := projectTaskObservationJSON(detail.Summary.Id, response)
 	if err != nil {
 		err = &client.InvalidResponseError{Operation: "workflow task observation", Cause: err}
 		envelope, exitCode = projectObservationError(operation, target, ctx, err)
@@ -116,14 +122,14 @@ func taskObservationJSON(ctx context.Context, stdout io.Writer, mode serverapi.W
 	return emitObservationJSONWithCleanup(stdout, envelope, exitCode, nil, closeFn)
 }
 
-func writeTaskObservation(stdout io.Writer, stderr io.Writer, response serverapi.WorkflowTaskObservationResponse, projectRef string) int {
+func writeTaskObservation(stdout io.Writer, stderr io.Writer, response *taskpb.ObserveSuccess, projectRef string) int {
 	if stderr == nil {
 		stderr = io.Discard
 	}
 	exitCode := 0
 	questionCount := 0
 	for _, outcome := range response.Outcomes {
-		if outcome.Kind == serverapi.WorkflowTaskObservationQuestion {
+		if outcome.GetQuestion() != nil {
 			questionCount++
 		}
 	}
@@ -131,57 +137,59 @@ func writeTaskObservation(stdout io.Writer, stderr io.Writer, response serverapi
 		if index > 0 {
 			fmt.Fprintln(stdout)
 		}
-		switch outcome.Kind {
-		case serverapi.WorkflowTaskObservationDone:
-			fmt.Fprintf(stdout, "Task %s entered Done status\n", response.TaskShortID)
-		case serverapi.WorkflowTaskObservationQuestion:
-			if outcome.Question == nil {
-				fmt.Fprintf(stderr, "invalid task observation response: %s outcome has no question payload\n", outcome.Kind)
+		switch selected := outcome.Outcome.(type) {
+		case *taskpb.ObserveOutcome_Done:
+			fmt.Fprintf(stdout, "Task %s entered Done status\n", response.TaskShortId)
+		case *taskpb.ObserveOutcome_Question:
+			detail := selected.Question
+			question, err := protoapi.ObservationQuestionFromProto(detail.Question)
+			if err != nil {
+				fmt.Fprintln(stderr, err)
 				return 1
 			}
-			hintArgs := []string{config.Command, "question", "answer", "--task", response.TaskShortID}
-			if questionCount > 1 && outcome.SessionID != nil {
-				hintArgs = []string{config.Command, "question", "answer", "--session", *outcome.SessionID}
+			hintArgs := []string{"--task", response.TaskShortId}
+			if questionCount > 1 && detail.SessionId != nil {
+				hintArgs = []string{"--session", *detail.SessionId}
 			}
-			hintArgs = append(hintArgs, observationQuestionAnswerArgs(*outcome.Question)...)
 			if strings.TrimSpace(projectRef) != "" && projectRef != "." && questionCount == 1 {
 				hintArgs = append(hintArgs, "--project", projectRef)
 			}
-			writeTaskOutcomeDiscriminator(stdout, outcome)
-			writeObservedQuestion(stdout, *outcome.Question, commandString(hintArgs))
-		case serverapi.WorkflowTaskObservationExecutionError, serverapi.WorkflowTaskObservationInterrupted:
-			if outcome.Failure == nil {
-				fmt.Fprintf(stderr, "invalid task observation response: %s outcome has no failure payload\n", outcome.Kind)
-				return 1
-			}
-			writeTaskOutcomeDiscriminator(stdout, outcome)
-			fmt.Fprintln(stdout, outcome.Failure.Reason)
-			if outcome.Failure.Diagnostic != nil {
-				fmt.Fprintln(stdout, *outcome.Failure.Diagnostic)
-			}
-			if outcome.Kind == serverapi.WorkflowTaskObservationExecutionError {
-				exitCode = 1
-			} else if exitCode == 0 {
+			writeTaskOutcomeDiscriminator(stdout, detail.SessionId, detail.ScriptPath, detail.NodeKey)
+			writeObservedQuestion(stdout, question, observationQuestionHint(hintArgs, question))
+		case *taskpb.ObserveOutcome_ExecutionError:
+			writeTaskObservationFailure(stdout, selected.ExecutionError)
+			exitCode = 1
+		case *taskpb.ObserveOutcome_Interrupted:
+			writeTaskObservationFailure(stdout, selected.Interrupted)
+			if exitCode == 0 {
 				exitCode = 130
 			}
-		}
-		if outcome.Kind != serverapi.WorkflowTaskObservationDone && outcome.Kind != serverapi.WorkflowTaskObservationQuestion {
-			continue
+		default:
+			fmt.Fprintln(stderr, "invalid task observation response: missing outcome")
+			return 1
 		}
 	}
 	return exitCode
 }
 
-func writeTaskOutcomeDiscriminator(stdout io.Writer, outcome serverapi.WorkflowTaskObservationOutcome) {
-	if outcome.SessionID != nil {
-		fmt.Fprintf(stdout, "Session %s", *outcome.SessionID)
-	} else if outcome.ScriptPath != nil {
-		fmt.Fprintf(stdout, "Script %s", *outcome.ScriptPath)
+func writeTaskObservationFailure(stdout io.Writer, detail *taskpb.ObserveFailure) {
+	writeTaskOutcomeDiscriminator(stdout, detail.SessionId, detail.ScriptPath, detail.NodeKey)
+	fmt.Fprintln(stdout, detail.Failure.Reason)
+	if detail.Failure.Diagnostic != nil {
+		fmt.Fprintln(stdout, *detail.Failure.Diagnostic)
+	}
+}
+
+func writeTaskOutcomeDiscriminator(stdout io.Writer, sessionID, scriptPath, nodeKey *string) {
+	if sessionID != nil {
+		fmt.Fprintf(stdout, "Session %s", *sessionID)
+	} else if scriptPath != nil {
+		fmt.Fprintf(stdout, "Script %s", *scriptPath)
 	} else {
 		return
 	}
-	if outcome.NodeKey != nil {
-		fmt.Fprintf(stdout, " (Node %s)", *outcome.NodeKey)
+	if nodeKey != nil {
+		fmt.Fprintf(stdout, " (Node %s)", *nodeKey)
 	}
 	fmt.Fprintln(stdout, ":")
 }

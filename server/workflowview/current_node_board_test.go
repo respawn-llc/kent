@@ -1,6 +1,8 @@
 package workflowview
 
 import (
+	"core/internal/testharness/workflowfixture"
+	"errors"
 	"testing"
 
 	"core/internal/testharness/testsetup"
@@ -8,19 +10,73 @@ import (
 	"core/server/workflow"
 	"core/server/workflowexecution"
 	"core/server/workflowstore"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
+	"google.golang.org/protobuf/proto"
 )
+
+func TestBoardProjectRejectsMissingProject(t *testing.T) {
+	fixture := newCurrentNodeViewFixture(t, false)
+	_, err := fixture.board.Get(fixture.ctx, &taskpb.BoardGetRequest{
+		ProjectId:   "missing-project",
+		LabelFilter: noLabelFilter(),
+	})
+	if !errors.Is(err, serverapi.ErrProjectNotFound) {
+		t.Fatalf("missing Project: %v", err)
+	}
+}
+
+func TestBoardProjectRejectsBrokenDefault(t *testing.T) {
+	t.Setenv("KENT_INVARIANT_MODE", "diagnostic")
+	fixture := newCurrentNodeViewFixture(t, false)
+	if _, err := fixture.metadata.DB().ExecContext(fixture.ctx, "UPDATE projects SET primary_workspace_id = '' WHERE id = ?", fixture.binding.ProjectID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.board.Get(fixture.ctx, &taskpb.BoardGetRequest{
+		ProjectId:   fixture.binding.ProjectID,
+		LabelFilter: noLabelFilter(),
+	}); err == nil {
+		t.Fatal("Board accepted a broken default")
+	}
+	t.Setenv("KENT_INVARIANT_MODE", "panic")
+	defer func() {
+		if recover() == nil {
+			t.Error("broken default did not fail fast")
+		}
+	}()
+	_, _ = fixture.board.Get(fixture.ctx, &taskpb.BoardGetRequest{
+		ProjectId:   fixture.binding.ProjectID,
+		LabelFilter: noLabelFilter(),
+	})
+}
+
+func TestBoardProjectCountsAllAttachedWorkspaces(t *testing.T) {
+	fixture := newCurrentNodeViewFixture(t, false)
+	for i := 0; i < 500; i++ {
+		if _, err := fixture.metadata.AttachWorkspaceToProject(fixture.ctx, fixture.binding.ProjectID, t.TempDir()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	board, err := fixture.board.Get(fixture.ctx, &taskpb.BoardGetRequest{
+		ProjectId:   fixture.binding.ProjectID,
+		LabelFilter: noLabelFilter(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if board.Project.AttachedWorkspaceCount != 501 || board.Project.DefaultWorkspaceId != fixture.binding.WorkspaceID {
+		t.Fatalf("Project facts = %+v", board.Project)
+	}
+}
 
 func TestBoardProjectsQuiescentCurrentNodeAsDeletable(t *testing.T) {
 	fixture := newCurrentNodeViewFixture(t, false)
 	started := fixture.startTask(t, "Board task")
 
-	board, err := fixture.board.Get(fixture.ctx, serverapi.WorkflowBoardRequest{
-		ProjectID:  fixture.binding.ProjectID,
-		WorkflowID: &fixture.workflowID,
-		LabelFilter: serverapi.WorkflowTaskLabelFilter{
-			Kind: serverapi.WorkflowTaskLabelFilterKindNone,
-		},
+	board, err := fixture.board.Get(fixture.ctx, &taskpb.BoardGetRequest{
+		ProjectId:   fixture.binding.ProjectID,
+		WorkflowId:  proto.String(fixture.workflowID.String()),
+		LabelFilter: noLabelFilter(),
 	})
 	if err != nil {
 		t.Fatalf("Board.Get: %v", err)
@@ -30,14 +86,12 @@ func TestBoardProjectsQuiescentCurrentNodeAsDeletable(t *testing.T) {
 		t.Fatalf("agent column task count = %d, want 1 Current Node", agentColumn.TaskCount)
 	}
 
-	cards, err := fixture.board.ListNodeCards(fixture.ctx, serverapi.WorkflowBoardNodeCardsListRequest{
-		ProjectID:  fixture.binding.ProjectID,
-		WorkflowID: fixture.workflowID,
-		NodeID:     string(fixture.agentNodeID),
-		PageSize:   20,
-		LabelFilter: serverapi.WorkflowTaskLabelFilter{
-			Kind: serverapi.WorkflowTaskLabelFilterKindNone,
-		},
+	cards, err := fixture.board.ListNodeCards(fixture.ctx, &taskpb.BoardNodeCardsListRequest{
+		ProjectId:   fixture.binding.ProjectID,
+		WorkflowId:  fixture.workflowID.String(),
+		NodeId:      string(fixture.agentNodeID),
+		PageSize:    20,
+		LabelFilter: noLabelFilter(),
 	})
 	if err != nil {
 		t.Fatalf("Board.ListNodeCards: %v", err)
@@ -46,10 +100,10 @@ func TestBoardProjectsQuiescentCurrentNodeAsDeletable(t *testing.T) {
 		t.Fatalf("board cards = %+v, want one Current Node card", cards.Cards)
 	}
 	card := cards.Cards[0]
-	if card.TaskID != string(started.task.ID) ||
-		len(card.ActiveNodeIDs) != 1 ||
-		card.ActiveNodeIDs[0] != string(fixture.agentNodeID) ||
-		card.Status.Kind != serverapi.WorkflowTaskStatusKindActive ||
+	if card.TaskId != string(started.task.ID) ||
+		len(card.ActiveNodeIds) != 1 ||
+		card.ActiveNodeIds[0] != string(fixture.agentNodeID) ||
+		card.Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE ||
 		card.Actions.CanStart ||
 		!card.Actions.CanDelete {
 		t.Fatalf("board card = %+v, want deletable quiescent Current Node projection", card)
@@ -106,12 +160,12 @@ func TestBoardDoesNotResolveLiveSessionLabelsForMultipleCards(t *testing.T) {
 		t.Fatalf("NewBoard: %v", err)
 	}
 
-	page, err := board.ListNodeCards(fixture.ctx, serverapi.WorkflowBoardNodeCardsListRequest{
-		ProjectID:   fixture.binding.ProjectID,
-		WorkflowID:  fixture.workflowID,
-		NodeID:      string(fixture.agentNodeID),
+	page, err := board.ListNodeCards(fixture.ctx, &taskpb.BoardNodeCardsListRequest{
+		ProjectId:   fixture.binding.ProjectID,
+		WorkflowId:  fixture.workflowID.String(),
+		NodeId:      string(fixture.agentNodeID),
 		PageSize:    20,
-		LabelFilter: serverapi.WorkflowTaskLabelFilterNone(),
+		LabelFilter: noLabelFilter(),
 	})
 	if err != nil {
 		t.Fatalf("Board.ListNodeCards: %v", err)
@@ -142,14 +196,12 @@ func TestBoardListNodeCardsPaginatesDeterministically(t *testing.T) {
 		string(started[0].task.ID),
 	}
 
-	request := serverapi.WorkflowBoardNodeCardsListRequest{
-		ProjectID:  fixture.binding.ProjectID,
-		WorkflowID: fixture.workflowID,
-		NodeID:     string(fixture.agentNodeID),
-		PageSize:   1,
-		LabelFilter: serverapi.WorkflowTaskLabelFilter{
-			Kind: serverapi.WorkflowTaskLabelFilterKindNone,
-		},
+	request := &taskpb.BoardNodeCardsListRequest{
+		ProjectId:   fixture.binding.ProjectID,
+		WorkflowId:  fixture.workflowID.String(),
+		NodeId:      string(fixture.agentNodeID),
+		PageSize:    1,
+		LabelFilter: noLabelFilter(),
 	}
 	var got []string
 	for pageIndex := 0; ; pageIndex++ {
@@ -160,7 +212,7 @@ func TestBoardListNodeCardsPaginatesDeterministically(t *testing.T) {
 		if len(page.Cards) != 1 {
 			t.Fatalf("board page %d cards = %+v, want one", pageIndex, page.Cards)
 		}
-		got = append(got, page.Cards[0].TaskID)
+		got = append(got, page.Cards[0].TaskId)
 		if pageIndex == 0 {
 			if page.NextOffset == nil {
 				t.Fatal("first board page has no next offset")
@@ -175,16 +227,16 @@ func TestBoardListNodeCardsPaginatesDeterministically(t *testing.T) {
 		t.Fatalf("board pagination order = %v, want %v", got, want)
 	}
 	request.Offset = nil
-	request.Sort = &serverapi.WorkflowTaskListSort{
-		Field:     serverapi.WorkflowTaskListSortFieldCreated,
-		Direction: serverapi.WorkflowTaskListSortDirectionAsc,
+	request.Sort = &taskpb.ListSort{
+		Field:     taskpb.ListSortField_LIST_SORT_FIELD_CREATED,
+		Direction: taskpb.ListSortDirection_LIST_SORT_DIRECTION_ASC,
 	}
 	page, err := fixture.board.ListNodeCards(fixture.ctx, request)
 	if err != nil {
 		t.Fatalf("Board.ListNodeCards created sort: %v", err)
 	}
-	if page.Cards[0].TaskID != string(started[0].task.ID) {
-		t.Fatalf("created ascending first card = %q, want %q", page.Cards[0].TaskID, started[0].task.ID)
+	if page.Cards[0].TaskId != string(started[0].task.ID) {
+		t.Fatalf("created ascending first card = %q, want %q", page.Cards[0].TaskId, started[0].task.ID)
 	}
 }
 
@@ -198,14 +250,12 @@ func TestBoardListNodeCardsAllowsMutationBetweenOffsetRequests(t *testing.T) {
 	fixture.setTaskUpdatedAt(t, started[0].task.ID, 3_000)
 	fixture.setTaskUpdatedAt(t, started[1].task.ID, 2_000)
 	fixture.setTaskUpdatedAt(t, started[2].task.ID, 1_000)
-	request := serverapi.WorkflowBoardNodeCardsListRequest{
-		ProjectID:  fixture.binding.ProjectID,
-		WorkflowID: fixture.workflowID,
-		NodeID:     string(fixture.agentNodeID),
-		PageSize:   1,
-		LabelFilter: serverapi.WorkflowTaskLabelFilter{
-			Kind: serverapi.WorkflowTaskLabelFilterKindNone,
-		},
+	request := &taskpb.BoardNodeCardsListRequest{
+		ProjectId:   fixture.binding.ProjectID,
+		WorkflowId:  fixture.workflowID.String(),
+		NodeId:      string(fixture.agentNodeID),
+		PageSize:    1,
+		LabelFilter: noLabelFilter(),
 	}
 	first, err := fixture.board.ListNodeCards(fixture.ctx, request)
 	if err != nil {
@@ -242,7 +292,7 @@ func TestBoardListNodeCardsDependencyFilterRunsBeforePagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDefinition: %v", err)
 	}
-	if _, err := fixture.store.ManualMoveTask(fixture.ctx, workflowstore.ManualMoveRequest{
+	if _, err := workflowfixture.MoveTask(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.ManualMoveRequest{
 		TaskID:       satisfiedBlocker.ID,
 		TargetNodeID: terminalNodeID(t, definition),
 	}); err != nil {
@@ -275,14 +325,14 @@ func TestBoardListNodeCardsDependencyFilterRunsBeforePagination(t *testing.T) {
 	fixture.setTaskUpdatedAt(t, satisfied.task.ID, 1_000)
 
 	filterValue := func(value bool) *bool { return &value }
-	requestFor := func(filter *bool) serverapi.WorkflowBoardNodeCardsListRequest {
-		return serverapi.WorkflowBoardNodeCardsListRequest{
-			ProjectID:        fixture.binding.ProjectID,
-			WorkflowID:       fixture.workflowID,
-			NodeID:           string(fixture.agentNodeID),
+	requestFor := func(filter *bool) *taskpb.BoardNodeCardsListRequest {
+		return &taskpb.BoardNodeCardsListRequest{
+			ProjectId:        fixture.binding.ProjectID,
+			WorkflowId:       fixture.workflowID.String(),
+			NodeId:           string(fixture.agentNodeID),
 			DependencyFilter: filter,
 			PageSize:         1,
-			LabelFilter:      serverapi.WorkflowTaskLabelFilterNone(),
+			LabelFilter:      noLabelFilter(),
 		}
 	}
 	filters := []*bool{nil, filterValue(true), filterValue(false)}
@@ -300,8 +350,8 @@ func TestBoardListNodeCardsDependencyFilterRunsBeforePagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListNodeCards unblocked first page: %v", err)
 	}
-	if unblockedPage.Cards[0].TaskID != string(noDependencies.task.ID) {
-		t.Fatalf("unblocked first page card = %q, want no-dependency task %q", unblockedPage.Cards[0].TaskID, noDependencies.task.ID)
+	if unblockedPage.Cards[0].TaskId != string(noDependencies.task.ID) {
+		t.Fatalf("unblocked first page card = %q, want no-dependency task %q", unblockedPage.Cards[0].TaskId, noDependencies.task.ID)
 	}
 	unblockedRequest := requestFor(filterValue(true))
 	unblockedRequest.Offset = unblockedPage.NextOffset
@@ -309,7 +359,7 @@ func TestBoardListNodeCardsDependencyFilterRunsBeforePagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListNodeCards unblocked second page: %v", err)
 	}
-	if len(unblockedPage.Cards) != 1 || unblockedPage.Cards[0].TaskID != string(satisfied.task.ID) {
+	if len(unblockedPage.Cards) != 1 || unblockedPage.Cards[0].TaskId != string(satisfied.task.ID) {
 		t.Fatalf("unblocked second page = %+v, want satisfied task %q", unblockedPage.Cards, satisfied.task.ID)
 	}
 }

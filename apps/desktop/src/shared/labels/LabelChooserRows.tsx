@@ -13,20 +13,17 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  Spinner,
   fieldInputClassName,
 } from "@/ui";
 
 export type RenameState = Readonly<{
   labelID: string;
   draft: string;
-  error: string | null;
-  pending: boolean;
 }>;
 
 export type DeleteState = Readonly<{
   labelID: string;
-  error: string | null;
-  pending: boolean;
 }>;
 
 export type LabelFilterCondition = "neutral" | "included" | "excluded";
@@ -48,13 +45,15 @@ const conditionIndicatorVisibility = {
 } as const;
 
 export function LabelRenameEditor({
-  catalogMutationPending,
+  pending,
+  error,
   onCancel,
   onChange,
   onCommit,
   rename,
 }: Readonly<{
-  catalogMutationPending: boolean;
+  pending: boolean;
+  error: string | null;
   onCancel(): void;
   onChange(draft: string): void;
   onCommit(): void;
@@ -75,14 +74,13 @@ export function LabelRenameEditor({
           aria-label={t("labels.renameField")}
           autoFocus
           className={`${fieldInputClassName} min-w-0 flex-1 py-[var(--space-1)]`}
-          disabled={rename.pending || catalogMutationPending}
           onChange={(event) => {
             onChange(event.currentTarget.value);
           }}
           value={rename.draft}
         />
         <IconTooltipButton
-          disabled={rename.pending || catalogMutationPending}
+          loading={pending}
           label={t("labels.saveRename")}
           onClick={onCommit}
           size="icon-sm"
@@ -90,18 +88,13 @@ export function LabelRenameEditor({
         >
           <Check aria-hidden="true" size={14} strokeWidth={2} />
         </IconTooltipButton>
-        <IconTooltipButton
-          disabled={rename.pending}
-          label={t("labels.cancelRename")}
-          onClick={onCancel}
-          size="icon-sm"
-        >
+        <IconTooltipButton label={t("labels.cancelRename")} onClick={onCancel} size="icon-sm">
           <X aria-hidden="true" size={14} strokeWidth={1.8} />
         </IconTooltipButton>
       </div>
-      {rename.error === null ? null : (
+      {error === null ? null : (
         <span className="px-[var(--space-1)] text-xs text-[var(--color-error)]" role="alert">
-          {rename.error}
+          {error}
         </span>
       )}
     </form>
@@ -109,7 +102,9 @@ export function LabelRenameEditor({
 }
 
 export function LabelResultRow({
-  catalogMutationPending = false,
+  renamePending,
+  deletePending,
+  reorderPending,
   deletion,
   highlighted,
   label,
@@ -121,8 +116,10 @@ export function LabelResultRow({
   selection,
   selectionDisabled = false,
 }: Readonly<{
-  catalogMutationPending?: boolean;
-  deletion: DeleteState | null;
+  renamePending?: boolean;
+  deletePending?: boolean;
+  reorderPending?: boolean;
+  deletion: Readonly<DeleteState & { pending: boolean; error: string | null }> | null;
   highlighted: boolean;
   label: ProjectLabel;
   onDeleteConfirm(): void;
@@ -147,11 +144,15 @@ export function LabelResultRow({
       <PopoverTrigger asChild>
         <Button
           aria-label={t("labels.delete", { name: label.name })}
-          disabled={catalogMutationPending}
+          aria-busy={deletePending}
           size="icon-sm"
           variant="ghost"
         >
-          <Trash2 aria-hidden="true" className="text-[var(--color-error)]" size={14} strokeWidth={1.8} />
+          {deletePending ? (
+            <Spinner />
+          ) : (
+            <Trash2 aria-hidden="true" className="text-[var(--color-error)]" size={14} strokeWidth={1.8} />
+          )}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-56" level={4} side="top">
@@ -161,12 +162,8 @@ export function LabelResultRow({
             {deletion.error}
           </span>
         )}
-        <Button
-          disabled={deletion?.pending === true || catalogMutationPending}
-          onClick={onDeleteConfirm}
-          variant="danger"
-        >
-          {t("app.confirm")}
+        <Button aria-busy={deletePending} onClick={onDeleteConfirm} variant="danger">
+          {deletePending ? <Spinner /> : t("app.confirm")}
         </Button>
       </PopoverContent>
     </Popover>
@@ -177,7 +174,7 @@ export function LabelResultRow({
         <div className="flex items-center gap-[var(--space-1)]">
           {deleteAction}
           <IconTooltipButton
-            disabled={catalogMutationPending}
+            loading={renamePending}
             label={t("labels.rename", { name: label.name })}
             onClick={onRename}
             size="icon-sm"
@@ -192,14 +189,14 @@ export function LabelResultRow({
           <Button
             aria-label={t("labels.reorder", { name: label.name })}
             className="text-[var(--color-muted)] hover:text-[var(--color-on-island)]"
-            disabled={catalogMutationPending}
+            disabled={reorderPending}
             ref={reorderActivatorRef}
             {...reorderAttributes}
             {...reorderListeners}
             size="icon-sm"
             variant="ghost"
           >
-            <GripVertical aria-hidden="true" size={15} strokeWidth={1.8} />
+            {reorderPending ? <Spinner /> : <GripVertical aria-hidden="true" size={15} strokeWidth={1.8} />}
           </Button>
         )
       }

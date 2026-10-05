@@ -1,3 +1,5 @@
+pmOnFail: warn
+
 allowBuilds:
   esbuild: true
   sharp: true

@@ -5,6 +5,7 @@ inputs:
 plugins:
   - local:
       - pnpm
+      - --pm-on-fail=ignore
       - --dir
       - apps
       - exec

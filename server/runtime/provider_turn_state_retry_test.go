@@ -17,12 +17,8 @@ import (
 
 type providerTurnStateOAuthAuth struct{}
 
-func (providerTurnStateOAuthAuth) AuthorizationHeader(context.Context) (string, error) {
-	return "Bearer token", nil
-}
-
-func (providerTurnStateOAuthAuth) OpenAIAuthMetadata(context.Context) (string, string, error) {
-	return "oauth", "account-1", nil
+func (providerTurnStateOAuthAuth) ResolveDispatchAuth(context.Context) (*llm.DispatchAuth, error) {
+	return &llm.DispatchAuth{Header: "Bearer token", Mode: llm.OpenAIAuthMode{IsOAuth: true, AccountID: "account-1"}}, nil
 }
 
 func TestGenerateWithRetryReplaysExactProviderTurnState(t *testing.T) {
@@ -55,9 +51,9 @@ func TestGenerateWithRetryReplaysExactProviderTurnState(t *testing.T) {
 	}
 	transport := newProviderTurnStateTransport(t, server)
 	client := llm.NewOpenAIClient(transport)
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	_, err = engine.generateWithRetryClient(context.Background(), runtimeTestStepID("provider-turn-state"), newObservedModelClient(client), llm.Request{
-		Model: "gpt-5", SessionID: textutil.Value("session-1"), CodexDispatch: dispatch,
+		Model: "gpt-6-sol", SessionID: textutil.Value("session-1"), CodexDispatch: dispatch,
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
 	}, nil, nil, nil)
 	if err != nil {
@@ -87,7 +83,7 @@ func TestGenerationMissingOutputRebuildDoesNotReplayProviderTurnState(t *testing
 	t.Cleanup(server.Close)
 	transport := newProviderTurnStateTransport(t, server)
 	client := llm.NewOpenAIClient(transport)
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	steerDanglingToolCall(t, engine, "seed", llm.ToolCall{ID: "missing", Name: "exec_command", Input: []byte(`{}`)})
 	err := engine.stepLifecycle.Run(t.Context(), exclusiveStepOptions{ActiveKind: ActiveKindUserTurn}, func(ctx context.Context, stepID string) error {
 		_, err := engine.generateWithMissingToolOutputRepair(ctx, stepID, func() (llm.Request, error) {

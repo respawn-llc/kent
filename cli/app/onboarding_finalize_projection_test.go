@@ -79,11 +79,13 @@ func TestRunOnboardingFlowHonorsPreSubmissionParentCancellation(t *testing.T) {
 	finalizer := &recordingOnboardingFinalizer{}
 	_, err := runOnboardingFlow(
 		ctx,
-		config.App{},
+		config.Connection{},
+		config.LocalPreferences{},
 		onboardingCapabilityFactsClientFunc(func(context.Context, *capabilitypb.GetFactsRequest) (*capabilitypb.Facts, error) {
 			return testOnboardingCapabilityFacts(), nil
 		}),
 		finalizer,
+		nil,
 	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("run onboarding error = %v, want context canceled", err)
@@ -217,7 +219,7 @@ func TestOnboardingTerminalActivationFailureKeepsCommittedOutcomeContext(t *test
 }
 
 func TestOnboardingCustomProjectionPreservesTypedChoices(t *testing.T) {
-	modelID := "gpt-5"
+	modelID := "gpt-6-sol"
 	contextWindow := uint32(272_000)
 	facts := emptyOnboardingCapabilityFacts()
 	facts.Models.KnownModels = []*capabilitypb.ModelFact{{
@@ -230,8 +232,6 @@ func TestOnboardingCustomProjectionPreservesTypedChoices(t *testing.T) {
 	state := newOnboardingFinalizeProjectionState(t, func(cfg *config.App) {
 		cfg.Settings.Theme = theme.Light
 		cfg.Settings.Model = modelID
-		cfg.Settings.ProviderOverride = "openai"
-		cfg.Settings.OpenAIBaseURL = "http://127.0.0.1:8080/v1"
 		cfg.Settings.ModelContextWindow = 1_000_000
 		cfg.Settings.ThinkingLevel = "high"
 		cfg.Settings.ModelVerbosity = config.ModelVerbosityHigh
@@ -247,9 +247,12 @@ func TestOnboardingCustomProjectionPreservesTypedChoices(t *testing.T) {
 			Model:         "custom-reviewer",
 			ThinkingLevel: "custom-think",
 		}
-		cfg.Source.Sources["thinking_level"] = "file"
-		cfg.Source.Sources["reviewer.model"] = "file"
-		cfg.Source.Sources["reviewer.thinking_level"] = "file"
+		cfg.Source.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
+
+		cfg.Source.Sources["reviewer.model"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model"}}
+
+		cfg.Source.Sources["reviewer.thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}}
+
 	}, facts)
 
 	request, err := onboardingFinalizeRequest(state, false)
@@ -258,19 +261,6 @@ func TestOnboardingCustomProjectionPreservesTypedChoices(t *testing.T) {
 	}
 	if request.Model == nil || request.Model.Kind != onboardingpb.ModelKind_MODEL_KIND_KNOWN {
 		t.Fatalf("model = %+v", request.Model)
-	}
-	if request.MainProvider == nil || request.MainProvider.ProviderOverride == nil || *request.MainProvider.ProviderOverride != "openai" || request.MainProvider.OpenaiBaseUrl == nil || *request.MainProvider.OpenaiBaseUrl != "http://127.0.0.1:8080/v1" {
-		t.Fatalf("main provider = %+v", request.MainProvider)
-	}
-	toolOverrides := map[onboardingpb.ToolID]bool{}
-	for _, override := range request.ToolOverrides {
-		toolOverrides[override.Id] = override.Enabled
-	}
-	if len(toolOverrides) != 2 || !toolOverrides[onboardingpb.ToolID_TOOL_ID_EDIT] || toolOverrides[onboardingpb.ToolID_TOOL_ID_PATCH] {
-		t.Fatalf("tool overrides = %+v", request.ToolOverrides)
-	}
-	if request.ModelTimeoutSeconds == nil || *request.ModelTimeoutSeconds != 123 {
-		t.Fatalf("model timeout = %+v", request.ModelTimeoutSeconds)
 	}
 	if request.ContextWindow == nil || request.ContextWindow.Kind != onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_LARGE {
 		t.Fatalf("context window = %+v", request.ContextWindow)
@@ -297,7 +287,8 @@ func TestOnboardingFinalizeProjectionPreservesPrimaryThinkingVariants(t *testing
 			name: "explicit-supported-level",
 			configure: func(cfg *config.App) {
 				cfg.Settings.ThinkingLevel = "high"
-				cfg.Source.Sources["thinking_level"] = "file"
+				cfg.Source.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
+
 			},
 			want: &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_LEVEL, Level: ptrString("high")},
 		},
@@ -305,7 +296,8 @@ func TestOnboardingFinalizeProjectionPreservesPrimaryThinkingVariants(t *testing
 			name: "custom",
 			configure: func(cfg *config.App) {
 				cfg.Settings.ThinkingLevel = "ultra"
-				cfg.Source.Sources["thinking_level"] = "file"
+				cfg.Source.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
+
 			},
 			want: &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM, Value: ptrString("ultra")},
 		},
@@ -313,7 +305,8 @@ func TestOnboardingFinalizeProjectionPreservesPrimaryThinkingVariants(t *testing
 			name: "disabled",
 			configure: func(cfg *config.App) {
 				cfg.Settings.ThinkingLevel = ""
-				cfg.Source.Sources["thinking_level"] = "file"
+				cfg.Source.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
+
 			},
 			want: &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_DISABLED},
 		},
@@ -333,6 +326,29 @@ func TestOnboardingFinalizeProjectionPreservesPrimaryThinkingVariants(t *testing
 }
 
 func TestOnboardingFinalizeProjectionPreservesReviewerInheritanceOverridesAndOff(t *testing.T) {
+	t.Run("reset-baseline-overrides", func(t *testing.T) {
+		facts := testOnboardingCapabilityFacts()
+		state := newOnboardingFinalizeProjectionState(t, func(cfg *config.App) {
+			cfg.Settings.Reviewer.Model = "gpt-5.4"
+			cfg.Settings.Reviewer.ThinkingLevel = "low"
+			for _, key := range []string{"reviewer.model", "reviewer.thinking_level"} {
+				cfg.Source.Sources[key] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: key}}
+			}
+		}, facts)
+		if err := state.selections.submitReviewerModel(state.selections.model.value, facts); err != nil {
+			t.Fatal(err)
+		}
+		if err := state.selections.chooseReviewerThinking(state.selections.thinkingValue(), facts); err != nil {
+			t.Fatal(err)
+		}
+		request, err := onboardingFinalizeRequest(state, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if request.Supervisor == nil || request.Supervisor.Model != nil || request.Supervisor.Thinking != nil {
+			t.Fatalf("reset should project inheritance: %+v", request.Supervisor)
+		}
+	})
 	t.Run("inherited", func(t *testing.T) {
 		state := newOnboardingFinalizeProjectionState(t, nil, testOnboardingCapabilityFacts())
 		request, err := onboardingFinalizeRequest(state, false)
@@ -348,8 +364,10 @@ func TestOnboardingFinalizeProjectionPreservesReviewerInheritanceOverridesAndOff
 		state := newOnboardingFinalizeProjectionState(t, func(cfg *config.App) {
 			cfg.Settings.Reviewer.Model = cfg.Settings.Model
 			cfg.Settings.Reviewer.ThinkingLevel = cfg.Settings.ThinkingLevel
-			cfg.Source.Sources["reviewer.model"] = "file"
-			cfg.Source.Sources["reviewer.thinking_level"] = "file"
+			cfg.Source.Sources["reviewer.model"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model"}}
+
+			cfg.Source.Sources["reviewer.thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}}
+
 		}, testOnboardingCapabilityFacts())
 		request, err := onboardingFinalizeRequest(state, false)
 		if err != nil {
@@ -366,7 +384,8 @@ func TestOnboardingFinalizeProjectionPreservesReviewerInheritanceOverridesAndOff
 	t.Run("explicit-disabled", func(t *testing.T) {
 		state := newOnboardingFinalizeProjectionState(t, func(cfg *config.App) {
 			cfg.Settings.Reviewer.ThinkingLevel = ""
-			cfg.Source.Sources["reviewer.thinking_level"] = "file"
+			cfg.Source.Sources["reviewer.thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}}
+
 		}, testOnboardingCapabilityFacts())
 		request, err := onboardingFinalizeRequest(state, false)
 		if err != nil {
@@ -383,8 +402,10 @@ func TestOnboardingFinalizeProjectionPreservesReviewerInheritanceOverridesAndOff
 			cfg.Settings.Reviewer.Frequency = "off"
 			cfg.Settings.Reviewer.Model = cfg.Settings.Model
 			cfg.Settings.Reviewer.ThinkingLevel = cfg.Settings.ThinkingLevel
-			cfg.Source.Sources["reviewer.model"] = "file"
-			cfg.Source.Sources["reviewer.thinking_level"] = "file"
+			cfg.Source.Sources["reviewer.model"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model"}}
+
+			cfg.Source.Sources["reviewer.thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}}
+
 		}, testOnboardingCapabilityFacts())
 		request, err := onboardingFinalizeRequest(state, false)
 		if err != nil {
@@ -478,9 +499,9 @@ func TestOnboardingRecoverableRetrySubmitsUnchangedRequest(t *testing.T) {
 	)
 	finalizer := &recordingOnboardingFinalizer{err: typedFailure}
 	state := newOnboardingFinalizeProjectionState(t, func(cfg *config.App) {
-		cfg.Settings.ProviderOverride = "openai"
 		cfg.Settings.ThinkingLevel = "high"
-		cfg.Source.Sources["thinking_level"] = "file"
+		cfg.Source.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
+
 	}, testOnboardingCapabilityFacts())
 	model := newOnboardingModel(newOnboardingFinalization(finalizer, context.Background()), state)
 
@@ -508,17 +529,19 @@ func newOnboardingFinalizeProjectionState(t *testing.T, configure func(*config.A
 	settings := config.DefaultOnboardingSettings()
 	cfg := config.App{
 		Settings: settings,
-		Source: config.SourceReport{Sources: map[string]string{
-			"thinking_level":          "default",
-			"reviewer.model":          "default",
-			"reviewer.thinking_level": "default",
+		Source: config.SourceReport{Sources: map[string]config.Origin{
+			"thinking_level": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "thinking_level"}},
+
+			"reviewer.model": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.model"}},
+
+			"reviewer.thinking_level": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}},
 		}},
 	}
 	if configure != nil {
 		configure(&cfg)
 	}
 	normalizeOnboardingReviewerSeedInheritance(&cfg)
-	state, err := newOnboardingFlowState(cfg, facts)
+	state, err := testOnboardingStateFromServerConfig(t, cfg, facts)
 	if err != nil {
 		t.Fatalf("construct onboarding state: %v", err)
 	}

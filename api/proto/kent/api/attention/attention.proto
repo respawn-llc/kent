@@ -5,6 +5,9 @@ package kent.api.attention;
 import "buf/validate/validate.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
+import "kent/api/auth/auth.proto";
+import "kent/api/prompt/prompt.proto";
+import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
 
@@ -14,12 +17,6 @@ enum Kind {
   ATTENTION_KIND_UNSPECIFIED = 0;
   ATTENTION_KIND_QUESTION = 1;
   ATTENTION_KIND_APPROVAL = 2;
-}
-
-enum Source {
-  ATTENTION_SOURCE_UNSPECIFIED = 0;
-  ATTENTION_SOURCE_LIVE = 1;
-  ATTENTION_SOURCE_SNAPSHOT = 2;
 }
 
 message NotificationID {
@@ -61,7 +58,7 @@ message QuestionState {
 }
 
 message ApprovalState {
-  string message = 1 [
+  optional string message = 1 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
       id: "kent.attention.approval_message_nonblank"
@@ -69,14 +66,17 @@ message ApprovalState {
       expression: "this.trim() != ''"
     }
   ];
+  repeated kent.api.prompt.FileAccessTarget access_targets = 2 [(buf.validate.field).repeated.items.required = true];
+
+  option (buf.validate.message).cel = {
+    id: "kent.attention.approval_presentation"
+    message: "approval must carry either message copy or access targets"
+    expression: "has(this.message) != (size(this.access_targets) > 0)"
+  };
 }
 
 message Notification {
   NotificationID id = 1 [(buf.validate.field).required = true];
-  Source source = 2 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
   google.protobuf.Timestamp occurred_at = 3 [
     (buf.validate.field).required = true,
     (buf.validate.field).timestamp.gt = {seconds: 0}
@@ -102,19 +102,11 @@ message Notification {
 }
 
 message Resolved {
-  Source source = 1 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
   NotificationID id = 2 [(buf.validate.field).required = true];
   google.protobuf.Timestamp occurred_at = 3 [
     (buf.validate.field).required = true,
     (buf.validate.field).timestamp.gt = {seconds: 0}
   ];
-}
-
-message SnapshotComplete {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
 message NotificationEvent {
@@ -126,7 +118,6 @@ message NotificationEvent {
     option (buf.validate.oneof).required = true;
     Notification pending = 2;
     Resolved resolved = 3;
-    SnapshotComplete snapshot_complete = 4;
   }
 }
 
@@ -139,7 +130,6 @@ message SubscribeRequest {
       expression: "this.trim() != ''"
     }
   ];
-  bool include_pending_prompt_snapshot = 2;
 }
 
 message StartError {
@@ -151,6 +141,16 @@ message StartError {
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
+    }];
+
+    kent.api.auth.AuthRequiredDetails auth_required = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
     }];
   }
 }
@@ -170,9 +170,16 @@ service SessionService {
       authentication_stage: AUTHENTICATION_STAGE_SERVER
       scope_policy: SCOPE_POLICY_ATTACHED_SESSION
       direction: DIRECTION_CLIENT_TO_SERVER
-      event: {package: "kent.api.attention" service: "SessionService" method: "Event"}
-      completion: {package: "kent.api.attention" service: "SessionService" method: "Complete"}
-      legacy_wire_name: "attention.sessionNotification.subscribe"
+      event: {
+        package: "kent.api.attention"
+        service: "SessionService"
+        method: "Event"
+      }
+      completion: {
+        package: "kent.api.attention"
+        service: "SessionService"
+        method: "Complete"
+      }
     };
   }
   rpc Event(NotificationEvent) returns (google.protobuf.Empty) {
@@ -181,7 +188,6 @@ service SessionService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "attention.sessionNotification"
     };
   }
   rpc Complete(kent.api.shared.StreamCompletion) returns (google.protobuf.Empty) {
@@ -190,7 +196,6 @@ service SessionService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "attention.sessionNotification.complete"
     };
   }
 }

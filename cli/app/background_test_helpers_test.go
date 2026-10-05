@@ -11,7 +11,7 @@ const fastBackgroundTestYield = 20 * time.Millisecond
 
 func newFastBackgroundTestManager(t *testing.T) *shelltool.Manager {
 	t.Helper()
-	manager, err := shelltool.NewManager(
+	manager, err := shelltool.NewManager(t.TempDir(),
 		shelltool.WithMinimumExecToBgTime(fastBackgroundTestYield),
 		shelltool.WithCloseTimeouts(20*time.Millisecond, 200*time.Millisecond),
 	)

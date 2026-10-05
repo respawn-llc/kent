@@ -171,7 +171,14 @@ func sessionToolCompletionRecordFromRuntime(
 		}
 	}
 	if result.Presentation != nil {
-		record.Presentation = transcript.EncodeToolCallMeta(*result.Presentation)
+		presentation, encodeErr := transcript.TryEncodeToolCallMeta(*result.Presentation)
+		if encodeErr != nil {
+			return session.ToolCompletionRecord{}, fmt.Errorf(
+				"encode session tool completion presentation: %w",
+				encodeErr,
+			)
+		}
+		record.Presentation = presentation
 	}
 	if len(providerItems) > 0 {
 		record.ProviderItems = make([]session.ToolCompletionProviderItem, 0, len(providerItems))
@@ -202,12 +209,26 @@ func storedToolCompletionFromSessionRecord(
 		return storedToolCompletion{}, err
 	}
 	var presentation *transcript.ToolCallMeta
-	if len(record.Presentation) > 0 {
-		decoded, ok := transcript.DecodeToolCallMeta(record.Presentation)
-		if !ok {
-			return storedToolCompletion{}, errors.New("session tool completion presentation is invalid")
+	decoded := transcript.DecodeToolCallMeta(record.Presentation)
+	switch decoded.Kind {
+	case transcript.ToolCallMetaDecodeAbsent:
+	case transcript.ToolCallMetaDecodeCurrent, transcript.ToolCallMetaDecodeLegacyNormalized:
+		if decoded.Meta == nil {
+			return storedToolCompletion{}, errors.New(
+				"session tool completion presentation decode returned no metadata",
+			)
 		}
-		presentation = decoded
+		presentation = decoded.Meta
+	case transcript.ToolCallMetaDecodeInvalid:
+		return storedToolCompletion{}, fmt.Errorf(
+			"session tool completion presentation is invalid: %w",
+			decoded.Cause,
+		)
+	default:
+		return storedToolCompletion{}, fmt.Errorf(
+			"session tool completion presentation decode returned unknown outcome %d",
+			decoded.Kind,
+		)
 	}
 	providerItems := make([]llm.ResponseItem, 0, len(record.ProviderItems))
 	for _, item := range record.ProviderItems {
@@ -252,7 +273,7 @@ func sessionToolCompletionRecordFromStored(
 		Summary:        completion.Summary,
 		CondensedText:  completion.CondensedText,
 		Presentation:   completion.Presentation,
-		QuestionAnswer: completion.QuestionAnswer,
+		QuestionAnswer: cloneAskQuestionAnswer(completion.QuestionAnswer),
 	}
 	return sessionToolCompletionRecordFromRuntime(result, completion.ProviderItems)
 }
@@ -377,14 +398,28 @@ func sessionCacheRequestRecordFromRuntime(
 func sessionCacheResponseRecordFromRuntime(
 	observation persistedCacheResponseObserved,
 ) (session.CacheResponseObservationRecord, error) {
-	record := session.CacheResponseObservationRecord{
-		DigestVersion: observation.DigestVersion,
-		CacheKey:      observation.CacheKey,
-		Scope:         session.CacheScope(observation.Scope),
-		ChunkCount:    observation.ChunkCount,
-		TerminalHash:  observation.TerminalHash,
+	record := session.CacheResponseObservationRecord{}
+	if strings.TrimSpace(observation.CacheKey) != "" {
+		digestVersion := observation.DigestVersion
+		cacheKey := observation.CacheKey
+		scope := session.CacheScope(observation.Scope)
+		chunkCount := observation.ChunkCount
+		terminalHash := observation.TerminalHash
+		record.DigestVersion = &digestVersion
+		record.CacheKey = &cacheKey
+		record.Scope = &scope
+		record.ChunkCount = &chunkCount
+		record.TerminalHash = &terminalHash
+		record.CachedInputTokens = textutil.Pointer(observation.CachedInputTokens)
 	}
-	record.CachedInputTokens = textutil.Pointer(observation.CachedInputTokens)
+	record.OperationID = textutil.Pointer(observation.OperationID)
+	record.SessionID = textutil.Pointer(observation.SessionID)
+	record.Purpose = textutil.Pointer(observation.Purpose)
+	record.ObservedAt = textutil.Pointer(observation.ObservedAt)
+	if observation.ProviderUsage != nil {
+		usage := observation.ProviderUsage.Clone()
+		record.ProviderUsage = &usage
+	}
 	normalized, err := session.NewEventRecord(1, nil, record)
 	if err != nil {
 		return session.CacheResponseObservationRecord{}, err
@@ -424,12 +459,30 @@ func persistedCacheResponseObservedFromSessionRecord(
 	record session.CacheResponseObservationRecord,
 ) persistedCacheResponseObserved {
 	observation := persistedCacheResponseObserved{
-		DigestVersion:     record.DigestVersion,
-		CacheKey:          record.CacheKey,
-		Scope:             transcript.CacheWarningScope(record.Scope),
-		ChunkCount:        record.ChunkCount,
-		TerminalHash:      record.TerminalHash,
 		CachedInputTokens: textutil.Pointer(record.CachedInputTokens),
+		OperationID:       textutil.Pointer(record.OperationID),
+		SessionID:         textutil.Pointer(record.SessionID),
+		Purpose:           textutil.Pointer(record.Purpose),
+		ObservedAt:        textutil.Pointer(record.ObservedAt),
+	}
+	if record.DigestVersion != nil {
+		observation.DigestVersion = *record.DigestVersion
+	}
+	if record.CacheKey != nil {
+		observation.CacheKey = *record.CacheKey
+	}
+	if record.Scope != nil {
+		observation.Scope = transcript.CacheWarningScope(*record.Scope)
+	}
+	if record.ChunkCount != nil {
+		observation.ChunkCount = *record.ChunkCount
+	}
+	if record.TerminalHash != nil {
+		observation.TerminalHash = *record.TerminalHash
+	}
+	if record.ProviderUsage != nil {
+		usage := record.ProviderUsage.Clone()
+		observation.ProviderUsage = &usage
 	}
 	return observation
 }
@@ -525,6 +578,7 @@ func sessionProviderHistoryItemFromLLM(
 		CustomInput:          textutil.Pointer(item.CustomInput),
 		Output:               append(json.RawMessage(nil), item.Output...),
 		EncryptedContent:     textutil.Pointer(item.EncryptedContent),
+		ConfigurationEffort:  textutil.Pointer(item.ConfigurationEffort),
 		Raw:                  append(json.RawMessage(nil), item.Raw...),
 		LinkedCallID:         textutil.Pointer(item.LinkedCallID),
 	}
@@ -571,6 +625,7 @@ func llmResponseItemFromSessionHistory(item session.ProviderHistoryItem) llm.Res
 		CustomInput:          textutil.Pointer(item.CustomInput),
 		Output:               append(json.RawMessage(nil), item.Output...),
 		EncryptedContent:     textutil.Pointer(item.EncryptedContent),
+		ConfigurationEffort:  textutil.Pointer(item.ConfigurationEffort),
 		Raw:                  append(json.RawMessage(nil), item.Raw...),
 		LinkedCallID:         textutil.Pointer(item.LinkedCallID),
 		LinkKind: convertOptionalString[

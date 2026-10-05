@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"core/server/metadata"
-	"core/shared/clientui"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 )
 
 func TestGitMetadataRoundTripPreservesBranchIdentity(t *testing.T) {
@@ -76,17 +76,17 @@ func TestGitMetadataDecodesLegacySingleBranchField(t *testing.T) {
 func TestWorktreeReminderTransitionRejectsPresentPreviousTargetWithEmptyWorktreeID(t *testing.T) {
 	previous := &syncedWorktree{
 		record: metadata.WorktreeRecord{CanonicalRoot: "/repo/worktree"},
-		git:    GitWorktree{IsMain: false},
+		git:    GitWorktree{IsMainWorktree: false},
 	}
 	next := syncedWorktree{
 		record: metadata.WorktreeRecord{CanonicalRoot: "/repo"},
-		git:    GitWorktree{IsMain: true},
+		git:    GitWorktree{IsMainWorktree: true},
 	}
-	previousTarget := clientui.SessionExecutionTarget{
+	previousTarget := &worktreepb.SessionExecutionTarget{
 		WorkspaceRoot: "/repo",
-		Worktree:      &clientui.SessionExecutionWorktreeTarget{},
+		Worktree:      &worktreepb.SessionExecutionWorktreeTarget{},
 	}
-	nextTarget := clientui.SessionExecutionTarget{
+	nextTarget := &worktreepb.SessionExecutionTarget{
 		WorkspaceRoot:    "/repo",
 		EffectiveWorkdir: "/repo",
 	}

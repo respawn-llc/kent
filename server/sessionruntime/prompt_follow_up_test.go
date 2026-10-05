@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"core/shared/clientui"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -16,17 +17,17 @@ func TestPromptFollowUpSingleOwnerLifecycle(t *testing.T) {
 	t.Run("no successor", func(t *testing.T) {
 		store, stepID, subscription := newWatchedPrompt(t, []string{"ask-1"})
 		resolveWatchedPrompt(t, store, stepID)
-		requirePromptFollowUpTerminal(t, subscription, serverapi.PromptFollowUpNoPreparedSuccessor)
+		requirePromptFollowUpTerminal(t, subscription, promptpb.FollowUpKind_FOLLOW_UP_KIND_NO_PREPARED_SUCCESSOR)
 	})
 	t.Run("successor ready", func(t *testing.T) {
 		store, stepID, subscription := newWatchedPrompt(t, []string{"ask-1", "ask-2"})
 		resolveWatchedPrompt(t, store, stepID)
 		request := questionBatchValidationRequest(t)
-		request.ID, request.QuestionBatch.PromptID, request.QuestionBatch.CandidateOrdinal = "ask-2", "ask-2", 1
+		request.ToolCallID, request.QuestionBatch.ToolCallID, request.QuestionBatch.CandidateOrdinal = "ask-2", "ask-2", 1
 		done := make(chan struct{})
 		go func() { _, _ = store.Await(context.Background(), request); close(done) }()
 		requirePromptPending(t, store, "ask-2")
-		requirePromptFollowUpTerminal(t, subscription, serverapi.PromptFollowUpSuccessorReady)
+		requirePromptFollowUpTerminal(t, subscription, promptpb.FollowUpKind_FOLLOW_UP_KIND_SUCCESSOR_READY)
 		if err := store.Close(context.Canceled); err != nil {
 			t.Fatalf("Close: %v", err)
 		}
@@ -65,16 +66,16 @@ func TestPromptFollowUpSingleOwnerLifecycle(t *testing.T) {
 		if err := store.Close(context.Canceled); err != nil {
 			t.Fatalf("Close: %v", err)
 		}
-		requirePromptFollowUpTerminal(t, subscription, serverapi.PromptFollowUpExecutionClosed)
+		requirePromptFollowUpTerminal(t, subscription, promptpb.FollowUpKind_FOLLOW_UP_KIND_EXECUTION_CLOSED)
 	})
 }
-func newWatchedPrompt(t *testing.T, promptIDs []string) (*executionPromptStore, runtimeids.StepID, serverapi.PromptFollowUpSubscription) {
+func newWatchedPrompt(t *testing.T, toolCallIDs []string) (*executionPromptStore, runtimeids.StepID, serverapi.PromptFollowUpSubscription) {
 	t.Helper()
 	store, _ := newPromptBatchStore(t)
 	stepID := promptBatchStepID(t)
 	request := questionBatchValidationRequest(t)
-	request.QuestionBatch.BatchPromptIDs = promptIDs
-	request.QuestionBatch.PreparedPromptCount = len(promptIDs)
+	request.QuestionBatch.BatchToolCallIDs = toolCallIDs
+	request.QuestionBatch.PreparedPromptCount = len(toolCallIDs)
 	installPromptBatchEntries(&store, promptBatchEntry(request, time.Unix(1, 0)))
 	return &store, stepID, subscribePromptFollowUpForTest(t, &store, stepID, "ask-1")
 }
@@ -87,15 +88,15 @@ func resolveWatchedPrompt(t *testing.T, store *executionPromptStore, stepID runt
 		t.Fatalf("ResolvePromptBatch: %v", err)
 	}
 }
-func subscribePromptFollowUpForTest(t *testing.T, store *executionPromptStore, stepID runtimeids.StepID, promptID clientui.PromptID) serverapi.PromptFollowUpSubscription {
+func subscribePromptFollowUpForTest(t *testing.T, store *executionPromptStore, stepID runtimeids.StepID, toolCallID clientui.ToolCallID) serverapi.PromptFollowUpSubscription {
 	t.Helper()
-	subscription, err := store.subscribePromptFollowUp(stepID, promptID)
+	subscription, err := store.subscribePromptFollowUp(stepID, toolCallID)
 	if err != nil {
 		t.Fatalf("SubscribePromptFollowUp: %v", err)
 	}
 	return subscription
 }
-func requirePromptFollowUpTerminal(t *testing.T, subscription serverapi.PromptFollowUpSubscription, want serverapi.PromptFollowUpEventKind) {
+func requirePromptFollowUpTerminal(t *testing.T, subscription serverapi.PromptFollowUpSubscription, want promptpb.FollowUpKind) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

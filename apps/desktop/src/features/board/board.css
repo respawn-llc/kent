@@ -5,6 +5,7 @@
   min-height: var(--board-card-height);
   max-height: var(--board-card-height);
   grid-template-rows: auto minmax(0, 1fr) auto;
+  touch-action: none;
 }
 
 .board-task-card[data-task-card-border-tone="primary"] {
@@ -27,15 +28,6 @@
   align-self: end;
   padding-top: var(--space-3);
   border-top: 1px solid var(--color-outline);
-}
-
-.board-card-drag-image {
-  position: fixed;
-  top: -10000px;
-  left: -10000px;
-  z-index: 2147483647;
-  pointer-events: none;
-  opacity: 0.94;
 }
 
 .board-card-motion-clone {

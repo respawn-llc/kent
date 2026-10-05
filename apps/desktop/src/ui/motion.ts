@@ -3,6 +3,12 @@ import { useEffect, useState } from "react";
 const motionFastVarName = "--motion-fast";
 const fallbackMotionFastMs = 140;
 
+export const shimmerMotion = {
+  durationVarName: "--motion-shimmer-duration",
+  fallbackDurationMs: 1000,
+  ease: "linear",
+} as const;
+
 export type OpacityExitPhase = "hidden" | "visible" | "exiting";
 
 export function useOpacityExit(

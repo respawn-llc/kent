@@ -7,10 +7,12 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/modelcontract"
 	"core/shared/rollbacktarget"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -220,6 +222,20 @@ func TestSessionQuestionCompletionAdapterCarriesTypedAnswer(t *testing.T) {
 			t.Fatalf("execute typed Question: %v", err)
 		}
 		result.Presentation = questionCompletionPresentation()
+		entries := visibleChatEntriesFromMessage(
+			llm.Message{
+				Role:       llm.RoleTool,
+				ToolCallID: textutil.Value(result.CallID),
+				Name:       textutil.Value(string(result.Name)),
+			},
+			map[string]tools.Result{result.CallID: result},
+			nil,
+		)
+		if len(entries) != 1 || entries[0].QuestionAnswer == nil ||
+			!textutil.EqualOptional(entries[0].QuestionAnswer.SelectedOptionNumber, result.QuestionAnswer.SelectedOptionNumber) ||
+			!textutil.EqualOptional(entries[0].QuestionAnswer.Freeform, result.QuestionAnswer.Freeform) {
+			t.Fatalf("Chat entry lost typed Question answer: %+v", entries)
+		}
 		resultJSON, err := json.Marshal(result)
 		if err != nil {
 			t.Fatalf("encode runtime Question result: %v", err)
@@ -417,6 +433,21 @@ func TestSessionLocalAndCacheRecordAdaptersRoundTrip(t *testing.T) {
 	}
 	if restored := persistedCacheResponseObservedFromSessionRecord(absentResponseRecord); restored.CachedInputTokens != nil {
 		t.Fatalf("absent cached-token fact became present: %#v", restored)
+	}
+	noCacheResponse := persistedCacheResponseObserved{
+		CachedInputTokens: textutil.Value(0),
+		OperationID:       textutil.Value(uuid.NewString()),
+		SessionID:         textutil.Value("session-1"),
+		Purpose:           textutil.Value(modelcontract.ProviderOperationPurposeGeneration),
+		ObservedAt:        textutil.Value(time.Unix(1_720_000_000, 0).UTC()),
+		ProviderUsage:     &modelcontract.ProviderUsageEvidence{},
+	}
+	noCacheRecord, err := sessionCacheResponseRecordFromRuntime(noCacheResponse)
+	if err != nil {
+		t.Fatalf("adapt provider response without cache facts: %v", err)
+	}
+	if restored := persistedCacheResponseObservedFromSessionRecord(noCacheRecord); restored.CachedInputTokens != nil {
+		t.Fatalf("cached-token fact escaped cache-facts gate: %#v", restored)
 	}
 	negativeCachedInputTokens := -1
 	invalidResponse := response

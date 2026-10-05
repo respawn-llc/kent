@@ -53,7 +53,7 @@ func TestAutomaticCompletionPreservesRetainedTargetSessionRole(t *testing.T) {
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
 
-	review, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	review, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "plan complete"},
@@ -61,8 +61,8 @@ func TestAutomaticCompletionPreservesRetainedTargetSessionRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("complete plan: %v", err)
 	}
-	associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, review.Mutation.Created[0].Reference)
-	firstAudit, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	currentNodeSessionForStoreTest(t, ctx, store, review.Mutation.Created[0].Reference)
+	firstAudit, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       review.Mutation.Created[0].Reference,
 		TransitionID: "audit",
 		OutputValues: map[string]string{"role": "coder"},
@@ -70,16 +70,9 @@ func TestAutomaticCompletionPreservesRetainedTargetSessionRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("complete review to establish Audit: %v", err)
 	}
-	targetSessionID := associateAndBindCurrentNodeSessionForTest(
-		t,
-		ctx,
-		store,
-		binding,
-		cfg,
-		firstAudit.Mutation.Created[0].Reference,
-	)
+	targetSessionID := currentNodeSessionForStoreTest(t, ctx, store, firstAudit.Mutation.Created[0].Reference)
 	setPersistedSessionRoleForTest(t, cfg, binding, store.metadata, targetSessionID, "reviewer")
-	returnedReview, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	returnedReview, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       firstAudit.Mutation.Created[0].Reference,
 		TransitionID: "return_review",
 		OutputValues: map[string]string{"summary": "review again"},
@@ -87,7 +80,7 @@ func TestAutomaticCompletionPreservesRetainedTargetSessionRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("complete Audit to return Review: %v", err)
 	}
-	completed, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       returnedReview.Mutation.Created[0].Reference,
 		TransitionID: "audit",
 	})
@@ -198,7 +191,7 @@ func TestConvergingIncomingEdgesKeepIndependentSelections(t *testing.T) {
 
 	selectedTask := createDefaultTask(t, ctx, store, binding.ProjectID)
 	selectedPlan := startTask(t, ctx, store, selectedTask.ID).Mutation.Created[0]
-	selectedReview, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	selectedReview, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       selectedPlan.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "selected path"},
@@ -206,7 +199,7 @@ func TestConvergingIncomingEdgesKeepIndependentSelections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("complete selected plan: %v", err)
 	}
-	selectedAudit, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	selectedAudit, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       selectedReview.Mutation.Created[0].Reference,
 		TransitionID: "audit",
 		OutputValues: map[string]string{"role": "reviewer"},
@@ -217,14 +210,14 @@ func TestConvergingIncomingEdgesKeepIndependentSelections(t *testing.T) {
 
 	fallbackTask := createDefaultTask(t, ctx, store, binding.ProjectID)
 	fallbackPlan := startTask(t, ctx, store, fallbackTask.ID).Mutation.Created[0]
-	fallbackAlternate, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	fallbackAlternate, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       fallbackPlan.Reference,
 		TransitionID: "alternate",
 	})
 	if err != nil {
 		t.Fatalf("complete fallback plan: %v", err)
 	}
-	fallbackAudit, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	fallbackAudit, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       fallbackAlternate.Mutation.Created[0].Reference,
 		TransitionID: "alternate_audit",
 	})
@@ -291,7 +284,7 @@ func TestAutomaticCompletionChangesThinkingOnRetainedTargetSession(t *testing.T)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	review, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	review, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "plan complete"},
@@ -299,8 +292,8 @@ func TestAutomaticCompletionChangesThinkingOnRetainedTargetSession(t *testing.T)
 	if err != nil {
 		t.Fatalf("complete plan: %v", err)
 	}
-	associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, review.Mutation.Created[0].Reference)
-	firstAudit, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	currentNodeSessionForStoreTest(t, ctx, store, review.Mutation.Created[0].Reference)
+	firstAudit, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       review.Mutation.Created[0].Reference,
 		TransitionID: "audit",
 		OutputValues: map[string]string{"effort": "low"},
@@ -308,16 +301,9 @@ func TestAutomaticCompletionChangesThinkingOnRetainedTargetSession(t *testing.T)
 	if err != nil {
 		t.Fatalf("complete review to establish Audit: %v", err)
 	}
-	targetSessionID := associateAndBindCurrentNodeSessionForTest(
-		t,
-		ctx,
-		store,
-		binding,
-		cfg,
-		firstAudit.Mutation.Created[0].Reference,
-	)
+	targetSessionID := currentNodeSessionForStoreTest(t, ctx, store, firstAudit.Mutation.Created[0].Reference)
 	setPersistedSessionRoleForTest(t, cfg, binding, store.metadata, targetSessionID, "reviewer")
-	returnedReview, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	returnedReview, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       firstAudit.Mutation.Created[0].Reference,
 		TransitionID: "return_review",
 		OutputValues: map[string]string{"summary": "review again"},
@@ -341,7 +327,7 @@ func TestAutomaticCompletionChangesThinkingOnRetainedTargetSession(t *testing.T)
 	if !thinkingParameterPresent {
 		t.Fatalf("retained target thinking contract omitted effort parameter: %+v", startContext.TransitionOptions)
 	}
-	completed, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       returnedReview.Mutation.Created[0].Reference,
 		TransitionID: "audit",
 		OutputValues: map[string]string{"effort": "high"},
@@ -363,7 +349,7 @@ func TestAutomaticCompletionHonorsSelectedRoleAtFreshAndCompactedBoundaries(t *t
 		workflow.ContextModeCompactAndContinueSession,
 	} {
 		t.Run(string(contextMode), func(t *testing.T) {
-			ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+			ctx, store, binding := newTestStoreContext(t)
 			workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
 			definition, _, err := store.GetDefinition(ctx, workflowID)
 			if err != nil {
@@ -382,7 +368,7 @@ func TestAutomaticCompletionHonorsSelectedRoleAtFreshAndCompactedBoundaries(t *t
 			linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 			task := createDefaultTask(t, ctx, store, binding.ProjectID)
 			plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-			review, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+			review, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 				Source:       plan.Reference,
 				TransitionID: "review",
 				OutputValues: map[string]string{"summary": "plan complete"},
@@ -392,10 +378,10 @@ func TestAutomaticCompletionHonorsSelectedRoleAtFreshAndCompactedBoundaries(t *t
 			}
 			var sourceSessionID *runtimeids.SessionID
 			if contextMode == workflow.ContextModeCompactAndContinueSession {
-				sessionID := associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, review.Mutation.Created[0].Reference)
+				sessionID := currentNodeSessionForStoreTest(t, ctx, store, review.Mutation.Created[0].Reference)
 				sourceSessionID = &sessionID
 			}
-			completed, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+			completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 				Source:       review.Mutation.Created[0].Reference,
 				TransitionID: "audit",
 				OutputValues: map[string]string{"role": "reviewer"},
@@ -409,8 +395,8 @@ func TestAutomaticCompletionHonorsSelectedRoleAtFreshAndCompactedBoundaries(t *t
 				target.AgentExecutionSelection.Origin != workflow.AssigneeOriginTransitionSelected {
 				t.Fatalf("target selection = %+v, want selected reviewer", target.AgentExecutionSelection)
 			}
-			if sourceSessionID == nil && target.SessionID != nil {
-				t.Fatalf("fresh target session = %q, want absent", target.SessionID)
+			if sourceSessionID == nil && target.SessionID == nil {
+				t.Fatal("fresh target omitted its prepared exact Session")
 			}
 			if sourceSessionID != nil && (target.SessionID == nil || *target.SessionID != *sourceSessionID) {
 				t.Fatalf("compacted target session = %v, want %q", target.SessionID, *sourceSessionID)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,11 +16,11 @@ import (
 )
 
 func TestPendingWorkProjectsAcceptedMessageAndCompactionOrder(t *testing.T) {
-	engine := pendingWorkTestEngine(t, Config{Model: "gpt-5"})
+	engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol"})
 	releaseMaintenance := pendingWorkTestHoldMaintenance(t, engine)
 
 	firstSteer := pendingWorkTestMust(t, func() (QueuedUserMessage, error) {
-		return engine.QueueUserMessageForAutoDrain(context.Background(), "first steer")
+		return engine.Steer(context.Background(), "first steer", nil)
 	})
 	guidance := "keep details"
 	admission := runtimeinput.ManualCompactionAdmission{
@@ -42,7 +43,7 @@ func TestPendingWorkProjectsAcceptedMessageAndCompactionOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	secondSteer := pendingWorkTestMust(t, func() (QueuedUserMessage, error) {
-		return engine.QueueUserMessageForAutoDrain(context.Background(), "second steer")
+		return engine.Steer(context.Background(), "second steer", nil)
 	})
 	queued := pendingWorkTestMust(t, func() (QueuedUserMessage, error) {
 		return engine.QueueUserMessage(context.Background(), "post-turn queue")
@@ -68,16 +69,16 @@ func TestPendingWorkProjectsAcceptedMessageAndCompactionOrder(t *testing.T) {
 }
 
 func TestPendingWorkCapacityRejectsWithoutMutation(t *testing.T) {
-	engine := pendingWorkTestEngine(t, Config{Model: "gpt-5"})
+	engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol"})
 	releaseMaintenance := pendingWorkTestHoldMaintenance(t, engine)
 	for index := range runtimeinput.PendingWorkCapacity {
-		if _, err := engine.messageFlow.QueueUserMessage(fmt.Sprintf("pending %d", index)); err != nil {
+		if _, err := engine.messageFlow.QueueUserMessage(plainQueuedUserInput(fmt.Sprintf("pending %d", index))); err != nil {
 			t.Fatal(err)
 		}
 	}
 	before := pendingWorkTestSnapshot(t, engine)
 
-	_, err := engine.QueueUserMessage(context.Background(), "rejected")
+	_, err := engine.QueueUserInput(context.Background(), plainQueuedUserInput("rejected"))
 	var typed *serverapi.PendingWorkCapacityError
 	if !errors.Is(err, runtimeinput.ErrPendingWorkCapacity) || !errors.As(err, &typed) {
 		t.Fatalf("capacity error = %T %v", err, err)
@@ -125,18 +126,21 @@ func TestPendingWorkCapacityRejectsWithoutMutation(t *testing.T) {
 }
 
 func TestRemovePendingWorkRestoresTypedMessageAndCompactionInput(t *testing.T) {
-	engine := pendingWorkTestEngine(t, Config{Model: "gpt-5"})
+	engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol"})
 	releaseMaintenance := pendingWorkTestHoldMaintenance(t, engine)
 
 	message := pendingWorkTestMust(t, func() (QueuedUserMessage, error) {
-		return engine.QueueUserMessageForAutoDrain(context.Background(), "restore message")
+		return engine.SteerInput(context.Background(), QueuedUserInput{
+			ExecutionText:         "expanded restore message",
+			CanonicalPresentation: "/review restore message",
+		}, nil)
 	})
 	messageID := pendingWorkTestMust(t, func() (runtimeids.QueueItemID, error) {
 		return runtimeids.ParseQueueItemID(message.ID)
 	})
 	restoration, err := engine.RemovePendingWork(context.Background(), messageID)
 	if err != nil || restoration.Kind != runtimeinput.PendingWorkItemKindMessage ||
-		restoration.CanonicalInput != "restore message" {
+		restoration.CanonicalInput != "/review restore message" {
 		t.Fatalf("message removal = %+v/%v", restoration, err)
 	}
 
@@ -176,23 +180,26 @@ func TestRemovePendingWorkRestoresTypedMessageAndCompactionInput(t *testing.T) {
 
 func TestStoppedHumanInputPublishesPendingWorkChangedWithoutBlockingList(t *testing.T) {
 	var interruption *HumanInputInterruptedEvent
+	var firstChange sync.Once
 	changed, unblock, delivered := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	engine := pendingWorkTestEngine(t, Config{Model: "gpt-5"})
+	engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol"})
 	releaseMaintenance := pendingWorkTestHoldMaintenance(t, engine)
 	first := pendingWorkTestMust(t, func() (QueuedUserMessage, error) {
-		return engine.QueueUserMessageForAutoDrain(context.Background(), "stopped")
+		return engine.Steer(context.Background(), "stopped", nil)
 	})
 	second := pendingWorkTestMust(t, func() (QueuedUserMessage, error) {
-		return engine.QueueUserMessageForAutoDrain(context.Background(), "retained")
+		return engine.Steer(context.Background(), "retained", nil)
 	})
 	engine.cfg.OnEvent = func(event Event) {
 		switch event.Kind {
 		case EventHumanInputInterrupted:
 			interruption = event.HumanInputInterrupted
 		case EventPendingWorkChanged:
-			close(changed)
-			<-unblock
-			close(delivered)
+			firstChange.Do(func() {
+				close(changed)
+				<-unblock
+				close(delivered)
+			})
 		}
 	}
 

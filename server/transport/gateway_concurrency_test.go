@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
+	"core/internal/testharness/workflowfixture"
 	servercore "core/server/core"
+	"core/server/metadata"
 	"core/server/session"
 	"core/server/sessionruntime"
 	"core/server/workflow"
@@ -19,8 +21,15 @@ import (
 	"core/server/workflowruntime"
 	"core/server/workflowstore"
 	"core/shared/apicontract"
-	"core/shared/protocol"
+	"core/shared/protoapi"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+
 	"core/shared/serverapi"
+	"core/shared/worktreecontract"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"golang.org/x/net/websocket"
 	sqlitedriver "modernc.org/sqlite"
@@ -29,16 +38,16 @@ import (
 
 type gatewayConcurrencyWorkflowService struct {
 	apicontract.WorkflowService
-	getWorkflowTask      func(context.Context, serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error)
-	completeWorkflowTask func(context.Context, serverapi.WorkflowTaskCompleteRequest) (serverapi.WorkflowTaskCompleteResponse, error)
-	startWorkflowTask    func(context.Context, serverapi.WorkflowTaskStartRequest) (serverapi.WorkflowTaskStartResponse, error)
-	resumeWorkflowTask   func(context.Context, serverapi.WorkflowTaskResumeRequest) (serverapi.WorkflowTaskResumeResponse, error)
+	getWorkflowTask      func(context.Context, *taskpb.GetRequest) (*taskpb.GetSuccess, error)
+	completeWorkflowTask func(context.Context, *taskpb.CompleteRequest) (*taskpb.CompleteSuccess, error)
+	startWorkflowTask    func(context.Context, *taskpb.StartRequest) (*taskpb.StartSuccess, error)
+	resumeWorkflowTask   func(context.Context, *taskpb.ResumeRequest) (*taskpb.ResumeSuccess, error)
 }
 
 func (s *gatewayConcurrencyWorkflowService) StartWorkflowTask(
 	ctx context.Context,
-	req serverapi.WorkflowTaskStartRequest,
-) (serverapi.WorkflowTaskStartResponse, error) {
+	req *taskpb.StartRequest,
+) (*taskpb.StartSuccess, error) {
 	if s.startWorkflowTask == nil {
 		return s.WorkflowService.StartWorkflowTask(ctx, req)
 	}
@@ -47,8 +56,8 @@ func (s *gatewayConcurrencyWorkflowService) StartWorkflowTask(
 
 func (s *gatewayConcurrencyWorkflowService) ResumeWorkflowTask(
 	ctx context.Context,
-	req serverapi.WorkflowTaskResumeRequest,
-) (serverapi.WorkflowTaskResumeResponse, error) {
+	req *taskpb.ResumeRequest,
+) (*taskpb.ResumeSuccess, error) {
 	if s.resumeWorkflowTask == nil {
 		return s.WorkflowService.ResumeWorkflowTask(ctx, req)
 	}
@@ -57,15 +66,15 @@ func (s *gatewayConcurrencyWorkflowService) ResumeWorkflowTask(
 
 func (s *gatewayConcurrencyWorkflowService) GetWorkflowTask(
 	ctx context.Context,
-	req serverapi.WorkflowTaskGetRequest,
-) (serverapi.WorkflowTaskGetResponse, error) {
+	req *taskpb.GetRequest,
+) (*taskpb.GetSuccess, error) {
 	return s.getWorkflowTask(ctx, req)
 }
 
 func (s *gatewayConcurrencyWorkflowService) CompleteWorkflowTask(
 	ctx context.Context,
-	req serverapi.WorkflowTaskCompleteRequest,
-) (serverapi.WorkflowTaskCompleteResponse, error) {
+	req *taskpb.CompleteRequest,
+) (*taskpb.CompleteSuccess, error) {
 	if s.completeWorkflowTask == nil {
 		return s.WorkflowService.CompleteWorkflowTask(ctx, req)
 	}
@@ -78,30 +87,25 @@ type gatewayConcurrencyDependencies struct {
 	debug    bool
 }
 
-type gatewayAutomaticFatalSteerer struct {
-	cause error
-}
-
-func (s gatewayAutomaticFatalSteerer) SteerCurrentNodeAssignment(
-	context.Context,
-	workflow.CurrentNodeReference,
-) (workflowexecution.CurrentNodeAssignmentSteer, error) {
-	return nil, s.cause
-}
-
-func (gatewayAutomaticFatalSteerer) PrepareManualMoveAssignments(
-	context.Context,
-	[]workflowstore.CurrentNodeStartContext,
-) (
-	workflowstore.ManualMoveTargetAssignmentPreparation,
-	map[workflow.CurrentNodeReferenceKey]workflowexecution.CurrentNodeAssignmentSteer,
-	error,
-) {
-	return workflowstore.ManualMoveTargetAssignmentPreparation{}, nil, errors.New("Manual Move assignment preparation must not run")
-}
-
 type gatewayFailingRunner struct {
-	cause error
+	cause    error
+	t        testing.TB
+	metadata *metadata.Store
+	starts   *atomic.Int32
+}
+
+func (r gatewayFailingRunner) PrepareCurrentNode(
+	ctx context.Context,
+	input workflowstore.CurrentNodeStartContext,
+	_ workflowruntime.TaskPromptDelivery,
+) (workflowexecution.CurrentNodePreparation, error) {
+	sessions := workflowfixture.PrepareCurrentNodeSessions(r.t, ctx, r.metadata, []workflowstore.CurrentNodeStartContext{input})
+	if len(sessions) != 1 {
+		r.t.Fatal("gateway admission fixture requires one Agent Session")
+	}
+	return workflowexecution.CurrentNodePreparation{
+		Session: &sessions[0], Assignment: gatewayCommittedAssignment{},
+	}, nil
 }
 
 func (r gatewayFailingRunner) StartAgentCurrentNode(
@@ -112,6 +116,7 @@ func (r gatewayFailingRunner) StartAgentCurrentNode(
 	func(),
 	workflowruntime.Controller,
 ) (sessionruntime.ExecutionHandle, error) {
+	r.starts.Add(1)
 	return nil, r.cause
 }
 
@@ -121,45 +126,6 @@ func (gatewayFailingRunner) PrepareScriptPublication(
 	workflowruntime.Controller,
 ) (workflowexecution.CurrentNodeScriptPublication, error) {
 	return nil, nil
-}
-
-type gatewayFailingAgentPublication struct {
-	cause error
-}
-
-func (p gatewayFailingAgentPublication) Publish(
-	_ context.Context,
-	admit func() error,
-	_ func(sessionruntime.ExecutionHandle),
-) (sessionruntime.ExecutionHandle, func(), error) {
-	if err := admit(); err != nil {
-		return nil, nil, err
-	}
-	return nil, nil, p.cause
-}
-
-func (gatewayFailingAgentPublication) Cancel() error {
-	return nil
-}
-
-type gatewayCommittedAssignmentSteerer struct{}
-
-func (gatewayCommittedAssignmentSteerer) SteerCurrentNodeAssignment(
-	context.Context,
-	workflow.CurrentNodeReference,
-) (workflowexecution.CurrentNodeAssignmentSteer, error) {
-	return gatewayCommittedAssignment{}, nil
-}
-
-func (gatewayCommittedAssignmentSteerer) PrepareManualMoveAssignments(
-	context.Context,
-	[]workflowstore.CurrentNodeStartContext,
-) (
-	workflowstore.ManualMoveTargetAssignmentPreparation,
-	map[workflow.CurrentNodeReferenceKey]workflowexecution.CurrentNodeAssignmentSteer,
-	error,
-) {
-	return workflowstore.ManualMoveTargetAssignmentPreparation{}, nil, errors.New("Manual Move assignment preparation must not run")
 }
 
 type gatewayCommittedAssignment struct{}
@@ -195,17 +161,21 @@ END;
 	}
 }
 
-func requireGatewayResponse(t *testing.T, conn *websocket.Conn, requestID string) {
+func requireGatewayResponse(t *testing.T, conn *websocket.Conn, requestID string, method protoreflect.MethodDescriptor, result proto.Message) {
 	t.Helper()
-	var response protocol.Response
-	if err := websocket.JSON.Receive(conn, &response); err != nil {
-		t.Fatalf("receive Gateway response %q: %v", requestID, err)
+	response := receiveGatewayDescriptorResult(t, conn)
+	if response.GetCorrelation() != requestID {
+		t.Fatalf("response identity = %v", response)
 	}
-	if response.ID != requestID || response.Error != nil {
-		if response.Error != nil {
-			t.Fatalf("Gateway response error = %+v, want successful response %q", *response.Error, requestID)
-		}
-		t.Fatalf("Gateway response = %+v, want successful response %q", response, requestID)
+	if err := protoapi.Decode(response.Payload, result); err != nil {
+		t.Fatal(err)
+	}
+	classification, err := protoapi.ClassifyResult(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if classification.Failure != nil {
+		t.Fatalf("%s failed: %v", method.FullName(), result)
 	}
 }
 
@@ -248,7 +218,7 @@ type gatewayCloseWorkflowService struct {
 	tracker *gatewayCloseTracker
 }
 
-func (s *gatewayCloseWorkflowService) GetWorkflowTask(ctx context.Context, _ serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
+func (s *gatewayCloseWorkflowService) GetWorkflowTask(ctx context.Context, _ *taskpb.GetRequest) (*taskpb.GetSuccess, error) {
 	s.tracker.active.Add(1)
 	s.tracker.entered <- struct{}{}
 	defer func() {
@@ -257,7 +227,7 @@ func (s *gatewayCloseWorkflowService) GetWorkflowTask(ctx context.Context, _ ser
 	}()
 	<-ctx.Done()
 	s.tracker.canceled <- "workflow"
-	return serverapi.WorkflowTaskGetResponse{}, ctx.Err()
+	return &taskpb.GetSuccess{}, ctx.Err()
 }
 
 type gatewayCloseRuntimeService struct {
@@ -271,7 +241,7 @@ type gatewayCloseRelease struct {
 	active  int32
 }
 
-func (s *gatewayCloseRuntimeService) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
+func (s *gatewayCloseRuntimeService) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error) {
 	s.tracker.active.Add(1)
 	s.tracker.entered <- struct{}{}
 	defer func() {
@@ -281,14 +251,13 @@ func (s *gatewayCloseRuntimeService) ActivateSessionRuntime(ctx context.Context,
 	<-ctx.Done()
 	s.tracker.canceled <- "runtime"
 	<-s.tracker.allowActivationEnd
-	return serverapi.SessionRuntimeActivateResponse{
-		Attachment: serverapi.SessionRuntimeAttachment{SessionID: req.SessionID, Generation: 1},
-	}, nil
+	return serverapi.SessionRuntimeAttachment{SessionID: req.SessionID, Generation: 1},
+		nil
 }
 
-func (s *gatewayCloseRuntimeService) ReleaseSessionRuntime(_ context.Context, req serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
+func (s *gatewayCloseRuntimeService) ReleaseSessionRuntime(_ context.Context, req serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
 	s.releaseStarted <- gatewayCloseRelease{request: req, active: s.tracker.active.Load()}
-	return serverapi.SessionRuntimeReleaseResponse{Released: true}, nil
+	return &sessionlaunchpb.SessionRuntimeReleaseSuccess{Released: true}, nil
 }
 
 type gatewayCloseDependencies struct {
@@ -317,16 +286,16 @@ func TestGatewayConcurrentUnaryResponsesAreCorrelated(t *testing.T) {
 	}
 	workflow := &gatewayConcurrencyWorkflowService{
 		WorkflowService: appCore.WorkflowClient(),
-		getWorkflowTask: func(ctx context.Context, req serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
-			if req.TaskID == "task-1" {
+		getWorkflowTask: func(ctx context.Context, req *taskpb.GetRequest) (*taskpb.GetSuccess, error) {
+			if req.GetTaskId() == "task-1" {
 				close(blockedEntered)
 				select {
 				case <-releaseBlocked:
 				case <-ctx.Done():
-					return serverapi.WorkflowTaskGetResponse{}, ctx.Err()
+					return &taskpb.GetSuccess{}, ctx.Err()
 				}
 			}
-			return serverapi.WorkflowTaskGetResponse{}, errors.New("blocked workflow task lookup")
+			return &taskpb.GetSuccess{}, errors.New("blocked workflow task lookup")
 		},
 	}
 	deps := &gatewayConcurrencyDependencies{
@@ -345,25 +314,27 @@ func TestGatewayConcurrentUnaryResponsesAreCorrelated(t *testing.T) {
 	handshakeGateway(t, conn)
 	t.Cleanup(release)
 
-	sendGatewayRequest(t, conn, "blocked", protocol.MethodWorkflowTaskGet, serverapi.WorkflowTaskGetRequest{TaskID: "task-1"})
+	method := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService").Methods().ByName("Get")
+	sendGatewayDescriptor(t, conn, "blocked", method, &taskpb.GetRequest{TaskId: proto.String("task-1")})
 	select {
 	case <-blockedEntered:
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for blocked workflow task lookup")
 	}
-	sendGatewayRequest(t, conn, "fast", protocol.MethodWorkflowTaskGet, serverapi.WorkflowTaskGetRequest{TaskID: "task-2"})
+	sendGatewayDescriptor(t, conn, "fast", method, &taskpb.GetRequest{TaskId: proto.String("task-2")})
 
 	if err := conn.SetReadDeadline(time.Now().Add(250 * time.Millisecond)); err != nil {
 		t.Fatalf("SetReadDeadline: %v", err)
 	}
-	var response protocol.Response
-	if err := websocket.JSON.Receive(conn, &response); err != nil {
-		t.Fatalf("receive fast response: %v", err)
+	response := receiveGatewayDescriptorResult(t, conn)
+	if response.GetCorrelation() != "fast" {
+		t.Fatalf("first response id = %q, want fast", response.GetCorrelation())
 	}
-	if response.ID != "fast" {
-		t.Fatalf("first response id = %q, want fast", response.ID)
+	var result taskpb.GetResult
+	if err := protoapi.Decode(response.Payload, &result); err != nil {
+		t.Fatal(err)
 	}
-	if response.Error == nil {
+	if result.GetError() == nil {
 		t.Fatal("fast response unexpectedly succeeded")
 	}
 
@@ -371,11 +342,9 @@ func TestGatewayConcurrentUnaryResponsesAreCorrelated(t *testing.T) {
 		t.Fatalf("clear read deadline: %v", err)
 	}
 	release()
-	if err := websocket.JSON.Receive(conn, &response); err != nil {
-		t.Fatalf("receive blocked response: %v", err)
-	}
-	if response.ID != "blocked" {
-		t.Fatalf("second response id = %q, want blocked", response.ID)
+	response = receiveGatewayDescriptorResult(t, conn)
+	if response.GetCorrelation() != "blocked" {
+		t.Fatalf("second response id = %q, want blocked", response.GetCorrelation())
 	}
 }
 
@@ -386,7 +355,7 @@ func TestGatewayOrdinaryHandlerPanicPropagates(t *testing.T) {
 	panicCause := errors.New("gateway debug test panic")
 	workflow := &gatewayConcurrencyWorkflowService{
 		WorkflowService: appCore.WorkflowClient(),
-		getWorkflowTask: func(_ context.Context, _ serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
+		getWorkflowTask: func(_ context.Context, _ *taskpb.GetRequest) (*taskpb.GetSuccess, error) {
 			panic(panicCause)
 		},
 	}
@@ -399,11 +368,20 @@ func TestGatewayOrdinaryHandlerPanicPropagates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewGateway: %v", err)
 	}
-	req := protocol.Request{
-		JSONRPC: protocol.JSONRPCVersion,
-		ID:      "panic",
-		Method:  protocol.MethodWorkflowTaskGet,
-		Params:  mustJSON(t, serverapi.WorkflowTaskGetRequest{TaskID: "panic"}),
+	method := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService").Methods().ByName("Get")
+	payload, err := protoapi.Encode(&taskpb.GetRequest{TaskId: proto.String("panic")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame, err := protoapi.EncodeEnvelope(&sharedpb.Envelope{Frame: &sharedpb.Envelope_Call{Call: &sharedpb.Call{
+		Operation: gatewayOperationName(t, method), Correlation: proto.String("panic"), Payload: payload,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, failure := gateway.resolveBinaryRequest(frame)
+	if failure != nil {
+		t.Fatal(failure)
 	}
 	state := &connectionState{handshakeDone: true}
 	stopped := false
@@ -417,7 +395,7 @@ func TestGatewayOrdinaryHandlerPanicPropagates(t *testing.T) {
 			t.Fatal("ordinary request stop callback ran after panic")
 		}
 	}()
-	gateway.serveOrdinaryGatewayRequest(nil, context.Background(), state, req, gatewayRequestSchedule{
+	gateway.serveOrdinaryEstablishedRequest(nil, context.Background(), state, gatewayEstablishedRequest{binary: request}, gatewayRequestSchedule{
 		kind: gatewayRequestScheduleOrdinary,
 	}, func() {
 		stopped = true
@@ -436,15 +414,28 @@ func TestGatewayExplicitAdmissionInterruptionPersistenceFailureRemainsNonFatal(t
 			appCore, _ := newGatewayTestCore(t, true, true)
 			defer func() { _ = appCore.Close() }()
 			task := createGatewaySearchableTask(t, appCore)
-			taskID := workflow.TaskID(task.ID)
+			taskID := workflow.TaskID(task.Id)
 			workflowStore := gatewayWorkflowStore(t, appCore)
 			operationFailure := errors.New("explicit admission failed")
-			var steerer workflowexecution.CurrentNodeAssignmentSteerer = gatewayAutomaticFatalSteerer{
-				cause: operationFailure,
+			var starts atomic.Int32
+			runner := gatewayFailingRunner{
+				cause: operationFailure, t: t, metadata: appCore.MetadataStore(), starts: &starts,
 			}
-			runner := gatewayFailingRunner{cause: errors.New("runner must not start")}
+			target, err := workflowStore.GetTaskExecutionTargetContext(context.Background(), taskID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidate := &workflowstore.ExecutionTargetCandidate{
+				Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
+				Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: target.SourceWorkspaceID, SourceWorkspaceRoot: target.SourceWorkspaceRoot},
+			}
 			if test.resume {
-				started, err := workflowStore.StartTask(context.Background(), taskID)
+				ctx := context.Background()
+				plan, err := workflowStore.PlanTaskStart(ctx, taskID, candidate)
+				if err != nil {
+					t.Fatal(err)
+				}
+				started, err := workflowStore.CommitTaskStart(ctx, plan, workflowfixture.PrepareCurrentNodeSessions(t, ctx, appCore.MetadataStore(), plan.StartContexts()))
 				if err != nil {
 					t.Fatalf("StartTask: %v", err)
 				}
@@ -459,8 +450,6 @@ func TestGatewayExplicitAdmissionInterruptionPersistenceFailureRemainsNonFatal(t
 				); err != nil {
 					t.Fatalf("seed interrupted Current Node: %v", err)
 				}
-				steerer = gatewayCommittedAssignmentSteerer{}
-				runner = gatewayFailingRunner{cause: operationFailure}
 			}
 			installCurrentNodeInterruptionFailure(t, appCore)
 			authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{})
@@ -470,8 +459,7 @@ func TestGatewayExplicitAdmissionInterruptionPersistenceFailureRemainsNonFatal(t
 				authority,
 				workflowexecution.NewTaskMutationCoordinator(),
 				workflowexecution.CurrentNodeControllerConfig{
-					AgentConcurrency:  1,
-					AssignmentSteerer: steerer,
+					AgentConcurrency: 1,
 				},
 			)
 			if err != nil {
@@ -481,41 +469,35 @@ func TestGatewayExplicitAdmissionInterruptionPersistenceFailureRemainsNonFatal(t
 
 			workflowClient := &gatewayConcurrencyWorkflowService{
 				WorkflowService: appCore.WorkflowClient(),
-				startWorkflowTask: func(ctx context.Context, _ serverapi.WorkflowTaskStartRequest) (serverapi.WorkflowTaskStartResponse, error) {
+				startWorkflowTask: func(ctx context.Context, _ *taskpb.StartRequest) (*taskpb.StartSuccess, error) {
 					started, startErr := controller.StartTask(
 						ctx,
 						taskID,
-						workflowexecution.TaskStartPreparation{
-							Prepare: func(context.Context) error { return nil },
-							Commit:  func(context.Context) error { return nil },
-						},
-						func(workflowexecution.TaskPreparationFinalization) {},
+						candidate,
 					)
 					if len(started.Mutation.Created) == 0 {
-						return serverapi.WorkflowTaskStartResponse{}, startErr
+						return &taskpb.StartSuccess{}, startErr
 					}
-					response := serverapi.WorkflowTaskStartResponse{
-						Outcome: serverapi.WorkflowTaskActionOutcomeApplied,
-						Applied: &serverapi.WorkflowTaskStartApplied{
-							CurrentNodes: []serverapi.WorkflowTaskCurrentNode{{
-								NodeID: string(started.Mutation.Created[0].Reference.NodeID),
+					response := &taskpb.StartSuccess{
+						Outcome: &taskpb.StartSuccess_Applied{Applied: &taskpb.StartApplied{
+							CurrentNodes: []*taskpb.AttentionCurrentNode{{
+								NodeId: string(started.Mutation.Created[0].Reference.NodeID),
 							}},
-						},
+						}},
 					}
 					return response, startErr
 				},
-				resumeWorkflowTask: func(ctx context.Context, _ serverapi.WorkflowTaskResumeRequest) (serverapi.WorkflowTaskResumeResponse, error) {
-					resumed, resumeErr := controller.ResumeTask(ctx, taskID)
+				resumeWorkflowTask: func(ctx context.Context, _ *taskpb.ResumeRequest) (*taskpb.ResumeSuccess, error) {
+					resumed, resumeErr := controller.ResumeTask(ctx, taskID, nil)
 					if len(resumed.CurrentNodes) == 0 {
-						return serverapi.WorkflowTaskResumeResponse{}, resumeErr
+						return &taskpb.ResumeSuccess{}, resumeErr
 					}
-					response := serverapi.WorkflowTaskResumeResponse{
-						Outcome: serverapi.WorkflowExecutionTargetActionOutcomeApplied,
-						Applied: &serverapi.WorkflowTaskResumeApplied{
-							CurrentNodes: []serverapi.WorkflowTaskCurrentNode{{
-								NodeID: string(resumed.CurrentNodes[0].Reference.NodeID),
+					response := &taskpb.ResumeSuccess{
+						Outcome: &taskpb.ResumeSuccess_Applied{Applied: &taskpb.ResumeApplied{
+							CurrentNodes: []*taskpb.AttentionCurrentNode{{
+								NodeId: string(resumed.CurrentNodes[0].Reference.NodeID),
 							}},
-						},
+						}},
 					}
 					return response, resumeErr
 				},
@@ -531,21 +513,28 @@ func TestGatewayExplicitAdmissionInterruptionPersistenceFailureRemainsNonFatal(t
 			defer server.Close()
 			conn := dialGateway(t, server)
 			handshakeGateway(t, conn)
+			lifecycle := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService")
 			if test.resume {
-				sendGatewayRequest(t, conn, "explicit", protocol.MethodWorkflowTaskResume, serverapi.WorkflowTaskResumeRequest{
-					TaskID:           task.ID,
-					SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
+				method := lifecycle.Methods().ByName("Resume")
+				sendGatewayDescriptor(t, conn, "explicit", method, &taskpb.ResumeRequest{
+					TaskId:           task.Id,
+					SetupOperationId: worktreecontract.NewSetupOperationID().String(),
 				})
+				requireGatewayResponse(t, conn, "explicit", method, &taskpb.ResumeResult{})
 			} else {
-				sendGatewayRequest(t, conn, "explicit", protocol.MethodWorkflowTaskStart, serverapi.WorkflowTaskStartRequest{
-					TaskID:           task.ID,
-					SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
+				method := lifecycle.Methods().ByName("Start")
+				sendGatewayDescriptor(t, conn, "explicit", method, &taskpb.StartRequest{
+					TaskId:           task.Id,
+					SetupOperationId: worktreecontract.NewSetupOperationID().String(),
 				})
+				requireGatewayResponse(t, conn, "explicit", method, &taskpb.StartResult{})
 			}
-			requireGatewayResponse(t, conn, "explicit")
 			_ = conn.Close()
 
 			requireControllerPersistenceFailure(t, controller, taskID, operationFailure)
+			if starts.Load() != 1 {
+				t.Fatalf("runner starts = %d, want exactly one attempted dispatch", starts.Load())
+			}
 			next := dialGateway(t, server)
 			handshakeGateway(t, next)
 			_ = next.Close()
@@ -596,8 +585,16 @@ func TestGatewayCloseCancelsAndDrainsHandlersBeforeRuntimeCleanup(t *testing.T) 
 	handshakeGateway(t, conn)
 	t.Cleanup(allowActivationEnd)
 
-	sendGatewayRequest(t, conn, "workflow", protocol.MethodWorkflowTaskGet, serverapi.WorkflowTaskGetRequest{TaskID: "task-1"})
-	sendGatewayRequest(t, conn, "runtime", protocol.MethodSessionRuntimeActivate, gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
+	sendGatewayDescriptor(t, conn, "workflow",
+		taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService").Methods().ByName("Get"),
+		&taskpb.GetRequest{TaskId: proto.String("task-1")})
+	activation, err := protoapi.SessionRuntimeActivateToProto(gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sendGatewayDescriptor(t, conn, "runtime",
+		sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionRuntimeService").Methods().ByName("Activate"),
+		activation)
 	for i := 0; i < 2; i++ {
 		select {
 		case <-tracker.entered:
@@ -636,8 +633,8 @@ func TestGatewayCloseCancelsAndDrainsHandlersBeforeRuntimeCleanup(t *testing.T) 
 		if release.request.Attachment.SessionID != store.Meta().SessionID || release.request.Attachment.Generation != 1 {
 			t.Fatalf("cleanup attachment = %+v, want session %q generation 1", release.request.Attachment, store.Meta().SessionID)
 		}
-		if !release.request.DropOwner || release.request.ClosePolicy != serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle {
-			t.Fatalf("cleanup release request = %+v, want owner drop close-if-idle", release.request)
+		if !release.request.DropOwner || release.request.ClosePolicy != serverapi.SessionRuntimeReleaseClosePolicyDetachOnly {
+			t.Fatalf("cleanup release request = %+v, want owner drop detach-only", release.request)
 		}
 		if release.active != 0 {
 			t.Fatalf("cleanup started with %d active handler(s), want 0", release.active)
@@ -678,18 +675,18 @@ func TestGatewayAdmissionCapsOrdinaryUnaryRequests(t *testing.T) {
 	var calls atomic.Int32
 	workflow := &gatewayConcurrencyWorkflowService{
 		WorkflowService: appCore.WorkflowClient(),
-		getWorkflowTask: func(ctx context.Context, req serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
+		getWorkflowTask: func(ctx context.Context, req *taskpb.GetRequest) (*taskpb.GetSuccess, error) {
 			calls.Add(1)
-			if req.TaskID == "task-"+stringID(17) && !capacityReleased.Load() {
+			if req.GetTaskId() == "task-"+stringID(17) && !capacityReleased.Load() {
 				entered17BeforeRelease <- struct{}{}
 			}
-			entered <- req.TaskID
+			entered <- req.GetTaskId()
 			select {
-			case <-release[req.TaskID]:
+			case <-release[req.GetTaskId()]:
 			case <-ctx.Done():
-				return serverapi.WorkflowTaskGetResponse{}, ctx.Err()
+				return &taskpb.GetSuccess{}, ctx.Err()
 			}
-			return serverapi.WorkflowTaskGetResponse{}, errors.New("blocked workflow task lookup")
+			return &taskpb.GetSuccess{}, errors.New("blocked workflow task lookup")
 		},
 	}
 	deps := &gatewayConcurrencyDependencies{
@@ -717,9 +714,9 @@ func TestGatewayAdmissionCapsOrdinaryUnaryRequests(t *testing.T) {
 	t.Cleanup(releaseAll)
 
 	for i := int32(1); i <= 17; i++ {
-		sendGatewayRequest(t, conn, stringID(i), protocol.MethodWorkflowTaskGet, serverapi.WorkflowTaskGetRequest{
-			TaskID: "task-" + stringID(i),
-		})
+		sendGatewayDescriptor(t, conn, stringID(i),
+			taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService").Methods().ByName("Get"),
+			&taskpb.GetRequest{TaskId: proto.String("task-" + stringID(i))})
 	}
 
 	enteredIDs := make(map[string]struct{}, 16)
@@ -770,14 +767,15 @@ func TestGatewayAdmissionCapsOrdinaryUnaryRequests(t *testing.T) {
 	release["task-"+stringID(17)] <- struct{}{}
 	responses := make(map[string]struct{}, 17)
 	for i := 0; i < 17; i++ {
-		var response protocol.Response
-		if err := websocket.JSON.Receive(conn, &response); err != nil {
-			t.Fatalf("receive response %d: %v", i+1, err)
+		response := receiveGatewayDescriptorResult(t, conn)
+		var result taskpb.GetResult
+		if err := protoapi.Decode(response.Payload, &result); err != nil {
+			t.Fatal(err)
 		}
-		if response.Error == nil {
-			t.Fatalf("response %q unexpectedly succeeded", response.ID)
+		if result.GetError() == nil {
+			t.Fatalf("response %q unexpectedly succeeded", response.GetCorrelation())
 		}
-		responses[response.ID] = struct{}{}
+		responses[response.GetCorrelation()] = struct{}{}
 	}
 	for i := int32(1); i <= 17; i++ {
 		if _, ok := responses[stringID(i)]; !ok {
@@ -788,16 +786,4 @@ func TestGatewayAdmissionCapsOrdinaryUnaryRequests(t *testing.T) {
 
 func stringID(id int32) string {
 	return "request-" + strconv.FormatInt(int64(id), 10)
-}
-
-func sendGatewayRequest(t *testing.T, conn *websocket.Conn, id, method string, params any) {
-	t.Helper()
-	if err := websocket.JSON.Send(conn, protocol.Request{
-		JSONRPC: protocol.JSONRPCVersion,
-		ID:      id,
-		Method:  method,
-		Params:  mustJSON(t, params),
-	}); err != nil {
-		t.Fatalf("send %s: %v", id, err)
-	}
 }

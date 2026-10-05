@@ -7,10 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"buf.build/go/protovalidate"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/protocol"
 	"core/shared/runtimeids"
-	"core/shared/worktreecontract"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 )
 
 type TransitionBranchKey string
@@ -118,8 +120,9 @@ const (
 type CurrentNodeInterruptionReason string
 
 const (
-	CurrentNodeInterruptionReasonUserInterrupt   CurrentNodeInterruptionReason = "user_interrupt"
-	CurrentNodeInterruptionReasonRuntimeCanceled CurrentNodeInterruptionReason = "workflow_runtime_canceled"
+	CurrentNodeInterruptionReasonUserInterrupt            CurrentNodeInterruptionReason = "user_interrupt"
+	CurrentNodeInterruptionReasonRuntimeCanceled          CurrentNodeInterruptionReason = "workflow_runtime_canceled"
+	CurrentNodeInterruptionReasonContextSelectionRequired CurrentNodeInterruptionReason = "context_selection_required"
 )
 
 func IsActionableCurrentNodeInterruptionReason(reason CurrentNodeInterruptionReason) bool {
@@ -135,7 +138,7 @@ type CurrentNodeInterruptionDetail struct {
 	Code                                 string
 	Fields                               map[string]string
 	ConfiguredExecutionTargetUnavailable *ConfiguredExecutionTargetUnavailable `json:"configured_execution_target_unavailable,omitempty"`
-	SetupRecovery                        *CurrentNodeSetupRecoveryDetail       `json:"setup_recovery,omitempty"`
+	OriginalExecutionTargetUnavailable   *taskpb.LockedExecutionTargetDetails  `json:"original_execution_target_unavailable,omitempty"`
 }
 
 func DecodeCurrentNodeInterruptionDetail(raw string) (CurrentNodeInterruptionDetail, error) {
@@ -167,77 +170,15 @@ func (d CurrentNodeInterruptionDetail) Validate() error {
 			return err
 		}
 	}
-	if d.SetupRecovery != nil {
-		if _, duplicated := d.Fields[CurrentNodeInterruptionDiagnosticField]; duplicated {
-			return errors.New("setup recovery diagnostic must not be duplicated in interruption fields")
+	if d.OriginalExecutionTargetUnavailable != nil {
+		if d.ConfiguredExecutionTargetUnavailable != nil {
+			return errors.New("original target failure cannot be a configured-target failure")
 		}
-		return d.SetupRecovery.Validate()
+		if err := protovalidate.Validate(d.OriginalExecutionTargetUnavailable); err != nil {
+			return err
+		}
 	}
 	return nil
-}
-
-func (d CurrentNodeInterruptionDetail) SetupOperationID() (*uuid.UUID, error) {
-	if d.SetupRecovery == nil {
-		return nil, nil
-	}
-	if err := d.SetupRecovery.Validate(); err != nil {
-		return nil, err
-	}
-	value := d.SetupRecovery.SetupOperationID
-	return &value, nil
-}
-
-type CurrentNodeSetupRecoveryDetail struct {
-	SetupOperationID         uuid.UUID                         `json:"setup_operation_id"`
-	Cause                    worktreecontract.SetupFailureKind `json:"cause"`
-	Diagnostic               string                            `json:"diagnostic"`
-	ScriptPath               *string                           `json:"script_path"`
-	SetupRequirement         worktreecontract.SetupRequirement `json:"setup_requirement"`
-	ExecutionTarget          ExecutionTargetSelection          `json:"execution_target"`
-	RetainedWorktree         *CurrentNodeRetainedWorktree      `json:"retained_worktree"`
-	RetainedPreviousWorktree *CurrentNodeRetainedWorktree      `json:"retained_previous_worktree"`
-}
-
-func (d CurrentNodeSetupRecoveryDetail) Validate() error {
-	return worktreecontract.SetupRecoveryDetail[uuid.UUID, ExecutionTargetSelection]{
-		SetupOperationID:         d.SetupOperationID,
-		Cause:                    d.Cause,
-		Diagnostic:               d.Diagnostic,
-		ScriptPath:               d.ScriptPath,
-		SetupRequirement:         d.SetupRequirement,
-		ExecutionTarget:          d.ExecutionTarget,
-		RetainedWorktree:         d.RetainedWorktree.domain(),
-		RetainedPreviousWorktree: d.RetainedPreviousWorktree.domain(),
-	}.Validate()
-}
-
-type CurrentNodeSetupRecoveryCause = worktreecontract.SetupFailureKind
-
-type CurrentNodeSetupRequirement = worktreecontract.SetupRequirement
-
-const (
-	CurrentNodeSetupRecoveryCauseProcessExit       = worktreecontract.SetupFailureProcessExit
-	CurrentNodeSetupRecoveryCauseTimeout           = worktreecontract.SetupFailureTimeout
-	CurrentNodeSetupRecoveryCauseTargetPreparation = worktreecontract.SetupFailureTargetPreparation
-	CurrentNodeSetupRecoveryCauseOperational       = worktreecontract.SetupFailureOperational
-	CurrentNodeSetupRequirementRequired            = worktreecontract.SetupRequirementRequired
-	CurrentNodeSetupRequirementAlreadyCompleted    = worktreecontract.SetupRequirementAlreadyCompleted
-)
-
-type CurrentNodeRetainedWorktree struct {
-	WorktreeID string `json:"worktree_id"`
-	Root       string `json:"root"`
-}
-
-func (w *CurrentNodeRetainedWorktree) domain() *worktreecontract.RetainedWorktree {
-	if w == nil {
-		return nil
-	}
-	return &worktreecontract.RetainedWorktree{WorktreeID: w.WorktreeID, Root: w.Root}
-}
-
-func (w CurrentNodeRetainedWorktree) Validate() error {
-	return w.domain().Validate()
 }
 
 const CurrentNodeInterruptionDiagnosticField = "error"
@@ -254,13 +195,6 @@ func NewCurrentNodeInterruptionDetail(code string, diagnostic error) CurrentNode
 }
 
 func (d CurrentNodeInterruptionDetail) Diagnostic() *string {
-	if d.SetupRecovery != nil {
-		value := d.SetupRecovery.Diagnostic
-		if strings.TrimSpace(value) == "" {
-			return nil
-		}
-		return &value
-	}
 	if d.Fields == nil {
 		return nil
 	}
@@ -464,12 +398,7 @@ func validateCurrentNodeScheduling(scheduling *CurrentNodeScheduling) error {
 		if scheduling.Interruption.OccurredAt.IsZero() {
 			return fmt.Errorf("current node interruption occurrence time is required")
 		}
-		if unavailable := scheduling.Interruption.Detail.ConfiguredExecutionTargetUnavailable; unavailable != nil {
-			if err := unavailable.Validate(); err != nil {
-				return fmt.Errorf("current node configured execution target interruption: %w", err)
-			}
-		}
-		return nil
+		return scheduling.Interruption.Detail.Validate()
 	}
 	if scheduling.Interruption != nil {
 		return fmt.Errorf("only interrupted current nodes may carry interruption details")
@@ -493,6 +422,9 @@ func cloneCurrentNodeScheduling(scheduling *CurrentNodeScheduling) *CurrentNodeS
 	if scheduling.Interruption != nil {
 		interruption := *scheduling.Interruption
 		interruption.Detail.Fields = cloneStringMap(interruption.Detail.Fields)
+		if unavailable := interruption.Detail.OriginalExecutionTargetUnavailable; unavailable != nil {
+			interruption.Detail.OriginalExecutionTargetUnavailable = proto.Clone(unavailable).(*taskpb.LockedExecutionTargetDetails)
+		}
 		if unavailable := interruption.Detail.ConfiguredExecutionTargetUnavailable; unavailable != nil {
 			clonedUnavailable := *unavailable
 			if unavailable.RequestedRef != nil {

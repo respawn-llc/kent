@@ -1,6 +1,11 @@
 import { Activity, CircleAlert, Copy, FileText, FolderOpen, ShieldCheck } from "lucide-react";
 import { StrictMode, useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+import { I18nextProvider } from "react-i18next";
+import { useReducedMotion } from "motion/react";
+
+import { appI18n, initializeI18n } from "@/i18n";
+import { ThinkingShowcase } from "./ThinkingShowcase";
 
 import {
   TranscriptDisclosure,
@@ -24,7 +29,7 @@ const actionClassName =
 export function TranscriptDisclosureShowcase() {
   const [theme, setTheme] = useState<ShowcaseTheme>("system");
   const [width, setWidth] = useState<ShowcaseWidth>("wide");
-  const [reducedMotion, setReducedMotion] = useState(false);
+  const reducedMotion = useReducedMotion() === true;
 
   useEffect(() => {
     if (theme === "system") {
@@ -33,38 +38,6 @@ export function TranscriptDisclosureShowcase() {
     }
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
-
-  useEffect(() => {
-    const originalMatchMediaDescriptor = Object.getOwnPropertyDescriptor(window, "matchMedia");
-    const matchMediaHost: Readonly<{ matchMedia?: Window["matchMedia"] }> = window;
-    const originalMatchMedia = matchMediaHost.matchMedia?.bind(window);
-    const rootStyle = document.documentElement.style;
-    const previousMotionFast = rootStyle.getPropertyValue("--motion-fast");
-    const previousMotionFastPriority = rootStyle.getPropertyPriority("--motion-fast");
-    const controlledMatchMedia = (query: string) =>
-      query === "(prefers-reduced-motion: reduce)"
-        ? createMediaQueryList(query, reducedMotion)
-        : (originalMatchMedia?.(query) ?? createMediaQueryList(query, false));
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: controlledMatchMedia,
-    });
-    if (reducedMotion) {
-      rootStyle.setProperty("--motion-fast", "0ms ease");
-    }
-    return () => {
-      if (originalMatchMediaDescriptor === undefined) {
-        Reflect.deleteProperty(window, "matchMedia");
-      } else {
-        Object.defineProperty(window, "matchMedia", originalMatchMediaDescriptor);
-      }
-      if (previousMotionFast.length === 0) {
-        rootStyle.removeProperty("--motion-fast");
-      } else {
-        rootStyle.setProperty("--motion-fast", previousMotionFast, previousMotionFastPriority);
-      }
-    };
-  }, [reducedMotion]);
 
   return (
     <div className="transcript-disclosure-showcase h-full overflow-y-auto bg-[var(--color-background)] px-[var(--space-4)] py-[var(--space-5)] text-[var(--color-on-background)]">
@@ -81,7 +54,6 @@ export function TranscriptDisclosureShowcase() {
           </div>
           <ShowcaseControls
             reducedMotion={reducedMotion}
-            setReducedMotion={setReducedMotion}
             setTheme={setTheme}
             setWidth={setWidth}
             theme={theme}
@@ -96,6 +68,7 @@ export function TranscriptDisclosureShowcase() {
               : "grid w-full gap-[var(--space-4)]"
           }
         >
+          <ThinkingShowcase />
           <ShowcaseStory title="Collapsed">
             <DisclosureStory
               defaultExpanded={false}
@@ -180,14 +153,12 @@ export function TranscriptDisclosureShowcase() {
 
 function ShowcaseControls({
   reducedMotion,
-  setReducedMotion,
   setTheme,
   setWidth,
   theme,
   width,
 }: Readonly<{
   reducedMotion: boolean;
-  setReducedMotion: (value: boolean) => void;
   setTheme: (value: ShowcaseTheme) => void;
   setWidth: (value: ShowcaseWidth) => void;
   theme: ShowcaseTheme;
@@ -227,16 +198,9 @@ function ShowcaseControls({
           </button>
         ))}
       </div>
-      <label className="inline-flex items-center gap-[var(--space-1)] text-xs font-semibold text-[var(--color-muted)]">
-        <input
-          checked={reducedMotion}
-          onChange={(event) => {
-            setReducedMotion(event.currentTarget.checked);
-          }}
-          type="checkbox"
-        />
-        Reduced motion
-      </label>
+      <span className="text-xs text-[var(--color-muted)]">
+        Reduced motion: {reducedMotion ? "on" : "off"} (use the OS/browser preference)
+      </span>
     </div>
   );
 }
@@ -348,27 +312,17 @@ function LongBody() {
   );
 }
 
-function createMediaQueryList(query: string, matches: boolean): MediaQueryList {
-  return {
-    matches,
-    media: query,
-    onchange: null,
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined,
-    addListener: () => undefined,
-    removeListener: () => undefined,
-    dispatchEvent: () => false,
-  };
-}
-
 const root = document.getElementById("root");
 
 if (root === null) {
   throw new Error("Missing #root element");
 }
 
+await initializeI18n();
 createRoot(root).render(
   <StrictMode>
-    <TranscriptDisclosureShowcase />
+    <I18nextProvider i18n={appI18n}>
+      <TranscriptDisclosureShowcase />
+    </I18nextProvider>
   </StrictMode>,
 );

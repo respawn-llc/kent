@@ -970,6 +970,11 @@ func (s *validationState) validatePromptPlaceholders() {
 		target, targetExists := s.nodesByID[edge.TargetNodeID]
 		currentParams := edgeParameterNameSet(edge)
 		source, sourceExists := s.edgeSource(edge)
+		if refs.SessionID && (!sourceExists || source.Kind() != NodeKindAgent) {
+			sessionRef := ref
+			sessionRef.Placeholder = ".SessionId"
+			s.addSessionReferenceError(CodeSessionSourceCannotOwnSession, sessionRef)
+		}
 		if sourceExists && source.Kind() == NodeKindJoin {
 			currentParams = outputFieldNameSet(derived.JoinOutputFieldsForNode(NodeIDOf(source)))
 		} else if sourceExists && targetExists {
@@ -1062,6 +1067,10 @@ func (s *validationState) validatePriorParameterReference(edge Edge, param Promp
 	if !sourceExists || len(s.startNodes) != 1 {
 		return
 	}
+	if parameterKey == RuntimePromptParameterSessionID {
+		s.validatePriorSessionReference(edge, transitionKey, ref)
+		return
+	}
 	consumer := s.priorParameterConsumerName(edge)
 	resolution := resolvePriorParameterTransitionGroups(
 		s.def.TransitionGroups,
@@ -1071,25 +1080,50 @@ func (s *validationState) validatePriorParameterReference(edge Edge, param Promp
 		s.outgoingByNode,
 	)
 	switch {
-	case resolution.matched == 0:
+	case resolution.Matched == 0:
 		s.addHard(CodeInvalidTemplatePlaceholder, fmt.Sprintf(
 			"prompt for %s references parameter %q from transition %q, but no %q transition exists in this workflow. Check the transition key for a typo, or define the transition that produces it.",
 			consumer, parameterKey, transitionKey, transitionKey), ref)
-	case len(resolution.guaranteed) == 0:
+	case len(resolution.Guaranteed) == 0:
 		s.addHard(CodeInvalidTemplatePlaceholder, fmt.Sprintf(
 			"prompt for %s references parameter %q from transition %q, but %q is not guaranteed to run before %s: another branch can reach %s without it. Reference a parameter that every incoming branch provides, or remove the bypassing branch.",
 			consumer, parameterKey, transitionKey, transitionKey, consumer, consumer), ref)
-	case len(resolution.guaranteed) > 1:
+	case len(resolution.Guaranteed) > 1:
 		s.addHard(CodeInvalidTemplatePlaceholder, fmt.Sprintf(
 			"prompt for %s references parameter %q from transition %q, but more than one %q transition can run before %s. Give the producing transitions distinct keys and reference one.",
 			consumer, parameterKey, transitionKey, transitionKey, consumer), ref)
 	case parameterKey == RuntimePromptParameterCommentary:
 		return
-	case !s.transitionGroupParameterSet(resolution.guaranteed[0].ID, derived)[parameterKey]:
+	case !s.transitionGroupParameterSet(resolution.Guaranteed[0].ID, derived)[parameterKey]:
 		s.addHard(CodeInvalidTemplatePlaceholder, fmt.Sprintf(
 			"prompt for %s references parameter %q from transition %q, but transition %q does not declare a %q parameter.",
 			consumer, parameterKey, transitionKey, transitionKey, parameterKey), ref)
 	}
+}
+
+func (s *validationState) validatePriorSessionReference(edge Edge, transitionKey string, ref ValidationError) {
+	source, sourceExists := s.edgeSource(edge)
+	if !sourceExists || len(s.startNodes) != 1 {
+		return
+	}
+	resolution := ResolvePromptSessionReference(s.def, ModelKey(transitionKey), NodeIDOf(source), edge.TargetNodeID, nil)
+	switch {
+	case resolution.Matched == 0:
+		s.addSessionReferenceError(CodeSessionTransitionMissing, ref)
+	case len(resolution.Guaranteed) == 0:
+		s.addSessionReferenceError(CodeSessionTransitionNotGuaranteed, ref)
+	case len(resolution.Guaranteed) > 1:
+		s.addSessionReferenceError(CodeSessionTransitionAmbiguous, ref)
+	default:
+		provider, providerExists := s.nodesByID[resolution.SourceNodeID]
+		if !providerExists || provider.Kind() != NodeKindAgent {
+			s.addSessionReferenceError(CodeSessionSourceCannotOwnSession, ref)
+		}
+	}
+}
+
+func (s *validationState) addSessionReferenceError(code ValidationErrorCode, ref ValidationError) {
+	s.addHard(code, string(code), ref)
 }
 
 // priorParameterConsumerName names the node whose prompt carries a previous-parameter

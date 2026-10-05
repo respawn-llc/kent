@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -13,10 +12,9 @@ import (
 
 	"core/server/runtime"
 	"core/server/session"
+	"core/shared/config"
 	"core/shared/transcriptdiag"
 )
-
-const RunLogFileName = "steps.log"
 
 type RunLogger struct {
 	mu                   sync.Mutex
@@ -124,7 +122,7 @@ func (o *DurabilityObserver) recordLineLocked(line string) *RunLogger {
 }
 
 func NewRunLogger(sessionDir string, onDiagnostic func(RunLoggerDiagnostic)) (*RunLogger, error) {
-	fp, err := os.OpenFile(filepath.Join(sessionDir, RunLogFileName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	fp, err := os.OpenFile(session.RunLogPath(sessionDir), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return &RunLogger{onDiagnostic: onDiagnostic}, nil
@@ -168,11 +166,18 @@ func (l *RunLogger) Logf(format string, args ...any) {
 	}
 }
 
-func FormatConfigSourceLines(sources map[string]string) []string {
+func FormatConfigSourceLines(sources map[string]config.Origin) []string {
 	keys := slices.Sorted(maps.Keys(sources))
 	lines := make([]string, 0, len(keys))
 	for _, key := range keys {
-		lines = append(lines, fmt.Sprintf("%s=%s", key, strings.TrimSpace(sources[key])))
+		origin := sources[key]
+		location := string(origin.Kind)
+		if origin.File != nil {
+			location = fmt.Sprintf("%s:%s", origin.File.Layer, origin.File.Path)
+		} else if origin.Option != nil {
+			location = *origin.Option
+		}
+		lines = append(lines, fmt.Sprintf("%s=%s (%s)", key, location, origin.Property.String()))
 	}
 	return lines
 }

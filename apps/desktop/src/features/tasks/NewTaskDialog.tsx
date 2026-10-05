@@ -1,25 +1,19 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Plus } from "lucide-react";
-import { useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 
 import {
-  decodeWorkflowTaskDependencyError,
+  WorkflowTaskDependencyError,
   errorMessage,
   isProjectMissingError,
-  type ApiService,
-  type WorkspaceCatalogRow,
 } from "@/api";
 import {
-  projectWorkspaceQueryOptions,
-  queryKeys,
   useAppServices,
-  useConnectionSnapshot,
   useStatusController,
   useTextFieldSubmitShortcut,
-  workspaceCatalogInfiniteQueryOptions,
   type NewTaskPreparedDependency,
   type SidebarPageNavigator,
 } from "@/app-facade";
@@ -38,22 +32,17 @@ import {
 } from "@/shared/task-dependencies";
 import { useCreateTask } from "@/shared/task-mutations";
 import {
-  projectWorkspaceSelectorProjection,
-  updateWorkspaceSelection,
-  type WorkspaceSelectionState,
-} from "@/shared/workspaces";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
   Badge,
   Button,
   FieldShell,
   InfiniteListBoundary,
   SelectField,
+  Spinner,
   TextArea,
   TextInput,
-  type SelectFieldPaging,
 } from "@/ui";
 import { cx } from "@/ui";
+import { useNewTaskWorkspaceCatalog } from "./NewTaskWorkspaceModel";
 
 const newTaskSchema = z.object({
   title: z.string().trim().min(1),
@@ -102,9 +91,8 @@ type Translate = ReturnType<typeof useTranslation>["t"];
 type Logger = ReturnType<typeof useAppServices>["logger"];
 
 function newTaskCreateErrorBody(error: unknown, t: Translate, logger: Logger): string {
-  const dependencyError = decodeWorkflowTaskDependencyError(error);
-  if (dependencyError === null) return errorMessage(error);
-  const reason = dependencyError.reason;
+  if (!(error instanceof WorkflowTaskDependencyError)) return errorMessage(error);
+  const reason = error.reason;
   void logger.append("warn", "Dependency rejected.", { error: errorMessage(error), reason });
   return t("task.dependenciesRejected");
 }
@@ -173,8 +161,7 @@ function NewTaskFormContent({
   const { t } = useTranslation();
   const { api, logger } = useAppServices();
   const { dismiss, push } = useStatusController();
-  const connection = useConnectionSnapshot();
-  const restored = useMemo(() => decodeNewTaskRetainedState(retainedState), [retainedState]);
+  const [restored] = useState(() => decodeNewTaskRetainedState(retainedState));
   const authoredSourceWorkspaceID = restored?.formValues.sourceWorkspaceID ?? initialSourceWorkspaceID;
   const workspaceCatalog = useNewTaskWorkspaceCatalog(api, projectID, authoredSourceWorkspaceID, t);
   const catalog = useProjectLabelCatalog();
@@ -232,14 +219,10 @@ function NewTaskFormContent({
       })),
     [effectiveSelectedLabelIDs, form, navigator, preparedDependencies],
   );
-  const canSubmit = [
-    connection.phase === "connected",
-    !createTask.isPending,
-    !labelCreatePending,
-    catalog.data !== undefined,
-    selectedWorkspace !== undefined,
-  ].every(Boolean);
-  async function submit(values: NewTaskFormValues): Promise<void> {
+  const canSubmit = [!labelCreatePending, catalog.data !== undefined, selectedWorkspace !== undefined].every(
+    Boolean,
+  );
+  function submit(values: NewTaskFormValues): void {
     if (!canSubmit) {
       return;
     }
@@ -248,8 +231,8 @@ function NewTaskFormContent({
       throw new Error("New Task submission requires a source Workspace.");
     }
     dismiss("new-task-create-error");
-    try {
-      const createdTask = await createTask.mutateAsync({
+    createTask.submit({
+      input: {
         projectID,
         ...(workflowID === undefined ? {} : { workflowID }),
         title: values.title,
@@ -260,34 +243,37 @@ function NewTaskFormContent({
           relatedTaskID: dependency.taskID,
           newTaskRole: dependency.direction === "blocked-by" ? "blocked" : "blocker",
         })),
-      });
-      const navigation = navigator.back(
-        parentReturnDirection === undefined
-          ? undefined
-          : {
-              kind: "newTaskCreated",
-              direction: parentReturnDirection,
-              task: {
-                ...createdTask,
-                status: {
-                  kind: "backlog",
-                  nativeState: "active",
-                  nodeIDs: [],
-                  attentionTypes: [],
+      },
+      onSuccess(createdTask) {
+        const navigation = navigator.back(
+          parentReturnDirection === undefined
+            ? undefined
+            : {
+                kind: "newTaskCreated",
+                direction: parentReturnDirection,
+                task: {
+                  ...createdTask,
+                  status: {
+                    kind: "backlog",
+                    nativeState: "active",
+                    nodeIDs: [],
+                    attentionTypes: [],
+                  },
                 },
               },
-            },
-      );
-      if (navigation === "accepted") void onCreated?.(createdTask.id);
-    } catch (error) {
-      push({
-        body: newTaskCreateErrorBody(error, t, logger),
-        durationMs: Infinity,
-        id: "new-task-create-error",
-        title: t("task.createFailed"),
-        tone: "danger",
-      });
-    }
+        );
+        if (navigation === "accepted") void onCreated?.(createdTask.id);
+      },
+      onError(error) {
+        push({
+          body: newTaskCreateErrorBody(error, t, logger),
+          durationMs: Infinity,
+          id: "new-task-create-error",
+          title: t("task.createFailed"),
+          tone: "danger",
+        });
+      },
+    });
   }
 
   const workspaceOptions = useMemo(
@@ -318,7 +304,6 @@ function NewTaskFormContent({
         {...form.register("body")}
       />
       <NewTaskLabels
-        disabled={connection.phase !== "connected"}
         onCreatePendingChange={setLabelCreatePending}
         onSelectionChange={(labelID, selected) => {
           setSelectedLabelIDs((current) => {
@@ -332,7 +317,6 @@ function NewTaskFormContent({
       />
       <DependenciesArea
         dependencies={preparedTaskDependenciesProjection(preparedDependencies)}
-        disabled={connection.phase !== "connected"}
         excludedTaskIDs={(direction) =>
           new Set(
             preparedDependencies
@@ -340,7 +324,6 @@ function NewTaskFormContent({
               .map((dependency) => dependency.taskID),
           )
         }
-        navigationDisabled={connection.phase !== "connected"}
         onAdd={(direction) => {
           const destination = {
             ...(selectedWorkspace === undefined ? {} : { initialSourceWorkspaceID: selectedWorkspace.id }),
@@ -354,20 +337,25 @@ function NewTaskFormContent({
               : { ...destination, boardQueryWorkflowID, workflowID },
           );
         }}
-        onRemove={(direction, item) => {
-          setPreparedDependencies((current) => removePreparedTaskDependency(current, direction, item.taskID));
-        }}
-        onSelectCandidate={async (direction, result) => {
-          setPreparedDependencies((current) =>
-            insertPreparedTaskDependency(current, {
-              direction,
-              taskID: result.group.taskID,
-              shortID: result.group.shortID,
-              title: result.group.title,
-              workflowID: result.group.workflowID,
-              status: result.group.status,
-            }),
-          );
+        interaction={{
+          kind: "prepared",
+          onRemove(direction, item) {
+            setPreparedDependencies((current) =>
+              removePreparedTaskDependency(current, direction, item.taskID),
+            );
+          },
+          onSelect(direction, result) {
+            setPreparedDependencies((current) =>
+              insertPreparedTaskDependency(current, {
+                direction,
+                taskID: result.group.taskID,
+                shortID: result.group.shortID,
+                title: result.group.title,
+                workflowID: result.group.workflowID,
+                status: result.group.status,
+              }),
+            );
+          },
         }}
         onSelectTask={(taskID) => {
           navigator.push({ kind: "taskDetail", taskID });
@@ -425,157 +413,24 @@ function NewTaskFormContent({
       {workspaceItems.length > 0 && workspacePaging.initialBoundary !== undefined ? (
         <InfiniteListBoundary direction="initial" state={workspacePaging.initialBoundary} />
       ) : null}
-      <Button className="mx-auto w-full max-w-[400px]" disabled={!canSubmit} type="submit" variant="primary">
-        {t("task.create")}
+      <Button
+        className="mx-auto w-full max-w-[400px]"
+        disabled={!canSubmit}
+        aria-busy={createTask.isPending}
+        type="submit"
+        variant="primary"
+      >
+        {createTask.isPending ? <Spinner /> : t("task.create")}
       </Button>
     </form>
   );
 }
 
-function useNewTaskWorkspaceCatalog(
-  api: ApiService,
-  projectID: string,
-  initialSourceWorkspaceID: string | undefined,
-  t: ReturnType<typeof useTranslation>["t"],
-) {
-  const workspaces = useNewTaskWorkspaceQuery(api, projectID);
-  const queryClient = useQueryClient();
-  const initiatingWorkspace = useQuery(
-    projectWorkspaceQueryOptions(api, projectID, initialSourceWorkspaceID),
-  );
-  const [workspaceSelection, dispatchWorkspaceSelection] = useReducer(
-    updateWorkspaceSelection,
-    initialSourceWorkspaceID,
-    (workspaceID): WorkspaceSelectionState => ({
-      catalog: { state: "pending" },
-      initiating: workspaceID === undefined ? undefined : { state: "pending" },
-      selection: { state: "uncommitted" },
-    }),
-  );
-  const catalogRestartedRef = useRef(false);
-  const restartedProjectRef = useRef<string | undefined>(undefined);
-  const firstRetainedOffset = workspaces.data?.pages[0]?.offset;
-  useEffect(() => {
-    if (restartedProjectRef.current !== projectID) {
-      restartedProjectRef.current = projectID;
-      catalogRestartedRef.current = false;
-    }
-    if (firstRetainedOffset !== undefined && firstRetainedOffset > 0 && !catalogRestartedRef.current) {
-      catalogRestartedRef.current = true;
-      void queryClient.resetQueries({
-        exact: true,
-        queryKey: queryKeys.projectWorkspaceCatalog(projectID),
-      });
-    }
-  }, [firstRetainedOffset, projectID, queryClient]);
-  const defaultWorkspace = workspaces.data?.pages[0]?.workspaces.find((workspace) => workspace.isDefault);
-  useEffect(() => {
-    if (defaultWorkspace !== undefined) {
-      dispatchWorkspaceSelection({ type: "catalog-loaded", defaultWorkspace });
-    }
-  }, [defaultWorkspace]);
-  useEffect(() => {
-    if (initialSourceWorkspaceID === undefined) return;
-    if (initiatingWorkspace.data?.kind === "attached") {
-      dispatchWorkspaceSelection({
-        type: "initiating-attached",
-        row: initiatingWorkspace.data.workspace,
-      });
-      return;
-    }
-    if (initiatingWorkspace.data?.kind === "not_attached") {
-      dispatchWorkspaceSelection({ type: "initiating-not-attached" });
-      return;
-    }
-    if (initiatingWorkspace.isError) {
-      dispatchWorkspaceSelection({ type: "initiating-failed", error: initiatingWorkspace.error });
-    }
-  }, [
-    initialSourceWorkspaceID,
-    initiatingWorkspace.data,
-    initiatingWorkspace.error,
-    initiatingWorkspace.isError,
-  ]);
-  const selectedWorkspace =
-    workspaceSelection.selection.state === "committed" ? workspaceSelection.selection.row : undefined;
-  const workspaceProjection = useMemo(
-    () =>
-      projectWorkspaceSelectorProjection({
-        catalogPages: workspaces.data?.pages ?? [],
-        initiatingRow:
-          workspaceSelection.initiating?.state === "attached" ? workspaceSelection.initiating.row : undefined,
-        selectedSnapshot: selectedWorkspace,
-        catalogExhausted: workspaces.data !== undefined && !workspaces.hasNextPage,
-      }),
-    [selectedWorkspace, workspaceSelection.initiating, workspaces.data, workspaces.hasNextPage],
-  );
-  const workspacePaging = workspacePagingState(workspaces, t);
-  return {
-    initiatingWorkspace,
-    retryInitiatingWorkspace() {
-      dispatchWorkspaceSelection({ type: "initiating-retry" });
-      void initiatingWorkspace.refetch();
-    },
-    selectedWorkspace,
-    selectWorkspace(row: WorkspaceCatalogRow) {
-      dispatchWorkspaceSelection({ type: "user-selected", row });
-    },
-    workspaceItems: workspaceProjection.rows,
-    workspacePaging,
-    workspaceProjection,
-    workspaceSelection,
-    workspaces,
-  };
-}
-
-function workspacePagingState(
-  workspaces: ReturnType<typeof useNewTaskWorkspaceQuery>,
-  t: ReturnType<typeof useTranslation>["t"],
-): SelectFieldPaging {
-  return {
-    hasNextPage: workspaces.hasNextPage,
-    initialBoundary: workspaces.isPending
-      ? { state: "loading", label: t("states.loading") }
-      : workspaces.isError && workspaces.data === undefined
-        ? {
-            state: "error",
-            message: errorMessage(workspaces.error),
-            retryLabel: t("app.retry"),
-            onRetry: () => {
-              void workspaces.refetch();
-            },
-          }
-        : undefined,
-    loadKey: workspaces.data?.pages.at(-1)?.nextOffset?.toString(),
-    nextBoundary: workspaces.isFetchingNextPage
-      ? { state: "loading", label: t("app.loadingMore") }
-      : workspaces.isFetchNextPageError
-        ? {
-            state: "error",
-            message: errorMessage(workspaces.error),
-            retryLabel: t("app.retry"),
-            onRetry: () => {
-              void workspaces.fetchNextPage();
-            },
-          }
-        : undefined,
-    onLoadNext: () => {
-      void workspaces.fetchNextPage();
-    },
-  };
-}
-
-function useNewTaskWorkspaceQuery(api: ApiService, projectID: string) {
-  return useInfiniteQuery(workspaceCatalogInfiniteQueryOptions(api, projectID));
-}
-
 function NewTaskLabels({
-  disabled,
   onCreatePendingChange,
   onSelectionChange,
   selectedLabelIDs,
 }: Readonly<{
-  disabled: boolean;
   onCreatePendingChange(pending: boolean): void;
   onSelectionChange(labelID: string, selected: boolean): void;
   selectedLabelIDs: readonly string[];
@@ -602,7 +457,6 @@ function NewTaskLabels({
           <Button
             aria-label={t("labels.editAssignments")}
             className="min-h-11 h-auto w-full min-w-0 justify-start text-left"
-            disabled={disabled}
             id={inputID}
             variant="secondary"
           >

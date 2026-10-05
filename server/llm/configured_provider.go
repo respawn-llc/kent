@@ -1,92 +1,57 @@
 package llm
 
 import (
-	"context"
 	"fmt"
 	"net/url"
 	"strings"
 
-	"core/server/auth"
 	"core/server/session"
 	"core/shared/config"
 )
 
-type EffectiveAuthStateReader interface {
-	Load(context.Context) (auth.State, error)
-}
-
-type EffectiveProviderResolution struct {
-	AuthState    auth.State
-	Capabilities ProviderCapabilities
-}
-
-// ResolveEffectiveProviderCapabilities is the sole authority for choosing
-// locked, explicitly configured, or effective-auth-derived provider
-// capabilities. A missing reader represents an effective no-auth state.
-func ResolveEffectiveProviderCapabilities(
-	ctx context.Context,
-	locked *session.LockedContract,
-	settings config.Settings,
-	authStates EffectiveAuthStateReader,
-) (EffectiveProviderResolution, error) {
-	if capabilities, configured := ProviderCapabilitiesFromLockedOrOverride(
-		locked,
-		settings.ProviderCapabilities,
-	); configured {
-		return EffectiveProviderResolution{
-			AuthState:    auth.EmptyState(),
-			Capabilities: capabilities,
-		}, nil
-	}
-	authState := auth.EmptyState()
-	if authStates != nil {
-		var err error
-		authState, err = authStates.Load(ctx)
-		if err != nil {
-			return EffectiveProviderResolution{}, err
-		}
-	}
-	capabilities, err := ProviderCapabilitiesForSettings(authState, settings)
-	if err != nil {
-		return EffectiveProviderResolution{}, err
-	}
-	return EffectiveProviderResolution{
-		AuthState:    authState,
-		Capabilities: capabilities,
-	}, nil
-}
-
-func ProviderCapabilitiesForSettings(authState auth.State, settings config.Settings) (ProviderCapabilities, error) {
-	return ResolveRuntimeProviderCapabilities(authState, settings)
-}
-
-func ResolveRuntimeProviderCapabilities(authState auth.State, settings config.Settings) (ProviderCapabilities, error) {
-	if caps, ok := ProviderCapabilitiesFromOverride(settings.ProviderCapabilities); ok {
-		return caps, nil
-	}
-	provider := Provider(strings.TrimSpace(settings.ProviderOverride))
-	if provider == "" {
-		if strings.TrimSpace(settings.OpenAIBaseURL) != "" {
-			provider = ProviderOpenAI
-		} else {
-			inferredProvider, err := InferProviderFromModel(settings.Model)
-			if err != nil {
-				provider = ProviderOpenAI
-			} else {
-				provider = inferredProvider
-			}
-		}
-	}
-	mode := OpenAIAuthModeForAuthState(authState)
-	endpoint, err := newProviderTransportEndpoint(settings.OpenAIBaseURL, strings.TrimSpace(settings.OpenAIBaseURL) != "")
+// ResolveEffectiveProviderCapabilities preserves the historical request
+// contract independently of the selected connection's actual transport.
+func ResolveEffectiveProviderCapabilities(locked *session.LockedContract, settings config.Settings) (ProviderCapabilities, error) {
+	actual, err := ResolveRuntimeProviderCapabilities(settings)
 	if err != nil {
 		return ProviderCapabilities{}, err
 	}
-	variant, err := resolveRuntimeTransportVariant(provider, endpoint, mode)
+	effective := actual
+	if contract, present := ProviderCapabilitiesFromLocked(locked); present {
+		effective = contract
+		effective.SupportsNativeThinkingUpdates = actual.SupportsNativeThinkingUpdates
+		effective.SupportsFastMode = actual.SupportsFastMode
+	}
+	return effective, nil
+}
+
+func ResolveRuntimeProviderCapabilities(settings config.Settings) (ProviderCapabilities, error) {
+	connection, err := settings.SelectedConnection()
 	if err != nil {
 		return ProviderCapabilities{}, err
 	}
-	return variant.Capabilities, nil
+	return ResolveConnectionCapabilities(connection)
+}
+
+func ResolveConnectionCapabilities(connection config.ProviderConnection) (ProviderCapabilities, error) {
+	rawURL := ""
+	if connection.Endpoint != nil {
+		rawURL = *connection.Endpoint
+	}
+	endpoint, err := newProviderTransportEndpoint(rawURL, connection.Endpoint != nil)
+	if err != nil {
+		return ProviderCapabilities{}, err
+	}
+	variant, err := resolveRuntimeTransportVariant(ProviderOpenAI, endpoint, OpenAIAuthMode{IsOAuth: connection.Protocol == config.ConnectionChatGPT})
+	if err != nil {
+		return ProviderCapabilities{}, err
+	}
+	caps := variant.Capabilities
+	if override, ok := ProviderCapabilitiesFromOverride(connection.Capabilities); ok {
+		caps = override
+		caps.SupportsNativeThinkingUpdates = variant.Capabilities.SupportsNativeThinkingUpdates
+	}
+	return caps, nil
 }
 
 func newProviderTransportEndpoint(rawURL string, explicit bool) (ProviderTransportEndpoint, error) {
@@ -102,17 +67,6 @@ func newProviderTransportEndpoint(rawURL string, explicit bool) (ProviderTranspo
 		return ProviderTransportEndpoint{}, fmt.Errorf("parse provider endpoint URL: %w", err)
 	}
 	return ProviderTransportEndpoint{URL: parsed, Explicit: explicit}, nil
-}
-
-func OpenAIAuthModeForAuthState(authState auth.State) OpenAIAuthMode {
-	if authState.Method.Type != auth.MethodOAuth {
-		return OpenAIAuthMode{}
-	}
-	accountID := ""
-	if authState.Method.OAuth != nil {
-		accountID = strings.TrimSpace(authState.Method.OAuth.AccountID)
-	}
-	return OpenAIAuthMode{IsOAuth: true, AccountID: accountID}
 }
 
 func resolveRuntimeTransportVariant(provider Provider, endpoint ProviderTransportEndpoint, mode OpenAIAuthMode) (ProviderVariantContract, error) {

@@ -4,7 +4,6 @@ import { ChevronLeft, ChevronRight, Home, SunMoon } from "lucide-react";
 import { useCallback, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { WorkflowEditorDraftBridgeProvider } from "@/features/workflow-editor";
 import { TaskSearchGlobalTrigger, TaskSearchHost, TaskSearchProvider } from "@/features/board";
 import { toggleInMemoryThemeOverride } from "./startup/appEnvironment";
 import { AttentionController } from "./AttentionController";
@@ -16,7 +15,7 @@ import {
   appChromeTitleClassNames,
   appChromeTitlePlacementClassNames,
 } from "./appChromeStyles";
-import { useAppNavigation, useNavigationStackState } from "@/app-facade";
+import { SessionChatCatalogReturnProvider, useAppNavigation, useNavigationStackState } from "@/app-facade";
 import { completeProjectDeletion, useProjectDeletedEvents } from "@/app-facade";
 import { SidebarHost } from "./sidebar";
 import { SidebarProvider } from "./sidebarProvider";
@@ -33,7 +32,9 @@ export function AppChrome({ children }: AppChromeProps) {
   return (
     <TaskSearchProvider>
       <SidebarProvider policy={sidebarDestinationPolicy}>
-        <AppChromeContent>{children}</AppChromeContent>
+        <SessionChatCatalogReturnProvider>
+          <AppChromeContent>{children}</AppChromeContent>
+        </SessionChatCatalogReturnProvider>
       </SidebarProvider>
     </TaskSearchProvider>
   );
@@ -120,19 +121,17 @@ function AppChromeContent({ children }: AppChromeProps) {
           {title}
         </div>
       ) : null}
-      <WorkflowEditorDraftBridgeProvider>
-        <ProjectDeletionEventHandler />
-        <AttentionController />
-        <div
-          className="app-region-no-drag relative flex min-h-0 min-w-0 w-full overflow-hidden"
-          data-testid="app-shell-content"
-        >
-          <div className="min-h-0 min-w-0 flex-1 overflow-visible" data-testid="app-main-content">
-            {children}
-          </div>
-          <SidebarHost />
+      <ProjectDeletionEventHandler />
+      <AttentionController />
+      <div
+        className="app-region-no-drag relative flex min-h-0 min-w-0 w-full overflow-hidden"
+        data-testid="app-shell-content"
+      >
+        <div className="min-h-0 min-w-0 flex-1 overflow-visible" data-testid="app-main-content">
+          {children}
         </div>
-      </WorkflowEditorDraftBridgeProvider>
+        <SidebarHost />
+      </div>
     </main>
   );
 }
@@ -179,13 +178,13 @@ function ProjectDeletionEventHandler() {
   useProjectDeletedEvents(
     nativeBridge,
     useCallback(
-      (event) => {
+      async (event) => {
         const routeMatches = routeReferencesProject(
           location.pathname,
           new URLSearchParams(location.searchStr).get("projectId"),
           event.projectID,
         );
-        void completeProjectDeletion({
+        return completeProjectDeletion({
           navigateHome: routeMatches ? navigation.openHome : undefined,
           projectID: event.projectID,
           pushDeletedToast: () => {

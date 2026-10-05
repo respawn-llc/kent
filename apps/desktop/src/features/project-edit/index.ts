@@ -1,3 +1,2 @@
-export { ProjectDeleteButton, ProjectDeleteWindowRoute } from "./ProjectDeleteButton";
-export { WorkspaceUnlinkWindowRoute } from "./ProjectEditParts";
+export { ProjectDeleteWindowRoute } from "./ProjectDeleteButton";
 export { ProjectEditRoute } from "./ProjectEditRoute";

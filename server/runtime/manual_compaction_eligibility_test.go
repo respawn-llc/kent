@@ -1,9 +1,11 @@
 package runtime
 
 import (
+	"errors"
 	"testing"
 
 	"core/server/llm"
+	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -15,7 +17,7 @@ func completeManualEligibilityAgentStep(t *testing.T, engine *Engine) {
 	engine.compactionRuntimeState().SetManualCompactionEligible(true)
 }
 
-func TestManualCompactionRequiresToolCallSinceLatestCompaction(t *testing.T) {
+func TestManualCompactionRejectsTooSoonBeforeScheduling(t *testing.T) {
 	client := &fakeCompactionClient{
 		responses: []llm.Response{{
 			Assistant: llm.Message{
@@ -25,18 +27,26 @@ func TestManualCompactionRequiresToolCallSinceLatestCompaction(t *testing.T) {
 		}},
 	}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "local",
 	})
 	engine.compactionRuntimeState().SetManualCompactionEligible(false)
 
-	var events []Event
-	engine.cfg.OnEvent = func(event Event) {
-		events = append(events, event)
+	requestID := runtimeids.NewCompactionRequestID()
+	if _, err := engine.CompactContextAdmissionForRequestWithAcceptance(
+		t.Context(),
+		requestID,
+		runtimeinput.ManualCompactionAdmission{},
+		nil,
+	); !errors.Is(err, ErrManualCompactionTooSoon) {
+		t.Fatalf("fresh-session compaction error = %v, want too soon", err)
 	}
-	scheduleManualCompactionAndWait(t, engine)
-	if !hasEventKind(events, EventCompactionFailed) {
-		t.Fatalf("fresh-session compaction events = %+v, want failed event", events)
+	pending, err := engine.PendingWorkSnapshot()
+	if err != nil {
+		t.Fatalf("PendingWorkSnapshot: %v", err)
+	}
+	if len(pending.Items) != 0 {
+		t.Fatalf("fresh-session compaction changed Pending Work: %+v", pending.Items)
 	}
 	client.mu.Lock()
 	defer client.mu.Unlock()
@@ -55,7 +65,7 @@ func TestManualCompactionAcceptsAfterAgentStepBoundary(t *testing.T) {
 		}},
 	}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "local",
 	})
 	completeManualEligibilityAgentStep(t, engine)
@@ -74,7 +84,7 @@ func TestManualCompactionAcceptsAfterAgentStepBoundary(t *testing.T) {
 }
 
 func TestManualCompactionAdmissionReturnsDuringAgentStep(t *testing.T) {
-	engine := pendingWorkTestEngine(t, Config{Model: "gpt-5", CompactionMode: "local"})
+	engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol", CompactionMode: "local"})
 	release := pendingWorkTestHoldStep(t, engine, ActiveKindUserTurn)
 	_, firstID := schedulePendingManualCompaction(t, engine)
 	_, secondID := schedulePendingManualCompaction(t, engine)
@@ -97,7 +107,7 @@ func TestManualCompactionRevalidatesMutableConditionsAtBoundary(t *testing.T) {
 		mutate func(*Engine)
 	}{
 		{"disabled policy", func(engine *Engine) {
-			engine.contextPolicy.CompactionMode = serverapi.ChatContextCompactionModeDisabled
+			engine.contextPolicy.CompactionMode = contextpb.CompactionMode_COMPACTION_MODE_DISABLED
 		}},
 		{
 			"active compaction",
@@ -109,7 +119,7 @@ func TestManualCompactionRevalidatesMutableConditionsAtBoundary(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			engine := pendingWorkTestEngine(t, Config{Model: "gpt-5", CompactionMode: "local"})
+			engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol", CompactionMode: "local"})
 			engine.compactionRuntimeState().SetManualCompactionEligible(true)
 			release := pendingWorkTestHoldMaintenance(t, engine)
 			var terminal *CompactionStatus

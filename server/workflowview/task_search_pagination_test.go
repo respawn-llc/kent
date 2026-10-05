@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"core/server/workflowstore"
-	"core/shared/serverapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
 func TestTaskSearchPaginatesWithOffsets(t *testing.T) {
@@ -21,7 +21,7 @@ func TestTaskSearchPaginatesWithOffsets(t *testing.T) {
 	if len(page.Groups) != 1 || len(page.Groups[0].Hits) != 1 || page.NextOffset == nil || *page.NextOffset != 1 {
 		t.Fatalf("first page = %+v", page)
 	}
-	firstTaskID := page.Groups[0].TaskID
+	firstTaskID := page.Groups[0].TaskId
 
 	request.Offset = page.NextOffset
 	page, err = search.Search(fixture.ctx, request)
@@ -48,7 +48,7 @@ func TestTaskSearchPaginatesWithOffsets(t *testing.T) {
 func TestTaskSearchRejectsNegativeOffset(t *testing.T) {
 	fixture, search := newTaskSearchFixture(t, false)
 	createTaskSearchTask(t, fixture, "First", "needle")
-	negative := -1
+	negative := int32(-1)
 	request := taskSearchRequest("needle")
 	request.Offset = &negative
 
@@ -71,10 +71,10 @@ func TestTaskSearchPaginatesBreadthFirstAcrossTasksAndRepeatsTaskAcrossPages(t *
 	if len(first.Groups) != 2 || first.NextOffset == nil || *first.NextOffset != 2 {
 		t.Fatalf("first breadth-first page = %+v", first)
 	}
-	if first.Groups[0].TaskID != string(titleTask.ID) ||
+	if first.Groups[0].TaskId != string(titleTask.ID) ||
 		len(first.Groups[0].Hits) != 1 ||
 		first.Groups[0].Hits[0].Ordinal != 1 ||
-		first.Groups[1].TaskID != string(bodyTask.ID) ||
+		first.Groups[1].TaskId != string(bodyTask.ID) ||
 		len(first.Groups[1].Hits) != 1 ||
 		first.Groups[1].Hits[0].Ordinal != 1 {
 		t.Fatalf("first breadth-first page = %+v, want first hit for each Task", first)
@@ -86,7 +86,7 @@ func TestTaskSearchPaginatesBreadthFirstAcrossTasksAndRepeatsTaskAcrossPages(t *
 		t.Fatalf("second Search: %v", err)
 	}
 	if len(second.Groups) != 1 ||
-		second.Groups[0].TaskID != string(bodyTask.ID) ||
+		second.Groups[0].TaskId != string(bodyTask.ID) ||
 		len(second.Groups[0].Hits) != 1 ||
 		second.Groups[0].Hits[0].Ordinal != 2 ||
 		second.NextOffset != nil {
@@ -115,10 +115,10 @@ func TestTaskSearchPageCrossesOrdinalRoundsAndRepeatsDeepTask(t *testing.T) {
 	if len(first.Groups) != 4 {
 		t.Fatalf("first page group count = %d, want 4: %+v", len(first.Groups), first)
 	}
-	groupsByTaskID := make(map[string]serverapi.TaskSearchGroup, len(first.Groups))
+	groupsByTaskID := make(map[string]*taskpb.SearchGroup, len(first.Groups))
 	totalHits := 0
 	for _, group := range first.Groups {
-		groupsByTaskID[group.TaskID] = group
+		groupsByTaskID[group.TaskId] = group
 		totalHits += len(group.Hits)
 	}
 	if totalHits != 5 {
@@ -142,7 +142,7 @@ func TestTaskSearchPageCrossesOrdinalRoundsAndRepeatsDeepTask(t *testing.T) {
 		t.Fatalf("second Search: %v", err)
 	}
 	if len(second.Groups) != 1 ||
-		second.Groups[0].TaskID != string(deep.ID) ||
+		second.Groups[0].TaskId != string(deep.ID) ||
 		len(second.Groups[0].Hits) != 1 ||
 		second.Groups[0].Hits[0].Ordinal != 3 ||
 		second.NextOffset != nil {

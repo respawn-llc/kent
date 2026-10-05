@@ -52,7 +52,7 @@ func TestServiceDeletesProjectMetadataAndSessionArtifacts(t *testing.T) {
 	if _, err := os.Stat(created.Dir()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("session dir stat = %v, want not exists", err)
 	}
-	if _, err := svc.GetProjectOverview(context.Background(), &projectpb.GetOverviewRequest{ProjectId: binding.ProjectID}); err == nil {
+	if _, err := svc.GetProjectEdit(context.Background(), &projectpb.ProjectEditGetRequest{ProjectId: binding.ProjectID}); err == nil {
 		t.Fatal("expected deleted project lookup to fail")
 	}
 	if _, err := os.Stat(binding.CanonicalRoot); err != nil {
@@ -86,7 +86,7 @@ func TestServiceDeletesProjectWithBacklogTasks(t *testing.T) {
 	if !deleted.Deleted || len(deleted.Blockers) != 0 {
 		t.Fatalf("delete response = %+v, want deleted without backlog blockers", deleted)
 	}
-	if _, err := svc.GetProjectOverview(ctx, &projectpb.GetOverviewRequest{ProjectId: binding.ProjectID}); err == nil {
+	if _, err := svc.GetProjectEdit(ctx, &projectpb.ProjectEditGetRequest{ProjectId: binding.ProjectID}); err == nil {
 		t.Fatal("expected deleted backlog-only project lookup to fail")
 	}
 }
@@ -114,8 +114,8 @@ func TestServiceProjectDeleteRevalidatesWorkflowTasksAtCommit(t *testing.T) {
 	if _, err := svc.DeleteProject(ctx, &projectpb.DeleteProjectRequest{ProjectId: binding.ProjectID}); !errors.Is(err, workflowexecution.ErrTaskExecutionNotQuiescent) {
 		t.Fatalf("DeleteProject error = %v, want %v", err, workflowexecution.ErrTaskExecutionNotQuiescent)
 	}
-	if _, err := svc.GetProjectOverview(ctx, &projectpb.GetOverviewRequest{ProjectId: binding.ProjectID}); err != nil {
-		t.Fatalf("GetProjectOverview after rejected delete: %v", err)
+	if _, err := svc.GetProjectEdit(ctx, &projectpb.ProjectEditGetRequest{ProjectId: binding.ProjectID}); err != nil {
+		t.Fatalf("GetProjectEdit after rejected delete: %v", err)
 	}
 }
 
@@ -164,7 +164,7 @@ func TestServiceProjectDeleteSurfacesArtifactCleanupFailureAfterCommit(t *testin
 	if err == nil || !errors.Is(err, ErrSessionArtifactEscapesRoot) {
 		t.Fatalf("DeleteProject error = %v, want cleanup escape rejection", err)
 	}
-	if _, err := svc.GetProjectOverview(context.Background(), &projectpb.GetOverviewRequest{ProjectId: binding.ProjectID}); err == nil {
+	if _, err := svc.GetProjectEdit(context.Background(), &projectpb.ProjectEditGetRequest{ProjectId: binding.ProjectID}); err == nil {
 		t.Fatal("project metadata remained after post-commit cleanup failure")
 	}
 	if _, err := os.Stat(filepath.Join(outside, "keep")); err != nil {
@@ -593,7 +593,61 @@ func TestMetadataServiceUnlinksOnlySelectedProjectBindingByPath(t *testing.T) {
 	}
 }
 
-func TestMetadataServiceUnlinkWrongProjectIDSelectorFailsBeforeMutationResolution(t *testing.T) {
+func TestMetadataServiceRepeatedWorkspaceDetachSucceeds(t *testing.T) {
+	store, _, binding := newProjectViewMetadataStore(t)
+	attached := attachProjectViewWorkspace(t, store, binding.ProjectID)
+	selector, err := serverapi.NewProjectWorkspaceSelectorForID(attached.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := newProjectViewMetadataService(t, store)
+	for range 2 {
+		response, err := svc.UnlinkWorkspaceFromProject(t.Context(), &projectpb.UnlinkWorkspaceRequest{
+			ProjectId: binding.ProjectID, Workspace: generatedProjectWorkspaceSelector(selector),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.WorkspaceId != attached.WorkspaceID || len(response.Blockers) != 0 {
+			t.Fatalf("detach result = %+v", response)
+		}
+	}
+	if _, err := store.LookupWorkspaceBindingByID(t.Context(), binding.WorkspaceID); err != nil {
+		t.Fatalf("repeat detach damaged remaining workspace: %v", err)
+	}
+}
+
+func TestMetadataServiceConcurrentWorkspaceDetachSucceeds(t *testing.T) {
+	store, _, binding := newProjectViewMetadataStore(t)
+	attached := attachProjectViewWorkspace(t, store, binding.ProjectID)
+	selector, err := serverapi.NewProjectWorkspaceSelectorForID(attached.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := newProjectViewMetadataService(t, store)
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			response, err := svc.UnlinkWorkspaceFromProject(t.Context(), &projectpb.UnlinkWorkspaceRequest{
+				ProjectId: binding.ProjectID, Workspace: generatedProjectWorkspaceSelector(selector),
+			})
+			if err == nil && len(response.Blockers) != 0 {
+				err = errors.New("concurrent detach was blocked")
+			}
+			results <- err
+		}()
+	}
+	close(start)
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestMetadataServiceUnlinkWrongProjectIDSelectorDoesNotMutate(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
 	other, err := store.CreateProjectForWorkspace(context.Background(), t.TempDir(), "Other project")
 	if err != nil {
@@ -611,9 +665,8 @@ func TestMetadataServiceUnlinkWrongProjectIDSelectorFailsBeforeMutationResolutio
 	if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
 		t.Fatalf("wrong-project error = %v, want ErrWorkspaceNotRegistered", err)
 	}
-	var mutationErr *serverapi.WorkspaceMutationError
-	if errors.As(err, &mutationErr) {
-		t.Fatalf("wrong-project error = %+v, must not be post-resolution mutation failure", mutationErr)
+	if _, err := store.LookupWorkspaceBindingByID(t.Context(), binding.WorkspaceID); err != nil {
+		t.Fatalf("wrong-project detach changed workspace: %v", err)
 	}
 }
 
@@ -943,15 +996,17 @@ func newProjectViewRuntimeAuthority(
 	})
 
 	settings := cfg.Settings
-	settings.Model = "gpt-5"
+	settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, settings)
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = "off"
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		MainWorkspaceRoot:     sessionStore.Meta().WorkspaceRoot,
 		Settings:              settings,
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		FilesystemContext: func() tools.FilesystemContext {
-			context, contextErr := runtimewire.NewFilesystemContext(sessionStore.Meta().WorkspaceRoot, sessionStore.Meta().WorkspaceRoot, metadata.ProjectWorkspaceBoundary{ProjectID: "test"})
+			context, contextErr := runtimewire.NewFilesystemContext(sessionStore.Meta().WorkspaceRoot, sessionStore.Meta().WorkspaceRoot, "test")
 			if contextErr != nil {
 				t.Fatalf("NewFilesystemContext: %v", contextErr)
 			}
@@ -982,7 +1037,7 @@ func newProjectViewMetadataStore(t testing.TB) (*metadata.Store, config.App, met
 func newProjectViewMetadataStoreForWorkspace(t testing.TB, workspace string) (*metadata.Store, config.App, metadata.Binding) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}

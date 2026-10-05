@@ -11,7 +11,7 @@ import {
 import { Badge, Button, Spinner } from "@/ui";
 import { TaskPropertyLine } from "./TaskPropertyLine";
 
-export function TaskDetailLabels({ disabled }: Readonly<{ disabled: boolean }>) {
+export function TaskDetailLabels() {
   const { t } = useTranslation();
   const catalog = useProjectLabelCatalog();
   const assignment = useTaskLabelAssignment();
@@ -19,7 +19,7 @@ export function TaskDetailLabels({ disabled }: Readonly<{ disabled: boolean }>) 
   const visibleLabels =
     catalog.data === undefined ? [] : orderedAssignedLabels(catalog.data, selectedLabelIDs);
   const pendingLabelIDs = new Set(assignment.pendingLabelIDs);
-  const triggerDisabled = disabled || assignment.isPending || assignment.error !== null;
+  const triggerDisabled = assignment.isPending || assignment.error !== null;
   const triggerLoading = catalog.isPending || assignment.isPending;
   return (
     <TaskPropertyLine

@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -23,13 +22,13 @@ func TestMissingToolOutputRepairAppendsSyntheticOutputAndRetries(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	client := &fakeClient{
-		errors: []error{&llm.APIStatusError{StatusCode: 400, Body: "tool call without output"}},
+		errors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown, Message: "tool call without output"}},
 		responses: []llm.Response{{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("repaired")},
 			Usage:     llm.Usage{InputTokens: 10, OutputTokens: 2, WindowTokens: 100},
 		}},
 	}
-	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	steerDanglingToolCall(t, eng, "step", llm.ToolCall{ID: "missing", Name: "exec_command", Input: json.RawMessage(`{}`)})
 
 	message, err := eng.SubmitUserMessage(context.Background(), "continue")
@@ -77,9 +76,7 @@ func TestMissingToolOutputRepairAppendsSyntheticOutputAndRetries(t *testing.T) {
 	if completion == nil || !completion.IsError {
 		t.Fatalf("missing synthetic error completion: %+v", completion)
 	}
-	if !bytes.Equal(completion.Output, missingToolOutputInterruptedOutput) {
-		t.Fatalf("live generation repair selected the wrong typed disposition: %s", completion.Output)
-	}
+	assertSyntheticFailureOutput(t, completion.Output, completion.Name, missingToolOutputInterruptedMessage)
 	if warning == nil ||
 		warning.ToolOutputRepair == nil ||
 		warning.ToolOutputRepair.Kind != transcript.ToolOutputRepairLiveProviderRejection ||
@@ -94,12 +91,12 @@ func TestNormalGenerationLive400RepairWaitsForMatchingStartThenRetriesOnce(t *te
 	store := mustCreateTestSession(t)
 	client := &fakeClient{
 		errors: []error{
-			&llm.APIStatusError{StatusCode: 400},
-			&llm.APIStatusError{StatusCode: 400},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown},
 		},
 		responses: []llm.Response{finalTextResponse("repaired")},
 	}
-	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	customInput := "custom input"
 	call := llm.ToolCall{
 		ID:          "normal-live-custom",
@@ -159,7 +156,8 @@ func TestNormalGenerationLive400RepairWaitsForMatchingStartThenRetriesOnce(t *te
 	if outputKind != session.ToolOutputKindCustom {
 		t.Fatalf("normal generation output kind = %q, want custom", outputKind)
 	}
-	if !completion.IsError || !bytes.Equal(completion.Output, missingToolOutputInterruptedOutput) {
+	assertSyntheticFailureOutput(t, completion.Output, completion.Name, missingToolOutputInterruptedMessage)
+	if !completion.IsError {
 		t.Fatalf("normal generation live disposition = error:%t output:%s", completion.IsError, completion.Output)
 	}
 	if warnings := typedLiveRepairWarnings(t, store); len(warnings) != 1 {
@@ -175,7 +173,7 @@ func TestMissingToolOutputRepairRetryPreservesQueuedSteeringBoundary(t *testing.
 	queueDone := make(chan error, 1)
 	var eng *Engine
 	client := &hookClient{
-		errors:   []error{&llm.APIStatusError{StatusCode: 400}},
+		errors:   []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown}},
 		response: finalTextResponse("result"),
 		beforeReturn: func() error {
 			if queued {
@@ -189,7 +187,7 @@ func TestMissingToolOutputRepairRetryPreservesQueuedSteeringBoundary(t *testing.
 			return nil
 		},
 	}
-	eng = mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng = mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	steerDanglingToolCall(t, eng, "step", llm.ToolCall{ID: "missing", Name: "exec_command", Input: json.RawMessage(`{}`)})
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "continue"); err != nil {
@@ -222,7 +220,7 @@ func TestMissingToolOutputRepairRetryPreservesQueuedSteeringBoundary(t *testing.
 
 func TestLiveMissingToolOutputRepairWaitsForOutputSteeringBoundary(t *testing.T) {
 	store := mustCreateTestSession(t)
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	stepID := runtimeTestStepID("serialized-live-repair")
 	steerDanglingToolCall(t, engine, stepID, llm.ToolCall{
 		ID: "serialized-repair", Name: "exec_command", Input: json.RawMessage(`{}`),
@@ -259,9 +257,9 @@ func TestMissingToolOutputRepairLeavesUnrelated400Unrepaired(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	client := &fakeClient{
-		errors: []error{&llm.APIStatusError{StatusCode: 400, Body: "malformed request"}},
+		errors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown, Message: "malformed request"}},
 	}
-	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "continue"); err == nil {
 		t.Fatal("expected unrelated provider 400 to surface")
@@ -276,8 +274,8 @@ func TestRequiredToolChoiceRepairsDanglingOutputAndRebuildsRequest(t *testing.T)
 	store := mustCreateTestSession(t)
 	client := &fakeClient{
 		errors: []error{
-			&llm.APIStatusError{StatusCode: 400},
-			&llm.APIStatusError{StatusCode: 401},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 401, Code: llm.UnifiedErrorCodeAuthentication},
 		},
 	}
 	eng := mustNewWorkflowTestEngine(
@@ -347,7 +345,7 @@ func steerDanglingToolCall(t *testing.T, engine *Engine, stepID string, call llm
 func TestRepairMissingToolOutputsPersistSyntheticErrorPresentation(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	stepID := runtimeTestStepID("synthetic-repair-presentation")
 	steerDanglingToolCall(t, eng, stepID, llm.ToolCall{
 		ID: "missing", Name: "exec_command", Input: json.RawMessage(`{"cmd":"true"}`),
@@ -368,15 +366,15 @@ func TestCompactionMissingToolOutputRepairAppendsAndRetries(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{
-		compactionErrors: []error{&llm.APIStatusError{StatusCode: 400}, nil},
+		compactionErrors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown}, nil},
 		compactionResponses: []llm.CompactionResponse{{
 			Usage: llm.Usage{WindowTokens: 100},
 		}},
 	}
-	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	steerDanglingToolCall(t, eng, "step", llm.ToolCall{ID: "missing", Name: "exec_command", Input: json.RawMessage(`{}`)})
 	request := llm.CompactionRequest{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		SessionID:      textutil.Value(store.Meta().SessionID),
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
 		Items:          eng.transcriptRuntimeState().SnapshotItems(),
@@ -399,9 +397,7 @@ func TestCompactionMissingToolOutputRepairAppendsAndRetries(t *testing.T) {
 		t.Fatal("repaired compaction retry did not preserve the call with its synthetic output")
 	}
 	_, completion := repairCompletionRecord(t, store, "missing")
-	if !bytes.Equal(completion.Output, missingToolOutputInterruptedOutput) {
-		t.Fatalf("live compaction repair selected the wrong typed disposition: %s", completion.Output)
-	}
+	assertSyntheticFailureOutput(t, completion.Output, completion.Name, missingToolOutputInterruptedMessage)
 }
 
 func TestCompactionCheckpointContractErrorReturnsExactRepairedInput(t *testing.T) {
@@ -415,7 +411,7 @@ func TestCompactionCheckpointContractErrorReturnsExactRepairedInput(t *testing.T
 	}
 	client := &fakeCompactionClient{
 		compactionErrors: []error{
-			&llm.APIStatusError{StatusCode: 400},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown},
 			&llm.ProviderAPIError{
 				ProviderID: "openai",
 				StatusCode: 502,
@@ -424,10 +420,10 @@ func TestCompactionCheckpointContractErrorReturnsExactRepairedInput(t *testing.T
 			},
 		},
 	}
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	steerDanglingToolCall(t, eng, "step", llm.ToolCall{ID: "missing", Name: "exec_command", Input: json.RawMessage(`{}`)})
 	request := llm.CompactionRequest{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
 		Items:          eng.transcriptRuntimeState().SnapshotItems(),
 	}
@@ -463,12 +459,12 @@ func TestMalformedRemoteCompactionFallbackUsesMissingToolRepairedInput(t *testin
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("local summary")},
 		}},
 		compactionErrors: []error{
-			&llm.APIStatusError{StatusCode: 400, Body: "tool call without output"},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown, Message: "tool call without output"},
 			malformedCompactionProviderError(),
 		},
 	}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "native",
 	})
 	steerDanglingToolCall(t, eng, "step", llm.ToolCall{
@@ -494,7 +490,7 @@ func TestGenerationMissingToolOutputRebuildKeepsIdentityAndAllocatesFreshState(t
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	client := &fakeClient{
-		errors: []error{&llm.APIStatusError{StatusCode: 400}, nil},
+		errors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown}, nil},
 		responses: []llm.Response{{
 			Assistant: llm.Message{
 				Role:    llm.RoleAssistant,
@@ -503,7 +499,7 @@ func TestGenerationMissingToolOutputRebuildKeepsIdentityAndAllocatesFreshState(t
 			},
 		}},
 	}
-	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	steerDanglingToolCall(t, engine, "seed", llm.ToolCall{
 		ID: "missing", Name: "exec_command", Input: json.RawMessage(`{}`),
 	})
@@ -549,10 +545,10 @@ func TestCompactionMissingOutputAfterCollapsePanics(t *testing.T) {
 				Code:         llm.UnifiedErrorCodeContextLengthOverflow,
 				ProviderCode: "context_length_exceeded",
 			},
-			&llm.APIStatusError{StatusCode: 400},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown},
 		},
 	}
-	eng := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-5"})
+	eng := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-6-sol"})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
 		ID:    "call-shell",
 		Name:  "exec_command",
@@ -576,7 +572,7 @@ func TestCompactionMissingOutputAfterCollapsePanics(t *testing.T) {
 		t.Fatalf("append dangling tool call: %v", err)
 	}
 	request := llm.CompactionRequest{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		SessionID:      textutil.Value(store.Meta().SessionID),
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
 		Items:          eng.transcriptRuntimeState().SnapshotItems(),

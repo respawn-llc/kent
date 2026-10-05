@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -119,27 +120,36 @@ func (b *forkReplayBatch) validateDrained() error {
 // conversation up to (but excluding) the visible user message persisted at
 // userMessageSeq. It returns the forked store and the 1-based ordinal of that
 // user message among the parent's visible user messages (for naming/display).
-func ForkAtUserMessage(parentLog MaterializedEventLog, userMessageSeq int64, forkName string, category sessioncontract.SessionCategory) (*Store, int, error) {
+func ForkAtUserMessage(parentLog MaterializedEventLog, userMessageSeq int64, forkName string, category sessioncontract.SessionCategory, thinking ForkThinking) (*Store, int, error) {
 	if userMessageSeq <= 0 {
 		return nil, 0, fmt.Errorf("user message seq must be >= 1")
 	}
 	return streamChildFromParent(parentLog, forkName, category, ChildContextOptions{
-		InheritLockedContract: true,
-		InheritContinuation:   true,
-		InheritGoal:           true,
-	}, userMessageSeq)
+		LockedContract:      InheritContractWithoutTools,
+		InheritContinuation: true,
+		InheritGoal:         true,
+	}, userMessageSeq, thinking)
 }
 
 // CloneSession creates a child session that replays the parent's entire
-// conversation history. Workflow compact-and-continue fan-out branches use this
-// so each parallel continuation compacts its own isolated copy of the source
-// conversation instead of mutating the shared source session.
-func CloneSession(parentLog MaterializedEventLog, forkName string, category sessioncontract.SessionCategory) (*Store, error) {
-	child, _, err := streamChildFromParent(parentLog, forkName, category, ChildContextOptions{
-		InheritLockedContract: true,
-		InheritContinuation:   true,
-	}, 0)
-	return child, err
+// conversation history. Workflow fan-out copies retain the outgoing contract for
+// a permitted lazy compaction, or reuse the source's committed summary.
+func CloneSession(parentLog MaterializedEventLog, forkName string, category sessioncontract.SessionCategory, thinking ForkThinking) (*Store, error) {
+	parent, err := materializedForkParent(parentLog)
+	if err != nil {
+		return nil, err
+	}
+	meta := parent.Meta()
+	descriptor, err := NewCreateSessionDescriptor(runtimeids.NewSessionID(), filepath.Dir(parent.Dir()), meta.WorkspaceContainer, meta.WorkspaceRoot, category)
+	if err != nil {
+		return nil, err
+	}
+	options := []StoreOption{func(options *storeOptions) { *options = parent.options }}
+	plan, err := PrepareClone(descriptor, PersistedSessionRecord{SessionDir: parent.Dir(), Meta: &meta}, forkName, thinking, options...)
+	if err != nil {
+		return nil, err
+	}
+	return MaterializeClone(context.Background(), plan, parentLog, options...)
 }
 
 // streamChildFromParent creates a child session and streams the parent event
@@ -153,7 +163,11 @@ func streamChildFromParent(
 	category sessioncontract.SessionCategory,
 	contextOptions ChildContextOptions,
 	targetSeq int64,
+	thinking ForkThinking,
 ) (_ *Store, _ int, resultErr error) {
+	if err := ValidateOriginalThinkingEffort(&thinking.Desired); err != nil {
+		return nil, 0, err
+	}
 	parent, err := materializedForkParent(parentLog)
 	if err != nil {
 		return nil, 0, err
@@ -177,6 +191,10 @@ func streamChildFromParent(
 
 	child.mu.Lock()
 	child.meta.Name = strings.TrimSpace(forkName)
+	child.meta.ChatSettings = &ChatSettingsOverrides{Thinking: textutil.Value(thinking.Desired)}
+	if thinking.PreserveNativeUpdates {
+		child.meta.OriginalThinkingEffort = textutil.Pointer(parentMeta.OriginalThinkingEffort)
+	}
 	child.mu.Unlock()
 
 	if err := child.EnsureDurable(); err != nil {
@@ -186,7 +204,7 @@ func streamChildFromParent(
 	if err != nil {
 		return nil, 0, fmt.Errorf("materialize fork child event log: %w", err)
 	}
-	derived, cutOrdinal, err := streamReplayIntoChild(parentLog, childLog, targetSeq)
+	derived, cutOrdinal, err := streamReplay(parentLog, childLog.log.version, childLog.appendReplayRecordsWithEndByteCursor, targetSeq, thinking.PreserveNativeUpdates)
 	if err != nil {
 		return nil, 0, fmt.Errorf("stream fork replay events: %w", err)
 	}
@@ -200,6 +218,13 @@ func streamChildFromParent(
 	return child, cutOrdinal, nil
 }
 
+// ForkThinking is resolved by the launch owner for the child's first provider
+// request. Independent children do not copy conversation input or this state.
+type ForkThinking struct {
+	Desired               string
+	PreserveNativeUpdates bool
+}
+
 func materializedForkParent(parentLog MaterializedEventLog) (*Store, error) {
 	parent := parentLog.store
 	if parent == nil {
@@ -211,12 +236,12 @@ func materializedForkParent(parentLog MaterializedEventLog) (*Store, error) {
 	return parent, nil
 }
 
-// streamReplayIntoChild walks the parent event log and appends each event to the
+// streamReplay walks the parent event log and appends each event to the
 // child in bounded chunks, folding replay-derived metadata incrementally. When
 // targetSeq > 0 it stops just before the visible user message persisted at that
 // sequence and returns that message's 1-based visible-user-message ordinal; it
 // returns 0 when the target is not found (or when cloning the whole log).
-func streamReplayIntoChild(parentLog MaterializedEventLog, childLog MaterializedEventLog, targetSeq int64) (replayDerivedState, int, error) {
+func streamReplay(parentLog MaterializedEventLog, version int, appendBatch func([]EventRecord) (recordAppendOutcome, error), targetSeq int64, preserveNativeUpdates bool) (replayDerivedState, int, error) {
 	derived := replayDerivedState{}
 	visibleUserCount := 0
 	cutOrdinal := 0
@@ -226,7 +251,7 @@ func streamReplayIntoChild(parentLog MaterializedEventLog, childLog Materialized
 		if len(batch.records) == 0 {
 			return nil
 		}
-		appended, err := childLog.appendReplayRecordsWithEndByteCursor(batch.records)
+		appended, err := appendBatch(batch.records)
 		if err != nil {
 			return err
 		}
@@ -262,7 +287,19 @@ func streamReplayIntoChild(parentLog MaterializedEventLog, childLog Materialized
 		if err != nil {
 			return err
 		}
+		if _, configuration := payload.(ConfigurationUpdateRecord); configuration && !preserveNativeUpdates {
+			return nil
+		}
 		if replacement, ok := payload.(HistoryReplacementRecord); ok {
+			if !preserveNativeUpdates {
+				items := make([]ProviderHistoryItem, 0, len(replacement.Items))
+				for _, item := range replacement.Items {
+					if item.Type != ProviderHistoryItemTypeConfigurationUpdate {
+						items = append(items, item)
+					}
+				}
+				replacement.Items = items
+			}
 			if err := flush(); err != nil {
 				return err
 			}
@@ -281,7 +318,7 @@ func streamReplayIntoChild(parentLog MaterializedEventLog, childLog Materialized
 			}
 			record = rebasedRecord
 		}
-		recordBytes, err := replayRecordByteSizeForVersion(record, childLog.log.version)
+		recordBytes, err := replayRecordByteSizeForVersion(record, version)
 		if err != nil {
 			return err
 		}
@@ -404,16 +441,20 @@ func cloneContinuationContext(in *ContinuationContext) *ContinuationContext {
 		return nil
 	}
 	copyContext := *in
-	copyContext.OpenAIBaseURL = textutil.Pointer(in.OpenAIBaseURL)
 	copyContext.AgentRole = textutil.Pointer(in.AgentRole)
 	return &copyContext
 }
 
+type LockedContractInheritance uint8
+
+const (
+	InheritNoContract LockedContractInheritance = iota
+	InheritFullContract
+	InheritContractWithoutTools
+)
+
 type ChildContextOptions struct {
-	// InheritLockedContract preserves the parent's model/tool/prompt lock for
-	// interactive child sessions. Headless subagent launches leave this false
-	// so their first dispatch locks against role/config-provided settings.
-	InheritLockedContract bool
+	LockedContract LockedContractInheritance
 	// InheritContinuation preserves parent continuation settings for
 	// interactive children. Headless subagent launches leave this false so
 	// parent role/base URL state cannot override the selected subagent config.
@@ -431,26 +472,46 @@ const (
 	SessionCreationSourceParentAgent
 )
 
+type CreationContextSource interface {
+	Meta() Meta
+}
+
+type creationContextMetaSource struct {
+	meta Meta
+}
+
+func CreationContextSourceFromMeta(meta Meta) CreationContextSource {
+	return creationContextMetaSource{meta: cloneMeta(meta)}
+}
+
+func (source creationContextMetaSource) Meta() Meta {
+	return cloneMeta(source.meta)
+}
+
 // InitializeCreationContext atomically initializes immutable provenance and
 // source-owned execution context before a fresh session becomes durable.
-func InitializeCreationContext(child *Store, source *Store, kind SessionCreationSourceKind, opts ChildContextOptions) error {
+func InitializeCreationContext(child *Store, source CreationContextSource, kind SessionCreationSourceKind, opts ChildContextOptions) error {
 	if child == nil {
 		return fmt.Errorf("child store is required")
 	}
+	sourcePresent := source != nil
+	if store, ok := source.(*Store); ok && store == nil {
+		sourcePresent = false
+	}
 	switch kind {
 	case SessionCreationSourceIndependent:
-		if source != nil {
+		if sourcePresent {
 			return fmt.Errorf("independent session creation cannot have a source")
 		}
 	case SessionCreationSourcePreviousSession, SessionCreationSourceParentAgent:
-		if source == nil {
+		if !sourcePresent {
 			return fmt.Errorf("session creation source is required")
 		}
 	default:
 		return fmt.Errorf("session creation source kind is invalid")
 	}
 	var sourceMeta Meta
-	if source != nil {
+	if sourcePresent {
 		sourceMeta = source.Meta()
 	}
 	child.mutationMu.Lock()
@@ -468,10 +529,19 @@ func InitializeCreationContext(child *Store, source *Store, kind SessionCreation
 		child.mutationMu.Unlock()
 		return nil
 	}
-	if opts.InheritLockedContract {
+	switch opts.LockedContract {
+	case InheritFullContract, InheritContractWithoutTools:
 		child.meta.Locked = cloneLockedContract(sourceMeta.Locked)
-	} else {
+		if opts.LockedContract == InheritContractWithoutTools && child.meta.Locked != nil {
+			child.meta.Locked.EnabledTools = nil
+			child.meta.Locked.HasEnabledTools = false
+		}
+	case InheritNoContract:
 		child.meta.Locked = nil
+	default:
+		child.mu.Unlock()
+		child.mutationMu.Unlock()
+		return errors.New("invalid locked contract inheritance policy")
 	}
 	child.meta.WorkspaceRoot = sourceMeta.WorkspaceRoot
 	child.meta.WorkspaceContainer = sourceMeta.WorkspaceContainer
@@ -500,6 +570,9 @@ func InitializeCreationContext(child *Store, source *Store, kind SessionCreation
 	}
 	if opts.InheritContinuation {
 		child.meta.Continuation = cloneContinuationContext(sourceMeta.Continuation)
+		if kind == SessionCreationSourcePreviousSession {
+			child.meta.ConnectionID = textutil.Pointer(sourceMeta.ConnectionID)
+		}
 	} else {
 		child.meta.Continuation = nil
 	}

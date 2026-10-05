@@ -10,10 +10,10 @@ import (
 func ConfigOverrideSources(src config.SourceReport) []string {
 	present := map[string]bool{}
 	for _, source := range src.Sources {
-		switch strings.TrimSpace(source) {
-		case "env":
+		switch source.Kind {
+		case config.SourceEnv:
 			present["ENV"] = true
-		case "cli":
+		case config.SourceCLI:
 			present["CLI ARGS"] = true
 		}
 	}
@@ -24,6 +24,16 @@ func ConfigOverrideSources(src config.SourceReport) []string {
 		}
 	}
 	return ordered
+}
+
+func ConfigFiles(source config.SourceReport) []config.SourceFile {
+	files := make([]config.SourceFile, 0, len(source.Files))
+	for _, layer := range []config.FileLayer{config.FileGlobal, config.FileWorkspace, config.FilePrivate} {
+		if file := source.File(layer); file != nil && file.Applied {
+			files = append(files, file.SourceFile)
+		}
+	}
+	return files
 }
 
 func ModelSummary(req Request) string {

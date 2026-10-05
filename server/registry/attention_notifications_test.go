@@ -12,63 +12,77 @@ import (
 	"core/server/runtime"
 	askquestion "core/server/tools"
 	"core/shared/clientui"
+	attentionpb "core/shared/protoapi/gen/kent/api/attention"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
+
+	"core/shared/workflowcontract"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-func TestRuntimeRegistryKeepsGenericPromptAttentionOffDesktopRootStream(t *testing.T) {
+func TestRuntimeRegistryDeliversGenericPromptAttentionToDesktopRootStream(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker)
+	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
-	sessionSub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), serverapi.AttentionSessionNotificationSubscribeRequest{SessionID: "session-1"})
+	sessionSub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: "session-1"})
 	if err != nil {
 		t.Fatalf("SubscribeSessionAttentionNotifications: %v", err)
 	}
-	desktopSub, err := registry.SubscribeAttentionNotifications(context.Background(), serverapi.AttentionNotificationSubscribeRequest{})
+	desktopSub, err := registry.SubscribeAttentionNotifications(context.Background(), &emptypb.Empty{})
 	if err != nil {
 		t.Fatalf("SubscribeAttentionNotifications: %v", err)
 	}
 
-	projectPendingPromptForTest(registry, "session-1", askquestion.AskQuestionRequest{ID: "ask-1", StepID: registryTestStepID, Question: "Proceed?"})
-	pending := nextRegistryAttentionEvent(t, sessionSub)
-	promptID := attentionNotificationID(clientui.AttentionNotificationKindQuestion, "ask-1")
-	if pending.Source != clientui.AttentionNotificationSourceLive || pending.Type != clientui.AttentionNotificationEventPending || pending.Pending.ID != promptID || pending.Pending.Target.Kind != clientui.AttentionNotificationTargetSessionPrompt {
+	projectPendingPromptForTest(registry, "session-1", askquestion.AskQuestionRequest{ToolCallID: "ask-1", StepID: registryTestStepID, Question: "Proceed?"})
+	pending := nextRegistryAttentionEvent(t, sessionSub).GetPending()
+	if pending == nil || pending.Id.Kind != attentionpb.Kind_ATTENTION_KIND_QUESTION || pending.Id.Uuid != "ask-1" || pending.SessionId != "session-1" {
 		t.Fatalf("pending event = %+v", pending)
 	}
-	if event, err := desktopSub.Next(shortRegistryContext(t)); err == nil {
-		t.Fatalf("desktop received generic pending event: %+v", event)
+	desktopPending := nextRegistryAttentionEvent(t, desktopSub)
+	if desktopPending.GetPending().GetTarget().GetSessionPrompt().GetProjectId() != "project-1" ||
+		desktopPending.GetPending().GetTarget().GetSessionPrompt().GetSessionId() != "session-1" {
+		t.Fatalf("desktop pending = %+v", desktopPending)
+	}
+	if question := desktopPending.GetPending().GetQuestion(); question == nil || len(question.SkippedAskIds) != 0 {
+		t.Fatalf("ordinary Session question has skipped prompts: %v", desktopPending)
 	}
 	resolvePendingPromptForTest(registry, "session-1", "ask-1")
-	resolved := nextRegistryAttentionEvent(t, sessionSub)
-	if resolved.Type != clientui.AttentionNotificationEventResolved || !attentionNotificationEventIDMatches(resolved, promptID) {
+	resolved := nextRegistryAttentionEvent(t, sessionSub).GetResolved()
+	if resolved == nil || resolved.Id.Kind != attentionpb.Kind_ATTENTION_KIND_QUESTION || resolved.Id.Uuid != "ask-1" {
 		t.Fatalf("resolved event = %+v", resolved)
 	}
-	if event, err := desktopSub.Next(shortRegistryContext(t)); err == nil {
-		t.Fatalf("desktop received generic resolved event: %+v", event)
+	for {
+		event := nextRegistryAttentionEvent(t, desktopSub)
+		if event.Type == taskpb.AttentionNotificationEventType_ATTENTION_NOTIFICATION_EVENT_RESOLVED {
+			if event.GetResolved().GetId().GetUuid() != "ask-1" {
+				t.Fatalf("desktop resolved = %+v", event)
+			}
+			break
+		}
 	}
 }
 
 func TestRuntimeRegistryPublishesGenericApprovalToSessionAttention(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker)
+	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
-	sessionSub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), serverapi.AttentionSessionNotificationSubscribeRequest{SessionID: "session-1"})
+	sessionSub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: "session-1"})
 	if err != nil {
 		t.Fatalf("SubscribeSessionAttentionNotifications: %v", err)
 	}
 
 	projectPendingPromptForTest(registry, "session-1", askquestion.AskQuestionRequest{
-		ID:       "approval-1",
-		StepID:   registryTestStepID,
-		Question: "Approve protected path?",
-		Approval: true,
+		ToolCallID:    "approval-1",
+		StepID:        registryTestStepID,
+		Approval:      true,
+		AccessTargets: []askquestion.FileAccessTarget{{RequestedPath: "../outside.txt", ResolvedPath: "/outside.txt"}},
 		ApprovalOptions: []askquestion.AskQuestionApprovalOption{
-			{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce, Label: "Allow once"},
-			{Decision: askquestion.AskQuestionApprovalDecisionDeny, Label: "Deny"},
+			{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce},
+			{Decision: askquestion.AskQuestionApprovalDecisionDeny},
 		},
 	})
 
@@ -76,23 +90,31 @@ func TestRuntimeRegistryPublishesGenericApprovalToSessionAttention(t *testing.T)
 	if err != nil {
 		t.Fatalf("generic approval attention: %v", err)
 	}
-	if pending.Type != clientui.AttentionNotificationEventPending ||
-		pending.Pending == nil ||
-		pending.Pending.Kind != clientui.AttentionNotificationKindApproval ||
-		pending.Pending.Target.Kind != clientui.AttentionNotificationTargetSessionPrompt ||
-		pending.Pending.Approval == nil ||
-		pending.Pending.Approval.Message != "Approve protected path?" {
+	if pending.GetPending() == nil ||
+		pending.GetPending().Id.Kind != attentionpb.Kind_ATTENTION_KIND_APPROVAL ||
+		pending.GetPending().SessionId != "session-1" ||
+		pending.GetPending().GetApproval() == nil ||
+		len(pending.GetPending().GetApproval().AccessTargets) != 1 ||
+		pending.GetPending().GetApproval().AccessTargets[0].RequestedPath != "../outside.txt" {
 		t.Fatalf("generic approval attention = %+v", pending)
+	}
+	newSub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: "session-1"})
+	if err != nil {
+		t.Fatalf("SubscribeSessionAttentionNotifications: %v", err)
+	}
+	defer newSub.Close()
+	if event, err := newSub.Next(shortRegistryContext(t)); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("new subscription replayed a pending approval: event=%+v, err=%v", event, err)
 	}
 }
 
 func TestRuntimeRegistryPublishesTaskQuestionBatchWithoutGenericResolve(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker)
+	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
-	desktopSub, err := registry.SubscribeAttentionNotifications(context.Background(), serverapi.AttentionNotificationSubscribeRequest{})
+	desktopSub, err := registry.SubscribeAttentionNotifications(context.Background(), &emptypb.Empty{})
 	if err != nil {
 		t.Fatalf("SubscribeAttentionNotifications: %v", err)
 	}
@@ -100,37 +122,37 @@ func TestRuntimeRegistryPublishesTaskQuestionBatchWithoutGenericResolve(t *testi
 	projectPendingPromptForTest(registry, "session-1", req)
 
 	pending := nextRegistryAttentionEvent(t, desktopSub)
-	batchID := attentionNotificationID(clientui.AttentionNotificationKindQuestion, registryTestStepID)
-	if pending.Pending.ID != batchID {
-		t.Fatalf("pending id = %q", pending.Pending.ID)
+	if pending.GetPending().GetId().GetUuid() != registryTestStepID ||
+		pending.GetPending().GetId().GetKind() != taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_QUESTION {
+		t.Fatalf("pending id = %v", pending.GetPending().GetId())
 	}
-	if pending.Pending.Question.DisplayCount != 2 || len(pending.Pending.Question.CurrentUnresolvedAskIDs) != 1 {
-		t.Fatalf("question state = %+v", pending.Pending.Question)
+	if pending.GetPending().GetQuestion().GetDisplayCount() != 2 || len(pending.GetPending().GetQuestion().GetCurrentUnresolvedAskIds()) != 1 {
+		t.Fatalf("question state = %+v", pending)
 	}
 	resolvePendingPromptForTest(registry, "session-1", "ask-1")
 	if event, err := desktopSub.Next(shortRegistryContext(t)); err == nil {
 		t.Fatalf("task question resolved from prompt answer before durable clear: %+v", event)
 	}
 	skipped := *req.QuestionBatch
-	skipped.PromptID = "ask-2"
+	skipped.ToolCallID = "ask-2"
 	registry.MarkTaskQuestionSkipped(skipped)
 	if event, err := desktopSub.Next(shortRegistryContext(t)); err == nil {
 		t.Fatalf("skip published duplicate pending attention: %+v", event)
 	}
 	registry.MarkTaskQuestionCleared(*req.QuestionBatch, "ask-1")
 	resolved := nextRegistryAttentionEvent(t, desktopSub)
-	if resolved.Type != clientui.AttentionNotificationEventResolved || !attentionNotificationEventIDMatches(resolved, batchID) {
+	if !resolvedQuestionIDMatches(resolved, registryTestStepID) {
 		t.Fatalf("durable clear resolved event = %+v", resolved)
 	}
 }
 
 func TestRuntimeRegistryPublishesTaskApprovalPromptAsDurablyClearedQuestionAttention(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker)
+	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
-	desktopSub, err := registry.SubscribeAttentionNotifications(context.Background(), serverapi.AttentionNotificationSubscribeRequest{})
+	desktopSub, err := registry.SubscribeAttentionNotifications(context.Background(), &emptypb.Empty{})
 	if err != nil {
 		t.Fatalf("SubscribeAttentionNotifications: %v", err)
 	}
@@ -146,27 +168,30 @@ func TestRuntimeRegistryPublishesTaskApprovalPromptAsDurablyClearedQuestionAtten
 		},
 	}
 	req := askquestion.AskQuestionRequest{
-		ID:              "approval-1",
+		ToolCallID:      "approval-1",
 		StepID:          registryTestStepID,
 		Question:        "Approve protected path?",
 		Approval:        true,
 		AttentionTarget: &target,
 		ApprovalOptions: []askquestion.AskQuestionApprovalOption{
-			{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce, Label: "Allow once"},
-			{Decision: askquestion.AskQuestionApprovalDecisionDeny, Label: "Deny"},
+			{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce},
+			{Decision: askquestion.AskQuestionApprovalDecisionDeny},
 		},
 	}
 	projectPendingPromptForTest(registry, "session-1", req)
 
 	pending := nextRegistryAttentionEvent(t, desktopSub)
-	if pending.Type != clientui.AttentionNotificationEventPending || pending.Pending.Kind != clientui.AttentionNotificationKindQuestion || pending.Pending.Target.Kind != clientui.AttentionNotificationTargetWorkflowTask {
+	if pending.Type != taskpb.AttentionNotificationEventType_ATTENTION_NOTIFICATION_EVENT_PENDING ||
+		pending.GetPending().GetKind() != taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_QUESTION ||
+		pending.GetPending().GetTarget().GetWorkflowTask() == nil {
 		t.Fatalf("pending approval question event = %+v", pending)
 	}
-	if pending.Pending.Question == nil || pending.Pending.Question.Preview != "Approve protected path?" || len(pending.Pending.Question.CurrentUnresolvedAskIDs) != 1 || pending.Pending.Question.CurrentUnresolvedAskIDs[0] != "approval-1" {
-		t.Fatalf("pending approval question state = %+v", pending.Pending.Question)
+	question := pending.GetPending().GetQuestion()
+	if question == nil || question.Preview != "Approve protected path?" || len(question.CurrentUnresolvedAskIds) != 1 || question.CurrentUnresolvedAskIds[0] != "approval-1" {
+		t.Fatalf("pending approval question state = %+v", question)
 	}
-	if pending.Pending.Approval != nil {
-		t.Fatalf("task-scoped approval prompt must not publish approval attention: %+v", pending.Pending.Approval)
+	if pending.GetPending().GetApproval() != nil {
+		t.Fatalf("task-scoped approval prompt must not publish approval attention: %+v", pending)
 	}
 	resolvePendingPromptForTest(registry, "session-1", "approval-1")
 	if event, err := desktopSub.Next(shortRegistryContext(t)); err == nil {
@@ -174,27 +199,27 @@ func TestRuntimeRegistryPublishesTaskApprovalPromptAsDurablyClearedQuestionAtten
 	}
 	registry.MarkTaskApprovalQuestionCleared(target, "approval-1")
 	resolved := nextRegistryAttentionEvent(t, desktopSub)
-	if resolved.Type != clientui.AttentionNotificationEventResolved || resolved.Kind != clientui.AttentionNotificationKindQuestion || !attentionNotificationEventIDMatches(resolved, attentionNotificationID(clientui.AttentionNotificationKindQuestion, "approval-1")) {
+	if !resolvedQuestionIDMatches(resolved, "approval-1") {
 		t.Fatalf("durable clear resolved event = %+v", resolved)
 	}
 }
 
 type recordingWorkflowEventPublisher struct {
-	events []serverapi.WorkflowProjectEvent
+	events []workflowcontract.Event
 }
 
-func (p *recordingWorkflowEventPublisher) PublishWorkflowEvent(_ context.Context, event serverapi.WorkflowProjectEvent) error {
+func (p *recordingWorkflowEventPublisher) PublishWorkflowEvent(_ context.Context, event workflowcontract.Event) error {
 	p.events = append(p.events, event)
 	return nil
 }
 
 func TestRuntimeRegistrySkippedFirstTaskQuestionPreparesBatchBeforeMaterialization(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker)
+	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
-	desktopSub, err := registry.SubscribeAttentionNotifications(context.Background(), serverapi.AttentionNotificationSubscribeRequest{})
+	desktopSub, err := registry.SubscribeAttentionNotifications(context.Background(), &emptypb.Empty{})
 	if err != nil {
 		t.Fatalf("SubscribeAttentionNotifications: %v", err)
 	}
@@ -208,105 +233,73 @@ func TestRuntimeRegistrySkippedFirstTaskQuestionPreparesBatchBeforeMaterializati
 	projectPendingPromptForTest(registry, "session-1", second)
 
 	pending := nextRegistryAttentionEvent(t, desktopSub)
-	if pending.Type != clientui.AttentionNotificationEventPending || pending.Pending.Question.DisplayCount != 1 {
+	if pending.Type != taskpb.AttentionNotificationEventType_ATTENTION_NOTIFICATION_EVENT_PENDING || pending.GetPending().GetQuestion().GetDisplayCount() != 1 {
 		t.Fatalf("pending after skipped first ask = %+v", pending)
 	}
-	if len(pending.Pending.Question.SkippedAskIDs) != 1 || pending.Pending.Question.SkippedAskIDs[0] != "ask-1" {
-		t.Fatalf("skipped ask ids = %+v", pending.Pending.Question)
+	if skipped := pending.GetPending().GetQuestion().GetSkippedAskIds(); len(skipped) != 1 || skipped[0] != "ask-1" {
+		t.Fatalf("skipped ask ids = %+v", pending)
 	}
 	resolvePendingPromptForTest(registry, "session-1", "ask-2")
 	registry.MarkTaskQuestionCleared(*second.QuestionBatch, "ask-2")
 	resolved := nextRegistryAttentionEvent(t, desktopSub)
-	if resolved.Type != clientui.AttentionNotificationEventResolved || !attentionNotificationEventIDMatches(resolved, attentionNotificationID(clientui.AttentionNotificationKindQuestion, registryTestStepID)) {
+	if !resolvedQuestionIDMatches(resolved, registryTestStepID) {
 		t.Fatalf("resolved event = %+v", resolved)
 	}
 }
 
-func TestRuntimeRegistrySessionAttentionSnapshotUsesPendingPromptStore(t *testing.T) {
+func TestRuntimeRegistrySessionAttentionDoesNotReplayPendingPrompts(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker)
-	engine := &runtime.Engine{}
-	registerReady(t, registry, "session-1", engine)
-	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
-	projectPendingPromptForTest(registry, "session-1", askquestion.AskQuestionRequest{ID: "ask-1", StepID: registryTestStepID, Question: "Proceed?"})
-
-	sub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), serverapi.AttentionSessionNotificationSubscribeRequest{SessionID: "session-1", IncludePendingPromptSnapshot: true})
-	if err != nil {
-		t.Fatalf("SubscribeSessionAttentionNotifications: %v", err)
-	}
-	pending := nextRegistryAttentionEvent(t, sub)
-	if pending.Source != clientui.AttentionNotificationSourceSnapshot || pending.Pending.ID != attentionNotificationID(clientui.AttentionNotificationKindQuestion, "ask-1") {
-		t.Fatalf("snapshot pending = %+v", pending)
-	}
-	complete := nextRegistryAttentionEvent(t, sub)
-	if complete.Type != clientui.AttentionNotificationEventSnapshotComplete || complete.SessionID != "session-1" {
-		t.Fatalf("snapshot complete = %+v", complete)
-	}
-}
-
-func TestRuntimeRegistrySessionAttentionSnapshotOverflowReturnsStreamGap(t *testing.T) {
-	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker)
+	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
 	for i := 0; i < 65; i++ {
-		projectPendingPromptForTest(registry, "session-1", askquestion.AskQuestionRequest{ID: fmt.Sprintf("ask-%d", i), StepID: registryTestStepID, Question: "Proceed?"})
+		projectPendingPromptForTest(registry, "session-1", askquestion.AskQuestionRequest{ToolCallID: fmt.Sprintf("ask-%d", i), StepID: registryTestStepID, Question: "Proceed?"})
 	}
 
-	sub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), serverapi.AttentionSessionNotificationSubscribeRequest{SessionID: "session-1", IncludePendingPromptSnapshot: true})
-	if !errors.Is(err, serverapi.ErrStreamGap) {
-		t.Fatalf("SubscribeSessionAttentionNotifications error = %v, want ErrStreamGap", err)
+	sub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: "session-1"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if sub != nil {
-		t.Fatalf("SubscribeSessionAttentionNotifications returned subscription after snapshot overflow: %+v", sub)
+	defer sub.Close()
+	if event, err := sub.Next(shortRegistryContext(t)); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("subscription replayed pending prompts: event=%+v, err=%v", event, err)
 	}
 }
 
-func TestRuntimeRegistrySessionAttentionSnapshotPreservesTaskQuestionBatch(t *testing.T) {
+func TestRuntimeRegistrySessionAttentionOnlyReceivesNewTaskQuestionBatchEvents(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker)
+	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
 	req := taskBatchAskRequest("ask-1")
 	projectPendingPromptForTest(registry, "session-1", req)
 
-	sub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), serverapi.AttentionSessionNotificationSubscribeRequest{SessionID: "session-1", IncludePendingPromptSnapshot: true})
+	sub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: "session-1"})
 	if err != nil {
 		t.Fatalf("SubscribeSessionAttentionNotifications: %v", err)
 	}
-	pending := nextRegistryAttentionEvent(t, sub)
-	if pending.Source != clientui.AttentionNotificationSourceSnapshot || pending.Type != clientui.AttentionNotificationEventPending {
-		t.Fatalf("snapshot event = %+v", pending)
-	}
-	if pending.Pending.ID != attentionNotificationID(clientui.AttentionNotificationKindQuestion, registryTestStepID) || pending.Pending.Target.Kind != clientui.AttentionNotificationTargetWorkflowTask {
-		t.Fatalf("snapshot pending = %+v", pending.Pending)
-	}
-	if pending.Pending.Target.Focus == nil || len(pending.Pending.Target.Focus.AskIDs) != 2 || pending.Pending.Target.Focus.AskIDs[0] != "ask-1" {
-		t.Fatalf("snapshot focus = %+v", pending.Pending.Target.Focus)
-	}
-	if pending.Pending.Question == nil || pending.Pending.Question.DisplayCount != 2 || len(pending.Pending.Question.CurrentUnresolvedAskIDs) != 1 || pending.Pending.Question.CurrentUnresolvedAskIDs[0] != "ask-1" {
-		t.Fatalf("snapshot question state = %+v", pending.Pending.Question)
-	}
-	complete := nextRegistryAttentionEvent(t, sub)
-	if complete.Type != clientui.AttentionNotificationEventSnapshotComplete || complete.SessionID != "session-1" {
-		t.Fatalf("snapshot complete = %+v", complete)
+	defer sub.Close()
+	if event, err := sub.Next(shortRegistryContext(t)); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("subscription replayed a question batch: event=%+v, err=%v", event, err)
 	}
 	skipped := *req.QuestionBatch
-	skipped.PromptID = "ask-2"
+	skipped.ToolCallID = "ask-2"
 	registry.MarkTaskQuestionSkipped(skipped)
 	if event, err := sub.Next(shortRegistryContext(t)); err == nil {
-		t.Fatalf("skip published duplicate pending snapshot attention: %+v", event)
+		t.Fatalf("skip published duplicate pending attention: %+v", event)
 	}
 	registry.MarkTaskQuestionCleared(*req.QuestionBatch, "ask-1")
-	resolved := nextRegistryAttentionEvent(t, sub)
-	if resolved.Type != clientui.AttentionNotificationEventResolved || !attentionNotificationEventIDMatches(resolved, attentionNotificationID(clientui.AttentionNotificationKindQuestion, registryTestStepID)) {
+	resolved := nextRegistryAttentionEvent(t, sub).GetResolved()
+	if resolved == nil || resolved.Id.Kind != attentionpb.Kind_ATTENTION_KIND_QUESTION || resolved.Id.Uuid != registryTestStepID {
 		t.Fatalf("resolved event = %+v", resolved)
 	}
 }
 
-func nextRegistryAttentionEvent(t *testing.T, sub serverapi.AttentionNotificationSubscription) clientui.AttentionNotificationEvent {
+func nextRegistryAttentionEvent[T any](t *testing.T, sub interface {
+	Next(context.Context) (T, error)
+}) T {
 	t.Helper()
 	event, err := sub.Next(context.Background())
 	if err != nil {
@@ -322,12 +315,9 @@ func shortRegistryContext(t *testing.T) context.Context {
 	return ctx
 }
 
-func attentionNotificationID(kind clientui.AttentionNotificationKind, uuid string) clientui.AttentionNotificationID {
-	return clientui.AttentionNotificationID{Kind: kind, UUID: uuid}
-}
-
-func attentionNotificationEventIDMatches(event clientui.AttentionNotificationEvent, id clientui.AttentionNotificationID) bool {
-	return event.ID != nil && *event.ID == id
+func resolvedQuestionIDMatches(event *taskpb.AttentionNotificationEvent, id string) bool {
+	return event.GetResolved().GetId().GetKind() == taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_QUESTION &&
+		event.GetResolved().GetId().GetUuid() == id
 }
 
 func registryTestWorkflowID() *runtimeids.WorkflowID {
@@ -338,15 +328,15 @@ func registryTestWorkflowID() *runtimeids.WorkflowID {
 func taskBatchAskRequest(id string) askquestion.AskQuestionRequest {
 	currentNodeID := "node-1"
 	return askquestion.AskQuestionRequest{
-		ID:       id,
-		StepID:   registryTestStepID,
-		Question: "Proceed?",
+		ToolCallID: id,
+		StepID:     registryTestStepID,
+		Question:   "Proceed?",
 		QuestionBatch: &askquestion.AskQuestionBatchMetadata{
 			Origin:              askquestion.AskQuestionOriginModelTool,
 			RunID:               "run-1",
 			StepID:              registryTestStepID,
-			PromptID:            id,
-			BatchPromptIDs:      []string{"ask-1", "ask-2"},
+			ToolCallID:          id,
+			BatchToolCallIDs:    []string{"ask-1", "ask-2"},
 			CandidateOrdinal:    0,
 			PreparedPromptCount: 2,
 		},

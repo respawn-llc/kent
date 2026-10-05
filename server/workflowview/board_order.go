@@ -3,15 +3,14 @@ package workflowview
 import (
 	"sort"
 
-	"core/server/workflow"
-	"core/shared/serverapi"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 )
 
-func boardColumnNodes(def serverapi.WorkflowDefinition) []serverapi.WorkflowNode {
+func boardColumnNodes(def *pb.WorkflowDefinition) []*pb.WorkflowNode {
 	graph := newBoardColumnGraph(def)
 	reachable := graph.reachableNodeIDs()
 	orderedIDs := graph.orderedReachableVisibleNodeIDs(reachable)
-	ordered := make([]serverapi.WorkflowNode, 0, len(graph.visibleNodes))
+	ordered := make([]*pb.WorkflowNode, 0, len(graph.visibleNodes))
 	emitted := make(map[string]bool, len(graph.visibleNodes))
 	for _, nodeID := range orderedIDs {
 		node, ok := graph.nodesByID[nodeID]
@@ -21,9 +20,9 @@ func boardColumnNodes(def serverapi.WorkflowDefinition) []serverapi.WorkflowNode
 		ordered = append(ordered, node)
 		emitted[nodeID] = true
 	}
-	unreachable := make([]serverapi.WorkflowNode, 0, len(graph.visibleNodes)-len(ordered))
+	unreachable := make([]*pb.WorkflowNode, 0, len(graph.visibleNodes)-len(ordered))
 	for _, node := range graph.visibleNodes {
-		if emitted[node.ID] || reachable[node.ID] {
+		if emitted[node.Id] || reachable[node.Id] {
 			continue
 		}
 		unreachable = append(unreachable, node)
@@ -35,23 +34,23 @@ func boardColumnNodes(def serverapi.WorkflowDefinition) []serverapi.WorkflowNode
 }
 
 type boardColumnGraph struct {
-	nodesByID        map[string]serverapi.WorkflowNode
-	visibleNodes     []serverapi.WorkflowNode
+	nodesByID        map[string]*pb.WorkflowNode
+	visibleNodes     []*pb.WorkflowNode
 	startNodeIDs     []string
 	outgoingBySource map[string][]string
 }
 
-func newBoardColumnGraph(def serverapi.WorkflowDefinition) boardColumnGraph {
-	nodesByID := make(map[string]serverapi.WorkflowNode, len(def.Nodes))
-	visibleNodes := make([]serverapi.WorkflowNode, 0, len(def.Nodes))
+func newBoardColumnGraph(def *pb.WorkflowDefinition) boardColumnGraph {
+	nodesByID := make(map[string]*pb.WorkflowNode, len(def.Nodes))
+	visibleNodes := make([]*pb.WorkflowNode, 0, len(def.Nodes))
 	startNodeIDs := make([]string, 0, 1)
 	for _, node := range def.Nodes {
-		nodesByID[node.ID] = node
+		nodesByID[node.Id] = node
 		if boardVisibleNodeKind(node.Kind) {
 			visibleNodes = append(visibleNodes, node)
 		}
-		if workflow.NodeKind(node.Kind) == workflow.NodeKindStart {
-			startNodeIDs = append(startNodeIDs, node.ID)
+		if node.Kind == pb.NodeKind_WORKFLOW_NODE_KIND_START {
+			startNodeIDs = append(startNodeIDs, node.Id)
 		}
 	}
 	sort.SliceStable(startNodeIDs, func(i, j int) bool {
@@ -59,18 +58,18 @@ func newBoardColumnGraph(def serverapi.WorkflowDefinition) boardColumnGraph {
 	})
 	groupSourceByID := make(map[string]string, len(def.TransitionGroups))
 	for _, group := range def.TransitionGroups {
-		groupSourceByID[group.ID] = group.SourceNodeID
+		groupSourceByID[group.Id] = group.SourceNodeId
 	}
 	outgoingBySource := make(map[string][]string, len(def.TransitionGroups))
 	for _, edge := range def.Edges {
-		sourceID := groupSourceByID[edge.TransitionGroupID]
+		sourceID := groupSourceByID[edge.TransitionGroupId]
 		if _, ok := nodesByID[sourceID]; !ok {
 			continue
 		}
-		if _, ok := nodesByID[edge.TargetNodeID]; !ok {
+		if _, ok := nodesByID[edge.TargetNodeId]; !ok {
 			continue
 		}
-		outgoingBySource[sourceID] = append(outgoingBySource[sourceID], edge.TargetNodeID)
+		outgoingBySource[sourceID] = append(outgoingBySource[sourceID], edge.TargetNodeId)
 	}
 	for sourceID, targetIDs := range outgoingBySource {
 		sort.SliceStable(targetIDs, func(i, j int) bool {
@@ -106,23 +105,23 @@ func (g boardColumnGraph) orderedReachableVisibleNodeIDs(reachable map[string]bo
 	precedence := make(map[string]map[string]bool, len(g.visibleNodes))
 	reachableVisibleIDs := make([]string, 0, len(g.visibleNodes))
 	for _, node := range g.visibleNodes {
-		if !reachable[node.ID] {
+		if !reachable[node.Id] {
 			continue
 		}
-		reachableVisibleIDs = append(reachableVisibleIDs, node.ID)
+		reachableVisibleIDs = append(reachableVisibleIDs, node.Id)
 	}
 	for _, source := range g.visibleNodes {
-		if !reachable[source.ID] {
+		if !reachable[source.Id] {
 			continue
 		}
-		for _, targetID := range g.visibleTargetsFrom(source.ID) {
-			if !reachable[targetID] || source.ID == targetID {
+		for _, targetID := range g.visibleTargetsFrom(source.Id) {
+			if !reachable[targetID] || source.Id == targetID {
 				continue
 			}
-			if precedence[source.ID] == nil {
-				precedence[source.ID] = map[string]bool{}
+			if precedence[source.Id] == nil {
+				precedence[source.Id] = map[string]bool{}
 			}
-			precedence[source.ID][targetID] = true
+			precedence[source.Id][targetID] = true
 		}
 	}
 	return g.topologicalVisibleNodeIDs(reachableVisibleIDs, precedence)
@@ -345,8 +344,8 @@ func (g boardColumnGraph) boardOrderComponentLess(left []string, right []string)
 func (g boardColumnGraph) boardOrderNodeIDLess(leftID string, rightID string) bool {
 	left := g.nodesByID[leftID]
 	right := g.nodesByID[rightID]
-	leftTerminal := workflow.NodeKind(left.Kind) == workflow.NodeKindTerminal
-	rightTerminal := workflow.NodeKind(right.Kind) == workflow.NodeKindTerminal
+	leftTerminal := left.Kind == pb.NodeKind_WORKFLOW_NODE_KIND_TERMINAL
+	rightTerminal := right.Kind == pb.NodeKind_WORKFLOW_NODE_KIND_TERMINAL
 	if leftTerminal != rightTerminal {
 		return !leftTerminal
 	}
@@ -361,7 +360,7 @@ func (g boardColumnGraph) sortNodeIDsByBoardOrder(nodeIDs []string) {
 
 func (g boardColumnGraph) componentHasTerminalNode(component []string) bool {
 	for _, nodeID := range component {
-		if workflow.NodeKind(g.nodesByID[nodeID].Kind) == workflow.NodeKindTerminal {
+		if g.nodesByID[nodeID].Kind == pb.NodeKind_WORKFLOW_NODE_KIND_TERMINAL {
 			return true
 		}
 	}
@@ -395,11 +394,11 @@ func (g boardColumnGraph) visibleTargetsFrom(sourceID string) []string {
 	return dedupeStrings(targets)
 }
 
-func workflowNodeKeyLess(left serverapi.WorkflowNode, right serverapi.WorkflowNode) bool {
+func workflowNodeKeyLess(left *pb.WorkflowNode, right *pb.WorkflowNode) bool {
 	if left.Key != right.Key {
 		return left.Key < right.Key
 	}
-	return left.ID < right.ID
+	return left.Id < right.Id
 }
 
 func dedupeStrings(values []string) []string {

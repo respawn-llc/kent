@@ -12,7 +12,7 @@ import (
 type projectWorkspaceDialer func(context.Context, string, string) (*client.Remote, error)
 type sessionDialer func(context.Context, string) (*client.Remote, error)
 
-func BindProjectWorkspace(ctx context.Context, current *client.Remote, cfg config.App, projectID, workspaceID, rootID string) (*client.Remote, error) {
+func BindProjectWorkspace(ctx context.Context, current *client.Remote, cfg config.Connection, projectID, workspaceID, rootID string) (*client.Remote, error) {
 	return bindProjectWorkspace(ctx, current, projectID, workspaceID, rootID, func(ctx context.Context, projectID, workspaceID string) (*client.Remote, error) {
 		if workspaceID != "" {
 			return client.DialConfiguredRemoteForProjectWorkspaceID(ctx, cfg, projectID, workspaceID)
@@ -21,7 +21,7 @@ func BindProjectWorkspace(ctx context.Context, current *client.Remote, cfg confi
 	})
 }
 
-func BindSession(ctx context.Context, current *client.Remote, cfg config.App, sessionID, rootID string) (*client.Remote, error) {
+func BindSession(ctx context.Context, current *client.Remote, cfg config.Connection, sessionID, rootID string) (*client.Remote, error) {
 	return bindSession(ctx, current, sessionID, rootID, func(ctx context.Context, sessionID string) (*client.Remote, error) {
 		return client.DialConfiguredRemoteForSession(ctx, cfg, sessionID)
 	})
@@ -42,6 +42,16 @@ func bindSession(ctx context.Context, current *client.Remote, sessionID, rootID 
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return nil, errors.New("session id is required")
+	}
+	if current == nil {
+		return nil, errors.New("remote server is required")
+	}
+	handoff, found, err := current.TakeSessionHandoff(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if found {
+		return replaceWithEstablishedRemote(ctx, current, handoff, rootID)
 	}
 	return replaceRemoteAttachment(ctx, current, rootID, func(ctx context.Context) (*client.Remote, error) {
 		return dial(ctx, sessionID)
@@ -64,13 +74,20 @@ func replaceRemoteAttachment(
 	if err != nil {
 		return nil, err
 	}
+	return replaceWithEstablishedRemote(ctx, current, nextRemote, rootID)
+}
+
+func replaceWithEstablishedRemote(
+	ctx context.Context,
+	current *client.Remote,
+	nextRemote *client.Remote,
+	rootID string,
+) (*client.Remote, error) {
+	if nextRemote == nil {
+		return nil, errors.New("replacement remote is required")
+	}
 	if err := nextRemote.RequireRoot(rootID); err != nil {
 		return nil, errors.Join(err, nextRemote.Close())
-	}
-	if current.NoAuthBootstrapAcknowledgementEnabled() {
-		if err := nextRemote.EnableNoAuthBootstrapAcknowledgement(ctx); err != nil {
-			return nil, errors.Join(err, nextRemote.Close())
-		}
 	}
 	// The successor is fully established at this point. Remote.Close marks the
 	// superseded connection closed before its transport teardown can fail, so a

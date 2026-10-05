@@ -1,11 +1,16 @@
 package app
 
+import transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+
+import processpb "core/shared/protoapi/gen/kent/api/process"
+
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+
 import (
 	"time"
 
 	"core/cli/tui"
 	tuiinput "core/cli/tui/input"
-	"core/shared/clientui"
 )
 
 type uiInputMode string
@@ -25,25 +30,23 @@ type uiInteractionState struct {
 }
 
 type uiAskState struct {
-	current                  *askEvent
-	currentToken             uint64
-	queue                    []askEvent
-	cursor                   int
-	freeform                 bool
-	freeformMode             askFreeformMode
-	activeDelivery           *activePromptAnswerDelivery
-	pendingCtrlCContinuation *transcriptPromptKey
-	answerPending            bool
-	editor                   tuiinput.Editor
-	activeProjection         *activeQuestionProjection
-	inFlightProjection       *questionRenderRequest
-	latestDesiredProjection  *desiredQuestionProjection
+	current                 *askEvent
+	currentToken            uint64
+	queue                   []askEvent
+	cursor                  int
+	freeform                bool
+	freeformMode            askFreeformMode
+	activeDelivery          *activePromptAnswerDelivery
+	editor                  tuiinput.Editor
+	activeProjection        *activeQuestionProjection
+	inFlightProjection      *questionRenderRequest
+	latestDesiredProjection *desiredQuestionProjection
 }
 
 type uiProcessListState struct {
 	open              bool
 	selection         int
-	entries           []clientui.BackgroundProcess
+	entries           []*processpb.BackgroundProcess
 	loading           bool
 	errorText         string
 	refreshToken      uint64
@@ -71,7 +74,7 @@ type rollbackCandidate struct {
 type uiRollbackPageNavigation struct {
 	direction                tui.DetailTranscriptPageDirection
 	anchorRollbackTargetID   string
-	request                  clientui.TranscriptPageRequest
+	request                  *transcriptpb.PageRequest
 	deadline                 time.Time
 	skippedCandidateFreePage bool
 }
@@ -92,7 +95,6 @@ type uiStatusOverlayState struct {
 	loading         bool
 	scroll          int
 	snapshot        uiStatusSnapshot
-	error           string
 	refreshToken    uint64
 	pendingSections map[uiStatusSection]bool
 	sectionWarnings map[uiStatusSection]string
@@ -101,8 +103,7 @@ type uiStatusOverlayState struct {
 type uiGoalOverlayState struct {
 	open             bool
 	scroll           int
-	goal             *clientui.Goal
-	pending          *clientui.GoalPreview
+	goal             *runtimepb.Goal
 	confirmMode      string
 	confirmSelection int
 	pendingObjective string

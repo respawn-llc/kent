@@ -3,14 +3,12 @@ package promptcontrol
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"core/server/registry"
-	askquestion "core/server/tools"
 	servicecontract "core/shared/apicontract"
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 )
 
 type PendingPromptSource interface {
@@ -25,63 +23,30 @@ func NewApprovalViewService(prompts PendingPromptSource) *ApprovalViewService {
 	return &ApprovalViewService{prompts: prompts}
 }
 
-func (s *ApprovalViewService) ListPendingApprovalsBySession(_ context.Context, req serverapi.ApprovalListPendingBySessionRequest) (serverapi.ApprovalListPendingBySessionResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.ApprovalListPendingBySessionResponse{}, err
+func (s *ApprovalViewService) ListPendingApprovalsBySession(_ context.Context, req *promptpb.ListPendingRequest) (*promptpb.ListApprovalsSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
 	if s == nil || s.prompts == nil {
-		return serverapi.ApprovalListPendingBySessionResponse{}, fmt.Errorf("pending prompt source is required")
+		return nil, fmt.Errorf("pending prompt source is required")
 	}
-	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(req.SessionID))
+	sessionID, err := runtimeids.ParseSessionID(req.SessionId)
 	if err != nil {
-		return serverapi.ApprovalListPendingBySessionResponse{}, fmt.Errorf("pending approval session identity: %w", err)
+		return nil, fmt.Errorf("pending approval session identity: %w", err)
 	}
 	items := s.prompts.ListPendingPrompts(sessionID.String())
-	approvals := make([]clientui.PendingApproval, 0, len(items))
+	approvals := make([]*promptpb.Approval, 0, len(items))
 	for _, item := range items {
 		if !item.Request.Approval {
 			continue
 		}
-		promptID, stepID, err := pendingPromptIdentity(item.Request.ID, item.Request.StepID)
+		approval, err := registry.ApprovalFromSnapshot(sessionID.String(), item)
 		if err != nil {
-			return serverapi.ApprovalListPendingBySessionResponse{}, fmt.Errorf("pending approval identity: %w", err)
+			return nil, err
 		}
-		approvals = append(approvals, clientui.PendingApproval{
-			PromptID:  promptID,
-			SessionID: sessionID,
-			StepID:    stepID,
-			Question:  item.Request.Question,
-			Options:   approvalOptionsFromRequest(item.Request.ApprovalOptions),
-			CreatedAt: item.CreatedAt,
-		})
+		approvals = append(approvals, approval)
 	}
-	return serverapi.ApprovalListPendingBySessionResponse{Approvals: approvals}, nil
-}
-
-func pendingPromptIdentity(rawPromptID, rawStepID string) (clientui.PromptID, runtimeids.StepID, error) {
-	promptID := clientui.PromptID(rawPromptID)
-	if err := promptID.Validate(); err != nil {
-		return "", runtimeids.StepID{}, err
-	}
-	stepID, err := runtimeids.ParseStepID(rawStepID)
-	if err != nil {
-		return "", runtimeids.StepID{}, err
-	}
-	return promptID, stepID, nil
-}
-
-func approvalOptionsFromRequest(options []askquestion.AskQuestionApprovalOption) []clientui.ApprovalOption {
-	if len(options) == 0 {
-		return nil
-	}
-	out := make([]clientui.ApprovalOption, 0, len(options))
-	for _, option := range options {
-		out = append(out, clientui.ApprovalOption{
-			Decision: clientui.ApprovalDecision(option.Decision),
-			Label:    option.Label,
-		})
-	}
-	return out
+	return &promptpb.ListApprovalsSuccess{Approvals: approvals}, nil
 }
 
 var _ servicecontract.ApprovalViewService = (*ApprovalViewService)(nil)

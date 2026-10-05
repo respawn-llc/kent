@@ -174,6 +174,7 @@ type Session struct {
 	TaskID                   sql.NullString
 	CompletedCompactionCount sql.NullInt64
 	ManualCompactEligible    sql.NullInt64
+	ProtectedInputDraft      sql.NullString
 }
 
 type SessionPromptHistoryEntry struct {
@@ -413,7 +414,6 @@ type Workspace struct {
 	GitMetadataJson   string
 	CreatedAtUnixMs   int64
 	UpdatedAtUnixMs   int64
-	ChatDraftJson     sql.NullString
 }
 
 type Worktree struct {

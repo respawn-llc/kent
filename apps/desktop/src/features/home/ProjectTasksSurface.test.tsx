@@ -1,10 +1,18 @@
+import { recordProjectObservers } from "@/test-support/project-events";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RegistryProvider } from "@effect/atom-react";
 import { I18nextProvider } from "react-i18next";
 import userEvent from "@testing-library/user-event";
 
 import { type ProjectTaskGroupCounts, type ProjectTaskGroupDefinition, type TaskListItem } from "@/api";
-import { queryKeys, type SidebarDestination, type SidebarRootController } from "@/app-facade";
+import {
+  AppServicesProvider,
+  queryKeys,
+  type SidebarDestination,
+  type SidebarRootController,
+} from "@/app-facade";
+import { createTestServices, startupRoutes } from "@/test-support/app-services";
 import type * as ProjectTaskListData from "./projectTaskListData";
 
 import { appI18n, initializeI18n } from "@/i18n";
@@ -104,10 +112,8 @@ const fixture = vi.hoisted<{
   resumeRequests: 0,
 }));
 
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
-  useAppNavigation: () => ({ openProject: vi.fn() }),
-  useAppServices: () => ({
+vi.mock("@/app-facade", async (importOriginal) => {
+  const services = {
     api: {
       listWorkflows: async () => ({
         nextOffset: null,
@@ -135,30 +141,26 @@ vi.mock("@/app-facade", async (importOriginal) => ({
         fixture.resumeRequests += 1;
         return { outcome: "applied" as const, applied: { currentNodes: [] } };
       },
-      subscribeProject: () => {
-        fixture.projectSubscriptions += 1;
-        return {
-          close() {
-            fixture.projectSubscriptions -= 1;
-          },
-        };
-      },
     },
     logger: { append: vi.fn() },
     nativeBridge: { capabilities: { platform: "macos" } },
     storageNamespace: null,
-  }),
-  useConnectionSnapshot: () => ({ generation: 1, phase: "connected" }),
-  useOwnedSidebarRoots: () => ({ open: fixture.open }),
-  useSidebarShell: () => ({ activeDestination: fixture.activeDestination }),
-  useStatusController: () => ({ dismiss: vi.fn(), push: vi.fn() }),
-}));
+  };
+  return {
+    ...(await importOriginal()),
+    useAppNavigation: () => ({ openProject: vi.fn() }),
+    useAppServices: () => services,
+    useOwnedSidebarRoots: () => ({ open: fixture.open }),
+    useSidebarShell: () => ({ activeDestination: fixture.activeDestination }),
+    useStatusController: () => ({ dismiss: vi.fn(), push: vi.fn() }),
+  };
+});
 
 vi.mock("./projectTaskListData", async (importOriginal) => {
   const actual = await importOriginal<typeof ProjectTaskListData>();
   return {
     ...actual,
-    useProjectTaskListEvents: () => undefined,
+    useProjectTaskListEvents: () => ({ error: null, retry: vi.fn() }),
     useProjectTaskListData: () => ({
       counts: countsQuery(
         fixture.counts,
@@ -469,6 +471,8 @@ describe("ProjectTasksSurface", () => {
   });
 
   it("restores retained pixels after remounted group pages establish their first results", () => {
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(1000);
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(44);
     const originalScrollTop = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTop");
     const scrollPositions = new WeakMap<HTMLElement, number>();
     let maximumScrollTop = Number.POSITIVE_INFINITY;
@@ -531,6 +535,8 @@ describe("ProjectTasksSurface", () => {
   });
 
   it("restores retained pixels while established group pages refresh", () => {
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(1000);
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(44);
     const memory = createProjectTasksViewMemory();
     memory.setScrollOffsets(200, 120);
     fixture.initialGroupPagesRefreshing = true;
@@ -713,7 +719,9 @@ describe("ProjectTasksSurface", () => {
     expect(labelsRow).toHaveAttribute("aria-selected", "false");
     expect(fixture.labelCatalogRequests).toBe(1);
     expect(fixture.assignmentRequests).toBe(1);
-    expect(fixture.projectSubscriptions).toBe(0);
+    await waitFor(() => {
+      expect(fixture.projectSubscriptions).toBe(0);
+    });
   });
 });
 
@@ -758,6 +766,16 @@ function surface(memory = createProjectTasksViewMemory(), sidebarMode: "overlay"
 }
 
 function withQueryClient(children: React.ReactNode) {
+  const services = createTestServices(startupRoutes);
+  recordProjectObservers(
+    services.transport,
+    () => {
+      fixture.projectSubscriptions += 1;
+    },
+    () => {
+      fixture.projectSubscriptions -= 1;
+    },
+  );
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -765,7 +783,7 @@ function withQueryClient(children: React.ReactNode) {
     fixture.invalidations.push(filters);
   });
   queryClient.setQueryData(queryKeys.projectTaskWorkflows("project-1"), {
-    pageParams: [0],
+    pageParams: [0n],
     pages: [
       {
         nextOffset: null,
@@ -778,7 +796,13 @@ function withQueryClient(children: React.ReactNode) {
       },
     ],
   });
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <RegistryProvider>
+        <AppServicesProvider services={services}>{children}</AppServicesProvider>
+      </RegistryProvider>
+    </QueryClientProvider>
+  );
 }
 
 function openedDestination(): SidebarDestination {

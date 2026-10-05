@@ -23,25 +23,25 @@ import (
 
 type staticAuth struct{}
 
-func (staticAuth) AuthorizationHeader(context.Context) (string, error) {
-	return "Bearer token", nil
+func (staticAuth) ResolveDispatchAuth(context.Context) (*DispatchAuth, error) {
+	return &DispatchAuth{Header: "Bearer token"}, nil
 }
 
 type oauthStaticAuth struct{}
 
-func (oauthStaticAuth) AuthorizationHeader(context.Context) (string, error) {
-	return "Bearer token", nil
-}
-
-func (oauthStaticAuth) OpenAIAuthMetadata(context.Context) (string, string, error) {
-	return "oauth", "acc-1", nil
+func (oauthStaticAuth) ResolveDispatchAuth(context.Context) (*DispatchAuth, error) {
+	return &DispatchAuth{Header: "Bearer token", Mode: OpenAIAuthMode{IsOAuth: true, AccountID: "acc-1"}}, nil
 }
 
 type missingAuth struct{}
 
-func (missingAuth) AuthorizationHeader(context.Context) (string, error) {
-	return "", auth.ErrAuthNotConfigured
+func (missingAuth) ResolveDispatchAuth(context.Context) (*DispatchAuth, error) {
+	return nil, auth.ErrAuthNotConfigured
 }
+
+type anonymousAuth struct{}
+
+func (anonymousAuth) ResolveDispatchAuth(context.Context) (*DispatchAuth, error) { return nil, nil }
 
 func requireProviderCapabilities(t *testing.T, transport *HTTPTransport, mode OpenAIAuthMode) ProviderCapabilities {
 	t.Helper()
@@ -79,7 +79,7 @@ func TestBuildResponsesInputRawTakesPrecedenceOverTypedFields(t *testing.T) {
 func TestBuildPayload_SerializesAssistantToolCalls(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model:        "gpt-5",
+		Model:        "gpt-6-sol",
 		SystemPrompt: "sys",
 		Items: ItemsFromMessages([]Message{
 			{
@@ -441,7 +441,7 @@ func TestCompactErrorPath_ReturnsProviderAPIErrorForOpenAIV2(t *testing.T) {
 	transport.Client = newRewritingHTTPClient(t, server)
 
 	_, err := transport.Compact(context.Background(), OpenAIRequest{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		SessionID:      textutil.Value("s1"),
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		Items:          PrepareOpenAIInputItems([]ResponseItem{{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value("hello")}}),
@@ -697,7 +697,7 @@ func TestBuildRequestOptions_OAuthAddsCodexHeaders(t *testing.T) {
 	opts := transport.buildRequestOptions("Bearer x", OpenAIAuthMode{
 		IsOAuth:   true,
 		AccountID: "acc-1",
-	}, openaiTestOptionalString("session-1"), &codexDispatchProjection{RoutingHint: "model=gpt-5"}, nil)
+	}, openaiTestOptionalString("session-1"), &codexDispatchProjection{RoutingHint: "model=gpt-6-sol"}, nil)
 
 	if len(opts) != 6 {
 		t.Fatalf("expected 6 request options, got %d", len(opts))
@@ -723,7 +723,7 @@ func TestGenerateSendsConfiguredProviderIdentityHeaders(t *testing.T) {
 	transport.Client = server.Client()
 	transport.ProviderIdentifier = "acme_agent"
 
-	if _, err := transport.Generate(context.Background(), OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-5", SessionID: textutil.Value("session-1")}, StreamCallbacks{}); err != nil {
+	if _, err := transport.Generate(context.Background(), OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", SessionID: textutil.Value("session-1")}, StreamCallbacks{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	headers := <-requestHeaders
@@ -767,20 +767,14 @@ func openaiTestOptionalString(value string) *string {
 	return &value
 }
 
-func TestResolveAuth_AllowsAnonymousWhenBaseURLExplicitAndAuthNotConfigured(t *testing.T) {
+func TestResolveAuth_RejectsMissingCredentialsAtExplicitEndpoint(t *testing.T) {
 	transport := NewHTTPTransport(missingAuth{})
 	transport.BaseURL = "http://127.0.0.1:8080/v1"
 	transport.BaseURLExplicit = true
 
-	authHeader, mode, err := transport.resolveAuth(context.Background())
-	if err != nil {
-		t.Fatalf("resolveAuth: %v", err)
-	}
-	if authHeader != "" {
-		t.Fatalf("expected empty auth header, got %q", authHeader)
-	}
-	if mode.IsOAuth || mode.AccountID != "" {
-		t.Fatalf("expected anonymous non-oauth mode, got %+v", mode)
+	_, _, err := transport.resolveAuth(context.Background())
+	if !errors.Is(err, auth.ErrAuthNotConfigured) {
+		t.Fatalf("missing credentials must fail: %v", err)
 	}
 }
 
@@ -802,7 +796,7 @@ func TestGenerate_ExplicitBaseURLAllowsAnonymousRequests(t *testing.T) {
 		_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_anon_1\",\"object\":\"response\",\"output\":[{\"type\":\"message\",\"id\":\"msg_anon_1\",\"role\":\"assistant\",\"status\":\"completed\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello from anonymous compatible server\"}]}],\"usage\":{\"input_tokens\":11,\"output_tokens\":7,\"total_tokens\":18}}}\n\ndata: [DONE]\n\n")
 	}))
 	defer server.Close()
-	transport := NewHTTPTransport(nil)
+	transport := NewHTTPTransport(anonymousAuth{})
 	transport.BaseURL = "https://example.openrouter.ai/v1"
 	transport.BaseURLExplicit = true
 	transport.Client = newRewritingHTTPClient(t, server)
@@ -839,7 +833,7 @@ func TestGenerate_ExplicitBaseURLAllowsAnonymousRequests(t *testing.T) {
 func TestBuildPayload_UsesTransportStoreSetting(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	transport.Store = true
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-5"}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
+	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
 	}
@@ -852,8 +846,10 @@ func TestBuildPayload_UsesTransportStoreSetting(t *testing.T) {
 func TestBuildPayload_AddsNativeWebSearchToolWhenEnabled(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model:                 "gpt-5",
-		EnableNativeWebSearch: true,
+		Model:                   "gpt-6-sol",
+		EnableNativeWebSearch:   true,
+		SupportsReasoningEffort: true,
+		ReasoningEffort:         "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
@@ -871,12 +867,19 @@ func TestBuildPayload_AddsNativeWebSearchToolWhenEnabled(t *testing.T) {
 	if got := tool["type"]; got != "web_search" {
 		t.Fatalf("expected web_search tool, got %#v", got)
 	}
+	if !reflect.DeepEqual(payload.Include, []responses.ResponseIncludable{
+		responses.ResponseIncludableWebSearchCallResults,
+		responses.ResponseIncludableWebSearchCallActionSources,
+		responses.ResponseIncludableReasoningEncryptedContent,
+	}) {
+		t.Fatalf("unexpected hosted search includes: %v", payload.Include)
+	}
 }
 
 func TestBuildPayloadRejectsRequiredToolChoiceForNonResponsesAdapter(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	_, err := transport.buildPayload(OpenAIRequest{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeRequired,
 		Tools:          []Tool{{Name: "shell", Schema: mustTestFunctionSchema(t, struct{}{})}},
 	}, OpenAIAuthMode{}, ProviderCapabilities{ProviderID: "anthropic"})
@@ -888,7 +891,7 @@ func TestBuildPayloadRejectsRequiredToolChoiceForNonResponsesAdapter(t *testing.
 func TestBuildPayloadSerializesRequiredToolChoice(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	payload, err := transport.buildPayload(OpenAIRequest{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeRequired,
 		Tools:          []Tool{{Name: "shell", Schema: mustTestFunctionSchema(t, struct{}{})}},
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
@@ -904,7 +907,7 @@ func TestBuildPayloadSerializesRequiredToolChoice(t *testing.T) {
 func TestBuildPayloadSerializesAutomaticToolChoice(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	payload, err := transport.buildPayload(OpenAIRequest{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		Tools:          []Tool{{Name: "shell", Schema: mustTestFunctionSchema(t, struct{}{})}},
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
@@ -921,7 +924,7 @@ func TestBuildPayloadRequiredToolChoicePreservesEffectiveToolsAndParallelSetting
 	transport := NewHTTPTransport(staticAuth{})
 	caps := requireProviderCapabilities(t, transport, OpenAIAuthMode{})
 	base := OpenAIRequest{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		EnableNativeWebSearch: true,
 		Tools: []Tool{
 			{Name: "shell", Schema: mustTestFunctionSchema(t, struct{}{})},
@@ -951,7 +954,7 @@ func TestBuildPayloadRequiredToolChoicePreservesEffectiveToolsAndParallelSetting
 func TestBuildPayloadAcceptsRequiredToolChoiceWithHostedWebSearchOnly(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	payload, err := transport.buildPayload(OpenAIRequest{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ToolChoiceMode:        ToolChoiceModeRequired,
 		EnableNativeWebSearch: true,
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
@@ -968,7 +971,7 @@ func TestBuildPayloadAcceptsRequiredToolChoiceWithHostedWebSearchOnly(t *testing
 func TestBuildPayloadRejectsRequiredToolChoiceWithoutMaterializedTools(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	_, err := transport.buildPayload(OpenAIRequest{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeRequired,
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if !errors.Is(err, ErrInvalidRequest) {
@@ -979,7 +982,7 @@ func TestBuildPayloadRejectsRequiredToolChoiceWithoutMaterializedTools(t *testin
 func TestBuildPayload_SerializesPatchAsCustomGrammarTool(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Tools: []Tool{{
 			Name:        string(toolspec.ToolPatch),
 			Description: "Apply edits to files using freeform patch syntax.",
@@ -1021,7 +1024,7 @@ func TestBuildPayload_UsesExplicitPatchCustomGrammarTool(t *testing.T) {
 	transport := NewHTTPTransport(oauthStaticAuth{})
 	mode := OpenAIAuthMode{IsOAuth: true, AccountID: "acc-1"}
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model: "gpt-5.4",
+		Model: "gpt-6-astra",
 		Tools: []Tool{
 			{Name: string(toolspec.ToolExecCommand), Description: "shell", Schema: mustTestFunctionSchema(t, struct{}{})},
 			{Name: string(toolspec.ToolPatch), Description: "patch", Custom: &CustomToolFormat{Type: "grammar", Syntax: "lark", Definition: PatchToolLarkGrammar}},
@@ -1088,7 +1091,7 @@ func TestBuildFunctionToolParamRejectsBlankCustomToolName(t *testing.T) {
 func TestBuildPayload_DoesNotAddNativeWebSearchToolWhenDisabled(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		EnableNativeWebSearch: false,
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
@@ -1099,12 +1102,15 @@ func TestBuildPayload_DoesNotAddNativeWebSearchToolWhenDisabled(t *testing.T) {
 	if _, ok := jsonPayload["tools"]; ok {
 		t.Fatalf("expected no tools in payload, got %#v", jsonPayload["tools"])
 	}
+	if len(payload.Include) != 0 {
+		t.Fatalf("unexpected includes without hosted search: %v", payload.Include)
+	}
 }
 
 func TestBuildPayload_SetsPromptCacheKey(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		PromptCacheKey: "cache-key-1",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
@@ -1120,7 +1126,7 @@ func TestBuildPayload_SetsPromptCacheKey(t *testing.T) {
 func TestBuildPayload_DoesNotSetPromptCacheKeyForOpenAICompatibleProvider(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		PromptCacheKey: "cache-key-1",
 	}, OpenAIAuthMode{}, ProviderCapabilities{
 		ProviderID:           "openai-compatible",

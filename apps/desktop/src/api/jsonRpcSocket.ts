@@ -11,7 +11,6 @@ import {
   type MessageShape,
 } from "@app/server-api-contract";
 import { ConnectionService } from "@app/server-api-contract/gen/kent/api/connection/connection_pb";
-
 import {
   binaryFrameBytes,
   binaryFramePayload,
@@ -19,10 +18,24 @@ import {
   decodeDescriptorResponse,
   encodeDescriptorCall,
 } from "./descriptorRpc";
-import { ProtocolMismatchError, RpcError, ServerRootMismatchError, TransportError } from "./errors";
+import {
+  ContractError,
+  ProtocolMismatchError,
+  RpcError,
+  ServerRootMismatchError,
+  TransportError,
+} from "./errors";
 import { jsonValueSchema, type JsonValue } from "./json";
 import { protobufRpcError } from "./protobufRpc";
-import type { DescriptorSubscriptionInput, RpcEventHandler } from "./transport";
+import { requireProjectAttachment } from "./chatAttachment";
+import { handleDescriptorSubscriptionFailure, InvalidTranscriptEventError } from "./subscriptionErrors";
+import type {
+  DescriptorSubscriptionInput,
+  ProjectAttachment,
+  RpcEventHandler,
+  SessionAttachment,
+  SessionAttachmentTarget,
+} from "./transport";
 
 export const protocolVersion = __KENT_PROTOCOL_VERSION__;
 export const jsonRpcVersion = "2.0";
@@ -40,11 +53,13 @@ export const responseSchema = z.object({
     .optional(),
 });
 
-const notificationSchema = z.object({
-  jsonrpc: z.literal(jsonRpcVersion),
-  method: z.string(),
-  params: z.unknown().optional(),
-});
+const notificationSchema = z
+  .object({
+    jsonrpc: z.literal(jsonRpcVersion),
+    method: z.string().refine((value) => value.trim().length > 0),
+    params: z.unknown(),
+  })
+  .strict();
 const textFrameSchema = z.string();
 type SocketResponse<Result> = Readonly<{ kind: "unmatched" }> | Readonly<{ kind: "matched"; result: Result }>;
 type SocketRequestOptions = Readonly<{
@@ -145,8 +160,16 @@ export async function runSocketDescriptorSubscription<
   return new Promise((resolve, reject) => {
     let acknowledged = false;
     let terminal = false;
+    let completionFailure: Error | undefined;
     let settled = false;
+    const timeout =
+      input.establishmentTimeoutMs == null
+        ? null
+        : setTimeout(() => {
+            finish(new TransportError(`${operation} subscription establishment timed out.`));
+          }, input.establishmentTimeoutMs);
     const cleanup = () => {
+      if (timeout !== null) clearTimeout(timeout);
       socket.removeEventListener("message", message);
       socket.removeEventListener("close", close);
       socket.removeEventListener("error", error);
@@ -161,11 +184,14 @@ export async function runSocketDescriptorSubscription<
     };
     const handleResponse = (frame: Uint8Array) => {
       const response = decodeDescriptorResponse(frame);
+      if (input.transcriptRejection !== undefined && (acknowledged || response.correlation !== correlation))
+        throw new ContractError("Transcript subscription received an unexpected result.");
       if (response.correlation !== correlation) return;
       onStart(completeDescriptorResponse(method, correlation, response));
       acknowledged = true;
+      if (timeout !== null) clearTimeout(timeout);
       if (!terminal) handler.onOpen?.();
-      else finish();
+      else finish(completionFailure);
     };
     const handleNotification = (
       notification: Readonly<{ operation: string; payload?: Uint8Array | undefined }>,
@@ -174,14 +200,24 @@ export async function runSocketDescriptorSubscription<
         throw new TransportError(`${notification.operation} notification payload is required.`);
       }
       if (notification.operation === operationName(associations.event)) {
-        handler.onEvent(decode(eventDescriptor, notification.payload));
+        let decoded: MessageShape<EventDescriptor>;
+        try {
+          decoded = decode(eventDescriptor, notification.payload);
+        } catch (cause) {
+          if (input.transcriptRejection === undefined) throw cause;
+          throw new InvalidTranscriptEventError(new ContractError("Transcript event is invalid."));
+        }
+        handler.onEvent(decoded);
         return;
       }
       if (notification.operation === operationName(associations.completion)) {
+        const completion = decode(completionDescriptor, notification.payload);
+        completionFailure = handler.onComplete(completion) ?? undefined;
         terminal = true;
-        handler.onComplete(decode(completionDescriptor, notification.payload));
-        socket.close();
-        if (acknowledged) finish();
+        if (acknowledged) {
+          finish(completionFailure);
+          socket.close();
+        }
         return;
       }
       throw new TransportError(`${operation} received unexpected notification ${notification.operation}.`);
@@ -206,13 +242,24 @@ export async function runSocketDescriptorSubscription<
             throw new TransportError(`${operation} subscription received an unexpected envelope.`);
         }
       } catch (cause) {
+        const failure = handleDescriptorSubscriptionFailure(
+          cause,
+          operation,
+          (error) => {
+            handler.onError(error);
+          },
+          input.transcriptRejection === undefined
+            ? undefined
+            : (error) => input.transcriptRejection?.onInvalidEvent(error),
+        );
+        if (failure === undefined) return;
+        finish(failure);
         socket.close();
-        finish(cause instanceof Error ? cause : new TransportError(`${operation} subscription failed.`));
       }
     };
     const close = () => {
       if (signal.aborted) finish();
-      else if (terminal && acknowledged) finish();
+      else if (terminal && acknowledged) finish(completionFailure);
       else finish(new TransportError("Subscription socket closed."));
     };
     const error = () => {
@@ -259,8 +306,12 @@ export async function setupSocket(
     expectedRootId: string;
     signal?: AbortSignal;
     sessionID?: string;
+    projectSelector?: Readonly<{
+      projectID: string;
+      workspace: Readonly<{ workspaceID: string } | { workspaceRoot: string }>;
+    }>;
   }>,
-): Promise<void> {
+): Promise<ProjectAttachment | SessionAttachment | null> {
   const requestOptions =
     options.signal === undefined
       ? { timeoutMilliseconds: options.timeoutMilliseconds }
@@ -274,6 +325,23 @@ export async function setupSocket(
   requireDescriptorSuccess(ConnectionService.method.handshake, handshake);
   const identity = handshake.outcome.case === "success" ? handshake.outcome.value.identity : undefined;
   assertReportedRoot(identity?.persistenceRootId, options.expectedRootId);
+  let attachment: ProjectAttachment | SessionAttachment | null = null;
+  if (options.projectSelector !== undefined) {
+    const request = create(ConnectionService.method.attachProject.input, {
+      projectId: options.projectSelector.projectID,
+      workspace:
+        "workspaceID" in options.projectSelector.workspace
+          ? { case: "workspaceId", value: options.projectSelector.workspace.workspaceID }
+          : { case: "workspaceRoot", value: options.projectSelector.workspace.workspaceRoot },
+    });
+    const result = await sendSocketDescriptorRequest(
+      socket,
+      ConnectionService.method.attachProject,
+      request,
+      requestOptions,
+    );
+    attachment = requireProjectAttachment(projectAttachmentFromResult(result), options.projectSelector);
+  }
   if (options.sessionID !== undefined) {
     const attachment = await sendSocketDescriptorRequest(
       socket,
@@ -282,7 +350,70 @@ export async function setupSocket(
       requestOptions,
     );
     requireDescriptorSuccess(ConnectionService.method.attachSession, attachment);
+    const attached = attachSessionFromResult(attachment);
+    if (options.sessionID !== attached.sessionID) {
+      throw new TransportError("Session attachment does not match its requested Session.");
+    }
+    return attached;
   }
+  return attachment;
+}
+
+function projectAttachmentFromResult(
+  result: MessageShape<typeof ConnectionService.method.attachProject.output>,
+): ProjectAttachment {
+  requireDescriptorSuccess(ConnectionService.method.attachProject, result);
+  if (result.outcome.case !== "success" || result.outcome.value.attachment.case !== "project")
+    throw new ContractError("Project attachment returned an unexpected attachment arm.");
+  const attachment = result.outcome.value.attachment.value;
+  const workspaceSelection = attachment.workspaceSelection;
+  if (workspaceSelection.case === undefined) {
+    throw new ContractError("Project attachment omitted its workspace selection.");
+  }
+  return {
+    projectID: attachment.projectId,
+    workspaceID: attachment.workspaceId,
+    workspaceRoot: attachment.workspaceRoot,
+    workspaceSelection:
+      workspaceSelection.case === "selectedById"
+        ? { kind: "workspaceID", workspaceID: workspaceSelection.value.workspaceId }
+        : {
+            kind: "workspaceRoot",
+            requestedRoot: workspaceSelection.value.requestedRoot,
+            canonicalRoot: workspaceSelection.value.canonicalRoot,
+          },
+  };
+}
+
+function attachSessionFromResult(
+  result: MessageShape<typeof ConnectionService.method.attachSession.output>,
+): SessionAttachment {
+  if (result.outcome.case !== "success" || result.outcome.value.attachment.case !== "session") {
+    throw new TransportError("Session attachment returned an unexpected attachment arm.");
+  }
+  const attachment = result.outcome.value.attachment.value;
+  return {
+    projectID: attachment.projectId,
+    workspaceID: attachment.workspaceId,
+    workspaceRoot: attachment.workspaceRoot,
+    sessionID: attachment.sessionId,
+  };
+}
+
+export function requireSessionAttachment(
+  attachment: ProjectAttachment | SessionAttachment | null,
+  target: SessionAttachmentTarget,
+): SessionAttachment {
+  if (attachment === null || !("sessionID" in attachment)) {
+    throw new ContractError("Session attachment was not established.");
+  }
+  if (attachment.sessionID !== target.sessionID) {
+    throw new ContractError("Session attachment does not match the requested Session.");
+  }
+  if (target.projectID !== undefined && attachment.projectID !== target.projectID) {
+    throw new ContractError("Session attachment does not match the requested Project.");
+  }
+  return attachment;
 }
 
 export async function sendSocketRequest(
@@ -386,9 +517,13 @@ export function socketRequestError(
 }
 
 function requireDescriptorSuccess(
-  method: typeof ConnectionService.method.handshake | typeof ConnectionService.method.attachSession,
+  method:
+    | typeof ConnectionService.method.handshake
+    | typeof ConnectionService.method.attachProject
+    | typeof ConnectionService.method.attachSession,
   result:
     | MessageShape<typeof ConnectionService.method.handshake.output>
+    | MessageShape<typeof ConnectionService.method.attachProject.output>
     | MessageShape<typeof ConnectionService.method.attachSession.output>,
 ): void {
   switch (result.outcome.case) {
@@ -455,41 +590,9 @@ export async function waitForSubscriptionEnd(socket: WebSocket, signal: AbortSig
   });
 }
 
-export async function delay(milliseconds: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) {
-      resolve();
-      return;
-    }
-    const finish = () => {
-      clearTimeout(timeout);
-      signal.removeEventListener("abort", abort);
-      resolve();
-    };
-    const abort = () => {
-      finish();
-    };
-    const timeout = setTimeout(finish, milliseconds);
-    signal.addEventListener("abort", abort, { once: true });
-  });
-}
-
 export type SubscriptionMessageResult = Readonly<
   { kind: "active" } | { kind: "complete"; code: number; message: string }
 >;
-
-export function subscriptionCompleteMethod(subscriptionMethod: string): string | null {
-  switch (subscriptionMethod) {
-    case "workflow.subscribe":
-      return "workflow.complete";
-    case "workflow.subscribeProject":
-      return "workflow.project.complete";
-    case "attention.notification.subscribe":
-      return "attention.notification.complete";
-    default:
-      return null;
-  }
-}
 
 export function handleSubscriptionMessage(
   event: MessageEvent<unknown>,
@@ -498,21 +601,30 @@ export function handleSubscriptionMessage(
 ): SubscriptionMessageResult {
   const textFrame = textFrameSchema.safeParse(event.data);
   if (!textFrame.success) {
-    return { kind: "active" };
+    throw new ContractError("Subscription received a non-text frame.");
   }
   const parsed = parseFrame(textFrame.data);
   const notification = notificationSchema.safeParse(parsed);
   if (!notification.success) {
-    return { kind: "active" };
+    throw new ContractError("Subscription notification envelope is invalid.");
   }
   if (completeMethod !== null && notification.data.method === completeMethod) {
-    const complete = z
-      .object({ code: z.number().optional(), message: z.string().optional() })
-      .safeParse(notification.data.params);
-    const code = complete.success ? (complete.data.code ?? 0) : 0;
-    const message = complete.success ? (complete.data.message ?? "") : "";
-    handler.onComplete(code, message);
-    return { kind: "complete", code, message };
+    const completeSchema = z
+      .object({
+        code: z.number().int().default(0),
+        message: z.string().default(""),
+      })
+      .strict();
+    const complete = completeSchema.safeParse(notification.data.params);
+    if (!complete.success) {
+      throw new ContractError("Subscription completion notification is invalid.");
+    }
+    handler.onComplete(complete.data.code, complete.data.message);
+    return {
+      kind: "complete",
+      code: complete.data.code,
+      message: complete.data.message,
+    };
   }
   handler.onEvent(notification.data.method, notification.data.params);
   return { kind: "active" };

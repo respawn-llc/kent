@@ -1,30 +1,72 @@
-import { z } from "zod";
+import * as wf from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
+import * as taskRead from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
+import * as taskLifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import * as attention from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
+import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { create } from "@app/server-api-contract";
 import { ReadinessSeverity, ServerService } from "@app/server-api-contract/gen/kent/api/server/server_pb";
-
 import { ApiClient } from "./client";
 import { FakeRpcTransport } from "@/test-support/api";
 import { protocolVersion } from "./jsonRpcSocket";
+import { encodeDescriptorCall } from "./descriptorRpc";
 import { canonicalBoardFilter } from "./workflowBoardFilters";
 import {
   workflowBoundaryGraphIDs as boundaryGraphIDs,
   workflowGraphDraft,
   workflowGraphDraftIDs,
+  workflowDefinitionResponse,
+  workflowValidationResponse,
+  workflowLinksResponse,
+  workflowDeletePreviewResponse,
+  workflowDeleteResponse,
+  workflowGraphSaveImpactResponse,
 } from "./clientWorkflowGraph.testFixtures";
-
-const startTaskParamsSchema = z.object({
-  task_id: z.literal("task-1"),
-  setup_operation_id: z.string(),
-});
-
-const appliedStartResponse = {
-  outcome: "applied",
-  applied: {
-    current_nodes: [{ node_id: "node-1", transition_branch_key: null, session_id: null }],
+const appliedStartResponse = create(taskLifecycle.StartResultSchema, {
+  outcome: {
+    case: "success",
+    value: {
+      outcome: { case: "applied", value: { currentNodes: [{ nodeId: "node-1" }] } },
+    },
   },
-} as const;
-
+});
 describe("ApiClient", () => {
+  it("rejects Workflow offsets above the safe-integer ceiling at the binary boundary", () => {
+    const method = wf.WorkflowDefinitionService.method.list;
+    expect(() =>
+      encodeDescriptorCall(method, create(method.input, { offset: 9007199254740992n }), "offset-boundary"),
+    ).toThrow();
+  });
+
+  it("preserves Workflow pagination cursors through the safe-integer ceiling", async () => {
+    const offset = 9007199254740990n;
+    const method = wf.WorkflowDefinitionService.method.list;
+    const transport = new FakeRpcTransport([
+      {
+        descriptor: method,
+        result: create(method.output, {
+          outcome: {
+            case: "success",
+            value: {
+              workflows: [
+                {
+                  id: "11111111-1111-4111-8111-111111111111",
+                  name: "Workflow",
+                  version: 1n,
+                  executionTargetPolicy: { mode: wf.ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_NONE },
+                },
+              ],
+              nextOffset: offset + 1n,
+            },
+          },
+        }),
+      },
+    ]);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
+    expect((await client.listWorkflows({ offset, limit: 1 })).nextOffset).toBe(offset + 1n);
+    expect(transport.descriptorCalls[0]?.request).toMatchObject({ offset, limit: 1 });
+  });
+
   it("parses readiness and sends mutation params through typed method boundary", async () => {
     const transport = new FakeRpcTransport([
       {
@@ -37,9 +79,7 @@ describe("ApiClient", () => {
                 ready: false,
                 serverId: "server-1",
                 serverVersion: "1.3.0",
-                serverBuild: "1.3.0",
                 protocolVersion,
-                authReady: true,
                 endpoint: "ws://127.0.0.1:53082/rpc",
                 subagentRoles: [{ name: "default" }, { name: "coder" }],
                 causes: [{ code: "unauthenticated", severity: ReadinessSeverity.ERROR }],
@@ -48,10 +88,9 @@ describe("ApiClient", () => {
           },
         }),
       },
-      { method: "workflow.task.start", result: appliedStartResponse },
+      { descriptor: taskLifecycle.TaskLifecycleService.method.start, result: appliedStartResponse },
     ]);
-    const client = new ApiClient(transport);
-
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     const readiness = await client.getReadiness();
     expect(readiness).toMatchObject({
       ready: false,
@@ -69,21 +108,18 @@ describe("ApiClient", () => {
         currentNodes: [{ nodeID: "node-1", transitionBranchKey: null, sessionID: null }],
       },
     });
-
-    const startCall = transport.calls.find((call) => call.method === "workflow.task.start");
+    const startCall = transport.descriptorCalls.find(
+      (call) => call.descriptor === taskLifecycle.TaskLifecycleService.method.start,
+    );
     expect(startCall?.options).toEqual({ timeoutMs: null });
-    expect(startTaskParamsSchema.parse(startCall?.params).task_id).toBe("task-1");
+    expect(startCall?.request).toMatchObject({ taskId: "task-1" });
   });
-
   it("preserves absent board workflow selectors and normalizes empty slices", async () => {
     const transport = new FakeRpcTransport([
-      { method: "workflow.board.get", result: emptyBoardResponse },
-      { method: "workflow.board.nodeCards.list", result: emptyBoardNodeCardsResponse },
-      { method: "workflow.board.get", result: emptyBoardResponse },
-      { method: "workflow.board.nodeCards.list", result: emptyBoardNodeCardsResponse },
+      { descriptor: taskRead.BoardReadService.method.get, result: emptyBoardResponse },
+      { descriptor: taskRead.BoardReadService.method.listNodeCards, result: emptyBoardNodeCardsResponse },
     ]);
-    const client = new ApiClient(transport);
-
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     await expect(
       client.getBoard(
         "project-1",
@@ -97,10 +133,13 @@ describe("ApiClient", () => {
       groups: [],
       columns: [],
     });
-    expect(transport.calls).toEqual([
+    expect(transport.descriptorCalls).toEqual([
       {
-        method: "workflow.board.get",
-        params: { project_id: "project-1", label_filter: { kind: "none" }, dependency_filter: null },
+        descriptor: taskRead.BoardReadService.method.get,
+        request: create(taskRead.BoardReadService.method.get.input, {
+          projectId: "project-1",
+          labelFilter: { filter: { case: "none", value: {} } },
+        }),
       },
     ]);
     const labelID = "f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf";
@@ -123,18 +162,19 @@ describe("ApiClient", () => {
       cards: [],
       nextOffset: 50,
     });
-    expect(transport.calls).toContainEqual({
-      method: "workflow.board.nodeCards.list",
-      params: {
-        project_id: "project-1",
-        workflow_id: "11111111-1111-4111-8111-111111111111",
-        node_id: "node-1",
-        label_filter: { kind: "named", named: { mode: "all", label_ids: [labelID] } },
-        dependency_filter: null,
-        page_size: 25,
-        sort: { field: "labels", direction: "asc" },
+    expect(transport.descriptorCalls).toContainEqual({
+      descriptor: taskRead.BoardReadService.method.listNodeCards,
+      request: create(taskRead.BoardReadService.method.listNodeCards.input, {
+        projectId: "project-1",
+        workflowId: "11111111-1111-4111-8111-111111111111",
+        nodeId: "node-1",
+        labelFilter: {
+          filter: { case: "named", value: { mode: taskRead.NamedLabelFilterMode.ALL, labelIds: [labelID] } },
+        },
+        pageSize: 25,
+        sort: { field: taskRead.ListSortField.LABELS, direction: taskRead.ListSortDirection.ASC },
         offset: 25,
-      },
+      }),
     });
     const unblockedFilter = canonicalBoardFilter({ labelFilter: { kind: "none" }, dependencyFilter: true });
     await Promise.all([
@@ -148,19 +188,17 @@ describe("ApiClient", () => {
         sort: { field: "updated", direction: "desc" },
       }),
     ]);
-    expect(transport.calls.slice(2).map(({ method }) => method)).toEqual([
-      "workflow.board.get",
-      "workflow.board.nodeCards.list",
+    expect(transport.descriptorCalls.slice(2).map(({ descriptor }) => descriptor)).toEqual([
+      taskRead.BoardReadService.method.get,
+      taskRead.BoardReadService.method.listNodeCards,
     ]);
-    expect(transport.calls[2]?.params).toMatchObject({ dependency_filter: true });
-    expect(transport.calls[3]?.params).toMatchObject({ dependency_filter: true });
+    expect(transport.descriptorCalls[2]?.request).toMatchObject({ dependencyFilter: true });
+    expect(transport.descriptorCalls[3]?.request).toMatchObject({ dependencyFilter: true });
   });
-
   it("rejects malformed Workflow IDs before direct client RPCs or subscriptions", async () => {
     const transport = new FakeRpcTransport([]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     const prefixedID = "workflow-11111111-1111-4111-8111-111111111111";
-
     await expect(client.getWorkflow(prefixedID)).rejects.toThrow();
     await expect(client.previewWorkflowDelete("not-a-workflow-id")).rejects.toThrow();
     expect(() =>
@@ -170,16 +208,16 @@ describe("ApiClient", () => {
         onError: () => undefined,
       }),
     ).toThrow();
-
     expect(transport.calls).toEqual([]);
     expect(transport.subscriptions).toEqual([]);
   });
-
   it("hides workflow join nodes from board columns and groups", async () => {
     const client = new ApiClient(
-      new FakeRpcTransport([{ method: "workflow.board.get", result: boardWithJoinResponse }]),
+      new FakeRpcTransport([
+        { descriptor: taskRead.BoardReadService.method.get, result: boardWithJoinResponse },
+      ]),
+      unexpectedProjectOverflow,
     );
-
     await expect(
       client.getBoard(
         "project-1",
@@ -191,12 +229,13 @@ describe("ApiClient", () => {
       columns: [{ id: boundaryGraphIDs.node, kind: "agent" }],
     });
   });
-
   it("parses required empty current task execution arrays", async () => {
     const client = new ApiClient(
-      new FakeRpcTransport([{ method: "workflow.task.get", result: emptyTaskDetailResponse }]),
+      new FakeRpcTransport([
+        { descriptor: taskRead.TaskReadService.method.get, result: emptyTaskDetailResponse },
+      ]),
+      unexpectedProjectOverflow,
     );
-
     await expect(client.getTask("task-1")).resolves.toMatchObject({
       id: "task-1",
       labelIDs: ["f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf"],
@@ -204,66 +243,105 @@ describe("ApiClient", () => {
       liveSessions: [],
       currentScripts: [],
       attentionCount: 0,
-      sourceURL: "",
+      sourceURL: null,
     });
   });
-
   it("uses separate global and task attention RPC contracts", async () => {
     const transport = new FakeRpcTransport([
       {
-        method: "workflow.attention.list",
-        result: { items: [], next_page_token: "", generated_at_unix_ms: 1 },
+        descriptor: attention.AttentionReadService.method.list,
+        result: create(attention.AttentionListResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              items: [],
+              generatedAt: { seconds: 0n, nanos: 1_000_000 },
+            },
+          },
+        }),
       },
       {
-        method: "workflow.task.attention.list",
-        result: { items: [], generated_at_unix_ms: 2 },
+        descriptor: attention.AttentionReadService.method.listTask,
+        result: create(attention.TaskAttentionListResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              items: [],
+              generatedAt: { seconds: 0n, nanos: 2_000_000 },
+            },
+          },
+        }),
       },
     ]);
-    const client = new ApiClient(transport);
-
-    await expect(client.listAttention("cursor-1")).resolves.toMatchObject({ items: [], nextPageToken: "" });
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
+    await expect(client.listAttention("cursor-1")).resolves.toMatchObject({ items: [], nextPageToken: null });
     await expect(client.listTaskAttention("task-1")).resolves.toMatchObject({ items: [], generatedAt: 2 });
-
-    expect(transport.calls).toEqual([
+    expect(transport.descriptorCalls).toEqual([
       {
-        method: "workflow.attention.list",
-        params: { page_size: 40, page_token: "cursor-1" },
+        descriptor: attention.AttentionReadService.method.list,
+        request: create(attention.AttentionListRequestSchema, { pageSize: 40, pageToken: "cursor-1" }),
       },
       {
-        method: "workflow.task.attention.list",
-        params: { task_id: "task-1" },
+        descriptor: attention.AttentionReadService.method.listTask,
+        request: create(attention.TaskAttentionListRequestSchema, { taskId: "task-1" }),
       },
     ]);
   });
-
   it("parses task source URL into sourceURL", async () => {
     const client = new ApiClient(
       new FakeRpcTransport([
         {
-          method: "workflow.task.get",
-          result: {
-            task: {
-              ...emptyTaskDetailResponse.task,
-              source_url: "https://github.com/respawn-llc/kent/issues/1",
+          descriptor: taskRead.TaskReadService.method.get,
+          result: create(taskRead.GetResultSchema, {
+            outcome: {
+              case: "success",
+              value: {
+                task: create(taskRead.TaskDetailSchema, {
+                  ...emptyTaskDetail,
+                  sourceUrl: "https://github.com/respawn-llc/kent/issues/1",
+                }),
+              },
             },
-          },
+          }),
         },
       ]),
+      unexpectedProjectOverflow,
     );
-
     await expect(client.getTask("task-1")).resolves.toMatchObject({
       sourceURL: "https://github.com/respawn-llc/kent/issues/1",
     });
   });
-
   it("maps workflow definition, execution validation, and active project links for the editor", async () => {
     const transport = new FakeRpcTransport([
-      { method: "workflow.get", result: workflowDefinitionResponse },
-      { method: "workflow.validate", result: workflowValidationResponse },
-      { method: "workflow.listProjectLinks", result: workflowLinksResponse },
+      {
+        descriptor: wf.WorkflowDefinitionService.method.get,
+        result: create(wf.WorkflowDefinitionService.method.get.output, {
+          outcome: {
+            case: "success",
+            value: workflowDefinitionResponse,
+          },
+        }),
+      },
+      {
+        descriptor: wf.WorkflowDefinitionService.method.validate,
+        result: create(wf.WorkflowDefinitionService.method.validate.output, {
+          outcome: {
+            case: "success",
+            value: workflowValidationResponse,
+          },
+        }),
+      },
+      {
+        descriptor: wf.ProjectLinkService.method.list,
+        result: create(wf.ProjectLinkService.method.list.output, {
+          outcome: {
+            case: "success",
+            value: workflowLinksResponse,
+          },
+        }),
+      },
     ]);
-    const client = new ApiClient(transport);
-
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     const definition = await client.getWorkflow("11111111-1111-4111-8111-111111111111");
     expect(definition).toMatchObject({
       derivedWiring: {
@@ -317,7 +395,7 @@ describe("ApiClient", () => {
       valid: false,
       errors: [
         {
-          code: "workflow.validation.invalid",
+          code: "workflow.validation.invalid_node_kind",
           workflowID: "11111111-1111-4111-8111-111111111111",
           nodeID: boundaryGraphIDs.node,
           transitionGroupID: boundaryGraphIDs.transitionGroup,
@@ -341,34 +419,48 @@ describe("ApiClient", () => {
         isDefault: true,
       },
     ]);
-
-    expect(transport.calls).toContainEqual({
-      method: "workflow.get",
-      params: { workflow_id: "11111111-1111-4111-8111-111111111111" },
+    expect(transport.descriptorCalls).toContainEqual({
+      descriptor: wf.WorkflowDefinitionService.method.get,
+      request: create(wf.WorkflowDefinitionService.method.get.input, {
+        workflowId: "11111111-1111-4111-8111-111111111111",
+      }),
     });
-    expect(transport.calls).toContainEqual({
-      method: "workflow.validate",
-      params: { workflow_id: "11111111-1111-4111-8111-111111111111", mode: "execution" },
+    expect(transport.descriptorCalls).toContainEqual({
+      descriptor: wf.WorkflowDefinitionService.method.validate,
+      request: create(wf.WorkflowDefinitionService.method.validate.input, {
+        workflowId: "11111111-1111-4111-8111-111111111111",
+        mode: wf.ValidationMode.WORKFLOW_VALIDATION_MODE_EXECUTION,
+      }),
     });
-    expect(transport.calls).toContainEqual({
-      method: "workflow.listProjectLinks",
-      params: { project_id: "project-1" },
+    expect(transport.descriptorCalls).toContainEqual({
+      descriptor: wf.ProjectLinkService.method.list,
+      request: create(wf.ProjectLinkService.method.list.input, {
+        projectId: "project-1",
+      }),
     });
   });
-
   it("maps previous-target-or-new workflow context sources", async () => {
     const response = {
       definition: {
         ...workflowDefinitionResponse.definition,
         edges: workflowDefinitionResponse.definition.edges.map((edge) => ({
           ...edge,
-          context_source: { kind: "previous_target_or_new", node_key: "" },
+          contextSource: { kind: wf.ContextSourceKind.WORKFLOW_CONTEXT_SOURCE_KIND_PREVIOUS_TARGET_OR_NEW },
         })),
       },
     };
-    const transport = new FakeRpcTransport([{ method: "workflow.get", result: response }]);
-    const client = new ApiClient(transport);
-
+    const transport = new FakeRpcTransport([
+      {
+        descriptor: wf.WorkflowDefinitionService.method.get,
+        result: create(wf.WorkflowDefinitionService.method.get.output, {
+          outcome: {
+            case: "success",
+            value: response,
+          },
+        }),
+      },
+    ]);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     await expect(client.getWorkflow("11111111-1111-4111-8111-111111111111")).resolves.toMatchObject({
       edges: [
         {
@@ -378,74 +470,101 @@ describe("ApiClient", () => {
       ],
     });
   });
-
   it("maps workflow library list, create, link, and project create-link contracts", async () => {
     const transport = new FakeRpcTransport([
       {
-        method: "workflow.list",
-        result: {
-          project_id: "project-1",
-          workflows: [
-            {
-              id: "11111111-1111-4111-8111-111111111111",
-              name: "Delivery",
-              description: "Ship",
-              version: 4,
-              execution_target_policy: { mode: "custom_ref", custom_ref: "release/v1" },
-              project_link: { default: true },
+        descriptor: wf.WorkflowDefinitionService.method.list,
+        result: create(wf.WorkflowDefinitionService.method.list.output, {
+          outcome: {
+            case: "success",
+            value: {
+              projectId: "project-1",
+              workflows: [
+                {
+                  id: "11111111-1111-4111-8111-111111111111",
+                  name: "Delivery",
+                  description: "Ship",
+                  version: 4n,
+                  executionTargetPolicy: {
+                    mode: wf.ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_CUSTOM_REF,
+                    customRef: "release/v1",
+                  },
+                  projectLink: {
+                    default: true,
+                  },
+                },
+              ],
+              nextOffset: 10n,
             },
-          ],
-          next_offset: 10,
-        },
+          },
+        }),
       },
       {
-        method: "workflow.create",
-        result: {
-          workflow: {
-            id: "22222222-2222-4222-8222-222222222222",
-            name: "Ops",
-            description: "",
-            version: 1,
-            execution_target_policy: { mode: "ask_on_first_execution" },
+        descriptor: wf.WorkflowDefinitionService.method.create,
+        result: create(wf.WorkflowDefinitionService.method.create.output, {
+          outcome: {
+            case: "success",
+            value: {
+              workflow: {
+                id: "22222222-2222-4222-8222-222222222222",
+                name: "Ops",
+                description: "",
+                version: 1n,
+                executionTargetPolicy: {
+                  mode: wf.ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_ASK_ON_FIRST_EXECUTION,
+                },
+              },
+            },
           },
-        },
+        }),
       },
       {
-        method: "workflow.createAndLinkProject",
-        result: {
-          workflow: {
-            id: "33333333-3333-4333-8333-333333333333",
-            name: "Project workflow",
-            description: "",
-            version: 1,
-            execution_target_policy: { mode: "none" },
+        descriptor: wf.WorkflowDefinitionService.method.createAndLinkProject,
+        result: create(wf.WorkflowDefinitionService.method.createAndLinkProject.output, {
+          outcome: {
+            case: "success",
+            value: {
+              workflow: {
+                id: "33333333-3333-4333-8333-333333333333",
+                name: "Project workflow",
+                description: "",
+                version: 1n,
+                executionTargetPolicy: {
+                  mode: wf.ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_NONE,
+                },
+              },
+              link: {
+                id: "link-3",
+                projectId: "project-1",
+                workflowId: "33333333-3333-4333-8333-333333333333",
+                default: true,
+              },
+            },
           },
-          link: {
-            id: "link-3",
-            project_id: "project-1",
-            workflow_id: "33333333-3333-4333-8333-333333333333",
-            default: true,
-          },
-        },
+        }),
       },
       {
-        method: "workflow.linkProject",
-        result: {
-          link: {
-            id: "link-1",
-            project_id: "project-1",
-            workflow_id: "11111111-1111-4111-8111-111111111111",
-            default: false,
+        descriptor: wf.ProjectLinkService.method.link,
+        result: create(wf.ProjectLinkService.method.link.output, {
+          outcome: {
+            case: "success",
+            value: {
+              link: {
+                id: "link-1",
+                projectId: "project-1",
+                workflowId: "11111111-1111-4111-8111-111111111111",
+                default: false,
+              },
+            },
           },
-        },
+        }),
       },
     ]);
-    const client = new ApiClient(transport);
-
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     await expect(
-      client.listWorkflows({ offset: 0, limit: 10, projectID: "project-1", query: "ship" }),
+      client.listWorkflows({ offset: 0n, limit: 10, projectID: "project-1", query: "ship" }),
     ).resolves.toMatchObject({
-      nextOffset: 10,
+      nextOffset: 10n,
       workflows: [
         {
           id: "11111111-1111-4111-8111-111111111111",
@@ -480,37 +599,55 @@ describe("ApiClient", () => {
       id: "link-1",
       isDefault: false,
     });
-
-    expect(transport.calls).toContainEqual({
-      method: "workflow.list",
-      params: { offset: 0, limit: 10, project_id: "project-1", query: "ship" },
+    expect(transport.descriptorCalls).toContainEqual({
+      descriptor: wf.WorkflowDefinitionService.method.list,
+      request: create(wf.WorkflowDefinitionService.method.list.input, {
+        offset: 0n,
+        limit: 10,
+        projectId: "project-1",
+        query: "ship",
+      }),
     });
-    expect(transport.calls).toContainEqual({
-      method: "workflow.createAndLinkProject",
-      params: {
+    expect(transport.descriptorCalls).toContainEqual({
+      descriptor: wf.WorkflowDefinitionService.method.createAndLinkProject,
+      request: create(wf.WorkflowDefinitionService.method.createAndLinkProject.input, {
         name: "Project workflow",
         description: "",
-        project_id: "project-1",
-        default_policy: "if_project_has_none",
-      },
+        projectId: "project-1",
+        defaultPolicy: wf.ProjectLinkDefaultMode.WORKFLOW_PROJECT_LINK_DEFAULT_MODE_IF_PROJECT_HAS_NONE,
+      }),
     });
-    expect(transport.calls).toContainEqual({
-      method: "workflow.linkProject",
-      params: {
-        project_id: "project-1",
-        workflow_id: "11111111-1111-4111-8111-111111111111",
-        default_policy: "if_project_has_none",
-      },
+    expect(transport.descriptorCalls).toContainEqual({
+      descriptor: wf.ProjectLinkService.method.link,
+      request: create(wf.ProjectLinkService.method.link.input, {
+        projectId: "project-1",
+        workflowId: "11111111-1111-4111-8111-111111111111",
+        defaultPolicy: wf.ProjectLinkDefaultMode.WORKFLOW_PROJECT_LINK_DEFAULT_MODE_IF_PROJECT_HAS_NONE,
+      }),
     });
   });
-
   it("maps workflow delete preview and confirmed delete contracts", async () => {
     const transport = new FakeRpcTransport([
-      { method: "workflow.deletePreview", result: workflowDeletePreviewResponse },
-      { method: "workflow.delete", result: workflowDeleteResponse },
+      {
+        descriptor: wf.WorkflowDefinitionService.method.deletePreview,
+        result: create(wf.WorkflowDefinitionService.method.deletePreview.output, {
+          outcome: {
+            case: "success",
+            value: workflowDeletePreviewResponse,
+          },
+        }),
+      },
+      {
+        descriptor: wf.WorkflowDefinitionService.method.delete,
+        result: create(wf.WorkflowDefinitionService.method.delete.output, {
+          outcome: {
+            case: "success",
+            value: workflowDeleteResponse,
+          },
+        }),
+      },
     ]);
-    const client = new ApiClient(transport);
-
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     await expect(client.previewWorkflowDelete("11111111-1111-4111-8111-111111111111")).resolves.toMatchObject(
       {
         workflowID: "11111111-1111-4111-8111-111111111111",
@@ -538,97 +675,136 @@ describe("ApiClient", () => {
       deleted: false,
       blockers: [{ code: "pending_approvals", count: 1 }],
     });
-
-    expect(transport.calls).toContainEqual({
-      method: "workflow.deletePreview",
-      params: { workflow_id: "11111111-1111-4111-8111-111111111111" },
+    expect(transport.descriptorCalls).toContainEqual({
+      descriptor: wf.WorkflowDefinitionService.method.deletePreview,
+      request: create(wf.WorkflowDefinitionService.method.deletePreview.input, {
+        workflowId: "11111111-1111-4111-8111-111111111111",
+      }),
     });
-    expect(transport.calls).toContainEqual({
-      method: "workflow.delete",
-      params: {
-        workflow_id: "11111111-1111-4111-8111-111111111111",
+    expect(transport.descriptorCalls).toContainEqual({
+      descriptor: wf.WorkflowDefinitionService.method.delete,
+      request: create(wf.WorkflowDefinitionService.method.delete.input, {
+        workflowId: "11111111-1111-4111-8111-111111111111",
         confirmed: true,
-        expected_version: 7,
-        expected_project_count: 1,
-        expected_link_count: 1,
-        expected_task_count: 2,
-        cleanup_artifacts: false,
-      },
+        expectedVersion: 7n,
+        expectedProjectCount: 1n,
+        expectedLinkCount: 1n,
+        expectedTaskCount: 2n,
+        cleanupArtifacts: false,
+      }),
     });
   });
-
   it("maps workflow graph draft validation, preview, and save contracts", async () => {
-    const graphValidationResults = {
-      draft: { valid: true, errors: [] },
-      execution: workflowValidationResponse,
-    };
+    const graphValidationResults = [
+      {
+        mode: wf.ValidationMode.WORKFLOW_VALIDATION_MODE_DRAFT,
+        result: {
+          valid: true,
+          errors: [],
+        },
+      },
+      {
+        mode: wf.ValidationMode.WORKFLOW_VALIDATION_MODE_EXECUTION,
+        result: workflowValidationResponse,
+      },
+    ];
     const transport = new FakeRpcTransport([
       {
-        method: "workflow.graph.validateDraft",
-        result: {
-          results: graphValidationResults,
-          derived_wiring: {
-            edges: [
-              {
-                edge_id: workflowGraphDraftIDs.startEdge,
-                input_bindings: [{ name: "brief", source: "transition_output", field: "brief" }],
-                required_provision_fields: [{ name: "brief", description: "Brief" }],
-                assignee_selection_applicability: {
-                  available: true,
-                  parameter_visible: true,
-                  reason: "eligible",
-                },
-                thinking_selection_applicability: {
-                  available: true,
-                  parameter_visible: true,
-                  reason: "eligible",
-                },
+        descriptor: wf.WorkflowGraphService.method.validateDraft,
+        result: create(wf.WorkflowGraphService.method.validateDraft.output, {
+          outcome: {
+            case: "success",
+            value: {
+              results: graphValidationResults,
+              derivedWiring: {
+                edges: [
+                  {
+                    edgeId: workflowGraphDraftIDs.startEdge,
+                    inputBindings: [
+                      {
+                        name: "brief",
+                        source: "transition_output",
+                        field: "brief",
+                      },
+                    ],
+                    requiredProvisionFields: [
+                      {
+                        name: "brief",
+                        description: "Brief",
+                      },
+                    ],
+                    assigneeSelectionApplicability: {
+                      available: true,
+                      parameterVisible: true,
+                      reason: wf.SelectorApplicabilityReason.WORKFLOW_SELECTOR_APPLICABILITY_REASON_ELIGIBLE,
+                    },
+                    thinkingSelectionApplicability: {
+                      available: true,
+                      parameterVisible: true,
+                      reason: wf.SelectorApplicabilityReason.WORKFLOW_SELECTOR_APPLICABILITY_REASON_ELIGIBLE,
+                    },
+                  },
+                ],
               },
-            ],
-          },
-        },
-      },
-      {
-        method: "workflow.graph.savePreview",
-        result: {
-          changed: true,
-          current_version: 11,
-          validation_results: graphValidationResults,
-          impact: workflowGraphSaveImpactResponse,
-          blockers: [
-            {
-              code: "confirmation_required",
-              message: "Confirm removal.",
-              count: 1,
-              affected_entities: [{ entity_type: "edge", entity_id: workflowGraphDraftIDs.startEdge }],
             },
-          ],
-          can_save: false,
-          confirmation_required: true,
-        },
+          },
+        }),
       },
       {
-        method: "workflow.graph.save",
-        result: {
-          saved: true,
-          changed: true,
-          definition: workflowDefinitionResponse.definition,
-          current_version: 12,
-          validation_results: graphValidationResults,
-          impact: {
-            ...workflowGraphSaveImpactResponse,
-            removed_node_group_count: 0,
-            removed_edge_count: 0,
-            removed_entities: [],
+        descriptor: wf.WorkflowGraphService.method.savePreview,
+        result: create(wf.WorkflowGraphService.method.savePreview.output, {
+          outcome: {
+            case: "success",
+            value: {
+              changed: true,
+              currentVersion: 11n,
+              validationResults: graphValidationResults,
+              impact: workflowGraphSaveImpactResponse,
+              blockers: [
+                {
+                  code: "confirmation_required",
+                  message: "Confirm removal.",
+                  count: 1n,
+                  affectedEntities: [
+                    {
+                      entityType: wf.GraphEntityType.WORKFLOW_GRAPH_ENTITY_TYPE_EDGE,
+                      entityId: workflowGraphDraftIDs.startEdge,
+                    },
+                  ],
+                },
+              ],
+              canSave: false,
+              confirmationRequired: true,
+            },
           },
-          blockers: null,
-          can_save: true,
-          confirmation_required: false,
-        },
+        }),
+      },
+      {
+        descriptor: wf.WorkflowGraphService.method.save,
+        result: create(wf.WorkflowGraphService.method.save.output, {
+          outcome: {
+            case: "success",
+            value: {
+              saved: true,
+              changed: true,
+              definition: workflowDefinitionResponse.definition,
+              currentVersion: 12n,
+              validationResults: graphValidationResults,
+              impact: {
+                ...workflowGraphSaveImpactResponse,
+                removedNodeGroupCount: 0n,
+                removedEdgeCount: 0n,
+                removedEntities: [],
+              },
+              blockers: [],
+              canSave: true,
+              confirmationRequired: false,
+            },
+          },
+        }),
       },
     ]);
-    const client = new ApiClient(transport);
-
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     await expect(
       client.validateWorkflowGraphDraft({
         workflowID: "11111111-1111-4111-8111-111111111111",
@@ -697,392 +873,221 @@ describe("ApiClient", () => {
       definition: { workflow: { id: "11111111-1111-4111-8111-111111111111" } },
       blockers: [],
     });
-
-    expect(transport.calls[0]).toEqual({
-      method: "workflow.graph.validateDraft",
-      params: {
-        workflow_id: "11111111-1111-4111-8111-111111111111",
+    expect(transport.descriptorCalls[0]).toEqual({
+      descriptor: wf.WorkflowGraphService.method.validateDraft,
+      request: create(wf.WorkflowGraphService.method.validateDraft.input, {
+        workflowId: "11111111-1111-4111-8111-111111111111",
         metadata: {
           name: "Draft Workflow",
           description: "Draft description",
-          execution_target_policy: { mode: "custom_ref", custom_ref: "release/v1" },
+          executionTargetPolicy: {
+            mode: wf.ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_CUSTOM_REF,
+            customRef: "release/v1",
+          },
         },
-        modes: ["draft", "execution"],
+        modes: [
+          wf.ValidationMode.WORKFLOW_VALIDATION_MODE_DRAFT,
+          wf.ValidationMode.WORKFLOW_VALIDATION_MODE_EXECUTION,
+        ],
         graph: {
-          node_groups: [],
+          nodeGroups: [],
           nodes: [
             {
               id: workflowGraphDraftIDs.startNode,
               key: "backlog",
-              kind: "start",
-              display_name: "Backlog",
-              group_id: null,
-              join_input_providers: [],
+              kind: wf.NodeKind.WORKFLOW_NODE_KIND_START,
+              displayName: "Backlog",
+              groupId: undefined,
+              joinInputProviders: [],
             },
           ],
-          transition_groups: [
+          transitionGroups: [
             {
               id: workflowGraphDraftIDs.startTransitionGroup,
-              source_node_id: workflowGraphDraftIDs.startNode,
-              transition_id: "start",
-              display_name: "Start",
+              sourceNodeId: workflowGraphDraftIDs.startNode,
+              transitionId: "start",
+              displayName: "Start",
               description: "Start the workflow.",
             },
           ],
           edges: [
             {
               id: workflowGraphDraftIDs.startEdge,
-              transition_group_id: workflowGraphDraftIDs.startTransitionGroup,
+              transitionGroupId: workflowGraphDraftIDs.startTransitionGroup,
               key: "start",
-              target_node_id: workflowGraphDraftIDs.agentNode,
-              assignee_selection: "configured",
-              thinking_selection: "configured",
-              requires_approval: false,
-              context_mode: "new_session",
-              context_source: { kind: "immediate_source", node_key: "" },
-              parameters: [{ description: "Brief", key: "brief", purpose: "ordinary" }],
-              prompt_template: "Start from {{.TaskTitle}}.",
+              targetNodeId: workflowGraphDraftIDs.agentNode,
+              assigneeSelection: wf.AssigneeSelection.WORKFLOW_ASSIGNEE_SELECTION_CONFIGURED,
+              thinkingSelection: wf.ThinkingSelection.WORKFLOW_THINKING_SELECTION_CONFIGURED,
+              requiresApproval: false,
+              contextMode: wf.ContextMode.WORKFLOW_CONTEXT_MODE_NEW_SESSION,
+              contextSource: {
+                kind: wf.ContextSourceKind.WORKFLOW_CONTEXT_SOURCE_KIND_IMMEDIATE_SOURCE,
+                nodeKey: undefined,
+              },
+              parameters: [
+                {
+                  description: "Brief",
+                  key: "brief",
+                  purpose: wf.ParameterPurpose.WORKFLOW_PARAMETER_PURPOSE_ORDINARY,
+                },
+              ],
+              promptTemplate: "Start from {{.TaskTitle}}.",
             },
           ],
         },
-      },
+      }),
     });
-    expect(transport.calls[2]).toMatchObject({
-      method: "workflow.graph.save",
-      params: {
-        expected_version: 11,
+    expect(transport.descriptorCalls[2]).toMatchObject({
+      descriptor: wf.WorkflowGraphService.method.save,
+      request: {
+        expectedVersion: 11n,
         metadata: {
           name: "Saved Workflow",
           description: "Saved description",
-          execution_target_policy: { mode: "none" },
+          executionTargetPolicy: {
+            mode: wf.ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_NONE,
+          },
         },
         confirmation: {
-          expected_removed_node_group_count: 1,
-          expected_removed_edge_count: 1,
+          expectedRemovedNodeGroupCount: 1n,
+          expectedRemovedEdgeCount: 1n,
         },
       },
     });
   });
 });
-
-const emptyBoardResponse = {
-  board: {
-    project_id: "project-1",
-    project: {
-      project_key: "proj",
-      display_name: "Project",
-      default_workspace_id: "workspace-1",
-      attached_workspace_count: 1,
-    },
-    workflows: null,
-    groups: null,
-    columns: null,
-    generated_at_unix_ms: 1,
+const emptyBoard = {
+  projectId: "project-1",
+  project: {
+    projectKey: "proj",
+    displayName: "Project",
+    defaultWorkspaceId: "workspace-1",
+    attachedWorkspaceCount: 1,
   },
+  generatedAt: { seconds: 0n, nanos: 1_000_000 },
 };
-
-const boardWithJoinResponse = {
-  board: {
-    ...emptyBoardResponse.board,
-    selected_workflow: {
-      workflow_id: "11111111-1111-4111-8111-111111111111",
-      display_name: "Workflow",
-      description: "",
-      version: 1,
-      is_project_default: true,
-      valid_for_task_creation: true,
-      validation_errors: [],
+const emptyBoardResponse = create(taskRead.BoardGetResultSchema, {
+  outcome: { case: "success", value: { board: emptyBoard } },
+});
+const boardWithJoinResponse = create(taskRead.BoardGetResultSchema, {
+  outcome: {
+    case: "success",
+    value: {
+      board: {
+        ...emptyBoard,
+        selectedWorkflow: {
+          workflowId: "11111111-1111-4111-8111-111111111111",
+          displayName: "Workflow",
+          description: "",
+          version: 1n,
+          isProjectDefault: true,
+          validForTaskCreation: true,
+        },
+        groups: [
+          {
+            groupId: boundaryGraphIDs.nodeGroup,
+            key: "review",
+            displayName: "Review",
+            sortOrder: 1,
+            nodeIds: [boundaryGraphIDs.node, boundaryGraphIDs.joinNode],
+          },
+          {
+            groupId: boundaryGraphIDs.joinOnlyNodeGroup,
+            key: "join_only",
+            displayName: "Join Only",
+            sortOrder: 2,
+            nodeIds: [boundaryGraphIDs.joinNode],
+          },
+        ],
+        columns: [
+          boardColumnResponse(boundaryGraphIDs.node, wf.NodeKind.WORKFLOW_NODE_KIND_AGENT),
+          boardColumnResponse(boundaryGraphIDs.joinNode, wf.NodeKind.WORKFLOW_NODE_KIND_JOIN),
+        ],
+      },
     },
-    groups: [
-      {
-        group_id: boundaryGraphIDs.nodeGroup,
-        key: "review",
-        display_name: "Review",
-        sort_order: 1,
-        node_ids: [boundaryGraphIDs.node, boundaryGraphIDs.joinNode],
-      },
-      {
-        group_id: boundaryGraphIDs.joinOnlyNodeGroup,
-        key: "join_only",
-        display_name: "Join Only",
-        sort_order: 2,
-        node_ids: [boundaryGraphIDs.joinNode],
-      },
-    ],
-    columns: [
-      boardColumnResponse(boundaryGraphIDs.node, "agent"),
-      boardColumnResponse(boundaryGraphIDs.joinNode, "join"),
-    ],
   },
-};
-
-function boardColumnResponse(nodeID: string, kind: string) {
+});
+function boardColumnResponse(nodeID: string, kind: wf.NodeKind) {
   return {
     node: {
-      node_id: nodeID,
+      nodeId: nodeID,
       key: nodeID,
       kind,
-      display_name: nodeID,
-      assignee_role: "",
-      output_fields: [],
+      displayName: nodeID,
     },
-    group_id: boundaryGraphIDs.nodeGroup,
-    sort_order: 1,
-    is_backlog: false,
-    is_done: false,
-    task_count: 0,
+    groupId: boundaryGraphIDs.nodeGroup,
+    sortOrder: 1,
+    isBacklog: false,
+    isDone: false,
+    taskCount: 0,
   };
 }
-
-const emptyBoardNodeCardsResponse = {
-  project_id: "project-1",
-  workflow_id: "11111111-1111-4111-8111-111111111111",
-  node_id: "node-1",
-  cards: null,
-  next_offset: 50,
-  generated_at_unix_ms: 1,
-};
-
-const workspaceResponse = {
-  workspace_id: "workspace-1",
-  display_name: "Project",
-  root_path: "/tmp/project",
-  availability: "available",
-  is_primary: true,
-  updated_at_unix_ms: 1,
-};
-
-const emptyTaskDetailResponse = {
-  task: {
-    summary: {
-      id: "task-1",
-      project_id: "project-1",
-      workflow_id: "11111111-1111-4111-8111-111111111111",
-      short_id: "PROJ-1",
-      title: "Task",
-      created_at_unix_ms: 1,
-      updated_at_unix_ms: 1,
-      done: false,
-    },
-    project: {
-      display_name: "Project",
-    },
-    workflow: {
-      workflow_id: "11111111-1111-4111-8111-111111111111",
-      display_name: "Delivery",
-      description: "",
-      version: 1,
-      is_project_default: true,
-      valid_for_task_creation: true,
-      validation_errors: null,
-    },
-    body: "Body",
-    source_workspace: workspaceResponse,
-    status: {
-      kind: "backlog",
-      native_state: "active",
-      node_ids: [],
-      attention_types: [],
-    },
-    actions: {
-      can_start: true,
-      can_interrupt: false,
-      can_resume: false,
-      can_delete: true,
-    },
-    label_ids: ["f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf"],
-    attention_count: 0,
-    dependencies: {
-      blocker_count: 0,
-      unsatisfied_blocker_count: 0,
-      directly_blocked_task_count: 0,
-      directions: [
-        {
-          direction: "blocked-by",
-          total_count: 0,
-          unsatisfied_count: 0,
-          items: [],
-          add_availability: { available: { remaining_capacity: 5 } },
-        },
-        {
-          direction: "blocks",
-          total_count: 0,
-          items: [],
-          add_availability: { available: { remaining_capacity: 4 } },
-        },
-      ],
-    },
-    worktree_path: null,
-    current_nodes: [],
-    live_sessions: [],
-    current_scripts: [],
-    retained_session_count: 0,
-  },
-};
-
-const workflowDefinitionResponse = {
-  definition: {
-    workflow: {
-      id: "11111111-1111-4111-8111-111111111111",
-      name: "Delivery",
-      description: "Delivery workflow",
-      version: 9,
-      execution_target_policy: { mode: "head" },
-    },
-    node_groups: [
-      {
-        group_id: boundaryGraphIDs.nodeGroup,
-        workflow_id: "11111111-1111-4111-8111-111111111111",
-        group_key: "core",
-        display_name: "Core",
-        sort_order: 1,
-      },
-    ],
-    nodes: [
-      {
-        id: boundaryGraphIDs.node,
-        workflow_id: "11111111-1111-4111-8111-111111111111",
-        key: "implement",
-        kind: "agent",
-        display_name: "Implement",
-        group_id: boundaryGraphIDs.nodeGroup,
-        group_key: "core",
-        subagent_role: "coder",
-      },
-      {
-        id: boundaryGraphIDs.doneNode,
-        workflow_id: "11111111-1111-4111-8111-111111111111",
-        key: "done",
-        kind: "terminal",
-        display_name: "Done",
-        group_id: null,
-      },
-    ],
-    transition_groups: [
-      {
-        id: boundaryGraphIDs.transitionGroup,
-        workflow_id: "11111111-1111-4111-8111-111111111111",
-        source_node_id: boundaryGraphIDs.node,
-        transition_id: "done",
-        display_name: "Done",
-        description: "Choose this when implementation is complete.",
-      },
-    ],
-    edges: [
-      {
-        id: boundaryGraphIDs.edge,
-        workflow_id: "11111111-1111-4111-8111-111111111111",
-        transition_group_id: boundaryGraphIDs.transitionGroup,
-        key: "done",
-        target_node_id: boundaryGraphIDs.doneNode,
-        assignee_selection: "configured",
-        thinking_selection: "configured",
-        requires_approval: false,
-        context_mode: "new_session",
-        context_source: {
-          kind: "selected_node",
-          node_key: "implement",
-        },
-        prompt_template: "Summarize the implementation.",
-        parameters: [{ key: "summary", description: "Summary", purpose: "ordinary" }],
-        input_bindings: null,
-        output_requirements: null,
-      },
-    ],
-    derived_wiring: {
-      nodes: [
-        {
-          node_id: boundaryGraphIDs.node,
-          possible_provision_fields: [{ name: "summary", description: "Summary" }],
-        },
-      ],
-      transition_groups: [
-        {
-          transition_group_id: boundaryGraphIDs.transitionGroup,
-          required_provision_fields: [{ name: "summary", description: "Summary" }],
-        },
-      ],
-      edges: [
-        {
-          edge_id: boundaryGraphIDs.edge,
-          input_bindings: [{ name: "summary", source: "transition_output", field: "summary" }],
-          required_provision_fields: [{ name: "summary", description: "Summary" }],
-          assignee_selection_applicability: { available: true, parameter_visible: true, reason: "eligible" },
-          thinking_selection_applicability: { available: true, parameter_visible: true, reason: "eligible" },
-        },
-      ],
+const emptyBoardNodeCardsResponse = create(taskRead.BoardNodeCardsListResultSchema, {
+  outcome: {
+    case: "success",
+    value: {
+      projectId: "project-1",
+      workflowId: "11111111-1111-4111-8111-111111111111",
+      nodeId: "node-1",
+      nextOffset: 50,
+      generatedAt: { seconds: 0n, nanos: 1_000_000 },
     },
   },
-};
-
-const workflowValidationResponse = {
-  valid: false,
-  errors: [
-    {
-      code: "workflow.validation.invalid",
-      message: "Invalid edge",
-      workflow_id: "11111111-1111-4111-8111-111111111111",
-      node_id: boundaryGraphIDs.node,
-      transition_group_id: boundaryGraphIDs.transitionGroup,
-      edge_id: boundaryGraphIDs.edge,
-      details: {
-        input_name: "summary",
-        placeholder: ".Params.summary",
-        provider_edge_id: null,
+});
+const emptyTaskDetail = create(taskRead.TaskDetailSchema, {
+  summary: {
+    id: "task-1",
+    projectId: "project-1",
+    workflowId: "11111111-1111-4111-8111-111111111111",
+    shortId: "PROJ-1",
+    title: "Task",
+    createdAt: { seconds: 0n, nanos: 1_000_000 },
+    updatedAt: { seconds: 0n, nanos: 1_000_000 },
+    done: false,
+  },
+  project: {
+    projectKey: "PROJ",
+    displayName: "Project",
+    defaultWorkspaceId: "workspace-1",
+    attachedWorkspaceCount: 1,
+  },
+  workflow: {
+    workflowId: "11111111-1111-4111-8111-111111111111",
+    displayName: "Delivery",
+    version: 1n,
+  },
+  body: "Body",
+  sourceWorkspace: {
+    workspaceId: "workspace-1",
+    displayName: "Project",
+    rootPath: "/tmp/project",
+    availability: ProjectAvailability.AVAILABLE,
+    isPrimary: true,
+    updatedAt: { seconds: 0n, nanos: 1_000_000 },
+  },
+  status: {
+    kind: taskRead.TaskStatusKind.BACKLOG,
+    nativeState: taskRead.TaskNativeState.ACTIVE,
+  },
+  actions: {
+    canStart: true,
+    canDelete: true,
+  },
+  labelIds: ["f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf"],
+  dependencies: {
+    directions: [
+      {
+        direction: taskRead.DependencyDirection.BLOCKED_BY,
+        unsatisfiedCount: 0,
+        addAvailability: { availability: { case: "available", value: { remainingCapacity: 5 } } },
       },
-      related_ids: [boundaryGraphIDs.relatedEdge],
-      blocks_context: true,
-    },
-  ],
-};
-
-const workflowLinksResponse = {
-  links: [
-    {
-      id: "link-1",
-      project_id: "project-1",
-      workflow_id: "11111111-1111-4111-8111-111111111111",
-      default: true,
-    },
-  ],
-};
-
-const workflowDeleteImpactResponse = {
-  workflow_id: "11111111-1111-4111-8111-111111111111",
-  version: 7,
-  project_count: 1,
-  link_count: 1,
-  default_replacement_project_count: 0,
-  task_count: 2,
-  current_node_count: 0,
-  pending_approval_count: 1,
-  blocked_task_count: 1,
-};
-
-const workflowDeletePreviewResponse = {
-  impact: workflowDeleteImpactResponse,
-};
-
-const workflowDeleteResponse = {
-  deleted: false,
-  impact: workflowDeleteImpactResponse,
-  blockers: [{ code: "pending_approvals", message: "Workflow has pending approvals.", count: 1 }],
-};
-
-const workflowGraphSaveImpactResponse = {
-  removed_node_group_count: 1,
-  removed_node_count: 0,
-  removed_transition_group_count: 0,
-  removed_edge_count: 1,
-  removed_entities: [
-    { entity_type: "edge", entity_id: workflowGraphDraftIDs.startEdge },
-    { entity_type: "node_group", entity_id: boundaryGraphIDs.nodeGroup },
-  ],
-  node_task_reference_count: 0,
-  edge_task_reference_count: 0,
-  active_current_node_count: 0,
-  pending_approval_count: 0,
-  start_node_change_count: 0,
-  last_terminal_change_count: 0,
-  task_referenced_node_kind_change_count: 0,
-};
+      {
+        direction: taskRead.DependencyDirection.BLOCKS,
+        addAvailability: { availability: { case: "available", value: { remainingCapacity: 4 } } },
+      },
+    ],
+  },
+});
+const emptyTaskDetailResponse = create(taskRead.GetResultSchema, {
+  outcome: { case: "success", value: { task: emptyTaskDetail } },
+});

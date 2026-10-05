@@ -50,60 +50,80 @@ func (s *Store) planTransitionParameterContract(
 			RequireExecutionDescriptions: requireExecutionDescriptions,
 		})
 	}
-	contextResolution, err := resolveTransitionContext(
-		ctx,
-		q,
-		definition,
-		edge,
-		currentSource.Reference.TaskID,
-		currentSource,
-		transitionBranchKey,
-		source,
-		target,
-		manualMoveContext,
-	)
-	if err != nil {
-		if contextResolutionMode != transitionContractContextResolutionDeferred ||
-			(!errors.Is(err, sql.ErrNoRows) && !errors.Is(err, ErrManualMoveTransitionNotUsable)) {
-			return workflow.TransitionParameterContract{}, err
-		}
-		contextResolution = transitionContextResolution{
-			TargetSession: workflow.CreateTargetSessionIntent(),
-			ActiveSource:  incomingTransitionActiveSource(currentSource),
-		}
-	}
-	sessionID := contextResolution.targetSessionID()
-
-	var retainedTargetRole *workflow.TargetAgentRole
+	var retainedSelection *workflow.AgentExecutionSelection
 	sessionPolicy := workflow.AssigneeSessionPolicyEstablishTarget
-	if sessionID != nil {
-		policy, err := workflow.ResolveAssigneeSessionPolicy(workflow.AssigneeSessionPolicyRequest{
-			ContextMode:           edge.ContextMode,
-			ContextSource:         edge.ContextSource,
-			TargetSessionResolved: true,
-		})
-		if err != nil {
-			return workflow.TransitionParameterContract{}, err
+	targetSessionResolved := false
+	if contextResolutionMode == transitionContractContextResolutionDeferred &&
+		currentSource.SessionID == nil && source.Kind() == workflow.NodeKindAgent &&
+		workflow.CanonicalContextSource(edge.ContextSource).Kind == workflow.ContextSourceImmediateSource {
+		if currentSource.AgentExecutionSelection == nil {
+			return workflow.TransitionParameterContract{}, errors.New("planned Agent source has no execution selection")
 		}
-		sessionPolicy = policy
-		if policy == workflow.AssigneeSessionPolicyPreserve {
-			selection, err := s.resolveRetainedSessionSelection(ctx, *sessionID)
-			if err != nil {
-				if contextResolutionMode != transitionContractContextResolutionDeferred || !errors.Is(err, sql.ErrNoRows) {
-					return workflow.TransitionParameterContract{}, err
-				}
-				sessionID = nil
-				sessionPolicy = workflow.AssigneeSessionPolicyEstablishTarget
-			} else {
-				role := workflow.TargetAgentRole{Identity: selection.Assignee}
-				if s.roleResolver != nil {
-					if resolved, ok := s.roleResolver.ResolveConfiguredRole(selection.Assignee); ok {
-						role = resolved
-					}
-				}
-				retainedTargetRole = &role
+		// This outgoing contract belongs to the Agent being planned. Its future
+		// continuation reuses that Agent's materialized role, not a database row
+		// that the enclosing cutover has not published yet.
+		retainedSelection = currentSource.AgentExecutionSelection
+		sessionPolicy = workflow.AssigneeSessionPolicyPreserve
+		targetSessionResolved = true
+	} else {
+		contextResolution, err := resolveTransitionContext(
+			ctx,
+			q,
+			definition,
+			edge,
+			currentSource.Reference.TaskID,
+			currentSource,
+			transitionBranchKey,
+			source,
+			target,
+			manualMoveContext,
+		)
+		if err != nil {
+			if contextResolutionMode != transitionContractContextResolutionDeferred ||
+				(!errors.Is(err, sql.ErrNoRows) && !errors.Is(err, ErrManualMoveTransitionNotUsable)) {
+				return workflow.TransitionParameterContract{}, err
+			}
+			contextResolution = transitionContextResolution{
+				TargetSession: workflow.CreateTargetSessionIntent(),
+				ActiveSource:  incomingTransitionActiveSource(currentSource),
 			}
 		}
+		sessionID := contextResolution.targetSessionID()
+
+		targetSessionResolved = sessionID != nil
+		if sessionID != nil {
+			policy, err := workflow.ResolveAssigneeSessionPolicy(workflow.AssigneeSessionPolicyRequest{
+				ContextMode:           edge.ContextMode,
+				ContextSource:         edge.ContextSource,
+				TargetSessionResolved: true,
+			})
+			if err != nil {
+				return workflow.TransitionParameterContract{}, err
+			}
+			sessionPolicy = policy
+			if policy == workflow.AssigneeSessionPolicyPreserve {
+				selection, err := s.resolveRetainedSessionSelection(ctx, *sessionID)
+				if err != nil {
+					if contextResolutionMode != transitionContractContextResolutionDeferred || !errors.Is(err, sql.ErrNoRows) {
+						return workflow.TransitionParameterContract{}, err
+					}
+					targetSessionResolved = false
+					sessionPolicy = workflow.AssigneeSessionPolicyEstablishTarget
+				} else {
+					retainedSelection = selection
+				}
+			}
+		}
+	}
+	var retainedTargetRole *workflow.TargetAgentRole
+	if retainedSelection != nil {
+		role := workflow.TargetAgentRole{Identity: retainedSelection.Assignee}
+		if s.roleResolver != nil {
+			if resolved, ok := s.roleResolver.ResolveConfiguredRole(retainedSelection.Assignee); ok {
+				role = resolved
+			}
+		}
+		retainedTargetRole = &role
 	}
 
 	edgeCount := 0
@@ -119,7 +139,7 @@ func (s *Store) planTransitionParameterContract(
 		TargetRole:                   workflow.NodeSubagentRole(target),
 		RetainedTargetRole:           retainedTargetRole,
 		FanOut:                       edgeCount > 1,
-		TargetSessionResolved:        sessionID != nil,
+		TargetSessionResolved:        targetSessionResolved,
 		TargetSessionPolicy:          sessionPolicy,
 		Catalog:                      s.roleResolver,
 		RequireExecutionDescriptions: requireExecutionDescriptions,

@@ -2,17 +2,29 @@ package workflowsvc
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"errors"
 	"reflect"
+	"sync"
 	"testing"
+	"time"
 
+	"core/internal/testharness/scriptedllm"
+	"core/server/runtimewire"
+	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowexecution"
 	"core/server/workflowruntime"
 	"core/server/workflowstore"
+	"core/shared/clientui"
+	"core/shared/config"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/textutil"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestCompleteWorkflowTaskReturnsPendingApprovalWithoutReplacingCurrentNode(t *testing.T) {
@@ -29,25 +41,25 @@ func TestCompleteWorkflowTaskReturnsPendingApprovalWithoutReplacingCurrentNode(t
 	service := currentNodeCompletionService(execution)
 	sessionID := runtimeids.NewSessionID()
 
-	response, err := service.CompleteWorkflowTask(context.Background(), serverapi.WorkflowTaskCompleteRequest{
-		ActorKind:      serverapi.WorkflowTaskCompleteActorAgent,
-		AgentSessionID: sessionID.String(),
-		RunID:          currentNodeCompletionRunID(t),
-		StepID:         currentNodeCompletionStepID(t),
-		TransitionID:   "done",
+	response, err := service.CompleteWorkflowTask(context.Background(), &taskpb.CompleteRequest{
+		ActorKind:      taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_AGENT,
+		AgentSessionId: proto.String(sessionID.String()),
+		RunId:          proto.String(currentNodeCompletionRunID(t).String()),
+		StepId:         proto.String(currentNodeCompletionStepID(t).String()),
+		TransitionId:   proto.String("done"),
 	})
 	if err != nil {
 		t.Fatalf("CompleteWorkflowTask: %v", err)
 	}
-	if response.AgentCompletion == nil {
+	if response.GetAgentCompletion() == nil {
 		t.Fatalf("agent completion response = %+v", response)
 	}
-	completion := response.AgentCompletion
-	if completion.TaskID != string(source.TaskID) {
-		t.Fatalf("task id = %q, want %q", completion.TaskID, source.TaskID)
+	completion := response.GetAgentCompletion()
+	if completion.TaskId != string(source.TaskID) {
+		t.Fatalf("task id = %q, want %q", completion.TaskId, source.TaskID)
 	}
-	if completion.PendingApprovalID == nil || *completion.PendingApprovalID != approvalID.String() {
-		t.Fatalf("pending approval id = %v, want %q", completion.PendingApprovalID, approvalID)
+	if completion.PendingApprovalId == nil || *completion.PendingApprovalId != approvalID.String() {
+		t.Fatalf("pending approval id = %v, want %q", completion.PendingApprovalId, approvalID)
 	}
 	if len(completion.CurrentNodes) != 0 {
 		t.Fatalf("current nodes = %+v, want none while source remains pending approval", completion.CurrentNodes)
@@ -70,60 +82,232 @@ func TestCompleteWorkflowTaskReturnsResultDespitePostCommitDiagnostic(t *testing
 		sessionDiagnostic: publicationErr,
 	}
 	response, err := currentNodeCompletionService(execution).CompleteWorkflowTask(
-		context.Background(),
-		serverapi.WorkflowTaskCompleteRequest{
-			ActorKind:      serverapi.WorkflowTaskCompleteActorAgent,
-			AgentSessionID: runtimeids.NewSessionID().String(),
-			RunID:          currentNodeCompletionRunID(t),
-			StepID:         currentNodeCompletionStepID(t),
-			TransitionID:   "done",
+		context.Background(), &taskpb.CompleteRequest{
+			ActorKind:      taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_AGENT,
+			AgentSessionId: proto.String(runtimeids.NewSessionID().String()),
+			RunId:          proto.String(currentNodeCompletionRunID(t).String()),
+			StepId:         proto.String(currentNodeCompletionStepID(t).String()),
+			TransitionId:   proto.String("done"),
 		},
 	)
 	if err != nil {
 		t.Fatalf("CompleteWorkflowTask: %v", err)
 	}
-	if response.AgentCompletion == nil || response.AgentCompletion.TaskID != string(source.TaskID) {
+	if response.GetAgentCompletion() == nil || response.GetAgentCompletion().TaskId != string(source.TaskID) {
 		t.Fatalf("accepted completion response = %+v, want Task %s", response, source.TaskID)
 	}
 }
 
-func TestCompleteWorkflowTaskForceComposesInterruptThenManualMove(t *testing.T) {
-	ctx, service, binding := newWorkflowServiceTestContext(t)
+func TestCompleteWorkflowTaskForceDoesNotRecloseTaskInterruptedApproval(t *testing.T) {
+	ctx, service, binding, metadataStore := newWorkflowServiceTestContextWithMetadata(t)
 	workflowID := createWorkflowServiceChainedWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	execution := newManualMoveExecutionStub(service)
-	service.currentNodeExecution = execution
-	startWorkflowServiceTask(t, ctx, service, task.Task.ID)
-	execution.calls = nil
+	started := startWorkflowServiceTask(t, ctx, service, task.Task.Id)
+	source := workflowServiceCurrentNodeReference(t, workflow.TaskID(task.Task.Id), started.CurrentNodes[0])
 
-	response, err := service.CompleteWorkflowTask(ctx, serverapi.WorkflowTaskCompleteRequest{
-		ActorKind:    serverapi.WorkflowTaskCompleteActorUser,
-		Force:        true,
-		TaskID:       task.Task.ID,
-		TransitionID: "next",
-		OutputValues: map[string]string{"prior_summary": "planned"},
-		Commentary:   "Proceed with implementation.",
+	feed := &approvalCompletionFeed{pending: make(chan struct{}, 1), resolutionStarted: make(chan struct{}, 2), resolutionRelease: make(chan struct{})}
+	t.Cleanup(feed.release)
+	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{PersistenceRoot: metadataStore.PersistenceRoot(), StoreOptions: metadataStore.AuthoritativeSessionStoreOptions(), PromptFeed: feed})
+	controller, err := workflowexecution.NewCurrentNodeController(
+		service.store,
+		initialBranchControllerRunner{},
+		authority,
+		service.taskMutations,
+		workflowexecution.CurrentNodeControllerConfig{AgentConcurrency: 1},
+	)
+	if err != nil {
+		t.Fatalf("NewCurrentNodeController: %v", err)
+	}
+	execution := &approvalCompletionExecution{manualMoveExecutionStub: newManualMoveExecutionStub(service), controller: controller}
+	service.currentNodeExecution = execution
+	t.Cleanup(func() {
+		if err := errors.Join(controller.Close(), authority.Close(context.Background())); err != nil {
+			t.Errorf("close Approval execution: %v", err)
+		}
+	})
+
+	sessionID := createPersistedWorkflowServiceSession(t, metadataStore, binding)
+	descriptor, err := session.NewOpenSessionDescriptor(sessionID)
+	if err != nil {
+		t.Fatalf("NewOpenSessionDescriptor: %v", err)
+	}
+	appCfg, err := config.Load(binding.CanonicalRoot, binding.CanonicalRoot, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	filesystemContext, err := runtimewire.NewFilesystemContext(
+		binding.CanonicalRoot,
+		binding.CanonicalRoot,
+		binding.ProjectID,
+	)
+	if err != nil {
+		t.Fatalf("NewFilesystemContext: %v", err)
+	}
+	settings := appCfg.Settings
+	settings = testsetup.WriteProviderSettings(t, metadataStore.PersistenceRoot(), settings)
+	settings.Model = "gpt-6-sol"
+	settings.ModelContextWindow = 200_000
+	settings.Reviewer.Frequency = "off"
+	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		MainWorkspaceRoot: filesystemContext.Access.ExecutionTargetRoot.LexicalPath,
+		Settings:          settings, FilesystemContext: filesystemContext,
+		QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true),
+		Client: scriptedllm.NewClient(scriptedllm.Script{}),
 	})
 	if err != nil {
-		t.Fatalf("CompleteWorkflowTask: %v", err)
+		t.Fatalf("NewAgentRuntimePlan: %v", err)
 	}
-	if !reflect.DeepEqual(execution.calls, []string{"interrupt", "manual_move"}) {
-		t.Fatalf("forced completion operations = %v, want Interrupt then Manual Move", execution.calls)
+	stepID := *currentNodeCompletionStepID(t)
+	request := tools.AskQuestionRequest{
+		ToolCallID: "force-complete-pending-approval", StepID: stepID.String(), Question: "Allow access?", Approval: true,
+		ApprovalOptions: []tools.AskQuestionApprovalOption{{Decision: tools.AskQuestionApprovalDecisionAllowOnce}},
 	}
-	if len(execution.interruptTaskIDs) != 2 ||
-		execution.interruptTaskIDs[0] != workflow.TaskID(task.Task.ID) ||
-		execution.interruptTaskIDs[1] != workflow.TaskID(task.Task.ID) {
-		t.Fatalf("forced completion interrupt selections = %v, want Task Interrupt then Manual Move interruption", execution.interruptTaskIDs)
+	promptDone := make(chan approvalCompletionAsync[tools.AskQuestionResolution], 1)
+	handle, err := authority.StartAgentExecution(ctx, sessionruntime.AgentExecutionRequest{
+		Descriptor: descriptor,
+		Runtime:    &plan,
+		Workflow: &sessionruntime.WorkflowAgentExecution{
+			Reference: sessionruntime.WorkflowExecutionRef{ProjectID: binding.ProjectID, WorkflowID: workflowID, CurrentNode: source},
+			Config: &workflowruntime.CurrentNodeExecutionConfig{
+				Contract:       workflowruntime.CompletionContract{Transitions: []workflowruntime.CompletionTransition{{ID: "next"}}},
+				CompletionMode: workflowruntime.CompletionModeTool, Controller: controller,
+				Instructions: workflowruntime.TaskInstructions{CurrentNode: source},
+			},
+		},
+		Resource: sessionruntime.OpenAgentResource{},
+		Runner: func(runCtx context.Context, scope sessionruntime.ExecutionScope, _ sessionruntime.AgentRuntimeBridge) error {
+			resolution, awaitErr := authority.AwaitPromptResolution(runCtx, scope.ID(), request)
+			promptDone <- approvalCompletionAsync[tools.AskQuestionResolution]{value: resolution, err: awaitErr}
+			return awaitErr
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartAgentExecution: %v", err)
 	}
-	if response.ForcedMove == nil ||
-		response.ForcedMove.TaskID != task.Task.ID ||
-		response.ForcedMove.TargetNodeID == "" ||
-		response.ForcedMove.Outcome.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeApplied ||
-		response.ForcedMove.Outcome.Applied == nil ||
-		len(response.ForcedMove.Outcome.Applied.CurrentNodes) != 1 {
-		t.Fatalf("forced completion response = %+v", response)
+	t.Cleanup(func() { _ = handle.Stop(context.Background()) })
+	select {
+	case <-feed.pending:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for pending Approval")
 	}
+
+	completionDone := make(chan approvalCompletionAsync[*taskpb.CompleteSuccess], 1)
+	go func() {
+		response, completeErr := service.CompleteWorkflowTask(ctx, &taskpb.CompleteRequest{
+			ActorKind: taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_USER, Force: true, TaskId: proto.String(task.Task.Id), TransitionId: proto.String("next"),
+			OutputValues: []*taskpb.NamedValue{{Name: "prior_summary", Value: "planned"}},
+		})
+		completionDone <- approvalCompletionAsync[*taskpb.CompleteSuccess]{value: response, err: completeErr}
+	}()
+	select {
+	case <-feed.resolutionStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for Task Interrupt Approval closure")
+	}
+
+	commentary := "This stale Approval must not be accepted."
+	answerDone := make(chan approvalCompletionAsync[[]sessionruntime.PromptAnswerResult], 1)
+	go func() {
+		results, resolveErr := authority.ResolvePromptBatch(context.Background(), sessionID, stepID, []sessionruntime.PromptAnswerCommand{{
+			ToolCallID: clientui.ToolCallID(request.ToolCallID),
+			Payload: sessionruntime.PromptApprovalAnswerCommand{Answer: tools.AskQuestionApproval{
+				Decision: tools.AskQuestionApprovalDecisionAllowOnce, Commentary: &commentary,
+			}},
+		}})
+		answerDone <- approvalCompletionAsync[[]sessionruntime.PromptAnswerResult]{value: results, err: resolveErr}
+	}()
+	select {
+	case answer := <-answerDone:
+		t.Fatalf("stale Approval completed before Task Interrupt closure: %+v", answer)
+	case <-time.After(100 * time.Millisecond):
+	}
+	select {
+	case result := <-completionDone:
+		t.Fatalf("forced completion returned before Task Interrupt closure: %+v", result)
+	default:
+	}
+	feed.release()
+
+	var prompt approvalCompletionAsync[tools.AskQuestionResolution]
+	select {
+	case prompt = <-promptDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for Task-Interrupted Approval")
+	}
+	if !errors.Is(prompt.err, context.Canceled) || prompt.value != nil {
+		t.Fatalf("Task Interrupt Approval = (%+v, %v), want cancellation without commentary", prompt.value, prompt.err)
+	}
+	var answer approvalCompletionAsync[[]sessionruntime.PromptAnswerResult]
+	select {
+	case answer = <-answerDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for stale Approval answer")
+	}
+	if answer.err != nil || len(answer.value) != 1 || answer.value[0].Outcome != sessionruntime.PromptAnswerOutcomeSkipped {
+		t.Fatalf("stale Approval answer = (%+v, %v), want Skipped", answer.value, answer.err)
+	}
+	var completion approvalCompletionAsync[*taskpb.CompleteSuccess]
+	select {
+	case completion = <-completionDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for forced completion")
+	}
+	if completion.err != nil {
+		t.Fatalf("CompleteWorkflowTask: %v", completion.err)
+	}
+	if completion.value.GetForcedMove() == nil || completion.value.GetForcedMove().TaskId != task.Task.Id || completion.value.GetForcedMove().TargetNodeId == "" || completion.value.GetForcedMove().Outcome.GetApplied() == nil || completion.value.GetForcedMove().Outcome.GetApplied() == nil || len(completion.value.GetForcedMove().Outcome.GetApplied().CurrentNodes) != 1 {
+		t.Fatalf("forced completion response = %+v, want applied move", completion.value.GetForcedMove())
+	}
+	if execution.manualMoveSelections != 1 {
+		t.Fatalf("Manual Move selections = %d, want 1", execution.manualMoveSelections)
+	}
+	select {
+	case <-feed.resolutionStarted:
+		t.Fatal("Manual Move republished the Task-Interrupted Approval resolution")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+type approvalCompletionAsync[T any] struct {
+	value T
+	err   error
+}
+
+type approvalCompletionExecution struct {
+	*manualMoveExecutionStub
+	controller           *workflowexecution.CurrentNodeController
+	manualMoveSelections int
+}
+
+func (e *approvalCompletionExecution) Interrupt(ctx context.Context, selector workflowexecution.InterruptSelector) error {
+	return e.controller.Interrupt(ctx, selector)
+}
+
+func (e *approvalCompletionExecution) InterruptForManualMove(ctx context.Context, taskID workflow.TaskID, beforeSelection func() error) error {
+	e.manualMoveSelections++
+	return e.controller.InterruptForManualMove(ctx, taskID, beforeSelection)
+}
+
+type approvalCompletionFeed struct {
+	pending, resolutionStarted chan struct{}
+	resolutionRelease          chan struct{}
+	releaseOnce                sync.Once
+}
+
+func (f *approvalCompletionFeed) PromptPendingScope(sessionruntime.ExecutionScope, tools.AskQuestionRequest, time.Time) error {
+	f.pending <- struct{}{}
+	return nil
+}
+
+func (f *approvalCompletionFeed) PromptResolvedScope(sessionruntime.ExecutionScope, string) error {
+	f.resolutionStarted <- struct{}{}
+	<-f.resolutionRelease
+	return nil
+}
+
+func (f *approvalCompletionFeed) release() {
+	f.releaseOnce.Do(func() { close(f.resolutionRelease) })
 }
 
 func TestCompleteWorkflowTaskForceReturnsDependencyConfirmationManualMoveOutcome(t *testing.T) {
@@ -134,31 +318,30 @@ func TestCompleteWorkflowTaskForceReturnsDependencyConfirmationManualMoveOutcome
 	blocked := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
 	execution := newManualMoveExecutionStub(service)
 	service.currentNodeExecution = execution
-	startWorkflowServiceTask(t, ctx, service, blocked.Task.ID)
+	startWorkflowServiceTask(t, ctx, service, blocked.Task.Id)
 	execution.calls = nil
-	if _, err := service.AddWorkflowTaskDependency(ctx, serverapi.WorkflowTaskDependencyAddRequest{
-		BlockerTaskID: blocker.Task.ID,
-		BlockedTaskID: blocked.Task.ID,
+	if _, err := service.AddWorkflowTaskDependency(ctx, &taskpb.DependencyAddRequest{
+		BlockerTaskId: blocker.Task.Id,
+		BlockedTaskId: blocked.Task.Id,
 	}); err != nil {
 		t.Fatalf("AddWorkflowTaskDependency: %v", err)
 	}
 
-	response, err := service.CompleteWorkflowTask(ctx, serverapi.WorkflowTaskCompleteRequest{
-		ActorKind:    serverapi.WorkflowTaskCompleteActorUser,
+	response, err := service.CompleteWorkflowTask(ctx, &taskpb.CompleteRequest{
+		ActorKind:    taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_USER,
 		Force:        true,
-		TaskID:       blocked.Task.ID,
-		TransitionID: "next",
-		OutputValues: map[string]string{"prior_summary": "planned"},
+		TaskId:       proto.String(blocked.Task.Id),
+		TransitionId: proto.String("next"),
+		OutputValues: []*taskpb.NamedValue{{Name: "prior_summary", Value: "planned"}},
 	})
 	if err != nil {
 		t.Fatalf("CompleteWorkflowTask: %v", err)
 	}
-	if response.ForcedMove == nil ||
-		response.ForcedMove.TaskID != blocked.Task.ID ||
-		response.ForcedMove.TargetNodeID == "" ||
-		response.ForcedMove.Outcome.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeDependencyConfirmationRequired ||
-		response.ForcedMove.Outcome.UnsatisfiedDependencyCount == nil ||
-		*response.ForcedMove.Outcome.UnsatisfiedDependencyCount != 1 {
+	if response.GetForcedMove() == nil ||
+		response.GetForcedMove().TaskId != blocked.Task.Id ||
+		response.GetForcedMove().TargetNodeId == "" ||
+		response.GetForcedMove().Outcome.GetDependencyConfirmationRequired() == nil ||
+		response.GetForcedMove().Outcome.GetDependencyConfirmationRequired().UnsatisfiedDependencyCount != 1 {
 		t.Fatalf("forced completion response = %+v", response)
 	}
 	if !reflect.DeepEqual(execution.calls, []string{"interrupt"}) {
@@ -169,34 +352,15 @@ func TestCompleteWorkflowTaskForceReturnsDependencyConfirmationManualMoveOutcome
 func TestCompleteWorkflowTaskMapsMissingLiveSourceFailure(t *testing.T) {
 	sessionID := runtimeids.NewSessionID()
 	execution := &currentNodeCompletionExecutionStub{sessionErr: sessionruntime.ErrExecutionNoLongerLive}
-	_, err := currentNodeCompletionService(execution).CompleteWorkflowTask(context.Background(), serverapi.WorkflowTaskCompleteRequest{
-		ActorKind:      serverapi.WorkflowTaskCompleteActorAgent,
-		AgentSessionID: sessionID.String(),
-		RunID:          currentNodeCompletionRunID(t),
-		StepID:         currentNodeCompletionStepID(t),
-		TransitionID:   "done",
+	_, err := currentNodeCompletionService(execution).CompleteWorkflowTask(context.Background(), &taskpb.CompleteRequest{
+		ActorKind:      taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_AGENT,
+		AgentSessionId: proto.String(sessionID.String()),
+		RunId:          proto.String(currentNodeCompletionRunID(t).String()),
+		StepId:         proto.String(currentNodeCompletionStepID(t).String()),
+		TransitionId:   proto.String("done"),
 	})
 	if !errors.Is(err, serverapi.ErrWorkflowTaskCompleteTargetNotFound) {
 		t.Fatalf("live completion error = %v, want target-not-found", err)
-	}
-}
-
-func TestWorkflowTaskCompleteContractHasExactAgentProvenanceAndNoPlacementFields(t *testing.T) {
-	for _, contract := range []reflect.Type{
-		reflect.TypeOf(serverapi.WorkflowTaskCompleteRequest{}),
-		reflect.TypeOf(serverapi.WorkflowTaskCompleteResponse{}),
-	} {
-		for _, removed := range []string{"RunIDs", "PlacementID", "PlacementIDs", "ProjectID", "ShortID"} {
-			if _, exists := contract.FieldByName(removed); exists {
-				t.Fatalf("%s still exposes removed completion field %s", contract.Name(), removed)
-			}
-		}
-	}
-	request := reflect.TypeOf(serverapi.WorkflowTaskCompleteRequest{})
-	for _, required := range []string{"RunID", "StepID"} {
-		if _, exists := request.FieldByName(required); !exists {
-			t.Fatalf("WorkflowTaskCompleteRequest lacks %s provenance", required)
-		}
 	}
 }
 
@@ -227,20 +391,20 @@ func currentNodeCompletionStepID(t *testing.T) *runtimeids.StepID {
 
 type currentNodeCompletionUnavailableTaskDetail struct{}
 
-func (currentNodeCompletionUnavailableTaskDetail) GetTask(context.Context, string) (serverapi.WorkflowTaskDetail, error) {
-	return serverapi.WorkflowTaskDetail{}, errors.New("task detail unavailable")
+func (currentNodeCompletionUnavailableTaskDetail) GetTask(context.Context, string) (*taskpb.TaskDetail, error) {
+	return &taskpb.TaskDetail{}, errors.New("task detail unavailable")
 }
 
-func (currentNodeCompletionUnavailableTaskDetail) GetTaskByProjectShortID(context.Context, string, string) (serverapi.WorkflowTaskDetail, error) {
-	return serverapi.WorkflowTaskDetail{}, errors.New("task detail unavailable")
+func (currentNodeCompletionUnavailableTaskDetail) GetTaskByProjectShortID(context.Context, string, string) (*taskpb.TaskDetail, error) {
+	return &taskpb.TaskDetail{}, errors.New("task detail unavailable")
 }
 
 func (currentNodeCompletionUnavailableTaskDetail) ListCurrentNodes(context.Context, string) ([]workflow.CurrentNode, error) {
 	return nil, errors.New("current nodes unavailable")
 }
 
-func (currentNodeCompletionUnavailableTaskDetail) GetTaskByShortID(context.Context, string) (serverapi.WorkflowTaskDetail, error) {
-	return serverapi.WorkflowTaskDetail{}, errors.New("task detail unavailable")
+func (currentNodeCompletionUnavailableTaskDetail) GetTaskByShortID(context.Context, string) (*taskpb.TaskDetail, error) {
+	return &taskpb.TaskDetail{}, errors.New("task detail unavailable")
 }
 
 func currentNodeCompletionReference(t *testing.T, taskID, nodeID string) workflow.CurrentNodeReference {
@@ -260,13 +424,11 @@ type currentNodeCompletionExecutionStub struct {
 	resumePreflight        workflowexecution.TaskResumePreflight
 	resumeEligibilityErr   error
 	resumeEligibilityCalls int
-	startPreparations      chan<- workflowexecution.TaskStartPreparation
-	startFinalizers        chan<- workflowexecution.TaskPreparationFinalizer
 	sessionID              runtimeids.SessionID
 	sessionResult          workflowstore.CurrentNodeCompletionResult
 	sessionDiagnostic      error
 	sessionErr             error
-	manualMoveAssignments  workflowstore.ManualMoveTargetAssignmentPreparer
+	manualMoveAssignments  func(context.Context, []workflowstore.CurrentNodeStartContext) ([]workflowstore.PlannedCurrentNodeSession, error)
 }
 
 func (s *currentNodeCompletionExecutionStub) configuredResumePreflight(
@@ -333,42 +495,23 @@ func (s *currentNodeCompletionExecutionStub) PreflightTaskResume(
 func (s *currentNodeCompletionExecutionStub) StartTask(
 	ctx context.Context,
 	taskID workflow.TaskID,
-	preparation workflowexecution.TaskStartPreparation,
-	finalizer workflowexecution.TaskPreparationFinalizer,
+	candidate *workflowstore.ExecutionTargetCandidate,
 ) (workflowstore.StartTaskResult, error) {
 	if s.store == nil {
 		return workflowstore.StartTaskResult{}, errors.New("workflow store is required")
 	}
-	started, err := s.store.StartTask(ctx, taskID)
+	plan, err := s.store.PlanTaskStart(ctx, taskID, candidate)
 	if err != nil {
-		return started, err
+		return workflowstore.StartTaskResult{}, err
 	}
-	if s.startPreparations != nil {
-		s.startPreparations <- preparation
-		if s.startFinalizers != nil {
-			s.startFinalizers <- finalizer
-		}
-		return started, nil
+	sessions, err := s.manualMoveAssignments(ctx, plan.StartContexts())
+	if err != nil {
+		return workflowstore.StartTaskResult{}, err
 	}
-	if err := preparation.Prepare(ctx); err != nil {
-		finalizer(workflowexecution.TaskPreparationFinalization{
-			Kind:  workflowexecution.TaskPreparationFailed,
-			Cause: err,
-		})
-		return started, err
-	}
-	if err := preparation.Commit(ctx); err != nil {
-		finalizer(workflowexecution.TaskPreparationFinalization{
-			Kind:  workflowexecution.TaskPreparationFailed,
-			Cause: err,
-		})
-		return started, err
-	}
-	finalizer(workflowexecution.TaskPreparationFinalization{Kind: workflowexecution.TaskPreparationHandedOff})
-	return started, nil
+	return s.store.CommitTaskStart(ctx, plan, sessions)
 }
 
-func (s *currentNodeCompletionExecutionStub) ResumeTask(ctx context.Context, taskID workflow.TaskID) (workflowexecution.TaskResumeResult, error) {
+func (s *currentNodeCompletionExecutionStub) ResumeTask(ctx context.Context, taskID workflow.TaskID, candidate *workflowstore.ExecutionTargetCandidate) (workflowexecution.TaskResumeResult, error) {
 	if s.store == nil {
 		return workflowexecution.TaskResumeResult{}, errors.New("workflow store is required")
 	}
@@ -376,53 +519,25 @@ func (s *currentNodeCompletionExecutionStub) ResumeTask(ctx context.Context, tas
 	if err != nil {
 		return workflowexecution.TaskResumeResult{}, err
 	}
-	for _, currentNode := range selected {
-		if _, _, err := s.store.ResumeCurrentNode(ctx, currentNode.Reference); err != nil {
-			return workflowexecution.TaskResumeResult{}, err
-		}
+	references := make([]workflow.CurrentNodeReference, len(selected))
+	for i, node := range selected {
+		references[i] = node.Reference
 	}
-	return workflowexecution.TaskResumeResult{
-		Outcome:      workflowexecution.TaskResumeApplied,
-		CurrentNodes: selected,
-	}, nil
-}
-
-func (s *currentNodeCompletionExecutionStub) ResumeTaskWithPreparation(
-	ctx context.Context,
-	taskID workflow.TaskID,
-	preparation workflowexecution.TaskStartPreparation,
-	finalizer workflowexecution.TaskPreparationFinalizer,
-) (workflowexecution.TaskResumeResult, error) {
-	if s.store == nil {
-		return workflowexecution.TaskResumeResult{}, errors.New("workflow store is required")
-	}
-	selected, err := s.store.InterruptedExecutableCurrentNodes(ctx, taskID)
+	plan, err := s.store.PlanTaskResume(ctx, taskID, references, candidate)
 	if err != nil {
 		return workflowexecution.TaskResumeResult{}, err
 	}
-	if err := preparation.Prepare(ctx); err != nil {
-		finalizer(workflowexecution.TaskPreparationFinalization{
-			Kind:  workflowexecution.TaskPreparationFailed,
-			Cause: err,
-		})
+	sessions, err := s.manualMoveAssignments(ctx, plan.StartContexts())
+	if err != nil {
 		return workflowexecution.TaskResumeResult{}, err
 	}
-	if err := preparation.Commit(ctx); err != nil {
-		finalizer(workflowexecution.TaskPreparationFinalization{
-			Kind:  workflowexecution.TaskPreparationFailed,
-			Cause: err,
-		})
+	resumed, err := s.store.CommitTaskResume(ctx, plan, sessions)
+	if err != nil {
 		return workflowexecution.TaskResumeResult{}, err
 	}
-	for _, currentNode := range selected {
-		if _, _, err := s.store.ResumeCurrentNode(ctx, currentNode.Reference); err != nil {
-			return workflowexecution.TaskResumeResult{}, err
-		}
-	}
-	finalizer(workflowexecution.TaskPreparationFinalization{Kind: workflowexecution.TaskPreparationHandedOff})
 	return workflowexecution.TaskResumeResult{
 		Outcome:      workflowexecution.TaskResumeApplied,
-		CurrentNodes: selected,
+		CurrentNodes: resumed.CurrentNodes,
 	}, nil
 }
 
@@ -430,7 +545,15 @@ func (s *currentNodeCompletionExecutionStub) ApplyPendingApproval(ctx context.Co
 	if s.store == nil {
 		return workflowstore.PendingApprovalApplyResult{}, errors.New("workflow store is required")
 	}
-	return s.store.ApplyPendingApproval(ctx, approvalID)
+	plan, err := s.store.PlanPendingApproval(ctx, approvalID)
+	if err != nil {
+		return workflowstore.PendingApprovalApplyResult{}, err
+	}
+	sessions, err := s.manualMoveAssignments(ctx, plan.StartContexts())
+	if err != nil {
+		return workflowstore.PendingApprovalApplyResult{}, err
+	}
+	return s.store.CommitPendingApproval(ctx, plan, sessions)
 }
 
 func (s *currentNodeCompletionExecutionStub) ApplyManualMove(
@@ -441,14 +564,23 @@ func (s *currentNodeCompletionExecutionStub) ApplyManualMove(
 	if s.store == nil {
 		return workflowstore.ManualMoveResult{}, errors.New("workflow store is required")
 	}
-	if s.manualMoveAssignments != nil {
-		return s.store.ApplyManualMoveWithTargetAssignments(ctx, prepared, candidate, s.manualMoveAssignments)
+	plan, err := s.store.PlanManualMove(ctx, prepared, candidate)
+	if err != nil {
+		return workflowstore.ManualMoveResult{}, err
 	}
-	return s.store.ApplyManualMove(ctx, prepared, candidate)
+	sessions, err := s.manualMoveAssignments(ctx, plan.StartContexts())
+	if err != nil {
+		return workflowstore.ManualMoveResult{}, err
+	}
+	return s.store.CommitManualMove(ctx, plan, sessions)
 }
 
 func (s *currentNodeCompletionExecutionStub) Interrupt(context.Context, workflowexecution.InterruptSelector) error {
 	return nil
+}
+
+func (*currentNodeCompletionExecutionStub) RunTaskOperation(ctx context.Context, operation func(context.Context) error) error {
+	return operation(ctx)
 }
 
 func (*currentNodeCompletionExecutionStub) InterruptForManualMove(context.Context, workflow.TaskID, func() error) error {

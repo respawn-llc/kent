@@ -1,11 +1,42 @@
 package tools
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"core/shared/sessionenv"
 )
+
+func TestCredentialEnvironmentUsesCurrentConnectionReferences(t *testing.T) {
+	root := t.TempDir()
+	write := func(name string) {
+		t.Helper()
+		body := "[connections.api]\nprotocol = \"responses\"\nendpoint = \"http://localhost:1234\"\nenvironment_variable = \"" + name + "\"\n"
+		if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base := EnrichShellEnvForInvocation([]string{
+		"FIRST_KEY=secret", "NEXT_KEY=other", "FIRST_KEY_SUFFIX=ordinary", "KEEP=1",
+	}, "session", "run", "step")
+	for _, name := range []string{"FIRST_KEY", "NEXT_KEY"} {
+		write(name)
+		filtered, err := FilterCredentialEnvironment(root, base)
+		if err != nil {
+			t.Fatal(err)
+		}
+		values := envMap(t, filtered)
+		if _, present := values[name]; present {
+			t.Fatal("referenced credential was inherited")
+		}
+		if values["FIRST_KEY_SUFFIX"] != "ordinary" || values["KEEP"] != "1" ||
+			values[sessionenv.SessionIDEnv] != "session" || values[sessionenv.RunIDEnv] != "run" || values[sessionenv.StepIDEnv] != "step" {
+			t.Fatal("filter removed unrelated environment or execution metadata")
+		}
+	}
+}
 
 func envMap(t *testing.T, in []string) map[string]string {
 	t.Helper()

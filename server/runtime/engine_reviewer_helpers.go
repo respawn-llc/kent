@@ -15,9 +15,7 @@ import (
 )
 
 type reviewerSuggestionsResult struct {
-	Suggestions           []string
-	CacheHitPercent       int
-	HasCacheHitPercentage bool
+	Suggestions []string
 }
 
 type reviewerRequestConfig struct {
@@ -74,31 +72,6 @@ func sanitizeReviewerSuggestions(in []string) []string {
 		return nil
 	}
 	return out
-}
-
-func buildReviewerRequestMessagesWithBuilder(messages []llm.Message, builder metaContextBuilder, headless bool) ([]llm.Message, error) {
-	metaMessages, transcriptSource := splitMetaContextMessages(messages)
-	sessionMode, err := metaContextSessionModeForMessages(metaMessages)
-	if err != nil {
-		return nil, err
-	}
-	metaResult, err := builder.Build(metaContextBuildOptions{
-		ExistingMessages:          metaMessages,
-		SessionMode:               sessionMode,
-		IncludeAgents:             true,
-		IncludeEnvironment:        true,
-		IncludeHeadless:           headless,
-		PermissiveAgentsReadError: true,
-	})
-	if err != nil {
-		return nil, err
-	}
-	metaMessages = metaResult.Projection().Messages()
-	out := make([]llm.Message, 0, len(metaMessages)+2+len(transcriptSource))
-	out = append(out, metaMessages...)
-	out = append(out, llm.Message{Role: llm.RoleDeveloper, Content: textutil.Value(reviewerMetaBoundaryMessage)})
-	out = append(out, buildReviewerTranscriptMessages(transcriptSource)...)
-	return out, nil
 }
 
 func buildReviewerRequestItemsWithBuilder(items []llm.ResponseItem, builder metaContextBuilder, headless bool) ([]llm.ResponseItem, error) {
@@ -177,6 +150,9 @@ func buildReviewerTranscriptItems(items []llm.ResponseItem) []llm.ResponseItem {
 		transcriptMessages = append(transcriptMessages, msg)
 	})
 	for _, item := range items {
+		if item.Type == llm.ResponseItemTypeConfigurationUpdate {
+			continue
+		}
 		walker.Apply(item)
 	}
 	walker.Flush()
@@ -340,8 +316,12 @@ func reviewerToolPresentationText(meta *transcript.ToolCallMeta) string {
 	if inlineMeta := strings.TrimSpace(meta.InlineMeta); inlineMeta != "" {
 		lines = append(lines, "meta: "+inlineMeta)
 	}
-	if detail := strings.TrimSpace(meta.PatchDetail); detail != "" {
-		lines = append(lines, detail)
+	if meta.PatchPresentation != nil {
+		encoded, err := json.Marshal(meta.PatchPresentation)
+		if err != nil {
+			panic(fmt.Sprintf("encode reviewer Patch/Edit presentation: %v", err))
+		}
+		lines = append(lines, string(encoded))
 	}
 	if meta.RenderHint != nil {
 		if path := strings.TrimSpace(meta.RenderHint.Path); path != "" {
@@ -379,57 +359,10 @@ func formatReviewerDeveloperInstruction(suggestions []string) string {
 	return b.String()
 }
 
-func reviewerStatusText(status ReviewerStatus, _ []string) string {
-	statusText := ""
-	suggestionCountLabel := pluralizeEnglish(status.SuggestionsCount, "suggestion", "suggestions")
-	switch strings.TrimSpace(status.Outcome) {
-	case "failed":
-		if strings.TrimSpace(status.Error) == "" {
-			statusText = "Supervisor ran: failed to generate suggestions."
-			break
-		}
-		statusText = fmt.Sprintf("Supervisor ran: failed to generate suggestions: %s", status.Error)
-	case "no_suggestions":
-		statusText = "Supervisor ran: no suggestions."
-	case "followup_failed":
-		if strings.TrimSpace(status.Error) == "" {
-			statusText = fmt.Sprintf("Supervisor ran: %s, but follow-up failed.", suggestionCountLabel)
-			break
-		}
-		statusText = fmt.Sprintf("Supervisor ran: %s, but follow-up failed: %s", suggestionCountLabel, status.Error)
-	case "noop":
-		statusText = fmt.Sprintf("Supervisor ran: %s, no changes applied.", suggestionCountLabel)
-	case "applied":
-		statusText = fmt.Sprintf("Supervisor ran: %s, applied.", suggestionCountLabel)
-	default:
-		statusText = "Supervisor ran."
-	}
-	if status.HasCacheHitPercentage {
-		return statusText + "\n\n" + fmt.Sprintf("%d%% cache hit", status.CacheHitPercent)
-	}
-	return statusText
-}
-
-func reviewerStatusEntryRole(status ReviewerStatus) string {
-	switch strings.TrimSpace(status.Outcome) {
-	case "failed", "followup_failed":
-		return string(transcript.EntryRoleReviewerError)
-	default:
-		return string(transcript.EntryRoleReviewerStatus)
-	}
-}
-
 func reviewerSessionID(sessionID string) string {
 	trimmed := strings.TrimSpace(sessionID)
 	if trimmed == "" {
 		return ""
 	}
 	return trimmed + "/supervisor"
-}
-
-func pluralizeEnglish(count int, singular, plural string) string {
-	if count == 1 {
-		return fmt.Sprintf("%d %s", count, singular)
-	}
-	return fmt.Sprintf("%d %s", count, plural)
 }

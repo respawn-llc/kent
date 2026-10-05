@@ -1,18 +1,55 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
+import { copyFileSync, mkdtempSync, rmdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { createArchitecturePolicy } from "../desktop/eslint-architecture.config.js";
+import {
+  checkEffectPolicy,
+  effectPolicyConfig,
+} from "./check-effect-policy.mjs";
+import { appArchitecture } from "../desktop/eslint-app-plugin.js";
 
 const desktopRequire = createRequire(
   new URL("../desktop/package.json", import.meta.url),
 );
 const { ESLint } = desktopRequire("eslint");
+const { Linter } = desktopRequire("eslint");
 const fixtureRoot = fileURLToPath(
   new URL("../desktop/eslint-fixtures/architecture", import.meta.url),
 );
+
+test("position keys are allowed only in the immutable Web Search detail renderer", () => {
+  const linter = new Linter();
+  const config = [
+    {
+      files: ["**/*.tsx"],
+      languageOptions: { parserOptions: { ecmaFeatures: { jsx: true } } },
+      plugins: { app: appArchitecture },
+      rules: { "app/no-array-index-key": "error" },
+    },
+  ];
+  const filename = "src/features/chat/toolRows/TranscriptToolSlot.tsx";
+  const fixture = (name) =>
+    `function ${name}() { return items.map((item, index) => <li key={index}>{item}</li>); }`;
+  assert.equal(
+    linter.verify(fixture("WebSearchDetails"), config, { filename }).length,
+    0,
+  );
+  assert.equal(
+    linter.verify(fixture("MutableRows"), config, { filename })[0].ruleId,
+    "app/no-array-index-key",
+  );
+  assert.equal(
+    linter.verify(fixture("WebSearchDetails"), config, {
+      filename: "src/ui/Other.tsx",
+    })[0].ruleId,
+    "app/no-array-index-key",
+  );
+});
 
 const allowedPaths = Object.freeze([
   "packages/native-bridge/src/allowed-owner-local.ts",
@@ -162,3 +199,186 @@ function assertRule(messagesByPath, path, ruleId) {
     `expected ${path} to violate ${ruleId}`,
   );
 }
+
+test("Effect policy accepts standard action bindings and rejects root, aliased, detached and global execution", async () => {
+  const eslint = new ESLint({
+    cwd: fixtureRoot,
+    overrideConfigFile: true,
+    overrideConfig: effectPolicyConfig(),
+  });
+  const [allowed, forbidden, standardTest] = await eslint.lintFiles([
+    "src/features/alpha/allowed-effect.tsx",
+    "src/features/alpha/forbidden-effect.ts",
+    "src/features/alpha/allowed-effect.test.ts",
+  ]);
+  assert.deepEqual(allowed.messages, []);
+  assert.deepEqual(standardTest.messages, []);
+  assert.ok(forbidden.errorCount >= 9);
+  assert.ok(
+    forbidden.messages.every(
+      (message) => message.ruleId === "app/no-unowned-effect",
+    ),
+  );
+});
+
+test("Effect policy fails closed for exported namespaces and dynamic loading", async () => {
+  const eslint = new ESLint({
+    overrideConfigFile: true,
+    overrideConfig: effectPolicyConfig(),
+  });
+  for (const code of [
+    'import * as E from "effect/Effect"; export const runtime = E;',
+    'import("effect/Effect").then((E) => E.runPromise(E.void));',
+    'import { createRequire as factory } from "node:module"; const load = factory(import.meta.url); const E = load("effect/Effect"); E.runPromise(E.void);',
+  ]) {
+    const [result] = await eslint.lintText(code);
+    assert.ok(result.errorCount > 0, code);
+  }
+});
+
+test("the repository policy checks HTML scripts and Astro frontmatter, scripts and expressions", async () => {
+  const results = await checkEffectPolicy([
+    join(fixtureRoot, "tooling/forbidden-effect.html"),
+    join(fixtureRoot, "tooling/forbidden-effect.astro"),
+  ]);
+  assert.equal(results.length, 2);
+  for (const result of results) {
+    assert.ok(result.errorCount > 0, result.filePath);
+    assert.ok(
+      result.messages.every(
+        (message) => message.ruleId === "app/no-unowned-effect",
+      ),
+    );
+  }
+});
+
+test("Astro policy checks escape filenames in compiler metadata", async () => {
+  // Both Windows separators and Unix quotes require JSON escaping by the compiler.
+  const directory = mkdtempSync(
+    join(fixtureRoot, process.platform === "win32" ? "path-" : 'quoted"path-'),
+  );
+  const path = join(directory, "component.astro");
+  try {
+    copyFileSync(join(fixtureRoot, "tooling/forbidden-effect.astro"), path);
+    const results = await checkEffectPolicy([path]);
+    assert.ok(results.some((result) => result.errorCount > 0));
+    assert.ok(
+      results.some((result) =>
+        result.messages.some(
+          (message) => message.ruleId === "app/no-unowned-effect",
+        ),
+      ),
+    );
+  } finally {
+    unlinkSync(path);
+    rmdirSync(directory);
+  }
+});
+
+test("HTML script data remains data while JavaScript scripts are checked", async () => {
+  const results = await checkEffectPolicy([
+    join(fixtureRoot, "tooling/allowed-effect-script-data.html"),
+  ]);
+  assert.equal(results.length, 1);
+  assert.deepEqual(results[0].messages, []);
+});
+
+test("embedded policy sources use the same normalized paths as the compiler", async () => {
+  const results = await checkEffectPolicy([
+    `${fixtureRoot}/tooling/../tooling/forbidden-effect.astro`,
+    `${fixtureRoot}/tooling/../tooling/forbidden-effect.html`,
+  ]);
+  assert.equal(results.length, 2);
+  for (const result of results) {
+    assert.equal(result.fatalErrorCount, 0);
+    assert.ok(
+      result.messages.some(
+        (message) => message.ruleId === "app/no-unowned-effect",
+      ),
+    );
+  }
+});
+
+test("staged Effect contracts reject custom subscriptions but retain native/Query inputs and pre-Effect exports", async () => {
+  const results = await checkEffectPolicy([
+    join(fixtureRoot, "src/app-facade/allowed-effect-integration.ts"),
+    join(fixtureRoot, "src/app-facade/allowed-pre-effect-subscription.ts"),
+    join(fixtureRoot, "src/app-facade/effect-barrel.ts"),
+    join(fixtureRoot, "src/app-facade/forbidden-effect-subscription.ts"),
+  ]);
+  for (const result of results.slice(0, 3))
+    assert.deepEqual(result.messages, [], result.filePath);
+  assert.ok(
+    results[3].messages.some(
+      (message) => message.ruleId === "app/no-effect-subscriptions",
+    ),
+  );
+});
+
+test("Effect policy rejects union subscription signatures without a checker failure", async () => {
+  const [result] = await checkEffectPolicy([
+    join(fixtureRoot, "src/app-facade/forbidden-effect-union-subscription.ts"),
+  ]);
+  assert.ok(
+    result.messages.some(
+      (message) => message.ruleId === "app/no-effect-subscriptions",
+    ),
+  );
+  assert.equal(result.fatalErrorCount, 0);
+});
+
+test("native conversion permits private callback storage but not public callback observations", async () => {
+  const [allowed, forbidden] = await checkEffectPolicy([
+    join(
+      fixtureRoot,
+      "packages/native-bridge/src/allowed-effect-native-storage.ts",
+    ),
+    join(
+      fixtureRoot,
+      "packages/native-bridge/src/forbidden-effect-native-subscription.ts",
+    ),
+  ]);
+  assert.deepEqual(allowed.messages, []);
+  assert.equal(
+    forbidden.messages.filter(
+      (message) => message.ruleId === "app/no-effect-subscriptions",
+    ).length,
+    2,
+  );
+});
+
+test("staged contracts follow Effect values across application imports", async () => {
+  const [result] = await checkEffectPolicy([
+    join(
+      fixtureRoot,
+      "src/app-facade/forbidden-indirect-effect-subscription.ts",
+    ),
+  ]);
+  assert.ok(
+    result.messages.some(
+      (message) => message.ruleId === "app/no-effect-subscriptions",
+    ),
+  );
+});
+
+for (const fixture of [
+  "forbidden-effect.ts",
+  "forbidden-effect-registry-barrel.ts",
+  "forbidden-effect-registry-namespace.ts",
+])
+  test(`the required Just policy command rejects ${fixture}`, () => {
+    const result = spawnSync(
+      "just",
+      [
+        "_lint",
+        "_effect-policy",
+        `apps/desktop/eslint-fixtures/architecture/src/features/alpha/${fixture}`,
+      ],
+      {
+        cwd: fileURLToPath(new URL("../..", import.meta.url)),
+        encoding: "utf8",
+      },
+    );
+    assert.ifError(result.error);
+    assert.equal(result.status, 1, result.stderr);
+  });

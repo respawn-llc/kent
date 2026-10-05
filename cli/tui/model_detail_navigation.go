@@ -216,7 +216,7 @@ func (m *Model) selectDetailRollbackTarget(rollbackTargetID string, center bool)
 	found := false
 	for index, entry := range m.detailProjection.entries {
 		row := entry.row()
-		if row.User == nil || row.User.RollbackTargetID == nil || *row.User.RollbackTargetID != rollbackTargetID {
+		if row.GetUser() == nil || row.GetUser().RollbackTargetId == nil || *row.GetUser().RollbackTargetId != rollbackTargetID {
 			continue
 		}
 		if found {

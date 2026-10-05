@@ -8,8 +8,8 @@ import {
   type WorkflowDefinition,
 } from "@/api";
 import { appI18n, initializeI18n } from "@/i18n";
-import { EditableEdgeParameters } from "./WorkflowDraftEditableSections";
-import type { WorkflowEditorDraftController } from "./workflowEditorDraftBridgeCore";
+import { EditableEdgeParameters, PromptTemplateEditor } from "./WorkflowDraftEditableSections";
+import type { WorkflowEditorView } from "./useWorkflowEditorView";
 import { initializeWorkflowEditorDraft } from "./workflowEditorDraft";
 import type { DraftWorkflowEdge } from "./workflowEditorDraftTypes";
 
@@ -74,7 +74,7 @@ describe("EditableEdgeParameters", () => {
       },
     };
     const state = initializeWorkflowEditorDraft(source);
-    const controller: WorkflowEditorDraftController = {
+    const controller: WorkflowEditorView = {
       dispatch(action) {
         dispatchMock(action);
       },
@@ -87,7 +87,7 @@ describe("EditableEdgeParameters", () => {
         return;
       },
       saveBlockers: [],
-      saveError: "",
+      saveError: null,
       saveValidation: null,
       saving: false,
       state,
@@ -177,7 +177,7 @@ describe("EditableEdgeParameters", () => {
       },
     };
     const state = initializeWorkflowEditorDraft(source);
-    const controller: WorkflowEditorDraftController = {
+    const controller: WorkflowEditorView = {
       dispatch(action) {
         dispatchMock(action);
       },
@@ -190,7 +190,7 @@ describe("EditableEdgeParameters", () => {
         return;
       },
       saveBlockers: [],
-      saveError: "",
+      saveError: null,
       saveValidation: null,
       saving: false,
       state,
@@ -237,7 +237,7 @@ describe("EditableEdgeParameters", () => {
         version: 1,
       },
     });
-    const controller: WorkflowEditorDraftController = {
+    const controller: WorkflowEditorView = {
       dispatch: vi.fn(),
       dirty: { dirty: false, graphDirty: false, metadataDirty: false },
       draft: state.draft,
@@ -248,7 +248,7 @@ describe("EditableEdgeParameters", () => {
         return;
       },
       saveBlockers: [],
-      saveError: "",
+      saveError: null,
       saveValidation: null,
       saving: false,
       state,
@@ -273,5 +273,52 @@ describe("EditableEdgeParameters", () => {
     expect(screen.getAllByTestId("workflow-parameter")).toHaveLength(1);
     expect(screen.getAllByDisplayValue("ordinary")).toHaveLength(2);
     expect(screen.queryByDisplayValue("agent_role")).toBeNull();
+  });
+});
+
+describe("PromptTemplateEditor", () => {
+  it("inserts the Session ID placeholder at the cursor and at the end when unfocused", () => {
+    const onPromptChange = vi.fn();
+    render(
+      <I18nextProvider i18n={appI18n}>
+        <PromptTemplateEditor
+          onPromptChange={onPromptChange}
+          parameters={[]}
+          promptTemplate="prefixsuffix"
+          sourceKind="agent"
+        />
+      </I18nextProvider>,
+    );
+
+    const textarea = screen.getByRole<HTMLTextAreaElement>("textbox");
+    textarea.focus();
+    textarea.setSelectionRange(6, 6);
+    fireEvent.click(screen.getByRole("button", { name: ".SessionId" }));
+    expect(onPromptChange).toHaveBeenLastCalledWith("prefix{{.SessionId}}suffix");
+
+    textarea.blur();
+    fireEvent.click(screen.getByRole("button", { name: ".SessionId" }));
+    expect(onPromptChange).toHaveBeenLastCalledWith("prefixsuffix{{.SessionId}}");
+  });
+
+  it("disables the Session ID placeholder for a known non-agent source and explains why", async () => {
+    const onPromptChange = vi.fn();
+    render(
+      <I18nextProvider i18n={appI18n}>
+        <PromptTemplateEditor
+          onPromptChange={onPromptChange}
+          parameters={[]}
+          promptTemplate="prompt"
+          sourceKind="start"
+        />
+      </I18nextProvider>,
+    );
+
+    const sessionChip = screen.getByRole("button", { name: ".SessionId" });
+    expect(sessionChip).toBeDisabled();
+    fireEvent.click(sessionChip);
+    fireEvent.pointerMove(sessionChip);
+    expect(await screen.findByRole("tooltip")).toBeVisible();
+    expect(onPromptChange).not.toHaveBeenCalled();
   });
 });

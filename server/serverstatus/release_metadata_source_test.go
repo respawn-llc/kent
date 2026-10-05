@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGitHubReleaseMetadataSourceReturnsValidatedRelease(t *testing.T) {
@@ -22,7 +23,7 @@ func TestGitHubReleaseMetadataSourceReturnsValidatedRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LatestRelease: %v", err)
 	}
-	if metadata.Version != "1.2.3" {
+	if metadata.Version.String() != "1.2.3" {
 		t.Fatalf("version = %q, want 1.2.3", metadata.Version)
 	}
 }
@@ -44,7 +45,7 @@ func TestDefaultGitHubReleaseMetadataSourceNegotiatesAndDecodesCompressedRespons
 	if err != nil {
 		t.Fatalf("LatestRelease: %v", err)
 	}
-	if metadata.Version != "1.2.3" {
+	if metadata.Version.String() != "1.2.3" {
 		t.Fatalf("version = %q, want 1.2.3", metadata.Version)
 	}
 	if acceptEncoding != "zstd,gzip" {
@@ -88,5 +89,71 @@ func TestGitHubReleaseMetadataSourceBoundsInvalidMetadata(t *testing.T) {
 	var metadataError *releaseMetadataError
 	if !errors.As(err, &metadataError) {
 		t.Fatalf("error = %v, want metadata error", err)
+	}
+}
+
+func TestGitHubReleaseMetadataSourceRejectsInvalidTags(t *testing.T) {
+	for _, body := range []string{
+		`{`,
+		`{}`,
+		`{"tag_name":null}`,
+		`{"tag_name":12}`,
+		`{"tag_name":""}`,
+		`{"tag_name":" "}`,
+		`{"tag_name":"dev"}`,
+		`{"tag_name":"1.2"}`,
+		`{"tag_name":"1.2.3-preview"}`,
+		`{"tag_name":"1.18446744073709551616.0"}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+			source := newGitHubReleaseMetadataSource(server.Client(), server.URL)
+			_, sourceErr := source.LatestRelease(context.Background())
+			var metadataError *releaseMetadataError
+			if !errors.As(sourceErr, &metadataError) || errors.Unwrap(metadataError) == nil {
+				t.Fatalf("error = %v, want metadata error with cause", sourceErr)
+			}
+
+			service := newUpdateStatusService("1.1.0", false, source, time.Now)
+			t.Cleanup(func() { requireUpdateStatusServiceClosed(t, service) })
+			result, err := service.status(context.Background())
+			if err != nil {
+				t.Fatalf("Status: %v", err)
+			}
+			if result.kind != updateStatusCheckFailed || result.cause != sourceErr.Error() {
+				t.Fatalf("result = %#v, want check failure preserving source cause %v", result, sourceErr)
+			}
+		})
+	}
+}
+
+func TestUpdateStatusServiceComparesGitHubReleaseVersions(t *testing.T) {
+	for _, test := range []struct {
+		tag  string
+		want updateStatusKind
+	}{
+		{tag: "v1.10.0", want: updateStatusAvailable},
+		{tag: "v1.9.0", want: updateStatusCurrent},
+		{tag: "v1.8.0", want: updateStatusCurrent},
+		{tag: "v18446744073709551615.0.0", want: updateStatusAvailable},
+	} {
+		t.Run(test.tag, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(`{"tag_name":"` + test.tag + `"}`))
+			}))
+			defer server.Close()
+			service := newUpdateStatusService("1.9.0", false, newGitHubReleaseMetadataSource(server.Client(), server.URL), time.Now)
+			t.Cleanup(func() { requireUpdateStatusServiceClosed(t, service) })
+			result, err := service.status(context.Background())
+			if err != nil {
+				t.Fatalf("Status: %v", err)
+			}
+			if result.kind != test.want || result.current != "1.9.0" || result.latest != strings.TrimPrefix(test.tag, "v") {
+				t.Fatalf("result = %#v, want kind %d with release %s", result, test.want, test.tag)
+			}
+		})
 	}
 }

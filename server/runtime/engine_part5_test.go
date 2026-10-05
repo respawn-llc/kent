@@ -6,6 +6,7 @@ import (
 
 	"core/server/llm"
 	"core/server/tools"
+	"core/shared/config"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -18,8 +19,8 @@ import (
 
 func reviewerPromptConfig(path string) Config {
 	return Config{Reviewer: ReviewerConfig{
-		Model:            "gpt-5",
-		SystemPromptFile: path,
+		Model:            "gpt-6-sol",
+		SystemPromptFile: textutil.Value(path),
 	}}
 }
 
@@ -96,8 +97,8 @@ func TestReviewerSystemPromptRefreshesIndependentlyAfterCompaction(t *testing.T)
 	writeTestFile(t, reviewerPromptPath, "reviewer B")
 	scheduleManualCompactionAndWait(t, eng)
 	mainLocked := store.Meta().Locked
-	if mainLocked == nil || mainLocked.HasSystemPrompt || mainLocked.HasReviewerPrompt {
-		t.Fatalf("locked prompts after compaction = %+v, want both stale", mainLocked)
+	if mainLocked != nil {
+		t.Fatalf("contract after compaction = %+v, want absent", mainLocked)
 	}
 	reviewerReq, err = eng.buildReviewerRequest(context.Background(), newObservedModelClient(reviewerClient))
 	if err != nil {
@@ -106,7 +107,7 @@ func TestReviewerSystemPromptRefreshesIndependentlyAfterCompaction(t *testing.T)
 	if reviewerReq.SystemPrompt != "reviewer B" {
 		t.Fatalf("reviewer after compaction = %q, want reviewer B", reviewerReq.SystemPrompt)
 	}
-	if locked := store.Meta().Locked; locked == nil || locked.SystemPrompt != "" || !locked.HasReviewerPrompt || locked.ReviewerPrompt != "reviewer B" {
+	if locked := store.Meta().Locked; locked == nil || !locked.HasSystemPrompt || !locked.HasReviewerPrompt || locked.ReviewerPrompt != "reviewer B" {
 		t.Fatalf("locked prompts after reviewer refresh = %+v", locked)
 	}
 }
@@ -117,9 +118,15 @@ func TestReviewerSystemPromptFileResolvesTilde(t *testing.T) {
 	t.Setenv("HOME", home)
 	reviewerPromptPath := filepath.Join(home, "reviewer-prompt.md")
 	writeTestFile(t, reviewerPromptPath, "tilde reviewer prompt")
+	configRoot := t.TempDir()
+	writeTestFile(t, filepath.Join(configRoot, "config.toml"), "[reviewer]\nsystem_prompt_file = \"~/reviewer-prompt.md\"\n")
+	app, err := config.Load(dir, dir, config.LoadOptions{ConfigRoot: configRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	store := mustCreateTestSessionAt(t, dir)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), reviewerPromptConfig("~/reviewer-prompt.md"))
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Reviewer: ReviewerConfig{Model: "gpt-6-sol", SystemPromptFile: app.Settings.Reviewer.SystemPromptFile}})
 	if got := runReviewerPrompt(t, eng).SystemPrompt; got != "tilde reviewer prompt" {
 		t.Fatalf("reviewer system prompt = %q, want tilde reviewer prompt", got)
 	}
@@ -173,11 +180,14 @@ func TestReviewerSuggestionsRequestInheritsFastMode(t *testing.T) {
 	}}}
 
 	eng := mustNewTestEngine(t, store, mainClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:           "gpt-5",
+		Model:           "gpt-6-sol",
 		FastModeEnabled: true,
+		ProviderCapabilitiesOverride: &llm.ProviderCapabilities{
+			ProviderID: "openai", SupportsResponsesAPI: true, SupportsFastMode: true, IsOpenAIFirstParty: true,
+		},
 		Reviewer: ReviewerConfig{
 			Frequency:     "all",
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "low",
 			Client:        reviewerClient,
 		},
@@ -217,10 +227,10 @@ func TestBlankFinalProjectionIsInvisibleAndSkipsReviewer(t *testing.T) {
 		events []Event
 	)
 	eng := mustNewTestEngine(t, store, mainClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Reviewer: ReviewerConfig{
 			Frequency:     "all",
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "low",
 			Client:        reviewerClient,
 		},
@@ -315,10 +325,10 @@ func TestReviewerRunsOnEditsFrequencyOnlyWhenPatchApplied(t *testing.T) {
 	}}}
 
 	eng := mustNewTestEngine(t, store, mainClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: fakeTool{name: toolspec.ToolPatch}}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Reviewer: ReviewerConfig{
 			Frequency:     "edits",
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "low",
 			Client:        reviewerClient,
 		},
@@ -337,7 +347,7 @@ func TestReviewerRunsOnEditsFrequencyOnlyWhenPatchApplied(t *testing.T) {
 	}
 }
 
-func TestReviewerBlankFinalKeepsOriginalAnswerAndReportsNoChanges(t *testing.T) {
+func TestReviewerBlankFinalKeepsOriginalAnswer(t *testing.T) {
 	store := mustCreateTestSession(t)
 	mainClient := &fakeClient{responses: []llm.Response{
 		{
@@ -355,10 +365,10 @@ func TestReviewerBlankFinalKeepsOriginalAnswerAndReportsNoChanges(t *testing.T) 
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}
 	eng := mustNewExecTestEngine(t, store, mainClient, Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Reviewer: ReviewerConfig{
 			Frequency:     "all",
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "low",
 			Client:        reviewerClient,
 		},
@@ -391,26 +401,16 @@ func TestReviewerBlankFinalKeepsOriginalAnswerAndReportsNoChanges(t *testing.T) 
 	}
 
 	feedbackRows := 0
-	statusRows := 0
 	snapshot := eng.ChatSnapshot()
 	for _, entry := range snapshot.Entries {
 		if entry.ReviewerFeedback != nil {
 			feedbackRows++
 		}
-		if entry.Role == string(transcript.EntryRoleReviewerStatus) {
-			statusRows++
-			if entry.Text != reviewerStatusText(ReviewerStatus{Outcome: "noop", SuggestionsCount: 1}, nil) {
-				t.Fatalf("reviewer no-change status = %+v", entry)
-			}
-		}
 	}
 	if feedbackRows != 1 {
 		t.Fatalf("reviewer feedback rows = %d, want one; entries=%+v", feedbackRows, snapshot.Entries)
 	}
-	if statusRows != 1 {
-		t.Fatalf("reviewer status rows = %d, want one; entries=%+v", statusRows, snapshot.Entries)
-	}
-	restored := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-5"})
+	restored := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-6-sol"})
 	if len(restored.ChatSnapshot().Entries) == 0 {
 		t.Fatal("restored chat snapshot is empty")
 	}

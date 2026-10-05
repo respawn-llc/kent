@@ -1,7 +1,7 @@
 # Product Specs
 
 These docs are the authoritative, searchable product-decision source for Kent agents.
-Implementation can drift from them.
+When product behavior and a specification disagree, the specification governs.
 
 Before writing, rewriting, reviewing, or validating a spec, follow the
 [spec-writing skill](../../../.kent/skills/spec-writing/SKILL.md).
@@ -9,6 +9,7 @@ Before writing, rewriting, reviewing, or validating a spec, follow the
 Area specs:
 
 - `core-runtime-tools.md`: product scope, sessions, authentication, configuration, tools, runtime control, and compaction.
+- `provider-connections.md`: named provider access, connection selection, credentials, Session binding, terminal login, and configuration cutover.
 - `runtime-steering-loop.md`: Active Session Runtime mutation ownership, accepted mutation order, protected Agent Steps, Step Boundaries, and next-Step selection.
 - `cli-commands.md`: CLI command behavior, accepted inputs, human output, machine-readable output, and exit codes.
 - `project-workspaces.md`: Project-workspace relationships, detach safety, and API selection.
@@ -24,4 +25,5 @@ Area specs:
 - `desktop-gui.md`: desktop navigation, projects, workflow boards, task detail, connection loss, and native capabilities.
 - `workflow-editor.md`: workflow editor, draft editing, library/linking, sidebar, and save/conflict decisions.
 - `release-distribution.md`: supported releases, installers, update channels, and compatibility behavior.
+- `server-api-contract.md`: Protobuf API authority, transport framing, operation identity, validation, errors, and protocol compatibility.
 - `terminology.md`: domain terms used consistently across specs, product surfaces, and public contracts.

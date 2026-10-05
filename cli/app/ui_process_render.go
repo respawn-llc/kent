@@ -1,5 +1,7 @@
 package app
 
+import processpb "core/shared/protoapi/gen/kent/api/process"
+
 import (
 	"fmt"
 	"path/filepath"
@@ -7,7 +9,6 @@ import (
 	"time"
 
 	appprocessview "core/cli/app/internal/status"
-	"core/shared/clientui"
 	sharedtheme "core/shared/theme"
 
 	"github.com/charmbracelet/lipgloss"
@@ -84,7 +85,7 @@ func renderEmptyProcessListMessage(state uiProcessListState, style uiStyles) str
 	return style.meta.Render("○ No background processes.")
 }
 
-func renderProcessListHeader(entries []clientui.BackgroundProcess, width int, style uiStyles) string {
+func renderProcessListHeader(entries []*processpb.BackgroundProcess, width int, style uiStyles) string {
 	running := 0
 	for _, entry := range entries {
 		state := strings.TrimSpace(entry.State)
@@ -104,7 +105,7 @@ func renderProcessListFooter(width int, style uiStyles) string {
 	return style.meta.Render(truncateQueuedMessageLine(controls, width))
 }
 
-func renderProcessListEntry(entry clientui.BackgroundProcess, selected bool, width int, theme string, spinnerFrame int, style uiStyles) []string {
+func renderProcessListEntry(entry *processpb.BackgroundProcess, selected bool, width int, theme string, spinnerFrame int, style uiStyles) []string {
 	palette := uiPalette(theme)
 	entryStyles := newProcessListEntryStyles(theme, selected, processStateColor(entry, palette))
 	railGlyph := processListRailBlank
@@ -115,13 +116,13 @@ func renderProcessListEntry(entry clientui.BackgroundProcess, selected bool, wid
 	}
 	indicator := renderProcessStateIndicator(entry, spinnerFrame)
 	stateMeta := []string{processStateLabel(entry)}
-	if age := humanAge(entry.StartedAt); age != "--" {
+	if age := humanAge(entry.StartedAt.AsTime()); age != "--" {
 		stateMeta = append(stateMeta, age)
 	}
 	if workdir := processListWorkdirLabel(entry.Workdir); workdir != "" {
 		stateMeta = append(stateMeta, workdir)
 	}
-	line1Parts := []string{entryStyles.rail.Render(railGlyph), entryStyles.line.Render(" "), entryStyles.indicator.Render(indicator), entryStyles.line.Render(" "), entryStyles.id.Render(entry.ID)}
+	line1Parts := []string{entryStyles.rail.Render(railGlyph), entryStyles.line.Render(" "), entryStyles.indicator.Render(indicator), entryStyles.line.Render(" "), entryStyles.id.Render(entry.Id)}
 	if meta := strings.Join(stateMeta, "  "); meta != "" {
 		prefixWidth := processListVisibleWidth(line1Parts)
 		line1Parts = append(line1Parts, entryStyles.line.Render(" "), entryStyles.meta.Render(truncateQueuedMessageLine(meta, max(1, width-prefixWidth-1))))
@@ -203,7 +204,7 @@ func processListPadLine(parts []string, width int, fill lipgloss.Style) string {
 	return line + fill.Render(strings.Repeat(" ", remaining))
 }
 
-func processStateColor(entry clientui.BackgroundProcess, palette uiColors) lipgloss.TerminalColor {
+func processStateColor(entry *processpb.BackgroundProcess, palette uiColors) lipgloss.TerminalColor {
 	state := strings.TrimSpace(entry.State)
 	switch state {
 	case "completed":
@@ -226,7 +227,7 @@ func processStateColor(entry clientui.BackgroundProcess, palette uiColors) lipgl
 	}
 }
 
-func renderProcessStateIndicator(entry clientui.BackgroundProcess, spinnerFrame int) string {
+func renderProcessStateIndicator(entry *processpb.BackgroundProcess, spinnerFrame int) string {
 	state := strings.TrimSpace(entry.State)
 	if state == "starting" || state == "running" || (state == "" && entry.Running) {
 		return pendingToolSpinnerFrame(spinnerFrame)
@@ -234,7 +235,7 @@ func renderProcessStateIndicator(entry clientui.BackgroundProcess, spinnerFrame 
 	return padSpinnerIndicator(statusStateCircleGlyph)
 }
 
-func processStateLabel(entry clientui.BackgroundProcess) string {
+func processStateLabel(entry *processpb.BackgroundProcess) string {
 	state := strings.TrimSpace(entry.State)
 	if state != "" {
 		return state
@@ -327,7 +328,7 @@ func humanAge(t time.Time) string {
 	return fmt.Sprintf("%dh", int(d.Hours()))
 }
 
-func processCountLabel(entries []clientui.BackgroundProcess) string {
+func processCountLabel(entries []*processpb.BackgroundProcess) string {
 	if len(entries) == 0 {
 		return ""
 	}

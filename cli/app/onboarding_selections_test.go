@@ -14,11 +14,9 @@ import (
 func TestNewOnboardingFlowStatePreservesTypedSeedIntent(t *testing.T) {
 	cfg := onboardingSeedConfig()
 	cfg.Settings.Theme = theme.Auto
-	cfg.Settings.Model = "gpt-5.6-sol"
+	cfg.Settings.Model = "gpt-6-sol"
 	cfg.Settings.ThinkingLevel = config.DefaultOnboardingSettings().ThinkingLevel
 	cfg.Settings.ModelVerbosity = config.ModelVerbosityHigh
-	cfg.Settings.ProviderOverride = "openai"
-	cfg.Settings.OpenAIBaseURL = "http://127.0.0.1:8080/v1"
 	cfg.Settings.Timeouts.ModelRequestSeconds = 123
 	cfg.Settings.EnabledTools[toolspec.ToolAskQuestion] = true
 	cfg.Settings.EnabledTools[toolspec.ToolEdit] = true
@@ -28,11 +26,13 @@ func TestNewOnboardingFlowStatePreservesTypedSeedIntent(t *testing.T) {
 		Model:         cfg.Settings.Model,
 		ThinkingLevel: cfg.Settings.ThinkingLevel,
 	}
-	cfg.Source.Sources["thinking_level"] = "file"
-	cfg.Source.Sources["reviewer.model"] = "file"
-	cfg.Source.Sources["reviewer.thinking_level"] = "file"
+	cfg.Source.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
 
-	state, err := newOnboardingFlowState(cfg, testOnboardingCapabilityFacts())
+	cfg.Source.Sources["reviewer.model"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model"}}
+
+	cfg.Source.Sources["reviewer.thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}}
+
+	state, err := testOnboardingStateFromServerConfig(t, cfg, testOnboardingCapabilityFacts())
 	if err != nil {
 		t.Fatalf("construct onboarding state: %v", err)
 	}
@@ -68,15 +68,6 @@ func TestNewOnboardingFlowStatePreservesTypedSeedIntent(t *testing.T) {
 		state.selections.pendingReviewerThinking.kind != onboardingThinkingEditNone {
 		t.Fatalf("pending thinking edits must start explicit none: %+v", state.selections)
 	}
-	if state.selections.preserved.providerOverride == nil || *state.selections.preserved.providerOverride != "openai" ||
-		state.selections.preserved.openAIBaseURL == nil || *state.selections.preserved.openAIBaseURL != "http://127.0.0.1:8080/v1" ||
-		state.selections.preserved.modelTimeoutSeconds == nil || *state.selections.preserved.modelTimeoutSeconds != 123 {
-		t.Fatalf("preserved inputs = %+v", state.selections.preserved)
-	}
-	overrides := onboardingToolOverrides(state.selections.preserved.enabledTools)
-	if len(overrides) != 2 {
-		t.Fatalf("tool overrides = %+v, want edit/patch deviations", overrides)
-	}
 }
 
 func TestNewOnboardingFlowStateDistinguishesDefaultAndInheritedSeedIntent(t *testing.T) {
@@ -86,7 +77,7 @@ func TestNewOnboardingFlowStateDistinguishesDefaultAndInheritedSeedIntent(t *tes
 	cfg.Settings.Reviewer.Model = cfg.Settings.Model
 	cfg.Settings.Reviewer.ThinkingLevel = defaultThinking
 
-	state, err := newOnboardingFlowState(cfg, testOnboardingCapabilityFacts())
+	state, err := testOnboardingStateFromServerConfig(t, cfg, testOnboardingCapabilityFacts())
 	if err != nil {
 		t.Fatalf("construct onboarding state: %v", err)
 	}
@@ -104,9 +95,14 @@ func TestNewOnboardingFlowStateDistinguishesDefaultAndInheritedSeedIntent(t *tes
 func TestNewOnboardingFlowStatePreservesExplicitReviewerThinkingDisable(t *testing.T) {
 	cfg := onboardingSeedConfig()
 	cfg.Settings.Reviewer.ThinkingLevel = ""
-	cfg.Source.Sources["reviewer.thinking_level"] = "env"
+	cfg.Source.Sources["reviewer.thinking_level"] = config.Origin{Kind: config.SourceEnv,
+		Property: config.PropertyAddress{Key: "reviewer.thinking_level"}, Option: func() *string {
+			value :=
+				"KENT_REVIEWER_THINKING_LEVEL"
+			return &value
+		}()}
 
-	state, err := newOnboardingFlowState(cfg, testOnboardingCapabilityFacts())
+	state, err := testOnboardingStateFromServerConfig(t, cfg, testOnboardingCapabilityFacts())
 	if err != nil {
 		t.Fatalf("construct onboarding state: %v", err)
 	}
@@ -119,10 +115,9 @@ func TestNewOnboardingFlowStatePreservesExplicitReviewerThinkingDisable(t *testi
 func TestNewOnboardingFlowStateRejectsMalformedStructuralInputsInBothModes(t *testing.T) {
 	for _, debug := range []bool{false, true} {
 		t.Run(map[bool]string{false: "release", true: "debug"}[debug], func(t *testing.T) {
-			cfg := onboardingSeedConfig()
-			cfg.Settings.Debug = debug
-			cfg.Settings.Model = " "
-			_, err := newOnboardingFlowState(cfg, testOnboardingCapabilityFacts())
+			facts := testOnboardingCapabilityFacts()
+			facts.Defaults.PrimaryModelId = " "
+			_, err := newOnboardingFlowState(config.LocalPreferences{Theme: theme.Dark, Debug: debug}, facts)
 			var conversionErr *onboardingSelectionConversionError
 			if !errors.As(err, &conversionErr) {
 				t.Fatalf("error = %T %v, want typed conversion error", err, err)
@@ -131,17 +126,11 @@ func TestNewOnboardingFlowStateRejectsMalformedStructuralInputsInBothModes(t *te
 	}
 }
 
-func TestNewOnboardingFlowStateRejectsMalformedProvenanceAndCapabilityFacts(t *testing.T) {
+func TestNewOnboardingFlowStateRejectsMalformedCapabilityFacts(t *testing.T) {
 	tests := []struct {
 		name   string
 		mutate func(*config.App, *capabilitypb.Facts)
 	}{
-		{
-			name: "unknown provenance",
-			mutate: func(cfg *config.App, _ *capabilitypb.Facts) {
-				cfg.Source.Sources["thinking_level"] = "mystery"
-			},
-		},
 		{
 			name: "non-positive model fact",
 			mutate: func(_ *config.App, facts *capabilitypb.Facts) {
@@ -171,7 +160,7 @@ func TestNewOnboardingFlowStateRejectsMalformedProvenanceAndCapabilityFacts(t *t
 			cfg := onboardingSeedConfig()
 			facts := testOnboardingCapabilityFacts()
 			tt.mutate(&cfg, facts)
-			_, err := newOnboardingFlowState(cfg, facts)
+			_, err := testOnboardingStateFromServerConfig(t, cfg, facts)
 			var conversionErr *onboardingSelectionConversionError
 			if !errors.As(err, &conversionErr) {
 				t.Fatalf("error = %T %v, want typed conversion error", err, err)
@@ -181,7 +170,7 @@ func TestNewOnboardingFlowStateRejectsMalformedProvenanceAndCapabilityFacts(t *t
 }
 
 func TestOnboardingSelectionInvariantFailurePanicsWithTypedDiagnosticsInDebug(t *testing.T) {
-	state, err := newOnboardingFlowState(onboardingSeedConfig(), testOnboardingCapabilityFacts())
+	state, err := testOnboardingStateFromServerConfig(t, onboardingSeedConfig(), testOnboardingCapabilityFacts())
 	if err != nil {
 		t.Fatalf("construct onboarding state: %v", err)
 	}
@@ -204,7 +193,7 @@ func TestOnboardingSelectionInvariantFailurePanicsWithTypedDiagnosticsInDebug(t 
 }
 
 func TestOnboardingSelectionInvariantFailureReturnsTypedErrorInRelease(t *testing.T) {
-	state, err := newOnboardingFlowState(onboardingSeedConfig(), testOnboardingCapabilityFacts())
+	state, err := testOnboardingStateFromServerConfig(t, onboardingSeedConfig(), testOnboardingCapabilityFacts())
 	if err != nil {
 		t.Fatalf("construct onboarding state: %v", err)
 	}
@@ -235,7 +224,7 @@ func TestOnboardingSelectionInvariantDiagnosticReportsInvalidImportReferenceValu
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			state, err := newOnboardingFlowState(onboardingSeedConfig(), testOnboardingCapabilityFacts())
+			state, err := testOnboardingStateFromServerConfig(t, onboardingSeedConfig(), testOnboardingCapabilityFacts())
 			if err != nil {
 				t.Fatalf("construct onboarding state: %v", err)
 			}
@@ -257,7 +246,7 @@ func TestOnboardingSelectionInvariantDiagnosticReportsInvalidImportReferenceValu
 }
 
 func TestOnboardingSelectionInvariantFailureCannotSubmitFinalizationInRelease(t *testing.T) {
-	state, err := newOnboardingFlowState(onboardingSeedConfig(), testOnboardingCapabilityFacts())
+	state, err := testOnboardingStateFromServerConfig(t, onboardingSeedConfig(), testOnboardingCapabilityFacts())
 	if err != nil {
 		t.Fatalf("construct onboarding state: %v", err)
 	}
@@ -281,34 +270,39 @@ func TestOnboardingSelectionInvariantFailureCannotSubmitFinalizationInRelease(t 
 
 func onboardingSeedConfig() config.App {
 	settings := config.DefaultOnboardingSettings()
-	settings.Model = "gpt-5.6-sol"
 	settings.ModelContextWindow = 272_000
 	settings.ContextCompactionThresholdTokens = 272_000 * 95 / 100
 	settings.Reviewer.Model = settings.Model
 	settings.Reviewer.ThinkingLevel = settings.ThinkingLevel
 	return config.App{
 		Settings: settings,
-		Source: config.SourceReport{Sources: map[string]string{
-			"theme":                   "default",
-			"model":                   "default",
-			"thinking_level":          "default",
-			"model_verbosity":         "default",
-			"reviewer.frequency":      "default",
-			"reviewer.model":          "default",
-			"reviewer.thinking_level": "default",
-			"compaction_mode":         "default",
+		Source: config.SourceReport{Sources: map[string]config.Origin{
+			"theme": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "theme"}},
+
+			"model": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "model"}},
+
+			"thinking_level": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "thinking_level"}},
+
+			"model_verbosity": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "model_verbosity"}},
+
+			"reviewer.frequency": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.frequency"}},
+
+			"reviewer.model": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.model"}},
+
+			"reviewer.thinking_level": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}},
+
+			"compaction_mode": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "compaction_mode"}},
 		}},
 	}
 }
 
 func TestNewOnboardingFlowStateDoesNotApplyProviderCompatibilityPolicy(t *testing.T) {
 	cfg := onboardingSeedConfig()
-	cfg.Settings.ProviderOverride = "anthropic"
 	facts := testOnboardingCapabilityFacts()
 	facts.Providers = &capabilitypb.ProviderFacts{
 		CurrentEffective: &capabilitypb.ProviderFact{LlmProviderId: "openai"},
 	}
-	if _, err := newOnboardingFlowState(cfg, facts); err != nil {
+	if _, err := testOnboardingStateFromServerConfig(t, cfg, facts); err != nil {
 		t.Fatalf("constructor must not reject pre-existing provider/facts drift: %v", err)
 	}
 }

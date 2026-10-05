@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"core/internal/testharness/testsetup"
 	"core/server/metadata"
@@ -160,7 +161,7 @@ func newTestStoreWithConfig(t *testing.T) (*Store, metadata.Binding, config.App)
 	workspaceRoot := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv(config.PersistenceRootEnvName, filepath.Join(home, "kent-root"))
-	cfg, err := config.Load(workspaceRoot, config.LoadOptions{})
+	cfg, err := config.Load(workspaceRoot, workspaceRoot, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -172,7 +173,10 @@ func newTestStoreWithConfig(t *testing.T) (*Store, metadata.Binding, config.App)
 	if err := metadataStore.SetProjectKey(context.Background(), binding.ProjectID, "WOR"); err != nil {
 		t.Fatalf("SetProjectKey: %v", err)
 	}
-	store, err := New(metadataStore, WithRoleResolver(testsetup.QuestionsEnabled("coder", "reviewer")))
+	store, err := New(metadataStore,
+		WithRoleResolver(testsetup.QuestionsEnabled("coder", "reviewer")),
+		WithNow(func() time.Time { return time.UnixMilli(1_600_000_000_000).UTC() }),
+	)
 	if err != nil {
 		t.Fatalf("workflowstore.New: %v", err)
 	}
@@ -215,77 +219,15 @@ func applyManualMoveForStoreTestWithPreparation(
 	observe func([]CurrentNodeStartContext),
 ) (ManualMoveResult, error) {
 	t.Helper()
-	return store.ApplyManualMoveWithTargetAssignments(
-		ctx,
-		prepared,
-		executionTarget,
-		func(_ context.Context, inputs []CurrentNodeStartContext) (ManualMoveTargetAssignmentPreparation, error) {
-			if observe != nil {
-				observe(inputs)
-			}
-			return prepareManualMoveTargetAssignments(inputs, func(input CurrentNodeStartContext) (runtimeids.SessionID, error) {
-				sessionID := input.CurrentNode.SessionID
-				if sessionID != nil {
-					return *sessionID, nil
-				}
-				cfg := config.App{
-					PersistenceRoot: store.metadata.PersistenceRoot(),
-					WorkspaceRoot:   input.ExecutionRoot.SourceWorkspaceRoot,
-				}
-				freshSessionID, err := runtimeids.ParseSessionID(createTestSession(
-					t,
-					ctx,
-					store,
-					metadata.Binding{
-						ProjectID:     input.Task.ProjectID,
-						WorkspaceID:   input.ExecutionRoot.SourceWorkspaceID,
-						CanonicalRoot: input.ExecutionRoot.SourceWorkspaceRoot,
-					},
-					cfg,
-				))
-				if err != nil {
-					return runtimeids.SessionID{}, err
-				}
-				return freshSessionID, nil
-			})
-		},
-	)
-}
-
-func prepareManualMoveTargetAssignments(
-	inputs []CurrentNodeStartContext,
-	sessionFor func(CurrentNodeStartContext) (runtimeids.SessionID, error),
-) (ManualMoveTargetAssignmentPreparation, error) {
-	assignments := make([]ManualMoveTargetAssignment, 0, len(inputs))
-	for _, input := range inputs {
-		if input.CurrentNode.AgentExecutionSelection == nil {
-			if input.Node.Kind != workflow.NodeKindScript {
-				return ManualMoveTargetAssignmentPreparation{}, errors.New("test Manual Move target execution shape is inconsistent")
-			}
-			continue
-		}
-		if input.Node.Kind != workflow.NodeKindAgent {
-			return ManualMoveTargetAssignmentPreparation{}, errors.New("test Manual Move target execution shape is inconsistent")
-		}
-		sessionID, err := sessionFor(input)
-		if err != nil {
-			return ManualMoveTargetAssignmentPreparation{}, err
-		}
-		assignments = append(assignments, ManualMoveTargetAssignment{
-			CurrentNode: input.CurrentNode.Reference,
-			SessionID:   sessionID,
-		})
+	plan, err := store.PlanManualMove(ctx, prepared, executionTarget)
+	if err != nil {
+		return ManualMoveResult{}, err
 	}
-	return ManualMoveTargetAssignmentPreparation{Assignments: assignments}, nil
-}
-
-func manualMoveTargetAssignmentsForSession(
-	inputs []CurrentNodeStartContext,
-	sessionID runtimeids.SessionID,
-) (ManualMoveTargetAssignmentPreparation, error) {
-	return prepareManualMoveTargetAssignments(inputs, func(CurrentNodeStartContext) (runtimeids.SessionID, error) {
-		return sessionID, nil
-	})
+	inputs := plan.StartContexts()
+	if observe != nil {
+		observe(inputs)
+	}
+	return store.CommitManualMove(ctx, plan, plannedSessionsForStoreTest(t, ctx, store, inputs))
 }
 
 func linkWorkflow(t *testing.T, ctx context.Context, store *Store, projectID string, workflowID runtimeids.WorkflowID, isDefault bool) ProjectWorkflowLinkRecord {
@@ -320,11 +262,32 @@ func createDefaultTask(t *testing.T, ctx context.Context, store *Store, projectI
 
 func startTask(t *testing.T, ctx context.Context, store *Store, taskID workflow.TaskID) StartTaskResult {
 	t.Helper()
-	started, err := store.StartTask(ctx, taskID)
+	started, err := seedStartedTask(t, ctx, store, taskID)
 	if err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
 	return started
+}
+
+func seedStartedTask(t *testing.T, ctx context.Context, store *Store, taskID workflow.TaskID) (StartTaskResult, error) {
+	t.Helper()
+	target, err := store.GetTaskExecutionTargetContext(ctx, taskID)
+	if err != nil {
+		return StartTaskResult{}, err
+	}
+	plan, err := store.PlanTaskStart(ctx, taskID, &ExecutionTargetCandidate{
+		Snapshot: ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: ExecutionTargetProvenanceResolved},
+		Root:     ExecutionRoot{SourceWorkspaceID: target.SourceWorkspaceID, SourceWorkspaceRoot: target.SourceWorkspaceRoot},
+	})
+	if err != nil {
+		return StartTaskResult{}, err
+	}
+	sessions, creations := plannedSessionArtifactsForStoreTest(t, ctx, store, plan.StartContexts())
+	result, err := store.CommitTaskStart(ctx, plan, sessions)
+	if err == nil {
+		materializeSessionArtifactsForStoreTest(t, ctx, store, creations)
+	}
+	return result, err
 }
 
 func createValidWorkflow(t *testing.T, ctx context.Context, store *Store) runtimeids.WorkflowID {
@@ -429,6 +392,100 @@ func createFanoutJoinWorkflow(t *testing.T, ctx context.Context, store *Store) r
 			EdgeRecord{ID: testEdgeID("edge-join-synth-" + workflowID.String()), WorkflowID: workflowID, TransitionGroupID: synthGroup, Key: "synth", TargetNodeID: synthID, AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeNewSession, PromptTemplate: "Synthesize {{.Params.joined}}."},
 			EdgeRecord{ID: testEdgeID("edge-synth-done-" + workflowID.String()), WorkflowID: workflowID, TransitionGroupID: doneGroup, Key: "done", TargetNodeID: workflow.NodeIDOf(done), AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeNewSession},
 		)
+	})
+	return workflowID
+}
+
+func createSequentialFanoutSessionReferenceWorkflow(t *testing.T, ctx context.Context, store *Store) runtimeids.WorkflowID {
+	t.Helper()
+	workflowID := createFanoutJoinWorkflow(t, ctx, store)
+	verifyCID := testNodeID("node-verify-c-" + workflowID.String())
+	verifyDID := testNodeID("node-verify-d-" + workflowID.String())
+	verifyJoinID := testNodeID("node-verify-join-" + workflowID.String())
+	verifyCJoinEdgeID := testEdgeID("edge-verify-c-join-" + workflowID.String())
+	verifyDJoinEdgeID := testEdgeID("edge-verify-d-join-" + workflowID.String())
+	verifyCJoinGroupID := testTransitionGroupID("group-verify-c-join-" + workflowID.String())
+	verifyDJoinGroupID := testTransitionGroupID("group-verify-d-join-" + workflowID.String())
+	verifyJoinDoneGroupID := testTransitionGroupID("group-verify-join-done-" + workflowID.String())
+	saveWorkflowGraphFixture(t, ctx, store, workflowID, func(def workflow.Definition, req *WorkflowGraphSaveRequest) {
+		terminal := nodeByKind(t, def, workflow.NodeKindTerminal)
+		synthID := workflow.NodeIDOf(nodeByKey(t, def, "synth"))
+		req.Nodes = append(req.Nodes,
+			NodeRecord{ID: verifyCID, WorkflowID: workflowID, Key: "verify_c", Kind: workflow.NodeKindAgent, DisplayName: "Verify C", SubagentRole: "coder"},
+			NodeRecord{ID: verifyDID, WorkflowID: workflowID, Key: "verify_d", Kind: workflow.NodeKindAgent, DisplayName: "Verify D", SubagentRole: "coder"},
+			NodeRecord{
+				ID: verifyJoinID, WorkflowID: workflowID, Key: "verify_join", Kind: workflow.NodeKindJoin, DisplayName: "Verify Join",
+				JoinInputProviders: []workflow.JoinInputProvider{{InputName: "verified", ProviderEdgeID: verifyCJoinEdgeID}},
+			},
+		)
+		req.TransitionGroups = mutateWorkflowGraphSaveTransitionGroup(
+			req.TransitionGroups,
+			testTransitionGroupID("group-synth-done-"+workflowID.String()),
+			func(group *TransitionGroupRecord) {
+				group.TransitionID = "verify"
+				group.DisplayName = "Verify"
+			},
+		)
+		req.TransitionGroups = append(req.TransitionGroups,
+			TransitionGroupRecord{ID: verifyCJoinGroupID, WorkflowID: workflowID, SourceNodeID: verifyCID, TransitionID: "verify_c_done", DisplayName: "Verify C Done"},
+			TransitionGroupRecord{ID: verifyDJoinGroupID, WorkflowID: workflowID, SourceNodeID: verifyDID, TransitionID: "verify_d_done", DisplayName: "Verify D Done"},
+			TransitionGroupRecord{ID: verifyJoinDoneGroupID, WorkflowID: workflowID, SourceNodeID: verifyJoinID, TransitionID: "verify_done", DisplayName: "Verify Done"},
+		)
+		verifyC := workflowGraphSaveEdgeRecord(
+			t,
+			req.Edges,
+			testEdgeID("edge-synth-done-"+workflowID.String()),
+		)
+		verifyC.Key = "verify_c"
+		verifyC.TargetNodeID = verifyCID
+		verifyC.PromptTemplate = "Verify C {{.Params.join_a.session_id}}."
+		req.Edges = append(req.Edges,
+			EdgeRecord{
+				ID:                testEdgeID("edge-synth-verify-d-" + workflowID.String()),
+				WorkflowID:        workflowID,
+				TransitionGroupID: testTransitionGroupID("group-synth-done-" + workflowID.String()),
+				Key:               "verify_d",
+				TargetNodeID:      verifyDID,
+				AssigneeSelection: workflow.AssigneeSelectionConfigured,
+				ThinkingSelection: workflow.ThinkingSelectionConfigured,
+				ContextMode:       workflow.ContextModeNewSession,
+				PromptTemplate:    "Verify D {{.Params.join_a.session_id}}.",
+			},
+			EdgeRecord{
+				ID:                verifyCJoinEdgeID,
+				WorkflowID:        workflowID,
+				TransitionGroupID: verifyCJoinGroupID,
+				Key:               "verify_c_done",
+				TargetNodeID:      verifyJoinID,
+				AssigneeSelection: workflow.AssigneeSelectionConfigured,
+				ThinkingSelection: workflow.ThinkingSelectionConfigured,
+				ContextMode:       workflow.ContextModeNewSession,
+			},
+			EdgeRecord{
+				ID:                verifyDJoinEdgeID,
+				WorkflowID:        workflowID,
+				TransitionGroupID: verifyDJoinGroupID,
+				Key:               "verify_d_done",
+				TargetNodeID:      verifyJoinID,
+				AssigneeSelection: workflow.AssigneeSelectionConfigured,
+				ThinkingSelection: workflow.ThinkingSelectionConfigured,
+				ContextMode:       workflow.ContextModeNewSession,
+			},
+			EdgeRecord{
+				ID:                testEdgeID("edge-verify-join-done-" + workflowID.String()),
+				WorkflowID:        workflowID,
+				TransitionGroupID: verifyJoinDoneGroupID,
+				Key:               "verify_done",
+				TargetNodeID:      workflow.NodeIDOf(terminal),
+				AssigneeSelection: workflow.AssigneeSelectionConfigured,
+				ThinkingSelection: workflow.ThinkingSelectionConfigured,
+				ContextMode:       workflow.ContextModeNewSession,
+			},
+		)
+		if verifyC.TransitionGroupID != testTransitionGroupID("group-synth-done-"+workflowID.String()) ||
+			synthID == "" {
+			t.Fatalf("sequential fanout fixture has invalid synth transition group")
+		}
 	})
 	return workflowID
 }

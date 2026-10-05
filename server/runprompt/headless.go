@@ -17,6 +17,7 @@ import (
 	askquestion "core/server/tools"
 	"core/shared/apicontract"
 	"core/shared/clientui"
+	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -59,16 +60,23 @@ func (l *headlessPromptLauncher) prepareHeadlessPrompt(ctx context.Context, req 
 		return nil, errors.New("headless session launch service is required")
 	}
 	selectedSessionID, openingExisting := req.Intent.SessionID()
-	if openingExisting && l.boot.RuntimeAuthority != nil {
-		if _, active := l.boot.RuntimeAuthority.SessionExecution(selectedSessionID); active {
-			return nil, ErrSessionRunning
-		}
-	}
 	launchReq := sessionlaunch.PlanRequest{
 		Mode:            launch.ModeHeadless,
 		Intent:          req.Intent,
 		CallerSessionID: req.CallerSessionID,
 		Overrides:       req.Overrides,
+	}
+	if openingExisting && strings.TrimSpace(req.Overrides.ThinkingLevel) != "" {
+		var err error
+		launchReq, err = l.boot.SessionLaunch.SaveRunSelection(ctx, launchReq)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if openingExisting && l.boot.RuntimeAuthority != nil {
+		if _, active := l.boot.RuntimeAuthority.SessionExecution(selectedSessionID); active {
+			return nil, ErrSessionRunning
+		}
 	}
 	result, err := l.boot.SessionLaunch.PlanLaunchSession(ctx, launchReq)
 	if err != nil {
@@ -78,7 +86,7 @@ func (l *headlessPromptLauncher) prepareHeadlessPrompt(ctx context.Context, req 
 	if plan.Goal != nil {
 		return nil, fmt.Errorf("%w", ErrHeadlessGoalSession)
 	}
-	agentSteer, err := agentSteerForRunPrompt(req, openingExisting)
+	agentSteer, err := agentSteerForRunPrompt(req)
 	if err != nil {
 		return nil, err
 	}
@@ -86,25 +94,26 @@ func (l *headlessPromptLauncher) prepareHeadlessPrompt(ctx context.Context, req 
 	if err != nil {
 		return nil, err
 	}
-	var sessionStarted *serverapi.RunPromptSessionStarted
+	var sessionStarted *runpromptpb.SessionStarted
 	if req.Intent.Kind() == serverapi.SessionLaunchIntentCreateNew {
 		sessionID, err := uuid.Parse(runtimePlan.sessionID)
 		if err != nil || sessionID.Version() != 4 {
 			runtimePlan.CloseWithFailure(true)
 			return nil, fmt.Errorf("new headless session id %q is not a UUIDv4", runtimePlan.sessionID)
 		}
-		sessionStarted = &serverapi.RunPromptSessionStarted{SessionID: sessionID}
+		sessionStarted = &runpromptpb.SessionStarted{SessionId: sessionID.String()}
 	}
 	return &headlessPromptRuntime{
-		plan:           runtimePlan,
-		warnings:       result.Warnings,
-		progress:       progress,
-		sessionStarted: sessionStarted,
+		plan:              runtimePlan,
+		warnings:          result.Warnings,
+		selectionWarnings: result.RunSelectionWarnings,
+		progress:          progress,
+		sessionStarted:    sessionStarted,
 	}, nil
 }
 
-func agentSteerForRunPrompt(req serverapi.RunPromptRequest, openingExisting bool) (*runtime.AgentSteer, error) {
-	if !openingExisting || req.CallerSessionID == nil {
+func agentSteerForRunPrompt(req serverapi.RunPromptRequest) (*runtime.AgentSteer, error) {
+	if req.CallerSessionID == nil {
 		return nil, nil
 	}
 	sourceID, err := runtimeids.ParseSessionID(*req.CallerSessionID)
@@ -171,7 +180,7 @@ func (l *headlessPromptLauncher) prepareRuntime(ctx context.Context, plan launch
 		currentWorktreeRoot = &root
 		executionRoot = root
 	}
-	filesystemContext, err := runtimewire.NewFilesystemContext(workdir, executionRoot, plan.ProjectWorkspaceBoundary)
+	filesystemContext, err := runtimewire.NewFilesystemContext(workdir, executionRoot, plan.ProjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -184,12 +193,13 @@ func (l *headlessPromptLauncher) prepareRuntime(ctx context.Context, plan launch
 	}
 	startLogLines := []string{
 		fmt.Sprintf("app.run_prompt.start session_id=%s workspace=%s workdir=%s model=%s", sessionID, executionTarget.WorkspaceRoot, workdir, plan.ActiveSettings.Model),
-		fmt.Sprintf("config.settings path=%s created=%t", plan.Source.SettingsPath, plan.Source.CreatedDefaultConfig),
+		fmt.Sprintf("config.settings files=%+v created=%t", plan.Source.Files, plan.Source.CreatedDefaultConfig),
 	}
 	for _, line := range runlog.FormatConfigSourceLines(plan.Source.Sources) {
 		startLogLines = append(startLogLines, "config.source "+line)
 	}
 	runtimePlan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		MainWorkspaceRoot:     executionTarget.WorkspaceRoot,
 		Settings:              plan.ActiveSettings,
 		EnabledTools:          plan.EnabledTools,
 		FilesystemContext:     askquestion.FilesystemContext{Access: filesystemContext.Access, ManagedWorktree: managedWorktreePathContext},
@@ -198,12 +208,12 @@ func (l *headlessPromptLauncher) prepareRuntime(ctx context.Context, plan launch
 		QuestionsEnabled:      textutil.Value(plan.QuestionsEnabled),
 		AutoCompactionEnabled: textutil.Value(plan.AutoCompactionEnabled),
 		AgentSelection:        plan.ActivationAgentSelection,
+		ExplicitToolSelection: plan.ExplicitToolSelection,
 		StartLogLines:         startLogLines,
 		OnLoggingFailure: func(message string) {
 			if progress != nil {
-				progress.PublishRunPromptProgress(serverapi.RunPromptProgress{
-					Kind:    serverapi.RunPromptProgressKindRunLoggingFailed,
-					Failure: runPromptFailure(message),
+				progress.PublishRunPromptProgress(&runpromptpb.ProgressEvent{
+					Payload: &runpromptpb.ProgressEvent_RunLoggingFailed{RunLoggingFailed: runPromptFailure(message)},
 				})
 			}
 		},
@@ -290,31 +300,36 @@ func preservePresentAssistantContent(current string, message llm.Message) string
 }
 
 type headlessPromptRuntime struct {
-	plan           *headlessRuntimePlan
-	warnings       []string
-	progress       serverapi.RunPromptProgressSink
-	sessionStarted *serverapi.RunPromptSessionStarted
+	plan              *headlessRuntimePlan
+	warnings          []string
+	selectionWarnings []runpromptpb.RunSelectionWarning
+	progress          serverapi.RunPromptProgressSink
+	sessionStarted    *runpromptpb.SessionStarted
 }
 
-func (r *headlessPromptRuntime) submitUserMessage(ctx context.Context, prompt string) (serverapi.RunPromptResponse, error) {
+func (r *headlessPromptRuntime) submitUserMessage(ctx context.Context, prompt string) (*runpromptpb.Success, error) {
 	if r.plan == nil || r.plan.handle == nil {
-		return serverapi.RunPromptResponse{}, errors.Join(serverapi.ErrRuntimeUnavailable, errors.New("headless runtime is unavailable"))
+		return &runpromptpb.Success{}, errors.Join(serverapi.ErrRuntimeUnavailable, errors.New("headless runtime is unavailable"))
 	}
 	r.plan.onActive = r.publishSessionStarted
 	select {
 	case r.plan.submission <- headlessPromptSubmission{prompt: prompt, steer: r.plan.agentSteer}:
 	case <-ctx.Done():
-		return serverapi.RunPromptResponse{}, context.Cause(ctx)
+		return &runpromptpb.Success{}, context.Cause(ctx)
 	}
 	_, err := r.plan.handle.Wait(ctx)
 	if err != nil && context.Cause(ctx) != nil {
 		err = errors.Join(err, r.plan.handle.Stop(context.Background()))
 	}
-	return serverapi.RunPromptResponse{
-		SessionID:   r.plan.sessionID,
+	return &runpromptpb.Success{
+		SessionId:   r.plan.sessionID,
 		SessionName: r.plan.name,
 		Result:      r.plan.content,
 		Warnings:    append([]string(nil), r.warnings...),
+		SelectionWarnings: append(
+			[]runpromptpb.RunSelectionWarning(nil),
+			r.selectionWarnings...,
+		),
 	}, err
 }
 
@@ -324,9 +339,8 @@ func (r *headlessPromptRuntime) publishSessionStarted() {
 	}
 	started := r.sessionStarted
 	r.sessionStarted = nil
-	r.progress.PublishRunPromptProgress(serverapi.RunPromptProgress{
-		Kind:           serverapi.RunPromptProgressKindSessionStarted,
-		SessionStarted: started,
+	r.progress.PublishRunPromptProgress(&runpromptpb.ProgressEvent{
+		Payload: &runpromptpb.ProgressEvent_SessionStarted{SessionStarted: started},
 	})
 }
 

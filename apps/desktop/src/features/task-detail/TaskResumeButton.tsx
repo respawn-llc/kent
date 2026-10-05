@@ -1,7 +1,8 @@
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { errorMessage, type TaskSetupRecovery, type WorkflowExecutionTargetSelection } from "@/api";
+import { type WorkflowExecutionTargetSelection } from "@/api";
+import { taskActionErrorMessage } from "@/shared/task-mutations";
 import { useAppServices, useStatusController } from "@/app-facade";
 import {
   executeTaskInitiatingAction,
@@ -11,12 +12,13 @@ import {
   type TaskInitiatingAction,
   useTaskInitiatingActionController,
 } from "@/shared/execution-target";
-import { Button } from "@/ui";
+import { Button, Spinner } from "@/ui";
 
 type TaskInitiatingActionController = Readonly<{
-  resume(recovery?: TaskSetupRecovery): void;
+  resume(): void;
   start(): void;
-  running: boolean;
+  starting: boolean;
+  resuming: boolean;
 }>;
 
 const TaskInitiatingActionContext = createContext<TaskInitiatingActionController | null>(null);
@@ -35,14 +37,12 @@ export function TaskInitiatingActionProvider({
   const { api } = useAppServices();
   const { push } = useStatusController();
   const { t } = useTranslation();
-  const appliedActionKind = useRef<"resume" | "start">("resume");
-  const [recovery, setRecovery] = useState<TaskSetupRecovery | null>(null);
   const reportError = useCallback(
     (kind: "resume" | "start", error: unknown) => {
       push({
         id: `task-${kind}-error`,
         title: t(kind === "resume" ? "board.resumeFailed" : "board.startFailed"),
-        body: errorMessage(error),
+        body: taskActionErrorMessage(error, t),
         durationMs: Infinity,
         tone: "danger",
       });
@@ -51,38 +51,35 @@ export function TaskInitiatingActionProvider({
   );
   const continuation = useTaskInitiatingActionController({
     execute: async (action, selection) => executeTaskInitiatingAction(api, action, selection),
-    onApplied: async (result) => {
-      setRecovery(null);
-      if (result.kind === "resume" || result.kind === "start") {
-        appliedActionKind.current = result.kind;
-      }
-      await onApplied();
+    onApplied,
+    onAppliedError: (error, result) => {
+      reportError(result.kind === "start" ? "start" : "resume", error);
     },
-    onAppliedError: (error) => {
-      reportError(appliedActionKind.current, error);
+    onError: (action, error) => {
+      reportError(action.kind === "start" ? "start" : "resume", error);
     },
   });
   function run(
     action: Extract<TaskInitiatingAction, { kind: "resume" | "start" }>,
     selection?: WorkflowExecutionTargetSelection,
   ): void {
-    appliedActionKind.current = action.kind;
-    void continuation.run(action, selection).catch((error: unknown) => {
-      reportError(action.kind, error);
-    });
+    continuation.run(action, selection);
   }
-  function resume(setupRecovery?: TaskSetupRecovery): void {
-    if (setupRecovery !== undefined) {
-      setRecovery(setupRecovery);
-      return;
-    }
+  function resume(): void {
     run(resumeTaskInitiatingAction(taskID));
   }
   function start(): void {
     run(startTaskInitiatingAction(taskID));
   }
   return (
-    <TaskInitiatingActionContext.Provider value={{ resume, running: continuation.running, start }}>
+    <TaskInitiatingActionContext.Provider
+      value={{
+        resume,
+        start,
+        starting: continuation.pendingStartMoveTaskIDs.has(taskID),
+        resuming: continuation.pendingResumeTaskIDs.has(taskID),
+      }}
+    >
       {children}
       <TaskInitiatingActionDialogs
         continuation={continuation}
@@ -93,28 +90,12 @@ export function TaskInitiatingActionProvider({
             run(result.action, result.selection);
           }
         }}
-        setupRecovery={
-          recovery === null
-            ? undefined
-            : {
-                onClose: () => {
-                  setRecovery(null);
-                },
-                onSubmit: (selection) => {
-                  run(resumeTaskInitiatingAction(taskID), selection);
-                },
-                recovery,
-              }
-        }
       />
     </TaskInitiatingActionContext.Provider>
   );
 }
 
-export function TaskResumeButton({
-  disabled,
-  recovery,
-}: Readonly<{ disabled: boolean; recovery?: TaskSetupRecovery | undefined }>) {
+export function TaskResumeButton() {
   const { t } = useTranslation();
   const controller = useContext(TaskInitiatingActionContext);
   if (controller === null) {
@@ -123,18 +104,18 @@ export function TaskResumeButton({
   return (
     <Button
       data-testid="task-detail-resume"
-      disabled={disabled || controller.running}
+      aria-busy={controller.resuming}
       onClick={() => {
-        controller.resume(recovery);
+        controller.resume();
       }}
       variant="primary"
     >
-      {t("board.resume")}
+      {controller.resuming ? <Spinner /> : t("board.resume")}
     </Button>
   );
 }
 
-export function TaskStartButton({ disabled }: Readonly<{ disabled: boolean }>) {
+export function TaskStartButton() {
   const { t } = useTranslation();
   const controller = useContext(TaskInitiatingActionContext);
   if (controller === null) {
@@ -143,11 +124,11 @@ export function TaskStartButton({ disabled }: Readonly<{ disabled: boolean }>) {
   return (
     <Button
       data-testid="task-detail-start"
-      disabled={disabled || controller.running}
+      aria-busy={controller.starting}
       onClick={controller.start}
       variant="primary"
     >
-      {t("task.start")}
+      {controller.starting ? <Spinner /> : t("task.start")}
     </Button>
   );
 }

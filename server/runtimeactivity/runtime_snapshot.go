@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"core/server/runtime"
-	"core/shared/clientui"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 )
 
 func ActiveStepFromRuntimeSnapshot(snapshot *runtime.RunSnapshot) *ActiveStepSnapshot {
@@ -24,7 +24,7 @@ type ActiveStepSnapshotProvider interface {
 
 type ActiveSessionSnapshot struct {
 	SessionID string
-	Activity  clientui.RuntimeActivity
+	Activity  *runtimepb.Activity
 }
 
 func ActiveStepFromProvider(provider ActiveStepSnapshotProvider) *ActiveStepSnapshot {
@@ -34,30 +34,30 @@ func ActiveStepFromProvider(provider ActiveStepSnapshotProvider) *ActiveStepSnap
 	return ActiveStepFromRuntimeSnapshot(provider.ActiveStepSnapshot())
 }
 
-func ClientActiveKindFromRuntime(kind runtime.ActiveKind) (clientui.RuntimeActivityActiveKind, error) {
+func ClientActiveKindFromRuntime(kind runtime.ActiveKind) (runtimepb.ActivityActiveKind, error) {
 	switch kind {
 	case runtime.ActiveKindUserTurn:
-		return clientui.RuntimeActivityActiveKindUserTurn, nil
+		return runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN, nil
 	case runtime.ActiveKindGoalLoop:
-		return clientui.RuntimeActivityActiveKindGoalLoop, nil
+		return runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_GOAL_LOOP, nil
 	case runtime.ActiveKindWorkflowTurn:
-		return clientui.RuntimeActivityActiveKindWorkflowTurn, nil
+		return runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_WORKFLOW_TURN, nil
 	case runtime.ActiveKindCompaction:
-		return clientui.RuntimeActivityActiveKindCompaction, nil
+		return runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_COMPACTION, nil
 	case runtime.ActiveKindPreSubmitCompaction:
-		return clientui.RuntimeActivityActiveKindPreSubmitCompaction, nil
+		return runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_PRE_SUBMIT_COMPACTION, nil
 	case runtime.ActiveKindUserShell:
-		return clientui.RuntimeActivityActiveKindUserShell, nil
+		return runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_SHELL, nil
 	case runtime.ActiveKindBackground:
-		return clientui.RuntimeActivityActiveKindBackground, nil
+		return runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_BACKGROUND, nil
 	case runtime.ActiveKindRuntimeMaintenance:
-		return clientui.RuntimeActivityActiveKindRuntimeMaintenance, nil
+		return runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_RUNTIME_MAINTENANCE, nil
 	default:
-		return "", fmt.Errorf("unmapped runtime active kind %q", kind)
+		return runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_UNSPECIFIED, fmt.Errorf("unmapped runtime active kind %q", kind)
 	}
 }
 
-func MustClientActiveKindFromRuntime(kind runtime.ActiveKind) clientui.RuntimeActivityActiveKind {
+func MustClientActiveKindFromRuntime(kind runtime.ActiveKind) runtimepb.ActivityActiveKind {
 	mapped, err := ClientActiveKindFromRuntime(kind)
 	if err != nil {
 		panic(err)

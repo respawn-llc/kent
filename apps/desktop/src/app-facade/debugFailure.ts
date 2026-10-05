@@ -1,0 +1,44 @@
+import { errorMessage } from "@/api";
+
+import type { AppLogger } from "./logging";
+
+export type RecoverableFailureContext = Readonly<Record<string, string>>;
+
+export async function recoverOrThrowDebugFailure({
+  context,
+  error,
+  logger,
+  message,
+  recover,
+}: Readonly<{
+  context: RecoverableFailureContext;
+  error: unknown;
+  logger: AppLogger;
+  message: string;
+  recover: () => void;
+}>): Promise<void> {
+  const diagnostic = { ...context, error: errorMessage(error) };
+  const logged = logger.append("warn", message, diagnostic);
+  if (kentDebugModeEnabled()) {
+    return logged.then(() => {
+      throw new Error(`${message} ${JSON.stringify(diagnostic)}`);
+    });
+  }
+  recover();
+  return logged;
+}
+
+export function kentDebugModeEnabled(): boolean {
+  return debugEnvEnabled(import.meta.env.KENT_DEBUG) || debugQueryEnabled();
+}
+
+function debugEnvEnabled(value: unknown): boolean {
+  return value === true || value === "true" || value === "1";
+}
+
+function debugQueryEnabled(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return new URLSearchParams(window.location.search).get("debug") === "true";
+}

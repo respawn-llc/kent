@@ -35,10 +35,10 @@ func TestAbsoluteForeignManagedWorktreePatchIsDeniedBeforeMove(t *testing.T) {
 	tool := newPatchTestToolWithContext(
 		t,
 		filesystemContext,
-		WithOutsideWorkspaceApprover(func(context.Context, tools.FileAccessRequest) (tools.FileAccessApproval, error) {
+		WithOutsideWorkspaceApprover(runtimewirefixture.FileAccessApprover(func(context.Context, tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
 			approvalCalls++
 			return tools.FileAccessApproval{Kind: tools.FileAccessApprovalAllowOnce}, nil
-		}),
+		})),
 	)
 	if err := os.MkdirAll(foreignRoot, 0o755); err != nil {
 		t.Fatalf("mkdir foreign root: %v", err)
@@ -553,6 +553,12 @@ func TestUpdateContentMismatchPreservesTargetPathInFailurePayload(t *testing.T) 
 	if payload.Kind != "content_mismatch" {
 		t.Fatalf("expected content_mismatch payload, got %+v", payload)
 	}
+	if result.Summary == nil || *result.Summary == payload.Error {
+		t.Fatal("expected a compact summary separate from the detailed model error")
+	}
+	if strings.Contains(*result.Summary, payload.Path) || strings.Contains(*result.Summary, payload.Reason) {
+		t.Fatal("compact summary includes the target path or detailed reason")
+	}
 	if payload.Path != "a.txt" {
 		t.Fatalf("expected target path in payload, got %+v", payload)
 	}
@@ -739,10 +745,10 @@ func TestOutsideWorkspaceEditRejectionContainsSteeringMessage(t *testing.T) {
 	}
 
 	approveCalls := 0
-	tool := newPatchTestTool(t, workspace, WithOutsideWorkspaceApprover(func(context.Context, tools.FileAccessRequest) (tools.FileAccessApproval, error) {
+	tool := newPatchTestTool(t, workspace, WithOutsideWorkspaceApprover(runtimewirefixture.FileAccessApprover(func(context.Context, tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
 		approveCalls++
 		return tools.FileAccessApproval{Kind: tools.FileAccessApprovalDeny}, nil
-	}))
+	})))
 
 	result := callPatch(t, tool, "deny-outside", "*** Begin Patch\n*** Update File: "+target+"\n-start\n+done\n*** End Patch\n")
 	if !result.IsError {

@@ -99,7 +99,8 @@ func captureManagedDescendants(process *os.Process) ([]managedProcessIdentity, e
 		return nil, fmt.Errorf("probe process %d before listing descendants: %w", process.Pid, probeErr)
 	}
 	if exited {
-		return nil, nil
+		// The shell can exit while its background children still hold our output pipes.
+		return captureCompletedManagedProcessGroup(process)
 	}
 	processes, err := managedProcessSnapshot()
 	descendants := descendantProcesses(process.Pid, processes)

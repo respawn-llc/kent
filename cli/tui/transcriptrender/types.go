@@ -3,7 +3,7 @@ package transcriptrender
 import (
 	"fmt"
 
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/theme"
 
 	xansi "github.com/charmbracelet/x/ansi"
@@ -21,8 +21,42 @@ const (
 )
 
 type Row struct {
-	Group clientui.TranscriptRowKind
+	Group Group
 	Lines []Line
+}
+
+// Group controls spacing between adjacent rendered rows.
+type Group uint8
+
+const (
+	GroupUser Group = iota
+	GroupAssistant
+	GroupTool
+	GroupReasoningTrace
+	GroupNotice
+	GroupReviewerFeedback
+	GroupReviewerError
+)
+
+func GroupForRow(row *transcriptpb.CommittedRow) Group {
+	switch row.GetRow().(type) {
+	case *transcriptpb.CommittedRow_User:
+		return GroupUser
+	case *transcriptpb.CommittedRow_Assistant:
+		return GroupAssistant
+	case *transcriptpb.CommittedRow_Tool:
+		return GroupTool
+	case *transcriptpb.CommittedRow_ReasoningTrace:
+		return GroupReasoningTrace
+	case *transcriptpb.CommittedRow_Notice:
+		return GroupNotice
+	case *transcriptpb.CommittedRow_ReviewerFeedback:
+		return GroupReviewerFeedback
+	case *transcriptpb.CommittedRow_ReviewerError:
+		return GroupReviewerError
+	default:
+		panic(fmt.Sprintf("render transcript row with unsupported payload %T", row.GetRow()))
+	}
 }
 
 type StyleRole uint8

@@ -18,10 +18,11 @@ import (
 	"core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
+	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
+	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
-
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -37,27 +38,19 @@ func (unregisteredSessionLaunchClient) PlanSession(context.Context, *sessionlaun
 	return nil, serverapi.ErrWorkspaceNotRegistered
 }
 
-func (unregisteredSessionLaunchClient) WorkspaceChatDraft(context.Context, *sessionlaunchpb.WorkspaceChatDraftRequest) (*sessionlaunchpb.WorkspaceChatDraftSuccess, error) {
-	return nil, serverapi.ErrWorkspaceNotRegistered
-}
-
-func (unregisteredSessionLaunchClient) MaterializeWorkspaceChat(context.Context, *emptypb.Empty) (*sessionlaunchpb.MaterializeWorkspaceChatSuccess, error) {
-	return nil, serverapi.ErrWorkspaceNotRegistered
-}
-
 type unregisteredRunPromptClient struct{}
 
-func (unregisteredRunPromptClient) RunPrompt(context.Context, serverapi.RunPromptRequest, serverapi.RunPromptProgressSink) (serverapi.RunPromptResponse, error) {
-	return serverapi.RunPromptResponse{}, serverapi.ErrWorkspaceNotRegistered
+func (unregisteredRunPromptClient) RunPrompt(context.Context, serverapi.RunPromptRequest, serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
+	return nil, serverapi.ErrWorkspaceNotRegistered
 }
 
 type unavailableAttentionNotificationClient struct{}
 
-func (unavailableAttentionNotificationClient) SubscribeAttentionNotifications(context.Context, serverapi.AttentionNotificationSubscribeRequest) (serverapi.AttentionNotificationSubscription, error) {
+func (unavailableAttentionNotificationClient) SubscribeAttentionNotifications(context.Context, *emptypb.Empty) (apicontract.AttentionNotificationSubscription, error) {
 	return nil, serverapi.ErrStreamUnavailable
 }
 
-func (unavailableAttentionNotificationClient) SubscribeSessionAttentionNotifications(context.Context, serverapi.AttentionSessionNotificationSubscribeRequest) (serverapi.AttentionNotificationSubscription, error) {
+func (unavailableAttentionNotificationClient) SubscribeSessionAttentionNotifications(context.Context, *attentionpb.SubscribeRequest) (serverapi.SessionAttentionNotificationSubscription, error) {
 	return nil, serverapi.ErrStreamUnavailable
 }
 
@@ -73,7 +66,7 @@ func (s *Core) ProjectExists(ctx context.Context, projectID string) error {
 	if s == nil || s.safeBundles().Persistence.metadataStore == nil {
 		return errors.New("metadata store is required")
 	}
-	_, err := s.safeBundles().Persistence.metadataStore.GetProjectOverview(ctx, strings.TrimSpace(projectID))
+	_, err := s.safeBundles().Persistence.metadataStore.GetProjectEditMetadata(ctx, strings.TrimSpace(projectID))
 	return err
 }
 
@@ -122,22 +115,6 @@ func (s *Core) SessionLaunchClientForProjectWorkspace(ctx context.Context, proje
 		return nil, err
 	}
 	return s.sessionLaunchClientForProjectContext(projectCtx), nil
-}
-
-func (s *Core) WorkspaceChatContextOwnerForProjectWorkspaceID(ctx context.Context, projectID string, workspaceID string) (chatcontext.WorkspaceOwner, error) {
-	projectCtx, err := s.resolveProjectContext(ctx, projectID, workspaceID, "")
-	if err != nil {
-		return nil, err
-	}
-	return s.sessionLaunchServiceForProjectContext(projectCtx), nil
-}
-
-func (s *Core) WorkspaceChatContextOwnerForProjectWorkspace(ctx context.Context, projectID string, workspaceRoot string) (chatcontext.WorkspaceOwner, error) {
-	projectCtx, err := s.resolveProjectContext(ctx, projectID, "", workspaceRoot)
-	if err != nil {
-		return nil, err
-	}
-	return s.sessionLaunchServiceForProjectContext(projectCtx), nil
 }
 
 func (s *Core) RunPromptClientForProject(ctx context.Context, projectID string) (apicontract.RunPromptService, error) {
@@ -221,22 +198,7 @@ func (s *Core) resolveProjectContext(ctx context.Context, projectID string, work
 			return projectContext{}, err
 		}
 	}
-	overview, err := s.safeBundles().Persistence.metadataStore.GetProjectOverview(ctx, trimmedProjectID)
-	if err != nil {
-		return projectContext{}, err
-	}
-	if strings.TrimSpace(overview.Project.RootPath) == "" {
-		return projectContext{}, fmt.Errorf("project %q has no root path", trimmedProjectID)
-	}
-	switch overview.Project.Availability {
-	case clientui.ProjectAvailabilityMissing, clientui.ProjectAvailabilityInaccessible:
-		return projectContext{}, serverapi.ProjectUnavailableError{
-			ProjectID:    trimmedProjectID,
-			RootPath:     overview.Project.RootPath,
-			Availability: overview.Project.Availability,
-		}
-	}
-	projectCfg, err := s.configForWorkspace(overview.Project.RootPath)
+	_, err := s.safeBundles().Persistence.metadataStore.GetProjectEditMetadata(ctx, trimmedProjectID)
 	if err != nil {
 		return projectContext{}, err
 	}
@@ -244,11 +206,27 @@ func (s *Core) resolveProjectContext(ctx context.Context, projectID string, work
 	if err != nil {
 		return projectContext{}, err
 	}
+	if strings.TrimSpace(primaryWorkspace.CanonicalRootPath) == "" {
+		return projectContext{}, fmt.Errorf("project %q has no root path", trimmedProjectID)
+	}
+	availability := metadata.PathAvailability(primaryWorkspace.CanonicalRootPath)
+	switch availability {
+	case clientui.ProjectAvailabilityMissing, clientui.ProjectAvailabilityInaccessible:
+		return projectContext{}, serverapi.ProjectUnavailableError{
+			ProjectID:    trimmedProjectID,
+			RootPath:     primaryWorkspace.CanonicalRootPath,
+			Availability: availability,
+		}
+	}
+	projectCfg, err := s.configForWorkspace(primaryWorkspace.CanonicalRootPath)
+	if err != nil {
+		return projectContext{}, err
+	}
 	return projectContext{
 		config:         projectCfg,
 		projectID:      trimmedProjectID,
 		workspaceID:    primaryWorkspace.ID,
-		projectRoot:    overview.Project.RootPath,
+		projectRoot:    primaryWorkspace.CanonicalRootPath,
 		projectSession: filepath.Join(filepath.Join(projectCfg.PersistenceRoot, "projects"), trimmedProjectID, "sessions"),
 	}, nil
 }
@@ -306,27 +284,26 @@ func (s *Core) sessionLaunchServiceForProjectContextLocked(projectCtx projectCon
 	if cached := s.safeBundles().Sessions.sessionServices[scopeKey]; cached != nil {
 		return cached
 	}
-	service := s.newSessionLaunchService(projectCtx).
-		WithWorkspaceChatDraft(s.safeBundles().Sessions.draftOwner, projectCtx.workspaceID).
-		WithWorkspaceChatMaterializationStoreOptions(s.safeBundles().Persistence.metadataStore.WorkspaceChatMaterializationStoreOptions(projectCtx.workspaceID)...)
+	service := s.newSessionLaunchService(projectCtx)
 	s.safeBundles().Sessions.sessionServices[scopeKey] = service
 	return service
 }
 
 func (s *Core) newSessionLaunchService(projectCtx projectContext) *sessionlaunch.Service {
 	return sessionlaunch.NewService(launch.Planner{
-		Config:                   projectCtx.config,
-		ContainerDir:             projectCtx.projectSession,
-		StoreOptions:             s.safeBundles().Persistence.metadataStore.AuthoritativeSessionStoreOptions(),
-		PersistedSessions:        s.safeBundles().Persistence.metadataStore,
-		ExecutionTargets:         s.safeBundles().Persistence.metadataStore,
-		ProjectWorkspaceBoundary: s.safeBundles().Persistence.metadataStore,
+		Config:            projectCtx.config,
+		ContainerDir:      projectCtx.projectSession,
+		StoreOptions:      s.safeBundles().Persistence.metadataStore.AuthoritativeSessionStoreOptions(),
+		PersistedSessions: s.safeBundles().Persistence.metadataStore,
+		ExecutionTargets:  s.safeBundles().Persistence.metadataStore,
+		SessionProjects:   s.safeBundles().Persistence.metadataStore, ManagedWorktreeRoots: s.safeBundles().Persistence.metadataStore,
 		ReloadConfig: func() (config.App, error) {
 			return s.reloadWorkspaceConfig(projectCtx.projectRoot)
 		},
-	}).
-		WithAuthStateReader(s.safeBundles().Auth.support.AuthManager).
-		WithPromptHistoryReader(s.safeBundles().Persistence.metadataStore)
+	}, sessionlaunch.ChatSettingsOwner{
+		Authority: s.safeBundles().Runtime.runtimeAuthority,
+		Registry:  s.safeBundles().Runtime.runtimeRegistry,
+	})
 }
 
 func (s *Core) runPromptClientForProjectContext(projectCtx projectContext) apicontract.RunPromptService {
@@ -397,13 +374,6 @@ func (s *Core) AuthManager() *auth.Manager {
 	return s.safeBundles().Auth.support.AuthManager
 }
 
-func (s *Core) ServerAuthRequired() bool {
-	if s == nil {
-		return true
-	}
-	return s.safeBundles().Auth.authRequired
-}
-
 func (s *Core) Background() *shelltool.Manager {
 	if s == nil {
 		return nil
@@ -429,6 +399,13 @@ func (s *Core) ChatSettingsClient() apicontract.ChatSettingsService {
 	return chatSettingsService{core: s}
 }
 
+func (s *Core) ChatMutationClient() apicontract.ChatMutationService {
+	if s == nil {
+		return nil
+	}
+	return s.safeBundles().Chat.mutations
+}
+
 func (s *Core) ProjectID() string {
 	if s == nil {
 		return ""
@@ -450,6 +427,10 @@ func (s *Core) AuthBootstrapClient() apicontract.AuthBootstrapService {
 	return s.safeBundles().Auth.authBootstrap
 }
 
+func (s *Core) ConnectionManagementClient() apicontract.ConnectionManagementService {
+	return s.safeBundles().Auth.support.Connections
+}
+
 func (s *Core) AuthStatusClient() apicontract.AuthStatusService {
 	if s == nil {
 		return nil
@@ -461,7 +442,11 @@ func (s *Core) CapabilityFactsClient() apicontract.CapabilityFactsService {
 	if s == nil {
 		return nil
 	}
-	return s.safeBundles().Capability.facts
+	capability := s.safeBundles().Capability
+	if capability == nil {
+		return nil
+	}
+	return capability
 }
 
 func (s *Core) OnboardingFinalizeClient() apicontract.OnboardingFinalizeService {
@@ -480,11 +465,8 @@ func (s configuredCoreOnboardingFinalizeService) Finalize(context.Context, *onbo
 }
 
 func configuredCoreSettingsPath(cfg config.App) string {
-	if path := strings.TrimSpace(cfg.Source.SettingsPath); path != "" {
-		return path
-	}
-	if path := strings.TrimSpace(cfg.Source.HomeSettingsPath); path != "" {
-		return path
+	if file := cfg.Source.File(config.FileGlobal); file != nil {
+		return file.Path
 	}
 	path, err := config.ResolveSettingsFilePathInRoot(cfg.PersistenceRoot)
 	if err != nil {
@@ -511,7 +493,22 @@ func (s *Core) ProcessViewClient() apicontract.ProcessViewService {
 	if s == nil {
 		return nil
 	}
-	return s.safeBundles().Processes.processViews
+	processes := s.safeBundles().Processes
+	if processes == nil {
+		return nil
+	}
+	return processes
+}
+
+func (s *Core) ProcessObservationClient() apicontract.ProcessObservationService {
+	if s == nil {
+		return nil
+	}
+	processes := s.safeBundles().Processes
+	if processes == nil {
+		return nil
+	}
+	return processes
 }
 
 func (s *Core) RuntimeControlClient() apicontract.RuntimeControlService {
@@ -553,7 +550,11 @@ func (s *Core) ProcessControlClient() apicontract.ProcessControlService {
 	if s == nil {
 		return nil
 	}
-	return s.safeBundles().Processes.processControls
+	processes := s.safeBundles().Processes
+	if processes == nil {
+		return nil
+	}
+	return processes
 }
 
 func (s *Core) SessionTranscriptClient() apicontract.SessionTranscriptService {
@@ -561,6 +562,13 @@ func (s *Core) SessionTranscriptClient() apicontract.SessionTranscriptService {
 		return nil
 	}
 	return s.safeBundles().Runtime.sessionTranscript
+}
+
+func (s *Core) GoalObservationClient() apicontract.GoalObservationService {
+	if s == nil {
+		return nil
+	}
+	return s.MetadataStore()
 }
 
 func (s *Core) SessionLaunchClient() apicontract.SessionLaunchService {

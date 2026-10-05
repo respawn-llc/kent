@@ -1,19 +1,16 @@
 import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useQueryClient } from "@tanstack/react-query";
+import { useAtomValue } from "@effect/atom-react";
 import { Trash2 } from "lucide-react";
 
 import { errorMessage } from "@/api";
-import { useAppNavigation } from "@/app-facade";
-import { completeProjectDeletion } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
-import { useConnectionSnapshot } from "@/app-facade";
 import { useNativeDialogFallback } from "@/app-facade";
-import type { SidebarPageNavigator } from "@/app-facade";
 import { useStatusController } from "@/app-facade";
 import { NativeDialogWindow } from "@/shared/native-dialog";
 import { Button, compactDialogWidth, Dialog } from "@/ui";
 import { useProjectDelete } from "./useProjectEditData";
+import { useProjectEditActions, type ProjectEditViewModel } from "./ProjectEditViewModel";
 
 const projectDeleteNativeDialogPath = "/native-dialog/project-delete";
 const projectDeleteDialogWidth = compactDialogWidth;
@@ -23,56 +20,14 @@ type ProjectDeleteTarget = Readonly<{
 }>;
 
 export function ProjectDeleteButton({
-  navigator,
+  model,
   projectID,
-}: Readonly<{ navigator: SidebarPageNavigator; projectID: string }>) {
+  openHome,
+}: Readonly<{ model: ProjectEditViewModel; projectID: string; openHome(): Promise<void> }>) {
   const { t } = useTranslation();
   const { nativeBridge } = useAppServices();
-  const connection = useConnectionSnapshot();
-  const navigation = useAppNavigation();
-  const { push } = useStatusController();
-  const queryClient = useQueryClient();
-  const mutation = useProjectDelete(projectID, { invalidateOnDeleted: false });
-  const disabled = connection.phase !== "connected" || mutation.isPending;
-
-  const confirmDelete = useCallback(
-    async (close: () => void) => {
-      try {
-        const response = await mutation.mutateAsync();
-        if (!response.deleted) {
-          push({
-            id: "project-delete-blocked",
-            tone: "danger",
-            title: t("projectEdit.deleteBlocked"),
-            body: response.blockers.map((blocker) => blocker.message).join("\n"),
-          });
-          return;
-        }
-        close();
-        const closeOutcome = navigator.close();
-        await completeProjectDeletion({
-          navigateHome: closeOutcome === "accepted" ? navigation.openHome : undefined,
-          projectID,
-          pushDeletedToast: () => {
-            push({
-              id: "project-delete-deleted",
-              tone: "success",
-              title: t("projectEdit.deleteDeleted"),
-            });
-          },
-          queryClient,
-        });
-      } catch (error) {
-        push({
-          id: "project-delete-error",
-          tone: "danger",
-          title: t("projectEdit.deleteTitle"),
-          body: errorMessage(error),
-        });
-      }
-    },
-    [mutation, navigation.openHome, navigator, projectID, push, queryClient, t],
-  );
+  const disabled = useAtomValue(model.state).pending;
+  const { deleteProject } = useProjectEditActions(model);
 
   const deleteDialog = useNativeDialogFallback<ProjectDeleteTarget>({
     errorNoticeID: "project-delete-window-error",
@@ -83,9 +38,11 @@ export function ProjectDeleteButton({
     },
     renderFallback: (_target, close) => (
       <ProjectDeleteConfirmationFallbackDialog
-        disabled={mutation.isPending}
+        disabled={disabled}
         onClose={close}
-        onConfirm={() => void confirmDelete(close)}
+        onConfirm={() => {
+          deleteProject({ close, openHome });
+        }}
       />
     ),
   });

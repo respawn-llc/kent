@@ -9,21 +9,19 @@ import {
   type QuestionSelectionState,
 } from "./TaskDetailQuestionState";
 import { QuestionFormView } from "./TaskDetailQuestionFormView";
-import type { QuestionAnswerMutation } from "./TaskDetailQuestionAnswer";
+import type { QuestionAnswerAction } from "./TaskDetailQuestionAnswer";
 import type { PromptPrimaryControl } from "./PromptPrimaryControlRegistry";
 import { taskDetailIslandRadius } from "./taskDetailIslandStyles";
 
 export function QuestionBox({
   attention,
   answerQuestion,
-  disabled,
   selectionState,
   onSelectionStateChange,
   registerPrimaryControl,
 }: Readonly<{
   attention: QuestionAttentionItem;
-  answerQuestion: QuestionAnswerMutation;
-  disabled: boolean;
+  answerQuestion: QuestionAnswerAction;
   selectionState: QuestionSelectionState;
   onSelectionStateChange: (selection: QuestionSelectionState) => void;
   registerPrimaryControl?: ((control: PromptPrimaryControl) => () => void) | undefined;
@@ -48,7 +46,6 @@ export function QuestionBox({
       <QuestionFormView
         answerQuestion={answerQuestion}
         attention={attention}
-        disabled={disabled}
         onSelectionStateChange={onSelectionStateChange}
         presentation={presentation}
         registerPrimaryControl={registerPrimaryControl}

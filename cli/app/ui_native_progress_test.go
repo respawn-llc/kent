@@ -1,14 +1,13 @@
 package app
 
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+
 import (
 	"bytes"
 	"errors"
-	"testing"
-
-	"core/shared/clientui"
-
 	tea "github.com/charmbracelet/bubbletea"
 	xansi "github.com/charmbracelet/x/ansi"
+	"testing"
 )
 
 func TestNativeProgressEligibilityUsesOnlyApprovedSources(t *testing.T) {
@@ -20,99 +19,81 @@ func TestNativeProgressEligibilityUsesOnlyApprovedSources(t *testing.T) {
 		{
 			name: "compaction",
 			setup: func(m *uiModel) {
-				m.runtimeActivityProjection = clientui.RuntimeActivity{
-					State: clientui.RuntimeActivityRunning,
-					ActiveStep: &clientui.RuntimeActiveStep{
-						ActiveKind: clientui.RuntimeActivityActiveKindCompaction,
-					},
-					Reviewer: clientui.ReviewerActivityInactive,
-				}
+				m.runtimeActivityProjection = &runtimepb.Activity{
+					State: runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING,
+					ActiveStep: &runtimepb.ActiveStep{
+						ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_COMPACTION},
+					Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE}
 			},
-			want: true,
-		},
+			want: true},
 		{
 			name: "Reviewer invocation",
 			setup: func(m *uiModel) {
-				m.runtimeActivityProjection.Reviewer = clientui.ReviewerActivityInvoking
+				m.runtimeActivityProjection.Reviewer = runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INVOKING
 			},
-			want: true,
-		},
+			want: true},
 		{
 			name: "detail transcript page",
 			setup: func(m *uiModel) {
 				m.pendingDetailTranscript = &uiPendingDetailTranscriptRequest{detailMode: true}
 			},
-			want: true,
-		},
+			want: true},
 		{
 			name: "session opening transcript hydration",
 			setup: func(m *uiModel) {
 				m.pendingDetailTranscript = &uiPendingDetailTranscriptRequest{}
-			},
-		},
+			}},
 		{
 			name: "worktree create",
 			setup: func(m *uiModel) {
 				m.worktrees.create.submitting = true
 			},
-			want: true,
-		},
+			want: true},
 		{
 			name: "worktree delete",
 			setup: func(m *uiModel) {
 				m.worktrees.deleteConfirm.submitting = true
 			},
-			want: true,
-		},
+			want: true},
 		{
 			name: "main Agent Turn",
 			setup: func(m *uiModel) {
-				m.runtimeActivityProjection = clientui.RuntimeActivity{
-					State: clientui.RuntimeActivityRunning,
-					ActiveStep: &clientui.RuntimeActiveStep{
-						ActiveKind: clientui.RuntimeActivityActiveKindUserTurn,
-					},
-					Reviewer: clientui.ReviewerActivityInactive,
-				}
-			},
-		},
+				m.runtimeActivityProjection = &runtimepb.Activity{
+					State: runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING,
+					ActiveStep: &runtimepb.ActiveStep{
+						ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN},
+					Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE}
+			}},
 		{
 			name: "Reviewer addressing feedback",
 			setup: func(m *uiModel) {
-				m.runtimeActivityProjection.Reviewer = clientui.ReviewerActivityAddressingFeedback
-			},
-		},
+				m.runtimeActivityProjection.Reviewer = runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_ADDRESSING_FEEDBACK
+			}},
 		{
 			name: "worktree list",
 			setup: func(m *uiModel) {
 				m.worktrees.listPending = true
-			},
-		},
+			}},
 		{
 			name: "worktree target lookup",
 			setup: func(m *uiModel) {
 				m.worktrees.deleteTargetResolutionPending = true
-			},
-		},
+			}},
 		{
 			name: "worktree switch scheduling",
 			setup: func(m *uiModel) {
 				m.worktrees.create.resolving = true
-			},
-		},
+			}},
 		{
 			name: "background process loading",
 			setup: func(m *uiModel) {
 				m.processList.loading = true
-			},
-		},
+			}},
 		{
 			name: "final answer lookup",
 			setup: func(m *uiModel) {
 				m.finalAnswerOperation = &uiFinalAnswerOperation{}
-			},
-		},
-	}
+			}}}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			model, _ := nativeProgressTestModel(t, true)
@@ -126,7 +107,7 @@ func TestNativeProgressEligibilityUsesOnlyApprovedSources(t *testing.T) {
 
 func TestReviewerAddressingFeedbackRemainsActiveInTUIStatus(t *testing.T) {
 	model, _ := nativeProgressTestModel(t, true)
-	model.runtimeActivityProjection.Reviewer = clientui.ReviewerActivityAddressingFeedback
+	model.runtimeActivityProjection.Reviewer = runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_ADDRESSING_FEEDBACK
 	if !model.isReviewerActive() || model.statusLinePhase() != statusLinePhaseSuccess || !model.statusLineSpinning() {
 		t.Fatalf("addressing-feedback status = active=%t phase=%v spinning=%t", model.isReviewerActive(), model.statusLinePhase(), model.statusLineSpinning())
 	}
@@ -137,8 +118,7 @@ func TestReviewerAddressingFeedbackRemainsActiveInTUIStatus(t *testing.T) {
 
 func TestNativeProgressUsesOneDelayedAggregateInterval(t *testing.T) {
 	model, output := nativeProgressTestModel(t, true)
-	model.runtimeActivityProjection.Reviewer = clientui.ReviewerActivityInvoking
-
+	model.runtimeActivityProjection.Reviewer = runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INVOKING
 	showCmd := model.reconcileNativeProgress()
 	if showCmd == nil || model.nativeProgress.phase != uiNativeProgressWaiting {
 		t.Fatalf("initial progress state = %+v, want waiting with delay command", model.nativeProgress)
@@ -343,5 +323,9 @@ func nativeProgressTestModel(t *testing.T, enabled bool) (*uiModel, *bytes.Buffe
 		WithUINativeProgressBar(enabled),
 		WithUITerminalOutput(newUITerminalOutput(output)),
 	)
+	model.runtimeActivityProjection = &runtimepb.Activity{
+		State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
+		Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
+	}
 	return model, output
 }

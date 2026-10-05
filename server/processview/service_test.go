@@ -3,18 +3,26 @@ package processview
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
+	"core/server/tools/shell/postprocess"
+	"core/shared/config"
+	processpb "core/shared/protoapi/gen/kent/api/process"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
+	"google.golang.org/protobuf/proto"
 )
 
 const processViewTestWaitTimeout = 10 * time.Second
+const processViewTestProjectID = "project-1"
 
 func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 	fixture := newProcessViewFixture(t)
@@ -29,12 +37,18 @@ func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 			return shelltool.Snapshot{}, false
 		}
 		process := entries[0]
-		if !process.OutputAvailable || process.OutputRetainedFromBytes != 0 || process.OutputRetainedToBytes <= 0 {
+		if process.LogPath == "" || process.RecentOutput == "" {
 			return shelltool.Snapshot{}, false
 		}
 		return process, true
 	})
-	resp, err := fixture.service.ListProcesses(context.Background(), serverapi.ProcessListRequest{OwnerSessionID: "session-1", OwnerRunID: "run-1"})
+	ownerSessionID := "session-1"
+	ownerRunID := "run-1"
+	resp, err := fixture.service.ListProcesses(context.Background(), &processpb.ListRequest{
+		ProjectId:      processViewTestProjectID,
+		OwnerSessionId: &ownerSessionID,
+		OwnerRunId:     &ownerRunID,
+	})
 	if err != nil {
 		t.Fatalf("ListProcesses: %v", err)
 	}
@@ -42,26 +56,223 @@ func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 		t.Fatalf("expected one process, got %+v", resp.Processes)
 	}
 	process := resp.Processes[0]
-	if process.OwnerSessionID != "session-1" || process.OwnerRunID != "run-1" || process.OwnerStepID != "step-1" {
+	if process.OwnerSessionId != "session-1" || process.GetOwnerRunId() != "run-1" || process.GetOwnerStepId() != "step-1" {
 		t.Fatalf("unexpected ownership: %+v", process)
 	}
 	if !process.Backgrounded || !process.Running {
 		t.Fatalf("expected backgrounded running process, got %+v", process)
 	}
-	if !process.OutputAvailable || process.OutputRetainedFromBytes != 0 || process.OutputRetainedToBytes <= 0 {
-		t.Fatalf("expected retained output metadata, got %+v", process)
+	if process.LogPath == "" || process.RecentOutput == "" {
+		t.Fatalf("expected log path and output preview, got %+v", process)
 	}
 
-	got, err := fixture.service.GetProcess(context.Background(), serverapi.ProcessGetRequest{ProcessID: process.ID})
+	got, err := fixture.service.GetProcess(context.Background(), &processpb.GetRequest{ProcessId: process.Id})
 	if err != nil {
 		t.Fatalf("GetProcess: %v", err)
 	}
-	if got.Process == nil || got.Process.OwnerRunID != "run-1" || got.Process.OwnerStepID != "step-1" {
+	if got.Process == nil || got.Process.GetOwnerRunId() != "run-1" || got.Process.GetOwnerStepId() != "step-1" {
 		t.Fatalf("unexpected process payload: %+v", got.Process)
 	}
-	if !got.Process.OutputAvailable || got.Process.OutputRetainedFromBytes != 0 || got.Process.OutputRetainedToBytes < process.OutputRetainedToBytes {
-		t.Fatalf("expected retained output metadata from get, got %+v", got.Process)
+	if got.Process.LogPath != process.LogPath || got.Process.RecentOutput == "" {
+		t.Fatalf("expected log path and output preview from get, got %+v", got.Process)
 	}
+}
+
+func TestServiceListExcludesForegroundProcesses(t *testing.T) {
+	fixture := newProcessViewFixture(t)
+	sub, err := fixture.service.ObserveProcesses(context.Background(), &processpb.ObserveRequest{
+		ProjectId: processViewTestProjectID, SessionId: "session-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	if _, err := sub.Next(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	fixture.manager.SetMinimumExecToBgTime(2 * time.Second)
+	done := make(chan tools.Result, 1)
+	go func() {
+		done <- fixture.startCommand(t, "foreground", "sleep 1", "run-1", "step-1")
+	}()
+	waitForProcessCount(t, fixture.manager, 1)
+	list, err := fixture.service.ListProcesses(context.Background(), &processpb.ListRequest{ProjectId: processViewTestProjectID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Processes) != 0 {
+		t.Errorf("foreground command appeared in background list: %v", list.Processes)
+	}
+	<-done
+	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
+	defer cancel()
+	if _, err := sub.Next(ctx); err != context.DeadlineExceeded {
+		t.Fatalf("foreground activity emitted update: %v", err)
+	}
+}
+
+func TestObservationReplacesWithLatestCompletedListInServerOrder(t *testing.T) {
+	fixture := newProcessViewFixture(t)
+	sub, err := fixture.service.ObserveProcesses(context.Background(), &processpb.ObserveRequest{
+		ProjectId: processViewTestProjectID, SessionId: "session-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	empty, err := sub.Next(context.Background())
+	if err != nil || len(empty.Processes) != 0 {
+		t.Fatalf("initial contents: %v (%v)", empty, err)
+	}
+	for _, id := range []string{"first", "second"} {
+		fixture.startCommand(t, id, "sleep 30", "run-1", "step-1")
+	}
+	initial, err := sub.Next(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(initial.Processes) != 2 {
+		t.Fatalf("initial: %v", initial)
+	}
+	for _, process := range initial.Processes {
+		if _, err := fixture.service.KillProcess(context.Background(), &processpb.KillRequest{ProcessId: process.Id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitForProcessSnapshot(t, processViewTestWaitTimeout, func() (shelltool.Snapshot, bool) {
+		snapshots := fixture.manager.List()
+		return snapshots[0], !snapshots[0].Running && !snapshots[1].Running
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), processViewTestWaitTimeout)
+	defer cancel()
+	replacement, err := sub.Next(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := fixture.service.ListProcesses(ctx, &processpb.ListRequest{
+		ProjectId: processViewTestProjectID, OwnerSessionId: proto.String("session-1"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proto.Equal(replacement, current) || len(replacement.Processes) != 2 {
+		t.Fatalf("replacement %v does not match latest ordered list %v", replacement, current)
+	}
+}
+
+func TestObservationInitialSessionScopeAndClose(t *testing.T) {
+	fixture := newProcessViewFixture(t)
+	fixture.startCommand(t, "background", "sleep 30", "run-1", "step-1")
+	for _, sessionID := range []string{"session-1", "session-2"} {
+		sub, err := fixture.service.ObserveProcesses(context.Background(), &processpb.ObserveRequest{
+			ProjectId: processViewTestProjectID, SessionId: sessionID,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		list, err := sub.Next(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := 0
+		if sessionID == "session-1" {
+			want = 1
+		}
+		if len(list.Processes) != want {
+			t.Fatalf("session %s: got %v", sessionID, list)
+		}
+		if err := sub.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if snapshot := fixture.manager.List()[0]; !snapshot.Running {
+		t.Fatal("closing observation stopped process")
+	}
+}
+
+func TestObservationBatchesOnlyMatchingChanges(t *testing.T) {
+	fixture := newProcessViewFixture(t)
+	synctest.Test(t, func(t *testing.T) {
+		sub, err := fixture.service.ObserveProcesses(context.Background(), &processpb.ObserveRequest{
+			ProjectId: processViewTestProjectID, SessionId: "session-1",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer sub.Close()
+		if _, err := sub.Next(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		delivered := make(chan *processpb.ListSuccess, 4)
+		go func() {
+			for {
+				list, err := sub.Next(context.Background())
+				if err != nil {
+					return
+				}
+				delivered <- list
+			}
+		}()
+		synctest.Wait()
+		fixture.service.BackgroundListChanged("session-2")
+		time.Sleep(time.Second)
+		synctest.Wait()
+		if len(delivered) != 0 {
+			t.Fatal("other Session or idle time emitted a list")
+		}
+		for range 10 {
+			fixture.service.BackgroundListChanged("session-1")
+		}
+		synctest.Wait()
+		time.Sleep(499 * time.Millisecond)
+		synctest.Wait()
+		if len(delivered) != 0 {
+			t.Fatal("burst emitted before cadence")
+		}
+		time.Sleep(time.Millisecond)
+		synctest.Wait()
+		if len(delivered) != 1 {
+			t.Fatalf("burst delivered %d lists", len(delivered))
+		}
+		fixture.service.BackgroundListChanged("session-1")
+		synctest.Wait()
+		time.Sleep(499 * time.Millisecond)
+		synctest.Wait()
+		if len(delivered) != 1 {
+			t.Fatal("consecutive replacements exceeded the selected cadence")
+		}
+		time.Sleep(time.Millisecond)
+		synctest.Wait()
+		if len(delivered) != 2 {
+			t.Fatal("next burst did not deliver its replacement")
+		}
+		time.Sleep(time.Second)
+		synctest.Wait()
+		if len(delivered) != 2 {
+			t.Fatal("idle observation emitted a list")
+		}
+	})
+}
+
+func TestObservationFailsWhenReplacementCannotBeDelivered(t *testing.T) {
+	fixture := newProcessViewFixture(t)
+	synctest.Test(t, func(t *testing.T) {
+		sub, err := fixture.service.ObserveProcesses(context.Background(), &processpb.ObserveRequest{
+			ProjectId: processViewTestProjectID, SessionId: "session-1",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer sub.Close()
+		// Leave the initial list waiting while a replacement becomes available.
+		fixture.service.BackgroundListChanged("session-1")
+		synctest.Wait()
+		time.Sleep(500 * time.Millisecond)
+		synctest.Wait()
+		if _, err := sub.Next(context.Background()); !errors.Is(err, serverapi.ErrStreamGap) {
+			t.Fatalf("slow observation returned %v, want stream gap", err)
+		}
+	})
 }
 
 type processViewFixture struct {
@@ -72,15 +283,21 @@ type processViewFixture struct {
 
 func newProcessViewFixture(t *testing.T) processViewFixture {
 	t.Helper()
-	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(250 * time.Millisecond))
+	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(250*time.Millisecond))
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}
 	t.Cleanup(func() { _ = manager.Close() })
 
 	workspace := t.TempDir()
-	tool := shelltool.NewExecCommandTool(workspace, 16_000, 200_000, manager, "session-1")
-	return processViewFixture{manager: manager, tool: tool, service: NewProcessViewService(manager)}
+	tool := shelltool.NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "session-1", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
+	service := NewProcessViewService(manager, allProjectSessionMembership{})
+	manager.SetBackgroundListChangeHandler(service.BackgroundListChanged)
+	return processViewFixture{
+		manager: manager,
+		tool:    tool,
+		service: service,
+	}
 }
 
 func (f processViewFixture) startCommand(t *testing.T, id string, command string, runID string, stepID string) tools.Result {
@@ -115,11 +332,15 @@ func TestServiceListProcessesFiltersByOwnerRunID(t *testing.T) {
 
 	waitForProcessCount(t, fixture.manager, 2)
 
-	resp, err := fixture.service.ListProcesses(context.Background(), serverapi.ProcessListRequest{OwnerRunID: "run-b"})
+	ownerRunID := "run-b"
+	resp, err := fixture.service.ListProcesses(context.Background(), &processpb.ListRequest{
+		ProjectId:  processViewTestProjectID,
+		OwnerRunId: &ownerRunID,
+	})
 	if err != nil {
 		t.Fatalf("ListProcesses: %v", err)
 	}
-	if len(resp.Processes) != 1 || resp.Processes[0].OwnerRunID != "run-b" {
+	if len(resp.Processes) != 1 || resp.Processes[0].GetOwnerRunId() != "run-b" {
 		t.Fatalf("unexpected filtered processes: %+v", resp.Processes)
 	}
 }
@@ -131,12 +352,12 @@ func TestServiceGetInlineOutputReturnsManagerPreview(t *testing.T) {
 		t.Fatalf("expected successful tool result, got %+v", result)
 	}
 
-	waitForInlineOutput(t, processViewTestWaitTimeout, func() (serverapi.ProcessInlineOutputResponse, error) {
-		return fixture.service.GetInlineOutput(context.Background(), serverapi.ProcessInlineOutputRequest{ProcessID: "1000", MaxChars: 12_000})
-	}, func(resp serverapi.ProcessInlineOutputResponse) bool {
+	waitForInlineOutput(t, processViewTestWaitTimeout, func() (*processpb.InlineOutputSuccess, error) {
+		return fixture.service.GetInlineOutput(context.Background(), &processpb.InlineOutputRequest{ProcessId: "1000", MaxChars: 12_000})
+	}, func(resp *processpb.InlineOutputSuccess) bool {
 		return resp.LogPath != "" && strings.Contains(resp.Output, "inline-preview")
 	})
-	resp, err := fixture.service.GetInlineOutput(context.Background(), serverapi.ProcessInlineOutputRequest{ProcessID: "1000", MaxChars: 12_000})
+	resp, err := fixture.service.GetInlineOutput(context.Background(), &processpb.InlineOutputRequest{ProcessId: "1000", MaxChars: 12_000})
 	if err != nil {
 		t.Fatalf("GetInlineOutput: %v", err)
 	}
@@ -145,66 +366,44 @@ func TestServiceGetInlineOutputReturnsManagerPreview(t *testing.T) {
 	}
 }
 
-func TestServiceKillProcessSignalsManagerEntry(t *testing.T) {
+func TestServiceKillProcessHonorsCancellationAndSignalsManagerEntry(t *testing.T) {
 	fixture := newProcessViewFixture(t)
 	result := fixture.startCommand(t, "call-kill", "sleep 30", "run-1", "step-1")
 	if result.IsError {
 		t.Fatalf("expected successful tool result, got %+v", result)
 	}
 
-	if _, err := fixture.service.KillProcess(context.Background(), serverapi.ProcessKillRequest{ProcessID: "1000"}); err != nil {
-		t.Fatalf("KillProcess: %v", err)
+	processes := fixture.manager.List()
+	if len(processes) != 1 {
+		t.Fatalf("process count = %d, want 1", len(processes))
 	}
-	waitForProcessKilled(t, fixture.manager, "1000")
-}
-
-func TestServiceKillProcessHonorsCanceledContext(t *testing.T) {
-	source := &stubKillProcessSource{}
-	svc := NewProcessViewService(source)
+	id := processes[0].ID
+	req := &processpb.KillRequest{ProcessId: id}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := svc.KillProcess(ctx, serverapi.ProcessKillRequest{ProcessID: "1000"}); err != context.Canceled {
+	if _, err := fixture.service.KillProcess(ctx, req); err != context.Canceled {
 		t.Fatalf("KillProcess error = %v, want context canceled", err)
 	}
-	if source.killCalls != 0 {
-		t.Fatalf("kill call count = %d, want 0", source.killCalls)
+	snapshot, err := fixture.manager.Snapshot(id)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestServiceKillProcessRepeatedCallExecutesAgain(t *testing.T) {
-	source := &stubKillProcessSource{}
-	svc := NewProcessViewService(source)
-	req := serverapi.ProcessKillRequest{ProcessID: "1000"}
-
-	if _, err := svc.KillProcess(context.Background(), req); err != nil {
-		t.Fatalf("KillProcess first: %v", err)
+	if snapshot.KillRequested || !snapshot.Running {
+		t.Fatalf("canceled request changed process state: %+v", snapshot)
 	}
-	if _, err := svc.KillProcess(context.Background(), req); err != nil {
-		t.Fatalf("KillProcess second: %v", err)
+	if _, err := fixture.service.KillProcess(context.Background(), req); err != nil {
+		t.Fatalf("KillProcess: %v", err)
 	}
-	if source.killCalls != 2 {
-		t.Fatalf("kill call count = %d, want 2", source.killCalls)
-	}
+	waitForProcessKilled(t, fixture.manager, id)
 }
 
-type stubKillProcessSource struct {
-	killCalls int
-	killErr   error
-}
+type allProjectSessionMembership struct{}
 
-func (s *stubKillProcessSource) List() []shelltool.Snapshot { return nil }
-
-func (s *stubKillProcessSource) Snapshot(string) (shelltool.Snapshot, error) {
-	return shelltool.Snapshot{}, nil
-}
-
-func (s *stubKillProcessSource) Kill(string) error {
-	s.killCalls++
-	return s.killErr
-}
-
-func (s *stubKillProcessSource) InlineOutput(string, int) (string, string, error) {
-	return "", "", nil
+func (allProjectSessionMembership) ListProjectSessionIDs(
+	_ context.Context,
+	_ string,
+) ([]string, error) {
+	return []string{"session-1"}, nil
 }
 
 func waitForProcessCount(t *testing.T, manager *shelltool.Manager, count int) {
@@ -237,9 +436,9 @@ func waitForProcessSnapshot(t *testing.T, timeout time.Duration, check func() (s
 	return snapshot
 }
 
-func waitForInlineOutput(t *testing.T, timeout time.Duration, call func() (serverapi.ProcessInlineOutputResponse, error), match func(serverapi.ProcessInlineOutputResponse) bool) serverapi.ProcessInlineOutputResponse {
+func waitForInlineOutput(t *testing.T, timeout time.Duration, call func() (*processpb.InlineOutputSuccess, error), match func(*processpb.InlineOutputSuccess) bool) *processpb.InlineOutputSuccess {
 	t.Helper()
-	var resp serverapi.ProcessInlineOutputResponse
+	var resp *processpb.InlineOutputSuccess
 	testsetup.RequireUntil(t, time.Now().Add(timeout), 10*time.Millisecond, func() bool {
 		var err error
 		resp, err = call()

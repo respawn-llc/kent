@@ -15,8 +15,6 @@ import (
 	"core/internal/testharness/runtimewirefixture"
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
-	"core/server/metadata"
-	"core/server/runlog"
 	"core/server/runtime"
 	"core/server/runtimewire"
 	"core/server/session"
@@ -53,6 +51,47 @@ type authorityAutoReleaseLifecycle struct {
 	release func() error
 }
 
+type authorityHeldDrainingLifecycle struct {
+	authorityLifecycleProbe
+	resume chan struct{}
+}
+
+func (l *authorityHeldDrainingLifecycle) ResourceDraining(ctx context.Context, descriptor AgentResourceDescriptor) error {
+	err := l.authorityLifecycleProbe.ResourceDraining(ctx, descriptor)
+	<-l.resume
+	return err
+}
+
+func TestAuthorityShutdownDuringResourceRetirement(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	lifecycle := &authorityHeldDrainingLifecycle{
+		authorityLifecycleProbe: authorityLifecycleProbe{draining: make(chan struct{})},
+		resume:                  make(chan struct{}),
+	}
+	authority := NewAuthority(AuthorityOptions{
+		PersistenceRoot:   fixture.config.PersistenceRoot,
+		StoreOptions:      fixture.metadata.AuthoritativeSessionStoreOptions(),
+		ResourceLifecycle: lifecycle,
+	})
+	plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
+	attachment := openLifecycleRuntime(t, authority, lifecycleSessionID(t, fixture), "owner", &plan)
+	retired := make(chan error, 1)
+	go func() {
+		_, err := attachment.Release(context.Background(), RuntimeReleaseClose)
+		retired <- err
+	}()
+	<-lifecycle.draining
+	shutdownErr := authority.Close(context.Background())
+	close(lifecycle.resume)
+	if err := <-retired; err != nil {
+		t.Errorf("retire resource during shutdown: %v", err)
+	}
+	if shutdownErr != nil {
+		t.Errorf("shutdown during resource retirement: %v", shutdownErr)
+	}
+	assertRuntimeUnavailable(t, authority, attachment.Resource(), "shutdown completed")
+}
+
 type authorityPromptEvent struct {
 	resource  runtimeids.SessionResourceRef
 	scopeID   runtimeids.ExecutionScopeID
@@ -83,29 +122,118 @@ type ownerlessRetirementLLMClient struct {
 	releaseFirst chan struct{}
 }
 
-func TestAuthorityCloseCancelsAndJoinsLifecycleTasks(t *testing.T) {
-	authority := NewAuthority(AuthorityOptions{})
-	started := make(chan struct{})
-	stopped := make(chan struct{})
-	if !authority.launchLifecycleTask(func(ctx context.Context) {
-		close(started)
-		<-ctx.Done()
-		close(stopped)
-	}) {
-		t.Fatal("authority rejected lifecycle task before close")
-	}
-	<-started
+func TestDestructiveSessionAdmissionHasOneAtomicWinner(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	sessionID := lifecycleSessionID(t, fixture)
+	plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
+	lifecycle := &authorityAutoReleaseLifecycle{}
+	authority := NewAuthority(AuthorityOptions{
+		PersistenceRoot:   fixture.config.PersistenceRoot,
+		StoreOptions:      fixture.metadata.AuthoritativeSessionStoreOptions(),
+		ResourceLifecycle: lifecycle,
+	})
+	t.Cleanup(func() {
+		if err := authority.Close(context.Background()); err != nil {
+			t.Errorf("close authority: %v", err)
+		}
+	})
+	attachment := openLifecycleRuntime(t, authority, sessionID, "open-client", &plan)
 
-	if err := authority.Close(context.Background()); err != nil {
-		t.Fatalf("close authority: %v", err)
+	callbackEntered := make(chan struct{})
+	releaseCallback := make(chan struct{})
+	callbackDone := make(chan error, 1)
+	go func() {
+		callbackDone <- authority.WithRuntime(
+			context.Background(),
+			attachment.Resource(),
+			func(context.Context, *runtime.Engine) error {
+				close(callbackEntered)
+				<-releaseCallback
+				return nil
+			},
+		)
+	}()
+	<-callbackEntered
+
+	destructiveCalled := false
+	err := authority.WithDestructiveSessionAdmission(
+		context.Background(),
+		sessionID,
+		func(context.Context) error {
+			destructiveCalled = true
+			return nil
+		},
+	)
+	var inUse *SessionInUseError
+	if !errors.As(err, &inUse) || inUse.SessionID != sessionID {
+		t.Fatalf("destructive admission error = %v, want SessionInUseError for %s", err, sessionID)
 	}
+	if destructiveCalled {
+		t.Fatal("destructive callback ran after the Runtime callback won admission")
+	}
+	if _, resolveErr := fixture.metadata.ResolvePersistedSession(t.Context(), sessionID.String()); resolveErr != nil {
+		t.Fatalf("callback-winning Session was mutated: %v", resolveErr)
+	}
+	close(releaseCallback)
+	if err := <-callbackDone; err != nil {
+		t.Fatalf("Runtime callback: %v", err)
+	}
+
+	deleted := make(chan struct{})
+	releaseDeletion := make(chan struct{})
+	var releaseDeletionOnce sync.Once
+	releaseDestructiveDeletion := func() {
+		releaseDeletionOnce.Do(func() { close(releaseDeletion) })
+	}
+	t.Cleanup(releaseDestructiveDeletion)
+	deletionDone := make(chan error, 1)
+	go func() {
+		deletionDone <- authority.WithDestructiveSessionAdmission(
+			context.Background(),
+			sessionID,
+			func(ctx context.Context) error {
+				record, resolveErr := fixture.metadata.ResolvePersistedSession(ctx, sessionID.String())
+				if resolveErr != nil {
+					return resolveErr
+				}
+				schedule, preflightErr := session.PreflightSessionArtifactRemoval(record.SessionDir)
+				if preflightErr != nil {
+					return preflightErr
+				}
+				if deleteErr := fixture.metadata.DeleteSession(ctx, sessionID.String()); deleteErr != nil {
+					return deleteErr
+				}
+				close(deleted)
+				<-releaseDeletion
+				return session.RemovePreflightedSessionArtifacts(schedule)
+			},
+		)
+	}()
 	select {
-	case <-stopped:
-	default:
-		t.Fatal("Authority.Close returned before its lifecycle task stopped")
+	case <-deleted:
+	case err := <-deletionDone:
+		t.Fatalf("destructive admission completed before deletion callback entered: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("destructive deletion callback did not enter")
 	}
-	if authority.launchLifecycleTask(func(context.Context) {}) {
-		t.Fatal("closed authority accepted another lifecycle task")
+
+	if runtimeErr := authority.WithRuntime(
+		context.Background(),
+		attachment.Resource(),
+		func(context.Context, *runtime.Engine) error { return nil },
+	); !errors.Is(runtimeErr, serverapi.ErrRuntimeUnavailable) {
+		t.Fatalf("Runtime use while destructive admission was held = %v, want Runtime unavailable", runtimeErr)
+	}
+	releaseDestructiveDeletion()
+	if err := <-deletionDone; err != nil {
+		t.Fatalf("destructive deletion: %v", err)
+	}
+	if _, openErr := authority.OpenRuntime(context.Background(), RuntimeOpenRequest{
+		SessionID: sessionID,
+		OwnerID:   "recreate-client",
+		Runtime:   &plan,
+	}); !errors.Is(openErr, session.ErrSessionNotFound) {
+		t.Fatalf("Runtime recreation error = %v, want Session not found", openErr)
 	}
 }
 
@@ -451,7 +579,7 @@ func (f authorityPromptFeed) PromptPendingScope(scope ExecutionScope, req tools.
 	if err != nil {
 		return err
 	}
-	f <- authorityPromptEvent{resource: resource, scopeID: scope.ID(), stepID: stepID, requestID: req.ID}
+	f <- authorityPromptEvent{resource: resource, scopeID: scope.ID(), stepID: stepID, requestID: req.ToolCallID}
 	return nil
 }
 
@@ -493,7 +621,7 @@ func TestOpenRuntimeReturnsRunLoggerCreationError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse session id: %v", err)
 	}
-	if err := os.Mkdir(filepath.Join(fixture.store.Dir(), runlog.RunLogFileName), 0o755); err != nil {
+	if err := os.Mkdir(session.RunLogPath(fixture.store.Dir()), 0o755); err != nil {
 		t.Fatalf("replace run log with directory: %v", err)
 	}
 	plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
@@ -1573,7 +1701,7 @@ func TestAgentExecutionBindsAndClearsShellCorrelation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse session id: %v", err)
 	}
-	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(20 * time.Millisecond))
+	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(20*time.Millisecond))
 	if err != nil {
 		t.Fatalf("new shell manager: %v", err)
 	}
@@ -1598,15 +1726,15 @@ func TestAgentExecutionBindsAndClearsShellCorrelation(t *testing.T) {
 		toolResponse("call-scoped"), done, toolResponse("call-idle"), done,
 	}}
 	settings := fixture.config.Settings
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200000
 	settings.MinimumExecToBgSeconds = 1
 	settings.ShellOutputMaxChars = 16_000
 	settings.Reviewer.Frequency = "off"
 	plan, err := NewAgentRuntimePlan(AgentRuntimePlanOptions{
-		Settings:              settings,
-		EnabledTools:          []toolspec.ID{toolspec.ToolExecCommand},
-		FilesystemContext:     runtimeTestFilesystemContext(t, fixture.config.WorkspaceRoot),
+		Settings:          settings,
+		EnabledTools:      []toolspec.ID{toolspec.ToolExecCommand},
+		MainWorkspaceRoot: fixture.config.WorkspaceRoot, FilesystemContext: runtimeTestFilesystemContext(t, fixture.config.WorkspaceRoot),
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		Client:                client,
@@ -1752,7 +1880,6 @@ func TestExecutionCleanupAlwaysReleasesWorkflowBinding(t *testing.T) {
 			finalizing := &execution{
 				scope: newAgentExecutionScope(
 					executionConfig.ScopeID,
-					ExecutionGeneration(1),
 					attachment.Resource(),
 					nil,
 				),
@@ -1991,10 +2118,8 @@ func TestCompletedWorkflowSessionDoesNotStartBackgroundContinuation(t *testing.T
 	sessionID := lifecycleSessionID(t, fixture)
 	mode := sessioncontract.WorkflowCompletionModeTool
 	if err := fixture.store.MarkModelDispatchLocked(session.LockedContract{
-		Model:                  "gpt-5",
+		Model:                  "gpt-6-sol",
 		Temperature:            1,
-		ContextWindow:          200000,
-		ContextPercent:         95,
 		EnabledTools:           []string{string(toolspec.ToolAskQuestion)},
 		HasEnabledTools:        true,
 		WorkflowCompletionMode: &mode,
@@ -2500,7 +2625,7 @@ func TestPromptResponseResolvesCurrentExactExecutionScope(t *testing.T) {
 
 	askID := uuid.NewString()
 	request := tools.AskQuestionRequest{
-		ID: askID, StepID: uuid.NewString(), Question: "Proceed?",
+		ToolCallID: askID, StepID: uuid.NewString(), Question: "Proceed?",
 	}
 	workflowRef := workflowExecutionRefForTest(t, "task-pending-question", "node-pending-question", nil)
 	responseDone := make(chan promptAwaitTestResult, 1)
@@ -2588,7 +2713,7 @@ func TestPromptResponseResolvesCurrentExactExecutionScope(t *testing.T) {
 	if err := <-waitingDone; !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled waiting mutation error = %v, want context canceled", err)
 	}
-	second := tools.AskQuestionRequest{ID: uuid.NewString(), StepID: uuid.NewString(), Question: "Again?"}
+	second := tools.AskQuestionRequest{ToolCallID: uuid.NewString(), StepID: uuid.NewString(), Question: "Again?"}
 	err = authority.WithInterruptibleAgentTurn(context.Background(), sessionID, nil, func(context.Context, *runtime.Engine) error {
 		started := make(chan struct{})
 		go func() {
@@ -2606,12 +2731,99 @@ func TestPromptResponseResolvesCurrentExactExecutionScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("interruptible Agent Turn mutation: %v", err)
 	}
-	if pending := <-feed; pending.requestID != second.ID || pending.resolved {
+	if pending := <-feed; pending.requestID != second.ToolCallID || pending.resolved {
 		t.Fatalf("second pending prompt = %+v", pending)
 	}
 	close(releaseExecution)
 	if _, err := handle.Wait(context.Background()); err != nil {
 		t.Fatalf("wait agent execution: %v", err)
+	}
+}
+
+func TestPendingPromptKeepsExactExecutionInterruptibleWithoutActiveRuntimeStep(t *testing.T) {
+	tests := []struct {
+		name      string
+		interrupt func(context.Context, *Authority, runtimeids.SessionID) (bool, error)
+	}{
+		{
+			name: "runtime interrupt",
+			interrupt: func(ctx context.Context, authority *Authority, sessionID runtimeids.SessionID) (bool, error) {
+				return authority.InterruptSession(ctx, sessionID)
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newSessionRuntimeFixture(t)
+			sessionID := lifecycleSessionID(t, fixture)
+			feed := make(authorityPromptFeed, 2)
+			authority := NewAuthority(AuthorityOptions{
+				PersistenceRoot: fixture.config.PersistenceRoot,
+				StoreOptions:    fixture.metadata.AuthoritativeSessionStoreOptions(),
+				PromptFeed:      feed,
+			})
+			t.Cleanup(func() {
+				if err := authority.Close(context.Background()); err != nil {
+					t.Errorf("close authority: %v", err)
+				}
+			})
+			plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
+			request := tools.AskQuestionRequest{
+				ToolCallID: uuid.NewString(), StepID: uuid.NewString(), Question: "Proceed?",
+			}
+			awaitDone := make(chan error, 1)
+			handle, err := startWorkflowAgentExecutionForTest(t, authority, workflowAgentExecutionRequest{
+				Descriptor: mustOpenSessionDescriptor(t, sessionID),
+				Runtime:    &plan,
+				Workflow:   workflowExecutionRefForTest(t, "task-prompt-interrupt", "node-prompt-interrupt", nil),
+				Resource:   OpenAgentResource{},
+				Runner: func(ctx context.Context, scope ExecutionScope, _ AgentRuntimeBridge) error {
+					_, awaitErr := authority.AwaitPromptResolution(ctx, scope.ID(), request)
+					awaitDone <- awaitErr
+					return awaitErr
+				},
+			})
+			if err != nil {
+				t.Fatalf("start agent execution: %v", err)
+			}
+			if pending := <-feed; pending.scopeID != handle.Scope().ID() || pending.requestID != request.ToolCallID || pending.resolved {
+				t.Fatalf("pending prompt = %+v", pending)
+			}
+			var engine *runtime.Engine
+			if err := authority.WithCurrentRuntime(context.Background(), sessionID, func(_ context.Context, current *runtime.Engine) error {
+				engine = current
+				return nil
+			}); err != nil {
+				t.Fatalf("capture Runtime before interruption: %v", err)
+			}
+
+			interrupted, err := test.interrupt(context.Background(), authority, sessionID)
+			if err != nil || !interrupted {
+				t.Fatalf("interrupt pending prompt = (%t, %v), want accepted", interrupted, err)
+			}
+			if err := <-awaitDone; !errors.Is(err, context.Canceled) {
+				t.Fatalf("pending prompt result = %v, want context canceled", err)
+			}
+			if resolved := <-feed; resolved.requestID != request.ToolCallID || !resolved.resolved {
+				t.Fatalf("resolved prompt = %+v", resolved)
+			}
+			page, err := engine.TranscriptNewestSegmentPage()
+			if err != nil {
+				t.Fatalf("read interrupted transcript: %v", err)
+			}
+			var interruptionCount int
+			for _, entry := range page.Snapshot.Entries {
+				if entry.MessageType == llm.MessageTypeInterruption {
+					interruptionCount++
+				}
+			}
+			if interruptionCount != 1 {
+				t.Fatalf("interruption entries = %d, want 1", interruptionCount)
+			}
+			if _, err := handle.Wait(context.Background()); !errors.Is(err, context.Canceled) {
+				t.Fatalf("wait interrupted execution = %v, want context canceled", err)
+			}
+		})
 	}
 }
 
@@ -2625,14 +2837,13 @@ func TestPromptStoreMutationsDoNotRequireAuthorityLock(t *testing.T) {
 	workflowRef := workflowExecutionRefForTest(t, "task-prompt-lock", "node-prompt-lock", nil)
 	scope := newAgentExecutionScope(
 		runtimeids.NewExecutionScopeID(),
-		1,
 		resource,
 		&workflowRef,
 	)
 	feed := make(authorityPromptFeed, 2)
 	store := newExecutionPromptStore(authority, scope, feed)
 	request := tools.AskQuestionRequest{
-		ID: uuid.NewString(), StepID: uuid.NewString(), Question: "Proceed?",
+		ToolCallID: uuid.NewString(), StepID: uuid.NewString(), Question: "Proceed?",
 	}
 	resolution := testQuestionResolution("yes")
 
@@ -2651,8 +2862,8 @@ func TestPromptStoreMutationsDoNotRequireAuthorityLock(t *testing.T) {
 	}()
 	select {
 	case pending := <-feed:
-		if pending.requestID != request.ID || pending.resolved {
-			t.Fatalf("pending prompt event = %+v, want pending request %q", pending, request.ID)
+		if pending.requestID != request.ToolCallID || pending.resolved {
+			t.Fatalf("pending prompt event = %+v, want pending request %q", pending, request.ToolCallID)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("prompt registration waited for the Authority lock")
@@ -2666,8 +2877,8 @@ func TestPromptStoreMutationsDoNotRequireAuthorityLock(t *testing.T) {
 			return
 		}
 		_, resolveErr := store.ResolvePromptBatch(context.Background(), stepID, []PromptAnswerCommand{{
-			PromptID: clientui.PromptID(request.ID),
-			Payload:  PromptQuestionAnswerCommand{Answer: resolution},
+			ToolCallID: clientui.ToolCallID(request.ToolCallID),
+			Payload:    PromptQuestionAnswerCommand{Answer: resolution},
 		}})
 		submitDone <- resolveErr
 	}()
@@ -2710,12 +2921,12 @@ func TestCurrentTaskExecutionSnapshotExposesPendingPromptKinds(t *testing.T) {
 	plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
 	workflowRef := workflowExecutionRefForTest(t, "task-pending-prompts", "node-pending-prompts", nil)
 	requests := []tools.AskQuestionRequest{
-		{ID: "question-z", StepID: uuid.NewString(), Question: "Question"},
+		{ToolCallID: "question-z", StepID: uuid.NewString(), Question: "Question"},
 		{
-			ID:              "approval-a",
+			ToolCallID:      "approval-a",
 			StepID:          uuid.NewString(),
 			Approval:        true,
-			ApprovalOptions: []tools.AskQuestionApprovalOption{{Decision: tools.AskQuestionApprovalDecisionAllowOnce, Label: "Allow"}},
+			ApprovalOptions: []tools.AskQuestionApprovalOption{{Decision: tools.AskQuestionApprovalDecisionAllowOnce}},
 		},
 	}
 	handle, err := startWorkflowAgentExecutionForTest(t, authority, workflowAgentExecutionRequest{
@@ -2756,8 +2967,8 @@ func TestCurrentTaskExecutionSnapshotExposesPendingPromptKinds(t *testing.T) {
 		t.Fatalf("pending prompts = %+v, want two prompts", prompts)
 	}
 	want := []PendingPromptReference{
-		{ID: "approval-a", Kind: PendingPromptKindSessionApproval},
-		{ID: "question-z", Kind: PendingPromptKindQuestion},
+		{ToolCallID: "approval-a", Kind: PendingPromptKindSessionApproval},
+		{ToolCallID: "question-z", Kind: PendingPromptKindQuestion},
 	}
 	for index, expected := range want {
 		if prompts[index] != expected {
@@ -2776,7 +2987,7 @@ func TestCurrentTaskExecutionSnapshotExposesPendingPromptKinds(t *testing.T) {
 	}
 }
 
-func TestCurrentTaskExecutionSnapshotRejectsDuplicatePendingPromptIDs(t *testing.T) {
+func TestCurrentTaskExecutionSnapshotRejectsDuplicatePendingToolCallIDs(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
 	sessionID := lifecycleSessionID(t, fixture)
 	feed := make(authorityPromptFeed, 1)
@@ -2792,7 +3003,7 @@ func TestCurrentTaskExecutionSnapshotRejectsDuplicatePendingPromptIDs(t *testing
 	})
 
 	plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
-	request := tools.AskQuestionRequest{ID: "duplicate-prompt", StepID: uuid.NewString(), Question: "Question"}
+	request := tools.AskQuestionRequest{ToolCallID: "duplicate-prompt", StepID: uuid.NewString(), Question: "Question"}
 	workflowRef := workflowExecutionRefForTest(t, "task-duplicate-prompt", "node-duplicate-prompt", nil)
 	handle, err := startWorkflowAgentExecutionForTest(t, authority, workflowAgentExecutionRequest{
 		Descriptor: mustOpenSessionDescriptor(t, sessionID),
@@ -2825,7 +3036,7 @@ func TestCurrentTaskExecutionSnapshotRejectsDuplicatePendingPromptIDs(t *testing
 
 func TestTaskExecutionRejectsPendingPromptsForQueuedAndScript(t *testing.T) {
 	ref := workflowExecutionRefForTest(t, "task-invalid-prompt-state", "node-invalid-prompt-state", nil)
-	pending := []PendingPromptReference{{ID: "question", Kind: PendingPromptKindQuestion}}
+	pending := []PendingPromptReference{{ToolCallID: "question", Kind: PendingPromptKindQuestion}}
 	for name, execution := range map[string]TaskExecution{
 		"queued": {
 			Ref:            ref,
@@ -2863,7 +3074,7 @@ func TestAuthorityResolvePromptBatchUsesExactFullKey(t *testing.T) {
 	})
 
 	askID := uuid.NewString()
-	request := tools.AskQuestionRequest{ID: askID, StepID: uuid.NewString(), Question: "Proceed?"}
+	request := tools.AskQuestionRequest{ToolCallID: askID, StepID: uuid.NewString(), Question: "Proceed?"}
 	workflowRef := workflowExecutionRefForTest(t, "task-exact-prompt", "node-exact-prompt", nil)
 	plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
 	responseDone := make(chan promptAwaitTestResult, 1)
@@ -2901,8 +3112,8 @@ func TestAuthorityResolvePromptBatchUsesExactFullKey(t *testing.T) {
 		t.Fatalf("wait agent execution: %v", err)
 	}
 	results, err := authority.ResolvePromptBatch(context.Background(), sessionID, stepID, []PromptAnswerCommand{{
-		PromptID: clientui.PromptID(askID),
-		Payload:  PromptQuestionAnswerCommand{Answer: testQuestionResolution("late")},
+		ToolCallID: clientui.ToolCallID(askID),
+		Payload:    PromptQuestionAnswerCommand{Answer: testQuestionResolution("late")},
 	}})
 	if err != nil || len(results) != 1 || results[0].Outcome != PromptAnswerOutcomeSkipped {
 		t.Fatalf("retired prompt batch = (%+v, %v), want skipped", results, err)
@@ -2923,7 +3134,7 @@ func TestQuestionCompletionReplacesRetainedRuntimeAfterDrain(t *testing.T) {
 	plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
 	askID := uuid.NewString()
 	request := tools.AskQuestionRequest{
-		ID: askID, StepID: uuid.NewString(), Question: "Proceed?",
+		ToolCallID: askID, StepID: uuid.NewString(), Question: "Proceed?",
 	}
 	workflowRef := workflowExecutionRefForTest(t, "task-question-replacement", "node-question-replacement", nil)
 	handle, err := startWorkflowAgentExecutionForTest(t, authority, workflowAgentExecutionRequest{
@@ -3073,13 +3284,19 @@ func workflowExecutionRefForTestPointer(
 }
 
 func authorityTestRuntimePlan(t *testing.T, fixture sessionRuntimeFixture, client llm.Client, onEvent ...func(runtime.Event)) AgentRuntimePlan {
+	projectID, err := fixture.metadata.ResolveSessionProjectID(t.Context(), fixture.store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filesystem := runtimeTestFilesystemContext(t, fixture.config.WorkspaceRoot)
+	filesystem.Access.ProjectID = projectID
 	settings := fixture.config.Settings
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = "off"
 	options := AgentRuntimePlanOptions{
-		Settings:              settings,
-		FilesystemContext:     runtimeTestFilesystemContext(t, fixture.config.WorkspaceRoot),
+		Settings:          settings,
+		MainWorkspaceRoot: fixture.config.WorkspaceRoot, FilesystemContext: filesystem,
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		Client:                client,
@@ -3096,7 +3313,7 @@ func authorityTestRuntimePlan(t *testing.T, fixture sessionRuntimeFixture, clien
 
 func runtimeTestFilesystemContext(t *testing.T, root string) tools.FilesystemContext {
 	t.Helper()
-	context, err := runtimewire.NewFilesystemContext(root, root, metadata.ProjectWorkspaceBoundary{ProjectID: "test"})
+	context, err := runtimewire.NewFilesystemContext(root, root, "test")
 	if err != nil {
 		t.Fatalf("NewFilesystemContext: %v", err)
 	}

@@ -7,6 +7,7 @@ import "google/protobuf/empty.proto";
 import "kent/api/auth/auth.proto";
 import "kent/api/project/project.proto";
 import "kent/api/server/server.proto";
+import "kent/api/session_retarget/session_retarget.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
 
@@ -14,9 +15,10 @@ option go_package = "core/shared/protoapi/gen/kent/api/worktree;worktreepb";
 
 enum TopologyVariant {
   WORKTREE_TOPOLOGY_VARIANT_UNSPECIFIED = 0;
-  WORKTREE_TOPOLOGY_VARIANT_REGISTERED = 1;
-  WORKTREE_TOPOLOGY_VARIANT_EXTERNAL = 2;
-  WORKTREE_TOPOLOGY_VARIANT_MISSING = 3;
+  WORKTREE_TOPOLOGY_VARIANT_MAIN_WORKSPACE = 1;
+  WORKTREE_TOPOLOGY_VARIANT_REGISTERED = 2;
+  WORKTREE_TOPOLOGY_VARIANT_EXTERNAL = 3;
+  WORKTREE_TOPOLOGY_VARIANT_MISSING = 4;
 }
 
 enum SwitchOperationKind {
@@ -107,7 +109,7 @@ message GitFacts {
   bool bare = 6;
   optional string locked_reason = 7 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   optional string prunable_reason = 8 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
-  bool is_main = 9;
+  bool is_main_worktree = 9;
   bool path_available = 10;
 }
 
@@ -131,6 +133,10 @@ message RegisteredFacts {
   };
 }
 
+message MainWorkspaceFacts {
+  GitFacts git = 1 [(buf.validate.field).required = true];
+}
+
 message ExternalFacts {
   GitFacts git = 1 [(buf.validate.field).required = true];
 }
@@ -142,9 +148,10 @@ message MissingFacts {
 message TopologyEntry {
   oneof topology {
     option (buf.validate.oneof).required = true;
-    RegisteredFacts registered = 1;
-    ExternalFacts external = 2;
-    MissingFacts missing = 3;
+    MainWorkspaceFacts main_workspace = 1;
+    RegisteredFacts registered = 2;
+    ExternalFacts external = 3;
+    MissingFacts missing = 4;
   }
 }
 
@@ -186,23 +193,23 @@ message ListEntry {
     expression:
       "!has(this.projection.switch) || "
       "(!this.projection.is_current && "
-      "((has(this.topology.registered) && this.topology.registered.git.path_available && "
-      "((this.topology.registered.git.is_main && this.projection.switch.kind == 2) || "
-      "(!this.topology.registered.git.is_main && this.projection.switch.kind == 1 && "
-      "this.projection.switch.selector == this.projection.selector))) || "
+      "((has(this.topology.main_workspace) && this.topology.main_workspace.git.path_available && "
+      "this.projection.switch.kind == 2 && !has(this.projection.switch.selector)) || "
+      "(has(this.topology.registered) && this.topology.registered.git.path_available && "
+      "this.projection.switch.kind == 1 && "
+      "this.projection.switch.selector == this.projection.selector) || "
       "(has(this.topology.external) && this.topology.external.git.path_available && "
-      "((this.topology.external.git.is_main && this.projection.switch.kind == 2) || "
-      "(!this.topology.external.git.is_main && this.projection.switch.kind == 1 && "
-      "this.projection.switch.selector == this.projection.selector)))))"
-  };
+      "this.projection.switch.kind == 1 && "
+      "this.projection.switch.selector == this.projection.selector)))"
+    };
   option (buf.validate.message).cel = {
     id: "kent.worktree.list_entry_delete_preview"
     message: "worktree delete preview projection must match topology"
     expression:
       "!has(this.projection.delete_preview) || "
-      "(has(this.topology.registered) && !this.topology.registered.git.is_main && "
+      "(has(this.topology.registered) && !this.topology.registered.git.is_main_worktree && "
       "this.projection.delete_preview.selector == this.topology.registered.kent.worktree_id) || "
-      "(has(this.topology.external) && !this.topology.external.git.is_main && "
+      "(has(this.topology.external) && !this.topology.external.git.is_main_worktree && "
       "this.projection.delete_preview.selector == this.topology.external.git.canonical_root) || "
       "(has(this.topology.missing) && "
       "this.projection.delete_preview.selector == this.topology.missing.kent.worktree_id)"
@@ -227,7 +234,7 @@ message SessionExecutionWorktreeTarget {
 }
 
 message SessionExecutionTarget {
-  string workspace_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional string workspace_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string workspace_name = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string workspace_root = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   kent.api.project.ProjectAvailability workspace_availability = 4 [(buf.validate.field).enum = {
@@ -363,11 +370,21 @@ message SelectorErrorDetails {
   };
 }
 
+enum SetupRecoveryDisposition {
+  SETUP_RECOVERY_DISPOSITION_UNSPECIFIED = 0;
+  SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING = 1;
+  SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT = 2;
+}
+
 message SetupRetainedDetails {
   RegisteredFacts worktree = 1 [(buf.validate.field).required = true];
   string script_path = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string diagnostic = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   optional RetainedPreviousWorktree retained_previous_worktree = 4;
+  SetupRecoveryDisposition recovery_disposition = 5 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
 }
 
 message DeletePreconditionDetails {
@@ -388,7 +405,22 @@ message CreateFailureDetails {
   string diagnostic = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
-message BlockedDetails {}
+message BlockingSession {
+  string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional string name = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+}
+
+message ActiveSessionBlockers {
+  repeated BlockingSession sessions = 1 [(buf.validate.field).repeated = {
+    min_items: 1
+    max_items: 50
+  }];
+  bool has_more = 2;
+}
+
+message BlockedDetails {
+  optional ActiveSessionBlockers active_sessions = 1;
+}
 
 message PendingWorkCapacityDetails {}
 
@@ -408,6 +440,10 @@ message StatusError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
@@ -438,6 +474,7 @@ message ListRequest {
 message ListSuccess {
   SessionExecutionTarget target = 1 [(buf.validate.field).required = true];
   repeated ListEntry worktrees = 2;
+  optional string branch_suggestion = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 
   option (buf.validate.message).cel = {
     id: "kent.worktree.session_list_projection"
@@ -446,11 +483,12 @@ message ListSuccess {
       "this.worktrees.all(w, "
       "has(w.projection.switch) == "
       "(!w.projection.is_current && "
-      "((has(w.topology.registered) && w.topology.registered.git.path_available) || "
+      "((has(w.topology.main_workspace) && w.topology.main_workspace.git.path_available) || "
+      "(has(w.topology.registered) && w.topology.registered.git.path_available) || "
       "(has(w.topology.external) && w.topology.external.git.path_available))) && "
       "has(w.projection.delete_preview) == "
-      "((has(w.topology.registered) && !w.topology.registered.git.is_main) || "
-      "(has(w.topology.external) && !w.topology.external.git.is_main) || "
+      "((has(w.topology.registered) && !w.topology.registered.git.is_main_worktree) || "
+      "(has(w.topology.external) && !w.topology.external.git.is_main_worktree) || "
       "has(w.topology.missing)))"
   };
 }
@@ -461,6 +499,10 @@ message ListError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
@@ -549,11 +591,12 @@ message SelectorResolveSuccess {
     expression:
       "has(this.worktree.projection.switch) == "
       "(!this.worktree.projection.is_current && "
-      "((has(this.worktree.topology.registered) && this.worktree.topology.registered.git.path_available) || "
+      "((has(this.worktree.topology.main_workspace) && this.worktree.topology.main_workspace.git.path_available) || "
+      "(has(this.worktree.topology.registered) && this.worktree.topology.registered.git.path_available) || "
       "(has(this.worktree.topology.external) && this.worktree.topology.external.git.path_available))) && "
       "has(this.worktree.projection.delete_preview) == "
-      "((has(this.worktree.topology.registered) && !this.worktree.topology.registered.git.is_main) || "
-      "(has(this.worktree.topology.external) && !this.worktree.topology.external.git.is_main) || "
+      "((has(this.worktree.topology.registered) && !this.worktree.topology.registered.git.is_main_worktree) || "
+      "(has(this.worktree.topology.external) && !this.worktree.topology.external.git.is_main_worktree) || "
       "has(this.worktree.topology.missing))"
   };
 }
@@ -564,6 +607,10 @@ message SelectorResolveError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
     SelectorErrorDetails selector_error = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "selector_error"
@@ -591,8 +638,21 @@ message SelectorResolveResult {
   }
 }
 
+message ManagementScope {
+  oneof scope {
+    option (buf.validate.oneof).required = true;
+    string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+    WorkspaceManagementTarget workspace = 2;
+  }
+}
+
+message WorkspaceManagementTarget {
+  kent.api.project.SelectedProjectWorkspace target = 1 [(buf.validate.field).required = true];
+  optional string caller_session_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+}
+
 message DeletePreviewRequest {
-  string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  ManagementScope scope = 1 [(buf.validate.field).required = true];
   string selector = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
@@ -605,9 +665,9 @@ message DeletePreviewSuccess {
     id: "kent.worktree.delete_preview_authority"
     message: "delete preview selector and cleanliness must match its topology"
     expression:
-      "(has(this.worktree.registered) && !this.worktree.registered.git.is_main && "
+      "(has(this.worktree.registered) && !this.worktree.registered.git.is_main_worktree && "
       "this.deletion_selector == this.worktree.registered.kent.worktree_id) || "
-      "(has(this.worktree.external) && !this.worktree.external.git.is_main && "
+      "(has(this.worktree.external) && !this.worktree.external.git.is_main_worktree && "
       "this.deletion_selector == this.worktree.external.git.canonical_root) || "
       "(has(this.worktree.missing) && this.deletion_selector == this.worktree.missing.kent.worktree_id && "
       "this.cleanliness.kind == 1)"
@@ -620,6 +680,14 @@ message DeletePreviewError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.project.ProjectNotFoundDetails project_not_found = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "project_not_found"
+    }];
+    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 8 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
     SelectorErrorDetails selector_error = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "selector_error"
@@ -652,7 +720,7 @@ message DeletePreviewResult {
 }
 
 message CreateTargetResolveRequest {
-  string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  ManagementScope scope = 1 [(buf.validate.field).required = true];
   string target = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
@@ -683,6 +751,14 @@ message CreateTargetResolveError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.project.ProjectNotFoundDetails project_not_found = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "project_not_found"
+    }];
+    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
@@ -738,26 +814,28 @@ message CreateRequest {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
-  string session_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  ManagementScope scope = 2 [(buf.validate.field).required = true];
   CreateSpec spec = 3 [(buf.validate.field).required = true];
   optional string root_path = 4;
 }
 
 message CreateSuccess {
-  SessionExecutionTarget target = 1 [(buf.validate.field).required = true];
+  SessionExecutionTarget target = 1;
   ListEntry worktree = 2 [(buf.validate.field).required = true];
 
   option (buf.validate.message).cel = {
     id: "kent.worktree.create_projection"
     message: "created worktree must expose every eligible session operation"
     expression:
+      "!has(this.target) ? (!this.worktree.projection.is_current && !has(this.worktree.projection.switch) && !has(this.worktree.projection.delete_preview)) : "
       "has(this.worktree.projection.switch) == "
       "(!this.worktree.projection.is_current && "
-      "((has(this.worktree.topology.registered) && this.worktree.topology.registered.git.path_available) || "
+      "((has(this.worktree.topology.main_workspace) && this.worktree.topology.main_workspace.git.path_available) || "
+      "(has(this.worktree.topology.registered) && this.worktree.topology.registered.git.path_available) || "
       "(has(this.worktree.topology.external) && this.worktree.topology.external.git.path_available))) && "
       "has(this.worktree.projection.delete_preview) == "
-      "((has(this.worktree.topology.registered) && !this.worktree.topology.registered.git.is_main) || "
-      "(has(this.worktree.topology.external) && !this.worktree.topology.external.git.is_main) || "
+      "((has(this.worktree.topology.registered) && !this.worktree.topology.registered.git.is_main_worktree) || "
+      "(has(this.worktree.topology.external) && !this.worktree.topology.external.git.is_main_worktree) || "
       "has(this.worktree.topology.missing))"
   };
 }
@@ -768,6 +846,14 @@ message CreateError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.project.ProjectNotFoundDetails project_not_found = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "project_not_found"
+    }];
+    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 8 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
     CreateFailureDetails create_failed = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "create_failed"
@@ -806,6 +892,24 @@ message EnterRequest {
   ];
   string session_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string selector = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  TransitionWorkspace target_workspace = 4 [(buf.validate.field).required = true];
+  optional TransitionRuntimeStepOrigin origin = 5;
+}
+
+message TransitionWorkspace {
+  string workspace_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  string workspace_root = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+}
+
+message TransitionRuntimeStepOrigin {
+  string run_id = 1 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
+  string step_id = 2 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 }
 
 message LeaveRequest {
@@ -822,6 +926,14 @@ message EnterError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.session_retarget.SessionRetargetWorkspaceError session_retarget = 10 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "session_retarget"
+    }];
+    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 9 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
     SelectorErrorDetails selector_error = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "selector_error"
@@ -859,6 +971,10 @@ message LeaveError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 8 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
@@ -887,7 +1003,7 @@ message LeaveResult {
 }
 
 message DeleteRequest {
-  string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  ManagementScope scope = 1 [(buf.validate.field).required = true];
   string selector = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   bool force_folder_removal = 3;
   BranchCleanupMode branch_cleanup_policy = 4 [(buf.validate.field).enum = {
@@ -901,12 +1017,30 @@ message DeleteSuccess {
   optional string leftover_root = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
+message DeletePartialDetails {
+  uint64 retargeted_sessions = 1 [(buf.validate.field).uint64.gt = 0];
+  string diagnostic = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional BlockedDetails blocked = 3;
+}
+
 message DeleteError {
   string code = 1 [
     (buf.validate.field).string.min_len = 1,
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    DeletePartialDetails delete_partial = 12 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "delete_partial"
+    }];
+    kent.api.project.ProjectNotFoundDetails project_not_found = 10 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "project_not_found"
+    }];
+    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 11 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
     SelectorErrorDetails selector_error = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "selector_error"
@@ -1011,6 +1145,10 @@ message SetupFailureCause {
 }
 
 message SetupFailed {
+  SetupRecoveryDisposition recovery_disposition = 8 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
   SetupRetryReadiness retry_readiness = 1 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
@@ -1156,7 +1294,7 @@ service DeletePreviewService {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
       authentication_stage: AUTHENTICATION_STAGE_SERVER
-      scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
+      scope_policy: SCOPE_POLICY_WORKTREE_MANAGEMENT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
     };
@@ -1168,7 +1306,7 @@ service CreateTargetService {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
       authentication_stage: AUTHENTICATION_STAGE_SERVER
-      scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
+      scope_policy: SCOPE_POLICY_WORKTREE_MANAGEMENT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
     };
@@ -1180,7 +1318,7 @@ service CreateService {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
       authentication_stage: AUTHENTICATION_STAGE_SERVER
-      scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
+      scope_policy: SCOPE_POLICY_WORKTREE_MANAGEMENT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
     };
@@ -1210,7 +1348,7 @@ service TransitionService {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
       authentication_stage: AUTHENTICATION_STAGE_SERVER
-      scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
+      scope_policy: SCOPE_POLICY_WORKTREE_MANAGEMENT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
     };

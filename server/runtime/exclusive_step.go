@@ -8,9 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"core/server/llm"
-	"core/shared/textutil"
-
 	"github.com/google/uuid"
 )
 
@@ -194,6 +191,7 @@ func (s *defaultExclusiveStepLifecycle) finishStep(stepID string, options exclus
 			!errors.Is(drainErr, ErrEngineClosed) {
 			err = errors.Join(err, fmt.Errorf("drain Runtime operations at agent Step Boundary: %w", drainErr))
 		}
+		err = errors.Join(err, s.engine.takeApprovalCommentaryError(stepID))
 	}
 	s.closeActiveStepQueue(stepID)
 	if fatal, ok := resultGroupFatalFromError(err); ok {
@@ -201,9 +199,6 @@ func (s *defaultExclusiveStepLifecycle) finishStep(stepID string, options exclus
 	}
 	if clearReasoningErr := s.engine.steer(stepID, steerClearReasoningStateIntent()); clearReasoningErr != nil {
 		err = errors.Join(err, fmt.Errorf("clear reasoning state at agent step termination: %w", clearReasoningErr))
-	}
-	if drainErr := s.engine.drainActiveStepGoalMutations(stepID); drainErr != nil {
-		err = errors.Join(err, fmt.Errorf("drain active-step goal mutations: %w", drainErr))
 	}
 	finishedAt := time.Now().UTC()
 	status := statusFromRunError(err)
@@ -318,6 +313,15 @@ func (s *defaultExclusiveStepLifecycle) publishTerminalStep(
 		publishLiveRunFinished = s.engine.finishLiveRunStep(snapshot, status, err)
 	}
 	s.finishTerminalPublication()
+	if options.EmitRunState {
+		// StepEnded precedes live-turn finalization. Publish its completed state
+		// after finalization has cleared turn-owned activity such as Supervisor.
+		if activityErr := s.engine.steer(stepID, steerEventIntent(Event{Kind: EventRuntimeActivityChanged})); activityErr != nil {
+			activityErr = fmt.Errorf("publish finalized Runtime activity: %w", activityErr)
+			err = errors.Join(err, activityErr)
+			publicationErr = errors.Join(publicationErr, activityErr)
+		}
+	}
 	return err, publicationErr, publishLiveRunFinished
 }
 
@@ -331,6 +335,18 @@ func (s *defaultExclusiveStepLifecycle) InterruptCurrent(beforeCancel func(*RunS
 	active := s.active
 	suspended := s.suspended
 	if active == nil && suspended == nil {
+		// Terminal publication temporarily has no active Step while its Live Run
+		// is still being finalized. Only settled idle state can be reconciled.
+		if s.publicationDepth == 0 && beforeCancel != nil {
+			beforeCancel(nil)
+		}
+		s.mu.Unlock()
+		return nil, nil
+	}
+	if active != nil && (!activeKindInterruptibleByLiveStop(active.activeKind) || active.closing) {
+		if !active.closing && beforeCancel != nil {
+			beforeCancel(cloneRunSnapshot(s.snapshotLocked()))
+		}
 		s.mu.Unlock()
 		return nil, nil
 	}
@@ -365,57 +381,16 @@ func (s *defaultExclusiveStepLifecycle) InterruptCurrent(beforeCancel func(*RunS
 	s.mu.Unlock()
 	err := s.persistInterruption()
 	s.mu.Lock()
-	if err != nil {
-		s.clearCurrentInterruptedLocked(active)
-		s.clearCurrentInterruptedLocked(suspended)
-	}
 	s.finishPublicationLocked()
 	s.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
-	return snapshot, nil
-}
-
-func (s *defaultExclusiveStepLifecycle) InterruptCurrentAgentTurn(afterPersist func(*RunSnapshot)) (*RunSnapshot, error) {
-	s.mu.Lock()
-	active := s.active
-	if active == nil || !isInterruptibleAgentTurn(active.activeKind) || active.closing || active.interrupted {
-		s.mu.Unlock()
-		return nil, nil
-	}
-	snapshot := cloneRunSnapshot(s.snapshotLocked())
-	active.interrupted = true
-	s.beginPublicationLocked()
-	s.mu.Unlock()
-	err := s.persistInterruption()
-	s.mu.Lock()
-	if err != nil {
-		s.clearCurrentInterruptedLocked(active)
-		s.finishPublicationLocked()
-		s.mu.Unlock()
-		return nil, err
-	}
-	if !s.runCurrentLocked(active) {
-		s.finishPublicationLocked()
-		s.mu.Unlock()
-		return nil, nil
-	}
-	s.mu.Unlock()
-	if afterPersist != nil {
-		afterPersist(cloneRunSnapshot(snapshot))
-	}
-	if active.cancel != nil {
-		active.cancel()
-	}
-	s.mu.Lock()
-	s.finishPublicationLocked()
-	s.mu.Unlock()
 	return snapshot, nil
 }
 
 func (s *defaultExclusiveStepLifecycle) persistInterruption() error {
-	return s.engine.steerInterruption(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeInterruption), Content: textutil.Value(interruptMessage)}}))
+	return s.engine.PersistInterruption()
 }
 
 func (s *defaultExclusiveStepLifecycle) runCurrentLocked(run *exclusiveRunState) bool {
@@ -424,18 +399,6 @@ func (s *defaultExclusiveStepLifecycle) runCurrentLocked(run *exclusiveRunState)
 	}
 	return (s.active != nil && s.active.sequence == run.sequence) ||
 		(s.suspended != nil && s.suspended.sequence == run.sequence)
-}
-
-func (s *defaultExclusiveStepLifecycle) clearCurrentInterruptedLocked(run *exclusiveRunState) {
-	if run == nil {
-		return
-	}
-	if s.active != nil && s.active.sequence == run.sequence {
-		s.active.interrupted = false
-	}
-	if s.suspended != nil && s.suspended.sequence == run.sequence {
-		s.suspended.interrupted = false
-	}
 }
 
 func (s *defaultExclusiveStepLifecycle) IsBusy() bool {
@@ -844,7 +807,14 @@ func (s *defaultExclusiveStepLifecycle) activeAgentStepID() *string {
 }
 
 func (s *defaultExclusiveStepLifecycle) drainAgentStepBoundary(ctx context.Context) error {
+	stepID := s.activeAgentStepID()
+	if stepID == nil {
+		return nil
+	}
 	if err := s.engine.drainRuntimeOperations(ctx); err != nil {
+		return err
+	}
+	if err := s.engine.takeApprovalCommentaryError(*stepID); err != nil {
 		return err
 	}
 	return s.drainBoundaryReservations(ctx)
@@ -883,7 +853,8 @@ func (s *defaultExclusiveStepLifecycle) drainBoundaryReservations(ctx context.Co
 }
 
 func (s *defaultExclusiveStepLifecycle) BeginAgentStepBoundary(ctx context.Context) error {
-	if s.activeAgentStepID() == nil {
+	stepID := s.activeAgentStepID()
+	if stepID == nil {
 		return nil
 	}
 	for {
@@ -901,6 +872,9 @@ func (s *defaultExclusiveStepLifecycle) BeginAgentStepBoundary(ctx context.Conte
 		if pausedThrough == drainedThrough {
 			break
 		}
+	}
+	if err := s.engine.takeApprovalCommentaryError(*stepID); err != nil {
+		return err
 	}
 	s.EndAgentStepBoundary()
 	return nil

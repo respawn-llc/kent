@@ -14,20 +14,19 @@ import (
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
-
-	"github.com/google/uuid"
 )
 
 // AskQuestionRequest is the internal broker request. It is intentionally not the
 // model-facing tool payload shape because internal approval workflows carry
 // fields that must never be exposed through the ask_question tool contract.
 type AskQuestionRequest struct {
-	ID                     string                                `json:"-"`
 	Question               string                                `json:"-"`
 	Suggestions            []string                              `json:"-"`
 	RecommendedOptionIndex int                                   `json:"-"`
 	Approval               bool                                  `json:"-"`
 	ApprovalOptions        []AskQuestionApprovalOption           `json:"-"`
+	ApprovalConsumer       func(AskQuestionApproval) error       `json:"-"`
+	AccessTargets          []FileAccessTarget                    `json:"-"`
 	Origin                 AskQuestionOrigin                     `json:"-"`
 	RunID                  string                                `json:"-"`
 	StepID                 string                                `json:"-"`
@@ -36,12 +35,27 @@ type AskQuestionRequest struct {
 	AttentionTarget        *clientui.AttentionNotificationTarget `json:"-"`
 }
 
+func (r AskQuestionRequest) AcceptApproval(resolution AskQuestionResolution) error {
+	if err := ValidateAskQuestionResolution(r, resolution); err != nil {
+		return err
+	}
+	approval, ok := resolution.(AskQuestionApproval)
+	if !ok {
+		return ErrAskQuestionApprovalRequiresResponse
+	}
+	if r.ApprovalConsumer != nil {
+		return r.ApprovalConsumer(approval)
+	}
+	return nil
+}
+
 func (r AskQuestionRequest) Clone() AskQuestionRequest {
 	r.Suggestions = append([]string(nil), r.Suggestions...)
 	r.ApprovalOptions = append([]AskQuestionApprovalOption(nil), r.ApprovalOptions...)
+	r.AccessTargets = append([]FileAccessTarget(nil), r.AccessTargets...)
 	if r.QuestionBatch != nil {
 		batch := *r.QuestionBatch
-		batch.BatchPromptIDs = append([]string(nil), batch.BatchPromptIDs...)
+		batch.BatchToolCallIDs = append([]string(nil), batch.BatchToolCallIDs...)
 		r.QuestionBatch = &batch
 	}
 	if r.AttentionTarget != nil {
@@ -69,6 +83,10 @@ func (r AskQuestionRequest) IsTaskScopedApprovalQuestion() bool {
 	return r.AttentionTarget.Focus.Kind == clientui.AttentionNotificationFocusQuestion
 }
 
+func (r AskQuestionRequest) IsInternalApproval() bool {
+	return r.Approval && !r.IsTaskScopedApprovalQuestion()
+}
+
 // AskQuestionToolRequest is the model-facing ask_question payload. Keep this limited to
 // ordinary question flows; internal approval uses AskQuestionRequest instead.
 type AskQuestionToolRequest struct {
@@ -84,6 +102,7 @@ func AskQuestionStaticContractSource() StaticContractSource {
 // Validation sentinels for request/response shape errors. Tests match these
 // via errors.Is rather than asserting message wording.
 var (
+	ErrAskQuestionHandlerUnavailable            = errors.New("question owner is not attached")
 	ErrAskQuestionApprovalRequiresOptions       = errors.New("approval questions require approval_options")
 	ErrAskQuestionApprovalForbidsSuggestions    = errors.New("approval questions must not set suggestions")
 	ErrAskQuestionApprovalForbidsRecommended    = errors.New("approval questions must not set recommended_option_index")
@@ -104,26 +123,16 @@ const (
 
 type AskQuestionApprovalOption struct {
 	Decision AskQuestionApprovalDecision `json:"decision"`
-	Label    string                      `json:"label"`
 }
 
 type AskQuestionBroker struct {
 	mu    sync.Mutex
-	queue []*pending
-	// onAsk switches the broker into synchronous handler mode. When unset, Ask
-	// uses queued submit mode and requests complete only via Submit.
-	onAsk func(context.Context, AskQuestionRequest) (AskQuestionResolution, error)
+	onAsk *synchronousAskHandler
 }
 
-type pending struct {
-	req       AskQuestionRequest
-	ch        chan responseResult
-	completed bool
-}
-
-type responseResult struct {
-	resolution AskQuestionResolution
-	err        error
+type synchronousAskHandler struct {
+	resolve func(context.Context, AskQuestionRequest) (AskQuestionResolution, error)
+	finish  func(AskQuestionRequest, AskQuestionResolution) error
 }
 
 func NewAskQuestionBroker() *AskQuestionBroker {
@@ -131,22 +140,50 @@ func NewAskQuestionBroker() *AskQuestionBroker {
 }
 
 func (b *AskQuestionBroker) SetAskHandler(handler func(context.Context, AskQuestionRequest) (AskQuestionResolution, error)) {
+	b.setAskHandler(handler, func(req AskQuestionRequest, resolution AskQuestionResolution) error {
+		return req.acceptResolution(resolution)
+	})
+}
+
+func (b *AskQuestionBroker) SetLifecycleAskHandler(handler func(context.Context, AskQuestionRequest) (AskQuestionResolution, error)) {
+	b.setAskHandler(handler, ValidateAskQuestionResolution)
+}
+
+func (b *AskQuestionBroker) setAskHandler(handler func(context.Context, AskQuestionRequest) (AskQuestionResolution, error), finish func(AskQuestionRequest, AskQuestionResolution) error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.onAsk = handler
+	if handler == nil {
+		b.onAsk = nil
+		return
+	}
+	b.onAsk = &synchronousAskHandler{resolve: handler, finish: finish}
 }
 
 func (b *AskQuestionBroker) Ask(ctx context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
-	if req.ID == "" {
-		req.ID = uuid.NewString()
-	}
 	req.Suggestions = normalizedSuggestions(req.Suggestions)
 	req.RecommendedOptionIndex = normalizedRecommendedOptionIndex(req.RecommendedOptionIndex, len(req.Suggestions))
-	if req.Question == "" {
+	if req.Question == "" && len(req.AccessTargets) == 0 {
 		return nil, errors.New("question is required")
 	}
 	if err := validateRequest(req); err != nil {
 		return nil, err
+	}
+	internalApproval := req.IsInternalApproval()
+	if internalApproval {
+		identity, err := ExecutionIdentityFromContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if string(identity.ToolCallID) != req.ToolCallID {
+			return nil, fmt.Errorf(
+				"Approval Tool Call ID %q does not match executing Tool Call ID %q",
+				req.ToolCallID,
+				identity.ToolCallID,
+			)
+		}
+		if _, err := approvalLifecycleFromContext(ctx); err != nil {
+			return nil, err
+		}
 	}
 	if barrier, ok := EffectBarrierFromContext(ctx); ok {
 		reason, err := effectBarrierReasonForAsk(req)
@@ -160,95 +197,52 @@ func (b *AskQuestionBroker) Ask(ctx context.Context, req AskQuestionRequest) (As
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if internalApproval {
+		if err := ConsumeApprovalPresentation(ctx); err != nil {
+			return nil, err
+		}
+	}
 
 	h := b.askHandler()
-	if h != nil {
-		// Synchronous handler mode has exactly one completion path: the handler
-		// return value. Requests are never queued in this mode.
-		return b.askSync(ctx, req, h)
+	if h == nil {
+		return nil, ErrAskQuestionHandlerUnavailable
 	}
-	// Queued submit mode has exactly one completion path: Submit delivering a
-	// validated response to the pending request.
-	return b.askQueued(ctx, req)
-}
-
-func (b *AskQuestionBroker) askHandler() func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.onAsk
-}
-
-func (b *AskQuestionBroker) askSync(ctx context.Context, req AskQuestionRequest, handler func(context.Context, AskQuestionRequest) (AskQuestionResolution, error)) (AskQuestionResolution, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	resolution, err := handler(ctx, req)
+	resolution, err := h.resolve(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := ValidateAskQuestionResolution(req, resolution); err != nil {
+	if err := h.finish(req, resolution); err != nil {
 		return nil, err
 	}
 	return resolution, nil
 }
 
-func (b *AskQuestionBroker) askQueued(ctx context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	p := &pending{req: req, ch: make(chan responseResult, 1)}
-	b.mu.Lock()
-	b.queue = append(b.queue, p)
-	b.mu.Unlock()
-	defer b.dequeue(req.ID)
-
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case rr := <-p.ch:
-		return b.finishQueuedResponse(req, rr)
-	}
-}
-
-func (b *AskQuestionBroker) finishQueuedResponse(req AskQuestionRequest, rr responseResult) (AskQuestionResolution, error) {
-	if rr.err != nil {
-		return nil, rr.err
-	}
-	if err := ValidateAskQuestionResolution(req, rr.resolution); err != nil {
-		return nil, err
-	}
-	return rr.resolution, nil
-}
-
-func (b *AskQuestionBroker) Submit(requestID string, resolution AskQuestionResolution) error {
+func (b *AskQuestionBroker) askHandler() *synchronousAskHandler {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for _, p := range b.queue {
-		if p.req.ID == requestID {
-			return b.deliverPendingResponseLocked(p, responseResult{resolution: resolution})
-		}
-	}
-	return fmt.Errorf("request %s not found", requestID)
+	return b.onAsk
 }
 
-func (b *AskQuestionBroker) deliverPendingResponseLocked(p *pending, rr responseResult) error {
-	if p.completed {
-		return fmt.Errorf("request %s already completed", p.req.ID)
+func (r AskQuestionRequest) acceptResolution(resolution AskQuestionResolution) error {
+	if r.Approval {
+		return r.AcceptApproval(resolution)
 	}
-	if rr.err == nil {
-		if err := ValidateAskQuestionResolution(p.req, rr.resolution); err != nil {
-			return err
-		}
-	}
-	p.completed = true
-	p.ch <- rr
-	return nil
+	return ValidateAskQuestionResolution(r, resolution)
 }
 
 func validateRequest(req AskQuestionRequest) error {
+	if err := clientui.ToolCallID(req.ToolCallID).Validate(); err != nil {
+		return fmt.Errorf("invalid tool call identity: %w", err)
+	}
+	if len(req.AccessTargets) > 0 && (!req.Approval || req.Question != "") {
+		return errors.New("access-target Approvals must not carry question copy")
+	}
 	if req.Approval {
 		if req.RecommendedOptionIndex != 0 {
 			return ErrAskQuestionApprovalForbidsRecommended
@@ -267,9 +261,6 @@ func validateRequest(req AskQuestionRequest) error {
 	for _, option := range req.ApprovalOptions {
 		if err := sessioncontract.ValidatePromptApprovalDecision(option.Decision); err != nil {
 			return fmt.Errorf("invalid approval option: %w", err)
-		}
-		if option.Label == "" {
-			return fmt.Errorf("approval option %q requires a label", option.Decision)
 		}
 		if _, ok := seen[option.Decision]; ok {
 			return fmt.Errorf("duplicate approval option %q", option.Decision)
@@ -315,32 +306,9 @@ func selectedOptionToolOutputSummary(optionNumber int, freeform *string) string 
 	return base + " They also said: " + *freeform
 }
 
-func (b *AskQuestionBroker) Pending() []AskQuestionRequest {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	out := make([]AskQuestionRequest, 0, len(b.queue))
-	for _, p := range b.queue {
-		out = append(out, p.req)
-	}
-	return out
-}
-
-func (b *AskQuestionBroker) dequeue(requestID string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	out := make([]*pending, 0, len(b.queue))
-	for _, p := range b.queue {
-		if p.req.ID == requestID {
-			continue
-		}
-		out = append(out, p)
-	}
-	b.queue = out
-}
-
 func (r AskQuestionToolRequest) request(callID string) AskQuestionRequest {
 	return AskQuestionRequest{
-		ID:                     callID,
+		ToolCallID:             callID,
 		Question:               r.Question,
 		Suggestions:            r.Suggestions,
 		RecommendedOptionIndex: r.RecommendedOptionIndex,
@@ -390,14 +358,12 @@ func (t *AskQuestionTool) Call(ctx context.Context, c Call) (Result, error) {
 	req.Origin = AskQuestionOriginModelTool
 	req.RunID = c.RunID
 	req.StepID = c.StepID
-	req.ToolCallID = c.ID
 	if c.AskQuestionBatch != nil {
 		batch := *c.AskQuestionBatch
-		batch.BatchPromptIDs = append([]string(nil), c.AskQuestionBatch.BatchPromptIDs...)
+		batch.BatchToolCallIDs = append([]string(nil), c.AskQuestionBatch.BatchToolCallIDs...)
 		req.Origin = batch.Origin
 		req.RunID = batch.RunID
 		req.StepID = batch.StepID
-		req.ToolCallID = c.ID
 		req.QuestionBatch = &batch
 	}
 	resolution, err := t.broker.Ask(ctx, req)
@@ -443,6 +409,6 @@ func notifyAskQuestionBatchSkipped(c Call) {
 		return
 	}
 	batch := *c.AskQuestionBatch
-	batch.BatchPromptIDs = append([]string(nil), c.AskQuestionBatch.BatchPromptIDs...)
+	batch.BatchToolCallIDs = append([]string(nil), c.AskQuestionBatch.BatchToolCallIDs...)
 	c.OnAskQuestionBatchSkipped(batch)
 }

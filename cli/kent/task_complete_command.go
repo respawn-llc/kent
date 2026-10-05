@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"strconv"
 	"strings"
@@ -16,11 +15,14 @@ import (
 	"core/shared/apicontract"
 	"core/shared/config"
 	"core/shared/jsoncontract"
+	"core/shared/protoapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
 
 	invjsonschema "github.com/invopop/jsonschema"
+	"google.golang.org/protobuf/proto"
 )
 
 type taskCompleteArgs struct {
@@ -64,13 +66,13 @@ func taskCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		fmt.Fprintln(stderr, "task complete --force requires exactly one explicit selector: --session or --task")
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		req, err := parsed.request(context.Background(), cfg, remote, remote, agentSessionID, agentContext)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := req.Validate(); err != nil {
+		if err := protoapi.Validate(req); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
 		}
@@ -81,32 +83,32 @@ func taskCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 			fmt.Fprintln(stderr, taskCompleteErrorMessage(err))
 			return 1
 		}
-		if err := resp.Validate(); err != nil {
+		if err := protoapi.Validate(resp); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if resp.ForcedMove != nil {
+		if moved := resp.GetForcedMove(); moved != nil {
 			taskRef := parsed.TaskRef
 			if strings.TrimSpace(taskRef) == "" {
-				taskRef = resp.ForcedMove.TaskID
+				taskRef = moved.TaskId
 			}
 			return writeTaskMoveOutcome(
 				stdout,
 				stderr,
 				remote,
-				resp.ForcedMove.TaskID,
+				moved.TaskId,
 				taskRef,
-				resp.ForcedMove.Outcome,
+				moved.Outcome,
 				parsed.JSONPayloadSet || parsed.JSONFileSet,
-				fmt.Sprintf("%s task move %s %s", config.Command, resp.ForcedMove.TaskID, resp.ForcedMove.TargetNodeID),
+				fmt.Sprintf("%s task move %s %s", config.Command, moved.TaskId, moved.TargetNodeId),
 			)
 		}
-		completion := *resp.AgentCompletion
+		completion := resp.GetAgentCompletion()
 		if parsed.JSONPayloadSet || parsed.JSONFileSet {
 			return writeCommandJSON(stdout, stderr, taskCompleteJSONResponse{
-				TaskID:            completion.TaskID,
+				TaskID:            completion.TaskId,
 				CurrentNodes:      completion.CurrentNodes,
-				PendingApprovalID: completion.PendingApprovalID,
+				PendingApprovalID: completion.PendingApprovalId,
 			})
 		}
 		writeTaskCompleteResult(stdout, completion)
@@ -126,37 +128,38 @@ func (a taskCompleteArgs) selectorCount() int {
 
 func (a taskCompleteArgs) request(
 	ctx context.Context,
-	cfg config.App,
+	cfg config.Connection,
 	projects apicontract.ProjectViewService,
 	workflows apicontract.WorkflowService,
 	agentSessionID string,
 	agentContext bool,
-) (serverapi.WorkflowTaskCompleteRequest, error) {
-	req := serverapi.WorkflowTaskCompleteRequest{
-		SessionID:    strings.TrimSpace(a.SessionID),
-		TransitionID: strings.TrimSpace(a.TransitionID),
-		OutputValues: maps.Clone(a.OutputValues),
-		Commentary:   a.Commentary,
+) (*taskpb.CompleteRequest, error) {
+	req := &taskpb.CompleteRequest{Commentary: &a.Commentary}
+	if value := strings.TrimSpace(a.SessionID); value != "" {
+		req.SessionId = &value
 	}
-	if len(req.OutputValues) == 0 {
-		req.OutputValues = nil
+	if value := strings.TrimSpace(a.TransitionID); value != "" {
+		req.TransitionId = &value
+	}
+	for name, value := range a.OutputValues {
+		req.OutputValues = append(req.OutputValues, &taskpb.NamedValue{Name: name, Value: value})
 	}
 	if agentContext {
-		req.ActorKind = serverapi.WorkflowTaskCompleteActorAgent
-		req.AgentSessionID = strings.TrimSpace(agentSessionID)
+		req.ActorKind = taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_AGENT
+		req.AgentSessionId = proto.String(strings.TrimSpace(agentSessionID))
 		rawRunID, rawStepID := sessionenv.LookupRunStepID(os.LookupEnv)
 		runID, err := runtimeids.ParseRunID(rawRunID)
 		if err != nil {
-			return serverapi.WorkflowTaskCompleteRequest{}, fmt.Errorf("agent completion run provenance: %w", err)
+			return nil, fmt.Errorf("agent completion run provenance: %w", err)
 		}
 		stepID, err := runtimeids.ParseStepID(rawStepID)
 		if err != nil {
-			return serverapi.WorkflowTaskCompleteRequest{}, fmt.Errorf("agent completion step provenance: %w", err)
+			return nil, fmt.Errorf("agent completion step provenance: %w", err)
 		}
-		req.RunID = &runID
-		req.StepID = &stepID
+		req.RunId = proto.String(runID.String())
+		req.StepId = proto.String(stepID.String())
 	} else {
-		req.ActorKind = serverapi.WorkflowTaskCompleteActorUser
+		req.ActorKind = taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_USER
 		req.Force = a.Force
 	}
 	taskRef := strings.TrimSpace(a.TaskRef)
@@ -165,9 +168,9 @@ func (a taskCompleteArgs) request(
 	}
 	taskID, err := resolveWorkflowTaskID(ctx, cfg, projects, workflows, a.ProjectRef, taskRef)
 	if err != nil {
-		return serverapi.WorkflowTaskCompleteRequest{}, err
+		return nil, err
 	}
-	req.TaskID = taskID
+	req.TaskId = &taskID
 	return req, nil
 }
 
@@ -515,16 +518,16 @@ func writeTaskCompleteUsage(stderr io.Writer) {
 	fs.Usage()
 }
 
-func writeTaskCompleteResult(stdout io.Writer, resp serverapi.WorkflowTaskAgentCompletion) {
-	if resp.PendingApprovalID != nil {
-		fmt.Fprintf(stdout, "Completion is awaiting approval %s.\n", *resp.PendingApprovalID)
+func writeTaskCompleteResult(stdout io.Writer, resp *taskpb.AgentCompletion) {
+	if resp.PendingApprovalId != nil {
+		fmt.Fprintf(stdout, "Completion is awaiting approval %s.\n", *resp.PendingApprovalId)
 		return
 	}
 	fmt.Fprintf(stdout, "Completion scheduled. The transition %s → %s will execute now. Your next agent turn will begin with the next workflow instructions.\n", resp.Handoff.SourceNodeDisplayName, resp.Handoff.DestinationDisplayName)
 }
 
 type taskCompleteJSONResponse struct {
-	TaskID            string                              `json:"task_id"`
-	CurrentNodes      []serverapi.WorkflowTaskCurrentNode `json:"current_nodes"`
-	PendingApprovalID *string                             `json:"pending_approval_id,omitempty"`
+	TaskID            string                         `json:"task_id"`
+	CurrentNodes      []*taskpb.AttentionCurrentNode `json:"current_nodes"`
+	PendingApprovalID *string                        `json:"pending_approval_id,omitempty"`
 }

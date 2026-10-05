@@ -77,8 +77,7 @@ SELECT
     canonical_root_path,
     git_metadata_json,
     created_at_unix_ms,
-    updated_at_unix_ms,
-    chat_draft_json
+    updated_at_unix_ms
 FROM workspaces
 WHERE canonical_root_path = sqlc.arg(canonical_root_path)
 ORDER BY created_at_unix_ms ASC, rowid ASC;
@@ -90,23 +89,30 @@ SELECT
     canonical_root_path,
     git_metadata_json,
     created_at_unix_ms,
-    updated_at_unix_ms,
-    chat_draft_json
+    updated_at_unix_ms
 FROM workspaces
 WHERE id = sqlc.arg(id)
 LIMIT 1;
 
--- name: GetWorkspaceChatDraft :one
-SELECT
-    chat_draft_json
-FROM workspaces
-WHERE id = sqlc.arg(id)
+-- name: FindContainingProjectWorkspace :one
+SELECT p.id AS project_id,
+    w.id AS workspace_id,
+    w.canonical_root_path,
+    w.git_metadata_json,
+    w.created_at_unix_ms,
+    w.updated_at_unix_ms
+FROM projects p
+LEFT JOIN workspaces w ON w.id = (
+    SELECT candidate.id
+    FROM json_each(CAST(sqlc.arg(ancestors_json) AS TEXT)) ancestor
+    JOIN workspaces candidate
+      ON candidate.project_id = p.id
+     AND candidate.canonical_root_path = ancestor.value
+    ORDER BY CAST(ancestor.key AS INTEGER) DESC
+    LIMIT 1
+)
+WHERE p.id = sqlc.arg(project_id)
 LIMIT 1;
-
--- name: ReplaceWorkspaceChatDraft :execrows
-UPDATE workspaces
-SET chat_draft_json = sqlc.arg(chat_draft_json)
-WHERE id = sqlc.arg(id);
 
 -- name: ListProjectKeyRows :many
 SELECT
@@ -1824,7 +1830,6 @@ SELECT
     wt.id,
     wt.workspace_id,
     wt.canonical_root_path,
-    CASE WHEN wt.canonical_root_path = w.canonical_root_path THEN 1 ELSE 0 END AS is_main,
     wt.managed,
     wt.created_branch,
     wt.origin_session_id,
@@ -1833,7 +1838,6 @@ SELECT
     wt.created_at_unix_ms,
     wt.updated_at_unix_ms
 FROM worktrees wt
-JOIN workspaces w ON w.id = wt.workspace_id
 WHERE wt.workspace_id = sqlc.arg(workspace_id)
 ORDER BY wt.created_at_unix_ms ASC, wt.rowid ASC;
 
@@ -1848,7 +1852,6 @@ SELECT
     wt.id,
     wt.workspace_id,
     wt.canonical_root_path,
-    CASE WHEN wt.canonical_root_path = w.canonical_root_path THEN 1 ELSE 0 END AS is_main,
     wt.managed,
     wt.created_branch,
     wt.origin_session_id,
@@ -1857,7 +1860,6 @@ SELECT
     wt.created_at_unix_ms,
     wt.updated_at_unix_ms
 FROM worktrees wt
-JOIN workspaces w ON w.id = wt.workspace_id
 WHERE wt.id = sqlc.arg(id)
 LIMIT 1;
 
@@ -1866,7 +1868,6 @@ SELECT
     wt.id,
     wt.workspace_id,
     wt.canonical_root_path,
-    CASE WHEN wt.canonical_root_path = w.canonical_root_path THEN 1 ELSE 0 END AS is_main,
     wt.managed,
     wt.created_branch,
     wt.origin_session_id,
@@ -1875,7 +1876,6 @@ SELECT
     wt.created_at_unix_ms,
     wt.updated_at_unix_ms
 FROM worktrees wt
-JOIN workspaces w ON w.id = wt.workspace_id
 WHERE wt.canonical_root_path = sqlc.arg(canonical_root_path)
 LIMIT 1;
 
@@ -1932,6 +1932,7 @@ INSERT INTO sessions (
     name,
     first_prompt_preview,
     input_draft,
+    protected_input_draft,
     previous_session_id,
     parent_agent_session_id,
     category,
@@ -1956,6 +1957,7 @@ INSERT INTO sessions (
     sqlc.arg(name),
     sqlc.arg(first_prompt_preview),
     sqlc.arg(input_draft),
+    sqlc.narg(protected_input_draft),
     sqlc.narg(previous_session_id),
     sqlc.narg(parent_agent_session_id),
     sqlc.narg(category),
@@ -1976,6 +1978,7 @@ ON CONFLICT(id) DO UPDATE SET
     name = excluded.name,
     first_prompt_preview = excluded.first_prompt_preview,
     input_draft = excluded.input_draft,
+    protected_input_draft = excluded.protected_input_draft,
     previous_session_id = excluded.previous_session_id,
     parent_agent_session_id = excluded.parent_agent_session_id,
     category = excluded.category,
@@ -2107,76 +2110,6 @@ LEFT JOIN workspaces w ON w.id = p.primary_workspace_id AND w.project_id = p.id
 JOIN project_default_workflow_identity default_workflow ON default_workflow.project_id = p.id
 WHERE p.id = COALESCE(sqlc.narg(project_id), p.id)
 ORDER BY latest_activity_unix_ms DESC, p.rowid DESC
-LIMIT sqlc.arg(limit_rows)
-OFFSET sqlc.arg(offset_rows);
-
--- name: GetProjectSummary :one
-SELECT
-    p.id,
-    p.display_name,
-    p.project_key,
-    COALESCE(w.canonical_root_path, '') AS root_path,
-    CAST(COALESCE(COUNT(s.project_id), 0) AS INTEGER) AS session_count,
-    COALESCE(MAX(s.updated_at_unix_ms), p.updated_at_unix_ms) AS latest_activity_unix_ms
-FROM projects p
-LEFT JOIN workspaces w ON w.id = p.primary_workspace_id AND w.project_id = p.id
-LEFT JOIN sessions s ON s.project_id = p.id AND s.launch_visible <> 0
-WHERE p.id = sqlc.arg(project_id)
-GROUP BY p.id, p.display_name, p.project_key, w.canonical_root_path, p.updated_at_unix_ms
-LIMIT 1;
-
--- name: ListProjectWorkspaces :many
-SELECT
-    w.id,
-    w.canonical_root_path AS root_path,
-    CASE WHEN w.id = p.primary_workspace_id THEN 1 ELSE 0 END AS is_primary,
-    CAST(COALESCE(COUNT(s.workspace_id), 0) AS INTEGER) AS session_count,
-    COALESCE(MAX(s.updated_at_unix_ms), w.updated_at_unix_ms) AS latest_activity_unix_ms,
-    w.created_at_unix_ms AS attached_at_unix_ms,
-    w.id AS workspace_order_id
-FROM workspaces w
-JOIN projects p ON p.id = w.project_id
-LEFT JOIN sessions s ON s.workspace_id = w.id AND s.launch_visible <> 0
-JOIN (
-    SELECT recent.id
-    FROM workspaces recent
-    WHERE recent.project_id = sqlc.arg(project_id)
-    ORDER BY recent.created_at_unix_ms DESC, recent.rowid DESC
-    LIMIT sqlc.arg(workspace_collection_limit)
-) recent_workspaces ON recent_workspaces.id = w.id
-WHERE w.project_id = sqlc.arg(project_id)
-GROUP BY w.id, w.canonical_root_path, p.primary_workspace_id, w.updated_at_unix_ms, w.created_at_unix_ms
-ORDER BY CASE WHEN w.id = p.primary_workspace_id THEN 1 ELSE 0 END DESC, latest_activity_unix_ms DESC, w.created_at_unix_ms ASC, w.rowid ASC;
-
--- name: ListProjectWorkspaceBoundary :many
-SELECT
-    w.id,
-    w.canonical_root_path AS root_path
-FROM workspaces w
-WHERE w.project_id = sqlc.arg(project_id)
-ORDER BY w.created_at_unix_ms DESC, w.rowid DESC
-LIMIT sqlc.arg(workspace_collection_limit);
-
--- name: ListProjectWorkspacesPage :many
-SELECT
-    w.id,
-    w.canonical_root_path AS root_path,
-    CASE WHEN w.id = p.primary_workspace_id THEN 1 ELSE 0 END AS is_primary,
-    CAST(COALESCE(COUNT(s.workspace_id), 0) AS INTEGER) AS session_count,
-    COALESCE(MAX(s.updated_at_unix_ms), w.updated_at_unix_ms) AS latest_activity_unix_ms
-FROM workspaces w
-JOIN projects p ON p.id = w.project_id
-LEFT JOIN sessions s ON s.workspace_id = w.id AND s.launch_visible <> 0
-JOIN (
-    SELECT recent.id
-    FROM workspaces recent
-    WHERE recent.project_id = sqlc.arg(project_id)
-    ORDER BY recent.created_at_unix_ms DESC, recent.rowid DESC
-    LIMIT sqlc.arg(workspace_collection_limit)
-) recent_workspaces ON recent_workspaces.id = w.id
-WHERE w.project_id = sqlc.arg(project_id)
-GROUP BY w.id, w.canonical_root_path, p.primary_workspace_id, w.updated_at_unix_ms
-ORDER BY CASE WHEN w.id = p.primary_workspace_id THEN 1 ELSE 0 END DESC, w.created_at_unix_ms DESC, w.rowid DESC
 LIMIT sqlc.arg(limit_rows)
 OFFSET sqlc.arg(offset_rows);
 
@@ -2334,6 +2267,7 @@ SELECT
     s.name,
     s.first_prompt_preview,
     s.input_draft,
+    s.protected_input_draft,
     s.previous_session_id,
     s.parent_agent_session_id,
     s.category,
@@ -2388,6 +2322,15 @@ FROM sessions
 WHERE id = sqlc.arg(session_id)
   AND task_id IS NOT NULL
 ORDER BY task_id ASC;
+
+-- name: GetSessionChatSettingsTaskIdentity :one
+SELECT
+    task.id AS task_id,
+    task.short_id AS task_short_id
+FROM sessions session
+JOIN task_records task ON task.id = session.task_id
+WHERE session.id = sqlc.arg(session_id)
+LIMIT 1;
 
 -- name: BindSessionToTask :execrows
 UPDATE sessions
@@ -2526,7 +2469,7 @@ UPDATE sessions
 SET
     project_id = sqlc.arg(target_project_id),
     workspace_id = sqlc.arg(target_workspace_id),
-    worktree_id = NULL,
+    worktree_id = sqlc.narg(target_worktree_id),
     cwd_relpath = '.',
     artifact_relpath = sqlc.arg(target_artifact_relpath),
     updated_at_unix_ms = sqlc.arg(updated_at_unix_ms),
@@ -2536,14 +2479,22 @@ SET
                 CASE WHEN json_valid(metadata_json) THEN metadata_json ELSE '{}' END,
                 '$.workspace_root', CAST(sqlc.arg(target_workspace_root) AS TEXT),
                 '$.workspace_container', CAST(sqlc.arg(target_workspace_container) AS TEXT),
-                '$.worktree_reminder', json('null')
+                '$.worktree_reminder',
+                CASE WHEN CAST(sqlc.narg(worktree_reminder_json) AS TEXT) IS NULL
+                    THEN json('null')
+                    ELSE json(CAST(sqlc.narg(worktree_reminder_json) AS TEXT))
+                END
             )
         ELSE
             json_set(
                 CASE WHEN json_valid(metadata_json) THEN metadata_json ELSE '{}' END,
                 '$.workspace_root', CAST(sqlc.arg(target_workspace_root) AS TEXT),
                 '$.workspace_container', CAST(sqlc.arg(target_workspace_container) AS TEXT),
-                '$.worktree_reminder', json('null'),
+                '$.worktree_reminder',
+                CASE WHEN CAST(sqlc.narg(worktree_reminder_json) AS TEXT) IS NULL
+                    THEN json('null')
+                    ELSE json(CAST(sqlc.narg(worktree_reminder_json) AS TEXT))
+                END,
                 '$.rebind_reminder', json(CAST(sqlc.narg(rebind_reminder_json) AS TEXT))
             )
         END,
@@ -2558,8 +2509,82 @@ UPDATE sessions
 SET
     workspace_id = sqlc.arg(workspace_id),
     worktree_id = sqlc.narg(worktree_id),
-    cwd_relpath = sqlc.arg(cwd_relpath)
-WHERE id = sqlc.arg(session_id);
+    cwd_relpath = sqlc.arg(cwd_relpath),
+    metadata_json = CASE WHEN CAST(sqlc.narg(worktree_reminder_json) AS TEXT) IS NULL
+        THEN metadata_json
+        ELSE json_set(metadata_json, '$.worktree_reminder', json(CAST(sqlc.narg(worktree_reminder_json) AS TEXT)))
+    END,
+    updated_at_unix_ms = CASE WHEN CAST(sqlc.narg(worktree_reminder_json) AS TEXT) IS NULL
+        THEN updated_at_unix_ms
+        ELSE sqlc.arg(updated_at_unix_ms)
+    END
+WHERE id = sqlc.arg(session_id)
+    AND (sqlc.narg(expected_worktree_id) IS NULL OR worktree_id = sqlc.narg(expected_worktree_id));
+
+-- name: GetSessionDeletionState :one
+SELECT
+    CAST(EXISTS (
+        SELECT 1
+        FROM sessions session
+        WHERE session.id = sqlc.arg(session_id)
+    ) AS INTEGER) AS session_exists,
+    CAST(
+        EXISTS (
+            SELECT 1
+            FROM task_current_nodes current_node
+            JOIN workflow_task_status_records status
+                ON status.task_id = current_node.task_id
+            WHERE current_node.session_id = sqlc.arg(session_id)
+              AND status.is_done = 0
+        )
+        OR EXISTS (
+            SELECT 1
+            FROM task_pending_approvals approval
+            WHERE approval.source_session_id = sqlc.arg(session_id)
+        )
+        OR EXISTS (
+            SELECT 1
+            FROM task_pending_approval_branches branch
+            WHERE (
+                json_extract(
+                    branch.context_source_resolution_json,
+                    '$.target_session.kind'
+                ) = 'reuse'
+                AND json_extract(
+                    branch.context_source_resolution_json,
+                    '$.target_session.session_id'
+                ) = sqlc.arg(session_id)
+            )
+            OR (
+                json_extract(
+                    branch.context_source_resolution_json,
+                    '$.active_source.kind'
+                ) = 'exact'
+                AND json_extract(
+                    branch.context_source_resolution_json,
+                    '$.active_source.session_id'
+                ) = sqlc.arg(session_id)
+            )
+            OR (
+                json_type(
+                    branch.context_source_resolution_json,
+                    '$.target_session'
+                ) IS NULL
+                AND json_type(
+                    branch.context_source_resolution_json,
+                    '$.active_source'
+                ) IS NULL
+                AND json_type(
+                    branch.context_source_resolution_json,
+                    '$.session_id'
+                ) = 'text'
+                AND json_extract(
+                    branch.context_source_resolution_json,
+                    '$.session_id'
+                ) = sqlc.arg(session_id)
+            )
+        )
+    AS INTEGER) AS session_in_use;
 
 -- name: DeleteSessionRecordByID :execrows
 DELETE FROM sessions
@@ -2570,14 +2595,19 @@ UPDATE projects
 SET updated_at_unix_ms = updated_at_unix_ms
 WHERE id = '';
 
--- name: ListSessionsTargetingWorktree :many
+-- name: ListSessionsTargetingWorktreePage :many
 SELECT
     id,
     name,
     updated_at_unix_ms
 FROM sessions
 WHERE worktree_id = sqlc.arg(worktree_id)
-ORDER BY updated_at_unix_ms DESC, rowid DESC;
+  AND (
+    sqlc.narg(after_id) IS NULL
+    OR id > sqlc.narg(after_id)
+  )
+ORDER BY id ASC
+LIMIT sqlc.arg(page_size);
 
 -- name: InsertSessionPromptHistoryEntry :one
 INSERT INTO session_prompt_history_entries (
@@ -2785,6 +2815,25 @@ WHERE id = sqlc.arg(task_id)
   AND execution_target_commit_oid IS NULL
   AND execution_target_provenance IS NULL
   AND managed_worktree_id IS sqlc.narg(expected_managed_worktree_id);
+
+-- name: ReplaceTaskExecutionTarget :execrows
+UPDATE tasks
+SET
+    managed_worktree_id = sqlc.narg(managed_worktree_id),
+    pending_initial_managed_branch_name = NULL,
+    execution_target_mode = sqlc.narg(execution_target_mode),
+    execution_target_requested_ref = sqlc.narg(execution_target_requested_ref),
+    execution_target_resolved_ref = sqlc.narg(execution_target_resolved_ref),
+    execution_target_commit_oid = sqlc.narg(execution_target_commit_oid),
+    execution_target_provenance = sqlc.narg(execution_target_provenance),
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)
+WHERE tasks.id = sqlc.arg(task_id)
+  AND execution_target_mode IS NOT NULL
+  AND execution_target_mode != 'none'
+  AND managed_worktree_id IS sqlc.narg(expected_managed_worktree_id);
+
+-- name: CountTaskManagedWorktreeReferences :one
+SELECT COUNT(*) FROM tasks WHERE managed_worktree_id = sqlc.arg(managed_worktree_id);
 
 -- name: TouchTaskUpdatedAt :execrows
 UPDATE tasks
@@ -2994,13 +3043,14 @@ WHERE task_id = sqlc.arg(task_id)
   AND scheduling_state = 'interrupted'
   AND interruption_reason = 'user_interrupt';
 
--- name: RecoverExecutableCurrentNodes :many
+-- name: ReconcileTaskResume :execrows
 UPDATE task_current_nodes
 SET scheduling_state = 'interrupted',
     interruption_reason = sqlc.arg(interruption_reason),
     interruption_detail_json = sqlc.arg(interruption_detail_json),
     interrupted_at_unix_ms = sqlc.arg(interrupted_at_unix_ms)
-WHERE scheduling_state IN ('ready', 'admitted')
+WHERE task_id = sqlc.arg(task_id)
+  AND scheduling_state IN ('ready', 'admitted')
   AND NOT EXISTS (
       SELECT 1
       FROM task_pending_approvals approval
@@ -3010,8 +3060,7 @@ WHERE scheduling_state IN ('ready', 'admitted')
             (approval.source_transition_branch_key IS NULL AND task_current_nodes.transition_branch_key IS NULL)
             OR approval.source_transition_branch_key = task_current_nodes.transition_branch_key
         )
-  )
-RETURNING task_id, node_id, transition_branch_key;
+  );
 
 -- name: InsertTaskCurrentNode :exec
 INSERT INTO task_current_nodes (

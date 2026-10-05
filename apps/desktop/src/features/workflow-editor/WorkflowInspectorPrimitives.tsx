@@ -2,7 +2,10 @@ import { useId, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { WorkflowValidationError } from "@/api";
-import { WorkflowValidationErrorDetailsLine } from "@/shared/workflow-validation";
+import {
+  workflowValidationErrorMessage,
+  WorkflowValidationErrorDetailsLine,
+} from "@/shared/workflow-validation";
 import { ErrorState, HelpHint, IslandSurface } from "@/ui";
 import { workflowValidationErrorKey } from "./workflowValidationErrorKey";
 
@@ -82,7 +85,7 @@ export function ValidationDetails({
             className="pl-[2px] marker:text-[var(--color-error)]"
             key={workflowValidationErrorKey(error, index)}
           >
-            <span>{error.message}</span>
+            <span>{workflowValidationErrorMessage(error, t)}</span>
             <WorkflowValidationErrorDetailsLine error={error} />
           </li>
         ))}

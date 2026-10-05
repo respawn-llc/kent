@@ -15,12 +15,12 @@ import (
 )
 
 type testServer struct {
-	cfg       config.App
+	cfg       config.Connection
 	client    apicontract.ProjectViewService
 	bindCalls []serverapi.ProjectBinding
 }
 
-func (s *testServer) Config() config.App { return s.cfg }
+func (s *testServer) Connection() config.Connection { return s.cfg }
 
 func (s *testServer) PresentationTheme() string { return "dark" }
 func (s *testServer) ProjectViewClient() apicontract.ProjectViewService {
@@ -32,14 +32,12 @@ func (s *testServer) BindProjectWorkspace(_ context.Context, projectID string, w
 }
 
 type testProjectViewClient struct {
-	plan          projectpb.PlanWorkspaceBindingSuccess
-	create        projectpb.CreateProjectSuccess
-	attach        projectpb.AttachWorkspaceSuccess
-	overview      projectpb.GetOverviewSuccess
-	createReq     *projectpb.CreateProjectRequest
-	attachReq     *projectpb.AttachWorkspaceRequest
-	planCalled    bool
-	overviewCalls int
+	plan       projectpb.PlanWorkspaceBindingSuccess
+	create     projectpb.CreateProjectSuccess
+	attach     projectpb.AttachWorkspaceSuccess
+	createReq  *projectpb.CreateProjectRequest
+	attachReq  *projectpb.AttachWorkspaceRequest
+	planCalled bool
 }
 
 func (c *testProjectViewClient) ListProjects(context.Context, *emptypb.Empty) (*projectpb.ProjectListSuccess, error) {
@@ -69,10 +67,6 @@ func (c *testProjectViewClient) ListProjectWorkspaces(context.Context, *projectp
 func (c *testProjectViewClient) RebindWorkspace(context.Context, *projectpb.RebindWorkspaceRequest) (*projectpb.RebindWorkspaceSuccess, error) {
 	return &projectpb.RebindWorkspaceSuccess{}, nil
 }
-func (c *testProjectViewClient) GetProjectOverview(context.Context, *projectpb.GetOverviewRequest) (*projectpb.GetOverviewSuccess, error) {
-	c.overviewCalls++
-	return &c.overview, nil
-}
 func (c *testProjectViewClient) ListSessionPage(context.Context, *projectpb.SessionPageRequest) (*projectpb.SessionPageSuccess, error) {
 	return &projectpb.SessionPageSuccess{}, nil
 }
@@ -87,7 +81,7 @@ func TestEnsureInteractiveBindsExistingPlan(t *testing.T) {
 			WorkspaceStatus: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
 		},
 	}}
-	server := &testServer{cfg: config.App{WorkspaceRoot: "/workspace"}, client: projectClient}
+	server := &testServer{cfg: config.Connection{WorkspaceRoot: "/workspace"}, client: projectClient}
 
 	bound, err := EnsureInteractive[*testServer](context.Background(), Request[*testServer]{Server: server})
 	if err != nil {
@@ -113,7 +107,7 @@ func TestEnsureInteractiveCreatesProjectForLocalUnboundPath(t *testing.T) {
 			WorkspaceStatus: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
 		}},
 	}
-	server := &testServer{cfg: config.App{WorkspaceRoot: "/tmp/workspace"}, client: projectClient}
+	server := &testServer{cfg: config.Connection{WorkspaceRoot: "/tmp/workspace"}, client: projectClient}
 
 	_, err := EnsureInteractive[*testServer](context.Background(), Request[*testServer]{
 		Server: server,
@@ -142,7 +136,7 @@ func TestEnsureInteractiveCreatesProjectForLocalUnboundPath(t *testing.T) {
 
 func TestEnsureInteractivePropagatesCanceledPicker(t *testing.T) {
 	projectClient := &testProjectViewClient{plan: projectpb.PlanWorkspaceBindingSuccess{Kind: projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_LOCAL_UNBOUND}}
-	server := &testServer{cfg: config.App{WorkspaceRoot: "/workspace"}, client: projectClient}
+	server := &testServer{cfg: config.Connection{WorkspaceRoot: "/workspace"}, client: projectClient}
 
 	_, err := EnsureInteractive[*testServer](context.Background(), Request[*testServer]{
 		Server: server,
@@ -172,8 +166,8 @@ func TestSelectWorkspaceForStartupUsesCatalogLoader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("select workspace: %v", err)
 	}
-	if !seen || projectClient.overviewCalls != 0 {
-		t.Fatalf("catalog selection used stale overview path: loader=%t overview_calls=%d", seen, projectClient.overviewCalls)
+	if !seen {
+		t.Fatal("catalog selection did not use the catalog loader")
 	}
 	if selected, ok := result.(WorkspacePickerSelected); !ok || selected.Workspace.WorkspaceId != "workspace-1" {
 		t.Fatalf("selection result = %#v", result)

@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"core/shared/config"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/toolspec"
 )
@@ -38,7 +39,7 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 	if err != nil {
 		return nil, err
 	}
-	systemPromptFiles, err := systemPromptFilesToProto(settings.SystemPromptFiles)
+	systemPromptFile, err := systemPromptFileToProto(settings.SystemPromptFile)
 	if err != nil {
 		return nil, err
 	}
@@ -50,47 +51,47 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 	if err != nil {
 		return nil, err
 	}
-	serverPort, err := projectInt32(settings.ServerPort, "server port")
+	serverPort, err := Int32(settings.ServerPort, "server port")
 	if err != nil {
 		return nil, err
 	}
-	modelContextWindow, err := projectInt32(settings.ModelContextWindow, "model context window")
+	modelContextWindow, err := Int32(settings.ModelContextWindow, "model context window")
 	if err != nil {
 		return nil, err
 	}
-	compactionThreshold, err := projectInt32(settings.ContextCompactionThresholdTokens, "context compaction threshold")
+	compactionThreshold, err := Int32(settings.ContextCompactionThresholdTokens, "context compaction threshold")
 	if err != nil {
 		return nil, err
 	}
-	preSubmitLead, err := projectInt32(settings.PreSubmitCompactionLeadTokens, "pre-submit compaction lead")
+	preSubmitLead, err := Int32(settings.PreSubmitCompactionLeadTokens, "pre-submit compaction lead")
 	if err != nil {
 		return nil, err
 	}
-	minimumExec, err := projectInt32(settings.MinimumExecToBgSeconds, "minimum exec-to-background seconds")
+	minimumExec, err := Int32(settings.MinimumExecToBgSeconds, "minimum exec-to-background seconds")
 	if err != nil {
 		return nil, err
 	}
-	modelTimeout, err := projectInt32(settings.Timeouts.ModelRequestSeconds, "model request timeout")
+	modelTimeout, err := Int32(settings.Timeouts.ModelRequestSeconds, "model request timeout")
 	if err != nil {
 		return nil, err
 	}
-	shellOutputMax, err := projectInt32(settings.ShellOutputMaxChars, "shell output maximum")
+	shellOutputMax, err := Int32(settings.ShellOutputMaxChars, "shell output maximum")
 	if err != nil {
 		return nil, err
 	}
-	worktreeTimeout, err := projectInt32(settings.Worktrees.SetupTimeoutSeconds, "worktree setup timeout")
+	worktreeTimeout, err := Int32(settings.Worktrees.SetupTimeoutSeconds, "worktree setup timeout")
 	if err != nil {
 		return nil, err
 	}
-	workflowConcurrency, err := projectInt32(settings.Workflow.Concurrency, "workflow concurrency")
+	workflowConcurrency, err := Int32(settings.Workflow.Concurrency, "workflow concurrency")
 	if err != nil {
 		return nil, err
 	}
-	workflowAttempts, err := projectInt32(settings.Workflow.MaxInvalidCompletionAttempts, "workflow invalid completion attempts")
+	workflowAttempts, err := Int32(settings.Workflow.MaxInvalidCompletionAttempts, "workflow invalid completion attempts")
 	if err != nil {
 		return nil, err
 	}
-	maxSubagentDepth, err := projectInt32(settings.MaxSubagentDepth, "maximum subagent depth")
+	maxSubagentDepth, err := Int32(settings.MaxSubagentDepth, "maximum subagent depth")
 	if err != nil {
 		return nil, err
 	}
@@ -99,13 +100,14 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 		return nil, err
 	}
 	message := &sessionlaunchpb.Settings{
+		Connection:                       connectionIDToProto(settings.Connection),
 		Model:                            settings.Model,
 		ThinkingLevel:                    settings.ThinkingLevel,
 		ModelVerbosity:                   modelVerbosity,
-		SystemPromptFile:                 settings.SystemPromptFile,
-		SystemPromptFiles:                systemPromptFiles,
+		SystemPromptFile:                 systemPromptFile,
 		ModelCapabilities:                modelCapabilitiesToProto(settings.ModelCapabilities),
 		Theme:                            settings.Theme,
+		TuiNativeProgressBar:             settings.TUINativeProgressBar,
 		NotificationMethod:               settings.NotificationMethod,
 		ToolPreambles:                    settings.ToolPreambles,
 		PriorityRequestMode:              settings.PriorityRequestMode,
@@ -113,10 +115,7 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 		ServerHost:                       settings.ServerHost,
 		ServerPort:                       serverPort,
 		WebSearch:                        settings.WebSearch,
-		ProviderOverride:                 settings.ProviderOverride,
 		ProviderIdentifier:               settings.ProviderIdentifier,
-		OpenaiBaseUrl:                    settings.OpenAIBaseURL,
-		ProviderCapabilities:             providerCapabilitiesToProto(settings.ProviderCapabilities),
 		Store:                            settings.Store,
 		AllowNonCwdEdits:                 settings.AllowNonCwdEdits,
 		ModelContextWindow:               modelContextWindow,
@@ -150,7 +149,7 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 		PreventSleep:     sleepMode,
 	}
 	if settings.Workflow.PreCompactionTokens != nil {
-		value, conversionErr := projectInt32(*settings.Workflow.PreCompactionTokens, "workflow pre-compaction tokens")
+		value, conversionErr := Int32(*settings.Workflow.PreCompactionTokens, "workflow pre-compaction tokens")
 		if conversionErr != nil {
 			return nil, conversionErr
 		}
@@ -191,7 +190,7 @@ func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Setting
 	if err != nil {
 		return config.Settings{}, err
 	}
-	systemPromptFiles, err := systemPromptFilesFromProto(message.SystemPromptFiles)
+	systemPromptFile, err := systemPromptFileFromProto(message.SystemPromptFile)
 	if err != nil {
 		return config.Settings{}, err
 	}
@@ -211,14 +210,19 @@ func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Setting
 	if err != nil {
 		return config.Settings{}, err
 	}
+	connection, err := connectionIDFromProto(message.Connection)
+	if err != nil {
+		return config.Settings{}, err
+	}
 	settings := config.Settings{
+		Connection:                       connection,
 		Model:                            message.Model,
 		ThinkingLevel:                    message.ThinkingLevel,
 		ModelVerbosity:                   modelVerbosity,
-		SystemPromptFile:                 message.SystemPromptFile,
-		SystemPromptFiles:                systemPromptFiles,
+		SystemPromptFile:                 systemPromptFile,
 		ModelCapabilities:                modelCapabilitiesFromProto(message.ModelCapabilities),
 		Theme:                            message.Theme,
+		TUINativeProgressBar:             message.TuiNativeProgressBar,
 		NotificationMethod:               message.NotificationMethod,
 		ToolPreambles:                    message.ToolPreambles,
 		PriorityRequestMode:              message.PriorityRequestMode,
@@ -226,10 +230,7 @@ func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Setting
 		ServerHost:                       message.ServerHost,
 		ServerPort:                       int(message.ServerPort),
 		WebSearch:                        message.WebSearch,
-		ProviderOverride:                 message.ProviderOverride,
 		ProviderIdentifier:               message.ProviderIdentifier,
-		OpenAIBaseURL:                    message.OpenaiBaseUrl,
-		ProviderCapabilities:             providerCapabilitiesFromProto(message.ProviderCapabilities),
 		Store:                            message.Store,
 		AllowNonCwdEdits:                 message.AllowNonCwdEdits,
 		ModelContextWindow:               int(message.ModelContextWindow),
@@ -274,20 +275,19 @@ func reviewerSettingsToProto(settings config.ReviewerSettings) (*sessionlaunchpb
 	if err != nil {
 		return nil, err
 	}
-	window, err := projectInt32(settings.ModelContextWindow, "reviewer model context window")
+	window, err := Int32(settings.ModelContextWindow, "reviewer model context window")
 	if err != nil {
 		return nil, err
 	}
-	timeout, err := projectInt32(settings.TimeoutSeconds, "reviewer timeout")
+	timeout, err := Int32(settings.TimeoutSeconds, "reviewer timeout")
 	if err != nil {
 		return nil, err
 	}
 	return &sessionlaunchpb.ReviewerSettings{
 		Frequency: settings.Frequency, Model: settings.Model, ThinkingLevel: settings.ThinkingLevel,
-		ModelVerbosity: verbosity, ProviderOverride: settings.ProviderOverride,
-		OpenaiBaseUrl: settings.OpenAIBaseURL, ModelCapabilities: modelCapabilitiesToProto(settings.ModelCapabilities),
-		ProviderCapabilities: providerCapabilitiesToProto(settings.ProviderCapabilities),
-		ModelContextWindow:   window, Auth: settings.Auth, SystemPromptFile: settings.SystemPromptFile,
+		ModelVerbosity: verbosity, Connection: connectionIDToProto(settings.Connection),
+		ModelCapabilities:  modelCapabilitiesToProto(settings.ModelCapabilities),
+		ModelContextWindow: window, SystemPromptFile: settings.SystemPromptFile,
 		TimeoutSeconds: timeout, VerboseOutput: settings.VerboseOutput,
 	}, nil
 }
@@ -297,15 +297,37 @@ func reviewerSettingsFromProto(message *sessionlaunchpb.ReviewerSettings) (confi
 	if err != nil {
 		return config.ReviewerSettings{}, err
 	}
+	connection, err := connectionIDFromProto(message.Connection)
+	if err != nil {
+		return config.ReviewerSettings{}, err
+	}
 	return config.ReviewerSettings{
 		Frequency: message.Frequency, Model: message.Model, ThinkingLevel: message.ThinkingLevel,
-		ModelVerbosity: verbosity, ProviderOverride: message.ProviderOverride,
-		OpenAIBaseURL: message.OpenaiBaseUrl, ModelCapabilities: modelCapabilitiesFromProto(message.ModelCapabilities),
-		ProviderCapabilities: providerCapabilitiesFromProto(message.ProviderCapabilities),
-		ModelContextWindow:   int(message.ModelContextWindow), Auth: message.Auth,
-		SystemPromptFile: message.SystemPromptFile, TimeoutSeconds: int(message.TimeoutSeconds),
+		ModelVerbosity: verbosity, Connection: connection,
+		ModelCapabilities:  modelCapabilitiesFromProto(message.ModelCapabilities),
+		ModelContextWindow: int(message.ModelContextWindow),
+		SystemPromptFile:   message.SystemPromptFile, TimeoutSeconds: int(message.TimeoutSeconds),
 		VerboseOutput: message.VerboseOutput,
 	}, nil
+}
+
+func connectionIDToProto(id *config.ConnectionID) *string {
+	if id == nil {
+		return nil
+	}
+	value := string(*id)
+	return &value
+}
+
+func connectionIDFromProto(raw *string) (*config.ConnectionID, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	id, err := config.ParseConnectionID(*raw)
+	if err != nil {
+		return nil, err
+	}
+	return &id, nil
 }
 
 func modelCapabilitiesToProto(value config.ModelCapabilitiesOverride) *sessionlaunchpb.ModelCapabilitiesOverride {
@@ -322,9 +344,10 @@ func modelCapabilitiesFromProto(value *sessionlaunchpb.ModelCapabilitiesOverride
 	}
 }
 
-func providerCapabilitiesToProto(value config.ProviderCapabilitiesOverride) *sessionlaunchpb.ProviderCapabilitiesOverride {
-	return &sessionlaunchpb.ProviderCapabilitiesOverride{
+func providerCapabilitiesToProto(value config.ProviderCapabilitiesOverride) *authpb.ProviderCapabilitiesOverride {
+	return &authpb.ProviderCapabilitiesOverride{
 		ProviderId: value.ProviderID, SupportsResponsesApi: value.SupportsResponsesAPI,
+		SupportsFastMode:         value.SupportsFastMode,
 		SupportsResponsesCompact: value.SupportsResponsesCompact,
 		SupportsPromptCacheKey:   value.SupportsPromptCacheKey, SupportsNativeWebSearch: value.SupportsNativeWebSearch,
 		SupportsReasoningEncrypted:    value.SupportsReasoningEncrypted,
@@ -333,9 +356,10 @@ func providerCapabilitiesToProto(value config.ProviderCapabilitiesOverride) *ses
 	}
 }
 
-func providerCapabilitiesFromProto(value *sessionlaunchpb.ProviderCapabilitiesOverride) config.ProviderCapabilitiesOverride {
+func providerCapabilitiesFromProto(value *authpb.ProviderCapabilitiesOverride) config.ProviderCapabilitiesOverride {
 	return config.ProviderCapabilitiesOverride{
 		ProviderID: value.ProviderId, SupportsResponsesAPI: value.SupportsResponsesApi,
+		SupportsFastMode:         value.SupportsFastMode,
 		SupportsResponsesCompact: value.SupportsResponsesCompact,
 		SupportsPromptCacheKey:   value.SupportsPromptCacheKey, SupportsNativeWebSearch: value.SupportsNativeWebSearch,
 		SupportsReasoningEncrypted:    value.SupportsReasoningEncrypted,
@@ -344,28 +368,26 @@ func providerCapabilitiesFromProto(value *sessionlaunchpb.ProviderCapabilitiesOv
 	}
 }
 
-func systemPromptFilesToProto(values []config.SystemPromptFile) ([]*sessionlaunchpb.SystemPromptFile, error) {
-	result := make([]*sessionlaunchpb.SystemPromptFile, 0, len(values))
-	for _, value := range values {
-		scope, err := systemPromptFileScopeToProto(value.Scope)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, &sessionlaunchpb.SystemPromptFile{Path: value.Path, Scope: scope})
+func systemPromptFileToProto(value *config.SystemPromptFile) (*sessionlaunchpb.SystemPromptFile, error) {
+	if value == nil {
+		return nil, nil
 	}
-	return result, nil
+	scope, err := systemPromptFileScopeToProto(value.Scope)
+	if err != nil {
+		return nil, err
+	}
+	return &sessionlaunchpb.SystemPromptFile{Path: value.Path, Scope: scope}, nil
 }
 
-func systemPromptFilesFromProto(values []*sessionlaunchpb.SystemPromptFile) ([]config.SystemPromptFile, error) {
-	result := make([]config.SystemPromptFile, 0, len(values))
-	for _, value := range values {
-		scope, err := systemPromptFileScopeFromProto(value.Scope)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, config.SystemPromptFile{Path: value.Path, Scope: scope})
+func systemPromptFileFromProto(value *sessionlaunchpb.SystemPromptFile) (*config.SystemPromptFile, error) {
+	if value == nil {
+		return nil, nil
 	}
-	return result, nil
+	scope, err := systemPromptFileScopeFromProto(value.Scope)
+	if err != nil {
+		return nil, err
+	}
+	return &config.SystemPromptFile{Path: value.Path, Scope: scope}, nil
 }
 
 func enabledToolFactsToProto(values map[toolspec.ID]bool) ([]*sessionlaunchpb.ToolEnabledFact, error) {
@@ -420,44 +442,26 @@ func booleanFactsFromProto(values []*sessionlaunchpb.BooleanFact) (map[string]bo
 	return result, nil
 }
 
-func stringFactsToProto(values map[string]string) []*sessionlaunchpb.StringFact {
-	keys := sortedStringKeys(values)
-	result := make([]*sessionlaunchpb.StringFact, 0, len(keys))
-	for _, key := range keys {
-		result = append(result, &sessionlaunchpb.StringFact{Key: key, Value: values[key]})
-	}
-	return result
-}
-
-func stringFactsFromProto(values []*sessionlaunchpb.StringFact) (map[string]string, error) {
-	result := make(map[string]string, len(values))
-	for _, value := range values {
-		if _, exists := result[value.Key]; exists {
-			return nil, fmt.Errorf("duplicate string fact %q", value.Key)
-		}
-		result[value.Key] = value.Value
-	}
-	return result, nil
-}
-
 func subagentRolesToProto(base config.Settings) ([]*sessionlaunchpb.NamedSubagentRole, error) {
 	values := base.Subagents
 	keys := sortedStringKeys(values)
 	result := make([]*sessionlaunchpb.NamedSubagentRole, 0, len(keys))
 	for _, key := range keys {
 		value := values[key]
-		effective := config.OverlaySubagentRoleSettings(base, value, true)
-		effective.Subagents = nil
-		settings, err := SessionSettingsToProto(effective)
+		declaration := config.MaterializeSubagentRoleDeclaration(base, value)
+		settings, err := SessionSettingsToProto(declaration)
 		if err != nil {
 			return nil, fmt.Errorf("subagent %q settings: %w", key, err)
+		}
+		sources, err := sourceFactsToProto(value.Sources)
+		if err != nil {
+			return nil, err
 		}
 		result = append(result, &sessionlaunchpb.NamedSubagentRole{
 			Name: key,
 			Role: &sessionlaunchpb.SubagentRole{
-				Settings: settings, Sources: stringFactsToProto(value.Sources), Description: value.Description,
-				AgentCallable: value.AgentCallable, AgentCallableSet: value.AgentCallableSet,
-				WorkflowSubagent: value.WorkflowSubagent, WorkflowSubagentSet: value.WorkflowSubagentSet,
+				Settings: settings, Sources: sources, Description: value.Description,
+				AgentCallable: value.AgentCallable, WorkflowSubagent: value.WorkflowSubagent,
 			},
 		})
 	}
@@ -474,27 +478,36 @@ func subagentRolesFromProto(values []*sessionlaunchpb.NamedSubagentRole) (map[st
 		if err != nil {
 			return nil, fmt.Errorf("subagent %q settings: %w", value.Name, err)
 		}
-		sources, err := stringFactsFromProto(value.Role.Sources)
+		sources, err := sourceFactsFromProto(value.Role.Sources)
 		if err != nil {
 			return nil, fmt.Errorf("subagent %q sources: %w", value.Name, err)
 		}
 		result[value.Name] = config.SubagentRole{
 			Settings: settings, Sources: sources, Description: value.Role.Description,
-			AgentCallable: value.Role.AgentCallable, AgentCallableSet: value.Role.AgentCallableSet,
-			WorkflowSubagent: value.Role.WorkflowSubagent, WorkflowSubagentSet: value.Role.WorkflowSubagentSet,
+			AgentCallable: value.Role.AgentCallable, WorkflowSubagent: value.Role.WorkflowSubagent,
 		}
 	}
 	return result, nil
 }
 
 func SessionSourceReportToProto(source config.SourceReport) (*sessionlaunchpb.SourceReport, error) {
+	sources, err := sourceFactsToProto(source.Sources)
+	if err != nil {
+		return nil, err
+	}
 	message := &sessionlaunchpb.SourceReport{
-		SettingsPath: source.SettingsPath, SettingsFileExists: source.SettingsFileExists,
-		CreatedDefaultConfig: source.CreatedDefaultConfig, HomeSettingsPath: source.HomeSettingsPath,
-		HomeSettingsFileExists: source.HomeSettingsFileExists, WorkspaceSettingsPath: source.WorkspaceSettingsPath,
-		WorkspaceSettingsFileExists:   source.WorkspaceSettingsFileExists,
-		WorkspaceSettingsLayerEnabled: source.WorkspaceSettingsLayerEnabled,
-		Sources:                       stringFactsToProto(source.Sources),
+		CreatedDefaultConfig: source.CreatedDefaultConfig,
+		Sources:              sources,
+	}
+	for _, file := range source.Files {
+		layer, err := configFileLayerToProto(file.Layer)
+		if err != nil {
+			return nil, err
+		}
+		message.Files = append(message.Files, &sessionlaunchpb.ConfigFileReport{
+			File:   &sessionlaunchpb.ConfigFileSource{Layer: layer, Path: file.Path},
+			Exists: file.Exists, Enabled: file.Enabled, Applied: file.Applied,
+		})
 	}
 	return message, Validate(message)
 }
@@ -503,17 +516,25 @@ func SessionSourceReportFromProto(message *sessionlaunchpb.SourceReport) (config
 	if err := Validate(message); err != nil {
 		return config.SourceReport{}, err
 	}
-	sources, err := stringFactsFromProto(message.Sources)
+	sources, err := sourceFactsFromProto(message.Sources)
 	if err != nil {
 		return config.SourceReport{}, err
 	}
-	return config.SourceReport{
-		SettingsPath: message.SettingsPath, SettingsFileExists: message.SettingsFileExists,
-		CreatedDefaultConfig: message.CreatedDefaultConfig, HomeSettingsPath: message.HomeSettingsPath,
-		HomeSettingsFileExists: message.HomeSettingsFileExists, WorkspaceSettingsPath: message.WorkspaceSettingsPath,
-		WorkspaceSettingsFileExists:   message.WorkspaceSettingsFileExists,
-		WorkspaceSettingsLayerEnabled: message.WorkspaceSettingsLayerEnabled, Sources: sources,
-	}, nil
+	report := config.SourceReport{CreatedDefaultConfig: message.CreatedDefaultConfig, Sources: sources}
+	for _, file := range message.Files {
+		layer, err := configFileLayerFromProto(file.File.Layer)
+		if err != nil {
+			return config.SourceReport{}, err
+		}
+		if report.File(layer) != nil {
+			return config.SourceReport{}, fmt.Errorf("duplicate configuration file layer %q", layer)
+		}
+		report.Files = append(report.Files, config.ConfigFileReport{
+			SourceFile: config.SourceFile{Layer: layer, Path: file.File.Path},
+			Exists:     file.Exists, Enabled: file.Enabled, Applied: file.Applied,
+		})
+	}
+	return report, nil
 }
 
 func sortedStringKeys[V any](values map[string]V) []string {

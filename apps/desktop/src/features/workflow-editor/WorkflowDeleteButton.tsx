@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Trash2 } from "lucide-react";
 
 import { useWorkflowDeleteLauncher } from "@/shared/workflow-deletion";
-import { Button } from "@/ui";
+import { Button, Spinner } from "@/ui";
 
 export function WorkflowDeleteButton({
   onDeleted,
@@ -21,14 +21,19 @@ export function WorkflowDeleteButton({
         aria-label={t("workflowEditor.workflowDelete")}
         className="justify-self-end"
         disabled={deleteLauncher.disabled}
+        aria-busy={deleteLauncher.opening || deleteLauncher.submitting}
         onClick={() => {
-          void deleteLauncher.openWorkflowDelete();
+          deleteLauncher.openWorkflowDelete();
         }}
         size="icon"
         title={t("workflowEditor.workflowDelete")}
         variant="danger"
       >
-        <Trash2 aria-hidden="true" className="block" size={18} strokeWidth={1.5} />
+        {deleteLauncher.opening || deleteLauncher.submitting ? (
+          <Spinner />
+        ) : (
+          <Trash2 aria-hidden="true" className="block" size={18} strokeWidth={1.5} />
+        )}
       </Button>
     </>
   );

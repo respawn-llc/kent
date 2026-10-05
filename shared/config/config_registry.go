@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -19,7 +20,12 @@ type settingsState struct {
 	PersistenceRoot string
 }
 
-type settingsValidator func(settingsState, map[string]string) error
+type settingsValidator func(settingsState, map[string]Origin) error
+
+type settingsValidationRule struct {
+	check settingsValidator
+	keys  []string
+}
 
 type defaultConfigLine struct {
 	Path      []string
@@ -29,7 +35,7 @@ type defaultConfigLine struct {
 
 type registrySetting interface {
 	applyDefault(*settingsState)
-	applyFile(settingsFile, string, *settingsState, map[string]string) error
+	applyFile(settingsFile, SourceFile, *settingsState, map[string]Origin) error
 }
 
 type keyedRegistrySetting interface {
@@ -37,30 +43,23 @@ type keyedRegistrySetting interface {
 }
 
 type sourceInitializingSetting interface {
-	initSources(map[string]string)
+	initSources(map[string]Origin)
 }
 
 type envApplyingSetting interface {
-	applyEnv(envLookup, *settingsState, map[string]string) error
+	applyEnv(envLookup, *settingsState, map[string]Origin) error
 }
 
 type cliApplyingSetting interface {
-	applyCLI(LoadOptions, *settingsState, map[string]string) error
+	applyCLI(LoadOptions, *settingsState, map[string]Origin) error
 }
 
 type fileKeyRegisteringSetting interface {
 	registerFileKeys(*fileKeyTree)
 }
 
-type settingsFileLayer uint8
-
-const (
-	settingsFileLayerGlobal settingsFileLayer = iota
-	settingsFileLayerWorkspace
-)
-
 type fileLayerApplicableSetting interface {
-	appliesToFileLayer(settingsFileLayer) bool
+	appliesToFileLayer(FileLayer) bool
 }
 
 type defaultLineAppendingSetting interface {
@@ -75,12 +74,13 @@ type fileKeyTree struct {
 
 type settingsRegistry struct {
 	settings           []registrySetting
-	validators         []settingsValidator
-	fileKeys           map[settingsFileLayer]*fileKeyTree
+	validators         []settingsValidationRule
+	fileKeys           map[FileLayer]*fileKeyTree
 	subagentRoleValues map[string]subagentRoleValueSetting
 }
 
 type settingDocOptions struct {
+	cliOption                    string
 	commented                    bool
 	omitInTOML                   bool
 	resolveRelativeToSettingsDir bool
@@ -96,7 +96,7 @@ type scalarSetting[T any] struct {
 	get                func(settingsState) T
 	equal              func(T, T) bool
 	decodeFile         func(settingsFile, []string) (T, bool, error)
-	transformFileValue func(T, string) (T, error)
+	transformFileValue func(T, SourceFile) (T, error)
 	envName            string
 	decodeEnv          func(string, string) (T, error)
 	decodeCLI          func(LoadOptions) (T, bool, error)
@@ -108,6 +108,11 @@ type optionalStringSetting struct {
 	apply   func(*settingsState, *string)
 	get     func(settingsState) *string
 	envName string
+	doc     settingDocOptions
+}
+
+type promptFileSetting struct {
+	scalarSetting[*SystemPromptFile]
 }
 
 type toolsSetting struct{}
@@ -133,12 +138,20 @@ func (rootOnlySetting[T]) appliesToSubagentRole() bool {
 	return false
 }
 
+type globalOnlySetting[T any] struct {
+	rootOnlySetting[T]
+}
+
+func (globalOnlySetting[T]) appliesToFileLayer(layer FileLayer) bool {
+	return layer == FileGlobal
+}
+
 func settingAppliesToSubagentRole(setting registrySetting) bool {
 	scoped, ok := setting.(subagentRoleApplicableSetting)
 	return !ok || scoped.appliesToSubagentRole()
 }
 
-func settingAppliesToFileLayer(setting registrySetting, layer settingsFileLayer) bool {
+func settingAppliesToFileLayer(setting registrySetting, layer FileLayer) bool {
 	scoped, ok := setting.(fileLayerApplicableSetting)
 	return !ok || scoped.appliesToFileLayer(layer)
 }
@@ -177,24 +190,76 @@ func (s optionalStringSetting) subagentRoleValueDiffers(base settingsState, role
 	return strings.TrimSpace(*left) != strings.TrimSpace(*right)
 }
 
+type clientSettingDefinitions struct {
+	serverHost           scalarSetting[string]
+	serverPort           scalarSetting[int]
+	theme                scalarSetting[string]
+	debug                scalarSetting[bool]
+	notificationMethod   scalarSetting[string]
+	tuiNativeProgressBar scalarSetting[bool]
+	lifecycle            clientLifecycleSetting
+}
+
+var sharedClientSettingDefinitions = newClientSettingDefinitions()
+
+func newClientSettingDefinitions() clientSettingDefinitions {
+	return clientSettingDefinitions{
+		serverHost: newStringSetting("server_host", defaultServerHost,
+			func(state *settingsState, value string) { state.Settings.ServerHost = value },
+			func(state settingsState) string { return state.Settings.ServerHost },
+			"KENT_SERVER_HOST", nil, nil, settingDocOptions{}),
+		serverPort: newIntSetting("server_port", defaultServerPort,
+			func(state *settingsState, value int) { state.Settings.ServerPort = value },
+			func(state settingsState) int { return state.Settings.ServerPort },
+			"KENT_SERVER_PORT", nil, settingDocOptions{}),
+		theme: newStringSetting("theme", defaultTheme,
+			func(state *settingsState, value string) { state.Settings.Theme = value },
+			func(state settingsState) string { return state.Settings.Theme },
+			"KENT_THEME",
+			func(opts LoadOptions) (string, bool, error) { return trimmedCLIString(opts.Theme) },
+			theme.Normalize,
+			settingDocOptions{cliOption: "--theme"}),
+		debug: newBoolSetting("debug", false,
+			func(state *settingsState, value bool) { state.Settings.Debug = value },
+			func(state settingsState) bool { return state.Settings.Debug },
+			"KENT_DEBUG", settingDocOptions{}),
+		notificationMethod: newStringSetting("notification_method", "auto",
+			func(state *settingsState, value string) { state.Settings.NotificationMethod = value },
+			func(state settingsState) string { return state.Settings.NotificationMethod },
+			"KENT_NOTIFICATION_METHOD", nil, nil, settingDocOptions{}),
+		tuiNativeProgressBar: newBoolSetting("tui_native_progress_bar", true,
+			func(state *settingsState, value bool) { state.Settings.TUINativeProgressBar = value },
+			func(state settingsState) bool { return state.Settings.TUINativeProgressBar },
+			"", settingDocOptions{}),
+		lifecycle: clientLifecycleSetting{},
+	}
+}
+
 var configRegistry = newSettingsRegistry()
 
 func newSettingsRegistry() settingsRegistry {
 	settings := []registrySetting{
+		connectionsSetting{},
+		newConnectionReference("connection",
+			func(state *settingsState, value *ConnectionID) { state.Settings.Connection = value },
+			func(state settingsState) *ConnectionID { return state.Settings.Connection }),
+		newConnectionReference("reviewer.connection",
+			func(state *settingsState, value *ConnectionID) { state.Settings.Reviewer.Connection = value },
+			func(state settingsState) *ConnectionID { return state.Settings.Reviewer.Connection }),
 		newStringSetting("model", defaultModel,
 			func(state *settingsState, value string) { state.Settings.Model = value },
 			func(state settingsState) string { return state.Settings.Model },
 			"KENT_MODEL",
 			func(opts LoadOptions) (string, bool, error) { return trimmedCLIString(opts.Model) },
 			nil,
-			settingDocOptions{}),
+			settingDocOptions{cliOption: "--model"}),
 		newStringSetting("thinking_level", defaultThinkingLevel,
 			func(state *settingsState, value string) { state.Settings.ThinkingLevel = value },
 			func(state settingsState) string { return state.Settings.ThinkingLevel },
 			"KENT_THINKING_LEVEL",
 			func(opts LoadOptions) (string, bool, error) { return trimmedCLIString(opts.ThinkingLevel) },
 			nil,
-			settingDocOptions{allowEmptyString: true}),
+			settingDocOptions{allowEmptyString: true, cliOption: "--thinking-level"}),
 		newStringSetting("model_verbosity", defaultModelVerbosity,
 			func(state *settingsState, value ModelVerbosity) { state.Settings.ModelVerbosity = value },
 			func(state settingsState) ModelVerbosity { return state.Settings.ModelVerbosity },
@@ -202,13 +267,7 @@ func newSettingsRegistry() settingsRegistry {
 			nil,
 			normalizeModelVerbosity,
 			settingDocOptions{}),
-		newStringSetting("system_prompt_file", "",
-			func(state *settingsState, value string) { state.Settings.SystemPromptFile = value },
-			func(state settingsState) string { return state.Settings.SystemPromptFile },
-			"",
-			nil,
-			nil,
-			settingDocOptions{commented: true}),
+		newPromptFileSetting(),
 		newBoolSetting("model_capabilities.supports_reasoning_effort", false,
 			func(state *settingsState, value bool) {
 				state.Settings.ModelCapabilities.SupportsReasoningEffort = value
@@ -221,25 +280,9 @@ func newSettingsRegistry() settingsRegistry {
 			func(state settingsState) bool { return state.Settings.ModelCapabilities.SupportsVisionInputs },
 			"KENT_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS",
 			settingDocOptions{commented: true}),
-		newStringSetting("theme", defaultTheme,
-			func(state *settingsState, value string) { state.Settings.Theme = value },
-			func(state settingsState) string { return state.Settings.Theme },
-			"KENT_THEME",
-			func(opts LoadOptions) (string, bool, error) { return trimmedCLIString(opts.Theme) },
-			theme.Normalize,
-			settingDocOptions{}),
-		newStringSetting("notification_method", "auto",
-			func(state *settingsState, value string) { state.Settings.NotificationMethod = value },
-			func(state settingsState) string { return state.Settings.NotificationMethod },
-			"KENT_NOTIFICATION_METHOD",
-			nil,
-			nil,
-			settingDocOptions{}),
-		newBoolSetting("tui_native_progress_bar", true,
-			func(state *settingsState, value bool) { state.Settings.TUINativeProgressBar = value },
-			func(state settingsState) bool { return state.Settings.TUINativeProgressBar },
-			"",
-			settingDocOptions{}),
+		sharedClientSettingDefinitions.theme,
+		sharedClientSettingDefinitions.notificationMethod,
+		sharedClientSettingDefinitions.tuiNativeProgressBar,
 		newBoolSetting("tool_preambles", true,
 			func(state *settingsState, value bool) { state.Settings.ToolPreambles = value },
 			func(state settingsState) bool { return state.Settings.ToolPreambles },
@@ -250,37 +293,15 @@ func newSettingsRegistry() settingsRegistry {
 			func(state settingsState) bool { return state.Settings.PriorityRequestMode },
 			"",
 			settingDocOptions{}),
-		newBoolSetting("debug", false,
-			func(state *settingsState, value bool) { state.Settings.Debug = value },
-			func(state settingsState) bool { return state.Settings.Debug },
-			"KENT_DEBUG",
-			settingDocOptions{}),
-		newStringSetting("server_host", defaultServerHost,
-			func(state *settingsState, value string) { state.Settings.ServerHost = value },
-			func(state settingsState) string { return state.Settings.ServerHost },
-			"KENT_SERVER_HOST",
-			nil,
-			nil,
-			settingDocOptions{}),
-		newIntSetting("server_port", defaultServerPort,
-			func(state *settingsState, value int) { state.Settings.ServerPort = value },
-			func(state settingsState) int { return state.Settings.ServerPort },
-			"KENT_SERVER_PORT",
-			nil,
-			settingDocOptions{}),
+		sharedClientSettingDefinitions.debug,
+		sharedClientSettingDefinitions.serverHost,
+		sharedClientSettingDefinitions.serverPort,
 		newStringSetting("web_search", "native",
 			func(state *settingsState, value string) { state.Settings.WebSearch = value },
 			func(state settingsState) string { return state.Settings.WebSearch },
 			"KENT_WEB_SEARCH",
 			nil,
 			nil,
-			settingDocOptions{}),
-		newStringSetting("provider_override", "",
-			func(state *settingsState, value string) { state.Settings.ProviderOverride = value },
-			func(state settingsState) string { return state.Settings.ProviderOverride },
-			"KENT_PROVIDER_OVERRIDE",
-			func(opts LoadOptions) (string, bool, error) { return trimmedCLIString(opts.ProviderOverride) },
-			func(raw string) string { return strings.ToLower(strings.TrimSpace(raw)) },
 			settingDocOptions{}),
 		rootOnlySetting[string]{newStringSetting("provider_identifier", Command,
 			func(state *settingsState, value string) { state.Settings.ProviderIdentifier = value },
@@ -289,78 +310,6 @@ func newSettingsRegistry() settingsRegistry {
 			nil,
 			nil,
 			settingDocOptions{allowEmptyString: true})},
-		newStringSetting("openai_base_url", "",
-			func(state *settingsState, value string) { state.Settings.OpenAIBaseURL = value },
-			func(state settingsState) string { return state.Settings.OpenAIBaseURL },
-			"KENT_OPENAI_BASE_URL",
-			func(opts LoadOptions) (string, bool, error) { return trimmedCLIString(opts.OpenAIBaseURL) },
-			nil,
-			settingDocOptions{}),
-		newStringSetting("provider_capabilities.provider_id", "",
-			func(state *settingsState, value string) { state.Settings.ProviderCapabilities.ProviderID = value },
-			func(state settingsState) string { return state.Settings.ProviderCapabilities.ProviderID },
-			"KENT_PROVIDER_CAPABILITIES_PROVIDER_ID",
-			nil,
-			nil,
-			settingDocOptions{commented: true}),
-		newBoolSetting("provider_capabilities.supports_responses_api", false,
-			func(state *settingsState, value bool) {
-				state.Settings.ProviderCapabilities.SupportsResponsesAPI = value
-			},
-			func(state settingsState) bool { return state.Settings.ProviderCapabilities.SupportsResponsesAPI },
-			"KENT_PROVIDER_CAPABILITIES_SUPPORTS_RESPONSES_API",
-			settingDocOptions{commented: true}),
-		newBoolSetting("provider_capabilities.supports_responses_compact", false,
-			func(state *settingsState, value bool) {
-				state.Settings.ProviderCapabilities.SupportsResponsesCompact = value
-			},
-			func(state settingsState) bool { return state.Settings.ProviderCapabilities.SupportsResponsesCompact },
-			"KENT_PROVIDER_CAPABILITIES_SUPPORTS_RESPONSES_COMPACT",
-			settingDocOptions{commented: true}),
-		newBoolSetting("provider_capabilities.supports_prompt_cache_key", false,
-			func(state *settingsState, value bool) {
-				state.Settings.ProviderCapabilities.SupportsPromptCacheKey = value
-			},
-			func(state settingsState) bool { return state.Settings.ProviderCapabilities.SupportsPromptCacheKey },
-			"KENT_PROVIDER_CAPABILITIES_SUPPORTS_PROMPT_CACHE_KEY",
-			settingDocOptions{commented: true}),
-		newBoolSetting("provider_capabilities.supports_native_web_search", false,
-			func(state *settingsState, value bool) {
-				state.Settings.ProviderCapabilities.SupportsNativeWebSearch = value
-			},
-			func(state settingsState) bool { return state.Settings.ProviderCapabilities.SupportsNativeWebSearch },
-			"KENT_PROVIDER_CAPABILITIES_SUPPORTS_NATIVE_WEB_SEARCH",
-			settingDocOptions{commented: true}),
-		newBoolSetting("provider_capabilities.supports_reasoning_encrypted", false,
-			func(state *settingsState, value bool) {
-				state.Settings.ProviderCapabilities.SupportsReasoningEncrypted = value
-			},
-			func(state settingsState) bool { return state.Settings.ProviderCapabilities.SupportsReasoningEncrypted },
-			"KENT_PROVIDER_CAPABILITIES_SUPPORTS_REASONING_ENCRYPTED",
-			settingDocOptions{commented: true}),
-		newBoolSetting("provider_capabilities.supports_server_side_context_edit", false,
-			func(state *settingsState, value bool) {
-				state.Settings.ProviderCapabilities.SupportsServerSideContextEdit = value
-			},
-			func(state settingsState) bool {
-				return state.Settings.ProviderCapabilities.SupportsServerSideContextEdit
-			},
-			"KENT_PROVIDER_CAPABILITIES_SUPPORTS_SERVER_SIDE_CONTEXT_EDIT",
-			settingDocOptions{commented: true}),
-		newBoolSetting("provider_capabilities.supports_provider_verbosity", false,
-			func(state *settingsState, value bool) {
-				state.Settings.ProviderCapabilities.SupportsProviderVerbosity = value
-			},
-			func(state settingsState) bool {
-				return state.Settings.ProviderCapabilities.SupportsProviderVerbosity
-			},
-			"KENT_PROVIDER_CAPABILITIES_SUPPORTS_PROVIDER_VERBOSITY",
-			settingDocOptions{commented: true}),
-		newBoolSetting("provider_capabilities.is_openai_first_party", false,
-			func(state *settingsState, value bool) { state.Settings.ProviderCapabilities.IsOpenAIFirstParty = value },
-			func(state settingsState) bool { return state.Settings.ProviderCapabilities.IsOpenAIFirstParty },
-			"KENT_PROVIDER_CAPABILITIES_IS_OPENAI_FIRST_PARTY",
-			settingDocOptions{commented: true}),
 		newBoolSetting("store", false,
 			func(state *settingsState, value bool) { state.Settings.Store = value },
 			func(state settingsState) bool { return state.Settings.Store },
@@ -414,7 +363,7 @@ func newSettingsRegistry() settingsRegistry {
 				}
 				return opts.ModelTimeoutSeconds, true, nil
 			},
-			settingDocOptions{}),
+			settingDocOptions{cliOption: "--model-timeout-seconds"}),
 		newIntSetting("shell_output_max_chars", defaultShellOutputMaxChars,
 			func(state *settingsState, value int) { state.Settings.ShellOutputMaxChars = value },
 			func(state settingsState) int { return state.Settings.ShellOutputMaxChars },
@@ -428,6 +377,10 @@ func newSettingsRegistry() settingsRegistry {
 			nil,
 			nil,
 			settingDocOptions{}),
+		globalOnlySetting[int]{rootOnlySetting[int]{newIntSetting("shell.max_concurrent", DefaultMaxConcurrentShells,
+			func(state *settingsState, value int) { state.Settings.Shell.MaxConcurrent = value },
+			func(state settingsState) int { return state.Settings.Shell.MaxConcurrent },
+			"", nil, settingDocOptions{})}},
 		newStringSetting("shell.postprocessing_mode", ShellPostprocessingMode(defaultShellPostprocessingMode),
 			func(state *settingsState, value ShellPostprocessingMode) {
 				state.Settings.Shell.PostprocessingMode = value
@@ -440,8 +393,8 @@ func newSettingsRegistry() settingsRegistry {
 		newOptionalStringSetting("shell.postprocess_hook",
 			func(state *settingsState, value *string) { state.Settings.Shell.PostprocessHook = value },
 			func(state settingsState) *string { return state.Settings.Shell.PostprocessHook },
-			"KENT_SHELL_POSTPROCESS_HOOK"),
-		clientLifecycleSetting{},
+			"KENT_SHELL_POSTPROCESS_HOOK", settingDocOptions{}),
+		sharedClientSettingDefinitions.lifecycle,
 		newStringSetting("cache_warning_mode", CacheWarningMode(defaultCacheWarningMode),
 			func(state *settingsState, value CacheWarningMode) { state.Settings.CacheWarningMode = value },
 			func(state settingsState) CacheWarningMode { return state.Settings.CacheWarningMode },
@@ -564,30 +517,6 @@ func newSettingsRegistry() settingsRegistry {
 					return "<inherits model_verbosity when unset>"
 				},
 			}),
-		newStringSetting("reviewer.provider_override", "",
-			func(state *settingsState, value string) { state.Settings.Reviewer.ProviderOverride = value },
-			func(state settingsState) string { return state.Settings.Reviewer.ProviderOverride },
-			"KENT_REVIEWER_PROVIDER_OVERRIDE",
-			nil,
-			func(raw string) string { return strings.ToLower(strings.TrimSpace(raw)) },
-			settingDocOptions{
-				omitInTOML: true,
-				defaultValue: func(settingsState) any {
-					return "<inherits provider_override when unset>"
-				},
-			}),
-		newStringSetting("reviewer.openai_base_url", "",
-			func(state *settingsState, value string) { state.Settings.Reviewer.OpenAIBaseURL = value },
-			func(state settingsState) string { return state.Settings.Reviewer.OpenAIBaseURL },
-			"KENT_REVIEWER_OPENAI_BASE_URL",
-			nil,
-			nil,
-			settingDocOptions{
-				omitInTOML: true,
-				defaultValue: func(settingsState) any {
-					return "<inherits openai_base_url when unset>"
-				},
-			}),
 		newBoolSetting("reviewer.model_capabilities.supports_reasoning_effort", false,
 			func(state *settingsState, value bool) {
 				state.Settings.Reviewer.ModelCapabilities.SupportsReasoningEffort = value
@@ -604,85 +533,6 @@ func newSettingsRegistry() settingsRegistry {
 			func(state settingsState) bool { return state.Settings.Reviewer.ModelCapabilities.SupportsVisionInputs },
 			"KENT_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS",
 			settingDocOptions{commented: true}),
-		newStringSetting("reviewer.provider_capabilities.provider_id", "",
-			func(state *settingsState, value string) {
-				state.Settings.Reviewer.ProviderCapabilities.ProviderID = value
-			},
-			func(state settingsState) string { return state.Settings.Reviewer.ProviderCapabilities.ProviderID },
-			"KENT_REVIEWER_PROVIDER_CAPABILITIES_PROVIDER_ID",
-			nil,
-			nil,
-			settingDocOptions{commented: true}),
-		newBoolSetting("reviewer.provider_capabilities.supports_responses_api", false,
-			func(state *settingsState, value bool) {
-				state.Settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI = value
-			},
-			func(state settingsState) bool {
-				return state.Settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI
-			},
-			"KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_RESPONSES_API",
-			settingDocOptions{commented: true}),
-		newBoolSetting("reviewer.provider_capabilities.supports_responses_compact", false,
-			func(state *settingsState, value bool) {
-				state.Settings.Reviewer.ProviderCapabilities.SupportsResponsesCompact = value
-			},
-			func(state settingsState) bool {
-				return state.Settings.Reviewer.ProviderCapabilities.SupportsResponsesCompact
-			},
-			"KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_RESPONSES_COMPACT",
-			settingDocOptions{commented: true}),
-		newBoolSetting("reviewer.provider_capabilities.supports_prompt_cache_key", false,
-			func(state *settingsState, value bool) {
-				state.Settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey = value
-			},
-			func(state settingsState) bool {
-				return state.Settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey
-			},
-			"KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_PROMPT_CACHE_KEY",
-			settingDocOptions{commented: true}),
-		newBoolSetting("reviewer.provider_capabilities.supports_native_web_search", false,
-			func(state *settingsState, value bool) {
-				state.Settings.Reviewer.ProviderCapabilities.SupportsNativeWebSearch = value
-			},
-			func(state settingsState) bool {
-				return state.Settings.Reviewer.ProviderCapabilities.SupportsNativeWebSearch
-			},
-			"KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_NATIVE_WEB_SEARCH",
-			settingDocOptions{commented: true}),
-		newBoolSetting("reviewer.provider_capabilities.supports_reasoning_encrypted", false,
-			func(state *settingsState, value bool) {
-				state.Settings.Reviewer.ProviderCapabilities.SupportsReasoningEncrypted = value
-			},
-			func(state settingsState) bool {
-				return state.Settings.Reviewer.ProviderCapabilities.SupportsReasoningEncrypted
-			},
-			"KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_REASONING_ENCRYPTED",
-			settingDocOptions{commented: true}),
-		newBoolSetting("reviewer.provider_capabilities.supports_server_side_context_edit", false,
-			func(state *settingsState, value bool) {
-				state.Settings.Reviewer.ProviderCapabilities.SupportsServerSideContextEdit = value
-			},
-			func(state settingsState) bool {
-				return state.Settings.Reviewer.ProviderCapabilities.SupportsServerSideContextEdit
-			},
-			"KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_SERVER_SIDE_CONTEXT_EDIT",
-			settingDocOptions{commented: true}),
-		newBoolSetting("reviewer.provider_capabilities.supports_provider_verbosity", false,
-			func(state *settingsState, value bool) {
-				state.Settings.Reviewer.ProviderCapabilities.SupportsProviderVerbosity = value
-			},
-			func(state settingsState) bool {
-				return state.Settings.Reviewer.ProviderCapabilities.SupportsProviderVerbosity
-			},
-			"KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_PROVIDER_VERBOSITY",
-			settingDocOptions{commented: true}),
-		newBoolSetting("reviewer.provider_capabilities.is_openai_first_party", false,
-			func(state *settingsState, value bool) {
-				state.Settings.Reviewer.ProviderCapabilities.IsOpenAIFirstParty = value
-			},
-			func(state settingsState) bool { return state.Settings.Reviewer.ProviderCapabilities.IsOpenAIFirstParty },
-			"KENT_REVIEWER_PROVIDER_CAPABILITIES_IS_OPENAI_FIRST_PARTY",
-			settingDocOptions{commented: true}),
 		newIntSetting("reviewer.model_context_window", 0,
 			func(state *settingsState, value int) { state.Settings.Reviewer.ModelContextWindow = value },
 			func(state settingsState) int { return state.Settings.Reviewer.ModelContextWindow },
@@ -694,19 +544,10 @@ func newSettingsRegistry() settingsRegistry {
 					return "<inherits model_context_window when unset>"
 				},
 			}),
-		newStringSetting("reviewer.auth", "inherit",
-			func(state *settingsState, value string) { state.Settings.Reviewer.Auth = value },
-			func(state settingsState) string { return state.Settings.Reviewer.Auth },
-			"KENT_REVIEWER_AUTH",
-			nil,
-			normalizeReviewerAuth,
-			settingDocOptions{}),
-		newStringSetting("reviewer.system_prompt_file", "",
-			func(state *settingsState, value string) { state.Settings.Reviewer.SystemPromptFile = value },
-			func(state settingsState) string { return state.Settings.Reviewer.SystemPromptFile },
+		newOptionalStringSetting("reviewer.system_prompt_file",
+			func(state *settingsState, value *string) { state.Settings.Reviewer.SystemPromptFile = value },
+			func(state settingsState) *string { return state.Settings.Reviewer.SystemPromptFile },
 			"",
-			nil,
-			nil,
 			settingDocOptions{resolveRelativeToSettingsDir: true}),
 		newIntSetting("reviewer.timeout_seconds", defaultReviewerTimeoutSec,
 			func(state *settingsState, value int) { state.Settings.Reviewer.TimeoutSeconds = value },
@@ -731,37 +572,34 @@ func newSettingsRegistry() settingsRegistry {
 
 	registry := settingsRegistry{
 		settings: settings,
-		validators: []settingsValidator{
-			validateModelNotEmpty,
-			validateProviderOverrideRequiresModel,
-			validateProviderOverrideValue,
-			validateProviderIdentifier,
-			validateOpenAIBaseURL,
-			validateProviderCapabilitiesProviderID,
-			validateModelVerbosity,
-			validateTheme,
-			validateNotificationMethod,
-			validateServerHost,
-			validateServerPort,
-			validateWebSearch,
-			validateTimeouts,
-			validateShellOutputMaxChars,
-			validateMinimumExecToBgSeconds,
-			validateBGShellsOutput,
-			validateShellPostprocessing,
-			validateCacheWarningMode,
-			validateContextWindow,
-			validateCompactionMode,
-			validateReviewer,
-			validateWorkflowSettings,
-			validateMaxSubagentDepth,
-			validateSleepPreventionMode,
+		validators: []settingsValidationRule{
+			{validateModelNotEmpty, []string{"model"}},
+			{validateProviderIdentifier, []string{"provider_identifier"}},
+			{validateModelVerbosity, []string{"model_verbosity"}},
+			{validateTheme, []string{"theme"}},
+			{validateNotificationMethod, []string{"notification_method"}},
+			{validateServerHost, []string{"server_host"}},
+			{validateServerPort, []string{"server_port"}},
+			{validateWebSearch, []string{"web_search"}},
+			{validateTimeouts, []string{"timeouts.model_request_seconds"}},
+			{validateShellOutputMaxChars, []string{"shell_output_max_chars"}},
+			{validateShellMaxConcurrent, []string{"shell.max_concurrent"}},
+			{validateMinimumExecToBgSeconds, []string{"minimum_exec_to_bg_seconds"}},
+			{validateBGShellsOutput, []string{"bg_shells_output"}},
+			{validateShellPostprocessing, []string{"shell.postprocessing_mode", "shell.postprocess_hook"}},
+			{validateCacheWarningMode, []string{"cache_warning_mode"}},
+			{validateCompactionMode, []string{"compaction_mode"}},
+			{validateReviewer, nil},
+			{validateWorkflowSettings, []string{"workflow.completion_mode", "workflow.concurrency", "workflow.max_invalid_completion_attempts", "workflow.pre_compaction_tokens", "context_compaction_threshold_tokens"}},
+			{validateMaxSubagentDepth, []string{"max_subagent_depth"}},
+			{validateSleepPreventionMode, []string{"prevent_sleep"}},
 		},
 	}
 
-	registry.fileKeys = map[settingsFileLayer]*fileKeyTree{
-		settingsFileLayerGlobal:    newFileKeyTree(),
-		settingsFileLayerWorkspace: newFileKeyTree(),
+	registry.fileKeys = map[FileLayer]*fileKeyTree{
+		FileGlobal:    newFileKeyTree(),
+		FileWorkspace: newFileKeyTree(),
+		FilePrivate:   newFileKeyTree(),
 	}
 	registry.subagentRoleValues = make(map[string]subagentRoleValueSetting)
 	for _, setting := range registry.settings {
@@ -799,8 +637,8 @@ func (r settingsRegistry) defaultState() settingsState {
 	return state
 }
 
-func (r settingsRegistry) defaultSourceMap() map[string]string {
-	sources := map[string]string{}
+func (r settingsRegistry) defaultSourceMap() map[string]Origin {
+	sources := map[string]Origin{}
 	for _, setting := range r.settings {
 		if sourceSetting, ok := setting.(sourceInitializingSetting); ok {
 			sourceSetting.initSources(sources)
@@ -809,7 +647,12 @@ func (r settingsRegistry) defaultSourceMap() map[string]string {
 	return sources
 }
 
-func (r settingsRegistry) applyFile(raw settingsFile, settingsPath string, layer settingsFileLayer, state *settingsState, sources map[string]string) error {
+func (r settingsRegistry) applyFile(raw settingsFile, settingsPath string, layer FileLayer, state *settingsState, sources map[string]Origin) error {
+	if layer != FileGlobal {
+		if err := rejectWorkspaceLegacyAccess(raw, settingsPath); err != nil {
+			return err
+		}
+	}
 	for _, setting := range r.settings {
 		if settingAppliesToFileLayer(setting, layer) {
 			continue
@@ -827,7 +670,7 @@ func (r settingsRegistry) applyFile(raw settingsFile, settingsPath string, layer
 			return &SettingsFileLayerError{
 				Key:          key,
 				SettingsPath: settingsPath,
-				Layer:        layer.String(),
+				Layer:        string(layer),
 			}
 		}
 	}
@@ -838,25 +681,14 @@ func (r settingsRegistry) applyFile(raw settingsFile, settingsPath string, layer
 		if !settingAppliesToFileLayer(setting, layer) {
 			continue
 		}
-		if err := setting.applyFile(raw, settingsPath, state, sources); err != nil {
+		if err := setting.applyFile(raw, SourceFile{Layer: layer, Path: settingsPath}, state, sources); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (layer settingsFileLayer) String() string {
-	switch layer {
-	case settingsFileLayerGlobal:
-		return "global"
-	case settingsFileLayerWorkspace:
-		return "workspace"
-	default:
-		return "unknown"
-	}
-}
-
-func (r settingsRegistry) applyEnv(lookup envLookup, state *settingsState, sources map[string]string) error {
+func (r settingsRegistry) applyEnv(lookup envLookup, state *settingsState, sources map[string]Origin) error {
 	for _, setting := range r.settings {
 		envSetting, ok := setting.(envApplyingSetting)
 		if !ok {
@@ -869,7 +701,7 @@ func (r settingsRegistry) applyEnv(lookup envLookup, state *settingsState, sourc
 	return nil
 }
 
-func (r settingsRegistry) applyCLI(opts LoadOptions, state *settingsState, sources map[string]string) error {
+func (r settingsRegistry) applyCLI(opts LoadOptions, state *settingsState, sources map[string]Origin) error {
 	for _, setting := range r.settings {
 		cliSetting, ok := setting.(cliApplyingSetting)
 		if !ok {
@@ -882,10 +714,16 @@ func (r settingsRegistry) applyCLI(opts LoadOptions, state *settingsState, sourc
 	return nil
 }
 
-func (r settingsRegistry) validate(state settingsState, sources map[string]string) error {
+func (r settingsRegistry) validate(state settingsState, sources map[string]Origin, constraints contextConstraints) error {
+	if err := validateContextConstraints(constraints); err != nil {
+		return configurationValidationError(err, sources, "model_context_window", "context_compaction_threshold_tokens", "pre_submit_compaction_lead_tokens")
+	}
 	for _, validator := range r.validators {
-		if err := validator(state, sources); err != nil {
-			return err
+		if err := validator.check(state, sources); err != nil {
+			if len(validator.keys) == 0 {
+				return err
+			}
+			return configurationValidationError(err, sources, validator.keys...)
 		}
 	}
 	return nil
@@ -911,10 +749,10 @@ func newStringSetting[T ~string](
 	normalize func(string) T,
 	doc settingDocOptions,
 ) scalarSetting[T] {
-	var transformFileValue func(T, string) (T, error)
+	var transformFileValue func(T, SourceFile) (T, error)
 	if doc.resolveRelativeToSettingsDir {
-		transformFileValue = func(value T, settingsPath string) (T, error) {
-			resolved, err := resolveFileSettingRelativeToSettingsPath(string(value), settingsPath)
+		transformFileValue = func(value T, file SourceFile) (T, error) {
+			resolved, err := resolveFileSettingRelativeToSettingsPath(string(value), file.Path)
 			return T(resolved), err
 		}
 	}
@@ -973,12 +811,14 @@ func newOptionalStringSetting(
 	apply func(*settingsState, *string),
 	get func(settingsState) *string,
 	envName string,
+	doc settingDocOptions,
 ) optionalStringSetting {
 	return optionalStringSetting{
 		key:     key,
 		apply:   apply,
 		get:     get,
 		envName: envName,
+		doc:     doc,
 	}
 }
 
@@ -986,11 +826,11 @@ func (s optionalStringSetting) applyDefault(state *settingsState) {
 	s.apply(state, nil)
 }
 
-func (s optionalStringSetting) initSources(sources map[string]string) {
-	sources[s.key] = "default"
+func (s optionalStringSetting) initSources(sources map[string]Origin) {
+	sources[s.key] = defaultOrigin(s.key)
 }
 
-func (s optionalStringSetting) applyFile(raw settingsFile, _ string, state *settingsState, sources map[string]string) error {
+func (s optionalStringSetting) applyFile(raw settingsFile, file SourceFile, state *settingsState, sources map[string]Origin) error {
 	value, ok, err := lookupFileStringAllowEmpty(raw, strings.Split(s.key, "."))
 	if err != nil || !ok {
 		return err
@@ -999,12 +839,59 @@ func (s optionalStringSetting) applyFile(raw settingsFile, _ string, state *sett
 	if trimmed == "" {
 		return fmt.Errorf("%s cannot be empty; remove the setting to leave it unset", s.key)
 	}
+	if s.doc.resolveRelativeToSettingsDir {
+		trimmed, err = resolveFileSettingRelativeToSettingsPath(trimmed, file.Path)
+		if err != nil {
+			return err
+		}
+	}
 	s.apply(state, textutil.Pointer(&trimmed))
-	sources[s.key] = "file"
+	sources[s.key] = fileOrigin(s.key, file)
 	return nil
 }
 
-func (s optionalStringSetting) applyEnv(lookup envLookup, state *settingsState, sources map[string]string) error {
+func newPromptFileSetting() promptFileSetting {
+	return promptFileSetting{scalarSetting[*SystemPromptFile]{
+		key:   "system_prompt_file",
+		apply: func(state *settingsState, value *SystemPromptFile) { state.Settings.SystemPromptFile = value },
+		get:   func(state settingsState) *SystemPromptFile { return state.Settings.SystemPromptFile },
+		equal: func(left, right *SystemPromptFile) bool {
+			if left == nil || right == nil {
+				return left == right
+			}
+			return *left == *right
+		},
+		decodeFile: func(raw settingsFile, key []string) (*SystemPromptFile, bool, error) {
+			path, present, err := lookupFileStringAllowEmpty(raw, key)
+			if err != nil || !present {
+				return nil, present, err
+			}
+			if strings.TrimSpace(path) == "" {
+				return nil, false, errors.New("system_prompt_file cannot be empty; remove the setting to inherit")
+			}
+			return &SystemPromptFile{Path: path}, true, nil
+		},
+		transformFileValue: func(value *SystemPromptFile, file SourceFile) (*SystemPromptFile, error) {
+			path, err := resolveFileSettingRelativeToSettingsPath(value.Path, file.Path)
+			if err != nil {
+				return nil, err
+			}
+			scope := SystemPromptFileScopeWorkspaceConfig
+			if file.Layer == FileGlobal {
+				scope = SystemPromptFileScopeHomeConfig
+			}
+			return &SystemPromptFile{Path: path, Scope: scope}, nil
+		},
+	}}
+}
+
+func (s promptFileSetting) appendDefaultLines(lines *[]defaultConfigLine, state settingsState) {
+	if value := s.get(state); value != nil {
+		*lines = append(*lines, defaultConfigLine{Path: []string{s.key}, Value: value.Path})
+	}
+}
+
+func (s optionalStringSetting) applyEnv(lookup envLookup, state *settingsState, sources map[string]Origin) error {
 	if s.envName == "" {
 		return nil
 	}
@@ -1017,7 +904,7 @@ func (s optionalStringSetting) applyEnv(lookup envLookup, state *settingsState, 
 		return fmt.Errorf("%s cannot be empty; unset the environment variable to leave it unset", s.envName)
 	}
 	s.apply(state, textutil.Pointer(&trimmed))
-	sources[s.key] = "env"
+	sources[s.key] = optionOrigin(s.key, SourceEnv, s.envName)
 	return nil
 }
 
@@ -1040,15 +927,15 @@ func (clientLifecycleSetting) applyDefault(state *settingsState) {
 	state.Client.Hooks.lifecycleCommand = nil
 }
 
-func (clientLifecycleSetting) initSources(sources map[string]string) {
-	sources["hooks.client.lifecycle"] = "default"
+func (clientLifecycleSetting) initSources(sources map[string]Origin) {
+	sources["hooks.client.lifecycle"] = defaultOrigin("hooks.client.lifecycle")
 }
 
 func (clientLifecycleSetting) registryKey() string {
 	return "hooks.client.lifecycle"
 }
 
-func (clientLifecycleSetting) applyFile(raw settingsFile, _ string, state *settingsState, sources map[string]string) error {
+func (clientLifecycleSetting) applyFile(raw settingsFile, file SourceFile, state *settingsState, sources map[string]Origin) error {
 	command, ok, err := lookupFileStringArray(raw, []string{"hooks", "client", "lifecycle"})
 	if err != nil || !ok {
 		return err
@@ -1062,7 +949,7 @@ func (clientLifecycleSetting) applyFile(raw settingsFile, _ string, state *setti
 		}
 	}
 	state.Client.Hooks.lifecycleCommand = append([]string(nil), command...)
-	sources["hooks.client.lifecycle"] = "file"
+	sources["hooks.client.lifecycle"] = fileOrigin("hooks.client.lifecycle", file)
 	return nil
 }
 
@@ -1082,8 +969,8 @@ func (clientLifecycleSetting) appliesToSubagentRole() bool {
 	return false
 }
 
-func (clientLifecycleSetting) appliesToFileLayer(layer settingsFileLayer) bool {
-	return layer == settingsFileLayerGlobal
+func (clientLifecycleSetting) appliesToFileLayer(layer FileLayer) bool {
+	return layer == FileGlobal
 }
 
 func newBoolSetting(
@@ -1182,11 +1069,11 @@ func (s scalarSetting[T]) registryKey() string {
 	return s.key
 }
 
-func (s scalarSetting[T]) initSources(sources map[string]string) {
-	sources[s.key] = "default"
+func (s scalarSetting[T]) initSources(sources map[string]Origin) {
+	sources[s.key] = defaultOrigin(s.key)
 }
 
-func (s scalarSetting[T]) applyFile(raw settingsFile, settingsPath string, state *settingsState, sources map[string]string) error {
+func (s scalarSetting[T]) applyFile(raw settingsFile, file SourceFile, state *settingsState, sources map[string]Origin) error {
 	value, ok, err := s.decodeFile(raw, strings.Split(s.key, "."))
 	if err != nil {
 		return err
@@ -1195,13 +1082,13 @@ func (s scalarSetting[T]) applyFile(raw settingsFile, settingsPath string, state
 		return nil
 	}
 	if s.transformFileValue != nil {
-		value, err = s.transformFileValue(value, settingsPath)
+		value, err = s.transformFileValue(value, file)
 		if err != nil {
 			return err
 		}
 	}
 	s.apply(state, value)
-	sources[s.key] = "file"
+	sources[s.key] = fileOrigin(s.key, file)
 	return nil
 }
 
@@ -1224,7 +1111,7 @@ func resolveFileSettingRelativeToSettingsPath(value string, settingsPath string)
 	return filepath.Abs(filepath.Join(baseDir, expanded))
 }
 
-func (s scalarSetting[T]) applyEnv(lookup envLookup, state *settingsState, sources map[string]string) error {
+func (s scalarSetting[T]) applyEnv(lookup envLookup, state *settingsState, sources map[string]Origin) error {
 	if s.envName == "" || s.decodeEnv == nil {
 		return nil
 	}
@@ -1247,11 +1134,11 @@ func (s scalarSetting[T]) applyEnv(lookup envLookup, state *settingsState, sourc
 		return err
 	}
 	s.apply(state, parsed)
-	sources[s.key] = "env"
+	sources[s.key] = optionOrigin(s.key, SourceEnv, s.envName)
 	return nil
 }
 
-func (s scalarSetting[T]) applyCLI(opts LoadOptions, state *settingsState, sources map[string]string) error {
+func (s scalarSetting[T]) applyCLI(opts LoadOptions, state *settingsState, sources map[string]Origin) error {
 	if s.decodeCLI == nil {
 		return nil
 	}
@@ -1263,7 +1150,7 @@ func (s scalarSetting[T]) applyCLI(opts LoadOptions, state *settingsState, sourc
 		return nil
 	}
 	s.apply(state, value)
-	sources[s.key] = "cli"
+	sources[s.key] = optionOrigin(s.key, SourceCLI, s.doc.cliOption)
 	return nil
 }
 
@@ -1293,13 +1180,13 @@ func (toolsSetting) applyDefault(state *settingsState) {
 	state.Settings.EnabledTools = defaultEnabledToolMap()
 }
 
-func (toolsSetting) initSources(sources map[string]string) {
+func (toolsSetting) initSources(sources map[string]Origin) {
 	for _, id := range toolspec.CatalogIDs() {
-		sources[toolSourceKey(id)] = "default"
+		sources[toolSourceKey(id)] = defaultOrigin(toolSourceKey(id))
 	}
 }
 
-func (toolsSetting) applyFile(raw settingsFile, settingsPath string, state *settingsState, sources map[string]string) error {
+func (toolsSetting) applyFile(raw settingsFile, file SourceFile, state *settingsState, sources map[string]Origin) error {
 	table, ok, err := lookupFileTable(raw, []string{"tools"})
 	if err != nil || !ok {
 		return err
@@ -1307,19 +1194,19 @@ func (toolsSetting) applyFile(raw settingsFile, settingsPath string, state *sett
 	for key, rawValue := range table {
 		id, valid := toolspec.ParseConfigID(strings.TrimSpace(key))
 		if !valid {
-			return fmt.Errorf("invalid tools key in %s: %q", settingsPath, key)
+			return fmt.Errorf("invalid tools key in %s: %q", file.Path, key)
 		}
 		enabled, ok := rawValue.(bool)
 		if !ok {
 			return &SettingsKeyTypeError{Key: strings.Join(append([]string{"tools"}, key), "."), ExpectedType: "boolean"}
 		}
 		state.Settings.EnabledTools[id] = enabled
-		sources[toolSourceKey(id)] = "file"
+		sources[toolSourceKey(id)] = fileOrigin(toolSourceKey(id), file)
 	}
 	return nil
 }
 
-func (toolsSetting) applyEnv(lookup envLookup, state *settingsState, sources map[string]string) error {
+func (toolsSetting) applyEnv(lookup envLookup, state *settingsState, sources map[string]Origin) error {
 	value, ok := lookupTrimmedEnv(lookup, "KENT_TOOLS")
 	if !ok {
 		return nil
@@ -1328,14 +1215,11 @@ func (toolsSetting) applyEnv(lookup envLookup, state *settingsState, sources map
 	if err != nil {
 		return fmt.Errorf("invalid KENT_TOOLS: %w", err)
 	}
-	state.Settings.EnabledTools = resetEnabledToolMap(enabled)
-	for _, id := range toolspec.CatalogIDs() {
-		sources[toolSourceKey(id)] = "env"
-	}
+	applyToolSelection(&state.Settings, sources, ToolSelection{Tools: enabled, Origin: optionOrigin("tools", SourceEnv, "KENT_TOOLS")})
 	return nil
 }
 
-func (toolsSetting) applyCLI(opts LoadOptions, state *settingsState, sources map[string]string) error {
+func (toolsSetting) applyCLI(opts LoadOptions, state *settingsState, sources map[string]Origin) error {
 	value, ok, err := trimmedCLIString(opts.Tools)
 	if err != nil || !ok {
 		return err
@@ -1344,10 +1228,7 @@ func (toolsSetting) applyCLI(opts LoadOptions, state *settingsState, sources map
 	if err != nil {
 		return fmt.Errorf("invalid tools flag: %w", err)
 	}
-	state.Settings.EnabledTools = resetEnabledToolMap(enabled)
-	for _, id := range toolspec.CatalogIDs() {
-		sources[toolSourceKey(id)] = "cli"
-	}
+	applyToolSelection(&state.Settings, sources, ToolSelection{Tools: enabled, Origin: optionOrigin("tools", SourceCLI, "--tools")})
 	return nil
 }
 
@@ -1371,7 +1252,7 @@ func (skillsSetting) applyDefault(state *settingsState) {
 	state.Settings.SkillToggles = map[string]bool{}
 }
 
-func (skillsSetting) applyFile(raw settingsFile, settingsPath string, state *settingsState, sources map[string]string) error {
+func (skillsSetting) applyFile(raw settingsFile, file SourceFile, state *settingsState, sources map[string]Origin) error {
 	table, ok, err := lookupFileTable(raw, []string{"skills"})
 	if err != nil || !ok {
 		return err
@@ -1386,10 +1267,10 @@ func (skillsSetting) applyFile(raw settingsFile, settingsPath string, state *set
 		rawValue := table[key]
 		normalized := NormalizeSkillName(key)
 		if normalized == "" {
-			return fmt.Errorf("invalid skills key in %s: %q", settingsPath, key)
+			return fmt.Errorf("invalid skills key in %s: %q", file.Path, key)
 		}
 		if priorKey, exists := seenNormalized[normalized]; exists {
-			return &DuplicateSettingsKeysError{Scope: "skills", SettingsPath: settingsPath, KeyA: priorKey, KeyB: key, Normalized: normalized}
+			return &DuplicateSettingsKeysError{Scope: "skills", SettingsPath: file.Path, KeyA: priorKey, KeyB: key, Normalized: normalized}
 		}
 		enabled, ok := rawValue.(bool)
 		if !ok {
@@ -1397,7 +1278,7 @@ func (skillsSetting) applyFile(raw settingsFile, settingsPath string, state *set
 		}
 		seenNormalized[normalized] = key
 		state.Settings.SkillToggles[normalized] = enabled
-		sources[skillSourceKey(normalized)] = "file"
+		sources[skillSourceKey(normalized)] = fileOrigin(skillSourceKey(normalized), file)
 	}
 	return nil
 }
@@ -1418,7 +1299,7 @@ func (subagentsSetting) applyDefault(state *settingsState) {
 	state.Settings.Subagents = map[string]SubagentRole{}
 }
 
-func (subagentsSetting) applyFile(raw settingsFile, settingsPath string, state *settingsState, _ map[string]string) error {
+func (subagentsSetting) applyFile(raw settingsFile, file SourceFile, state *settingsState, _ map[string]Origin) error {
 	table, ok, err := lookupFileTable(raw, []string{"subagents"})
 	if err != nil || !ok {
 		return err
@@ -1433,16 +1314,20 @@ func (subagentsSetting) applyFile(raw settingsFile, settingsPath string, state *
 		rawValue := table[key]
 		normalized := NormalizeSubagentRole(key)
 		if normalized == "" {
-			return fmt.Errorf("%w in %s: %q", errInvalidSubagentKey, settingsPath, key)
+			return fmt.Errorf("%w in %s: %q", errInvalidSubagentKey, file.Path, key)
 		}
 		if priorKey, exists := seen[normalized]; exists {
-			return &DuplicateSettingsKeysError{Scope: "subagents", SettingsPath: settingsPath, KeyA: priorKey, KeyB: key, Normalized: normalized}
+			return &DuplicateSettingsKeysError{Scope: "subagents", SettingsPath: file.Path, KeyA: priorKey, KeyB: key, Normalized: normalized}
 		}
 		roleTable, ok := asSettingsFile(rawValue)
 		if !ok {
 			return &SettingsKeyTypeError{Key: strings.Join([]string{"subagents", key}, "."), ExpectedType: "table"}
 		}
-		role, err := parseSubagentRole(roleTable, settingsPath, key)
+		var previous *SubagentRole
+		if role, exists := state.Settings.Subagents[normalized]; exists {
+			previous = &role
+		}
+		role, err := parseSubagentRole(roleTable, file, key, previous)
 		if err != nil {
 			return err
 		}
@@ -1462,7 +1347,7 @@ func registerSubagentFileKeys(tree *fileKeyTree, settings []registrySetting) {
 	}, template)
 }
 
-func parseSubagentRole(raw settingsFile, settingsPath string, roleKey string) (SubagentRole, error) {
+func parseSubagentRole(raw settingsFile, file SourceFile, roleKey string, previous *SubagentRole) (SubagentRole, error) {
 	if _, exists := raw["subagents"]; exists {
 		return SubagentRole{}, fmt.Errorf("subagents.%s cannot define nested subagents", roleKey)
 	}
@@ -1473,16 +1358,31 @@ func parseSubagentRole(raw settingsFile, settingsPath string, roleKey string) (S
 	if err != nil {
 		return SubagentRole{}, fmt.Errorf("%w subagents.%s: %w", errSubagentRole, roleKey, err)
 	}
-	agentCallable, agentCallableSet, err := parseSubagentAgentCallable(raw)
+	agentCallable, _, err := parseSubagentAgentCallable(raw)
 	if err != nil {
 		return SubagentRole{}, fmt.Errorf("%w subagents.%s: %w", errSubagentRole, roleKey, err)
 	}
-	workflowSubagent, workflowSubagentSet, err := parseSubagentWorkflowSubagent(raw)
+	workflowSubagent, _, err := parseSubagentWorkflowSubagent(raw)
 	if err != nil {
 		return SubagentRole{}, fmt.Errorf("%w subagents.%s: %w", errSubagentRole, roleKey, err)
 	}
 	roleState := configRegistry.defaultState()
-	roleSources := configRegistry.defaultSourceMap()
+	role := SubagentRole{AgentCallable: true, WorkflowSubagent: true}
+	roleSources := map[string]Origin{}
+	if previous != nil {
+		role = *previous
+		roleState.Settings = previous.Settings
+		maps.Copy(roleSources, previous.Sources)
+	}
+	if _, present := raw["description"]; present {
+		role.Description = description
+	}
+	if _, present := raw["agent_callable"]; present {
+		role.AgentCallable = agentCallable
+	}
+	if _, present := raw["workflow_subagent"]; present {
+		role.WorkflowSubagent = workflowSubagent
+	}
 	for _, setting := range configRegistry.settings {
 		if _, ok := setting.(subagentsSetting); ok {
 			continue
@@ -1490,42 +1390,34 @@ func parseSubagentRole(raw settingsFile, settingsPath string, roleKey string) (S
 		if !settingAppliesToSubagentRole(setting) {
 			continue
 		}
-		if err := setting.applyFile(raw, settingsPath, &roleState, roleSources); err != nil {
+		if err := setting.applyFile(raw, file, &roleState, roleSources); err != nil {
 			return SubagentRole{}, wrapSubagentRoleError(roleKey, err)
 		}
 	}
-	explicitSources := map[string]string{}
+	explicitSources := map[string]Origin{}
+	for _, key := range []string{"description", "agent_callable", "workflow_subagent"} {
+		if _, present := raw[key]; present {
+			roleSources[key] = fileOrigin(key, file)
+		}
+	}
 	for key, source := range roleSources {
-		if strings.TrimSpace(source) != "file" {
+		if source.Kind != SourceFileKind {
 			continue
 		}
+		roleName := NormalizeSubagentRole(roleKey)
+		source.Property.Role = &roleName
 		explicitSources[key] = source
 	}
 	if len(explicitSources) == 0 {
 		explicitSources = nil
 	}
-	if err := validateSubagentRoleState(roleState, explicitSources); err != nil {
-		return SubagentRole{}, fmt.Errorf("%w subagents.%s: %w", errSubagentRole, roleKey, err)
-	}
-	if _, ok := explicitSources["system_prompt_file"]; ok {
-		resolved, err := resolveConfigRelativePath(roleState.Settings.SystemPromptFile, settingsPath)
-		if err != nil {
-			return SubagentRole{}, fmt.Errorf("%w subagents.%s: %w", errSubagentRole, roleKey, err)
-		}
-		if strings.TrimSpace(resolved) != "" {
-			roleState.Settings.SystemPromptFiles = []SystemPromptFile{{Path: resolved, Scope: SystemPromptFileScopeSubagent}}
-		}
+	if _, ok := raw["system_prompt_file"]; ok {
+		roleState.Settings.SystemPromptFile.Scope = SystemPromptFileScopeSubagent
 	}
 	roleState.Settings.Subagents = nil
-	return SubagentRole{
-		Settings:            roleState.Settings,
-		Sources:             explicitSources,
-		Description:         description,
-		AgentCallable:       agentCallable,
-		AgentCallableSet:    agentCallableSet,
-		WorkflowSubagent:    workflowSubagent,
-		WorkflowSubagentSet: workflowSubagentSet,
-	}, nil
+	role.Settings = roleState.Settings
+	role.Sources = explicitSources
+	return role, nil
 }
 
 func wrapSubagentRoleError(roleKey string, err error) error {

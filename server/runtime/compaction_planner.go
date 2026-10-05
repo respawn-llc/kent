@@ -5,7 +5,7 @@ import (
 
 	"core/server/chatcontext"
 	compaction "core/shared/config"
-	"core/shared/serverapi"
+	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 )
 
 type compactionPlanningSnapshot struct {
@@ -41,9 +41,9 @@ func newCompactionPlanner() *compactionPlanner {
 }
 func (p *compactionPlanner) mode(policy chatcontext.Policy) string {
 	switch policy.CompactionMode {
-	case serverapi.ChatContextCompactionModeDisabled:
+	case contextpb.CompactionMode_COMPACTION_MODE_DISABLED:
 		return "none"
-	case serverapi.ChatContextCompactionModeProviderNative:
+	case contextpb.CompactionMode_COMPACTION_MODE_PROVIDER_NATIVE:
 		return "native"
 	default:
 		return "local"
@@ -51,14 +51,14 @@ func (p *compactionPlanner) mode(policy chatcontext.Policy) string {
 }
 
 func (p *compactionPlanner) autoCompactionAvailable(snapshot compactionPlanningSnapshot) bool {
-	return snapshot.autoCompactionEnabled && snapshot.policy.CompactionMode != serverapi.ChatContextCompactionModeDisabled
+	return snapshot.autoCompactionEnabled && snapshot.policy.CompactionMode != contextpb.CompactionMode_COMPACTION_MODE_DISABLED
 }
 
 func (p *compactionPlanner) enginePlan(snapshot compactionPlanningSnapshot) compactionEnginePlan {
 	switch snapshot.policy.CompactionMode {
-	case serverapi.ChatContextCompactionModeDisabled:
+	case contextpb.CompactionMode_COMPACTION_MODE_DISABLED:
 		return compactionEnginePlan{engineKind: compactionEngineNone}
-	case serverapi.ChatContextCompactionModeProviderNative:
+	case contextpb.CompactionMode_COMPACTION_MODE_PROVIDER_NATIVE:
 		return compactionEnginePlan{engineKind: compactionEngineRemote}
 	default:
 		return compactionEnginePlan{engineKind: compactionEngineLocal}

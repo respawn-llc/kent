@@ -1,17 +1,15 @@
 package tui
 
 import (
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"testing"
-
-	"core/shared/clientui"
-	"core/shared/transcript"
 )
 
 func TestExpandingDetailEntryPreservesCameraPosition(t *testing.T) {
 	m := NewModel()
 	m.mode = ModeDetail
 	m.viewportLines = 3
-	rows := []clientui.TranscriptCommittedRow{
+	rows := []*transcriptpb.CommittedRow{
 		detailExpansionNotice("one", "one"),
 		detailExpansionNotice("two", "two"),
 		detailExpansionNotice("preview", "preview\nbelow\nbelow\nbelow\nbelow"),
@@ -38,16 +36,15 @@ func TestExpandingDetailEntryPreservesCameraPosition(t *testing.T) {
 	}
 }
 
-func detailExpansionNotice(compact, full string) clientui.TranscriptCommittedRow {
-	return clientui.TranscriptCommittedRow{
-		Visibility: transcript.EntryVisibilityOngoingCollapsed,
-		Integrity:  transcript.RowIntegrityValid,
-		Kind:       clientui.TranscriptRowNotice,
-		Notice: &clientui.TranscriptNoticeRow{
-			Reason:        clientui.TranscriptNoticeLegacyUntypedNotice,
-			Severity:      clientui.TranscriptNoticeInfo,
+func detailExpansionNotice(compact, full string) *transcriptpb.CommittedRow {
+	return &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING_COLLAPSED,
+		Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+		Row: &transcriptpb.CommittedRow_Notice{Notice: &transcriptpb.NoticeRow{
+			Reason:        transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE,
+			Severity:      transcriptpb.NoticeSeverity_NOTICE_SEVERITY_INFO,
 			LegacyText:    &full,
 			CondensedText: &compact,
-		},
+		}},
 	}
 }

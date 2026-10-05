@@ -399,7 +399,7 @@ func (s *ResponsesStub) writeOperationResponse(ctx context.Context, writer http.
 		s.writeResponse(ctx, writer, operation)
 	case RouteModel:
 		if err := writeJSON(writer, http.StatusOK, map[string]any{
-			"id":             "gpt-5",
+			"id":             "gpt-6-sol",
 			"object":         "model",
 			"created":        0,
 			"owned_by":       "kent",
@@ -530,20 +530,6 @@ func flushResponseWriter(writer http.ResponseWriter) {
 	if flusher, ok := writer.(http.Flusher); ok {
 		flusher.Flush()
 	}
-}
-
-func HandleInputTokenCount(writer http.ResponseWriter, request *http.Request, inputTokens int) bool {
-	if request.URL.Path != "/responses/input_tokens" {
-		return false
-	}
-	if request.Method != http.MethodPost {
-		writer.Header().Set("Allow", http.MethodPost)
-		writer.WriteHeader(http.StatusMethodNotAllowed)
-		return true
-	}
-	writer.Header().Set("Content-Type", "application/json")
-	mustWriteFixtureResponse(writer, fmt.Sprintf(`{"object":"response.input_tokens","input_tokens":%d}`, inputTokens))
-	return true
 }
 
 func WriteCompletedResponseStream(writer http.ResponseWriter, assistantText string, inputTokens, outputTokens int) {

@@ -10,14 +10,17 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	"core/server/llm"
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
+	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 	"core/shared/textutil"
 	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 type delayedGenerateClient struct {
@@ -81,7 +84,7 @@ func TestMultipleBackgroundShellNoticesFlushTogetherOnFirstAvailableSlot(t *test
 		events []Event
 	)
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: blockingTool{name: toolspec.ToolExecCommand, started: started, release: release}}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(evt Event) {
 			mu.Lock()
 			events = append(events, evt)
@@ -203,7 +206,7 @@ func TestMultipleBackgroundShellNoticesFlushTogetherOnFirstAvailableSlot(t *test
 
 func TestCompletedWriteStdinGuardConsumesPendingBackgroundNotice(t *testing.T) {
 	store := mustCreateTestSession(t)
-	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(time.Millisecond))
+	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(time.Millisecond))
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}
@@ -236,10 +239,10 @@ func TestCompletedWriteStdinGuardConsumesPendingBackgroundNotice(t *testing.T) {
 		},
 	}}, delay: 300 * time.Millisecond}
 	registry := newTestToolRegistry(t,
-		tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: shelltool.NewExecCommandTool(store.Meta().WorkspaceRoot, 16_000, 40, manager, store.Meta().SessionID)},
+		tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: shelltool.NewExecCommandToolWithPostprocessor(store.Meta().WorkspaceRoot, 16_000, 40, manager, store.Meta().SessionID, postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))},
 		tools.HandlerRegistration{ID: toolspec.ToolWriteStdin, Handler: shelltool.NewWriteStdinTool(16_000, 40, manager)},
 	)
-	eng := mustNewTestEngine(t, store, client, registry, Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, registry, Config{Model: "gpt-6-sol"})
 	forwardBackgroundEvents(t, manager, eng, store.Meta().SessionID)
 
 	assistant, err := eng.SubmitUserMessage(context.Background(), "run and poll")
@@ -271,15 +274,12 @@ func TestCompletedWriteStdinGuardConsumesPendingBackgroundNotice(t *testing.T) {
 	if !completion.IsError {
 		t.Fatalf("guarded poll completion = %+v, want error result", completion)
 	}
-	var payload struct {
-		Error  *string `json:"error"`
-		Output *string `json:"output"`
-	}
+	var payload string
 	if err := json.Unmarshal(completion.Output, &payload); err != nil {
 		t.Fatalf("decode guarded poll result: %v", err)
 	}
-	if payload.Error == nil || payload.Output != nil {
-		t.Fatalf("guarded poll payload = %+v, want typed error without command output", payload)
+	if payload == "" {
+		t.Fatal("guarded poll must retain its plaintext failure explanation")
 	}
 	if completion.Presentation == nil ||
 		completion.Presentation.MovedToBackground ||
@@ -289,10 +289,10 @@ func TestCompletedWriteStdinGuardConsumesPendingBackgroundNotice(t *testing.T) {
 	}
 }
 
-func TestSubmitUserShellCommandPersistsDeveloperNoticeAndToolEntries(t *testing.T) {
+func TestSubmitUserShellCommandKeepsCompactHumanPresentation(t *testing.T) {
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand, out: mustJSON("fixture output")}}), Config{Model: "gpt-6-sol"})
 
 	result, err := eng.SubmitUserShellCommand(context.Background(), "pwd")
 	if err != nil {
@@ -302,55 +302,25 @@ func TestSubmitUserShellCommandPersistsDeveloperNoticeAndToolEntries(t *testing.
 		t.Fatalf("unexpected tool result name: %+v", result)
 	}
 
-	messages := eng.transcriptRuntimeState().SnapshotMessages()
-	if len(messages) == 0 {
-		t.Fatal("expected persisted messages")
-	}
-	foundAssistantToolCall := false
-	foundToolOutput := false
-	for _, msg := range messages {
-		switch msg.Role {
-		case llm.RoleDeveloper:
-			if strings.Contains(messageContent(msg), "User ran shell command directly:") {
-				t.Fatalf("unexpected duplicate developer notice for user shell command, msg=%+v", msg)
-			}
-		case llm.RoleAssistant:
-			if len(msg.ToolCalls) == 1 && msg.ToolCalls[0].Name == string(toolspec.ToolExecCommand) {
-				foundAssistantToolCall = true
-			}
-		case llm.RoleTool:
-			if msg.Name != nil && *msg.Name == string(toolspec.ToolExecCommand) && strings.TrimSpace(messageContent(msg)) != "" {
-				foundToolOutput = true
-			}
-		}
-	}
-	if !foundAssistantToolCall {
-		t.Fatalf("expected assistant shell tool call message, messages=%+v", messages)
-	}
-	if !foundToolOutput {
-		t.Fatalf("expected shell tool output message, messages=%+v", messages)
-	}
-
 	snapshot := eng.ChatSnapshot()
 	foundUserShellCall := false
 	for _, entry := range snapshot.Entries {
-		if entry.Role != "tool_call" {
+		if entry.MessageType != llm.MessageTypeUserShellCommand {
 			continue
 		}
-		if entry.ToolCall == nil || !entry.ToolCall.IsShell {
-			continue
-		}
-		if entry.ToolCall.UserInitiated && strings.Contains(entry.Text, "pwd") {
-			foundUserShellCall = true
-			break
+		foundUserShellCall = true
+		if entry.CompactLabel != "pwd" || entry.CondensedText != "pwd" ||
+			entry.Visibility != transcript.EntryVisibilityOngoingCollapsed ||
+			entry.RollbackTargetID != nil {
+			t.Fatalf("user shell command lost compact presentation: %+v", entry)
 		}
 	}
 	if !foundUserShellCall {
-		t.Fatalf("expected user-initiated shell tool call in transcript snapshot, entries=%+v", snapshot.Entries)
+		t.Fatalf("expected a typed user shell notice in transcript snapshot, entries=%+v", snapshot.Entries)
 	}
 }
 
-func TestSubmitUserShellCommandPreservesFatalCauseWhenNoResultIsReturned(t *testing.T) {
+func TestSubmitUserShellCommandSurfacesPersistenceFailure(t *testing.T) {
 	handler := &closeEngineBeforeResultReportHandler{}
 	engine := mustNewTestEngine(
 		t,
@@ -360,21 +330,20 @@ func TestSubmitUserShellCommandPreservesFatalCauseWhenNoResultIsReturned(t *test
 			ID:      toolspec.ToolExecCommand,
 			Handler: handler,
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	handler.engine = engine
 
 	_, err := engine.SubmitUserShellCommand(context.Background(), "pwd")
-	var fatal *resultGroupFatal
-	if !errors.As(err, &fatal) || !errors.Is(err, ErrEngineClosed) {
-		t.Fatalf("shell command error = %v, want preserved engine-closed Result Group fatal", err)
+	if !errors.Is(err, ErrEngineClosed) {
+		t.Fatalf("shell command error = %v, want preserved engine-closed cause", err)
 	}
 }
 
 func TestSubmitUserShellCommandReturnsUnknownToolErrorWhenShellNotRegistered(t *testing.T) {
 	store := mustCreateTestSession(t)
 
-	eng, err := New(store, mustMaterializeTestEventLog(t, store), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng, err := New(store, mustMaterializeTestEventLog(t, store), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 
 	result, err := eng.SubmitUserShellCommand(context.Background(), "pwd")
 	if !errors.Is(err, errUnknownTool) {
@@ -383,38 +352,14 @@ func TestSubmitUserShellCommandReturnsUnknownToolErrorWhenShellNotRegistered(t *
 	if result.Name != toolspec.ToolExecCommand || !result.IsError {
 		t.Fatalf("expected shell error result, got %+v", result)
 	}
-	var payload struct {
-		Error string `json:"error"`
-	}
+	var payload string
 	if unmarshalErr := json.Unmarshal(result.Output, &payload); unmarshalErr != nil {
 		t.Fatalf("decode result output: %v", unmarshalErr)
 	}
-	if strings.TrimSpace(payload.Error) != "unknown tool" {
+	if payload != errUnknownTool.Error() {
 		t.Fatalf("expected unknown tool output payload, got %v", payload)
 	}
 
-	messages := eng.transcriptRuntimeState().SnapshotMessages()
-	foundToolOutput := false
-	for _, msg := range messages {
-		if msg.Role != llm.RoleTool {
-			continue
-		}
-		if msg.Name == nil || *msg.Name != string(toolspec.ToolExecCommand) {
-			continue
-		}
-		foundToolOutput = true
-		break
-	}
-	if !foundToolOutput {
-		t.Fatalf("expected persisted shell tool output message, messages=%+v", messages)
-	}
-	completion, ok := eng.transcriptRuntimeState().ToolCompletionSnapshot(result.CallID)
-	if !ok {
-		t.Fatal("expected persisted shell tool completion")
-	}
-	if completion.Presentation == nil || completion.Presentation.Command != "pwd" || !completion.Presentation.IsShell {
-		t.Fatalf("persisted shell presentation = %+v, want typed command input", completion.Presentation)
-	}
 }
 
 func TestParallelToolsReturnDeclaredOrder(t *testing.T) {
@@ -435,7 +380,7 @@ func TestParallelToolsReturnDeclaredOrder(t *testing.T) {
 		},
 	}}
 
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand, delay: 40 * time.Millisecond}}, tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: fakeTool{name: toolspec.ToolPatch, delay: 1 * time.Millisecond}}), Config{Model: "gpt-5", Temperature: 1})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand, delay: 40 * time.Millisecond}}, tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: fakeTool{name: toolspec.ToolPatch, delay: 1 * time.Millisecond}}), Config{Model: "gpt-6-sol", Temperature: 1})
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "run tools"); err != nil {
 		t.Fatalf("submit: %v", err)
@@ -517,7 +462,7 @@ func TestParallelToolCompletionsStayPendingUntilResultGroupClose(t *testing.T) {
 		tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: slow},
 		tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: fakeTool{name: toolspec.ToolPatch, delay: 1 * time.Millisecond}},
 	), Config{
-		Model:       "gpt-5",
+		Model:       "gpt-6-sol",
 		Temperature: 1,
 		OnEvent: func(evt Event) {
 			if evt.Kind != EventToolCallCompleted || evt.ToolResult == nil {
@@ -603,7 +548,7 @@ func TestAskQuestionToolCallsExecuteSequentiallyInDeclaredOrder(t *testing.T) {
 	}
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t,
 		tools.HandlerRegistration{ID: toolspec.ToolAskQuestion, Handler: sequencer},
-	), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	), Config{Model: "gpt-6-sol", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	stepID := runtimeTestStepID("sequential-ask-question-tools")
 	restoreStep := setTestActiveStep(eng, stepID)
 	defer restoreStep()
@@ -667,7 +612,7 @@ func TestWorkflowPromptCapableToolCallsSerializeWithAskQuestion(t *testing.T) {
 		tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: sequencer},
 		tools.HandlerRegistration{ID: toolspec.ToolAskQuestion, Handler: sequencer},
 	), Config{
-		Model:        "gpt-5",
+		Model:        "gpt-6-sol",
 		EnabledTools: []toolspec.ID{toolspec.ToolPatch, toolspec.ToolAskQuestion},
 	})
 	publishTestWorkflowExecution(t, eng, testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool))
@@ -729,7 +674,7 @@ func TestPersistedAssistantToolCallsContainNoUIDisplayMarkers(t *testing.T) {
 		},
 	}}
 
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "run tool"); err != nil {
 		t.Fatalf("submit: %v", err)
@@ -790,7 +735,7 @@ func TestExecuteToolCallsAppliesToolCompletionByCommitReceipt(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name+"/uncommitted", func(t *testing.T) {
 			store := mustCreateTestSession(t)
-			eng := mustNewTestEngine(t, store, &fakeClient{}, tc.registry, Config{Model: "gpt-5"})
+			eng := mustNewTestEngine(t, store, &fakeClient{}, tc.registry, Config{Model: "gpt-6-sol"})
 			mustBlockTestEventLogAppends(t, store)
 			stepID := runtimeTestStepID(tc.name + "/uncommitted")
 			restoreStep := setTestActiveStep(eng, stepID)
@@ -812,7 +757,7 @@ func TestExecuteToolCallsAppliesToolCompletionByCommitReceipt(t *testing.T) {
 			observerErr := errors.New("tool completion observer failed")
 			gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 			store := mustCreateNamedTestSession(t, "ws", t.TempDir(), session.WithPersistenceObserver(gate))
-			eng := mustNewTestEngine(t, store, &fakeClient{}, tc.registry, Config{Model: "gpt-5"})
+			eng := mustNewTestEngine(t, store, &fakeClient{}, tc.registry, Config{Model: "gpt-6-sol"})
 			gate.FailNext(observerErr)
 			stepID := runtimeTestStepID(tc.name + "/committed-observer-error")
 			restoreStep := setTestActiveStep(eng, stepID)

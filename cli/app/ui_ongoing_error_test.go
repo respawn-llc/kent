@@ -1,16 +1,14 @@
 package app
 
 import (
+	"core/cli/tui/ongoing"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"errors"
+	tea "github.com/charmbracelet/bubbletea"
 	"net"
 	"reflect"
 	"strings"
 	"testing"
-
-	"core/cli/tui/ongoing"
-	"core/shared/clientui"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestOngoingSurfaceErrorExitsTUIInRelease(t *testing.T) {
@@ -47,8 +45,7 @@ func TestOngoingTranscriptNonTransportOpenFailureExitsTUI(t *testing.T) {
 
 	cmd := m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{
 		Kind: ongoingTranscriptEventFailure,
-		Err:  errors.New("canonical hydration is invalid"),
-	})
+		Err:  errors.New("canonical hydration is invalid")})
 
 	if cmd == nil {
 		t.Fatal("transcript-open failure did not return quit command")
@@ -65,8 +62,7 @@ func TestOngoingTranscriptTransportOpenFailureKeepsTUIAndShowsDisconnect(t *test
 	controller := newNoopOngoingTranscriptController(&ongoingSurfaceSpy{}, ongoingTestFrameProvider)
 	m := newProjectedTestUIModel(
 		&runtimeControlFakeClient{},
-		withUIOngoingTranscriptController(controller),
-	)
+		withUIOngoingTranscriptController(controller))
 	err := &net.OpError{Err: errors.New("connection refused")}
 
 	cmd := m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventFailure, Err: err})
@@ -93,16 +89,14 @@ func TestRecoveredTranscriptHydrationClearsDisconnectStatusLine(t *testing.T) {
 	surface := &ongoingSurfaceSpy{}
 	m := newProjectedTestUIModel(
 		&runtimeControlFakeClient{},
-		WithUIOngoingSurface(ongoing.NewSurface(nil)),
-	)
+		WithUIOngoingSurface(ongoing.NewSurface(nil)))
 	m.ongoingTranscript = newNoopOngoingTranscriptController(surface, m.ongoingFrameInput)
 	m.terminalGeometry = terminalGeometryKnown(80, 24)
 	m.setRuntimeDisconnected(true)
 
 	_ = m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{
 		Kind:    ongoingTranscriptEventMessage,
-		Message: ongoingHydrationMessage(1),
-	})
+		Message: ongoingHydrationMessage(1)})
 
 	if m.runtimeDisconnectStatusVisible() {
 		t.Fatal("successful transcript hydration did not clear the disconnect state")
@@ -123,14 +117,12 @@ func TestRejectedPostReconnectTranscriptMessageRetainsDisconnectStatus(t *testin
 	controller := newNoopOngoingTranscriptController(&ongoingSurfaceSpy{}, ongoingTestFrameProvider)
 	m := newProjectedTestUIModel(
 		&runtimeControlFakeClient{},
-		withUIOngoingTranscriptController(controller),
-	)
+		withUIOngoingTranscriptController(controller))
 	m.setRuntimeDisconnected(true)
 
 	_ = m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{
 		Kind:    ongoingTranscriptEventMessage,
-		Message: ongoingTranscriptMessage(2, clientui.TranscriptMessageSessionStatus),
-	})
+		Message: ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_SessionStatus]())})
 
 	if !m.runtimeDisconnectStatusVisible() {
 		t.Fatal("rejected post-reconnect message cleared the disconnect status")
@@ -145,8 +137,7 @@ func TestPendingScratchResetFailureExitsWithoutResettingOrReopeningTranscript(t 
 	m := sizedTestUIModel(newProjectedStaticUIModel(
 		WithUIOngoingSurface(nativeSurface),
 		withUIOngoingTranscriptController(controller),
-		WithUIOngoingTranscriptReopen(func() { reopenCount++ }),
-	), 40, 10)
+		WithUIOngoingTranscriptReopen(func() { reopenCount++ })), 40, 10)
 	reason := ongoing.RehydrateReasonWidthChange
 	m.pendingOngoingScratchReset = &reason
 

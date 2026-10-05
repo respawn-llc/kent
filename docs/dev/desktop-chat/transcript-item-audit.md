@@ -353,10 +353,7 @@ This is the existing presentation inventory, not a proposed Desktop layout.
 | Unknown visibility discriminator                       | Validation/render failure              | Architecture invariant                                                                               |
 | Explicit hidden visibility (`X`)                       | Removed before committed projection    | Locked: honor persisted hidden intent and omit it                                                    |
 
-Malformed-row compatibility branches remain implementation/legacy debt, not
-Desktop product variants. Debug must fail fast. Release uses the separately
-designed transcript contract-failure recovery path and never fabricates content,
-role placeholders, or fallback rows.
+Malformed rows are contract violations, not Desktop product variants. Failure handling follows the [Desktop Chat failure contract](../specs/desktop-chat.md#failure-and-recovery); Desktop never fabricates content or role placeholders.
 
 ## M. Shared Flat-Row Mechanics
 

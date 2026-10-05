@@ -1,9 +1,8 @@
 package workflowview
 
 import (
-	"encoding/json"
+	"core/internal/testharness/workflowfixture"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -11,14 +10,18 @@ import (
 	"core/server/workflow"
 	"core/server/workflowstore"
 	"core/shared/clientui"
+	"core/shared/protoapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
+
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestAttentionProjectsPendingApprovalAndInterruptedCurrentNode(t *testing.T) {
 	approvalFixture := newCurrentNodeViewFixture(t, true)
 	approvalStarted := approvalFixture.startTask(t, "Approval task")
-	completed, err := approvalFixture.store.CompleteCurrentNode(approvalFixture.ctx, workflowstore.CurrentNodeCompletionRequest{
+	completed, err := workflowfixture.CompleteCurrentNode(t, approvalFixture.ctx, approvalFixture.metadata, approvalFixture.store, workflowstore.CurrentNodeCompletionRequest{
 		Source:       approvalStarted.currentNode,
 		TransitionID: "done",
 		Commentary:   "Ready to merge.",
@@ -43,7 +46,7 @@ func TestAttentionProjectsPendingApprovalAndInterruptedCurrentNode(t *testing.T)
 	}
 
 	approvalAttention := approvalFixture.attention(t)
-	approvals, err := approvalAttention.ListTask(approvalFixture.ctx, serverapi.WorkflowTaskAttentionListRequest{TaskID: string(approvalStarted.task.ID)})
+	approvals, err := approvalAttention.ListTask(approvalFixture.ctx, &taskpb.TaskAttentionListRequest{TaskId: string(approvalStarted.task.ID)})
 	if err != nil {
 		t.Fatalf("Attention.ListTask approval: %v", err)
 	}
@@ -51,18 +54,17 @@ func TestAttentionProjectsPendingApprovalAndInterruptedCurrentNode(t *testing.T)
 		t.Fatalf("approval attention = %+v, want one approval", approvals.Items)
 	}
 	approval := approvals.Items[0]
-	if approval.Kind != "approval" ||
-		approval.ApprovalID == nil ||
-		*approval.ApprovalID != completed.PendingApproval.ID.String() ||
-		approval.ApprovalSnapshot == nil ||
-		approval.ApprovalSnapshot.Commentary != "Ready to merge." ||
-		approval.CurrentNode != nil {
+	if approval.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_APPROVAL ||
+		approval.GetApproval() == nil ||
+		approval.GetApproval().ApprovalId != completed.PendingApproval.ID.String() ||
+		approval.GetApproval().ApprovalSnapshot == nil ||
+		approval.GetApproval().ApprovalSnapshot.GetCommentary() != "Ready to merge." {
 		t.Fatalf("approval attention item = %+v, want pending Approval identity", approval)
 	}
 	requireAttentionMessageOmitted(t, approval)
 
 	interruptedAttention := interruptedFixture.attention(t)
-	interruptions, err := interruptedAttention.List(interruptedFixture.ctx, serverapi.WorkflowAttentionListRequest{PageSize: 20})
+	interruptions, err := interruptedAttention.List(interruptedFixture.ctx, &taskpb.AttentionListRequest{PageSize: 20})
 	if err != nil {
 		t.Fatalf("Attention.List interrupted: %v", err)
 	}
@@ -70,48 +72,48 @@ func TestAttentionProjectsPendingApprovalAndInterruptedCurrentNode(t *testing.T)
 		t.Fatalf("interrupted attention = %+v, want one interrupted Current Node", interruptions.Items)
 	}
 	interrupted := interruptions.Items[0]
-	if interrupted.Kind != "interrupted_current_node" ||
-		interrupted.TaskID != string(interruptedStarted.task.ID) ||
-		interrupted.CurrentNode == nil ||
-		interrupted.CurrentNode.NodeID != string(interruptedFixture.agentNodeID) ||
-		interrupted.CurrentNode.SessionID == nil ||
-		*interrupted.CurrentNode.SessionID != interruptedSessionID.String() ||
-		interrupted.SessionID == nil ||
-		*interrupted.SessionID != interruptedSessionID.String() ||
-		interrupted.DetailJSON == nil ||
-		strings.TrimSpace(*interrupted.DetailJSON) == "" ||
-		interrupted.ApprovalID != nil {
+	detail := interrupted.GetInterruptedCurrentNode()
+	if interrupted.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_INTERRUPTED_CURRENT_NODE ||
+		interrupted.TaskId != string(interruptedStarted.task.ID) ||
+		detail == nil || detail.CurrentNode == nil ||
+		detail.CurrentNode.NodeId != string(interruptedFixture.agentNodeID) ||
+		detail.CurrentNode.GetSessionId() != interruptedSessionID.String() ||
+		detail.GetSessionId() != interruptedSessionID.String() ||
+		detail.Details == nil || detail.Details.Code != "restart" {
 		t.Fatalf("interrupted attention item = %+v, want Current Node identity", interrupted)
 	}
 	requireAttentionMessageOmitted(t, interrupted)
-	taskInterruptions, err := interruptedAttention.ListTask(interruptedFixture.ctx, serverapi.WorkflowTaskAttentionListRequest{TaskID: string(interruptedStarted.task.ID)})
+	taskInterruptions, err := interruptedAttention.ListTask(interruptedFixture.ctx, &taskpb.TaskAttentionListRequest{TaskId: string(interruptedStarted.task.ID)})
 	if err != nil {
 		t.Fatalf("Attention.ListTask interrupted: %v", err)
 	}
-	if len(taskInterruptions.Items) != 1 || taskInterruptions.Items[0].ID != interrupted.ID {
+	if len(taskInterruptions.Items) != 1 || taskInterruptions.Items[0].Id != interrupted.Id {
 		t.Fatalf("task interrupted attention = %+v, want exact Current Node attention", taskInterruptions.Items)
 	}
 }
 
-func requireAttentionMessageOmitted(t *testing.T, item serverapi.WorkflowAttentionItem) {
+func requireAttentionMessageOmitted(t *testing.T, item *taskpb.AttentionItem) {
 	t.Helper()
-	raw, err := json.Marshal(item)
-	if err != nil {
-		t.Fatalf("marshal attention item: %v", err)
+	var message *string
+	switch detail := item.Detail.(type) {
+	case *taskpb.AttentionItem_Question:
+		message = detail.Question.Message
+	case *taskpb.AttentionItem_Approval:
+		message = detail.Approval.Message
+	case *taskpb.AttentionItem_InterruptedCurrentNode:
+		message = detail.InterruptedCurrentNode.Message
+	default:
+		t.Fatalf("attention detail is required: %T", detail)
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		t.Fatalf("decode attention item fields: %v", err)
-	}
-	if _, exists := fields["message"]; exists {
-		t.Fatalf("attention item serialized fallback message: %s", raw)
+	if message != nil {
+		t.Fatal("attention item supplied fallback copy")
 	}
 }
 
 func TestAttentionPaginatesDurableCurrentStateAndScopesTaskQuery(t *testing.T) {
 	fixture := newCurrentNodeViewFixture(t, true)
 	approvalTask := fixture.startTask(t, "Approval")
-	completed, err := fixture.store.CompleteCurrentNode(fixture.ctx, workflowstore.CurrentNodeCompletionRequest{
+	completed, err := workflowfixture.CompleteCurrentNode(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.CurrentNodeCompletionRequest{
 		Source:       approvalTask.currentNode,
 		TransitionID: "done",
 	})
@@ -138,17 +140,17 @@ func TestAttentionPaginatesDurableCurrentStateAndScopesTaskQuery(t *testing.T) {
 	fixture.setCurrentNodeInterruptedAt(t, secondInterrupted.currentNode, 1_000)
 	attention := fixture.attention(t)
 
-	first, err := attention.List(fixture.ctx, serverapi.WorkflowAttentionListRequest{PageSize: 2})
+	first, err := attention.List(fixture.ctx, &taskpb.AttentionListRequest{PageSize: 2})
 	if err != nil {
 		t.Fatalf("Attention.List first: %v", err)
 	}
 	if len(first.Items) != 2 ||
-		first.Items[0].Kind != "approval" ||
-		first.Items[1].TaskID != string(firstInterrupted.task.ID) ||
-		first.NextPageToken == "" {
-		t.Fatalf("first attention page = %+v token %q", first.Items, first.NextPageToken)
+		first.Items[0].Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_APPROVAL ||
+		first.Items[1].TaskId != string(firstInterrupted.task.ID) ||
+		first.NextPageToken == nil {
+		t.Fatalf("first attention page = %+v token %v", first.Items, first.NextPageToken)
 	}
-	second, err := attention.List(fixture.ctx, serverapi.WorkflowAttentionListRequest{
+	second, err := attention.List(fixture.ctx, &taskpb.AttentionListRequest{
 		PageSize:  2,
 		PageToken: first.NextPageToken,
 	})
@@ -156,22 +158,22 @@ func TestAttentionPaginatesDurableCurrentStateAndScopesTaskQuery(t *testing.T) {
 		t.Fatalf("Attention.List second: %v", err)
 	}
 	if len(second.Items) != 1 ||
-		second.Items[0].TaskID != string(secondInterrupted.task.ID) ||
-		second.NextPageToken != "" {
-		t.Fatalf("second attention page = %+v token %q", second.Items, second.NextPageToken)
+		second.Items[0].TaskId != string(secondInterrupted.task.ID) ||
+		second.NextPageToken != nil {
+		t.Fatalf("second attention page = %+v token %v", second.Items, second.NextPageToken)
 	}
-	scoped, err := attention.ListTask(fixture.ctx, serverapi.WorkflowTaskAttentionListRequest{
-		TaskID: string(secondInterrupted.task.ID),
+	scoped, err := attention.ListTask(fixture.ctx, &taskpb.TaskAttentionListRequest{
+		TaskId: string(secondInterrupted.task.ID),
 	})
 	if err != nil {
 		t.Fatalf("Attention.ListTask: %v", err)
 	}
-	if len(scoped.Items) != 1 || scoped.Items[0].TaskID != string(secondInterrupted.task.ID) {
+	if len(scoped.Items) != 1 || scoped.Items[0].TaskId != string(secondInterrupted.task.ID) {
 		t.Fatalf("task-scoped attention = %+v", scoped.Items)
 	}
-	if _, err := attention.List(fixture.ctx, serverapi.WorkflowAttentionListRequest{
+	if _, err := attention.List(fixture.ctx, &taskpb.AttentionListRequest{
 		PageSize:  2,
-		PageToken: "invalid",
+		PageToken: proto.String("invalid"),
 	}); !errors.Is(err, ErrInvalidPageToken) {
 		t.Fatalf("invalid attention page token error = %v, want invalid page token", err)
 	}
@@ -203,26 +205,26 @@ func TestAttentionAndDetailProjectLiveQuestionFromExactScope(t *testing.T) {
 		t.Fatalf("NewTaskList: %v", err)
 	}
 	projectID := fixture.binding.ProjectID
-	limit := 20
-	listed, err := taskList.List(fixture.ctx, serverapi.WorkflowTaskListRequest{
-		ProjectID:   &projectID,
-		StatusKinds: []serverapi.WorkflowTaskStatusKind{serverapi.WorkflowTaskStatusKindWaitingQuestion},
-		LabelFilter: serverapi.WorkflowTaskLabelFilterNone(),
+	limit := int32(20)
+	listed, err := taskList.List(fixture.ctx, &taskpb.ListRequest{
+		ProjectId:   &projectID,
+		StatusKinds: []taskpb.TaskStatusKind{taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_QUESTION},
+		LabelFilter: noLabelFilter(),
 		Limit:       &limit,
 	})
 	if err != nil {
 		t.Fatalf("TaskList.List waiting question: %v", err)
 	}
 	if len(listed.Tasks) != 1 ||
-		listed.Tasks[0].TaskID != string(started.task.ID) ||
-		listed.Tasks[0].Status.Kind != serverapi.WorkflowTaskStatusKindWaitingQuestion ||
+		listed.Tasks[0].TaskId != string(started.task.ID) ||
+		listed.Tasks[0].Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_QUESTION ||
 		len(listed.Tasks[0].Status.AttentionTypes) != 1 ||
-		listed.Tasks[0].Status.AttentionTypes[0] != serverapi.WorkflowTaskAttentionKindQuestion {
+		listed.Tasks[0].Status.AttentionTypes[0] != taskpb.TaskAttentionKind_TASK_ATTENTION_KIND_QUESTION {
 		t.Fatalf("task list waiting-question projection = %+v", listed)
 	}
 	prompts := currentNodeViewPrompts{bySession: map[string][]PendingPromptSnapshot{
 		question.sessionID.String(): {{
-			PromptID:               clientui.PromptID(question.request.ID),
+			ToolCallID:             clientui.ToolCallID(question.request.ToolCallID),
 			SessionID:              question.sessionID,
 			StepID:                 mustWorkflowViewStepID(t, question.request.StepID),
 			CreatedAt:              time.UnixMilli(4_000).UTC(),
@@ -230,7 +232,7 @@ func TestAttentionAndDetailProjectLiveQuestionFromExactScope(t *testing.T) {
 			Suggestions:            question.request.Suggestions,
 			RecommendedOptionIndex: intPointer(question.request.RecommendedOptionIndex),
 		}, {
-			PromptID:          clientui.PromptID("unrelated-approval"),
+			ToolCallID:        clientui.ToolCallID("unrelated-approval"),
 			CreatedAt:         time.UnixMilli(4_001).UTC(),
 			Question:          "Approve unrelated action?",
 			Approval:          true,
@@ -246,30 +248,29 @@ func TestAttentionAndDetailProjectLiveQuestionFromExactScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAttention: %v", err)
 	}
-	taskAttention, err := attention.ListTask(fixture.ctx, serverapi.WorkflowTaskAttentionListRequest{
-		TaskID: string(started.task.ID),
+	taskAttention, err := attention.ListTask(fixture.ctx, &taskpb.TaskAttentionListRequest{
+		TaskId: string(started.task.ID),
 	})
 	if err != nil {
 		t.Fatalf("Attention.ListTask: %v", err)
 	}
-	if len(taskAttention.Items) != 1 ||
-		taskAttention.Items[0].Kind != "question" ||
-		taskAttention.Items[0].Message == nil ||
-		*taskAttention.Items[0].Message != question.request.Question ||
-		taskAttention.Items[0].SessionID != nil ||
-		taskAttention.Items[0].SessionName == nil ||
-		*taskAttention.Items[0].SessionName != "Current Node session" ||
-		taskAttention.Items[0].Question == nil ||
-		taskAttention.Items[0].Question.PromptID != clientui.PromptID(question.request.ID) ||
-		taskAttention.Items[0].Question.SessionID != question.sessionID ||
-		taskAttention.Items[0].Question.StepID != mustWorkflowViewStepID(t, question.request.StepID) ||
-		taskAttention.Items[0].CurrentNode == nil ||
-		taskAttention.Items[0].CurrentNode.SessionID != nil ||
-		taskAttention.Items[0].CurrentNode.NodeID != string(fixture.agentNodeID) {
+	if len(taskAttention.Items) != 1 {
 		t.Fatalf("question attention = %+v", taskAttention.Items)
 	}
-	unrelatedAttention, err := attention.ListTask(fixture.ctx, serverapi.WorkflowTaskAttentionListRequest{
-		TaskID: string(unrelated.task.ID),
+	item := taskAttention.Items[0]
+	prompt := item.GetQuestion()
+	if item.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION ||
+		prompt == nil || prompt.GetMessage() != question.request.Question ||
+		prompt.GetSessionName() != "Current Node session" || prompt.Question == nil ||
+		prompt.Question.ToolCallId != question.request.ToolCallID ||
+		prompt.Question.SessionId != question.sessionID.String() ||
+		prompt.Question.StepId != mustWorkflowViewStepID(t, question.request.StepID).String() ||
+		prompt.CurrentNode == nil || prompt.CurrentNode.SessionId != nil ||
+		prompt.CurrentNode.NodeId != string(fixture.agentNodeID) {
+		t.Fatalf("question attention = %+v", taskAttention.Items)
+	}
+	unrelatedAttention, err := attention.ListTask(fixture.ctx, &taskpb.TaskAttentionListRequest{
+		TaskId: string(unrelated.task.ID),
 	})
 	if err != nil {
 		t.Fatalf("Attention.ListTask unrelated: %v", err)
@@ -289,10 +290,10 @@ func TestAttentionAndDetailProjectLiveQuestionFromExactScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TaskDetail.GetTask: %v", err)
 	}
-	if projected.Status.Kind != serverapi.WorkflowTaskStatusKindWaitingQuestion ||
+	if projected.Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_QUESTION ||
 		projected.AttentionCount != 1 ||
 		len(projected.LiveSessions) != 1 ||
-		projected.LiveSessions[0].SessionID != question.sessionID.String() ||
+		projected.LiveSessions[0].SessionId != question.sessionID.String() ||
 		projected.LiveSessions[0].SessionName == nil ||
 		*projected.LiveSessions[0].SessionName != "Current Node session" ||
 		projected.LiveSessions[0].NodeDisplayName != "Agent" {
@@ -305,16 +306,21 @@ func TestAttentionProjectsLiveSessionApprovalFromExactScope(t *testing.T) {
 	fixture := newCurrentNodeViewFixture(t, false)
 	started := fixture.startTask(t, "Live approval")
 	request := workflowViewApprovalRequest()
+	request.Question = ""
 	prompt := fixture.startCurrentNodePrompt(t, started, request)
 	prompts := currentNodeViewPrompts{bySession: map[string][]PendingPromptSnapshot{
 		prompt.sessionID.String(): {{
-			PromptID:          clientui.PromptID(request.ID),
+			ToolCallID:        clientui.ToolCallID(request.ToolCallID),
 			SessionID:         prompt.sessionID,
 			StepID:            mustWorkflowViewStepID(t, request.StepID),
 			CreatedAt:         time.UnixMilli(4_000).UTC(),
 			Question:          request.Question,
 			Approval:          true,
 			ApprovalDecisions: []clientui.ApprovalDecision{clientui.ApprovalDecisionAllowOnce, clientui.ApprovalDecisionDeny},
+			AccessTargets: []clientui.FileAccessTarget{{
+				RequestedPath: "../outside.txt",
+				ResolvedPath:  "/outside.txt",
+			}},
 		}},
 	}}
 	attention, err := NewAttention(
@@ -326,8 +332,8 @@ func TestAttentionProjectsLiveSessionApprovalFromExactScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAttention: %v", err)
 	}
-	response, err := attention.ListTask(fixture.ctx, serverapi.WorkflowTaskAttentionListRequest{
-		TaskID: string(started.task.ID),
+	response, err := attention.ListTask(fixture.ctx, &taskpb.TaskAttentionListRequest{
+		TaskId: string(started.task.ID),
 	})
 	if err != nil {
 		t.Fatalf("Attention.ListTask: %v", err)
@@ -336,16 +342,23 @@ func TestAttentionProjectsLiveSessionApprovalFromExactScope(t *testing.T) {
 		t.Fatalf("live approval attention = %+v, want one item", response.Items)
 	}
 	item := response.Items[0]
-	if item.Kind != "question" ||
-		item.SessionID != nil ||
-		item.Question == nil ||
-		item.Question.PromptID != clientui.PromptID(request.ID) ||
-		item.Question.SessionID != prompt.sessionID ||
-		item.Question.StepID != mustWorkflowViewStepID(t, request.StepID) ||
-		item.Question.Kind != serverapi.WorkflowAttentionQuestionKindApproval ||
-		item.CurrentNode == nil ||
-		item.CurrentNode.SessionID != nil ||
-		item.CurrentNode.NodeID != string(fixture.agentNodeID) {
+	if err := protoapi.Validate(response); err != nil {
+		t.Fatalf("validate structured approval attention: %v", err)
+	}
+	requireAttentionMessageOmitted(t, item)
+	question := item.GetQuestion()
+	if item.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION ||
+		question == nil || question.Question == nil ||
+		question.Question.ToolCallId != request.ToolCallID ||
+		question.Question.SessionId != prompt.sessionID.String() ||
+		question.Question.StepId != mustWorkflowViewStepID(t, request.StepID).String() ||
+		question.Question.Kind != taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL ||
+		question.Question.GetApproval() == nil ||
+		len(question.Question.GetApproval().AccessTargets) != 1 ||
+		question.Question.GetApproval().AccessTargets[0].RequestedPath != "../outside.txt" ||
+		question.Question.GetApproval().AccessTargets[0].ResolvedPath != "/outside.txt" ||
+		question.CurrentNode == nil || question.CurrentNode.SessionId != nil ||
+		question.CurrentNode.NodeId != string(fixture.agentNodeID) {
 		t.Fatalf("live approval attention item = %+v", item)
 	}
 	prompt.resolve(t, fixture.ctx, tools.AskQuestionApproval{
@@ -364,21 +377,21 @@ func mustWorkflowViewStepID(t *testing.T, raw string) runtimeids.StepID {
 
 func TestMergeAttentionCandidatesPreservesQuestionStepIdentity(t *testing.T) {
 	sessionID := runtimeids.NewSessionID()
-	promptID := clientui.PromptID("shared-prompt")
+	toolCallID := clientui.ToolCallID("shared-prompt")
 	ids := []string{
-		liveQuestionAttentionID(sessionID, mustWorkflowViewStepID(t, "11111111-1111-4111-8111-111111111111"), promptID),
-		liveQuestionAttentionID(sessionID, mustWorkflowViewStepID(t, "22222222-2222-4222-8222-222222222222"), promptID),
+		liveQuestionAttentionID(sessionID, mustWorkflowViewStepID(t, "11111111-1111-4111-8111-111111111111"), toolCallID),
+		liveQuestionAttentionID(sessionID, mustWorkflowViewStepID(t, "22222222-2222-4222-8222-222222222222"), toolCallID),
 	}
 	items := mergeAttentionCandidates(
 		attentionPageCursor{},
-		[]attentionCandidate{{item: serverapi.WorkflowAttentionItem{ID: ids[0], OccurredAtUnixMs: 1}}},
-		[]attentionCandidate{{item: serverapi.WorkflowAttentionItem{ID: ids[1], OccurredAtUnixMs: 1}}},
+		[]attentionCandidate{{item: &taskpb.AttentionItem{Id: ids[0], OccurredAt: timestamppb.New(time.UnixMilli(1))}}},
+		[]attentionCandidate{{item: &taskpb.AttentionItem{Id: ids[1], OccurredAt: timestamppb.New(time.UnixMilli(1))}}},
 	)
 	page := mergeAttentionCandidates(
-		attentionPageCursor{occurredAtUnixMs: 1, itemID: items[0].ID, hasValue: true},
+		attentionPageCursor{occurredAtUnixMs: 1, itemID: items[0].Id, hasValue: true},
 		[]attentionCandidate{{item: items[0]}, {item: items[1]}},
 	)
-	if ids[0] == ids[1] || len(items) != 2 || len(page) != 1 || page[0].ID != items[1].ID {
+	if ids[0] == ids[1] || len(items) != 2 || len(page) != 1 || page[0].Id != items[1].Id {
 		t.Fatalf("full-key merge = ids %v items %+v page %+v", ids, items, page)
 	}
 }
@@ -397,8 +410,8 @@ func TestAttentionOmitsLivePromptThatRetiredBeforePromptProjection(t *testing.T)
 	if err != nil {
 		t.Fatalf("NewAttention: %v", err)
 	}
-	response, err := attention.ListTask(fixture.ctx, serverapi.WorkflowTaskAttentionListRequest{
-		TaskID: string(started.task.ID),
+	response, err := attention.ListTask(fixture.ctx, &taskpb.TaskAttentionListRequest{
+		TaskId: string(started.task.ID),
 	})
 	if err != nil {
 		t.Fatalf("Attention.ListTask: %v", err)

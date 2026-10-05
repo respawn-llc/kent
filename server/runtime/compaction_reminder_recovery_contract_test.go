@@ -84,8 +84,8 @@ func TestForkBeforeReminderDoesNotInheritReminderAdmission(t *testing.T) {
 		mustMaterializeTestEventLog(t, store),
 		boundedLatestUserSequence(t, store),
 		"fork",
-		sessioncontract.SessionCategoryMain,
-	)
+		sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+
 	if err != nil {
 		t.Fatalf("fork before reminder: %v", err)
 	}
@@ -116,8 +116,8 @@ func TestForkAfterReminderPreservesReminderAdmission(t *testing.T) {
 		mustMaterializeTestEventLog(t, store),
 		boundedLatestUserSequence(t, store),
 		"fork",
-		sessioncontract.SessionCategoryMain,
-	)
+		sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+
 	if err != nil {
 		t.Fatalf("fork after reminder: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestForkAfterReminderPreservesReminderAdmission(t *testing.T) {
 func newReminderRecoveryEngine(t *testing.T, store *session.Store, client llm.Client, onEvent func(Event)) *Engine {
 	t.Helper()
 	return mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",

@@ -1,44 +1,39 @@
-package serverapi
+package serverapi_test
 
-import "testing"
+import (
+	"core/shared/protoapi"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	"google.golang.org/protobuf/proto"
+	"testing"
+)
 
 func TestQuestionHistorySubscribeRequestValidation(t *testing.T) {
-	valid := QuestionHistorySubscribeRequest{
-		SessionID:   "12345678-1234-4234-8234-123456789012",
+	valid := &sessionpb.QuestionHistorySubscribeRequest{
+		SessionId:   "12345678-1234-4234-8234-123456789012",
 		MaxHandoffs: 25,
 	}
-	if err := valid.Validate(); err != nil {
+	if err := protoapi.Validate(valid); err != nil {
 		t.Fatalf("valid request: %v", err)
 	}
-	invalid := valid
+	invalid := proto.Clone(valid).(*sessionpb.QuestionHistorySubscribeRequest)
 	invalid.MaxHandoffs = 0
-	if err := invalid.Validate(); err == nil {
+	if err := protoapi.Validate(invalid); err == nil {
 		t.Fatal("nonpositive max_handoffs accepted")
 	}
 }
 
 func TestQuestionHistoryEventValidation(t *testing.T) {
-	started := false
-	omitted := true
-	events := []QuestionHistoryEvent{
-		{Kind: QuestionHistoryEventStarted, LargeHistory: &started},
-		{
-			Kind: QuestionHistoryEventQuestion,
-			Question: &QuestionHistoryQuestion{
-				Question: "question",
-				Answer:   "answer",
-			},
-		},
-		{Kind: QuestionHistoryEventCompleted, HistoryOmitted: &omitted},
+	events := []*sessionpb.QuestionHistoryEvent{
+		{Event: &sessionpb.QuestionHistoryEvent_Started{Started: &sessionpb.QuestionHistoryStarted{}}},
+		{Event: &sessionpb.QuestionHistoryEvent_Question{Question: &sessionpb.QuestionHistoryQuestion{Question: "question", Answer: "answer"}}},
+		{Event: &sessionpb.QuestionHistoryEvent_Completed{Completed: &sessionpb.QuestionHistoryCompleted{HistoryOmitted: true}}},
 	}
 	for _, event := range events {
-		if err := event.Validate(); err != nil {
+		if err := protoapi.Validate(event); err != nil {
 			t.Fatalf("valid event %#v: %v", event, err)
 		}
 	}
-	if err := (QuestionHistoryEvent{
-		Kind: QuestionHistoryEventQuestion,
-	}).Validate(); err == nil {
+	if err := protoapi.Validate(&sessionpb.QuestionHistoryEvent{}); err == nil {
 		t.Fatal("Question event without record accepted")
 	}
 }

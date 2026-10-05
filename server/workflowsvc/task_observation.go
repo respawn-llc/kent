@@ -8,21 +8,25 @@ import (
 	"io"
 	"slices"
 	"strings"
-	"time"
 
+	"core/server/registry"
 	"core/server/workflow"
 	"core/shared/clientui"
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
-	"core/shared/textutil"
 )
 
-func (s *Service) ObserveWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskObservationRequest) (serverapi.WorkflowTaskObservationResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowTaskObservationResponse{}, err
+func (s *Service) ObserveWorkflowTask(ctx context.Context, req *taskpb.ObserveRequest) (*taskpb.ObserveSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	sub, err := s.events.subscribe(req.ProjectID, nil)
+	sub, err := s.events.subscribe(&req.ProjectId, nil)
 	if err != nil {
-		return serverapi.WorkflowTaskObservationResponse{}, err
+		return nil, err
 	}
 	defer func() { _ = sub.Close() }()
 
@@ -34,10 +38,10 @@ func (s *Service) ObserveWorkflowTask(ctx context.Context, req serverapi.Workflo
 		for {
 			event, err := sub.Next(ctx)
 			if err != nil {
-				return serverapi.WorkflowTaskObservationResponse{}, normalizeTaskObservationError(err)
+				return nil, normalizeTaskObservationError(err)
 			}
-			if event.Resource == serverapi.WorkflowProjectEventResourceTask &&
-				(event.PrimaryEntityID == req.TaskID || slices.Contains(event.RelatedIDs, req.TaskID)) {
+			if event.Resource == pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_TASK &&
+				(event.PrimaryEntityId == req.TaskId || slices.Contains(event.RelatedIds, req.TaskId)) {
 				break
 			}
 		}
@@ -54,33 +58,37 @@ func normalizeTaskObservationError(err error) error {
 	return serverapi.NormalizeStreamError(err)
 }
 
-func (s *Service) observeWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskObservationRequest) (serverapi.WorkflowTaskObservationResponse, bool, error) {
-	detail, err := s.readModels.TaskDetail.GetTask(ctx, req.TaskID)
+func (s *Service) observeWorkflowTask(ctx context.Context, req *taskpb.ObserveRequest) (*taskpb.ObserveSuccess, bool, error) {
+	detail, err := s.readModels.TaskDetail.GetTask(ctx, req.TaskId)
 	if err != nil {
-		return serverapi.WorkflowTaskObservationResponse{}, false, normalizeTaskObservationError(err)
+		return nil, false, normalizeTaskObservationError(err)
 	}
-	if detail.Summary.ProjectID != req.ProjectID {
-		return serverapi.WorkflowTaskObservationResponse{}, false, errors.New("workflow task does not belong to project")
+	if detail.Summary.ProjectId != req.ProjectId {
+		return nil, false, errors.New("workflow task does not belong to project")
 	}
-	response := serverapi.WorkflowTaskObservationResponse{TaskID: detail.Summary.ID, TaskShortID: detail.Summary.ShortID}
-	if detail.Status.Kind == serverapi.WorkflowTaskStatusKindDone {
-		response.Outcomes = []serverapi.WorkflowTaskObservationOutcome{{Kind: serverapi.WorkflowTaskObservationDone}}
+	response := &taskpb.ObserveSuccess{TaskId: detail.Summary.Id, TaskShortId: detail.Summary.ShortId}
+	if detail.Status.Kind == taskpb.TaskStatusKind_TASK_STATUS_KIND_DONE {
+		response.Outcomes = []*taskpb.ObserveOutcome{{Outcome: &taskpb.ObserveOutcome_Done{Done: &taskpb.ObserveDone{}}}}
 		return response, true, nil
 	}
 
-	definition, _, err := s.readModels.Definitions.GetDefinition(ctx, detail.Summary.WorkflowID)
+	workflowID, err := runtimeids.ParseWorkflowID(detail.Summary.WorkflowId)
 	if err != nil {
-		return serverapi.WorkflowTaskObservationResponse{}, false, err
+		return nil, false, err
+	}
+	definition, _, err := s.readModels.Definitions.GetDefinition(ctx, workflowID)
+	if err != nil {
+		return nil, false, err
 	}
 	nodeKeys := make(map[string]string, len(definition.Nodes))
-	nodes := make(map[string]serverapi.WorkflowNode, len(definition.Nodes))
+	nodes := make(map[string]*pb.WorkflowNode, len(definition.Nodes))
 	for _, node := range definition.Nodes {
-		nodeKeys[node.ID] = node.Key
-		nodes[node.ID] = node
+		nodeKeys[node.Id] = node.Key
+		nodes[node.Id] = node
 	}
-	currentNodes, err := s.readModels.TaskDetail.ListCurrentNodes(ctx, req.TaskID)
+	currentNodes, err := s.readModels.TaskDetail.ListCurrentNodes(ctx, req.TaskId)
 	if err != nil {
-		return serverapi.WorkflowTaskObservationResponse{}, false, normalizeTaskObservationError(err)
+		return nil, false, normalizeTaskObservationError(err)
 	}
 	for _, currentNode := range currentNodes {
 		if currentNode.Scheduling == nil || currentNode.Scheduling.Interruption == nil {
@@ -88,28 +96,28 @@ func (s *Service) observeWorkflowTask(ctx context.Context, req serverapi.Workflo
 		}
 		outcome, err := taskCurrentNodeFailure(currentNode, nodes, nodeKeys)
 		if err != nil {
-			return serverapi.WorkflowTaskObservationResponse{}, false, err
+			return nil, false, err
 		}
-		if req.Mode == serverapi.WorkflowTaskObservationWatch ||
-			outcome.Kind == serverapi.WorkflowTaskObservationExecutionError ||
-			outcome.Kind == serverapi.WorkflowTaskObservationInterrupted {
+		if req.Mode == taskpb.ObservationMode_OBSERVATION_MODE_WATCH ||
+			outcome.GetExecutionError() != nil ||
+			outcome.GetInterrupted() != nil {
 			response.Outcomes = append(response.Outcomes, outcome)
 		}
 	}
 
-	attention, err := s.readModels.Attention.ListTask(ctx, serverapi.WorkflowTaskAttentionListRequest{TaskID: req.TaskID})
+	attention, err := s.readModels.Attention.ListTask(ctx, &taskpb.TaskAttentionListRequest{TaskId: req.TaskId})
 	if err != nil {
-		return serverapi.WorkflowTaskObservationResponse{}, false, normalizeTaskObservationError(err)
+		return nil, false, normalizeTaskObservationError(err)
 	}
-	if req.Mode == serverapi.WorkflowTaskObservationWatch {
+	if req.Mode == taskpb.ObservationMode_OBSERVATION_MODE_WATCH {
 		approvalCache := make(map[string][]clientui.PendingApproval)
 		for _, item := range attention.Items {
-			if item.Kind != string(serverapi.WorkflowTaskAttentionKindQuestion) {
+			if item.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION {
 				continue
 			}
 			outcome, ok, err := s.taskQuestion(ctx, item, nodeKeys, approvalCache)
 			if err != nil {
-				return serverapi.WorkflowTaskObservationResponse{}, false, err
+				return nil, false, err
 			}
 			if ok {
 				response.Outcomes = append(response.Outcomes, outcome)
@@ -121,102 +129,102 @@ func (s *Service) observeWorkflowTask(ctx context.Context, req serverapi.Workflo
 
 func (s *Service) taskQuestion(
 	ctx context.Context,
-	item serverapi.WorkflowAttentionItem,
+	item *taskpb.AttentionItem,
 	keys map[string]string,
 	cache map[string][]clientui.PendingApproval,
-) (serverapi.WorkflowTaskObservationOutcome, bool, error) {
-	if item.Question == nil {
-		return serverapi.WorkflowTaskObservationOutcome{}, false, nil
+) (*taskpb.ObserveOutcome, bool, error) {
+	detail := item.GetQuestion()
+	prompt := detail.GetQuestion()
+	if prompt == nil {
+		return nil, false, nil
 	}
-	if err := item.Question.Validate(); err != nil {
-		return serverapi.WorkflowTaskObservationOutcome{}, false, err
+	if err := protoapi.Validate(prompt); err != nil {
+		return nil, false, err
 	}
-	sessionID := item.Question.SessionID.String()
-	if strings.TrimSpace(sessionID) == "" {
-		return serverapi.WorkflowTaskObservationOutcome{}, false, nil
+	sessionID, err := runtimeids.ParseSessionID(prompt.SessionId)
+	if err != nil {
+		return nil, false, err
 	}
-	questionID := string(item.Question.PromptID)
-	if strings.TrimSpace(questionID) == "" {
-		return serverapi.WorkflowTaskObservationOutcome{}, false, nil
-	}
-
-	var question serverapi.ObservationQuestion
-	questionKind := item.Question.Kind
-	switch questionKind {
-	case serverapi.WorkflowAttentionQuestionKindOrdinary:
-		text, _ := textutil.OptionalExact(item.Message)
+	var question *promptpb.ObservationQuestion
+	switch selected := prompt.Prompt.(type) {
+	case *taskpb.AttentionQuestionPrompt_Ordinary:
+		text := detail.GetMessage()
 		if strings.TrimSpace(text) == "" {
-			return serverapi.WorkflowTaskObservationOutcome{}, false, nil
+			return nil, false, nil
 		}
-		ask := clientui.PendingAsk{
-			PromptID:               item.Question.PromptID,
-			SessionID:              item.Question.SessionID,
-			StepID:                 item.Question.StepID,
+		ask := &promptpb.Question{
+			ToolCallId:             prompt.ToolCallId,
+			SessionId:              prompt.SessionId,
+			StepId:                 prompt.StepId,
 			Question:               text,
-			Suggestions:            append([]string(nil), item.Question.Suggestions...),
-			RecommendedOptionIndex: item.Question.RecommendedOptionIndex,
-			CreatedAt:              time.UnixMilli(item.OccurredAtUnixMs).UTC(),
+			Suggestions:            append([]string(nil), selected.Ordinary.Suggestions...),
+			RecommendedOptionIndex: selected.Ordinary.RecommendedOptionIndex,
+			CreatedAt:              item.OccurredAt,
 		}
-		question.Ask = &ask
-	case serverapi.WorkflowAttentionQuestionKindApproval:
-		approvals, ok := cache[sessionID]
+		question = &promptpb.ObservationQuestion{Question: &promptpb.ObservationQuestion_Ask{Ask: ask}}
+	case *taskpb.AttentionQuestionPrompt_Approval:
+		approvals, ok := cache[prompt.SessionId]
 		if !ok {
-			list, err := s.readModels.Approvals.ListPendingApprovalsBySession(ctx, serverapi.ApprovalListPendingBySessionRequest{SessionID: sessionID})
-			if err != nil {
-				return serverapi.WorkflowTaskObservationOutcome{}, false, err
+			for _, snapshot := range s.readModels.PendingPrompts.ListPendingPrompts(prompt.SessionId) {
+				if !snapshot.Request.Approval {
+					continue
+				}
+				approval, err := registry.PendingApprovalFromSnapshot(sessionID, snapshot)
+				if err != nil {
+					return nil, false, err
+				}
+				approvals = append(approvals, approval)
 			}
-			approvals = append([]clientui.PendingApproval(nil), list.Approvals...)
-			cache[sessionID] = approvals
+			cache[prompt.SessionId] = approvals
 		}
 		var approval *clientui.PendingApproval
 		for index := range approvals {
 			candidate := &approvals[index]
-			if candidate.PromptID == item.Question.PromptID &&
-				candidate.SessionID == item.Question.SessionID &&
-				candidate.StepID == item.Question.StepID {
+			if string(candidate.ToolCallID) == prompt.ToolCallId &&
+				candidate.SessionID == sessionID &&
+				candidate.StepID.String() == prompt.StepId {
 				approval = candidate
 				break
 			}
 		}
 		if approval == nil {
-			return serverapi.WorkflowTaskObservationOutcome{}, false, nil
+			return nil, false, nil
 		}
-		question.Approval = approval
+		question, err = protoapi.ObservationQuestionToProto(serverapi.ObservationQuestion{Approval: approval})
+		if err != nil {
+			return nil, false, err
+		}
 	default:
-		return serverapi.WorkflowTaskObservationOutcome{}, false, nil
+		return nil, false, nil
 	}
-	outcomeSessionID := item.Question.SessionID.String()
-	return serverapi.WorkflowTaskObservationOutcome{
-		Kind:      serverapi.WorkflowTaskObservationQuestion,
-		SessionID: &outcomeSessionID,
-		NodeKey:   nodeKey(item.CurrentNode, keys),
-		Question:  &question,
+	outcomeSessionID := prompt.SessionId
+	return &taskpb.ObserveOutcome{
+		Outcome: &taskpb.ObserveOutcome_Question{Question: &taskpb.ObserveQuestion{
+			SessionId: &outcomeSessionID,
+			NodeKey:   nodeKey(detail.CurrentNode, keys),
+			Question:  question,
+		}},
 	}, true, nil
 }
 
 func taskCurrentNodeFailure(
 	currentNode workflow.CurrentNode,
-	nodes map[string]serverapi.WorkflowNode,
+	nodes map[string]*pb.WorkflowNode,
 	keys map[string]string,
-) (serverapi.WorkflowTaskObservationOutcome, error) {
+) (*taskpb.ObserveOutcome, error) {
 	interruption := currentNode.Scheduling.Interruption
 	if interruption == nil {
-		return serverapi.WorkflowTaskObservationOutcome{}, errors.New("current node interruption is required")
+		return nil, errors.New("current node interruption is required")
 	}
 	reason := strings.TrimSpace(string(interruption.Reason))
 	if reason == "" {
-		return serverapi.WorkflowTaskObservationOutcome{}, errors.New("task interruption reason is required")
+		return nil, errors.New("task interruption reason is required")
 	}
-	failure := &serverapi.RuntimeLiveWatchFailure{Reason: strings.TrimSpace(interruption.Detail.Code)}
+	failure := &promptpb.LiveWatchFailure{Reason: strings.TrimSpace(interruption.Detail.Code)}
 	if failure.Reason == "" {
 		failure.Reason = reason
 	}
 	failure.Diagnostic = interruption.Detail.Diagnostic()
-	kind := serverapi.WorkflowTaskObservationExecutionError
-	if interruption.Reason == workflow.CurrentNodeInterruptionReasonUserInterrupt ||
-		interruption.Reason == workflow.CurrentNodeInterruptionReasonRuntimeCanceled {
-		kind = serverapi.WorkflowTaskObservationInterrupted
-	}
 	var sessionID *string
 	if currentNode.SessionID != nil {
 		value := currentNode.SessionID.String()
@@ -230,20 +238,24 @@ func taskCurrentNodeFailure(
 			sessionID = nil
 		}
 	}
-	return serverapi.WorkflowTaskObservationOutcome{
-		Kind:       kind,
-		SessionID:  sessionID,
+	detail := &taskpb.ObserveFailure{
+		SessionId:  sessionID,
 		ScriptPath: scriptPath,
-		NodeKey:    nodeKey(&serverapi.WorkflowTaskCurrentNode{NodeID: string(currentNode.Reference.NodeID)}, keys),
+		NodeKey:    nodeKey(&taskpb.AttentionCurrentNode{NodeId: string(currentNode.Reference.NodeID)}, keys),
 		Failure:    failure,
-	}, nil
+	}
+	if interruption.Reason == workflow.CurrentNodeInterruptionReasonUserInterrupt ||
+		interruption.Reason == workflow.CurrentNodeInterruptionReasonRuntimeCanceled {
+		return &taskpb.ObserveOutcome{Outcome: &taskpb.ObserveOutcome_Interrupted{Interrupted: detail}}, nil
+	}
+	return &taskpb.ObserveOutcome{Outcome: &taskpb.ObserveOutcome_ExecutionError{ExecutionError: detail}}, nil
 }
 
-func nodeKey(node *serverapi.WorkflowTaskCurrentNode, keys map[string]string) *string {
+func nodeKey(node *taskpb.AttentionCurrentNode, keys map[string]string) *string {
 	if node == nil {
 		return nil
 	}
-	key := strings.TrimSpace(keys[node.NodeID])
+	key := strings.TrimSpace(keys[node.NodeId])
 	if key == "" {
 		return nil
 	}

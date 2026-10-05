@@ -1,98 +1,99 @@
-import { compactJsonObject, type JsonObject } from "./json";
+import { create } from "@app/server-api-contract";
+import {
+  GraphDraftSchema,
+  GraphMetadataSchema,
+  GraphSaveConfirmationSchema,
+} from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import type { WorkflowGraphMetadata, WorkflowGraphSaveConfirmation } from "./models";
 import type { WorkflowGraphDraft } from "./workflowGraphModels";
+import {
+  workflowAssigneeSelection,
+  workflowCompletionMode,
+  workflowContextMode,
+  workflowContextSourceKind,
+  workflowExecutionTargetMode,
+  workflowNodeKind,
+  workflowParameterPurpose,
+  workflowThinkingSelection,
+} from "./workflowProtoValues";
 
-export function workflowGraphDraftPayload(graph: WorkflowGraphDraft): JsonObject {
-  return {
-    node_groups: graph.nodeGroups.map((group) => ({
-      id: group.id,
-      key: group.key,
-      display_name: group.name,
+export function workflowGraphDraftPayload(graph: WorkflowGraphDraft) {
+  return create(GraphDraftSchema, {
+    nodeGroups: graph.nodeGroups.map((group) => ({ id: group.id, key: group.key, displayName: group.name })),
+    nodes: graph.nodes.map((node) => ({
+      id: node.id,
+      key: node.key,
+      kind: workflowNodeKind.encode(node.kind),
+      displayName: node.name,
+      groupId: node.groupID ?? undefined,
+      subagentRole: node.subagentRole === "" ? undefined : node.subagentRole,
+      completionMode:
+        node.completionMode === undefined || node.completionMode === ""
+          ? undefined
+          : workflowCompletionMode.encode(node.completionMode),
+      scriptPath:
+        node.scriptPath === undefined || node.scriptPath === null || node.scriptPath.trim().length === 0
+          ? undefined
+          : node.scriptPath,
+      joinInputProviders: node.joinInputProviders.map((provider) => ({
+        inputName: provider.inputName,
+        providerEdgeId: provider.providerEdgeID,
+      })),
     })),
-    nodes: graph.nodes.map((node) =>
-      compactJsonObject({
-        id: node.id,
-        key: node.key,
-        kind: node.kind,
-        display_name: node.name,
-        group_id: node.groupID,
-        subagent_role: node.subagentRole,
-        completion_mode:
-          node.completionMode !== undefined && node.completionMode.length > 0
-            ? node.completionMode
-            : undefined,
-        script_path:
-          node.scriptPath !== undefined && node.scriptPath !== null && node.scriptPath.trim().length > 0
-            ? node.scriptPath
-            : undefined,
-        join_input_providers: node.joinInputProviders.map((provider) => ({
-          input_name: provider.inputName,
-          provider_edge_id: provider.providerEdgeID,
-        })),
-      }),
-    ),
-    transition_groups: graph.transitionGroups.map((group) =>
-      compactJsonObject({
-        id: group.id,
-        source_node_id: group.sourceNodeID,
-        transition_id: group.transitionID,
-        display_name: group.name,
-        description: group.description.length > 0 ? group.description : undefined,
-      }),
-    ),
-    edges: graph.edges.map((edge) =>
-      compactJsonObject({
-        id: edge.id,
-        transition_group_id: edge.transitionGroupID,
-        key: edge.key,
-        target_node_id: edge.targetNodeID,
-        assignee_selection: edge.assigneeSelection,
-        thinking_selection: edge.thinkingSelection,
-        requires_approval: edge.requiresApproval,
-        context_mode: edge.contextMode,
-        context_source: {
-          kind: edge.contextSource.kind,
-          node_key: edge.contextSource.nodeKey,
-        },
-        prompt_template: edge.promptTemplate.length > 0 ? edge.promptTemplate : undefined,
-        parameters: edge.parameters.map((parameter) => ({
-          key: parameter.key,
-          description: parameter.description,
-          purpose: parameter.purpose,
-        })),
-      }),
-    ),
-  };
+    transitionGroups: graph.transitionGroups.map((group) => ({
+      id: group.id,
+      sourceNodeId: group.sourceNodeID,
+      transitionId: group.transitionID,
+      displayName: group.name,
+      description: group.description,
+    })),
+    edges: graph.edges.map((edge) => ({
+      id: edge.id,
+      transitionGroupId: edge.transitionGroupID,
+      key: edge.key,
+      targetNodeId: edge.targetNodeID,
+      assigneeSelection: workflowAssigneeSelection.encode(edge.assigneeSelection),
+      thinkingSelection: workflowThinkingSelection.encode(edge.thinkingSelection),
+      requiresApproval: edge.requiresApproval,
+      contextMode: workflowContextMode.encode(edge.contextMode),
+      contextSource: {
+        kind: workflowContextSourceKind.encode(edge.contextSource.kind),
+        nodeKey: edge.contextSource.nodeKey === "" ? undefined : edge.contextSource.nodeKey,
+      },
+      promptTemplate: edge.promptTemplate,
+      parameters: edge.parameters.map((parameter) => ({
+        key: parameter.key,
+        description: parameter.description,
+        purpose: workflowParameterPurpose.encode(parameter.purpose),
+      })),
+    })),
+  });
 }
 
-export function workflowGraphMetadataPayload(
-  metadata: WorkflowGraphMetadata | undefined,
-): JsonObject | undefined {
-  if (!metadata) {
-    return undefined;
-  }
-  return {
-    name: metadata.name,
-    description: metadata.description,
-    execution_target_policy: compactJsonObject({
-      mode: metadata.executionTargetPolicy.mode,
-      custom_ref: metadata.executionTargetPolicy.customRef ?? undefined,
-    }),
-  };
+export function workflowGraphMetadataPayload(metadata: WorkflowGraphMetadata | undefined) {
+  return metadata === undefined
+    ? undefined
+    : create(GraphMetadataSchema, {
+        name: metadata.name,
+        description: metadata.description,
+        executionTargetPolicy: {
+          mode: workflowExecutionTargetMode.encode(metadata.executionTargetPolicy.mode),
+          customRef: metadata.executionTargetPolicy.customRef ?? undefined,
+        },
+      });
 }
 
 export function workflowGraphSaveConfirmationPayload(
   confirmation: WorkflowGraphSaveConfirmation | undefined,
-): JsonObject | undefined {
-  if (!confirmation) {
-    return undefined;
-  }
-  return {
-    expected_removed_node_group_count: confirmation.expectedRemovedNodeGroupCount,
-    expected_removed_node_count: confirmation.expectedRemovedNodeCount,
-    expected_removed_transition_group_count: confirmation.expectedRemovedTransitionGroupCount,
-    expected_removed_edge_count: confirmation.expectedRemovedEdgeCount,
-    expected_node_task_reference_count: confirmation.expectedNodeTaskReferenceCount,
-    expected_edge_task_reference_count: confirmation.expectedEdgeTaskReferenceCount,
-  };
+) {
+  return confirmation === undefined
+    ? undefined
+    : create(GraphSaveConfirmationSchema, {
+        expectedRemovedNodeGroupCount: BigInt(confirmation.expectedRemovedNodeGroupCount),
+        expectedRemovedNodeCount: BigInt(confirmation.expectedRemovedNodeCount),
+        expectedRemovedTransitionGroupCount: BigInt(confirmation.expectedRemovedTransitionGroupCount),
+        expectedRemovedEdgeCount: BigInt(confirmation.expectedRemovedEdgeCount),
+        expectedNodeTaskReferenceCount: BigInt(confirmation.expectedNodeTaskReferenceCount),
+        expectedEdgeTaskReferenceCount: BigInt(confirmation.expectedEdgeTaskReferenceCount),
+      });
 }

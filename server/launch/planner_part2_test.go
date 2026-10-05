@@ -2,7 +2,6 @@ package launch
 
 import (
 	"context"
-	"core/server/auth"
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/shared/config"
@@ -18,7 +17,7 @@ import (
 func TestApplyRunPromptOverridesCLIModelOverridePreservesExplicitThreshold(t *testing.T) {
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
-		"model = \"gpt-5.4\"",
+		"model = \"gpt-6-sol\"",
 		"context_compaction_threshold_tokens = 221000",
 	)
 	store := createTestSession(t, workspace)
@@ -30,9 +29,9 @@ func TestApplyRunPromptOverridesCLIModelOverridePreservesExplicitThreshold(t *te
 		Source:              loaded.Source,
 	}, store, filepath.Dir(store.Dir()))
 
-	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{Model: "gpt-5.4-mini"}, auth.EmptyState())
-	if updated.ActiveSettings.Model != "gpt-5.4-mini" {
-		t.Fatalf("model = %q, want gpt-5.4-mini", updated.ActiveSettings.Model)
+	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{Model: "gpt-6-luna"})
+	if updated.ActiveSettings.Model != "gpt-6-luna" {
+		t.Fatalf("model = %q, want gpt-6-luna", updated.ActiveSettings.Model)
 	}
 	if updated.ActiveSettings.ModelContextWindow != 272_000 {
 		t.Fatalf("context window = %d, want 272000", updated.ActiveSettings.ModelContextWindow)
@@ -46,13 +45,13 @@ func TestApplyRunPromptOverridesRejectsDerivedContextWindowBelowMinimum(t *testi
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace)
 	plan := newLoadedConfigPlan(t, workspace, loaded)
-	applier := func(settings *config.Settings, explicitSources map[string]string, originalModel string, allowModelOverride bool) {
+	applier := func(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool) {
 		settings.ModelContextWindow = 39_999
 		settings.ContextCompactionThresholdTokens = 38_000
 		settings.PreSubmitCompactionLeadTokens = 1_000
 	}
 
-	_, _, err := applyRunPromptOverridesWithBudgetApplier(plan, serverapi.RunPromptOverrides{Model: "local-model"}, auth.EmptyState(), RunPromptOverrideOptions{}, applier)
+	_, _, err := applyRunPromptOverridesWithBudgetApplier(plan, serverapi.RunPromptOverrides{Model: "local-model"}, RunPromptOverrideOptions{}, applier)
 	if err == nil {
 		t.Fatal("expected derived context window below minimum to fail")
 	}

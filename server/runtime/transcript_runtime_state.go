@@ -26,6 +26,7 @@ type transcriptRuntimeState struct {
 	liveTools               *transcriptLiveToolLedger
 	reasoning               *transcriptReasoningAggregate
 	latestRollbackCandidate *rollbacktarget.CandidateLocator
+	connectionReplacement   *config.ConnectionReplacement
 	now                     func() time.Time
 }
 
@@ -36,6 +37,18 @@ func newTranscriptRuntimeState(cwd string) *transcriptRuntimeState {
 		liveTools: newTranscriptLiveToolLedger(),
 		now:       time.Now,
 	}
+}
+
+func (s *transcriptRuntimeState) SetConnectionReplacement(replacement config.ConnectionReplacement) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.connectionReplacement = &replacement
+}
+
+func (s *transcriptRuntimeState) ConnectionReplacement() *config.ConnectionReplacement {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return textutil.Pointer(s.connectionReplacement)
 }
 
 func (s *transcriptRuntimeState) SetWorkingDir(workdir string) bool {
@@ -108,7 +121,11 @@ func (s *transcriptRuntimeState) liveToolLedger() *transcriptLiveToolLedger {
 
 func (s *transcriptRuntimeState) RecordLiveToolStart(stepID string, call llm.ToolCall) error {
 	if ledger := s.liveToolLedger(); ledger != nil {
-		return ledger.RecordStart(transcriptLiveToolStartFromCall(stepID, call))
+		start, err := transcriptLiveToolStartFromCallChecked(stepID, call)
+		if err != nil {
+			return err
+		}
+		return ledger.RecordStart(start)
 	}
 	return nil
 }
@@ -125,20 +142,28 @@ func (s *transcriptRuntimeState) SeedLiveTools(starts []TranscriptLiveToolStart)
 	}
 }
 
-func (s *transcriptRuntimeState) ToolCallSnapshot(callID string) (llm.ToolCall, bool) {
+func (s *transcriptRuntimeState) ToolCallSnapshot(callID string) (llm.ToolCall, bool, error) {
 	if ledger := s.liveToolLedger(); ledger != nil {
 		if start, ok := ledger.Lookup(callID); ok && start.Presentation != nil {
+			presentation, err := transcript.TryEncodeToolCallMeta(*start.Presentation)
+			if err != nil {
+				return llm.ToolCall{}, false, fmt.Errorf(
+					"encode live tool call presentation snapshot: %w",
+					err,
+				)
+			}
 			return llm.ToolCall{
 				ID:           start.ToolCallID,
 				Name:         start.ToolName,
-				Presentation: transcript.EncodeToolCallMeta(*start.Presentation),
-			}, true
+				Presentation: presentation,
+			}, true, nil
 		}
 	}
 	if chat := s.chatProjection(); chat != nil {
-		return chat.toolCallSnapshot(callID)
+		call, ok := chat.toolCallSnapshot(callID)
+		return call, ok, nil
 	}
-	return llm.ToolCall{}, false
+	return llm.ToolCall{}, false, nil
 }
 
 func (s *transcriptRuntimeState) LiveToolSnapshot() []TranscriptLiveToolStart {
@@ -408,6 +433,13 @@ func (s *transcriptRuntimeState) SnapshotItems() []llm.ResponseItem {
 	return nil
 }
 
+func (s *transcriptRuntimeState) SnapshotRequestItems() ([]llm.ResponseItem, *int) {
+	chat := s.chatProjection()
+	chat.mu.RLock()
+	defer chat.mu.RUnlock()
+	return chat.snapshotProviderItemsLocked()
+}
+
 func (s *transcriptRuntimeState) CommittedEntryCount() int {
 	if chat := s.chatProjection(); chat != nil {
 		return chat.committedEntryCount()
@@ -447,7 +479,10 @@ func (s *transcriptRuntimeState) ToolCompletionSnapshot(callID string) (tools.Re
 		chat.mu.Lock()
 		defer chat.mu.Unlock()
 		result, ok := chat.toolCompletions[strings.TrimSpace(callID)]
-		return result, ok
+		if !ok {
+			return tools.Result{}, false
+		}
+		return result, true
 	}
 	return tools.Result{}, false
 }
@@ -469,12 +504,33 @@ func (s *transcriptRuntimeState) AppendMessage(stepID *string, msg llm.Message, 
 	return s.chatProjection().appendMessage(stepID, msg, provenances...)
 }
 
+func (s *transcriptRuntimeState) AppendConfigurationItem(stepID *string, item llm.ResponseItem, provenance *TranscriptCommittedRowProvenance) {
+	chat := s.chatProjection()
+	chat.mu.Lock()
+	defer chat.mu.Unlock()
+	chat.messageRecords = append(chat.messageRecords, chatMessageRecord{
+		StepID: cloneOptionalStepID(stepID), ProviderItems: llm.CloneResponseItems([]llm.ResponseItem{item}),
+		Provenance: cloneTranscriptCommittedRowProvenance(provenance),
+	})
+	chat.transcriptEntryCount++
+	chat.providerTokenEstimateDirty = true
+}
+
 func (s *transcriptRuntimeState) AppendLocalEntryRecord(entry ChatEntry, afterToolCallID *string, provenances ...*TranscriptCommittedRowProvenance) {
 	s.chatProjection().appendLocalEntryRecord(entry, afterToolCallID, provenances...)
 }
 
 func (s *transcriptRuntimeState) AppendCommittedEntryWithVisibility(role, text string, visibility transcript.EntryVisibility, provenances ...*TranscriptCommittedRowProvenance) {
 	s.chatProjection().appendLocalEntryRecord(ChatEntry{Visibility: visibility, Role: role, Text: text}, nil, provenances...)
+}
+
+func (s *transcriptRuntimeState) AppendCommittedCacheWarning(warning transcript.CacheWarning, visibility transcript.EntryVisibility, provenances ...*TranscriptCommittedRowProvenance) {
+	s.chatProjection().appendLocalEntryRecord(ChatEntry{
+		Visibility:   visibility,
+		Role:         cacheWarningTranscriptRole,
+		Text:         transcript.CacheWarningText(warning),
+		CacheWarning: copyCacheWarning(&warning),
+	}, nil, provenances...)
 }
 
 func (s *transcriptRuntimeState) AppendStreamingDelta(stepID string, baseRevision int64, baseCommittedEntryCount int, delta string, phase llm.MessagePhase) assistantStreamingAppend {
@@ -487,13 +543,14 @@ func (s *transcriptRuntimeState) RecordAssistantStreamFinalization(committedEntr
 
 func (s *transcriptRuntimeState) RecordStoredToolCompletion(completion storedToolCompletion, provenance *TranscriptCommittedRowProvenance) {
 	s.chatProjection().recordToolCompletionWithProviderItems(tools.Result{
-		CallID:        completion.CallID,
-		Name:          toolspec.ID(completion.Name),
-		IsError:       completion.IsError,
-		Output:        completion.Output,
-		Summary:       completion.Summary,
-		CondensedText: completion.CondensedText,
-		Presentation:  completion.Presentation,
+		CallID:         completion.CallID,
+		Name:           toolspec.ID(completion.Name),
+		IsError:        completion.IsError,
+		Output:         completion.Output,
+		Summary:        completion.Summary,
+		CondensedText:  completion.CondensedText,
+		Presentation:   completion.Presentation,
+		QuestionAnswer: cloneAskQuestionAnswer(completion.QuestionAnswer),
 	}, completion.ProviderItems, provenance)
 }
 
@@ -532,5 +589,5 @@ func (s *transcriptRuntimeState) ClearStreamingError() {
 
 func applyPersistedCacheWarningToTranscript(state *transcriptRuntimeState, record session.CacheWarningRecord, mode config.CacheWarningMode, provenance ...*TranscriptCommittedRowProvenance) {
 	warning := cacheWarningFromSessionRecord(record)
-	state.AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, transcript.CacheWarningText(warning), cacheWarningEntryVisibility(mode), provenance...)
+	state.AppendCommittedCacheWarning(warning, cacheWarningEntryVisibility(mode), provenance...)
 }

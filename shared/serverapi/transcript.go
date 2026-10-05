@@ -3,18 +3,10 @@ package serverapi
 import (
 	"context"
 
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
-type TranscriptSubscribeRequest struct {
-	SessionID string
-}
-
 type TranscriptSubscription interface {
-	Next(ctx context.Context) (clientui.TranscriptMessage, error)
+	Next(ctx context.Context) (*transcriptpb.Message, error)
 	Close() error
-}
-
-func (r TranscriptSubscribeRequest) Validate() error {
-	return validateRequiredSessionID(r.SessionID)
 }

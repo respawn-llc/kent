@@ -14,10 +14,10 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
 	"core/server/session"
+	"core/server/session/sessiontest"
 	"core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowruntime"
-	"core/server/workflowstore"
 	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
@@ -88,10 +88,6 @@ func applyWorkflowCompletionForTest(
 func (c *fakeWorkflowController) CompleteScriptCurrentNode(context.Context, workflowruntime.ScriptCompletionRequest) (workflowruntime.CompletionResult, error) {
 	err := errors.New("unexpected Script completion")
 	return workflowruntime.CompletionResult{}, err
-}
-
-func (c *fakeWorkflowController) ContinueCurrentNode(context.Context, workflowstore.CurrentNodeCompletionResult) error {
-	return nil
 }
 
 func (c *fakeWorkflowController) RecordProtocolViolation(_ context.Context, req workflowruntime.ViolationRequest) (workflowruntime.ViolationResult, error) {
@@ -532,7 +528,7 @@ func TestWorkflowRequiredToolChoiceIncludesLocalAndHostedTools(t *testing.T) {
 		tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}},
 		tools.HandlerRegistration{ID: toolspec.ToolWebSearch, Handler: fakeTool{name: toolspec.ToolWebSearch}},
 	), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWebSearch},
 		WebSearchMode: "native",
 	})
@@ -555,7 +551,7 @@ func TestWorkflowRequiredToolChoiceAcceptsHostedWebSearchOnly(t *testing.T) {
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t,
 		tools.HandlerRegistration{ID: toolspec.ToolWebSearch, Handler: fakeTool{name: toolspec.ToolWebSearch}},
 	), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		EnabledTools:  []toolspec.ID{toolspec.ToolWebSearch},
 		WebSearchMode: "native",
 	})
@@ -573,7 +569,7 @@ func TestWorkflowRequiredToolChoiceRejectsEmptyEffectiveToolSet(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 	})
 	publishTestWorkflowExecution(t, eng, testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeShellCommand))
 	_, err := eng.buildRequest(context.Background(), "step", true)
@@ -635,21 +631,21 @@ func testAcceptedLiveWorkflowSteeringToolChoice(t *testing.T, useAutomaticToolCh
 		t.Fatal("timed out waiting for active workflow request")
 	}
 	type steeringResult struct {
-		queued *QueuedUserMessage
+		queued QueuedUserMessage
 		err    error
 	}
 	steeringDone := make(chan steeringResult, 1)
 	go func() {
-		_, queued, err := eng.SubmitUserMessageOrSteerWithAcceptance(context.Background(), "steer active workflow", nil)
+		queued, err := eng.Steer(context.Background(), "steer active workflow", nil)
 		steeringDone <- steeringResult{queued: queued, err: err}
 	}()
 	releaseClient()
 	steering := <-steeringDone
 	if steering.err != nil {
-		t.Fatalf("SubmitUserMessageOrSteerWithAcceptance: %v", steering.err)
+		t.Fatalf("Steer: %v", steering.err)
 	}
 	queued := steering.queued
-	if queued == nil {
+	if queued.ID == "" {
 		t.Fatal("expected accepted live steering to queue on active workflow")
 	}
 	if err := <-submitDone; err != nil {
@@ -751,38 +747,135 @@ func TestWorkflowModePromptResumedCurrentNodeMessageSkipsTaskAwarenessQueryAndRe
 	}
 }
 
-func TestWorkflowModePromptResumeRejectsMissingCurrentNodeAssignmentBeforeModelRequest(t *testing.T) {
+func TestWorkflowModePromptResumeRestoresMissingCurrentNodeAssignmentBeforeModelRequest(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
+	if _, _, err := appendTestEvent(t, store, "seed", llm.Message{
+		Role:        llm.RoleDeveloper,
+		MessageType: textutil.Value(llm.MessageTypeAgentsMD),
+		Content:     textutil.Value("existing base context"),
+	}); err != nil {
+		t.Fatalf("seed base context: %v", err)
+	}
 	counter := &fakeTaskAwarenessSource{
 		awareness: workflowruntime.TaskAwareness{CommentCount: 2},
 	}
 	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool)
 	workflowCfg.TaskAwarenessSource = counter
 	workflowCfg.TaskPromptDelivery = workflowruntime.TaskPromptDeliveryResume
-	client := &fakeClient{responses: []llm.Response{commentaryResponse(
-		"complete",
-		completeNodeCall(
-			"call_complete",
-			json.RawMessage(`{"commentary":"complete","summary":"done"}`),
+	providerSawAssignment := false
+	client := &hookClient{
+		response: commentaryResponse(
+			"complete",
+			completeNodeCall(
+				"call_complete",
+				json.RawMessage(`{"commentary":"complete","summary":"done"}`),
+			),
 		),
-	)}}
+		beforeReturn: func() error {
+			assignment, err := store.ActiveWorkflowAssignmentProjection()
+			if err != nil {
+				return err
+			}
+			if assignment == nil || assignment.SourcePath == nil ||
+				*assignment.SourcePath != workflowruntime.CurrentNodePromptIdentity(workflowCfg.Instructions.CurrentNode) {
+				return errors.New("provider request observed before Workflow assignment commit")
+			}
+			providerSawAssignment = true
+			return nil
+		},
+	}
 	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{})
 	before := eng.transcriptRuntimeState().SnapshotItems()
 
-	_, err := eng.SubmitWorkflowTurn(context.Background())
-	if !errors.Is(err, errWorkflowResumeAssignmentUnavailable) {
-		t.Fatalf(
-			"submit resumed workflow turn error = %v, want missing assignment invariant",
-			err,
-		)
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("submit resumed workflow turn: %v", err)
+	}
+	if len(client.calls) != 1 {
+		t.Fatalf("model calls = %d, want 1", len(client.calls))
+	}
+	if !providerSawAssignment {
+		t.Fatal("provider request did not observe the committed Workflow assignment")
+	}
+	if after := eng.transcriptRuntimeState().SnapshotItems(); reflect.DeepEqual(after, before) {
+		t.Fatal("Resume did not restore the missing assignment before model work")
+	}
+	assignments := workflowPromptMessages(requestMessages(client.calls[0]))
+	if len(assignments) != 1 ||
+		assignments[0].SourcePath == nil ||
+		*assignments[0].SourcePath != workflowruntime.CurrentNodePromptIdentity(workflowCfg.Instructions.CurrentNode) {
+		t.Fatalf("resumed workflow assignments = %+v, want one exact Current Node assignment", assignments)
+	}
+	if got := counter.calls.Load(); got != 1 {
+		t.Fatalf("TaskAwareness calls = %d, want one restored assignment", got)
+	}
+	assignment, err := store.ActiveWorkflowAssignmentProjection()
+	if err != nil {
+		t.Fatalf("load restored assignment projection: %v", err)
+	}
+	if assignment == nil || assignment.SourcePath == nil ||
+		*assignment.SourcePath != *assignments[0].SourcePath {
+		t.Fatalf("restored assignment projection = %+v, want request assignment", assignment)
+	}
+}
+
+func TestWorkflowModePromptResumeRetriesAssignmentPersistenceBeforeProvider(t *testing.T) {
+	t.Parallel()
+	cause := errors.New("workflow assignment persistence failed")
+	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
+	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
+	if _, _, err := appendTestEvent(t, store, "seed", llm.Message{
+		Role:        llm.RoleDeveloper,
+		MessageType: textutil.Value(llm.MessageTypeAgentsMD),
+		Content:     textutil.Value("existing base context"),
+	}); err != nil {
+		t.Fatalf("seed base context: %v", err)
+	}
+	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool)
+	workflowCfg.TaskPromptDelivery = workflowruntime.TaskPromptDeliveryResume
+	client := &fakeClient{responses: []llm.Response{commentaryResponse(
+		"complete",
+		completeNodeCall("call_complete", json.RawMessage(`{"commentary":"complete","summary":"done"}`)),
+	)}}
+	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{})
+	beforeAssignments := workflowModeRecordCount(t, store)
+	gate.FailNext(cause)
+
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); !errors.Is(err, cause) {
+		t.Fatalf("first resumed workflow turn error = %v, want %v", err, cause)
 	}
 	assertModelCallCount(t, client, 0)
-	if after := eng.transcriptRuntimeState().SnapshotItems(); !reflect.DeepEqual(after, before) {
-		t.Fatalf("Resume mutated model-visible history: before=%+v after=%+v", before, after)
+	afterFailureAssignments := workflowModeRecordCount(t, store)
+	if afterFailureAssignments < beforeAssignments || afterFailureAssignments > beforeAssignments+1 {
+		t.Fatalf("Workflow assignment records after failed Resume = %d, want %d or %d", afterFailureAssignments, beforeAssignments, beforeAssignments+1)
 	}
-	if got := counter.calls.Load(); got != 0 {
-		t.Fatalf("TaskAwareness calls = %d, want no assignment reconstruction", got)
+	assignmentAfterFailure, err := store.ActiveWorkflowAssignmentProjection()
+	if err != nil {
+		t.Fatalf("load failed assignment projection: %v", err)
+	}
+	if assignmentAfterFailure != nil && (assignmentAfterFailure.SourcePath == nil ||
+		*assignmentAfterFailure.SourcePath != workflowruntime.CurrentNodePromptIdentity(workflowCfg.Instructions.CurrentNode)) {
+		t.Fatalf("failed assignment projection = %+v, want absent or exact Current Node assignment", assignmentAfterFailure)
+	}
+
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("retry resumed workflow turn: %v", err)
+	}
+	assertModelCallCount(t, client, 1)
+	wantAfterRetry := afterFailureAssignments
+	if assignmentAfterFailure == nil {
+		wantAfterRetry++
+	}
+	if got := workflowModeRecordCount(t, store); got != wantAfterRetry {
+		t.Fatalf("Workflow assignment records after retry = %d, want %d", got, wantAfterRetry)
+	}
+	assignment, err := store.ActiveWorkflowAssignmentProjection()
+	if err != nil {
+		t.Fatalf("load retried assignment projection: %v", err)
+	}
+	if assignment == nil || assignment.SourcePath == nil ||
+		*assignment.SourcePath != workflowruntime.CurrentNodePromptIdentity(workflowCfg.Instructions.CurrentNode) {
+		t.Fatalf("retried assignment projection = %+v, want exact Current Node assignment", assignment)
 	}
 }
 
@@ -1301,12 +1394,12 @@ func TestCompatibleProviderCommentaryFlushesAcceptedSteeringBeforeContinuing(t *
 	}
 	steeringDone := make(chan error, 1)
 	go func() {
-		_, _, err := eng.SubmitUserMessageOrSteerWithAcceptance(context.Background(), "accepted steering", nil)
+		_, err := eng.Steer(context.Background(), "accepted steering", nil)
 		steeringDone <- err
 	}()
 	releaseRun()
 	if err := <-steeringDone; err != nil {
-		t.Fatalf("SubmitUserMessageOrSteerWithAcceptance: %v", err)
+		t.Fatalf("Steer: %v", err)
 	}
 	if err := <-submitDone; err != nil {
 		t.Fatalf("submit: %v", err)
@@ -1375,31 +1468,42 @@ func TestWorkflowTerminalCompletionFailsQueuedSteeringAtRunRelease(t *testing.T)
 	}
 	queueDone := make(chan queuedResult, 1)
 	go func() {
-		item, err := eng.QueueUserMessage(t.Context(), "do not submit after run release")
+		item, err := eng.QueueUserInput(t.Context(), plainQueuedUserInput("do not submit after run release"))
 		queueDone <- queuedResult{item: item, err: err}
 	}()
-	releaseRun()
 	queuedSubmission := <-queueDone
 	if queuedSubmission.err != nil {
 		t.Fatalf("queue pending message: %v", queuedSubmission.err)
 	}
 	queued := queuedSubmission.item
+	if _, err := eng.Steer(t.Context(), "also reject pending steer", nil); err != nil {
+		t.Fatalf("accept pending Steer: %v", err)
+	}
+	releaseRun()
 	if err := <-submitDone; err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	time.Sleep(50 * time.Millisecond)
+	waitEngineLifecycleTasks(t, eng)
+	if eng.HasActiveLiveRunGroup() {
+		t.Fatal("terminal Queue and Steer rejection retained the completed execution")
+	}
 	if got := hookClientCallCount(client); got != 1 {
 		t.Fatalf("model calls = %d, want terminal completion to avoid queued turn", got)
 	}
-	if len(statuses) != 2 ||
-		statuses[0].Status != QueuedUserMessageAccepted ||
-		statuses[1].Status != QueuedUserMessageFailed {
-		t.Fatalf("queued statuses = %+v, want accepted then failed", statuses)
+	var queuedStatuses []QueuedUserMessageStatusEvent
+	for _, status := range statuses {
+		if status.QueueItemID == queued.ID {
+			queuedStatuses = append(queuedStatuses, status)
+		}
 	}
-	if statuses[1].QueueItemID != queued.ID ||
-		statuses[1].Text != "do not submit after run release" ||
-		statuses[1].FailureReason != QueuedUserMessageFailureTerminalWorkflowCompletion {
-		t.Fatalf("failed queue status = %+v, want terminal completion failure for %q", statuses[1], queued.ID)
+	if len(queuedStatuses) != 2 ||
+		queuedStatuses[0].Status != QueuedUserMessageAccepted ||
+		queuedStatuses[1].Status != QueuedUserMessageFailed {
+		t.Fatalf("queued statuses = %+v, want accepted then failed", queuedStatuses)
+	}
+	if queuedStatuses[1].Text != "do not submit after run release" ||
+		queuedStatuses[1].FailureReason != QueuedUserMessageFailureTerminalWorkflowCompletion {
+		t.Fatalf("failed queue status = %+v, want terminal completion failure for %q", queuedStatuses[1], queued.ID)
 	}
 	if pending := eng.messageFlow.PendingUserMessages(); len(pending) != 0 {
 		t.Fatalf("pending queue = %+v, want terminal steering removed", pending)

@@ -13,12 +13,9 @@ import { useTranslation } from "react-i18next";
 
 import { errorMessage, type WorkflowExecutionTargetSelection } from "@/api";
 import {
-  invalidateProjectBoardQueries,
-  invalidateProjectTaskSearches,
-  queryKeys,
   reportNonCancelledError,
   useAppServices,
-  useConnectionSnapshot,
+  useAppNavigation,
   useOwnedSidebarRoots,
   useSidebarShell,
   useStatusController,
@@ -30,13 +27,14 @@ import {
   type TaskInitiatingAction,
   type TaskInitiatingActionDialogResult,
   useTaskInitiatingActionController,
-  useTaskResumeAction,
+  resumeTaskInitiatingAction,
 } from "@/shared/execution-target";
 import {
   Button,
   createVirtualizedPixelOffsetRequest,
   directionalBoundary,
   EmptyState,
+  ErrorState,
   InfiniteListBoundary,
   Spinner,
   VirtualizedInfiniteList,
@@ -44,7 +42,6 @@ import {
   type VirtualizedItemVisibilityTrigger,
 } from "@/ui";
 import {
-  projectTaskGroups,
   projectTaskGroupPageSize,
   projectTaskGroupPrefetchPages,
   projectTaskListWorkflowCardinality,
@@ -73,16 +70,12 @@ import {
   projectTaskWorkflowStrip,
 } from "./projectTaskSurfaceState";
 import type { ProjectTasksViewMemory } from "./projectTasksViewMemory";
-import { projectTaskSortsEqual, type ProjectTaskSort } from "./projectTaskSorting";
+import { type ProjectTaskSort } from "./projectTaskSorting";
 import { projectTaskColumnCount, type ProjectTaskListEntry } from "./ProjectTaskRow";
 import { ProjectTaskStatusLegend } from "./ProjectTaskStatusLegend";
-import {
-  projectTaskWorkflowItems,
-  useProjectTaskNewTaskAvailable,
-  useProjectTaskWorkflowPages,
-} from "./projectTaskWorkflows";
+import { projectTaskWorkflowItems, useProjectTaskWorkflowPages } from "./projectTaskWorkflows";
 import { ProjectWorkflowStrip } from "./ProjectWorkflowStrip";
-import { useProjectLinkWorkflowAction } from "./useProjectLinkWorkflowAction";
+import { createProjectTasksModel, useProjectTasksActions } from "./ProjectTasksModel";
 
 export function ProjectTasksSurface({
   projectID,
@@ -95,10 +88,10 @@ export function ProjectTasksSurface({
 }>) {
   const { t } = useTranslation();
   const { api } = useAppServices();
-  const connection = useConnectionSnapshot();
   const { push } = useStatusController();
   const queryClient = useQueryClient();
   const { open } = useOwnedSidebarRoots();
+  const navigation = useAppNavigation();
   const { activeDestination } = useSidebarShell();
   const [disclosure, setDisclosure] = useState(viewMemory.read().disclosure);
   const [sort, setSort] = useState(viewMemory.read().sort);
@@ -108,6 +101,10 @@ export function ProjectTasksSurface({
   );
   const [labelEditorTaskID, setLabelEditorTaskID] = useState<string | null>(null);
   const workflowsQuery = useProjectTaskWorkflowPages(projectID);
+  const [model] = useState(() =>
+    createProjectTasksModel(queryClient, projectID, workflowsQuery.model.available),
+  );
+  const actions = useProjectTasksActions(model);
   const data = useProjectTaskListData({
     expanded: disclosure,
     projectID,
@@ -115,31 +112,18 @@ export function ProjectTasksSurface({
   });
   const onSortChange = useCallback(
     (nextSort: ProjectTaskSort) => {
-      if (projectTaskSortsEqual(sort, nextSort)) {
-        return;
-      }
-      for (const group of projectTaskGroups) {
-        queryClient.removeQueries({
-          exact: true,
-          queryKey: queryKeys.projectTaskGroup(projectID, group, nextSort),
-        });
-      }
-      viewMemory.setSort(nextSort);
-      setSort(nextSort);
-      dispatchSortLayout({ kind: "sort-selected" });
+      actions.sort({
+        current: sort,
+        next: nextSort,
+        apply: (value) => {
+          viewMemory.setSort(value);
+          setSort(value);
+          dispatchSortLayout({ kind: "sort-selected" });
+        },
+      });
     },
-    [projectID, queryClient, sort, viewMemory],
+    [actions, sort, viewMemory],
   );
-  const refreshTaskSurfaces = useCallback(async (): Promise<void> => {
-    await Promise.all([
-      invalidateProjectBoardQueries(queryClient, projectID),
-      invalidateProjectTaskSearches(queryClient, projectID),
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.projectTaskListsRoot(projectID),
-        refetchType: "active",
-      }),
-    ]);
-  }, [projectID, queryClient]);
   const reportResumeError = useCallback(
     (error: unknown) => {
       reportNonCancelledError(error, (failure) => {
@@ -163,12 +147,14 @@ export function ProjectTasksSurface({
   );
   const initiatingAction = useTaskInitiatingActionController({
     execute: executeInitiatingAction,
-    onApplied: refreshTaskSurfaces,
+    onApplied: model.refresh.resumed,
     onAppliedError: reportResumeError,
+    onError: (_action, error) => {
+      reportResumeError(error);
+    },
   });
-  const resumeAction = useTaskResumeAction(initiatingAction);
   const { layout: columnLayout, retainRenderedWidths } = useProjectTaskColumnLayout(data);
-  useProjectTaskListEvents({ enabled: true, projectID });
+  const observation = useProjectTaskListEvents({ enabled: true, projectID });
   const workflowsInitialState = projectTaskWorkflowInitialState(
     workflowsQuery.data !== undefined,
     workflowsQuery.isError,
@@ -179,7 +165,9 @@ export function ProjectTasksSurface({
     loading: workflowsInitialState.loading,
     loadingLabel: t("states.loading"),
     message: workflowsQuery.isError ? errorMessage(workflowsQuery.error) : "",
-    onRetry: () => void workflowsQuery.refetch(),
+    onRetry: () => {
+      workflowsQuery.refetch();
+    },
     retryLabel: t("app.retry"),
   });
   const previousWorkflowsBoundary = directionalBoundary({
@@ -187,7 +175,9 @@ export function ProjectTasksSurface({
     loading: workflowsQuery.isFetchingPreviousPage,
     loadingLabel: t("states.loading"),
     message: workflowsQuery.isError ? errorMessage(workflowsQuery.error) : "",
-    onRetry: () => void workflowsQuery.fetchPreviousPage(),
+    onRetry: () => {
+      workflowsQuery.fetchPreviousPage();
+    },
     retryLabel: t("app.retry"),
   });
   const nextWorkflowsBoundary = directionalBoundary({
@@ -195,33 +185,28 @@ export function ProjectTasksSurface({
     loading: workflowsQuery.isFetchingNextPage,
     loadingLabel: t("app.loadingMore"),
     message: workflowsQuery.isError ? errorMessage(workflowsQuery.error) : "",
-    onRetry: () => void workflowsQuery.fetchNextPage(),
+    onRetry: () => {
+      workflowsQuery.fetchNextPage();
+    },
     retryLabel: t("app.retry"),
   });
   const workflows = projectTaskWorkflowItems(workflowsQuery.data);
   const workflowCardinality = projectTaskListWorkflowCardinality(data);
-  const newTaskAvailable = useProjectTaskNewTaskAvailable(projectID, workflowsQuery.data);
-  const openLinkWorkflow = useProjectLinkWorkflowAction(projectID, sidebarMode);
+  const newTaskAvailable = workflowsQuery.newTaskAvailable;
+  const openLinkWorkflow = () => {
+    actions.linkWorkflow({ open, mode: sidebarMode });
+  };
   const openNewTask = () => {
-    open({
-      boardQueryWorkflowID: undefined,
-      kind: "newTask",
-      mode: sidebarMode,
-      onCreated: async () => {
-        await queryClient.invalidateQueries({
-          queryKey: queryKeys.projectTaskListsRoot(projectID),
-          refetchType: "active",
-        });
-      },
-      projectID,
-    });
+    actions.newTask({ open, mode: sidebarMode });
   };
   const countsBoundary = directionalBoundary({
     failed: data.counts.isError,
     loading: data.counts.isPending,
     loadingLabel: t("states.loading"),
     message: data.counts.isError ? errorMessage(data.counts.error) : "",
-    onRetry: () => void data.counts.refetch(),
+    onRetry: () => {
+      data.counts.refetch();
+    },
     retryLabel: t("app.retry"),
   });
   const toggleGroup = (group: ProjectTaskGroup) => {
@@ -233,21 +218,16 @@ export function ProjectTasksSurface({
   const openTaskDetail = useCallback(
     (taskID: string) => {
       setLabelEditorTaskID(null);
-      open({ kind: "taskDetail", mode: sidebarMode, taskID });
+      actions.taskDetail({ open, mode: sidebarMode, taskID, dependencies: false });
     },
-    [open, sidebarMode],
+    [actions, open, sidebarMode],
   );
   const openTaskDependencies = useCallback(
     (taskID: string) => {
       setLabelEditorTaskID(null);
-      open({
-        kind: "taskDetail",
-        initialFocus: { kind: "dependencies" },
-        mode: sidebarMode,
-        taskID,
-      });
+      actions.taskDetail({ open, mode: sidebarMode, taskID, dependencies: true });
     },
-    [open, sidebarMode],
+    [actions, open, sidebarMode],
   );
   const presentation = projectTasksPresentation({
     data,
@@ -258,14 +238,12 @@ export function ProjectTasksSurface({
       setLabelEditorTaskID((current) => (current === taskID ? null : taskID));
     },
     onResumeTask: (taskID) => {
-      void resumeAction.execute(taskID).catch(reportResumeError);
+      initiatingAction.run(resumeTaskInitiatingAction(taskID));
     },
     onTaskActivate: openTaskDetail,
     onToggle: toggleGroup,
-    pendingResumeTaskIDs: resumeAction.pendingTaskIDs,
+    pendingResumeTaskIDs: initiatingAction.pendingResumeTaskIDs,
     projectID,
-    resumeDisabled:
-      connection.phase !== "connected" || initiatingAction.pending !== null || initiatingAction.running,
     taskDetailID,
     t,
   });
@@ -312,15 +290,20 @@ export function ProjectTasksSurface({
     if (result.action.kind !== "resume") {
       throw new Error(`Project Task list cannot continue a ${result.action.kind} action.`);
     }
-    const resumed =
-      result.selection === undefined
-        ? resumeAction.execute(result.action.taskID)
-        : resumeAction.continueExecution(result.action, result.selection);
-    void resumed.catch(reportResumeError);
+    initiatingAction.run(result.action, result.selection);
   }
 
   return (
     <>
+      {observation.error === null ? null : (
+        <ErrorState
+          fullPage={false}
+          title={t("states.error")}
+          body={errorMessage(observation.error)}
+          onRetry={observation.retry}
+          retryLabel={t("app.retry")}
+        />
+      )}
       <ProjectTaskColumnMeasurements data={data} onMeasure={retainRenderedWidths} />
       <ProjectTasksContent
         countsBoundary={countsBoundary}
@@ -350,14 +333,16 @@ export function ProjectTasksSurface({
             nextBoundary={nextWorkflowsBoundary}
             onLinkWorkflow={openLinkWorkflow}
             onLoadNext={() => {
-              void workflowsQuery.fetchNextPage();
+              workflowsQuery.fetchNextPage();
             }}
             onLoadPrevious={() => {
-              void workflowsQuery.fetchPreviousPage();
+              workflowsQuery.fetchPreviousPage();
             }}
             onSortChange={onSortChange}
             previousBoundary={previousWorkflowsBoundary}
-            projectID={projectID}
+            onWorkflowSelect={(workflowID) => {
+              actions.workflow({ workflowID, openProject: navigation.openProject });
+            }}
             sort={sort}
             workflows={workflows}
           />,
@@ -415,19 +400,27 @@ function ProjectTasksContent({
   return (
     <TasksShell workflowStrip={workflowStrip}>
       {workflowsResolved && workflowCount === 0 ? (
-        <ProjectTasksEmpty
-          actionLabel={t("workflowLibrary.linkWorkflow")}
+        <EmptyState
+          action={
+            <Button onClick={onLinkWorkflow} variant="primary">
+              {t("workflowLibrary.linkWorkflow")}
+            </Button>
+          }
           body={t("home.prototype.noLinkedWorkflowsBody")}
-          onAction={onLinkWorkflow}
+          fullPage={false}
           title={t("home.prototype.noLinkedWorkflowsTitle")}
         />
       ) : countsBoundary?.state === "error" && taskCount === null ? (
         <InfiniteListBoundary direction="initial" state={countsBoundary} />
       ) : taskCount === 0 ? (
-        <ProjectTasksEmpty
-          actionLabel={newTaskAvailable ? t("board.newTask") : t("workflowLibrary.linkWorkflow")}
+        <EmptyState
+          action={
+            <Button onClick={newTaskAvailable ? onNewTask : onLinkWorkflow} variant="primary">
+              {newTaskAvailable ? t("board.newTask") : t("workflowLibrary.linkWorkflow")}
+            </Button>
+          }
           body={t("home.prototype.noTasksBody")}
-          onAction={newTaskAvailable ? onNewTask : onLinkWorkflow}
+          fullPage={false}
           title={t("home.prototype.noTasksTitle")}
         />
       ) : (
@@ -630,30 +623,5 @@ function TasksShell({
         {children}
       </div>
     </div>
-  );
-}
-
-function ProjectTasksEmpty({
-  actionLabel,
-  body,
-  onAction,
-  title,
-}: Readonly<{
-  actionLabel: string;
-  body: string;
-  onAction?: () => void;
-  title: string;
-}>) {
-  return (
-    <EmptyState
-      action={
-        <Button onClick={onAction} variant="primary">
-          {actionLabel}
-        </Button>
-      }
-      body={body}
-      fullPage={false}
-      title={title}
-    />
   );
 }

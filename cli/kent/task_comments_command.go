@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"strings"
 	"time"
 
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
-	"core/shared/serverapi"
+	"core/shared/protoapi"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/sessionenv"
 )
 
@@ -52,7 +53,7 @@ func taskCommentAddSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		taskID, err := resolveWorkflowTaskID(context.Background(), cfg, remote, remote, *projectRef, positionals[0])
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -64,12 +65,21 @@ func taskCommentAddSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		resp, err := remote.AddWorkflowTaskComment(ctx, serverapi.WorkflowTaskCommentAddRequest{TaskID: taskID, Body: commentBody, Author: commentAuthor.Kind, AuthorID: commentAuthor.ID})
+		author, err := protoapi.TaskCommentAuthor.Encode(commentAuthor.Kind)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		var authorID *string
+		if commentAuthor.ID != "" {
+			authorID = &commentAuthor.ID
+		}
+		resp, err := remote.AddWorkflowTaskComment(ctx, &taskpb.CommentAddRequest{TaskId: taskID, Body: commentBody, Author: author, AuthorId: authorID})
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "comment_id\t%s\ntask_id\t%s\n", resp.Comment.ID, resp.Comment.TaskID)
+		fmt.Fprintf(stdout, "comment_id\t%s\ntask_id\t%s\n", resp.Comment.Id, resp.Comment.TaskId)
 		return 0
 	})
 }
@@ -95,9 +105,9 @@ func sessionAgentAuthorID(ctx context.Context, remote apicontract.WorkflowServic
 	if getter, ok := remote.(apicontract.SessionViewService); ok {
 		rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
 		defer cancel()
-		resp, err := getter.GetSessionMainView(rpcCtx, serverapi.SessionMainViewRequest{SessionID: trimmedSessionID})
+		resp, err := getter.GetSessionMainView(rpcCtx, &sessionpb.MainViewRequest{SessionId: trimmedSessionID})
 		if err == nil {
-			if sessionName := strings.TrimSpace(resp.MainView.Session.SessionName); sessionName != "" {
+			if sessionName := strings.TrimSpace(resp.MainView.Session.GetSessionName()); sessionName != "" {
 				return fmt.Sprintf("Session %s agent", sessionName)
 			}
 		}
@@ -123,7 +133,7 @@ func taskCommentListSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		taskID, err := resolveWorkflowTaskID(context.Background(), cfg, remote, remote, *projectRef, positionals[0])
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -131,10 +141,16 @@ func taskCommentListSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		resp, err := remote.ListWorkflowTaskComments(ctx, serverapi.WorkflowTaskOffsetPageRequest{
-			TaskID: taskID,
-			Offset: offset,
-			Limit:  limit,
+		pageOffset, err := protoapi.Int32(*offset, "offset")
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		pageLimit := int32(*limit)
+		resp, err := remote.ListWorkflowTaskComments(ctx, &taskpb.TaskOffsetPageRequest{
+			TaskId: taskID,
+			Offset: &pageOffset,
+			Limit:  &pageLimit,
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -147,18 +163,18 @@ func taskCommentListSubcommand(args []string, stdout io.Writer, stderr io.Writer
 func writeTaskCommentListResponse(
 	stdout io.Writer,
 	stderr io.Writer,
-	response serverapi.WorkflowTaskCommentListResponse,
+	response *taskpb.CommentListSuccess,
 ) int {
 	writeTaskCommentList(stdout, response.Items)
 	if response.NextOffset != nil {
-		if err := writeNextOffset(stderr, *response.NextOffset); err != nil {
+		if err := writeNextOffset(stderr, int(*response.NextOffset)); err != nil {
 			return 1
 		}
 	}
 	return 0
 }
 
-func writeTaskCommentList(stdout io.Writer, comments []serverapi.WorkflowTaskComment) {
+func writeTaskCommentList(stdout io.Writer, comments []*taskpb.Comment) {
 	if len(comments) == 0 {
 		return
 	}
@@ -178,10 +194,10 @@ func taskCommentReplaceSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		fmt.Fprintln(stderr, "task comment replace requires <comment-id>")
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(_ config.Connection, remote *client.Remote) int {
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		if err := remote.ReplaceWorkflowTaskComment(ctx, serverapi.WorkflowTaskCommentReplaceRequest{CommentID: positionals[0], Body: *body}); err != nil {
+		if _, err := remote.ReplaceWorkflowTaskComment(ctx, &taskpb.CommentReplaceRequest{CommentId: positionals[0], Body: *body}); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
@@ -204,10 +220,10 @@ func taskCommentDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writ
 	if denyAgentHumanOnlyTaskAction(stderr) {
 		return 1
 	}
-	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(_ config.Connection, remote *client.Remote) int {
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		if err := remote.DeleteWorkflowTaskComment(ctx, serverapi.WorkflowTaskCommentDeleteRequest{CommentID: positionals[0]}); err != nil {
+		if _, err := remote.DeleteWorkflowTaskComment(ctx, &taskpb.CommentDeleteRequest{CommentId: positionals[0]}); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
@@ -216,53 +232,21 @@ func taskCommentDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writ
 	})
 }
 
-func writeTaskDetailComments(stdout io.Writer, shortID string, comments []serverapi.WorkflowTaskComment) {
-	if len(comments) == 0 {
-		return
-	}
-	if len(comments) >= 10 {
-		fmt.Fprintf(stdout, "Comments under this task: %d. `"+config.Command+" task comment list %s` to show them.\n", len(comments), shortID)
-		return
-	}
-	sortedComments := sortedTaskCommentsByCreatedAt(comments)
-	fmt.Fprintf(stdout, "Comments (%d):\n", len(sortedComments))
-	writeTaskCommentBlocks(stdout, sortedComments)
-}
-
-func sortedTaskCommentsByCreatedAt(comments []serverapi.WorkflowTaskComment) []serverapi.WorkflowTaskComment {
-	sortedComments := append([]serverapi.WorkflowTaskComment(nil), comments...)
-	sort.SliceStable(sortedComments, func(i, j int) bool {
-		if sortedComments[i].CreatedAtUnixMs == sortedComments[j].CreatedAtUnixMs {
-			return sortedComments[i].ID > sortedComments[j].ID
-		}
-		return sortedComments[i].CreatedAtUnixMs > sortedComments[j].CreatedAtUnixMs
-	})
-	return sortedComments
-}
-
-func writeTaskCommentBlocks(stdout io.Writer, sortedComments []serverapi.WorkflowTaskComment) {
+func writeTaskCommentBlocks(stdout io.Writer, sortedComments []*taskpb.Comment) {
 	for i, comment := range sortedComments {
 		if i > 0 {
 			fmt.Fprintln(stdout, "---")
 		}
-		fmt.Fprintf(stdout, "%s at %s UTC:\n%s\n", readableTaskCommentAuthor(comment), time.UnixMilli(comment.CreatedAtUnixMs).UTC().Format(time.RFC3339), comment.Body)
+		fmt.Fprintf(stdout, "%s at %s UTC:\n%s\n", readableTaskCommentAuthor(comment), comment.CreatedAt.AsTime().UTC().Format(time.RFC3339), comment.Body)
 	}
 }
 
-func readableTaskCommentAuthor(comment serverapi.WorkflowTaskComment) string {
-	author := strings.TrimSpace(comment.Author)
-	authorID := strings.TrimSpace(comment.AuthorID)
-	if strings.EqualFold(author, "user") {
-		if authorID != "" {
-			return authorID
-		}
+func readableTaskCommentAuthor(comment *taskpb.Comment) string {
+	if comment.AuthorId != nil {
+		return strings.TrimSpace(*comment.AuthorId)
+	}
+	if comment.Author == taskpb.CommentAuthorKind_COMMENT_AUTHOR_KIND_USER {
 		return "User"
 	}
-	if authorID != "" {
-		return authorID
-	}
-	if author == "" {
-		return "Unknown"
-	}
-	return strings.ToUpper(author[:1]) + author[1:]
+	return "Agent"
 }

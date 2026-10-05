@@ -1,23 +1,23 @@
 package app
 
-import (
-	"testing"
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
+import (
 	"core/cli/app/commands"
-	"core/shared/clientui"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"testing"
 )
 
 func TestDefaultRegistryBusyContract(t *testing.T) {
 	registry := commands.NewDefaultRegistry()
 	want := map[string]commands.ActiveRunPolicy{
-		"exit": commands.ActiveRunPolicyAllowed, "login": commands.ActiveRunPolicyRequiresIdle,
+		"exit": commands.ActiveRunPolicyAllowed, "login": commands.ActiveRunPolicyAllowed,
 		"new": commands.ActiveRunPolicyAllowed, "resume": commands.ActiveRunPolicyAllowed,
-		"logout": commands.ActiveRunPolicyRequiresIdle, "compact": commands.ActiveRunPolicyAllowed,
+		"logout": commands.ActiveRunPolicyAllowed, "compact": commands.ActiveRunPolicyAllowed,
 		"name": commands.ActiveRunPolicyAllowed, "thinking": commands.ActiveRunPolicyAllowed,
 		"fast": commands.ActiveRunPolicyAllowed, "supervisor": commands.ActiveRunPolicyAllowed,
 		"autocompaction": commands.ActiveRunPolicyAllowed, "questions": commands.ActiveRunPolicyAllowed,
@@ -123,9 +123,8 @@ func TestBusyEnterRoutesDirectWorktreeCommands(t *testing.T) {
 func TestBusyCatalogPromptCommandRemainsTypedRuntimeSubmission(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	model := newProjectedTestUIModel(client,
-		WithUIConversationFreshness(clientui.ConversationFreshnessEstablished),
-		WithUIPromptCommandCatalogEntries([]commands.PromptCommandCatalogEntry{{Name: "prompt:inspect", Preview: "Inspect"}}),
-	)
+		WithUIConversationFreshness(runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED),
+		WithUIPromptCommandCatalogEntries([]commands.PromptCommandCatalogEntry{{Name: "prompt:inspect", Preview: "Inspect"}}))
 	model.commandRegistry = commands.NewDefaultRegistryWithPromptCatalog(model.promptCatalogEntries)
 	model.setRuntimeActivityBusyForTest(true)
 	model.activity = uiActivityRunning
@@ -304,7 +303,7 @@ func TestRejectedCompactionAtPendingWorkCapacityRestoresVerbatimInput(t *testing
 }
 
 func busyCommandTestModel() *uiModel {
-	model := newProjectedStaticUIModel(WithUIConversationFreshness(clientui.ConversationFreshnessEstablished))
+	model := newProjectedStaticUIModel(WithUIConversationFreshness(runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED))
 	model.sessionID = "busy-navigation-session"
 	model.setRuntimeActivityBusyForTest(true)
 	model.activity = uiActivityRunning

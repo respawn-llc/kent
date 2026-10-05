@@ -8,6 +8,7 @@ import (
 
 	"core/shared/apicontract"
 	"core/shared/protoapi"
+	sessionretargetpb "core/shared/protoapi/gen/kent/api/session_retarget"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/serverapi"
 	"core/shared/worktreecontract"
@@ -99,6 +100,11 @@ func (c *Remote) CreateWorktree(ctx context.Context, request *worktreepb.CreateR
 	if err != nil {
 		return nil, err
 	}
+	workspace := request.Scope.GetWorkspace()
+	hasCaller := workspace == nil || workspace.CallerSessionId != nil
+	if (success.Target != nil) != hasCaller {
+		return nil, invalidResponseError("worktree create", errors.New("caller location presence does not match management scope"))
+	}
 	if err := validateWorktreeListFallback(success.Worktree); err != nil {
 		return nil, invalidResponseError("worktree create", err)
 	}
@@ -156,6 +162,27 @@ type worktreeFailure interface {
 
 func worktreeError[Failure worktreeFailure](failure Failure) error {
 	switch failure.GetCode() {
+	case "session_retarget":
+		if typed, ok := any(failure).(interface {
+			GetSessionRetarget() *sessionretargetpb.SessionRetargetWorkspaceError
+		}); ok && typed.GetSessionRetarget() != nil {
+			return protoapi.SessionRetargetErrorFromProto(typed.GetSessionRetarget())
+		}
+	case "delete_partial":
+		if typed, ok := any(failure).(interface {
+			GetDeletePartial() *worktreepb.DeletePartialDetails
+		}); ok && typed.GetDeletePartial() != nil {
+			details := typed.GetDeletePartial()
+			cause := errors.New(details.Diagnostic)
+			if details.Blocked != nil {
+				cause = errors.Join(cause, &worktreecontract.BlockedError{Details: details.Blocked})
+			}
+			return &worktreecontract.DeletePartialError{
+				RetargetedSessions: details.RetargetedSessions, Cause: cause,
+			}
+		}
+	case "project_not_found":
+		return serverapi.ErrProjectNotFound
 	case "workspace_not_registered":
 		return serverapi.ErrWorkspaceNotRegistered
 	case "selector_error":
@@ -168,7 +195,7 @@ func worktreeError[Failure worktreeFailure](failure Failure) error {
 		if typed, ok := any(failure).(interface {
 			GetWorktreeBlocked() *worktreepb.BlockedDetails
 		}); ok && typed.GetWorktreeBlocked() != nil {
-			return worktreecontract.ErrWorktreeBlocked
+			return &worktreecontract.BlockedError{Details: typed.GetWorktreeBlocked()}
 		}
 	case "pending_work_capacity":
 		if typed, ok := any(failure).(interface {

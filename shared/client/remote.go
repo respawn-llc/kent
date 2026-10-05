@@ -2,10 +2,8 @@ package client
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,11 +12,13 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
+	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/serverapi"
-	"core/shared/serverjsoncontract"
 
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -47,17 +47,16 @@ func validateRuntimeLiveResponseSession(operation string, requestedSessionID str
 }
 
 type Remote struct {
-	plan                             remoteDialPlan
-	transport                        rpcwire.ClientTransport
-	mu                               sync.Mutex
-	control                          *remoteControlConn
-	identity                         protocol.ServerIdentity
-	attachIntent                     *remoteAttachmentIntent
-	attachment                       *remoteAttachment
-	sessionExecutionResponseContract serverjsoncontract.SessionExecutionEnvironmentResponse
-	expectedRootID                   atomic.Value // string; empty disables root validation
-	noAuthAck                        atomic.Bool
-	closed                           atomic.Bool
+	plan           remoteDialPlan
+	transport      rpcwire.ClientTransport
+	mu             sync.Mutex
+	control        *remoteControlConn
+	draftHandoff   *remoteSessionControl
+	identity       protocol.ServerIdentity
+	attachIntent   *remoteAttachmentIntent
+	attachment     *remoteAttachment
+	expectedRootID atomic.Value // string; empty disables root validation
+	closed         atomic.Bool
 }
 
 func DialRemoteURL(ctx context.Context, rpcURL string) (*Remote, error) {
@@ -88,11 +87,11 @@ func DialRemoteURLForSession(ctx context.Context, rpcURL string, sessionID strin
 	return dialRemoteURL(ctx, rpcURL, intent)
 }
 
-func DialConfiguredRemote(ctx context.Context, cfg config.App) (*Remote, error) {
+func DialConfiguredRemote(ctx context.Context, cfg config.Connection) (*Remote, error) {
 	return dialConfiguredRemote(ctx, cfg, nil)
 }
 
-func DialConfiguredRemoteForProjectWorkspace(ctx context.Context, cfg config.App, projectID string, workspaceRoot string) (*Remote, error) {
+func DialConfiguredRemoteForProjectWorkspace(ctx context.Context, cfg config.Connection, projectID string, workspaceRoot string) (*Remote, error) {
 	intent, err := newRemoteProjectWorkspaceRootAttachmentIntent(projectID, workspaceRoot)
 	if err != nil {
 		return nil, err
@@ -100,7 +99,7 @@ func DialConfiguredRemoteForProjectWorkspace(ctx context.Context, cfg config.App
 	return dialConfiguredRemote(ctx, cfg, intent)
 }
 
-func DialConfiguredRemoteForProjectWorkspaceID(ctx context.Context, cfg config.App, projectID string, workspaceID string) (*Remote, error) {
+func DialConfiguredRemoteForProjectWorkspaceID(ctx context.Context, cfg config.Connection, projectID string, workspaceID string) (*Remote, error) {
 	intent, err := newRemoteProjectWorkspaceIDAttachmentIntent(projectID, workspaceID)
 	if err != nil {
 		return nil, err
@@ -108,7 +107,7 @@ func DialConfiguredRemoteForProjectWorkspaceID(ctx context.Context, cfg config.A
 	return dialConfiguredRemote(ctx, cfg, intent)
 }
 
-func DialConfiguredRemoteForSession(ctx context.Context, cfg config.App, sessionID string) (*Remote, error) {
+func DialConfiguredRemoteForSession(ctx context.Context, cfg config.Connection, sessionID string) (*Remote, error) {
 	intent, err := newRemoteSessionAttachmentIntent(sessionID)
 	if err != nil {
 		return nil, err
@@ -124,11 +123,17 @@ func (c *Remote) Close() error {
 	c.mu.Lock()
 	control := c.control
 	c.control = nil
+	draftHandoff := c.draftHandoff
+	c.draftHandoff = nil
 	c.mu.Unlock()
-	if control == nil {
-		return nil
+	var draftHandoffErr error
+	if draftHandoff != nil {
+		draftHandoffErr = draftHandoff.remote.Close()
 	}
-	return control.Close()
+	if control == nil {
+		return draftHandoffErr
+	}
+	return errors.Join(control.Close(), draftHandoffErr)
 }
 
 func (c *Remote) Identity() protocol.ServerIdentity {
@@ -167,79 +172,13 @@ func (c *Remote) rootID() string {
 	return ""
 }
 
-func (c *Remote) EnableNoAuthBootstrapAcknowledgement(ctx context.Context) error {
-	if c == nil {
-		return errors.New("remote client is required")
-	}
-	resp, err := c.AcknowledgeNoAuth(ctx, &emptypb.Empty{})
-	if err != nil {
-		c.noAuthAck.Store(false)
-		return err
-	}
-	if resp.NoAuthSelected {
-		c.noAuthAck.Store(true)
-		return nil
-	}
-	c.noAuthAck.Store(false)
-	if resp.AuthReady {
-		return nil
-	}
-	return serverapi.ErrServerAuthRequired
-}
-
-func (c *Remote) DisableNoAuthBootstrapAcknowledgement() {
-	if c != nil {
-		c.noAuthAck.Store(false)
-	}
-}
-
-func (c *Remote) NoAuthBootstrapAcknowledgementEnabled() bool {
-	return c != nil && c.noAuthAck.Load()
-}
-
-func (c *Remote) acknowledgeNoAuthOnConn(ctx context.Context, conn rpcwire.Conn) error {
-	if c == nil || !c.noAuthAck.Load() {
-		return nil
-	}
-	result := &authpb.AcknowledgeNoAuthResult{}
-	if err := callBinaryRPC(
-		ctx,
-		conn,
-		"auth-acknowledge-no-auth",
-		bootstrapMethod(authpb.File_kent_api_auth_auth_proto, "AuthService", "AcknowledgeNoAuth"),
-		&emptypb.Empty{},
-		result,
-	); err != nil {
-		if errors.Is(err, serverapi.ErrServerAuthRequired) {
-			c.noAuthAck.Store(false)
-		}
-		return err
-	}
-	if result.GetError() != nil {
-		err := authGeneratedError(result.GetError().Code, result.GetError().GetInternalFailure())
-		if errors.Is(err, serverapi.ErrServerAuthRequired) {
-			c.noAuthAck.Store(false)
-		}
-		return err
-	}
-	resp := result.GetSuccess()
-	if resp.NoAuthSelected {
-		return nil
-	}
-	c.noAuthAck.Store(false)
-	if resp.AuthReady {
-		return nil
-	}
-	return serverapi.ErrServerAuthRequired
-}
-
 func (c *Remote) GetReadiness(ctx context.Context, req *emptypb.Empty) (*serverpb.GetReadinessSuccess, error) {
 	return callGeneratedBinary(c, ctx,
 		bootstrapMethod(serverpb.File_kent_api_server_server_proto, "ServerService", "GetReadiness"),
 		req,
 		&serverpb.GetReadinessResult{},
 		func(failure *serverpb.GetReadinessError) error {
-			return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }
 
@@ -249,36 +188,13 @@ func (c *Remote) GetUpdateStatus(ctx context.Context, req *emptypb.Empty) (*serv
 		req,
 		&serverpb.GetUpdateStatusResult{},
 		func(failure *serverpb.GetUpdateStatusError) error {
-			switch failure.Code {
-			case "auth_required":
-				return serverapi.ErrServerAuthRequired
-			case "server_not_ready":
-				return protoapi.ServerNotReadyFromProto(failure.GetServerNotReady())
-			case "internal_failure":
-				return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
-			default:
-				return generatedOperationFailure(failure.Code)
-			}
+			return generatedOperationFailure(failure.Code)
 		})
 }
 
 func (c *Remote) ProjectID() string {
 	if binding, present := c.projectBinding(); present {
 		return binding.ProjectID
-	}
-	return ""
-}
-
-func (c *Remote) WorkspaceRoot() string {
-	if binding, present := c.projectBinding(); present {
-		return binding.WorkspaceRoot
-	}
-	return ""
-}
-
-func (c *Remote) WorkspaceID() string {
-	if binding, present := c.projectBinding(); present {
-		return binding.WorkspaceID
 	}
 	return ""
 }
@@ -291,6 +207,8 @@ func (c *Remote) projectBinding() (ProjectAttachment, bool) {
 	if c == nil {
 		return ProjectAttachment{}, false
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return remoteAttachmentProjectBinding(c.attachment)
 }
 
@@ -299,23 +217,36 @@ func callUnscopedRPC[Req any, Resp any](c *Remote, ctx context.Context, method s
 	return resp, c.callUnscoped(ctx, method, req, &resp)
 }
 
-func callControlRPC[Req any, Resp any](c *Remote, ctx context.Context, method string, req Req) (Resp, error) {
-	var resp Resp
-	return resp, c.call(ctx, method, req, &resp)
-}
-
 func callDedicatedRPC[Req any, Resp any](c *Remote, ctx context.Context, requestID string, method string, req Req) (Resp, error) {
 	var resp Resp
 	return resp, c.callDedicated(ctx, requestID, method, req, &resp)
 }
 
-func (c *Remote) GetBootstrapStatus(ctx context.Context, req *emptypb.Empty) (*authpb.BootstrapStatus, error) {
+func (c *Remote) GetBootstrapStatus(ctx context.Context, req *authpb.GetBootstrapStatusRequest) (*authpb.BootstrapStatus, error) {
 	return callGeneratedBinary(c, ctx,
 		bootstrapMethod(authpb.File_kent_api_auth_auth_proto, "AuthService", "GetBootstrapStatus"),
 		req,
 		&authpb.GetBootstrapStatusResult{},
 		func(failure *authpb.GetBootstrapStatusError) error {
-			return authGeneratedError(failure.Code, failure.GetInternalFailure())
+			return authGeneratedError(failure.Code, failure.GetInternalFailure(), failure.GetConnectionFailure())
+		})
+}
+
+func (c *Remote) GetConnections(ctx context.Context, req *authpb.GetConnectionsRequest) (*authpb.ConnectionCatalog, error) {
+	return callGeneratedBinary(c, ctx,
+		bootstrapMethod(authpb.File_kent_api_auth_auth_proto, "AuthService", "GetConnections"),
+		req, &authpb.GetConnectionsResult{},
+		func(failure *authpb.GetBootstrapStatusError) error {
+			return authGeneratedError(failure.Code, failure.GetInternalFailure(), failure.GetConnectionFailure())
+		})
+}
+
+func (c *Remote) ConfigureConnection(ctx context.Context, req *authpb.ConfigureConnectionRequest) (*emptypb.Empty, error) {
+	return callGeneratedBinary(c, ctx,
+		bootstrapMethod(authpb.File_kent_api_auth_auth_proto, "AuthService", "ConfigureConnection"),
+		req, &authpb.ConfigureConnectionResult{},
+		func(failure *authpb.CompleteBootstrapError) error {
+			return authGeneratedError(failure.Code, failure.GetInternalFailure(), failure.GetConnectionFailure())
 		})
 }
 
@@ -325,27 +256,12 @@ func (c *Remote) CompleteBootstrap(ctx context.Context, req *authpb.CompleteBoot
 		req,
 		&authpb.CompleteBootstrapResult{},
 		func(failure *authpb.CompleteBootstrapError) error {
-			return authGeneratedError(failure.Code, failure.GetInternalFailure())
+			return authGeneratedError(failure.Code, failure.GetInternalFailure(), failure.GetConnectionFailure())
 		})
 	if err != nil {
 		return nil, err
 	}
-	if resp.GetNoAuthSelected() {
-		c.noAuthAck.Store(true)
-	} else if resp.GetAuthReady() {
-		c.noAuthAck.Store(false)
-	}
 	return resp, nil
-}
-
-func (c *Remote) AcknowledgeNoAuth(ctx context.Context, req *emptypb.Empty) (*authpb.NoAuthAcknowledgement, error) {
-	return callGeneratedBinary(c, ctx,
-		bootstrapMethod(authpb.File_kent_api_auth_auth_proto, "AuthService", "AcknowledgeNoAuth"),
-		req,
-		&authpb.AcknowledgeNoAuthResult{},
-		func(failure *authpb.AcknowledgeNoAuthError) error {
-			return authGeneratedError(failure.Code, failure.GetInternalFailure())
-		})
 }
 
 func (c *Remote) GetStatus(ctx context.Context, req *authpb.GetStatusRequest) (*authpb.Status, error) {
@@ -354,236 +270,349 @@ func (c *Remote) GetStatus(ctx context.Context, req *authpb.GetStatusRequest) (*
 		req,
 		&authpb.GetStatusResult{},
 		func(failure *authpb.GetStatusError) error {
-			return authGeneratedError(failure.Code, failure.GetInternalFailure())
+			return authGeneratedError(failure.Code, failure.GetInternalFailure(), nil)
 		})
 }
 
-func (c *Remote) GetChatContext(ctx context.Context, req serverapi.ChatContextRequest) (serverapi.ChatContextResponse, error) {
-	return callValidatedControlRPC[serverapi.ChatContextRequest, serverapi.ChatContextResponse](c, ctx, protocol.MethodChatContextGet, req)
+func (c *Remote) CreateWorkflow(ctx context.Context, req *workflowpb.CreateRequest) (*workflowpb.CreateSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "Create"), req, &workflowpb.CreateResult{},
+		func(failure *workflowpb.CreateError) error {
+			return generatedOperationFailure(failure.Code)
+		})
 }
 
-func (c *Remote) CreateWorkflow(ctx context.Context, req serverapi.WorkflowCreateRequest) (serverapi.WorkflowCreateResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowCreateRequest, serverapi.WorkflowCreateResponse](c, ctx, protocol.MethodWorkflowCreate, req)
+func (c *Remote) CreateAndLinkWorkflowToProject(ctx context.Context, req *workflowpb.CreateAndLinkProjectRequest) (*workflowpb.CreateAndLinkProjectSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "CreateAndLinkProject"), req, &workflowpb.CreateAndLinkProjectResult{},
+		func(failure *workflowpb.CreateAndLinkProjectError) error {
+			return projectNotFoundGeneratedError(failure.Code, failure.GetProjectNotFound())
+		})
 }
 
-func (c *Remote) CreateAndLinkWorkflowToProject(ctx context.Context, req serverapi.WorkflowCreateAndLinkProjectRequest) (serverapi.WorkflowCreateAndLinkProjectResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowCreateAndLinkProjectRequest, serverapi.WorkflowCreateAndLinkProjectResponse](c, ctx, protocol.MethodWorkflowCreateAndLinkProject, req)
+func (c *Remote) UpdateWorkflow(ctx context.Context, req *workflowpb.UpdateRequest) (*workflowpb.GetSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "Update"), req, &workflowpb.UpdateResult{},
+		func(failure *workflowpb.UpdateError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
+		})
 }
 
-func (c *Remote) UpdateWorkflow(ctx context.Context, req serverapi.WorkflowUpdateRequest) (serverapi.WorkflowGetResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowUpdateRequest, serverapi.WorkflowGetResponse](c, ctx, protocol.MethodWorkflowUpdate, req)
+func (c *Remote) ListWorkflows(ctx context.Context, req *workflowpb.ListRequest) (*workflowpb.ListSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "List"), req, &workflowpb.ListResult{},
+		func(failure *workflowpb.ListError) error {
+			return generatedOperationFailure(failure.Code)
+		})
 }
 
-func (c *Remote) ListWorkflows(ctx context.Context, req serverapi.WorkflowListRequest) (serverapi.WorkflowListResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowListRequest, serverapi.WorkflowListResponse](c, ctx, protocol.MethodWorkflowList, req)
+func (c *Remote) GetWorkflow(ctx context.Context, req *workflowpb.GetRequest) (*workflowpb.GetSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "Get"), req, &workflowpb.GetResult{},
+		func(failure *workflowpb.GetError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
+		})
 }
 
-func (c *Remote) GetWorkflow(ctx context.Context, req serverapi.WorkflowGetRequest) (serverapi.WorkflowGetResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowGetRequest, serverapi.WorkflowGetResponse](c, ctx, protocol.MethodWorkflowGet, req)
+func (c *Remote) LinkWorkflowToProject(ctx context.Context, req *workflowpb.LinkProjectRequest) (*workflowpb.LinkProjectSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("ProjectLinkService", "Link"), req, &workflowpb.LinkProjectResult{},
+		func(failure *workflowpb.ProjectLinkError) error {
+			if failure.GetProjectNotFound() != nil {
+				return projectNotFoundError(failure.GetProjectNotFound())
+			}
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
+		})
 }
 
-func (c *Remote) LinkWorkflowToProject(ctx context.Context, req serverapi.WorkflowLinkProjectRequest) (serverapi.WorkflowLinkProjectResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowLinkProjectRequest, serverapi.WorkflowLinkProjectResponse](c, ctx, protocol.MethodWorkflowLinkProject, req)
+func (c *Remote) ListProjectWorkflowLinks(ctx context.Context, req *workflowpb.ListProjectLinksRequest) (*workflowpb.ListProjectLinksSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("ProjectLinkService", "List"), req, &workflowpb.ListProjectLinksResult{},
+		func(failure *workflowpb.ProjectLinksListError) error {
+			return projectNotFoundGeneratedError(failure.Code, failure.GetProjectNotFound())
+		})
 }
 
-func (c *Remote) ListProjectWorkflowLinks(ctx context.Context, req serverapi.WorkflowListProjectLinksRequest) (serverapi.WorkflowListProjectLinksResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowListProjectLinksRequest, serverapi.WorkflowListProjectLinksResponse](c, ctx, protocol.MethodWorkflowListProjectLinks, req)
+func (c *Remote) SetDefaultProjectWorkflowLink(ctx context.Context, req *workflowpb.SetDefaultProjectLinkRequest) (*workflowpb.SetDefaultProjectLinkSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("ProjectLinkService", "SetDefault"), req, &workflowpb.SetDefaultProjectLinkResult{},
+		func(failure *workflowpb.SetDefaultProjectLinkError) error {
+			if failure.GetProjectNotFound() != nil {
+				return projectNotFoundError(failure.GetProjectNotFound())
+			}
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
+		})
 }
 
-func (c *Remote) SetDefaultProjectWorkflowLink(ctx context.Context, req serverapi.WorkflowSetDefaultProjectLinkRequest) (serverapi.WorkflowSetDefaultProjectLinkResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowSetDefaultProjectLinkRequest, serverapi.WorkflowSetDefaultProjectLinkResponse](c, ctx, protocol.MethodWorkflowSetDefaultProjectLink, req)
+func (c *Remote) UnlinkWorkflowFromProject(ctx context.Context, req *workflowpb.UnlinkProjectRequest) (*workflowpb.UnlinkProjectSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("ProjectLinkService", "Unlink"), req, &workflowpb.UnlinkProjectResult{},
+		func(failure *workflowpb.UnlinkProjectError) error {
+			if detail := failure.GetReplacementDefaultInvalid(); detail != nil {
+				return fmt.Errorf("replacement default workflow link is invalid for link %q", detail.LinkId)
+			}
+			return generatedOperationFailure(failure.Code)
+		})
 }
 
-func (c *Remote) UnlinkWorkflowFromProject(ctx context.Context, req serverapi.WorkflowUnlinkProjectRequest) (serverapi.WorkflowUnlinkProjectResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowUnlinkProjectRequest, serverapi.WorkflowUnlinkProjectResponse](c, ctx, protocol.MethodWorkflowUnlinkProject, req)
+func (c *Remote) PreviewWorkflowDelete(ctx context.Context, req *workflowpb.DeletePreviewRequest) (*workflowpb.DeletePreviewSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "DeletePreview"), req, &workflowpb.DeletePreviewResult{},
+		func(failure *workflowpb.DeletePreviewError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
+		})
 }
 
-func (c *Remote) PreviewWorkflowDelete(ctx context.Context, req serverapi.WorkflowDeletePreviewRequest) (serverapi.WorkflowDeletePreviewResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowDeletePreviewRequest, serverapi.WorkflowDeletePreviewResponse](c, ctx, protocol.MethodWorkflowDeletePreview, req)
+func (c *Remote) DeleteWorkflow(ctx context.Context, req *workflowpb.DeleteRequest) (*workflowpb.DeleteSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "Delete"), req, &workflowpb.DeleteResult{},
+		func(failure *workflowpb.DeleteError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
+		})
 }
 
-func (c *Remote) DeleteWorkflow(ctx context.Context, req serverapi.WorkflowDeleteRequest) (serverapi.WorkflowDeleteResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowDeleteRequest, serverapi.WorkflowDeleteResponse](c, ctx, protocol.MethodWorkflowDelete, req)
+func (c *Remote) ValidateWorkflow(ctx context.Context, req *workflowpb.ValidateRequest) (*workflowpb.ValidateResponse, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "Validate"), req, &workflowpb.ValidateResult{},
+		func(failure *workflowpb.ValidateError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
+		})
 }
 
-func (c *Remote) ValidateWorkflow(ctx context.Context, req serverapi.WorkflowValidateRequest) (serverapi.WorkflowValidateResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowValidateRequest, serverapi.WorkflowValidateResponse](c, ctx, protocol.MethodWorkflowValidate, req)
+func (c *Remote) ValidateWorkflowScriptPath(ctx context.Context, req *workflowpb.ScriptPathValidateRequest) (*workflowpb.ValidateResponse, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "ValidateScriptPath"), req, &workflowpb.ValidateScriptPathResult{},
+		func(failure *workflowpb.ValidateScriptPathError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
+		})
 }
 
-func (c *Remote) ValidateWorkflowScriptPath(ctx context.Context, req serverapi.WorkflowScriptPathValidateRequest) (serverapi.WorkflowValidateResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowScriptPathValidateRequest, serverapi.WorkflowValidateResponse](c, ctx, protocol.MethodWorkflowScriptPathValidate, req)
+func (c *Remote) ValidateWorkflowGraphDraft(ctx context.Context, req *workflowpb.GraphValidateDraftRequest) (*workflowpb.GraphValidateDraftSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowGraphService", "ValidateDraft"), req, &workflowpb.GraphValidateDraftResult{},
+		func(failure *workflowpb.GraphValidateDraftError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
+		})
 }
 
-func (c *Remote) ValidateWorkflowGraphDraft(ctx context.Context, req serverapi.WorkflowGraphValidateDraftRequest) (serverapi.WorkflowGraphValidateDraftResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowGraphValidateDraftRequest, serverapi.WorkflowGraphValidateDraftResponse](c, ctx, protocol.MethodWorkflowGraphValidateDraft, req)
+func (c *Remote) DeriveWorkflowGraphWiring(ctx context.Context, req *workflowpb.GraphDeriveWiringRequest) (*workflowpb.GraphDeriveWiringSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowGraphService", "DeriveWiring"), req, &workflowpb.GraphDeriveWiringResult{},
+		func(failure *workflowpb.GraphDeriveWiringError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
+		})
 }
 
-func (c *Remote) DeriveWorkflowGraphWiring(ctx context.Context, req serverapi.WorkflowGraphDeriveWiringRequest) (serverapi.WorkflowGraphDeriveWiringResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowGraphDeriveWiringRequest, serverapi.WorkflowGraphDeriveWiringResponse](c, ctx, protocol.MethodWorkflowGraphDeriveWiring, req)
+func (c *Remote) PreviewWorkflowGraphSave(ctx context.Context, req *workflowpb.GraphSavePreviewRequest) (*workflowpb.GraphSavePreviewSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowGraphService", "SavePreview"), req, &workflowpb.GraphSavePreviewResult{},
+		func(failure *workflowpb.GraphSavePreviewError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
+		})
 }
 
-func (c *Remote) PreviewWorkflowGraphSave(ctx context.Context, req serverapi.WorkflowGraphSavePreviewRequest) (serverapi.WorkflowGraphSavePreviewResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowGraphSavePreviewRequest, serverapi.WorkflowGraphSavePreviewResponse](c, ctx, protocol.MethodWorkflowGraphSavePreview, req)
+func (c *Remote) SaveWorkflowGraph(ctx context.Context, req *workflowpb.GraphSaveRequest) (*workflowpb.GraphSaveSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowGraphService", "Save"), req, &workflowpb.GraphSaveResult{},
+		func(failure *workflowpb.GraphSaveError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
+		})
 }
 
-func (c *Remote) SaveWorkflowGraph(ctx context.Context, req serverapi.WorkflowGraphSaveRequest) (serverapi.WorkflowGraphSaveResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowGraphSaveRequest, serverapi.WorkflowGraphSaveResponse](c, ctx, protocol.MethodWorkflowGraphSave, req)
+func (c *Remote) CreateWorkflowTask(ctx context.Context, req *taskpb.CreateRequest) (*taskpb.CreateSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Create")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.CreateResult{},
+		func(failure *taskpb.CreateError) error {
+			if failure.GetLabel() != nil {
+				return &WorkflowLabelError{Detail: failure.GetLabel()}
+			}
+			return &TaskCreateError{Failure: failure}
+		})
 }
 
-func (c *Remote) CreateWorkflowProjectLabel(ctx context.Context, req serverapi.WorkflowProjectLabelCreateRequest) (serverapi.WorkflowProjectLabelCreateResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowProjectLabelCreateRequest, serverapi.WorkflowProjectLabelCreateResponse](c, ctx, protocol.MethodWorkflowProjectLabelCreate, req)
-	return validateWorkflowResponse("create workflow project label", response, err)
+func (c *Remote) AddWorkflowTaskDependency(ctx context.Context, req *taskpb.DependencyAddRequest) (*taskpb.DependencyMutationSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskDependencyService").Methods().ByName("Add")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.DependencyAddResult{}, taskDependencyGeneratedError[*taskpb.DependencyAddError])
 }
 
-func (c *Remote) ListWorkflowProjectLabels(ctx context.Context, req serverapi.WorkflowProjectLabelCatalogRequest) (serverapi.WorkflowProjectLabelCatalogResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowProjectLabelCatalogRequest, serverapi.WorkflowProjectLabelCatalogResponse](c, ctx, protocol.MethodWorkflowProjectLabelList, req)
-	return validateWorkflowResponse("list workflow project labels", response, err)
+func (c *Remote) RemoveWorkflowTaskDependency(ctx context.Context, req *taskpb.DependencyRemoveRequest) (*taskpb.DependencyMutationSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskDependencyService").Methods().ByName("Remove")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.DependencyRemoveResult{}, taskDependencyGeneratedError[*taskpb.DependencyRemoveError])
 }
 
-func (c *Remote) RenameWorkflowProjectLabel(ctx context.Context, req serverapi.WorkflowProjectLabelRenameRequest) (serverapi.WorkflowProjectLabelRenameResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowProjectLabelRenameRequest, serverapi.WorkflowProjectLabelRenameResponse](c, ctx, protocol.MethodWorkflowProjectLabelRename, req)
-	return validateWorkflowResponse("rename workflow project label", response, err)
+func (c *Remote) ListWorkflowTaskDependencies(ctx context.Context, req *taskpb.DependencyListRequest) (*taskpb.DependencyListSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskDependencyService").Methods().ByName("List")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.DependencyListResult{}, taskEntityGeneratedError[*taskpb.DependencyListError])
 }
 
-func (c *Remote) DeleteWorkflowProjectLabel(ctx context.Context, req serverapi.WorkflowProjectLabelDeleteRequest) (serverapi.WorkflowProjectLabelDeleteResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowProjectLabelDeleteRequest, serverapi.WorkflowProjectLabelDeleteResponse](c, ctx, protocol.MethodWorkflowProjectLabelDelete, req)
-	return validateWorkflowResponse("delete workflow project label", response, err)
+func (c *Remote) UpdateWorkflowTask(ctx context.Context, req *taskpb.UpdateRequest) (*taskpb.UpdateSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Update")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.UpdateResult{}, taskEntityGeneratedError[*taskpb.UpdateError])
 }
 
-func (c *Remote) ReorderWorkflowProjectLabels(ctx context.Context, req serverapi.WorkflowProjectLabelReorderRequest) (serverapi.WorkflowProjectLabelReorderResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowProjectLabelReorderRequest, serverapi.WorkflowProjectLabelReorderResponse](c, ctx, protocol.MethodWorkflowProjectLabelReorder, req)
-	return validateWorkflowResponse("reorder workflow project labels", response, err)
+func (c *Remote) StartWorkflowTask(ctx context.Context, req *taskpb.StartRequest) (*taskpb.StartSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Start")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.StartResult{},
+		func(failure *taskpb.StartError) error {
+			if conflict := failure.GetStartConflict(); conflict != nil {
+				return &serverapi.WorkflowTaskStartConflictError{TaskID: conflict.TaskId, Reason: serverapi.WorkflowTaskStartConflictAlreadyStarted}
+			}
+			if branch := failure.GetInitialBranch(); branch != nil {
+				return taskInitialBranchGeneratedError(branch)
+			}
+			return taskExecutionGeneratedError(failure)
+		})
 }
 
-func (c *Remote) GetWorkflowTaskLabels(ctx context.Context, req serverapi.WorkflowTaskLabelsGetRequest) (serverapi.WorkflowTaskLabelsGetResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskLabelsGetRequest, serverapi.WorkflowTaskLabelsGetResponse](c, ctx, protocol.MethodWorkflowTaskLabelsGet, req)
-	return validateWorkflowResponse("get workflow task labels", response, err)
+func (c *Remote) InterruptWorkflowTask(ctx context.Context, req *taskpb.InterruptRequest) (*emptypb.Empty, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Interrupt")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.InterruptResult{}, taskMutationGeneratedError[*taskpb.InterruptError])
 }
 
-func (c *Remote) UpdateWorkflowTaskLabels(ctx context.Context, req serverapi.WorkflowTaskLabelsUpdateRequest) (serverapi.WorkflowTaskLabelsUpdateResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskLabelsUpdateRequest, serverapi.WorkflowTaskLabelsUpdateResponse](c, ctx, protocol.MethodWorkflowTaskLabelsUpdate, req)
-	return validateWorkflowResponse("update workflow task labels", response, err)
+func (c *Remote) ResumeWorkflowTask(ctx context.Context, req *taskpb.ResumeRequest) (*taskpb.ResumeSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Resume")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.ResumeResult{},
+		func(failure *taskpb.ResumeError) error {
+			if detail := failure.GetContextSelectionRequired(); detail != nil {
+				return &serverapi.WorkflowTaskContextSelectionRequiredError{TaskID: detail.TaskId}
+			}
+			if branch := failure.GetInitialBranch(); branch != nil {
+				return taskInitialBranchGeneratedError(branch)
+			}
+			return taskExecutionGeneratedError(failure)
+		})
 }
 
-func (c *Remote) CreateWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCreateRequest) (serverapi.WorkflowTaskCreateResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowTaskCreateRequest, serverapi.WorkflowTaskCreateResponse](c, ctx, protocol.MethodWorkflowTaskCreate, req)
+func (c *Remote) ApproveWorkflowTask(ctx context.Context, req *taskpb.ApproveRequest) (*taskpb.ApproveSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Approve")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.ApproveResult{},
+		func(failure *taskpb.ApproveError) error {
+			if detail := failure.GetContextSelectionRequired(); detail != nil {
+				return &serverapi.WorkflowTaskContextSelectionRequiredError{TaskID: detail.TaskId}
+			}
+			return taskExecutionGeneratedError(failure)
+		})
 }
 
-func (c *Remote) AddWorkflowTaskDependency(ctx context.Context, req serverapi.WorkflowTaskDependencyAddRequest) (serverapi.WorkflowTaskDependencyAddResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskDependencyAddRequest, serverapi.WorkflowTaskDependencyAddResponse](c, ctx, protocol.MethodWorkflowTaskDependencyAdd, req)
-	return validateWorkflowResponse("add workflow task dependency", response, err)
+func (c *Remote) PreviewWorkflowTaskMove(ctx context.Context, req *taskpb.MovePreviewRequest) (*taskpb.MovePreviewSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("PreviewMove")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.MovePreviewResult{}, taskEntityGeneratedError[*taskpb.MovePreviewError])
 }
 
-func (c *Remote) RemoveWorkflowTaskDependency(ctx context.Context, req serverapi.WorkflowTaskDependencyRemoveRequest) (serverapi.WorkflowTaskDependencyRemoveResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskDependencyRemoveRequest, serverapi.WorkflowTaskDependencyRemoveResponse](c, ctx, protocol.MethodWorkflowTaskDependencyRemove, req)
-	return validateWorkflowResponse("remove workflow task dependency", response, err)
+func (c *Remote) MoveWorkflowTask(ctx context.Context, req *taskpb.MoveRequest) (*taskpb.MoveSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Move")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.MoveResult{},
+		func(failure *taskpb.MoveError) error {
+			if branch := failure.GetInitialBranch(); branch != nil {
+				return taskInitialBranchGeneratedError(branch)
+			}
+			return taskExecutionGeneratedError(failure)
+		})
 }
 
-func (c *Remote) ListWorkflowTaskDependencies(ctx context.Context, req serverapi.WorkflowTaskDependencyListRequest) (serverapi.WorkflowTaskDependencyListResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskDependencyListRequest, serverapi.WorkflowTaskDependencyListResponse](c, ctx, protocol.MethodWorkflowTaskDependencyList, req)
-	return validateWorkflowResponse("list workflow task dependencies", response, err)
+func (c *Remote) CompleteWorkflowTask(ctx context.Context, req *taskpb.CompleteRequest) (*taskpb.CompleteSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Complete")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.CompleteResult{},
+		func(failure *taskpb.CompleteError) error {
+			switch failure.GetCode() {
+			case "task_not_found":
+				return serverapi.ErrWorkflowTaskNotFound
+			case "completion_target_not_found":
+				return serverapi.ErrWorkflowTaskCompleteTargetNotFound
+			case "completion_selector_ambiguous":
+				return serverapi.ErrWorkflowTaskCompleteSelectorAmbiguous
+			case "execution_target_resolution":
+				return taskExecutionResolutionGeneratedError(failure.GetExecutionTargetResolution())
+			case "locked_execution_target":
+				return taskLockedTargetGeneratedError(failure.GetLockedExecutionTarget())
+			case "initial_branch":
+				return taskInitialBranchGeneratedError(failure.GetInitialBranch())
+			default:
+				return worktreeError(failure)
+			}
+		})
 }
 
-func (c *Remote) UpdateWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskUpdateRequest) (serverapi.WorkflowTaskUpdateResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowTaskUpdateRequest, serverapi.WorkflowTaskUpdateResponse](c, ctx, protocol.MethodWorkflowTaskUpdate, req)
+func (c *Remote) DeleteWorkflowTask(ctx context.Context, req *taskpb.DeleteRequest) (*emptypb.Empty, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Delete")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.DeleteResult{},
+		func(failure *taskpb.DeleteError) error {
+			if failure.GetTaskNotFound() != nil {
+				return serverapi.ErrWorkflowTaskNotFound
+			}
+			return worktreeError(failure)
+		})
 }
 
-func (c *Remote) StartWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskStartRequest) (serverapi.WorkflowTaskStartResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskStartRequest, serverapi.WorkflowTaskStartResponse](c, ctx, protocol.MethodWorkflowTaskStart, req)
-	return validateWorkflowResponse("start workflow task", response, err)
+func (c *Remote) ListWorkflowAttention(ctx context.Context, req *taskpb.AttentionListRequest) (*taskpb.AttentionListSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_attention_proto.Services().ByName("AttentionReadService").Methods().ByName("List")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.AttentionListResult{}, func(failure *taskpb.AttentionListError) error {
+		return generatedOperationFailure(failure.Code)
+	})
 }
 
-func (c *Remote) InterruptWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskInterruptRequest) (serverapi.WorkflowTaskInterruptResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowTaskInterruptRequest, serverapi.WorkflowTaskInterruptResponse](c, ctx, protocol.MethodWorkflowTaskInterrupt, req)
+func (c *Remote) ListWorkflowTaskAttention(ctx context.Context, req *taskpb.TaskAttentionListRequest) (*taskpb.TaskAttentionListSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_attention_proto.Services().ByName("AttentionReadService").Methods().ByName("ListTask")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.TaskAttentionListResult{}, func(failure *taskpb.TaskAttentionListError) error {
+		return generatedOperationFailure(failure.Code)
+	})
 }
 
-func (c *Remote) ResumeWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskResumeRequest) (serverapi.WorkflowTaskResumeResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskResumeRequest, serverapi.WorkflowTaskResumeResponse](c, ctx, protocol.MethodWorkflowTaskResume, req)
-	return validateWorkflowResponse("resume workflow task", response, err)
+func (c *Remote) AddWorkflowTaskComment(ctx context.Context, req *taskpb.CommentAddRequest) (*taskpb.CommentAddSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskCommentService").Methods().ByName("Add")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.CommentAddResult{}, taskEntityGeneratedError[*taskpb.CommentAddError])
 }
 
-func (c *Remote) ApproveWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskApproveRequest) (serverapi.WorkflowTaskApproveResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskApproveRequest, serverapi.WorkflowTaskApproveResponse](c, ctx, protocol.MethodWorkflowTaskApprove, req)
-	return validateWorkflowResponse("approve workflow task", response, err)
+func (c *Remote) ListWorkflowTaskComments(ctx context.Context, req *taskpb.TaskOffsetPageRequest) (*taskpb.CommentListSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskCommentService").Methods().ByName("List")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.CommentListResult{}, taskEntityGeneratedError[*taskpb.CommentListError])
 }
 
-func (c *Remote) PreviewWorkflowTaskMove(ctx context.Context, req serverapi.WorkflowTaskMovePreviewRequest) (serverapi.WorkflowTaskMovePreviewResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskMovePreviewRequest, serverapi.WorkflowTaskMovePreviewResponse](c, ctx, protocol.MethodWorkflowTaskMovePreview, req)
-	return validateWorkflowResponse("preview workflow task move", response, err)
+func (c *Remote) ReplaceWorkflowTaskComment(ctx context.Context, req *taskpb.CommentReplaceRequest) (*emptypb.Empty, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskCommentService").Methods().ByName("Replace")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.CommentReplaceResult{}, taskEntityGeneratedError[*taskpb.CommentReplaceError])
 }
 
-func (c *Remote) MoveWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskMoveRequest) (serverapi.WorkflowTaskMoveResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskMoveRequest, serverapi.WorkflowTaskMoveResponse](c, ctx, protocol.MethodWorkflowTaskMove, req)
-	return validateWorkflowResponse("move workflow task", response, err)
+func (c *Remote) DeleteWorkflowTaskComment(ctx context.Context, req *taskpb.CommentDeleteRequest) (*emptypb.Empty, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskCommentService").Methods().ByName("Delete")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.CommentDeleteResult{}, taskEntityGeneratedError[*taskpb.CommentDeleteError])
 }
 
-func (c *Remote) CompleteWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCompleteRequest) (serverapi.WorkflowTaskCompleteResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowTaskCompleteRequest, serverapi.WorkflowTaskCompleteResponse](c, ctx, protocol.MethodWorkflowTaskComplete, req)
-}
-
-func (c *Remote) DeleteWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskDeleteRequest) error {
-	return c.callUnscoped(ctx, protocol.MethodWorkflowTaskDelete, req, &struct{}{})
-}
-
-func (c *Remote) ListWorkflowAttention(ctx context.Context, req serverapi.WorkflowAttentionListRequest) (serverapi.WorkflowAttentionListResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowAttentionListRequest, serverapi.WorkflowAttentionListResponse](c, ctx, protocol.MethodWorkflowAttentionList, req)
-	return validateWorkflowResponse("list workflow attention", response, err)
-}
-
-func (c *Remote) ListWorkflowTaskAttention(ctx context.Context, req serverapi.WorkflowTaskAttentionListRequest) (serverapi.WorkflowTaskAttentionListResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskAttentionListRequest, serverapi.WorkflowTaskAttentionListResponse](c, ctx, protocol.MethodWorkflowTaskAttentionList, req)
-	return validateWorkflowTaskBoundResponse("list workflow task attention", strings.TrimSpace(req.TaskID), response, err)
-}
-
-func (c *Remote) AddWorkflowTaskComment(ctx context.Context, req serverapi.WorkflowTaskCommentAddRequest) (serverapi.WorkflowTaskCommentAddResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowTaskCommentAddRequest, serverapi.WorkflowTaskCommentAddResponse](c, ctx, protocol.MethodWorkflowTaskCommentAdd, req)
-}
-
-func (c *Remote) ListWorkflowTaskComments(ctx context.Context, req serverapi.WorkflowTaskOffsetPageRequest) (serverapi.WorkflowTaskCommentListResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowTaskOffsetPageRequest, serverapi.WorkflowTaskCommentListResponse](c, ctx, protocol.MethodWorkflowTaskCommentList, req)
-}
-
-func (c *Remote) ReplaceWorkflowTaskComment(ctx context.Context, req serverapi.WorkflowTaskCommentReplaceRequest) error {
-	return c.callUnscoped(ctx, protocol.MethodWorkflowTaskCommentReplace, req, &struct{}{})
-}
-
-func (c *Remote) DeleteWorkflowTaskComment(ctx context.Context, req serverapi.WorkflowTaskCommentDeleteRequest) error {
-	return c.callUnscoped(ctx, protocol.MethodWorkflowTaskCommentDelete, req, &struct{}{})
-}
-
-func (c *Remote) ListWorkflowTaskActivity(ctx context.Context, req serverapi.WorkflowTaskOffsetPageRequest) (serverapi.WorkflowTaskActivityListResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskOffsetPageRequest, serverapi.WorkflowTaskActivityListResponse](c, ctx, protocol.MethodWorkflowTaskActivityList, req)
-	return validateWorkflowTaskBoundResponse("list workflow task activity", strings.TrimSpace(req.TaskID), response, err)
-}
-
-func (c *Remote) ListWorkflowTaskSessions(ctx context.Context, req serverapi.WorkflowTaskOffsetPageRequest) (serverapi.WorkflowTaskSessionListResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowTaskOffsetPageRequest, serverapi.WorkflowTaskSessionListResponse](c, ctx, protocol.MethodWorkflowTaskSessionList, req)
-}
-
-func (c *Remote) ListWorkflowTasks(ctx context.Context, req serverapi.WorkflowTaskListRequest) (serverapi.WorkflowTaskListResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskListRequest, serverapi.WorkflowTaskListResponse](c, ctx, protocol.MethodWorkflowTaskList, req)
-	return validateWorkflowResponse("list workflow tasks", response, err)
-}
-
-func (c *Remote) GetWorkflowProjectTaskGroupCounts(ctx context.Context, req serverapi.WorkflowProjectTaskGroupCountsRequest) (serverapi.WorkflowProjectTaskGroupCountsResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowProjectTaskGroupCountsRequest, serverapi.WorkflowProjectTaskGroupCountsResponse](c, ctx, protocol.MethodWorkflowProjectTaskGroupCounts, req)
-	return validateWorkflowResponse("get workflow project task group counts", response, err)
-}
-
-func (c *Remote) SearchWorkflowTasks(ctx context.Context, req serverapi.TaskSearchRequest) (serverapi.TaskSearchResponse, error) {
-	response, err := callDedicatedRPC[serverapi.TaskSearchRequest, serverapi.TaskSearchResponse](
-		c,
-		ctx,
-		apicontract.TaskSearchDedicatedRequestID,
-		protocol.MethodWorkflowTaskSearch,
-		req,
-	)
-	response, err = validateWorkflowResponse("search workflow tasks", response, err)
+func (c *Remote) ListWorkflowTaskActivity(ctx context.Context, req *taskpb.TaskOffsetPageRequest) (*taskpb.ActivityListSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskActivityService").Methods().ByName("List")
+	response, err := callGeneratedBinary(c, ctx, method, req, &taskpb.ActivityListResult{}, taskEntityGeneratedError[*taskpb.ActivityListError])
 	if err != nil {
-		return response, err
+		return nil, err
+	}
+	for _, item := range response.Items {
+		if item.TaskId != req.TaskId {
+			return nil, fmt.Errorf("Task activity returned an item for another Task")
+		}
+	}
+	return response, nil
+}
+
+func (c *Remote) ListWorkflowTaskSessions(ctx context.Context, req *taskpb.TaskOffsetPageRequest) (*taskpb.SessionListSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskSessionService").Methods().ByName("List")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.SessionListResult{}, taskEntityGeneratedError[*taskpb.SessionListError])
+}
+
+func (c *Remote) ListWorkflowTasks(ctx context.Context, req *taskpb.ListRequest) (*taskpb.ListSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService").Methods().ByName("List")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.ListResult{},
+		func(failure *taskpb.ListError) error {
+			if failure.GetScopeError() != nil {
+				return &TaskListError{Failure: failure}
+			}
+			return taskReadGeneratedError(failure)
+		})
+}
+
+func (c *Remote) GetWorkflowProjectTaskGroupCounts(ctx context.Context, req *taskpb.ProjectTaskGroupCountsRequest) (*taskpb.ProjectTaskGroupCountsSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService").Methods().ByName("GetProjectGroupCounts")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.ProjectTaskGroupCountsResult{},
+		func(failure *taskpb.ProjectTaskGroupCountsError) error {
+			return projectNotFoundGeneratedError(failure.Code, failure.GetProjectNotFound())
+		})
+}
+
+func (c *Remote) SearchWorkflowTasks(ctx context.Context, req *taskpb.SearchRequest) (*taskpb.SearchSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService").Methods().ByName("Search")
+	response, err := callGeneratedBinary(c, ctx, method, req, &taskpb.SearchResult{},
+		func(failure *taskpb.SearchError) error {
+			if failure.GetNormalizedTooShort() != nil {
+				return &serverapi.TaskSearchError{Reason: serverapi.TaskSearchErrorReasonNormalizedTooShort}
+			}
+			return generatedOperationFailure(failure.Code)
+		})
+	if err != nil {
+		return nil, err
 	}
 	if response.Mode != req.Mode {
-		return serverapi.TaskSearchResponse{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"search workflow tasks returned mode %q for request mode %q",
 			response.Mode,
 			req.Mode,
@@ -592,317 +621,63 @@ func (c *Remote) SearchWorkflowTasks(ctx context.Context, req serverapi.TaskSear
 	return response, nil
 }
 
-func (c *Remote) GetWorkflowBoard(ctx context.Context, req serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowBoardRequest, serverapi.WorkflowBoardResponse](c, ctx, protocol.MethodWorkflowBoardGet, req)
+func (c *Remote) GetWorkflowBoard(ctx context.Context, req *taskpb.BoardGetRequest) (*taskpb.BoardGetSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("BoardReadService").Methods().ByName("Get")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.BoardGetResult{}, taskReadGeneratedError[*taskpb.BoardGetError])
 }
 
-func (c *Remote) ListWorkflowBoardNodeCards(ctx context.Context, req serverapi.WorkflowBoardNodeCardsListRequest) (serverapi.WorkflowBoardNodeCardsListResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowBoardNodeCardsListRequest, serverapi.WorkflowBoardNodeCardsListResponse](c, ctx, protocol.MethodWorkflowBoardNodeCardsList, req)
-	return validateWorkflowResponse("list workflow board node cards", response, err)
+func (c *Remote) ListWorkflowBoardNodeCards(ctx context.Context, req *taskpb.BoardNodeCardsListRequest) (*taskpb.BoardNodeCardsListSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("BoardReadService").Methods().ByName("ListNodeCards")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.BoardNodeCardsListResult{}, taskReadGeneratedError[*taskpb.BoardNodeCardsListError])
 }
 
-func (c *Remote) GetWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskGetRequest, serverapi.WorkflowTaskGetResponse](c, ctx, protocol.MethodWorkflowTaskGet, req)
-	return validateWorkflowResponse("get workflow task", response, err)
+func (c *Remote) GetWorkflowTask(ctx context.Context, req *taskpb.GetRequest) (*taskpb.GetSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService").Methods().ByName("Get")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.GetResult{}, taskEntityGeneratedError[*taskpb.GetError])
 }
 
-func (c *Remote) ObserveWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskObservationRequest) (serverapi.WorkflowTaskObservationResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskObservationRequest, serverapi.WorkflowTaskObservationResponse](c, ctx, protocol.MethodWorkflowTaskObserve, req)
-	if err = normalizeWorkflowTaskObservationRPCError(err); err != nil {
-		return serverapi.WorkflowTaskObservationResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return serverapi.WorkflowTaskObservationResponse{}, invalidResponseError("workflow task observation", err)
-	}
-	return response, nil
-}
-
-func normalizeWorkflowTaskObservationRPCError(err error) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, io.EOF) {
-		return fmt.Errorf("%w: workflow task observation RPC stream closed: %v", serverapi.ErrStreamFailed, err)
-	}
-	return err
+func (c *Remote) ObserveWorkflowTask(ctx context.Context, req *taskpb.ObserveRequest) (*taskpb.ObserveSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskObservationService").Methods().ByName("Observe")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.ObserveResult{}, taskEntityGeneratedError[*taskpb.ObserveError])
 }
 
 func (c *Remote) ReadChatSettings(
 	ctx context.Context,
-	req serverapi.ChatSettingsReadRequest,
-) (serverapi.ChatSettingsReadResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.ChatSettingsReadResponse{}, err
+	req *chatsettingspb.ReadRequest,
+) (*chatsettingspb.ReadSuccess, error) {
+	response, err := callGeneratedBinary(c, ctx,
+		bootstrapMethod(chatsettingspb.File_kent_api_chat_settings_chat_settings_proto, "ChatSettingsService", "Read"),
+		req, &chatsettingspb.ReadResult{}, protoapi.ChatSettingsErrorFromProto)
+	if err != nil {
+		return nil, err
 	}
-	var response serverapi.ChatSettingsReadResponse
-	if err := c.call(ctx, protocol.MethodChatSettingsRead, req, &response); err != nil {
-		return serverapi.ChatSettingsReadResponse{}, err
-	}
-	if err := response.ValidateForTarget(req.Target); err != nil {
-		return serverapi.ChatSettingsReadResponse{}, invalidResponseError(
-			"Chat settings",
-			err,
-		)
+	switch target := req.Target.(type) {
+	case *chatsettingspb.ReadRequest_NewChat:
+		if response.GetNewChat() == nil {
+			return nil, invalidResponseError("Chat settings", errors.New("New Chat catalog is required"))
+		}
+	case *chatsettingspb.ReadRequest_Session:
+		if response.GetSession() == nil || response.GetSession().Session.SessionId != target.Session.SessionId {
+			return nil, invalidResponseError("Chat settings", errors.New("response must contain the target Session"))
+		}
 	}
 	return response, nil
 }
 
 func (c *Remote) MutateChatSettings(
 	ctx context.Context,
-	req serverapi.ChatSettingsMutationRequest,
-) (serverapi.ChatSettingsMutationResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.ChatSettingsMutationResponse{}, err
-	}
-	var response serverapi.ChatSettingsMutationResponse
-	if err := c.call(ctx, protocol.MethodChatSettingsMutate, req, &response); err != nil {
-		return serverapi.ChatSettingsMutationResponse{}, err
-	}
-	if err := response.ValidateForTarget(req.Target); err != nil {
-		return serverapi.ChatSettingsMutationResponse{}, invalidResponseError(
-			"Chat settings mutation",
-			err,
-		)
-	}
-	return response, nil
-}
-
-func (c *Remote) GetSessionMainView(ctx context.Context, req serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error) {
-	return callValidatedControlRPC[serverapi.SessionMainViewRequest, serverapi.SessionMainViewResponse](c, ctx, protocol.MethodSessionGetMainView, req)
-}
-
-func (c *Remote) GetSessionTranscriptPage(ctx context.Context, req serverapi.SessionTranscriptPageRequest) (serverapi.SessionTranscriptPageResponse, error) {
-	var resp serverapi.SessionTranscriptPageResponse
-	if err := c.call(ctx, protocol.MethodSessionGetTranscriptPage, req, &resp); err != nil {
-		return resp, err
-	}
-	if err := resp.Validate(); err != nil {
-		return serverapi.SessionTranscriptPageResponse{}, fmt.Errorf("validate session transcript page response: %w", err)
-	}
-	return resp, nil
-}
-
-func (c *Remote) GetLatestCommittedAssistantFinalAnswer(ctx context.Context, req serverapi.SessionLatestCommittedAssistantFinalAnswerRequest) (serverapi.SessionLatestCommittedAssistantFinalAnswerResponse, error) {
-	var resp serverapi.SessionLatestCommittedAssistantFinalAnswerResponse
-	return resp, c.call(ctx, protocol.MethodSessionGetLatestCommittedAssistantFinalAnswer, req, &resp)
-}
-
-func (c *Remote) GetSessionExecutionEnvironment(ctx context.Context, req serverapi.SessionExecutionEnvironmentRequest) (serverapi.SessionExecutionEnvironmentResponse, error) {
-	var raw json.RawMessage
-	if err := c.call(ctx, protocol.MethodSessionGetExecutionEnvironment, req, &raw); err != nil {
-		return serverapi.SessionExecutionEnvironmentResponse{}, err
-	}
-	return c.sessionExecutionResponseContract.Decode(raw)
-}
-
-func (c *Remote) GetInitialInput(ctx context.Context, req serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error) {
-	var resp serverapi.SessionInitialInputResponse
-	return resp, c.call(ctx, protocol.MethodSessionGetInitialInput, req, &resp)
-}
-
-func (c *Remote) PersistInputDraft(ctx context.Context, req serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
-	var resp serverapi.SessionPersistInputDraftResponse
-	return resp, c.call(ctx, protocol.MethodSessionPersistInputDraft, req, &resp)
-}
-
-func (c *Remote) RetargetSessionWorkspace(ctx context.Context, req serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
-	response, err := callUnscopedRPC[serverapi.SessionRetargetWorkspaceRequest, serverapi.SessionRetargetWorkspaceResponse](c, ctx, protocol.MethodSessionRetargetWorkspace, req)
+	req *chatsettingspb.MutationRequest,
+) (*chatsettingspb.MutationSuccess, error) {
+	response, err := callGeneratedBinary(c, ctx,
+		bootstrapMethod(chatsettingspb.File_kent_api_chat_settings_chat_settings_proto, "ChatSettingsService", "Mutate"),
+		req, &chatsettingspb.MutationResponse{}, protoapi.ChatSettingsErrorFromProto)
 	if err != nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, err
+		return nil, err
 	}
-	if err := response.Validate(); err != nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, invalidResponseError("session retarget", err)
-	}
-	return response, nil
-}
-
-func (c *Remote) ResolveTransition(ctx context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
-	var resp serverapi.SessionResolveTransitionResponse
-	return resp, c.call(ctx, protocol.MethodSessionResolveTransition, req, &resp)
-}
-
-func (c *Remote) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
-	var resp serverapi.SessionRuntimeActivateResponse
-	return resp, c.call(ctx, protocol.MethodSessionRuntimeActivate, req, &resp)
-}
-
-func (c *Remote) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
-	var resp serverapi.SessionRuntimeReleaseResponse
-	return resp, c.call(ctx, protocol.MethodSessionRuntimeRelease, req, &resp)
-}
-
-func (c *Remote) SetSessionName(ctx context.Context, req serverapi.RuntimeSetSessionNameRequest) error {
-	return c.call(ctx, protocol.MethodRuntimeSetSessionName, req, nil)
-}
-
-func (c *Remote) AppendCommittedEntry(ctx context.Context, req serverapi.RuntimeAppendCommittedEntryRequest) error {
-	return c.call(ctx, protocol.MethodRuntimeAppendCommittedEntry, req, nil)
-}
-
-func (c *Remote) ShouldCompactBeforeUserMessage(ctx context.Context, req serverapi.RuntimeShouldCompactBeforeUserMessageRequest) (serverapi.RuntimeShouldCompactBeforeUserMessageResponse, error) {
-	return callControlRPC[serverapi.RuntimeShouldCompactBeforeUserMessageRequest, serverapi.RuntimeShouldCompactBeforeUserMessageResponse](c, ctx, protocol.MethodRuntimeShouldCompactBeforeUserMessage, req)
-}
-
-func (c *Remote) SubmitUserTurn(ctx context.Context, req serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error) {
-	response, err := callDedicatedRPC[serverapi.RuntimeSubmitUserTurnRequest, serverapi.RuntimeSubmitUserTurnResponse](c, ctx, "runtime-submit-user-turn", protocol.MethodRuntimeSubmitUserTurn, req)
-	if err != nil {
-		return serverapi.RuntimeSubmitUserTurnResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return serverapi.RuntimeSubmitUserTurnResponse{}, fmt.Errorf("validate runtime submit user turn response: %w", err)
+	if response.Session.SessionId != req.Session.SessionId {
+		return nil, invalidResponseError("Chat settings mutation", errors.New("response must contain the target Session"))
 	}
 	return response, nil
-}
-
-func (c *Remote) SubmitUserShellCommand(ctx context.Context, req serverapi.RuntimeSubmitUserShellCommandRequest) error {
-	return c.callDedicated(ctx, "runtime-submit-user-shell-command", protocol.MethodRuntimeSubmitUserShellCommand, req, nil)
-}
-
-func (c *Remote) CompactContext(ctx context.Context, req serverapi.RuntimeCompactContextRequest) error {
-	return c.callDedicated(ctx, "runtime-compact-context", protocol.MethodRuntimeCompactContext, req, nil)
-}
-
-func (c *Remote) Interrupt(ctx context.Context, req serverapi.RuntimeInterruptRequest) (serverapi.RuntimeInterruptResponse, error) {
-	return callDedicatedRPC[serverapi.RuntimeInterruptRequest, serverapi.RuntimeInterruptResponse](c, ctx, "runtime-interrupt", protocol.MethodRuntimeInterrupt, req)
-}
-
-func (c *Remote) LiveSteer(ctx context.Context, req serverapi.RuntimeLiveSteerRequest) (serverapi.RuntimeLiveSteerResponse, error) {
-	return callControlRPC[serverapi.RuntimeLiveSteerRequest, serverapi.RuntimeLiveSteerResponse](c, ctx, protocol.MethodRuntimeLiveSteer, req)
-}
-
-func (c *Remote) LiveStop(ctx context.Context, req serverapi.RuntimeLiveStopRequest) (serverapi.RuntimeLiveStopResponse, error) {
-	return callDedicatedRPC[serverapi.RuntimeLiveStopRequest, serverapi.RuntimeLiveStopResponse](c, ctx, "runtime-live-stop", protocol.MethodRuntimeLiveStop, req)
-}
-
-func (c *Remote) LiveWait(ctx context.Context, req serverapi.RuntimeLiveWaitRequest) (serverapi.RuntimeLiveWaitResponse, error) {
-	response, err := callDedicatedRPC[serverapi.RuntimeLiveWaitRequest, serverapi.RuntimeLiveWaitResponse](c, ctx, "runtime-live-wait", protocol.MethodRuntimeLiveWait, req)
-	if err != nil {
-		return serverapi.RuntimeLiveWaitResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return serverapi.RuntimeLiveWaitResponse{}, invalidResponseError("runtime live wait", err)
-	}
-	if err := validateRuntimeLiveResponseSession("runtime live wait", req.SessionID, response.SessionID); err != nil {
-		return serverapi.RuntimeLiveWaitResponse{}, err
-	}
-	return response, nil
-}
-
-func (c *Remote) LiveWatch(ctx context.Context, req serverapi.RuntimeLiveWatchRequest) (serverapi.RuntimeLiveWatchResponse, error) {
-	response, err := callDedicatedRPC[serverapi.RuntimeLiveWatchRequest, serverapi.RuntimeLiveWatchResponse](c, ctx, "runtime-live-watch", protocol.MethodRuntimeLiveWatch, req)
-	if err != nil {
-		return serverapi.RuntimeLiveWatchResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return serverapi.RuntimeLiveWatchResponse{}, invalidResponseError("runtime live watch", err)
-	}
-	if err := validateRuntimeLiveResponseSession("runtime live watch", req.SessionID, response.SessionID); err != nil {
-		return serverapi.RuntimeLiveWatchResponse{}, err
-	}
-	return response, nil
-}
-
-func (c *Remote) ListPendingWork(ctx context.Context, req serverapi.RuntimeListPendingWorkRequest) (serverapi.RuntimeListPendingWorkResponse, error) {
-	response, err := callControlRPC[serverapi.RuntimeListPendingWorkRequest, serverapi.RuntimeListPendingWorkResponse](c, ctx, protocol.MethodRuntimeListPendingWork, req)
-	if err != nil {
-		return serverapi.RuntimeListPendingWorkResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return serverapi.RuntimeListPendingWorkResponse{}, invalidResponseError("runtime pending work list", err)
-	}
-	return response, nil
-}
-
-func (c *Remote) RemovePendingWork(ctx context.Context, req serverapi.RuntimeRemovePendingWorkRequest) (serverapi.RuntimeRemovePendingWorkResponse, error) {
-	response, err := callControlRPC[serverapi.RuntimeRemovePendingWorkRequest, serverapi.RuntimeRemovePendingWorkResponse](c, ctx, protocol.MethodRuntimeRemovePendingWork, req)
-	if err != nil {
-		return serverapi.RuntimeRemovePendingWorkResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return serverapi.RuntimeRemovePendingWorkResponse{}, invalidResponseError("runtime pending work removal", err)
-	}
-	return response, nil
-}
-
-func (c *Remote) RecordPromptHistory(ctx context.Context, req serverapi.RuntimeRecordPromptHistoryRequest) error {
-	return c.call(ctx, protocol.MethodRuntimeRecordPromptHistory, req, nil)
-}
-
-func (c *Remote) ShowGoal(ctx context.Context, req serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return callValidatedControlRPC[serverapi.RuntimeGoalShowRequest, serverapi.RuntimeGoalShowResponse](c, ctx, protocol.MethodRuntimeGoalShow, req)
-}
-
-func (c *Remote) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return callValidatedControlRPC[serverapi.RuntimeGoalSetRequest, serverapi.RuntimeGoalShowResponse](c, ctx, protocol.MethodRuntimeGoalSet, req)
-}
-
-func (c *Remote) PauseGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return callValidatedControlRPC[serverapi.RuntimeGoalStatusRequest, serverapi.RuntimeGoalShowResponse](c, ctx, protocol.MethodRuntimeGoalPause, req)
-}
-
-func (c *Remote) ResumeGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return callValidatedControlRPC[serverapi.RuntimeGoalStatusRequest, serverapi.RuntimeGoalShowResponse](c, ctx, protocol.MethodRuntimeGoalResume, req)
-}
-
-func (c *Remote) CompleteGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return callValidatedControlRPC[serverapi.RuntimeGoalStatusRequest, serverapi.RuntimeGoalShowResponse](c, ctx, protocol.MethodRuntimeGoalComplete, req)
-}
-
-func (c *Remote) ClearGoal(ctx context.Context, req serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return callValidatedControlRPC[serverapi.RuntimeGoalClearRequest, serverapi.RuntimeGoalShowResponse](c, ctx, protocol.MethodRuntimeGoalClear, req)
-}
-
-func callValidatedControlRPC[Request any, Response interface{ Validate() error }](c *Remote, ctx context.Context, method string, req Request) (Response, error) {
-	response, err := callControlRPC[Request, Response](c, ctx, method, req)
-	if err != nil {
-		return response, err
-	}
-	if err := response.Validate(); err != nil {
-		var zero Response
-		return zero, invalidResponseError(method, err)
-	}
-	return response, nil
-}
-
-func (c *Remote) ListProcesses(ctx context.Context, req serverapi.ProcessListRequest) (serverapi.ProcessListResponse, error) {
-	var resp serverapi.ProcessListResponse
-	return resp, c.call(ctx, protocol.MethodProcessList, req, &resp)
-}
-
-func (c *Remote) GetProcess(ctx context.Context, req serverapi.ProcessGetRequest) (serverapi.ProcessGetResponse, error) {
-	var resp serverapi.ProcessGetResponse
-	return resp, c.call(ctx, protocol.MethodProcessGet, req, &resp)
-}
-
-func (c *Remote) KillProcess(ctx context.Context, req serverapi.ProcessKillRequest) (serverapi.ProcessKillResponse, error) {
-	var resp serverapi.ProcessKillResponse
-	return resp, c.call(ctx, protocol.MethodProcessKill, req, &resp)
-}
-
-func (c *Remote) GetInlineOutput(ctx context.Context, req serverapi.ProcessInlineOutputRequest) (serverapi.ProcessInlineOutputResponse, error) {
-	var resp serverapi.ProcessInlineOutputResponse
-	return resp, c.call(ctx, protocol.MethodProcessInlineOutput, req, &resp)
-}
-
-func (c *Remote) ListPendingAsksBySession(ctx context.Context, req serverapi.AskListPendingBySessionRequest) (serverapi.AskListPendingBySessionResponse, error) {
-	var resp serverapi.AskListPendingBySessionResponse
-	return resp, c.call(ctx, protocol.MethodAskListPending, req, &resp)
-}
-
-func (c *Remote) AnswerPromptBatch(ctx context.Context, req serverapi.PromptAnswerBatchRequest) (serverapi.PromptAnswerBatchResponse, error) {
-	response, err := callControlRPC[serverapi.PromptAnswerBatchRequest, serverapi.PromptAnswerBatchResponse](c, ctx, protocol.MethodPromptAnswerBatch, req)
-	if err != nil {
-		return serverapi.PromptAnswerBatchResponse{}, err
-	}
-	if err := serverapi.ValidatePromptAnswerBatchResponse(req, response); err != nil {
-		return serverapi.PromptAnswerBatchResponse{}, fmt.Errorf("validate prompt answer batch response: %w", err)
-	}
-	return response, nil
-}
-
-func (c *Remote) ListPendingApprovalsBySession(ctx context.Context, req serverapi.ApprovalListPendingBySessionRequest) (serverapi.ApprovalListPendingBySessionResponse, error) {
-	var resp serverapi.ApprovalListPendingBySessionResponse
-	return resp, c.call(ctx, protocol.MethodApprovalListPending, req, &resp)
 }
 
 func (c *Remote) ensureOpen() error {
@@ -913,21 +688,6 @@ func (c *Remote) ensureOpen() error {
 		return errors.New("remote client is closed")
 	}
 	return nil
-}
-
-func (c *Remote) call(ctx context.Context, method string, params any, out any) error {
-	return c.callUnscoped(ctx, method, params, out)
-}
-
-func callValidatedRPC[Req any, Resp interface{ Validate() error }](c *Remote, ctx context.Context, method string, req Req) (Resp, error) {
-	var resp Resp
-	if err := c.call(ctx, method, req, &resp); err != nil {
-		return resp, err
-	}
-	if err := resp.Validate(); err != nil {
-		return resp, fmt.Errorf("validate %s response: %w", method, err)
-	}
-	return resp, nil
 }
 
 func (c *Remote) callUnscoped(ctx context.Context, method string, params any, out any) error {
@@ -954,7 +714,12 @@ func (c *Remote) ensureControl(ctx context.Context) (*remoteControlConn, error) 
 		_ = c.control.Close()
 		c.control = nil
 	}
-	conn, cleanup, state, err := c.openSetupRPCConn(ctx, nil)
+	conn, cleanup, state, err := c.openSetupRPCConnForAttachment(
+		ctx,
+		nil,
+		c.attachIntent,
+		c.attachment,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -965,6 +730,15 @@ func (c *Remote) ensureControl(ctx context.Context) (*remoteControlConn, error) 
 	control := newRemoteControlConn(conn)
 	c.control = control
 	c.identity = state.identity
+	c.attachment = state.attachment
+	if state.attachment != nil && state.attachment.session != nil {
+		c.attachIntent, err = newRemoteSessionReattachmentIntent(*state.attachment.session)
+		if err != nil {
+			_ = control.Close()
+			c.control = nil
+			return nil, err
+		}
+	}
 	return control, nil
 }
 
@@ -976,7 +750,7 @@ func dialRemoteURL(ctx context.Context, rpcURL string, intent *remoteAttachmentI
 	return dialRemoteWithTransport(ctx, remoteDialPlan{endpoints: []rpcwire.Endpoint{endpoint}}, rpcwire.NewWebSocketTransport(), intent)
 }
 
-func dialConfiguredRemote(ctx context.Context, cfg config.App, intent *remoteAttachmentIntent) (*Remote, error) {
+func dialConfiguredRemote(ctx context.Context, cfg config.Connection, intent *remoteAttachmentIntent) (*Remote, error) {
 	plan, err := configuredRemoteDialPlan(cfg)
 	if err != nil {
 		return nil, err

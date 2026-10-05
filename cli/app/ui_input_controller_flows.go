@@ -61,7 +61,7 @@ func (c uiInputController) stopProcessListFlowCmd() tea.Cmd {
 	overlayCmd := m.restoreTranscriptSurface()
 	m.closeProcessList()
 	spinnerCmd := m.reconcileSpinnerTicking(false)
-	releaseCmd := m.releaseDeferredRuntimeSyncs()
+	releaseCmd := m.drainPendingRuntimeMainViewRefresh()
 	if overlayCmd != nil {
 		return tea.Batch(overlayCmd, spinnerCmd, releaseCmd)
 	}
@@ -91,7 +91,7 @@ func (c uiInputController) normalizePendingCSIShiftEnterOnEnter() {
 	}
 	if strings.HasSuffix(m.mainEditor.Text(), "\n") {
 		m.mainEditor.Replace(strings.TrimSuffix(m.mainEditor.Text(), "\n"))
-		m.refreshSlashCommandFilterFromInputWithAuth(true)
+		m.refreshSlashCommandFilterFromInput()
 	}
 	c.clearPendingCSIShiftEnter()
 }

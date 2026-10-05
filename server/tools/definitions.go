@@ -40,7 +40,7 @@ var catalogEntries = []CatalogEntry{
 	},
 	{
 		ID:          toolspec.ToolViewImage,
-		Description: "View a local PNG, JPEG, still GIF, or PDF file by path. You will see PDFs as images (not OCR/text).",
+		Description: "View a local PNG, JPEG, still WebP, still GIF, or PDF file by path. You will see PDFs as images (not OCR/text).",
 		Contract: localContract(
 			LocalRuntimeBuilderViewImage,
 			RequestExposure{Enabled: true, RequiresVision: true},

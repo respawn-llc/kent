@@ -8,8 +8,7 @@ import (
 	"core/cli/tui/transcriptrender"
 	"core/internal/testharness/pty"
 	"core/internal/testharness/pty/analyzer"
-	"core/shared/clientui"
-	"core/shared/transcript"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
 func TestSurfaceVerticalShrinkMovesVisibleCommittedRowsIntoNativeScrollback(t *testing.T) {
@@ -298,17 +297,20 @@ func TestScratchHydrationResetErasesExpandedBottomBand(t *testing.T) {
 	}
 }
 
-func committedAssistantMessage(text string) clientui.TranscriptMessage {
-	return clientui.NewTranscriptMessage(0, clientui.NewTranscriptEvent(clientui.TranscriptCommittedRow{
-		Visibility: transcript.EntryVisibilityOngoing,
-		Integrity:  transcript.RowIntegrityValid,
-		Kind:       clientui.TranscriptRowAssistant,
-		Assistant: &clientui.TranscriptAssistantRow{
-			Text:  text,
-			Phase: transcript.AssistantPhaseFinal,
-		},
-	}))
-
+func committedAssistantMessage(text string) *transcriptpb.Message {
+	return &transcriptpb.Message{
+		Sequence: 2,
+		Event: &transcriptpb.Event{Payload: &transcriptpb.Event_CommittedRow{
+			CommittedRow: &transcriptpb.CommittedRow{
+				Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
+				Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+				Row: &transcriptpb.CommittedRow_Assistant{Assistant: &transcriptpb.AssistantRow{
+					Text:  text,
+					Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL,
+				}},
+			},
+		}},
+	}
 }
 
 func screenContains(snapshot pty.ScreenSnapshot, want string) bool {

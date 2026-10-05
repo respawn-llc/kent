@@ -16,19 +16,20 @@
 - Content is organized in sections — Session, Git, Context, Auth (account + subscription windows with usage bars and reset times), Config (override sources, supervisor, questions), Skills, AGENTS.md inspection, Warnings — each section loads independently with a loading placeholder; section failures become warnings listed in the Warnings section, never a blank overlay. The section set is behavior-level; copy/layout is presentation.
 - Keys: scroll only (shared conventions); no actions.
 - `/status` does not show server ownership because the TUI is always a client.
+- The Config section must show a tree of contributing configuration-file paths in global → shared workspace → Main Workspace private precedence order. It must omit files that did not contribute settings and retain the environment and command-line override summary. It must not add a per-property source list.
 
 ## /goal
 
 - `/goal` and `/goal show` open the overlay. `set <objective>`, `pause`, `resume`, and `clear` act directly.
-- An accepted queued Set or replacement shows the preview defined by `core-runtime-tools.md` directly as non-authoritative command feedback. The TUI does not cache or reconcile the preview; Goal mutations and broadcasts remain authoritative for their operations, while Goal reads return the latest completed durable projection.
+- A successful Goal Set applies its committed authoritative Goal result and then shows exactly one transient warning status when the result carries a post-commit diagnostic. The diagnostic creates no transcript entry and does not change the successful Goal result.
 - Overlay shows goal status, goal ID, and the objective rendered as Markdown; a no-goal state shows a hint to start one; load errors render inline in the overlay.
 - Setting an objective while a goal is active opens a Replace confirmation (current vs new objective); clearing an active goal opens a Clear confirmation. Both use a Cancel/Confirm button group (Cancel default) with `y`/`n` shortcuts; confirming issues the mutation and closes the confirm state. Paused goals clear without confirmation.
-- Goal changes for an Active Session Runtime enter Steering as distinct typed intents in acceptance order. The overlay does not replace, coalesce, or replay an earlier accepted Goal change.
+- Goal changes for an Active Session Runtime enter Steering as distinct typed intents in acceptance order. When a follow-up Goal mutation is pending locally, the TUI starts its RPC only after the preceding committed Goal result and transient warning settle.
 
 ## /ps
 
 - The overlay lists background processes with their state, command, and working directory. It refreshes while open and when process state changes. It has no manual-refresh key.
-- Actions on the selected process: `Enter`/`i` paste the process's recent output into the composer (appending below any existing draft) and close the overlay; `k` sends terminate and refreshes the list; `o` opens the log file via the system opener, falling back to `$VISUAL`/`$EDITOR`. Each action is single-flight; results and failures surface as status notices.
+- Actions on the selected process: `Enter`/`i` paste the process's recent output into the composer (appending below the composer draft) and close the overlay; `k` sends terminate and refreshes the list; `o` opens the log file via the system opener, falling back to `$VISUAL`/`$EDITOR`. Each action is single-flight; results and failures surface as status notices.
 - The paste action is draft-safe: if the composer draft changed between request and response, the stale output is discarded rather than spliced into the newer draft.
 - With no processes, actions produce a "nothing selected" notice; the overlay stays open.
 

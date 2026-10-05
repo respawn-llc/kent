@@ -6,9 +6,9 @@
 - A Project has one default workspace, and that workspace must belong to the Project.
 - The same workspace path may belong to several Projects, but it may belong to one Project only once.
 - Attaching a workspace creates only the Project-workspace relationship.
-- Detaching a workspace removes the selected Project-workspace relationship together with its pre-Session Chat draft.
+- Detaching a workspace removes only the selected Project-workspace relationship.
 - Workspace files remain in place when attaching, detaching, or changing the default workspace.
-- All other artifacts remain intact after detach, including Tasks, Sessions, worktrees, retained Workflow state, and materialized Session drafts.
+- All other artifacts remain intact after detach, including Tasks, Sessions, worktrees, retained Workflow state, and ordinary Session drafts.
 - A Project Workspace catalog covers every Workspace attached to its Project.
 - Catalog reads request bounded segments and never request the complete catalog as one unbounded operation.
 - Exact Project-scoped path and Workspace ID selection remain available independently of catalog page retention.
@@ -17,7 +17,8 @@
 
 - Detach requires an explicit Project and one workspace selected by path or workspace ID.
 - Path selection is scoped only to the selected Project.
-- If the selected workspace is not attached to the selected Project, detach fails without revealing its relationships to other Projects.
+- If a selected Workspace ID no longer exists, detach must succeed without mutation when the selected Project exists. Concurrent repeated detach of that ID must also succeed.
+- If a selected Workspace belongs to a different Project, detach must fail without revealing its relationships to other Projects. An unresolved path selector must fail without detaching anything.
 - A saved workspace path may be detached while its directory is missing or inaccessible.
 - When path identity cannot be recovered, the operator can select the workspace by ID.
 - Detach is blocked for a default workspace, including a Project's sole workspace, non-terminal dependent Tasks, live Session execution, worktree dependencies, or missing retained Session location information.
@@ -38,6 +39,8 @@
 - The exact Project-scoped Workspace API returns a typed `not_attached` outcome when the selected Workspace is not attached to the selected Project.
 - The workspace-attach API returns the authoritative Project-workspace binding with a typed `attached` or `already_attached` outcome.
 - Project overview and board reads obtain bounded Project, default-Workspace, Workspace-count, and exact source-Workspace facts without loading the Project Workspace catalog.
+- Project overview and board Workspace facts must come from stored metadata without inspecting the filesystem or traversing Sessions. They must preserve Workspace identity, names, source facts, ordering, default selection, and the total attached Workspace count.
+- A Task's source Workspace must use its attached Workspace facts when available, or its saved source facts when detached. A Task without an explicit source must use the Project default. An unresolvable explicit source without valid saved facts, or a broken Project default, must surface as a developer error rather than substituting another Workspace.
 - The workspace-detach API requires a Project ID and exactly one workspace selector: workspace ID or workspace path.
 - The default-workspace API requires a Project ID and exactly one workspace selector: workspace ID or workspace path.
 - Workspace-ID requests remain supported.

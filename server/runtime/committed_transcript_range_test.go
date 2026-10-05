@@ -9,6 +9,7 @@ import (
 	"core/server/session"
 	"core/server/tools"
 	"core/shared/config"
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -23,7 +24,7 @@ func TestAssistantMessageAfterCacheWarningOwnsOnlyAssistantRange(t *testing.T) {
 		&fakeClient{},
 		tools.NewRegistry(),
 		Config{
-			Model:            "gpt-5",
+			Model:            "gpt-6-sol",
 			CacheWarningMode: config.CacheWarningModeVerbose,
 			OnEvent:          func(event Event) { events = append(events, event) },
 		},
@@ -31,7 +32,7 @@ func TestAssistantMessageAfterCacheWarningOwnsOnlyAssistantRange(t *testing.T) {
 	stepID := runtimeTestStepID("step")
 	restoreStep := setTestActiveStep(engine, stepID)
 	defer restoreStep()
-	if err := engine.observePromptCacheResponse(stepID, preparedCacheRequestObservation{
+	if err := engine.observeProviderResponse(stepID, llm.Request{Model: "gpt-6-sol"}, modelcontract.ProviderOperationPurposeGeneration, preparedCacheRequestObservation{
 		request: persistedCacheRequestObserved{
 			DigestVersion: requestCacheDigestVersion,
 			CacheKey:      "cache-key",
@@ -44,7 +45,7 @@ func TestAssistantMessageAfterCacheWarningOwnsOnlyAssistantRange(t *testing.T) {
 			Reason: transcript.CacheWarningReasonNonPostfix,
 		},
 		previousCachedInputTokens: 10,
-	}, llm.Usage{CachedInputTokens: textutil.Value(0)}); err != nil {
+	}, modelcontract.ProviderUsageEvidence{}, llm.Usage{CachedInputTokens: textutil.Value(0)}); err != nil {
 		t.Fatalf("observe cache warning: %v", err)
 	}
 
@@ -101,7 +102,7 @@ func TestFinalAnswerToolMaterializationPublishesToolCallBeforeLocalEntry(t *test
 			Handler: fakeTool{name: toolspec.ToolExecCommand},
 		}),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -193,7 +194,7 @@ func TestStepLoopPublishesCommentaryToolEnvelopeBeforeReasoningAndToolResults(t 
 			Handler: fakeTool{name: toolspec.ToolExecCommand},
 		}),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -264,7 +265,7 @@ func TestStepLoopPersistsReasoningAsDetailLocalEntry(t *testing.T) {
 		client,
 		tools.NewRegistry(),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -424,7 +425,7 @@ func TestTranscriptHydrationRetainsAdjacentRowsAroundProviderEmptyAssistant(t *t
 		}
 	}
 
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	restoreStep := setTestActiveStep(engine, "compaction")
 	defer restoreStep()
 	var hydration TranscriptHydrationSnapshot
@@ -448,7 +449,7 @@ func TestTranscriptHydrationRetainsAdjacentRowsAroundProviderEmptyAssistant(t *t
 func TestReopenedCompactionPublishesVisibleTranscriptCoordinates(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	for _, role := range []string{
 		string(transcript.EntryRoleSystem),
 		string(transcript.EntryRoleSystem),
@@ -487,7 +488,7 @@ func TestReopenedCompactionPublishesVisibleTranscriptCoordinates(t *testing.T) {
 		&fakeClient{},
 		tools.NewRegistry(),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -523,7 +524,7 @@ func TestHistoryReplacementPublishesPreservedUserMessageBeforeFollowingLocalEntr
 		&fakeClient{},
 		tools.NewRegistry(),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)

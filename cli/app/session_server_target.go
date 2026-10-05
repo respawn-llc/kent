@@ -9,7 +9,6 @@ import (
 	"core/cli/app/internal/startupconfig"
 	"core/shared/client"
 	"core/shared/config"
-	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	"core/shared/protocol"
 
@@ -27,26 +26,23 @@ func startSessionServer(ctx context.Context, opts Options, interactor authIntera
 		return nil, err
 	}
 	closeRemote := true
+	remoteServer := newRemoteAppServerWithAuth(remote, cfg, resolved.Local)
 	defer func() {
 		if closeRemote {
-			returnErr = errors.Join(returnErr, remote.Close())
+			returnErr = errors.Join(returnErr, remoteServer.Close())
 		}
 	}()
-	remoteServer := newRemoteAppServerWithAuth(remote, cfg)
 	server = remoteServer
-	if err := server.EnsureAuthReady(ctx, interactor, interactive); err != nil {
-		return nil, err
-	}
 	readinessResponse, err := remote.GetReadiness(ctx, &emptypb.Empty{})
 	if err != nil {
 		return nil, newConfiguredServerPreflightError(cfg, "probe server readiness", err)
 	}
 	readiness := readinessResponse.GetReadiness()
-	if !startupReadinessAllowsSession(remote, readiness) {
+	if !readiness.GetReady() {
 		if !serverRequiresOnboarding(readiness) {
 			return nil, newConfiguredServerPreflightError(cfg, "server is not ready", errors.New(readinessReason(readiness)))
 		}
-		result, err := runOnboardingFlow(ctx, cfg, remote, remote)
+		result, err := runOnboardingFlow(ctx, cfg, resolved.Local, remote, remote, remote)
 		if err != nil {
 			return nil, err
 		}
@@ -56,16 +52,25 @@ func startSessionServer(ctx context.Context, opts Options, interactor authIntera
 			return nil, newConfiguredServerPreflightError(cfg, "confirm onboarding completion", err)
 		}
 		readiness = readinessResponse.GetReadiness()
-		if !startupReadinessAllowsSession(remote, readiness) {
+		if !readiness.GetReady() {
 			return nil, newConfiguredServerPreflightError(cfg, "activate completed onboarding", errors.New(readinessReason(readiness)))
 		}
 	}
+	if sessionID := strings.TrimSpace(opts.SessionID); sessionID != "" {
+		if err := remoteServer.ReattachSession(ctx, sessionID); err != nil {
+			return nil, err
+		}
+	}
+	if interactive {
+		if err := remoteServer.EnsureConnectionSetup(ctx); err != nil {
+			return nil, err
+		}
+	}
 	closeRemote = false
-	remoteServer.clientSettings = resolved.Client
 	return server, nil
 }
 
-func attachConfiguredStartupRemote(ctx context.Context, cfg config.App) (attached *client.Remote, returnErr error) {
+func attachConfiguredStartupRemote(ctx context.Context, cfg config.Connection) (attached *client.Remote, returnErr error) {
 	remote, err := client.DialConfiguredRemote(ctx, cfg)
 	if err != nil {
 		return nil, newConfiguredServerPreflightError(cfg, "attach", err)
@@ -84,16 +89,6 @@ func attachConfiguredStartupRemote(ctx context.Context, cfg config.App) (attache
 	}
 	if _, err := remote.GetReadiness(ctx, &emptypb.Empty{}); err != nil {
 		return nil, newConfiguredServerPreflightError(cfg, "probe server readiness", err)
-	}
-	if _, err := remote.GetBootstrapStatus(ctx, &emptypb.Empty{}); err != nil {
-		return nil, newConfiguredServerPreflightError(cfg, "probe auth bootstrap", err)
-	}
-	var workspaceRoot *string
-	if root := strings.TrimSpace(cfg.WorkspaceRoot); root != "" {
-		workspaceRoot = &root
-	}
-	if _, err := remote.GetFacts(ctx, &capabilitypb.GetFactsRequest{WorkspaceRoot: workspaceRoot}); err != nil {
-		return nil, newConfiguredServerPreflightError(cfg, "probe onboarding capability facts", err)
 	}
 	closeRemote = false
 	return remote, nil
@@ -120,9 +115,9 @@ func (e *configuredServerPreflightError) Unwrap() error {
 	return e.cause
 }
 
-func newConfiguredServerPreflightError(cfg config.App, operation string, cause error) error {
+func newConfiguredServerPreflightError(cfg config.Connection, operation string, cause error) error {
 	return &configuredServerPreflightError{
-		endpoint:  config.ServerRPCURL(cfg),
+		endpoint:  cfg.RPCURL(),
 		operation: operation,
 		cause:     cause,
 	}
@@ -130,18 +125,6 @@ func newConfiguredServerPreflightError(cfg config.App, operation string, cause e
 
 func serverRequiresOnboarding(readiness *serverpb.Readiness) bool {
 	return serverReadinessHasCause(readiness, "onboarding_required")
-}
-
-func startupReadinessAllowsSession(remote *client.Remote, readiness *serverpb.Readiness) bool {
-	if readiness.GetReady() {
-		return true
-	}
-	return remote != nil &&
-		remote.NoAuthBootstrapAcknowledgementEnabled() &&
-		readiness.GetAuthRequired() &&
-		!readiness.GetAuthReady() &&
-		!serverRequiresOnboarding(readiness) &&
-		!serverReadinessHasCause(readiness, "activation_failed")
 }
 
 func serverReadinessHasCause(readiness *serverpb.Readiness, reason string) bool {

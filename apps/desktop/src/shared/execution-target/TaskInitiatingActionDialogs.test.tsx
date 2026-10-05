@@ -1,24 +1,14 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
-import {
-  parseSetupOperationID,
-  RpcError,
-  type TaskSetupRecovery,
-  type TaskStartResponse,
-  type WorkflowExecutionTargetSelection,
-} from "@/api";
+import { type TaskStartResponse, type WorkflowExecutionTargetSelection } from "@/api";
 import { TestAppProviders, createTestServices } from "@/test-support/app-services";
-import {
-  callParams,
-  getCallCount,
-  interruptedTaskAttentionResponse,
-  mountTaskDetailSurface,
-  taskDetailResponseWithInterruptedCurrentScript,
-} from "@/test-support/task-detail";
+import { deferred } from "@/test-support/chat-runtime";
+import { retainedSetupError, taskMoveBranchCollision } from "@/test-support/task-errors";
 import {
   startTaskInitiatingAction,
+  resumeTaskInitiatingAction,
   moveTaskInitiatingAction,
   TaskInitiatingActionDialogs,
   type TaskInitiatingAction,
@@ -33,17 +23,193 @@ type ExecuteStub = (
 ) => Promise<Readonly<{ kind: "start"; response: TaskStartResponse }>>;
 
 const appServices = createTestServices([], undefined, { platform: "macos" });
-const setupRecovery = {
-  setupOperationID: parseSetupOperationID("55555555-5555-4555-8555-555555555555"),
-  cause: "target_preparation",
-  diagnostic: "failed",
-  scriptPath: null,
-  executionTarget: { mode: "head", customRef: null },
-  retainedWorktree: null,
-  retainedPreviousWorktree: null,
-} satisfies TaskSetupRecovery;
 
 describe("TaskInitiatingActionDialogs", () => {
+  it.each(["start", "resume"] as const)(
+    "retries a %s setup failure from its operation response and stays pending until completion",
+    async (kind) => {
+      const action =
+        kind === "start" ? startTaskInitiatingAction("task-1") : resumeTaskInitiatingAction("task-1");
+      const completion = deferred<TaskInitiatingActionResult>();
+      const execute = vi
+        .fn(async (): Promise<TaskInitiatingActionResult> => completion.promise)
+        .mockRejectedValueOnce(retainedSetupError());
+      render(
+        <TestAppProviders services={appServices}>
+          <MoveHarness execute={execute} action={action} />
+        </TestAppProviders>,
+      );
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId("initiate-move"));
+      const retry = await screen.findByTestId("setup-recovery-retry");
+      await user.click(retry);
+      await waitFor(() => {
+        expect(execute).toHaveBeenCalledTimes(2);
+      });
+      expect(execute).toHaveBeenLastCalledWith(action, undefined);
+      expect(retry).toHaveAttribute("aria-busy", "true");
+      await user.click(retry);
+      expect(execute).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        completion.resolve(
+          action.kind === "start"
+            ? { kind: "start", action, response: { outcome: "applied", applied: { currentNodes: [] } } }
+            : { kind: "resume", action, response: { outcome: "applied", applied: { currentNodes: [] } } },
+        );
+      });
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    },
+  );
+
+  it("carries a managed replacement branch while preserving the Move input", async () => {
+    const execute = vi.fn(async (action: TaskInitiatingAction): Promise<TaskInitiatingActionResult> => ({
+      kind: "move",
+      action: requireMove(action),
+      response: {
+        outcome: "selection_required",
+        selectionRequired: { reason: "original_target_unavailable", originalTargetCause: "missing_branch" },
+      },
+    }));
+    render(
+      <TestAppProviders services={appServices}>
+        <MoveHarness execute={execute} />
+      </TestAppProviders>,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("initiate-move"));
+    await user.type(await screen.findByTestId("execution-target-branch-name"), "task-reopened");
+    await user.click(screen.getByTestId("execution-target-submit"));
+    await waitFor(() => {
+      expect(execute).toHaveBeenCalledTimes(2);
+    });
+    expect(requireMove(execute.mock.calls[1]?.[0]).input).toMatchObject({
+      branchName: "task-reopened",
+      commentary: "keep this",
+      transitionKey: "next",
+      values: { plan: { summary: "done" } },
+    });
+  });
+
+  it("carries a fresh branch choice when retrying Resume after replacement setup failure", async () => {
+    const action = resumeTaskInitiatingAction("task-1");
+    const execute = vi.fn(async (): Promise<TaskInitiatingActionResult> => {
+      throw retainedSetupError("fresh_replacement");
+    });
+    render(
+      <TestAppProviders services={appServices}>
+        <MoveHarness execute={execute} action={action} />
+      </TestAppProviders>,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("initiate-move"));
+    await user.click(await screen.findByTestId("setup-recovery-choose"));
+    expect(screen.queryByTestId("setup-recovery-retry")).not.toBeInTheDocument();
+    await user.type(screen.getByTestId("execution-target-branch-name"), "fresh-attempt");
+    await user.click(screen.getByTestId("setup-recovery-target-submit"));
+    await waitFor(() => {
+      expect(execute).toHaveBeenCalledTimes(2);
+    });
+    expect(execute).toHaveBeenLastCalledWith(
+      { ...action, branchName: "fresh-attempt" },
+      { mode: "default_branch", customRef: null },
+    );
+  });
+
+  it("requires a fresh branch choice after replacement setup failure", async () => {
+    let calls = 0;
+    const execute = vi.fn(async (action: TaskInitiatingAction): Promise<TaskInitiatingActionResult> => {
+      calls += 1;
+      if (calls === 1) throw retainedSetupError("fresh_replacement");
+      return appliedMove(action);
+    });
+    render(
+      <TestAppProviders services={appServices}>
+        <MoveHarness execute={execute} />
+      </TestAppProviders>,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("initiate-move"));
+    await screen.findByTestId("setup-recovery-choose");
+    expect(screen.queryByTestId("setup-recovery-retry")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("setup-recovery-choose"));
+    await user.type(screen.getByTestId("execution-target-branch-name"), "fresh-attempt");
+    await user.click(screen.getByTestId("setup-recovery-target-submit"));
+    await waitFor(() => {
+      expect(execute).toHaveBeenCalledTimes(2);
+    });
+    expect(requireMove(execute.mock.calls[1]?.[0]).input.branchName).toBe("fresh-attempt");
+  });
+
+  it("keeps replacement inputs editable after a typed branch collision", async () => {
+    let calls = 0;
+    const execute = vi.fn(async (action: TaskInitiatingAction): Promise<TaskInitiatingActionResult> => {
+      calls += 1;
+      if (calls === 1)
+        return {
+          kind: "move",
+          action: requireMove(action),
+          response: {
+            outcome: "selection_required",
+            selectionRequired: {
+              reason: "original_target_unavailable",
+              originalTargetCause: "missing_branch",
+            },
+          },
+        };
+      if (calls === 2) return taskMoveBranchCollision();
+      return appliedMove(action);
+    });
+    render(
+      <TestAppProviders services={appServices}>
+        <MoveHarness execute={execute} />
+      </TestAppProviders>,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("initiate-move"));
+    const branch = await screen.findByTestId("execution-target-branch-name");
+    await user.type(branch, "taken");
+    await user.click(screen.getByTestId("execution-target-submit"));
+    expect(await screen.findByTestId("execution-target-choice-error")).not.toBeEmptyDOMElement();
+    expect(branch).toHaveValue("taken");
+    await user.clear(branch);
+    await user.type(branch, "available");
+    expect(screen.queryByTestId("execution-target-choice-error")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("execution-target-submit"));
+    await waitFor(() => {
+      expect(execute).toHaveBeenCalledTimes(3);
+    });
+    expect(requireMove(execute.mock.calls[2]?.[0]).input.branchName).toBe("available");
+  });
+
+  it("omits the branch for no-managed replacement and Cancel sends no Move", async () => {
+    const execute = vi.fn(async (action: TaskInitiatingAction): Promise<TaskInitiatingActionResult> => ({
+      kind: "move",
+      action: requireMove(action),
+      response: {
+        outcome: "selection_required",
+        selectionRequired: { reason: "original_target_unavailable", originalTargetCause: "conflict" },
+      },
+    }));
+    render(
+      <TestAppProviders services={appServices}>
+        <MoveHarness execute={execute} />
+      </TestAppProviders>,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("initiate-move"));
+    await user.type(await screen.findByTestId("execution-target-branch-name"), "unused-branch");
+    await user.click(screen.getByText("Source workspace"));
+    expect(screen.queryByTestId("execution-target-branch-name")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("execution-target-submit"));
+    await waitFor(() => {
+      expect(execute).toHaveBeenCalledTimes(2);
+    });
+    expect(requireMove(execute.mock.calls[1]?.[0]).input.branchName).toBeUndefined();
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("closes dependency confirmation and returns approval without executing it", async () => {
     const execute = vi.fn<ExecuteStub>().mockResolvedValue({
       kind: "start",
@@ -55,7 +221,7 @@ describe("TaskInitiatingActionDialogs", () => {
     const onResult = vi.fn<(result: TaskInitiatingActionDialogResult) => void>();
     render(
       <TestAppProviders services={appServices}>
-        <Harness execute={execute} onResult={onResult} setupRecovery={setupRecovery} />
+        <Harness execute={execute} onResult={onResult} />
       </TestAppProviders>,
     );
     const user = userEvent.setup();
@@ -206,100 +372,17 @@ describe("TaskInitiatingActionDialogs", () => {
     expect(execute.mock.calls[2]?.[0]).toEqual(execute.mock.calls[0]?.[0]);
     expect(screen.queryByTestId("setup-recovery-retry")).not.toBeInTheDocument();
   });
-
-  it("recovers the canonical Task-detail interruption with its recorded target", async () => {
-    const attention = {
-      ...interruptedTaskAttentionResponse,
-      items: [
-        {
-          ...interruptedTaskAttentionResponse.items[0],
-          id: "attention-sibling",
-          session_name: null,
-          detail_json: '{"setup_recovery":{}}',
-        },
-        {
-          ...interruptedTaskAttentionResponse.items[0],
-          session_name: null,
-          detail_json: JSON.stringify({
-            setup_recovery: {
-              setup_operation_id: "55555555-5555-4555-8555-555555555555",
-              cause: "process_exit",
-              diagnostic: "task setup failed",
-              script_path: "/repo/setup.sh",
-              setup_requirement: "required",
-              execution_target: { mode: "head" },
-              retained_worktree: { worktree_id: "worktree-1", root: "/worktrees/task-1" },
-              retained_previous_worktree: null,
-            },
-          }),
-        },
-      ],
-    };
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-      configurable: true,
-      value: scrollIntoView,
-    });
-    const services = mountTaskDetailSurface(taskDetailResponseWithInterruptedCurrentScript, {
-      attention,
-      initialFocus: { kind: "interrupted_current_node" },
-      routes: [
-        {
-          method: "workflow.task.resume",
-          result: {
-            outcome: "applied",
-            applied: { current_nodes: [] },
-          },
-        },
-      ],
-    });
-    const user = userEvent.setup();
-
-    await waitFor(() => {
-      expect(scrollIntoView).toHaveBeenCalled();
-    });
-    const focused = scrollIntoView.mock.contexts[0];
-    if (!(focused instanceof HTMLElement)) throw new Error("Expected focused attention row.");
-    await user.click(within(focused).getByTestId("task-detail-resume"));
-    expect(await screen.findByText("task setup failed")).toBeInTheDocument();
-    await user.click(screen.getByTestId("setup-recovery-retry"));
-    await waitFor(() => {
-      expect(getCallCount(services.transport.calls, "workflow.task.resume")).toBe(1);
-    });
-    expect(callParams(services.transport.calls, "workflow.task.resume")).toMatchObject({
-      execution_target: { mode: "head" },
-    });
-  });
-
-  it("surfaces malformed Task-detail recovery contracts", async () => {
-    const attention = {
-      ...interruptedTaskAttentionResponse,
-      items: [
-        {
-          ...interruptedTaskAttentionResponse.items[0],
-          session_name: null,
-          detail_json: '{"setup_recovery":{}}',
-        },
-      ],
-    };
-    mountTaskDetailSurface(taskDetailResponseWithInterruptedCurrentScript, {
-      attention,
-      initialFocus: { kind: "interrupted_current_node" },
-    });
-    expect(await screen.findByRole("alert")).not.toBeEmptyDOMElement();
-  });
 });
 
 function Harness({
   execute,
   onResult,
-  setupRecovery,
 }: Readonly<{
   execute: ExecuteStub;
   onResult: (result: TaskInitiatingActionDialogResult) => void;
-  setupRecovery?: TaskSetupRecovery;
 }>) {
   const controller = useTaskInitiatingActionController({
+    onError: vi.fn(),
     execute: async (action, selection) => {
       const result = await execute(action, selection);
       if (action.kind !== "start") {
@@ -315,99 +398,61 @@ function Harness({
       <button
         data-testid="initiate-action"
         onClick={() => {
-          void controller.run(startTaskInitiatingAction("task-1"));
+          controller.run(startTaskInitiatingAction("task-1"));
         }}
         type="button"
       />
-      <TaskInitiatingActionDialogs
-        continuation={controller}
-        onResult={onResult}
-        setupRecovery={
-          setupRecovery === undefined
-            ? undefined
-            : { onClose: vi.fn(), onSubmit: vi.fn(), recovery: setupRecovery }
-        }
-      />
+      <TaskInitiatingActionDialogs continuation={controller} onResult={onResult} />
     </>
   );
 }
 
 function MoveHarness({
   execute,
-}: Readonly<{
-  execute(
-    action: TaskInitiatingAction,
-    selection?: WorkflowExecutionTargetSelection,
-  ): Promise<TaskInitiatingActionResult>;
-}>) {
-  const controller = useTaskInitiatingActionController({
-    execute,
-    onApplied: vi.fn(),
-    onAppliedError: vi.fn(),
-  });
-  const action = moveTaskInitiatingAction({
+  action = moveTaskInitiatingAction({
     taskID: "task-1",
     targetNodeID: "node-2",
     commentary: "keep this",
     transitionKey: "next",
     values: { plan: { summary: "done" } },
     proceedDespiteDependencies: true,
+  }),
+}: Readonly<{
+  action?: TaskInitiatingAction;
+  execute(
+    action: TaskInitiatingAction,
+    selection?: WorkflowExecutionTargetSelection,
+  ): Promise<TaskInitiatingActionResult>;
+}>) {
+  const controller = useTaskInitiatingActionController({
+    onError: vi.fn(),
+    execute,
+    onApplied: vi.fn(),
+    onAppliedError: vi.fn(),
   });
   return (
     <>
-      <button data-testid="initiate-move" onClick={() => void controller.run(action)} type="button" />
+      <button
+        data-testid="initiate-move"
+        onClick={() => {
+          controller.run(action);
+        }}
+        type="button"
+      />
       <TaskInitiatingActionDialogs
         continuation={controller}
         onResult={(result) => {
-          if (result.kind === "continue") void controller.run(result.action, result.selection);
+          if (result.kind === "continue") controller.run(result.action, result.selection);
         }}
       />
     </>
   );
 }
 
-function retainedSetupError() {
-  const root = "/worktrees/task-1";
-  return new RpcError({
-    code: -32039,
-    message: "setup failed",
-    method: "workflow.task.move",
-    data: {
-      type: "worktree_setup_retained",
-      script_path: "/repo/setup.sh",
-      diagnostic: "setup failed twice",
-      retained_previous_worktree: null,
-      worktree: {
-        variant: "registered",
-        registered: {
-          git: {
-            canonical_root: root,
-            head_object: "abc",
-            branch_ref: null,
-            branch_name: null,
-            detached: false,
-            bare: false,
-            locked_reason: null,
-            prunable_reason: null,
-            is_main: false,
-            path_available: true,
-          },
-          kent: {
-            worktree_id: "worktree-1",
-            canonical_root: root,
-            display_name: "KENT-453",
-            managed: true,
-            created_branch: true,
-            origin_session_id: null,
-          },
-        },
-      },
-    },
-  });
-}
-
-function requireMove(action: TaskInitiatingAction): Extract<TaskInitiatingAction, { kind: "move" }> {
-  if (action.kind !== "move") throw new Error("Expected Move action.");
+function requireMove(
+  action: TaskInitiatingAction | undefined,
+): Extract<TaskInitiatingAction, { kind: "move" }> {
+  if (action?.kind !== "move") throw new Error("Expected Move action.");
   return action;
 }
 

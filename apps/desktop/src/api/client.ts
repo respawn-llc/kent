@@ -1,27 +1,28 @@
-import type { AttentionNotificationEventHandler } from "./attentionNotifications";
-import { attentionNotificationRpcHandler } from "./attentionNotificationSubscription";
+import type { AttentionNotificationLifecycle } from "./attentionNotifications";
+import type * as Stream from "effect/Stream";
+import { attentionNotifications } from "./attentionNotificationSubscription";
 import { create, operationName } from "@app/server-api-contract";
 import {
   ReadinessSeverity,
   ServerService,
   type Readiness,
 } from "@app/server-api-contract/gen/kent/api/server/server_pb";
-import type { ApiConnectionSource, ApiService, ApiSubscription } from "./apiService";
+import type { ApiService, ApiSubscription } from "./apiService";
+import type { ChatApi } from "./chat";
+import type { ChatSessionTarget } from "./chatTypes";
+import { createChatApi } from "./chat";
 import { listSessionPage as listSessionCatalogPage } from "./clientCatalog";
-import { parseRpcResponse as parse } from "./clientParse";
+import * as attention from "./clientAttention";
 import * as taskLifecycle from "./clientTaskLifecycle";
 import * as taskDependencies from "./clientTaskDependencies";
 import * as taskDetail from "./clientTaskDetail";
 import * as promptAnswers from "./clientPromptAnswers";
+import { listPendingPrompts } from "./clientPendingPrompts";
 import * as taskSearch from "./clientTaskSearch";
 import * as worktree from "./clientWorktree";
-import * as pendingWork from "./clientPendingWork";
 import * as project from "./clientProject";
-import {
-  workflowGraphDraftPayload,
-  workflowGraphMetadataPayload,
-  workflowGraphSaveConfirmationPayload,
-} from "./clientWorkflowGraph";
+import * as workflow from "./clientWorkflow";
+import * as processes from "./clientProcesses";
 import type {
   BoardNodeCardsInput,
   PromptAnswerBatchInput,
@@ -44,8 +45,6 @@ import type {
   WorkflowListInput,
   WorkflowProjectLinkInput,
 } from "./clientInputs";
-import { workflowPageSize } from "./clientInputs";
-import { compactJsonObject, emptyJsonObject } from "./json";
 import type { SetupOperationID } from "./setupOperationID";
 import type * as worktreeModels from "./schemas/worktree";
 import { subscribeWorktreeSetup, type WorktreeSetupEventHandler } from "./worktreeSetup";
@@ -94,44 +93,31 @@ import type {
 import type { BoardFilter } from "./workflowBoardFilters";
 import { ContractError } from "./errors";
 import { requireUnarySuccess } from "./protobufRpc";
-import { workflowIDSchema } from "./schemas/workflowID";
-import {
-  attentionPageSchema,
-  projectWorkflowLinksSchema,
-  taskUpdateResponseSchema,
-} from "./schemas/workflowBoard";
-import {
-  workflowCreateAndLinkSchema,
-  workflowCreateSchema,
-  workflowDeletePreviewSchema,
-  workflowDeleteResponseSchema,
-  workflowDefinitionSchema,
-  workflowGraphDeriveWiringSchema,
-  workflowGraphSavePreviewSchema,
-  workflowGraphSaveSchema,
-  workflowGraphValidateDraftSchema,
-  workflowLinkProjectSchema,
-  workflowListSchema,
-  workflowValidationSchema,
-} from "./schemas/workflow";
 import type { DescriptorRpcTransport } from "./transport";
 import type { WorkflowProjectEventHandler } from "./workflowProjectEvents";
 import type { TaskSearchInput, TaskSearchResponse } from "./taskSearch";
-import type { PendingWorkIdentity } from "./pendingWork";
-import { workflowProjectEventRpcHandler } from "./workflowProjectEvents";
+import { subscribeWorkflow } from "./workflowProjectEvents";
+import { projectEvents, type ProjectOverflowReporter } from "./projectEvents";
 import * as workflowBoard from "./clientWorkflowBoard";
 import * as workflowLabels from "./clientWorkflowLabels";
 
 export const guiTaskCommentAuthor = "user";
 
 export class ApiClient implements ApiService {
-  readonly connection: ApiConnectionSource;
   readonly #transport: DescriptorRpcTransport;
 
-  constructor(transport: DescriptorRpcTransport) {
+  constructor(
+    transport: DescriptorRpcTransport,
+    private readonly reportProjectOverflow: ProjectOverflowReporter,
+  ) {
     this.#transport = transport;
-    this.connection = transport.connection;
+    this.chat = createChatApi(transport);
   }
+
+  readonly chat: ChatApi;
+
+  observeProcesses = (target: ChatSessionTarget) => processes.observeProcesses(this.#transport, target);
+  killProcess = async (processID: string) => processes.killProcess(this.#transport, processID);
 
   async getReadiness(): Promise<ServerReadiness> {
     const method = ServerService.method.getReadiness;
@@ -218,227 +204,78 @@ export class ApiClient implements ApiService {
   }
 
   async getWorkflow(workflowID: string): Promise<WorkflowDefinition> {
-    return parse(
-      "workflow.get",
-      workflowDefinitionSchema,
-      await this.#transport.call("workflow.get", { workflow_id: workflowIDSchema.parse(workflowID) }),
-    );
+    return workflow.getWorkflow(this.#transport, workflowID);
   }
 
   async listWorkflows(input: WorkflowListInput = {}): Promise<WorkflowPage> {
-    return parse(
-      "workflow.list",
-      workflowListSchema,
-      await this.#transport.call(
-        "workflow.list",
-        compactJsonObject({
-          offset: input.offset ?? 0,
-          limit: input.limit ?? workflowPageSize,
-          project_id: input.projectID,
-          query: input.query ?? "",
-        }),
-      ),
-    );
+    return workflow.listWorkflows(this.#transport, input);
   }
 
   async createWorkflow(input: WorkflowCreateInput): Promise<WorkflowRecord> {
-    return parse(
-      "workflow.create",
-      workflowCreateSchema,
-      await this.#transport.call(
-        "workflow.create",
-        compactJsonObject({
-          name: input.name,
-          description: input.description,
-        }),
-      ),
-    );
+    return workflow.createWorkflow(this.#transport, input);
   }
 
   async createAndLinkWorkflowToProject(
     input: WorkflowCreateAndLinkInput,
   ): Promise<Readonly<{ workflow: WorkflowRecord; link: ProjectWorkflowLink }>> {
-    return parse(
-      "workflow.createAndLinkProject",
-      workflowCreateAndLinkSchema,
-      await this.#transport.call(
-        "workflow.createAndLinkProject",
-        compactJsonObject({
-          name: input.name,
-          description: input.description,
-          project_id: input.projectID,
-          default_policy: "if_project_has_none",
-        }),
-      ),
-    );
+    return workflow.createAndLinkWorkflowToProject(this.#transport, input);
   }
 
   async linkWorkflowToProject(input: WorkflowProjectLinkInput): Promise<ProjectWorkflowLink> {
-    return parse(
-      "workflow.linkProject",
-      workflowLinkProjectSchema,
-      await this.#transport.call(
-        "workflow.linkProject",
-        compactJsonObject({
-          project_id: input.projectID,
-          workflow_id: workflowIDSchema.parse(input.workflowID),
-          default_policy: "if_project_has_none",
-        }),
-      ),
-    );
+    return workflow.linkWorkflowToProject(this.#transport, input);
   }
 
   async validateWorkflow(
     workflowID: string,
     mode: "draft" | "task_creation" | "execution",
   ): Promise<WorkflowValidation> {
-    return parse(
-      "workflow.validate",
-      workflowValidationSchema,
-      await this.#transport.call("workflow.validate", {
-        workflow_id: workflowIDSchema.parse(workflowID),
-        mode,
-      }),
-    );
+    return workflow.validateWorkflow(this.#transport, workflowID, mode);
   }
 
   async validateWorkflowScriptPath(input: WorkflowScriptPathValidateInput): Promise<WorkflowValidation> {
-    return parse(
-      "workflow.scriptPath.validate",
-      workflowValidationSchema,
-      await this.#transport.call(
-        "workflow.scriptPath.validate",
-        compactJsonObject({
-          workflow_id: workflowIDSchema.parse(input.workflowID),
-          node_id: input.nodeID,
-          script_path: input.scriptPath,
-        }),
-      ),
-    );
+    return workflow.validateWorkflowScriptPath(this.#transport, input);
   }
 
   async validateWorkflowGraphDraft(
     input: WorkflowGraphValidateDraftInput,
   ): Promise<WorkflowGraphValidateDraftResult> {
-    return parse(
-      "workflow.graph.validateDraft",
-      workflowGraphValidateDraftSchema,
-      await this.#transport.call(
-        "workflow.graph.validateDraft",
-        compactJsonObject({
-          workflow_id: workflowIDSchema.parse(input.workflowID),
-          metadata: workflowGraphMetadataPayload(input.metadata),
-          graph: workflowGraphDraftPayload(input.graph),
-          modes: input.modes,
-        }),
-      ),
-    );
+    return workflow.validateWorkflowGraphDraft(this.#transport, input);
   }
 
   async deriveWorkflowGraphWiring(input: WorkflowGraphDeriveWiringInput): Promise<WorkflowDerivedWiring> {
-    return parse(
-      "workflow.graph.deriveWiring",
-      workflowGraphDeriveWiringSchema,
-      await this.#transport.call(
-        "workflow.graph.deriveWiring",
-        compactJsonObject({
-          workflow_id: workflowIDSchema.parse(input.workflowID),
-          graph: workflowGraphDraftPayload(input.graph),
-        }),
-      ),
-    );
+    return workflow.deriveWorkflowGraphWiring(this.#transport, input);
   }
 
   async previewWorkflowGraphSave(input: WorkflowGraphSavePreviewInput): Promise<WorkflowGraphSavePreview> {
-    return parse(
-      "workflow.graph.savePreview",
-      workflowGraphSavePreviewSchema,
-      await this.#transport.call(
-        "workflow.graph.savePreview",
-        compactJsonObject({
-          workflow_id: workflowIDSchema.parse(input.workflowID),
-          expected_version: input.expectedVersion,
-          metadata: workflowGraphMetadataPayload(input.metadata),
-          graph: workflowGraphDraftPayload(input.graph),
-        }),
-      ),
-    );
+    return workflow.previewWorkflowGraphSave(this.#transport, input);
   }
 
   async saveWorkflowGraph(input: WorkflowGraphSaveInput): Promise<WorkflowGraphSaveResult> {
-    return parse(
-      "workflow.graph.save",
-      workflowGraphSaveSchema,
-      await this.#transport.call(
-        "workflow.graph.save",
-        compactJsonObject({
-          workflow_id: workflowIDSchema.parse(input.workflowID),
-          expected_version: input.expectedVersion,
-          metadata: workflowGraphMetadataPayload(input.metadata),
-          graph: workflowGraphDraftPayload(input.graph),
-          confirmation: workflowGraphSaveConfirmationPayload(input.confirmation),
-        }),
-      ),
-    );
+    return workflow.saveWorkflowGraph(this.#transport, input);
   }
 
   async previewWorkflowDelete(workflowID: string): Promise<WorkflowDeleteImpact> {
-    return parse(
-      "workflow.deletePreview",
-      workflowDeletePreviewSchema,
-      await this.#transport.call("workflow.deletePreview", {
-        workflow_id: workflowIDSchema.parse(workflowID),
-      }),
-    );
+    return workflow.previewWorkflowDelete(this.#transport, workflowID);
   }
 
   async deleteWorkflow(input: WorkflowDeleteInput): Promise<WorkflowDeleteResponse> {
-    return parse(
-      "workflow.delete",
-      workflowDeleteResponseSchema,
-      await this.#transport.call(
-        "workflow.delete",
-        compactJsonObject({
-          workflow_id: workflowIDSchema.parse(input.workflowID),
-          confirmed: input.confirmed,
-          expected_version: input.expectedVersion,
-          expected_project_count: input.expectedProjectCount,
-          expected_link_count: input.expectedLinkCount,
-          expected_task_count: input.expectedTaskCount,
-          cleanup_artifacts: input.cleanupArtifacts,
-        }),
-      ),
-    );
+    return workflow.deleteWorkflow(this.#transport, input);
   }
 
   async listProjectWorkflowLinks(projectID: string): Promise<readonly ProjectWorkflowLink[]> {
-    return parse(
-      "workflow.listProjectLinks",
-      projectWorkflowLinksSchema,
-      await this.#transport.call("workflow.listProjectLinks", { project_id: projectID }),
-    );
+    return workflow.listProjectWorkflowLinks(this.#transport, projectID);
   }
 
   async listBoardNodeCards(input: BoardNodeCardsInput): Promise<BoardNodeCardsPage> {
     return workflowBoard.listBoardNodeCards(this.#transport, input);
   }
 
-  async listAttention(pageToken: string): Promise<AttentionPage> {
-    return parse(
-      "workflow.attention.list",
-      attentionPageSchema,
-      await this.#transport.call(
-        "workflow.attention.list",
-        compactJsonObject({
-          page_size: 40,
-          page_token: pageToken,
-        }),
-      ),
-    );
+  async listAttention(pageToken: string | null): Promise<AttentionPage> {
+    return attention.listAttention(this.#transport, pageToken);
   }
 
   async listTaskAttention(taskID: string): Promise<TaskAttention> {
-    return taskDetail.listTaskAttention(this.#transport, taskID);
+    return attention.listTaskAttention(this.#transport, taskID);
   }
 
   async createTask(input: TaskMutationInput): Promise<CreatedTaskSummary> {
@@ -479,20 +316,7 @@ export class ApiClient implements ApiService {
   }
 
   async updateTask(input: TaskEditInput): Promise<string> {
-    const response = parse(
-      "workflow.task.update",
-      taskUpdateResponseSchema,
-      await this.#transport.call(
-        "workflow.task.update",
-        compactJsonObject({
-          task_id: input.taskID,
-          title: input.title,
-          body: input.body,
-          source_workspace_id: input.sourceWorkspaceID,
-        }),
-      ),
-    );
-    return response.task.id;
+    return taskLifecycle.updateTask(this.#transport, input);
   }
 
   async startTask(input: TaskStartInput): Promise<TaskStartResponse> {
@@ -508,10 +332,7 @@ export class ApiClient implements ApiService {
   }
 
   async interruptTask(taskID: string, sessionID?: string): Promise<void> {
-    await this.#transport.call(
-      "workflow.task.interrupt",
-      compactJsonObject({ task_id: taskID, session_id: sessionID }),
-    );
+    await taskLifecycle.interruptTask(this.#transport, taskID, sessionID);
   }
 
   async resumeTask(input: TaskResumeInput): Promise<TaskResumeResponse> {
@@ -523,7 +344,7 @@ export class ApiClient implements ApiService {
   }
 
   async deleteTask(taskID: string): Promise<void> {
-    await this.#transport.call("workflow.task.delete", { task_id: taskID });
+    await taskLifecycle.deleteTask(this.#transport, taskID);
   }
 
   async getTask(taskID: string): Promise<TaskDetail> {
@@ -543,11 +364,11 @@ export class ApiClient implements ApiService {
   }
 
   async replaceComment(commentID: string, body: string): Promise<void> {
-    await this.#transport.call("workflow.task.comment.replace", { comment_id: commentID, body });
+    await taskDetail.replaceComment(this.#transport, commentID, body);
   }
 
   async deleteComment(commentID: string): Promise<void> {
-    await this.#transport.call("workflow.task.comment.delete", { comment_id: commentID });
+    await taskDetail.deleteComment(this.#transport, commentID);
   }
 
   async answerPromptBatch(input: PromptAnswerBatchInput): Promise<PromptAnswerBatchResponse> {
@@ -555,37 +376,25 @@ export class ApiClient implements ApiService {
   }
 
   async listPendingAsks(sessionID: string): Promise<readonly PendingAsk[]> {
-    return taskDetail.listPendingAsks(this.#transport, sessionID);
+    return taskDetail.listPendingAsks(this.#transport, { sessionID });
   }
 
-  submitManualCompaction = async (sessionID: string, guidance: string | null) =>
-    pendingWork.submitManualCompaction(this.#transport, sessionID, guidance);
-  listPendingWork = async (sessionID: string) => pendingWork.listPendingWork(this.#transport, sessionID);
-  removePendingWork = async (sessionID: string, itemID: PendingWorkIdentity) =>
-    pendingWork.removePendingWork(this.#transport, sessionID, itemID);
+  async listPendingPrompts(sessionID: string) {
+    return listPendingPrompts(this.#transport, { sessionID });
+  }
 
-  subscribeProject(projectID: string, handler: WorkflowProjectEventHandler): ApiSubscription {
-    return this.#transport.subscribe(
-      "workflow.subscribeProject",
-      { project_id: projectID },
-      workflowProjectEventRpcHandler("workflow.project", handler),
-    );
+  subscribeProject(projectID: string) {
+    return projectEvents(this.#transport, projectID, this.reportProjectOverflow);
   }
 
   subscribeWorkflow(workflowID: string, handler: WorkflowProjectEventHandler): ApiSubscription {
-    return this.#transport.subscribe(
-      "workflow.subscribe",
-      { workflow_id: workflowIDSchema.parse(workflowID) },
-      workflowProjectEventRpcHandler("workflow.event", handler),
-    );
+    return subscribeWorkflow(this.#transport, workflowID, handler);
   }
 
-  subscribeAttentionNotifications(handler: AttentionNotificationEventHandler): ApiSubscription {
-    return this.#transport.subscribe(
-      "attention.notification.subscribe",
-      emptyJsonObject,
-      attentionNotificationRpcHandler(handler),
-    );
+  subscribeAttentionNotifications(
+    reportOverflow: () => Promise<void>,
+  ): Stream.Stream<AttentionNotificationLifecycle> {
+    return attentionNotifications(this.#transport, reportOverflow);
   }
 
   getWorktreeStatus = async (sessionID: string) => worktree.getWorktreeStatus(this.#transport, sessionID);
@@ -598,7 +407,7 @@ export class ApiClient implements ApiService {
     worktree.previewWorktreeDelete(this.#transport, sessionID, selector);
   createWorktree = async (input: worktreeModels.WorktreeCreateInput) =>
     worktree.createWorktree(this.#transport, input);
-  switchWorktree = async (sessionID: string, operation: worktreeModels.WorktreeSwitch) =>
+  switchWorktree = async (sessionID: string, operation: worktreeModels.WorktreeTransition) =>
     worktree.switchWorktree(this.#transport, sessionID, operation);
   deleteWorktree = async (
     sessionID: string,
@@ -614,10 +423,7 @@ function projectReadiness(readiness: Readiness): ServerReadiness {
     ready: readiness.ready,
     serverID: readiness.serverId,
     serverVersion: readiness.serverVersion,
-    serverBuild: readiness.serverBuild,
     protocolVersion: readiness.protocolVersion,
-    authReady: readiness.authReady,
-    authRequired: readiness.authRequired,
     endpoint: readiness.endpoint,
     subagentRoles: readiness.subagentRoles.map((role) => ({ name: role.name })),
     causes: readiness.causes.map((cause) => ({

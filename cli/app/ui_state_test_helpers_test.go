@@ -1,11 +1,10 @@
 package app
 
 import (
-	"testing"
-
-	"core/shared/clientui"
-
+	"core/shared/protoapi"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"github.com/google/uuid"
+	"testing"
 )
 
 func testActiveAsk(m *uiModel) *askEvent {
@@ -37,7 +36,7 @@ func testInstallCurrentAskProjection(m *uiModel) {
 	identity, ok := m.currentQuestionRenderIdentity()
 	if !ok {
 		identity = questionRenderIdentity{
-			questionSource:   m.ask.current.prompt.Question,
+			questionSource:   transcriptPromptQuestion(m.ask.current.prompt),
 			terminalWidth:    80,
 			theme:            m.theme,
 			linkPresentation: m.markdownLinks,
@@ -148,10 +147,10 @@ func resolveAnsweredTestAskThroughTranscript(t *testing.T, m *uiModel) {
 		t.Fatal("answered ask is not awaiting the canonical transcript resolution")
 	}
 	resolved := cloneTranscriptPromptForAsk(active.prompt)
-	resolved.Status = clientui.TranscriptPromptStatusResolved
-	message := clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(resolved))
+	resolved.Status = transcriptpb.PromptStatus_PROMPT_STATUS_RESOLVED
+	message := transcriptTestMessage(2, resolved)
 
-	if err := message.Validate(); err != nil {
+	if err := protoapi.Validate(message); err != nil {
 		t.Fatalf("validate prompt resolution transcript message: %v", err)
 	}
 	if cmd := m.applyAdmittedTranscriptMessageState(message, runtimeTupleMergeResult{}); cmd != nil {

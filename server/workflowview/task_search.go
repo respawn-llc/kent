@@ -10,6 +10,8 @@ import (
 
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
+	"core/shared/protoapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
 	"core/shared/tasksearchtext"
 
@@ -38,63 +40,68 @@ func NewTaskSearch(
 	}, nil
 }
 
-func (s *TaskSearch) Search(ctx context.Context, req serverapi.TaskSearchRequest) (response serverapi.TaskSearchResponse, err error) {
+func (s *TaskSearch) Search(ctx context.Context, req *taskpb.SearchRequest) (response *taskpb.SearchSuccess, err error) {
 	if s == nil || s.queries == nil || s.projection == nil {
-		return serverapi.TaskSearchResponse{}, errors.New("task search is required")
+		return nil, errors.New("task search is required")
 	}
-	if err := req.Validate(); err != nil {
-		return serverapi.TaskSearchResponse{}, err
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
+	}
+	if req.Mode == taskpb.SearchMode_SEARCH_MODE_LITERAL {
+		if err := serverapi.ValidateTaskSearchLiteralQuery(req.Query); err != nil {
+			return nil, err
+		}
 	}
 	if err := context.Cause(ctx); err != nil {
-		return serverapi.TaskSearchResponse{}, err
+		return nil, err
 	}
-	offset := 0
-	if req.Offset != nil {
-		offset = *req.Offset
-	}
+	offset := int(req.GetOffset())
 	observation, err := s.projection.Observe(nil)
 	if err != nil {
-		return serverapi.TaskSearchResponse{}, err
+		return nil, err
 	}
 	if err := s.validateSchemaAndScope(ctx, s.queries, req); err != nil {
-		if req.Mode == serverapi.TaskSearchModeFTS5 {
-			return serverapi.TaskSearchResponse{}, taskSearchFTS5OperationalError(err)
+		if req.Mode == taskpb.SearchMode_SEARCH_MODE_FTS5 {
+			return nil, taskSearchFTS5OperationalError(err)
 		}
-		return serverapi.TaskSearchResponse{}, err
+		return nil, err
 	}
-	if req.Mode == serverapi.TaskSearchModeFTS5 {
+	if req.Mode == taskpb.SearchMode_SEARCH_MODE_FTS5 {
 		if _, validationErr := s.queries.ValidateTaskSearchFTS5Expression(ctx, sql.NullString{String: req.Query, Valid: true}); validationErr != nil {
-			return serverapi.TaskSearchResponse{}, taskSearchFTS5OperationalError(validationErr)
+			return nil, taskSearchFTS5OperationalError(validationErr)
 		}
 	}
 	rows, err := s.queryPage(ctx, s.queries, observation.LiveTaskStatesJSON, req, offset)
 	if err != nil {
-		if req.Mode == serverapi.TaskSearchModeFTS5 {
-			return serverapi.TaskSearchResponse{}, taskSearchFTS5OperationalError(err)
+		if req.Mode == taskpb.SearchMode_SEARCH_MODE_FTS5 {
+			return nil, taskSearchFTS5OperationalError(err)
 		}
-		return serverapi.TaskSearchResponse{}, err
+		return nil, err
 	}
-	hasNext := len(rows) > req.PageSize
+	hasNext := len(rows) > int(req.PageSize)
 	if hasNext {
 		rows = rows[:req.PageSize]
 	}
 	groups, err := s.materializeGroups(ctx, s.queries, req, rows)
 	if err != nil {
-		return serverapi.TaskSearchResponse{}, err
+		return nil, err
 	}
-	var next *int
+	var next *int32
 	if hasNext && len(rows) > 0 {
-		value := offset + len(rows)
+		value, err := protoapi.Int32(offset+len(rows), "next_offset")
+		if err != nil {
+			return nil, err
+		}
 		next = &value
 	}
-	response = serverapi.TaskSearchResponse{Mode: req.Mode, Groups: groups, NextOffset: next}
-	if err := response.Validate(); err != nil {
-		return serverapi.TaskSearchResponse{}, fmt.Errorf("validate task search response: %w", err)
+	response = &taskpb.SearchSuccess{Mode: req.Mode, Groups: groups, NextOffset: next}
+	if err := protoapi.Validate(response); err != nil {
+		return nil, fmt.Errorf("validate task search response: %w", err)
 	}
 	return response, nil
 }
 
-func (s *TaskSearch) validateSchemaAndScope(ctx context.Context, queries *sqlitegen.Queries, req serverapi.TaskSearchRequest) error {
+func (s *TaskSearch) validateSchemaAndScope(ctx context.Context, queries *sqlitegen.Queries, req *taskpb.SearchRequest) error {
 	schemaFailures, err := queries.ListTaskSearchSchemaContractFailures(ctx)
 	if err != nil {
 		return err
@@ -116,18 +123,22 @@ func (s *TaskSearch) validateSchemaAndScope(ctx context.Context, queries *sqlite
 	return nil
 }
 
-func (s *TaskSearch) queryPage(ctx context.Context, queries *sqlitegen.Queries, liveTaskStatesJSON string, req serverapi.TaskSearchRequest, offset int) ([]sqlitegen.ListTaskSearchPageDescriptorsRow, error) {
+func (s *TaskSearch) queryPage(ctx context.Context, queries *sqlitegen.Queries, liveTaskStatesJSON string, req *taskpb.SearchRequest, offset int) ([]sqlitegen.ListTaskSearchPageDescriptorsRow, error) {
 	projectIDsJSON, err := taskSearchOptionalJSON(taskSearchProjectIDs(req))
 	if err != nil {
 		return nil, fmt.Errorf("encode task search project ids: %w", err)
 	}
-	statusKindsJSON, err := taskSearchOptionalJSON(taskSearchStatusKinds(req))
+	statuses, err := taskSearchStatusKinds(req)
+	if err != nil {
+		return nil, err
+	}
+	statusKindsJSON, err := taskSearchOptionalJSON(statuses)
 	if err != nil {
 		return nil, fmt.Errorf("encode task search status kinds: %w", err)
 	}
 	candidateExpression := req.Query
 	caseMode := int64(tasksearchtext.LiteralCaseInsensitive)
-	if req.Mode == serverapi.TaskSearchModeLiteral {
+	if req.Mode == taskpb.SearchMode_SEARCH_MODE_LITERAL {
 		mode := tasksearchtext.LiteralCaseInsensitive
 		if req.CaseSensitive {
 			mode = tasksearchtext.LiteralCaseSensitive
@@ -139,8 +150,12 @@ func (s *TaskSearch) queryPage(ctx context.Context, queries *sqlitegen.Queries, 
 		candidateExpression = matcher.CandidateExpression()
 		caseMode = int64(mode)
 	}
+	mode, err := protoapi.TaskSearchMode.Decode(req.Mode)
+	if err != nil {
+		return nil, err
+	}
 	return queries.ListTaskSearchPageDescriptors(ctx, sqlitegen.ListTaskSearchPageDescriptorsParams{
-		Mode:                string(req.Mode),
+		Mode:                mode,
 		CandidateExpression: candidateExpression,
 		LiteralQuery:        req.Query,
 		CaseMode:            caseMode,
@@ -166,10 +181,10 @@ func taskSearchOptionalJSON[T any](values []T) (sql.NullString, error) {
 	return sql.NullString{String: string(encoded), Valid: true}, nil
 }
 
-func (s *TaskSearch) materializeGroups(ctx context.Context, queries *sqlitegen.Queries, req serverapi.TaskSearchRequest, rows []sqlitegen.ListTaskSearchPageDescriptorsRow) ([]serverapi.TaskSearchGroup, error) {
+func (s *TaskSearch) materializeGroups(ctx context.Context, queries *sqlitegen.Queries, req *taskpb.SearchRequest, rows []sqlitegen.ListTaskSearchPageDescriptorsRow) ([]*taskpb.SearchGroup, error) {
 	var textMatcher tasksearchtext.LiteralMatcher
 	var shortIDMatcher tasksearchtext.LiteralMatcher
-	if req.Mode == serverapi.TaskSearchModeLiteral {
+	if req.Mode == taskpb.SearchMode_SEARCH_MODE_LITERAL {
 		mode := tasksearchtext.LiteralCaseInsensitive
 		if req.CaseSensitive {
 			mode = tasksearchtext.LiteralCaseSensitive
@@ -184,7 +199,7 @@ func (s *TaskSearch) materializeGroups(ctx context.Context, queries *sqlitegen.Q
 			return nil, err
 		}
 	}
-	groups := make([]serverapi.TaskSearchGroup, 0, len(rows))
+	groups := make([]*taskpb.SearchGroup, 0, len(rows))
 	groupIndexes := make(map[string]int, len(rows))
 	for _, row := range rows {
 		statusKind, err := taskSearchSQLiteString(row.StatusKind, "status kind")
@@ -213,16 +228,20 @@ func (s *TaskSearch) materializeGroups(ctx context.Context, queries *sqlitegen.Q
 		if !exists {
 			index = len(groups)
 			groupIndexes[row.TaskID] = index
-			groups = append(groups, serverapi.TaskSearchGroup{
-				ProjectID:     row.ProjectID,
+			total, err := protoapi.Int32(int(row.TotalHitCount), "total_hit_count")
+			if err != nil {
+				return nil, err
+			}
+			groups = append(groups, &taskpb.SearchGroup{
+				ProjectId:     row.ProjectID,
 				ProjectKey:    row.ProjectKey,
-				TaskID:        row.TaskID,
-				ShortID:       row.ShortID,
-				WorkflowID:    row.WorkflowID.String(),
+				TaskId:        row.TaskID,
+				ShortId:       row.ShortID,
+				WorkflowId:    row.WorkflowID.String(),
 				Title:         row.TaskTitle,
 				Status:        status.Status,
-				TotalHitCount: int(row.TotalHitCount),
-				Hits:          []serverapi.TaskSearchHit{},
+				TotalHitCount: total,
+				Hits:          []*taskpb.SearchHit{},
 			})
 		}
 		hit, err := taskSearchMaterializeHit(ctx, queries, req, textMatcher, shortIDMatcher, row)
@@ -237,74 +256,86 @@ func (s *TaskSearch) materializeGroups(ctx context.Context, queries *sqlitegen.Q
 func taskSearchMaterializeHit(
 	ctx context.Context,
 	queries *sqlitegen.Queries,
-	req serverapi.TaskSearchRequest,
+	req *taskpb.SearchRequest,
 	textMatcher tasksearchtext.LiteralMatcher,
 	shortIDMatcher tasksearchtext.LiteralMatcher,
 	row sqlitegen.ListTaskSearchPageDescriptorsRow,
-) (serverapi.TaskSearchHit, error) {
-	apiSource := serverapi.TaskSearchSource{Kind: serverapi.TaskSearchSourceKind(row.SourceKind)}
+) (*taskpb.SearchHit, error) {
+	kind, err := protoapi.TaskSearchSourceKind.Encode(row.SourceKind)
+	if err != nil {
+		return nil, err
+	}
+	apiSource := &taskpb.SearchSource{Kind: kind}
 	if row.CommentID.Valid {
 		value := row.CommentID.String
-		apiSource.CommentID = &value
+		apiSource.CommentId = &value
 	}
-	hit := serverapi.TaskSearchHit{Ordinal: int(row.Ordinal), Source: apiSource}
+	ordinal, err := protoapi.Int32(int(row.Ordinal), "ordinal")
+	if err != nil {
+		return nil, err
+	}
+	hit := &taskpb.SearchHit{Ordinal: ordinal, Source: apiSource}
 	switch req.Mode {
-	case serverapi.TaskSearchModeLiteral:
+	case taskpb.SearchMode_SEARCH_MODE_LITERAL:
 		source, err := queries.GetTaskSearchSourceByDocumentID(ctx, row.DocumentID)
 		if err != nil {
-			return serverapi.TaskSearchHit{}, err
+			return nil, err
 		}
 		if source.SourceKind != row.SourceKind {
-			return serverapi.TaskSearchHit{}, errors.New("task search source identity changed during read")
+			return nil, errors.New("task search source identity changed during read")
 		}
 		sourceText, err := taskSearchSourceText(source)
 		if err != nil {
-			return serverapi.TaskSearchHit{}, err
+			return nil, err
 		}
 		matcher := textMatcher
 		sourceOrdinal := int(row.SourceOrdinal)
-		if row.SourceKind == string(serverapi.TaskSearchSourceKindShortID) {
+		if kind == taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_SHORT_ID {
 			if sourceOrdinal != 1 || sourceText != row.ShortID {
-				return serverapi.TaskSearchHit{}, errors.New("task search Short ID source is inconsistent")
+				return nil, errors.New("task search Short ID source is inconsistent")
 			}
 			matcher = shortIDMatcher
 			sourceText = row.ShortID
 		}
-		literal, found := matcher.NthHit(sourceText, sourceOrdinal, req.Context)
+		literal, found := matcher.NthHit(sourceText, sourceOrdinal, int(req.Context))
 		if !found {
-			return serverapi.TaskSearchHit{}, errors.New("task search selected literal occurrence is absent")
+			return nil, errors.New("task search selected literal occurrence is absent")
 		}
-		hit.Literal = &serverapi.TaskSearchLiteralHit{
+		hit.Match = &taskpb.SearchHit_Literal{Literal: &taskpb.SearchLiteralHit{
 			Before:         literal.Before,
 			Match:          literal.Match,
 			After:          literal.After,
 			LeftTruncated:  literal.LeftTruncated,
 			RightTruncated: literal.RightTruncated,
-		}
-	case serverapi.TaskSearchModeFTS5:
-		if row.SourceKind == string(serverapi.TaskSearchSourceKindShortID) {
-			return serverapi.TaskSearchHit{}, errors.New("task search Short ID source requires literal mode")
+		}}
+	case taskpb.SearchMode_SEARCH_MODE_FTS5:
+		if kind == taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_SHORT_ID {
+			return nil, errors.New("task search Short ID source requires literal mode")
 		}
 		snippet, err := taskSearchSQLiteString(row.RawSnippet, "FTS5 snippet")
 		if err != nil {
-			return serverapi.TaskSearchHit{}, err
+			return nil, err
 		}
-		hit.FTS5 = &serverapi.TaskSearchFTS5Hit{Snippet: snippet}
+		hit.Match = &taskpb.SearchHit_Fts5{Fts5: &taskpb.SearchFts5Hit{Snippet: snippet}}
 	default:
-		return serverapi.TaskSearchHit{}, errors.New("task search mode is invalid")
+		return nil, errors.New("task search mode is invalid")
 	}
 	return hit, nil
 }
 
 func taskSearchSourceText(source sqlitegen.GetTaskSearchSourceByDocumentIDRow) (string, error) {
-	switch source.SourceKind {
-	case string(serverapi.TaskSearchSourceKindShortID):
+	kind, err := protoapi.TaskSearchSourceKind.Encode(source.SourceKind)
+	if err != nil {
+		return "", err
+	}
+	switch kind {
+	case taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_SHORT_ID:
 		return taskSearchSQLiteString(source.ShortID, "Short ID")
-	case string(serverapi.TaskSearchSourceKindTitle):
+	case taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_TITLE:
 		return taskSearchSQLiteString(source.Title, "title")
-	case string(serverapi.TaskSearchSourceKindBody):
+	case taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_BODY:
 		return taskSearchSQLiteString(source.Body, "body")
-	case string(serverapi.TaskSearchSourceKindComment):
+	case taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_COMMENT:
 		return taskSearchSQLiteString(source.Comment, "comment")
 	default:
 		return "", errors.New("task search source kind is invalid")
@@ -327,14 +358,18 @@ func taskSearchFTS5OperationalError(err error) error {
 	return err
 }
 
-func taskSearchProjectIDs(req serverapi.TaskSearchRequest) []string {
-	return append([]string{}, req.ProjectIDs...)
+func taskSearchProjectIDs(req *taskpb.SearchRequest) []string {
+	return append([]string{}, req.ProjectIds...)
 }
 
-func taskSearchStatusKinds(req serverapi.TaskSearchRequest) []string {
+func taskSearchStatusKinds(req *taskpb.SearchRequest) ([]string, error) {
 	statuses := make([]string, 0, len(req.StatusKinds))
 	for _, status := range req.StatusKinds {
-		statuses = append(statuses, string(status))
+		name, err := protoapi.TaskStatusKind.Decode(status)
+		if err != nil {
+			return nil, err
+		}
+		statuses = append(statuses, name)
 	}
-	return statuses
+	return statuses, nil
 }

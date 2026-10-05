@@ -2,14 +2,12 @@ package app
 
 import (
 	"bytes"
-	"reflect"
-	"testing"
-
 	"core/cli/tui"
 	"core/cli/tui/ongoing"
-	"core/shared/clientui"
-
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	tea "github.com/charmbracelet/bubbletea"
+	"reflect"
+	"testing"
 )
 
 func TestOngoingSurfaceTransitionQueuesTranscriptWhileDetailActive(t *testing.T) {
@@ -24,7 +22,7 @@ func TestOngoingSurfaceTransitionQueuesTranscriptWhileDetailActive(t *testing.T)
 	if cmd := m.activateSurface(uiSurfaceTranscriptDetail); cmd == nil {
 		t.Fatal("expected detail activation command")
 	}
-	if _, _, err := controller.Accept(ongoingTranscriptMessage(2, clientui.TranscriptMessageRuntimeReadModelUpdate)); err != nil {
+	if _, _, err := controller.Accept(ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_RuntimeReadModelUpdate]())); err != nil {
 		t.Fatalf("accept detail queued message: %v", err)
 	}
 	if len(surface.calls) != 0 {
@@ -60,7 +58,7 @@ func TestTranscriptModeTransitionMarksOngoingUnowned(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("transition to detail did not return alt-screen command")
 	}
-	if _, _, err := controller.Accept(ongoingTranscriptMessage(2, clientui.TranscriptMessageRuntimeReadModelUpdate)); err != nil {
+	if _, _, err := controller.Accept(ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_RuntimeReadModelUpdate]())); err != nil {
 		t.Fatalf("accept detail queued message: %v", err)
 	}
 
@@ -79,7 +77,7 @@ func TestTranscriptModeReturnDrainsOngoingOnlyAfterPostExitMessage(t *testing.T)
 	if cmd := m.transitionTranscriptModeWithOptions(transcriptModeTransitionOptions{target: tui.ModeDetail}); cmd == nil {
 		t.Fatal("transition to detail did not return alt-screen command")
 	}
-	if _, _, err := controller.Accept(ongoingTranscriptMessage(2, clientui.TranscriptMessageRuntimeReadModelUpdate)); err != nil {
+	if _, _, err := controller.Accept(ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_RuntimeReadModelUpdate]())); err != nil {
 		t.Fatalf("accept queued message: %v", err)
 	}
 	surface.calls = nil
@@ -109,7 +107,7 @@ func TestDetailReturnKeyDoesNotRenderOngoingBeforePostExitMessage(t *testing.T) 
 	if cmd := m.transitionTranscriptModeWithOptions(transcriptModeTransitionOptions{target: tui.ModeDetail}); cmd == nil {
 		t.Fatal("transition to detail did not return alt-screen command")
 	}
-	if _, _, err := controller.Accept(ongoingTranscriptMessage(2, clientui.TranscriptMessageRuntimeReadModelUpdate)); err != nil {
+	if _, _, err := controller.Accept(ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_RuntimeReadModelUpdate]())); err != nil {
 		t.Fatalf("accept queued message: %v", err)
 	}
 	surface.calls = nil
@@ -146,8 +144,7 @@ func TestScratchResetWhileDetailActiveDefersRawSurfaceWriteUntilOngoingOwnsTermi
 	m := newProjectedStaticUIModel(
 		WithUIOngoingSurface(nativeSurface),
 		withUIOngoingTranscriptController(controller),
-		WithUIOngoingTranscriptReopen(func() { reopenCount++ }),
-	)
+		WithUIOngoingTranscriptReopen(func() { reopenCount++ }))
 
 	if cmd := m.activateSurface(uiSurfaceTranscriptDetail); cmd == nil {
 		t.Fatal("expected detail activation command")

@@ -4,10 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
-	"time"
 
 	"core/internal/testharness/testsetup"
 	"core/server/metadata/sqlitegen"
@@ -195,9 +195,86 @@ func TestWorkflowGraphSaveAllowsRemovingNodeGroupWithoutConfirmation(t *testing.
 	}
 }
 
+func TestWorkflowGraphSaveRemovesCompletedOnlyBranch(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
+		Source: source.Reference, TransitionID: "done",
+	}); err != nil {
+		t.Fatalf("complete Task: %v", err)
+	}
+	def, record, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edge := edgeByKey(t, def, "done")
+	req := NewWorkflowGraphSaveRequest(def, record.Version)
+	req.Edges = removeWorkflowGraphSaveEdge(req.Edges, edge.ID)
+	req.TransitionGroups = removeWorkflowGraphSaveTransitionGroupByID(req.TransitionGroups, edge.TransitionGroupID)
+	fixture := graphSaveFixture{ctx: ctx, store: store, workflowID: workflowID}
+	preview := fixture.preview(t, req)
+	saved := fixture.save(t, confirmWorkflowGraphSaveRequest(req, preview.Impact))
+	if !saved.Saved {
+		t.Fatalf("completed-only Branch removal blocked: %+v", saved)
+	}
+}
+
+func TestWorkflowGraphSaveRetargetsCompletedOnlyBranchPreservingTask(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
+	currentNodeSessionForStoreTest(t, ctx, store, source.Reference)
+	comment, err := store.AddComment(ctx, task.ID, "retained result", "user", "operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
+		Source: source.Reference, TransitionID: "done",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := store.ListCurrentNodes(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := graphSaveFixture{ctx: ctx, store: store, workflowID: workflowID}
+	def, record := fixture.current(t)
+	req := NewWorkflowGraphSaveRequest(def, record.Version)
+	edge := edgeByKey(t, def, "done")
+	for i := range req.Edges {
+		if req.Edges[i].ID == edge.ID {
+			req.Edges[i].TargetNodeID = source.Reference.NodeID
+		}
+	}
+	if saved := fixture.save(t, req); !saved.Saved {
+		t.Fatalf("retarget completed-only Branch: %+v", saved)
+	}
+	after, err := store.ListCurrentNodes(ctx, task.ID)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("completed placement changed: %+v -> %+v: %v", before, after, err)
+	}
+	comments, err := store.ListComments(ctx, task.ID)
+	if err != nil || len(comments) != 1 || comments[0] != comment {
+		t.Fatalf("comments changed: %+v: %v", comments, err)
+	}
+	if count, err := store.CountTaskSessions(ctx, task.ID); err != nil || count != 1 {
+		t.Fatalf("retained Sessions = %d: %v", count, err)
+	}
+}
+
 func TestWorkflowGraphSaveBlockersIdentifyRemovedTaskReferencedEntities(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
+	doneTask := createDefaultTask(t, ctx, store, binding.ProjectID)
+	doneSource := startTask(t, ctx, store, doneTask.ID).Mutation.Created[0]
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
+		Source: doneSource.Reference, TransitionID: "done",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	startTask(t, ctx, store, task.ID)
 
@@ -232,7 +309,7 @@ func TestWorkflowGraphSaveBlockersUsePendingApprovalSnapshots(t *testing.T) {
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	completed, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		TransitionID: "done",
 	})
@@ -249,6 +326,36 @@ func TestWorkflowGraphSaveBlockersUsePendingApprovalSnapshots(t *testing.T) {
 	}
 	targetNodeID := workflow.NodeIDOf(nodeByKind(t, def, workflow.NodeKindTerminal))
 	approvalEdge := edgeByKey(t, def, "done")
+	// A completed Task sharing the Branch must not cancel this pending
+	// Terminal target's dependency.
+	doneTask := createDefaultTask(t, ctx, store, binding.ProjectID)
+	doneSource := startTask(t, ctx, store, doneTask.ID).Mutation.Created[0]
+	doneCompletion, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
+		Source: doneSource.Reference, TransitionID: "done",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := applyPendingApproval(t, store, ctx, doneCompletion.PendingApproval.ID); err != nil {
+		t.Fatal(err)
+	}
+	protected := NewWorkflowGraphSaveRequest(def, record.Version)
+	for i := range protected.Edges {
+		if protected.Edges[i].ID == approvalEdge.ID {
+			protected.Edges[i].TargetNodeID = source.Reference.NodeID
+		}
+	}
+	protectedPreview := (graphSaveFixture{ctx: ctx, store: store, workflowID: workflowID}).preview(t, protected)
+	if len(workflowGraphSaveBlockerEntities(protectedPreview.Blockers, "task_referenced_edge_group_changed")) != 1 {
+		t.Fatalf("pending Terminal target lost routing protection: %+v", protectedPreview)
+	}
+	removed := NewWorkflowGraphSaveRequest(def, record.Version)
+	removed.Edges = removeWorkflowGraphSaveEdge(removed.Edges, approvalEdge.ID)
+	removed.TransitionGroups = removeWorkflowGraphSaveTransitionGroupByID(removed.TransitionGroups, approvalEdge.TransitionGroupID)
+	removedPreview := (graphSaveFixture{ctx: ctx, store: store, workflowID: workflowID}).preview(t, removed)
+	if removedPreview.Impact.EdgeTaskReferenceCount != 1 {
+		t.Fatalf("pending Terminal target removal references = %+v", removedPreview)
+	}
 	if _, err := store.db.ExecContext(
 		ctx,
 		`UPDATE task_pending_approval_branches
@@ -650,7 +757,7 @@ func TestWorkflowGraphSaveIncompatibleActiveTransitionFailsCompletionWithoutTask
 		t.Fatalf("save = %+v, want committed transition edit", saved)
 	}
 
-	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source,
 		TransitionID: "done",
 	}); err == nil {
@@ -664,7 +771,7 @@ func TestWorkflowGraphSaveIncompatibleActiveTransitionFailsCompletionWithoutTask
 		t.Fatalf("current nodes after rejected completion = %+v, want unchanged source", currentNodes)
 	}
 
-	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source,
 		TransitionID: "renamed",
 	}); err != nil {
@@ -877,7 +984,7 @@ func TestWorkflowGraphSaveCommitRejectsChangedConfirmationImpactDuringPreparatio
 	if len(started.Mutation.Created) != 1 {
 		t.Fatalf("StartTask mutation = %+v, want one current node", started.Mutation)
 	}
-	if _, err := activeStore.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, activeStore, ctx, CurrentNodeCompletionRequest{
 		Source:       started.Mutation.Created[0].Reference,
 		TransitionID: "spare_done",
 	}); err != nil {
@@ -946,7 +1053,7 @@ func TestWorkflowGraphSaveCommitIgnoresUnrelatedTaskMetadataDuringPreparation(t 
 }
 
 func TestWorkflowGraphSaveAllowsRemovingCompletedSessionNode(t *testing.T) {
-	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	agentID := testNodeID("node-agent-" + workflowID.String())
 	reviewID := testNodeID("node-review-" + workflowID.String())
@@ -976,21 +1083,12 @@ func TestWorkflowGraphSaveAllowsRemovingCompletedSessionNode(t *testing.T) {
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
 	agentReference := started.Mutation.Created[0].Reference
-	sessionID, err := runtimeids.ParseSessionID(createTestSession(t, ctx, store, binding, cfg))
+	sessionID := *started.Mutation.Created[0].SessionID
+	originalAssociation, err := store.LatestTaskSessionForNode(ctx, agentReference)
 	if err != nil {
-		t.Fatalf("ParseSessionID: %v", err)
+		t.Fatal(err)
 	}
-	associatedAt := time.UnixMilli(1_700_000_000_000).UTC()
-	if _, err := store.BindSessionToCurrentNode(ctx, CurrentNodeSessionBindingRequest{
-		Association: TaskSessionAssociationRequest{
-			SessionID:    sessionID,
-			CurrentNode:  agentReference,
-			AssociatedAt: associatedAt,
-		},
-	}); err != nil {
-		t.Fatalf("BindSessionToCurrentNode: %v", err)
-	}
-	completed, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       agentReference,
 		TransitionID: "done",
 	})
@@ -1004,7 +1102,7 @@ func TestWorkflowGraphSaveAllowsRemovingCompletedSessionNode(t *testing.T) {
 	if reviewReference.NodeID != reviewID {
 		t.Fatalf("agent completion target = %v, want review Node %q", reviewReference, reviewID)
 	}
-	completed, err = store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	completed, err = completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       reviewReference,
 		TransitionID: "finish",
 	})
@@ -1072,7 +1170,7 @@ func TestWorkflowGraphSaveAllowsRemovingCompletedSessionNode(t *testing.T) {
 	}
 	if association.SessionID != sessionID ||
 		!association.CurrentNode.Equal(agentReference) ||
-		!association.AssociatedAt.Equal(associatedAt) {
+		!association.AssociatedAt.Equal(originalAssociation.AssociatedAt) {
 		t.Fatalf("historical association = %+v, want Session %q and removed Node %q", association, sessionID, agentID)
 	}
 }

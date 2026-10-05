@@ -31,7 +31,7 @@
 - Live streaming, ordinary committed emission, startup hydration, and Scratch Rehydration emit every user turn, assistant commentary turn, and assistant final turn from its complete source Markdown. These paths never substitute condensed text, a compact label, a line-limited preview, or an ellipsis for that source.
 - Assistant finalization matches the committed entry to its Streaming Message identity and compares only with the active stream source. If committed text extends the streamed source, Ongoing Mode emits only the missing suffix. Any other mismatch without a real connection gap is a developer error.
 - **Pending tool activity lives only in the Mutable Band. It shows a loading spinner until Kent commits the completed tool row to Scrollback.**
-- Messages in TUI use icon-like, single-symbol glyphs: `@` for web search, `§` for Reviewer feedback, `⇄` for file edits (edit/patch tools), `$` for shell tool calls including failed shell exits, `⚠` for warnings, `!` for Reviewer errors, other error notices, and default tool errors, `ℹ` for ongoing-visible neutral notices (such as goal and worktree messages), and `?` for questions.
+- Messages in TUI use icon-like, single-symbol glyphs: `@` for web search, `§` for Reviewer feedback, `⇄` for file edits (edit/patch tools), `$` for shell tool calls including failed shell exits, `⚠` for warnings, `!` for Reviewer errors, other error notices, and default tool errors, `⚙` for Thinking updates, Headless Mode entry/exit, Workflow Mode entry/exit, Worktree Mode entry/exit, and Session rebind notices, `ℹ` for other neutral notices, and `?` for questions.
 - The first immutable row of every user turn uses `❯`; the first immutable row of every final assistant response uses `❮`, including responses entering scrollback through source-backed streaming promotion. Later logical lines begin at column one with no role-prefix padding; terminal soft wraps reflow naturally. Width-formatted constructs may reserve the first-line prefix width in their layout budget without adding leading padding.
 - **Pending tool-call previews in live region use the same rendering/layout as committed tool-call previews, with no pending-only labels.**
 - A pending Question's live row shows only the Question text. It does not show a tool name or prompt kind.
@@ -132,7 +132,7 @@
 - `worktree_mode_exit`: `O`
 - `goal`: `O`
 - `active_goal_continuation`: `D`
-- Thinking-level feedback from `/thinking` is not rendered as a transcript row in ongoing or detail. The TUI surfaces thinking level through the status-line model label/reasoning segment instead of neutral transcript notices.
+- Immediate Thinking-level feedback from `/thinking` uses the status-line model label/reasoning segment. Committed Thinking updates, as defined in Model Requests And Cache Continuity, must use detail-only, non-expandable transcript rows with the label `Thinking set: <level>` and the `⚙` symbol.
 - Locked non-message roles:
 - user turns: `O`
 - assistant commentary turns: `O`
@@ -182,8 +182,8 @@
 - Kent does not invent a semantic color for an unspecified symbol.
 - Tool previews are input-first. Shell previews show the typed command from tool metadata. Patch/edit previews show structured patch paths and diff add/remove counts or lines. Other tool previews show typed compact/input metadata. Tool result summaries and error summaries do not replace the input preview.
 - Successful patch rows must not show a result suffix.
-- Failed patch rows may show failure status.
-- A `web_search` preview in ongoing and collapsed Detail reads `Searched the web for "<query>"`, using its typed query. Its compact preview does not append result metadata. Expanded Detail shows the raw query and any committed output.
+- Failed patch rows may show failure status. In Ongoing Mode, the file path and changed-line counts must take priority over the failure status, which must use only the remaining width. Long paths must be ellipsized from the start to preserve the filename and leave room for changed-line counts. When no room remains for failure status, its separator must also be omitted. Content-mismatch status must read "Mismatch between file and model-supplied content" without a path; the detailed model-facing error must remain unchanged.
+- A `web_search` preview in ongoing and collapsed Detail reads `Searched the web for "<query>"`, using its typed query. Its compact preview does not append result metadata. When TUI does not offer structured Web Search detail, successful searches must show only their query, even when saved results exist. TUI must not show raw provider result output in that presentation. Ordinary search failures must remain visible. When TUI offers expanded search detail, it must use the simple queries, results, and sources presentation specified for Web Search in [Desktop Chat](desktop-chat.md), without snippets or displayed type fields. Web Search links must use the existing terminal Markdown link handling, including destination visibility on terminals without label-only link presentation. Desktop URL filtering must not apply to TUI Web Search links; TUI must not add a Web Search URL filter.
 - A `view_image` preview in ongoing and detail reads `Viewed image at <path>`, using its typed image path. The image path belongs only to typed image metadata until the client renders that preview.
 - A successful answered question in ongoing renders the full Markdown question followed by the selected option's full text and optional custom commentary from its typed condensed answer. The question uses the user text role; response text uses faint primary, and `│`/`└` continuation guides remain faint structural chrome. Unselected suggestions and numeric option summaries are omitted. Collapsed detail remains question-only.
 - A multiline shell invocation shows `N more line` or `N more lines` in its live pending row, committed ongoing row, and collapsed detail row, where `N` counts authored line boundaries hidden after the first line; terminal soft wraps do not count. Expanded detail does not add continuation metadata. Continuation metadata precedes and stacks with status metadata such as `backgrounded` or `exit N`. Ongoing uses the faint `  · value` suffix; collapsed detail preserves its existing aligned metadata layout and lens behavior. The command is ellipsized within the remaining emission-time width so the complete metadata remains visible whenever it fits. Successful foreground shell exit zero has no suffix; a typed non-zero exit renders `exit N` and error-colors the `$`.
@@ -197,7 +197,7 @@
 - The editor determines its rendered lines and cursor position.
 - Kent can use a drawn cursor only for verified cursor drift, wrap mismatch, or Alternate Screen corruption that native cursor placement cannot fix.
 - All user text uses one authoritative submission path. The user's action selects Send/Steer or Queue intent. For Send/Steer, Kent determines from live state whether the submission starts an Agent Turn or becomes a Steer.
-- Queue/send hotkey is `Tab`; `Ctrl+Enter` is a compatibility alias.
+- Queue/send hotkey is `Tab`; `Ctrl+Enter` is an alias.
 - Known `Ctrl+Enter` CSI encodings normalize to the same queue action.
 - Clipboard paste hotkeys are `Ctrl+V`, `Ctrl+D`, `Alt+V`, and `Alt+D`; explicit system clipboard reads save images to temporary PNG files and insert the path, or insert text at the active cursor. Terminal bracketed paste remains ordinary text input and never causes a system clipboard read.
 - Runtime acceptance, protected Agent Steps, Steering drains, and the separate post-turn Queue follow the [Runtime Steering And Model Loop](runtime-steering-loop.md) specification.
@@ -220,7 +220,9 @@
 - The TUI has no standalone per-item discard affordance for operational Pending Work.
 - Pending queues are lost on process exit. The backend overload invariant is owned by the Runtime Steering specification.
 - A mid-turn message becomes durable only when Kent delivers it.
-- The server-published Run lifecycle is the TUI liveness authority for `Ctrl+C`: while the Run lifecycle is Running, the TUI sends Interrupt; otherwise it exits. A second `Ctrl+C` while Interrupt is still pending for that same Run exits locally. A later Running lifecycle with a different Run or Step identity sends a new Interrupt. The server revalidates that Interrupt targets an active Agent Turn. A submission already sent to the server may start or continue after the client detaches.
+- The server-published Run lifecycle and the current server-published pending Question or Approval are the TUI liveness authorities for `Ctrl+C`. While either identifies live work, the TUI sends Interrupt; otherwise it exits. A second `Ctrl+C` while Interrupt is still pending for that same execution exits locally. A later Running lifecycle with a different Run or Step identity sends a new Interrupt. The server revalidates interruption through the Runtime Steering Stop contract. A submission already sent to the server may start or continue after the client detaches.
+- If Interrupt fails, the TUI must refresh authoritative Runtime state and replace its stale activity projection. The refresh must not report idle while the server reports active work.
+- When a live Runtime projection reports a prompt wait but the corresponding pending prompt is absent, Ongoing Mode requests Scratch Rehydration to recover the authoritative prompt. The execution remains interruptible while that projection is being recovered.
 - Interrupt injects detail-only developer-role control message `User interrupted you`.
 - Post-interrupt state returns idle with input ready.
 - Resume after interrupt requires explicit user text.
@@ -240,6 +242,9 @@
 - A target change takes effect before the next model work begins and becomes part of the model's worktree context.
 - Worktree changes do not append synthetic transcript notes.
 - Git determines worktree topology. Kent adds the associations needed for Projects and Sessions.
+- Main Workspace and Git main worktree are independent topology identities.
+- When the Main Workspace is a linked worktree, the Git main worktree remains an ordinary row without a special marker.
+- When the Git main worktree is available and not current, it offers the ordinary switch action.
 - Only one modification can apply to a worktree at a time.
 - A competing modification waits for the earlier modification and then evaluates the current state again.
 - If the earlier operation deleted the worktree, a later request to enter it fails because the worktree is absent. A later request to delete it again succeeds without another change.
@@ -247,18 +252,21 @@
 - Kent does not wait for or stop work that blocks deletion.
 - A targeting Idle Active Session Runtime is retired before its Session is retargeted as dormant and the Worktree is removed.
 - If human input becomes accepted first, deletion fails. If deletion retires and retargets first, later input uses the new target.
-- A rejected deletion leaves Session targets, Kent worktree information, Git state, and branch state unchanged.
+- Deletion failure and partial-progress behavior follow [Workflow Orchestration](workflow-orchestration.md#execution-targets-and-worktrees).
 - A busy target does not delay create, enter, leave, or delete operations for unrelated worktrees.
 - Worktree list returns one complete result in Git's native order. It does not use pagination.
-- List rows have three exhaustive states: registered rows combine Git and Kent facts, external rows contain only Git facts and carry an `External` marker, and missing rows contain only orphaned Kent facts and carry a `Missing` warning. Registered and external rows preserve Git's native order; missing rows follow in Kent metadata creation order. Listing never creates metadata for external rows or deletes missing rows.
+- List rows have four exhaustive states: the Main Workspace row contains live Git facts and no Kent Worktree ID; registered rows combine Git and Kent facts; external rows contain only Git facts and carry an `External` marker; missing rows contain only orphaned Kent Worktree facts and carry a `Missing` warning. The Main Workspace, registered, and external rows preserve Git's native order; missing rows follow in Kent metadata creation order. Listing never creates metadata for external rows or deletes missing rows.
+- A persisted Session whose Worktree root equals its Main Workspace is normalized to Main Workspace identity. Kent preserves its Workspace and Working Directory and clears its pending enter or exit context for the obsolete Worktree association.
 - Non-Kent Git worktrees are manageable. Explicitly entering one adopts it into Kent metadata before applying the ordinary session-target switch.
 - Worktree selector resolution gives exact Kent IDs precedence over exact branch names, display names, and paths. List/create prefer concise branch or display selectors only when resolving that text returns the same row; registered rows then fall back to their full Kent ID, while external rows fall back to a unique trailing path component and then the full canonical path. IDs and paths are omitted from normal list output unless needed for disambiguation.
 - Supported aliases preserve safety semantics: `/worktree status`, `/worktree remove`, `/worktree rm`.
 - `/worktree switch <selector>` and `/wt switch <selector>` enter the selected target.
 - `/worktree leave` and `/wt leave` return the Session to its main workspace.
 - Worktree deletion retargets Sessions before it removes the worktree.
+- Kent never offers deletion for the Main Workspace row or the Git main worktree.
+- Delete preview and deletion of the Git main worktree report `worktree blocked`, change no state, and include no blocker-detail payload.
 - A Kent background shell process in the worktree blocks deletion immediately. Kent does not wait or retry automatically.
-- A busy deletion reports `worktree blocked`. It is not a successful deletion and includes no blocker-detail payload.
+- A busy deletion must report `worktree blocked`, not successful deletion. An active-Session blocker result must include structured names and IDs for at most 50 blocking Sessions and indicate whether more exist. Blocker discovery must use bounded reads. Sessions beyond the displayed limit must still block deletion. Background-process blockers include no blocker-detail payload.
 - Branch cleanup is conservative/best-effort. Normal TUI deletion only auto-attempts branch deletion when provenance proves Kent created the branch. Explicit TUI Delete + Branch is available for every branch-backed worktree and uses safe branch deletion.
 - New worktrees default under the Worktree Base Dir, which is rooted under Kent persistence state by default.
 - After a target change, shell execution and relative file paths use the new Working Directory.
@@ -305,8 +313,7 @@
 - Exact known slash commands use the normal queued-input drain path when queued; they are never sent as plain user prompts.
 - Run-safe commands execute immediately while busy. `/exit`, `/new`, `/resume`, `/back`, `/review`, and `/init` detach this TUI from the current Session without interrupting its Active Session Runtime.
 - While an Agent Turn is active, every available `/prompt:*` command submits its typed identity as Steering in the current Session. Kent resolves the prompt body on the server before accepting the Steering input.
-- `/name`, `/thinking`, `/fast`, `/supervisor`, `/questions`, and `/autocompaction` persist and publish their Session value immediately while an Agent Step runs.
-- Those immediate setting commands affect later provider and compaction requests, never the Agent Step already running, and create no transcript rows.
+- `/name`, `/thinking`, `/fast`, `/supervisor`, `/questions`, and `/autocompaction` follow the [Runtime Steering And Model Loop](runtime-steering-loop.md) Session-setting contract.
 - `/compact` and Active-Runtime `/worktree switch`, `/wt switch`, `/worktree leave`, and `/wt leave` enter typed operational Pending Work while an Agent Step or another boundary-owning Runtime operation is active.
 - Goal follows its Goal owner. Client-local navigation, overlays, reads, detach actions, and direct Worktree management reach their direct owners while an Agent Turn is active.
 - `/resume` always enters the session picker, including when no other session exists. The originating attachment is released before the picker opens. A picker `Ctrl+C` leaves that run ownerless; it issues no second release and no interrupt.
@@ -362,7 +369,7 @@
 
 ## Client Lifecycle Hooks
 
-- Protocol 64 clients advertise support for the `live_run_finished` transcript event during handshake. Kent suppresses that event for clients without the capability and preserves contiguous transcript sequence numbers for those clients.
+- The transcript stream publishes `live_run_finished` with contiguous transcript sequence numbers.
 - A controlling TUI can run one configured local command for Session lifecycle events.
 - Hook processing never delays transcript delivery, model work, or TUI rendering.
 - At most 64 lifecycle events can wait for launch. Kent silently drops a new event when this capacity is full.

@@ -7,7 +7,6 @@ import (
 
 	"core/shared/config"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
-	"core/shared/toolspec"
 )
 
 func onboardingFinalizeRequest(state onboardingFlowState, defaults bool) (*onboardingpb.FinalizeRequest, error) {
@@ -24,7 +23,6 @@ func onboardingFinalizeRequest(state onboardingFlowState, defaults bool) (*onboa
 			state.selections.pendingReviewerThinking.pending() {
 			return nil, errors.New("custom thinking input must be committed before finishing setup")
 		}
-		mainProvider := onboardingMainProviderChoice(state.selections.preserved)
 		model := onboardingModelChoice(state.selections.model)
 		contextWindow := onboardingContextWindowChoice(state.selections.contextWindow)
 		thinking := onboardingThinkingChoice(state.selections.thinking)
@@ -35,7 +33,6 @@ func onboardingFinalizeRequest(state onboardingFlowState, defaults bool) (*onboa
 			return nil, err
 		}
 		req.Model = model
-		req.MainProvider = mainProvider
 		req.ContextWindow = contextWindow
 		req.Thinking = thinking
 		req.Supervisor = supervisor
@@ -48,11 +45,6 @@ func onboardingFinalizeRequest(state onboardingFlowState, defaults bool) (*onboa
 		req.CommandsImport = commandsImport
 		askQuestion := state.selections.askQuestion
 		req.AskQuestion = &askQuestion
-		req.ToolOverrides = onboardingToolOverrides(state.selections.preserved.enabledTools)
-		if state.selections.preserved.modelTimeoutSeconds != nil {
-			timeout := uint32(*state.selections.preserved.modelTimeoutSeconds)
-			req.ModelTimeoutSeconds = &timeout
-		}
 		if state.selections.verbosity.kind == onboardingVerbosityLevel {
 			verbosity := onboardingVerbosityToProto(state.selections.verbosity.value)
 			req.Verbosity = &verbosity
@@ -60,40 +52,6 @@ func onboardingFinalizeRequest(state onboardingFlowState, defaults bool) (*onboa
 		req.DisabledSkillNames = disabledOnboardingSkillNames(state)
 	}
 	return req, nil
-}
-
-func onboardingMainProviderChoice(preserved onboardingPreservedInputs) *onboardingpb.ProviderChoice {
-	if preserved.providerOverride == nil && preserved.openAIBaseURL == nil {
-		return nil
-	}
-	choice := onboardingpb.ProviderChoice{}
-	if preserved.providerOverride != nil {
-		providerOverride := *preserved.providerOverride
-		choice.ProviderOverride = &providerOverride
-	}
-	if preserved.openAIBaseURL != nil {
-		openAIBaseURL := *preserved.openAIBaseURL
-		choice.OpenaiBaseUrl = &openAIBaseURL
-	}
-	return &choice
-}
-
-func onboardingToolOverrides(enabledTools map[toolspec.ID]bool) []*onboardingpb.ToolOverride {
-	defaults := config.DefaultOnboardingSettings().EnabledTools
-	overrides := make([]*onboardingpb.ToolOverride, 0)
-	for _, id := range toolspec.CatalogIDs() {
-		if id == toolspec.ToolAskQuestion {
-			continue
-		}
-		enabled := enabledTools[id]
-		if enabled != defaults[id] {
-			overrides = append(overrides, &onboardingpb.ToolOverride{Id: onboardingToolIDToProto(id), Enabled: enabled})
-		}
-	}
-	if len(overrides) == 0 {
-		return nil
-	}
-	return overrides
 }
 
 func onboardingModelChoice(selection onboardingModelSelection) *onboardingpb.ModelChoice {
@@ -208,29 +166,6 @@ func onboardingSupervisorFrequencyToProto(value onboardingSupervisorFrequency) o
 		return onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_ALL
 	default:
 		return onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_EDITS
-	}
-}
-
-func onboardingToolIDToProto(id toolspec.ID) onboardingpb.ToolID {
-	switch id {
-	case toolspec.ToolExecCommand:
-		return onboardingpb.ToolID_TOOL_ID_EXEC_COMMAND
-	case toolspec.ToolWriteStdin:
-		return onboardingpb.ToolID_TOOL_ID_WRITE_STDIN
-	case toolspec.ToolViewImage:
-		return onboardingpb.ToolID_TOOL_ID_VIEW_IMAGE
-	case toolspec.ToolPatch:
-		return onboardingpb.ToolID_TOOL_ID_PATCH
-	case toolspec.ToolEdit:
-		return onboardingpb.ToolID_TOOL_ID_EDIT
-	case toolspec.ToolCompleteNode:
-		return onboardingpb.ToolID_TOOL_ID_COMPLETE_NODE
-	case toolspec.ToolTriggerHandoff:
-		return onboardingpb.ToolID_TOOL_ID_TRIGGER_HANDOFF
-	case toolspec.ToolWebSearch:
-		return onboardingpb.ToolID_TOOL_ID_WEB_SEARCH
-	default:
-		return onboardingpb.ToolID_TOOL_ID_UNSPECIFIED
 	}
 }
 

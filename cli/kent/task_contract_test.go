@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,37 +13,42 @@ import (
 
 	"core/shared/apicontract"
 	"core/shared/config"
+	"core/shared/protoapi"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
+	"core/shared/worktreecontract"
+	"google.golang.org/protobuf/proto"
 )
 
 type taskPaginationStub struct {
 	apicontract.WorkflowService
-	taskListRequest  serverapi.WorkflowTaskListRequest
-	taskListResponse serverapi.WorkflowTaskListResponse
+	taskListRequest  *taskpb.ListRequest
+	taskListResponse *taskpb.ListSuccess
 }
 
 type taskSearchServiceStub struct {
 	apicontract.ProjectViewService
 	apicontract.WorkflowService
-	request  serverapi.TaskSearchRequest
-	response serverapi.TaskSearchResponse
+	request  *taskpb.SearchRequest
+	response *taskpb.SearchSuccess
 	err      error
 }
 
 func (s *taskSearchServiceStub) SearchWorkflowTasks(
 	_ context.Context,
-	request serverapi.TaskSearchRequest,
-) (serverapi.TaskSearchResponse, error) {
+	request *taskpb.SearchRequest,
+) (*taskpb.SearchSuccess, error) {
 	s.request = request
 	return s.response, s.err
 }
 
 func (s *taskPaginationStub) ListWorkflowTasks(
 	_ context.Context,
-	request serverapi.WorkflowTaskListRequest,
-) (serverapi.WorkflowTaskListResponse, error) {
+	request *taskpb.ListRequest,
+) (*taskpb.ListSuccess, error) {
 	s.taskListRequest = request
 	return s.taskListResponse, nil
 }
@@ -57,20 +63,14 @@ func TestTaskListPureFilterSortAndPaginationContracts(t *testing.T) {
 	}
 
 	statuses, err := parseTaskListStatusKinds([]string{"active,done"})
-	if err != nil || !slices.Equal(statuses, []serverapi.WorkflowTaskStatusKind{
-		serverapi.WorkflowTaskStatusKindActive,
-		serverapi.WorkflowTaskStatusKindDone,
-	}) {
+	if err != nil || !slices.Equal(statuses, []taskpb.TaskStatusKind{taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE, taskpb.TaskStatusKind_TASK_STATUS_KIND_DONE}) {
 		t.Fatalf("statuses=%v err=%v", statuses, err)
 	}
 	if _, err := parseTaskListStatusKinds([]string{"future"}); err == nil {
 		t.Fatal("unknown status accepted")
 	}
 	attention, err := parseTaskListAttentionKinds([]string{"question,interrupted"})
-	if err != nil || !slices.Equal(attention, []serverapi.WorkflowTaskAttentionKind{
-		serverapi.WorkflowTaskAttentionKindQuestion,
-		serverapi.WorkflowTaskAttentionKindInterrupted,
-	}) {
+	if err != nil || !slices.Equal(attention, []taskpb.TaskAttentionKind{taskpb.TaskAttentionKind_TASK_ATTENTION_KIND_QUESTION, taskpb.TaskAttentionKind_TASK_ATTENTION_KIND_INTERRUPTED}) {
 		t.Fatalf("attention=%v err=%v", attention, err)
 	}
 
@@ -81,9 +81,9 @@ func TestTaskListPureFilterSortAndPaginationContracts(t *testing.T) {
 	if err != nil || len(sortSelectors) != 7 {
 		t.Fatalf("sort=%v err=%v", sortSelectors, err)
 	}
-	if sortSelectors[0].Field != serverapi.WorkflowTaskListSortFieldLabels ||
-		sortSelectors[1].Field != serverapi.WorkflowTaskListSortFieldShortID ||
-		sortSelectors[6].Field != serverapi.WorkflowTaskListSortFieldTitle {
+	if sortSelectors[0].Field != taskpb.ListSortField_LIST_SORT_FIELD_LABELS ||
+		sortSelectors[1].Field != taskpb.ListSortField_LIST_SORT_FIELD_SHORT_ID ||
+		sortSelectors[6].Field != taskpb.ListSortField_LIST_SORT_FIELD_TITLE {
 		t.Fatalf("sort=%+v", sortSelectors)
 	}
 	for _, invalid := range []string{
@@ -104,7 +104,7 @@ func TestTaskListPureFilterSortAndPaginationContracts(t *testing.T) {
 		t.Fatal("unlabeled with selector accepted")
 	}
 	if mode, err := parseTaskListLabelMatch("all", true, 2, false); err != nil ||
-		mode != serverapi.WorkflowTaskNamedLabelFilterModeAll {
+		mode != taskpb.NamedLabelFilterMode_NAMED_LABEL_FILTER_MODE_ALL {
 		t.Fatalf("label mode=%q err=%v", mode, err)
 	}
 
@@ -147,14 +147,14 @@ func TestTaskListDependencyFilterAndRetryArguments(t *testing.T) {
 		})
 	}
 
-	mode := serverapi.WorkflowTaskNamedLabelFilterModeAll
+	mode := "all"
 	blocked := false
 	args := taskListRetryCommandArgs(taskListCommandContext{
 		ProjectRef:             "project-ref",
-		StatusKinds:            []serverapi.WorkflowTaskStatusKind{serverapi.WorkflowTaskStatusKindActive},
-		AttentionKinds:         []serverapi.WorkflowTaskAttentionKind{serverapi.WorkflowTaskAttentionKindQuestion},
+		StatusKinds:            []string{"active"},
+		AttentionKinds:         []string{"question"},
 		ColumnKeys:             []string{"build"},
-		Sort:                   []serverapi.WorkflowTaskListSort{{Field: serverapi.WorkflowTaskListSortFieldUpdated, Direction: serverapi.WorkflowTaskListSortDirectionDesc}},
+		Sort:                   []string{"updated:desc"},
 		LabelSelectors:         []string{"Alpha"},
 		ExcludedLabelSelectors: []string{"Beta"},
 		LabelMatch:             &mode,
@@ -192,19 +192,19 @@ func TestTaskListDependencyFilterAndRetryArguments(t *testing.T) {
 }
 
 func TestTaskListAndCommentPaginationSuccess(t *testing.T) {
-	offset, limit, nextOffset := 5, 2, 7
+	offset, limit, nextOffset := int32(5), int32(2), int32(7)
 	stub := &taskPaginationStub{
-		taskListResponse: serverapi.WorkflowTaskListResponse{
-			Scope: serverapi.WorkflowTaskListScope{
-				ProjectID: "project-1",
+		taskListResponse: &taskpb.ListSuccess{
+			Scope: &taskpb.ListScope{
+				ProjectId: "project-1",
 			},
-			MatchingWorkflowCardinality: serverapi.WorkflowTaskListMatchingWorkflowCardinalityNone,
-			Tasks:                       []serverapi.WorkflowTaskListItem{},
+			MatchingWorkflowCardinality: taskpb.MatchingWorkflowCardinality_MATCHING_WORKFLOW_CARDINALITY_NONE,
+			Tasks:                       []*taskpb.ListItem{},
 			NextOffset:                  &nextOffset,
 		},
 	}
-	response, err := workflowTaskList(t.Context(), stub, serverapi.WorkflowTaskListRequest{
-		ProjectID: func() *string {
+	response, err := workflowTaskList(t.Context(), stub, &taskpb.ListRequest{
+		ProjectId: func() *string {
 			projectID := "project-1"
 			return &projectID
 		}(),
@@ -229,7 +229,7 @@ func TestTaskListAndCommentPaginationSuccess(t *testing.T) {
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil ||
 		output.NextOffset == nil ||
-		*output.NextOffset != nextOffset ||
+		*output.NextOffset != int(nextOffset) ||
 		len(output.Tasks) != 0 {
 		t.Fatalf("output=%+v err=%v", output, err)
 	}
@@ -244,11 +244,8 @@ func TestTaskListAndCommentPaginationSuccess(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := writeTaskCommentListResponse(&stdout, &stderr, serverapi.WorkflowTaskCommentListResponse{
-		WorkflowOffsetPage: serverapi.WorkflowOffsetPage[serverapi.WorkflowTaskComment]{
-			Items:      []serverapi.WorkflowTaskComment{},
-			NextOffset: &nextOffset,
-		},
+	if code := writeTaskCommentListResponse(&stdout, &stderr, &taskpb.CommentListSuccess{
+		Items: []*taskpb.Comment{}, NextOffset: &nextOffset,
 	}); code != 0 ||
 		stdout.Len() != 0 ||
 		stderr.Len() == 0 {
@@ -302,29 +299,26 @@ func TestTaskCommentAddCannotSpoofUserAuthorFromAgentSession(t *testing.T) {
 }
 
 func TestTaskSearchExecutionProjectsScopeAndTypedOutcomes(t *testing.T) {
-	nextOffset := 7
-	request := serverapi.TaskSearchRequest{
-		Mode:            serverapi.TaskSearchModeFTS5,
+	nextOffset := int32(7)
+	request := &taskpb.SearchRequest{
+		Mode:            taskpb.SearchMode_SEARCH_MODE_FTS5,
 		Query:           "title:needle",
 		Context:         7,
 		IncludeComments: true,
-		StatusKinds: []serverapi.WorkflowTaskStatusKind{
-			serverapi.WorkflowTaskStatusKindActive,
-			serverapi.WorkflowTaskStatusKindDone,
-		},
-		PageSize: 2,
-		Offset:   func() *int { value := 4; return &value }(),
+		StatusKinds:     []taskpb.TaskStatusKind{taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE, taskpb.TaskStatusKind_TASK_STATUS_KIND_DONE},
+		PageSize:        2,
+		Offset:          proto.Int32(4),
 	}
-	response := serverapi.TaskSearchResponse{
-		Mode:       serverapi.TaskSearchModeFTS5,
-		Groups:     []serverapi.TaskSearchGroup{},
+	response := &taskpb.SearchSuccess{
+		Mode:       taskpb.SearchMode_SEARCH_MODE_FTS5,
+		Groups:     []*taskpb.SearchGroup{},
 		NextOffset: &nextOffset,
 	}
 	stub := &taskSearchServiceStub{response: response}
 	var stdout, stderr bytes.Buffer
 	if code := runTaskSearch(
 		t.Context(),
-		config.App{},
+		config.Connection{},
 		stub,
 		stub,
 		[]string{"project-b", "project-a", "project-b"},
@@ -335,7 +329,7 @@ func TestTaskSearchExecutionProjectsScopeAndTypedOutcomes(t *testing.T) {
 	); code != 0 || stdout.Len() == 0 || stderr.Len() == 0 {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	if !slices.Equal(stub.request.ProjectIDs, []string{"project-a", "project-b"}) ||
+	if !slices.Equal(stub.request.ProjectIds, []string{"project-a", "project-b"}) ||
 		stub.request.Mode != request.Mode ||
 		stub.request.Query != request.Query ||
 		stub.request.Context != request.Context ||
@@ -346,9 +340,9 @@ func TestTaskSearchExecutionProjectsScopeAndTypedOutcomes(t *testing.T) {
 		*stub.request.Offset != *request.Offset {
 		t.Fatalf("request=%+v", stub.request)
 	}
-	var output serverapi.TaskSearchResponse
+	var output taskSearchJSON
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil ||
-		output.Mode != response.Mode ||
+		output.Mode != "fts5" ||
 		output.NextOffset == nil ||
 		*output.NextOffset != nextOffset ||
 		len(output.Groups) != 0 {
@@ -364,7 +358,7 @@ func TestTaskSearchExecutionProjectsScopeAndTypedOutcomes(t *testing.T) {
 	stderr.Reset()
 	if code := runTaskSearch(
 		t.Context(),
-		config.App{},
+		config.Connection{},
 		stub,
 		stub,
 		nil,
@@ -378,10 +372,10 @@ func TestTaskSearchExecutionProjectsScopeAndTypedOutcomes(t *testing.T) {
 }
 
 func TestTaskDependencyDirectionRenderingAndTypedJSON(t *testing.T) {
-	for raw, want := range map[string]*serverapi.WorkflowTaskDependencyDirection{
+	for raw, want := range map[string]*taskpb.DependencyDirection{
 		"":           nil,
-		"blocks":     taskDependencyDirectionPointer(serverapi.WorkflowTaskDependencyDirectionBlocks),
-		"blocked-by": taskDependencyDirectionPointer(serverapi.WorkflowTaskDependencyDirectionBlockedBy),
+		"blocks":     taskDependencyDirectionPointer(taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS),
+		"blocked-by": taskDependencyDirectionPointer(taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY),
 	} {
 		got, err := parseTaskDependencyDirection(raw)
 		if err != nil || !equalTaskDependencyDirections(got, want) {
@@ -392,30 +386,30 @@ func TestTaskDependencyDirectionRenderingAndTypedJSON(t *testing.T) {
 		t.Fatal("invalid dependency direction accepted")
 	}
 
-	directions := []serverapi.WorkflowTaskDependencyListDirectionProjection{
+	directions := []*taskpb.DependencyListDirection{
 		{
-			Direction:  serverapi.WorkflowTaskDependencyDirectionBlockedBy,
+			Direction:  taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY,
 			TotalCount: 1,
-			Items: []serverapi.WorkflowTaskDependencyItem{{
-				TaskID: "task-1", ShortID: "KENT-1", Title: "Foundation",
-				Status: taskContractStatus(serverapi.WorkflowTaskStatusKindActive),
+			Items: []*taskpb.DependencyItem{{
+				TaskId: "task-1", ShortId: "KENT-1", Title: "Foundation",
+				Status: taskContractStatus(taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE),
 			}},
 		},
 		{
-			Direction:  serverapi.WorkflowTaskDependencyDirectionBlocks,
+			Direction:  taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS,
 			TotalCount: 1,
-			Items: []serverapi.WorkflowTaskDependencyItem{{
-				TaskID: "task-2", ShortID: "KENT-2", Title: "Follow-up",
-				Status: taskContractStatus(serverapi.WorkflowTaskStatusKindBacklog),
+			Items: []*taskpb.DependencyItem{{
+				TaskId: "task-2", ShortId: "KENT-2", Title: "Follow-up",
+				Status: taskContractStatus(taskpb.TaskStatusKind_TASK_STATUS_KIND_BACKLOG),
 			}},
 		},
 	}
 	ordered := taskDependencyDirectionsForRender(directions)
 	if len(ordered) != 2 ||
-		ordered[0].Direction != serverapi.WorkflowTaskDependencyDirectionBlocks ||
-		ordered[0].Items[0].TaskID != "task-2" ||
-		ordered[1].Direction != serverapi.WorkflowTaskDependencyDirectionBlockedBy ||
-		ordered[1].Items[0].TaskID != "task-1" {
+		ordered[0].Direction != taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS ||
+		ordered[0].Items[0].TaskId != "task-2" ||
+		ordered[1].Direction != taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY ||
+		ordered[1].Items[0].TaskId != "task-1" {
 		t.Fatalf("ordered directions=%+v", ordered)
 	}
 	var stdout bytes.Buffer
@@ -426,12 +420,12 @@ func TestTaskDependencyDirectionRenderingAndTypedJSON(t *testing.T) {
 		t.Fatalf("render=%q", stdout.String())
 	}
 
-	response := serverapi.WorkflowTaskDependencyMutationResponse{
-		Outcome:        serverapi.WorkflowTaskDependencyOutcomeAlreadyAbsent,
-		BlockerTaskID:  "task-1",
-		BlockerShortID: "KENT-1",
-		BlockedTaskID:  "task-2",
-		BlockedShortID: "KENT-2",
+	response := &taskpb.DependencyMutationSuccess{
+		Outcome:        taskpb.DependencyMutationOutcome_DEPENDENCY_MUTATION_OUTCOME_ALREADY_ABSENT,
+		BlockerTaskId:  "task-1",
+		BlockerShortId: "KENT-1",
+		BlockedTaskId:  "task-2",
+		BlockedShortId: "KENT-2",
 	}
 	stdout.Reset()
 	var stderr bytes.Buffer
@@ -474,12 +468,11 @@ func TestTaskMoveStructuredValuesSelectionAndDependencyGuidance(t *testing.T) {
 		t.Fatalf("file values=%v err=%v", fileValues, err)
 	}
 
-	preview := serverapi.WorkflowTaskMovePreviewResponse{
-		Outcome: serverapi.WorkflowTaskMovePreviewOutcomeTransition,
-		Transition: &serverapi.WorkflowTaskMovePreviewTransition{Choices: []serverapi.WorkflowTaskMovePreviewTransitionChoice{
+	preview := &taskpb.MovePreviewSuccess{
+		Outcome: &taskpb.MovePreviewSuccess_Transition{Transition: &taskpb.MovePreviewTransition{Choices: []*taskpb.MoveTransitionChoice{
 			{TransitionKey: "approve"},
 			{TransitionKey: "revise"},
-		}},
+		}}},
 	}
 	if _, err := selectTaskMoveTransition(preview, "", false); err == nil {
 		t.Fatal("ambiguous transition auto-selected")
@@ -491,7 +484,7 @@ func TestTaskMoveStructuredValuesSelectionAndDependencyGuidance(t *testing.T) {
 	if _, err := selectTaskMoveTransition(preview, "missing", true); err == nil {
 		t.Fatal("unknown transition accepted")
 	}
-	preview.Transition.Choices = preview.Transition.Choices[:1]
+	preview.GetTransition().Choices = preview.GetTransition().Choices[:1]
 	selected, err = selectTaskMoveTransition(preview, "", false)
 	if err != nil || selected == nil || *selected != "approve" {
 		t.Fatalf("auto selection=%v err=%v", selected, err)
@@ -512,22 +505,23 @@ func TestTaskMoveStructuredValuesSelectionAndDependencyGuidance(t *testing.T) {
 	stderr.Reset()
 	writeWorkflowExecutionTargetSelectionRequiredForCommand(
 		&stderr,
-		&serverapi.WorkflowExecutionTargetSelectionRequirement{
-			Reason: serverapi.WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection,
-		},
+		serverapi.NewWorkflowPolicyTargetSelectionRequirement(),
 		recoveryCommand,
 	)
 	if !strings.Contains(stderr.String(), recoveryCommand+" --execution-target head") {
 		t.Fatalf("forced-completion selection guidance=%q", stderr.String())
 	}
 
-	response := serverapi.WorkflowTaskMoveResponse{
-		Outcome:                    serverapi.WorkflowExecutionTargetActionOutcomeDependencyConfirmationRequired,
-		UnsatisfiedDependencyCount: &count,
+	response := &taskpb.MoveSuccess{Outcome: &taskpb.MoveSuccess_DependencyConfirmationRequired{
+		DependencyConfirmationRequired: &taskpb.DependencyConfirmationRequired{UnsatisfiedDependencyCount: int32(count)},
+	}}
+	output, err := taskMoveOutput(response)
+	if err != nil {
+		t.Fatal(err)
 	}
 	var stdout bytes.Buffer
 	stderr.Reset()
-	if code := writeCommandJSON(&stdout, &stderr, response); code != 0 || stderr.Len() != 0 {
+	if code := writeCommandJSON(&stdout, &stderr, output); code != 0 || stderr.Len() != 0 {
 		t.Fatalf("dependency JSON exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	var fields map[string]json.RawMessage
@@ -544,7 +538,8 @@ func TestTaskSetupGuidanceContracts(t *testing.T) {
 	failed := &worktreepb.SetupEvent{
 		Phase: &worktreepb.SetupEvent_Failed{
 			Failed: &worktreepb.SetupFailed{
-				RetryReadiness: worktreepb.SetupRetryReadiness_WORKTREE_SETUP_RETRY_READY,
+				RecoveryDisposition: worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING,
+				RetryReadiness:      worktreepb.SetupRetryReadiness_WORKTREE_SETUP_RETRY_READY,
 				Cause: &worktreepb.SetupFailureCause{
 					Cause: &worktreepb.SetupFailureCause_ProcessExit{
 						ProcessExit: &worktreepb.SetupProcessExit{ExitCode: 1},
@@ -560,17 +555,19 @@ func TestTaskSetupGuidanceContracts(t *testing.T) {
 	}
 	start, err := projectTaskSetupGuidance(taskSetupObservedActionStart, "task-1", nil, failed, nil)
 	if err != nil ||
-		start.Outcome != taskSetupOutcomeStartInterruptedSetupFailure ||
+		start.Outcome != taskSetupOutcomeObservedSetupFailure ||
 		start.RetainedRoot == nil ||
 		*start.RetainedRoot != "/tmp/retained" ||
 		start.RetainedPreviousRoot == nil ||
 		len(start.Actions) != 5 ||
 		start.Actions[0].Kind != taskSetupActionRetry ||
+		start.Actions[0].Args[2] != "start" ||
 		start.Actions[0].Args[len(start.Actions[0].Args)-1] != "head" {
 		t.Fatalf("start setup guidance=%+v err=%v", start, err)
 	}
 	resume, err := projectTaskSetupGuidance(taskSetupObservedActionResume, "task-1", nil, failed, nil)
-	if err != nil || resume.Outcome != taskSetupOutcomeResumeInterruptedSetupFailure {
+	if err != nil || resume.Outcome != taskSetupOutcomeObservedSetupFailure ||
+		resume.Actions[0].Args[2] != "resume" {
 		t.Fatalf("resume setup guidance=%+v err=%v", resume, err)
 	}
 	completed, err := projectTaskSetupGuidance(taskSetupObservedActionStart, "task-1", nil, &worktreepb.SetupEvent{
@@ -617,21 +614,80 @@ func TestTaskMoveSetupRecoveryPreservesStructuredInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target := serverapi.WorkflowExecutionTargetSelection{Mode: serverapi.WorkflowExecutionTargetModeHead}
-	guidance, err := projectMoveSetupGuidance(base, &target, &serverapi.WorkflowSetupRetainedError{
-		Worktree:                 taskContractWorkflowSetupWorktree("/tmp/retained"),
-		Diagnostic:               "failed twice",
-		ScriptPath:               "/repo/setup.sh",
-		RetainedPreviousWorktree: &serverapi.WorkflowRetainedPreviousWorktree{Worktree: taskContractWorkflowSetupWorktree("/tmp/previous")},
-	})
+	target := &taskpb.ExecutionTargetSelection{Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_HEAD}
+	setupErr := &worktreecontract.SetupRetainedError{
+		Details: &worktreepb.SetupRetainedDetails{
+			RecoveryDisposition:      worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING,
+			Worktree:                 taskContractSetupWorktree("/tmp/retained").GetRegistered(),
+			Diagnostic:               "failed twice",
+			ScriptPath:               "/repo/setup.sh",
+			RetainedPreviousWorktree: &worktreepb.RetainedPreviousWorktree{Worktree: taskContractSetupWorktree("/tmp/previous").GetRegistered()},
+		},
+	}
+	decoded := &worktreecontract.SetupRetainedError{Details: proto.Clone(setupErr.Details).(*worktreepb.SetupRetainedDetails)}
+	guidance, err := projectRetainedSetupGuidance(base, target, decoded)
 	if err != nil ||
 		guidance.Outcome != taskSetupOutcomeMoveSetupFailure ||
 		guidance.RetainedRoot == nil ||
 		*guidance.RetainedRoot != "/tmp/retained" ||
 		guidance.RetainedPreviousRoot == nil ||
+		*guidance.RetainedPreviousRoot != "/tmp/previous" ||
 		len(guidance.Actions) != 5 ||
 		!slices.Contains(guidance.Actions[0].Args, `{"plan":{"summary":"done"}}`) {
 		t.Fatalf("move setup guidance=%+v err=%v", guidance, err)
+	}
+	decoded.Details.Diagnostic = " "
+	if _, err := projectRetainedSetupGuidance(base, target, decoded); err == nil {
+		t.Fatal("missing retained setup diagnostic accepted")
+	}
+	decoded.Details.Diagnostic = setupErr.Details.Diagnostic
+	decoded.Details.Worktree.Kent.CanonicalRoot = "/tmp/different"
+	if _, err := projectRetainedSetupGuidance(base, target, decoded); err == nil {
+		t.Fatal("mismatched retained setup root accepted")
+	}
+	decoded.Details.Worktree.Kent.CanonicalRoot = decoded.Details.Worktree.Git.CanonicalRoot
+	decoded.Details.RetainedPreviousWorktree.Worktree.Kent.CanonicalRoot = "/tmp/different"
+	if _, err := projectRetainedSetupGuidance(base, target, decoded); err == nil {
+		t.Fatal("mismatched previous retained setup root accepted")
+	}
+}
+
+func TestTaskMoveReplacementSetupFailureRequiresFreshBranch(t *testing.T) {
+	base := []string{config.Command, "task", "move", "task-1", "node-1"}
+	setupErr := &worktreecontract.SetupRetainedError{
+		Details: &worktreepb.SetupRetainedDetails{
+			RecoveryDisposition: worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT,
+			Worktree:            taskContractSetupWorktree("/tmp/retained").GetRegistered(),
+			Diagnostic:          "setup process failed", ScriptPath: "/repo/setup.sh",
+		},
+	}
+	guidance, err := projectRetainedSetupGuidance(base, nil, setupErr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(guidance.Actions) != 4 {
+		t.Fatalf("replacement choices = %+v", guidance.Actions)
+	}
+	for _, action := range guidance.Actions {
+		if action.Kind == taskSetupActionRetry {
+			t.Fatal("replacement failure offered retry in retained root")
+		}
+		if slices.Contains(action.Args, "--branch-name") != (action.Kind != taskSetupActionChooseNone) {
+			t.Fatalf("replacement branch flags = %+v", action)
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	output, err := taskSetupRetainedOutput(setupErr.Details)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := writeCommandJSON(&stdout, &stderr, output); code != 0 {
+		t.Fatalf("structured failure serialization = %d: %s", code, stderr.String())
+	}
+	var decoded taskSetupRetainedJSON
+	if err := json.Unmarshal(stdout.Bytes(), &decoded); err != nil ||
+		decoded.Diagnostic != setupErr.Details.Diagnostic || decoded.Worktree.Registered.Git.CanonicalRoot != "/tmp/retained" {
+		t.Fatalf("structured replacement diagnostics lost: %v", err)
 	}
 }
 
@@ -640,7 +696,6 @@ func TestWorktreeHeaderAndBranchCleanupPolicy(t *testing.T) {
 		name        string
 		delete      bool
 		forceDelete bool
-		agent       bool
 		want        worktreepb.BranchCleanupMode
 		wantError   bool
 	}{
@@ -648,10 +703,9 @@ func TestWorktreeHeaderAndBranchCleanupPolicy(t *testing.T) {
 		{name: "safe delete", delete: true, want: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_DELETE_SAFE},
 		{name: "force delete", delete: true, forceDelete: true, want: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_DELETE_FORCE},
 		{name: "force requires delete", forceDelete: true, wantError: true},
-		{name: "agent retains branch", delete: true, agent: true, wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := worktreeBranchCleanupPolicy(test.delete, test.forceDelete, test.agent)
+			got, err := worktreeBranchCleanupPolicy(test.delete, test.forceDelete)
 			if (err != nil) != test.wantError || got != test.want {
 				t.Fatalf("policy=%q err=%v", got, err)
 			}
@@ -687,13 +741,13 @@ func equalBoolTaskPointers(left *bool, right *bool) bool {
 	return *left == *right
 }
 
-func taskDependencyDirectionPointer(value serverapi.WorkflowTaskDependencyDirection) *serverapi.WorkflowTaskDependencyDirection {
+func taskDependencyDirectionPointer(value taskpb.DependencyDirection) *taskpb.DependencyDirection {
 	return &value
 }
 
 func equalTaskDependencyDirections(
-	left *serverapi.WorkflowTaskDependencyDirection,
-	right *serverapi.WorkflowTaskDependencyDirection,
+	left *taskpb.DependencyDirection,
+	right *taskpb.DependencyDirection,
 ) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
@@ -701,12 +755,12 @@ func equalTaskDependencyDirections(
 	return *left == *right
 }
 
-func taskContractStatus(kind serverapi.WorkflowTaskStatusKind) serverapi.WorkflowTaskStatus {
-	native, ok := kind.NativeState()
-	if !ok {
+func taskContractStatus(kind taskpb.TaskStatusKind) *taskpb.TaskStatus {
+	native, err := protoapi.TaskNativeState(kind)
+	if err != nil {
 		panic("invalid task status")
 	}
-	return serverapi.WorkflowTaskStatus{Kind: kind, NativeState: native}
+	return &taskpb.TaskStatus{Kind: kind, NativeState: native}
 }
 
 func taskContractSetupWorktree(root string) *worktreepb.TopologyEntry {
@@ -716,16 +770,6 @@ func taskContractSetupWorktree(root string) *worktreepb.TopologyEntry {
 				Git:  &worktreepb.GitFacts{CanonicalRoot: root, HeadObject: "0123456789abcdef"},
 				Kent: &worktreepb.KentFacts{WorktreeId: "worktree-1", CanonicalRoot: root, DisplayName: "KENT-453", Managed: true},
 			},
-		},
-	}
-}
-
-func taskContractWorkflowSetupWorktree(root string) serverapi.WorkflowRegisteredWorktreeTopology {
-	return serverapi.WorkflowRegisteredWorktreeTopology{
-		Variant: "registered",
-		Registered: &serverapi.WorkflowRegisteredWorktreeFacts{
-			Git:  serverapi.WorkflowWorktreeGitFacts{CanonicalRoot: root, HeadObject: "0123456789abcdef"},
-			Kent: serverapi.WorkflowWorktreeKentFacts{WorktreeID: "worktree-1", CanonicalRoot: root, DisplayName: "KENT-453", Managed: true},
 		},
 	}
 }

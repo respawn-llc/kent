@@ -1,37 +1,56 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { isValidElement } from "react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { isValidElement, type ReactElement } from "react";
 import type { SidebarDestination } from "@/app-facade";
+import { SidebarRootContext } from "@/app-facade";
+import { createBrowserNativeBridge } from "@/test-support/native-bridge";
+import { TestAppProviders, type TestAppServices } from "@/test-support/app-services";
+import { createTaskDetailTestServices, taskDetailResponse } from "@/test-support/task-detail";
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
+import { appI18n } from "@/i18n";
 import { SidebarDestinationView } from "./sidebarDestinations";
 import { sidebarDestinationPolicy } from "./sidebarDestinationPolicy";
 const headerAction = vi.hoisted(() => vi.fn<(action: unknown) => void>());
-const fixture = vi.hoisted(() => ({
+type AsyncMock<Arguments extends unknown[]> = ReturnType<typeof vi.fn<(...args: Arguments) => Promise<void>>>;
+type SyncMock<Arguments extends unknown[]> = ReturnType<typeof vi.fn<(...args: Arguments) => void>>;
+interface SidebarFixture {
+  copyText: AsyncMock<[unknown]>;
+  openWindow: AsyncMock<[unknown]>;
+  openProject: AsyncMock<[unknown]>;
+  openWorkflowEditor: AsyncMock<[]>;
+  openSessionChat: AsyncMock<[unknown]>;
+  push: SyncMock<[unknown]>;
+  services: TestAppServices | undefined;
+  featureFlags: { desktopChatEnabled: boolean };
+  workflowEditorProps: SyncMock<[unknown]>;
+  newTaskProps: SyncMock<[unknown]>;
+}
+const fixture = vi.hoisted((): SidebarFixture => ({
   copyText: vi.fn(async () => undefined),
   openWindow: vi.fn(async () => undefined),
   openProject: vi.fn(async () => undefined),
   openWorkflowEditor: vi.fn(async () => undefined),
+  openSessionChat: vi.fn(async () => undefined),
   push: vi.fn(),
+  services: undefined,
+  featureFlags: { desktopChatEnabled: true },
   workflowEditorProps: vi.fn<(props: unknown) => void>(),
   newTaskProps: vi.fn<(props: unknown) => void>(),
 }));
-vi.mock("@/app-facade", () => ({
+vi.mock("@/shared/feature-flags", () => fixture.featureFlags);
+vi.mock("@/app-facade", async (importOriginal) => ({
+  ...(await importOriginal()),
   sidebarTitle: () => "",
   useAppNavigation: () => ({
     openProject: fixture.openProject,
+    openSessionChat: fixture.openSessionChat,
     openWorkflowEditor: fixture.openWorkflowEditor,
   }),
-  useAppServices: () => ({
-    nativeBridge: {
-      capabilities: { clipboard: { writeText: true }, dialogWindows: true },
-      clipboard: { writeText: fixture.copyText },
-      dialogs: { openWindow: fixture.openWindow },
-    },
-  }),
+  useAppServices: () => {
+    if (fixture.services === undefined) throw new Error("Test app services are not initialized.");
+    return fixture.services;
+  },
   usePublishSidebarHeaderAction: headerAction,
   useStatusController: () => ({ push: fixture.push }),
-}));
-vi.mock("@/features/task-detail", () => ({
-  TaskDetailSurface: () => <div />,
 }));
 vi.mock("@/features/project-edit", () => ({
   ProjectDeleteButton: () => <div />,
@@ -121,24 +140,62 @@ vi.mock("@/features/workflow-editor", () => ({
   }: Readonly<{ onDeleted?: () => void; workflowID: string }>) => (
     <button data-testid={`workflow-delete-${workflowID}`} onClick={onDeleted} />
   ),
+  WorkflowInspectorHeader: ({
+    onDeleted,
+    workflowID,
+  }: Readonly<{ onDeleted: () => void; workflowID: string }>) => (
+    <button data-testid={`workflow-inspector-delete-${workflowID}`} onClick={onDeleted} />
+  ),
   WorkflowInspectorSidebar: ({ onMissingSelectedNode }: Readonly<{ onMissingSelectedNode: () => void }>) => (
     <button data-testid="workflow-inspector-missing" onClick={onMissingSelectedNode} />
   ),
 }));
 
 function mountDestination(destination: SidebarDestination, pageNavigator = createTestSidebarNavigator()) {
-  render(<SidebarDestinationView destination={destination} navigator={pageNavigator} />);
+  const browserBridge = createBrowserNativeBridge();
+  const nativeBridge = {
+    ...browserBridge,
+    capabilities: {
+      ...browserBridge.capabilities,
+      clipboard: { ...browserBridge.capabilities.clipboard, writeText: true },
+      dialogWindows: true,
+    },
+    clipboard: { ...browserBridge.clipboard, writeText: fixture.copyText },
+    dialogs: { ...browserBridge.dialogs, openWindow: fixture.openWindow },
+  };
+  const services = createTaskDetailTestServices(taskDetailResponse, { nativeBridge });
+  fixture.services = services;
+  render(
+    <TestAppProviders services={services}>
+      <SidebarRootContext.Provider value={{ open: vi.fn() }}>
+        <SidebarDestinationView destination={destination} navigator={pageNavigator} />
+      </SidebarRootContext.Provider>
+    </TestAppProviders>,
+  );
   return pageNavigator;
+}
+
+function renderHeaderAction(action: ReactElement) {
+  if (fixture.services === undefined) throw new Error("Test app services are not initialized.");
+  return render(<TestAppProviders services={fixture.services}>{action}</TestAppProviders>);
 }
 
 describe("Sidebar destination completion ownership", () => {
   beforeEach(() => {
-    for (const mock of Object.values(fixture)) mock.mockClear();
+    fixture.copyText.mockClear();
+    fixture.openWindow.mockClear();
+    fixture.openProject.mockClear();
+    fixture.openWorkflowEditor.mockClear();
+    fixture.openSessionChat.mockClear();
+    fixture.push.mockClear();
+    fixture.workflowEditorProps.mockClear();
+    fixture.newTaskProps.mockClear();
+    fixture.featureFlags.desktopChatEnabled = true;
     headerAction.mockClear();
   });
   it("deduplicates only Task Detail destinations", () => {
     const task = { kind: "taskDetail", taskID: "task-1" } as const;
-    const custom = { kind: "custom", title: "same", content: null } as const;
+    const custom = { kind: "custom", title: "same", content: () => null } as const;
     expect(sidebarDestinationPolicy.equals(task, { ...task })).toBe(true);
     expect(sidebarDestinationPolicy.equals(custom, { ...custom })).toBe(false);
   });
@@ -231,9 +288,42 @@ describe("Sidebar destination completion ownership", () => {
     const navigator = mountDestination(destination);
     const action = headerAction.mock.lastCall?.[0];
     if (!isValidElement(action)) throw new Error("Expected the Link Workflow header action.");
-    render(action);
-    fireEvent.click(screen.getByRole("button", { name: "workflowLibrary.newWorkflow" }));
+    renderHeaderAction(action);
+    fireEvent.click(screen.getByRole("button", { name: appI18n.t("workflowLibrary.newWorkflow") }));
     expect(navigator.replace).toHaveBeenCalledWith({ ...destination, creating: true });
+  });
+  it("provides Chat entry for main-window Task Detail and suppresses it after a stale close", async () => {
+    const destination = { kind: "taskDetail", taskID: "task-1" } as const;
+    const navigator = mountDestination(destination);
+    const flow = await screen.findByTestId("task-detail-action-flow");
+    fireEvent.click(
+      within(flow).getByRole("button", {
+        name: appI18n.t("task.openChat", { name: "Review chat" }),
+      }),
+    );
+    await waitFor(() => {
+      expect(navigator.close).toHaveBeenCalledOnce();
+      expect(fixture.openSessionChat).toHaveBeenCalledWith({
+        projectID: "project-1",
+        sessionID: "33333333-3333-4333-8333-333333333333",
+      });
+    });
+
+    const stale = createTestSidebarNavigator({ close: vi.fn(() => "stale" as const) });
+    mountDestination(destination, stale);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("task-detail-action-flow")).toHaveLength(2);
+    });
+    const staleFlows = screen.getAllByTestId("task-detail-action-flow");
+    const staleFlow = staleFlows.at(-1);
+    if (staleFlow === undefined) throw new Error("Expected stale Task Detail action flow.");
+    fireEvent.click(
+      within(staleFlow).getByRole("button", {
+        name: appI18n.t("task.openChat", { name: "Review chat" }),
+      }),
+    );
+    expect(stale.close).toHaveBeenCalledOnce();
+    expect(fixture.openSessionChat).toHaveBeenCalledOnce();
   });
   it.each([
     {
@@ -313,41 +403,10 @@ describe("Sidebar destination completion ownership", () => {
         { kind: "workflowInspect", selection: { kind: "workflow" }, workflowID: "workflow-1" },
         navigator,
       );
-      const deleteAction = headerAction.mock.lastCall?.[0];
-      if (!isValidElement(deleteAction)) throw new Error("Expected Workflow delete.");
-      render(deleteAction);
-      fireEvent.click(screen.getByTestId("workflow-delete-workflow-1"));
+      fireEvent.click(screen.getByTestId("workflow-inspector-delete-workflow-1"));
       expect(navigator.close).toHaveBeenCalledOnce();
     },
   );
-
-  it("publishes Workflow Inspector ID-copy actions", async () => {
-    mountDestination({
-      kind: "workflowInspect",
-      selection: { kind: "node", nodeID: "node-1" },
-      workflowID: "workflow-1",
-    });
-    const copyAction = headerAction.mock.lastCall?.[0];
-    if (!isValidElement(copyAction)) throw new Error("Expected Workflow ID copy.");
-    render(copyAction);
-    fireEvent.click(screen.getByText("node-1"));
-    await waitFor(() => {
-      expect(fixture.copyText).toHaveBeenCalledWith("node-1");
-    });
-
-    mountDestination({
-      kind: "workflowInspect",
-      selection: { edgeID: "edge-1", kind: "edge" },
-      workflowID: "workflow-1",
-    });
-    const edgeCopyAction = headerAction.mock.lastCall?.[0];
-    if (!isValidElement(edgeCopyAction)) throw new Error("Expected Workflow transition ID copy.");
-    render(edgeCopyAction);
-    fireEvent.click(screen.getByText("edge-1"));
-    await waitFor(() => {
-      expect(fixture.copyText).toHaveBeenCalledWith("edge-1");
-    });
-  });
 
   it.each<Readonly<{ outcome: "accepted" | "stale" }>>([{ outcome: "accepted" }, { outcome: "stale" }])(
     "keeps pop-out completion scoped when close is $outcome",
@@ -356,8 +415,8 @@ describe("Sidebar destination completion ownership", () => {
       mountDestination({ kind: "taskDetail", taskID: "task-1" }, navigator);
       const action = headerAction.mock.lastCall?.[0];
       if (!isValidElement(action)) throw new Error("Expected the Task Detail header action.");
-      render(action);
-      fireEvent.click(screen.getByRole("button", { name: "app.popOut" }));
+      renderHeaderAction(action);
+      fireEvent.click(screen.getByRole("button", { name: appI18n.t("app.popOut") }));
       await waitFor(() => {
         expect(fixture.openWindow).toHaveBeenCalledOnce();
       });

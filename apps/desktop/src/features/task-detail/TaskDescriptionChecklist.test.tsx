@@ -1,8 +1,10 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { projectEventsFixture } from "@/test-support/project-events";
 
 import {
-  getCallCount,
+  taskGetRoute,
+  taskUpdateRoute,
   mountTaskDetailSurface,
   emptyTaskAttentionResponse,
   taskDetailResponse,
@@ -24,41 +26,24 @@ describe("Task description checklist", () => {
     };
     const services = mountTaskDetailSurface(initialTask, {
       routes: [
-        {
-          method: "workflow.task.get",
-          handler: (_params, callIndex) =>
-            callIndex === 0
-              ? initialTask
-              : {
-                  task: {
-                    ...taskDetailResponse.task,
-                    body: updatedBody,
-                  },
-                },
-        },
-        { method: "workflow.task.update", result: taskUpdateResponse },
+        taskGetRoute((_taskID, callIndex) =>
+          callIndex === 0
+            ? initialTask
+            : {
+                task: { ...taskDetailResponse.task, body: updatedBody },
+              },
+        ),
+        taskUpdateRoute(),
       ],
     });
+    const updateTask = vi.spyOn(services.api, "updateTask");
 
     expect(await screen.findByRole("checkbox")).not.toBeChecked();
     await waitFor(() => {
-      expect(services.transport.subscriptions).toContainEqual({
-        method: "workflow.subscribeProject",
-        params: { project_id: "project-1" },
-      });
+      expect(projectEventsFixture(services.transport).activeCount).toBeGreaterThan(0);
     });
     act(() => {
-      services.transport.emit("workflow.project", {
-        event: {
-          action: "comment_added",
-          occurred_at_unix_ms: 2,
-          primary_entity_id: "task-1",
-          project_id: "project-1",
-          related_ids: ["comment-1"],
-          resource: "task",
-          workflow_id: "11111111-1111-4111-8111-111111111111",
-        },
-      });
+      projectEventsFixture(services.transport).emit({ action: "comment_added", relatedIDs: ["comment-1"] });
     });
 
     expect(await screen.findByText("New context")).toBeInTheDocument();
@@ -66,13 +51,10 @@ describe("Task description checklist", () => {
     fireEvent.click(screen.getByTestId("task-detail-save"));
 
     await waitFor(() => {
-      expect(services.transport.calls).toContainEqual({
-        method: "workflow.task.update",
-        params: {
-          task_id: "task-1",
-          title: "Resolve blocker",
-          body: "New context\n\n- [x] Keep the Markdown source",
-        },
+      expect(updateTask).toHaveBeenCalledWith({
+        taskID: "task-1",
+        title: "Resolve blocker",
+        body: "New context\n\n- [x] Keep the Markdown source",
       });
     });
   });
@@ -86,9 +68,10 @@ describe("Task description checklist", () => {
         },
       },
       {
-        routes: [{ method: "workflow.task.update", result: taskUpdateResponse }],
+        routes: [taskUpdateRoute()],
       },
     );
+    const updateTask = vi.spyOn(services.api, "updateTask");
 
     const checkbox = await screen.findByRole("checkbox");
     expect(checkbox).not.toBeChecked();
@@ -98,20 +81,17 @@ describe("Task description checklist", () => {
 
     expect(screen.getByRole("checkbox")).toBeChecked();
     expect(screen.getByTestId("task-detail-save")).toBeInTheDocument();
-    expect(getCallCount(services.transport.calls, "workflow.task.update")).toBe(0);
+    expect(updateTask).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId("task-detail-save"));
 
     await waitFor(() => {
-      expect(getCallCount(services.transport.calls, "workflow.task.update")).toBe(1);
+      expect(updateTask).toHaveBeenCalledOnce();
     });
-    expect(services.transport.calls).toContainEqual({
-      method: "workflow.task.update",
-      params: {
-        task_id: "task-1",
-        title: "Resolve blocker",
-        body: "Completion criteria:\n\n- [x] Keep the Markdown source",
-      },
+    expect(updateTask).toHaveBeenCalledWith({
+      taskID: "task-1",
+      title: "Resolve blocker",
+      body: "Completion criteria:\n\n- [x] Keep the Markdown source",
     });
   });
 
@@ -229,37 +209,37 @@ describe("Task description checklist", () => {
     expect(screen.getByTestId("task-detail-save")).toBeInTheDocument();
   });
 
-  it("does not edit or toggle a disabled description", async () => {
+  it("restores description editing after retrying a failed observation", async () => {
     const services = mountTaskDetailSurface({
       task: {
         ...taskDetailResponse.task,
         body: "- [ ] Keep the Markdown source",
       },
     });
+    await screen.findByRole("textbox", { name: appI18n.t("task.description") });
     act(() => {
-      services.transport.connection.set("disconnected", "offline");
+      projectEventsFixture(services.transport).fail(new Error("offline"));
     });
+
+    await screen.findByTestId("error-state");
+    expect(screen.queryByRole("textbox", { name: appI18n.t("task.description") })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
     const description = await screen.findByRole("textbox", { name: appI18n.t("task.description") });
     const checkbox = await screen.findByRole("checkbox");
-
-    await waitFor(() => {
-      expect(checkbox).toBeDisabled();
-    });
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
     fireEvent.focus(description);
     fireEvent.keyDown(description, { key: "Enter" });
-    fireEvent.click(checkbox);
-
-    expect(screen.getByRole("textbox", { name: appI18n.t("task.description") })).not.toBeInstanceOf(
+    expect(screen.getByRole("textbox", { name: appI18n.t("task.description") })).toBeInstanceOf(
       HTMLTextAreaElement,
     );
-    expect(checkbox).not.toBeChecked();
-    expect(screen.queryByTestId("task-detail-save")).not.toBeInTheDocument();
   });
 
   it("closes clean editing from the native submit shortcut without updating the Task", async () => {
     const services = mountTaskDetailSurface(taskDetailResponse, {
       nativeBridge: createBrowserNativeBridge({ platform: "macos" }),
     });
+    const updateTask = vi.spyOn(services.api, "updateTask");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("textbox", { name: appI18n.t("task.description") }));
     const editor = screen.getByRole("textbox", { name: appI18n.t("task.description") });
@@ -271,20 +251,16 @@ describe("Task description checklist", () => {
         HTMLTextAreaElement,
       );
     });
-    expect(getCallCount(services.transport.calls, "workflow.task.update")).toBe(0);
+    expect(updateTask).not.toHaveBeenCalled();
   });
 
   it("keeps dirty editing active until a deferred native shortcut Save resolves", async () => {
     const pending = deferred<typeof taskUpdateResponse>();
     const services = mountTaskDetailSurface(taskDetailResponse, {
       nativeBridge: createBrowserNativeBridge({ platform: "macos" }),
-      routes: [
-        {
-          method: "workflow.task.update",
-          handler: async () => pending.promise,
-        },
-      ],
+      routes: [taskUpdateRoute(async () => pending.promise)],
     });
+    const updateTask = vi.spyOn(services.api, "updateTask");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("textbox", { name: appI18n.t("task.description") }));
     const editor = screen.getByRole("textbox", { name: appI18n.t("task.description") });
@@ -294,7 +270,7 @@ describe("Task description checklist", () => {
     fireEvent.keyDown(editor, { key: "Enter", metaKey: true });
 
     await waitFor(() => {
-      expect(getCallCount(services.transport.calls, "workflow.task.update")).toBe(1);
+      expect(updateTask).toHaveBeenCalledOnce();
     });
     expect(screen.getByRole("textbox", { name: appI18n.t("task.description") })).toBeInstanceOf(
       HTMLTextAreaElement,
@@ -314,13 +290,9 @@ describe("Task description checklist", () => {
     const pending = deferred<typeof taskUpdateResponse>();
     const services = mountTaskDetailSurface(taskDetailResponse, {
       nativeBridge: createBrowserNativeBridge({ platform: "macos" }),
-      routes: [
-        {
-          method: "workflow.task.update",
-          handler: async () => pending.promise,
-        },
-      ],
+      routes: [taskUpdateRoute(async () => pending.promise)],
     });
+    const updateTask = vi.spyOn(services.api, "updateTask");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("textbox", { name: appI18n.t("task.description") }));
     const editor = screen.getByRole("textbox", { name: appI18n.t("task.description") });
@@ -329,7 +301,7 @@ describe("Task description checklist", () => {
 
     fireEvent.keyDown(editor, { key: "Enter", metaKey: true });
     await waitFor(() => {
-      expect(getCallCount(services.transport.calls, "workflow.task.update")).toBe(1);
+      expect(updateTask).toHaveBeenCalledOnce();
     });
     await act(async () => {
       pending.reject(new Error("update failed"));
@@ -435,14 +407,16 @@ describe("Task description checklist", () => {
   });
 
   it("restores retained expanded presentation without offering Expand", async () => {
+    const summary = taskDetailResponse.task.summary;
+    if (summary === undefined) throw new Error("Task Summary fixture is required.");
     const geometry = installResizeObserverGeometry();
     try {
       mountTaskDetailSurface(taskDetailResponse, {
         attention: emptyTaskAttentionResponse,
         retainedState: {
-          base: { body: taskDetailResponse.task.body, title: taskDetailResponse.task.summary.title },
+          base: { body: taskDetailResponse.task.body, title: summary.title },
           descriptionPresentation: { editing: false, expanded: true },
-          draft: { body: taskDetailResponse.task.body, title: taskDetailResponse.task.summary.title },
+          draft: { body: taskDetailResponse.task.body, title: summary.title },
           editingComment: null,
           newCommentBody: "",
           selectedTab: "comments",

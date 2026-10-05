@@ -1,7 +1,21 @@
 package session
 
+import "core/shared/config"
+
 func cloneMeta(in Meta) Meta {
 	out := in
+	if in.ConnectionID != nil {
+		id := *in.ConnectionID
+		out.ConnectionID = &id
+	}
+	if in.Category != nil {
+		category := *in.Category
+		out.Category = &category
+	}
+	if in.ProtectedInputDraft != nil {
+		text := *in.ProtectedInputDraft
+		out.ProtectedInputDraft = &text
+	}
 	if in.PreviousSessionID != nil {
 		previousSessionID := *in.PreviousSessionID
 		out.PreviousSessionID = &previousSessionID
@@ -12,6 +26,11 @@ func cloneMeta(in Meta) Meta {
 	}
 	out.Continuation = cloneContinuationContext(in.Continuation)
 	out.ChatSettings = cloneChatSettingsOverrides(in.ChatSettings)
+	out.RetainedToolSelection = config.CloneToolSelection(in.RetainedToolSelection)
+	if in.OriginalThinkingEffort != nil {
+		effort := *in.OriginalThinkingEffort
+		out.OriginalThinkingEffort = &effort
+	}
 	out.WorktreeReminder = CloneWorktreeReminderState(in.WorktreeReminder)
 	out.RebindReminder = CloneSessionRebindReminder(in.RebindReminder)
 	if in.UsageState != nil {

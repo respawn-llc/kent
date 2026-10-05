@@ -1,12 +1,12 @@
 package app
 
-import (
-	"testing"
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
-	"core/shared/clientui"
+import (
 	"core/shared/runtimeids"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"testing"
 )
 
 func TestRuntimeCtrlCInterruptsRestartedAgentLoopInsteadOfQuitting(t *testing.T) {
@@ -32,15 +32,11 @@ func TestRuntimeCtrlCInterruptsRestartedAgentLoopInsteadOfQuitting(t *testing.T)
 	if err != nil {
 		t.Fatalf("parse restarted Step id: %v", err)
 	}
-	if err := model.applyRuntimeActivityProjection(clientui.RuntimeActivity{
-		State:    clientui.RuntimeActivityRunning,
-		Reviewer: clientui.ReviewerActivityInactive,
-		ActiveStep: &clientui.RuntimeActiveStep{
-			ActiveKind: clientui.RuntimeActivityActiveKindUserTurn,
-			RunID:      restartedRunID,
-			StepID:     restartedStepID,
-		},
-	}); err != nil {
+	if err := model.applyRuntimeActivityProjection(&runtimepb.Activity{
+		State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING,
+		Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
+		ActiveStep: &runtimepb.ActiveStep{
+			ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN, RunId: restartedRunID.String(), StepId: restartedStepID.String()}}); err != nil {
 		t.Fatalf("apply restarted runtime activity: %v", err)
 	}
 
@@ -96,24 +92,15 @@ func TestRuntimeCtrlCExitsWhenInterruptIsPendingForCurrentRun(t *testing.T) {
 }
 
 func TestRuntimeCtrlCUsesServerRunningLifecycleWithoutActiveKindPolicy(t *testing.T) {
-	for _, kind := range []clientui.RuntimeActivityActiveKind{
-		clientui.RuntimeActivityActiveKindUserTurn,
-		clientui.RuntimeActivityActiveKindWorkflowTurn,
-		clientui.RuntimeActivityActiveKindGoalLoop,
-		clientui.RuntimeActivityActiveKindCompaction,
-	} {
+	for _, kind := range []runtimepb.ActivityActiveKind{runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN, runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_WORKFLOW_TURN, runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_GOAL_LOOP, runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_COMPACTION} {
 		t.Run(string(kind), func(t *testing.T) {
 			client := &runtimeControlFakeClient{}
 			model := newProjectedClosedUIModel(client)
-			if err := model.applyRuntimeActivityProjection(clientui.RuntimeActivity{
-				State:    clientui.RuntimeActivityRunning,
-				Reviewer: clientui.ReviewerActivityInactive,
-				ActiveStep: &clientui.RuntimeActiveStep{
-					ActiveKind: kind,
-					RunID:      ongoingTestRunID(),
-					StepID:     ongoingTestStepID(),
-				},
-			}); err != nil {
+			if err := model.applyRuntimeActivityProjection(&runtimepb.Activity{
+				State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING,
+				Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
+				ActiveStep: &runtimepb.ActiveStep{
+					ActiveKind: kind, RunId: ongoingTestRunID().String(), StepId: ongoingTestStepID().String()}}); err != nil {
 				t.Fatalf("apply running %s activity: %v", kind, err)
 			}
 			if !model.runtimeLifecycle.Run.IsRunning() {
@@ -134,18 +121,12 @@ func TestRuntimeCtrlCUsesServerRunningLifecycleWithoutActiveKindPolicy(t *testin
 }
 
 func TestRuntimeCtrlCExitsWheneverServerRuntimeIsNotRunning(t *testing.T) {
-	for _, state := range []clientui.RuntimeActivityState{
-		clientui.RuntimeActivityRegisteredIdle,
-		clientui.RuntimeActivityStarting,
-		clientui.RuntimeActivityDraining,
-		clientui.RuntimeActivityClosing,
-	} {
+	for _, state := range []runtimepb.ActivityState{runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE, runtimepb.ActivityState_RUNTIME_ACTIVITY_STARTING, runtimepb.ActivityState_RUNTIME_ACTIVITY_DRAINING, runtimepb.ActivityState_RUNTIME_ACTIVITY_CLOSING} {
 		t.Run(string(state), func(t *testing.T) {
 			model := newProjectedClosedUIModel(&runtimeControlFakeClient{})
-			if err := model.applyRuntimeActivityProjection(clientui.RuntimeActivity{
+			if err := model.applyRuntimeActivityProjection(&runtimepb.Activity{
 				State:    state,
-				Reviewer: clientui.ReviewerActivityInactive,
-			}); err != nil {
+				Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE}); err != nil {
 				t.Fatalf("apply %s activity: %v", state, err)
 			}
 
@@ -172,15 +153,11 @@ func TestRuntimeCtrlCInterruptsAwaitingQuestionInsteadOfQuitting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse Step id: %v", err)
 	}
-	if err := model.applyRuntimeActivityProjection(clientui.RuntimeActivity{
-		State:    clientui.RuntimeActivityAwaitingPrompt,
-		Reviewer: clientui.ReviewerActivityInactive,
-		ActiveStep: &clientui.RuntimeActiveStep{
-			ActiveKind: clientui.RuntimeActivityActiveKindUserTurn,
-			RunID:      runID,
-			StepID:     stepID,
-		},
-	}); err != nil {
+	if err := model.applyRuntimeActivityProjection(&runtimepb.Activity{
+		State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_AWAITING_PROMPT,
+		Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
+		ActiveStep: &runtimepb.ActiveStep{
+			ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN, RunId: runID.String(), StepId: stepID.String()}}); err != nil {
 		t.Fatalf("apply awaiting-Question activity: %v", err)
 	}
 

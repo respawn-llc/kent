@@ -3,61 +3,76 @@ package app
 import (
 	"time"
 
-	"core/shared/clientui"
 	"core/shared/lifecyclecontract"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
-func (p *clientLifecycleProxy) AcceptTranscript(message clientui.TranscriptMessage) {
+func (p *clientLifecycleProxy) AcceptTranscript(message *transcriptpb.Message) {
 	if p == nil {
 		return
 	}
-	switch message.Kind() {
-	case clientui.TranscriptMessageHydration:
-		hydration := message.Payload().(clientui.TranscriptHydration)
+	switch message.Event.Payload.(type) {
+	case *transcriptpb.Event_Hydration:
+		hydration := message.Event.GetHydration()
 		p.acceptSessionIdentity(hydration.SessionIdentity)
 		p.acceptSessionStatus(hydration.SessionStatus)
 		for _, prompt := range hydration.PendingPrompts {
 			p.acceptPendingPrompt(prompt)
 		}
-	case clientui.TranscriptMessageSessionIdentity:
-		p.acceptSessionIdentity(message.Payload().(clientui.TranscriptSessionIdentity))
-	case clientui.TranscriptMessageSessionStatus:
-		p.acceptSessionStatus(message.Payload().(clientui.TranscriptSessionStatus))
-	case clientui.TranscriptMessageLiveRunFinished:
-		p.acceptLiveRunFailure(message.Payload().(clientui.TranscriptLiveRunResult))
-	case clientui.TranscriptMessageCompactionStatus:
-		status := message.Payload().(clientui.TranscriptCompactionStatus)
-		if status.State == clientui.CompactionStarted {
+	case *transcriptpb.Event_SessionIdentity:
+		p.acceptSessionIdentity(message.Event.GetSessionIdentity())
+	case *transcriptpb.Event_SessionStatus:
+		p.acceptSessionStatus(message.Event.GetSessionStatus())
+	case *transcriptpb.Event_LiveRunFinished:
+		p.acceptLiveRunFailure(message.Event.GetLiveRunFinished())
+	case *transcriptpb.Event_CompactionStatus:
+		status := message.Event.GetCompactionStatus()
+		if status.State == transcriptpb.CompactionState_COMPACTION_STATE_STARTED {
 			p.enqueue(lifecyclecontract.NewCompactionStarted(
 				time.Now().UTC(),
 				p.isFocused(),
 				p.context(),
-				string(status.Mode),
+				transcriptCompactionModeName(status.Mode),
 			))
 		}
-	case clientui.TranscriptMessagePrompt:
-		prompt := message.Payload().(clientui.TranscriptPrompt)
-		if prompt.Status == clientui.TranscriptPromptStatusPending {
+	case *transcriptpb.Event_Prompt:
+		prompt := message.Event.GetPrompt()
+		if prompt.Status == transcriptpb.PromptStatus_PROMPT_STATUS_PENDING {
 			p.acceptPendingPrompt(prompt)
 		}
 	}
 }
 
-func (p *clientLifecycleProxy) acceptPendingPrompt(prompt clientui.TranscriptPrompt) {
+func (p *clientLifecycleProxy) acceptPendingPrompt(prompt *transcriptpb.Prompt) {
 	var kind lifecyclecontract.InputKind
-	switch prompt.Kind {
-	case clientui.TranscriptPromptKindQuestion:
+	switch prompt.Prompt.(type) {
+	case *transcriptpb.Prompt_Question:
 		kind = lifecyclecontract.InputKindQuestion
-	case clientui.TranscriptPromptKindApproval:
+	case *transcriptpb.Prompt_Approval:
 		kind = lifecyclecontract.InputKindApproval
 	default:
 		return
 	}
 	p.enqueue(lifecyclecontract.NewInputRequired(
-		prompt.CreatedAt,
+		transcriptPromptCreatedAt(prompt),
 		p.isFocused(),
 		p.context(),
 		kind,
-		prompt.Question,
+		transcriptPromptQuestion(prompt),
 	))
+}
+
+func transcriptCompactionModeName(mode transcriptpb.CompactionMode) string {
+	switch mode {
+	case transcriptpb.CompactionMode_COMPACTION_MODE_AUTO:
+		return "auto"
+	case transcriptpb.CompactionMode_COMPACTION_MODE_HANDOFF:
+		return "handoff"
+	case transcriptpb.CompactionMode_COMPACTION_MODE_MANUAL:
+		return "manual"
+	case transcriptpb.CompactionMode_COMPACTION_MODE_WORKFLOW_POST_COMPLETION:
+		return "workflow_post_completion"
+	default:
+		panic("invalid transcript compaction mode")
+	}
 }

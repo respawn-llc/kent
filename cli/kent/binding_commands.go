@@ -15,7 +15,9 @@ import (
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
 
@@ -150,25 +152,25 @@ func rebindSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	response, err := retargetSessionWorkspaceResponse(context.Background(), remaining[0], remaining[1], targetProjectID)
 	if err != nil {
-		fmt.Fprintln(stderr, formatSessionRetargetCommandError(remaining[1], err))
+		fmt.Fprintln(stderr, formatSessionRetargetCommandError(err))
 		return 1
 	}
 	if response.Scheduled != nil {
-		_, _ = fmt.Fprintln(stdout, "Session rebind scheduled for the agent's next step.")
+		_, _ = fmt.Fprintln(stdout, "Session rebind scheduled between agent steps.")
 		return 0
 	}
 	if response.Binding == nil {
 		fmt.Fprintln(stderr, "session rebind response omitted its result")
 		return 1
 	}
-	_, _ = fmt.Fprintln(stdout, response.Binding.WorkspaceID)
+	_, _ = fmt.Fprintln(stdout, response.Binding.WorkspaceId)
 	if response.WorkspaceBindingCreated {
 		_, _ = fmt.Fprintf(
 			stderr,
 			"Attached workspace %q to project %q (%s).\n",
 			response.Binding.CanonicalRoot,
 			response.Binding.ProjectName,
-			response.Binding.ProjectID,
+			response.Binding.ProjectId,
 		)
 	}
 	return 0
@@ -240,20 +242,20 @@ func rebindWorkspaceWithTimeout(ctx context.Context, remote apicontract.ProjectV
 	return remote.RebindWorkspace(rpcCtx, &projectpb.RebindWorkspaceRequest{OldWorkspaceRoot: oldWorkspaceRoot, NewWorkspaceRoot: newWorkspaceRoot})
 }
 
-func retargetSessionWorkspace(ctx context.Context, remote apicontract.SessionLifecycleService, sessionID string, workspaceRoot string, projectID *string) (serverapi.SessionRetargetWorkspaceResponse, error) {
+func retargetSessionWorkspace(ctx context.Context, remote apicontract.SessionLifecycleService, sessionID string, workspaceRoot string, projectID *string) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
 	origin, err := sessionRetargetRuntimeOrigin(sessionID)
 	if err != nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, err
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
 	}
-	return remote.RetargetSessionWorkspace(ctx, serverapi.SessionRetargetWorkspaceRequest{
-		SessionID:     sessionID,
+	return remote.RetargetSessionWorkspace(ctx, &sessionlaunchpb.SessionRetargetWorkspaceRequest{
+		SessionId:     sessionID,
 		WorkspaceRoot: workspaceRoot,
-		ProjectID:     projectID,
+		ProjectId:     projectID,
 		Origin:        origin,
 	})
 }
 
-func sessionRetargetRuntimeOrigin(sessionID string) (*serverapi.RuntimeStepOrigin, error) {
+func sessionRetargetRuntimeOrigin(sessionID string) (*sessionlaunchpb.RuntimeStepOrigin, error) {
 	currentSessionID, ok := sessionenv.LookupSessionID(os.LookupEnv)
 	if !ok || currentSessionID != strings.TrimSpace(sessionID) {
 		return nil, nil
@@ -262,8 +264,8 @@ func sessionRetargetRuntimeOrigin(sessionID string) (*serverapi.RuntimeStepOrigi
 	if runID == "" && stepID == "" {
 		return nil, nil
 	}
-	origin := &serverapi.RuntimeStepOrigin{RunID: runID, StepID: stepID}
-	return origin, origin.Validate()
+	origin := &sessionlaunchpb.RuntimeStepOrigin{RunId: runID, StepId: stepID}
+	return origin, protoapi.Validate(origin)
 }
 
 func listProjects(ctx context.Context) ([]clientui.ProjectSummary, error) {
@@ -308,38 +310,38 @@ func createProject(ctx context.Context, displayName string, workspaceRoot string
 	return resp.Binding, nil
 }
 
-func retargetSessionWorkspaceResponse(ctx context.Context, sessionID string, newPath string, projectID *string) (serverapi.SessionRetargetWorkspaceResponse, error) {
+func retargetSessionWorkspaceResponse(ctx context.Context, sessionID string, newPath string, projectID *string) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
 	newCfg, remote, err := openBindingCommandRemote(ctx, newPath)
 	if err != nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, err
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
 	}
 	defer func() { _ = remote.Close() }()
 	resp, err := retargetSessionWorkspace(ctx, remote, sessionID, newCfg.WorkspaceRoot, projectID)
 	if err != nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, err
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
 	}
 	return resp, nil
 }
 
-func openBindingCommandRemote(ctx context.Context, path string) (config.App, *client.Remote, error) {
+func openBindingCommandRemote(ctx context.Context, path string) (config.Connection, *client.Remote, error) {
 	cfg, remote, err := openBindingCommandRemoteLifecycle(ctx, path)
 	if err != nil && remote != nil {
 		_ = remote.Close()
-		return config.App{}, nil, err
+		return config.Connection{}, nil, err
 	}
 	return cfg, remote, err
 }
 
-func openBindingCommandRemoteLifecycle(ctx context.Context, path string) (config.App, *client.Remote, error) {
+func openBindingCommandRemoteLifecycle(ctx context.Context, path string) (config.Connection, *client.Remote, error) {
 	cfg, err := loadBindingCommandConfig(path)
 	if err != nil {
-		return config.App{}, nil, err
+		return config.Connection{}, nil, err
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, bindingCommandRPCTimeout)
 	defer cancel()
 	remote, err := client.DialConfiguredRemote(dialCtx, cfg)
 	if err != nil {
-		return config.App{}, nil, err
+		return config.Connection{}, nil, err
 	}
 	// When the operator selected an explicit non-default persistence root, only
 	// operate on a server actually serving that root so project/binding commands
@@ -375,19 +377,19 @@ func resolveWorkspaceBinding(ctx context.Context, projectViews apicontract.Proje
 	return client.ProjectBindingFromProto(resp.Binding)
 }
 
-func loadBindingCommandConfig(path string) (config.App, error) {
+func loadBindingCommandConfig(path string) (config.Connection, error) {
 	trimmedPath := strings.TrimSpace(path)
 	if trimmedPath == "" {
 		trimmedPath = "."
 	}
 	absPath, err := filepath.Abs(trimmedPath)
 	if err != nil {
-		return config.App{}, err
+		return config.Connection{}, err
 	}
 	if info, statErr := os.Stat(absPath); statErr == nil && !info.IsDir() {
 		absPath = filepath.Dir(absPath)
 	}
-	return config.Load(absPath, config.LoadOptions{})
+	return config.LoadConnectionDiscovery(absPath, config.LoadOptions{})
 }
 
 var errWorkspaceNotRegistered = serverapi.ErrWorkspaceNotRegistered

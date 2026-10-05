@@ -11,6 +11,7 @@ const (
 // cannot declare them as edge parameters.
 var reservedParameters = map[string]bool{
 	"commentary": true,
+	"session_id": true,
 	"transition": true,
 }
 

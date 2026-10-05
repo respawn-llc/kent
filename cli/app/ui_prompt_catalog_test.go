@@ -7,23 +7,24 @@ import (
 
 	"core/cli/app/commands"
 	"core/cli/app/internal/runtimeattach"
+	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	"core/shared/serverapi"
 )
 
 type promptCatalogTestService struct {
-	response serverapi.PromptCommandCatalogResponse
+	response *promptcommandpb.Catalog
 	err      error
 	calls    int
 }
 
-func (s *promptCatalogTestService) GetPromptCommandCatalog(context.Context, serverapi.PromptCommandCatalogRequest) (serverapi.PromptCommandCatalogResponse, error) {
+func (s *promptCatalogTestService) GetPromptCommandCatalog(context.Context, *promptcommandpb.GetCatalogRequest) (*promptcommandpb.Catalog, error) {
 	s.calls++
 	return s.response, s.err
 }
 
 func TestPromptCatalogRefreshRemovesStaleEntryAndAtomicallyReplacesSnapshot(t *testing.T) {
-	service := &promptCatalogTestService{response: serverapi.PromptCommandCatalogResponse{
-		Commands: []serverapi.PromptCommandCatalogEntry{{Name: "prompt:new", Preview: "new"}},
+	service := &promptCatalogTestService{response: &promptcommandpb.Catalog{
+		Commands: []*promptcommandpb.CatalogEntry{{Name: "prompt:new", Preview: "new"}},
 	}}
 	model := newProjectedStaticUIModel(
 		WithUIPromptCommandCatalog(service),
@@ -49,8 +50,8 @@ func TestPromptCatalogRefreshRemovesStaleEntryAndAtomicallyReplacesSnapshot(t *t
 }
 
 func TestPromptCatalogRefreshIgnoresStaleCompletion(t *testing.T) {
-	service := &promptCatalogTestService{response: serverapi.PromptCommandCatalogResponse{
-		Commands: []serverapi.PromptCommandCatalogEntry{{Name: "prompt:new", Preview: "new"}},
+	service := &promptCatalogTestService{response: &promptcommandpb.Catalog{
+		Commands: []*promptcommandpb.CatalogEntry{{Name: "prompt:new", Preview: "new"}},
 	}}
 	model := newProjectedStaticUIModel(
 		WithUIPromptCommandCatalog(service),
@@ -82,8 +83,8 @@ func TestPromptCatalogRefreshFailureKeepsFilteredSnapshot(t *testing.T) {
 func TestMissingPromptCommandSubmissionRefreshesCatalog(t *testing.T) {
 	disableTransientStatusClearForTest(t)
 	command := "prompt:old"
-	service := &promptCatalogTestService{response: serverapi.PromptCommandCatalogResponse{
-		Commands: []serverapi.PromptCommandCatalogEntry{{Name: "prompt:new", Preview: "new"}},
+	service := &promptCatalogTestService{response: &promptcommandpb.Catalog{
+		Commands: []*promptcommandpb.CatalogEntry{{Name: "prompt:new", Preview: "new"}},
 	}}
 	model := newProjectedStaticUIModel(
 		WithUIPromptCommandCatalog(service),

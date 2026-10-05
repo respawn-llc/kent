@@ -9,7 +9,8 @@ import (
 
 	"core/shared/client"
 	"core/shared/config"
-	"core/shared/serverapi"
+	"core/shared/protoapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
 type taskDependencyMutationKind string
@@ -65,7 +66,7 @@ func taskDependencyMutationSubcommand(kind taskDependencyMutationKind, args []st
 		fmt.Fprintf(stderr, "task dep %s requires --blocker <task> and --blocked <task>\n", kind)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		blockerTaskID, err := resolveWorkflowTaskID(context.Background(), cfg, remote, remote, *projectRef, *blockerRef)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -78,41 +79,46 @@ func taskDependencyMutationSubcommand(kind taskDependencyMutationKind, args []st
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		var response serverapi.WorkflowTaskDependencyMutationResponse
+		var response *taskpb.DependencyMutationSuccess
 		switch kind {
 		case taskDependencyMutationAdd:
-			result, err := remote.AddWorkflowTaskDependency(ctx, serverapi.WorkflowTaskDependencyAddRequest{
-				BlockerTaskID: blockerTaskID,
-				BlockedTaskID: blockedTaskID,
+			result, err := remote.AddWorkflowTaskDependency(ctx, &taskpb.DependencyAddRequest{
+				BlockerTaskId: blockerTaskID,
+				BlockedTaskId: blockedTaskID,
 			})
 			if err != nil {
 				fmt.Fprintln(stderr, err)
 				return 1
 			}
-			if err := result.Validate(); err != nil {
+			if err := protoapi.Validate(result); err != nil {
 				fmt.Fprintln(stderr, err)
 				return 1
 			}
-			response = serverapi.WorkflowTaskDependencyMutationResponse(result)
+			response = result
 		case taskDependencyMutationRemove:
-			result, err := remote.RemoveWorkflowTaskDependency(ctx, serverapi.WorkflowTaskDependencyRemoveRequest{
-				BlockerTaskID: blockerTaskID,
-				BlockedTaskID: blockedTaskID,
+			result, err := remote.RemoveWorkflowTaskDependency(ctx, &taskpb.DependencyRemoveRequest{
+				BlockerTaskId: blockerTaskID,
+				BlockedTaskId: blockedTaskID,
 			})
 			if err != nil {
 				fmt.Fprintln(stderr, err)
 				return 1
 			}
-			if err := result.Validate(); err != nil {
+			if err := protoapi.Validate(result); err != nil {
 				fmt.Fprintln(stderr, err)
 				return 1
 			}
-			response = serverapi.WorkflowTaskDependencyMutationResponse(result)
+			response = result
 		default:
 			panic(fmt.Sprintf("unsupported task dependency mutation %q", kind))
 		}
 		if *jsonOut {
-			return writeCommandJSON(stdout, stderr, response)
+			output, err := taskDependencyMutationOutput(response)
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+			return writeCommandJSON(stdout, stderr, output)
 		}
 		fmt.Fprintln(stdout, "done")
 		return 0
@@ -142,7 +148,7 @@ func taskDependencyListSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		taskID, err := resolveWorkflowTaskID(context.Background(), cfg, remote, remote, *projectRef, positionals[0])
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -150,20 +156,25 @@ func taskDependencyListSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		response, err := remote.ListWorkflowTaskDependencies(ctx, serverapi.WorkflowTaskDependencyListRequest{
-			TaskID:    taskID,
+		response, err := remote.ListWorkflowTaskDependencies(ctx, &taskpb.DependencyListRequest{
+			TaskId:    taskID,
 			Direction: direction,
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := response.Validate(); err != nil {
+		if err := protoapi.Validate(response); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
 		if *jsonOut {
-			return writeCommandJSON(stdout, stderr, response)
+			output, err := taskDependencyListOutput(response)
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+			return writeCommandJSON(stdout, stderr, output)
 		}
 		if err := writeTaskDependencyDirections(stdout, response.Directions); err != nil {
 			fmt.Fprintln(stderr, err)
@@ -173,15 +184,15 @@ func taskDependencyListSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	})
 }
 
-func parseTaskDependencyDirection(raw string) (*serverapi.WorkflowTaskDependencyDirection, error) {
+func parseTaskDependencyDirection(raw string) (*taskpb.DependencyDirection, error) {
 	switch strings.TrimSpace(raw) {
 	case "":
 		return nil, nil
-	case string(serverapi.WorkflowTaskDependencyDirectionBlocks):
-		value := serverapi.WorkflowTaskDependencyDirectionBlocks
+	case "blocks":
+		value := taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS
 		return &value, nil
-	case string(serverapi.WorkflowTaskDependencyDirectionBlockedBy):
-		value := serverapi.WorkflowTaskDependencyDirectionBlockedBy
+	case "blocked-by":
+		value := taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY
 		return &value, nil
 	default:
 		return nil, errors.New("--direction must be blocks or blocked-by")
@@ -189,55 +200,40 @@ func parseTaskDependencyDirection(raw string) (*serverapi.WorkflowTaskDependency
 }
 
 type taskDependencyDirection interface {
-	serverapi.WorkflowTaskDependencyListDirectionProjection | serverapi.WorkflowTaskDependencyDirectionProjection
+	GetDirection() taskpb.DependencyDirection
+	GetTotalCount() int32
+	GetItems() []*taskpb.DependencyItem
 }
 
 func writeTaskDependencyDirections[T taskDependencyDirection](stdout io.Writer, directions []T) error {
 	for _, direction := range taskDependencyDirectionsForRender(directions) {
-		if direction.Direction == serverapi.WorkflowTaskDependencyDirectionBlocks {
-			fmt.Fprintf(stdout, "Blocks %d tasks:\n", direction.TotalCount)
+		if direction.GetDirection() == taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS {
+			fmt.Fprintf(stdout, "Blocks %d tasks:\n", direction.GetTotalCount())
 		} else {
 			fmt.Fprintln(stdout, "Blocked by:")
 		}
-		for _, item := range direction.Items {
+		for _, item := range direction.GetItems() {
 			status, err := taskStatusText(item.Status)
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(stdout, "%s: %s (%s)\n", item.ShortID, item.Title, status)
+			fmt.Fprintf(stdout, "%s: %s (%s)\n", item.ShortId, item.Title, status)
 		}
 	}
 	return nil
 }
 
-func taskDependencyDirectionsForRender[T taskDependencyDirection](directions []T) []serverapi.WorkflowTaskDependencyListDirectionProjection {
-	ordered := make([]serverapi.WorkflowTaskDependencyListDirectionProjection, 0, len(directions))
-	for _, wanted := range []serverapi.WorkflowTaskDependencyDirection{
-		serverapi.WorkflowTaskDependencyDirectionBlocks,
-		serverapi.WorkflowTaskDependencyDirectionBlockedBy,
+func taskDependencyDirectionsForRender[T taskDependencyDirection](directions []T) []T {
+	ordered := make([]T, 0, len(directions))
+	for _, wanted := range []taskpb.DependencyDirection{
+		taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS,
+		taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY,
 	} {
-		for _, raw := range directions {
-			direction := dependencyDirectionForRender(raw)
-			if direction.Direction == wanted && len(direction.Items) > 0 {
+		for _, direction := range directions {
+			if direction.GetDirection() == wanted && len(direction.GetItems()) > 0 {
 				ordered = append(ordered, direction)
 			}
 		}
 	}
 	return ordered
-}
-
-func dependencyDirectionForRender[T taskDependencyDirection](direction T) serverapi.WorkflowTaskDependencyListDirectionProjection {
-	switch value := any(direction).(type) {
-	case serverapi.WorkflowTaskDependencyListDirectionProjection:
-		return value
-	case serverapi.WorkflowTaskDependencyDirectionProjection:
-		return serverapi.WorkflowTaskDependencyListDirectionProjection{
-			Direction:        value.Direction,
-			TotalCount:       value.TotalCount,
-			UnsatisfiedCount: value.UnsatisfiedCount,
-			Items:            value.Items,
-		}
-	default:
-		panic("unsupported dependency direction projection")
-	}
 }

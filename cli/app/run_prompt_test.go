@@ -12,61 +12,56 @@ import (
 	"testing"
 	"time"
 
+	"core/cli/app/internal/startupconfig"
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
-	"core/server/authservice"
 	"core/server/runprompt"
 	serverstartup "core/server/startup"
 	askquestion "core/server/tools"
 	"core/shared/config"
 	"core/shared/protoapi"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
+	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/protocol"
+	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 
 	"golang.org/x/net/websocket"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-type memoryAuthHandler struct {
-	state     auth.State
-	lookupEnv func(string) string
+type staticRunPromptService struct {
+	response *runpromptpb.Success
 }
 
-func readyMemoryAuthHandler() memoryAuthHandler {
-	return apiKeyMemoryAuthHandler("in-memory-test-key")
+func (s staticRunPromptService) RunPrompt(
+	context.Context,
+	serverapi.RunPromptRequest,
+	serverapi.RunPromptProgressSink,
+) (*runpromptpb.Success, error) {
+	return s.response, nil
 }
 
-func apiKeyMemoryAuthHandler(key string) memoryAuthHandler {
-	state := apiKeyMemoryAuthState(key)
-	state.UpdatedAt = time.Now().UTC()
-	return memoryAuthHandler{state: state}
-}
-
-func apiKeyMemoryAuthHandlerWithoutTimestamp(key string) memoryAuthHandler {
-	return memoryAuthHandler{state: apiKeyMemoryAuthState(key)}
-}
-
-func apiKeyMemoryAuthState(key string) auth.State {
-	return auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: key},
+func TestRunPromptCarriesTypedSelectionWarningsIntoCLIWarnings(t *testing.T) {
+	result, err := runPrompt(t.Context(), staticRunPromptService{
+		response: &runpromptpb.Success{
+			SessionId: "session-id",
+			Duration:  durationpb.New(time.Millisecond),
+			SelectionWarnings: []runpromptpb.RunSelectionWarning{
+				runpromptpb.RunSelectionWarning_RUN_SELECTION_WARNING_AGENT_IGNORED_TO_PRESERVE_CACHE,
+				runpromptpb.RunSelectionWarning_RUN_SELECTION_WARNING_MODEL_IGNORED_TO_PRESERVE_CACHE,
+			},
 		},
+	}, Options{}, "", "prompt", 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Warnings) != 2 || strings.TrimSpace(result.Warnings[0]) == "" || strings.TrimSpace(result.Warnings[1]) == "" {
+		t.Fatalf("selection warning count/content = %q", result.Warnings)
 	}
 }
 
-func saveReadyAppAuthState(t *testing.T, workspace string) {
-	t.Helper()
-	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	store := auth.NewFileStore(config.GlobalAuthConfigPath(cfg))
-	if err := store.Save(context.Background(), readyMemoryAuthHandler().state); err != nil {
-		t.Fatalf("save auth state: %v", err)
-	}
-}
-
-func TestLoadRemoteAttachConfigUsesSessionWorkspaceWhenWorkspaceImplicit(t *testing.T) {
+func TestLoadRemoteAttachConfigRetainsInvocationWorkspaceForResume(t *testing.T) {
 	home := newAppTestHome(t)
 	workspace := t.TempDir()
 	worktree := filepath.Join(home, config.ConfigDirName, "worktrees", "project", "feature")
@@ -88,12 +83,12 @@ func TestLoadRemoteAttachConfigUsesSessionWorkspaceWhenWorkspaceImplicit(t *test
 	if err != nil {
 		t.Fatalf("canonical got workspace: %v", err)
 	}
-	wantCanonical, err := config.CanonicalWorkspaceRoot(cfg.WorkspaceRoot)
+	wantCanonical, err := config.CanonicalWorkspaceRoot(worktree)
 	if err != nil {
 		t.Fatalf("canonical want workspace: %v", err)
 	}
 	if gotCanonical != wantCanonical {
-		t.Fatalf("workspace root = %q, want session workspace %q", got.WorkspaceRoot, cfg.WorkspaceRoot)
+		t.Fatalf("initial targeting root = %q, want invocation workspace %q", got.WorkspaceRoot, worktree)
 	}
 }
 
@@ -107,7 +102,6 @@ func TestRunPromptFromWorktreeUsesKentSessionWorkspaceContext(t *testing.T) {
 	configureAppTestServerPort(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	parent := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
-	saveReadyAppAuthState(t, workspace)
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"worktree reply"})
 	defer fakeResponses.Close()
@@ -118,9 +112,7 @@ func TestRunPromptFromWorktreeUsesKentSessionWorkspaceContext(t *testing.T) {
 	result, err := RunPrompt(context.Background(), Options{
 		WorkspaceRoot:             worktree,
 		WorkspaceContextSessionID: parent.Meta().SessionID,
-		Model:                     "gpt-5",
-		OpenAIBaseURL:             fakeResponses.URL,
-		OpenAIBaseURLExplicit:     true,
+		Model:                     "gpt-6-sol",
 	}, "hello from worktree", 0, nil)
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
@@ -138,59 +130,95 @@ func TestRunPromptFromWorktreeUsesKentSessionWorkspaceContext(t *testing.T) {
 
 func TestRunPromptRejectsStaleWorkspaceContextSession(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
-	saveReadyAppAuthState(t, workspace)
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	selected := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"workspace reply"})
 	defer fakeResponses.Close()
+	stopServer := startStandingRunPromptServer(t, workspace, fakeResponses.URL)
+	defer stopServer()
 
-	_, err := RunPrompt(context.Background(), Options{
-		WorkspaceRoot:             workspace,
-		WorkspaceContextSessionID: "stale-env-session",
-		Model:                     "gpt-5",
-		OpenAIBaseURL:             fakeResponses.URL,
-		OpenAIBaseURLExplicit:     true,
-	}, "hello from stale context", 0, nil)
-	if !errors.Is(err, sessioncontract.ErrSessionNotFound) {
-		t.Fatalf("error = %v, want missing session rejection", err)
+	const missingID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+	for _, tc := range []struct {
+		name      string
+		options   Options
+		inherited bool
+		denied    bool
+	}{
+		{
+			name:      "inherited caller attachment",
+			options:   Options{WorkspaceRoot: workspace, WorkspaceContextSessionID: missingID},
+			inherited: true,
+		},
+		{
+			name:      "caller validation with explicit workspace",
+			options:   Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, WorkspaceContextSessionID: missingID},
+			inherited: true,
+			denied:    true,
+		},
+		{
+			name:    "selected continued session",
+			options: Options{WorkspaceRoot: workspace, SessionID: missingID},
+		},
+		{
+			name:      "selected session does not bypass missing caller authorization",
+			options:   Options{WorkspaceRoot: workspace, SessionID: selected.Meta().SessionID, WorkspaceContextSessionID: missingID},
+			inherited: true,
+			denied:    true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := RunPrompt(context.Background(), tc.options, "must not dispatch", 0, nil)
+			var missing *sessioncontract.SessionNotFoundError
+			if !errors.Is(err, sessioncontract.ErrSessionNotFound) ||
+				!errors.As(err, &missing) || missing.SessionID != missingID {
+				t.Fatalf("error = %v, want typed missing session %s", err, missingID)
+			}
+			if errors.Is(err, startupconfig.ErrWorkspaceContextSessionMissing) != tc.inherited {
+				t.Fatalf("incorrect inherited context classification: %v", err)
+			}
+			var denied *serverapi.SubagentLaunchDeniedError
+			if errors.As(err, &denied) != tc.denied ||
+				(denied != nil && denied.Kind != serverapi.SubagentLaunchDenialCallerMissing) {
+				t.Fatalf("incorrect caller authorization classification: %v", err)
+			}
+		})
 	}
 	if hits.Load() != 0 {
 		t.Fatalf("expected no llm calls, got %d", hits.Load())
 	}
 }
 
-func (h memoryAuthHandler) WrapStore(auth.Store) auth.Store {
-	return auth.NewMemoryStore(h.state)
-}
-
-func (memoryAuthHandler) NeedsInteraction(req authservice.FlowInteractionRequest) bool {
-	return !req.Gate.Ready
-}
-
-func (memoryAuthHandler) Interact(context.Context, authservice.FlowInteractionRequest) (authservice.FlowInteractionOutcome, error) {
-	return authservice.FlowInteractionOutcome{}, auth.ErrAuthNotConfigured
-}
-
-func (h memoryAuthHandler) LookupEnv(key string) string {
-	if h.lookupEnv != nil {
-		return h.lookupEnv(key)
+func TestRunPromptPreservesNotCallableDenialFromRemote(t *testing.T) {
+	_, workspace := newRegisteredAppWorkspace(t)
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	caller := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
+	role := "blocked"
+	if err := os.MkdirAll(filepath.Join(workspace, config.ConfigDirName), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	return ""
-}
+	if err := os.WriteFile(filepath.Join(workspace, config.ConfigDirName, "config.toml"), []byte("[subagents.blocked]\nagent_callable = false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	responses, hits := newFakeResponsesServer(t, nil)
+	defer responses.Close()
+	stop := startStandingRunPromptServer(t, workspace, responses.URL)
+	defer stop()
 
-var autoOnboarding = serverstartup.OnboardingHandler(func(_ context.Context, req serverstartup.OnboardingRequest) (config.App, error) {
-	path, created, err := config.WriteDefaultSettingsFile()
-	if err != nil {
-		return config.App{}, err
+	_, err := RunPrompt(t.Context(), Options{
+		WorkspaceRoot:             workspace,
+		WorkspaceContextSessionID: caller.Meta().SessionID,
+		AgentRole:                 &role,
+	}, "must not dispatch", 0, nil)
+	var denied *serverapi.SubagentLaunchDeniedError
+	if !errors.As(err, &denied) || denied.Kind != serverapi.SubagentLaunchDenialNotCallable ||
+		denied.Target == nil || *denied.Target != role {
+		t.Fatalf("remote error = %T %v, want typed NotCallable denial for %s", err, err, role)
 	}
-	reloaded, err := req.ReloadConfig()
-	if err != nil {
-		return config.App{}, err
+	if hits.Load() != 0 {
+		t.Fatalf("denied role dispatched %d model requests", hits.Load())
 	}
-	reloaded.Source.CreatedDefaultConfig = created
-	reloaded.Source.SettingsPath = path
-	reloaded.Source.SettingsFileExists = true
-	return reloaded, nil
-})
+}
 
 func waitForConfiguredRunPromptDaemon(t *testing.T, workspace string) {
 	t.Helper()
@@ -216,18 +244,18 @@ func TestRunPromptAskHandlerReturnsError(t *testing.T) {
 
 func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
-	saveReadyAppAuthState(t, workspace)
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"daemon reply"})
 	defer fakeResponses.Close()
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, fakeResponses.URL))
 
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
-		OpenAIBaseURL:         fakeResponses.URL,
-		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding)
+		Model:                 "gpt-6-sol",
+	})
+
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
@@ -251,58 +279,10 @@ func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 
 }
 
-func TestRunPromptUsesInvocationOverridesWhenAttachingToConfiguredDaemon(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
-
-	defaultResponses, defaultHits := newFakeResponsesServer(t, []string{"daemon default"})
-	defer defaultResponses.Close()
-	overrideResponses, overrideHits := newFakeResponsesServer(t, []string{"override reply"})
-	defer overrideResponses.Close()
-
-	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
-		WorkspaceRoot:         workspace,
-		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
-		OpenAIBaseURL:         defaultResponses.URL,
-		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding)
-	if err != nil {
-		t.Fatalf("serve.Start: %v", err)
-	}
-	defer func() { _ = srv.Close() }()
-
-	stopServing := serveAppServer(t, srv)
-	defer stopServing()
-
-	waitForConfiguredRunPromptDaemon(t, workspace)
-
-	result, err := RunPrompt(context.Background(), Options{
-		WorkspaceRoot:         workspace,
-		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
-		OpenAIBaseURL:         overrideResponses.URL,
-		OpenAIBaseURLExplicit: true,
-	}, "hello through override", 0, nil)
-	if err != nil {
-		t.Fatalf("RunPrompt: %v", err)
-	}
-	if result.Result != "override reply" {
-		t.Fatalf("result = %q, want %q", result.Result, "override reply")
-	}
-	if overrideHits.Load() != 1 {
-		t.Fatalf("expected override llm call once, got %d", overrideHits.Load())
-	}
-	if defaultHits.Load() != 0 {
-		t.Fatalf("expected daemon default llm endpoint unused, got %d", defaultHits.Load())
-	}
-
-}
-
 func TestStartRunPromptClientWithoutServerRequiresRunningServer(t *testing.T) {
 	newAppTestHome(t)
 	workspace := t.TempDir()
 	configureAppTestServerPort(t)
-	saveReadyAppAuthState(t, workspace)
 
 	// kent run is a pure client: with no server running it cannot start one of
 	// its own, so it must fail with the "server required" error.

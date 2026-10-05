@@ -2,20 +2,19 @@ package app
 
 import (
 	"bytes"
-	"strings"
-	"testing"
-	"time"
-
 	"core/cli/app/internal/projectbinding"
 	"core/cli/tui/ongoing"
 	"core/cli/tui/transcriptrender"
 	tuitest "core/internal/testharness/pty"
-	"core/shared/clientui"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
-	"core/shared/transcript"
-
 	"github.com/charmbracelet/lipgloss"
 	xansi "github.com/charmbracelet/x/ansi"
+	"google.golang.org/protobuf/types/known/timestamppb"
+	"strings"
+	"testing"
+	"time"
 )
 
 func TestStartupMarkdownRendererEmitsMarkdownHyperlinks(t *testing.T) {
@@ -29,20 +28,16 @@ func TestStartupMarkdownRendererEmitsMarkdownHyperlinks(t *testing.T) {
 		{
 			name:           "supported terminal",
 			links:          transcriptrender.MarkdownLinkLabelOnly,
-			wantLinkedText: "PR #456",
-		},
+			wantLinkedText: "PR #456"},
 		{
 			name:           "fallback terminal",
 			links:          transcriptrender.MarkdownLinkLabelAndDestination,
-			wantLinkedText: "PR #456" + target,
-		},
-	} {
+			wantLinkedText: "PR #456" + target}} {
 		for _, theme := range []string{"dark", "light"} {
 			t.Run(presentation.name+"/"+theme, func(t *testing.T) {
 				renderer := newStartupMarkdownRendererWithLinkPresentation(
 					theme,
-					presentation.links,
-				)
+					presentation.links)
 				rendered := renderer.Render("[PR #456](https://github.com/org/repo/pull/456)", 80)
 
 				trace := tuitest.TraceTerminalHyperlinks(t, rendered)
@@ -57,8 +52,7 @@ func TestStartupMarkdownRendererEmitsMarkdownHyperlinks(t *testing.T) {
 func TestStartupMarkdownRendererUsesLiveRenderWidth(t *testing.T) {
 	renderer := newStartupMarkdownRendererWithLinkPresentation(
 		"dark",
-		transcriptrender.MarkdownLinkLabelOnly,
-	)
+		transcriptrender.MarkdownLinkLabelOnly)
 	const source = "alpha beta gamma delta"
 	narrow := strings.Split(strings.TrimSpace(xansi.Strip(renderer.Render(source, 8))), "\n")
 	wide := strings.Split(strings.TrimSpace(xansi.Strip(renderer.Render(source, 80))), "\n")
@@ -85,19 +79,16 @@ func TestStartupMarkdownHeadersUseCurrentSurfaceWidths(t *testing.T) {
 				model := newStartupPickerModel(source, "fallback", "dark", startupPickerNotice{}, nil)
 				model.width = width
 				return model.renderHeader()
-			},
-		},
+			}},
 		{
 			name: "project picker",
 			render: func() string {
 				model := newProjectBindingPickerModel(nil, "dark", projectPickerOptions{
 					HeaderMarkdown: source,
-					HeaderFallback: "fallback",
-				}, projectbinding.ProjectPickerSnapshot{})
+					HeaderFallback: "fallback"}, projectbinding.ProjectPickerSnapshot{})
 				model.width = width
 				return model.renderHeader()
-			},
-		},
+			}},
 		{
 			name: "workspace picker",
 			render: func() string {
@@ -105,21 +96,17 @@ func TestStartupMarkdownHeadersUseCurrentSurfaceWidths(t *testing.T) {
 					width:    width,
 					theme:    "dark",
 					styles:   newSessionPickerStyles("dark"),
-					headerMD: newStartupMarkdownRendererWithWordWrap("dark"),
-				}
+					headerMD: newStartupMarkdownRendererWithWordWrap("dark")}
 				model.width = width
 				return model.renderHeader()
-			},
-		},
+			}},
 		{
 			name: "project name prompt",
 			render: func() string {
 				model := newProjectNamePromptModel("", "dark")
 				model.width = width
 				return model.renderHeader()
-			},
-		},
-	}
+			}}}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lines := strings.Split(strings.TrimSpace(xansi.Strip(test.render())), "\n")
@@ -145,14 +132,11 @@ func TestResolvedTerminalCapabilitiesControlBoundedAndOngoingMarkdownLinks(t *te
 		{
 			name:           "whitelisted terminal",
 			environment:    map[string]string{"TERM_PROGRAM": "ghostty"},
-			wantLinkedText: "label",
-		},
+			wantLinkedText: "label"},
 		{
 			name:           "fallback terminal",
 			environment:    map[string]string{"TERM_PROGRAM": "Apple_Terminal"},
-			wantLinkedText: "label" + target,
-		},
-	} {
+			wantLinkedText: "label" + target}} {
 		t.Run(test.name, func(t *testing.T) {
 			capabilities := resolveTerminalCapabilities(func(name string) (string, bool) {
 				value, present := test.environment[name]
@@ -161,8 +145,7 @@ func TestResolvedTerminalCapabilitiesControlBoundedAndOngoingMarkdownLinks(t *te
 
 			bounded := newStartupMarkdownRendererWithLinkPresentation(
 				"dark",
-				capabilities.MarkdownLinks,
-			).Render("[label]("+target+")", 80)
+				capabilities.MarkdownLinks).Render("[label]("+target+")", 80)
 			if got := tuitest.TraceTerminalHyperlinks(t, bounded).LinkedText(target); got != test.wantLinkedText {
 				t.Fatalf("bounded linked text = %q, want %q", got, test.wantLinkedText)
 			}
@@ -170,15 +153,10 @@ func TestResolvedTerminalCapabilitiesControlBoundedAndOngoingMarkdownLinks(t *te
 			var output bytes.Buffer
 			surface := ongoing.NewSurfaceWithOptions(&output, ongoing.SurfaceOptions{
 				TerminalResize: capabilities.ResizePolicy,
-				MarkdownLinks:  capabilities.MarkdownLinks,
-			})
-			_, err := surface.ApplyTerminalMessage(clientui.NewTranscriptMessage(0, clientui.NewTranscriptEvent(clientui.TranscriptAssistantDelta{
-				StepID:   mustMarkdownHyperlinkStepID(t),
-				StreamID: runtimeids.NewAssistantStreamID(),
-				Delta:    "[label](" + target + ")\n\n",
-				Phase:    transcript.AssistantPhaseCommentary,
-			})), ongoing.FrameInput{Size: ongoing.Size{Width: 80, Height: 12}},
-			)
+				MarkdownLinks:  capabilities.MarkdownLinks})
+			_, err := surface.ApplyTerminalMessage(transcriptTestMessage(0, &transcriptpb.AssistantDelta{StepId: mustMarkdownHyperlinkStepID(t).String(), StreamId: runtimeids.NewAssistantStreamID().String(),
+				Delta: "[label](" + target + ")\n\n",
+				Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY}), ongoing.FrameInput{Size: ongoing.Size{Width: 80, Height: 12}})
 			if err != nil {
 				t.Fatalf("render ongoing Markdown: %v", err)
 			}
@@ -201,8 +179,7 @@ func mustMarkdownHyperlinkStepID(t *testing.T) runtimeids.StepID {
 func TestStartupMarkdownRendererLeavesPlainPRReferenceUnlinked(t *testing.T) {
 	renderer := newStartupMarkdownRendererWithLinkPresentation(
 		"dark",
-		transcriptrender.MarkdownLinkLabelOnly,
-	)
+		transcriptrender.MarkdownLinkLabelOnly)
 	rendered := renderer.Render("PR #456", 80)
 
 	if trace := tuitest.TraceTerminalHyperlinks(t, rendered); len(trace.Events) != 0 {
@@ -249,8 +226,7 @@ func TestTruncateANSIRightPreservesGenericBounds(t *testing.T) {
 		{name: "width one", line: linkedWide, width: 1, wantVisible: "…"},
 		{name: "wide grapheme", line: linkedWide, width: 4},
 		{name: "styled row", line: styled, width: 4},
-		{name: "already within bounds", line: styled, width: 6, wantExact: styled},
-	}
+		{name: "already within bounds", line: styled, width: 6, wantExact: styled}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := truncateANSIRight(tt.line, tt.width)
@@ -279,27 +255,21 @@ func TestGoalMarkdownLinksStayBoundedAndDoNotReachPadding(t *testing.T) {
 		{
 			name:           "supported terminal",
 			links:          transcriptrender.MarkdownLinkLabelOnly,
-			wantLinkedText: "PR #456",
-		},
+			wantLinkedText: "PR #456"},
 		{
 			name:           "fallback terminal",
 			links:          transcriptrender.MarkdownLinkLabelAndDestination,
-			wantLinkedText: "PR #456" + target,
-		},
-	} {
+			wantLinkedText: "PR #456" + target}} {
 		for _, theme := range []string{"dark", "light"} {
 			t.Run(presentation.name+"/"+theme, func(t *testing.T) {
 				m := newProjectedStaticUIModel(
-					WithUIMarkdownLinkPresentation(presentation.links),
-				)
+					WithUIMarkdownLinkPresentation(presentation.links))
 				m.theme = theme
-				m.goal.goal = &clientui.Goal{
-					ID:        "goal-1",
+				m.goal.goal = &runtimepb.Goal{Id: "goal-1",
 					Objective: "[PR #456](https://github.com/org/repo/pull/456)",
-					Status:    clientui.RuntimeGoalStatusActive,
-					CreatedAt: time.Unix(1, 0).UTC(),
-					UpdatedAt: time.Unix(1, 0).UTC(),
-				}
+					Status:    runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE,
+					CreatedAt: timestamppb.New(time.Unix(1, 0).UTC()),
+					UpdatedAt: timestamppb.New(time.Unix(1, 0).UTC())}
 
 				var linked strings.Builder
 				for _, line := range m.layout().goalOverlayContentLines(12) {
@@ -328,20 +298,16 @@ func TestStartupHeaderTrimmingPreservesMarkdownHyperlinks(t *testing.T) {
 		{
 			name:           "supported terminal",
 			links:          transcriptrender.MarkdownLinkLabelOnly,
-			wantLinkedText: "PR #456",
-		},
+			wantLinkedText: "PR #456"},
 		{
 			name:           "fallback terminal",
 			links:          transcriptrender.MarkdownLinkLabelAndDestination,
-			wantLinkedText: "PR #456" + target,
-		},
-	} {
+			wantLinkedText: "PR #456" + target}} {
 		t.Run(presentation.name, func(t *testing.T) {
 			m := newStartupPickerModel("[PR #456](https://github.com/org/repo/pull/456)", "PR #456", "dark", startupPickerNotice{}, nil)
 			m.headerMD = newStartupMarkdownRendererWithLinkPresentation(
 				"dark",
-				presentation.links,
-			)
+				presentation.links)
 
 			got := tuitest.TraceTerminalHyperlinks(t, m.renderHeader()).LinkedText(target)
 			if got != presentation.wantLinkedText {

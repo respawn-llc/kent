@@ -9,11 +9,13 @@ import (
 	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/serverapi"
+	"core/shared/sessioncontract"
 
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -31,7 +33,6 @@ type remoteConnectionSetup struct {
 	attachmentIntent           *remoteAttachmentIntent
 	additionalAttachmentIntent *remoteAttachmentIntent
 	expectation                *remoteConnectionExpectation
-	acknowledgeNoAuth          func(context.Context, rpcwire.Conn) error
 }
 
 func (s remoteConnectionSetup) run(ctx context.Context, conn rpcwire.Conn) (remoteConnectionState, error) {
@@ -41,11 +42,6 @@ func (s remoteConnectionSetup) run(ctx context.Context, conn rpcwire.Conn) (remo
 	}
 	if s.expectation != nil {
 		if err := validateIdentityRoot(s.expectation.rootID, identity); err != nil {
-			return remoteConnectionState{}, err
-		}
-	}
-	if s.acknowledgeNoAuth != nil {
-		if err := s.acknowledgeNoAuth(ctx, conn); err != nil {
 			return remoteConnectionState{}, err
 		}
 	}
@@ -59,7 +55,8 @@ func (s remoteConnectionSetup) run(ctx context.Context, conn rpcwire.Conn) (remo
 		}
 	}
 	if s.additionalAttachmentIntent != nil {
-		if _, err := attachRemoteBinaryRPC(ctx, conn, s.additionalAttachmentIntent); err != nil {
+		attachment, err = attachRemoteBinaryRPC(ctx, conn, s.additionalAttachmentIntent)
+		if err != nil {
 			return remoteConnectionState{}, err
 		}
 	}
@@ -144,7 +141,10 @@ func attachRemoteBinaryRPC(
 			conn,
 			"attach-session",
 			method,
-			&connectionpb.AttachSessionRequest{SessionId: request.sessionID},
+			&connectionpb.AttachSessionRequest{
+				SessionId:          request.sessionID,
+				ReattachCapability: request.reattachCapability,
+			},
 			result,
 		); err != nil {
 			return nil, err
@@ -207,6 +207,12 @@ func attachProjectGeneratedError(failure *connectionpb.AttachProjectError) error
 
 func attachSessionGeneratedError(failure *connectionpb.AttachSessionError) error {
 	switch failure.Code {
+	case "session_not_found":
+		details := failure.GetSessionNotFound()
+		if err := protoapi.Validate(details); err != nil {
+			return err
+		}
+		return &sessioncontract.SessionNotFoundError{SessionID: details.SessionId}
 	case "project_not_found":
 		details := failure.GetProjectNotFound()
 		if err := protoapi.Validate(details); err != nil {
@@ -242,7 +248,7 @@ func connectionAttachmentGeneratedError(
 	case "project_not_found":
 		return projectNotFoundError(notFound)
 	case "workspace_not_registered":
-		return workspaceNotRegisteredError(notRegistered)
+		return protoapi.WorkspaceNotRegisteredFromProto(notRegistered)
 	case "project_unavailable":
 		return projectUnavailableError(unavailable)
 	case "server_not_ready":
@@ -283,10 +289,11 @@ func attachmentResponseFromGenerated(success *connectionpb.AttachmentSuccess) (r
 	}
 	if session := success.GetSession(); session != nil {
 		return remoteAttachment{session: &remoteSessionAttachment{
-			projectID:     session.ProjectId,
-			workspaceID:   session.WorkspaceId,
-			workspaceRoot: session.WorkspaceRoot,
-			sessionID:     session.SessionId,
+			projectID:          session.ProjectId,
+			workspaceID:        session.WorkspaceId,
+			workspaceRoot:      session.WorkspaceRoot,
+			sessionID:          session.SessionId,
+			reattachCapability: session.ReattachCapability,
 		}}, nil
 	}
 	return remoteAttachment{}, fmt.Errorf("attachment success has no attachment")

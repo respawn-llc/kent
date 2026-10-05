@@ -1,10 +1,10 @@
 package app
 
 import (
-	"testing"
-
 	"core/cli/tui/ongoing"
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"reflect"
+	"testing"
 )
 
 func TestOngoingTranscriptControllerScratchRehydrationTriggersResetSequence(t *testing.T) {
@@ -12,7 +12,7 @@ func TestOngoingTranscriptControllerScratchRehydrationTriggersResetSequence(t *t
 	if _, err := controller.Accept(ongoingHydrationMessage(1)); err != nil {
 		t.Fatalf("accept hydration: %v", err)
 	}
-	if result, err := controller.Accept(ongoingTranscriptMessage(3, clientui.TranscriptMessageSessionStatus)); err != nil || result.Action != ongoing.ResultRequestScratchRehydration {
+	if result, err := controller.Accept(ongoingTranscriptMessage(3, reflect.TypeFor[*transcriptpb.Event_SessionStatus]())); err != nil || result.Action != ongoing.ResultRequestScratchRehydration {
 		t.Fatalf("sequence gap result=%+v err=%v, want scratch rehydration", result, err)
 	}
 

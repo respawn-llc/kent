@@ -20,20 +20,28 @@ import (
 )
 
 type Manager struct {
-	mu                   sync.Mutex
-	nextID               int
-	entries              sync.Map
-	completedRecency     []string
-	tempDir              string
-	onEvent              func(Event) bool
-	minimumExecToBgTime  time.Duration
-	closeGracePeriod     time.Duration
-	closeWaitTimeout     time.Duration
-	defaultPostprocessor *postprocess.Runner
-	closed               bool
+	persistenceRoot        string
+	mu                     sync.Mutex
+	nextID                 int
+	entries                sync.Map
+	completedRecency       []string
+	tempDir                string
+	onEvent                func(Event) bool
+	onBackgroundListChange func(string)
+	minimumExecToBgTime    time.Duration
+	closeGracePeriod       time.Duration
+	closeWaitTimeout       time.Duration
+	closed                 bool
+	maxConcurrent          int
+	// Includes starts in progress until they fail or their process exits.
+	occupiedSlots int
 }
 
 type ManagerOption func(*Manager)
+
+func WithMaxConcurrent(value int) ManagerOption {
+	return func(m *Manager) { m.maxConcurrent = value }
+}
 
 func WithMinimumExecToBgTime(value time.Duration) ManagerOption {
 	return func(m *Manager) {
@@ -54,40 +62,34 @@ func WithCloseTimeouts(gracePeriod, waitTimeout time.Duration) ManagerOption {
 	}
 }
 
-func WithPostprocessor(runner *postprocess.Runner) ManagerOption {
-	return func(m *Manager) {
-		m.defaultPostprocessor = runner
-	}
-}
-
-func NewManager(opts ...ManagerOption) (*Manager, error) {
-	defaultPostprocessor, err := postprocess.NewRunner(postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})
-	if err != nil {
-		return nil, fmt.Errorf("compile default shell postprocessor: %w", err)
+func NewManager(persistenceRoot string, opts ...ManagerOption) (*Manager, error) {
+	if persistenceRoot == "" {
+		return nil, errors.New("server persistence root is required for shell execution")
 	}
 	tempDir, err := os.MkdirTemp("", backgroundLogDirPrefix)
 	if err != nil {
 		return nil, fmt.Errorf("create background shell temp dir: %w", err)
 	}
 	mgr := &Manager{
-		nextID:               initialProcessID,
-		tempDir:              tempDir,
-		minimumExecToBgTime:  defaultMinimumExecToBgTime,
-		closeGracePeriod:     closeGracePeriod,
-		closeWaitTimeout:     closeWaitTimeout,
-		defaultPostprocessor: defaultPostprocessor,
+		persistenceRoot:     persistenceRoot,
+		nextID:              initialProcessID,
+		tempDir:             tempDir,
+		minimumExecToBgTime: defaultMinimumExecToBgTime,
+		closeGracePeriod:    closeGracePeriod,
+		closeWaitTimeout:    closeWaitTimeout,
+		maxConcurrent:       config.DefaultMaxConcurrentShells,
 	}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(mgr)
 		}
 	}
+	if mgr.maxConcurrent <= 0 {
+		_ = os.RemoveAll(tempDir)
+		return nil, errors.New("maximum concurrent shells must be positive")
+	}
 	if mgr.minimumExecToBgTime <= 0 {
 		mgr.minimumExecToBgTime = defaultMinimumExecToBgTime
-	}
-	if mgr.defaultPostprocessor == nil {
-		_ = os.RemoveAll(tempDir)
-		return nil, errors.New("shell postprocessor is required")
 	}
 	return mgr, nil
 }
@@ -102,6 +104,26 @@ func (m *Manager) SetEventHandler(handler func(Event) bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onEvent = handler
+}
+
+// SetBackgroundListChangeHandler installs the composition-owned observation input.
+// The handler must only signal observers, never project lists or wait for delivery.
+func (m *Manager) SetBackgroundListChangeHandler(handler func(string)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onBackgroundListChange = handler
+}
+
+func (m *Manager) notifyBackgroundListChange(snapshot Snapshot) {
+	if !snapshot.Backgrounded {
+		return
+	}
+	m.mu.Lock()
+	handler := m.onBackgroundListChange
+	m.mu.Unlock()
+	if handler != nil {
+		handler(snapshot.OwnerSessionID)
+	}
 }
 
 func (m *Manager) SetMinimumExecToBgTime(value time.Duration) {
@@ -134,9 +156,6 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 	}
 	runner := req.Postprocessor
 	if runner == nil {
-		runner = m.defaultPostprocessor
-	}
-	if runner == nil {
 		return ExecResult{}, errors.New("shell process postprocessor is required")
 	}
 
@@ -144,12 +163,22 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 	if err != nil {
 		return ExecResult{}, err
 	}
+	started := false
+	defer func() {
+		if !started {
+			m.releaseProcessSlot()
+		}
+	}()
 	cmd := exec.CommandContext(context.Background(), req.Command[0], req.Command[1:]...)
 	cmd.Dir = workdir
 	ownerSessionID := strings.TrimSpace(req.OwnerSessionID)
 	ownerRunID := strings.TrimSpace(req.OwnerRunID)
 	ownerStepID := strings.TrimSpace(req.OwnerStepID)
 	cmd.Env = tools.EnrichShellEnvForInvocation(os.Environ(), ownerSessionID, ownerRunID, ownerStepID)
+	cmd.Env, err = tools.FilterCredentialEnvironment(m.persistenceRoot, cmd.Env)
+	if err != nil {
+		return ExecResult{}, fmt.Errorf("prepare shell environment: %w", err)
+	}
 	prepareManagedExec(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -251,6 +280,7 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 	m.entries.Store(id, entry)
 	m.mu.Unlock()
 
+	started = true
 	go m.waitForExit(entry)
 
 	start := time.Now()
@@ -285,6 +315,7 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 		m.releaseEntry(id)
 		return result, nil
 	}
+	m.notifyBackgroundListChange(snapshot)
 	m.emitEvent(newBackgroundedEvent(snapshot))
 	_ = deprioritizeManagedProcess(cmd.Process)
 	processed, err := m.applyPostprocessing(ctx, entry, string(output), nil, true, maxOutputChars)
@@ -441,6 +472,7 @@ func (m *Manager) Kill(id string) error {
 	entry.killRequested = true
 	entry.publishSnapshotLocked()
 	entry.mu.Unlock()
+	m.notifyBackgroundListChange(entry.snapshot())
 	return killManagedProcess(process)
 }
 

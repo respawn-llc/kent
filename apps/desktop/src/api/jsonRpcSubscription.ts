@@ -1,0 +1,141 @@
+import { TransportError } from "./errors";
+import { z } from "zod";
+import type { JsonValue } from "./json";
+import {
+  handleSubscriptionMessage,
+  parseFrame,
+  sendSocketRequest,
+  waitForSubscriptionEnd,
+} from "./jsonRpcSocket";
+import type { RpcEventHandler } from "./transport";
+import { TerminalSubscriptionError } from "./subscriptionErrors";
+export const defaultSubscriptionEstablishmentTimeoutMs = 30_000;
+
+export async function runJsonSubscription(
+  input: Readonly<{
+    socket: WebSocket;
+    method: string;
+    params: JsonValue;
+    handler: RpcEventHandler;
+    signal: AbortSignal;
+    establishmentTimeoutMs?: number | null;
+  }>,
+): Promise<void> {
+  const {
+    socket,
+    method,
+    params,
+    handler,
+    signal,
+    establishmentTimeoutMs = defaultSubscriptionEstablishmentTimeoutMs,
+  } = input;
+  let terminal: Readonly<
+    { kind: "complete"; code: number; message: string } | { kind: "error"; error: Error }
+  > | null = null;
+  let resolveTerminal: (() => void) | null = null;
+  const terminalPromise = new Promise<void>((resolve) => {
+    resolveTerminal = resolve;
+  });
+  const currentTerminal = (): typeof terminal => terminal;
+  const failTerminal = (error: Error): void => {
+    if (terminal !== null) return;
+    terminal = { kind: "error", error };
+    try {
+      handler.onError(error);
+    } catch (callbackError) {
+      terminal = {
+        kind: "error",
+        error:
+          callbackError instanceof Error
+            ? callbackError
+            : new TransportError("Subscription error handler failed."),
+      };
+    }
+    resolveTerminal?.();
+    socket.close();
+  };
+  const listener = (event: MessageEvent<unknown>) => {
+    if (terminal !== null) return;
+    if (isResponseFrame(event.data)) return;
+    try {
+      const result = handleSubscriptionMessage(event, handler, null);
+      if (result.kind === "complete") {
+        terminal = result;
+        resolveTerminal?.();
+        socket.close();
+      }
+    } catch (cause) {
+      const error = cause instanceof Error ? cause : new TransportError("Subscription message failed.");
+      failTerminal(error);
+    }
+  };
+  try {
+    socket.addEventListener("message", listener);
+    await sendSocketRequest(socket, method, params, {
+      timeoutMilliseconds: establishmentTimeoutMs,
+      signal,
+    });
+    try {
+      handler.onOpen?.();
+    } catch (cause) {
+      failTerminal(cause instanceof Error ? cause : new TransportError("Subscription open handler failed."));
+    }
+    await Promise.race([waitForSubscriptionEnd(socket, signal), terminalPromise]);
+    throwTerminalResult(method, currentTerminal());
+  } catch (error) {
+    throwTerminalResult(method, currentTerminal());
+    if (signal.aborted) return;
+    throw error;
+  } finally {
+    socket.removeEventListener("message", listener);
+  }
+}
+
+function throwTerminalResult(
+  method: string,
+  result: Readonly<
+    { kind: "complete"; code: number; message: string } | { kind: "error"; error: Error }
+  > | null,
+): void {
+  if (result === null) return;
+  if (result.kind === "error") throw new TerminalSubscriptionError(result.error.message);
+  throwNonZero(method, result);
+}
+
+function isResponseFrame(data: unknown): boolean {
+  const text = z.string().safeParse(data);
+  if (!text.success) return false;
+  const parsed = parseFrame(text.data);
+  const parsedRecord = z.record(z.string(), z.unknown()).safeParse(parsed);
+  if (!parsedRecord.success) return false;
+  const response = z
+    .object({
+      jsonrpc: z.literal("2.0"),
+      id: z.string().min(1),
+      result: z.unknown().optional(),
+      error: z
+        .object({
+          code: z.number(),
+          message: z.string(),
+          data: z.unknown().optional(),
+        })
+        .optional(),
+    })
+    .strict()
+    .safeParse(parsedRecord.data);
+  if (!response.success) return false;
+  const keys = Object.keys(parsedRecord.data);
+  const hasResult = keys.includes("result");
+  const hasError = keys.includes("error");
+  return keys.length === 3 && hasResult !== hasError;
+}
+
+export function isTerminalSubscriptionError(error: unknown): boolean {
+  return error instanceof TerminalSubscriptionError;
+}
+
+function throwNonZero(method: string, complete: Readonly<{ code: number; message: string }>): void {
+  if (complete.code === 0) return;
+  const suffix = complete.message.length === 0 ? "" : `: ${complete.message}`;
+  throw new TransportError(`${method} subscription completed with code ${complete.code.toString()}${suffix}`);
+}

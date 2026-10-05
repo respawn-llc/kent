@@ -1,14 +1,9 @@
 package app
 
 import (
-	"context"
-	"errors"
-	"io"
-	"net"
-	"strconv"
-	"strings"
-	"sync"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 
+	"context"
 	"core/shared/apicontract"
 	"core/shared/authstatus"
 	"core/shared/client"
@@ -16,7 +11,17 @@ import (
 	"core/shared/config"
 	"core/shared/lifecyclecontract"
 	"core/shared/protoapi"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	"errors"
+	"io"
+	"net"
+	"strconv"
+	"strings"
+	"sync"
+
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -43,14 +48,14 @@ type sessionLaunchPlan struct {
 	EnabledTools               []toolspec.ID
 	ConfiguredModelName        *string
 	SessionTitle               *string
-	PromptHistory              []string
 	ModelContractLocked        bool
 	QuestionsEnabled           bool
 	AutoCompactionEnabled      bool
 	ThinkingOverrideExplicit   bool
 	ActivationAgentSelection   *serverapi.SessionRuntimeAgentSelection
+	ExplicitToolSelection      *config.ToolSelection
 	StatusConfig               uiStatusConfig
-	ExecutionTarget            clientui.SessionExecutionTarget
+	ExecutionTarget            *worktreepb.SessionExecutionTarget
 	Source                     config.SourceReport
 	ClientLifecycleCommand     []string
 	ClientLifecycleOpeningKind lifecyclecontract.OpeningKind
@@ -104,14 +109,18 @@ func (p *runtimeLaunchPlan) closeWithPolicy(detachOnly bool) error {
 type sessionPickerRunner func(context.Context, sessionPageLoader, string, sessionPickerHeaderInfo) (sessionPickerResult, error)
 
 type sessionViewReader interface {
-	GetSessionMainView(ctx context.Context, req serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error)
+	GetSessionMainView(ctx context.Context, req *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error)
 }
 
 type launchPlannerServer interface {
-	Config() config.App
+	Connection() config.Connection
+	LocalPreferences() config.LocalPreferences
+	ProjectBinding() (client.ProjectAttachment, bool)
+	ChatSettingsClient() apicontract.ChatSettingsService
 	PresentationTheme() string
 	ProjectID() string
 	AuthStatusClient() apicontract.AuthStatusService
+	ConnectionManagementClient() apicontract.ConnectionManagementService
 	ProjectViewClient() apicontract.ProjectViewService
 	ServerStatusClient() apicontract.ServerStatusService
 	SessionLaunchClient() apicontract.SessionLaunchService
@@ -137,7 +146,7 @@ func (l projectScopedSessionPageLoader) ProjectID() string {
 }
 
 func (l projectScopedSessionPageLoader) ListSessionPage(ctx context.Context, request sessionPageRequest) (sessionPageResponse, error) {
-	category, err := client.SessionCategoryToProto(request.Category)
+	category, err := protoapi.SessionCategoryToProto(request.Category)
 	if err != nil {
 		return sessionPageResponse{}, err
 	}
@@ -154,7 +163,7 @@ func (l projectScopedSessionPageLoader) ListSessionPage(ctx context.Context, req
 	if err != nil {
 		return sessionPageResponse{}, err
 	}
-	responseCategory, err := client.SessionCategoryFromProto(response.Category)
+	responseCategory, err := protoapi.SessionCategoryFromProto(response.Category)
 	if err != nil {
 		return sessionPageResponse{}, err
 	}
@@ -194,7 +203,7 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	if err != nil {
 		return sessionLaunchPlan{}, err
 	}
-	overrides := mergeSessionPlanOverrides(sessionPlanOverridesFromConfig(p.server.Config()), req.Overrides)
+	overrides := req.Overrides
 	generatedRequest := &sessionlaunchpb.SessionPlanRequest{Mode: mode, Intent: intent}
 	if overrides.HasAny() {
 		generatedRequest.Overrides, err = protoapi.RunPromptOverridesToProto(overrides)
@@ -229,8 +238,13 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 		}
 		enabledTools = append(enabledTools, id)
 	}
-	cfg := p.server.Config()
+	cfg := p.server.Connection()
 	activeSettings := settings
+	local := p.server.LocalPreferences()
+	activeSettings.Theme = p.server.PresentationTheme()
+	activeSettings.Debug = local.Debug
+	activeSettings.NotificationMethod = local.NotificationMethod
+	activeSettings.TUINativeProgressBar = local.TUINativeProgressBar
 	authSelection := authstatus.ProviderSelection(activeSettings)
 	sessionTitle, err := validateLaunchSessionTitle(resp.Plan.SessionName)
 	if err != nil {
@@ -242,6 +256,10 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	if err != nil {
 		return sessionLaunchPlan{}, err
 	}
+	explicitTools, err := protoapi.ToolSelectionFromProto(resp.Plan.ExplicitToolSelection)
+	if err != nil {
+		return sessionLaunchPlan{}, err
+	}
 	return sessionLaunchPlan{
 		Mode:                     req.Mode,
 		SessionID:                resp.Plan.SessionId,
@@ -249,12 +267,12 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 		EnabledTools:             enabledTools,
 		ConfiguredModelName:      textutil.Pointer(resp.Plan.ConfiguredModelName),
 		SessionTitle:             sessionTitle,
-		PromptHistory:            append([]string(nil), resp.Plan.PromptHistory...),
 		ModelContractLocked:      resp.Plan.ModelContractLocked,
 		QuestionsEnabled:         resp.Plan.QuestionsEnabled,
 		AutoCompactionEnabled:    resp.Plan.AutoCompactionEnabled,
 		ThinkingOverrideExplicit: resp.Plan.ThinkingOverrideExplicit,
 		ActivationAgentSelection: activationAgentSelection,
+		ExplicitToolSelection:    explicitTools,
 		StatusConfig: uiStatusConfig{
 			WorkspaceRoot:   executionTarget.EffectiveWorkdir,
 			ExecutionTarget: executionTarget,
@@ -270,13 +288,13 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	}, nil
 }
 
-func loadSelectedSessionExecutionTarget(ctx context.Context, sessionViews sessionViewReader, sessionID string) (clientui.SessionExecutionTarget, error) {
+func loadSelectedSessionExecutionTarget(ctx context.Context, sessionViews sessionViewReader, sessionID string) (*worktreepb.SessionExecutionTarget, error) {
 	if sessionViews == nil {
-		return clientui.SessionExecutionTarget{}, errors.New("session view client is required")
+		return nil, errors.New("session view client is required")
 	}
-	resp, err := sessionViews.GetSessionMainView(ctx, serverapi.SessionMainViewRequest{SessionID: strings.TrimSpace(sessionID)})
+	resp, err := sessionViews.GetSessionMainView(ctx, &sessionpb.MainViewRequest{SessionId: strings.TrimSpace(sessionID)})
 	if err != nil {
-		return clientui.SessionExecutionTarget{}, err
+		return nil, err
 	}
 	return clientui.NormalizeSessionExecutionTarget(resp.MainView.Session.ExecutionTarget), nil
 }
@@ -307,52 +325,60 @@ func (p *launchPlanner) selectSession(ctx context.Context, notice *startupPicker
 		projectID: projectID,
 		client:    p.server.ProjectViewClient(),
 	}
-	header := p.sessionPickerHeaderInfo(p.server.Config())
+	header, err := p.sessionPickerHeaderInfo()
+	if err != nil {
+		return nil, err
+	}
 	header.Notice = notice
 	return p.pickSession(ctx, loader, p.server.PresentationTheme(), header)
 }
 
-func (p *launchPlanner) sessionPickerHeaderInfo(cfg config.App) sessionPickerHeaderInfo {
-	statusReq := populateStatusRequestCacheKeys(uiStatusRequest{
-		WorkspaceRoot:   strings.TrimSpace(cfg.WorkspaceRoot),
-		PersistenceRoot: strings.TrimSpace(cfg.PersistenceRoot),
-		Settings:        cfg.Settings,
-		Source:          cfg.Source,
-		AuthStatus:      p.server.AuthStatusClient(),
-	})
-	return sessionPickerHeaderInfo{
-		Version:       config.Version,
-		StatusRequest: statusReq,
-		ServerAddress: net.JoinHostPort(cfg.Settings.ServerHost, strconv.Itoa(cfg.Settings.ServerPort)),
-		updateStatus:  p.server.ServerStatusClient(),
+func (p *launchPlanner) sessionPickerHeaderInfo() (sessionPickerHeaderInfo, error) {
+	cfg := p.server.Connection()
+	binding, present := p.server.ProjectBinding()
+	if !present {
+		return sessionPickerHeaderInfo{}, errors.New("workspace binding is required for Chat settings")
 	}
+	request := &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_NewChat{NewChat: &chatsettingspb.NewChatTarget{
+			ProjectId: binding.ProjectID, WorkspaceId: binding.WorkspaceID,
+		}},
+	}
+	return sessionPickerHeaderInfo{
+		Version: config.Version,
+		StatusRequest: populateStatusRequestCacheKeys(uiStatusRequest{
+			WorkspaceRoot: binding.WorkspaceRoot, PersistenceRoot: cfg.PersistenceRoot,
+		}),
+		ServerAddress: net.JoinHostPort(cfg.ServerHost, strconv.Itoa(cfg.ServerPort)),
+		Debug:         p.server.LocalPreferences().Debug,
+		updateStatus:  p.server.ServerStatusClient(),
+		loadHeaderFacts: func(ctx context.Context) (*sessionPickerHeaderFacts, error) {
+			model, modelErr := loadSessionPickerModelFacts(ctx, p.server.ChatSettingsClient(), request)
+			provider, providerErr := loadSessionPickerProviderInfo(ctx, p.server.ConnectionManagementClient(), p.server.AuthStatusClient())
+			return &sessionPickerHeaderFacts{Model: model, Provider: provider}, errors.Join(modelErr, providerErr)
+		},
+	}, nil
 }
 
-func sessionPlanOverridesFromConfig(cfg config.App) serverapi.RunPromptOverrides {
-	sources := cfg.Source.Sources
-	overrides := serverapi.RunPromptOverrides{}
-	if sourceIsCLI(sources, "model") {
-		overrides.Model = cfg.Settings.Model
+func loadSessionPickerModelFacts(ctx context.Context, service apicontract.ChatSettingsService, request *chatsettingspb.ReadRequest) (*sessionPickerModelFacts, error) {
+	response, err := service.ReadChatSettings(ctx, request)
+	if err != nil {
+		return nil, err
 	}
-	if sourceIsCLI(sources, "provider_override") {
-		overrides.ProviderOverride = cfg.Settings.ProviderOverride
+	catalog := response.GetNewChat()
+	if catalog == nil || catalog.InitialSettings == nil {
+		return nil, errors.New("new Chat catalog is required")
 	}
-	if sourceIsCLI(sources, "thinking_level") {
-		overrides.ThinkingLevel = cfg.Settings.ThinkingLevel
+	var modelFacts *sessionPickerModelFacts
+	for _, choice := range catalog.Choices {
+		if choice.Agent.Role == catalog.InitialSettings.AgentRole {
+			if choice.Agent.Model != nil {
+				modelFacts = &sessionPickerModelFacts{Name: choice.Agent.Model, ThinkingLevel: choice.Agent.Thinking}
+			}
+			break
+		}
 	}
-	if sourceIsCLI(sources, "theme") {
-		overrides.Theme = cfg.Settings.Theme
-	}
-	if sourceIsCLI(sources, "timeouts.model_request_seconds") {
-		overrides.ModelTimeoutSeconds = cfg.Settings.Timeouts.ModelRequestSeconds
-	}
-	if sourceIsCLI(sources, "openai_base_url") {
-		overrides.OpenAIBaseURL = cfg.Settings.OpenAIBaseURL
-	}
-	if hasCLIToolOverride(cfg.Source) {
-		overrides.Tools = enabledToolsCSV(cfg.Settings.EnabledTools)
-	}
-	return overrides
+	return modelFacts, nil
 }
 
 func mergeSessionPlanOverrides(base serverapi.RunPromptOverrides, override serverapi.RunPromptOverrides) serverapi.RunPromptOverrides {
@@ -363,9 +389,6 @@ func mergeSessionPlanOverrides(base serverapi.RunPromptOverrides, override serve
 	}
 	if value := strings.TrimSpace(override.Model); value != "" {
 		merged.Model = value
-	}
-	if value := strings.TrimSpace(override.ProviderOverride); value != "" {
-		merged.ProviderOverride = value
 	}
 	if value := strings.TrimSpace(override.ThinkingLevel); value != "" {
 		merged.ThinkingLevel = value
@@ -379,31 +402,5 @@ func mergeSessionPlanOverrides(base serverapi.RunPromptOverrides, override serve
 	if value := strings.TrimSpace(override.Tools); value != "" {
 		merged.Tools = value
 	}
-	if value := strings.TrimSpace(override.OpenAIBaseURL); value != "" {
-		merged.OpenAIBaseURL = value
-	}
 	return merged
-}
-
-func sourceIsCLI(sources map[string]string, key string) bool {
-	return strings.TrimSpace(sources[key]) == "cli"
-}
-
-func hasCLIToolOverride(source config.SourceReport) bool {
-	for _, id := range toolspec.CatalogIDs() {
-		if sourceIsCLI(source.Sources, "tools."+toolspec.ConfigName(id)) {
-			return true
-		}
-	}
-	return false
-}
-
-func enabledToolsCSV(enabled map[toolspec.ID]bool) string {
-	names := []string{}
-	for _, id := range toolspec.CatalogIDs() {
-		if enabled[id] {
-			names = append(names, toolspec.ConfigName(id))
-		}
-	}
-	return strings.Join(names, ",")
 }

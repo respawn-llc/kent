@@ -9,6 +9,7 @@ import {
 } from "@/api";
 
 const attentionKey = ["attention"] as const;
+export type WorktreeListReadOwner = "sidebar" | "chat-label";
 
 function boardFilterKey(filter: BoardFilterInput): readonly string[] {
   const canonical = canonicalBoardFilter(filter);
@@ -89,6 +90,8 @@ export const queryKeys = {
   allActivity: ["activity"],
   allComments: ["comments"],
   allPendingAsks: ["pending-asks"],
+  allProcesses: ["processes"],
+  chatMainView: (sessionID: string) => ["chat", sessionID, "main-view"] as const,
   boardWorkflowRoot: (projectID: string, workflowID: string | undefined) => ["board", projectID, workflowID],
   projectBoardsRoot: (projectID: string) => ["board", projectID],
   board: (projectID: string, workflowID: string | undefined, filter: BoardFilterInput) => [
@@ -101,16 +104,15 @@ export const queryKeys = {
   workflowDefinition: (workflowID: string) => ["workflow-definition", workflowID],
   workflowDraftValidation: (
     workflowID: string,
-    sourceVersion: number,
-    version: number,
-    metadataSignature: string,
+    sourceVersion: number | null,
+    version: number | null,
+    metadataSignature: string | null,
   ) => ["workflow-draft-validation", workflowID, sourceVersion, version, metadataSignature],
-  workflowDraftDerivedWiring: (workflowID: string, sourceVersion: number, graphSignature: string) => [
-    "workflow-draft-derived-wiring",
-    workflowID,
-    sourceVersion,
-    graphSignature,
-  ],
+  workflowDraftDerivedWiring: (
+    workflowID: string,
+    sourceVersion: number | null,
+    graphSignature: string | null,
+  ) => ["workflow-draft-derived-wiring", workflowID, sourceVersion, graphSignature],
   workflowValidation: (workflowID: string, mode: string) => ["workflow-validation", workflowID, mode],
   workflowScriptPathValidation: (workflowID: string, nodeID: string, scriptPath: string) => [
     "workflow-script-path-validation",
@@ -118,14 +120,13 @@ export const queryKeys = {
     nodeID,
     scriptPath,
   ],
-  workflowGraphLayout: (workflowID: string, version: number, valid: boolean, errors: readonly unknown[]) => [
-    "workflow-graph-layout",
-    workflowID,
-    version,
-    valid,
-    errors,
-  ],
-  projectWorkflowLinks: (projectID: string) => ["project-workflow-links", projectID],
+  workflowGraphLayout: (
+    workflowID: string,
+    version: number | null,
+    valid: boolean | null,
+    errors: readonly unknown[] | null,
+  ) => ["workflow-graph-layout", workflowID, version, valid, errors],
+  projectWorkflowLinks: (projectID: string | null) => ["project-workflow-links", projectID],
   projectTaskWorkflows: (projectID: string) => ["project-workflow-links", projectID, "task-list"],
   projectLabels: (projectID: string) => ["project-labels", projectID],
   taskLabels: (taskID: string) => ["task-labels", taskID],
@@ -183,8 +184,10 @@ export const queryKeys = {
   activity: (taskID: string) => ["activity", taskID],
   comments: (taskID: string) => ["comments", taskID],
   pendingAsks: (sessionID: string | null) => ["pending-asks", sessionID],
+  processes: (projectID: string, sessionID: string) => ["processes", projectID, sessionID],
   worktreeStatus: (sessionID: string) => ["worktree", worktreeFact(sessionID), "status"] as const,
-  worktreeList: (sessionID: string) => ["worktree", worktreeFact(sessionID), "list"] as const,
+  worktreeList: (sessionID: string, owner: WorktreeListReadOwner = "sidebar") =>
+    ["worktree", worktreeFact(sessionID), "list", owner] as const,
   worktreeCreateTargetResolution: (sessionID: string, target: string) =>
     worktreeOperationKey(sessionID, "create-target-resolution", target, true),
   worktreeSelectorResolution: (sessionID: string, selector: string) =>

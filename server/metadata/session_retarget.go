@@ -18,9 +18,11 @@ import (
 )
 
 type SessionWorkspaceRetargetRequest struct {
-	SessionID     string
-	WorkspaceRoot string
-	ProjectID     *string
+	SessionID        string
+	WorkspaceRoot    string
+	ProjectID        *string
+	TargetWorktreeID *string
+	WorktreeReminder *session.WorktreeReminderState
 }
 
 type SessionWorkspaceRetargetPlan struct {
@@ -34,6 +36,9 @@ type SessionWorkspaceRetargetPlan struct {
 	SourceSessionDir      string
 	TargetSessionDir      string
 	RebindReminder        *session.SessionRebindReminder
+	TargetWorktreeID      *string
+	TargetExecutionRoot   string
+	WorktreeReminder      *session.WorktreeReminderState
 }
 
 func (p SessionWorkspaceRetargetPlan) CrossProject() bool {
@@ -85,16 +90,51 @@ func (s *Store) PlanSessionWorkspaceRetarget(ctx context.Context, req SessionWor
 		}
 		targetProject.Name = targetState.DisplayName
 	}
-	if err := validateSessionWorkspaceRetargetTarget(
-		ctx,
-		s.queries,
+	targetBindings, err := s.queries.ListWorkspaceBindingsByCanonicalRoot(ctx, targetRoot)
+	if err != nil {
+		return SessionWorkspaceRetargetPlan{}, fmt.Errorf("list target workspace bindings: %w", err)
+	}
+	if !explicitProject {
+		targetProject, err = selectSessionWorkspaceRetargetProject(
+			sessionID,
+			sourceProject,
+			targetRoot,
+			targetBindings,
+		)
+		if err != nil {
+			return SessionWorkspaceRetargetPlan{}, err
+		}
+	}
+	if err := validateSessionWorkspaceRetargetTargetBindings(
 		sessionID,
 		sourceProject,
 		targetProject,
 		targetRoot,
 		explicitProject,
+		targetBindings,
 	); err != nil {
 		return SessionWorkspaceRetargetPlan{}, err
+	}
+	targetExecutionRoot := targetRoot
+	var targetWorktreeID *string
+	if req.TargetWorktreeID != nil {
+		worktreeID := strings.TrimSpace(*req.TargetWorktreeID)
+		if worktreeID == "" {
+			return SessionWorkspaceRetargetPlan{}, errors.New("target worktree id is required when provided")
+		}
+		worktree, err := s.GetWorktreeRecordByID(ctx, worktreeID)
+		if err != nil {
+			return SessionWorkspaceRetargetPlan{}, err
+		}
+		binding, err := s.LookupWorkspaceBindingByID(ctx, worktree.WorkspaceID)
+		if err != nil {
+			return SessionWorkspaceRetargetPlan{}, err
+		}
+		if binding.ProjectID != targetProject.ID || binding.CanonicalRoot != targetRoot {
+			return SessionWorkspaceRetargetPlan{}, errors.New("target worktree does not belong to the target project workspace")
+		}
+		targetWorktreeID = &worktreeID
+		targetExecutionRoot = worktree.CanonicalRoot
 	}
 	if err := validateSessionWorkspaceRetargetWorkflowOwnership(
 		ctx,
@@ -129,6 +169,9 @@ func (s *Store) PlanSessionWorkspaceRetarget(ctx context.Context, req SessionWor
 		TargetArtifactRelpath: targetArtifactRelpath,
 		SourceSessionDir:      sourceDir,
 		TargetSessionDir:      targetDir,
+		TargetWorktreeID:      targetWorktreeID,
+		TargetExecutionRoot:   targetExecutionRoot,
+		WorktreeReminder:      req.WorktreeReminder,
 	}, nil
 }
 
@@ -169,20 +212,50 @@ func (s *Store) CommitSessionWorkspaceRetarget(ctx context.Context, plan Session
 	); err != nil {
 		return SessionWorkspaceRetargetResult{}, err
 	}
-	if err := validateSessionWorkspaceRetargetTarget(
-		ctx,
-		q,
+	targetBindings, err := q.ListWorkspaceBindingsByCanonicalRoot(ctx, plan.TargetWorkspaceRoot)
+	if err != nil {
+		return SessionWorkspaceRetargetResult{}, fmt.Errorf("list target workspace bindings: %w", err)
+	}
+	if !plan.ExplicitProject {
+		selectedProject, err := selectSessionWorkspaceRetargetProject(
+			plan.SessionID,
+			plan.SourceProject,
+			plan.TargetWorkspaceRoot,
+			targetBindings,
+		)
+		if err != nil {
+			return SessionWorkspaceRetargetResult{}, err
+		}
+		if strings.TrimSpace(selectedProject.ID) != strings.TrimSpace(plan.TargetProject.ID) {
+			return SessionWorkspaceRetargetResult{}, errors.New("target Project selection changed while rebinding; retry")
+		}
+	}
+	if err := validateSessionWorkspaceRetargetTargetBindings(
 		plan.SessionID,
 		plan.SourceProject,
 		plan.TargetProject,
 		plan.TargetWorkspaceRoot,
 		plan.ExplicitProject,
+		targetBindings,
 	); err != nil {
 		return SessionWorkspaceRetargetResult{}, err
 	}
 	binding, created, err := attachWorkspaceToProjectWithQueries(ctx, q, plan.TargetProject.ID, plan.TargetWorkspaceRoot, updatedAt)
 	if err != nil {
 		return SessionWorkspaceRetargetResult{}, err
+	}
+	var targetWorktreeID sql.NullString
+	if plan.TargetWorktreeID != nil {
+		worktreeID := strings.TrimSpace(*plan.TargetWorktreeID)
+		worktree, err := q.GetWorktreeByID(ctx, worktreeID)
+		if err != nil {
+			return SessionWorkspaceRetargetResult{}, err
+		}
+		if worktree.WorkspaceID != binding.WorkspaceID ||
+			worktree.CanonicalRootPath != plan.TargetExecutionRoot {
+			return SessionWorkspaceRetargetResult{}, errors.New("target worktree changed while rebinding")
+		}
+		targetWorktreeID = sql.NullString{String: worktreeID, Valid: true}
 	}
 	var reminderJSON sql.NullString
 	if plan.RebindReminder != nil {
@@ -196,14 +269,20 @@ func (s *Store) CommitSessionWorkspaceRetarget(ctx context.Context, plan Session
 		}
 		reminderJSON = sql.NullString{String: string(encoded), Valid: true}
 	}
+	worktreeReminderJSON, err := encodeWorktreeReminder(plan.WorktreeReminder)
+	if err != nil {
+		return SessionWorkspaceRetargetResult{}, err
+	}
 	rows, err := q.RetargetSessionWorkspaceProject(ctx, sqlitegen.RetargetSessionWorkspaceProjectParams{
 		TargetProjectID:          plan.TargetProject.ID,
 		TargetWorkspaceID:        sql.NullString{String: binding.WorkspaceID, Valid: true},
+		TargetWorktreeID:         targetWorktreeID,
 		TargetArtifactRelpath:    plan.TargetArtifactRelpath,
 		UpdatedAtUnixMs:          updatedAt.UnixMilli(),
 		TargetWorkspaceRoot:      binding.CanonicalRoot,
 		TargetWorkspaceContainer: binding.WorkspaceName,
 		RebindReminderJson:       reminderJSON,
+		WorktreeReminderJson:     worktreeReminderJSON,
 		SessionID:                plan.SessionID,
 		SourceProjectID:          plan.SourceProject.ID,
 		SourceArtifactRelpath:    plan.SourceArtifactRelpath,
@@ -218,6 +297,21 @@ func (s *Store) CommitSessionWorkspaceRetarget(ctx context.Context, plan Session
 		return SessionWorkspaceRetargetResult{}, fmt.Errorf("commit session retarget tx: %w", err)
 	}
 	return SessionWorkspaceRetargetResult{Binding: binding, WorkspaceBindingCreated: created, UpdatedAt: updatedAt}, nil
+}
+
+func encodeWorktreeReminder(reminder *session.WorktreeReminderState) (sql.NullString, error) {
+	if reminder == nil {
+		return sql.NullString{}, nil
+	}
+	normalized, err := session.NormalizeWorktreeReminderState(*reminder)
+	if err != nil {
+		return sql.NullString{}, fmt.Errorf("validate worktree reminder: %w", err)
+	}
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return sql.NullString{}, fmt.Errorf("marshal worktree reminder: %w", err)
+	}
+	return sql.NullString{String: string(encoded), Valid: true}, nil
 }
 
 func validateSessionWorkspaceRetargetWorkflowOwnership(
@@ -254,25 +348,19 @@ func validateSessionWorkspaceRetargetWorkflowOwnership(
 	}
 }
 
-func validateSessionWorkspaceRetargetTarget(
-	ctx context.Context,
-	q *sqlitegen.Queries,
+func validateSessionWorkspaceRetargetTargetBindings(
 	sessionID string,
 	sourceProject serverapi.ProjectReference,
 	targetProject serverapi.ProjectReference,
 	targetRoot string,
 	explicitProject bool,
+	rows []sqlitegen.ListWorkspaceBindingsByCanonicalRootRow,
 ) error {
-	rows, err := q.ListWorkspaceBindingsByCanonicalRoot(ctx, targetRoot)
-	if err != nil {
-		return fmt.Errorf("list target workspace bindings: %w", err)
-	}
-	candidates := make([]serverapi.ProjectReference, 0, len(rows))
+	candidates := sessionRetargetProjectReferences(rows)
 	for _, row := range rows {
 		if row.ProjectID == targetProject.ID {
 			return nil
 		}
-		candidates = append(candidates, serverapi.ProjectReference{ID: row.ProjectID, Name: row.ProjectDisplayName})
 	}
 	if len(candidates) == 0 {
 		return nil
@@ -288,6 +376,42 @@ func validateSessionWorkspaceRetargetTarget(
 		TargetRoot:        targetRoot,
 		CandidateProjects: candidates,
 	}
+}
+
+func selectSessionWorkspaceRetargetProject(
+	sessionID string,
+	sourceProject serverapi.ProjectReference,
+	targetRoot string,
+	rows []sqlitegen.ListWorkspaceBindingsByCanonicalRootRow,
+) (serverapi.ProjectReference, error) {
+	candidates := sessionRetargetProjectReferences(rows)
+	for _, row := range rows {
+		if row.ProjectID == sourceProject.ID {
+			return sourceProject, nil
+		}
+	}
+	switch len(candidates) {
+	case 0:
+		return sourceProject, nil
+	case 1:
+		return candidates[0], nil
+	default:
+		return sourceProject, &serverapi.SessionRetargetError{
+			Reason:            serverapi.SessionRetargetTargetProjectRequired,
+			SessionID:         sessionID,
+			SourceProject:     sourceProject,
+			TargetRoot:        targetRoot,
+			CandidateProjects: candidates,
+		}
+	}
+}
+
+func sessionRetargetProjectReferences(rows []sqlitegen.ListWorkspaceBindingsByCanonicalRootRow) []serverapi.ProjectReference {
+	candidates := make([]serverapi.ProjectReference, 0, len(rows))
+	for _, row := range rows {
+		candidates = append(candidates, serverapi.ProjectReference{ID: row.ProjectID, Name: row.ProjectDisplayName})
+	}
+	return candidates
 }
 
 func (s *Store) sessionRetargetArtifactPath(artifactRelpath string) (string, error) {

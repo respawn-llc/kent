@@ -16,7 +16,6 @@ type runtimeWiring struct {
 	worktrees             apicontract.WorktreeService
 	processControls       apicontract.ProcessControlService
 	processViews          apicontract.ProcessViewService
-	promptHistory         []string
 	lifecycleHookIssues   <-chan lifecycleHookIssue
 	lifecycleHookDone     <-chan struct{}
 }

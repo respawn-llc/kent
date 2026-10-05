@@ -129,8 +129,10 @@ func TestOnboardingTraversalPreservesSeededSameValuedReviewerOverrides(t *testin
 	state := testOnboardingFlowState(t, func(cfg *config.App) {
 		cfg.Settings.Reviewer.Model = cfg.Settings.Model
 		cfg.Settings.Reviewer.ThinkingLevel = cfg.Settings.ThinkingLevel
-		cfg.Source.Sources["reviewer.model"] = "file"
-		cfg.Source.Sources["reviewer.thinking_level"] = "file"
+		cfg.Source.Sources["reviewer.model"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model"}}
+
+		cfg.Source.Sources["reviewer.thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}}
+
 	})
 	model := newOnboardingModel(nil, state)
 	model.stepIndex = visibleOnboardingStepIndex(t, model, onboardingStepReviewerModel)
@@ -270,7 +272,8 @@ func TestOnboardingThinkingCapabilityLossDoesNotResurrectLatentValues(t *testing
 		cfg.Settings.ThinkingLevel = "high"
 		cfg.Settings.Reviewer.Model = thinkingModel
 		cfg.Settings.Reviewer.ThinkingLevel = "high"
-		cfg.Source.Sources["thinking_level"] = "file"
+		cfg.Source.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
+
 	}, facts)
 
 	if err := state.submitPrimaryModel(limitedModel); err != nil {
@@ -310,9 +313,12 @@ func TestOnboardingSupervisorThinkingCapabilityLossDoesNotResurrectLatentValues(
 		cfg.Settings.ThinkingLevel = "high"
 		cfg.Settings.Reviewer.Model = reviewerModel
 		cfg.Settings.Reviewer.ThinkingLevel = "low"
-		cfg.Source.Sources["thinking_level"] = "file"
-		cfg.Source.Sources["reviewer.model"] = "file"
-		cfg.Source.Sources["reviewer.thinking_level"] = "file"
+		cfg.Source.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
+
+		cfg.Source.Sources["reviewer.model"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model"}}
+
+		cfg.Source.Sources["reviewer.thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}}
+
 	}, facts)
 
 	reviewerStep := findWorkflowStep(t, state, onboardingStepReviewerModel)
@@ -349,7 +355,8 @@ func TestOnboardingSupervisorThinkingCapabilityLossDoesNotResurrectLatentValues(
 		cfg.Settings.Model = mainModel
 		cfg.Settings.ModelContextWindow = int(contextWindow)
 		cfg.Settings.Reviewer.Model = reviewerModel
-		cfg.Source.Sources["reviewer.model"] = "file"
+		cfg.Source.Sources["reviewer.model"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model"}}
+
 	}, facts)
 	if err := explicitDisabled.chooseReviewerThinking("disable"); err != nil {
 		t.Fatalf("explicitly disable reviewer thinking: %v", err)

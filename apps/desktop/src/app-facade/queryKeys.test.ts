@@ -1,3 +1,5 @@
+import { QueryClient } from "@tanstack/react-query";
+
 import { canonicalBoardFilter } from "@/api";
 import { queryKeys } from "./queryKeys";
 
@@ -7,6 +9,15 @@ const smallID = "11111111-1111-4111-8111-111111111111";
 const featureID = "22222222-2222-4222-8222-222222222222";
 
 describe("board query identities", () => {
+  it("keys Chat Main View only by exact Session identity", () => {
+    const client = new QueryClient();
+    const cached = { owner: "session-1" };
+    client.setQueryData(queryKeys.chatMainView("session-1"), cached);
+
+    expect(client.getQueryData(queryKeys.chatMainView("session-1"))).toBe(cached);
+    expect(client.getQueryData(queryKeys.chatMainView("session-2"))).toBeUndefined();
+  });
+
   it("canonicalizes equivalent Label filters and keeps board/card scopes distinct", () => {
     const namedLabelFilter = {
       kind: "named" as const,

@@ -6,24 +6,22 @@ import (
 	"testing"
 
 	"core/cli/tui/transcriptrender"
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
-	"core/shared/transcript"
 
 	xansi "github.com/charmbracelet/x/ansi"
 )
 
 func TestCommittedAssistantCommentaryUsesFullStableOutput(t *testing.T) {
 	condensed := "This compact preview must never be shown."
-	row := clientui.TranscriptCommittedRow{
-		Visibility: transcript.EntryVisibilityOngoing,
-		Integrity:  transcript.RowIntegrityValid,
-		Kind:       clientui.TranscriptRowAssistant,
-		Assistant: &clientui.TranscriptAssistantRow{
+	row := &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
+		Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+		Row: &transcriptpb.CommittedRow_Assistant{Assistant: &transcriptpb.AssistantRow{
 			Text:          "The complete first commentary paragraph.\n\nThe complete second commentary paragraph.",
 			CondensedText: &condensed,
-			Phase:         transcript.AssistantPhaseCommentary,
-		},
+			Phase:         transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY,
+		}},
 	}
 
 	if got := committedRowRenderMode(row); got != transcriptrender.ModeOngoingStable {
@@ -72,14 +70,12 @@ func TestCommittedAssistantCommentaryUsesFullStableOutput(t *testing.T) {
 func TestStreamingAssistantCommentaryShowsCompleteReceivedSource(t *testing.T) {
 	var output bytes.Buffer
 	surface := NewSurface(&output)
-	streamID := runtimeids.NewAssistantStreamID()
+	streamID := runtimeids.NewAssistantStreamID().String()
 	source := "The complete streamed first paragraph.\n\nThe complete streamed second paragraph."
 
 	if _, err := surface.applyAssistantDelta(
 		streamID,
-		source,
-		transcript.AssistantPhaseCommentary,
-		FrameInput{Size: Size{Width: 48, Height: 24}},
+		source, transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY, FrameInput{Size: Size{Width: 48, Height: 24}},
 	); err != nil {
 		t.Fatalf("apply assistant commentary delta: %v", err)
 	}

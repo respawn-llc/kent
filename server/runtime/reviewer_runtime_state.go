@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"core/server/llm"
-	"core/shared/clientui"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 )
 
@@ -16,7 +16,7 @@ type reviewerRuntimeState struct {
 	client  *observedModelClient
 	factory func() (*observedModelClient, error)
 	active  *runtimeids.StepID
-	phase   clientui.ReviewerActivity
+	phase   runtimepb.ReviewerActivity
 }
 
 func newReviewerRuntimeState(client llm.Client, factory func() (llm.Client, error)) *reviewerRuntimeState {
@@ -33,7 +33,7 @@ func newReviewerRuntimeState(client llm.Client, factory func() (llm.Client, erro
 	return &reviewerRuntimeState{
 		client:  newObservedModelClient(client),
 		factory: observedFactory,
-		phase:   clientui.ReviewerActivityInactive,
+		phase:   runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
 	}
 }
 
@@ -55,7 +55,7 @@ func (s *reviewerRuntimeState) Reserve(stepID string) bool {
 		return false
 	}
 	s.active = &active
-	s.phase = clientui.ReviewerActivityInactive
+	s.phase = runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE
 	return true
 }
 
@@ -67,25 +67,10 @@ func (s *reviewerRuntimeState) Start(stepID string) bool {
 	defer s.mu.Unlock()
 	if s.active == nil ||
 		s.active.String() != strings.TrimSpace(stepID) ||
-		s.phase != clientui.ReviewerActivityInactive {
+		s.phase != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE {
 		return false
 	}
-	s.phase = clientui.ReviewerActivityInvoking
-	return true
-}
-
-func (s *reviewerRuntimeState) SetAddressingFeedback(stepID string) bool {
-	if s == nil {
-		return false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.active == nil ||
-		s.active.String() != strings.TrimSpace(stepID) ||
-		s.phase != clientui.ReviewerActivityInvoking {
-		return false
-	}
-	s.phase = clientui.ReviewerActivityAddressingFeedback
+	s.phase = runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INVOKING
 	return true
 }
 
@@ -97,7 +82,7 @@ func (s *reviewerRuntimeState) Clear(stepID string) bool {
 	defer s.mu.Unlock()
 	if s.active != nil && s.active.String() == strings.TrimSpace(stepID) {
 		s.active = nil
-		s.phase = clientui.ReviewerActivityInactive
+		s.phase = runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE
 		return true
 	}
 	return false
@@ -112,9 +97,9 @@ func (s *reviewerRuntimeState) Active() bool {
 	return s.active != nil
 }
 
-func (s *reviewerRuntimeState) Activity() clientui.ReviewerActivity {
+func (s *reviewerRuntimeState) Activity() runtimepb.ReviewerActivity {
 	if s == nil {
-		return clientui.ReviewerActivityInactive
+		return runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -125,9 +110,12 @@ func (e *Engine) ReviewerActive() bool {
 	return e != nil && e.reviewerRuntimeState().Active()
 }
 
-func (e *Engine) ReviewerActivity() clientui.ReviewerActivity {
+func (e *Engine) ReviewerActivity() runtimepb.ReviewerActivity {
 	if e == nil {
-		return clientui.ReviewerActivityInactive
+		return runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE
+	}
+	if e.liveRun != nil && e.liveRun.supervisorTriggered() {
+		return runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_ADDRESSING_FEEDBACK
 	}
 	return e.reviewerRuntimeState().Activity()
 }
@@ -189,24 +177,6 @@ func (e *Engine) completeReviewerActivity(stepID string) error {
 
 func (e *Engine) completeReviewerActivityRaw(stepID string) error {
 	if !e.reviewerRuntimeState().Clear(stepID) {
-		return nil
-	}
-	revision, err := e.TranscriptRevision()
-	if err != nil {
-		return err
-	}
-	return e.emitRawAtRevision(Event{
-		Kind: EventRuntimeActivityChanged,
-	}, revision)
-}
-
-func (e *Engine) setReviewerAddressingFeedback(stepID string) error {
-	if e == nil {
-		return nil
-	}
-	e.outputMutationMu.Lock()
-	defer e.outputMutationMu.Unlock()
-	if !e.reviewerRuntimeState().SetAddressingFeedback(stepID) {
 		return nil
 	}
 	revision, err := e.TranscriptRevision()

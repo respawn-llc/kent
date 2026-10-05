@@ -59,7 +59,6 @@ type deviceTokenPollResponse struct {
 type oauthTokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
-	TokenType    string `json:"token_type"`
 	ExpiresIn    int    `json:"expires_in"`
 	IDToken      string `json:"id_token"`
 }
@@ -91,12 +90,12 @@ func normalizeOpenAIOAuthOptions(opts OpenAIOAuthOptions) OpenAIOAuthOptions {
 	return opts
 }
 
-func RunOpenAIDeviceCodeFlow(ctx context.Context, opts OpenAIOAuthOptions, onCode func(DeviceCode)) (Method, error) {
+func RunOpenAIDeviceCodeFlow(ctx context.Context, opts OpenAIOAuthOptions, onCode func(DeviceCode)) (OAuthMethod, error) {
 	opts = normalizeOpenAIOAuthOptions(opts)
 
 	code, err := requestOpenAIDeviceCode(ctx, opts)
 	if err != nil {
-		return Method{}, err
+		return OAuthMethod{}, err
 	}
 	if onCode != nil {
 		onCode(code)
@@ -104,12 +103,12 @@ func RunOpenAIDeviceCodeFlow(ctx context.Context, opts OpenAIOAuthOptions, onCod
 
 	poll, err := pollOpenAIDeviceAuthToken(ctx, opts, code)
 	if err != nil {
-		return Method{}, err
+		return OAuthMethod{}, err
 	}
 
 	method, err := exchangeOpenAIAuthorizationCode(ctx, opts, poll.AuthorizationCode, poll.CodeVerifier, issuerRedirectURI(opts))
 	if err != nil {
-		return Method{}, err
+		return OAuthMethod{}, err
 	}
 	return method, nil
 }
@@ -133,15 +132,15 @@ func CollectOpenAIDeviceAuthorizationGrant(ctx context.Context, opts OpenAIOAuth
 	}, nil
 }
 
-func CompleteOpenAIDeviceAuthorizationGrant(ctx context.Context, opts OpenAIOAuthOptions, authorizationCode string, codeVerifier string) (Method, error) {
+func CompleteOpenAIDeviceAuthorizationGrant(ctx context.Context, opts OpenAIOAuthOptions, authorizationCode string, codeVerifier string) (OAuthMethod, error) {
 	opts = normalizeOpenAIOAuthOptions(opts)
 	authorizationCode = strings.TrimSpace(authorizationCode)
 	codeVerifier = strings.TrimSpace(codeVerifier)
 	if authorizationCode == "" {
-		return Method{}, errors.New("device authorization code is required")
+		return OAuthMethod{}, errors.New("device authorization code is required")
 	}
 	if codeVerifier == "" {
-		return Method{}, errors.New("device code verifier is required")
+		return OAuthMethod{}, errors.New("device code verifier is required")
 	}
 	return exchangeOpenAIAuthorizationCode(ctx, opts, authorizationCode, codeVerifier, issuerRedirectURI(opts))
 }
@@ -265,7 +264,7 @@ func pollOpenAIDeviceAuthToken(ctx context.Context, opts OpenAIOAuthOptions, cod
 	}
 }
 
-func exchangeOpenAIAuthorizationCode(ctx context.Context, opts OpenAIOAuthOptions, code, codeVerifier, redirectURI string) (Method, error) {
+func exchangeOpenAIAuthorizationCode(ctx context.Context, opts OpenAIOAuthOptions, code, codeVerifier, redirectURI string) (OAuthMethod, error) {
 	opts = normalizeOpenAIOAuthOptions(opts)
 	issuer := strings.TrimSuffix(opts.Issuer, "/")
 	endpoint := issuer + "/oauth/token"
@@ -282,51 +281,43 @@ func exchangeOpenAIAuthorizationCode(ctx context.Context, opts OpenAIOAuthOption
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(values.Encode()))
 	if err != nil {
-		return Method{}, fmt.Errorf("create code exchange request: %w", err)
+		return OAuthMethod{}, fmt.Errorf("create code exchange request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := opts.HTTPClient.Do(req)
 	if err != nil {
-		return Method{}, fmt.Errorf("exchange code for tokens: %w", err)
+		return OAuthMethod{}, fmt.Errorf("exchange code for tokens: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return Method{}, fmt.Errorf("read code exchange response: %w", err)
+		return OAuthMethod{}, fmt.Errorf("read code exchange response: %w", err)
 	}
 	if resp.StatusCode/100 != 2 {
-		return Method{}, fmt.Errorf("token exchange failed: status %d", resp.StatusCode)
+		return OAuthMethod{}, fmt.Errorf("token exchange failed: status %d", resp.StatusCode)
 	}
 
 	var parsed oauthTokenResponse
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return Method{}, fmt.Errorf("decode token exchange response: %w", err)
+		return OAuthMethod{}, fmt.Errorf("decode token exchange response: %w", err)
 	}
 	if strings.TrimSpace(parsed.AccessToken) == "" {
-		return Method{}, errors.New("token exchange response missing access token")
+		return OAuthMethod{}, errors.New("token exchange response missing access token")
 	}
 
-	tokenType := parsed.TokenType
-	if tokenType == "" {
-		tokenType = "Bearer"
-	}
 	expiresAt := time.Now().UTC().Add(time.Hour)
 	if parsed.ExpiresIn > 0 {
 		expiresAt = time.Now().UTC().Add(time.Duration(parsed.ExpiresIn) * time.Second)
 	}
 
-	return Method{
-		Type: MethodOAuth,
-		OAuth: &OAuthMethod{
-			AccessToken:  parsed.AccessToken,
-			RefreshToken: parsed.RefreshToken,
-			TokenType:    tokenType,
-			Expiry:       expiresAt,
-			AccountID:    extractAccountID(parsed),
-			Email:        extractEmail(parsed),
-		},
+	return OAuthMethod{
+		AccessToken:  parsed.AccessToken,
+		RefreshToken: parsed.RefreshToken,
+		Expiry:       expiresAt,
+		AccountID:    extractAccountID(parsed),
+		Email:        extractEmail(parsed),
 	}, nil
 }
 
@@ -335,13 +326,13 @@ func issuerRedirectURI(opts OpenAIOAuthOptions) string {
 	return issuer + "/deviceauth/callback"
 }
 
-func RefreshOpenAIAuthToken(ctx context.Context, opts OpenAIOAuthOptions, method Method) (Method, error) {
+func RefreshOpenAIAuthToken(ctx context.Context, opts OpenAIOAuthOptions, method OAuthMethod) (OAuthMethod, error) {
 	opts = normalizeOpenAIOAuthOptions(opts)
-	if method.Type != MethodOAuth || method.OAuth == nil {
-		return Method{}, ErrInvalidAuthMethod
+	if err := method.Validate(); err != nil {
+		return OAuthMethod{}, err
 	}
-	if strings.TrimSpace(method.OAuth.RefreshToken) == "" {
-		return Method{}, fmt.Errorf("%w: missing refresh token", ErrOAuthRefreshFailed)
+	if strings.TrimSpace(method.RefreshToken) == "" {
+		return OAuthMethod{}, fmt.Errorf("%w: missing refresh token", ErrOAuthRefreshFailed)
 	}
 
 	issuer := strings.TrimSuffix(opts.Issuer, "/")
@@ -349,57 +340,51 @@ func RefreshOpenAIAuthToken(ctx context.Context, opts OpenAIOAuthOptions, method
 	values := url.Values{}
 	values.Set("client_id", opts.ClientID)
 	values.Set("grant_type", "refresh_token")
-	values.Set("refresh_token", method.OAuth.RefreshToken)
+	values.Set("refresh_token", method.RefreshToken)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(values.Encode()))
 	if err != nil {
-		return Method{}, fmt.Errorf("create refresh request: %w", err)
+		return OAuthMethod{}, fmt.Errorf("create refresh request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := opts.HTTPClient.Do(req)
 	if err != nil {
-		return Method{}, fmt.Errorf("%w: %v", ErrOAuthRefreshFailed, err)
+		return OAuthMethod{}, fmt.Errorf("%w: %v", ErrOAuthRefreshFailed, err)
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return Method{}, fmt.Errorf("%w: %v", ErrOAuthRefreshFailed, err)
+		return OAuthMethod{}, fmt.Errorf("%w: %v", ErrOAuthRefreshFailed, err)
 	}
 
 	if resp.StatusCode/100 != 2 {
-		return Method{}, fmt.Errorf("%w: status %d", ErrOAuthRefreshFailed, resp.StatusCode)
+		return OAuthMethod{}, fmt.Errorf("%w: status %d", ErrOAuthRefreshFailed, resp.StatusCode)
 	}
 
 	var parsed oauthTokenResponse
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return Method{}, fmt.Errorf("%w: %v", ErrOAuthRefreshFailed, err)
+		return OAuthMethod{}, fmt.Errorf("%w: %v", ErrOAuthRefreshFailed, err)
 	}
 	if strings.TrimSpace(parsed.AccessToken) == "" {
-		return Method{}, fmt.Errorf("%w: missing access token", ErrOAuthRefreshFailed)
+		return OAuthMethod{}, fmt.Errorf("%w: missing access token", ErrOAuthRefreshFailed)
 	}
 
 	updated := method
-	updated.OAuth.AccessToken = parsed.AccessToken
+	updated.AccessToken = parsed.AccessToken
 	if strings.TrimSpace(parsed.RefreshToken) != "" {
-		updated.OAuth.RefreshToken = parsed.RefreshToken
-	}
-	if strings.TrimSpace(parsed.TokenType) != "" {
-		updated.OAuth.TokenType = parsed.TokenType
-	}
-	if strings.TrimSpace(updated.OAuth.TokenType) == "" {
-		updated.OAuth.TokenType = "Bearer"
+		updated.RefreshToken = parsed.RefreshToken
 	}
 	if accountID := extractAccountID(parsed); strings.TrimSpace(accountID) != "" {
-		updated.OAuth.AccountID = accountID
+		updated.AccountID = accountID
 	}
 	if email := extractEmail(parsed); strings.TrimSpace(email) != "" {
-		updated.OAuth.Email = email
+		updated.Email = email
 	}
 	if parsed.ExpiresIn > 0 {
-		updated.OAuth.Expiry = time.Now().UTC().Add(time.Duration(parsed.ExpiresIn) * time.Second)
+		updated.Expiry = time.Now().UTC().Add(time.Duration(parsed.ExpiresIn) * time.Second)
 	} else {
-		updated.OAuth.Expiry = time.Now().UTC().Add(time.Hour)
+		updated.Expiry = time.Now().UTC().Add(time.Hour)
 	}
 	return updated, nil
 }
@@ -409,7 +394,7 @@ func NewOpenAIOAuthRefresher(opts OpenAIOAuthOptions, now func() time.Time, refr
 	return NewOAuthRefresher(
 		now,
 		refreshBefore,
-		func(ctx context.Context, method Method) (Method, error) {
+		func(ctx context.Context, method OAuthMethod) (OAuthMethod, error) {
 			return RefreshOpenAIAuthToken(ctx, opts, method)
 		},
 	)

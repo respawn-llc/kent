@@ -1,7 +1,6 @@
 package shell
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,15 +9,17 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	"core/server/tools"
+	"core/server/tools/shell/postprocess"
+	"core/shared/config"
 )
 
 func assertOversizedOutputFailure(t *testing.T, result tools.Result, logPath string) {
 	t.Helper()
 	message := fmt.Sprintf(oversizedOutputMessageTemplate, logPath)
-	want, _ := json.Marshal(map[string]string{"error": message})
-	if !result.IsError || string(result.Output) != string(want) {
-		t.Fatalf("failure = %s, want %s", result.Output, want)
+	if !result.IsError || decodeStringToolOutput(t, result) != message {
+		t.Fatalf("failure = %s, want %q", result.Output, message)
 	}
 }
 
@@ -37,7 +38,7 @@ func assertGuardedPresentation(t *testing.T, result tools.Result, raw bool, back
 
 func TestExecCommandGuardPreservesOutputPathPresentationAndLog(t *testing.T) {
 	manager := newBackgroundTestManager(t)
-	tool := NewExecCommandTool(t.TempDir(), 16_000, 20, manager, "")
+	tool := NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 20, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	const output = "123456789012345678901234567890123456789012345678"
 	result := callExecCommand(t, tool, "guarded", map[string]any{
 		"cmd": "printf '" + output + "'; exit 7", "shell": "/bin/sh", "login": false,
@@ -49,9 +50,6 @@ func TestExecCommandGuardPreservesOutputPathPresentationAndLog(t *testing.T) {
 	}
 	logPath := filepath.Join(manager.TempDir(), entries[0].Name())
 	assertOversizedOutputFailure(t, result, logPath)
-	if got := decodeStringToolOutput(t, result); got != "" {
-		t.Fatalf("guarded output = %q, want omitted command output", got)
-	}
 	if log, err := os.ReadFile(logPath); err != nil || string(log) != output {
 		t.Fatalf("retained output = %q, error=%v", log, err)
 	}
@@ -83,7 +81,7 @@ func TestExecCommandGuardBoundariesAndOrdinaryTruncation(t *testing.T) {
 			if test.cap != nil {
 				input["max_output_tokens"] = *test.cap
 			}
-			result := callExecCommand(t, NewExecCommandTool(t.TempDir(), 16_000, 40, manager, ""), test.name, input)
+			result := callExecCommand(t, NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 40, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})), test.name, input)
 			if result.IsError {
 				t.Fatalf("unexpected error: %s", result.Output)
 			}
@@ -100,7 +98,7 @@ func TestExecCommandGuardBoundariesAndOrdinaryTruncation(t *testing.T) {
 
 func TestRunningExecCommandGuardPreservesLifecycleAndIndependentPoll(t *testing.T) {
 	manager := newShellTestManager(t, 50*time.Millisecond)
-	tool := NewExecCommandTool(t.TempDir(), 16_000, 40, manager, "")
+	tool := NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 40, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	const output = "12345678901234567890123456789012345678901234567890123456789012345678901234567890"
 	result := callExecCommand(t, tool, "running", map[string]any{
 		"cmd": "printf '" + output + "'; sleep 0.5", "shell": "/bin/sh", "login": false,
@@ -126,11 +124,12 @@ func TestWriteStdinGuardPreservesRunningCompletedEscapedAndIndependentPolls(t *t
 	const plain = "12345678901234567890123456789012345678901234567890123456789012345678901234567890"
 	tests := []struct {
 		name, command, output, chars string
-		running, later               bool
+		running, later, guarded      bool
 	}{
-		{"running", "read line; printf '" + plain + "'; sleep 0.8", plain, "go\n", true, true},
-		{"completed", "sleep 0.1; printf '" + plain + "'", plain, "", false, false},
-		{"escaped", "read line; printf '%s' '" + strings.Repeat(`"\`, 20) + "'; sleep 0.8", strings.Repeat(`"\`, 20), "go\n", true, true},
+		{"running", "read line; printf '" + plain + "'; sleep 0.8", plain, "go\n", true, true, true},
+		{"completed", "sleep 0.1; printf '" + plain + "'", plain, "", false, false, true},
+		{"escaped within plaintext limit", "read line; printf '%s' '" + strings.Repeat(`"\`, 20) + "'; sleep 0.8", strings.Repeat(`"\`, 20), "go\n", true, true, false},
+		{"escaped oversized", "read line; printf '%s' '" + strings.Repeat(`"\`, 40) + "'; sleep 0.8", strings.Repeat(`"\`, 40), "go\n", true, true, true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -142,7 +141,7 @@ func TestWriteStdinGuardPreservesRunningCompletedEscapedAndIndependentPolls(t *t
 				}
 				return true
 			})
-			start := callExecCommand(t, NewExecCommandTool(t.TempDir(), 16_000, 40, manager, ""), "start", map[string]any{
+			start := callExecCommand(t, NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 40, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})), "start", map[string]any{
 				"cmd": test.command, "shell": "/bin/sh", "login": false, "tty": true, "yield_time_ms": 50,
 			})
 			if start.IsError {
@@ -158,7 +157,11 @@ func TestWriteStdinGuardPreservesRunningCompletedEscapedAndIndependentPolls(t *t
 				input["chars"], input["yield_time_ms"] = test.chars, 50
 			}
 			result := callWriteStdin(t, NewWriteStdinTool(16_000, 40, manager), "poll", input)
-			assertOversizedOutputFailure(t, result, snapshot.LogPath)
+			if test.guarded {
+				assertOversizedOutputFailure(t, result, snapshot.LogPath)
+			} else if result.IsError || !strings.Contains(decodeStringToolOutput(t, result), test.output) {
+				t.Fatalf("output within plaintext limit = %s", result.Output)
+			}
 			if !test.running && result.CompletedBackgroundSessionID == nil {
 				t.Fatal("completed guarded poll lost its background completion identity")
 			}

@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"core/shared/clientui"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -19,14 +20,14 @@ type promptFollowUpState struct {
 }
 
 type promptFollowUpKey struct {
-	sessionID runtimeids.SessionID
-	stepID    runtimeids.StepID
-	promptID  clientui.PromptID
+	sessionID  runtimeids.SessionID
+	stepID     runtimeids.StepID
+	toolCallID clientui.ToolCallID
 }
 
 type promptFollowUpSubscription struct {
 	mu       sync.Mutex
-	events   chan serverapi.PromptFollowUpEvent
+	events   chan *promptpb.FollowUpEvent
 	canceled chan struct{}
 	closed   bool
 	onClose  func()
@@ -36,7 +37,7 @@ func (a *Authority) SubscribePromptFollowUp(
 	_ context.Context,
 	sessionID runtimeids.SessionID,
 	stepID runtimeids.StepID,
-	promptID clientui.PromptID,
+	toolCallID clientui.ToolCallID,
 ) (serverapi.PromptFollowUpSubscription, error) {
 	if a == nil {
 		return nil, errors.New("session runtime authority is required")
@@ -45,12 +46,12 @@ func (a *Authority) SubscribePromptFollowUp(
 	if execution == nil {
 		return nil, serverapi.ErrPromptNotFound
 	}
-	return execution.prompts.subscribePromptFollowUp(stepID, promptID)
+	return execution.prompts.subscribePromptFollowUp(stepID, toolCallID)
 }
 
 func (s *executionPromptStore) subscribePromptFollowUp(
 	stepID runtimeids.StepID,
-	promptID clientui.PromptID,
+	toolCallID clientui.ToolCallID,
 ) (serverapi.PromptFollowUpSubscription, error) {
 	if s == nil || s.authority == nil {
 		return nil, errors.New("session runtime authority is required")
@@ -58,14 +59,14 @@ func (s *executionPromptStore) subscribePromptFollowUp(
 	if stepID.IsZero() {
 		return nil, errors.New("step id is required")
 	}
-	if err := promptID.Validate(); err != nil {
+	if err := toolCallID.Validate(); err != nil {
 		return nil, err
 	}
-	key, err := s.promptFollowUpKey(stepID, promptID)
+	key, err := s.promptFollowUpKey(stepID, toolCallID)
 	if err != nil {
 		return nil, err
 	}
-	rawPromptID := string(key.promptID)
+	rawToolCallID := string(key.toolCallID)
 	s.mu.Lock()
 	if s.promptFollowUps[key] != nil {
 		s.mu.Unlock()
@@ -73,10 +74,10 @@ func (s *executionPromptStore) subscribePromptFollowUp(
 			"prompt follow-up subscription is already active for session %s step %s prompt %s",
 			key.sessionID,
 			key.stepID,
-			key.promptID,
+			key.toolCallID,
 		)
 	}
-	entry := s.pending[rawPromptID]
+	entry := s.pending[rawToolCallID]
 	if entry == nil || entry.snapshot.Request.StepID != key.stepID.String() {
 		s.mu.Unlock()
 		return nil, serverapi.ErrPromptNotFound
@@ -88,16 +89,16 @@ func (s *executionPromptStore) subscribePromptFollowUp(
 
 func (s *executionPromptStore) promptFollowUpKey(
 	stepID runtimeids.StepID,
-	promptID clientui.PromptID,
+	toolCallID clientui.ToolCallID,
 ) (promptFollowUpKey, error) {
 	resource, ok := s.scope.Resource()
 	if !ok {
 		return promptFollowUpKey{}, errors.New("prompt follow-up requires an agent Session scope")
 	}
 	return promptFollowUpKey{
-		sessionID: resource.SessionID(),
-		stepID:    stepID,
-		promptID:  promptID,
+		sessionID:  resource.SessionID(),
+		stepID:     stepID,
+		toolCallID: toolCallID,
 	}, nil
 }
 
@@ -108,7 +109,7 @@ func (s *executionPromptStore) registerPromptFollowUpLocked(
 		s.promptFollowUps = make(map[promptFollowUpKey]*promptFollowUpState)
 	}
 	subscription := &promptFollowUpSubscription{
-		events:   make(chan serverapi.PromptFollowUpEvent, 1),
+		events:   make(chan *promptpb.FollowUpEvent, 1),
 		canceled: make(chan struct{}),
 	}
 	state := &promptFollowUpState{subscription: subscription}
@@ -125,13 +126,13 @@ func (s *executionPromptStore) registerPromptFollowUpLocked(
 
 func (s *executionPromptStore) resolvePromptFollowUpLocked(
 	stepID runtimeids.StepID,
-	promptID clientui.PromptID,
+	toolCallID clientui.ToolCallID,
 	descriptor *validatedQuestionBatchDescriptor,
 ) {
 	if len(s.promptFollowUps) == 0 {
 		return
 	}
-	key, err := s.promptFollowUpKey(stepID, promptID)
+	key, err := s.promptFollowUpKey(stepID, toolCallID)
 	if err != nil {
 		return
 	}
@@ -142,17 +143,17 @@ func (s *executionPromptStore) resolvePromptFollowUpLocked(
 	state.descriptor = descriptor
 	state.resolved = true
 	if descriptor == nil {
-		s.emitPromptFollowUpLocked(key, serverapi.PromptFollowUpNoPreparedSuccessor)
+		s.emitPromptFollowUpLocked(key, promptpb.FollowUpKind_FOLLOW_UP_KIND_NO_PREPARED_SUCCESSOR)
 		return
 	}
-	successorIDs := descriptor.successorPromptIDs()
+	successorIDs := descriptor.successorToolCallIDs()
 	if len(successorIDs) == 0 {
-		s.emitPromptFollowUpLocked(key, serverapi.PromptFollowUpNoPreparedSuccessor)
+		s.emitPromptFollowUpLocked(key, promptpb.FollowUpKind_FOLLOW_UP_KIND_NO_PREPARED_SUCCESSOR)
 		return
 	}
 	for _, successorID := range successorIDs {
 		if _, pending := s.pending[successorID]; pending {
-			s.emitPromptFollowUpLocked(key, serverapi.PromptFollowUpSuccessorReady)
+			s.emitPromptFollowUpLocked(key, promptpb.FollowUpKind_FOLLOW_UP_KIND_SUCCESSOR_READY)
 			return
 		}
 	}
@@ -168,7 +169,7 @@ func (s *executionPromptStore) observePromptFollowUpsLocked(rawStepID string, su
 		if !state.resolved || key.stepID != stepID {
 			continue
 		}
-		for _, expectedID := range state.descriptor.successorPromptIDs() {
+		for _, expectedID := range state.descriptor.successorToolCallIDs() {
 			if expectedID == successorID {
 				keys = append(keys, key)
 				break
@@ -176,7 +177,7 @@ func (s *executionPromptStore) observePromptFollowUpsLocked(rawStepID string, su
 		}
 	}
 	for _, key := range keys {
-		s.emitPromptFollowUpLocked(key, serverapi.PromptFollowUpSuccessorReady)
+		s.emitPromptFollowUpLocked(key, promptpb.FollowUpKind_FOLLOW_UP_KIND_SUCCESSOR_READY)
 	}
 }
 
@@ -186,24 +187,24 @@ func (s *executionPromptStore) closePromptFollowUpsLocked() {
 		keys = append(keys, key)
 	}
 	for _, key := range keys {
-		s.emitPromptFollowUpLocked(key, serverapi.PromptFollowUpExecutionClosed)
+		s.emitPromptFollowUpLocked(key, promptpb.FollowUpKind_FOLLOW_UP_KIND_EXECUTION_CLOSED)
 	}
 }
 
 func (s *executionPromptStore) emitPromptFollowUpLocked(
 	key promptFollowUpKey,
-	kind serverapi.PromptFollowUpEventKind,
+	kind promptpb.FollowUpKind,
 ) {
 	state := s.promptFollowUps[key]
 	if state == nil {
 		return
 	}
 	delete(s.promptFollowUps, key)
-	event := serverapi.PromptFollowUpEvent{Kind: kind}
+	event := &promptpb.FollowUpEvent{Kind: kind}
 	state.subscription.publish(event)
 }
 
-func (s *promptFollowUpSubscription) publish(event serverapi.PromptFollowUpEvent) {
+func (s *promptFollowUpSubscription) publish(event *promptpb.FollowUpEvent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -213,20 +214,20 @@ func (s *promptFollowUpSubscription) publish(event serverapi.PromptFollowUpEvent
 	close(s.events)
 }
 
-func (s *promptFollowUpSubscription) Next(ctx context.Context) (serverapi.PromptFollowUpEvent, error) {
+func (s *promptFollowUpSubscription) Next(ctx context.Context) (*promptpb.FollowUpEvent, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	select {
 	case event, ok := <-s.events:
 		if !ok {
-			return serverapi.PromptFollowUpEvent{}, io.EOF
+			return nil, io.EOF
 		}
 		return event, nil
 	case <-s.canceled:
-		return serverapi.PromptFollowUpEvent{}, io.EOF
+		return nil, io.EOF
 	case <-ctx.Done():
-		return serverapi.PromptFollowUpEvent{}, context.Cause(ctx)
+		return nil, context.Cause(ctx)
 	}
 }
 

@@ -75,10 +75,24 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 		return err
 	}
 	switch payload := payload.(type) {
+	case session.ConfigurationUpdateRecord:
+		s.closeTurn()
+		provenance, err := transcriptProvenanceFromRecord(record)
+		if err != nil {
+			return err
+		}
+		entry := configurationUpdateChatEntry(llmResponseItemFromSessionHistory(payload.Item))
+		entry.StepID = cloneOptionalStepID(stepID)
+		entry.CommittedProvenance = &provenance
+		s.scan.appendEntry(entry)
 	case session.MessageRecord:
 		msg, err := llmMessageFromSessionRecord(payload)
 		if err != nil {
 			return fmt.Errorf("restore session message record: %w", err)
+		}
+		msg, err = normalizeMessageForTranscriptChecked(msg, "")
+		if err != nil {
+			return fmt.Errorf("restore session message transcript presentation: %w", err)
 		}
 		provenance, provenanceErr := transcriptProvenanceFromRecord(record)
 		if provenanceErr != nil {
@@ -97,13 +111,14 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 			return nil
 		}
 		s.completions[callID] = tools.Result{
-			CallID:        completion.CallID,
-			Name:          toolspec.ID(completion.Name),
-			IsError:       completion.IsError,
-			Output:        completion.Output,
-			Summary:       completion.Summary,
-			CondensedText: completion.CondensedText,
-			Presentation:  completion.Presentation,
+			CallID:         completion.CallID,
+			Name:           toolspec.ID(completion.Name),
+			IsError:        completion.IsError,
+			Output:         completion.Output,
+			Summary:        completion.Summary,
+			CondensedText:  completion.CondensedText,
+			Presentation:   completion.Presentation,
+			QuestionAnswer: cloneAskQuestionAnswer(completion.QuestionAnswer),
 		}
 		provenance, provenanceErr := transcriptProvenanceFromRecord(record)
 		if provenanceErr != nil {
@@ -175,6 +190,7 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 			Visibility:          cacheWarningEntryVisibility(s.cacheWarningMode),
 			Role:                cacheWarningTranscriptRole,
 			Text:                transcript.CacheWarningText(warning),
+			CacheWarning:        copyCacheWarning(&warning),
 			CommittedProvenance: &provenance,
 		})
 	case session.HistoryReplacementRecord:

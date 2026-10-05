@@ -30,6 +30,14 @@ export type QuestionPresentation = Readonly<{
 
 const emptySuggestions: readonly string[] = [];
 
+export function canSubmitOrdinaryAnswer(selectedOption: number | null, answer: string): boolean {
+  return (selectedOption !== null && selectedOption > 0) || answer.trim().length > 0;
+}
+
+export function canSubmitApprovalAnswer(decision: ApprovalDecision | null, answer: string): boolean {
+  return decision !== null && (decision !== "deny" || answer.trim().length > 0);
+}
+
 export function emptyQuestionSelection(): QuestionSelectionState {
   return {
     answer: "",
@@ -41,7 +49,10 @@ export function emptyQuestionSelection(): QuestionSelectionState {
 
 export function questionPresentation(attention: QuestionAttentionItem): QuestionPresentation {
   if (attention.question.kind === "approval") {
-    return approvalQuestionPresentation(attention.message, attention.question.approvalDecisions);
+    return approvalQuestionPresentation(attention.message ?? undefined, attention.question.approvalDecisions);
+  }
+  if (attention.message === null) {
+    throw new Error("Ordinary question requires a message");
   }
   return ordinaryQuestionPresentation(attention.message, attention.question);
 }

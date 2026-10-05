@@ -4,9 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
-	"core/shared/transcript"
 )
 
 func TestReasoningTraceRendersProjectedPlaintextFaintInDetailOnly(t *testing.T) {
@@ -14,15 +13,14 @@ func TestReasoningTraceRendersProjectedPlaintextFaintInDetailOnly(t *testing.T) 
 	if err != nil {
 		t.Fatalf("parse step id: %v", err)
 	}
-	row := clientui.TranscriptCommittedRow{
-		Visibility: transcript.EntryVisibilityDetail,
-		Integrity:  transcript.RowIntegrityValid,
-		Kind:       clientui.TranscriptRowReasoningTrace,
-		ReasoningTrace: &clientui.TranscriptReasoningTraceRow{
-			StepID:      stepID,
+	row := &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL,
+		Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+		Row: &transcriptpb.CommittedRow_ReasoningTrace{ReasoningTrace: &transcriptpb.ReasoningTraceRow{
+			StepId:      stepID.String(),
 			CompactText: "Preparing to investigate issue",
 			Text:        "Preparing to investigate issue\nDetails",
-		},
+		}},
 	}
 	if rendered := RenderCommittedRow(row, 80, "dark", ModeOngoing); len(rendered.Lines) != 0 {
 		t.Fatalf("reasoning trace rendered in ongoing mode: %+v", rendered)

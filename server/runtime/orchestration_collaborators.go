@@ -35,7 +35,6 @@ type exclusiveStepLifecycle interface {
 	ReleaseReservation(reservation *exclusiveStepReservation)
 	Interrupt() error
 	InterruptCurrent(beforeCancel func(*RunSnapshot)) (*RunSnapshot, error)
-	InterruptCurrentAgentTurn(beforeCancel func(*RunSnapshot)) (*RunSnapshot, error)
 	IsBusy() bool
 	Snapshot() *RunSnapshot
 	WithActiveStep(fn func(stepID string) error) (bool, error)
@@ -61,11 +60,10 @@ type backgroundNoticeScheduler interface {
 type contextCompactor interface {
 	CompactContextWithAcceptance(ctx context.Context, requestID runtimeids.CompactionRequestID, args string, onActive func(), accept CommandAcceptance) (session.CommitReceipt, error)
 	CompactContextAdmissionWithAcceptance(ctx context.Context, requestID runtimeids.CompactionRequestID, admission runtimeinput.ManualCompactionAdmission, accept CommandAcceptance) (session.CommitReceipt, error)
-	CompactContextForWorkflowContinuation(ctx context.Context) (session.CommitReceipt, error)
 	CompactContextForWorkflowPostCompletion(ctx context.Context) (session.CommitReceipt, error)
 	CompactContextForPreSubmitWithAcceptance(ctx context.Context, text string, onActive func(), accept CommandAcceptance) (session.CommitReceipt, error)
 	TriggerHandoff(ctx context.Context, stepID string, activeCall llm.ToolCall, summarizerPrompt string, futureAgentMessage string) (string, bool, error)
-	AutoCompactIfNeeded(ctx context.Context, stepID string, mode compactionMode) error
+	AutoCompactIfNeeded(ctx context.Context, stepID string, mode compactionMode, preview ...llm.ResponseItem) error
 	ShouldCompactBeforeUserMessage(ctx context.Context, text string) (bool, error)
 }
 
@@ -73,12 +71,13 @@ type stepLoopOptions struct {
 	ReviewerFrequency              string
 	ReviewerClient                 *observedModelClient
 	RefreshReviewerConfigOnResolve bool
-	OnQueuedUserFlushCommitted     func(session.CommitReceipt)
+	OnQueuedUserFlushCommitted     func(userInjectionCommitResult)
+	UserInputSelection             userInjectionSelection
 }
 
-func observeQueuedUserFlushCommit(options stepLoopOptions, receipt session.CommitReceipt) {
-	if receipt.Committed && options.OnQueuedUserFlushCommitted != nil {
-		options.OnQueuedUserFlushCommitted(receipt)
+func observeQueuedUserFlushCommit(options stepLoopOptions, result userInjectionCommitResult) {
+	if result.receipt.Committed && options.OnQueuedUserFlushCommitted != nil {
+		options.OnQueuedUserFlushCommitted(result)
 	}
 }
 
@@ -96,27 +95,18 @@ type allPendingUserInjectionSelection struct{}
 
 func (allPendingUserInjectionSelection) userInjectionSelection() {}
 
-type userInjectionFlushDisposition uint8
-
-const (
-	userInjectionFlushContinue userInjectionFlushDisposition = iota
-	userInjectionFlushStopped
-)
-
 type userInjectionCommitResult struct {
 	flushed      int
 	startedStep  bool
 	receipt      session.CommitReceipt
 	queueItemIDs map[string]struct{}
-	disposition  userInjectionFlushDisposition
 }
 
-type queuedUserFlushStoppedError struct{}
-
-func (*queuedUserFlushStoppedError) Error() string { return "queued user flush stopped" }
-
-func steerUserInjections(queueItemIDs map[string]struct{}) userInjectionSelection {
-	return steerUserInjectionSelection{queueItemIDs: queueItemIDs}
+func steerUserInjections(queueItemIDs ...map[string]struct{}) userInjectionSelection {
+	if len(queueItemIDs) == 0 {
+		return steerUserInjectionSelection{}
+	}
+	return steerUserInjectionSelection{queueItemIDs: queueItemIDs[0]}
 }
 
 type stepLoopResult struct {
@@ -146,17 +136,18 @@ type toolExecutor interface {
 
 type messageLifecycle interface {
 	RestoreMessages() error
-	CommitPendingUserInjections(stepID string, selection userInjectionSelection) (userInjectionCommitResult, error)
-	FlushPendingUserInjections(stepID string, selection userInjectionSelection) (userInjectionCommitResult, error)
+	PreparePendingUserInjections(selection userInjectionSelection) (*preparedUserInjections, error)
+	ReleasePreparedUserInjections(prepared *preparedUserInjections)
+	CommitPreparedUserInjections(ctx context.Context, stepID string, prepared *preparedUserInjections, thinking nativeThinkingProjection) (userInjectionCommitResult, error)
 	DrainPendingUserInjections() []QueuedUserMessage
 	DrainPendingUserInjectionsByID(ids map[string]struct{}) []QueuedUserMessage
 	PendingUserMessages() []QueuedUserMessage
 	PendingUserMessageEntries() []queuedUserMessage
-	RestorePendingUserInjections(items []queuedUserMessage)
-	QueueUserMessage(text string, association ...queuedUserMessageAssociation) (QueuedUserMessage, error)
+	QueueUserMessage(input QueuedUserInput, association ...queuedUserMessageAssociation) (QueuedUserMessage, error)
 	QueueUserMessageWithID(item QueuedUserMessage, association ...queuedUserMessageAssociation) (QueuedUserMessage, error)
 	DiscardQueuedUserMessage(queueItemID string) (queuedUserMessage, bool)
 	HasPendingUserInjections() bool
+	HasPendingUserSteers() bool
 }
 
 type reviewerPipeline interface {
@@ -210,7 +201,7 @@ func (e *Engine) ensureOrchestrationCollaborators() {
 			e.phaseProtocol = &defaultPhaseProtocol{engine: e}
 		}
 		if e.messageFlow == nil {
-			e.messageFlow = newDefaultMessageLifecycle(e, e.backgroundFlow)
+			e.messageFlow = newDefaultMessageLifecycle(e)
 		}
 		if e.toolFlow == nil {
 			e.toolFlow = &defaultToolExecutor{engine: e}

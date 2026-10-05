@@ -64,7 +64,7 @@ func TestOpenAIClientProjectsProviderPhaseFromOneAuthoritativeFact(t *testing.T)
 		},
 	})
 
-	resp, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"), Model: "gpt-5", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
+	resp, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestGenerateAccumulatesOutputItemProviderPhase(t *testing.T) {
 		`[DONE]`,
 	)
 
-	resp, err := transport.Generate(context.Background(), OpenAIRequest{SessionID: textutil.Value("test-session"), Model: "gpt-5", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), OpenAIRequest{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("generate stream: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestGenerateAggregatesCompletedResponseProviderPhase(t *testing.T) {
 		`[DONE]`,
 	)
 
-	resp, err := transport.Generate(context.Background(), OpenAIRequest{SessionID: textutil.Value("test-session"), Model: "gpt-5", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), OpenAIRequest{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("generate stream: %v", err)
 	}

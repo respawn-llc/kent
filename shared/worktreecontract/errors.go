@@ -23,6 +23,25 @@ type SelectorError struct {
 	Details *worktreepb.SelectorErrorDetails
 }
 
+type BlockedError struct {
+	Details *worktreepb.BlockedDetails
+}
+
+type DeletePartialError struct {
+	RetargetedSessions uint64
+	Cause              error
+}
+
+func (e *DeletePartialError) Error() string {
+	return fmt.Sprintf("worktree deletion stopped after moving %d Sessions to Main Workspace: %v", e.RetargetedSessions, e.Cause)
+}
+
+func (e *DeletePartialError) Unwrap() error { return e.Cause }
+
+func (e *BlockedError) Error() string { return ErrWorktreeBlocked.Error() }
+
+func (e *BlockedError) Is(target error) bool { return target == ErrWorktreeBlocked }
+
 func NewSelectorError(
 	kind worktreepb.SelectorErrorKind,
 	input string,
@@ -85,6 +104,7 @@ func NewSetupRetainedError(
 			ScriptPath:               scriptPath,
 			Diagnostic:               diagnostic,
 			RetainedPreviousWorktree: retainedPreviousWorktree,
+			RecoveryDisposition:      worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING,
 		},
 		cause: cause,
 	}, nil

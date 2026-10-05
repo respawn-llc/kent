@@ -1,9 +1,30 @@
-import "@testing-library/jest-dom/vitest";
-import { vi } from "vitest";
+import * as matchers from "@testing-library/jest-dom/matchers";
+import { expect, vi } from "vitest";
+
+expect.extend(matchers);
 
 if (typeof window !== "undefined") {
   Object.defineProperty(window, "scrollTo", { configurable: true, value: vi.fn() });
 }
+
+// jsdom has no layout engine. Supply a viewport and row geometry so the real
+// virtualizer owns ranges in component tests too. Geometry-specific tests
+// override these configurable getters with their own measurements.
+if (typeof HTMLElement !== "undefined")
+  Object.defineProperties(HTMLElement.prototype, {
+    offsetHeight: {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.hasAttribute("data-index") ? 40 : 600;
+      },
+    },
+    offsetWidth: {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.hasAttribute("data-index") ? 160 : 800;
+      },
+    },
+  });
 
 class TestResizeObserver implements ResizeObserver {
   disconnect(): void {

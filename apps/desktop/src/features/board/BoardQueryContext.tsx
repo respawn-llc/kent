@@ -1,12 +1,9 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useLayoutEffect, useState, type ReactNode } from "react";
+import { useAtomSet } from "@effect/atom-react";
 
-import {
-  canonicalBoardFilter,
-  defaultBoardNodeCardsSort,
-  type BoardNodeCardsSort,
-  type TaskLabelFilter,
-} from "@/api";
+import { type TaskLabelFilter } from "@/api";
 import { BoardQueryContext } from "./BoardQueryRuntime";
+import { createBoardQueryModel } from "./BoardQueryModel";
 
 export function BoardQueryProvider({
   children,
@@ -17,15 +14,10 @@ export function BoardQueryProvider({
   labelFilter: TaskLabelFilter;
   queriesEnabled?: boolean;
 }>) {
-  const [dependencyFilter, setDependencyFilter] = useState<boolean | null>(null);
-  const [sort, setSort] = useState<BoardNodeCardsSort>(defaultBoardNodeCardsSort);
-  const filter = useMemo(
-    () => canonicalBoardFilter({ dependencyFilter, labelFilter }),
-    [dependencyFilter, labelFilter],
-  );
-  const value = useMemo(
-    () => ({ filter, queriesEnabled, setDependencyFilter, setSort, sort }),
-    [filter, queriesEnabled, sort],
-  );
-  return <BoardQueryContext.Provider value={value}>{children}</BoardQueryContext.Provider>;
+  const [model] = useState(() => createBoardQueryModel({ labelFilter, queriesEnabled }));
+  const setInputs = useAtomSet(model.inputs);
+  useLayoutEffect(() => {
+    setInputs({ labelFilter, queriesEnabled });
+  }, [labelFilter, queriesEnabled, setInputs]);
+  return <BoardQueryContext.Provider value={model}>{children}</BoardQueryContext.Provider>;
 }

@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"core/shared/gitenv"
 )
 
 func TestLoadCorpusSnapshotIncludesDerivedDirectoriesAndExcludesGit(t *testing.T) {
@@ -229,7 +231,7 @@ func TestLoadPathReferenceCorpusSnapshotHonorsIgnorePolicyAndExcludesEmptyDirs(t
 	}
 	cmd := exec.Command("git", "init", "-q")
 	cmd.Dir = root
-	cmd.Env = sanitizedGitEnv(os.Environ())
+	cmd.Env = gitenv.WithoutRepositoryOverrides(os.Environ())
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("git init: %v", err)
 	}

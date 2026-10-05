@@ -2,8 +2,6 @@ package session
 
 import "strings"
 
-const persistedMessageTypeCompactionSummary = "compaction_summary"
-
 const firstPromptPreviewMaxChars = 120
 
 func normalizeFirstPromptPreview(content string) string {
@@ -39,7 +37,8 @@ func isVisibleUserMessageFields(role string, messageType string, content string)
 	if strings.TrimSpace(content) == "" {
 		return false
 	}
-	if strings.TrimSpace(messageType) == persistedMessageTypeCompactionSummary {
+	switch MessageType(strings.TrimSpace(messageType)) {
+	case MessageTypeCompactionSummary, MessageTypeUserShellCommand:
 		return false
 	}
 	return true

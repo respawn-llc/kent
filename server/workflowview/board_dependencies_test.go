@@ -1,10 +1,11 @@
 package workflowview
 
 import (
+	"core/internal/testharness/workflowfixture"
 	"testing"
 
 	"core/server/workflowstore"
-	"core/shared/serverapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
 func TestBoardCardsProjectExactDependencyProgressFromThePagedQuery(t *testing.T) {
@@ -17,14 +18,12 @@ func TestBoardCardsProjectExactDependencyProgressFromThePagedQuery(t *testing.T)
 	}); err != nil {
 		t.Fatalf("add blocker dependency: %v", err)
 	}
-	request := serverapi.WorkflowBoardNodeCardsListRequest{
-		ProjectID:  fixture.binding.ProjectID,
-		WorkflowID: fixture.workflowID,
-		NodeID:     string(fixture.agentNodeID),
-		PageSize:   1,
-		LabelFilter: serverapi.WorkflowTaskLabelFilter{
-			Kind: serverapi.WorkflowTaskLabelFilterKindNone,
-		},
+	request := &taskpb.BoardNodeCardsListRequest{
+		ProjectId:   fixture.binding.ProjectID,
+		WorkflowId:  fixture.workflowID.String(),
+		NodeId:      string(fixture.agentNodeID),
+		PageSize:    1,
+		LabelFilter: noLabelFilter(),
 	}
 	page, err := fixture.board.ListNodeCards(fixture.ctx, request)
 	if err != nil {
@@ -39,7 +38,7 @@ func TestBoardCardsProjectExactDependencyProgressFromThePagedQuery(t *testing.T)
 	if err != nil {
 		t.Fatalf("GetDefinition: %v", err)
 	}
-	if _, err := fixture.store.ManualMoveTask(fixture.ctx, workflowstore.ManualMoveRequest{
+	if _, err := workflowfixture.MoveTask(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.ManualMoveRequest{
 		TaskID:       blocker.ID,
 		TargetNodeID: terminalNodeID(t, definition),
 	}); err != nil {

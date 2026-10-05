@@ -1,11 +1,14 @@
 import { ChevronRight } from "lucide-react";
-import { useId, useState, type ReactNode } from "react";
+import { AnimatePresence, motion, useIsPresent, useReducedMotion } from "motion/react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { cx } from "./classes";
-import { useOpacityExit } from "./motion";
+import { motionDurationFromCSSVar } from "./motion";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./radix/collapsible";
 import "./TranscriptDisclosure.css";
 
 export type TranscriptDisclosureIconTone = "neutral" | "warning" | "error" | "success";
+export type TranscriptDisclosureSummaryMode = "single-line" | "multiline";
 
 export type TranscriptDisclosureProps = Readonly<{
   actions?: ReactNode;
@@ -16,9 +19,14 @@ export type TranscriptDisclosureProps = Readonly<{
   icon: ReactNode;
   iconTone?: TranscriptDisclosureIconTone | undefined;
   liveStatus?: ReactNode;
-  summary: ReactNode;
+  summaryMode?: TranscriptDisclosureSummaryMode | undefined;
   typeLabel?: ReactNode;
-}>;
+  textTone?: "primary" | "secondary";
+}> &
+  (
+    | Readonly<{ summary: ReactNode; renderSummary?: never }>
+    | Readonly<{ summary?: never; renderSummary: (expanded: boolean) => ReactNode }>
+  );
 
 const iconToneClassNames: Readonly<Record<TranscriptDisclosureIconTone, string>> = {
   neutral: "transcript-disclosure-icon--neutral",
@@ -37,14 +45,26 @@ export function TranscriptDisclosure({
   iconTone = "neutral",
   liveStatus,
   summary,
+  renderSummary,
+  summaryMode = "single-line",
   typeLabel,
+  textTone = "primary",
 }: TranscriptDisclosureProps) {
   const bodyId = `transcript-disclosure-body-${useId()}`;
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const bodyPhase = useOpacityExit(expanded);
 
+  // Adapted from Vercel AI Elements Reasoning (Apache-2.0):
+  // https://github.com/vercel/ai-elements. Expansion is exclusively manual in Kent.
   return (
-    <div className="transcript-disclosure-shell group/transcript-disclosure relative w-full border border-transparent bg-transparent hover:bg-[var(--color-island-1)] focus-within:bg-[var(--color-island-1)]">
+    <Collapsible
+      open={expanded}
+      onOpenChange={setExpanded}
+      data-transcript-collapsed={!expanded}
+      className={cx(
+        "transcript-disclosure-shell group/transcript-disclosure relative w-full bg-transparent",
+        textTone === "secondary" ? "text-[var(--color-muted)]" : "text-[var(--color-on-background)]",
+      )}
+    >
       <TranscriptDisclosureHeader
         actions={actions}
         bodyId={bodyId}
@@ -54,30 +74,55 @@ export function TranscriptDisclosure({
         icon={icon}
         iconTone={iconTone}
         liveStatus={liveStatus}
-        onToggle={() => {
-          setExpanded((current) => !current);
-        }}
-        summary={summary}
+        summary={renderSummary === undefined ? summary : renderSummary(expanded)}
+        summaryMode={summaryMode}
         typeLabel={typeLabel}
       />
-      {bodyPhase === "hidden" ? null : (
-        <div
-          aria-hidden={bodyPhase === "exiting" ? true : undefined}
-          className={cx(
-            "transcript-disclosure-body grid overflow-hidden",
-            bodyPhase === "visible"
-              ? "transcript-disclosure-body--visible"
-              : "transcript-disclosure-body--exiting",
-          )}
-          id={bodyId}
-          inert={bodyPhase === "exiting" ? true : undefined}
-        >
-          <div className="min-h-0 min-w-0 px-[var(--space-2)] pb-[var(--space-2)] text-sm text-[var(--color-on-background)]">
+      <AnimatePresence initial={false}>
+        {expanded ? (
+          <DisclosureBody key="body" bodyId={bodyId}>
             {body}
-          </div>
+          </DisclosureBody>
+        ) : null}
+      </AnimatePresence>
+    </Collapsible>
+  );
+}
+
+function DisclosureBody({ bodyId, children }: Readonly<{ bodyId: string; children: ReactNode }>) {
+  const present = useIsPresent();
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | undefined>(undefined);
+  const reducedMotion = useReducedMotion();
+  useLayoutEffect(() => {
+    const body = ref.current;
+    if (body === null) return;
+    const measure = () => {
+      setHeight(body.getBoundingClientRect().height);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(body);
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+  return (
+    <CollapsibleContent forceMount asChild id={bodyId}>
+      <motion.div
+        aria-hidden={present ? undefined : true}
+        inert={present ? undefined : true}
+        className="overflow-hidden"
+        initial={reducedMotion ? false : { height: 0, opacity: 0 }}
+        animate={{ height: height ?? "auto", opacity: 1 }}
+        exit={{ height: 0, opacity: 0 }}
+        transition={{ duration: reducedMotion ? 0 : motionDurationFromCSSVar("--motion-fast", 140) / 1000 }}
+      >
+        <div ref={ref} className="min-w-0 px-[var(--space-2)] pb-[var(--space-2)] text-sm">
+          {children}
         </div>
-      )}
-    </div>
+      </motion.div>
+    </CollapsibleContent>
   );
 }
 
@@ -90,8 +135,8 @@ function TranscriptDisclosureHeader({
   icon,
   iconTone,
   liveStatus,
-  onToggle,
   summary,
+  summaryMode,
   typeLabel,
 }: Readonly<{
   actions?: ReactNode;
@@ -102,18 +147,26 @@ function TranscriptDisclosureHeader({
   icon: ReactNode;
   iconTone: TranscriptDisclosureIconTone;
   liveStatus?: ReactNode;
-  onToggle: () => void;
   summary: ReactNode;
+  summaryMode: TranscriptDisclosureSummaryMode;
   typeLabel?: ReactNode;
 }>) {
   return (
-    <header className="relative grid min-h-9 grid-cols-[auto_auto_minmax(0,1fr)_auto_auto] items-center gap-[var(--space-2)] px-[var(--space-2)] py-[var(--space-1)]">
-      <button
+    <header
+      className={cx(
+        "relative grid min-h-[var(--space-6)] gap-[var(--space-2)] px-[var(--space-2)]",
+        typeLabel === undefined
+          ? "grid-cols-[auto_minmax(0,1fr)_auto_auto]"
+          : "grid-cols-[auto_auto_minmax(0,1fr)_auto_auto]",
+        expanded && "py-[var(--space-1)]",
+        summaryMode === "multiline" ? "items-start" : "items-center",
+      )}
+    >
+      <CollapsibleTrigger
         aria-controls={bodyId}
         aria-expanded={expanded}
         aria-label={expanded ? collapseLabel : expandLabel}
         className="absolute inset-0 z-0 rounded-[var(--radius-s)] bg-transparent text-left outline-none focus-visible:ring-[2px] focus-visible:ring-[color-mix(in_srgb,var(--color-primary)_55%,transparent)] focus-visible:ring-offset-[-1px]"
-        onClick={onToggle}
         type="button"
       />
       <span
@@ -125,16 +178,19 @@ function TranscriptDisclosureHeader({
       >
         {icon}
       </span>
-      {typeLabel === undefined ? (
-        <span aria-hidden="true" className="pointer-events-none" />
-      ) : (
+      {typeLabel !== undefined && (
         <span className="pointer-events-none relative z-0 min-w-0 truncate text-xs font-medium text-[var(--color-muted)]">
           {typeLabel}
         </span>
       )}
-      <span className="pointer-events-none relative z-0 min-w-0 truncate text-left text-sm text-[var(--color-on-background)]">
+      <div
+        className={cx(
+          "pointer-events-none relative z-0 min-w-0 text-left text-sm",
+          summaryMode === "multiline" ? "transcript-disclosure-summary--multiline" : "truncate",
+        )}
+      >
         {summary}
-      </span>
+      </div>
       <div className="pointer-events-none relative z-10 flex min-w-0 items-center justify-end gap-[var(--space-1)]">
         {liveStatus === undefined ? null : (
           <div className="pointer-events-auto flex min-w-0 items-center">{liveStatus}</div>

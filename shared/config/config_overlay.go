@@ -8,138 +8,46 @@ import (
 	"core/shared/toolspec"
 )
 
-func inheritReviewerDefaultsWithSources(settings *Settings, sources map[string]string) {
-	reviewerProviderSelectionExplicit := ReviewerUsesIndependentProviderSelection(*settings)
-	if strings.TrimSpace(settings.Reviewer.Model) == "" {
+func InheritReviewerSettings(settings *Settings, sources map[string]Origin) {
+	if settings.Reviewer.Connection == nil || sources["reviewer.connection"].Inherited("reviewer.connection") {
+		settings.Reviewer.Connection = settings.Connection
+		inheritSource(sources, "reviewer.connection", "connection")
+	}
+	if sources["reviewer.model"].Inherited("reviewer.model") || strings.TrimSpace(settings.Reviewer.Model) == "" {
 		settings.Reviewer.Model = settings.Model
+		inheritSource(sources, "reviewer.model", "model")
 	}
-	if strings.TrimSpace(settings.Reviewer.ThinkingLevel) == "" && !hasConfiguredSource(sources, "reviewer.thinking_level") {
+	if sources["reviewer.thinking_level"].Inherited("reviewer.thinking_level") ||
+		(strings.TrimSpace(settings.Reviewer.ThinkingLevel) == "" && !hasConfiguredSource(sources, "reviewer.thinking_level")) {
 		settings.Reviewer.ThinkingLevel = settings.ThinkingLevel
+		inheritSource(sources, "reviewer.thinking_level", "thinking_level")
 	}
-	if strings.TrimSpace(string(settings.Reviewer.ModelVerbosity)) == "" {
+	if sources["reviewer.model_verbosity"].Inherited("reviewer.model_verbosity") || strings.TrimSpace(string(settings.Reviewer.ModelVerbosity)) == "" {
 		settings.Reviewer.ModelVerbosity = settings.ModelVerbosity
+		inheritSource(sources, "reviewer.model_verbosity", "model_verbosity")
 	}
-	reviewerProvider := ResolveReviewerProviderSettings(*settings)
-	settings.Reviewer.ProviderOverride = reviewerProvider.ProviderOverride
-	settings.Reviewer.OpenAIBaseURL = reviewerProvider.OpenAIBaseURL
 	inheritReviewerModelCapabilities(settings, sources)
-	inheritReviewerProviderCapabilities(settings, sources, reviewerProviderSelectionExplicit)
-	if settings.Reviewer.ModelContextWindow == 0 && !hasConfiguredSource(sources, "reviewer.model_context_window") {
+	if sources["reviewer.model_context_window"].Inherited("reviewer.model_context_window") ||
+		(settings.Reviewer.ModelContextWindow == 0 && !hasConfiguredSource(sources, "reviewer.model_context_window")) {
 		settings.Reviewer.ModelContextWindow = settings.ModelContextWindow
+		inheritSource(sources, "reviewer.model_context_window", "model_context_window")
 	}
 }
 
-func ReviewerUsesIndependentProviderSelection(settings Settings) bool {
-	if strings.TrimSpace(settings.Reviewer.OpenAIBaseURL) != "" {
-		return true
-	}
-	reviewerProvider := strings.ToLower(strings.TrimSpace(settings.Reviewer.ProviderOverride))
-	if reviewerProvider == "" {
-		return false
-	}
-	mainProvider := strings.ToLower(strings.TrimSpace(settings.ProviderOverride))
-	if mainProvider == "" && reviewerProvider == "openai" {
-		return false
-	}
-	return reviewerProvider != mainProvider
-}
-
-func ResolveReviewerProviderSettings(settings Settings) ReviewerProviderSettings {
-	provider := strings.TrimSpace(settings.Reviewer.ProviderOverride)
-	if provider == "" {
-		provider = strings.TrimSpace(settings.ProviderOverride)
-	}
-	baseURL := strings.TrimSpace(settings.Reviewer.OpenAIBaseURL)
-	if baseURL == "" && shouldInheritMainOpenAIBaseURL(provider) {
-		baseURL = strings.TrimSpace(settings.OpenAIBaseURL)
-	}
-	return ReviewerProviderSettings{ProviderOverride: provider, OpenAIBaseURL: baseURL}
-}
-
-func shouldInheritMainOpenAIBaseURL(reviewerProvider string) bool {
-	switch strings.ToLower(strings.TrimSpace(reviewerProvider)) {
-	case "", "openai":
-		return true
-	default:
-		return false
-	}
-}
-
-func inheritReviewerModelCapabilities(settings *Settings, sources map[string]string) {
+func inheritReviewerModelCapabilities(settings *Settings, sources map[string]Origin) {
 	if sources == nil {
 		if !settings.Reviewer.ModelCapabilities.SupportsReasoningEffort && !settings.Reviewer.ModelCapabilities.SupportsVisionInputs {
 			settings.Reviewer.ModelCapabilities = settings.ModelCapabilities
 		}
 		return
 	}
-	if !hasAnyConfiguredSource(sources, modelCapabilityKeys...) && !hasAnyConfiguredSource(sources, reviewerModelCapabilityKeys...) {
-		return
-	}
 	if !hasConfiguredSource(sources, "reviewer.model_capabilities.supports_reasoning_effort") {
 		settings.Reviewer.ModelCapabilities.SupportsReasoningEffort = settings.ModelCapabilities.SupportsReasoningEffort
+		inheritSource(sources, "reviewer.model_capabilities.supports_reasoning_effort", "model_capabilities.supports_reasoning_effort")
 	}
 	if !hasConfiguredSource(sources, "reviewer.model_capabilities.supports_vision_inputs") {
 		settings.Reviewer.ModelCapabilities.SupportsVisionInputs = settings.ModelCapabilities.SupportsVisionInputs
-	}
-}
-
-func hasProviderCapabilitiesOverride(override ProviderCapabilitiesOverride) bool {
-	return strings.TrimSpace(override.ProviderID) != "" ||
-		override.SupportsResponsesAPI ||
-		override.SupportsResponsesCompact ||
-		override.SupportsPromptCacheKey ||
-		override.SupportsNativeWebSearch ||
-		override.SupportsReasoningEncrypted ||
-		override.SupportsServerSideContextEdit ||
-		override.SupportsProviderVerbosity ||
-		override.IsOpenAIFirstParty
-}
-
-func inheritReviewerProviderCapabilities(settings *Settings, sources map[string]string, reviewerProviderSelectionExplicit bool) {
-	if sources == nil {
-		if !hasProviderCapabilitiesOverride(settings.Reviewer.ProviderCapabilities) && !reviewerProviderSelectionExplicit {
-			settings.Reviewer.ProviderCapabilities = settings.ProviderCapabilities
-		}
-		return
-	}
-	if !hasAnyConfiguredSource(sources, providerCapabilityKeys...) && !hasAnyConfiguredSource(sources, reviewerProviderCapabilityKeys...) {
-		return
-	}
-	if !hasAnyConfiguredSource(sources, reviewerProviderCapabilityKeys...) {
-		if !reviewerProviderSelectionExplicit {
-			settings.Reviewer.ProviderCapabilities = settings.ProviderCapabilities
-		}
-		return
-	}
-	if reviewerProviderSelectionExplicit {
-		return
-	}
-	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.provider_id") {
-		settings.Reviewer.ProviderCapabilities.ProviderID = settings.ProviderCapabilities.ProviderID
-	}
-	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.supports_responses_api") {
-		settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI = settings.ProviderCapabilities.SupportsResponsesAPI
-	}
-	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.supports_responses_compact") {
-		settings.Reviewer.ProviderCapabilities.SupportsResponsesCompact = settings.ProviderCapabilities.SupportsResponsesCompact
-	}
-	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.supports_prompt_cache_key") {
-		settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey = settings.ProviderCapabilities.SupportsPromptCacheKey
-	}
-	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.supports_native_web_search") {
-		settings.Reviewer.ProviderCapabilities.SupportsNativeWebSearch = settings.ProviderCapabilities.SupportsNativeWebSearch
-	}
-	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.supports_reasoning_encrypted") {
-		settings.Reviewer.ProviderCapabilities.SupportsReasoningEncrypted = settings.ProviderCapabilities.SupportsReasoningEncrypted
-	}
-	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.supports_server_side_context_edit") {
-		settings.Reviewer.ProviderCapabilities.SupportsServerSideContextEdit = settings.ProviderCapabilities.SupportsServerSideContextEdit
-	}
-	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.supports_provider_verbosity") {
-		settings.Reviewer.ProviderCapabilities.SupportsProviderVerbosity = settings.ProviderCapabilities.SupportsProviderVerbosity
-	}
-	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.is_openai_first_party") {
-		settings.Reviewer.ProviderCapabilities.IsOpenAIFirstParty = settings.ProviderCapabilities.IsOpenAIFirstParty
+		inheritSource(sources, "reviewer.model_capabilities.supports_vision_inputs", "model_capabilities.supports_vision_inputs")
 	}
 }
 
@@ -148,29 +56,10 @@ var modelCapabilityKeys = []string{
 	"model_capabilities.supports_vision_inputs",
 }
 
-var reviewerModelCapabilityKeys = []string{
-	"reviewer.model_capabilities.supports_reasoning_effort",
-	"reviewer.model_capabilities.supports_vision_inputs",
-}
-
-type providerCapabilitySourceKeys struct {
-	all    []string
-	values []string
-}
-
-func newProviderCapabilitySourceKeys(providerID string, values ...string) providerCapabilitySourceKeys {
-	all := make([]string, 0, len(values)+1)
-	all = append(all, providerID)
-	all = append(all, values...)
-	return providerCapabilitySourceKeys{
-		all:    all,
-		values: values,
-	}
-}
-
-var mainProviderCapabilitySourceKeys = newProviderCapabilitySourceKeys(
+var providerCapabilityKeys = []string{
 	"provider_capabilities.provider_id",
 	"provider_capabilities.supports_responses_api",
+	"provider_capabilities.supports_fast_mode",
 	"provider_capabilities.supports_responses_compact",
 	"provider_capabilities.supports_prompt_cache_key",
 	"provider_capabilities.supports_native_web_search",
@@ -178,25 +67,9 @@ var mainProviderCapabilitySourceKeys = newProviderCapabilitySourceKeys(
 	"provider_capabilities.supports_server_side_context_edit",
 	"provider_capabilities.supports_provider_verbosity",
 	"provider_capabilities.is_openai_first_party",
-)
+}
 
-var reviewerProviderCapabilitySourceKeys = newProviderCapabilitySourceKeys(
-	"reviewer.provider_capabilities.provider_id",
-	"reviewer.provider_capabilities.supports_responses_api",
-	"reviewer.provider_capabilities.supports_responses_compact",
-	"reviewer.provider_capabilities.supports_prompt_cache_key",
-	"reviewer.provider_capabilities.supports_native_web_search",
-	"reviewer.provider_capabilities.supports_reasoning_encrypted",
-	"reviewer.provider_capabilities.supports_server_side_context_edit",
-	"reviewer.provider_capabilities.supports_provider_verbosity",
-	"reviewer.provider_capabilities.is_openai_first_party",
-)
-
-var providerCapabilityKeys = mainProviderCapabilitySourceKeys.all
-
-var reviewerProviderCapabilityKeys = reviewerProviderCapabilitySourceKeys.all
-
-func hasAnyConfiguredSource(sources map[string]string, keys ...string) bool {
+func hasAnyConfiguredSource(sources map[string]Origin, keys ...string) bool {
 	for _, key := range keys {
 		if hasConfiguredSource(sources, key) {
 			return true
@@ -205,7 +78,7 @@ func hasAnyConfiguredSource(sources map[string]string, keys ...string) bool {
 	return false
 }
 
-func NormalizeSettingsForPersistenceWithSources(settings Settings, sources map[string]string) (Settings, error) {
+func NormalizeSettingsForPersistenceWithSources(settings Settings, sources map[string]Origin) (Settings, error) {
 	normalized := settings
 	if normalized.EnabledTools == nil {
 		normalized.EnabledTools = defaultEnabledToolMap()
@@ -214,31 +87,31 @@ func NormalizeSettingsForPersistenceWithSources(settings Settings, sources map[s
 		normalized.SkillToggles = map[string]bool{}
 	}
 	effectiveSources := cloneSourceMapOrDefault(sources)
-	inheritReviewerDefaultsWithSources(&normalized, effectiveSources)
-	if err := configRegistry.validate(settingsState{Settings: normalized}, effectiveSources); err != nil {
+	InheritReviewerSettings(&normalized, effectiveSources)
+	if err := configRegistry.validate(settingsState{Settings: normalized}, effectiveSources, resolvedContextConstraints(normalized)); err != nil {
 		return Settings{}, err
 	}
 	return normalized, nil
 }
 
-func cloneSourceMapOrDefault(sources map[string]string) map[string]string {
+func cloneSourceMapOrDefault(sources map[string]Origin) map[string]Origin {
 	if len(sources) == 0 {
 		out := configRegistry.defaultSourceMap()
-		out["model"] = "file"
+		out["model"] = Origin{Kind: SourceInput, Property: PropertyAddress{Key: "model"}}
 		return out
 	}
-	out := make(map[string]string, len(sources)+1)
+	out := make(map[string]Origin, len(sources)+1)
 	for key, value := range sources {
 		out[key] = value
 	}
-	if strings.TrimSpace(out["model"]) == "" {
-		out["model"] = "file"
+	if _, present := out["model"]; !present {
+		out["model"] = Origin{Kind: SourceInput, Property: PropertyAddress{Key: "model"}}
 	}
 	return out
 }
 
-func ValidateSettingsWithSources(settings Settings, sources map[string]string) error {
-	return configRegistry.validate(settingsState{Settings: settings}, sources)
+func ValidateSettingsWithSources(settings Settings, sources map[string]Origin) error {
+	return configRegistry.validate(settingsState{Settings: settings}, sources, resolvedContextConstraints(settings))
 }
 
 func parseEnabledToolsCSV(raw string) ([]toolspec.ID, error) {

@@ -1,10 +1,13 @@
 package app
 
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+
 import (
 	"strings"
 
-	"core/shared/clientui"
+	"core/shared/protoapi"
 	"core/shared/textutil"
+	"google.golang.org/protobuf/proto"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -18,7 +21,7 @@ const (
 	statusLinePhaseError
 )
 
-func (m *uiModel) applyRuntimeMainViewState(view clientui.RuntimeMainView) tea.Cmd {
+func (m *uiModel) applyRuntimeMainViewState(view *runtimepb.MainView) tea.Cmd {
 	if m == nil {
 		return nil
 	}
@@ -32,50 +35,50 @@ func (m *uiModel) applyRuntimeMainViewState(view clientui.RuntimeMainView) tea.C
 	m.fastModeAvailable = status.FastModeAvailable
 	m.fastModeEnabled = status.FastModeEnabled
 	m.conversationFreshness = status.ConversationFreshness
-	m.setRuntimeContextUsage(view.Session.SessionID, status.ContextUsage)
-	if view.Activity.State != "" {
+	m.setRuntimeContextUsage(view.Session.SessionId, status.ContextUsage)
+	if view.Activity != nil {
 		if err := m.applyRuntimeActivityProjection(view.Activity); err != nil {
 			m.activity = uiActivityError
 			_ = m.sendTransientStatusWithNoticeID("invalid runtime activity: "+err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 			return nil
 		}
 	}
-	if view.Activity.State != "" && !view.Activity.ActiveForControl() && m.hasPendingInterrupt() {
+	if view.Activity != nil && !protoapi.RuntimeActivityActiveForControl(view.Activity) && m.hasPendingInterrupt() {
 		return m.acknowledgePendingInterrupt()
 	}
 	return nil
 }
 
-func (m *uiModel) runtimeMainView() clientui.RuntimeMainView {
+func (m *uiModel) runtimeMainView() *runtimepb.MainView {
 	m.checkTUIBlockingOperation("runtime main-view read", "MainView")
 	if client := m.runtimeClient(); client != nil {
 		return client.MainView()
 	}
-	return clientui.RuntimeMainView{
+	return &runtimepb.MainView{
 		Status:  m.localRuntimeStatus(),
 		Session: m.localRuntimeSessionView(),
 	}
 }
 
-func (m *uiModel) cachedRuntimeMainView() clientui.RuntimeMainView {
+func (m *uiModel) cachedRuntimeMainView() *runtimepb.MainView {
 	client := m.runtimeClient()
 	if cached, ok := client.(interface {
-		CachedMainView() (clientui.RuntimeMainView, bool)
+		CachedMainView() (*runtimepb.MainView, bool)
 	}); ok {
 		if cachedView, hasCached := cached.CachedMainView(); hasCached {
 			return cachedView
 		}
 	}
-	return clientui.RuntimeMainView{
+	return &runtimepb.MainView{
 		Status:  m.localRuntimeStatus(),
 		Session: m.localRuntimeSessionView(),
 	}
 }
 
-func (m *uiModel) cachedRuntimeStatus() clientui.RuntimeStatus {
+func (m *uiModel) cachedRuntimeStatus() *runtimepb.Status {
 	view := m.cachedRuntimeMainView()
-	status := view.Status
-	if m.runtimeContextUsageAppliesTo(view.Session.SessionID) {
+	status := proto.Clone(view.Status).(*runtimepb.Status)
+	if m.runtimeContextUsageAppliesTo(view.Session.SessionId) {
 		status.ContextUsage = m.runtimeContextUsage
 	}
 	return status
@@ -133,13 +136,13 @@ func (m *uiModel) statusLineSpinning() bool {
 		m.isReviewerActive()
 }
 
-func (m *uiModel) setRuntimeContextUsage(sessionID string, usage clientui.RuntimeContextUsage) {
+func (m *uiModel) setRuntimeContextUsage(sessionID string, usage *runtimepb.ContextUsage) {
 	if m == nil {
 		return
 	}
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
-		m.runtimeContextUsage = clientui.RuntimeContextUsage{}
+		m.runtimeContextUsage = nil
 		m.runtimeContextUsageSession = ""
 		return
 	}
@@ -148,7 +151,7 @@ func (m *uiModel) setRuntimeContextUsage(sessionID string, usage clientui.Runtim
 }
 
 func (m *uiModel) runtimeContextUsageAppliesTo(sessionID string) bool {
-	if m == nil || m.runtimeContextUsage.WindowTokens <= 0 {
+	if m == nil || m.runtimeContextUsage.GetWindowTokens() <= 0 {
 		return false
 	}
 	sessionID = strings.TrimSpace(sessionID)
@@ -167,19 +170,19 @@ func (m *uiModel) currentRuntimeSessionID() string {
 	}
 	if client := m.runtimeClient(); client != nil {
 		if cached, ok := client.(interface {
-			CachedMainView() (clientui.RuntimeMainView, bool)
+			CachedMainView() (*runtimepb.MainView, bool)
 		}); ok {
 			view, hasCached := cached.CachedMainView()
 			if hasCached {
-				return strings.TrimSpace(view.Session.SessionID)
+				return strings.TrimSpace(view.Session.SessionId)
 			}
 		}
 	}
 	return ""
 }
 
-func (m *uiModel) localRuntimeStatus() clientui.RuntimeStatus {
-	return clientui.RuntimeStatus{
+func (m *uiModel) localRuntimeStatus() *runtimepb.Status {
+	return &runtimepb.Status{
 		ReviewerFrequency:     m.reviewerMode,
 		ReviewerEnabled:       m.reviewerEnabled,
 		AutoCompactionEnabled: m.autoCompactionEnabled,

@@ -8,11 +8,36 @@ import (
 	"reflect"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/session"
+	"core/shared/config"
 	"core/shared/sessioncontract"
 )
+
+func TestInspectionResolvesNativeSupportOutsideLockedContract(t *testing.T) {
+	for _, endpoint := range []string{"", "https://proxy.example/v1"} {
+		for _, override := range []string{"", "openai"} {
+			settings := testsetup.ProviderSettings(config.Settings{Model: "gpt-6-astra"})
+			if endpoint != "" {
+				definition := settings.Connections[*settings.Connection]
+				definition.Endpoint = &endpoint
+				settings.Connections[*settings.Connection] = definition
+			}
+			caps, _, err := resolveInspectionProviderCapabilities(settings, &session.LockedContract{
+				Model:            "gpt-6-astra",
+				ProviderContract: session.LockedProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true},
+			}, override)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if caps.SupportsNativeThinkingUpdates != (endpoint == "") {
+				t.Fatalf("endpoint=%q native=%v", endpoint, caps.SupportsNativeThinkingUpdates)
+			}
+		}
+	}
+}
 
 func TestCaptureSessionRequestLeavesSourceSessionUntouched(t *testing.T) {
 	fixture := newCaptureSessionFixture(t, false)
@@ -48,6 +73,7 @@ type captureSessionFixture struct {
 func newCaptureSessionFixture(t *testing.T, legacy bool) captureSessionFixture {
 	t.Helper()
 	persistenceRoot := t.TempDir()
+	testsetup.WriteProviderSettings(t, persistenceRoot, config.DefaultOnboardingSettings())
 	workspaceRoot := t.TempDir()
 	metadataStore, err := metadata.Open(persistenceRoot)
 	if err != nil {

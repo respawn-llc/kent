@@ -2,25 +2,25 @@ package bootstrap
 
 import (
 	"context"
-	"os"
-	"path/filepath"
+	"errors"
 	"testing"
 	"time"
 
-	"core/prompts"
 	"core/server/auth"
+	shelltool "core/server/tools/shell"
+	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 )
 
 func TestBuildAuthSupportUsesDefaultIssuerAndEnvClientID(t *testing.T) {
-	support, err := BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), func(key string) string {
+	support, err := BuildAuthSupport(t.Context(), t.TempDir(), auth.NewMemoryStore(auth.EmptyState()), func(key string) (string, bool) {
 		switch key {
 		case "KENT_OAUTH_CLIENT_ID":
-			return "client-test"
+			return "client-test", true
 		case "KENT_OAUTH_ISSUER":
-			return "https://attacker.example"
+			return "https://attacker.example", true
 		default:
-			return ""
+			return "", false
 		}
 	}, func() time.Time {
 		return time.Unix(123, 0)
@@ -39,11 +39,13 @@ func TestBuildAuthSupportUsesDefaultIssuerAndEnvClientID(t *testing.T) {
 	}
 }
 
-func TestBuildRuntimeSupportUsesConfigSettings(t *testing.T) {
-	support, err := BuildRuntimeSupport(config.App{Settings: config.Settings{
-		ShellOutputMaxChars: 321,
-		BGShellsOutput:      config.BGShellsOutputVerbose,
+func TestBuildShellManagerUsesConfigSettings(t *testing.T) {
+	background, err := BuildShellManager(config.App{PersistenceRoot: t.TempDir(), Settings: config.Settings{
+		ShellOutputMaxChars:    321,
+		BGShellsOutput:         config.BGShellsOutputVerbose,
+		MinimumExecToBgSeconds: 1,
 		Shell: config.ShellSettings{
+			MaxConcurrent:      1,
 			PostprocessingMode: config.ShellPostprocessingModeBuiltin,
 		},
 	}})
@@ -51,35 +53,27 @@ func TestBuildRuntimeSupportUsesConfigSettings(t *testing.T) {
 		t.Fatalf("build runtime support: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = support.Background.Close()
+		_ = background.Close()
 	})
-	if support.Background == nil {
+	if background == nil {
 		t.Fatal("expected background manager")
 	}
-}
-
-func TestBuildGeneratedSupportUsesSharedSyncPath(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	result, err := BuildGeneratedSupport(context.Background(), "")
+	runner, err := postprocess.NewRunner(postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})
 	if err != nil {
-		t.Fatalf("BuildGeneratedSupport: %v", err)
+		t.Fatal(err)
 	}
-	wantSkillsRoot := filepath.Join(home, config.ConfigDirName, ".generated", "skills")
-	if result.GeneratedSkillsRoot != wantSkillsRoot {
-		t.Fatalf("generated skills root = %q, want %q", result.GeneratedSkillsRoot, wantSkillsRoot)
+	request := shelltool.ExecRequest{
+		Command: []string{"/bin/sh", "-c", "read value"},
+		Workdir: t.TempDir(), KeepStdinOpen: true, YieldTime: time.Millisecond,
+		Postprocessor: runner,
 	}
-	if entries, err := os.ReadDir(wantSkillsRoot); err != nil {
-		t.Fatalf("expected generated skills root to be seeded: %v", err)
-	} else if len(entries) == 0 {
-		t.Fatal("expected generated skills root to contain at least one skill")
+	if _, err := background.Start(context.Background(), request); err != nil {
+		t.Fatal(err)
 	}
-	if result.RecoveredWarning != "" {
-		t.Fatalf("did not expect recovered warning on clean seed, got %+v", result)
-	}
-	if prompts.RecoveredWarning() == "" {
-		t.Fatal("expected generated warning text to be available")
+	_, err = background.Start(context.Background(), request)
+	var limit *shelltool.ConcurrentShellLimitError
+	if !errors.As(err, &limit) || limit.Limit != 1 {
+		t.Fatalf("configured shell limit not enforced: %v", err)
 	}
 }
 
@@ -88,7 +82,7 @@ func TestResolveConfigDoesNotCreateLegacyWorkspaceContainer(t *testing.T) {
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 
-	loaded, err := config.Load(workspace, config.LoadOptions{})
+	loaded, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -104,53 +98,5 @@ func TestResolveConfigDoesNotCreateLegacyWorkspaceContainer(t *testing.T) {
 	}
 	if plan.Config.Settings.Model != loaded.Settings.Model {
 		t.Fatalf("resolved config model = %q, want %q", plan.Config.Settings.Model, loaded.Settings.Model)
-	}
-}
-
-func TestResolveConfigReusesMatchingInitialSnapshotWithoutReloading(t *testing.T) {
-	root := t.TempDir()
-	workspace := t.TempDir()
-	loadOptions := config.LoadOptions{ConfigRoot: root}
-	initial, err := config.Load(workspace, loadOptions)
-	if err != nil {
-		t.Fatalf("load initial config: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte("invalid = ["), 0o600); err != nil {
-		t.Fatalf("invalidate config after snapshot: %v", err)
-	}
-
-	plan, err := ResolveConfig(Request{
-		WorkspaceRoot: workspace,
-		LoadOptions:   loadOptions,
-		InitialConfig: &InitialConfigSnapshot{
-			Config:        initial,
-			WorkspaceRoot: workspace,
-		},
-	})
-	if err != nil {
-		t.Fatalf("ResolveConfig reloaded matching initial snapshot: %v", err)
-	}
-	if plan.Config.PersistenceRoot != initial.PersistenceRoot ||
-		plan.Config.WorkspaceRoot != initial.WorkspaceRoot {
-		t.Fatalf("resolved config = %+v, want supplied snapshot target", plan.Config)
-	}
-}
-
-func TestResolveConfigRejectsInitialSnapshotForDifferentTarget(t *testing.T) {
-	workspace := t.TempDir()
-	initial, err := config.Load(workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
-	if err != nil {
-		t.Fatalf("load initial config: %v", err)
-	}
-
-	_, err = ResolveConfig(Request{
-		WorkspaceRoot: workspace,
-		InitialConfig: &InitialConfigSnapshot{
-			Config:        initial,
-			WorkspaceRoot: t.TempDir(),
-		},
-	})
-	if err == nil {
-		t.Fatal("ResolveConfig accepted an initial snapshot for a different target")
 	}
 }

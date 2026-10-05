@@ -11,6 +11,7 @@ import (
 	"core/shared/apicontract"
 	"core/shared/config"
 	"core/shared/lifecyclecontract"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
 )
 
@@ -22,29 +23,29 @@ type runtimeAttachmentTestServer struct {
 }
 
 type recordingSessionRuntimeClient struct {
-	activate func(context.Context, serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error)
-	release  func(context.Context, serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error)
+	activate func(context.Context, serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error)
+	release  func(context.Context, serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error)
 }
 
-func sessionRuntimeActivateResponse(sessionID string, generation uint64) serverapi.SessionRuntimeActivateResponse {
-	return serverapi.SessionRuntimeActivateResponse{Attachment: serverapi.SessionRuntimeAttachment{
+func sessionRuntimeActivateResponse(sessionID string, generation uint64) serverapi.SessionRuntimeAttachment {
+	return serverapi.SessionRuntimeAttachment{
 		SessionID:  sessionID,
 		Generation: generation,
-	}}
+	}
 }
 
-func (c *recordingSessionRuntimeClient) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
+func (c *recordingSessionRuntimeClient) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error) {
 	if c.activate != nil {
 		return c.activate(ctx, req)
 	}
 	return sessionRuntimeActivateResponse(req.SessionID, 1), nil
 }
 
-func (c *recordingSessionRuntimeClient) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
+func (c *recordingSessionRuntimeClient) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
 	if c.release != nil {
 		return c.release(ctx, req)
 	}
-	return serverapi.SessionRuntimeReleaseResponse{}, nil
+	return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, nil
 }
 
 func (s runtimeAttachmentTestServer) RuntimeAttachmentClients() runtimeAttachmentClients {
@@ -60,10 +61,10 @@ func TestRuntimeAttachmentRequiresTranscriptServiceAndReleasesRuntime(t *testing
 	releaseCount := 0
 	server := runtimeAttachmentTestServer{
 		runtime: &recordingSessionRuntimeClient{
-			activate: func(_ context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
+			activate: func(_ context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error) {
 				return sessionRuntimeActivateResponse(req.SessionID, 1), nil
 			},
-			release: func(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
+			release: func(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
 				releaseCount++
 				if req.Attachment.SessionID != "session-1" || req.Attachment.Generation != 1 {
 					t.Fatalf("unexpected release request: %+v", req)
@@ -75,7 +76,7 @@ func TestRuntimeAttachmentRequiresTranscriptServiceAndReleasesRuntime(t *testing
 				if remaining := time.Until(deadline); remaining <= 0 || remaining > runtimeReleaseTimeout {
 					t.Fatalf("release deadline remaining = %v, want within %v", remaining, runtimeReleaseTimeout)
 				}
-				return serverapi.SessionRuntimeReleaseResponse{}, nil
+				return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, nil
 			},
 		},
 	}
@@ -94,12 +95,12 @@ func TestRuntimeAttachmentUsesTranscriptBellHook(t *testing.T) {
 	sessionViews := &countingSessionViewClient{}
 	server := runtimeAttachmentTestServer{
 		runtime: &recordingSessionRuntimeClient{
-			activate: func(_ context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
+			activate: func(_ context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error) {
 				return sessionRuntimeActivateResponse(req.SessionID, 1), nil
 			},
-			release: func(context.Context, serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
+			release: func(context.Context, serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
 				releaseCount++
-				return serverapi.SessionRuntimeReleaseResponse{}, nil
+				return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, nil
 			},
 		},
 		sessionTranscript: &recordingTranscriptSubscriber{subs: []*scriptedTranscriptSubscription{{}}},
@@ -166,16 +167,16 @@ func TestRuntimeAttachmentReactivationUsesActivation(t *testing.T) {
 	var released serverapi.SessionRuntimeAttachment
 	server := runtimeAttachmentTestServer{
 		runtime: &recordingSessionRuntimeClient{
-			activate: func(_ context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
+			activate: func(_ context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error) {
 				activateCalls++
 				if req.SessionID != "session-recover" || req.ActiveSettings.Model != "gpt-test" {
 					t.Fatalf("unexpected activation request: %+v", req)
 				}
 				return sessionRuntimeActivateResponse(req.SessionID, uint64(activateCalls)), nil
 			},
-			release: func(_ context.Context, req serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
+			release: func(_ context.Context, req serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
 				released = req.Attachment
-				return serverapi.SessionRuntimeReleaseResponse{}, nil
+				return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, nil
 			},
 		},
 	}

@@ -58,13 +58,15 @@ type TranscriptAssistantRowFact struct {
 }
 
 type TranscriptToolRowFact struct {
-	ToolCallID    string
-	ToolName      string
-	Text          string
-	IsError       bool
-	ResultSummary string
-	CondensedText string
-	Presentation  *transcript.ToolCallMeta
+	ToolCallID     string
+	ToolName       string
+	Text           string
+	IsError        bool
+	ResultSummary  string
+	CondensedText  string
+	Presentation   *transcript.ToolCallMeta
+	QuestionAnswer *tools.AskQuestionAnswer
+	WebSearch      *transcript.WebSearchDetail
 }
 
 type TranscriptReasoningTraceRowFact struct {
@@ -93,6 +95,7 @@ type TranscriptNoticeRowFact struct {
 	Compaction            *TranscriptCompactionNoticeFact
 	ToolOutputRepair      *transcript.ToolOutputRepairNotice
 	ProviderModelMismatch *transcript.ProviderModelMismatchNotice
+	ThinkingEffort        *string
 }
 
 type TranscriptReviewerFeedbackRowFact struct {
@@ -260,22 +263,33 @@ func TranscriptCommittedRowFactsFromSnapshot(snapshot ChatSnapshot) []Transcript
 }
 
 func TranscriptToolStartFactsFromEvent(evt Event) []TranscriptLiveToolStart {
+	facts, err := TranscriptToolStartFactsFromEventChecked(evt)
+	if err != nil {
+		panic(err)
+	}
+	return facts
+}
+
+func TranscriptToolStartFactsFromEventChecked(evt Event) ([]TranscriptLiveToolStart, error) {
 	switch evt.Kind {
 	case EventToolCallStarted:
 		if evt.ToolCall == nil {
-			return nil
+			return nil, nil
 		}
 		stepID, err := requireStepID(evt.StepID, "project live tool start")
 		if err != nil {
-			return nil
+			return nil, err
 		}
-		start := transcriptLiveToolStartFromCall(stepID, *evt.ToolCall)
+		start, err := transcriptLiveToolStartFromCallChecked(stepID, *evt.ToolCall)
+		if err != nil {
+			return nil, err
+		}
 		if strings.TrimSpace(start.ToolCallID) == "" {
-			return nil
+			return nil, nil
 		}
-		return []TranscriptLiveToolStart{start}
+		return []TranscriptLiveToolStart{start}, nil
 	default:
-		return nil
+		return nil, nil
 	}
 }
 
@@ -328,10 +342,15 @@ func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, streamID *
 				detail,
 			)}
 		}
-		if msg.Content == nil || strings.TrimSpace(*msg.Content) == "" {
+		entry, visible := visibleUserTranscriptEntry(msg)
+		if !visible {
 			return nil
 		}
-		return []TranscriptCommittedRowFact{{Kind: TranscriptCommittedRowFactUser, Visibility: transcript.EntryVisibilityOngoing, User: &TranscriptUserRowFact{Text: *msg.Content}}}
+		fact, visible := transcriptCommittedRowFactFromChatEntry(entry)
+		if !visible {
+			return nil
+		}
+		return []TranscriptCommittedRowFact{fact}
 	case llm.RoleAssistant:
 		out := make([]TranscriptCommittedRowFact, 0, 1+len(msg.ToolCalls))
 		if msg.Content != nil && strings.TrimSpace(*msg.Content) != "" && !isBlankFinalAnswer(msg) {
@@ -496,13 +515,15 @@ func transcriptCommittedRowFactFromChatEntryUnlocated(entry ChatEntry) (Transcri
 			Visibility: transcriptVisibilityForIntegrity(resolveTranscriptVisibility(visibility, transcript.EntryVisibilityOngoingCollapsed), integrity),
 			Integrity:  integrity,
 			Tool: &TranscriptToolRowFact{
-				ToolCallID:    strings.TrimSpace(entry.ToolCallID),
-				ToolName:      toolName,
-				Text:          entry.Text,
-				IsError:       role == "tool_result_error",
-				ResultSummary: strings.TrimSpace(entry.ToolResultSummary),
-				CondensedText: strings.TrimSpace(firstNonBlankTranscriptValue(entry.CondensedText, entry.CompactLabel)),
-				Presentation:  cloneTranscriptToolCallMeta(entry.ToolCall),
+				ToolCallID:     strings.TrimSpace(entry.ToolCallID),
+				ToolName:       toolName,
+				Text:           entry.Text,
+				IsError:        role == "tool_result_error",
+				ResultSummary:  strings.TrimSpace(entry.ToolResultSummary),
+				CondensedText:  strings.TrimSpace(firstNonBlankTranscriptValue(entry.CondensedText, entry.CompactLabel)),
+				Presentation:   cloneTranscriptToolCallMeta(entry.ToolCall),
+				QuestionAnswer: cloneAskQuestionAnswer(entry.QuestionAnswer),
+				WebSearch:      entry.WebSearch,
 			},
 		}, true
 	default:
@@ -526,6 +547,9 @@ func transcriptNoticeRowFactFromChatEntryUnlocated(entry ChatEntry) (TranscriptC
 	visibility := normalizeRuntimeEntryVisibility(entry.Visibility)
 	if visibility == transcript.EntryVisibilityHidden {
 		return TranscriptCommittedRowFact{}, false
+	}
+	if entry.CacheWarning != nil {
+		return transcriptCacheWarningFact(*entry.CacheWarning, visibility), true
 	}
 	role := transcript.EntryRole(strings.TrimSpace(entry.Role))
 	if role == transcript.EntryRoleReviewerSuggestions || role == transcript.EntryRoleReviewerError {
@@ -622,17 +646,24 @@ func transcriptToolEntryHasRecoverableText(entry ChatEntry) bool {
 	if meta == nil {
 		return false
 	}
+	if meta.PatchPresentation != nil && meta.PatchPresentation.Valid() {
+		return true
+	}
 	return firstNonBlankTranscriptValue(
 		meta.ToolName,
 		meta.Command,
 		meta.CompactText,
-		meta.PatchSummary,
-		meta.PatchDetail,
 		meta.Question,
 	) != "" || len(meta.Suggestions) > 0 || (meta.RenderHint != nil && strings.TrimSpace(meta.RenderHint.Path) != "")
 }
 
 func transcriptNoticeEntryIntegrity(entry ChatEntry) transcript.RowIntegrity {
+	if entry.ThinkingEffort != nil {
+		if strings.TrimSpace(*entry.ThinkingEffort) != "" {
+			return transcript.RowIntegrityValid
+		}
+		return transcript.RowIntegrityUnrecoverableMalformed
+	}
 	if entry.ProviderModelMismatch != nil {
 		if entry.ProviderModelMismatch.Valid() {
 			return transcript.RowIntegrityValid
@@ -746,6 +777,15 @@ func firstNonBlankTranscriptValue(values ...string) string {
 }
 
 func localEntryNoticeFact(entry ChatEntry) TranscriptCommittedRowFact {
+	if entry.ThinkingEffort != nil {
+		return TranscriptCommittedRowFact{
+			Kind: TranscriptCommittedRowFactNotice, Visibility: entry.Visibility,
+			Notice: &TranscriptNoticeRowFact{
+				Reason: transcript.NoticeReasonThinkingUpdate, Severity: transcript.NoticeSeverityInfo,
+				ThinkingEffort: textutil.Pointer(entry.ThinkingEffort),
+			},
+		}
+	}
 	if entry.ProviderModelMismatch != nil {
 		return TranscriptCommittedRowFact{
 			Kind:       TranscriptCommittedRowFactNotice,
@@ -782,15 +822,28 @@ func transcriptToolRowFactFromResult(result tools.Result) TranscriptCommittedRow
 	}
 	resultSummary, _ := textutil.OptionalTrimmed(result.Summary)
 	condensedText, _ := textutil.OptionalTrimmed(result.CondensedText)
+	content := projectToolResultContent(result)
 	return TranscriptCommittedRowFact{Kind: TranscriptCommittedRowFactTool, Visibility: transcript.EntryVisibilityOngoingCollapsed, Tool: &TranscriptToolRowFact{
-		ToolCallID:    strings.TrimSpace(result.CallID),
-		ToolName:      strings.TrimSpace(string(result.Name)),
-		Text:          tools.FormatToolResultByName(string(result.Name), result.Output, result.IsError),
-		IsError:       result.IsError,
-		ResultSummary: resultSummary,
-		CondensedText: condensedText,
-		Presentation:  cloneTranscriptToolCallMeta(result.Presentation),
+		ToolCallID:     strings.TrimSpace(result.CallID),
+		ToolName:       strings.TrimSpace(string(result.Name)),
+		Text:           content.text,
+		IsError:        content.isError,
+		WebSearch:      content.webSearch,
+		ResultSummary:  resultSummary,
+		CondensedText:  condensedText,
+		Presentation:   cloneTranscriptToolCallMeta(result.Presentation),
+		QuestionAnswer: cloneAskQuestionAnswer(result.QuestionAnswer),
 	}}
+}
+
+func cloneAskQuestionAnswer(answer *tools.AskQuestionAnswer) *tools.AskQuestionAnswer {
+	if answer == nil {
+		return nil
+	}
+	return &tools.AskQuestionAnswer{
+		SelectedOptionNumber: textutil.Pointer(answer.SelectedOptionNumber),
+		Freeform:             textutil.Pointer(answer.Freeform),
+	}
 }
 
 func transcriptCacheWarningFact(warning transcript.CacheWarning, visibility transcript.EntryVisibility) TranscriptCommittedRowFact {

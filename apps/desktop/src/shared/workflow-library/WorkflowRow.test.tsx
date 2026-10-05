@@ -16,8 +16,9 @@ vi.mock("@/shared/workflow-deletion", () => ({
   useWorkflowDeleteLauncher: () => ({
     dialog: null,
     disabled: false,
-    openWorkflowDelete: vi.fn(async () => undefined),
+    openWorkflowDelete: vi.fn(),
     opening: false,
+    submitting: false,
   }),
 }));
 

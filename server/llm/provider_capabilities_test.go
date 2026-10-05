@@ -7,96 +7,107 @@ import (
 	"net/url"
 	"testing"
 
-	"core/server/auth"
 	"core/server/httpcompression"
 	"core/server/session"
 	"core/shared/config"
 )
 
-type effectiveProviderAuthReader struct {
-	state auth.State
-	err   error
-	calls int
+func TestConnectionCapabilitiesPreserveLockedRequestContract(t *testing.T) {
+	id := config.ConnectionID("local")
+	settings := config.Settings{
+		Model: "claude-model-alias", Connection: &id,
+		Connections: map[config.ConnectionID]config.ProviderConnection{
+			id: {Protocol: config.ConnectionResponses, Endpoint: openaiTestOptionalString("http://localhost:1234")},
+		},
+	}
+	locked := &session.LockedContract{ProviderContract: session.LockedProviderCapabilities{
+		ProviderID: "chatgpt-codex", SupportsResponsesAPI: true, SupportsReasoningEncrypted: true,
+	}}
+	resolved, err := ResolveEffectiveProviderCapabilities(locked, settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := ResolveRuntimeProviderCapabilities(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.ProviderID != "chatgpt-codex" || transport.ProviderID != "openai-compatible" ||
+		!resolved.SupportsReasoningEncrypted || transport.SupportsReasoningEncrypted {
+		t.Fatalf("historical contract and actual transport were conflated: %+v", resolved)
+	}
+	settings.Connections[id] = config.ProviderConnection{Protocol: config.ConnectionChatGPT}
+	actual, err := ResolveRuntimeProviderCapabilities(settings)
+	if err != nil || actual.ProviderID != "chatgpt-codex" {
+		t.Fatalf("declared subscription must resolve without credentials or model-family inference: %+v, %v", actual, err)
+	}
 }
 
-func (r *effectiveProviderAuthReader) Load(context.Context) (auth.State, error) {
-	r.calls++
-	return r.state, r.err
+func TestFastModeUsesCurrentConnectionCapabilityWithLockedProviderFacts(t *testing.T) {
+	locked := &session.LockedContract{ProviderContract: session.LockedProviderCapabilities{
+		ProviderID: "anthropic",
+	}}
+	tests := []struct {
+		name       string
+		connection config.ProviderConnection
+	}{
+		{
+			name: "first-party default",
+			connection: config.ProviderConnection{
+				Protocol: config.ConnectionResponses,
+				Endpoint: openaiTestOptionalString("https://api.openai.com/v1"),
+			},
+		},
+		{
+			name: "explicit compatible capability",
+			connection: config.ProviderConnection{
+				Protocol: config.ConnectionResponses,
+				Endpoint: openaiTestOptionalString("http://localhost:1234/v1"),
+				Capabilities: config.ProviderCapabilitiesOverride{
+					ProviderID: "local-provider", SupportsResponsesAPI: true, SupportsFastMode: true,
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			id := config.ConnectionID("current")
+			settings := config.Settings{
+				Model: "custom-model", Connection: &id,
+				Connections: map[config.ConnectionID]config.ProviderConnection{id: test.connection},
+			}
+			resolved, err := ResolveEffectiveProviderCapabilities(locked, settings)
+			if err != nil {
+				t.Fatalf("ResolveEffectiveProviderCapabilities: %v", err)
+			}
+			if resolved.ProviderID != "anthropic" {
+				t.Fatalf("locked request provider = %q, want anthropic", resolved.ProviderID)
+			}
+			if !SupportsFastModeProvider(resolved) {
+				t.Fatalf("current connection fast-mode capability was not used: %+v", resolved)
+			}
+		})
+	}
 }
 
-func TestResolveEffectiveProviderCapabilitiesOwnsPrecedenceAndAuthLoading(t *testing.T) {
-	t.Run("effective auth derives unlocked capabilities", func(t *testing.T) {
-		reader := &effectiveProviderAuthReader{state: auth.State{
-			Method: auth.Method{Type: auth.MethodOAuth},
-		}}
-		got, err := ResolveEffectiveProviderCapabilities(
-			t.Context(),
-			nil,
-			config.Settings{Model: "gpt-5.6-sol"},
-			reader,
-		)
-		if err != nil {
-			t.Fatalf("ResolveEffectiveProviderCapabilities: %v", err)
-		}
-		if reader.calls != 1 || got.AuthState.Method.Type != auth.MethodOAuth ||
-			got.Capabilities.ProviderID != "chatgpt-codex" {
-			t.Fatalf("resolution = %+v, auth calls = %d", got, reader.calls)
-		}
-	})
-
-	t.Run("explicit capabilities bypass failing auth", func(t *testing.T) {
-		reader := &effectiveProviderAuthReader{err: errors.New("auth unavailable")}
-		got, err := ResolveEffectiveProviderCapabilities(
-			t.Context(),
-			nil,
-			config.Settings{ProviderCapabilities: config.ProviderCapabilitiesOverride{
-				ProviderID: "custom",
-			}},
-			reader,
-		)
-		if err != nil {
-			t.Fatalf("ResolveEffectiveProviderCapabilities: %v", err)
-		}
-		if reader.calls != 0 || got.AuthState.Method.Type != auth.MethodNone ||
-			got.Capabilities.ProviderID != "custom" {
-			t.Fatalf("resolution = %+v, auth calls = %d", got, reader.calls)
-		}
-	})
-
-	t.Run("locked capabilities take precedence over settings and auth", func(t *testing.T) {
-		reader := &effectiveProviderAuthReader{err: errors.New("auth unavailable")}
-		got, err := ResolveEffectiveProviderCapabilities(
-			t.Context(),
-			&session.LockedContract{ProviderContract: session.LockedProviderCapabilities{
-				ProviderID: "locked",
-			}},
-			config.Settings{ProviderCapabilities: config.ProviderCapabilitiesOverride{
-				ProviderID: "configured",
-			}},
-			reader,
-		)
-		if err != nil {
-			t.Fatalf("ResolveEffectiveProviderCapabilities: %v", err)
-		}
-		if reader.calls != 0 || got.Capabilities.ProviderID != "locked" {
-			t.Fatalf("resolution = %+v, auth calls = %d", got, reader.calls)
-		}
-	})
-
-	t.Run("missing reader is effective no auth", func(t *testing.T) {
-		got, err := ResolveEffectiveProviderCapabilities(
-			t.Context(),
-			nil,
-			config.Settings{Model: "gpt-5.6-sol"},
-			nil,
-		)
-		if err != nil {
-			t.Fatalf("ResolveEffectiveProviderCapabilities: %v", err)
-		}
-		if got.AuthState.Method.Type != auth.MethodNone || got.Capabilities.ProviderID != "openai" {
-			t.Fatalf("resolution = %+v, want no-auth OpenAI", got)
-		}
-	})
+func TestConnectionCapabilityOverrides(t *testing.T) {
+	id := config.ConnectionID("local")
+	settings := config.Settings{Connection: &id, Connections: map[config.ConnectionID]config.ProviderConnection{
+		id: {
+			Protocol: config.ConnectionResponses, Endpoint: openaiTestOptionalString("http://localhost:1234"),
+			Capabilities: config.ProviderCapabilitiesOverride{
+				ProviderID: "custom", SupportsResponsesAPI: true,
+				SupportsFastMode: true, SupportsProviderVerbosity: true,
+			},
+		},
+	}}
+	resolved, err := ResolveEffectiveProviderCapabilities(nil, settings)
+	if err != nil || resolved.ProviderID != "custom" || !resolved.SupportsProviderVerbosity {
+		t.Fatalf("connection capability override = %+v, %v", resolved, err)
+	}
+	if !SupportsFastModeProvider(resolved) {
+		t.Fatalf("selected connection did not project its fast-mode capability: %+v", resolved)
+	}
 }
 
 func TestInferProviderCapabilities_UsesRegistryContracts(t *testing.T) {
@@ -109,6 +120,9 @@ func TestInferProviderCapabilities_UsesRegistryContracts(t *testing.T) {
 	}
 	if !openai.SupportsPromptCacheKey {
 		t.Fatalf("expected openai prompt cache key support, got %+v", openai)
+	}
+	if !openai.SupportsFastMode {
+		t.Fatalf("expected first-party OpenAI fast-mode support, got %+v", openai)
 	}
 	if !openai.SupportsProviderVerbosity {
 		t.Fatalf("expected openai provider verbosity support, got %+v", openai)
@@ -123,6 +137,9 @@ func TestInferProviderCapabilities_UsesRegistryContracts(t *testing.T) {
 	}
 	if !oauth.SupportsPromptCacheKey {
 		t.Fatalf("expected chatgpt-codex prompt cache key support, got %+v", oauth)
+	}
+	if !oauth.SupportsFastMode {
+		t.Fatalf("expected ChatGPT subscription fast-mode support, got %+v", oauth)
 	}
 	if !oauth.SupportsProviderVerbosity {
 		t.Fatalf("expected chatgpt-codex provider verbosity support, got %+v", oauth)
@@ -175,115 +192,6 @@ func TestInferProviderCapabilities_UnknownProviderFailsExplicitly(t *testing.T) 
 	}
 }
 
-func TestResolveRuntimeProviderCapabilities(t *testing.T) {
-	tests := []struct {
-		name     string
-		auth     auth.State
-		settings config.Settings
-		wantID   string
-	}{
-		{
-			name:     "explicit capability override wins",
-			settings: config.Settings{ProviderCapabilities: config.ProviderCapabilitiesOverride{ProviderID: "openai-compatible", SupportsResponsesAPI: true}},
-			wantID:   "openai-compatible",
-		},
-		{
-			name:     "anthropic provider override uses catalog variant",
-			settings: config.Settings{ProviderOverride: "anthropic"},
-			wantID:   "anthropic",
-		},
-		{
-			name:     "openai provider override still resolves remote compatible transport variant",
-			auth:     auth.State{Method: auth.Method{Type: auth.MethodAPIKey}},
-			settings: config.Settings{ProviderOverride: "openai", OpenAIBaseURL: "https://example.test/v1"},
-			wantID:   "openai-compatible",
-		},
-		{
-			name:     "oauth defaults to chatgpt codex",
-			auth:     auth.State{Method: auth.Method{Type: auth.MethodOAuth}},
-			settings: config.Settings{Model: "gpt-5.6-sol"},
-			wantID:   "chatgpt-codex",
-		},
-		{
-			name:     "oauth explicit compatible endpoint uses compatible capabilities",
-			auth:     auth.State{Method: auth.Method{Type: auth.MethodOAuth}},
-			settings: config.Settings{Model: "gpt-5.6-sol", OpenAIBaseURL: "https://proxy.example/v1"},
-			wantID:   "openai-compatible",
-		},
-		{
-			name:     "oauth explicit first party API endpoint uses compatible capabilities",
-			auth:     auth.State{Method: auth.Method{Type: auth.MethodOAuth}},
-			settings: config.Settings{Model: "gpt-5.6-sol", OpenAIBaseURL: "https://api.openai.com/v1"},
-			wantID:   "openai-compatible",
-		},
-		{
-			name:     "oauth explicit canonical codex endpoint uses codex capabilities",
-			auth:     auth.State{Method: auth.Method{Type: auth.MethodOAuth}},
-			settings: config.Settings{Model: "gpt-5.6-sol", OpenAIBaseURL: "https://chatgpt.com/backend-api/codex"},
-			wantID:   "chatgpt-codex",
-		},
-		{
-			name:     "default provider is inferred from non openai model",
-			auth:     auth.State{Method: auth.Method{Type: auth.MethodNone}},
-			settings: config.Settings{Model: "claude-3-7-sonnet"},
-			wantID:   "anthropic",
-		},
-		{
-			name:     "api key with first party base url stays openai",
-			auth:     auth.State{Method: auth.Method{Type: auth.MethodAPIKey}},
-			settings: config.Settings{OpenAIBaseURL: "https://api.openai.com/v1"},
-			wantID:   "openai",
-		},
-		{
-			name:     "api key with compatible base url uses openai compatible",
-			auth:     auth.State{Method: auth.Method{Type: auth.MethodAPIKey}},
-			settings: config.Settings{OpenAIBaseURL: "https://example.test/v1"},
-			wantID:   "openai-compatible",
-		},
-		{
-			name:     "loopback base url uses openai compatible",
-			auth:     auth.State{Method: auth.Method{Type: auth.MethodNone}},
-			settings: config.Settings{OpenAIBaseURL: "http://127.0.0.1:11434/v1"},
-			wantID:   "openai-compatible",
-		},
-		{
-			name:     "none auth with no override falls back to openai",
-			auth:     auth.State{Method: auth.Method{Type: auth.MethodNone}},
-			settings: config.Settings{Model: "gpt-5.6-sol"},
-			wantID:   "openai",
-		},
-		{
-			name:     "custom model alias with no override falls back to openai",
-			auth:     auth.State{Method: auth.Method{Type: auth.MethodNone}},
-			settings: config.Settings{Model: "operator-alias"},
-			wantID:   "openai",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := ResolveRuntimeProviderCapabilities(tt.auth, tt.settings)
-			if err != nil {
-				t.Fatalf("ResolveRuntimeProviderCapabilities: %v", err)
-			}
-			want, err := InferProviderCapabilities(tt.wantID)
-			if err != nil {
-				t.Fatalf("InferProviderCapabilities(%q): %v", tt.wantID, err)
-			}
-			if got != want {
-				t.Fatalf("capabilities = %+v, want %+v", got, want)
-			}
-		})
-	}
-}
-
-func TestProviderCapabilitiesForSettingsRejectsUnsupportedProviderOverride(t *testing.T) {
-	_, err := ProviderCapabilitiesForSettings(auth.EmptyState(), config.Settings{ProviderOverride: "custom-provider"})
-	if !errors.Is(err, ErrUnsupportedProvider) {
-		t.Fatalf("expected unsupported provider error, got %v", err)
-	}
-}
-
 func TestHTTPTransportPreservesConfiguredCapabilitiesOverrideAcrossEndpointVariant(t *testing.T) {
 	transport := NewHTTPTransport(oauthStaticAuth{})
 	transport.BaseURL = "https://proxy.example/v1"
@@ -291,6 +199,7 @@ func TestHTTPTransportPreservesConfiguredCapabilitiesOverrideAcrossEndpointVaria
 	transport.ProviderCapabilitiesOverride = &ProviderCapabilities{
 		ProviderID:                    "chatgpt-codex",
 		SupportsResponsesAPI:          true,
+		SupportsFastMode:              true,
 		SupportsResponsesCompact:      true,
 		SupportsNativeWebSearch:       true,
 		SupportsReasoningEncrypted:    true,
@@ -303,7 +212,8 @@ func TestHTTPTransportPreservesConfiguredCapabilitiesOverrideAcrossEndpointVaria
 	if err != nil {
 		t.Fatalf("ProviderCapabilities: %v", err)
 	}
-	if caps.ProviderID != "chatgpt-codex" || !caps.SupportsResponsesCompact || !caps.IsOpenAIFirstParty {
+	if caps.ProviderID != "chatgpt-codex" || !caps.SupportsResponsesCompact ||
+		!caps.SupportsFastMode || !caps.IsOpenAIFirstParty {
 		t.Fatalf("capabilities = %+v, want configured capabilities override", caps)
 	}
 }
@@ -519,14 +429,25 @@ func TestRequiredToolChoiceSupportReturnsTypedErrorForNonResponsesAdapter(t *tes
 }
 
 func TestSupportsFastModeProvider(t *testing.T) {
-	if !SupportsFastModeProvider(ProviderCapabilities{ProviderID: "chatgpt-codex", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}) {
-		t.Fatal("expected chatgpt-codex to support fast mode")
+	if !SupportsFastModeProvider(ProviderCapabilities{
+		ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsFastMode: true,
+	}) {
+		t.Fatal("expected an explicitly capable compatible provider to support fast mode")
 	}
-	if !SupportsFastModeProvider(ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}) {
-		t.Fatal("expected openai provider to support fast mode")
+	if SupportsFastModeProvider(ProviderCapabilities{
+		ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true,
+	}) {
+		t.Fatal("first-party identity must not imply fast-mode support without the capability")
 	}
-	if SupportsFastModeProvider(ProviderCapabilities{ProviderID: "azure-openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: false}) {
-		t.Fatal("did not expect non-first-party provider to support fast mode")
+	for _, providerID := range []string{"openai", "chatgpt-codex"} {
+		caps, err := InferProviderCapabilities(providerID)
+		if err != nil || !SupportsFastModeProvider(caps) {
+			t.Fatalf("%s built-in contract should support fast mode: caps=%+v err=%v", providerID, caps, err)
+		}
+	}
+	compatible, err := InferProviderCapabilities("openai-compatible")
+	if err != nil || SupportsFastModeProvider(compatible) {
+		t.Fatalf("compatible provider should default to no fast-mode support: caps=%+v err=%v", compatible, err)
 	}
 }
 

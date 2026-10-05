@@ -1,5 +1,7 @@
 package app
 
+import worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+
 import (
 	"context"
 	"errors"
@@ -11,7 +13,7 @@ import (
 	"core/shared/client"
 	"core/shared/clientui"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
-	"core/shared/serverapi"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -78,18 +80,15 @@ func resolveSessionWorkspaceRetargetContext(
 	if trimmedWorkspaceID == "" {
 		return nil, errors.New("workspace id is required for workspace retarget context")
 	}
-	overview, err := projectViews.GetProjectOverview(ctx, &projectpb.GetOverviewRequest{ProjectId: trimmedProjectID})
+	result, err := projectViews.GetProjectWorkspace(ctx, &projectpb.GetProjectWorkspaceRequest{
+		ProjectId: trimmedProjectID,
+		Selector:  &projectpb.GetProjectWorkspaceRequest_WorkspaceId{WorkspaceId: trimmedWorkspaceID},
+	})
 	if err != nil {
 		return nil, err
 	}
-	workspaces, err := client.ProjectWorkspaceSummariesFromProto(overview.Overview.Workspaces)
-	if err != nil {
-		return nil, err
-	}
-	for _, workspace := range workspaces {
-		if workspace.WorkspaceID == trimmedWorkspaceID {
-			return newSessionWorkspaceRetargetContext(workspace.RootPath, theme)
-		}
+	if result.Workspace != nil {
+		return newSessionWorkspaceRetargetContext(result.Workspace.RootPath, theme)
 	}
 	return nil, fmt.Errorf("workspace %q is not attached to project %q", trimmedWorkspaceID, trimmedProjectID)
 }
@@ -104,7 +103,7 @@ type workspaceChangePromptModel struct {
 	result       workspaceChangePromptResult
 }
 
-func maybeHandlePickedSessionWorkspaceChange(ctx context.Context, server sessionWorkspaceChangeServer, sessionID string, executionTarget clientui.SessionExecutionTarget) (sessionWorkspaceChangeAction, error) {
+func maybeHandlePickedSessionWorkspaceChange(ctx context.Context, server sessionLifecycleClientProvider, sessionID string, executionTarget *worktreepb.SessionExecutionTarget) (sessionWorkspaceChangeAction, error) {
 	if server == nil {
 		return sessionWorkspaceChangeProceed, errors.New("session server is required")
 	}
@@ -112,7 +111,7 @@ func maybeHandlePickedSessionWorkspaceChange(ctx context.Context, server session
 		return sessionWorkspaceChangeProceed, errors.New("session id is required")
 	}
 	executionTarget = clientui.NormalizeSessionExecutionTarget(executionTarget)
-	if executionTarget.WorkspaceAvailability != clientui.ProjectAvailabilityAvailable {
+	if executionTarget.GetWorkspaceAvailability() != projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE {
 		return sessionWorkspaceChangeProceed, nil
 	}
 	contextProvider, ok := server.(sessionWorkspaceRetargetContextProvider)
@@ -159,7 +158,7 @@ func retargetInteractiveSessionWorkspace(ctx context.Context, server sessionLife
 	if trimmedWorkspaceRoot == "" {
 		return errors.New("workspace root is required")
 	}
-	_, err := server.SessionLifecycleClient().RetargetSessionWorkspace(ctx, serverapi.SessionRetargetWorkspaceRequest{SessionID: trimmedSessionID, WorkspaceRoot: trimmedWorkspaceRoot})
+	_, err := server.SessionLifecycleClient().RetargetSessionWorkspace(ctx, &sessionlaunchpb.SessionRetargetWorkspaceRequest{SessionId: trimmedSessionID, WorkspaceRoot: trimmedWorkspaceRoot})
 	return err
 }
 

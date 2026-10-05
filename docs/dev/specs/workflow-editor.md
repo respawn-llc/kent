@@ -45,7 +45,7 @@
 - The Agent Node inspector keeps the ordinary Assignee picker and requires a concrete fallback Assignee.
 - Each eligible serial Transition Branch inspector exposes an Assignee picker item labeled **Let the previous node choose**. Selecting it enables Assignee selection only for that Transition.
 - An eligible Transition without that override uses the target Agent Node's configured Assignee, so incoming Transitions may mix override-enabled and fallback-only behavior.
-- A checkbox labeled **Let the previous node select thinking level** enables thinking selection only for the inspected eligible Transition.
+- A checkbox labeled **Let the previous node select thinking level** enables thinking selection only for that eligible Transition.
 - Assignee selection is unavailable with `N/A for current configuration` when no role is explicitly configured with `agent_callable = true`.
 - With one explicitly agent-callable role, Assignee selection remains available but no model-facing Assignee Parameter appears because Kent applies that role automatically.
 - Thinking selection is unavailable with `N/A for current configuration` when no applicable target model supports thinking.
@@ -55,15 +55,15 @@
 - A Fan-Out Transition branch inspector edits branch invocation details and shows its parent transition's source-choice label, key, and approval. The parent owns those source-choice details; each branch owns its target prompt, Parameters, context, and routing.
 - A Transition Label is distinct from its Transition Key and model-facing description. The label begins from the key until the operator changes it. The editor names these fields **Label**, **Key**, and **Model-facing description**.
 - Normal transitions do not expose their generated branch key. Fan-Out Transition branches expose a **Branch key** derived from the target Node Key; operators may edit it. It must meet Workflow Key requirements and be unique within its parent Fan-Out Transition.
-- Parameters have a stable key and model-facing description. They are required when declared and their values are strings. `transition` and `commentary` cannot be Parameter Keys.
+- Parameters have a stable key and model-facing description. They are required when declared and their values are strings. `transition`, `commentary`, and `session_id` cannot be Parameter Keys.
 - Each enabled Assignee or thinking selector shows its Protected Parameter in the owning Transition's ordinary Parameters list at its saved order.
 - The editor applies the canonical Protected Parameter edit, delete, persistence, and hidden-state behavior from the terminology specification.
 - A blank protected description appears as an empty editor field while Kent derives its default only for Workflow completion instructions.
 - When an applicable thinking model has no enumerable catalog contract, a blank protected thinking description is an execution-validation issue rather than a Draft-save blocker.
 - Fan-Out Transition branch Parameters form one Parameter Requirements set. Branches using the same Parameter Key share one produced value only when their descriptions match after ignoring leading and trailing whitespace; the shared description omits that whitespace. Different descriptions for the same key are validation errors.
 - Prompt editing offers insertable chips for direct Parameters. Selecting one inserts `.Params.<parameter_key>` at the cursor, or at the end if the prompt is not focused. The chip for `{{.Params.<transition_key>.<parameter>}}` explains previous-transition references and does not insert text.
-- Built-in Transition Prompt fields are exactly `.TaskId`, `.TaskShortId`, `.TaskTitle`, `.TaskBody`, `.NodeId`, `.NodeKey`, and `.NodeDisplayName`. `.Params.commentary` renders the source Transition Result commentary, or an empty string when none exists. Other top-level fields are validation errors.
-- A prompt can reference a previous Transition Parameter as `.Params.<transition_key>.<parameter_key>`, such as `{{.Params.planning.plan_file_location}}`. The referenced Transition must be guaranteed-prior: every path from Start to the prompt-owning transition branch source passes through it. Within parallel work, lookup stays within the same batch.
+- Built-in Transition Prompt fields are exactly `.TaskId`, `.TaskShortId`, `.TaskTitle`, `.TaskBody`, `.NodeId`, `.NodeKey`, `.NodeDisplayName`, and `.SessionId`. `.Params.commentary` renders the source Transition Result commentary, or an empty string when none exists. Other top-level fields are validation errors.
+- A prompt can reference a previous Transition Parameter as `.Params.<transition_key>.<parameter_key>`, such as `{{.Params.planning.plan_file_location}}`. The referenced Transition must be guaranteed-prior: every path from Start to the prompt-owning transition branch source passes through it. Within parallel work, lookup stays within the same batch. Built-in Session references follow [Session references](#session-references).
 - `.Nodes.<node_key>.<field>` is not an authorable prompt reference.
 - Transitions into agent Nodes require a prompt for Task start or execution, though a Workflow Draft may save with an empty agent prompt. Transitions into non-agent Nodes cannot have prompts.
 - Start transitions may prompt their first agent target but cannot declare Parameters. They can use built-in prompt fields and show no Parameter chips.
@@ -80,6 +80,20 @@
 - **Previous session from this target, or new session** is available in continuation modes into agent targets. It uses that same retained Session when available and otherwise starts a new Session.
 - Selected-Node Context Source choices list all agent Nodes for agent-target transitions. A choice is available in a continuation mode only when it is not the target and is guaranteed before the transition source. Invalid retained selections remain visible and disabled.
 - Script, Join, and terminal targets do not start agent Sessions.
+
+## Session references
+
+- `{{.SessionId}}` must resolve the most up-to-date Session associated with the incoming Transition's source Node for the Task.
+- `{{.Params.<transition_key>.session_id}}` must resolve the most up-to-date Session associated with the referenced Transition's source Node for the Task.
+- Kent must supply Session references without authored Parameter declarations or agent-supplied values. Kent must reject attempts to supply `session_id` as a Transition Result Parameter.
+- Session lookup must use the relevant Transition Branch Key when the source belongs to parallel work. The current execution or the referenced Transition's graph position must identify that branch. When several branch scopes remain possible, the reference must render empty text.
+- Session lookup must occur when the prompt is rendered and must not depend on Context-Preservation Mode or Context Source. A reused Session remains eligible. A later visit to the source Node may supply its latest Session even when that visit selected a different outgoing Transition.
+- Manual Move must use the same latest-source-Session lookup. A reference must not substitute the moved-from Node's Session or certify that the source Node executed on this visit.
+- When no matching Session exists, a Session reference must render empty text. Kent must not substitute an explanatory message.
+- Validation must reject Session references whose source can never own a Session, including Start, Script, and Join sources. Validation must not reject a reference merely because a Session might be unavailable at runtime.
+- Prior-Transition Session references must satisfy guaranteed-prior validation. Required branches of a completed Join must also qualify for explicit Session references after that Join. Optional paths must not qualify. This Join rule must not change ordinary Parameter validation.
+- Each Fan-Out Transition branch must use the fan-out source Node's Session for `.SessionId`. A Join-to-agent prompt must use explicit prior-Transition Session references for its agent predecessors; the Join itself has no Session.
+- The editor must offer `.SessionId` through the existing built-in prompt chip interaction. When the editor can quickly determine that the source cannot own a Session, the chip must remain visible but disabled and unclickable, with an explanatory tooltip. Otherwise the chip must remain insertable and authored references must undergo validation.
 
 ## Topology editing
 
@@ -110,7 +124,7 @@
 - Draft validation and execution validation remain separate. Blocking draft-validation errors prevent graph-changing saves. Execution-validation errors remain visible but do not prevent a save limited to Workflow details.
 - Draft validation blocks prompts into non-agent targets, duplicate Transition Keys, invalid or duplicate Fan-Out Transition Branch Keys, invalid Parameter Keys or descriptions, invalid previous-Parameter references, and Join aggregate key collisions.
 - Execution validation blocks starting or executing an agent-target transition without a prompt.
-- Historical Node-owned prompt and contract data may be read for inspection, but the editor never writes or round-trips it. A runnable definition must author Transition Prompts and Parameters.
+- Node-owned prompt and contract data outside the authored Transition contract is read-only in the editor. The editor never writes or round-trips it. A runnable definition must author Transition Prompts and Parameters.
 - A save limited to Workflow details, and a no-op save, bypass graph-edit policy.
 - Graph-changing saves show a preview with draft validation, execution validation, destructive or removal impact, and any required confirmation.
 - Destructive graph-save confirmation appears in the editor status area, not in a separate blocking surface.
@@ -122,6 +136,11 @@
 
 ## Workflow Library and Project links
 
+- Failed Workflow creation or linking must show an error notification and preserve the initiating form Draft or list.
+- Workflow creation and linking pages must present read failures with Retry in the page.
+- While a Workflow row remains displayed without interruption, its linking action must show loading and prevent repeated submission while pending.
+- If a Workflow row leaves the displayed list and later returns, its linking action may lose its loading state and repeat-submission protection.
+- An accepted link request must complete even after its row leaves the displayed list. Completion must change navigation only when the original destination still accepts it.
 - Project Workflow management uses **Link workflow** language.
 - Link workflow opens a global side panel listing reusable Workflows and offering **New workflow**.
 - Creating a Workflow from a Project's Link workflow flow creates a reusable Workflow, links it to that Project, and opens the editor. It becomes the Project default only when that Project has no default Workflow; it never replaces an existing default.
@@ -156,6 +175,7 @@
 - Changing the kind of a current Node is blocked. A Node without current Task references has no completed-work restriction on its kind.
 - Transition routing, Parameters, and display details may change while Tasks exist. Pending Approvals and unresolved parallel work keep their captured data. A live Exact Execution Scope keeps its model-visible completion requirements; if an incompatible edit makes its completion invalid, completion fails without Task mutation. Start and Resume use the latest valid requirements.
 - Moving a graph connection to a different Transition is blocked only while current Task state depends on it.
+- Completed Tasks must not block removing or retargeting their former incoming Transition Branches. These edits must preserve their results, Parameter values, comments, and Session associations without moving the Tasks. References required by active work or pending Approvals must retain their protections.
 - Backlog and terminal Tasks do not require confirmation before otherwise unreferenced Nodes or transitions are removed.
 - Manual Task moves are blocked when they would violate a selected prior-Node continuation Context Source. Previous-target continuation uses the context resolved for that transition.
 - Saving a Workflow graph never deletes or moves Tasks. Whole-Workflow deletion is the Task-deleting operation.

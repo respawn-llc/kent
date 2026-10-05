@@ -4,11 +4,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
+	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/sessionruntime"
 	"core/server/workflow"
-	"core/shared/serverapi"
+	"core/server/workflowstore"
+	"core/shared/protoapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type TaskProjector struct{}
@@ -32,9 +39,9 @@ type TaskFactsInput struct {
 }
 
 type TaskFacts struct {
-	Summary serverapi.WorkflowTaskSummary
-	Status  serverapi.WorkflowTaskStatus
-	Actions serverapi.WorkflowTaskActions
+	Summary *taskpb.TaskSummary
+	Status  *taskpb.TaskStatus
+	Actions *taskpb.TaskActions
 	Done    bool
 }
 
@@ -43,10 +50,13 @@ func NewTaskProjector() *TaskProjector {
 }
 
 func (*TaskProjector) DecodeStatus(input TaskStatusInput) (workflowTaskStatusFact, error) {
-	kind := serverapi.WorkflowTaskStatusKind(input.Kind)
-	nativeState, valid := kind.NativeState()
-	if !valid {
+	kind, err := protoapi.TaskStatusKind.Encode(input.Kind)
+	if err != nil {
 		return workflowTaskStatusFact{}, fmt.Errorf("workflow task status record for task %q has invalid kind %q", input.TaskID, input.Kind)
+	}
+	nativeState, err := protoapi.TaskNativeState(kind)
+	if err != nil {
+		return workflowTaskStatusFact{}, err
 	}
 	nodeIDs, err := workflowTaskStatusIDs(input.TaskID, "node_ids_json", input.NodeIDsJSON)
 	if err != nil {
@@ -57,10 +67,10 @@ func (*TaskProjector) DecodeStatus(input TaskStatusInput) (workflowTaskStatusFac
 		return workflowTaskStatusFact{}, err
 	}
 	return workflowTaskStatusFact{
-		Status: serverapi.WorkflowTaskStatus{
+		Status: &taskpb.TaskStatus{
 			Kind:           kind,
 			NativeState:    nativeState,
-			NodeIDs:        nodeIDs,
+			NodeIds:        nodeIDs,
 			AttentionTypes: attentionTypes,
 		},
 		Done: input.Done,
@@ -84,31 +94,35 @@ func (*TaskProjector) ProjectTaskFacts(input TaskFactsInput) TaskFacts {
 	}
 }
 
-func (*TaskProjector) ProjectComment(comment sqlitegen.TaskComment) serverapi.WorkflowTaskComment {
-	return serverapi.WorkflowTaskComment{
-		ID:              comment.ID,
-		TaskID:          comment.TaskID,
-		Body:            comment.Body,
-		Author:          comment.AuthorKind,
-		AuthorID:        comment.AuthorID,
-		CreatedAtUnixMs: comment.CreatedAtUnixMs,
-		UpdatedAt:       comment.UpdatedAtUnixMs,
+func Comment(comment workflowstore.CommentRecord) (*taskpb.Comment, error) {
+	author, err := protoapi.TaskCommentAuthor.Encode(comment.Author)
+	if err != nil {
+		return nil, err
 	}
+	var authorID *string
+	if comment.AuthorID != "" {
+		authorID = &comment.AuthorID
+	}
+	return &taskpb.Comment{
+		Id: comment.ID, TaskId: string(comment.TaskID), Body: comment.Body, Author: author, AuthorId: authorID,
+		CreatedAt: timestamppb.New(time.UnixMilli(comment.CreatedAt)),
+		UpdatedAt: timestamppb.New(time.UnixMilli(comment.UpdatedAt)),
+	}, nil
 }
 
-func ProjectCurrentNodes(nodes []workflow.CurrentNode) []serverapi.WorkflowTaskCurrentNode {
-	projected := make([]serverapi.WorkflowTaskCurrentNode, 0, len(nodes))
+func ProjectCurrentNodes(nodes []workflow.CurrentNode) []*taskpb.AttentionCurrentNode {
+	projected := make([]*taskpb.AttentionCurrentNode, 0, len(nodes))
 	for _, currentNode := range nodes {
 		projected = append(projected, workflowCurrentNode(currentNode))
 	}
 	return projected
 }
 
-func workflowCurrentNode(currentNode workflow.CurrentNode) serverapi.WorkflowTaskCurrentNode {
+func workflowCurrentNode(currentNode workflow.CurrentNode) *taskpb.AttentionCurrentNode {
 	projected := workflowCurrentNodeReference(currentNode.Reference)
 	if currentNode.SessionID != nil {
 		value := currentNode.SessionID.String()
-		projected.SessionID = &value
+		projected.SessionId = &value
 	}
 	if currentNode.AgentExecutionSelection != nil {
 		assignee := currentNode.AgentExecutionSelection.Assignee
@@ -121,8 +135,8 @@ func workflowCurrentNode(currentNode workflow.CurrentNode) serverapi.WorkflowTas
 	return projected
 }
 
-func workflowCurrentNodeReference(reference workflow.CurrentNodeReference) serverapi.WorkflowTaskCurrentNode {
-	projected := serverapi.WorkflowTaskCurrentNode{NodeID: string(reference.NodeID)}
+func workflowCurrentNodeReference(reference workflow.CurrentNodeReference) *taskpb.AttentionCurrentNode {
+	projected := &taskpb.AttentionCurrentNode{NodeId: string(reference.NodeID)}
 	if value, present := reference.TransitionBranchKey(); present {
 		branch := string(value)
 		projected.TransitionBranchKey = &branch
@@ -146,17 +160,15 @@ func workflowTaskStatusIDs(taskID string, field string, encoded string) ([]strin
 	return values, nil
 }
 
-func workflowTaskStatusAttentionTypes(taskID string, encoded string) ([]serverapi.WorkflowTaskAttentionKind, error) {
+func workflowTaskStatusAttentionTypes(taskID string, encoded string) ([]taskpb.TaskAttentionKind, error) {
 	var values []string
 	if err := json.Unmarshal([]byte(encoded), &values); err != nil {
 		return nil, fmt.Errorf("workflow task status record for task %q has malformed attention_types_json: %w", taskID, err)
 	}
-	out := make([]serverapi.WorkflowTaskAttentionKind, 0, len(values))
+	out := make([]taskpb.TaskAttentionKind, 0, len(values))
 	for index, value := range values {
-		kind := serverapi.WorkflowTaskAttentionKind(value)
-		switch kind {
-		case serverapi.WorkflowTaskAttentionKindApproval, serverapi.WorkflowTaskAttentionKindInterrupted, serverapi.WorkflowTaskAttentionKindQuestion:
-		default:
+		kind, err := protoapi.TaskAttentionKind.Encode(value)
+		if err != nil {
 			return nil, fmt.Errorf("workflow task status record for task %q has unknown attention_types_json[%d] %q", taskID, index, value)
 		}
 		if index > 0 && values[index-1] >= value {
@@ -167,19 +179,19 @@ func workflowTaskStatusAttentionTypes(taskID string, encoded string) ([]serverap
 	return out, nil
 }
 
-func taskSummary(task sqlitegen.TaskRecord, status serverapi.WorkflowTaskStatus, done bool) serverapi.WorkflowTaskSummary {
-	return serverapi.WorkflowTaskSummary{
-		ID:                task.ID,
-		ProjectID:         task.ProjectID,
-		WorkflowID:        task.WorkflowID,
-		ShortID:           task.ShortID,
+func taskSummary(task sqlitegen.TaskRecord, status *taskpb.TaskStatus, done bool) *taskpb.TaskSummary {
+	return &taskpb.TaskSummary{
+		Id:                task.ID,
+		ProjectId:         task.ProjectID,
+		WorkflowId:        task.WorkflowID.String(),
+		ShortId:           task.ShortID,
 		Title:             task.Title,
-		BodyPreview:       bodyPreview(task.Body),
-		SourceWorkspaceID: strings.TrimSpace(task.SourceWorkspaceID.String),
-		CreatedAtUnixMs:   task.CreatedAtUnixMs,
-		UpdatedAtUnixMs:   task.UpdatedAtUnixMs,
+		BodyPreview:       proto.String(bodyPreview(task.Body)),
+		SourceWorkspaceId: metadata.OptionalString(task.SourceWorkspaceID),
+		CreatedAt:         timestamppb.New(time.UnixMilli(task.CreatedAtUnixMs)),
+		UpdatedAt:         timestamppb.New(time.UnixMilli(task.UpdatedAtUnixMs)),
 		Done:              done,
-		ActiveNodeIDs:     append([]string(nil), status.NodeIDs...),
+		ActiveNodeIds:     append([]string(nil), status.NodeIds...),
 	}
 }
 
@@ -194,38 +206,27 @@ func currentNodesContainTerminal(nodes []workflow.CurrentNode, nodeKinds map[str
 
 func taskActions(
 	done bool,
-	status serverapi.WorkflowTaskStatus,
+	status *taskpb.TaskStatus,
 	currentNodes []workflow.CurrentNode,
 	live []sessionruntime.TaskExecution,
 	concurrencyQueued []workflow.CurrentNodeReference,
 	canDelete bool,
-) serverapi.WorkflowTaskActions {
+) *taskpb.TaskActions {
 	hasLiveExecution := len(live) != 0
 	hasInterruptibleExecution := false
 	for _, execution := range live {
 		hasInterruptibleExecution = hasInterruptibleExecution ||
 			(!execution.Queued && !execution.HasPendingPrompts())
 	}
-	actions := serverapi.WorkflowTaskActions{
-		CanStart:     !done && !hasLiveExecution && status.Kind == serverapi.WorkflowTaskStatusKindBacklog,
+	actions := &taskpb.TaskActions{
+		CanStart:     !done && !hasLiveExecution && status.Kind == taskpb.TaskStatusKind_TASK_STATUS_KIND_BACKLOG,
 		CanInterrupt: !done && hasInterruptibleExecution,
 		CanResume: !done &&
 			(len(concurrencyQueued) != 0 ||
 				(!hasLiveExecution &&
-					status.Kind == serverapi.WorkflowTaskStatusKindInterrupted &&
-					!currentNodesOwnSetupRecovery(currentNodes))),
+					(status.Kind == taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED ||
+						status.Kind == taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE))),
 		CanDelete: canDelete,
 	}
 	return actions
-}
-
-func currentNodesOwnSetupRecovery(nodes []workflow.CurrentNode) bool {
-	for _, node := range nodes {
-		if node.Scheduling != nil &&
-			node.Scheduling.Interruption != nil &&
-			node.Scheduling.Interruption.Detail.SetupRecovery != nil {
-			return true
-		}
-	}
-	return false
 }

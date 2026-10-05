@@ -1,5 +1,4 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from "react";
-import { createPortal } from "react-dom";
 
 import { Dialog } from "./Dialog";
 import { useOpacityExit } from "./motion";
@@ -44,7 +43,7 @@ export function CommandPaletteDialog({
       onExitComplete?.();
     }
   }, [onExitComplete, phase]);
-  const dialog = (
+  return (
     <Dialog
       backdrop="blur"
       className="[&>div:last-child]:overflow-hidden [&>div:last-child]:pr-0"
@@ -69,5 +68,4 @@ export function CommandPaletteDialog({
       </div>
     </Dialog>
   );
-  return typeof document === "undefined" ? dialog : createPortal(dialog, document.body);
 }

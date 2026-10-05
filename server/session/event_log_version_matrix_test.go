@@ -16,7 +16,7 @@ import (
 
 const expectedEventLogVersionV2 = 2
 
-func TestEventLogVersionMatrixNewAndRecoveredEmptyLogsSelectV2(t *testing.T) {
+func TestEventLogVersionMatrixInitialArtifactsSelectV2(t *testing.T) {
 	t.Run("independent creation", func(t *testing.T) {
 		store := newSessionTestStore(t)
 		mustMaterializeSessionTestEventLog(t, store)
@@ -42,9 +42,41 @@ func TestEventLogVersionMatrixNewAndRecoveredEmptyLogsSelectV2(t *testing.T) {
 			}
 
 			reopened := mustOpenSessionTestStore(t, store)
+			if !source.writeFile {
+				if _, err := reopened.MaterializeEventLog(); err == nil {
+					t.Fatal("ordinary open recreated missing Session artifacts")
+				}
+				if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("ordinary open changed missing event log: %v", err)
+				}
+				return
+			}
 			mustMaterializeSessionTestEventLog(t, reopened)
 			assertEventLogVersion(t, path, expectedEventLogVersionV2)
 		})
+	}
+}
+
+func TestMaterializeEventLogDoesNotReplaceEstablishedHistoryWithEmptyLog(t *testing.T) {
+	store := newSessionTestStore(t)
+	log := mustMaterializeSessionTestEventLog(t, store)
+	if _, _, err := log.AppendRecord(nil, userMessagePayload(t, "established")); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(store.Dir(), eventsFile)
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reopened := mustOpenSessionTestStore(t, store)
+	if _, err := reopened.MaterializeEventLog(); err == nil {
+		t.Fatal("established Session silently adopted an empty history")
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Size() != 0 {
+		t.Fatalf("failed materialization changed empty artifact: %+v, %v", info, err)
+	}
+	if reopened.Meta().LastSequence != store.Meta().LastSequence {
+		t.Fatal("failed materialization reset retained metadata")
 	}
 }
 
@@ -234,13 +266,13 @@ func TestEventLogVersionMatrixForkCloneAndDiagnosticCopyPreserveSourceVersion(t 
 			writeVersionedEventLog(t, filepath.Join(store.Dir(), eventsFile), version, records)
 			parent := mustMaterializeSessionTestEventLog(t, store)
 
-			forked, _, err := ForkAtUserMessage(parent, 2, "fork", sessioncontract.SessionCategoryMain)
+			forked, _, err := ForkAtUserMessage(parent, 2, "fork", sessioncontract.SessionCategoryMain, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 			if err != nil {
 				t.Fatalf("fork v%d Session: %v", version, err)
 			}
 			assertEventLogVersion(t, filepath.Join(forked.Dir(), eventsFile), version)
 
-			cloned, err := CloneSession(parent, "clone", sessioncontract.SessionCategoryMain)
+			cloned, err := CloneSession(parent, "clone", sessioncontract.SessionCategoryMain, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 			if err != nil {
 				t.Fatalf("clone v%d Session: %v", version, err)
 			}

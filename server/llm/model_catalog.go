@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"slices"
 	"strings"
 
 	"core/shared/config"
@@ -10,6 +11,21 @@ import (
 type ModelMetadata = modelcontract.ModelMetadata
 
 var defaultSupportedThinkingLevels = []string{"low", "medium", "high"}
+
+// ProviderThinkingEffort resolves disabled Thinking to an explicit effort only
+// when the model supports it, before request or settings materialization.
+func ProviderThinkingEffort(model, desired string) string {
+	if desired == "" && slices.Contains(SupportedThinkingLevelsModel(model), "none") {
+		return "none"
+	}
+	return desired
+}
+
+func SupportsNativeThinkingUpdates(model string, capabilities ProviderCapabilities) bool {
+	contract, ok := LookupModelCapabilityContract(model)
+	return ok && contract.SupportsNativeThinkingUpdates && capabilities.SupportsNativeThinkingUpdates
+}
+
 var defaultSupportedVerbosityLevels = []string{"low", "medium", "high"}
 
 type ModelVerbositySupportSource string
@@ -64,23 +80,14 @@ func SupportsReasoningSummaryModel(model string) bool {
 	return ok && contract.SupportsReasoningSummary
 }
 
-// SupportsVisionInputsModel reports whether the explicit model capability
-// contract allows multimodal image/file inputs for the Responses API.
-func SupportsVisionInputsModel(model string) bool {
+// SupportsVisionInputsModel preserves explicit catalog exceptions and otherwise
+// assumes GPT models on first-party OpenAI providers accept image/file inputs.
+func SupportsVisionInputsModel(model string, provider ProviderCapabilities) bool {
 	contract, ok := LookupModelCapabilityContract(model)
-	return ok && contract.SupportsVisionInputs
-}
-
-// SupportsVerbosityModel reports whether Responses API text verbosity should be
-// sent for the given model identifier. Unknown models default to false because
-// unsupported verbosity fields can hard-fail requests.
-func SupportsVerbosityModel(model string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(model))
-	if normalized == "" {
-		return false
+	if ok {
+		return contract.SupportsVisionInputs
 	}
-	contract, ok := LookupModelCapabilityContract(normalized)
-	return ok && contract.SupportsVerbosity
+	return provider.IsOpenAIFirstParty && strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "gpt-")
 }
 
 func VerbositySupportForModelAndProvider(model string, providerCaps ProviderCapabilities) ModelVerbositySupport {
@@ -105,10 +112,7 @@ func LookupModelMetadata(model string) (ModelMetadata, bool) {
 	if !ok {
 		return ModelMetadata{}, false
 	}
-	return ModelMetadata{
-		ContextWindowTokens:      contract.ContextWindowTokens,
-		LargeContextWindowTokens: contract.LargeContextWindowTokens,
-	}, contract.ContextWindowTokens > 0 || contract.LargeContextWindowTokens > 0
+	return contract.ContextMetadata(ProviderCapabilities{}), contract.ContextWindowTokens > 0 || contract.LargeContextWindowTokens > 0
 }
 
 func ApplyDerivedModelContextBudget(settings *config.Settings, model string, fallbackWindow, fallbackThreshold int) {

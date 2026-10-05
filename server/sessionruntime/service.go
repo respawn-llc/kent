@@ -12,6 +12,7 @@ import (
 	"core/server/session"
 	"core/server/tools"
 	servicecontract "core/shared/apicontract"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -77,20 +78,20 @@ func applyAgentSelection(store *session.Store, target *session.ChatSettingsState
 	return result.Changed, err
 }
 
-func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
+func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error) {
 	if err := req.Validate(); err != nil {
-		return serverapi.SessionRuntimeActivateResponse{}, err
+		return serverapi.SessionRuntimeAttachment{}, err
 	}
 	ownerID := strings.TrimSpace(req.OwnerID)
 	if ownerID == "" {
-		return serverapi.SessionRuntimeActivateResponse{}, runtimeOwnerIDRequiredError()
+		return serverapi.SessionRuntimeAttachment{}, runtimeOwnerIDRequiredError()
 	}
 	if s == nil || s.authority == nil {
-		return serverapi.SessionRuntimeActivateResponse{}, errors.New("session runtime authority is required")
+		return serverapi.SessionRuntimeAttachment{}, errors.New("session runtime authority is required")
 	}
 	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(req.SessionID))
 	if err != nil {
-		return serverapi.SessionRuntimeActivateResponse{}, err
+		return serverapi.SessionRuntimeAttachment{}, err
 	}
 	attachment, err := s.authority.openRuntime(ctx, RuntimeOpenRequest{
 		SessionID: sessionID,
@@ -101,8 +102,8 @@ func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionR
 		}
 		agentSelectionChanged := false
 		if req.AgentSelection != nil {
-			target, targetErr := session.ChatSettingsStateFromCompleteSettings(
-				req.AgentSelection.Agent,
+			target, targetErr := session.ChatSettingsStateFromRole(
+				req.AgentSelection.AgentRole,
 				session.ChatSettings{
 					Supervisor:     req.AgentSelection.Baseline.Supervisor,
 					Thinking:       req.AgentSelection.Baseline.Thinking,
@@ -114,6 +115,7 @@ func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionR
 			if targetErr != nil {
 				return nil, nil, targetErr
 			}
+			target.ConnectionID = store.Meta().ConnectionID
 			agentSelectionChanged, targetErr = applyAgentSelection(store, &target)
 			if targetErr != nil {
 				return nil, nil, targetErr
@@ -153,9 +155,6 @@ func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionR
 		autoCompaction := effective.AutoCompaction
 		req.QuestionsEnabled = &questions
 		req.AutoCompactionEnabled = &autoCompaction
-		if locked := store.Meta().Locked; locked != nil && locked.ContextWindow > 0 {
-			req.ActiveSettings.ModelContextWindow = locked.ContextWindow
-		}
 		plan, planErr := s.interactiveRuntimePlan(ctx, req, sessionID.String())
 		if planErr != nil {
 			return nil, nil, planErr
@@ -166,15 +165,14 @@ func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionR
 		return &plan, OpenAgentResource{}, nil
 	})
 	if err != nil {
-		return serverapi.SessionRuntimeActivateResponse{}, err
+		return serverapi.SessionRuntimeAttachment{}, err
 	}
 	resource := attachment.Resource()
-	return serverapi.SessionRuntimeActivateResponse{
-		Attachment: serverapi.SessionRuntimeAttachment{
+	return serverapi.SessionRuntimeAttachment{
 			SessionID:  resource.SessionID().String(),
 			Generation: uint64(resource.Generation()),
 		},
-	}, nil
+		nil
 }
 
 func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionRuntimeActivateRequest, sessionID string) (AgentRuntimePlan, error) {
@@ -188,7 +186,7 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionR
 	if err := context.Cause(ctx); err != nil {
 		return AgentRuntimePlan{}, err
 	}
-	projectWorkspaceBoundary, err := s.metadataStore.ResolveSessionProjectWorkspaceBoundary(ctx, sessionID)
+	projectID, err := s.metadataStore.ResolveSessionProjectID(ctx, sessionID)
 	if err != nil {
 		return AgentRuntimePlan{}, err
 	}
@@ -203,7 +201,7 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionR
 		root := target.Worktree.Root
 		currentWorktreeRoot = &root
 	}
-	filesystemContext, err := runtimewire.NewFilesystemContext(target.EffectiveWorkdir, executionRoot, projectWorkspaceBoundary)
+	filesystemContext, err := runtimewire.NewFilesystemContext(target.EffectiveWorkdir, executionRoot, projectID)
 	if err != nil {
 		return AgentRuntimePlan{}, err
 	}
@@ -220,8 +218,8 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionR
 			req.ActiveSettings.Model,
 		),
 		fmt.Sprintf(
-			"config.settings path=%s created=%t",
-			req.Source.SettingsPath,
+			"config.settings files=%+v created=%t",
+			req.Source.Files,
 			req.Source.CreatedDefaultConfig,
 		),
 	}
@@ -236,10 +234,12 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionR
 		}
 	}
 	return NewAgentRuntimePlan(AgentRuntimePlanOptions{
+		MainWorkspaceRoot:        target.WorkspaceRoot,
 		Settings:                 req.ActiveSettings,
 		EnabledTools:             enabledTools,
 		FilesystemContext:        tools.FilesystemContext{Access: filesystemContext.Access, ManagedWorktree: managedWorktreePathContext},
 		Sources:                  req.Source.Sources,
+		ExplicitToolSelection:    req.ExplicitToolSelection,
 		QuestionsEnabled:         req.QuestionsEnabled,
 		AutoCompactionEnabled:    req.AutoCompactionEnabled,
 		ClientFactory:            s.runtimeClientFactory,
@@ -248,24 +248,24 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionR
 	})
 }
 
-func (s *API) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
+func (s *API) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
 	if err := req.Validate(); err != nil {
-		return serverapi.SessionRuntimeReleaseResponse{}, err
+		return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, err
 	}
 	ownerID := strings.TrimSpace(req.OwnerID)
 	if ownerID == "" {
-		return serverapi.SessionRuntimeReleaseResponse{}, runtimeOwnerIDRequiredError()
+		return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, runtimeOwnerIDRequiredError()
 	}
 	if s == nil || s.authority == nil {
-		return serverapi.SessionRuntimeReleaseResponse{}, errors.New("session runtime authority is required")
+		return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, errors.New("session runtime authority is required")
 	}
 	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(req.Attachment.SessionID))
 	if err != nil {
-		return serverapi.SessionRuntimeReleaseResponse{}, err
+		return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, err
 	}
 	resource, err := runtimeids.NewSessionResourceRef(sessionID, runtimeids.ResourceGeneration(req.Attachment.Generation))
 	if err != nil {
-		return serverapi.SessionRuntimeReleaseResponse{}, err
+		return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, err
 	}
 	var policy RuntimeReleasePolicy
 	switch req.EffectiveClosePolicy() {
@@ -285,9 +285,9 @@ func (s *API) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRu
 		Policy:    policy,
 	})
 	if err != nil {
-		return serverapi.SessionRuntimeReleaseResponse{}, err
+		return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, err
 	}
-	return serverapi.SessionRuntimeReleaseResponse{
+	return &sessionlaunchpb.SessionRuntimeReleaseSuccess{
 		Released: result.Released,
 		Active:   result.Active,
 	}, nil

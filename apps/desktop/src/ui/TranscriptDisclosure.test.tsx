@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -185,8 +185,7 @@ describe("TranscriptDisclosure", () => {
     expect(body).toHaveAttribute("id", header.getAttribute("aria-controls"));
   });
 
-  it("retains the body during close motion and removes it after the shared exit duration", () => {
-    vi.useFakeTimers();
+  it("removes the closed body after its exit completes", async () => {
     renderDisclosure({ defaultExpanded: true });
 
     const disclosure = screen.getByRole("button", { name: "Collapse transcript item" });
@@ -195,10 +194,9 @@ describe("TranscriptDisclosure", () => {
     const body = getControlledBody(disclosure);
     expect(body).toHaveAttribute("aria-hidden", "true");
 
-    act(() => {
-      vi.advanceTimersByTime(140);
+    await waitFor(() => {
+      expect(screen.queryByText("Full transcript content")).not.toBeInTheDocument();
     });
-    expect(screen.queryByText("Full transcript content")).not.toBeInTheDocument();
   });
 
   it("cancels pending body removal when the row is reopened", () => {

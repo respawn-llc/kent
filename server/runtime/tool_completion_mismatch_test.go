@@ -20,7 +20,7 @@ func TestToolCompletionDeletionMismatchPanicsBeforePersistenceInDebug(t *testing
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Debug: true,
 	})
 	stepID := runtimeTestStepID("step-delete")
@@ -63,7 +63,7 @@ func TestToolCompletionDeletionMismatchReleaseFallbackPersistsRecovery(t *testin
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 	})
 	stepID := runtimeTestStepID("step-delete")
 	restoreStep := setTestActiveStep(engine, stepID)
@@ -77,7 +77,7 @@ func TestToolCompletionDeletionMismatchReleaseFallbackPersistsRecovery(t *testin
 
 	reopened := mustOpenTestSession(t, store.Dir())
 	restored := mustNewTestEngine(t, reopened, &fakeClient{}, tools.NewRegistry(), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 	})
 	assertDeletionMismatchFallback(t, restored, reopened, result)
 }
@@ -87,7 +87,7 @@ func TestToolCompletionDeletionMismatchDoesNotApplyUncommittedFallback(t *testin
 	store := mustCreateTestSession(t)
 	var emitted []Event
 	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(event Event) { emitted = append(emitted, event) },
 	})
 	restoreStep := setTestActiveStep(engine, "step-delete")
@@ -131,7 +131,7 @@ func TestToolCompletionDeletionMismatchAppliesCommittedFallbackAfterObserverErro
 	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
 	var emitted []Event
 	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(event Event) { emitted = append(emitted, event) },
 	})
 	restoreStep := setTestActiveStep(engine, "step-delete")
@@ -176,7 +176,7 @@ func TestExecuteToolCallsCommitsCompletionDiagnosticInResultGroup(t *testing.T) 
 			ID:      toolspec.ToolPatch,
 			Handler: mismatchedDeletionTool{},
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	stepID := runtimeTestStepID("step-delete")
 	restoreStep := setTestActiveStep(engine, stepID)
@@ -276,15 +276,17 @@ func assertDeletionMismatchFallback(t *testing.T, engine *Engine, store *session
 			}
 		}
 	}
-	if completion == nil || completion.Presentation == nil || completion.Presentation.PatchRender == nil {
+	if completion == nil || completion.Presentation == nil ||
+		completion.Presentation.PatchPresentation == nil ||
+		completion.Presentation.PatchPresentation.Changes == nil {
 		t.Fatalf("missing fallback completion presentation: %+v", completion)
 	}
 	if feedback == nil || feedback.Role != string(transcript.EntryRoleDeveloperErrorFeedback) {
 		t.Fatalf("missing typed mismatch feedback: %+v", feedback)
 	}
-	for _, file := range completion.Presentation.PatchRender.Files {
-		for _, deletion := range file.WholeFileDeletions {
-			if deletion.Disposition != nil {
+	for _, file := range completion.Presentation.PatchPresentation.Changes.Files {
+		for _, operation := range file.Operations {
+			if operation.Deletion != nil && operation.Deletion.Disposition != nil {
 				t.Fatalf("fallback fabricated deletion disposition: %+v", completion.Presentation)
 			}
 		}

@@ -3,22 +3,23 @@ Usage of kent rebind:
 
 Retarget a session to an existing workspace path.
 
-Without --project, the session stays in its source project and Kent attaches an
-unbound target path to that project. If the path belongs only to another project,
-Kent prints complete commands for moving the session or attaching the path to
-the source project.
+Without --project, Kent selects a target path's only attached project. If the
+path is attached to the source project and other projects, Kent selects the
+source project. If the path is attached to multiple projects but not the source
+project, Kent prints complete commands for selecting each candidate project or
+attaching the path to the source project.
 
---project moves the session to that project. Kent attaches an unbound target
-workspace automatically and reports the new attachment.
+--project selects the project explicitly. Kent attaches an unbound target
+workspace automatically.
 
-A human same-project rebind waits for active model work to reach its maintenance
-boundary. A human cross-project rebind rejects immediately while the runtime is
-non-idle. A running session-owned background process blocks either move.
+For a live session, Kent acknowledges the scheduled move immediately and applies
+it between agent steps, like a worktree switch. The agent continues without
+interruption, and queued input is preserved. Existing background commands
+continue in the directories where they started.
 
-When the active agent rebinds its own session, Kent acknowledges the scheduled
-move immediately and applies it between agent steps. Existing background
-commands continue in the directories where they started. Workflow-owned
-sessions cannot move across projects.
+Dormant-session moves complete before the command returns and report any new
+workspace attachment. A running session-owned background process blocks a dormant
+move. Workflow-owned sessions cannot move across projects.
 
 Examples:
   kent rebind <session-id> ../moved-workspace

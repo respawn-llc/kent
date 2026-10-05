@@ -1,49 +1,28 @@
 import { act, screen, waitFor } from "@testing-library/react";
-
 import { appI18n } from "@/i18n";
+import { projectEventsFixture } from "@/test-support/project-events";
 import {
   emptyTaskAttentionResponse,
   mountTaskDetailSurface,
   taskDetailResponse,
-  taskUpdatedEvent,
+  taskCommentPage,
+  taskCommentRoute,
 } from "@/test-support/task-detail";
 
 describe("Task Detail feed presentation", () => {
   it("renders the default empty Comments state from the shared test service", async () => {
-    mountTaskDetailSurface(taskDetailResponse, {
-      attention: emptyTaskAttentionResponse,
-    });
-
+    mountTaskDetailSurface(taskDetailResponse, { attention: emptyTaskAttentionResponse });
     expect(await screen.findByText(appI18n.t("task.noCommentsTitle"))).toBeInTheDocument();
   });
 
   it("renders adjacent repeated Comment identities as separate feed rows", async () => {
     mountTaskDetailSurface(taskDetailResponse, {
       attention: emptyTaskAttentionResponse,
-      comments: {
-        items: [
-          {
-            id: "comment-duplicate",
-            task_id: "task-1",
-            body: "First occurrence",
-            author: "user",
-            created_at_unix_ms: 2,
-            updated_at_unix_ms: 2,
-          },
-          {
-            id: "comment-duplicate",
-            task_id: "task-1",
-            body: "Second occurrence",
-            author: "user",
-            created_at_unix_ms: 1,
-            updated_at_unix_ms: 1,
-          },
-        ],
-        next_offset: null,
-        total_count: 2,
-      },
+      comments: taskCommentPage([
+        { id: "comment-duplicate", body: "First occurrence", milliseconds: 2 },
+        { id: "comment-duplicate", body: "Second occurrence", milliseconds: 1 },
+      ]),
     });
-
     await waitFor(() => {
       expect(screen.getByText("First occurrence")).toBeInTheDocument();
       expect(screen.getByText("Second occurrence")).toBeInTheDocument();
@@ -54,87 +33,40 @@ describe("Task Detail feed presentation", () => {
   it("uses the authoritative Comment total for the tab badge", async () => {
     mountTaskDetailSurface(taskDetailResponse, {
       attention: emptyTaskAttentionResponse,
-      comments: {
-        items: [
-          {
-            id: "comment-window-item",
-            task_id: "task-1",
-            body: "Only retained window item",
-            author: "user",
-            created_at_unix_ms: 2,
-            updated_at_unix_ms: 2,
-          },
-        ],
-        next_offset: null,
-        total_count: 501,
-      },
+      comments: taskCommentPage(
+        [{ id: "comment-window-item", body: "Only retained window item", milliseconds: 2 }],
+        501,
+      ),
     });
-
-    const commentsTab = await screen.findByRole("tab", {
-      name: new RegExp(appI18n.t("task.comments")),
-    });
+    const commentsTab = await screen.findByRole("tab", { name: new RegExp(appI18n.t("task.comments")) });
     expect(commentsTab).toHaveTextContent("501");
   });
 
   it("refetches the retained newest page on a live update without clearing visible rows", async () => {
     let latestCommentBody = "Initial comment";
+    const requests: { taskID: string; offset: number }[] = [];
     const services = mountTaskDetailSurface(taskDetailResponse, {
       attention: emptyTaskAttentionResponse,
-      comments: commentPage(latestCommentBody),
       routes: [
-        {
-          method: "workflow.task.comment.list",
-          handler: (_params, callIndex) => ({
-            ...commentPage(latestCommentBody),
-            items: [
-              {
-                ...commentPage(latestCommentBody).items[0],
-                body: callIndex === 0 ? "Initial comment" : latestCommentBody,
-              },
-            ],
-          }),
-        },
+        taskCommentRoute((taskID, _callIndex, offset) => {
+          requests.push({ taskID, offset });
+          return taskCommentPage([{ id: "comment-live", body: latestCommentBody, milliseconds: 2 }]);
+        }),
       ],
     });
-
     expect(await screen.findByText("Initial comment")).toBeInTheDocument();
     await waitFor(() => {
-      expect(services.transport.subscriptions).toContainEqual({
-        method: "workflow.subscribeProject",
-        params: { project_id: "project-1" },
-      });
+      expect(projectEventsFixture(services.transport).activeCount).toBeGreaterThan(0);
     });
     latestCommentBody = "Updated comment";
     act(() => {
-      services.transport.emit("workflow.project", taskUpdatedEvent);
+      projectEventsFixture(services.transport).emit({ action: "updated" });
     });
-
     expect(screen.getByText("Initial comment")).toBeInTheDocument();
     await screen.findByText("Updated comment");
-    expect(
-      services.transport.calls
-        .filter((call) => call.method === "workflow.task.comment.list")
-        .map((call) => call.params),
-    ).toEqual([
-      { task_id: "task-1", offset: 0, limit: 50 },
-      { task_id: "task-1", offset: 0, limit: 50 },
+    expect(requests).toEqual([
+      { taskID: "task-1", offset: 0 },
+      { taskID: "task-1", offset: 0 },
     ]);
   });
 });
-
-function commentPage(body: string) {
-  return {
-    items: [
-      {
-        id: "comment-live",
-        task_id: "task-1",
-        body,
-        author: "user",
-        created_at_unix_ms: 2,
-        updated_at_unix_ms: 2,
-      },
-    ],
-    next_offset: null,
-    total_count: 1,
-  };
-}

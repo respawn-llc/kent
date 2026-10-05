@@ -2,18 +2,21 @@ package app
 
 import (
 	"context"
+	"core/internal/testharness/postprocessfixture"
+	"core/internal/testharness/testsetup"
+	serverstartup "core/server/startup"
+	shelltool "core/server/tools/shell"
+	"core/server/tools/shell/postprocess"
+	"core/shared/apicontract"
+	"core/shared/clientui"
+	"core/shared/config"
+	processpb "core/shared/protoapi/gen/kent/api/process"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/serverapi"
 	"io"
 	"strings"
 	"testing"
 	"time"
-
-	"core/internal/testharness/testsetup"
-	serverstartup "core/server/startup"
-	shelltool "core/server/tools/shell"
-	"core/shared/apicontract"
-	"core/shared/clientui"
-	"core/shared/serverapi"
-	"core/shared/transcript"
 )
 
 func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.T) {
@@ -27,14 +30,14 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 		appTestModelStep{Final: "remote prompt snapshot complete"},
 	)
 	defer model.Close()
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, model.URL()))
 
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
-		OpenAIBaseURL:         model.URL(),
-		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"))
+		Model:                 "gpt-6-sol",
+	})
 
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
 	_, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test remote prompt snapshot reads")
@@ -44,19 +47,19 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 	requireQueuedAppTestRuntimeSubmission(t, submissionDone)
 	prompts := waitForRemoteTranscriptPrompts(t, runtimePlan.Wiring.eventDispatcher.transcriptEvents, 2, "", submissionFailed)
 	for _, prompt := range prompts {
-		switch prompt.Kind {
-		case clientui.TranscriptPromptKindQuestion:
-			if prompt.PromptID != "ask-remote-1" {
+		switch prompt.Prompt.(type) {
+		case *transcriptpb.Prompt_Question:
+			if transcriptPromptToolCallID(prompt) != "ask-remote-1" {
 				t.Fatalf("unexpected question prompt: %+v", prompt)
 			}
 			answerRemoteTranscriptPrompt(t, runtimePlan.Wiring.promptAnswers, prompt, clientui.PromptAnswer{
-				PromptID:       string(prompt.PromptID),
+				ToolCallID:     clientui.ToolCallID(transcriptPromptToolCallID(prompt)),
 				FreeformAnswer: "done",
 			})
-		case clientui.TranscriptPromptKindApproval:
+		case *transcriptpb.Prompt_Approval:
 			answerRemoteTranscriptPrompt(t, runtimePlan.Wiring.promptAnswers, prompt, clientui.PromptAnswer{
-				PromptID: string(prompt.PromptID),
-				Approval: &clientui.ApprovalPromptAnswer{Decision: clientui.ApprovalDecisionAllowOnce},
+				ToolCallID: clientui.ToolCallID(transcriptPromptToolCallID(prompt)),
+				Approval:   &clientui.ApprovalPromptAnswer{Decision: clientui.ApprovalDecisionAllowOnce},
 			})
 		default:
 			t.Fatalf("unexpected prompt: %+v", prompt)
@@ -78,8 +81,9 @@ func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
-	}, apiKeyMemoryAuthHandler("test-key"))
+		Model:                 "gpt-6-sol",
+	})
+
 	fixture.daemon.Background().SetMinimumExecToBgTime(time.Millisecond)
 
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
@@ -92,11 +96,14 @@ func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
 	}
 
 	result, err := fixture.daemon.Background().Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-lc", "printf 'daemon process output\n'; sleep 0.2"},
 		DisplayCommand: "printf 'daemon process output'; sleep 0.2",
 		Workdir:        workspace,
 		YieldTime:      time.Millisecond,
 		OwnerSessionID: plan.SessionID,
+		OwnerRunID:     "run-1",
+		OwnerStepID:    "step-1",
 	})
 	if err != nil {
 		t.Fatalf("Background().Start: %v", err)
@@ -105,16 +112,22 @@ func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
 		t.Fatal("expected backgrounded process")
 	}
 
-	proc := waitForRemoteProcess(t, processes.ProcessViews, plan.SessionID, result.SessionID)
-	if proc.OwnerSessionID != plan.SessionID {
+	proc := waitForRemoteProcess(
+		t,
+		processes.ProcessViews,
+		fixture.daemon.ProjectID(),
+		plan.SessionID,
+		result.SessionID,
+	)
+	if proc.OwnerSessionId != plan.SessionID {
 		t.Fatalf("unexpected process owner: %+v", proc)
 	}
 
-	getResp, err := processes.ProcessViews.GetProcess(context.Background(), serverapi.ProcessGetRequest{ProcessID: result.SessionID})
+	getResp, err := processes.ProcessViews.GetProcess(context.Background(), &processpb.GetRequest{ProcessId: result.SessionID})
 	if err != nil {
 		t.Fatalf("GetProcess: %v", err)
 	}
-	if getResp.Process == nil || getResp.Process.ID != result.SessionID {
+	if getResp.Process == nil || getResp.Process.Id != result.SessionID {
 		t.Fatalf("unexpected get process response: %+v", getResp.Process)
 	}
 
@@ -123,19 +136,19 @@ func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
 		t.Fatalf("unexpected inline output: %q", inlineResp.Output)
 	}
 
-	if _, err := processes.ProcessControls.KillProcess(context.Background(), serverapi.ProcessKillRequest{ProcessID: result.SessionID}); err != nil {
+	if _, err := processes.ProcessControls.KillProcess(context.Background(), &processpb.KillRequest{ProcessId: result.SessionID}); err != nil {
 		t.Fatalf("KillProcess: %v", err)
 	}
 	waitForRemoteProcessExit(t, processes.ProcessViews, result.SessionID)
 
 }
 
-func waitForRemoteTranscriptPrompt(t *testing.T, events <-chan ongoingTranscriptEvent, promptID clientui.PromptID, earlyFailures ...<-chan error) clientui.TranscriptPrompt {
+func waitForRemoteTranscriptPrompt(t *testing.T, events <-chan ongoingTranscriptEvent, toolCallID string, earlyFailures ...<-chan error) *transcriptpb.Prompt {
 	t.Helper()
-	return waitForRemoteTranscriptPrompts(t, events, 1, promptID, earlyFailures...)[0]
+	return waitForRemoteTranscriptPrompts(t, events, 1, toolCallID, earlyFailures...)[0]
 }
 
-func waitForRemoteTranscriptPrompts(t *testing.T, events <-chan ongoingTranscriptEvent, count int, promptID clientui.PromptID, earlyFailures ...<-chan error) []clientui.TranscriptPrompt {
+func waitForRemoteTranscriptPrompts(t *testing.T, events <-chan ongoingTranscriptEvent, count int, toolCallID string, earlyFailures ...<-chan error) []*transcriptpb.Prompt {
 	t.Helper()
 	if count < 1 {
 		t.Fatal("remote transcript prompt count must be positive")
@@ -144,8 +157,8 @@ func waitForRemoteTranscriptPrompts(t *testing.T, events <-chan ongoingTranscrip
 	if len(earlyFailures) > 0 {
 		earlyFailure = earlyFailures[0]
 	}
-	var seen []clientui.TranscriptMessage
-	prompts := make([]clientui.TranscriptPrompt, 0, count)
+	var seen []*transcriptpb.Message
+	prompts := make([]*transcriptpb.Prompt, 0, count)
 	deadline := time.After(5 * time.Second)
 	for {
 		select {
@@ -160,19 +173,18 @@ func waitForRemoteTranscriptPrompts(t *testing.T, events <-chan ongoingTranscrip
 				continue
 			}
 			seen = append(seen, evt.Message)
-			var candidates []clientui.TranscriptPrompt
-			switch evt.Message.Kind() {
-			case clientui.TranscriptMessageHydration:
-				hydration := evt.Message.Payload().(clientui.TranscriptHydration)
-				candidates = hydration.PendingPrompts
-			case clientui.TranscriptMessagePrompt:
-				prompt := evt.Message.Payload().(clientui.TranscriptPrompt)
-				if prompt.Status == clientui.TranscriptPromptStatusPending {
-					candidates = []clientui.TranscriptPrompt{prompt}
+			var candidates []*transcriptpb.Prompt
+			switch payload := evt.Message.Event.Payload.(type) {
+			case *transcriptpb.Event_Hydration:
+				candidates = payload.Hydration.PendingPrompts
+			case *transcriptpb.Event_Prompt:
+				prompt := payload.Prompt
+				if prompt.Status == transcriptpb.PromptStatus_PROMPT_STATUS_PENDING {
+					candidates = []*transcriptpb.Prompt{prompt}
 				}
 			}
 			for _, prompt := range candidates {
-				if promptID == "" || prompt.PromptID == promptID {
+				if toolCallID == "" || transcriptPromptToolCallID(prompt) == toolCallID {
 					prompts = append(prompts, prompt)
 					if len(prompts) == count {
 						return prompts
@@ -180,10 +192,10 @@ func waitForRemoteTranscriptPrompts(t *testing.T, events <-chan ongoingTranscrip
 				}
 			}
 		case err := <-earlyFailure:
-			t.Fatalf("prompt %q failed before publication: %v", promptID, err)
+			t.Fatalf("prompt %q failed before publication: %v", toolCallID, err)
 			return nil
 		case <-deadline:
-			t.Fatalf("timed out waiting for %d transcript prompt(s) %q after messages %+v", count, promptID, seen)
+			t.Fatalf("timed out waiting for %d transcript prompt(s) %q after messages %+v", count, toolCallID, seen)
 			return nil
 		}
 	}
@@ -218,8 +230,7 @@ func waitForRemoteTranscriptAssistantFinal(
 	t *testing.T,
 	events <-chan ongoingTranscriptEvent,
 	want string,
-	earlyFailures ...<-chan error,
-) {
+	earlyFailures ...<-chan error) {
 	t.Helper()
 	var earlyFailure <-chan error
 	if len(earlyFailures) > 0 {
@@ -238,20 +249,15 @@ func waitForRemoteTranscriptAssistantFinal(
 			if evt.Kind != ongoingTranscriptEventMessage {
 				continue
 			}
-			var rows []clientui.TranscriptCommittedRow
-			switch evt.Message.Kind() {
-			case clientui.TranscriptMessageHydration:
-				rows = evt.Message.Payload().(clientui.TranscriptHydration).CommittedRows
-			case clientui.TranscriptMessageCommittedRow:
-				rows = []clientui.TranscriptCommittedRow{
-					evt.Message.Payload().(clientui.TranscriptCommittedRow),
-				}
+			var rows []*transcriptpb.CommittedRow
+			switch payload := evt.Message.Event.Payload.(type) {
+			case *transcriptpb.Event_Hydration:
+				rows = payload.Hydration.TailSegment.Entries
+			case *transcriptpb.Event_CommittedRow:
+				rows = []*transcriptpb.CommittedRow{payload.CommittedRow}
 			}
 			for _, row := range rows {
-				if row.Kind == clientui.TranscriptRowAssistant &&
-					row.Assistant != nil &&
-					row.Assistant.Phase == transcript.AssistantPhaseFinal &&
-					row.Assistant.Text == want {
+				if assistant := row.GetAssistant(); assistant != nil && assistant.Phase == transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL && assistant.Text == want {
 					return
 				}
 			}
@@ -263,7 +269,7 @@ func waitForRemoteTranscriptAssistantFinal(
 	}
 }
 
-func answerRemoteTranscriptPrompt(t *testing.T, answerer *transcriptPromptAnswerer, prompt clientui.TranscriptPrompt, answer clientui.PromptAnswer) {
+func answerRemoteTranscriptPrompt(t *testing.T, answerer *transcriptPromptAnswerer, prompt *transcriptpb.Prompt, answer clientui.PromptAnswer) {
 	t.Helper()
 	if answerer == nil {
 		t.Fatal("transcript prompt answerer is required")
@@ -282,16 +288,24 @@ func answerRemoteTranscriptPrompt(t *testing.T, answerer *transcriptPromptAnswer
 	}
 }
 
-func waitForRemoteProcess(t *testing.T, views apicontract.ProcessViewService, sessionID string, processID string) clientui.BackgroundProcess {
+func waitForRemoteProcess(
+	t *testing.T,
+	views apicontract.ProcessViewService,
+	projectID string,
+	sessionID string,
+	processID string) *processpb.BackgroundProcess {
 	t.Helper()
-	var process clientui.BackgroundProcess
+	var process *processpb.BackgroundProcess
 	testsetup.RequireUntil(t, time.Now().Add(5*time.Second), 10*time.Millisecond, func() bool {
-		resp, err := views.ListProcesses(context.Background(), serverapi.ProcessListRequest{OwnerSessionID: sessionID})
+		resp, err := views.ListProcesses(context.Background(), &processpb.ListRequest{
+			ProjectId:      projectID,
+			OwnerSessionId: &sessionID,
+		})
 		if err != nil {
 			t.Fatalf("ListProcesses: %v", err)
 		}
 		for _, proc := range resp.Processes {
-			if proc.ID == processID {
+			if proc.Id == processID {
 				process = proc
 				return true
 			}
@@ -304,7 +318,7 @@ func waitForRemoteProcess(t *testing.T, views apicontract.ProcessViewService, se
 func waitForRemoteProcessExit(t *testing.T, views apicontract.ProcessViewService, processID string) {
 	t.Helper()
 	testsetup.RequireUntil(t, time.Now().Add(5*time.Second), 10*time.Millisecond, func() bool {
-		resp, err := views.GetProcess(context.Background(), serverapi.ProcessGetRequest{ProcessID: processID})
+		resp, err := views.GetProcess(context.Background(), &processpb.GetRequest{ProcessId: processID})
 		if err != nil {
 			t.Fatalf("GetProcess: %v", err)
 		}
@@ -312,12 +326,12 @@ func waitForRemoteProcessExit(t *testing.T, views apicontract.ProcessViewService
 	}, "timed out waiting for process %s to exit", processID)
 }
 
-func waitForRemoteInlineOutput(t *testing.T, controls apicontract.ProcessControlService, processID string) serverapi.ProcessInlineOutputResponse {
+func waitForRemoteInlineOutput(t *testing.T, controls apicontract.ProcessControlService, processID string) *processpb.InlineOutputSuccess {
 	t.Helper()
-	var output serverapi.ProcessInlineOutputResponse
+	var output *processpb.InlineOutputSuccess
 	testsetup.RequireUntil(t, time.Now().Add(5*time.Second), 10*time.Millisecond, func() bool {
 		var err error
-		output, err = controls.GetInlineOutput(context.Background(), serverapi.ProcessInlineOutputRequest{ProcessID: processID, MaxChars: 1024})
+		output, err = controls.GetInlineOutput(context.Background(), &processpb.InlineOutputRequest{ProcessId: processID, MaxChars: 1024})
 		if err != nil {
 			t.Fatalf("GetInlineOutput: %v", err)
 		}

@@ -3,14 +3,13 @@ import { z } from "zod";
 
 import { TaskDeleteWindowRoute, taskDeleteNativeDialogPath } from "@/features/board";
 import { ProjectCreateWindowRoute } from "@/features/home";
-import { ProjectDeleteWindowRoute, WorkspaceUnlinkWindowRoute } from "@/features/project-edit";
+import { ProjectDeleteWindowRoute } from "@/features/project-edit";
 import { TaskDetailWindowRoute } from "@/features/task-detail";
 import { InvalidNativeDialogRoute } from "./InvalidNativeDialogRoute";
 import { taskDetailNativeDialogPath } from "./sidebarPopOut";
 import { useWindowChromeTitle } from "@/app-facade";
 
 export const projectDeleteNativeDialogPath = "/native-dialog/project-delete";
-export const workspaceUnlinkNativeDialogPath = "/native-dialog/workspace-unlink";
 export { taskDeleteNativeDialogPath };
 
 const optionalSearchString = z.string().catch("");
@@ -31,12 +30,6 @@ const taskDeleteSearchSchema = z.object({
 
 const taskDetailSearchSchema = z.object({
   taskID: optionalSearchString,
-});
-
-const workspaceUnlinkSearchSchema = z.object({
-  projectID: optionalSearchString,
-  rootPath: optionalSearchString,
-  workspaceID: optionalSearchString,
 });
 
 export function createNativeDialogRoutes(rootRoute: AnyRootRoute) {
@@ -102,29 +95,5 @@ export function createNativeDialogRoutes(rootRoute: AnyRootRoute) {
     return <TaskDetailWindowRoute taskID={taskID} />;
   }
 
-  const workspaceUnlinkWindowRoute = createRoute({
-    getParentRoute: () => rootRoute,
-    path: workspaceUnlinkNativeDialogPath,
-    validateSearch: (search: Record<string, unknown>) => workspaceUnlinkSearchSchema.parse(search),
-    component: WorkspaceUnlinkNativeRoute,
-  });
-
-  function WorkspaceUnlinkNativeRoute() {
-    const search = workspaceUnlinkSearchSchema.parse(workspaceUnlinkWindowRoute.useSearch());
-    return (
-      <WorkspaceUnlinkWindowRoute
-        projectID={search.projectID}
-        rootPath={search.rootPath}
-        workspaceID={search.workspaceID}
-      />
-    );
-  }
-
-  return [
-    projectCreateRoute,
-    projectDeleteRoute,
-    taskDeleteWindowRoute,
-    taskDetailWindowRoute,
-    workspaceUnlinkWindowRoute,
-  ] as const;
+  return [projectCreateRoute, projectDeleteRoute, taskDeleteWindowRoute, taskDetailWindowRoute] as const;
 }

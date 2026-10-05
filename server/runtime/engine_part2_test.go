@@ -13,6 +13,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -139,10 +140,8 @@ func TestBuildSystemPromptSnapshotForRootDoesNotUseMutexTakingWorkspaceAccessor(
 	eng.mu.Lock()
 	go func() {
 		prompt, err := eng.buildSystemPromptSnapshotForRoot(session.LockedContract{
-			Model:          "gpt-5",
-			Temperature:    1,
-			ContextWindow:  272_000,
-			ContextPercent: 95,
+			Model:       "gpt-6-sol",
+			Temperature: 1,
 			ToolPreambles: func() *bool {
 				enabled := false
 				return &enabled
@@ -209,7 +208,7 @@ func TestEnvironmentContextUsesTranscriptWorkingDirWithoutWorktreeReminder(t *te
 	}
 	client := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ok")}}
 	eng := mustNewExecTestEngine(t, store, client, Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		EnabledTools:          []toolspec.ID{toolspec.ToolExecCommand},
 		TranscriptWorkingDir:  worktree,
 		AutoCompactTokenLimit: 1_000_000_000,
@@ -249,11 +248,9 @@ func TestLegacyLockedSessionBackfillsSystemPromptSnapshotOnce(t *testing.T) {
 
 	store := mustCreateTestSession(t, workspace)
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		Temperature:    1,
 		MaxOutputToken: 0,
-		ContextWindow:  272_000,
-		ContextPercent: 95,
 		ToolPreambles: func() *bool {
 			enabled := false
 			return &enabled
@@ -274,6 +271,7 @@ func TestLegacyLockedSessionBackfillsSystemPromptSnapshotOnce(t *testing.T) {
 	eng := mustNewExecTestEngine(t, store, client, Config{
 		EnabledTools:         []toolspec.ID{toolspec.ToolExecCommand},
 		TranscriptWorkingDir: workspace,
+		ContextWindowTokens:  272_000,
 	})
 	if snapshot := store.Meta().Locked.SystemPrompt; snapshot != "" {
 		t.Fatalf("system prompt snapshot before first dispatch = %q, want empty", snapshot)
@@ -336,12 +334,10 @@ func TestChildSessionSnapshotsRoleSystemPromptOnFirstRequest(t *testing.T) {
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 	eng := mustNewExecTestEngine(t, child, client, Config{
-		Model:         "role-model",
-		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
-		ToolPreambles: false,
-		SystemPromptFiles: []config.SystemPromptFile{
-			{Path: rolePrompt, Scope: config.SystemPromptFileScopeSubagent},
-		},
+		Model:            "role-model",
+		EnabledTools:     []toolspec.ID{toolspec.ToolExecCommand},
+		ToolPreambles:    false,
+		SystemPromptFile: &config.SystemPromptFile{Path: rolePrompt, Scope: config.SystemPromptFileScopeSubagent},
 	})
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "review this"); err != nil {
@@ -432,40 +428,45 @@ func TestEmptySystemPromptFileIsSkippedAndFallbackSnapshotIsReused(t *testing.T)
 	}
 }
 
-func TestLegacyLockedSessionBackfillsContextBudgetOnce(t *testing.T) {
-	store := mustCreateTestSession(t)
-	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model:          "gpt-5",
-		Temperature:    1,
-		MaxOutputToken: 0,
-	}); err != nil {
-		t.Fatalf("mark locked: %v", err)
-	}
-
-	firstEngine := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:               "gpt-5",
-		EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
-		ContextWindowTokens: 272_000,
-	})
-	locked := store.Meta().Locked
-	if locked == nil || locked.ContextWindow != 272_000 || locked.ContextPercent != 95 {
-		t.Fatalf("expected legacy lock backfilled from first resume config, got %+v", locked)
-	}
-	if got := firstEngine.estimatedToolCallsForLockedContext(*locked); got != 185 {
-		t.Fatalf("first estimated tool calls = %d, want 185", got)
-	}
-
-	secondEngine := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:               "gpt-5",
-		EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
-		ContextWindowTokens: 400_000,
-	})
-	locked = store.Meta().Locked
-	if locked == nil || locked.ContextWindow != 272_000 || locked.ContextPercent != 95 {
-		t.Fatalf("expected legacy lock backfill to stay pinned, got %+v", locked)
-	}
-	if got := secondEngine.estimatedToolCallsForLockedContext(*locked); got != 185 {
-		t.Fatalf("second estimated tool calls = %d, want 185", got)
+func TestUnsnapshottedSystemPromptUsesCurrentContextBudget(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, test := range []struct {
+		name    string
+		window  int
+		percent int
+		want    int
+	}{
+		{name: "initial budget", window: 272_000, percent: 95, want: 185},
+		{name: "larger window", window: 400_000, percent: 95, want: 271},
+		{name: "changed percentage", window: 400_000, percent: 80, want: 229},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			promptPath := filepath.Join(workspace, "budget.md")
+			writeTestFile(t, promptPath, "{{.EstimatedToolCallsForContext}}")
+			store := mustCreateTestSession(t, workspace)
+			if err := store.MarkModelDispatchLocked(session.LockedContract{Model: "gpt-6-sol"}); err != nil {
+				t.Fatalf("mark locked: %v", err)
+			}
+			client := &fakeClient{responses: []llm.Response{{
+				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok")},
+			}}}
+			eng := mustNewExecTestEngine(t, store, client, Config{
+				ContextWindowTokens:           test.window,
+				EffectiveContextWindowPercent: test.percent,
+				SystemPromptFile:              &config.SystemPromptFile{Path: promptPath, Scope: config.SystemPromptFileScopeWorkspaceConfig},
+			})
+			if _, err := eng.SubmitUserMessage(t.Context(), "hello"); err != nil {
+				t.Fatalf("submit: %v", err)
+			}
+			got, err := strconv.Atoi(client.calls[0].SystemPrompt)
+			if err != nil {
+				t.Fatalf("parse rendered tool-call estimate: %v", err)
+			}
+			if got != test.want {
+				t.Fatalf("estimated tool calls = %d, want %d", got, test.want)
+			}
+		})
 	}
 }
 
@@ -519,12 +520,12 @@ func TestRuntimeControlsRejectInvalidOrUnavailableChanges(t *testing.T) {
 			Handler: fakeTool{name: toolspec.ToolExecCommand},
 		}),
 		Config{
-			Model:                   "gpt-5.3-codex",
+			Model:                   "gpt-6-luna",
 			ThinkingLevel:           "high",
 			SupportedThinkingValues: []string{"low", "medium", "high", "xhigh"},
 			Reviewer: ReviewerConfig{
 				Frequency:     "off",
-				Model:         "gpt-5",
+				Model:         "gpt-6-sol",
 				ThinkingLevel: "low",
 			},
 		},
@@ -577,7 +578,7 @@ func TestFastModeEnabledReportsFalseWhenProviderIsUnavailable(t *testing.T) {
 		}},
 		tools.NewRegistry(),
 		Config{
-			Model:           "gpt-5.3-codex",
+			Model:           "gpt-6-luna",
 			FastModeEnabled: true,
 		},
 	)
@@ -599,7 +600,7 @@ func TestNewRejectsUnavailableProviderCapabilities(t *testing.T) {
 		mustMaterializeTestEventLog(t, store),
 		&fakeClient{capsErr: capabilityErr},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	if !errors.Is(err, capabilityErr) {
 		t.Fatalf("New error = %v, want provider capability error", err)
@@ -609,7 +610,7 @@ func TestNewRejectsUnavailableProviderCapabilities(t *testing.T) {
 func TestPoisonedLockedSessionFallsBackToModelReasoningSupport(t *testing.T) {
 	store := mustCreateTestSession(t)
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model:          "gpt-5.4",
+		Model:          "gpt-6-sol",
 		Temperature:    1,
 		MaxOutputToken: 0,
 		ProviderContract: session.LockedProviderCapabilities{
@@ -626,7 +627,7 @@ func TestPoisonedLockedSessionFallsBackToModelReasoningSupport(t *testing.T) {
 
 	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok")}}}}
 	eng := mustNewExecTestEngine(t, store, client, Config{
-		Model:         "gpt-5.4",
+		Model:         "gpt-6-sol",
 		ThinkingLevel: "high",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
 	})
@@ -652,11 +653,13 @@ func TestFastModeCanChangeAfterLock(t *testing.T) {
 			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("one")}, Usage: llm.Usage{WindowTokens: 200000}},
 			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("two")}, Usage: llm.Usage{WindowTokens: 200000}},
 		},
-		caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true},
+		caps: llm.ProviderCapabilities{
+			ProviderID: "openai", SupportsResponsesAPI: true, SupportsFastMode: true, IsOpenAIFirstParty: true,
+		},
 	}
 
 	eng := mustNewExecTestEngine(t, store, client, Config{
-		Model:         "gpt-5.3-codex",
+		Model:         "gpt-6-luna",
 		Temperature:   1,
 		ThinkingLevel: "high",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
@@ -688,8 +691,10 @@ func TestFastModeCanChangeAfterLock(t *testing.T) {
 
 func TestSetFastModeTogglesRuntimeOnly(t *testing.T) {
 	store := mustCreateTestSession(t)
-	cfg := Config{Model: "gpt-5.3-codex"}
-	eng := mustNewExecTestEngine(t, store, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}}, cfg)
+	cfg := Config{Model: "gpt-6-luna"}
+	eng := mustNewExecTestEngine(t, store, &fakeClient{caps: llm.ProviderCapabilities{
+		ProviderID: "openai", SupportsResponsesAPI: true, SupportsFastMode: true, IsOpenAIFirstParty: true,
+	}}, cfg)
 
 	changed, err := eng.SetFastModeEnabled(true)
 	if err != nil {
@@ -699,7 +704,9 @@ func TestSetFastModeTogglesRuntimeOnly(t *testing.T) {
 		t.Fatalf("expected fast mode enabled, changed=%v enabled=%v", changed, eng.FastModeEnabled())
 	}
 
-	restarted := mustNewExecTestEngine(t, store, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}}, cfg)
+	restarted := mustNewExecTestEngine(t, store, &fakeClient{caps: llm.ProviderCapabilities{
+		ProviderID: "openai", SupportsResponsesAPI: true, SupportsFastMode: true, IsOpenAIFirstParty: true,
+	}}, cfg)
 	if restarted.FastModeEnabled() {
 		t.Fatal("expected fast mode disabled after restart")
 	}
@@ -707,7 +714,7 @@ func TestSetFastModeTogglesRuntimeOnly(t *testing.T) {
 
 func TestSetAutoCompactionEnabledRejectsAfterClose(t *testing.T) {
 	store := mustCreateTestSession(t)
-	eng := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-5"})
+	eng := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-6-sol"})
 
 	if err := eng.Close(); err != nil {
 		t.Fatalf("close engine: %v", err)
@@ -752,7 +759,7 @@ func TestSetAutoCompactionDisabledDuringBusyStepAppliesAtBoundary(t *testing.T) 
 	started := make(chan struct{})
 	release := make(chan struct{})
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: blockingTool{name: toolspec.ToolExecCommand, started: started, release: release}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		AutoCompactTokenLimit: 350000,
 	})
 
@@ -803,10 +810,10 @@ func TestSetReviewerEnabledTogglesRuntimeOnly(t *testing.T) {
 	dir := t.TempDir()
 	store := mustCreateTestSessionAt(t, dir)
 	cfg := Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Reviewer: ReviewerConfig{
 			Frequency:     "off",
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "low",
 			Client:        &fakeClient{},
 		},
@@ -833,10 +840,10 @@ func TestSetReviewerEnabledLazyInitializesReviewerClient(t *testing.T) {
 	dir := t.TempDir()
 	store := mustCreateTestSessionAt(t, dir)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Reviewer: ReviewerConfig{
 			Frequency:     "off",
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "low",
 			Client:        nil,
 			ClientFactory: func() (llm.Client, error) {
@@ -870,11 +877,8 @@ func TestReadSystemPromptTemplateUsesConfiguredPriorityAndSkipsEmptyFiles(t *tes
 	writeTestFile(t, workspaceConfigPrompt, "workspace config")
 
 	opts := systemPromptSnapshotOptions{
-		WorkspaceRoot: workspace,
-		SystemPromptFiles: []config.SystemPromptFile{
-			{Path: homeConfigPrompt, Scope: config.SystemPromptFileScopeHomeConfig},
-			{Path: workspaceConfigPrompt, Scope: config.SystemPromptFileScopeWorkspaceConfig},
-		},
+		WorkspaceRoot:    workspace,
+		SystemPromptFile: &config.SystemPromptFile{Path: workspaceConfigPrompt, Scope: config.SystemPromptFileScopeWorkspaceConfig},
 	}
 	template, sourcePath, ok, err := readSystemPromptTemplate(opts)
 	if err != nil {
@@ -897,6 +901,14 @@ func TestReadSystemPromptTemplateUsesConfiguredPriorityAndSkipsEmptyFiles(t *tes
 	template, sourcePath, ok, err = readSystemPromptTemplate(opts)
 	if err != nil {
 		t.Fatalf("read system prompt template after empty workspace SYSTEM: %v", err)
+	}
+	if !ok || sourcePath != filepath.Join(home, agentsGlobalDirName, systemPromptFileName) {
+		t.Fatalf("an overridden configured home file must not be read: sourcePath=%q ok=%t", sourcePath, ok)
+	}
+	opts.SystemPromptFile = &config.SystemPromptFile{Path: homeConfigPrompt, Scope: config.SystemPromptFileScopeHomeConfig}
+	template, sourcePath, ok, err = readSystemPromptTemplate(opts)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if !ok || template != "home config" || sourcePath != homeConfigPrompt {
 		t.Fatalf("template=%q sourcePath=%q ok=%t, want home config from %q", template, sourcePath, ok, homeConfigPrompt)
@@ -931,11 +943,8 @@ func TestReadSystemPromptTemplateSubagentConfigOverridesWorkspaceConfig(t *testi
 	writeTestFile(t, workspaceConfigPrompt, "workspace config")
 
 	template, sourcePath, ok, err := readSystemPromptTemplate(systemPromptSnapshotOptions{
-		WorkspaceRoot: workspace,
-		SystemPromptFiles: []config.SystemPromptFile{
-			{Path: workspaceConfigPrompt, Scope: config.SystemPromptFileScopeWorkspaceConfig},
-			{Path: subagentPrompt, Scope: config.SystemPromptFileScopeSubagent},
-		},
+		WorkspaceRoot:    workspace,
+		SystemPromptFile: &config.SystemPromptFile{Path: subagentPrompt, Scope: config.SystemPromptFileScopeSubagent},
 	})
 	if err != nil {
 		t.Fatalf("read system prompt template: %v", err)

@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"slices"
 
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/theme"
-	"core/shared/transcript"
 )
 
 type DetailPresentation struct {
@@ -47,7 +46,7 @@ func (c DetailCompiler) Matches(width int, themeName string) bool {
 	return c.width == max(0, width) && c.themeName == theme.Resolve(themeName)
 }
 
-func (c DetailCompiler) Compile(row clientui.TranscriptCommittedRow) DetailPresentation {
+func (c DetailCompiler) Compile(row *transcriptpb.CommittedRow) DetailPresentation {
 	return renderDetailPresentation(
 		row,
 		max(1, c.width),
@@ -56,17 +55,21 @@ func (c DetailCompiler) Compile(row clientui.TranscriptCommittedRow) DetailPrese
 	)
 }
 
-func RenderDetailPresentation(row clientui.TranscriptCommittedRow, width int, themeName string) DetailPresentation {
+func RenderDetailPresentation(row *transcriptpb.CommittedRow, width int, themeName string) DetailPresentation {
 	return NewDetailCompiler(width, themeName).Compile(row)
 }
 
 func renderDetailPresentation(
-	row clientui.TranscriptCommittedRow,
+	row *transcriptpb.CommittedRow,
 	width int,
 	syntax syntaxProjector,
 	linkPresentation MarkdownLinkPresentation,
 ) DetailPresentation {
-	if !row.Integrity.Valid() {
+	switch row.Integrity {
+	case transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+		transcriptpb.RowIntegrity_ROW_INTEGRITY_RECOVERABLE_MALFORMED,
+		transcriptpb.RowIntegrity_ROW_INTEGRITY_UNRECOVERABLE_MALFORMED:
+	default:
 		panic(fmt.Sprintf("render detail presentation with invalid integrity classification: %d", row.Integrity))
 	}
 	collapsed := renderCommittedRow(
@@ -84,10 +87,10 @@ func renderDetailPresentation(
 		linkPresentation,
 	).Lines
 	expandable := !detailLinesEqual(collapsed, expanded)
-	if row.Integrity == transcript.RowIntegrityRecoverableMalformed {
+	if row.Integrity == transcriptpb.RowIntegrity_ROW_INTEGRITY_RECOVERABLE_MALFORMED {
 		expandable = true
 	}
-	if row.Integrity == transcript.RowIntegrityUnrecoverableMalformed {
+	if row.Integrity == transcriptpb.RowIntegrity_ROW_INTEGRITY_UNRECOVERABLE_MALFORMED {
 		expandable = false
 	}
 	return DetailPresentation{

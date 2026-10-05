@@ -118,24 +118,6 @@ func (r gatewayRegistration) validateAuthorityPartition(legacyRoutes []apicontra
 	return nil
 }
 
-func (r gatewayRegistration) AllowedPreAuthMethods() []string {
-	methods := make([]string, 0)
-	for name, operation := range r.operations {
-		if operation.Options.AuthenticationStage != sharedpb.AuthenticationStage_AUTHENTICATION_STAGE_PRE_SERVER {
-			continue
-		}
-		if _, migrated := r.binary[name]; migrated {
-			methods = append(methods, name)
-			continue
-		}
-		if route, legacy := r.legacy[name]; legacy {
-			methods = append(methods, route.Method)
-		}
-	}
-	sort.Strings(methods)
-	return methods
-}
-
 func (r gatewayRegistration) LegacyOperation(method string) (protoapi.Operation, apicontract.Route, bool) {
 	for name, route := range r.legacy {
 		if route.Method == method {
@@ -175,13 +157,17 @@ func validateBinaryBinding(operation protoapi.Operation, binding gatewayBinaryBi
 	}
 	switch operation.Options.Kind {
 	case sharedpb.OperationKind_OPERATION_KIND_UNARY:
-		if binding.invoke == nil || binding.subscribe != nil || binding.associated != nil {
+		if binding.invoke == nil || binding.subscribe != nil || binding.associated != nil || binding.progressEvent != nil {
 			return fmt.Errorf("binary unary binding %q has invalid handlers", operation.Name)
 		}
 	case sharedpb.OperationKind_OPERATION_KIND_SUBSCRIPTION:
 		if binding.invoke != nil || binding.subscribe == nil || binding.associated == nil ||
-			binding.start == nil || binding.complete == nil {
+			binding.start == nil || binding.complete == nil || binding.progressEvent != nil {
 			return fmt.Errorf("binary subscription binding %q has invalid handlers", operation.Name)
+		}
+	case sharedpb.OperationKind_OPERATION_KIND_PROGRESS:
+		if binding.invoke == nil || binding.progressEvent == nil || binding.subscribe != nil || binding.associated != nil {
+			return fmt.Errorf("binary progress binding %q has invalid handlers", operation.Name)
 		}
 	default:
 		return fmt.Errorf("binary binding %q has unsupported operation kind %s", operation.Name, operation.Options.Kind)
@@ -218,10 +204,6 @@ func validateLegacyRegistration(operation protoapi.Operation, route apicontract.
 	case apicontract.KindUnary:
 		if _, exists := gatewayUnaryHandlers[route.Method]; !exists {
 			return fmt.Errorf("legacy unary route %q has no unary handler", route.Method)
-		}
-	case apicontract.KindProgress:
-		if _, exists := gatewayProgressHandlers[route.Method]; !exists {
-			return fmt.Errorf("legacy progress route %q has no progress handler", route.Method)
 		}
 	case apicontract.KindSubscription:
 		if _, exists := gatewaySubscriptionHandlers[route.Method]; !exists {
@@ -297,10 +279,12 @@ func routeScopePolicy(scope sharedpb.ScopePolicy) apicontract.ScopePolicy {
 		return apicontract.ScopeRuntimeLiveSessionOptional
 	case sharedpb.ScopePolicy_SCOPE_POLICY_PROCESS_ACTIVE_PROJECT:
 		return apicontract.ScopeProcessActiveProject
-	case sharedpb.ScopePolicy_SCOPE_POLICY_PROCESS_LIST_ACTIVE_PROJECT:
-		return apicontract.ScopeProcessListActiveProject
 	case sharedpb.ScopePolicy_SCOPE_POLICY_NOTIFICATION:
 		return apicontract.ScopeNotification
+	case sharedpb.ScopePolicy_SCOPE_POLICY_CHAT_TARGET:
+		return apicontract.ScopeChatTarget
+	case sharedpb.ScopePolicy_SCOPE_POLICY_WORKTREE_MANAGEMENT:
+		return apicontract.ScopeWorktreeManagement
 	default:
 		return ""
 	}

@@ -10,7 +10,7 @@ This repository contains Kent - a coding agent focused on output quality, built 
 - `server/bootstrap`
   - Server-owned bootstrap composition for config/container resolution, auth-manager creation, and runtime-support setup.
 - `server/startup`
-  - `kent serve` composition root; owns startup orchestration across bootstrap, auth, onboarding, and server capability activation.
+  - `kent serve` composition root; owns startup orchestration across bootstrap, auth, onboarding, and Core activation.
 - `server/authservice`
   - Server-owned auth readiness, bootstrap/status services, and env-backed auth-store policy used by CLI auth UX.
 - `server/sessionservice`
@@ -86,19 +86,20 @@ Just is the sole public developer command interface. Do not add standalone devel
 - Full transcript history is unbounded & weighs dozens of gigabytes, thus **no production path may traverse `events.jsonl` from byte 0 to EOF** — even a bounded-memory full walk of the file is forbidden for transcript/working-set reads. Any requests from the user that result in such reads must be flagged with a question. Do not reintroduce in-memory full-transcript readers, a resident transcript buffer, or absolute `Offset`/`TotalEntries` pagination that needs a cumulative count from disk. There are some exceptions approved by the user and locked in specifications.
 - No duplicated code. Do not introduce duplicated utilities, functions, functionality, code paths, subsystems, implementations, helpers, classes, data sources, or any other secondary authority. Reviewers must flag duplicated code as P0 finding. Agents must proactively scan their code before handing it off for any duplicated authority to avoid penalty for violating this rule.
 - Never use sentinels to represent absence. Do not use `0`, `""`, `-1`, `NaN`, `0.0` etc. to represent absence of value in database, go, typescript code, and wire contract. Encode absence as `null` and fail on invalid values like `""` unless they constitute valid input. Do not tolerate existing code that encodes absence as empty values, especially for strings. Use `nil`/`null`/`undefined` sparingly and only where it truly unambiguously represents absence and nothing else to avoid the billion dollar problem. This rule does not permit using `null` as substitute for error handling or typed error return values.
-- Use UUID v4 for new first-party persistent entity IDs. Preserve existing, legacy, and third-party identifier formats unless the User explicitly authorizes a migration. String-valued keys, paths, branch names, and provider or protocol IDs do not require UUID conversion.
+- Use UUID v4 for new first-party persistent entity IDs. Preserve existing, legacy, and third-party identifier formats unless the user explicitly authorizes a migration. String-valued keys, paths, branch names, and provider or protocol IDs do not require UUID conversion.
 - **No UI code in server.** Server must not contain hardcoded strings (beyond LLM prompts), UI labels, UI element names, provide strings that aren't i18n-enabled. Server's API must not bend to reflect a GUI implementation (such as TUI or browser-specific APIs). Any such API is an architectural smell and must be flagged. Internal errors can contain unlocalized messages as an exclusion. Instead of this clients use strongly typed fields to create strings or UI based on Backend returns.
-- No compatibility, fallback, legacy or redundancy code or behavior must be added without explicit User approval and recorded deletion timeline. Agents must not design, create, invent, preserve, adhere to or leave any compatibility, legacy, fallback code path, shim, or documentation reference. Every feature is executed as a hard cutover to the new architecture. Agents confirm with the user every time a task requires handling or migration of older data, suggesting one-time migration effort as the default.
+- No compatibility, fallback, legacy or redundancy code or behavior must be added without explicit user approval and recorded deletion timeline. Agents must not design, create, invent, preserve, adhere to or leave any compatibility, legacy, fallback code path, shim, or documentation reference. Every feature is executed as a hard cutover to the new architecture. Agents confirm with the user every time a task requires handling or migration of older data, suggesting one-time migration effort as the default.
 - Client presence and connection lifecycle are never server-work authority. Connecting, disconnecting, canceling or closing a client request, reconnecting, changing subscriber count, navigating away, or closing a UI may stop that client's observation or delivery only; it must never start, stop, pause, cancel, retry, replay, duplicate, authorize, or otherwise alter server-owned work. Server operations follow only their server-owned lifecycle.
 
 --- End of critical rules --- 
 
-## Frozen Rust code
+## Frozen Rust terminal UI
 
-- `tui-rs/` and all Rust client, contract, fixture, manifest, and test code are dead and frozen.
-- Do not edit, regenerate, migrate, build, or test Rust code unless the User explicitly reactivates Rust work for the task.
-- Rust artifacts do not constrain Go server/API, Desktop, CLI, or protocol changes. Do not include `just check rust --dry-run` in non-Rust completion criteria.
-- Documents under `docs/dev/rust/` and `docs/dev/rust-tui-tests.md` are historical records and do not authorize Rust implementation.
+- `tui-rs/`, including its client, contract, fixture, manifest, and test code, is dead and frozen.
+- Do not edit, regenerate, migrate, build, or test `tui-rs/` unless the user explicitly reactivates that terminal UI for the task.
+- The Tauri desktop host under `apps/desktop/src-tauri/` is active and is not covered by this freeze.
+- Artifacts under `tui-rs/` do not constrain Go server/API, Desktop, CLI, or protocol changes. Do not include `just check rust --dry-run` in completion criteria for work outside `tui-rs/`.
+- Documents under `docs/dev/rust/` and `docs/dev/rust-tui-tests.md` are historical records and do not authorize Rust terminal UI implementation.
 
 ## Coding Guidelines & Memories
 -- Tauri/native APIs must stay behind GUI-side bridge packages; do not import Tauri APIs directly from feature components.
@@ -120,6 +121,7 @@ Just is the sole public developer command interface. Do not add standalone devel
 - Do not add provider-adapter history shapers in model request serialization. Provider-specific input payload shape must be materialized at transcript/persistence projection boundaries; provider adapters serialize prepared items and fail invalid unprepared items instead of silently dropping, promoting, prefixing, stringifying, or normalizing historical items.
 - Runtime output mutations belong behind the `server/runtime` steer/queue boundary. Do not add ad-hoc appenders, prompt injectors, direct runtime event emitters, or bespoke queue flush paths for model-visible context, transcript rows, tool completions, local diagnostics, or runtime status events. Build typed steering calls; queues store those calls; compaction starts a new active list from compacting output and then steers runtime context into it.
 - When you make changes that make server contract incompatible with existing GUI/TUI clients', don't forget to raise the protocol version in ./shared/protocol/version.json. You may do so without explicit user approval as needed.
+- Kent's exact protocol-version gate rejects incompatible clients. Do not maintain Protobuf compatibility shims, legacy definitions, or reserved field names/numbers solely for older Kent clients. Unchanged fields keep their numbers. Persisted or externally consumed formats require their own explicit product contract.
 
 ## Commit guidelines
 Format: `<type>[!]: [description]`, `!` = breaking change (requiring migration from users of Kent).

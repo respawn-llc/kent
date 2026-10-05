@@ -276,6 +276,7 @@ func (m *Manager) emitEvent(evt Event) bool {
 func (m *Manager) waitForExit(entry *processEntry) {
 	defer close(entry.done)
 	err := entry.cmd.Wait()
+	m.releaseProcessSlot()
 	exitCode, state := processExitState(err)
 	if !entry.isBackgrounded() {
 		entry.setExited(exitCode, state)
@@ -283,8 +284,9 @@ func (m *Manager) waitForExit(entry *processEntry) {
 		return
 	}
 	snapshot := entry.closeOnExit(exitCode, state)
+	m.notifyBackgroundListChange(snapshot)
 	eventType := EventCompleted
-	if state == "killed" {
+	if snapshot.State == "killed" {
 		eventType = EventKilled
 	}
 	m.retainCompletedEntry(entry.id)
@@ -525,21 +527,43 @@ func (m *Manager) allocateProcessSlot() (string, string, error) {
 	if m.closed {
 		return "", "", errors.New("background shell manager is closed")
 	}
+	if m.occupiedSlots >= m.maxConcurrent {
+		return "", "", &ConcurrentShellLimitError{Limit: m.maxConcurrent}
+	}
+	if err := os.MkdirAll(m.tempDir, 0o700); err != nil {
+		return "", "", fmt.Errorf("prepare background shell temp dir: %w", err)
+	}
 	id := strconv.Itoa(m.nextID)
 	m.nextID++
+	m.occupiedSlots++
 	return id, filepath.Join(m.tempDir, id+".log"), nil
+}
+
+func (m *Manager) releaseProcessSlot() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.occupiedSlots--
 }
 
 func (m *Manager) releaseEntry(id string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.entries.Delete(id)
+	entry, found := m.entries.LoadAndDelete(id)
 	m.removeCompletedLocked(id)
+	m.mu.Unlock()
+	if found {
+		m.notifyBackgroundListChange(entry.(*processEntry).snapshot())
+	}
 }
 
 func (m *Manager) retainCompletedEntry(id string) {
+	var removed []Snapshot
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	defer func() {
+		m.mu.Unlock()
+		for _, snapshot := range removed {
+			m.notifyBackgroundListChange(snapshot)
+		}
+	}()
 	entry, err := m.readEntry(id)
 	if err != nil || entry.isRunning() {
 		return
@@ -552,6 +576,7 @@ func (m *Manager) retainCompletedEntry(id string) {
 		m.completedRecency = m.completedRecency[1:]
 		evicted, err := m.readEntry(evictedID)
 		if err == nil && !evicted.isRunning() {
+			removed = append(removed, evicted.snapshot())
 			m.entries.Delete(evictedID)
 		}
 	}

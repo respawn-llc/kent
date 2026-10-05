@@ -139,6 +139,7 @@ export const workflowEditorEnglish = {
     "Use the parameter template syntax prefixed with the transition key to add previous node parameters, e.g.",
   promptTransitionScopedParameterHelpSuffix:
     "The transition output must be guaranteed to exist (no branching) to be usable.",
+  promptSessionIdUnavailable: "This transition source node cannot own a Session.",
   requiredInputs: "Required inputs",
   outputs: "Outputs",
   parameters: "Parameters",
@@ -193,6 +194,11 @@ export const workflowEditorEnglish = {
   validationDetailField: "Field",
   validationDetailPlaceholder: "Placeholder",
   validationDetailProviderEdge: "Provider branch",
+  validationSessionSourceCannotOwnSession: "This prompt references a source node that cannot own a Session.",
+  validationSessionTransitionMissing: "This prompt references an unknown transition.",
+  validationSessionTransitionNotGuaranteed:
+    "This prompt references a transition that is not guaranteed to run before the prompt.",
+  validationSessionTransitionAmbiguous: "This prompt references more than one matching transition.",
   unsavedChanges: "Unsaved changes",
   save: "Save",
   saving: "Saving",

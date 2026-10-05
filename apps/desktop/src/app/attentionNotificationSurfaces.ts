@@ -1,22 +1,17 @@
-import type { RefObject } from "react";
-import type {
-  NativeNotification,
-  NativeNotificationActivation,
-  NativeNotificationTarget,
-} from "@app/native-bridge";
+import * as Effect from "effect/Effect";
+import type * as Atom from "effect/reactivity/Atom";
+import type { NativeNotification, NativeNotificationTarget } from "@app/native-bridge";
 
 import type {
-  AttentionItem,
   AttentionNotification,
   AttentionNotificationID,
   AttentionNotificationTaskDetailFocus,
-  AttentionNotificationWorkflowTaskTarget,
 } from "@/api";
-import { errorMessage, isTaskMissingError } from "@/api";
+import { errorMessage } from "@/api";
 import type { AppServices } from "@/app-facade";
 import type { TaskDetailInitialFocus } from "@/app-facade";
 import type { StatusController } from "@/app-facade";
-import { recoverOrThrowDebugFailure } from "./debugFailure";
+import { recoverOrThrowDebugFailure } from "@/app-facade";
 
 export type SurfaceRecord = Readonly<{
   notification: AttentionNotification;
@@ -35,35 +30,50 @@ const attentionToastIDPrefix = "attention-";
 type NativeNotifications = AppServices["nativeBridge"]["notifications"];
 type NativeWindow = AppServices["nativeBridge"]["window"];
 type Logger = AppServices["logger"];
-type Api = AppServices["api"];
 type Translate = (key: string) => string;
 type SurfaceOutcome = Readonly<{ status: "done" }> | Readonly<{ status: "retry" }>;
+export type SurfaceState = Atom.Writable<ReadonlyMap<string, SurfaceRecord>>;
 
-export async function readCurrentPendingSurface({
-  focusedRef,
+export function setSurface(
+  get: Atom.AtomContext,
+  surfaced: SurfaceState,
+  id: string,
+  record: SurfaceRecord | null,
+): void {
+  const next = new Map(get.once(surfaced));
+  if (record === null) next.delete(id);
+  else next.set(id, record);
+  get.set(surfaced, next);
+}
+
+export const readCurrentPendingSurface = Effect.fn("readCurrentPendingSurface")(function* ({
+  focused,
+  get,
   id,
   logger,
   surfaced,
   windowControls,
 }: Readonly<{
-  focusedRef: RefObject<boolean | null>;
+  focused: () => boolean | null;
+  get: Atom.AtomContext;
   id: string;
   logger: Logger;
-  surfaced: ReadonlyMap<string, SurfaceRecord>;
+  surfaced: SurfaceState;
   windowControls: NativeWindow;
-}>): Promise<Readonly<{ focused: boolean; record: SurfaceRecord }> | null> {
-  if (surfaced.get(id)?.state !== "surfacing") {
+}>) {
+  if (get.once(surfaced).get(id)?.state !== "surfacing") {
     return null;
   }
-  const focused = await resolveWindowFocus(windowControls, focusedRef, logger);
-  const record = surfaced.get(id);
+  const currentFocus = yield* resolveWindowFocus(windowControls, focused, logger);
+  const record = get.once(surfaced).get(id);
   if (record?.state !== "surfacing") {
     return null;
   }
-  return { focused, record };
-}
+  return { focused: currentFocus, record };
+});
 
-export async function deliverPendingSurface({
+export const deliverPendingSurface = Effect.fn("deliverPendingSurface")(function* ({
+  get,
   focused,
   hasNativeNotifications,
   logger,
@@ -74,97 +84,70 @@ export async function deliverPendingSurface({
   t,
 }: Readonly<{
   focused: boolean;
+  get: Atom.AtomContext;
   hasNativeNotifications: boolean;
   logger: Logger;
   notification: AttentionNotification;
   notifications: NativeNotifications;
   showToast: (notification: AttentionNotification) => void;
-  surfaced: Map<string, SurfaceRecord>;
+  surfaced: SurfaceState;
   t: Translate;
-}>): Promise<SurfaceOutcome> {
-  await logger.append("info", "Resolving attention notification surface.", {
-    focused: String(focused),
-    hasNativeNotifications: String(hasNativeNotifications),
-    notificationID: attentionNotificationIDKey(notification.id),
-    notificationKind: notification.kind,
-    notificationRevision: String(notification.revision),
-  });
+}>): Effect.fn.Return<SurfaceOutcome> {
+  yield* Effect.promise(async () =>
+    logger.append("info", "Resolving attention notification surface.", {
+      focused: String(focused),
+      hasNativeNotifications: String(hasNativeNotifications),
+      notificationID: attentionNotificationIDKey(notification.id),
+      notificationKind: notification.kind,
+      notificationRevision: String(notification.revision),
+    }),
+  );
+  const latest = get.once(surfaced).get(attentionNotificationIDKey(notification.id));
+  if (latest?.state !== "surfacing") return { status: "done" };
+  if (latest.notification.revision !== notification.revision) return { status: "retry" };
   if (focused || !hasNativeNotifications) {
-    removeActiveNotification(notifications, logger, attentionNotificationIDKey(notification.id));
+    yield* removeActiveNotification(notifications, logger, attentionNotificationIDKey(notification.id));
+    if (get.once(surfaced).get(attentionNotificationIDKey(notification.id)) !== latest)
+      return { status: "retry" };
     showToast(notification);
     return { status: "done" };
   }
-  return deliverNativePendingSurface({ logger, notification, notifications, surfaced, t });
-}
-
-export async function reconcileActiveSurfaces(
-  records: readonly (readonly [string, SurfaceRecord])[],
-  api: Api,
-  logger: Logger,
-): Promise<readonly string[]> {
-  const staleIDs: string[] = [];
-  for (const [id, record] of records) {
-    if (record.notification.target.kind !== "workflow_task") {
-      continue;
-    }
-    try {
-      const attention = await api.listTaskAttention(record.notification.target.taskID);
-      if (!attentionTargetIsActive(attention.items, record.notification.target)) {
-        staleIDs.push(id);
-      }
-    } catch (error) {
-      if (isTaskMissingError(error)) {
-        staleIDs.push(id);
-        continue;
-      }
-      await logger.append("warn", "Reconciling attention notification state failed.", {
-        error: errorMessage(error),
-        notificationID: id,
-      });
-    }
-  }
-  return staleIDs;
-}
+  return yield* deliverNativePendingSurface({ get, logger, notification, notifications, surfaced, t });
+});
 
 export function dismissSurface(
-  surfaced: Map<string, SurfaceRecord>,
+  get: Atom.AtomContext,
+  surfaced: SurfaceState,
   status: StatusController,
   id: string,
 ): void {
-  const existing = surfaced.get(id);
+  const existing = get.once(surfaced).get(id);
   if (existing?.state === "toast") {
     status.dismiss(attentionToastID(id));
   }
-  surfaced.delete(id);
+  setSurface(get, surfaced, id, null);
 }
 
-export function removeActiveNotification(
+export const removeActiveNotification: (
   notifications: NativeNotifications,
   logger: Logger,
   id: string,
-): void {
-  void notifications.removeActive(id).catch(async (error: unknown) => {
-    await logger.append("warn", "Removing native attention notification failed.", {
-      error: errorMessage(error),
-      notificationID: id,
-    });
-  });
-}
-
-export async function openNativeActivation(
-  activation: NativeNotificationActivation,
-  openTarget: (target: NativeNotificationTarget) => Promise<void>,
+) => Effect.Effect<void> = Effect.fn("removeActiveNotification")(function* (
+  notifications: NativeNotifications,
   logger: Logger,
-): Promise<void> {
-  try {
-    await openTarget(activation.target);
-  } catch (error) {
-    await logger.append("warn", "Opening native attention notification target failed.", {
-      error: errorMessage(error),
-      notificationID: activation.id,
-    });
-  }
-}
+  id: string,
+): Effect.fn.Return<void> {
+  yield* Effect.tryPromise(async () => notifications.removeActive(id)).pipe(
+    Effect.catch((error) =>
+      Effect.promise(async () =>
+        logger.append("warn", "Removing native attention notification failed.", {
+          error: errorMessage(error.cause),
+          notificationID: id,
+        }),
+      ),
+    ),
+  );
+});
 
 export function taskDetailInitialFocus(focus: AttentionNotificationTaskDetailFocus): TaskDetailInitialFocus {
   if (focus.kind === "question") {
@@ -213,28 +196,27 @@ export function attentionNotificationIDKey(id: AttentionNotificationID): string 
   return `k${String(id.kind.length)}_${id.kind}u${String(id.uuid.length)}_${id.uuid}`;
 }
 
-async function resolveWindowFocus(
+const resolveWindowFocus = Effect.fn("resolveWindowFocus")(function* (
   windowControls: NativeWindow,
-  focusedRef: RefObject<boolean | null>,
+  focused: () => boolean | null,
   logger: Logger,
-): Promise<boolean> {
-  if (focusedRef.current !== null) {
-    return focusedRef.current;
-  }
-  try {
-    const focused = await windowControls.isFocused();
-    focusedRef.current = focused;
-    return focused;
-  } catch (error) {
-    await logger.append("warn", "Reading native window focus state failed.", {
-      error: errorMessage(error),
-    });
-    focusedRef.current = false;
-    return false;
-  }
-}
+) {
+  const current = focused();
+  if (current !== null) return current;
+  const result = yield* Effect.tryPromise(async () => windowControls.isFocused()).pipe(
+    Effect.catch((error) =>
+      Effect.promise(async () =>
+        logger.append("warn", "Reading native window focus state failed.", {
+          error: errorMessage(error.cause),
+        }),
+      ).pipe(Effect.as(false)),
+    ),
+  );
+  return focused() ?? result;
+});
 
-async function deliverNativePendingSurface({
+const deliverNativePendingSurface = Effect.fn("deliverNativePendingSurface")(function* ({
+  get,
   logger,
   notification,
   notifications,
@@ -242,96 +224,82 @@ async function deliverNativePendingSurface({
   t,
 }: Readonly<{
   logger: Logger;
+  get: Atom.AtomContext;
   notification: AttentionNotification;
   notifications: NativeNotifications;
-  surfaced: Map<string, SurfaceRecord>;
+  surfaced: SurfaceState;
   t: Translate;
-}>): Promise<SurfaceOutcome> {
+}>): Effect.fn.Return<SurfaceOutcome> {
   const id = attentionNotificationIDKey(notification.id);
-  await logger.append("info", "Sending native attention notification.", {
-    notificationID: id,
-    notificationKind: notification.kind,
-    notificationRevision: String(notification.revision),
-  });
-  try {
-    await notifications.notify(nativeNotification(notification, t));
-  } catch (error) {
-    await handleNativeDeliveryError({ error, logger, notification, surfaced });
-    return { status: "done" };
-  }
-  await logger.append("info", "Native attention notification accepted.", {
-    notificationID: id,
-    notificationKind: notification.kind,
-    notificationRevision: String(notification.revision),
-  });
-  const latest = surfaced.get(id);
+  yield* Effect.promise(async () =>
+    logger.append("info", "Sending native attention notification.", {
+      notificationID: id,
+      notificationKind: notification.kind,
+      notificationRevision: String(notification.revision),
+    }),
+  );
+  const delivered = yield* Effect.tryPromise(async () =>
+    notifications.notify(nativeNotification(notification, t)),
+  ).pipe(
+    Effect.as(true),
+    Effect.catch((error) =>
+      handleNativeDeliveryError({ get, error: error.cause, logger, notification, surfaced }).pipe(
+        Effect.as(false),
+      ),
+    ),
+  );
+  if (!delivered) return { status: "done" };
+  yield* Effect.promise(async () =>
+    logger.append("info", "Native attention notification accepted.", {
+      notificationID: id,
+      notificationKind: notification.kind,
+      notificationRevision: String(notification.revision),
+    }),
+  );
+  const latest = get.once(surfaced).get(id);
   if (latest?.state !== "surfacing") {
-    removeActiveNotification(notifications, logger, id);
+    yield* removeActiveNotification(notifications, logger, id);
     return { status: "done" };
   }
   if (latest.notification.revision !== notification.revision) {
     return { status: "retry" };
   }
-  surfaced.set(id, { notification, state: "native" });
+  setSurface(get, surfaced, id, { notification, state: "native" });
   return { status: "done" };
-}
+});
 
-async function handleNativeDeliveryError({
+const handleNativeDeliveryError = Effect.fn("handleNativeDeliveryError")(function* ({
+  get,
   error,
   logger,
   notification,
   surfaced,
 }: Readonly<{
   error: unknown;
+  get: Atom.AtomContext;
   logger: Logger;
   notification: AttentionNotification;
-  surfaced: Map<string, SurfaceRecord>;
-}>): Promise<void> {
+  surfaced: SurfaceState;
+}>) {
   const id = attentionNotificationIDKey(notification.id);
-  const latest = surfaced.get(id);
+  const latest = get.once(surfaced).get(id);
   if (latest?.state !== "surfacing") {
     return;
   }
-  await recoverOrThrowDebugFailure({
-    context: {
-      notificationID: id,
-    },
-    error,
-    logger,
-    message: "Native attention notification delivery failed.",
-    recover() {
-      surfaced.set(id, { notification: latest.notification, state: "dismissed" });
-    },
-  });
-}
-
-function attentionTargetIsActive(
-  attention: readonly AttentionItem[],
-  target: AttentionNotificationWorkflowTaskTarget,
-): boolean {
-  const { focus } = target;
-  if (focus.kind === "question") {
-    const askIDs = new Set(focus.askIDs);
-    return attention.some(
-      (item) =>
-        item.kind === "question" &&
-        item.currentNode.nodeID === target.currentNodeID &&
-        item.currentNode.transitionBranchKey === (target.currentNodeBranchKey ?? null) &&
-        item.question.sessionID === (target.sessionID ?? null) &&
-        askIDs.has(item.question.promptID),
-    );
-  }
-  if (focus.kind === "approval") {
-    return attention.some((item) => item.kind === "approval" && item.approvalID === focus.approvalID);
-  }
-  return attention.some(
-    (item) =>
-      item.kind === "interrupted_current_node" &&
-      item.currentNode.nodeID === target.currentNodeID &&
-      item.currentNode.transitionBranchKey === (target.currentNodeBranchKey ?? null) &&
-      item.sessionID === (target.sessionID ?? null),
+  yield* Effect.promise(async () =>
+    recoverOrThrowDebugFailure({
+      context: {
+        notificationID: id,
+      },
+      error,
+      logger,
+      message: "Native attention notification delivery failed.",
+      recover() {
+        setSurface(get, surfaced, id, { notification: latest.notification, state: "dismissed" });
+      },
+    }),
   );
-}
+});
 
 function nativeNotification(notification: AttentionNotification, t: Translate): NativeNotification {
   const target = nativeTarget(notification.target);
@@ -347,9 +315,7 @@ function nativeNotification(notification: AttentionNotification, t: Translate): 
 }
 
 function nativeTarget(target: AttentionNotification["target"]): NativeNotificationTarget | null {
-  if (target.kind !== "workflow_task") {
-    return null;
-  }
+  if (target.kind === "session_prompt") return target;
   const focus = taskDetailInitialFocus(target.focus);
   if (focus.kind === "question" && focus.askIDs.length === 0) {
     return null;
@@ -379,12 +345,12 @@ function interruptedCurrentNodeFallback(notification: AttentionNotification, t: 
     return fallback;
   }
   const reasonCopy: Readonly<Record<string, string>> = {
+    context_selection_required: t("task.contextSelectionRequired"),
     workflow_protocol_violation_cap: t("app.attention.interruptedCurrentNodeProtocolCap"),
     workflow_runtime_start_failed: t("app.attention.interruptedCurrentNodeRuntimeFailed"),
     workflow_script_completion_failed: t("app.attention.interruptedCurrentNodeScriptFailed"),
     workflow_script_execution_failed: t("app.attention.interruptedCurrentNodeScriptFailed"),
     workflow_script_failed: t("app.attention.interruptedCurrentNodeScriptFailed"),
-    workflow_startup_recovery: t("app.attention.interruptedCurrentNodeStartupRecovery"),
   };
   return reasonCopy[reason] ?? fallback;
 }

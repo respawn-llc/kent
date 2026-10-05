@@ -15,9 +15,11 @@ import {
   compactExternalUrlLabel,
   safeExternalUrl,
   showStatusToast,
+  Spinner,
 } from "@/ui";
 import { cx, fieldIslandInputClassName } from "@/ui";
 import type { DescriptionPresentationState } from "./TaskDetailDescriptionPresentation";
+import type { TaskDetailSessionChatEntry } from "./taskDetailSessionChat";
 import { ellipsizeActionTarget } from "./ellipsizeActionTarget";
 import { TaskExecutionTargetFacts } from "./TaskExecutionTargetFacts";
 import { TaskDetailLabels } from "./TaskDetailLabels";
@@ -26,27 +28,28 @@ import { TaskResumeButton, TaskStartButton } from "./TaskResumeButton";
 import { TaskPropertyLine } from "./TaskPropertyLine";
 import { taskDetailIslandRadius } from "./taskDetailIslandStyles";
 import { taskExecutionRoot } from "./taskExecutionTarget";
-import type { useTaskMutations } from "./useTaskDetailData";
+import type { TaskDetailLifecycle } from "./TaskDetailLifecycleActions";
 
 export type TaskDraft = Readonly<{
   title: string;
   body: string;
 }>;
+export type SaveTaskDraft = (draft?: TaskDraft, onSaved?: () => void) => void;
 
 export function TaskHeaderIsland({
   canSaveDraft,
   detail,
-  disabled,
+  saving,
   draft,
   onDraftChange,
   onSave,
 }: Readonly<{
   canSaveDraft: boolean;
   detail: TaskDetail;
-  disabled: boolean;
+  saving: boolean;
   draft: TaskDraft;
   onDraftChange: (draft: TaskDraft) => void;
-  onSave: (draft?: TaskDraft) => Promise<void>;
+  onSave: SaveTaskDraft;
 }>) {
   const { t } = useTranslation();
   const title = draft.title;
@@ -68,7 +71,7 @@ export function TaskHeaderIsland({
       onSubmit={(event) => {
         event.preventDefault();
         if (canSaveDraft) {
-          void onSave();
+          onSave();
         }
       }}
     >
@@ -78,7 +81,6 @@ export function TaskHeaderIsland({
           fieldIslandInputClassName(1, taskDetailIslandRadius),
           "min-w-0 flex-1 px-[var(--space-3)] py-[var(--space-2)] text-[1.125rem] font-bold",
         )}
-        disabled={disabled}
         onChange={(event) => {
           onDraftChange(nextTitle(event.target.value));
         }}
@@ -101,14 +103,15 @@ export function TaskHeaderIsland({
             }`}
             data-testid="task-detail-save"
             disabled={!canSaveDraft || !dirty}
+            aria-busy={saving}
             size="icon"
             tabIndex={dirty ? undefined : -1}
             type="submit"
             variant="primary"
           >
-            <Save aria-hidden="true" size={16} strokeWidth={1.75} />
+            {saving ? <Spinner /> : <Save aria-hidden="true" size={16} strokeWidth={1.75} />}
           </Button>
-          {detail.actions.canDelete ? <TaskDeleteButton active={!dirty} disabled={disabled} /> : null}
+          {detail.actions.canDelete ? <TaskDeleteButton active={!dirty} disabled={false} /> : null}
         </span>
       ) : null}
     </form>
@@ -116,7 +119,6 @@ export function TaskHeaderIsland({
 }
 
 export function DescriptionIsland({
-  disabled,
   draft,
   draftDirty,
   error,
@@ -126,13 +128,12 @@ export function DescriptionIsland({
   presentation,
   submitting,
 }: Readonly<{
-  disabled: boolean;
   draft: TaskDraft;
   draftDirty: boolean;
   error: unknown;
   onDraftChange: (draft: TaskDraft) => void;
   onPresentationChange: (presentation: DescriptionPresentationState) => void;
-  onSave: (draft?: TaskDraft) => Promise<void>;
+  onSave: SaveTaskDraft;
   presentation: DescriptionPresentationState;
   submitting: boolean;
 }>) {
@@ -140,19 +141,15 @@ export function DescriptionIsland({
   const descriptionError = error == null ? undefined : errorMessage(error);
   const submitPolicy = useTextFieldSubmitShortcutPolicy();
   const submitIntent = {
-    available: !disabled && !submitting && draft.title.trim().length > 0 && presentation.editing,
+    available: !submitting && draft.title.trim().length > 0 && presentation.editing,
     onSubmitIntent: () => {
       if (!draftDirty) {
         onPresentationChange({ ...presentation, editing: false });
         return;
       }
-      void onSave(draft)
-        .then(() => {
-          onPresentationChange({ ...presentation, editing: false });
-        })
-        .catch(() => {
-          return;
-        });
+      onSave(draft, () => {
+        onPresentationChange({ ...presentation, editing: false });
+      });
     },
     policy: submitPolicy,
   } as const;
@@ -163,8 +160,7 @@ export function DescriptionIsland({
       data-testid="task-description-input-frame"
     >
       <CollapsibleMarkdownField
-        collapsedHeightClamp={{ maximumLines: 10, minimumLines: 5, viewportPercent: 50 }}
-        disabled={disabled}
+        collapsedHeightClamp={{ kind: "lines", maximumLines: 10, minimumLines: 5, viewportPercent: 50 }}
         editorMinHeight={220}
         error={descriptionError}
         editing={presentation.editing}
@@ -198,12 +194,12 @@ export function DescriptionIsland({
 
 export function PropertiesIsland({
   detail,
-  disabled,
   mutations,
+  openSessionChat,
 }: Readonly<{
   detail: TaskDetail;
-  disabled: boolean;
-  mutations: ReturnType<typeof useTaskMutations>;
+  mutations: TaskDetailLifecycle;
+  openSessionChat?: TaskDetailSessionChatEntry | undefined;
 }>) {
   const { t } = useTranslation();
   const openExternalLink = useOpenExternalLink();
@@ -220,7 +216,7 @@ export function PropertiesIsland({
           label={t("task.identifier", { defaultValue: "ID" })}
           value={<span className="font-mono">{detail.shortID}</span>}
         />
-        <TaskDetailLabels disabled={disabled} />
+        <TaskDetailLabels />
         <TaskPropertyLine label={t("task.project")} value={detail.projectName} />
         <TaskPropertyLine
           label={t("task.status")}
@@ -239,7 +235,7 @@ export function PropertiesIsland({
           <TaskCurrentNodeSelectionProperties key={node.nodeID} node={node} />
         ))}
       </dl>
-      <TaskActionPanel detail={detail} disabled={disabled} mutations={mutations} />
+      <TaskActionPanel detail={detail} mutations={mutations} openSessionChat={openSessionChat} />
     </Island>
   );
 }
@@ -266,12 +262,12 @@ export function TaskCurrentNodeSelectionProperties({ node }: Readonly<{ node: Ta
 
 function TaskActionPanel({
   detail,
-  disabled,
   mutations,
+  openSessionChat,
 }: Readonly<{
   detail: TaskDetail;
-  disabled: boolean;
-  mutations: ReturnType<typeof useTaskMutations>;
+  mutations: TaskDetailLifecycle;
+  openSessionChat?: TaskDetailSessionChatEntry | undefined;
 }>) {
   const { t } = useTranslation();
   const interruptTarget = taskInterruptTarget(detail);
@@ -288,17 +284,17 @@ function TaskActionPanel({
         data-testid="task-detail-action-flow"
       >
         {detail.actions.canStart ? (
-          <TaskStartButton disabled={disabled} />
+          <TaskStartButton />
         ) : detail.actions.canResume ? (
-          <TaskResumeButton disabled={disabled} />
+          <TaskResumeButton />
         ) : null}
-        <TaskOpenButtons detail={detail} disabled={disabled} />
+        <TaskOpenButtons detail={detail} openSessionChat={openSessionChat} />
         {detail.actions.canInterrupt ? (
           <Button
             aria-label={interruptFullLabel}
-            disabled={disabled || mutations.interrupt.isPending}
+            disabled={mutations.interruptPending}
             onClick={() => {
-              mutations.interrupt.mutate(undefined);
+              mutations.interrupt();
             }}
             title={interruptFullLabel}
             variant="danger"
@@ -311,7 +307,13 @@ function TaskActionPanel({
   );
 }
 
-function TaskOpenButtons({ detail, disabled }: Readonly<{ detail: TaskDetail; disabled: boolean }>) {
+function TaskOpenButtons({
+  detail,
+  openSessionChat,
+}: Readonly<{
+  detail: TaskDetail;
+  openSessionChat?: TaskDetailSessionChatEntry | undefined;
+}>) {
   const { t } = useTranslation();
   const { nativeBridge } = useAppServices();
   const [openError, setOpenError] = useState("");
@@ -336,28 +338,47 @@ function TaskOpenButtons({ detail, disabled }: Readonly<{ detail: TaskDetail; di
       {detail.liveSessions.map((session) => {
         const target = taskLiveSessionTarget(session);
         const fullLabel = t("task.openInCli", { name: target });
+        const chatLabel = t("task.openChat", { name: target });
         return (
-          <Button
-            aria-label={fullLabel}
-            disabled={disabled}
-            key={session.sessionID}
-            onClick={() => {
-              setOpenError("");
-              void openInCli(session.sessionID).catch((cause: unknown) => {
-                setOpenError(errorMessage(cause));
-              });
-            }}
-            title={fullLabel}
-            variant="secondary"
-          >
-            {t("task.openInCli", { name: ellipsizeActionTarget(target) })}
-          </Button>
+          <span className="contents" key={session.sessionID}>
+            {openSessionChat === undefined ? null : (
+              <Button
+                aria-label={chatLabel}
+                onClick={() => {
+                  setOpenError("");
+                  void openSessionChat({ projectID: detail.projectID, sessionID: session.sessionID }).catch(
+                    (cause: unknown) => {
+                      setOpenError(errorMessage(cause));
+                    },
+                  );
+                }}
+                title={chatLabel}
+                variant="secondary"
+              >
+                {t("task.openChat", { name: ellipsizeActionTarget(target) })}
+              </Button>
+            )}
+            {openSessionChat === undefined ? (
+              <Button
+                aria-label={fullLabel}
+                onClick={() => {
+                  setOpenError("");
+                  void openInCli(session.sessionID).catch((cause: unknown) => {
+                    setOpenError(errorMessage(cause));
+                  });
+                }}
+                title={fullLabel}
+                variant="secondary"
+              >
+                {t("task.openInCli", { name: ellipsizeActionTarget(target) })}
+              </Button>
+            ) : null}
+          </span>
         );
       })}
       {canOpenScript
         ? detail.currentScripts.map((script) => (
             <Button
-              disabled={disabled}
               key={`${script.currentNode.nodeID}:${script.currentNode.transitionBranchKey ?? "serial"}`}
               onClick={() => {
                 setOpenError("");
@@ -422,7 +443,8 @@ function SourceLine({
   label,
   onOpen,
   value,
-}: Readonly<{ label: string; onOpen: (url: string) => void; value: string }>) {
+}: Readonly<{ label: string; onOpen: (url: string) => void; value: string | null }>) {
+  if (value === null) return null;
   const trimmed = value.trim();
   if (trimmed.length === 0) {
     return null;

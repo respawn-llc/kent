@@ -13,7 +13,9 @@ import (
 	"core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/gitenv"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 )
 
@@ -37,7 +39,7 @@ type Request struct {
 	Runtime               clientui.RuntimeClient
 	WorkspaceRoot         string
 	PersistenceRoot       string
-	ExecutionTarget       clientui.SessionExecutionTarget
+	ExecutionTarget       *worktreepb.SessionExecutionTarget
 	SessionViews          apicontract.SessionViewService
 	Settings              config.Settings
 	Source                config.SourceReport
@@ -114,7 +116,7 @@ type ModelInfo struct {
 }
 
 type ConfigInfo struct {
-	SettingsPath    string
+	Files           []config.SourceFile
 	OverrideSources []string
 	Supervisor      string
 	AutoCompaction  bool
@@ -282,30 +284,30 @@ func GitCacheKey(workdir string) string {
 	return path.Clean(normalized)
 }
 
-func ExecutionTarget(req Request) clientui.SessionExecutionTarget {
+func ExecutionTarget(req Request) *worktreepb.SessionExecutionTarget {
 	if !clientui.SessionExecutionTargetIsZero(req.ExecutionTarget) {
 		return req.ExecutionTarget
 	}
 	if req.Runtime == nil {
-		return clientui.SessionExecutionTarget{}
+		return nil
 	}
 	return req.Runtime.SessionView().ExecutionTarget
 }
 
-func EnvironmentRoot(workspaceRoot string, target clientui.SessionExecutionTarget) string {
-	if target.Worktree != nil {
+func EnvironmentRoot(workspaceRoot string, target *worktreepb.SessionExecutionTarget) string {
+	if target.GetWorktree() != nil {
 		if worktreeRoot := strings.TrimSpace(target.Worktree.Root); worktreeRoot != "" {
 			return worktreeRoot
 		}
 	}
-	if registeredWorkspaceRoot := strings.TrimSpace(target.WorkspaceRoot); registeredWorkspaceRoot != "" {
+	if registeredWorkspaceRoot := strings.TrimSpace(target.GetWorkspaceRoot()); registeredWorkspaceRoot != "" {
 		return registeredWorkspaceRoot
 	}
 	return strings.TrimSpace(workspaceRoot)
 }
 
-func Workdir(workspaceRoot string, target clientui.SessionExecutionTarget) string {
-	if workdir := strings.TrimSpace(target.EffectiveWorkdir); workdir != "" {
+func Workdir(workspaceRoot string, target *worktreepb.SessionExecutionTarget) string {
+	if workdir := strings.TrimSpace(target.GetEffectiveWorkdir()); workdir != "" {
 		return workdir
 	}
 	workdir := strings.TrimSpace(workspaceRoot)
@@ -320,7 +322,7 @@ func Workdir(workspaceRoot string, target clientui.SessionExecutionTarget) strin
 
 func GitRoot(req Request) string {
 	target := ExecutionTarget(req)
-	if target.Worktree != nil {
+	if target.GetWorktree() != nil {
 		worktreeRoot := strings.TrimSpace(target.Worktree.Root)
 		if worktreeRoot != "" {
 			return worktreeRoot
@@ -329,7 +331,7 @@ func GitRoot(req Request) string {
 	if workspaceRoot := strings.TrimSpace(req.WorkspaceRoot); workspaceRoot != "" {
 		return workspaceRoot
 	}
-	if workspaceRoot := strings.TrimSpace(target.WorkspaceRoot); workspaceRoot != "" {
+	if workspaceRoot := strings.TrimSpace(target.GetWorkspaceRoot()); workspaceRoot != "" {
 		return workspaceRoot
 	}
 	return ""
@@ -346,7 +348,7 @@ func CloneTokenMap(input map[string]int) map[string]int {
 	return cloned
 }
 
-func CollectGitStatus(ctx context.Context, workdir string, timeout time.Duration, envSanitizer func([]string) []string) GitInfo {
+func CollectGitStatus(ctx context.Context, workdir string, timeout time.Duration) GitInfo {
 	trimmedWorkdir := strings.TrimSpace(workdir)
 	if trimmedWorkdir == "" {
 		return GitInfo{}
@@ -366,10 +368,7 @@ func CollectGitStatus(ctx context.Context, workdir string, timeout time.Duration
 	gitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(gitCtx, "git", "-C", trimmedWorkdir, "status", "--porcelain=v2", "--branch")
-	cmd.Env = os.Environ()
-	if envSanitizer != nil {
-		cmd.Env = envSanitizer(cmd.Env)
-	}
+	cmd.Env = gitenv.WithoutRepositoryOverrides(os.Environ())
 	out, err := cmd.CombinedOutput()
 	if gitCtx.Err() == context.DeadlineExceeded || err != nil {
 		return GitInfo{Visible: true, Error: GitError(err, string(out))}

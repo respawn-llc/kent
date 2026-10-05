@@ -3,6 +3,8 @@ package workflow
 import (
 	"errors"
 	"strings"
+
+	"core/shared/worktreecontract"
 )
 
 type ExecutionTargetMode string
@@ -23,6 +25,12 @@ type ExecutionTargetPolicy struct {
 type ExecutionTargetSelection struct {
 	Mode      ExecutionTargetMode `json:"mode"`
 	CustomRef *string             `json:"custom_ref,omitempty"`
+}
+
+type ExecutionTargetRestoreRequest struct {
+	TaskID                 TaskID
+	InitialBranchAssertion *string
+	SetupOperationID       *worktreecontract.SetupOperationID
 }
 
 type ExecutionTargetUnavailableCause string

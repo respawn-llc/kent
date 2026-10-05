@@ -2,6 +2,8 @@ package workflowstore
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"core/server/metadata"
@@ -10,7 +12,14 @@ import (
 )
 
 func TestManualMoveRouterPreviewAndApplyPreservesRouteValues(t *testing.T) {
-	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+	ctx, store, binding := newTestStoreContext(t)
+	path := filepath.Join(binding.CanonicalRoot, "scripts", "static_review_router.sh")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	workflowID := createManualMoveStaticReviewRouterWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	definition, _, err := store.GetDefinition(ctx, workflowID)
@@ -66,7 +75,7 @@ func TestManualMoveRouterPreviewAndApplyPreservesRouteValues(t *testing.T) {
 	t.Run("join", func(t *testing.T) {
 		task := createDefaultTask(t, ctx, store, binding.ProjectID)
 		implementation := advanceStaticReviewTaskToImplementation(t, ctx, store, task.ID)
-		sessionID := associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, implementation.Reference)
+		sessionID := currentNodeSessionForStoreTest(t, ctx, store, implementation.Reference)
 		completeManualMoveFixtureNode(t, ctx, store, CurrentNodeCompletionRequest{
 			Source:       implementation.Reference,
 			TransitionID: "implementation_ready",
@@ -128,7 +137,7 @@ func TestManualMoveRouterPreviewAndApplyPreservesRouteValues(t *testing.T) {
 
 func completeManualMoveFixtureNode(t *testing.T, ctx context.Context, store *Store, req CurrentNodeCompletionRequest, label string) CurrentNodeCompletionResult {
 	t.Helper()
-	result, err := store.CompleteCurrentNode(ctx, req)
+	result, err := completeCurrentNode(t, store, ctx, req)
 	if err != nil {
 		t.Fatalf("%s: %v", label, err)
 	}
@@ -140,7 +149,7 @@ func applyManualMoveFixture(t *testing.T, ctx context.Context, store *Store, bin
 	if err != nil {
 		t.Fatalf("prepare manual move: %v", err)
 	}
-	moved, err := applyManualMoveForStoreTest(t, ctx, store, prepared, noneManualMoveExecutionTargetCandidate(binding))
+	moved, err := applyManualMoveForStoreTest(t, ctx, store, prepared, nil)
 	if err != nil {
 		t.Fatalf("apply manual move: %v", err)
 	}

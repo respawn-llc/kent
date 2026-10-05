@@ -37,7 +37,7 @@ const (
 	workflowPostCompletionCompactionAdditionalInstructions = "The current Workflow assignment is complete. Summarize the completed assignment and its durable handoff as completed work. Do not describe the assignment as ongoing, and do not add a current-assignment reminder."
 	handoffDisabledByUserMessage                           = "User disabled the handoff manually for now. They do not want you to hand off at this time, so please keep working or retry this tool later."
 	handoffTooEarlyMessage                                 = "It's too early to handoff right now. Don't worry, you still have plenty of time and memory to finish your work, so continue the current task for now. Only retry trigger_handoff after an explicit developer message says handoff is enabled."
-	localCompactionToolsDisabledMessage                    = "Tools are disabled during compaction. Do NOT attempt to call any tools. Produce only the requested summary."
+	localCompactionToolsDisabledMessage                    = "Tools are disabled during handoff. Do NOT attempt to call any tools. Produce only the requested summary."
 	localCompactionToolCallRetries                         = 3
 )
 
@@ -119,8 +119,15 @@ func (e *Engine) CompactContextForPreSubmit(ctx context.Context, text string) er
 
 func (e *Engine) CompactContextForWorkflowContinuation(ctx context.Context) error {
 	e.ensureOrchestrationCollaborators()
-	_, err := e.compactionFlow.CompactContextForWorkflowContinuation(ctx)
+	if !e.WorkflowContinuationCompactionRequired() {
+		return nil
+	}
+	_, err := e.compactionFlow.CompactContextForWorkflowPostCompletion(ctx)
 	return err
+}
+
+func (e *Engine) WorkflowContinuationCompactionRequired() bool {
+	return !e.compactionRuntimeState().WorkflowPostCompletionBoundary()
 }
 
 func (e *Engine) CompactContextForWorkflowPostCompletion(ctx context.Context) (session.CommitReceipt, error) {
@@ -128,18 +135,11 @@ func (e *Engine) CompactContextForWorkflowPostCompletion(ctx context.Context) (s
 	return e.compactionFlow.CompactContextForWorkflowPostCompletion(ctx)
 }
 
-// SubmitWorkflowContinuationTurn runs the existing lazy CAC operation and
-// consumes a committed Workflow Pre-Compaction boundary only after the target
-// turn succeeds. A failed target attempt therefore preserves the boundary for
-// the existing Resume path.
+// SubmitWorkflowContinuationTurn consumes the prepared compaction boundary
+// after the target turn succeeds.
 func (e *Engine) SubmitWorkflowContinuationTurn(ctx context.Context) (WorkflowTurnResult, error) {
 	if e == nil {
 		return WorkflowTurnResult{}, errors.New("runtime engine is required")
-	}
-	if !e.compactionRuntimeState().WorkflowPostCompletionBoundary() {
-		if err := e.CompactContextForWorkflowContinuation(ctx); err != nil {
-			return WorkflowTurnResult{}, err
-		}
 	}
 	result, err := e.SubmitWorkflowTurn(ctx)
 	if err != nil {
@@ -272,8 +272,22 @@ func (c *defaultContextCompactor) scheduleManualCompaction(
 	return session.CommitReceipt{}, err
 }
 
-func (c *defaultContextCompactor) CompactContextForWorkflowContinuation(ctx context.Context) (session.CommitReceipt, error) {
-	return c.compactManualContext(ctx, compactionInstructionsInput{}, nil, nil, false)
+func (e *Engine) manualCompactionAdmissionError() error {
+	if e.compactionRuntimeState().ActiveSnapshot() != nil {
+		return ErrManualCompactionActive
+	}
+	active := e.ActiveRun()
+	planningSnapshot := e.compactionPlanningSnapshot()
+	if e.compactionPlannerState().mode(planningSnapshot.policy) == "none" {
+		return errCompactionDisabledModeNone
+	}
+	if e.compactionRuntimeState().ManualCompactionEligible() {
+		return nil
+	}
+	if active != nil && isAgentStepKind(active.ActiveKind) {
+		return nil
+	}
+	return ErrManualCompactionTooSoon
 }
 
 func (c *defaultContextCompactor) CompactContextForWorkflowPostCompletion(ctx context.Context) (session.CommitReceipt, error) {
@@ -311,15 +325,6 @@ func (c *defaultContextCompactor) CompactContextForPreSubmitWithAcceptance(ctx c
 func isAgentStepKind(kind ActiveKind) bool {
 	switch kind {
 	case ActiveKindUserTurn, ActiveKindWorkflowTurn, ActiveKindGoalLoop, ActiveKindBackground:
-		return true
-	default:
-		return false
-	}
-}
-
-func isInterruptibleAgentTurn(kind ActiveKind) bool {
-	switch kind {
-	case ActiveKindUserTurn, ActiveKindWorkflowTurn, ActiveKindGoalLoop:
 		return true
 	default:
 		return false
@@ -366,7 +371,13 @@ func (c *defaultContextCompactor) compactContext(
 	e.pauseQueuedUserAutoDrain()
 	defer e.resumeQueuedUserAutoDrain()
 	var receipt session.CommitReceipt
-	err := runExclusiveStepWhenIdle(ctx, c.steps, activeKind, reservation, func(stepCtx context.Context, stepID string) error {
+	run := c.steps.RunNext
+	if activeKind == ActiveKindPreSubmitCompaction {
+		// A pre-submit check must yield to an existing turn so Send can Steer it.
+		// Waiting for that turn to finish would prevent the input reaching its boundaries.
+		run = c.steps.Run
+	}
+	err := run(ctx, exclusiveStepOptions{ActiveKind: activeKind, Reservation: reservation}, func(stepCtx context.Context, stepID string) error {
 		if requireEligibility {
 			if e.compactionRuntimeState().ActiveSnapshot() != nil {
 				return c.reportManualCompactionSelectionFailure(stepID, requestID, ErrManualCompactionActive)
@@ -441,9 +452,9 @@ func (c *defaultContextCompactor) reportManualCompactionTechnicalFailure(
 	return errors.Join(cause, emitErr)
 }
 
-func (e *Engine) autoCompactIfNeeded(ctx context.Context, stepID string, mode compactionMode) error {
+func (e *Engine) autoCompactIfNeeded(ctx context.Context, stepID string, mode compactionMode, preview ...llm.ResponseItem) error {
 	e.ensureOrchestrationCollaborators()
-	return e.compactionFlow.AutoCompactIfNeeded(ctx, stepID, mode)
+	return e.compactionFlow.AutoCompactIfNeeded(ctx, stepID, mode, preview...)
 }
 
 func (e *Engine) maybeReserveEagerCompaction(activeKind ActiveKind, resultKind LiveRunResultKind, assistant llm.Message) {
@@ -488,9 +499,26 @@ func (e *Engine) maybeReserveEagerCompaction(activeKind ActiveKind, resultKind L
 		e.stepLifecycle.ReleaseReservation(reservation)
 	}
 }
-func (c *defaultContextCompactor) AutoCompactIfNeeded(ctx context.Context, stepID string, mode compactionMode) error {
+func (c *defaultContextCompactor) AutoCompactIfNeeded(ctx context.Context, stepID string, mode compactionMode, preview ...llm.ResponseItem) error {
 	e := c.engine
-	if mode == compactionModeAuto && !e.shouldAutoCompactWithContext(ctx) {
+	selectedPreview := func() ([]llm.ResponseItem, error) {
+		if len(preview) == 0 {
+			return nil, nil
+		}
+		assembly, err := e.assembleRequest(ctx, stepID, preview, true, true)
+		if err != nil {
+			return nil, err
+		}
+		if assembly.thinking.update == nil {
+			return preview, nil
+		}
+		return append([]llm.ResponseItem{*assembly.thinking.update}, preview...), nil
+	}
+	projected, err := selectedPreview()
+	if err != nil {
+		return err
+	}
+	if mode == compactionModeAuto && !e.shouldAutoCompactWithContext(ctx, projected...) {
 		return nil
 	}
 	_, receipt, err := e.compactNow(ctx, stepID, mode, compactionInstructionsInput{}, false)
@@ -500,13 +528,19 @@ func (c *defaultContextCompactor) AutoCompactIfNeeded(ctx context.Context, stepI
 	if err != nil && mode == compactionModeAuto {
 		return fmt.Errorf("auto compaction failed: %w", err)
 	}
-	if err == nil && mode == compactionModeAuto && e.shouldAutoCompactWithContext(ctx) {
-		return errors.New("auto compaction did not reduce context below threshold")
+	if err == nil && mode == compactionModeAuto {
+		projected, projectionErr := selectedPreview()
+		if projectionErr != nil {
+			return projectionErr
+		}
+		if e.shouldAutoCompactWithContext(ctx, projected...) {
+			return errors.New("auto compaction did not reduce context below threshold")
+		}
 	}
 	return err
 }
 
-func (e *Engine) shouldAutoCompactWithContext(ctx context.Context) bool {
+func (e *Engine) shouldAutoCompactWithContext(ctx context.Context, preview ...llm.ResponseItem) bool {
 	snapshot := e.compactionPlanningSnapshot()
 	planner := e.compactionPlannerState()
 	if !planner.autoCompactionAvailable(snapshot) {
@@ -516,7 +550,7 @@ func (e *Engine) shouldAutoCompactWithContext(ctx context.Context) bool {
 	if limit <= 0 {
 		return false
 	}
-	return e.usageAtOrAboveLimit(ctx, limit)
+	return e.usageAtOrAboveLimit(ctx, limit, preview...)
 }
 
 func (e *Engine) ShouldCompactBeforeUserMessage(ctx context.Context, text string) (bool, error) {
@@ -555,19 +589,20 @@ func (e *Engine) currentModel() string {
 	return strings.TrimSpace(e.cfg.Model)
 }
 
-func (e *Engine) usageAtOrAboveLimit(_ context.Context, limit int) bool {
+func (e *Engine) usageAtOrAboveLimit(_ context.Context, limit int, preview ...llm.ResponseItem) bool {
 	if limit <= 0 {
 		return false
 	}
 	reservedOutput := e.compactionPlannerState().reservedOutputTokens(e.compactionPlanningSnapshot())
-	return e.currentTokenUsage()+reservedOutput >= limit
+	return e.estimatedCurrentTokenUsage(preview...)+reservedOutput >= limit
 }
 
-func (e *Engine) estimatedCurrentTokenUsage() int {
+func (e *Engine) estimatedCurrentTokenUsage(preview ...llm.ResponseItem) int {
 	estimated := 0
 	if e != nil {
 		estimated = e.transcriptRuntimeState().EstimatedProviderTokens()
 	}
+	estimated += estimateItemsTokens(preview)
 	if e.modelRequests().TokenUsage() != nil {
 		if baseline, ok := e.modelRequests().TokenUsage().estimateCurrentInputTokens(estimated); ok {
 			return baseline
@@ -610,7 +645,7 @@ func (e *Engine) compactNowWithAcceptance(
 		return compactionResult{}, session.CommitReceipt{}, errCompactionDisabledModeNone
 	}
 
-	input := e.transcriptRuntimeState().SnapshotItems()
+	input, replacementEnd := e.transcriptRuntimeState().SnapshotRequestItems()
 	if len(input) == 0 {
 		return compactionResult{}, session.CommitReceipt{}, nil
 	}
@@ -657,6 +692,16 @@ func (e *Engine) compactNowWithAcceptance(
 	dispatchFactory, err := e.activeDispatchRequestFactory(stepID, requestKind)
 	if err != nil {
 		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
+	}
+	thinking, err := prepareNativeThinking(input, replacementEnd, llm.ProviderThinkingEffort(e.cfg.Model, e.ThinkingLevel()), e.store.Meta().OriginalThinkingEffort, llm.SupportsNativeThinkingUpdates(e.cfg.Model, caps))
+	if err != nil {
+		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
+	}
+	if _, err := e.steerWithCommitReceipt(stepID, steerPreparedModelInputIntent(ctx, &preparedUserInjections{}, thinking)); err != nil {
+		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
+	}
+	if thinking.update != nil {
+		input = append(input, *thinking.update)
 	}
 	if enginePlan.engineKind == compactionEngineRemote {
 		var remoteInput []llm.ResponseItem
@@ -713,7 +758,16 @@ func (e *Engine) compactNowWithAcceptance(
 	if err != nil {
 		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
 	}
-	replacementItems := append(llm.ItemsFromMessages(postReplacementMeta.StablePrefix), llm.CloneResponseItems(result.items)...)
+	var replacementItems []llm.ResponseItem
+	if result.engine == "remote" {
+		replacementItems = append(replacementItems, llm.ItemsFromMessages([]llm.Message{{
+			Role:    llm.RoleDeveloper,
+			Content: textutil.Value(prompts.CompactionContinuationReminder),
+		}})...)
+	}
+	replacementItems = append(replacementItems, llm.ItemsFromMessages(postReplacementMeta.StablePrefix)...)
+	replacementItems = append(replacementItems, llm.CloneResponseItems(result.items)...)
+	replacementItems = append(replacementItems, llm.ItemsFromMessages(postReplacementMeta.RunningShells)...)
 	replacementItems = append(replacementItems, llm.ItemsFromMessages(postReplacementMeta.Environment)...)
 	if preservedUserMessageText != nil {
 		if preservedMessage, ok := compactionPreservedUserMessage(*preservedUserMessageText); ok {
@@ -776,14 +830,6 @@ func (e *Engine) compactNowWithAcceptance(
 	if usageErr != nil {
 		finalizationErr = errors.Join(finalizationErr, usageErr)
 	}
-	staleResult, staleErr := e.store.MarkLockedPromptFacingSnapshotsStale()
-	if staleResult.Committed && staleResult.Locked != nil {
-		e.lockedContractState().Set(*staleResult.Locked)
-	}
-	if staleErr != nil {
-		finalizationErr = errors.Join(finalizationErr, staleErr)
-	}
-
 	if err := persistence.emitStatus(stepID, requestID, EventCompactionCompleted, mode, result.engine, providerID, result.trimmedItemsCount, compactionNumber, ""); err != nil {
 		finalizationErr = errors.Join(finalizationErr, err)
 	}
@@ -794,8 +840,9 @@ func (e *Engine) emitLocalCompactionToolCallFeedback(stepID string, count int) e
 	var err error
 	for range count {
 		err = errors.Join(err, e.steer(stepID, steerLocalEntryIntent(storedLocalEntry{
-			Role: string(transcript.EntryRoleDeveloperErrorFeedback),
-			Text: localCompactionToolsDisabledMessage,
+			Role:          string(transcript.EntryRoleDeveloperErrorFeedback),
+			Text:          localCompactionToolsDisabledMessage,
+			CondensedText: textutil.OptionalExactString("Model attempted to call tools during compaction"),
 		})))
 	}
 	return err

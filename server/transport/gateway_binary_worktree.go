@@ -32,27 +32,27 @@ func registerWorktreeGatewayBinaryBindings(bindings map[string]gatewayBinaryBind
 		registerWorktreeUnary(bindings, list, "List", func() *worktreepb.ListRequest { return &worktreepb.ListRequest{} },
 			worktreeSessionScope[*worktreepb.ListRequest], apicontract.WorktreeService.ListWorktrees, worktreePlatformFailure[*worktreepb.ListRequest]),
 		registerWorktreeUnary(bindings, list, "ListWorkspace", func() *worktreepb.WorkspaceListRequest { return &worktreepb.WorkspaceListRequest{} },
-			worktreeWorkspaceScope, apicontract.WorktreeService.ListWorkspaceWorktrees, worktreeWorkspaceListFailure),
+			worktreeWorkspaceScope, apicontract.WorktreeService.ListWorkspaceWorktrees, worktreePlatformFailure[*worktreepb.WorkspaceListRequest]),
 		registerWorktreeUnary(bindings, selector, "Resolve", func() *worktreepb.SelectorResolveRequest { return &worktreepb.SelectorResolveRequest{} },
 			worktreeSessionScope[*worktreepb.SelectorResolveRequest], apicontract.WorktreeService.ResolveWorktreeSelector, worktreeSelectorFailure[*worktreepb.SelectorResolveRequest]),
 		registerWorktreeUnary(bindings, deletePreview, "Get", func() *worktreepb.DeletePreviewRequest { return &worktreepb.DeletePreviewRequest{} },
-			worktreeSessionScope[*worktreepb.DeletePreviewRequest], apicontract.WorktreeService.PreviewWorktreeDelete, worktreeDeletePreviewFailure),
+			worktreeManagementScope[*worktreepb.DeletePreviewRequest], apicontract.WorktreeService.PreviewWorktreeDelete, worktreeDeletionFailure),
 		registerWorktreeUnary(bindings, createTarget, "Resolve", func() *worktreepb.CreateTargetResolveRequest { return &worktreepb.CreateTargetResolveRequest{} },
-			worktreeSessionScope[*worktreepb.CreateTargetResolveRequest], apicontract.WorktreeService.ResolveWorktreeCreateTarget, worktreePlatformFailure[*worktreepb.CreateTargetResolveRequest]),
+			worktreeManagementScope[*worktreepb.CreateTargetResolveRequest], apicontract.WorktreeService.ResolveWorktreeCreateTarget, worktreePlatformFailure[*worktreepb.CreateTargetResolveRequest]),
 		registerWorktreeUnary(bindings, create, "Create",
 			func() *worktreepb.CreateRequest { return &worktreepb.CreateRequest{} },
-			worktreeSessionScope[*worktreepb.CreateRequest],
+			worktreeManagementScope[*worktreepb.CreateRequest],
 			apicontract.WorktreeService.CreateWorktree,
 			worktreeCreateFailure,
 			func(_ *worktreepb.CreateRequest, err error) proto.Message {
 				return worktreeCreateFailure(nil, protoapi.ClassifyWorktreeCreateValidation(err))
 			}),
 		registerWorktreeUnary(bindings, transition, "Enter", func() *worktreepb.EnterRequest { return &worktreepb.EnterRequest{} },
-			worktreeSessionScope[*worktreepb.EnterRequest], apicontract.WorktreeService.EnterWorktree, worktreeTransitionFailure[*worktreepb.EnterRequest]),
+			worktreeSessionScope[*worktreepb.EnterRequest], apicontract.WorktreeService.EnterWorktree, worktreeEnterFailure),
 		registerWorktreeUnary(bindings, transition, "Leave", func() *worktreepb.LeaveRequest { return &worktreepb.LeaveRequest{} },
 			worktreeSessionScope[*worktreepb.LeaveRequest], apicontract.WorktreeService.LeaveWorktree, worktreeTransitionFailure[*worktreepb.LeaveRequest]),
 		registerWorktreeUnary(bindings, transition, "Delete", func() *worktreepb.DeleteRequest { return &worktreepb.DeleteRequest{} },
-			worktreeSessionScope[*worktreepb.DeleteRequest], apicontract.WorktreeService.DeleteWorktree, worktreeDeleteFailure),
+			worktreeManagementScope[*worktreepb.DeleteRequest], apicontract.WorktreeService.DeleteWorktree, worktreeDeleteFailure),
 	)
 }
 
@@ -143,7 +143,18 @@ func registerWorktreeUnary[
 			}
 			return invoke(client, ctx, request)
 		},
-		func(_ *Gateway, _ *connectionState, request Request, err error) proto.Message {
+		func(g *Gateway, state *connectionState, request Request, err error) proto.Message {
+			if errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
+				if details := worktreeManagementSelectionFailure(request, err); details != nil {
+					return details
+				}
+				details := binaryWorkspaceNotRegisteredDetails(g, state, err)
+				if workspaceRequest, ok := proto.Message(request).(*worktreepb.WorkspaceListRequest); ok {
+					details.ProjectId = proto.String(workspaceRequest.ProjectId)
+					details.WorkspaceId = proto.String(workspaceRequest.WorkspaceId)
+				}
+				return details
+			}
 			return failure(request, err)
 		},
 		validationFailure...,
@@ -163,21 +174,41 @@ func worktreeWorkspaceScope(request *worktreepb.WorkspaceListRequest) (routeScop
 	return routeScopeParams{projectID: request.ProjectId, workspaceID: request.WorkspaceId}, nil
 }
 
-func worktreePlatformFailure[Request proto.Message](_ Request, err error) proto.Message {
+func worktreeManagementScope[Request interface {
+	proto.Message
+	GetScope() *worktreepb.ManagementScope
+}](request Request) (routeScopeParams, error) {
+	return routeScopeParams{worktreeManagement: request.GetScope()}, nil
+}
+
+func worktreePlatformFailure[Request proto.Message](request Request, err error) proto.Message {
+	if details := worktreeManagementSelectionFailure(request, err); details != nil {
+		return details
+	}
 	if errors.Is(err, serverapi.ErrServerAuthRequired) {
 		return &authpb.AuthRequiredDetails{}
 	}
 	return binaryInternalFailure(err)
 }
 
-func worktreeWorkspaceListFailure(request *worktreepb.WorkspaceListRequest, err error) proto.Message {
-	if errors.Is(err, serverapi.ErrWorkspaceNotRegistered) && request != nil {
-		return &projectpb.WorkspaceNotRegisteredDetails{
-			ProjectId:   proto.String(request.ProjectId),
-			WorkspaceId: proto.String(request.WorkspaceId),
-		}
+func worktreeManagementSelectionFailure(request proto.Message, err error) proto.Message {
+	scoped, ok := request.(interface {
+		GetScope() *worktreepb.ManagementScope
+	})
+	if !ok {
+		return nil
 	}
-	return worktreePlatformFailure(request, err)
+	target := scoped.GetScope().GetWorkspace().GetTarget()
+	if target == nil {
+		return nil
+	}
+	if errors.Is(err, serverapi.ErrProjectNotFound) {
+		return &projectpb.ProjectNotFoundDetails{ProjectId: target.ProjectId}
+	}
+	if errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
+		return &projectpb.WorkspaceNotRegisteredDetails{ProjectId: proto.String(target.ProjectId), WorkspaceId: proto.String(target.WorkspaceId)}
+	}
+	return nil
 }
 
 func worktreeSelectorFailure[Request proto.Message](request Request, err error) proto.Message {
@@ -195,7 +226,18 @@ func worktreeTransitionFailure[Request proto.Message](request Request, err error
 	return worktreeSelectorFailure(request, err)
 }
 
-func worktreeDeletePreviewFailure(request *worktreepb.DeletePreviewRequest, err error) proto.Message {
+func worktreeEnterFailure(request *worktreepb.EnterRequest, err error) proto.Message {
+	if details := binarySessionRetargetFailure(err); details != nil {
+		return details
+	}
+	return worktreeTransitionFailure(request, err)
+}
+
+func worktreeDeletionFailure[Request proto.Message](request Request, err error) proto.Message {
+	var blocked *worktreecontract.BlockedError
+	if errors.As(err, &blocked) {
+		return blocked.Details
+	}
 	if errors.Is(err, worktreecontract.ErrWorktreeBlocked) {
 		return &worktreepb.BlockedDetails{}
 	}
@@ -203,6 +245,9 @@ func worktreeDeletePreviewFailure(request *worktreepb.DeletePreviewRequest, err 
 }
 
 func worktreeCreateFailure(request *worktreepb.CreateRequest, err error) proto.Message {
+	if details := worktreeManagementSelectionFailure(request, err); details != nil {
+		return details
+	}
 	var retained *worktreecontract.SetupRetainedError
 	if errors.As(err, &retained) && retained != nil && retained.Details != nil {
 		return retained.Details
@@ -219,14 +264,25 @@ func worktreeCreateFailure(request *worktreepb.CreateRequest, err error) proto.M
 }
 
 func worktreeDeleteFailure(request *worktreepb.DeleteRequest, err error) proto.Message {
+	var partial *worktreecontract.DeletePartialError
+	if errors.As(err, &partial) {
+		details := &worktreepb.DeletePartialDetails{
+			RetargetedSessions: partial.RetargetedSessions,
+			Diagnostic:         partial.Cause.Error(),
+		}
+		var blocked *worktreecontract.BlockedError
+		if errors.As(partial.Cause, &blocked) {
+			details.Blocked = blocked.Details
+		} else if errors.Is(partial.Cause, worktreecontract.ErrWorktreeBlocked) {
+			details.Blocked = &worktreepb.BlockedDetails{}
+		}
+		return details
+	}
 	var precondition *worktreecontract.DeletePreconditionError
 	if errors.As(err, &precondition) && precondition != nil && precondition.Details != nil {
 		return precondition.Details
 	}
-	if errors.Is(err, worktreecontract.ErrWorktreeBlocked) {
-		return &worktreepb.BlockedDetails{}
-	}
-	return worktreeSelectorFailure(request, err)
+	return worktreeDeletionFailure(request, err)
 }
 
 func worktreeSetupCompletion(err error) *worktreepb.SetupCompletion {

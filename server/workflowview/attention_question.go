@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"core/shared/clientui"
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -18,7 +21,7 @@ type SessionActiveTranscriptProvider interface {
 }
 
 type PendingPromptSnapshot struct {
-	PromptID               clientui.PromptID
+	ToolCallID             clientui.ToolCallID
 	SessionID              runtimeids.SessionID
 	StepID                 runtimeids.StepID
 	CreatedAt              time.Time
@@ -27,6 +30,7 @@ type PendingPromptSnapshot struct {
 	RecommendedOptionIndex *int
 	Approval               bool
 	ApprovalDecisions      []clientui.ApprovalDecision
+	AccessTargets          []clientui.FileAccessTarget
 }
 
 type PendingQuestionTranscriptEntry struct {
@@ -55,7 +59,7 @@ type pendingQuestion struct {
 	message                string
 	suggestions            []string
 	recommendedOptionIndex *int
-	prompt                 *serverapi.WorkflowAttentionQuestionPrompt
+	prompt                 *taskpb.AttentionQuestionPrompt
 }
 
 func newPendingQuestionResolver(transcripts SessionActiveTranscriptProvider, prompts PendingPromptSource) *pendingQuestionResolver {
@@ -103,7 +107,7 @@ func (r *pendingQuestionResolver) questionFromPendingPrompt(sessionID string, as
 		return pendingQuestion{}, false, fmt.Errorf("load pending prompts for session %q: %w", sessionID, err)
 	}
 	for _, snapshot := range snapshots {
-		if string(snapshot.PromptID) != askID {
+		if string(snapshot.ToolCallID) != askID {
 			continue
 		}
 		return pendingQuestionFromPrompt(snapshot)
@@ -112,54 +116,66 @@ func (r *pendingQuestionResolver) questionFromPendingPrompt(sessionID string, as
 }
 
 func pendingQuestionFromPrompt(snapshot PendingPromptSnapshot) (pendingQuestion, bool, error) {
-	if err := snapshot.PromptID.Validate(); err != nil {
+	if err := snapshot.ToolCallID.Validate(); err != nil {
 		return pendingQuestion{}, true, fmt.Errorf("pending prompt identity: %w", err)
 	}
 	if snapshot.SessionID.IsZero() {
-		return pendingQuestion{}, true, fmt.Errorf("pending prompt %q has no session identity", snapshot.PromptID)
+		return pendingQuestion{}, true, fmt.Errorf("pending prompt %q has no session identity", snapshot.ToolCallID)
 	}
 	if snapshot.StepID.IsZero() {
-		return pendingQuestion{}, true, fmt.Errorf("pending prompt %q has no step identity", snapshot.PromptID)
+		return pendingQuestion{}, true, fmt.Errorf("pending prompt %q has no step identity", snapshot.ToolCallID)
 	}
 	if snapshot.Approval {
-		decisions := append([]clientui.ApprovalDecision(nil), snapshot.ApprovalDecisions...)
-		for _, decision := range decisions {
-			switch decision {
-			case clientui.ApprovalDecisionAllowOnce, clientui.ApprovalDecisionAllowSession, clientui.ApprovalDecisionDeny:
-			default:
-				return pendingQuestion{}, true, fmt.Errorf("pending approval question %q has invalid decision %q", snapshot.PromptID, decision)
+		decisions := make([]promptpb.ApprovalDecision, 0, len(snapshot.ApprovalDecisions))
+		for _, decision := range snapshot.ApprovalDecisions {
+			value, err := protoapi.ApprovalDecisionToProto(decision)
+			if err != nil {
+				return pendingQuestion{}, true, err
 			}
+			decisions = append(decisions, value)
 		}
 		if len(decisions) == 0 {
-			return pendingQuestion{}, true, fmt.Errorf("pending approval question %q has no approval decisions", snapshot.PromptID)
+			return pendingQuestion{}, true, fmt.Errorf("pending approval question %q has no approval decisions", snapshot.ToolCallID)
 		}
 		return pendingQuestion{
 			message: strings.TrimSpace(snapshot.Question),
-			prompt: &serverapi.WorkflowAttentionQuestionPrompt{
-				SessionID:         snapshot.SessionID,
-				StepID:            snapshot.StepID,
-				PromptID:          snapshot.PromptID,
-				Kind:              serverapi.WorkflowAttentionQuestionKindApproval,
-				ApprovalDecisions: decisions,
+			prompt: &taskpb.AttentionQuestionPrompt{
+				SessionId:  snapshot.SessionID.String(),
+				StepId:     snapshot.StepID.String(),
+				ToolCallId: string(snapshot.ToolCallID),
+				Kind:       taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL,
+				Prompt: &taskpb.AttentionQuestionPrompt_Approval{Approval: &taskpb.ApprovalQuestion{
+					ApprovalDecisions: decisions,
+					AccessTargets:     protoapi.FileAccessTargetsToProto(snapshot.AccessTargets),
+				}},
 			},
 		}, true, nil
 	}
 	suggestions := normalizedPendingQuestionSuggestions(snapshot.Suggestions)
 	recommended, err := validatePendingQuestionRecommendation(snapshot.RecommendedOptionIndex, len(suggestions))
 	if err != nil {
-		return pendingQuestion{}, true, fmt.Errorf("pending question %q: %w", snapshot.PromptID, err)
+		return pendingQuestion{}, true, fmt.Errorf("pending question %q: %w", snapshot.ToolCallID, err)
+	}
+	var index *int32
+	if recommended != nil {
+		value, err := protoapi.Int32(*recommended, "recommended option index")
+		if err != nil {
+			return pendingQuestion{}, true, err
+		}
+		index = &value
 	}
 	return pendingQuestion{
 		message:                strings.TrimSpace(snapshot.Question),
 		suggestions:            suggestions,
 		recommendedOptionIndex: recommended,
-		prompt: &serverapi.WorkflowAttentionQuestionPrompt{
-			SessionID:              snapshot.SessionID,
-			StepID:                 snapshot.StepID,
-			PromptID:               snapshot.PromptID,
-			Kind:                   serverapi.WorkflowAttentionQuestionKindOrdinary,
-			Suggestions:            suggestions,
-			RecommendedOptionIndex: textutil.Pointer(recommended),
+		prompt: &taskpb.AttentionQuestionPrompt{
+			SessionId:  snapshot.SessionID.String(),
+			StepId:     snapshot.StepID.String(),
+			ToolCallId: string(snapshot.ToolCallID),
+			Kind:       taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY,
+			Prompt: &taskpb.AttentionQuestionPrompt_Ordinary{Ordinary: &taskpb.OrdinaryQuestion{
+				Suggestions: suggestions, RecommendedOptionIndex: index,
+			}},
 		},
 	}, true, nil
 }
@@ -185,11 +201,6 @@ func pendingQuestionFromTranscriptEntries(entries []PendingQuestionTranscriptEnt
 				message:                question,
 				suggestions:            append([]string(nil), entry.Suggestions...),
 				recommendedOptionIndex: recommended,
-				prompt: &serverapi.WorkflowAttentionQuestionPrompt{
-					Kind:                   serverapi.WorkflowAttentionQuestionKindOrdinary,
-					Suggestions:            append([]string(nil), entry.Suggestions...),
-					RecommendedOptionIndex: textutil.Pointer(recommended),
-				},
 			}, nil
 		}
 	}

@@ -6,7 +6,7 @@ import { errorMessage } from "@/api";
 import type { TaskDetailInitialFocus } from "@/app-facade";
 import { taskDetailInitialFocusRequestKey } from "@/app-facade";
 import { useSidebarHeaderOffset } from "@/app-facade";
-import type { TaskDependencyPair } from "@/shared/task-dependencies";
+import { DependenciesArea, dependencyRelatedTaskIDs } from "@/shared/task-dependencies";
 import {
   autoLoadAvailable,
   directionalBoundary,
@@ -16,25 +16,27 @@ import {
   VirtualizedInfiniteList,
   type VirtualizedInfiniteListBoundaryState,
 } from "@/ui";
-import { ActivityRow, CommentComposer, CommentRow } from "./TaskDetailActivity";
+import { ActivityRow, CommentComposer, CommentRow, type CommentActions } from "./TaskDetailActivity";
 import type { DescriptionPresentationState } from "./TaskDetailDescriptionPresentation";
+import type { TaskDetailSessionChatEntry } from "./taskDetailSessionChat";
 import { TaskDetailInboxRow } from "./TaskDetailInboxRow";
 import { TaskDetailBodyIslands } from "./TaskDetailBodyIslands";
-import { DescriptionIsland, PropertiesIsland, TaskHeaderIsland, type TaskDraft } from "./TaskDetailRows";
+import {
+  DescriptionIsland,
+  PropertiesIsland,
+  TaskHeaderIsland,
+  type TaskDraft,
+  type SaveTaskDraft,
+} from "./TaskDetailRows";
 import { TaskTabs, type DetailTab } from "./TaskDetailTabs";
-import { TaskDependenciesArea } from "./TaskDependenciesAreaAdapter";
 import type { QuestionSelectionState } from "./TaskDetailQuestionState";
 import { promptAnswerKey, type PromptAnswerKey, type PromptAnswerState } from "./PromptAnswerState";
 import type { PromptPrimaryFocusRequest } from "./PromptPrimaryControlRegistry";
-import type { QuestionAnswerMutation } from "./TaskDetailQuestionAnswer";
+import type { QuestionAnswerAction } from "./TaskDetailQuestionAnswer";
 import { selectedFeed, taskDetailPaging } from "./taskDetailPaging";
-import type {
-  TaskDetailFeedPage,
-  useTaskActivity,
-  useTaskAttention,
-  useTaskComments,
-  useTaskMutations,
-} from "./useTaskDetailData";
+import type { TaskDetailFeedPage } from "./taskDetailQueries";
+import type { TaskDetailLifecycle } from "./TaskDetailLifecycleActions";
+import type { TaskDetailReads } from "./TaskDetailViewModel";
 
 type TaskDetailListItem =
   | Readonly<{ kind: "header" }>
@@ -62,9 +64,11 @@ export function TaskDetailList({
   answerQuestion,
   attention,
   comments,
+  commentActions,
   detail,
-  disabled,
   draft,
+  draftDirty,
+  canSaveDraft,
   descriptionPresentation,
   editingComment,
   focusRequestKey,
@@ -72,9 +76,10 @@ export function TaskDetailList({
   mutations,
   newCommentBody,
   onDraftChange,
+  openSessionChat,
   onDescriptionPresentationChange,
   onAddDependency,
-  onRemoveDependency,
+  onDependenciesChanged,
   onSelectDependencyTask,
   onNewCommentBodyChange,
   onEditingCommentChange,
@@ -88,28 +93,31 @@ export function TaskDetailList({
   updateError,
   updatePending,
 }: Readonly<{
-  activity: ReturnType<typeof useTaskActivity>;
-  answerQuestion: QuestionAnswerMutation;
-  attention: ReturnType<typeof useTaskAttention>;
-  comments: ReturnType<typeof useTaskComments>;
+  activity: TaskDetailReads["activity"];
+  answerQuestion: QuestionAnswerAction;
+  attention: TaskDetailReads["attention"];
+  comments: TaskDetailReads["comments"];
+  commentActions: CommentActions;
   detail: TaskDetail;
-  disabled: boolean;
   draft: TaskDraft;
+  draftDirty: boolean;
+  canSaveDraft: boolean;
   descriptionPresentation: DescriptionPresentationState;
   editingComment: Readonly<{ id: string; body: string }> | null;
   focusRequestKey?: string | undefined;
   initialFocus?: TaskDetailInitialFocus | undefined;
-  mutations: ReturnType<typeof useTaskMutations>;
+  mutations: TaskDetailLifecycle;
   newCommentBody: string;
   onDraftChange: (draft: TaskDraft) => void;
+  openSessionChat?: TaskDetailSessionChatEntry | undefined;
   onDescriptionPresentationChange: (presentation: DescriptionPresentationState) => void;
   onAddDependency: (direction: TaskDependencyDirection) => void;
-  onRemoveDependency: (pair: TaskDependencyPair) => void;
+  onDependenciesChanged?: (() => void) | undefined;
   onSelectDependencyTask: (taskID: string) => void;
   onNewCommentBodyChange: (body: string) => void;
   onEditingCommentChange: (editing: Readonly<{ id: string; body: string }> | null) => void;
   onQuestionSelectionChange: (key: PromptAnswerKey, selection: QuestionSelectionState) => void;
-  onSaveDraft: (draft?: TaskDraft) => Promise<void>;
+  onSaveDraft: SaveTaskDraft;
   primaryFocusRequest?: PromptPrimaryFocusRequest | undefined;
   promptAnswerState: PromptAnswerState;
   relationshipNavigationAvailable: boolean;
@@ -120,8 +128,6 @@ export function TaskDetailList({
 }>) {
   const { t } = useTranslation();
   const headerOffset = useSidebarHeaderOffset();
-  const draftDirty = draft.title !== detail.title || draft.body !== detail.body;
-  const canSaveDraft = draftDirty && !disabled && !updatePending && draft.title.trim().length > 0;
   const activityItems = useMemo(
     () => withPresentationKeys(activity.data?.pages ?? [], "activity"),
     [activity.data],
@@ -238,7 +244,6 @@ export function TaskDetailList({
           canSaveDraft={canSaveDraft}
           draftDirty={draftDirty}
           detail={detail}
-          disabled={disabled}
           draft={draft}
           descriptionPresentation={descriptionPresentation}
           editingComment={editingComment}
@@ -247,13 +252,15 @@ export function TaskDetailList({
           item={item}
           loadingTitle={t("states.loading")}
           mutations={mutations}
+          commentActions={commentActions}
           newCommentBody={newCommentBody}
           noActivityTitle={t("task.noActivityTitle")}
           noCommentsTitle={t("task.noCommentsTitle")}
           onDraftChange={onDraftChange}
+          openSessionChat={openSessionChat}
           onDescriptionPresentationChange={onDescriptionPresentationChange}
           onAddDependency={onAddDependency}
-          onRemoveDependency={onRemoveDependency}
+          onDependenciesChanged={onDependenciesChanged}
           onSelectDependencyTask={onSelectDependencyTask}
           onNewCommentBodyChange={onNewCommentBodyChange}
           onEditingCommentChange={onEditingCommentChange}
@@ -279,14 +286,14 @@ export function TaskDetailList({
 }
 
 type TaskDetailListRowProps = Readonly<{
+  commentActions: CommentActions;
   activityCount: number;
-  answerQuestion: QuestionAnswerMutation;
+  answerQuestion: QuestionAnswerAction;
   attentionItems: readonly AttentionItem[];
   attentionPending: boolean;
   canSaveDraft: boolean;
   commentCount: number;
   detail: TaskDetail;
-  disabled: boolean;
   draft: TaskDraft;
   draftDirty: boolean;
   descriptionPresentation: DescriptionPresentationState;
@@ -295,19 +302,20 @@ type TaskDetailListRowProps = Readonly<{
   initialFocus?: TaskDetailInitialFocus | undefined;
   item: TaskDetailListItem;
   loadingTitle: string;
-  mutations: ReturnType<typeof useTaskMutations>;
+  mutations: TaskDetailLifecycle;
   newCommentBody: string;
   noActivityTitle: string;
   noCommentsTitle: string;
   onDraftChange: (draft: TaskDraft) => void;
+  openSessionChat?: TaskDetailSessionChatEntry | undefined;
   onDescriptionPresentationChange: (presentation: DescriptionPresentationState) => void;
   onAddDependency: (direction: TaskDependencyDirection) => void;
-  onRemoveDependency: (pair: TaskDependencyPair) => void;
+  onDependenciesChanged?: (() => void) | undefined;
   onSelectDependencyTask: (taskID: string) => void;
   onNewCommentBodyChange: (body: string) => void;
   onEditingCommentChange: (editing: Readonly<{ id: string; body: string }> | null) => void;
   onQuestionSelectionChange: (key: PromptAnswerKey, selection: QuestionSelectionState) => void;
-  onSaveDraft: (draft?: TaskDraft) => Promise<void>;
+  onSaveDraft: SaveTaskDraft;
   primaryFocusRequest?: PromptPrimaryFocusRequest | undefined;
   promptAnswerState: PromptAnswerState;
   relationshipNavigationAvailable: boolean;
@@ -353,7 +361,6 @@ function TaskDetailListRow(props: TaskDetailListRowProps): ReactNode {
 function HeaderRow({
   canSaveDraft,
   detail,
-  disabled,
   draft,
   onDraftChange,
   onSaveDraft,
@@ -363,7 +370,7 @@ function HeaderRow({
     <TaskHeaderIsland
       canSaveDraft={canSaveDraft}
       detail={detail}
-      disabled={disabled || updatePending}
+      saving={updatePending}
       draft={draft}
       onDraftChange={onDraftChange}
       onSave={onSaveDraft}
@@ -373,11 +380,11 @@ function HeaderRow({
 
 function BodyRow({
   detail,
-  disabled,
   draft,
   draftDirty,
   mutations,
   onDraftChange,
+  openSessionChat,
   onDescriptionPresentationChange,
   onSaveDraft,
   descriptionPresentation,
@@ -388,7 +395,6 @@ function BodyRow({
     <TaskDetailBodyIslands
       description={
         <DescriptionIsland
-          disabled={disabled}
           draft={draft}
           draftDirty={draftDirty}
           error={updateError}
@@ -399,38 +405,29 @@ function BodyRow({
           submitting={updatePending}
         />
       }
-      metadata={<PropertiesIsland detail={detail} disabled={disabled} mutations={mutations} />}
+      metadata={<PropertiesIsland detail={detail} mutations={mutations} openSessionChat={openSessionChat} />}
     />
   );
 }
 
 function DependenciesRow({
   detail,
-  disabled,
-  mutations,
+  commentActions,
   onAddDependency,
-  onRemoveDependency,
+  onDependenciesChanged,
   onSelectDependencyTask,
   relationshipNavigationAvailable,
   updatePending,
 }: TaskDetailListRowProps): ReactNode {
   return (
-    <TaskDependenciesArea
+    <DependenciesArea
       dependencies={detail.dependencies}
-      disabled={disabled}
-      navigationDisabled={
-        disabled ||
-        !relationshipNavigationAvailable ||
-        updatePending ||
-        mutations.addComment.isPending ||
-        mutations.replaceComment.isPending
-      }
+      navigationDisabled={!relationshipNavigationAvailable || updatePending || commentActions.editingPending}
       onAdd={onAddDependency}
-      onAddExisting={async (pair) => mutations.addDependency.mutateAsync(pair)}
-      onRemove={onRemoveDependency}
+      interaction={{ kind: "persisted", taskID: detail.id, onChanged: onDependenciesChanged }}
+      excludedTaskIDs={() => new Set([detail.id, ...dependencyRelatedTaskIDs(detail.dependencies)])}
       onSelectTask={onSelectDependencyTask}
       projectID={detail.projectID}
-      taskID={detail.id}
     />
   );
 }
@@ -447,9 +444,8 @@ function TabsRow({ activityCount, commentCount, selectedTab, setTab }: TaskDetai
 }
 
 function CommentComposerRow({
-  disabled,
   editingComment,
-  mutations,
+  commentActions,
   newCommentBody,
   onNewCommentBodyChange,
   onEditingCommentChange,
@@ -457,9 +453,8 @@ function CommentComposerRow({
   return (
     <CommentComposer
       body={newCommentBody}
-      disabled={disabled}
       editing={editingComment}
-      mutations={mutations}
+      actions={commentActions}
       onBodyChange={onNewCommentBodyChange}
       onEditingChange={onEditingCommentChange}
     />
@@ -480,19 +475,17 @@ function CommentsEmptyRow({ noCommentsTitle }: TaskDetailListRowProps): ReactNod
 }
 
 function CommentItemRow({
-  disabled,
   editingComment,
   item,
-  mutations,
+  commentActions,
   onEditingCommentChange,
 }: TaskDetailListRowProps): ReactNode {
   const comment = item.kind === "comment" ? item.comment : undefined;
   return comment === undefined ? null : (
     <CommentRow
       comment={comment}
-      disabled={disabled}
       editing={editingComment?.id === comment.id}
-      mutations={mutations}
+      actions={commentActions}
       onEdit={(nextComment) => {
         onEditingCommentChange({ id: nextComment.id, body: nextComment.body });
       }}

@@ -4,10 +4,14 @@ export function createAppQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        retry: 1,
+        networkMode: "always",
+        retry: false,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: false,
         staleTime: 4_000,
       },
       mutations: {
+        networkMode: "always",
         retry: false,
       },
     },

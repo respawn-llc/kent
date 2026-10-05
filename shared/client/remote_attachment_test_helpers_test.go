@@ -41,8 +41,25 @@ func receiveRemoteDescriptorCall(
 	request proto.Message,
 ) *string {
 	t.Helper()
+	correlation := receiveRemoteDescriptorCallIfOpen(t, ws, method, request)
+	if correlation == nil {
+		t.Fatalf("connection closed before required %s call", method.Name())
+	}
+	return correlation
+}
+
+func receiveRemoteDescriptorCallIfOpen(
+	t testing.TB,
+	ws *websocket.Conn,
+	method protoreflect.MethodDescriptor,
+	request proto.Message,
+) *string {
+	t.Helper()
 	var encoded []byte
 	if err := websocket.Message.Receive(ws, &encoded); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
 		t.Fatalf("receive %s: %v", method.Name(), err)
 	}
 	envelope, err := protoapi.DecodeEnvelope(encoded)
@@ -350,7 +367,11 @@ func remoteTestSessionAttachment(
 ) *connectionpb.AttachmentSuccess {
 	return &connectionpb.AttachmentSuccess{
 		Attachment: &connectionpb.AttachmentSuccess_Session{Session: &connectionpb.SessionAttachment{
-			ProjectId: projectID, WorkspaceId: workspaceID, WorkspaceRoot: workspaceRoot, SessionId: request.SessionId,
+			ProjectId:          projectID,
+			WorkspaceId:        workspaceID,
+			WorkspaceRoot:      workspaceRoot,
+			SessionId:          request.SessionId,
+			ReattachCapability: "test-session-reattach-capability",
 		}},
 	}
 }

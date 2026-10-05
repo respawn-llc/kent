@@ -14,7 +14,7 @@ import (
 	"core/server/workflow"
 	"core/shared/jsoncontract"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
+	"core/shared/workflowcontract"
 )
 
 // CurrentNodeInterruptionPostCommitDiagnostic reports that interruption
@@ -50,16 +50,16 @@ func (s *Store) ListCurrentNodes(ctx context.Context, taskID workflow.TaskID) ([
 	return s.listTaskCurrentNodes(ctx, s.queries, taskID)
 }
 
-func (s *Store) publishCurrentNodeTaskEvent(ctx context.Context, taskID workflow.TaskID, action serverapi.WorkflowProjectEventAction) error {
+func (s *Store) publishCurrentNodeTaskEvent(ctx context.Context, taskID workflow.TaskID, action workflowcontract.EventAction) error {
 	task, err := s.queries.GetTask(ctx, string(taskID))
 	if err != nil {
 		return fmt.Errorf("read task for current node event: %w", err)
 	}
 	workflowID := task.WorkflowID
-	if err := s.PublishWorkflowEvent(ctx, WorkflowEventRecord{
+	if err := s.PublishWorkflowEvent(ctx, workflowcontract.Event{
 		ProjectID:       &task.ProjectID,
 		WorkflowID:      &workflowID,
-		Resource:        serverapi.WorkflowProjectEventResourceTask,
+		Resource:        workflowcontract.EventResourceTask,
 		Action:          action,
 		PrimaryEntityID: string(taskID),
 	}); err != nil {
@@ -401,6 +401,9 @@ func insertTaskCurrentNodeWithKind(
 	if err != nil {
 		return err
 	}
+	if nodeKind == workflow.NodeKindTerminal {
+		params.EnteredByEdgeID = sql.NullString{}
+	}
 	if currentNode.SessionID != nil && nodeKind != workflow.NodeKindAgent {
 		return fmt.Errorf("%s current node cannot retain a Session", nodeKind)
 	}
@@ -440,7 +443,7 @@ func deleteTaskCurrentNode(ctx context.Context, q *sqlitegen.Queries, reference 
 }
 
 // AdmitCurrentNode atomically moves a ready executable Current Node into the
-// durable restart-marker state before Workflow Execution starts its
+// durable admission state before Workflow Execution starts its
 // process-local Exact Execution Scope.
 func (s *Store) AdmitCurrentNode(ctx context.Context, reference workflow.CurrentNodeReference) (session.CommitReceipt, error) {
 	if err := reference.Validate(); err != nil {
@@ -477,70 +480,9 @@ func (s *Store) AdmitCurrentNode(ctx context.Context, reference workflow.Current
 	return session.CommitReceipt{Committed: true}, nil
 }
 
-// ResumeCurrentNode clears an interrupted restart marker. Workflow Execution
-// immediately follows it with AdmitCurrentNode under the same Task mutation owner;
-// it is deliberately not an automatic recovery path.
-func (s *Store) ResumeCurrentNode(ctx context.Context, reference workflow.CurrentNodeReference) (InterruptedCurrentNodeAttentionProjection, bool, error) {
-	if err := reference.Validate(); err != nil {
-		return InterruptedCurrentNodeAttentionProjection{}, false, err
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return InterruptedCurrentNodeAttentionProjection{}, false, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	q := s.queries.WithTx(tx)
-	branchKey, branchScoped := reference.TransitionBranchKey()
-	var branchValue any
-	if branchScoped {
-		branchValue = string(branchKey)
-	}
-	locked, err := q.AcquireCurrentNodeResumeWriteLock(ctx, sqlitegen.AcquireCurrentNodeResumeWriteLockParams{
-		TaskID:              string(reference.TaskID),
-		NodeID:              string(reference.NodeID),
-		TransitionBranchKey: branchValue,
-	})
-	if err != nil {
-		return InterruptedCurrentNodeAttentionProjection{}, false, err
-	}
-	if locked != 1 {
-		return InterruptedCurrentNodeAttentionProjection{}, false, sql.ErrNoRows
-	}
-	projection, found, err := s.pendingInterruptedCurrentNodeAttentionProjection(ctx, q, reference)
-	if err != nil {
-		return InterruptedCurrentNodeAttentionProjection{}, false, err
-	}
-	var (
-		resumed   int64
-		resumeErr error
-	)
-	if branchScoped {
-		resumed, resumeErr = q.ResumeBranchCurrentNode(ctx, sqlitegen.ResumeBranchCurrentNodeParams{
-			TaskID:              string(reference.TaskID),
-			NodeID:              string(reference.NodeID),
-			TransitionBranchKey: sql.NullString{String: string(branchKey), Valid: true},
-		})
-	} else {
-		resumed, resumeErr = q.ResumeSerialCurrentNode(ctx, sqlitegen.ResumeSerialCurrentNodeParams{
-			TaskID: string(reference.TaskID),
-			NodeID: string(reference.NodeID),
-		})
-	}
-	if resumeErr != nil {
-		return InterruptedCurrentNodeAttentionProjection{}, false, resumeErr
-	}
-	if resumed != 1 {
-		return InterruptedCurrentNodeAttentionProjection{}, false, sql.ErrNoRows
-	}
-	if err := tx.Commit(); err != nil {
-		return InterruptedCurrentNodeAttentionProjection{}, false, err
-	}
-	return projection, found, nil
-}
-
 // InterruptedExecutableCurrentNodes returns the exact interrupted nodes a
 // caller may explicitly resume. Pending Approval sources are excluded here
-// and again atomically by ResumeCurrentNode/AdmitCurrentNode.
+// and again atomically by CommitTaskResume/AdmitCurrentNode.
 func (s *Store) InterruptedExecutableCurrentNodes(ctx context.Context, taskID workflow.TaskID) ([]workflow.CurrentNode, error) {
 	if strings.TrimSpace(string(taskID)) == "" {
 		return nil, errors.New("task id is required")
@@ -604,7 +546,7 @@ func (s *Store) InterruptAdmittedCurrentNode(
 	}
 	return currentNodeInterruptionPostCommitDiagnostic(
 		reference,
-		s.publishCurrentNodeTaskEvent(ctx, reference.TaskID, serverapi.WorkflowProjectEventActionInterrupted),
+		s.publishCurrentNodeTaskEvent(ctx, reference.TaskID, workflowcontract.EventActionInterrupted),
 	)
 }
 
@@ -638,7 +580,7 @@ func (s *Store) InterruptCurrentNode(
 	}
 	return currentNodeInterruptionPostCommitDiagnostic(
 		reference,
-		s.publishCurrentNodeTaskEvent(ctx, reference.TaskID, serverapi.WorkflowProjectEventActionInterrupted),
+		s.publishCurrentNodeTaskEvent(ctx, reference.TaskID, workflowcontract.EventActionInterrupted),
 	)
 }
 
@@ -674,57 +616,35 @@ func (s *Store) ReplaceUserInterruptionWithAssignmentFailure(
 	}
 	return currentNodeInterruptionPostCommitDiagnostic(
 		reference,
-		s.publishCurrentNodeTaskEvent(ctx, reference.TaskID, serverapi.WorkflowProjectEventActionInterrupted),
+		s.publishCurrentNodeTaskEvent(ctx, reference.TaskID, workflowcontract.EventActionInterrupted),
 	)
 }
 
-// RecoverExecutableCurrentNodes turns ready or admitted executable work left
-// by a previous process into resumable interruption state. Pending Approval
-// sources remain frozen and no Automatic Intent is reconstructed.
-func (s *Store) RecoverExecutableCurrentNodes(
-	ctx context.Context,
-	reason workflow.CurrentNodeInterruptionReason,
-	detail workflow.CurrentNodeInterruptionDetail,
-) ([]workflow.CurrentNodeReference, error) {
-	if strings.TrimSpace(string(reason)) == "" {
-		return nil, errors.New("current node interruption reason is required")
+// ReconcileTaskResume is called only by explicit Resume while Workflow
+// Execution owns the Task mutation and has verified that no work remains live
+// or queued. Pending Approval sources stay frozen.
+func (s *Store) ReconcileTaskResume(ctx context.Context, taskID workflow.TaskID) error {
+	if strings.TrimSpace(string(taskID)) == "" {
+		return errors.New("task id is required")
 	}
-	detailJSON, err := json.Marshal(detail)
+	reason := workflow.CurrentNodeInterruptionReason("workflow_execution_interrupted")
+	detailJSON, err := json.Marshal(workflow.NewCurrentNodeInterruptionDetail(string(reason), nil))
 	if err != nil {
-		return nil, fmt.Errorf("encode current node interruption detail: %w", err)
+		return fmt.Errorf("encode current node interruption detail: %w", err)
 	}
-	rows, err := s.queries.RecoverExecutableCurrentNodes(ctx, sqlitegen.RecoverExecutableCurrentNodesParams{
+	changed, err := s.queries.ReconcileTaskResume(ctx, sqlitegen.ReconcileTaskResumeParams{
+		TaskID:                 string(taskID),
 		InterruptionReason:     sql.NullString{String: string(reason), Valid: true},
 		InterruptionDetailJson: sql.NullString{String: string(detailJSON), Valid: true},
 		InterruptedAtUnixMs:    sql.NullInt64{Int64: s.now().UTC().UnixMilli(), Valid: true},
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
-	references := make([]workflow.CurrentNodeReference, 0, len(rows))
-	for _, row := range rows {
-		var branchKey *workflow.TransitionBranchKey
-		if row.TransitionBranchKey.Valid {
-			value := workflow.TransitionBranchKey(row.TransitionBranchKey.String)
-			branchKey = &value
-		}
-		reference, err := workflow.NewCurrentNodeReference(workflow.TaskID(row.TaskID), workflow.NodeID(row.NodeID), branchKey)
-		if err != nil {
-			return nil, err
-		}
-		references = append(references, reference)
+	if changed == 0 {
+		return nil
 	}
-	seenTasks := make(map[workflow.TaskID]struct{}, len(references))
-	for _, reference := range references {
-		if _, seen := seenTasks[reference.TaskID]; seen {
-			continue
-		}
-		seenTasks[reference.TaskID] = struct{}{}
-		if err := s.publishCurrentNodeTaskEvent(ctx, reference.TaskID, serverapi.WorkflowProjectEventActionInterrupted); err != nil {
-			return references, currentNodeInterruptionPostCommitDiagnostic(reference, err)
-		}
-	}
-	return references, nil
+	return s.publishCurrentNodeTaskEvent(ctx, taskID, workflowcontract.EventActionInterrupted)
 }
 
 func taskCurrentNodeInsertParams(currentNode workflow.CurrentNode) (sqlitegen.InsertTaskCurrentNodeParams, error) {

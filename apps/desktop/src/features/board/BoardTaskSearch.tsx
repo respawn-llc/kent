@@ -245,7 +245,7 @@ function TaskSearchResults({
       <ErrorState
         body={errorMessage(search.request.error)}
         onRetry={() => {
-          void search.request.refetch();
+          search.request.refetch();
         }}
         retryLabel={t("app.retry")}
         title={t("taskSearch.failed")}
@@ -297,7 +297,7 @@ function TaskSearchResultList({
     <SearchRefreshError
       message={errorMessage(search.request.error)}
       onRetry={() => {
-        void search.request.refetch();
+        search.request.refetch();
       }}
     />
   ) : undefined;
@@ -349,7 +349,7 @@ function TaskSearchResultList({
       nextBoundary={searchBoundaryState(search, boundaryCopy)}
       onLoadMore={() => {
         if (search.paginationUsesVisibleData) {
-          void search.request.fetchNextPage();
+          search.request.fetchNextPage();
         }
       }}
       paddingEnd={8}
@@ -440,7 +440,7 @@ function searchBoundaryState(
     errorMessage: copy.errorMessage,
     retryLabel: copy.retryLabel,
     onRetry: () => {
-      void search.request.fetchNextPage();
+      search.request.fetchNextPage();
     },
   });
 }

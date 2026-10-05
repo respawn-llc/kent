@@ -51,9 +51,15 @@ _desktop-web:
 _desktop-web-implementation:
     just _node
     just _gen-typescript
-    node apps/desktop/node_modules/typescript7/bin/tsc -b apps/desktop/tsconfig.json --pretty false
+    just build _desktop-compiler
     pnpm --dir apps/desktop exec vite --config tooling/vite.config.ts build
     node apps/scripts/check-desktop-font-assets.mjs
+
+[private]
+_desktop-compiler:
+    just install _effect-compiler
+    just _lint _effect-policy
+    node apps/desktop/node_modules/typescript7/bin/tsc -b apps/desktop/tsconfig.json --pretty false
 
 [private]
 _desktop-smoke-macos bundle_dir:

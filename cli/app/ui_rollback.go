@@ -1,5 +1,7 @@
 package app
 
+import transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+
 import (
 	"errors"
 	"fmt"
@@ -7,9 +9,8 @@ import (
 	"time"
 
 	"core/cli/tui"
-	"core/shared/clientui"
+	"core/shared/protoapi"
 	"core/shared/rollbacktarget"
-	"core/shared/textutil"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -31,7 +32,7 @@ func (m *uiModel) beginRollbackSelectionHydration() tea.Cmd {
 	}
 	cancelCmd := m.cancelPendingDetailTranscriptRequest()
 	loadCmd := m.loadDetailTranscriptPageWithNoticePolicyCmd(
-		clientui.TranscriptPageRequest{},
+		&transcriptpb.PageRequest{},
 		uiDetailTranscriptLoadingNoticeSilent,
 	)
 	if m.pendingDetailTranscript == nil {
@@ -71,14 +72,14 @@ func (m *uiModel) activateRollbackSelectionFromNewestPage() tea.Cmd {
 	)
 }
 
-func (m *uiModel) rollbackCandidatePageRequest() (clientui.TranscriptPageRequest, *string, bool) {
+func (m *uiModel) rollbackCandidatePageRequest() (*transcriptpb.PageRequest, *string, bool) {
 	if m == nil {
-		return clientui.TranscriptPageRequest{}, nil, false
+		return &transcriptpb.PageRequest{}, nil, false
 	}
 	if locator := m.detailTranscript.latestRollbackCandidate; locator != nil {
-		targetID := rollbackTargetIDForCandidateLocator(*locator)
+		targetID := rollbackTargetIDForCandidateLocator(locator)
 		cursor := locator.CandidatePageEndByte
-		return clientui.TranscriptPageRequest{Cursor: &cursor}, &targetID, true
+		return &transcriptpb.PageRequest{Direction: &transcriptpb.PageRequest_Cursor{Cursor: cursor}}, &targetID, true
 	}
 	request, ok := m.detailTranscript.pageBefore()
 	return request, nil, ok
@@ -151,22 +152,22 @@ func (m *uiModel) refreshRollbackCandidates() {
 	}
 }
 
-func rollbackCandidatesFromRows(rows []clientui.TranscriptCommittedRow) []rollbackCandidate {
+func rollbackCandidatesFromRows(rows []*transcriptpb.CommittedRow) []rollbackCandidate {
 	candidates := make([]rollbackCandidate, 0)
 	for _, row := range rows {
-		if row.Visibility == clientui.EntryVisibilityHidden ||
-			row.Kind != clientui.TranscriptRowUser ||
-			row.User == nil ||
-			row.User.RollbackTargetID == nil {
+		user := row.GetUser()
+		if row.Visibility == transcriptpb.EntryVisibility_ENTRY_VISIBILITY_HIDDEN ||
+			user == nil ||
+			user.RollbackTargetId == nil {
 			continue
 		}
-		targetID := *row.User.RollbackTargetID
+		targetID := *user.RollbackTargetId
 		if strings.TrimSpace(targetID) == "" {
 			panic("rollback candidate has an empty rollback target id")
 		}
 		candidates = append(candidates, rollbackCandidate{
 			RollbackTargetID: targetID,
-			Text:             row.User.Text,
+			Text:             user.Text,
 		})
 	}
 	return candidates
@@ -248,7 +249,7 @@ func (m *uiModel) requestRollbackSelectionPage(delta int) tea.Cmd {
 		return nil
 	}
 	var (
-		request   clientui.TranscriptPageRequest
+		request   *transcriptpb.PageRequest
 		direction tui.DetailTranscriptPageDirection
 	)
 	switch {
@@ -285,7 +286,7 @@ func (m *uiModel) requestRollbackSelectionPage(delta int) tea.Cmd {
 	return cmd
 }
 
-func (m *uiModel) loadRollbackNavigationPageCmd(request clientui.TranscriptPageRequest) tea.Cmd {
+func (m *uiModel) loadRollbackNavigationPageCmd(request *transcriptpb.PageRequest) tea.Cmd {
 	if m == nil || m.rollback.pendingNavigation == nil ||
 		!pageRequestEqual(request, m.rollback.pendingNavigation.request) {
 		return nil
@@ -297,12 +298,11 @@ func (m *uiModel) loadRollbackNavigationPageCmd(request clientui.TranscriptPageR
 	})
 }
 
-func (m *uiModel) isRollbackLocatorActivationRequest(request clientui.TranscriptPageRequest) bool {
+func (m *uiModel) isRollbackLocatorActivationRequest(request *transcriptpb.PageRequest) bool {
 	return m != nil &&
 		m.rollback.isAwaitingOlderCandidate() &&
 		m.rollback.activationTargetID != nil &&
-		request.Cursor != nil &&
-		request.NewerCursor == nil
+		isOlderTranscriptPageRequest(request)
 }
 
 func (m *uiModel) rollbackCandidateIsLatest(candidate rollbackCandidate) bool {
@@ -310,11 +310,11 @@ func (m *uiModel) rollbackCandidateIsLatest(candidate rollbackCandidate) bool {
 		return false
 	}
 	return candidate.RollbackTargetID ==
-		rollbackTargetIDForCandidateLocator(*m.detailTranscript.latestRollbackCandidate)
+		rollbackTargetIDForCandidateLocator(m.detailTranscript.latestRollbackCandidate)
 }
 
-func rollbackTargetIDForCandidateLocator(locator rollbacktarget.CandidateLocator) string {
-	if err := locator.Validate(); err != nil {
+func rollbackTargetIDForCandidateLocator(locator *transcriptpb.RollbackCandidate) string {
+	if err := protoapi.Validate(locator); err != nil {
 		panic(fmt.Sprintf("invalid latest rollback candidate locator: %v", err))
 	}
 	targetID := rollbacktarget.EncodeUserMessageSeq(locator.UserMessageSeq)
@@ -324,14 +324,14 @@ func rollbackTargetIDForCandidateLocator(locator rollbacktarget.CandidateLocator
 	return targetID
 }
 
-func (m *uiModel) reconcileRollbackDetailPageLoad(request clientui.TranscriptPageRequest) tea.Cmd {
+func (m *uiModel) reconcileRollbackDetailPageLoad(request *transcriptpb.PageRequest) tea.Cmd {
 	if m == nil {
 		return nil
 	}
-	if m.rollback.isAwaitingNewest() && request.Cursor == nil && request.NewerCursor == nil {
+	if m.rollback.isAwaitingNewest() && request.Direction == nil {
 		return m.activateRollbackSelectionFromNewestPage()
 	}
-	if m.rollback.isAwaitingOlderCandidate() && request.Cursor != nil && request.NewerCursor == nil {
+	if m.rollback.isAwaitingOlderCandidate() && isOlderTranscriptPageRequest(request) {
 		return m.activateRollbackSelectionFromOlderCandidatePage()
 	}
 	pending := m.rollback.pendingNavigation
@@ -386,8 +386,8 @@ func (m *uiModel) reconcileRollbackDetailPageLoad(request clientui.TranscriptPag
 }
 
 func (m *uiModel) continueRollbackNavigationAcrossCandidateFreePage(
-	request clientui.TranscriptPageRequest,
-	page clientui.TranscriptPage,
+	request *transcriptpb.PageRequest,
+	page *transcriptpb.Page,
 ) (tea.Cmd, bool) {
 	if m == nil || m.rollback.pendingNavigation == nil ||
 		!pageRequestEqual(request, m.rollback.pendingNavigation.request) ||
@@ -413,27 +413,34 @@ func (m *uiModel) continueRollbackNavigationAcrossCandidateFreePage(
 
 func rollbackNavigationRequestAfterPage(
 	direction tui.DetailTranscriptPageDirection,
-	page clientui.TranscriptPage,
-) (clientui.TranscriptPageRequest, bool) {
+	page *transcriptpb.Page,
+) (*transcriptpb.PageRequest, bool) {
 	switch direction {
 	case tui.DetailTranscriptPageOlder:
 		if page.HasMoreAbove && page.OlderCursor != nil {
-			return clientui.TranscriptPageRequest{
-				Cursor: textutil.Pointer(page.OlderCursor),
+			return &transcriptpb.PageRequest{
+				Direction: &transcriptpb.PageRequest_Cursor{
+					Cursor: *page.OlderCursor},
 			}, true
 		}
 	case tui.DetailTranscriptPageNewer:
 		if page.HasMoreBelow && page.NewerCursor != nil {
-			return clientui.TranscriptPageRequest{
-				NewerCursor: textutil.Pointer(page.NewerCursor),
+			return &transcriptpb.PageRequest{
+				Direction: &transcriptpb.PageRequest_NewerCursor{
+					NewerCursor: *page.NewerCursor},
 			}, true
 		}
 	}
-	return clientui.TranscriptPageRequest{}, false
+	return &transcriptpb.PageRequest{}, false
+}
+
+func isOlderTranscriptPageRequest(request *transcriptpb.PageRequest) bool {
+	_, older := request.GetDirection().(*transcriptpb.PageRequest_Cursor)
+	return older
 }
 
 func (m *uiModel) rollbackIsolatedPageAnchor(
-	request clientui.TranscriptPageRequest,
+	request *transcriptpb.PageRequest,
 ) (tui.DetailTranscriptPageAnchor, bool) {
 	if m.isRollbackLocatorActivationRequest(request) {
 		return tui.DetailTranscriptAnchorBottom, true
@@ -453,22 +460,22 @@ func (m *uiModel) rollbackIsolatedPageAnchor(
 	}
 }
 
-func (m *uiModel) rollbackNavigationDeadlineExceeded(request clientui.TranscriptPageRequest) bool {
+func (m *uiModel) rollbackNavigationDeadlineExceeded(request *transcriptpb.PageRequest) bool {
 	pending := m.rollback.pendingNavigation
 	return pending != nil &&
 		pageRequestEqual(request, pending.request) &&
 		!time.Now().Before(pending.deadline)
 }
 
-func (m *uiModel) rollbackDetailPageLoadFailed(request clientui.TranscriptPageRequest) {
+func (m *uiModel) rollbackDetailPageLoadFailed(request *transcriptpb.PageRequest) {
 	if m == nil {
 		return
 	}
-	if m.rollback.isAwaitingNewest() && request.Cursor == nil && request.NewerCursor == nil {
+	if m.rollback.isAwaitingNewest() && request.Direction == nil {
 		m.resetRollbackState()
 		return
 	}
-	if m.rollback.isAwaitingOlderCandidate() && request.Cursor != nil && request.NewerCursor == nil {
+	if m.rollback.isAwaitingOlderCandidate() && isOlderTranscriptPageRequest(request) {
 		m.resetRollbackState()
 		return
 	}

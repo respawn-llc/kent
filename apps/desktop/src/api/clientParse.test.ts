@@ -13,7 +13,7 @@ describe("parseRpcResponse", () => {
     });
 
     const error = catchError(() =>
-      parseRpcResponse("workflow.task.get", schema, {
+      parseRpcResponse("test.unary", schema, {
         task: {
           current_nodes: [{ session_id: { secret: "do-not-log" } }],
         },

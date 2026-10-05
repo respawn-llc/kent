@@ -30,9 +30,7 @@ func TestCurrentNodeControllerResumeEligibilityRejectsTaskWithoutInterruptedExec
 	if !errors.As(err, &conflict) || conflict.TaskID != taskID {
 		t.Fatalf("PreflightTaskResume error = %T %v, want conflict for %q", err, err, taskID)
 	}
-	if len(store.resumed) != 0 {
-		t.Fatalf("resume mutations = %v, want none", store.resumed)
-	}
+
 }
 
 func TestCurrentNodeControllerResumeEligibilityReturnsAllInvalidClassificationErrors(t *testing.T) {
@@ -66,9 +64,7 @@ func TestCurrentNodeControllerResumeEligibilityReturnsAllInvalidClassificationEr
 	if !errors.As(err, &validationErr) || len(validationErr.Diagnostics) != 1 {
 		t.Fatalf("PreflightTaskResume error = %T %v, want typed validation error", err, err)
 	}
-	if len(store.resumed) != 0 {
-		t.Fatalf("resume mutations = %v, want none", store.resumed)
-	}
+
 }
 
 func TestCurrentNodeControllerResumeEligibilityAcceptsMixedValidAndInvalidClassifications(t *testing.T) {
@@ -109,9 +105,7 @@ func TestCurrentNodeControllerResumeEligibilityAcceptsMixedValidAndInvalidClassi
 		!preflight.CurrentNodes[0].Reference.Equal(validReference) {
 		t.Fatalf("PreflightTaskResume result = %+v, want resumable %v", preflight, validReference)
 	}
-	if len(store.resumed) != 0 {
-		t.Fatalf("resume mutations = %v, want none", store.resumed)
-	}
+
 }
 
 func TestCurrentNodeControllerResumeEligibilityRejectsUnavailableTaskBeforeStorePreflight(t *testing.T) {
@@ -149,7 +143,5 @@ func TestCurrentNodeControllerResumeEligibilityRejectsUnavailableTaskBeforeStore
 	if store.preflightResumeCalls != 0 {
 		t.Fatalf("store preflight calls = %d, want none", store.preflightResumeCalls)
 	}
-	if len(store.resumed) != 0 {
-		t.Fatalf("resume mutations = %v, want none", store.resumed)
-	}
+
 }

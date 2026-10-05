@@ -18,6 +18,7 @@ import (
 	"core/server/workflowruntime"
 	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/pathutil"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -60,11 +61,9 @@ type metaContextBuildOptions struct {
 	IncludeHeadlessExit       bool
 	ActiveGoal                *session.GoalState
 	IncludeWorkflow           bool
-	WorkflowCompletionMode    workflowruntime.CompletionMode
-	WorkflowPrompt            *workflowruntime.PromptContract
-	WorkflowTaskAwareness     workflowruntime.TaskAwareness
-	WorkflowTaskPromptKind    prompts.WorkflowTaskPromptKind
+	WorkflowMessage           *llm.Message
 	WorktreeReminder          *session.WorktreeReminderState
+	WorktreePromptKind        prompts.WorktreePromptKind
 	SessionRebindReminder     *session.SessionRebindReminder
 	IncludeSkillWarnings      bool
 	PermissiveAgentsReadError bool
@@ -96,8 +95,9 @@ const (
 )
 
 type metaContextProjection struct {
-	StablePrefix []llm.Message
-	Environment  []llm.Message
+	StablePrefix  []llm.Message
+	RunningShells []llm.Message
+	Environment   []llm.Message
 }
 
 func (r metaContextBuildResult) Projection() metaContextProjection {
@@ -137,15 +137,15 @@ func (r metaContextBuildResult) StablePrefixMessages() []llm.Message {
 }
 
 type metaContextBuilder struct {
-	workspaceRoot    string
-	environmentCWD   string
-	globalConfigDir  string
-	model            string
-	thinkingLevel    string
-	skillPolicy      config.SkillPolicy
-	subagentSettings config.Settings
-	enabledTools     []toolspec.ID
-	now              time.Time
+	workspaceRoot   string
+	environmentCWD  string
+	globalConfigDir string
+	model           string
+	thinkingLevel   string
+	skillPolicy     config.SkillPolicy
+	subagentConfig  config.App
+	enabledTools    []toolspec.ID
+	now             time.Time
 }
 
 func newMetaContextBuilder(workspaceRoot, model, thinkingLevel string, skillPolicy config.SkillPolicy, now time.Time) metaContextBuilder {
@@ -186,13 +186,17 @@ func (b metaContextBuilder) withGlobalConfigDir(globalConfigDir string) metaCont
 	return b
 }
 
-func (b metaContextBuilder) withSubagents(settings config.Settings, enabledTools []toolspec.ID) metaContextBuilder {
-	b.subagentSettings = settings
+func (b metaContextBuilder) withSubagents(app config.App, enabledTools []toolspec.ID) metaContextBuilder {
+	b.subagentConfig = app
 	b.enabledTools = append([]toolspec.ID(nil), enabledTools...)
 	return b
 }
 
 func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuildResult, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return metaContextBuildResult{}, fmt.Errorf("resolve home for context paths: %w", err)
+	}
 	ranks, rankErr := b.agentPathRanks()
 	if rankErr != nil && opts.IncludeAgents && !opts.PermissiveAgentsReadError {
 		return metaContextBuildResult{}, rankErr
@@ -201,7 +205,7 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 	collector.addMessages(opts.ExistingMessages)
 
 	if opts.IncludeAgents {
-		agents, err := b.discoverAgents(opts.PermissiveAgentsReadError)
+		agents, err := b.discoverAgents(home, opts.PermissiveAgentsReadError)
 		if err != nil {
 			return metaContextBuildResult{}, err
 		}
@@ -218,19 +222,23 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 			return metaContextBuildResult{}, err
 		}
 		if opts.IncludeSkillWarnings {
-			collector.addWarnings(skillDiscoveryWarningTexts(result.Issues))
+			collector.addWarnings(skillDiscoveryWarningTexts(result.Issues, b.environmentCWD, home))
 		}
 		if len(result.Skills) > 0 {
 			collector.addMessages([]llm.Message{{
 				Role:        llm.RoleDeveloper,
 				MessageType: textutil.Value(llm.MessageTypeSkills),
-				Content:     textutil.Value(renderSkillsContext(result.Skills)),
+				Content:     textutil.Value(renderSkillsContext(result.Skills, b.environmentCWD, home)),
 			}})
 		}
 	}
 
 	if opts.IncludeSubagents {
-		if message, ok := b.subagentsMetaMessage(opts.SubagentInvocationContext); ok {
+		message, ok, err := b.subagentsMetaMessage(opts.SubagentInvocationContext)
+		if err != nil {
+			return metaContextBuildResult{}, err
+		}
+		if ok {
 			collector.addMessages([]llm.Message{message})
 		}
 	}
@@ -264,22 +272,8 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 		}
 	}
 	if opts.IncludeWorkflow {
-		message, ok, err := workflowModeMetaMessage(
-			opts.WorkflowTaskPromptKind,
-			opts.WorkflowCompletionMode,
-			opts.WorkflowPrompt,
-			opts.WorkflowTaskAwareness,
-		)
-		if err != nil {
-			return metaContextBuildResult{}, err
-		}
-		if ok {
-			if opts.WorkflowPrompt != nil {
-				message.SourcePath = textutil.OptionalTrimmedString(
-					opts.WorkflowPrompt.Identity,
-				)
-			}
-			collector.addMessages([]llm.Message{message})
+		if opts.WorkflowMessage != nil {
+			collector.addMessages([]llm.Message{*opts.WorkflowMessage})
 		}
 	}
 	if opts.WorktreeReminder != nil {
@@ -289,9 +283,9 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 		)
 		switch opts.WorktreeReminder.Mode {
 		case session.WorktreeReminderModeEnter:
-			message, ok = worktreeModeMetaMessage(*opts.WorktreeReminder)
+			message, ok = worktreeModeMetaMessage(*opts.WorktreeReminder, home, opts.WorktreePromptKind)
 		case session.WorktreeReminderModeExit:
-			message, ok = worktreeModeExitMetaMessage(*opts.WorktreeReminder)
+			message, ok = worktreeModeExitMetaMessage(*opts.WorktreeReminder, home, opts.WorktreePromptKind)
 		}
 		if ok {
 			collector.addMessages([]llm.Message{message})
@@ -371,7 +365,7 @@ func (b metaContextBuilder) agentPathRanks() (map[string]int, error) {
 	return ranks, nil
 }
 
-func (b metaContextBuilder) discoverAgents(permissive bool) ([]llm.Message, error) {
+func (b metaContextBuilder) discoverAgents(home string, permissive bool) ([]llm.Message, error) {
 	paths, err := agentsInjectionPaths(b.workspaceRoot, b.globalConfigDir)
 	if err != nil {
 		if permissive {
@@ -389,52 +383,68 @@ func (b metaContextBuilder) discoverAgents(permissive bool) ([]llm.Message, erro
 			return nil, fmt.Errorf("read AGENTS.md: %w", readErr)
 		}
 		out = append(out, llm.Message{
-			Role:        llm.RoleDeveloper,
-			MessageType: textutil.Value(llm.MessageTypeAgentsMD),
-			SourcePath:  textutil.Value(path),
-			Content:     textutil.Value(fmt.Sprintf("%s\nsource: %s\n\n```%s\n%s\n```", agentsInjectedHeader, path, agentsInjectedFenceLabel, string(data))),
+			Role:           llm.RoleDeveloper,
+			MessageType:    textutil.Value(llm.MessageTypeAgentsMD),
+			SourcePath:     textutil.Value(path),
+			CompactContent: textutil.Value(pathutil.Compact(path, b.environmentCWD, home) + " content"),
+			Content: textutil.Value(fmt.Sprintf(
+				"# Authoritative instructions, rules, and important context from the %s file:\n\n%s",
+				pathutil.Compact(path, b.environmentCWD, home), data,
+			)),
 		})
 	}
 	return out, nil
 }
 
-func (b metaContextBuilder) subagentsMetaMessage(context config.SubagentInvocationContext) (llm.Message, bool) {
+func (b metaContextBuilder) subagentsMetaMessage(context config.SubagentInvocationContext) (llm.Message, bool, error) {
 	if !toolEnabled(b.enabledTools, toolspec.ToolExecCommand) {
-		return llm.Message{}, false
+		return llm.Message{}, false, nil
 	}
-	roles := b.renderableSubagentRoles(context)
+	roles, err := b.renderableSubagentRoles(context)
+	if err != nil {
+		return llm.Message{}, false, err
+	}
 	caller := b.subagentCaller(context)
-	defaultAllowed := subagentpolicy.Authorize(b.subagentSettings, caller, subagentpolicy.Target{Kind: subagentpolicy.TargetOmittedBase}) == nil
+	defaultAllowed := subagentpolicy.Authorize(b.subagentConfig.Settings, caller, subagentpolicy.Target{Kind: subagentpolicy.TargetOmittedBase}) == nil
 	if !defaultAllowed && len(roles) == 0 {
-		return llm.Message{}, false
+		return llm.Message{}, false, nil
 	}
 	lines := make([]string, 0, len(roles)+3)
 	lines = append(lines, "Available subagent roles:")
 	if defaultAllowed {
-		lines = append(lines, "- `default`: not specifying any role will invoke the default general-purpose agent")
+		description := strings.TrimSpace(b.subagentConfig.Settings.Subagents[config.DefaultSubagentRole].Description)
+		if description == "" {
+			description = "not specifying any role will invoke the default general-purpose agent"
+		}
+		lines = append(lines, "- `default`: "+description)
 	}
 	for _, role := range roles {
-		lines = append(lines, "- `"+role.Name+"`: "+role.Description)
+		description := role.Description
+		if description == "" {
+			description = fallbackSubagentDescription(role.Settings)
+		}
+		lines = append(lines, "- `"+role.Name+"`: "+description)
 	}
 	lines = append(lines, "---")
 	lines = append(lines, "Invoke with `"+prompts.LaunchCommand()+" run --agent=<role> \"<prompt>\"`.")
-	return llm.Message{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeSubagents), Content: textutil.Value(strings.Join(lines, "\n"))}, true
+	return llm.Message{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeSubagents), Content: textutil.Value(strings.Join(lines, "\n"))}, true, nil
 }
 
 type renderedSubagentRole struct {
 	Name        string
 	Description string
+	Settings    config.Settings
 }
 
-func (b metaContextBuilder) renderableSubagentRoles(context config.SubagentInvocationContext) []renderedSubagentRole {
-	settings := b.subagentSettings
+func (b metaContextBuilder) renderableSubagentRoles(context config.SubagentInvocationContext) ([]renderedSubagentRole, error) {
+	settings := b.subagentConfig.Settings
 	if len(settings.Subagents) == 0 {
-		return nil
+		return nil, nil
 	}
 	names := make([]string, 0, len(settings.Subagents))
 	for name := range settings.Subagents {
 		normalized := config.NormalizeSubagentRole(name)
-		if normalized == "" || normalized == config.BuiltInSubagentRoleFast {
+		if normalized == "" || normalized == config.BuiltInSubagentRoleFast || normalized == config.DefaultSubagentRole {
 			continue
 		}
 		names = append(names, normalized)
@@ -447,36 +457,25 @@ func (b metaContextBuilder) renderableSubagentRoles(context config.SubagentInvoc
 		if subagentpolicy.Authorize(settings, caller, subagentpolicy.Target{Kind: subagentpolicy.TargetNamed, Selector: name}) != nil || !config.SubagentRoleHasMeaningfulDiff(settings, role) {
 			continue
 		}
-		description := strings.TrimSpace(role.Description)
-		if description == "" {
-			description = fallbackSubagentDescription(settings, role)
+		effective, _, err := config.OverlaySubagentRoleSettings(b.subagentConfig, role, true)
+		if err != nil {
+			return nil, err
 		}
-		if description == "" {
-			continue
-		}
-		out = append(out, renderedSubagentRole{Name: name, Description: description})
+		out = append(out, renderedSubagentRole{Name: name, Description: strings.TrimSpace(role.Description), Settings: effective})
 	}
-	return out
+	return out, nil
 }
 
 func (b metaContextBuilder) subagentCaller(context config.SubagentInvocationContext) *subagentpolicy.Caller {
 	return &subagentpolicy.Caller{Workflow: context == config.SubagentInvocationContextWorkflow}
 }
 
-func fallbackSubagentDescription(base config.Settings, role config.SubagentRole) string {
-	model := base.Model
-	if _, ok := role.Sources["model"]; ok {
-		model = role.Settings.Model
-	}
-	thinking := base.ThinkingLevel
-	if _, ok := role.Sources["thinking_level"]; ok {
-		thinking = role.Settings.ThinkingLevel
-	}
-	parts := []string{strings.TrimSpace(model), "thinking " + strings.TrimSpace(thinking)}
-	if role.Sources["priority_request_mode"] == "file" && role.Settings.PriorityRequestMode {
+func fallbackSubagentDescription(effective config.Settings) string {
+	parts := []string{strings.TrimSpace(effective.Model), "thinking " + strings.TrimSpace(effective.ThinkingLevel)}
+	if effective.PriorityRequestMode {
 		parts = append(parts, "fast mode on")
 	}
-	tools := config.EffectiveSubagentRoleTools(base.EnabledTools, role)
+	tools := effective.EnabledTools
 	if tools[toolspec.ToolPatch] || tools[toolspec.ToolEdit] {
 		parts = append(parts, "can edit")
 	}
@@ -533,15 +532,28 @@ func workflowModeMetaMessage(kind prompts.WorkflowTaskPromptKind, mode workflowr
 }
 
 func buildWorkflowAssignmentMessage(assignment WorkflowAssignment) (llm.Message, error) {
-	var kind prompts.WorkflowTaskPromptKind
-	switch assignment.ContextMode {
-	case workflow.ContextModeNewSession:
-		kind = prompts.WorkflowTaskPromptInitialAssignment
-	case workflow.ContextModeContinueSession, workflow.ContextModeCompactAndContinueSession:
-		kind = prompts.WorkflowTaskPromptReassignment
-	default:
-		return llm.Message{}, fmt.Errorf("unsupported workflow assignment context mode %q", assignment.ContextMode)
+	kind, err := workflowAssignmentPromptKind(assignment.ContextMode)
+	if err != nil {
+		return llm.Message{}, err
 	}
+	return buildWorkflowAssignmentMessageForKind(assignment, kind)
+}
+
+func workflowAssignmentPromptKind(contextMode workflow.ContextMode) (prompts.WorkflowTaskPromptKind, error) {
+	switch contextMode {
+	case workflow.ContextModeNewSession:
+		return prompts.WorkflowTaskPromptInitialAssignment, nil
+	case workflow.ContextModeContinueSession, workflow.ContextModeCompactAndContinueSession:
+		return prompts.WorkflowTaskPromptReassignment, nil
+	default:
+		return 0, fmt.Errorf("unsupported workflow assignment context mode %q", contextMode)
+	}
+}
+
+func buildWorkflowAssignmentMessageForKind(
+	assignment WorkflowAssignment,
+	kind prompts.WorkflowTaskPromptKind,
+) (llm.Message, error) {
 	message, ok, err := workflowModeMetaMessage(
 		kind,
 		assignment.CompletionMode,
@@ -652,8 +664,10 @@ func workflowInstructionTransitions(in []workflowruntime.TransitionInstruction) 
 	return out
 }
 
-func worktreeModeMetaMessage(state session.WorktreeReminderState) (llm.Message, bool) {
-	content := prompts.RenderWorktreeModePrompt(worktreeBranchPromptValue(state.Branch), state.EffectiveCwd, state.WorktreePath, state.WorkspaceRoot)
+func worktreeModeMetaMessage(state session.WorktreeReminderState, home string, kind prompts.WorktreePromptKind) (llm.Message, bool) {
+	content := prompts.RenderWorktreeModePrompt(kind, worktreeBranchPromptValue(state.Branch), state.EffectiveCwd,
+		pathutil.Compact(state.WorktreePath, state.EffectiveCwd, home),
+		pathutil.Compact(state.WorkspaceRoot, state.EffectiveCwd, home))
 	if strings.TrimSpace(content) == "" {
 		return llm.Message{}, false
 	}
@@ -665,8 +679,10 @@ func worktreeModeMetaMessage(state session.WorktreeReminderState) (llm.Message, 
 	}, true
 }
 
-func worktreeModeExitMetaMessage(state session.WorktreeReminderState) (llm.Message, bool) {
-	content := prompts.RenderWorktreeModeExitPrompt(worktreeBranchPromptValue(state.Branch), state.EffectiveCwd, state.WorktreePath, state.WorkspaceRoot)
+func worktreeModeExitMetaMessage(state session.WorktreeReminderState, home string, kind prompts.WorktreePromptKind) (llm.Message, bool) {
+	content := prompts.RenderWorktreeModeExitPrompt(kind, worktreeBranchPromptValue(state.Branch), state.EffectiveCwd,
+		pathutil.Compact(state.WorktreePath, state.EffectiveCwd, home),
+		pathutil.Compact(state.WorkspaceRoot, state.EffectiveCwd, home))
 	if strings.TrimSpace(content) == "" {
 		return llm.Message{}, false
 	}
@@ -715,13 +731,13 @@ func worktreeBranchPromptValue(branch *string) string {
 	return *branch
 }
 
-func skillDiscoveryWarningTexts(issues []skillcatalog.Issue) []string {
+func skillDiscoveryWarningTexts(issues []skillcatalog.Issue, cwd, home string) []string {
 	if len(issues) == 0 {
 		return nil
 	}
 	out := make([]string, 0, len(issues))
 	for _, issue := range issues {
-		out = append(out, formatSkillDiscoveryWarning(issue))
+		out = append(out, formatSkillDiscoveryWarning(issue, cwd, home))
 	}
 	return out
 }
@@ -882,19 +898,6 @@ func (c *metaContextCollector) result() metaContextBuildResult {
 		result.WorktreeExit = []llm.Message{*c.worktreeExit}
 	}
 	return result
-}
-
-func splitMetaContextMessages(messages []llm.Message) ([]llm.Message, []llm.Message) {
-	meta := make([]llm.Message, 0, 4)
-	transcript := make([]llm.Message, 0, len(messages))
-	for _, message := range messages {
-		if _, ok := classifyMetaContextMessage(message); ok {
-			meta = append(meta, message)
-			continue
-		}
-		transcript = append(transcript, message)
-	}
-	return meta, transcript
 }
 
 func classifyMetaContextMessage(message llm.Message) (metaContextClassification, bool) {

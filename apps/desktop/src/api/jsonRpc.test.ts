@@ -1,7 +1,22 @@
 import { createJsonRpcTransport } from "./jsonRpc";
-import { ProtocolMismatchError, RpcError, ServerRootMismatchError, decodeWorkflowLabelError } from "./errors";
-import { protocolVersion, subscriptionCompleteMethod } from "./jsonRpcSocket";
-import { create, decodeEnvelope, encode, encodeEnvelope, operationName } from "@app/server-api-contract";
+import { ProtocolMismatchError, RpcError, ServerRootMismatchError } from "./errors";
+import { protocolVersion } from "./jsonRpcSocket";
+import {
+  create,
+  decodeEnvelope,
+  encode,
+  encodeEnvelope,
+  operationName,
+  type DescMethod,
+} from "@app/server-api-contract";
+import {
+  ProjectEventSchema,
+  ProjectEventAction,
+  ProjectEventResource,
+  ProjectSubscriptionService,
+} from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
+import { StreamCompletionSchema } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
+import { subscribeWorkflowProject, type WorkflowProjectEventHandler } from "./workflowProjectEvents";
 import {
   AttachSessionResultSchema,
   ConnectionService,
@@ -14,7 +29,18 @@ import {
   ServerService,
 } from "@app/server-api-contract/gen/kent/api/server/server_pb";
 import { z } from "zod";
-import type { RpcEventHandler } from "./transport";
+import { createChatApi } from "./chat";
+import type { ChatTranscriptCompletion } from "./chatTypes";
+import { ContractError, TransportError } from "./errors";
+import { StreamService, MessageSchema } from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
+import { ConversationFreshness } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
+import { QuestionService } from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
+import { TaskReadService } from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
+import { TaskLifecycleService } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { WorktreeError } from "./clientWorktree";
+import { ApiClient } from "./client";
+import { unexpectedProjectOverflow } from "@/test-support/api";
+import { searchTasks } from "./clientTaskSearch";
 
 type SentFrame = Readonly<{
   id: string;
@@ -95,17 +121,17 @@ describe("JsonRpcWebSocketTransport", () => {
 
   it("rejects pending mutations on disconnect and does not replay them on reconnect", async () => {
     const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
-    const mutation = transport.call("workflow.task.start", { task_id: "task-1" });
+    const mutation = transport.call("test.mutation", { task_id: "task-1" });
     const firstSocket = sockets[0] ?? failTest("first socket missing");
 
     await firstSocket.setup();
-    expect(frame(firstSocket, 1)).toMatchObject({ method: "workflow.task.start" });
+    expect(frame(firstSocket, 1)).toMatchObject({ method: "test.mutation" });
 
     firstSocket.close();
     await expect(mutation).rejects.toThrow("closed");
     expect(firstSocket.sent).toHaveLength(2);
 
-    const retry = transport.call("workflow.task.start", { task_id: "task-1" });
+    const retry = transport.call("test.mutation", { task_id: "task-1" });
     const secondSocket = sockets[1] ?? failTest("second socket missing");
     await secondSocket.setup();
     expect(secondSocket.sent).toHaveLength(2);
@@ -127,38 +153,23 @@ describe("JsonRpcWebSocketTransport", () => {
     });
 
     const malformedReadiness = callReadiness(transport);
-    const request = transport.call("workflow.project.label.create", {
-      project_id: "project-1",
-      name: "Priority",
-    });
+    const request = transport.call("test.unary", { value: "input" });
     await waitForSent(socket, 4);
     socket.receive(new Uint8Array([0xff]).buffer);
     malformedBinaryAck(socket, 2);
     await expect(malformedReadiness).rejects.toBeInstanceOf(Error);
     errorAck(socket, 3, {
       code: -32031,
-      message: "label name already exists",
-      data: {
-        type: "workflow_label_error",
-        reason: "name_conflict",
-        project_id: "project-1",
-      },
+      message: "diagnostic",
+      data: { value: "detail" },
     });
 
     const error = await request.catch((cause: unknown) => cause);
     expect(error).toBeInstanceOf(RpcError);
     expect(error).toMatchObject({
       code: -32031,
-      method: "workflow.project.label.create",
-      data: {
-        type: "workflow_label_error",
-        reason: "name_conflict",
-        project_id: "project-1",
-      },
-    });
-    expect(decodeWorkflowLabelError(error)).toMatchObject({
-      reason: "name_conflict",
-      projectID: "project-1",
+      method: "test.unary",
+      data: { value: "detail" },
     });
   });
 
@@ -170,10 +181,10 @@ describe("JsonRpcWebSocketTransport", () => {
     ack(controlSocket, 1);
     await expect(readiness).resolves.toMatchObject({ outcome: { case: "success" } });
 
-    const search = transport.callDedicated("workflow.task.search", { query: "needle" });
+    const search = transport.callDedicated("test.dedicated", { query: "needle" });
     const dedicatedSocket = sockets[1] ?? failTest("dedicated socket missing");
     await dedicatedSocket.setup();
-    expect(frame(dedicatedSocket, 1)).toMatchObject({ method: "workflow.task.search" });
+    expect(frame(dedicatedSocket, 1)).toMatchObject({ method: "test.dedicated" });
     ack(dedicatedSocket, 1);
 
     await expect(search).resolves.toEqual({});
@@ -183,27 +194,35 @@ describe("JsonRpcWebSocketTransport", () => {
 
   it("attaches a dedicated Session before a Session-scoped call", async () => {
     const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
-    const answer = transport.callAttachedSession("session-1", "prompt.answerBatch", {
-      session_id: "session-1",
-    });
+    const method = QuestionService.method.listPending;
+    const answer = transport.callDescriptorAttachedSession(
+      { sessionID: "session-1", projectID: "project-1" },
+      method,
+      create(method.input, { sessionId: "session-1" }),
+    );
     const socket = sockets[0] ?? failTest("attached Session socket missing");
 
     await socket.setup();
     expect(descriptorOperation(socket, 1)).toBe(operationName(ConnectionService.method.attachSession));
     ack(socket, 1);
     await waitForSent(socket, 3);
-    expect(frame(socket, 2)).toMatchObject({ method: "prompt.answerBatch" });
-    ack(socket, 2);
+    expect(descriptorOperation(socket, 2)).toBe(operationName(method));
+    binaryAck(socket, 2, method, {
+      result: create(method.output, { outcome: { case: "success", value: { questions: [] } } }),
+    });
 
-    await expect(answer).resolves.toEqual({});
+    await expect(answer).resolves.toMatchObject({ outcome: { case: "success", value: { questions: [] } } });
     expect(socket.readyState).toBe(MockWebSocket.CLOSED);
   });
 
   it("does not send a Session-scoped call when Session attachment fails", async () => {
     const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
-    const answer = transport.callAttachedSession("session-1", "prompt.answerBatch", {
-      session_id: "session-1",
-    });
+    const method = QuestionService.method.listPending;
+    const answer = transport.callDescriptorAttachedSession(
+      { sessionID: "session-1" },
+      method,
+      create(method.input, { sessionId: "session-1" }),
+    );
     const socket = sockets[0] ?? failTest("attached Session socket missing");
 
     await socket.setup();
@@ -243,26 +262,92 @@ describe("JsonRpcWebSocketTransport", () => {
     expect(socket.readyState).toBe(MockWebSocket.CLOSED);
   });
 
+  it("rejects AbortSignal for multiplexed descriptors before opening a socket", async () => {
+    const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
+    const method = ServerService.method.getReadiness;
+    const result = transport
+      .callDescriptor(method, create(method.input), {
+        signal: new AbortController().signal,
+      })
+      .catch((error: unknown) => error);
+    const socket = sockets[0];
+    if (socket !== undefined) {
+      await socket.setup();
+      binaryAck(socket, 1, method, { result: readinessResult() });
+    }
+    expect(await result).toBeInstanceOf(TransportError);
+    expect(sockets).toHaveLength(0);
+  });
+
   it("cancels a dedicated call by closing only its socket", async () => {
     const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
+    const readiness = callReadiness(transport);
+    const control = sockets[0] ?? failTest("control socket missing");
+    await control.setup();
+    ack(control, 1);
+    await readiness;
     const controller = new AbortController();
-    const search = transport.callDedicated(
-      "workflow.task.search",
-      { query: "needle" },
-      { signal: controller.signal },
+    const search = searchTasks(
+      transport,
+      {
+        mode: "literal",
+        query: "needle",
+        context: 20,
+        caseSensitive: false,
+        includeComments: false,
+        pageSize: 25,
+      },
+      controller.signal,
     );
-    const socket = sockets[0] ?? failTest("dedicated socket missing");
+    const socket = sockets[1] ?? failTest("dedicated socket missing");
     await socket.setup();
 
+    const operation = descriptorCall(socket, 1).operation;
     controller.abort();
 
     await expect(search).rejects.toThrow("canceled");
+    expect(operation).toBe(operationName(TaskReadService.method.search));
     expect(socket.readyState).toBe(MockWebSocket.CLOSED);
+    const nextReadiness = callReadiness(transport);
+    await waitForSent(control, 3);
+    ack(control, 2);
+    await expect(nextReadiness).resolves.toMatchObject({ outcome: { case: "success" } });
+    expect(control.readyState).toBe(MockWebSocket.OPEN);
+    expect(sockets).toHaveLength(2);
+  });
+
+  it("retains the typed Worktree blocker through Task deletion without closing control", async () => {
+    const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
+    const deletion = client.deleteTask("task-1").catch((error: unknown) => error);
+    const socket = sockets[0] ?? failTest("control socket missing");
+    await socket.setup();
+    const method = TaskLifecycleService.method.delete;
+    binaryAck(socket, 1, method, {
+      result: create(method.output, {
+        outcome: {
+          case: "error",
+          value: {
+            code: "worktree_blocked",
+            detail: { case: "worktreeBlocked", value: {} },
+          },
+        },
+      }),
+    });
+    const error = await deletion;
+    expect(error).toBeInstanceOf(WorktreeError);
+    if (!(error instanceof WorktreeError)) throw error;
+    expect(error.detail.kind).toBe("blocked");
+    const readiness = callReadiness(transport);
+    await waitForSent(socket, 3);
+    ack(socket, 2);
+    await expect(readiness).resolves.toMatchObject({ outcome: { case: "success" } });
+    expect(socket.readyState).toBe(MockWebSocket.OPEN);
   });
 
   it("falls back to a generic RPC error when error data is not valid JSON", async () => {
     const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
-    const request = transport.call("workflow.project.label.create", {
+    const request = transport.call("test.unary", {
       project_id: "project-1",
       name: "Priority",
     });
@@ -278,7 +363,7 @@ describe("JsonRpcWebSocketTransport", () => {
     expect(error).toBeInstanceOf(RpcError);
     expect(error).toMatchObject({
       code: -32031,
-      method: "workflow.project.label.create",
+      method: "test.unary",
       data: undefined,
     });
   });
@@ -315,7 +400,7 @@ describe("JsonRpcWebSocketTransport", () => {
   it("keeps no-timeout control calls pending past the generic request deadline", async () => {
     vi.useFakeTimers();
     const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
-    const mutation = transport.call("workflow.task.start", { task_id: "task-1" }, { timeoutMs: null });
+    const mutation = transport.call("test.mutation", { task_id: "task-1" }, { timeoutMs: null });
     let settled = false;
     mutation.then(
       () => {
@@ -328,7 +413,7 @@ describe("JsonRpcWebSocketTransport", () => {
     const socket = sockets[0] ?? failTest("control socket missing");
 
     await socket.setup();
-    expect(frame(socket, 1)).toMatchObject({ method: "workflow.task.start" });
+    expect(frame(socket, 1)).toMatchObject({ method: "test.mutation" });
 
     await vi.advanceTimersByTimeAsync(31_000);
     expect(settled).toBe(false);
@@ -344,28 +429,22 @@ describe("JsonRpcWebSocketTransport", () => {
       onOpen() {
         opens.push("open");
       },
-      onEvent(method) {
-        events.push(method);
+      onEvent(event) {
+        events.push(event.primaryEntityID);
       },
     });
     socket.open();
     await waitForSent(socket, 1);
     ack(socket, 0);
     await waitForSent(socket, 2);
-    expect(frame(socket, 1)).toMatchObject({ method: "workflow.subscribeProject" });
+    expect(descriptorOperation(socket, 1)).toBe(operationName(ProjectSubscriptionService.method.subscribe));
 
-    socket.receive(
-      JSON.stringify({
-        jsonrpc: "2.0",
-        method: "workflow.project",
-        params: { event: { project_id: "project-1" } },
-      }),
-    );
-    ack(socket, 1);
+    projectEvent(socket);
+    projectAck(socket);
     await flushPromises();
 
     expect(opens).toEqual(["open"]);
-    expect(events).toEqual(["workflow.project"]);
+    expect(events).toEqual(["task-1"]);
   });
 
   it("rejects subscriptions on handshake protocol mismatch before sending the subscribe method", async () => {
@@ -395,30 +474,67 @@ describe("JsonRpcWebSocketTransport", () => {
     subscription.close();
   });
 
-  it("reopens subscription socket after unexpected close", async () => {
-    const errors: string[] = [];
+  it("ends a lost subscription and permits a fresh explicit subscription", async () => {
+    vi.useFakeTimers();
+    const errors: Error[] = [];
     const { subscription, socket: firstSocket } = subscribeProject({
       onError(error) {
-        errors.push(error.message);
+        errors.push(error);
       },
     });
     await firstSocket.setup();
-    ack(firstSocket, 1);
+    projectAck(firstSocket);
     await flushPromises();
 
     firstSocket.close();
-    await vi.waitFor(() => {
-      expect(sockets.length).toBeGreaterThanOrEqual(2);
-    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sockets).toHaveLength(1);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(TransportError);
+    const next = subscribeProject({});
     const secondSocket = sockets[1] ?? failTest("resubscription socket missing");
     await secondSocket.setup();
 
-    expect(frame(secondSocket, 1)).toMatchObject({ method: "workflow.subscribeProject" });
-    expect(errors).toEqual(["Subscription socket closed."]);
+    expect(descriptorOperation(secondSocket, 1)).toBe(
+      operationName(ProjectSubscriptionService.method.subscribe),
+    );
+    subscription.close();
+    next.subscription.close();
+  });
+
+  it("stops subscription retry after a definitive RPC rejection", async () => {
+    const errors: Error[] = [];
+    const { subscription, socket } = subscribeProject({
+      onError(error) {
+        errors.push(error);
+      },
+    });
+    await socket.setup();
+    vi.useFakeTimers();
+
+    binaryAck(socket, 1, ProjectSubscriptionService.method.subscribe, {
+      result: create(ProjectSubscriptionService.method.subscribe.output, {
+        outcome: {
+          case: "error",
+          value: {
+            code: "internal_failure",
+            detail: { case: "internalFailure", value: { cause: "Subscription rejected" } },
+          },
+        },
+      }),
+    });
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(RpcError);
+    expect(sockets).toHaveLength(1);
+    expect(socket.sent).toHaveLength(2);
     subscription.close();
   });
 
-  it("reopens subscription socket after server complete notification", async () => {
+  it("ends a subscription after unsuccessful completion without reopening", async () => {
+    vi.useFakeTimers();
     const completions: number[] = [];
     const errors: Error[] = [];
     const { subscription, socket: firstSocket } = subscribeProject({
@@ -430,25 +546,18 @@ describe("JsonRpcWebSocketTransport", () => {
       },
     });
     await firstSocket.setup();
-    ack(firstSocket, 1);
+    projectAck(firstSocket);
     await flushPromises();
 
-    firstSocket.receive(
-      JSON.stringify({
-        jsonrpc: "2.0",
-        method: "workflow.project.complete",
-        params: { code: 409, message: "stream gap" },
-      }),
+    binaryNotification(
+      firstSocket,
+      ProjectSubscriptionService.method.complete,
+      encode(StreamCompletionSchema, create(StreamCompletionSchema, { code: -32010, message: "stream gap" })),
     );
 
-    await vi.waitFor(() => {
-      expect(sockets.length).toBeGreaterThanOrEqual(2);
-    });
-    const secondSocket = sockets[1] ?? failTest("resubscription socket missing");
-    await secondSocket.setup();
-
-    expect(frame(secondSocket, 1)).toMatchObject({ method: "workflow.subscribeProject" });
-    expect(completions).toEqual([409]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sockets).toHaveLength(1);
+    expect(completions).toEqual([-32010]);
     expect(errors).toHaveLength(1);
     subscription.close();
   });
@@ -465,15 +574,13 @@ describe("JsonRpcWebSocketTransport", () => {
       },
     });
     await socket.setup();
-    ack(socket, 1);
+    projectAck(socket);
     await flushPromises();
 
-    socket.receive(
-      JSON.stringify({
-        jsonrpc: "2.0",
-        method: "workflow.project.complete",
-        params: { code: 0, message: "" },
-      }),
+    binaryNotification(
+      socket,
+      ProjectSubscriptionService.method.complete,
+      encode(StreamCompletionSchema, create(StreamCompletionSchema)),
     );
     await flushPromises();
 
@@ -483,61 +590,247 @@ describe("JsonRpcWebSocketTransport", () => {
     subscription.close();
   });
 
-  it("keeps subscriptions active for non-terminal events ending with complete", async () => {
+  it("keeps subscriptions active for Task completion events", async () => {
     const events: string[] = [];
     const completions: string[] = [];
     const { subscription, socket } = subscribeProject({
-      onEvent(method) {
-        events.push(method);
+      onEvent(event) {
+        events.push(event.action);
       },
       onComplete(code, message) {
         completions.push(`${code.toString()}:${message}`);
       },
     });
     await socket.setup();
-    ack(socket, 1);
+    projectAck(socket);
     await flushPromises();
 
-    socket.receive(
-      JSON.stringify({
-        jsonrpc: "2.0",
-        method: "workflow.project.task.complete",
-        params: { event: { project_id: "project-1" } },
-      }),
-    );
+    projectEvent(socket, ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_COMPLETED);
     await flushPromises();
 
-    expect(events).toEqual(["workflow.project.task.complete"]);
+    expect(events).toEqual(["completed"]);
     expect(completions).toEqual([]);
     expect(sockets).toHaveLength(1);
     subscription.close();
   });
 
-  it("maps attention notification subscriptions to their complete method", () => {
-    expect(subscriptionCompleteMethod("attention.notification.subscribe")).toBe(
-      "attention.notification.complete",
+  it("discards invalid transcript events on the same socket and makes invalid completion terminal", async () => {
+    vi.useFakeTimers();
+    const sessionID = "123e4567-e89b-42d3-a456-426614174000";
+    const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
+    const onEvent = vi.fn();
+    const onError = vi.fn();
+    const onOpen = vi.fn();
+    const subscription = createChatApi(transport).subscribeTranscript(
+      {
+        projectID: "project-1",
+        sessionID,
+      },
+      { onEvent, onError, onOpen, onComplete: vi.fn() },
     );
+    const socket = sockets[0] ?? failTest("Transcript socket missing.");
+    await prepareTranscriptSocket(socket, sessionID);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(onOpen).not.toHaveBeenCalled();
+    binaryAck(socket, 2, StreamService.method.subscribe, {
+      result: create(StreamService.method.subscribe.output, {
+        outcome: { case: "success", value: {} },
+      }),
+    });
+    expect(onOpen).toHaveBeenCalledOnce();
+    // Sequence without the required Event is an invalid expected event, not a bad envelope.
+    binaryNotification(socket, StreamService.method.event, Uint8Array.of(8, 2));
+    binaryNotification(
+      socket,
+      StreamService.method.event,
+      encode(
+        MessageSchema,
+        create(MessageSchema, {
+          sequence: 3n,
+          event: {
+            payload: {
+              case: "sessionIdentity",
+              value: {
+                sessionId: "223e4567-e89b-42d3-a456-426614174000",
+                conversationFreshness: ConversationFreshness.FRESH,
+              },
+            },
+          },
+        }),
+      ),
+    );
+    binaryNotification(
+      socket,
+      StreamService.method.event,
+      encode(
+        MessageSchema,
+        create(MessageSchema, {
+          sequence: 4n,
+          event: {
+            payload: {
+              case: "sessionIdentity",
+              value: { sessionId: sessionID, conversationFreshness: ConversationFreshness.FRESH },
+            },
+          },
+        }),
+      ),
+    );
+    expect(onEvent).toHaveBeenCalledOnce();
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ sequence: 4, kind: "session_identity" }));
+    expect(onError).toHaveBeenCalledTimes(2);
+    for (const [error] of onError.mock.calls) expect(error).toBeInstanceOf(ContractError);
+    expect(socket.readyState).toBe(MockWebSocket.OPEN);
+    // Present zero code is invalid; successful completion is the empty message.
+    binaryNotification(socket, StreamService.method.complete, Uint8Array.of(8, 0));
+    expect(onError).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(socket.readyState).toBe(MockWebSocket.CLOSED);
+    expect(sockets).toHaveLength(1);
+    subscription.close();
+  });
+
+  it("ends each transcript attempt on loss or completion and permits explicit observation", async () => {
+    vi.useFakeTimers();
+    const sessionID = "123e4567-e89b-42d3-a456-426614174000";
+    const onComplete = vi.fn<(completion: ChatTranscriptCompletion) => void>();
+    const onTransportLoss = vi.fn();
+    const onError = vi.fn();
+    const api = createChatApi(createJsonRpcTransport("ws://127.0.0.1:53082/rpc"));
+    const observe = () =>
+      api.subscribeTranscript(
+        {
+          projectID: "project-1",
+          sessionID,
+        },
+        { onEvent: vi.fn(), onComplete, onTransportLoss, onError },
+      );
+    const subscription = observe();
+    let socket = sockets[0] ?? failTest("Transcript socket missing.");
+    await prepareTranscriptSocket(socket, sessionID);
+    binaryAck(socket, 2, StreamService.method.subscribe, {
+      result: create(StreamService.method.subscribe.output, { outcome: { case: "success", value: {} } }),
+    });
+    socket.close();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(onTransportLoss).toHaveBeenCalledOnce();
+    expect(sockets).toHaveLength(1);
+    const second = observe();
+    socket = sockets[1] ?? failTest("Reconnected transcript socket missing.");
+    await prepareTranscriptSocket(socket, sessionID);
+    binaryAck(socket, 2, StreamService.method.subscribe, {
+      result: create(StreamService.method.subscribe.output, { outcome: { case: "success", value: {} } }),
+    });
+    binaryNotification(
+      socket,
+      StreamService.method.complete,
+      encode(
+        StreamService.method.complete.input,
+        create(StreamService.method.complete.input, {
+          code: -17,
+          message: "stream gap",
+        }),
+      ),
+    );
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(onTransportLoss).toHaveBeenCalledTimes(2);
+    expect(sockets).toHaveLength(2);
+    const third = observe();
+    socket = sockets[2] ?? failTest("Resubscribed transcript socket missing.");
+    await prepareTranscriptSocket(socket, sessionID);
+    binaryAck(socket, 2, StreamService.method.subscribe, {
+      result: create(StreamService.method.subscribe.output, { outcome: { case: "success", value: {} } }),
+    });
+    binaryNotification(
+      socket,
+      StreamService.method.complete,
+      encode(StreamService.method.complete.input, create(StreamService.method.complete.input)),
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(onComplete.mock.calls.map(([completion]) => completion.code)).toEqual([-17, 0]);
+    expect(onError).not.toHaveBeenCalled();
+    expect(sockets).toHaveLength(3);
+    subscription.close();
+    second.close();
+    third.close();
   });
 });
 
-function subscribeProject(handler: Partial<RpcEventHandler>) {
-  const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
-  const subscription = transport.subscribe(
-    "workflow.subscribeProject",
-    { project_id: "project-1" },
-    {
-      onEvent() {
-        return;
+async function prepareTranscriptSocket(socket: MockWebSocket, sessionID: string): Promise<void> {
+  await socket.setup();
+  binaryAck(socket, 1, ConnectionService.method.attachSession, {
+    result: create(AttachSessionResultSchema, {
+      outcome: {
+        case: "success",
+        value: {
+          attachment: {
+            case: "session",
+            value: {
+              projectId: "project-1",
+              workspaceId: "workspace-1",
+              workspaceRoot: "/workspace",
+              sessionId: sessionID,
+              reattachCapability: "capability",
+            },
+          },
+        },
       },
-      onComplete() {
-        return;
-      },
-      onError(error) {
-        throw error;
-      },
-      ...handler,
-    },
+    }),
+  });
+  await waitForSent(socket, 3);
+}
+
+function binaryNotification(socket: MockWebSocket, method: DescMethod, payload: Uint8Array): void {
+  const bytes = encodeEnvelope({
+    frame: { case: "notificationEvent", value: { operation: operationName(method), payload } },
+  });
+  const frame = new ArrayBuffer(bytes.length);
+  new Uint8Array(frame).set(bytes);
+  socket.receive(frame);
+}
+
+function projectAck(socket: MockWebSocket) {
+  binaryAck(socket, 1, ProjectSubscriptionService.method.subscribe, {
+    result: create(ProjectSubscriptionService.method.subscribe.output, {
+      outcome: { case: "success", value: {} },
+    }),
+  });
+}
+
+function projectEvent(
+  socket: MockWebSocket,
+  action = ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_UPDATED,
+) {
+  binaryNotification(
+    socket,
+    ProjectSubscriptionService.method.event,
+    encode(
+      ProjectEventSchema,
+      create(ProjectEventSchema, {
+        projectId: "project-1",
+        workflowId: "11111111-1111-4111-8111-111111111111",
+        primaryEntityId: "task-1",
+        action,
+        resource: ProjectEventResource.WORKFLOW_PROJECT_EVENT_RESOURCE_TASK,
+        occurredAt: { seconds: 1n, nanos: 0 },
+      }),
+    ),
   );
+}
+
+function subscribeProject(handler: Partial<WorkflowProjectEventHandler>) {
+  const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
+  const subscription = subscribeWorkflowProject(transport, "project-1", {
+    onEvent() {
+      return;
+    },
+    onComplete() {
+      return;
+    },
+    onError(error) {
+      throw error;
+    },
+    ...handler,
+  });
   return { subscription, socket: sockets[0] ?? failTest("subscription socket missing") };
 }
 
@@ -568,6 +861,7 @@ function ack(socket: MockWebSocket, sentIndex: number): void {
                 workspaceId: "workspace-1",
                 workspaceRoot: "/workspace",
                 sessionId: "session-1",
+                reattachCapability: "reattach-capability-1",
               },
             },
           },
@@ -601,7 +895,6 @@ function readinessResult() {
           ready: true,
           serverId: "server-1",
           serverVersion: "test",
-          serverBuild: "test",
           protocolVersion: "126",
           endpoint: "ws://127.0.0.1:53082/rpc",
         },
@@ -716,7 +1009,11 @@ function binaryAck<
   Method extends
     | typeof ServerService.method.getReadiness
     | typeof ConnectionService.method.handshake
-    | typeof ConnectionService.method.attachSession,
+    | typeof ConnectionService.method.attachSession
+    | typeof QuestionService.method.listPending
+    | typeof StreamService.method.subscribe
+    | typeof TaskLifecycleService.method.delete
+    | typeof ProjectSubscriptionService.method.subscribe,
 >(
   socket: MockWebSocket,
   sentIndex: number,

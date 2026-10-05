@@ -14,6 +14,7 @@ import (
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 func updateWorktreeStatusTarget(t *testing.T, env *serviceTestEnv, worktreeID string, cwdRelpath string) {
@@ -56,7 +57,7 @@ func TestWorktreeStatusInspectsOnlyTheRecordedTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget after: %v", err)
 	}
-	if after != before {
+	if !proto.Equal(after, before) {
 		t.Fatalf("status mutated target: before=%+v after=%+v", before, after)
 	}
 }

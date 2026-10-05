@@ -1,22 +1,19 @@
 package transcriptrender
 
 import (
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"testing"
-
-	"core/shared/clientui"
-	"core/shared/transcript"
 )
 
 func TestAgentSteerNoticeUsesFullOngoingAndDetailExpansion(t *testing.T) {
-	messageType := clientui.TranscriptMessageAgentSteer
-	row := clientui.TranscriptCommittedRow{
-		Visibility: transcript.EntryVisibilityOngoing,
-		Kind:       clientui.TranscriptRowNotice,
-		Notice: &clientui.TranscriptNoticeRow{
+	messageType := transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENT_STEER
+	row := &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
+		Row: &transcriptpb.CommittedRow_Notice{Notice: &transcriptpb.NoticeRow{
 			MessageType:  &messageType,
 			CompactLabel: stringPtr("compact"),
-			Diagnostic:   &clientui.TranscriptDiagnostic{Detail: "full"},
-		},
+			Diagnostic:   &transcriptpb.Diagnostic{Detail: "full"},
+		}},
 	}
 	ongoing := RenderCommittedRow(row, 80, "dark", ModeOngoing)
 	if PlainLines(ongoing.Lines)[0] == "compact" {
@@ -25,6 +22,11 @@ func TestAgentSteerNoticeUsesFullOngoingAndDetailExpansion(t *testing.T) {
 	collapsed := RenderCommittedRow(row, 80, "dark", ModeDetailCollapsed)
 	if PlainLines(collapsed.Lines)[0] == "full" {
 		t.Fatal("collapsed detail agent steer used full content")
+	}
+	row.GetNotice().CompactLabel = stringPtr("different server label")
+	relabeled := RenderCommittedRow(row, 80, "dark", ModeDetailCollapsed)
+	if PlainLines(collapsed.Lines)[0] != PlainLines(relabeled.Lines)[0] {
+		t.Fatal("collapsed agent steer label depends on server prose")
 	}
 	expanded := RenderCommittedRow(row, 80, "dark", ModeDetailExpanded)
 	if PlainLines(expanded.Lines)[0] == "compact" {
