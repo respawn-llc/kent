@@ -49,7 +49,7 @@ export function HomeSidebar({
     loadingLabel: t("states.loading"),
     message: activeQuery.isError ? errorMessage(activeQuery.error) : "",
     onRetry: () => {
-      void activeQuery.refetch();
+      activeQuery.refetch();
     },
     retryLabel: t("app.retry"),
   });
@@ -100,7 +100,7 @@ export function HomeSidebar({
               items={projectItems}
               loadingLabel={t("app.loadingMore")}
               onLoadMore={() => {
-                void projectsQuery.fetchNextPage();
+                projectsQuery.fetchNextPage();
               }}
               paddingEnd={24}
               paddingStart={24}
