@@ -1,7 +1,7 @@
 import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { MutationObserver } from "@tanstack/react-query";
 import * as Effect from "effect/Effect";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { queryAtom } from "./queryAtom";
 
 export function queryAction<A, E, V, C>(observer: MutationObserver<A, E, V, C>) {

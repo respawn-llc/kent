@@ -25,7 +25,6 @@ export type AppProvidersProps = Readonly<{
 
 export function AppProviders({ services, children }: AppProvidersProps) {
   const queryClient = useMemo(() => createAppQueryClient(), []);
-  useWindowFileDrops(services);
 
   return (
     <I18nextProvider i18n={appI18n}>
@@ -37,7 +36,7 @@ export function AppProviders({ services, children }: AppProvidersProps) {
                 <StatusProvider>
                   <TaskSearchMemoryProvider>
                     <ChatPromptPresenceProvider>
-                      <NativeWindowGlassTintSync nativeBridge={services.nativeBridge} />
+                      <NativeWindowObservations services={services} />
                       {children}
                     </ChatPromptPresenceProvider>
                   </TaskSearchMemoryProvider>
@@ -51,9 +50,8 @@ export function AppProviders({ services, children }: AppProvidersProps) {
   );
 }
 
-function NativeWindowGlassTintSync({
-  nativeBridge,
-}: Readonly<{ nativeBridge: AppServices["nativeBridge"] }>) {
-  useNativeWindowGlassTintSync(nativeBridge);
+function NativeWindowObservations({ services }: Readonly<{ services: AppServices }>) {
+  useWindowFileDrops(services);
+  useNativeWindowGlassTintSync(services.nativeBridge);
   return null;
 }
