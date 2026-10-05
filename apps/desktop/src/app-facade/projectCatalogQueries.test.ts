@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { InfiniteQueryObserver, QueryClient } from "@tanstack/react-query";
 import { waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
