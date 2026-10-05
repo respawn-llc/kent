@@ -3,6 +3,7 @@ package remoteattach
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -13,6 +14,41 @@ import (
 	"core/shared/protocol"
 	"core/shared/serverapi"
 )
+
+func TestDialHeadlessPreservesProtocolMismatch(t *testing.T) {
+	mismatch := fmt.Errorf("handshake failed: %w", &client.ProtocolVersionMismatchError{})
+	for _, test := range []struct {
+		name      string
+		dialError error
+		reachable bool
+	}{
+		{name: "unreachable", dialError: errors.New("connection refused")},
+		{name: "protocol mismatch", dialError: mismatch, reachable: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			remote, reachable, err := DialHeadless(t.Context(), HeadlessRequest{
+				AttachTimeout: time.Second,
+				DialProjectView: func(context.Context, config.Connection) (ProjectViewRemote, error) {
+					return nil, test.dialError
+				},
+				DialWorkspace: func(context.Context, config.Connection, string, string) (*client.Remote, error) {
+					t.Fatal("workspace dial attempted after failed handshake")
+					return nil, nil
+				},
+			})
+			if remote != nil || reachable != test.reachable {
+				t.Fatalf("remote = %v, reachable = %v, want reachable %v", remote, reachable, test.reachable)
+			}
+			if test.reachable {
+				if !errors.Is(err, test.dialError) {
+					t.Fatalf("error = %v, want original handshake failure", err)
+				}
+			} else if err != nil {
+				t.Fatalf("unreachable server error = %v", err)
+			}
+		})
+	}
+}
 
 type projectViewRemoteStub struct {
 	apicontract.ProjectViewService
