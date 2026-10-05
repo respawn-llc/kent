@@ -147,7 +147,7 @@ describe("questionPresentation", () => {
     await user.click(plainOption);
     expect(plainOption).toBeChecked();
 
-    await user.click(screen.getByRole("button", { name: "safe" }));
+    await user.click(screen.getByRole("link", { name: "safe" }));
     expect(screen.getAllByRole("radio")[1]).not.toBeChecked();
   });
 

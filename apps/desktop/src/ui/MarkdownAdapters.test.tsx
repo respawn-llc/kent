@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 
 import { StaticMarkdown, StreamingMarkdown, TaskBodyMarkdown } from "@/ui";
 
@@ -70,7 +71,7 @@ describe("Markdown adapters", () => {
     });
   });
 
-  it("uses Streamdown's default sanitized HTML and link behavior", async () => {
+  it("sanitizes HTML and blocks hostile links", async () => {
     render(
       <StaticMarkdown
         value={
@@ -81,10 +82,38 @@ describe("Markdown adapters", () => {
 
     expect(await screen.findByText("inner")).toBeInTheDocument();
     expect(screen.getByTitle("valid title")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "safe" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "safe" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "unsafe" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "data-unsafe" })).not.toBeInTheDocument();
   });
+
+  it.each([StaticMarkdown, StreamingMarkdown])(
+    "opens Markdown links directly through external browser navigation",
+    async (Markdown) => {
+      const user = userEvent.setup();
+      const navigation = vi.fn((event: MouseEvent) => {
+        const allowed = !event.defaultPrevented;
+        // The native shell handles this unprevented anchor click. Prevent
+        // jsdom from navigating while observing that same handoff.
+        event.preventDefault();
+        return allowed;
+      });
+      document.addEventListener("click", navigation);
+      try {
+        render(<Markdown value="[Upstream issue](https://github.com/vercel/streamdown/issues/592)" />);
+        const link = await screen.findByRole("link");
+        expect(link).toHaveAttribute("href", "https://github.com/vercel/streamdown/issues/592");
+        expect(link).toHaveAttribute("target", "_blank");
+
+        await user.click(link);
+
+        expect(navigation).toHaveReturnedWith(true);
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      } finally {
+        document.removeEventListener("click", navigation);
+      }
+    },
+  );
 
   it("renders a 50,000-character value exactly", async () => {
     const value = "x".repeat(50_000);

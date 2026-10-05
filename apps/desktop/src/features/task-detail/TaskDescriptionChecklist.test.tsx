@@ -168,7 +168,7 @@ describe("Task description checklist", () => {
         body: "[Safe link](https://example.com)",
       },
     });
-    const link = await screen.findByRole("button", { name: "Safe link" });
+    const link = await screen.findByRole("link", { name: "Safe link" });
 
     fireEvent.click(link);
 

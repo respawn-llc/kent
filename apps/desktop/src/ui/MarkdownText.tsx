@@ -32,6 +32,7 @@ type MarkdownTaskListItemContextValue = Readonly<{
 
 const MarkdownTaskListItemContext = createContext<MarkdownTaskListItemContextValue | null>(null);
 const languageHints = syntaxHighlightingLanguageHints();
+const linkSafety = { enabled: false };
 const richComponents = {
   input: MarkdownTaskListCheckbox,
   li: MarkdownTaskListItem,
@@ -87,6 +88,7 @@ function MarkdownCore({
         components={richComponents}
         controls={false}
         isAnimating={animated}
+        linkSafety={linkSafety}
         mode={animated ? "streaming" : "static"}
         plugins={{ renderers: [{ component: MarkdownHighlightedCode, language: languageHints }] }}
         remarkPlugins={[[remarkGfm, {}], remarkBreaks]}
