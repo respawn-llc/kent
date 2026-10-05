@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { QueryClient } from "@tanstack/react-query";
 import { RegistryProvider, useAtomMount } from "@effect/atom-react";
 import { act, renderHook, waitFor } from "@testing-library/react";

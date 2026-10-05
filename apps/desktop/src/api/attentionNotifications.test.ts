@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { create } from "@app/server-api-contract";
 import * as pb from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
