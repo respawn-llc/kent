@@ -103,7 +103,9 @@ describe("attention notification API", () => {
     const { transport, view } = await observe();
     expect(transport.descriptorSubscriptions).toEqual([service.subscribe]);
     view.unmount();
-    await waitFor(() => expect(transport.descriptorSubscriptions).toEqual([]));
+    await waitFor(() => {
+      expect(transport.descriptorSubscriptions).toEqual([]);
+    });
   });
 
   it("delivers Session Questions and resolution with Project and Session navigation identity", async () => {
@@ -118,7 +120,9 @@ describe("attention notification API", () => {
         payload: { case: "resolved", value: { id: question.id, kind: question.kind, occurredAt } },
       }),
     );
-    await waitFor(() => expect(events).toHaveLength(2));
+    await waitFor(() => {
+      expect(events).toHaveLength(2);
+    });
     expect(errors).toEqual([]);
     expect(events).toMatchObject([
       {
@@ -160,7 +164,9 @@ describe("attention notification API", () => {
         ),
       }),
     );
-    await waitFor(() => expect(events).toHaveLength(1));
+    await waitFor(() => {
+      expect(events).toHaveLength(1);
+    });
     expect(events).toMatchObject([
       {
         type: "pending",
@@ -171,7 +177,9 @@ describe("attention notification API", () => {
       },
     ]);
     transport.emitDescriptorBytes(service.subscribe, new Uint8Array([0xff]));
-    await waitFor(() => expect(errors).toHaveLength(1));
+    await waitFor(() => {
+      expect(errors).toHaveLength(1);
+    });
     expect(events).toHaveLength(1);
   });
 
@@ -196,7 +204,9 @@ describe("attention notification API", () => {
         },
       }),
     );
-    await waitFor(() => expect(events).toHaveLength(1));
+    await waitFor(() => {
+      expect(events).toHaveLength(1);
+    });
     expect(events).toMatchObject([
       {
         type: "pending",
@@ -248,7 +258,9 @@ describe("attention notification API", () => {
         ),
       }),
     );
-    await waitFor(() => expect(events).toHaveLength(2));
+    await waitFor(() => {
+      expect(events).toHaveLength(2);
+    });
     expect(events).toMatchObject([
       {
         type: "pending",

@@ -211,7 +211,9 @@ describe("Task Detail live refresh", () => {
     act(() => {
       projectEventsFixture(services.transport).emit({ action: "question_waiting" });
     });
-    await waitFor(() => expect(screen.queryByText("ask-2")).not.toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.queryByText("ask-2")).not.toBeInTheDocument();
+    });
     const beforeFailure = services.transport.descriptorCalls.length;
     answer.reject(new Error("delivery failed"));
     await waitFor(() => {

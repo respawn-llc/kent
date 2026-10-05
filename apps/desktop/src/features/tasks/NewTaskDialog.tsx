@@ -5,11 +5,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 
-import {
-  WorkflowTaskDependencyError,
-  errorMessage,
-  isProjectMissingError,
-} from "@/api";
+import { WorkflowTaskDependencyError, errorMessage, isProjectMissingError } from "@/api";
 import {
   useAppServices,
   useStatusController,
