@@ -116,5 +116,12 @@ export default tseslint.config(
       "max-lines": ["error", { max: 1100, skipBlankLines: true, skipComments: true }],
     },
   },
+  {
+    // Declaration merging requires interfaces; remove with the upstream Vitest 5 adapter.
+    files: ["test/jest-dom.d.ts"],
+    rules: {
+      "@typescript-eslint/no-empty-object-type": ["error", { allowInterfaces: "always" }],
+    },
+  },
   prettier,
 );

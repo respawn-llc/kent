@@ -78,7 +78,7 @@ func newTestCodexDispatch(t *testing.T) *CodexDispatchContext {
 
 func testCodexOpenAIRequest(dispatch *CodexDispatchContext) OpenAIRequest {
 	return OpenAIRequest{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		SessionID:      textutil.Value("session-1"),
 		CodexDispatch:  dispatch,

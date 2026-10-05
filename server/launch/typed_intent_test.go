@@ -95,7 +95,7 @@ func newTypedIntentPlanner(t *testing.T) (Planner, string, *sessiontest.Persiste
 	return newPersistenceBackedTestPlanner(config.App{
 		WorkspaceRoot:   "/tmp/workspace-a",
 		PersistenceRoot: root,
-		Settings:        config.Settings{Model: "gpt-5"},
+		Settings:        config.Settings{Model: "gpt-6-sol"},
 	}, containerDir, persistence), containerDir, persistence
 }
 

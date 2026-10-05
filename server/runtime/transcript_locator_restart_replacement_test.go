@@ -16,7 +16,7 @@ func TestHistoryReplacementLocatorsSurviveReopenAsOneBoundedBatch(t *testing.T) 
 	store := mustCreateTestSession(t)
 	events := make([]Event, 0, 16)
 	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(event Event) { events = append(events, event) },
 	})
 	items := llm.ItemsFromMessages([]llm.Message{
@@ -75,7 +75,7 @@ func TestHistoryReplacementLocatorsSurviveReopenAsOneBoundedBatch(t *testing.T) 
 	if err := engine.Close(); err != nil {
 		t.Fatalf("close engine: %v", err)
 	}
-	reopened := mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	reopened := mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	reopenedFacts := TranscriptCommittedRowFactsFromSnapshot(mustEngineNewestSegmentPage(t, reopened).Snapshot)
 	if len(reopenedFacts) != len(live) {
 		t.Fatalf("reopened facts = %+v, live facts = %+v", reopenedFacts, live)
@@ -100,7 +100,7 @@ func TestHistoryReplacementLocatorsSurviveReopenAsOneBoundedBatch(t *testing.T) 
 
 func TestHandoffContextPayloadAgreesAcrossPageAndHydration(t *testing.T) {
 	store := mustCreateTestSession(t)
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	var messages []llm.Message
 	for _, kind := range []llm.MessageType{
 		llm.MessageTypeSubagents, llm.MessageTypeSkills, llm.MessageTypeWorktreeMode,
@@ -129,7 +129,7 @@ func TestHistoryReplacementLocatorsSkipFilteredToolCallEntries(t *testing.T) {
 	store := mustCreateTestSession(t)
 	events := make([]Event, 0, 16)
 	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(event Event) { events = append(events, event) },
 	})
 	items := llm.ItemsFromMessages([]llm.Message{
@@ -169,7 +169,7 @@ func TestHistoryReplacementLocatorsSkipFilteredToolCallEntries(t *testing.T) {
 }
 
 func TestHistoryReplacementEmissionReturnsMissingOrdinalError(t *testing.T) {
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	err := engine.emitProjectedHistoryReplacementEntriesRaw(
 		runtimeTestStepID("step-1"),
 		0,

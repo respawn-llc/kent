@@ -53,7 +53,7 @@ func taskShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "task show requires <short-id-or-task-id>")
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		requestedProjectID, task, err := getWorkflowTaskForShow(context.Background(), cfg, remote, remote, *projectRef, positionals[0])
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -133,7 +133,7 @@ func normalizedLabelIDs(ids []string) []string {
 
 func getWorkflowTaskForShow(
 	ctx context.Context,
-	cfg config.App,
+	cfg config.Connection,
 	projects apicontract.ProjectViewService,
 	workflows apicontract.WorkflowService,
 	projectRef string,

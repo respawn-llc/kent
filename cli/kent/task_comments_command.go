@@ -53,7 +53,7 @@ func taskCommentAddSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		taskID, err := resolveWorkflowTaskID(context.Background(), cfg, remote, remote, *projectRef, positionals[0])
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -133,7 +133,7 @@ func taskCommentListSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		taskID, err := resolveWorkflowTaskID(context.Background(), cfg, remote, remote, *projectRef, positionals[0])
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -194,7 +194,7 @@ func taskCommentReplaceSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		fmt.Fprintln(stderr, "task comment replace requires <comment-id>")
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(_ config.Connection, remote *client.Remote) int {
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
 		if _, err := remote.ReplaceWorkflowTaskComment(ctx, &taskpb.CommentReplaceRequest{CommentId: positionals[0], Body: *body}); err != nil {
@@ -220,7 +220,7 @@ func taskCommentDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writ
 	if denyAgentHumanOnlyTaskAction(stderr) {
 		return 1
 	}
-	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(_ config.Connection, remote *client.Remote) int {
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
 		if _, err := remote.DeleteWorkflowTaskComment(ctx, &taskpb.CommentDeleteRequest{CommentId: positionals[0]}); err != nil {

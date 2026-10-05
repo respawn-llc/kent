@@ -47,10 +47,12 @@ type onboardingScreen struct {
 type onboardingPendingAction string
 
 const (
-	onboardingPendingActionNone          onboardingPendingAction = "none"
-	onboardingPendingActionWriteDefaults onboardingPendingAction = "write_defaults"
-	onboardingPendingActionWriteCustom   onboardingPendingAction = "write_custom"
-	onboardingPendingActionRestart       onboardingPendingAction = "restart"
+	onboardingPendingActionNone               onboardingPendingAction = "none"
+	onboardingPendingActionWriteDefaults      onboardingPendingAction = "write_defaults"
+	onboardingPendingActionWriteCustom        onboardingPendingAction = "write_custom"
+	onboardingPendingActionRestart            onboardingPendingAction = "restart"
+	onboardingPendingActionConnectionComplete onboardingPendingAction = "connection_complete"
+	onboardingPendingActionConnectionSetup    onboardingPendingAction = "connection_setup"
 )
 
 type onboardingImportProviderID string

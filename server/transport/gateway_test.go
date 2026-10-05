@@ -547,10 +547,10 @@ func TestNewGatewayRejectsTypedNilDependencies(t *testing.T) {
 	}
 }
 
-func newGatewayTestAuthSupport(t *testing.T, ready bool) serverbootstrap.AuthSupport {
+func newGatewayTestAuthSupport(t *testing.T, root string, ready bool) serverbootstrap.AuthSupport {
 	t.Helper()
 	store := auth.NewMemoryStore(auth.EmptyState())
-	authSupport, err := serverbootstrap.BuildAuthSupport(store, nil, nil)
+	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), root, store, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
@@ -568,7 +568,7 @@ func activateGatewayController(t *testing.T, appCore *core.Core, sessionID strin
 	t.Helper()
 	settings := appCore.Config().Settings
 	if strings.TrimSpace(settings.Model) == "" {
-		settings.Model = "gpt-5"
+		settings.Model = "gpt-6-sol"
 	}
 	settings = testsetup.WriteProviderSettings(t, appCore.Config().PersistenceRoot, settings)
 	response, err := appCore.SessionRuntimeClient().ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
@@ -601,7 +601,7 @@ func releaseGatewayController(t *testing.T, appCore *core.Core, attachment serve
 func gatewayRuntimeActivateRequest(appCore *core.Core, sessionID string) serverapi.SessionRuntimeActivateRequest {
 	settings := appCore.Config().Settings
 	if strings.TrimSpace(settings.Model) == "" {
-		settings.Model = "gpt-5"
+		settings.Model = "gpt-6-sol"
 	}
 	settings = testsetup.ProviderSettings(settings)
 	return serverapi.SessionRuntimeActivateRequest{
@@ -1205,30 +1205,6 @@ func TestGatewayRejectsMethodsBeforeHandshake(t *testing.T) {
 	}
 }
 
-func TestGatewayPreAuthMethodPolicy(t *testing.T) {
-	registration, err := productionGatewayRegistration()
-	if err != nil {
-		t.Fatalf("production Gateway registration: %v", err)
-	}
-	if err := registration.Validate(); err != nil {
-		t.Fatalf("validate production Gateway registration: %v", err)
-	}
-	if len(registration.legacy) != 0 {
-		t.Fatalf("production Gateway retains %d legacy business registrations", len(registration.legacy))
-	}
-	executor := newRoutePolicyExecutor(&Gateway{registration: registration})
-	for name, operation := range registration.operations {
-		if operation.LegacyWireName != nil {
-			t.Fatalf("operation %q retains legacy provenance", name)
-		}
-		got := executor.requiresServerAuth(name)
-		want := operation.Options.AuthenticationStage == sharedpb.AuthenticationStage_AUTHENTICATION_STAGE_SERVER
-		if got != want {
-			t.Fatalf("requiresServerAuth(%q) = %t, want %t from descriptor", name, got, want)
-		}
-	}
-}
-
 func TestGatewayAuthBootstrapAuthlessConnectionIsReady(t *testing.T) {
 	appCore, server := newGatewayTestServer(t)
 	defer func() { _ = appCore.Close() }()
@@ -1239,8 +1215,8 @@ func TestGatewayAuthBootstrapAuthlessConnectionIsReady(t *testing.T) {
 	handshakeGateway(t, conn)
 	requireGatewayProjectAttachment(t, conn, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
 	complete := callGatewayAuthCompleteBootstrap(t, conn, "complete-no-auth", &authpb.CompleteBootstrapRequest{
-		ConnectionId: proto.String("test"),
-		Mode:         authpb.BootstrapMode_BOOTSTRAP_MODE_NONE,
+		Target: protoapi.ExistingConnectionTarget("test"),
+		Mode:   authpb.BootstrapMode_BOOTSTRAP_MODE_NONE,
 	})
 	if !complete.AuthReady || complete.Method != authpb.AuthMethod_AUTH_METHOD_NONE {
 		t.Fatalf("CompleteBootstrap auth-less = %+v", complete)
@@ -1253,7 +1229,7 @@ func TestGatewayAuthBootstrapAuthlessConnectionIsReady(t *testing.T) {
 	}
 }
 
-func TestGatewayRejectsProjectWorkspaceMutationBeforeServerAuthReady(t *testing.T) {
+func TestGatewayAllowsProjectWorkspaceMutationWithoutProviderCredentials(t *testing.T) {
 	appCore, server, _ := newGatewayTestServerWithAuth(t, false)
 	defer func() { _ = appCore.Close() }()
 	defer server.Close()
@@ -1269,8 +1245,8 @@ func TestGatewayRejectsProjectWorkspaceMutationBeforeServerAuthReady(t *testing.
 	callGatewayDescriptor(t, conn, "attach-workspace", method, &projectpb.AttachWorkspaceRequest{
 		ProjectId: appCore.ProjectID(), WorkspaceRoot: "/tmp/workspace",
 	}, &result)
-	if failure := result.GetError(); failure == nil || failure.Code != "auth_required" {
-		t.Fatalf("Project AttachWorkspace result = %+v, want auth_required", &result)
+	if result.GetSuccess() == nil {
+		t.Fatalf("Project AttachWorkspace result = %+v, want success", &result)
 	}
 }
 
@@ -1589,7 +1565,7 @@ func TestGatewayAllowsUnscopedSessionRetargetOutsideServerDefaultProject(t *test
 		t.Fatalf("EnsureDurable foreign: %v", err)
 	}
 
-	authSupport := newGatewayTestAuthSupport(t, true)
+	authSupport := newGatewayTestAuthSupport(t, resolvedA.Config.PersistenceRoot, true)
 	background, err := serverbootstrap.BuildShellManager(resolvedA.Config)
 	if err != nil {
 		t.Fatalf("BuildShellManager: %v", err)

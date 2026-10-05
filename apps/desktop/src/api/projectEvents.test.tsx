@@ -2,7 +2,7 @@ import { RegistryProvider, useAtomSuspense } from "@effect/atom-react";
 import { act, render, waitFor } from "@testing-library/react";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { Component, type ReactElement } from "react";
 
 import { createTestServices, startupRoutes } from "@/test-support/app-services";

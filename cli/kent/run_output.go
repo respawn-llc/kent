@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"core/shared/llmerrors"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/protocol"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -53,6 +54,19 @@ func parseRunOutputMode(raw string) (runOutputMode, error) {
 }
 
 func runErrorMessage(err error) string {
+	var selection *serverapi.RunSelectionRejectedError
+	if errors.As(err, &selection) {
+		switch selection.Reason {
+		case chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_THINKING_UNAVAILABLE:
+			return "The requested Thinking value is unavailable for this agent and model. Choose a supported value from the session settings."
+		case chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AGENT_LOCKED:
+			return "This session's agent is locked. Continue without changing the agent, or start a new session with the requested agent."
+		case chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AGENT_UNAVAILABLE:
+			return "The requested agent is unavailable. Choose an available configured agent."
+		default:
+			return "The Run selection could not be applied. Check the selected agent, model, and Thinking value."
+		}
+	}
 	var policy *protocol.SubagentLaunchPolicyError
 	if errors.As(err, &policy) {
 		return policy.Error()
@@ -70,9 +84,9 @@ func runErrorMessage(err error) string {
 			}
 			return fmt.Sprintf("subagent role %q is unavailable", target)
 		case serverapi.SubagentLaunchDenialNotCallable:
-			return "the requested subagent launch is not allowed for this Kent session"
+			return "Calling this subagent was explicitly disabled by the user, use another fitting role described in a developer reminder, proceed without using subagents, or if subagent launch was requested explicitly by the user, ask them how to proceed"
 		case serverapi.SubagentLaunchDenialCallerMissing:
-			return "the caller session no longer exists"
+			return fmt.Sprintf("The calling Kent session could not be found; it may have been deleted. Diagnostics: %v", err)
 		case serverapi.SubagentLaunchDenialParentMissing:
 			return "the parent session no longer exists"
 		default:
@@ -94,6 +108,10 @@ func runErrorCode(err error) string {
 	}
 	if errors.Is(err, context.Canceled) {
 		return "interrupted"
+	}
+	var selection *serverapi.RunSelectionRejectedError
+	if errors.As(err, &selection) {
+		return "selection_rejected"
 	}
 	var denied *serverapi.SubagentLaunchDeniedError
 	if errors.As(err, &denied) {

@@ -17,7 +17,10 @@ export function AppUpdateChip({ state }: AppUpdateChipProps) {
     return null;
   }
   const installing = state.phase === "installing";
-  const percent = state.progressRatio === null ? null : Math.round(state.progressRatio * 100);
+  const percent =
+    state.phase !== "installing" || state.progressRatio === null
+      ? null
+      : Math.round(state.progressRatio * 100);
   const label = installing
     ? percent === null
       ? t("app.update.installing")

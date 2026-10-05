@@ -53,7 +53,7 @@ func TestAutoCompactionRemoteReplacesHistoryAndCarriesCompactionItem(t *testing.
 	}
 
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:               "gpt-5",
+		Model:               "gpt-6-sol",
 		ContextWindowTokens: 200_000,
 	})
 
@@ -139,7 +139,7 @@ func TestCompactionReplacementPayloadEmbedsReinjectedBaseMetaAndPreservedUserMes
 	ownedShell := startShell(store.Meta().SessionID, "owned running shell")
 	foreignShell := startShell("foreign-session", "foreign running shell")
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                  "gpt-5",
+		Model:                  "gpt-6-sol",
 		BackgroundShellManager: manager,
 	})
 	if _, err := eng.SetGoal(t.Context(), "preserve atomic goal context", session.GoalActorUser); err != nil {
@@ -244,12 +244,13 @@ func TestCompactionReplacementPayloadEmbedsReinjectedBaseMetaAndPreservedUserMes
 
 	reopenedStore := mustOpenTestSession(t, store.Dir())
 	reopened := mustNewTestEngine(t, reopenedStore, &fakeClient{}, tools.NewRegistry(), Config{
-		Model:                  "gpt-5",
+		Model:                  "gpt-6-sol",
 		BackgroundShellManager: manager,
 	})
 	reopenedReminder := false
 	for _, item := range reopened.transcriptRuntimeState().SnapshotItems() {
-		if item.Type != llm.ResponseItemTypeMessage || item.Content == nil {
+		if item.Type != llm.ResponseItemTypeMessage || item.Content == nil ||
+			item.Role == nil || *item.Role != llm.RoleDeveloper || item.MessageType != nil {
 			continue
 		}
 		if strings.Contains(*item.Content, foreignShell.SessionID) {
@@ -330,7 +331,7 @@ func TestCompactionReplacementCapturesShellsStillRunningWhenCompactionCompletes(
 	}
 	t.Cleanup(releaseCompaction)
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:                  "gpt-5",
+		Model:                  "gpt-6-sol",
 		BackgroundShellManager: manager,
 	})
 	if err := steerTestActiveStep(eng, "running-shell-input", steerMessagesWithPersistenceIntent(
@@ -462,7 +463,7 @@ func TestCompactionReplacementOmitsRunningShellReminderWhenNoOwnedShellsRemain(t
 		Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
 	}}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:                  "gpt-5",
+		Model:                  "gpt-6-sol",
 		BackgroundShellManager: manager,
 	})
 	if err := steerTestActiveStep(eng, "no-owned-shells-input", steerMessagesWithPersistenceIntent(
@@ -544,7 +545,7 @@ func TestCompactionRunningShellReminderNormalizesAndLimitsCommandPreview(t *test
 		Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
 	}}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:                  "gpt-5",
+		Model:                  "gpt-6-sol",
 		BackgroundShellManager: manager,
 	})
 	if err := steerTestActiveStep(eng, "shell-preview-input", steerMessagesWithPersistenceIntent(
@@ -621,7 +622,7 @@ func newCommittedCompactionFixture(t *testing.T, observer session.PersistenceObs
 	t.Helper()
 	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(observer))
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model:             "gpt-5",
+		Model:             "gpt-6-sol",
 		SystemPrompt:      "stale system prompt",
 		HasSystemPrompt:   true,
 		ReviewerPrompt:    "stale reviewer prompt",
@@ -647,7 +648,7 @@ func newCommittedCompactionFixture(t *testing.T, observer session.PersistenceObs
 	}
 	fixture := &committedCompactionFixture{store: store, client: client}
 	fixture.engine = mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(event Event) { fixture.events = append(fixture.events, event) },
 	})
 	if err := fixture.engine.steer(runtimeTestStepID("step-1"), steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
@@ -738,7 +739,7 @@ func TestAutoCompactionRetries400ByCollapsingShellOutput(t *testing.T) {
 	}
 
 	largeOutput := json.RawMessage(`{"output":"` + strings.Repeat("x", 120_000) + `"}`)
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand, out: largeOutput}}), Config{Model: "gpt-5.3-codex"})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand, out: largeOutput}}), Config{Model: "gpt-6-luna"})
 
 	msg, err := eng.SubmitUserMessage(context.Background(), "run tools")
 	if err != nil {

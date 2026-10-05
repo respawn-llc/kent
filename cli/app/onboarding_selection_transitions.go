@@ -29,6 +29,9 @@ func (state *onboardingFlowState) updateSelections(
 }
 
 func (state *onboardingFlowState) chooseTheme(choiceID string) error {
+	if state.facts == nil {
+		return state.selections.chooseTheme(choiceID)
+	}
 	return state.updateSelections("apply_choice", onboardingStepTheme, func(selections *onboardingSelections) error {
 		return selections.chooseTheme(choiceID)
 	})
@@ -148,7 +151,6 @@ func (state *onboardingFlowState) recomputeSkillEnablement(selections *onboardin
 
 func (selections onboardingSelections) clone() onboardingSelections {
 	selections.skillEnablement = maps.Clone(selections.skillEnablement)
-	selections.preserved.enabledTools = maps.Clone(selections.preserved.enabledTools)
 	return selections
 }
 
@@ -206,10 +208,10 @@ func (selections *onboardingSelections) chooseContextWindow(choiceID string, fac
 		switch {
 		case fact.ContextWindowTokens != nil && *fact.ContextWindowTokens > 0:
 			selections.contextWindow = onboardingContextSelection{kind: onboardingContextDefault}
-		case selections.preserved.baselineModelContextWindow != nil:
+		case selections.baselineModelContextWindow != nil:
 			selections.contextWindow = onboardingContextSelection{
 				kind:   onboardingContextCustom,
-				tokens: *selections.preserved.baselineModelContextWindow,
+				tokens: *selections.baselineModelContextWindow,
 			}
 		default:
 			selections.contextWindow = onboardingContextSelection{kind: onboardingContextDefault}

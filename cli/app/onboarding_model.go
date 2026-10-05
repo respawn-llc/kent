@@ -52,15 +52,20 @@ type onboardingModel struct {
 }
 
 func newOnboardingModel(finalization *onboardingFinalization, state onboardingFlowState) *onboardingModel {
+	m := newOnboardingFormModel(state, newOnboardingWorkflow(&state))
+	m.finalization = finalization
+	return m
+}
+
+func newOnboardingFormModel(state onboardingFlowState, workflow onboardingWorkflow) *onboardingModel {
 	input := newSingleLineEditor("")
 	m := &onboardingModel{
-		workflow:     newOnboardingWorkflow(&state),
-		state:        state,
-		finalization: finalization,
-		width:        defaultPickerWidth,
-		height:       defaultPickerHeight,
-		styles:       newOnboardingStyles(state.selections.themeValue()),
-		input:        input,
+		workflow: workflow,
+		state:    state,
+		width:    defaultPickerWidth,
+		height:   defaultPickerHeight,
+		styles:   newOnboardingStyles(state.selections.themeValue()),
+		input:    input,
 	}
 	m.spinnerClock.Start(uiAnimationNow())
 	m.syncScreen(true)
@@ -278,14 +283,10 @@ func (m *onboardingModel) submitCurrentScreen() (tea.Model, tea.Cmd) {
 	}
 	m.currentScreen.ErrorText = ""
 	switch m.state.pendingAction {
+	case onboardingPendingActionConnectionComplete:
+		return m, tea.Quit
 	case onboardingPendingActionRestart:
-		m.state.pendingAction = onboardingPendingActionNone
-		m.stepIndex = 0
-		m.syncScreen(true)
-		if m.terminalErr != nil {
-			return m, tea.Quit
-		}
-		return m, nil
+		return m, tea.Quit
 	case onboardingPendingActionWriteDefaults:
 		m.state.pendingAction = onboardingPendingActionNone
 		m.finalizing = true
@@ -472,6 +473,10 @@ func (m *onboardingModel) scrollContent(delta int) tea.Cmd {
 }
 
 func (m *onboardingModel) goBack() (tea.Model, tea.Cmd) {
+	if m.currentScreen.ID == onboardingStepEntry {
+		m.state.pendingAction = onboardingPendingActionConnectionSetup
+		return m, tea.Quit
+	}
 	if m.stepIndex <= 0 {
 		return m, onboardingBellCmd()
 	}

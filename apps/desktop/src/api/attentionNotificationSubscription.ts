@@ -4,7 +4,7 @@ import { StreamCompletionSchema } from "@app/server-api-contract/gen/kent/api/sh
 import type {
   AttentionNotification,
   AttentionNotificationEvent,
-  AttentionNotificationEventHandler,
+  AttentionNotificationLifecycle,
   AttentionNotificationID,
   AttentionNotificationTarget,
   AttentionNotificationTaskDetailFocus,
@@ -15,32 +15,37 @@ import { timestampMillis } from "./clientTime";
 import { ContractError } from "./errors";
 import { requireUnarySuccess, streamCompletionFailure } from "./protobufRpc";
 import type { DescriptorRpcTransport } from "./transport";
+import { subscriptionStream } from "./subscriptionStream";
 
-export function subscribeAttentionNotifications(
+export function attentionNotifications(
   transport: DescriptorRpcTransport,
-  handler: AttentionNotificationEventHandler,
+  reportOverflow: () => Promise<void>,
 ) {
   const method = pb.AttentionNotificationService.method.subscribe;
-  return transport.subscribeDescriptor({
-    method,
-    request: create(method.input),
-    eventDescriptor: pb.AttentionNotificationEventSchema,
-    completionDescriptor: StreamCompletionSchema,
-    onStart(result) {
-      requireUnarySuccess(method, result);
-    },
-    handler: {
-      ...(handler.onOpen === undefined ? {} : { onOpen: handler.onOpen }),
-      onError: handler.onError,
-      onComplete(completion) {
-        handler.onComplete(completion.code ?? 0, completion.message ?? "");
-        return streamCompletionFailure(completion);
-      },
-      onEvent(event) {
-        handler.onEvent(attentionEvent(event));
-      },
-    },
-  });
+  return subscriptionStream<AttentionNotificationLifecycle>(
+    (emit) =>
+      transport.subscribeDescriptor({
+        method,
+        request: create(method.input),
+        eventDescriptor: pb.AttentionNotificationEventSchema,
+        completionDescriptor: StreamCompletionSchema,
+        onStart(result) {
+          requireUnarySuccess(method, result);
+        },
+        handler: {
+          onOpen: () => emit({ kind: "open" }),
+          onError: (error) => emit({ kind: "error", error }),
+          onComplete(completion) {
+            emit({ kind: "complete", code: completion.code ?? 0, message: completion.message ?? "" });
+            return streamCompletionFailure(completion);
+          },
+          onEvent(event) {
+            emit({ kind: "event", event: attentionEvent(event) });
+          },
+        },
+      }),
+    reportOverflow,
+  );
 }
 
 function attentionID(value: pb.AttentionNotificationID): AttentionNotificationID {

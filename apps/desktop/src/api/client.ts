@@ -1,5 +1,6 @@
-import type { AttentionNotificationEventHandler } from "./attentionNotifications";
-import { subscribeAttentionNotifications } from "./attentionNotificationSubscription";
+import type { AttentionNotificationLifecycle } from "./attentionNotifications";
+import type * as Stream from "effect/Stream";
+import { attentionNotifications } from "./attentionNotificationSubscription";
 import { create, operationName } from "@app/server-api-contract";
 import {
   ReadinessSeverity,
@@ -115,7 +116,7 @@ export class ApiClient implements ApiService {
 
   readonly chat: ChatApi;
 
-  listProcesses = async (target: ChatSessionTarget) => processes.listProcesses(this.#transport, target);
+  observeProcesses = (target: ChatSessionTarget) => processes.observeProcesses(this.#transport, target);
   killProcess = async (processID: string) => processes.killProcess(this.#transport, processID);
 
   async getReadiness(): Promise<ServerReadiness> {
@@ -390,8 +391,10 @@ export class ApiClient implements ApiService {
     return subscribeWorkflow(this.#transport, workflowID, handler);
   }
 
-  subscribeAttentionNotifications(handler: AttentionNotificationEventHandler): ApiSubscription {
-    return subscribeAttentionNotifications(this.#transport, handler);
+  subscribeAttentionNotifications(
+    reportOverflow: () => Promise<void>,
+  ): Stream.Stream<AttentionNotificationLifecycle> {
+    return attentionNotifications(this.#transport, reportOverflow);
   }
 
   getWorktreeStatus = async (sessionID: string) => worktree.getWorktreeStatus(this.#transport, sessionID);
@@ -421,8 +424,6 @@ function projectReadiness(readiness: Readiness): ServerReadiness {
     serverID: readiness.serverId,
     serverVersion: readiness.serverVersion,
     protocolVersion: readiness.protocolVersion,
-    authReady: readiness.authReady,
-    authRequired: readiness.authRequired,
     endpoint: readiness.endpoint,
     subagentRoles: readiness.subagentRoles.map((role) => ({ name: role.name })),
     causes: readiness.causes.map((cause) => ({

@@ -90,7 +90,9 @@ it("keeps transcript and composer usable through a sidebar-owned Worktree refres
   expect(screen.getByText("Message 1")).toBeInTheDocument();
   const calls = list.mock.calls.length;
   await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
-  await waitFor(() => expect(screen.queryByTestId("error-state")).not.toBeInTheDocument());
+  await waitFor(() => {
+    expect(screen.queryByTestId("error-state")).not.toBeInTheDocument();
+  });
   expect(list).toHaveBeenCalledTimes(calls + 1);
   list.mockRejectedValueOnce(new Error("sidebar failed again"));
   await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.refresh") }));
@@ -257,7 +259,9 @@ it("preserves focus, selection and continued typing across successive deliveries
   const user = userEvent.setup();
   const send = () => screen.getByRole("button", { name: appI18n.t("chatComposer.send") });
   await user.type(screen.getByRole("textbox"), "/review one");
-  await waitFor(() => expect(send()).toBeEnabled());
+  await waitFor(() => {
+    expect(send()).toBeEnabled();
+  });
   await user.click(send());
   await user.type(screen.getByRole("textbox"), "/init two");
   await user.click(send());
@@ -338,7 +342,9 @@ it("retries the failed opening page and observation independently once per activ
     expect(view.handlers).toHaveLength(1);
   });
   act(() => view.handlers[0]?.onError(new Error("observation unavailable")));
-  await waitFor(() => expect(screen.getByRole("button", { name: appI18n.t("app.retry") })).toBeEnabled());
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: appI18n.t("app.retry") })).toBeEnabled();
+  });
   const user = userEvent.setup();
   await user.type(screen.getByRole("textbox"), "keep input");
   await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
@@ -461,8 +467,12 @@ it("shows every accepted Pending Work item and restores only a discarded item", 
   const button = discard.at(-1);
   if (last === undefined || button === undefined) throw new Error("Missing accepted item.");
   await userEvent.setup().click(button);
-  await waitFor(() => expect(screen.getByRole("textbox")).toHaveValue(last.canonicalInput));
-  await waitFor(() => expect(button).not.toBeInTheDocument());
+  await waitFor(() => {
+    expect(screen.getByRole("textbox")).toHaveValue(last.canonicalInput);
+  });
+  await waitFor(() => {
+    expect(button).not.toBeInTheDocument();
+  });
   expect(screen.getAllByRole("button", { name: appI18n.t("chatComposer.discard") })).toHaveLength(104);
   view.unmount();
 });
@@ -700,6 +710,8 @@ it("keeps an admitted prompt submission pending through Pending Work read recove
   await act(async () => {
     view.response.resolve({ results: [{ toolCallID: prompt.toolCallID, outcome: "resolved" }] });
   });
-  await waitFor(() => expect(screen.queryByRole("radio", { name: option })).not.toBeInTheDocument());
+  await waitFor(() => {
+    expect(screen.queryByRole("radio", { name: option })).not.toBeInTheDocument();
+  });
   expect(view.answer).toHaveBeenCalledOnce();
 });

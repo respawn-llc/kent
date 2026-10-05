@@ -1,6 +1,6 @@
 import { ArrowRightLeft, Plus, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import type * as Atom from "effect/unstable/reactivity/Atom";
+import type * as Atom from "effect/reactivity/Atom";
 import { useAtomValue } from "@effect/atom-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";

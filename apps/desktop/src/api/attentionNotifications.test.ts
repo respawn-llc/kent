@@ -3,6 +3,12 @@ import * as pb from "@app/server-api-contract/gen/kent/api/workflow_task/attenti
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
 import type { AttentionNotificationEvent } from "./attentionNotifications";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { RegistryProvider, useAtomSuspense } from "@effect/atom-react";
+import { createElement, type ReactNode } from "react";
+import * as Atom from "effect/reactivity/Atom";
+import * as Stream from "effect/Stream";
+import * as Effect from "effect/Effect";
 
 const service = pb.AttentionNotificationService.method;
 const occurredAt = { seconds: 1_789_578_000n, nanos: 0 };
@@ -28,7 +34,7 @@ const question = create(pb.AttentionNotificationSchema, {
   },
 });
 
-function observe() {
+async function observe() {
   const transport = new FakeRpcTransport([
     {
       subscriptionDescriptor: service.subscribe,
@@ -39,14 +45,28 @@ function observe() {
   ]);
   const events: AttentionNotificationEvent[] = [];
   const errors: Error[] = [];
-  const subscription = new ApiClient(transport, unexpectedProjectOverflow).subscribeAttentionNotifications({
-    onEvent: (event) => events.push(event),
-    onError: (error) => errors.push(error),
-    onComplete() {
-      return;
-    },
+  const observation = Atom.make(
+    new ApiClient(transport, unexpectedProjectOverflow)
+      .subscribeAttentionNotifications(async () => {
+        throw new Error("Unexpected attention overflow");
+      })
+      .pipe(
+        Stream.runForEach((value) =>
+          Effect.sync(() => {
+            if (value.kind === "event") events.push(value.event);
+            else if (value.kind === "error") errors.push(value.error);
+          }),
+        ),
+        Effect.as(null),
+      ),
+    { initialValue: null },
+  );
+  const view = renderHook(() => useAtomSuspense(observation), {
+    wrapper: ({ children }: Readonly<{ children: ReactNode }>) =>
+      createElement(RegistryProvider, { children }),
   });
-  return { transport, events, errors, subscription };
+  await act(async () => undefined);
+  return { transport, events, errors, view };
 }
 
 function pending(transport: FakeRpcTransport, value: pb.AttentionNotification) {
@@ -79,8 +99,15 @@ function taskTarget(focus: pb.AttentionNotificationTaskFocus) {
 }
 
 describe("attention notification API", () => {
-  it("delivers Session Questions and resolution with Project and Session navigation identity", () => {
-    const { transport, events, errors } = observe();
+  it("releases the binary subscription when the mounted observation departs", async () => {
+    const { transport, view } = await observe();
+    expect(transport.descriptorSubscriptions).toEqual([service.subscribe]);
+    view.unmount();
+    await waitFor(() => expect(transport.descriptorSubscriptions).toEqual([]));
+  });
+
+  it("delivers Session Questions and resolution with Project and Session navigation identity", async () => {
+    const { transport, events, errors } = await observe();
     pending(transport, question);
     transport.emitDescriptor(
       service.subscribe,
@@ -91,6 +118,7 @@ describe("attention notification API", () => {
         payload: { case: "resolved", value: { id: question.id, kind: question.kind, occurredAt } },
       }),
     );
+    await waitFor(() => expect(events).toHaveLength(2));
     expect(errors).toEqual([]);
     expect(events).toMatchObject([
       {
@@ -118,8 +146,8 @@ describe("attention notification API", () => {
     }).toThrow();
   });
 
-  it("delivers Task Question batches and reports malformed binary events", () => {
-    const { transport, events, errors } = observe();
+  it("delivers Task Question batches and reports malformed binary events", async () => {
+    const { transport, events, errors } = await observe();
     pending(
       transport,
       create(pb.AttentionNotificationSchema, {
@@ -132,6 +160,7 @@ describe("attention notification API", () => {
         ),
       }),
     );
+    await waitFor(() => expect(events).toHaveLength(1));
     expect(events).toMatchObject([
       {
         type: "pending",
@@ -142,12 +171,12 @@ describe("attention notification API", () => {
       },
     ]);
     transport.emitDescriptorBytes(service.subscribe, new Uint8Array([0xff]));
-    expect(errors).toHaveLength(1);
+    await waitFor(() => expect(errors).toHaveLength(1));
     expect(events).toHaveLength(1);
   });
 
-  it("preserves structured Approval access targets without inventing a message", () => {
-    const { transport, events } = observe();
+  it("preserves structured Approval access targets without inventing a message", async () => {
+    const { transport, events } = await observe();
     pending(
       transport,
       create(pb.AttentionNotificationSchema, {
@@ -167,6 +196,7 @@ describe("attention notification API", () => {
         },
       }),
     );
+    await waitFor(() => expect(events).toHaveLength(1));
     expect(events).toMatchObject([
       {
         type: "pending",
@@ -184,8 +214,8 @@ describe("attention notification API", () => {
     ]);
   });
 
-  it("keeps Workflow Approval and interrupted Current Node states distinct", () => {
-    const { transport, events } = observe();
+  it("keeps Workflow Approval and interrupted Current Node states distinct", async () => {
+    const { transport, events } = await observe();
     pending(
       transport,
       create(pb.AttentionNotificationSchema, {
@@ -218,6 +248,7 @@ describe("attention notification API", () => {
         ),
       }),
     );
+    await waitFor(() => expect(events).toHaveLength(2));
     expect(events).toMatchObject([
       {
         type: "pending",
@@ -238,8 +269,8 @@ describe("attention notification API", () => {
     ]);
   });
 
-  it("rejects a Task Question focus that differs from the prepared batch", () => {
-    const { transport, events } = observe();
+  it("rejects a Task Question focus that differs from the prepared batch", async () => {
+    const { transport, events } = await observe();
     expect(() => {
       pending(
         transport,

@@ -1,5 +1,5 @@
 export { useLocalSubscription } from "./useLocalSubscription";
-export type { AppLogger, AppLogLevel } from "./logging";
+export { createAppLogger, type AppLogger, type AppLogLevel, type AppObservationLogger } from "./logging";
 export * from "./boardQueries";
 export * from "./browserStorage";
 export * from "./chatRuntime";
@@ -10,7 +10,7 @@ export * from "./chatTranscriptObservation";
 export * from "./chatTranscriptHost";
 export * from "./debugFailure";
 export { projectEventDiagnostics } from "./projectEventDiagnostics";
-export { queryAction, useQueryAction } from "./queryAction";
+export { infiniteQueryReadActions, queryReadActions, queryAction, useQueryAction } from "./queryAction";
 export { useProjectObservation, ProjectObservationFailure } from "./useProjectObservation";
 export * from "./formatters";
 export * from "./nativeHooks";

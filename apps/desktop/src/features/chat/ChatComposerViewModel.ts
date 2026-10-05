@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import type * as Atom from "effect/unstable/reactivity/Atom";
+import type * as Atom from "effect/reactivity/Atom";
 import type { TFunction } from "i18next";
 import type { ChatSettingsTarget } from "@/api";
 import type { AppServices } from "@/app-facade";

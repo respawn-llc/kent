@@ -141,19 +141,6 @@ message ModelCapabilitiesOverride {
   bool supports_vision_inputs = 2;
 }
 
-message ProviderCapabilitiesOverride {
-
-  string provider_id = 1;
-  bool supports_responses_api = 2;
-  bool supports_responses_compact = 3;
-  bool supports_prompt_cache_key = 5;
-  bool supports_native_web_search = 6;
-  bool supports_reasoning_encrypted = 7;
-  bool supports_server_side_context_edit = 8;
-  bool supports_provider_verbosity = 9;
-  bool is_openai_first_party = 10;
-}
-
 message TimeoutSettings {
   int32 model_request_seconds = 1 [(buf.validate.field).int32.gt = 0];
 }

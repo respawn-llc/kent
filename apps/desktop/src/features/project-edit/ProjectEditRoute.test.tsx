@@ -162,7 +162,9 @@ it("confirms workspace detach above the destination and refreshes the sidebar li
     });
     await response.promise;
   });
-  await waitFor(() => expect(button).not.toBeInTheDocument());
+  await waitFor(() => {
+    expect(button).not.toBeInTheDocument();
+  });
 });
 
 it("reports a detach failure in the destination after closing confirmation", async () => {

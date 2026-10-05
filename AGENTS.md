@@ -121,6 +121,7 @@ Just is the sole public developer command interface. Do not add standalone devel
 - Do not add provider-adapter history shapers in model request serialization. Provider-specific input payload shape must be materialized at transcript/persistence projection boundaries; provider adapters serialize prepared items and fail invalid unprepared items instead of silently dropping, promoting, prefixing, stringifying, or normalizing historical items.
 - Runtime output mutations belong behind the `server/runtime` steer/queue boundary. Do not add ad-hoc appenders, prompt injectors, direct runtime event emitters, or bespoke queue flush paths for model-visible context, transcript rows, tool completions, local diagnostics, or runtime status events. Build typed steering calls; queues store those calls; compaction starts a new active list from compacting output and then steers runtime context into it.
 - When you make changes that make server contract incompatible with existing GUI/TUI clients', don't forget to raise the protocol version in ./shared/protocol/version.json. You may do so without explicit user approval as needed.
+- Kent's exact protocol-version gate rejects incompatible clients. Do not maintain Protobuf compatibility shims, legacy definitions, or reserved field names/numbers solely for older Kent clients. Unchanged fields keep their numbers. Persisted or externally consumed formats require their own explicit product contract.
 
 ## Commit guidelines
 Format: `<type>[!]: [description]`, `!` = breaking change (requiring migration from users of Kent).

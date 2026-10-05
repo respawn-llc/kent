@@ -17,16 +17,18 @@ export function ProjectTaskColumnMeasurements({
   data: ProjectTaskListData;
   onMeasure: (widths: ProjectTaskRenderedColumnWidths) => void;
 }>) {
-  const entries = useMemo(
-    () =>
-      projectTaskGroups.flatMap((group) =>
-        data[group].tasks.map((task): ProjectTaskMeasurementEntry => ({
-          key: `${group}-${task.id}`,
-          task,
-        })),
-      ),
-    [data],
-  );
+  const active = data.active.tasks;
+  const backlog = data.backlog.tasks;
+  const done = data.done.tasks;
+  const entries = useMemo(() => {
+    const tasks = { active, backlog, done };
+    return projectTaskGroups.flatMap((group) =>
+      tasks[group].map((task): ProjectTaskMeasurementEntry => ({
+        key: `${group}-${task.id}`,
+        task,
+      })),
+    );
+  }, [active, backlog, done]);
   const labelRows = useRef(new Map<string, HTMLSpanElement>());
   const workflowNames = useRef(new Map<string, HTMLSpanElement>());
 

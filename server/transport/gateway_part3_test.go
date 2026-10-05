@@ -129,7 +129,7 @@ func newGatewayTestCore(t *testing.T, bindWorkspace bool, ready bool) (*core.Cor
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
-	authSupport := newGatewayTestAuthSupport(t, ready)
+	authSupport := newGatewayTestAuthSupport(t, resolved.Config.PersistenceRoot, ready)
 	resolved.Config.Settings = testsetup.ProviderSettings(resolved.Config.Settings)
 	if !ready {
 		resolved.Config.Settings.Connections[*resolved.Config.Settings.Connection] = config.ProviderConnection{

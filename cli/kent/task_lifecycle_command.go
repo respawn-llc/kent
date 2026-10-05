@@ -61,7 +61,7 @@ func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 		}
 		selectedWorkflow = &selector
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		projectID, err := resolveWorkflowProjectID(context.Background(), cfg, remote, *projectRef)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -239,7 +239,7 @@ func taskEditSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "--body cannot be combined with --body-file")
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		taskID, err := resolveWorkflowTaskID(context.Background(), cfg, remote, remote, *projectRef, positionals[0])
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -325,7 +325,7 @@ func taskStartSubcommand(args []string, stdout io.Writer, stderr io.Writer) int 
 	if flagExplicit(fs, "project") {
 		recoveryProject = projectRef
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		taskID, err := resolveWorkflowTaskID(context.Background(), cfg, remote, remote, *projectRef, positionals[0])
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -502,7 +502,7 @@ func taskDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 	if denyAgentHumanOnlyTaskAction(stderr) {
 		return 1
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		taskID, err := resolveWorkflowTaskID(context.Background(), cfg, remote, remote, *projectRef, positionals[0])
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -555,7 +555,7 @@ func taskResumeSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 	if flagExplicit(fs, "project") {
 		recoveryProject = projectRef
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		taskID, err := resolveWorkflowTaskID(context.Background(), cfg, remote, remote, *projectRef, positionals[0])
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -635,7 +635,7 @@ func taskInterruptSubcommand(args []string, stdout io.Writer, stderr io.Writer) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		taskID, err := resolveWorkflowTaskID(context.Background(), cfg, remote, remote, *projectRef, positionals[0])
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -689,7 +689,7 @@ func taskApproveSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(_ config.Connection, remote *client.Remote) int {
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
 		resp, err := remote.ApproveWorkflowTask(ctx, &taskpb.ApproveRequest{
@@ -759,7 +759,7 @@ func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		taskID, err := resolveWorkflowTaskID(context.Background(), cfg, remote, remote, *projectRef, positionals[0])
 		if err != nil {
 			fmt.Fprintln(stderr, err)

@@ -23,12 +23,13 @@ import { I18nextProvider } from "react-i18next";
 import { ApiClient, protocolVersion } from "@/api/composition";
 import {
   AppServicesProvider,
+  createAppLogger,
   projectEventDiagnostics,
   StatusProvider,
   TaskSearchMemoryProvider,
   WindowFocusProvider,
   WindowChromeTitleProvider,
-  type AppLogger,
+  type AppObservationLogger,
   type AppLogLevel,
   type AppServices,
 } from "@/app-facade";
@@ -43,7 +44,7 @@ export type TestLogEntry = Readonly<{
   message: string;
 }>;
 
-export type TestLogger = AppLogger &
+export type TestLogger = AppObservationLogger &
   Readonly<{
     entries(): readonly TestLogEntry[];
   }>;
@@ -132,10 +133,11 @@ export function createTestServices(
 
 function createTestLogger(): TestLogger {
   const entries: TestLogEntry[] = [];
+  const logger = createAppLogger(async (level, message, context = {}) => {
+    entries.push({ context, level, message });
+  });
   return {
-    async append(level, message, context = {}) {
-      entries.push({ context, level, message });
-    },
+    ...logger,
     entries() {
       return entries.slice();
     },
@@ -172,8 +174,6 @@ export const startupRoutes: readonly FakeRoute[] = [
             serverId: "server-1",
             serverVersion: "1.3.0",
             protocolVersion,
-            authReady: true,
-            authRequired: true,
             endpoint: "ws://127.0.0.1:53082/rpc",
             subagentRoles: [{ name: "default" }, { name: "fast" }, { name: "coder" }, { name: "reviewer" }],
             causes: [],

@@ -3,6 +3,8 @@ package authservice
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 
 	"core/server/auth"
 	"core/shared/config"
@@ -11,19 +13,23 @@ import (
 )
 
 type BootstrapService struct {
+	ctx          context.Context
+	writeMu      sync.Mutex
+	finishMu     sync.Mutex
+	pending      atomic.Pointer[pendingConnection]
 	connections  *ConnectionResolver
 	oauthOptions auth.OpenAIOAuthOptions
 }
 
-func NewBootstrapService(connections *ConnectionResolver, oauthOptions auth.OpenAIOAuthOptions) *BootstrapService {
-	return &BootstrapService{connections: connections, oauthOptions: oauthOptions}
+func NewBootstrapService(ctx context.Context, connections *ConnectionResolver, oauthOptions auth.OpenAIOAuthOptions) *BootstrapService {
+	return &BootstrapService{ctx: ctx, connections: connections, oauthOptions: oauthOptions}
 }
 
 func (s *BootstrapService) GetBootstrapStatus(ctx context.Context, req *authpb.GetBootstrapStatusRequest) (*authpb.BootstrapStatus, error) {
 	if req == nil {
 		return nil, errors.New("connection bootstrap status request is required")
 	}
-	snapshot, err := s.connections.snapshot(ctx, req.ConnectionId)
+	snapshot, err := s.targetSnapshot(ctx, req.Target)
 	if err != nil {
 		return nil, err
 	}
@@ -50,11 +56,12 @@ func (s *BootstrapService) GetBootstrapStatus(ctx context.Context, req *authpb.G
 	return status, nil
 }
 
-func (s *BootstrapService) CompleteBootstrap(ctx context.Context, req *authpb.CompleteBootstrapRequest) (*authpb.BootstrapCompletion, error) {
+func (s *BootstrapService) CompleteBootstrap(_ context.Context, req *authpb.CompleteBootstrapRequest) (*authpb.BootstrapCompletion, error) {
 	if req == nil {
 		return nil, errors.New("connection bootstrap request is required")
 	}
-	snapshot, err := s.connections.snapshot(ctx, req.ConnectionId)
+	ctx := s.ctx
+	snapshot, err := s.targetSnapshot(ctx, req.Target)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +84,7 @@ func (s *BootstrapService) CompleteBootstrap(ctx context.Context, req *authpb.Co
 		if err != nil {
 			return nil, err
 		}
-		if err := s.connections.manager.SaveOAuth(ctx, snapshot.connection.ID, credential); err != nil {
+		if err := s.commitOAuth(req.Target, snapshot, credential); err != nil {
 			return nil, err
 		}
 		snapshot.oauth, snapshot.failure = &credential, nil

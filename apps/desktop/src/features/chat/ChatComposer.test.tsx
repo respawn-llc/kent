@@ -291,7 +291,9 @@ it("recalls only at absolute unmodified collapsed boundaries and places the curs
     </TestAppProviders>,
   );
   const editor = screen.getByTestId<HTMLTextAreaElement>("history-editor");
-  await waitFor(() => expect(editor).toHaveValue("first\nsecond"));
+  await waitFor(() => {
+    expect(editor).toHaveValue("first\nsecond");
+  });
   editor.setSelectionRange(6, 6);
   fireEvent.keyDown(editor, { key: "ArrowUp" });
   expect(editor).toHaveValue("first\nsecond");
@@ -301,16 +303,24 @@ it("recalls only at absolute unmodified collapsed boundaries and places the curs
   fireEvent.keyDown(editor, { key: "ArrowUp", ctrlKey: true });
   expect(editor).toHaveValue("first\nsecond");
   fireEvent.keyDown(editor, { key: "ArrowUp" });
-  await waitFor(() => expect(editor).toHaveValue("/compact saved"));
+  await waitFor(() => {
+    expect(editor).toHaveValue("/compact saved");
+  });
   expect(editor.selectionStart).toBe(0);
   fireEvent.keyDown(editor, { key: "ArrowUp" });
-  await waitFor(() => expect(editor).toHaveValue("older\nprompt"));
+  await waitFor(() => {
+    expect(editor).toHaveValue("older\nprompt");
+  });
   editor.setSelectionRange(editor.value.length, editor.value.length);
   fireEvent.keyDown(editor, { key: "ArrowDown" });
-  await waitFor(() => expect(editor).toHaveValue("/compact saved"));
+  await waitFor(() => {
+    expect(editor).toHaveValue("/compact saved");
+  });
   expect(editor.selectionStart).toBe(editor.value.length);
   fireEvent.keyDown(editor, { key: "ArrowDown" });
-  await waitFor(() => expect(editor).toHaveValue("first\nsecond"));
+  await waitFor(() => {
+    expect(editor).toHaveValue("first\nsecond");
+  });
   expect(editor.selectionStart).toBe(0);
 });
 
@@ -564,10 +574,14 @@ it.each([
     </TestAppProviders>,
   );
   const editor = screen.getByTestId("command");
-  await waitFor(() => expect(editor).not.toBeDisabled());
+  await waitFor(() => {
+    expect(editor).not.toBeDisabled();
+  });
   fireEvent.change(editor, { target: { value: text } });
   fireEvent.keyDown(editor, { key: "Enter", ctrlKey });
-  await waitFor(() => expect(editor).toHaveValue(""));
+  await waitFor(() => {
+    expect(editor).toHaveValue("");
+  });
   if (!newChat && text !== "/wt ls") {
     expect(execute).toHaveBeenCalledOnce();
     await act(async () => {
@@ -638,7 +652,9 @@ it.each(["idle", "stopped", "failed"] as const)(
       </TestAppProviders>,
     );
     const button = screen.getByRole("button", { name: "Stop probe" });
-    await waitFor(() => expect(button).not.toBeDisabled());
+    await waitFor(() => {
+      expect(button).not.toBeDisabled();
+    });
     fireEvent.click(button);
     await waitFor(() => {
       expect(stop).toHaveBeenCalledOnce();
@@ -654,7 +670,9 @@ it.each(["idle", "stopped", "failed"] as const)(
     await waitFor(() => {
       expect(read).toHaveBeenCalledTimes(2);
     });
-    await waitFor(() => expect(button).toBeDisabled());
+    await waitFor(() => {
+      expect(button).toBeDisabled();
+    });
   },
 );
 
@@ -704,7 +722,9 @@ it("clears an armed Stop on transcript loss while allowing a subsequent independ
     </TestAppProviders>,
   );
   const keyboard = screen.getByTestId("keyboard");
-  await waitFor(() => expect(keyboard).not.toBeDisabled());
+  await waitFor(() => {
+    expect(keyboard).not.toBeDisabled();
+  });
   fireEvent.keyDown(keyboard, { key: "Escape" });
   act(() => handlers[0]?.onTransportLoss?.());
   fireEvent.keyDown(keyboard, { key: "Escape" });

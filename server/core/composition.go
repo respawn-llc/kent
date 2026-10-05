@@ -154,6 +154,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	askService := promptcontrol.NewAskViewService(runtimeRegistry)
 	approvalService := promptcontrol.NewApprovalViewService(runtimeRegistry)
 	processService := processview.NewProcessViewService(background, metadataStore)
+	background.SetBackgroundListChangeHandler(processService.BackgroundListChanged)
 	sessionRuntimeAPI := sessionruntime.NewAPI(metadataStore, runtimeAuthority, sessionruntime.APIOptions{
 		RuntimeClientFactory:   opts.RuntimeClientFactory,
 		ManagedWorktreeBaseDir: cfg.Settings.Worktrees.BaseDir,
@@ -200,10 +201,10 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	})
 	projectViews := projectService
 	connections := authservice.NewConnectionResolver(cfg.PersistenceRoot, authSupport.AuthManager, authSupport.Environment)
-	authBootstrapService := authservice.NewBootstrapService(connections, authSupport.OAuthOptions)
+	authBootstrapService := authSupport.Connections
 	authStatusService := authservice.NewStatusService(connections)
 	updateStatusService := serverstatus.NewUpdateStatusService(config.Version, cfg.Settings.Debug)
-	serverStatusService := serverstatus.NewServerStatusService(authBootstrapService, cfg, updateStatusService)
+	serverStatusService := serverstatus.NewServerStatusService(cfg, updateStatusService)
 	sessionViewService := sessionview.NewService(metadataStore, runtimeRegistry, metadataStore).
 		WithPromptHistoryReader(metadataStore).
 		WithChatContextWorkspaceResolver(workspaceConfigResolver).
@@ -278,10 +279,11 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	workflowTaskMutations := workflowexecution.NewTaskMutationCoordinator()
 	workflowExecutionTargets := taskExecutionTargetInfrastructure{service: worktreeService, git: gitInspector}
 	workflowRuntimeStarter, err = workflowrunner.NewStarter(cfg, metadataStore, workflowStore, authSupport.AuthManager, runtimeRegistry, workflowrunner.StarterOptions{
-		Environment:          authSupport.Environment,
-		RuntimeClientFactory: opts.RuntimeClientFactory,
-		RuntimeAuthority:     runtimeAuthority,
-		TaskDependencies:     workflowTaskDependencyCounter,
+		WorkspaceConfigLoadOptions: opts.WorkspaceConfigLoadOptions,
+		Environment:                authSupport.Environment,
+		RuntimeClientFactory:       opts.RuntimeClientFactory,
+		RuntimeAuthority:           runtimeAuthority,
+		TaskDependencies:           workflowTaskDependencyCounter,
 	})
 	if err != nil {
 		cleanupNewFailure()

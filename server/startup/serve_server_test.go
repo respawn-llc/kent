@@ -15,6 +15,7 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
+	"core/server/auth"
 	corepkg "core/server/core"
 	"core/server/metadata"
 	metadatamigrations "core/server/metadata/migrations"
@@ -23,6 +24,7 @@ import (
 	"core/shared/client"
 	"core/shared/config"
 	protoapi "core/shared/protoapi"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
@@ -86,9 +88,97 @@ func TestStartServeServerRejectsSecondPersistenceRootOwner(t *testing.T) {
 	}
 }
 
-func TestCoreStartupRejectsSettingsRemovedAfterInitialResolution(t *testing.T) {
+func TestOccupiedRootDoesNotConvertProviderConfiguration(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config.toml")
+	body := []byte("model = \"gpt-6-sol\"\nprovider_override = \"openai\"\n")
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := corepkg.AcquireRootLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Close()
+	server, err := StartServeServer(context.Background(), Request{LoadOptions: config.LoadOptions{ConfigRoot: root}})
+	if server != nil {
+		_ = server.Close()
+		t.Fatal("occupied root started another server")
+	}
+	if !errors.Is(err, corepkg.ErrPersistenceRootBusy) {
+		t.Fatalf("occupied root must be rejected before configuration loading: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || string(after) != string(body) {
+		t.Fatalf("occupied root configuration changed: %v", err)
+	}
+}
+
+func TestStartupConvertsOldSubscriptionAndRequiresSignIn(t *testing.T) {
+	for _, access := range []string{"", "provider_override = \"openai\"\n"} {
+		t.Run(access, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			configureServeTestServerPort(t)
+			writeServeSettings(t, home, "model = \"gpt-6-sol\"\n"+access)
+			root := filepath.Join(home, config.ConfigDirName)
+			authPath := config.GlobalAuthConfigPath(config.App{PersistenceRoot: root})
+			if err := os.WriteFile(authPath, []byte(`{"scope":"global","method":{"type":"oauth","oauth":{"access_token":"discarded-fixture"}}}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			server := startServeTestServer(t, Request{})
+			connection, err := server.Config().Settings.SelectedConnection()
+			if err != nil || connection.Protocol != config.ConnectionChatGPT {
+				t.Fatalf("converted subscription = %+v, %v", connection, err)
+			}
+			state, err := auth.NewFileStore(authPath).Load(context.Background())
+			if err != nil || len(state.Connections) != 0 {
+				t.Fatalf("old token survived cutover: %+v, %v", state, err)
+			}
+			status, err := server.AuthBootstrapClient().GetBootstrapStatus(context.Background(), &authpb.GetBootstrapStatusRequest{Target: protoapi.ExistingConnectionTarget(*server.Config().Settings.Connection)})
+			if err != nil || status.AuthReady || !status.AuthRequired {
+				t.Fatalf("subscription must be available for sign-in: %+v, %v", status, err)
+			}
+		})
+	}
+}
+
+func TestStartupConversionFailureRetainsSelectionAndReleasesRoot(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config.toml")
+	authPath := config.GlobalAuthConfigPath(config.App{PersistenceRoot: root})
+	body := `provider_override = "openai"`
+	credentials := `{"scope":"global","method":{"type":"api_key","api_key":{"key":"discarded-fixture"}}}`
+	for name, contents := range map[string]string{path: body, authPath: credentials} {
+		if err := os.WriteFile(name, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server, err := StartServeServer(context.Background(), Request{LoadOptions: config.LoadOptions{ConfigRoot: root}})
+	if server != nil {
+		_ = server.Close()
+	}
+	if err == nil {
+		t.Fatal("API-backed installation converted without an explicit reference")
+	}
+	for name, contents := range map[string]string{path: body, authPath: credentials} {
+		after, err := os.ReadFile(name)
+		if err != nil || string(after) != contents {
+			t.Fatalf("failed conversion changed %s: %v", name, err)
+		}
+	}
+	lease, err := corepkg.AcquireRootLock(root)
+	if err != nil {
+		t.Fatalf("startup failure retained root ownership: %v", err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStartupOffersSetupAfterSettingsRemoved(t *testing.T) {
 	workspace := newServeWorkspace(t)
-	request := buildRequest(Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	request := Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
 	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
@@ -96,13 +186,9 @@ func TestCoreStartupRejectsSettingsRemovedAfterInitialResolution(t *testing.T) {
 	if err := os.Remove(cfg.Source.File(config.FileGlobal).Path); err != nil {
 		t.Fatalf("remove settings: %v", err)
 	}
-	appCore, err := startCoreWithBootstrap(context.Background(), request)
-	if appCore != nil {
-		_ = appCore.Close()
-		t.Fatal("core started without settings")
-	}
-	if !errors.Is(err, ErrOnboardingRequired) {
-		t.Fatalf("core startup error = %v, want ErrOnboardingRequired", err)
+	server := startServeTestServer(t, request)
+	if server.Core != nil || server.deps == nil {
+		t.Fatal("settings removal must reopen setup")
 	}
 }
 
@@ -111,7 +197,7 @@ func TestStartServeServerPanicsWhenWorkspaceChatDraftCutoverFails(t *testing.T) 
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 	configureServeTestServerPort(t)
-	writeServeSettings(t, home, "model = \"gpt-5\"\n")
+	writeServeSettings(t, home, "model = \"gpt-6-sol\"\n")
 	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
@@ -381,7 +467,7 @@ func TestServeExposesDerivedLocalUnixSocketAndCleansStalePath(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 	cfg := server.Config()
-	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg)
+	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("ServerLocalRPCSocketPath: %v", err)
 	}
@@ -424,7 +510,7 @@ func TestServeExposesDerivedLocalUnixSocketAndCleansStalePath(t *testing.T) {
 
 	var localRemote *client.Remote
 	if !testsetup.Until(deadline, 10*time.Millisecond, func() bool {
-		localRemote, err = client.DialConfiguredRemote(context.Background(), cfg)
+		localRemote, err = client.DialConfiguredRemote(context.Background(), cfg.Connection())
 		return err == nil
 	}) {
 		t.Fatalf("DialConfiguredRemote: %v", err)
@@ -480,17 +566,13 @@ protocol = "chatgpt-codex"
 	if err := json.NewDecoder(healthResp.Body).Decode(&healthBody); err != nil {
 		t.Fatalf("decode health body: %v", err)
 	}
-	if healthBody["auth_ready"] != false {
-		t.Fatalf("expected auth_ready=false health payload, got %+v", healthBody)
-	}
-
-	readyResp := requireServeResponse(t, http.DefaultClient, readyURL, http.StatusServiceUnavailable)
+	readyResp := requireServeResponse(t, http.DefaultClient, readyURL, http.StatusOK)
 	defer func() { _ = readyResp.Body.Close() }()
 	var readyBody map[string]any
 	if err := json.NewDecoder(readyResp.Body).Decode(&readyBody); err != nil {
 		t.Fatalf("decode ready body: %v", err)
 	}
-	if readyBody["ready"] != false || readyBody["auth_ready"] != false || readyBody["transport_ready"] != true {
+	if readyBody["ready"] != true {
 		t.Fatalf("unexpected readiness payload: %+v", readyBody)
 	}
 
@@ -501,7 +583,7 @@ func TestServeReadinessDoesNotRequireAuthForNonFirstPartyProvider(t *testing.T) 
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 	writeServeSettings(t, home, `
-model = "gpt-5"
+model = "gpt-6-sol"
 connection = "local"
 [connections.local]
 protocol = "responses"
@@ -529,7 +611,7 @@ endpoint = "http://127.0.0.1:11434/v1"
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatalf("decode readiness body: %v", err)
 	}
-	if body["ready"] != true || body["auth_ready"] != false {
+	if body["ready"] != true {
 		t.Fatalf("readiness body = %+v, want ready without credentials", body)
 	}
 }
@@ -547,7 +629,7 @@ func TestMissingConfigServeStartsBootstrapSurfaceBeforeAuthReady(t *testing.T) {
 	startServingTestServer(t, server)
 	healthResp := waitForServeResponse(t, http.DefaultClient, config.ServerHTTPBaseURL(server.Config())+protocol.HealthPath)
 	_ = healthResp.Body.Close()
-	remote, err := client.DialConfiguredRemote(context.Background(), server.Config())
+	remote, err := client.DialConfiguredRemote(context.Background(), server.Config().Connection())
 	if err != nil {
 		t.Fatalf("DialConfiguredRemote: %v", err)
 	}
@@ -582,7 +664,7 @@ func TestMissingConfigServeStartsBootstrapSurfaceBeforeAuthReady(t *testing.T) {
 	}
 }
 
-func TestStartupControlSurfaceRejectsConfigThatAppearsBeforeRootLock(t *testing.T) {
+func TestStartupUsesConfigThatAppearsBeforeRootLock(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
@@ -595,9 +677,9 @@ func TestStartupControlSurfaceRejectsConfigThatAppearsBeforeRootLock(t *testing.
 		t.Fatalf("write settings: %v", err)
 	}
 
-	_, _, err = buildStartupControlSurface(context.Background(), buildRequest(Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}))
-	if !errors.Is(err, errStartupControlSurfaceNotRequired) {
-		t.Fatalf("buildStartupControlSurface error = %v, want not required", err)
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	if server.Core == nil {
+		t.Fatal("configuration present before startup must activate Core")
 	}
 }
 
@@ -606,7 +688,7 @@ func TestConfiguredRemoteGetsServerReadinessWhenAuthMissing(t *testing.T) {
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 	writeServeSettings(t, home, `
-model = "gpt-5"
+model = "gpt-6-sol"
 connection = "subscription"
 
 [connections.subscription]
@@ -632,7 +714,7 @@ model = "blocked-model"
 	healthResp := waitForServeResponse(t, http.DefaultClient, healthURL)
 	_ = healthResp.Body.Close()
 
-	remote, err := client.DialConfiguredRemote(context.Background(), cfg)
+	remote, err := client.DialConfiguredRemote(context.Background(), cfg.Connection())
 	if err != nil {
 		t.Fatalf("DialConfiguredRemote: %v", err)
 	}
@@ -643,29 +725,19 @@ model = "blocked-model"
 		t.Fatalf("GetReadiness: %v", err)
 	}
 	readiness := readinessResponse.Readiness
-	if readiness.Ready {
-		t.Fatalf("ready = true, want false: %+v", readiness)
+	if !readiness.Ready {
+		t.Fatalf("working server is not ready: %+v", readiness)
 	}
 	if readiness.ServerId == "" || readiness.ProtocolVersion != protocol.Version || readiness.ServerVersion == "" {
 		t.Fatalf("missing readiness identity fields: %+v", readiness)
 	}
-	if readiness.AuthReady || !readiness.AuthRequired {
-		t.Fatalf("auth flags = ready:%t required:%t, want ready:false required:true", readiness.AuthReady, readiness.AuthRequired)
-	}
 	if readiness.Endpoint == "" {
 		t.Fatalf("expected endpoint in readiness response: %+v", readiness)
 	}
-	if len(readiness.Causes) != 1 {
-		t.Fatalf("cause count = %d, want 1: %+v", len(readiness.Causes), readiness.Causes)
+	if len(readiness.Causes) != 0 {
+		t.Fatalf("unexpected provider-based readiness causes: %+v", readiness.Causes)
 	}
 	assertReadinessRoles(t, readiness.SubagentRoles, []string{"default", "fast", "blocked", "coder"})
-	cause := readiness.Causes[0]
-	if cause.Code != "server_not_ready" ||
-		cause.Severity != serverpb.ReadinessSeverity_READINESS_SEVERITY_ERROR ||
-		cause.Summary != nil ||
-		cause.NextAction != nil {
-		t.Fatalf("unexpected generic readiness cause: %+v", cause)
-	}
 }
 
 func TestMissingConfigFinalizeActivationFailureIsTypedAndRetryConflicts(t *testing.T) {
@@ -677,6 +749,11 @@ func TestMissingConfigFinalizeActivationFailureIsTypedAndRetryConflicts(t *testi
 	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 	if server.Core != nil || server.deps == nil {
 		t.Fatal("expected missing-config serve startup surface")
+	}
+	if _, err := server.deps.ConnectionManagementClient().ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_PendingSetup{
+		PendingSetup: &authpb.ConnectionDefinition{Id: "local", Protocol: authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES, Endpoint: proto.String("http://localhost:1234/v1")},
+	}}); err != nil {
+		t.Fatal(err)
 	}
 	metadataBlocker := filepath.Join(server.cfg.PersistenceRoot, "db")
 	if err := os.Rename(metadataBlocker, filepath.Join(server.cfg.PersistenceRoot, "saved-db")); err != nil {

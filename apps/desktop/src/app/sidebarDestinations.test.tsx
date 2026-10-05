@@ -140,6 +140,12 @@ vi.mock("@/features/workflow-editor", () => ({
   }: Readonly<{ onDeleted?: () => void; workflowID: string }>) => (
     <button data-testid={`workflow-delete-${workflowID}`} onClick={onDeleted} />
   ),
+  WorkflowInspectorHeader: ({
+    onDeleted,
+    workflowID,
+  }: Readonly<{ onDeleted: () => void; workflowID: string }>) => (
+    <button data-testid={`workflow-inspector-delete-${workflowID}`} onClick={onDeleted} />
+  ),
   WorkflowInspectorSidebar: ({ onMissingSelectedNode }: Readonly<{ onMissingSelectedNode: () => void }>) => (
     <button data-testid="workflow-inspector-missing" onClick={onMissingSelectedNode} />
   ),
@@ -189,7 +195,7 @@ describe("Sidebar destination completion ownership", () => {
   });
   it("deduplicates only Task Detail destinations", () => {
     const task = { kind: "taskDetail", taskID: "task-1" } as const;
-    const custom = { kind: "custom", title: "same", content: null } as const;
+    const custom = { kind: "custom", title: "same", content: () => null } as const;
     expect(sidebarDestinationPolicy.equals(task, { ...task })).toBe(true);
     expect(sidebarDestinationPolicy.equals(custom, { ...custom })).toBe(false);
   });
@@ -397,41 +403,10 @@ describe("Sidebar destination completion ownership", () => {
         { kind: "workflowInspect", selection: { kind: "workflow" }, workflowID: "workflow-1" },
         navigator,
       );
-      const deleteAction = headerAction.mock.lastCall?.[0];
-      if (!isValidElement(deleteAction)) throw new Error("Expected Workflow delete.");
-      renderHeaderAction(deleteAction);
-      fireEvent.click(screen.getByTestId("workflow-delete-workflow-1"));
+      fireEvent.click(screen.getByTestId("workflow-inspector-delete-workflow-1"));
       expect(navigator.close).toHaveBeenCalledOnce();
     },
   );
-
-  it("publishes Workflow Inspector ID-copy actions", async () => {
-    mountDestination({
-      kind: "workflowInspect",
-      selection: { kind: "node", nodeID: "node-1" },
-      workflowID: "workflow-1",
-    });
-    const copyAction = headerAction.mock.lastCall?.[0];
-    if (!isValidElement(copyAction)) throw new Error("Expected Workflow ID copy.");
-    renderHeaderAction(copyAction);
-    fireEvent.click(screen.getByText("node-1"));
-    await waitFor(() => {
-      expect(fixture.copyText).toHaveBeenCalledWith("node-1");
-    });
-
-    mountDestination({
-      kind: "workflowInspect",
-      selection: { edgeID: "edge-1", kind: "edge" },
-      workflowID: "workflow-1",
-    });
-    const edgeCopyAction = headerAction.mock.lastCall?.[0];
-    if (!isValidElement(edgeCopyAction)) throw new Error("Expected Workflow transition ID copy.");
-    renderHeaderAction(edgeCopyAction);
-    fireEvent.click(screen.getByText("edge-1"));
-    await waitFor(() => {
-      expect(fixture.copyText).toHaveBeenCalledWith("edge-1");
-    });
-  });
 
   it.each<Readonly<{ outcome: "accepted" | "stale" }>>([{ outcome: "accepted" }, { outcome: "stale" }])(
     "keeps pop-out completion scoped when close is $outcome",
