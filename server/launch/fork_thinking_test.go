@@ -18,7 +18,7 @@ func TestResolveForkThinkingUsesCurrentSelectionAndTargetSupport(t *testing.T) {
 	}{
 		{name: "official", model: "gpt-6-astra", supported: true},
 		{name: "custom", model: "gpt-6-astra", endpoint: "https://example.test/v1"},
-		{name: "different model", model: "gpt-5.4"},
+		{name: "model without native updates", model: "gpt-5.6-sol"},
 		{name: "OAuth default", model: "gpt-6-astra", oauth: true, supported: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {

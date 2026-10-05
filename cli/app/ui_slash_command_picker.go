@@ -1,38 +1,15 @@
 package app
 
 import (
-	"context"
-	"errors"
 	"strings"
 	"unicode"
 
 	"core/cli/app/commands"
-	"core/shared/protoapi"
-	authpb "core/shared/protoapi/gen/kent/api/auth"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 const slashCommandPickerLines = 7
-
-type authSlashCommandKind uint8
-
-const (
-	authSlashCommandUnknown authSlashCommandKind = iota
-	authSlashCommandLogin
-	authSlashCommandLogout
-)
-
-func (k authSlashCommandKind) commandName() string {
-	switch k {
-	case authSlashCommandLogin:
-		return "login"
-	case authSlashCommandLogout:
-		return "logout"
-	default:
-		return ""
-	}
-}
 
 type slashCommandPickerState struct {
 	visible   bool
@@ -76,19 +53,13 @@ func parseSlashCommandInput(input string) slashCommandInput {
 	}
 }
 
-func (m *uiModel) refreshSlashCommandFilterFromInputWithAuth(scheduleAuth bool) tea.Cmd {
+func (m *uiModel) refreshSlashCommandFilterFromInput() tea.Cmd {
 	parsed := parseSlashCommandInput(m.mainEditor.Text())
 	if !parsed.active || parsed.argumentMode {
-		m.authSlashSessionOpen = false
-		m.authSlashLoading = false
 		m.slashCommandFilter = ""
 		m.slashCommandFilterSet = false
 		m.slashCommandSelection = 0
 		return nil
-	}
-	if !m.authSlashSessionOpen {
-		m.authSlashSessionOpen = true
-		m.authSlashGeneration = nextNonZeroToken(m.authSlashGeneration)
 	}
 	normalized := strings.ToLower(strings.TrimSpace(parsed.token))
 	if !m.slashCommandFilterSet || m.slashCommandFilter != normalized {
@@ -97,13 +68,6 @@ func (m *uiModel) refreshSlashCommandFilterFromInputWithAuth(scheduleAuth bool) 
 	m.slashCommandFilter = normalized
 	m.slashCommandFilterSet = true
 	m.clampSlashCommandSelection()
-	if scheduleAuth && m.commandRegistry != nil {
-		for _, command := range m.commandRegistry.Match(normalized) {
-			if isAuthSlashCommand(command.Name) {
-				return m.requestAuthSlashCommandRefresh()
-			}
-		}
-	}
 	return nil
 }
 
@@ -144,70 +108,9 @@ func (m *uiModel) filterSlashCommandMatches(matches []commands.Command) []comman
 		if command.Name == "fast" && !m.fastModeAvailable {
 			continue
 		}
-		if isAuthSlashCommand(command.Name) && command.Name != m.authSlashCommand.commandName() {
-			continue
-		}
 		filtered = append(filtered, command)
 	}
 	return filtered
-}
-
-func isAuthSlashCommand(name string) bool {
-	name = strings.TrimSpace(name)
-	return name == "login" || name == "logout"
-}
-
-func (m *uiModel) requestAuthSlashCommandRefresh() tea.Cmd {
-	if m == nil {
-		return nil
-	}
-	if m.authSlashResolved == m.authSlashGeneration || m.authSlashLoading {
-		return nil
-	}
-	m.authSlashToken = nextNonZeroToken(m.authSlashToken)
-	token := m.authSlashToken
-	generation := m.authSlashGeneration
-	loader := m.statusConfig.AuthStatus
-	m.authSlashLoading = true
-	return func() tea.Msg {
-		if loader == nil {
-			return authSlashCommandRefreshedMsg{token: token, generation: generation, err: errors.New("auth status client is required")}
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), statusRefreshTimeout)
-		defer cancel()
-		response, err := loader.GetStatus(ctx, &authpb.GetStatusRequest{SkipSubscriptionUsage: true})
-		if err != nil {
-			return authSlashCommandRefreshedMsg{token: token, generation: generation, err: err}
-		}
-		if err := protoapi.Validate(response); err != nil {
-			return authSlashCommandRefreshedMsg{token: token, generation: generation, err: err}
-		}
-		if unavailable := response.GetResolution().GetUnavailable(); unavailable != nil {
-			return authSlashCommandRefreshedMsg{token: token, generation: generation, err: errors.New(unavailable.GetCause())}
-		}
-		kind := authSlashCommandLogin
-		if response.GetResolution().GetKnown().GetMethod() == authpb.AuthMethod_AUTH_METHOD_OAUTH {
-			kind = authSlashCommandLogout
-		}
-		return authSlashCommandRefreshedMsg{token: token, generation: generation, kind: kind}
-	}
-}
-
-func (m *uiModel) applyAuthSlashCommandRefreshed(msg authSlashCommandRefreshedMsg) {
-	if m == nil || msg.token != m.authSlashToken || msg.generation != m.authSlashGeneration {
-		return
-	}
-	m.authSlashLoading = false
-	m.authSlashResolved = msg.generation
-	if msg.err != nil {
-		m.authSlashCommand = authSlashCommandUnknown
-		m.authSlashCommandErr = msg.err.Error()
-		m.clampSlashCommandSelection()
-		return
-	}
-	m.authSlashCommand = msg.kind
-	m.authSlashCommandErr = ""
-	m.clampSlashCommandSelection()
 }
 
 func (m *uiModel) hasNavigationTargetSession() bool {

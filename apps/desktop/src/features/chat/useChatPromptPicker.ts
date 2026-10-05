@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useAtomValue } from "@effect/atom-react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { useQueryClient } from "@tanstack/react-query";
 import { errorMessage, type ChatSettingsTarget } from "@/api";
 import { useAppServices, useOptionalChatRuntimeOwner } from "@/app-facade";

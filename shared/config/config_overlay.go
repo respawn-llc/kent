@@ -59,6 +59,7 @@ var modelCapabilityKeys = []string{
 var providerCapabilityKeys = []string{
 	"provider_capabilities.provider_id",
 	"provider_capabilities.supports_responses_api",
+	"provider_capabilities.supports_fast_mode",
 	"provider_capabilities.supports_responses_compact",
 	"provider_capabilities.supports_prompt_cache_key",
 	"provider_capabilities.supports_native_web_search",

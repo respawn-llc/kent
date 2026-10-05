@@ -1,9 +1,10 @@
 import { useId, useRef, type MouseEvent, type RefCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { Badge } from "./Badge";
+import { Star } from "lucide-react";
 import { cx } from "./classes";
 import { StaticMarkdown } from "./MarkdownText";
 import { RadioGroupItem } from "./radix/radio-group";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./radix/tooltip";
 
 export function PromptOptionRow({
   disabled,
@@ -14,6 +15,7 @@ export function PromptOptionRow({
   selected = false,
   appearance = "plain",
   onActivate,
+  className,
 }: Readonly<{
   disabled: boolean;
   primaryControlRef?: RefCallback<HTMLButtonElement> | undefined;
@@ -21,7 +23,8 @@ export function PromptOptionRow({
   text: string;
   value: string;
   selected?: boolean;
-  appearance?: "plain" | "card";
+  appearance?: "plain" | "picker";
+  className?: string | undefined;
   onActivate?: () => void;
 }>) {
   const { t } = useTranslation();
@@ -30,10 +33,12 @@ export function PromptOptionRow({
   return (
     <div
       className={cx(
-        "flex min-w-0 items-start gap-[var(--space-2)] text-left text-[var(--color-on-island)]",
-        appearance === "card" &&
-          "cursor-pointer rounded-[var(--radius-m)] border border-[var(--color-outline)] p-[var(--space-3)] transition-colors duration-[var(--motion-fast)]",
+        "flex min-w-0 items-start gap-[var(--space-2)] text-left",
+        appearance === "picker"
+          ? "cursor-pointer rounded-[var(--radius-s)] px-[var(--space-1)] py-[var(--space-1)] text-[var(--color-muted)] transition-colors"
+          : "text-[var(--color-on-island)]",
         disabled && "opacity-60",
+        className,
       )}
       onClick={(event) => {
         if (disabled) return;
@@ -60,23 +65,29 @@ export function PromptOptionRow({
         className={cx(
           "min-w-0 flex-1 cursor-pointer",
           appearance === "plain" && recommended && "font-bold text-[var(--color-primary)]",
-          appearance === "card" &&
-            selected &&
-            "text-[var(--color-primary)] [&_.markdown-text_:is(h1,h2,h3,h4,h5,h6)]:text-[var(--color-primary)]",
-          appearance === "card" && "[&>.markdown-text]:inline [&>.markdown-text>div:last-child]:inline",
+          appearance === "picker" && selected && "font-bold text-[var(--color-primary)]",
+          appearance === "picker" && "markdown-inline-tail",
         )}
         id={`${id}-label`}
       >
         <StaticMarkdown value={text} />
         {recommended ? (
-          appearance === "card" ? (
-            <Badge
-              className="ml-[var(--space-2)] border-[var(--color-success)] align-baseline"
-              size="compact"
-              tone="success"
-            >
-              {t("task.recommended")}
-            </Badge>
+          appearance === "picker" ? (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="ml-[var(--space-1)] inline-flex align-baseline text-[var(--color-primary)]"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                    }}
+                  >
+                    <Star className="size-3 fill-current" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{t("task.recommendedByAgent")}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           ) : (
             <span className="ml-[var(--space-2)] text-xs font-bold">({t("task.recommended")})</span>
           )

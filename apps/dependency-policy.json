@@ -1,7 +1,13 @@
 {
   "$schema": "./dependency-policy.schema.json",
   "minimumReleaseAgeMinutes": 10080,
-  "minimumReleaseAgeExclude": ["@napi-rs/wasm-runtime@1.2.2", "vite@8.2.0"],
+  "minimumReleaseAgeExclude": [
+    "@effect/atom-react@4.0.0",
+    "@effect/vitest@4.0.0",
+    "@napi-rs/wasm-runtime@1.2.2",
+    "effect@4.0.0",
+    "vite@8.2.0"
+  ],
   "directDependencyAllowlist": {
     "@app/apps": {
       "devDependencies": ["@bufbuild/protoc-gen-es", "postcss", "prettier"]
@@ -88,9 +94,15 @@
         "@tauri-apps/plugin-process",
         "@tauri-apps/plugin-store",
         "@tauri-apps/plugin-updater",
+        "effect",
         "zod"
       ],
-      "devDependencies": ["typescript", "typescript7", "vitest"]
+      "devDependencies": [
+        "@effect/vitest",
+        "typescript",
+        "typescript7",
+        "vitest"
+      ]
     },
     "@app/server-api-contract": {
       "dependencies": ["@bufbuild/protobuf", "@bufbuild/protovalidate"],

@@ -447,7 +447,7 @@ func (e *Engine) setThinkingValue(value string) error {
 
 func (e *Engine) SetFastModeEnabled(enabled bool) (bool, error) {
 	if enabled && !e.FastModeAvailable() {
-		return false, errors.New("fast mode is only available for OpenAI-based Responses providers")
+		return false, errors.New("fast mode is unavailable for the selected provider connection")
 	}
 	return awaitEngineRuntimeOperation(context.Background(), e, func(context.Context) (bool, error) {
 		changed := e.localFastModeEnabledChange(enabled)
@@ -687,11 +687,11 @@ func (e *Engine) FastModeEnabled() bool {
 }
 
 func (e *Engine) FastModeAvailable() bool {
-	caps, err := e.providerCapabilities(context.Background())
-	if err != nil {
+	caps := e.cfg.ProviderCapabilitiesOverride
+	if caps == nil {
 		return false
 	}
-	return llm.SupportsFastModeProvider(caps)
+	return llm.SupportsFastModeProvider(*caps)
 }
 
 func (e *Engine) ReviewerFrequency() string {

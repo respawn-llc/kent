@@ -1,7 +1,7 @@
 import { useAtomMount, useAtomRefresh, useAtomSet, useAtomSuspense, useAtomValue } from "@effect/atom-react";
 import { InfiniteQueryObserver, QueryObserver, type QueryClient } from "@tanstack/react-query";
 import * as Effect from "effect/Effect";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { useEffect } from "react";
 import type { TFunction } from "i18next";
 

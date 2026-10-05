@@ -1,11 +1,12 @@
 import { useTranslation } from "react-i18next";
-import { CircleX, MessageCircle } from "lucide-react";
+import { CircleX, Gavel } from "lucide-react";
 
 import type { ChatTranscriptCommittedRow } from "@/api";
 import { StaticMarkdown } from "@/ui";
 
 import { reviewerFeedbackCopyText } from "./transcriptReviewerPolicy";
 import { TranscriptFlatRow } from "./TranscriptFlatRow";
+import { TranscriptDiagnosticRow } from "./TranscriptDiagnosticRow";
 
 export function TranscriptReviewerRow({ row }: Readonly<{ row: ChatTranscriptCommittedRow }>) {
   const { t } = useTranslation();
@@ -29,7 +30,7 @@ export function TranscriptReviewerRow({ row }: Readonly<{ row: ChatTranscriptCom
         }
         copyText={reviewerFeedbackCopyText(suggestions)}
         defaultExpanded={false}
-        icon={<MessageCircle className="size-4" />}
+        icon={<Gavel className="size-4 text-[var(--color-secondary)]" />}
         iconTone="neutral"
         summary={t("chatTranscript.reviewerSuggestions", { count: row.ReviewerFeedback.SuggestionCount })}
       />
@@ -37,13 +38,10 @@ export function TranscriptReviewerRow({ row }: Readonly<{ row: ChatTranscriptCom
   }
   if (row.ReviewerError === null) throw new Error("Reviewer error row is missing its payload.");
   return (
-    <TranscriptFlatRow
-      body={<p className="chat-transcript-row-body">{row.ReviewerError.Detail}</p>}
-      copyText={row.ReviewerError.Detail}
-      defaultExpanded
+    <TranscriptDiagnosticRow
+      text={row.ReviewerError.Detail}
       icon={<CircleX className="size-4" />}
-      iconTone="error"
-      summary={row.ReviewerError.Detail}
+      tone="error"
     />
   );
 }

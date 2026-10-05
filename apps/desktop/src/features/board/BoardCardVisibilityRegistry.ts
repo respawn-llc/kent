@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import { useAtomValue } from "@effect/atom-react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import { boardCardInstanceKey, type BoardCardInstance, type BoardCardInstanceKey } from "./BoardCardInstance";
 

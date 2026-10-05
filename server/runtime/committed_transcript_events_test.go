@@ -27,7 +27,7 @@ func TestCommittedLocalEntrySteeringSerializesPersistProjectEmitOrder(t *testing
 		events []Event
 	)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(evt Event) {
 			mu.Lock()
 			events = append(events, evt)
@@ -90,7 +90,7 @@ func TestCacheWarningObservationSerializesPersistProjectEmitOrder(t *testing.T) 
 		events []Event
 	)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(evt Event) {
 			mu.Lock()
 			events = append(events, evt)
@@ -106,7 +106,7 @@ func TestCacheWarningObservationSerializesPersistProjectEmitOrder(t *testing.T) 
 
 	cacheDone := make(chan error, 1)
 	go func() {
-		cacheDone <- eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-5"}, modelcontract.ProviderOperationPurposeGeneration, preparedCacheRequestObservation{
+		cacheDone <- eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-6-sol"}, modelcontract.ProviderOperationPurposeGeneration, preparedCacheRequestObservation{
 			request: persistedCacheRequestObserved{
 				DigestVersion: requestCacheDigestVersion,
 				CacheKey:      "session-1/cache-key",
@@ -181,14 +181,14 @@ func TestAssistantMessageAfterCacheWarningDoesNotOwnCacheWarningRange(t *testing
 	store := mustCreateTestSession(t)
 	events := make([]Event, 0, 4)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(evt Event) { events = append(events, evt) },
 	})
 	stepID := runtimeTestStepID("step-1")
 	restoreStep := setTestActiveStep(eng, stepID)
 	defer restoreStep()
 
-	if err := eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-5"}, modelcontract.ProviderOperationPurposeGeneration, preparedCacheRequestObservation{
+	if err := eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-6-sol"}, modelcontract.ProviderOperationPurposeGeneration, preparedCacheRequestObservation{
 		request: persistedCacheRequestObserved{
 			DigestVersion: requestCacheDigestVersion,
 			CacheKey:      "session-1/cache-key",
@@ -263,7 +263,7 @@ func TestHistoryReplacementSerializesAgainstCommittedLocalEntryAppend(t *testing
 	releaseReplacementEvent := make(chan struct{})
 	var replacementOnce sync.Once
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(evt Event) {
 			if evt.Kind == EventLocalEntryAdded && evt.LocalEntry != nil && evt.LocalEntry.Text == "summary" {
 				replacementOnce.Do(func() { close(replacementEventEntered) })
@@ -318,7 +318,7 @@ func TestToolResultMirrorMessageDoesNotEmitGenericCommittedAdvance(t *testing.T)
 	store := mustCreateTestSession(t)
 	events := make([]Event, 0, 16)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(evt Event) { events = append(events, evt) },
 	})
 	stepID := runtimeTestStepID("step-1")
@@ -348,7 +348,7 @@ func TestVisibleToolMessageMutationPublishesCommittedEventBeforeLocalEntry(t *te
 	store := mustCreateTestSession(t)
 	events := make([]Event, 0, 4)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(evt Event) { events = append(events, evt) },
 	})
 	restoreStep := setTestActiveStep(eng, "step-1")
@@ -393,7 +393,7 @@ func TestFinalAnswerToolCallMaterializationPublishesToolCallRowsBeforeLocalEntry
 	store := mustCreateTestSession(t)
 	events := make([]Event, 0, 8)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(evt Event) { events = append(events, evt) },
 	})
 	stepID := runtimeTestStepID("step-1")
@@ -462,7 +462,7 @@ func TestStepLoopPublishesCommentaryAssistantWithToolCallsBeforeReasoningAndTool
 	}}
 	events := make([]Event, 0, 16)
 	eng := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(evt Event) { events = append(events, evt) },
 	})
 	restoreStep := setTestActiveStep(eng, "step-1")
@@ -522,7 +522,7 @@ func TestStepLoopPersistsReasoningProgressAsDetailOnly(t *testing.T) {
 		ID:      toolspec.ToolExecCommand,
 		Handler: fakeTool{name: toolspec.ToolExecCommand},
 	}), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(evt Event) { events = append(events, evt) },
 	})
 	restoreStep := setTestActiveStep(eng, "step-1")
@@ -590,7 +590,7 @@ func TestTranscriptHydrationSurvivesCommittedMessageWithoutProviderItems(t *test
 		t.Fatalf("append message after provider-empty assistant: %v", err)
 	}
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	var hydration TranscriptHydrationSnapshot
 	if err := eng.WithTranscriptHydrationSnapshot(func(snapshot TranscriptHydrationSnapshot) error {
 		hydration = snapshot
@@ -620,7 +620,7 @@ func TestHistoryReplacementPublishesCompactionPreservedUserMessageBeforeLocalEnt
 	store := mustCreateTestSession(t)
 	events := make([]Event, 0, 4)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(evt Event) { events = append(events, evt) },
 	})
 	compactionStepID := runtimeTestStepID("compact-step")

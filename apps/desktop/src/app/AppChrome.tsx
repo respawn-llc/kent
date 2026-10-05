@@ -32,7 +32,9 @@ export function AppChrome({ children }: AppChromeProps) {
   return (
     <TaskSearchProvider>
       <SidebarProvider policy={sidebarDestinationPolicy}>
-        <AppChromeContent>{children}</AppChromeContent>
+        <SessionChatCatalogReturnProvider>
+          <AppChromeContent>{children}</AppChromeContent>
+        </SessionChatCatalogReturnProvider>
       </SidebarProvider>
     </TaskSearchProvider>
   );
@@ -119,19 +121,17 @@ function AppChromeContent({ children }: AppChromeProps) {
           {title}
         </div>
       ) : null}
-      <SessionChatCatalogReturnProvider>
-        <ProjectDeletionEventHandler />
-        <AttentionController />
-        <div
-          className="app-region-no-drag relative flex min-h-0 min-w-0 w-full overflow-hidden"
-          data-testid="app-shell-content"
-        >
-          <div className="min-h-0 min-w-0 flex-1 overflow-visible" data-testid="app-main-content">
-            {children}
-          </div>
-          <SidebarHost />
+      <ProjectDeletionEventHandler />
+      <AttentionController />
+      <div
+        className="app-region-no-drag relative flex min-h-0 min-w-0 w-full overflow-hidden"
+        data-testid="app-shell-content"
+      >
+        <div className="min-h-0 min-w-0 flex-1 overflow-visible" data-testid="app-main-content">
+          {children}
         </div>
-      </SessionChatCatalogReturnProvider>
+        <SidebarHost />
+      </div>
     </main>
   );
 }
@@ -178,13 +178,13 @@ function ProjectDeletionEventHandler() {
   useProjectDeletedEvents(
     nativeBridge,
     useCallback(
-      (event) => {
+      async (event) => {
         const routeMatches = routeReferencesProject(
           location.pathname,
           new URLSearchParams(location.searchStr).get("projectId"),
           event.projectID,
         );
-        void completeProjectDeletion({
+        return completeProjectDeletion({
           navigateHome: routeMatches ? navigation.openHome : undefined,
           projectID: event.projectID,
           pushDeletedToast: () => {

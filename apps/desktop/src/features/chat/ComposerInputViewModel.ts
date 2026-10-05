@@ -1,7 +1,7 @@
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import { useAtomMount, useAtomSet } from "@effect/atom-react";
 import * as Effect from "effect/Effect";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import type { TFunction } from "i18next";
 
 import {

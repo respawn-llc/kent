@@ -103,7 +103,7 @@ type workspaceChangePromptModel struct {
 	result       workspaceChangePromptResult
 }
 
-func maybeHandlePickedSessionWorkspaceChange(ctx context.Context, server sessionWorkspaceChangeServer, sessionID string, executionTarget *worktreepb.SessionExecutionTarget) (sessionWorkspaceChangeAction, error) {
+func maybeHandlePickedSessionWorkspaceChange(ctx context.Context, server sessionLifecycleClientProvider, sessionID string, executionTarget *worktreepb.SessionExecutionTarget) (sessionWorkspaceChangeAction, error) {
 	if server == nil {
 		return sessionWorkspaceChangeProceed, errors.New("session server is required")
 	}

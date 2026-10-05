@@ -3,6 +3,60 @@ import { question, approval } from "@/test-support/chat-prompts";
 import { emptyPickerState, transitionPicker } from "./promptPickerState";
 
 describe("Chat prompt drafts", () => {
+  it("requires a fresh pair of matching option clicks after typing, including the recommendation", () => {
+    const prompts = [question("first", { recommendedOptionIndex: 1 })];
+    let state = transitionPicker(emptyPickerState(), prompts, { kind: "sync" }).state;
+    state = transitionPicker(state, prompts, { kind: "commentary", text: "Half-written" }).state;
+    const click = { kind: "activate", selection: { kind: "suggested", number: 1 } } as const;
+    const first = transitionPicker(state, prompts, click);
+    expect(first.effect).toBe("none");
+    expect(transitionPicker(first.state, prompts, { kind: "sync" }).effect).toBe("none");
+    state = transitionPicker(first.state, prompts, { kind: "commentary", text: "More typing" }).state;
+    const next = transitionPicker(state, prompts, click);
+    expect(next.effect).toBe("none");
+    const second = transitionPicker(next.state, prompts, click);
+    expect(second.effect).toBe("submit");
+    expect(second.state.drafts.get("first")?.commentary).toBe("More typing");
+  });
+
+  it("does not confirm a different option or let a pending selection complete a batch", () => {
+    const prompts = [question("first"), question("second")];
+    let state = transitionPicker(emptyPickerState(), prompts, { kind: "sync" }).state;
+    state = transitionPicker(state, prompts, { kind: "commentary", text: "Explanation" }).state;
+    state = transitionPicker(state, prompts, {
+      kind: "activate",
+      selection: { kind: "suggested", number: 1 },
+    }).state;
+    const changed = transitionPicker(state, prompts, {
+      kind: "activate",
+      selection: { kind: "suggested", number: 2 },
+    });
+    expect(changed.effect).toBe("none");
+    expect(changed.state.current).toBe("first");
+    state = transitionPicker(changed.state, prompts, { kind: "navigate", direction: 1 }).state;
+    const other = transitionPicker(state, prompts, {
+      kind: "activate",
+      selection: { kind: "suggested", number: 1 },
+    });
+    expect(other.effect).toBe("none");
+    expect(other.state.current).toBe("first");
+    expect(transitionPicker(other.state, prompts, { kind: "confirm" }).effect).toBe("submit");
+  });
+
+  it("Neither always focuses the field without submitting, even after repeated clicks with commentary", () => {
+    const prompts = [question()];
+    let state = transitionPicker(emptyPickerState(), prompts, {
+      kind: "commentary",
+      text: "My answer",
+    }).state;
+    for (let index = 0; index < 3; index++) {
+      const result = transitionPicker(state, prompts, { kind: "activate", selection: { kind: "neither" } });
+      expect(result.effect).toBe("focus-field");
+      state = result.state;
+    }
+    expect(transitionPicker(state, prompts, { kind: "confirm" }).effect).toBe("submit");
+  });
+
   it("anchors recommendations tentatively once and leaves other choices empty", () => {
     const prompts = [question("recommended", { recommendedOptionIndex: 2 }), question(), approval()];
     const { state } = transitionPicker(emptyPickerState(), prompts, { kind: "sync" });

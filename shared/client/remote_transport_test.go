@@ -36,8 +36,8 @@ import (
 
 func TestDialConfiguredRemotePrefersLocalUnixSocket(t *testing.T) {
 	handlerErrs := make(chan error, 8)
-	cfg := config.App{PersistenceRoot: t.TempDir(), Settings: config.Settings{ServerHost: "127.0.0.1", ServerPort: 1}}
-	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg)
+	cfg := config.Connection{PersistenceRoot: t.TempDir(), ServerHost: "127.0.0.1", ServerPort: 1}
+	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("ServerLocalRPCSocketPath: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestDialConfiguredRemoteFallsBackToTCPWhenLocalUnixSocketMissing(t *testing
 	defer server.Close()
 
 	cfg := testRemoteConfigFromServerURL(t, t.TempDir(), server.URL)
-	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg)
+	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("ServerLocalRPCSocketPath: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestDialConfiguredRemoteFallsBackToTCPWhenLocalUnixHandshakeStalls(t *testi
 	defer server.Close()
 
 	cfg := testRemoteConfigFromServerURL(t, t.TempDir(), server.URL)
-	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg)
+	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("ServerLocalRPCSocketPath: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestDialConfiguredRemoteHonorsExplicitTCPTargetOverDerivedLocalSocket(t *te
 
 	cfg.Source.Sources["server_port"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "server_port"}}
 
-	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg)
+	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("ServerLocalRPCSocketPath: %v", err)
 	}
@@ -998,7 +998,7 @@ func startUnixStallingListener(t *testing.T, socketPath string, stall time.Durat
 	return listener, accepted
 }
 
-func testRemoteConfigFromServerURL(t *testing.T, persistenceRoot string, serverURL string) config.App {
+func testRemoteConfigFromServerURL(t *testing.T, persistenceRoot string, serverURL string) config.Connection {
 	t.Helper()
 	parsed, err := url.Parse(serverURL)
 	if err != nil {
@@ -1012,7 +1012,7 @@ func testRemoteConfigFromServerURL(t *testing.T, persistenceRoot string, serverU
 	if err != nil {
 		t.Fatalf("Atoi port: %v", err)
 	}
-	return config.App{PersistenceRoot: persistenceRoot, Settings: config.Settings{ServerHost: host, ServerPort: port}}
+	return config.Connection{PersistenceRoot: persistenceRoot, ServerHost: host, ServerPort: port}
 }
 
 func serveProjectListRPC(ctx context.Context, conn rpcwire.Conn, handlerErrs chan<- error) {

@@ -29,8 +29,7 @@ export const chatComposerEnglish = {
   empty: "Enter a message to send",
   loadingSettings: "Loading Chat settings",
   loadingDraft: "Loading saved draft",
-  queuePlaceholder: "Ctrl+Enter to queue",
-  placeholder: "Message Kent",
+  queuePlaceholder: "{{shortcut}} to queue",
   diagnostics: {
     prompt_history_failure: "Kent could not save this input to prompt history.",
     internal_failure: "Kent reported a failure after accepting the input.",

@@ -798,7 +798,7 @@ func TestUnknownToolExecutionProjectsFinalizedFailedInput(t *testing.T) {
 	store := newRuntimeViewStore(t)
 	var completion runtime.Event
 	engine := newRuntimeViewEngine(t, store, client, runtime.Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(evt runtime.Event) {
 			if evt.Kind == runtime.EventToolCallCompleted && evt.ToolResult != nil {
 				completion = evt
@@ -877,7 +877,7 @@ func TestWebSearchLiveAndReopenedPage(t *testing.T) {
 			store := newRuntimeViewStore(t)
 			var completion runtime.Event
 			engine := newRuntimeViewEngine(t, store, client, runtime.Config{
-				Model: "gpt-5", WebSearchMode: "native", EnabledTools: []toolspec.ID{toolspec.ToolWebSearch},
+				Model: "gpt-6-sol", WebSearchMode: "native", EnabledTools: []toolspec.ID{toolspec.ToolWebSearch},
 				OnEvent: func(event runtime.Event) {
 					if event.Kind == runtime.EventToolCallCompleted {
 						completion = event

@@ -528,7 +528,7 @@ func TestWorkflowRequiredToolChoiceIncludesLocalAndHostedTools(t *testing.T) {
 		tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}},
 		tools.HandlerRegistration{ID: toolspec.ToolWebSearch, Handler: fakeTool{name: toolspec.ToolWebSearch}},
 	), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWebSearch},
 		WebSearchMode: "native",
 	})
@@ -551,7 +551,7 @@ func TestWorkflowRequiredToolChoiceAcceptsHostedWebSearchOnly(t *testing.T) {
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t,
 		tools.HandlerRegistration{ID: toolspec.ToolWebSearch, Handler: fakeTool{name: toolspec.ToolWebSearch}},
 	), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		EnabledTools:  []toolspec.ID{toolspec.ToolWebSearch},
 		WebSearchMode: "native",
 	})
@@ -569,7 +569,7 @@ func TestWorkflowRequiredToolChoiceRejectsEmptyEffectiveToolSet(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 	})
 	publishTestWorkflowExecution(t, eng, testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeShellCommand))
 	_, err := eng.buildRequest(context.Background(), "step", true)

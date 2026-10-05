@@ -28,7 +28,7 @@ func testSessionContextBudgetCutoverPreservesOtherSessionFacts(t *testing.T, ver
 INSERT INTO projects (id, display_name, created_at_unix_ms, updated_at_unix_ms)
 VALUES ('context-budget-project', 'Project', 1000, 1000)`)
 	locked := map[string]any{
-		"model":             "gpt-5.6-sol",
+		"model":             "gpt-6-sol",
 		"context_window":    float64(272_000),
 		"context_percent":   float64(95),
 		"system_prompt":     "preserved system prompt",

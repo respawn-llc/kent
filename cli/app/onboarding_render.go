@@ -398,7 +398,14 @@ func (m *onboardingModel) renderLoadingView() string {
 	if m.finalizingLabel != "" {
 		loadingText = m.finalizingLabel
 	}
-	content := strings.Join([]string{m.styles.title.Render(title), "", m.styles.spinner.Render(pendingToolSpinnerFrame(m.spinnerFrame) + " " + loadingText)}, "\n")
+	spinner := pendingToolSpinnerFrame(m.spinnerFrame)
+	if loadingText != "" {
+		spinner += " " + loadingText
+	}
+	content := m.styles.spinner.Render(spinner)
+	if title != "" {
+		content = m.styles.title.Render(title) + "\n\n" + content
+	}
 	if m.currentScreen.ErrorText != "" {
 		content += "\n\n" + m.styles.errorText.Render(m.currentScreen.ErrorText)
 	}

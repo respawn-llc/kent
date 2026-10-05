@@ -1,5 +1,5 @@
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import type { ApiService, WorkflowDeleteImpact } from "@/api";
 import { queryAtom, queryKeys } from "@/app-facade";

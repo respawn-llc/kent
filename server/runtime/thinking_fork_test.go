@@ -75,7 +75,7 @@ func TestThinkingForkPortability(t *testing.T) {
 				}
 				model := "gpt-6-astra"
 				if !supported {
-					model = "gpt-5.4"
+					model = "gpt-6-sol"
 				}
 				reopened := mustOpenTestSession(t, child.Dir())
 				engine := mustNewTestEngine(t, reopened, client, tools.NewRegistry(), Config{

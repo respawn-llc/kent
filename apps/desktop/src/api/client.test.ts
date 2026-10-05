@@ -79,7 +79,6 @@ describe("ApiClient", () => {
                 serverId: "server-1",
                 serverVersion: "1.3.0",
                 protocolVersion,
-                authReady: true,
                 endpoint: "ws://127.0.0.1:53082/rpc",
                 subagentRoles: [{ name: "default" }, { name: "coder" }],
                 causes: [{ code: "unauthenticated", severity: ReadinessSeverity.ERROR }],

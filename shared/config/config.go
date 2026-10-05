@@ -1,7 +1,6 @@
 package config
 
 import (
-	"core/shared/protocol"
 	"core/shared/toolspec"
 	"net"
 	"path/filepath"
@@ -228,6 +227,7 @@ type ModelCapabilitiesOverride struct {
 type ProviderCapabilitiesOverride struct {
 	ProviderID                    string `toml:"provider_id"`
 	SupportsResponsesAPI          bool   `toml:"supports_responses_api"`
+	SupportsFastMode              bool   `toml:"supports_fast_mode"`
 	SupportsResponsesCompact      bool   `toml:"supports_responses_compact"`
 	SupportsPromptCacheKey        bool   `toml:"supports_prompt_cache_key"`
 	SupportsNativeWebSearch       bool   `toml:"supports_native_web_search"`
@@ -292,7 +292,14 @@ func GlobalAuthConfigPath(cfg App) string {
 }
 
 func ServerRPCURL(cfg App) string {
-	return "ws://" + net.JoinHostPort(cfg.Settings.ServerHost, strconv.Itoa(cfg.Settings.ServerPort)) + protocol.RPCPath
+	return cfg.Connection().RPCURL()
+}
+
+func (cfg App) Connection() Connection {
+	return Connection{
+		WorkspaceRoot: cfg.WorkspaceRoot, PersistenceRoot: cfg.PersistenceRoot,
+		ServerHost: cfg.Settings.ServerHost, ServerPort: cfg.Settings.ServerPort, Source: cfg.Source,
+	}
 }
 
 func ServerHTTPBaseURL(cfg App) string {

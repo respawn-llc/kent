@@ -1,17 +1,12 @@
-import { GitBranch, ListEnd, Minimize2, Undo2, X } from "lucide-react";
-import { useLayoutEffect, useState } from "react";
+import { ClockArrowRight, CornerDownRight, GitBranch, Minimize2, X } from "lucide-react";
+import { AnimatePresence } from "motion/react";
+import { useLayoutEffect, useRef } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { useTranslation } from "react-i18next";
 
 import type { PendingWorkItem } from "@/api";
-import { IconTooltipButton, Spinner, VirtualizedInfiniteList } from "@/ui";
+import { AnimatedReveal, IconTooltipButton, ScrollRegion, Spinner } from "@/ui";
 import type { useComposerPendingWork } from "./useComposerPendingWork";
-
-const noPaging = () => {
-  /* Pending Work is the approved whole-collection read. */
-};
-const estimateRow = () => 56;
-const itemKey = (item: PendingWorkItem) => item.id.toJSONValue();
 
 export function ComposerPendingSheet({
   pending,
@@ -20,38 +15,41 @@ export function ComposerPendingSheet({
   pending: ReturnType<typeof useComposerPendingWork>;
   visible: boolean;
 }>) {
-  const { t } = useTranslation();
-  const [element, setElement] = useState<HTMLDivElement | null>(null);
-  const [followsNewest, setFollowsNewest] = useState(true);
+  const container = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const followsNewest = useRef(true);
   useLayoutEffect(() => {
-    if (element === null) return;
+    const element = container.current;
+    const body = content.current;
+    if (element === null || body === null) return;
     const onScroll = () => {
-      setFollowsNewest(element.scrollHeight - element.scrollTop - element.clientHeight <= 1);
+      followsNewest.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 1;
+    };
+    const follow = () => {
+      if (followsNewest.current) element.scrollTop = element.scrollHeight - element.clientHeight;
     };
     element.addEventListener("scroll", onScroll);
+    const observer = new ResizeObserver(follow);
+    observer.observe(body);
+    follow();
     return () => {
+      observer.disconnect();
       element.removeEventListener("scroll", onScroll);
     };
-  }, [element]);
+  }, []);
   return (
     <div className={visible ? undefined : "invisible pointer-events-none absolute inset-x-0 top-0"}>
-      <VirtualizedInfiniteList
-        className="chat-composer-sheet"
-        estimateSize={estimateRow}
-        getItemKey={itemKey}
-        hasNextPage={false}
-        hasPreviousPage={false}
-        isFetchingNextPage={false}
-        initialScrollKey={followsNewest ? pending.items.at(-1)?.id.toJSONValue() : undefined}
-        initialScrollAlign="auto"
-        items={pending.items}
-        layoutChangeScrollBehavior="preserve-leading-item"
-        loadingLabel={t("app.loading")}
-        onLoadMore={noPaging}
-        onScrollElementChange={setElement}
-        rowSpacing="tight"
-        renderItem={(item) => <PendingRow item={item} pending={pending} />}
-      />
+      <ScrollRegion className="chat-composer-sheet" ref={container}>
+        <div ref={content}>
+          <AnimatePresence initial={false}>
+            {pending.items.map((item) => (
+              <AnimatedReveal key={item.id.toJSONValue()}>
+                <PendingRow item={item} pending={pending} />
+              </AnimatedReveal>
+            ))}
+          </AnimatePresence>
+        </div>
+      </ScrollRegion>
     </div>
   );
 }
@@ -71,8 +69,8 @@ function PendingRow({
       : item.kind === "worktree_transition"
         ? GitBranch
         : item.lane === "queue"
-          ? ListEnd
-          : Undo2;
+          ? ClockArrowRight
+          : CornerDownRight;
   return (
     <div className="chat-composer-pending-row">
       <Icon size={16} className="shrink-0 text-[var(--color-muted)]" />

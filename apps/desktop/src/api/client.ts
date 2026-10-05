@@ -1,5 +1,6 @@
-import type { AttentionNotificationEventHandler } from "./attentionNotifications";
-import { attentionNotificationRpcHandler } from "./attentionNotificationSubscription";
+import type { AttentionNotificationLifecycle } from "./attentionNotifications";
+import type * as Stream from "effect/Stream";
+import { attentionNotifications } from "./attentionNotificationSubscription";
 import { create, operationName } from "@app/server-api-contract";
 import {
   ReadinessSeverity,
@@ -44,7 +45,7 @@ import type {
   WorkflowListInput,
   WorkflowProjectLinkInput,
 } from "./clientInputs";
-import { compactJsonObject, emptyJsonObject } from "./json";
+import { compactJsonObject } from "./json";
 import type { SetupOperationID } from "./setupOperationID";
 import type * as worktreeModels from "./schemas/worktree";
 import { subscribeWorktreeSetup, type WorktreeSetupEventHandler } from "./worktreeSetup";
@@ -423,12 +424,10 @@ export class ApiClient implements ApiService {
     );
   }
 
-  subscribeAttentionNotifications(handler: AttentionNotificationEventHandler): ApiSubscription {
-    return this.#transport.subscribe(
-      "attention.notification.subscribe",
-      emptyJsonObject,
-      attentionNotificationRpcHandler(handler),
-    );
+  subscribeAttentionNotifications(
+    reportOverflow: () => Promise<void>,
+  ): Stream.Stream<AttentionNotificationLifecycle> {
+    return attentionNotifications(this.#transport, reportOverflow);
   }
 
   getWorktreeStatus = async (sessionID: string) => worktree.getWorktreeStatus(this.#transport, sessionID);
@@ -458,8 +457,6 @@ function projectReadiness(readiness: Readiness): ServerReadiness {
     serverID: readiness.serverId,
     serverVersion: readiness.serverVersion,
     protocolVersion: readiness.protocolVersion,
-    authReady: readiness.authReady,
-    authRequired: readiness.authRequired,
     endpoint: readiness.endpoint,
     subagentRoles: readiness.subagentRoles.map((role) => ({ name: role.name })),
     causes: readiness.causes.map((cause) => ({
