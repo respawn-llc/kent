@@ -63,7 +63,9 @@ it("keeps an observed focus event when the initial read completes later", async 
   await act(async () => {
     window.dispatchEvent(new Event("focus"));
   });
-  await waitFor(() => expect(screen.getByTestId("focus")).toHaveTextContent("true"));
+  await waitFor(() => {
+    expect(screen.getByTestId("focus")).toHaveTextContent("true");
+  });
   await act(async () => {
     initial.resolve(false);
   });
@@ -82,7 +84,9 @@ it("logs a failed focus registration and remains unfocused after a late initial 
       <Reader id="focus" />
     </TestAppProviders>,
   );
-  await waitFor(() => expect(screen.getByTestId("focus")).toHaveTextContent("false"));
+  await waitFor(() => {
+    expect(screen.getByTestId("focus")).toHaveTextContent("false");
+  });
   await act(async () => {
     initial.resolve(true);
   });

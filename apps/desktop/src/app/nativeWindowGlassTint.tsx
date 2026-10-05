@@ -2,11 +2,11 @@ import { useMemo } from "react";
 import { useAtomSuspense } from "@effect/atom-react";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import type { NativeBridge, NativeWindowGlassTint } from "@app/native-bridge";
 
 import { errorMessage } from "@/api";
-import { shellObservationDiagnostics, useAppServices } from "@/app-facade";
+import { useAppServices } from "@/app-facade";
 import { themeChanges } from "./themeChanges";
 
 const windowGlassFillClassName = "window-glass-fill";
@@ -17,7 +17,7 @@ export function useNativeWindowGlassTintSync(nativeBridge: NativeBridge): void {
     const platform = nativeBridge.capabilities.platform;
     const changes =
       (platform === "macos" || platform === "windows") && typeof document !== "undefined"
-        ? themeChanges(shellObservationDiagnostics(logger, "theme"))
+        ? themeChanges(async () => logger.reportObservationOverflow("theme"))
         : Stream.empty;
     return Atom.make(
       changes.pipe(

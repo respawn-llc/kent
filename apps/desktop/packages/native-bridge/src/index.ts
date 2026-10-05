@@ -134,7 +134,7 @@ export type NativeBridge = Readonly<{
   projectCreation: Readonly<{
     openWindow(draft: NativeProjectCreationDraft): Promise<void>;
     notifyCreated(binding: NativeProjectBinding): Promise<void>;
-    onCreated(handler: (binding: NativeProjectBinding) => void): Promise<NativeUnlisten>;
+    onCreated(handler: (binding: NativeProjectBinding) => void): Promise<() => void>;
   }>;
   projectDeletion: Readonly<{
     notifyDeleted(event: NativeProjectDeleted): Promise<void>;
@@ -186,8 +186,6 @@ export type NativeProjectBinding = Readonly<{
 export type NativeProjectDeleted = Readonly<{
   projectID: string;
 }>;
-
-export type NativeUnlisten = () => void;
 
 export const nativeDialogWindowHorizontalInsetPx = 16;
 const projectDeletedEvent = "app://project-deleted";
@@ -286,7 +284,7 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
       async notifyCreated(): Promise<void> {
         return Promise.resolve();
       },
-      async onCreated(): Promise<NativeUnlisten> {
+      async onCreated(): Promise<() => void> {
         return () => undefined;
       },
     },
@@ -401,7 +399,7 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
       async notifyCreated(binding: NativeProjectBinding): Promise<void> {
         await emitTo("main", "app://project-created", binding);
       },
-      async onCreated(handler: (binding: NativeProjectBinding) => void): Promise<NativeUnlisten> {
+      async onCreated(handler: (binding: NativeProjectBinding) => void): Promise<() => void> {
         return listen<NativeProjectBinding>("app://project-created", (event) => {
           handler(event.payload);
         });

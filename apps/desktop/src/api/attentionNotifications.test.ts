@@ -6,7 +6,7 @@ import { FakeRpcTransport } from "@/test-support/api";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { RegistryProvider, useAtomSuspense } from "@effect/atom-react";
 import { createElement, type ReactNode } from "react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import * as Stream from "effect/Stream";
 import * as Effect from "effect/Effect";
 

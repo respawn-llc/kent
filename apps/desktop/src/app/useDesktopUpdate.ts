@@ -2,10 +2,10 @@ import { useMemo } from "react";
 import { useAtomSet, useAtomSuspense, useAtomValue } from "@effect/atom-react";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import type { NativeBridge } from "@app/native-bridge";
 import { errorMessage } from "@/api";
-import { shellObservationDiagnostics, type AppLogger } from "@/app-facade";
+import type { AppObservationLogger } from "@/app-facade";
 import { checkForDesktopUpdate } from "./desktopUpdate";
 
 type UpdateState =
@@ -15,7 +15,10 @@ type UpdateState =
 
 export type DesktopUpdateState = UpdateState & Readonly<{ install(): void; dismiss(): void }>;
 
-export function useDesktopUpdate(nativeBridge: NativeBridge, logger: AppLogger): DesktopUpdateState {
+export function useDesktopUpdate(
+  nativeBridge: NativeBridge,
+  logger: AppObservationLogger,
+): DesktopUpdateState {
   const description = useMemo(
     () =>
       Atom.make((get) => {
@@ -37,7 +40,7 @@ export function useDesktopUpdate(nativeBridge: NativeBridge, logger: AppLogger):
               const version = current.version;
               get.set(state, { phase: "installing", version, progressRatio: null });
               const installed = yield* nativeBridge.updates
-                .downloadAndInstall(shellObservationDiagnostics(logger, "update-progress"))
+                .downloadAndInstall(async () => logger.reportObservationOverflow("update-progress"))
                 .pipe(
                   Stream.runForEach((progress) =>
                     Effect.sync(() => {

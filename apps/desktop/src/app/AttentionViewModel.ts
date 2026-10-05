@@ -2,12 +2,11 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import type { NativeNotificationActivation, NativeNotificationTarget } from "@app/native-bridge";
 import { errorMessage, type AttentionNotification, type AttentionNotificationTarget } from "@/api";
 import {
   queryKeys,
-  shellObservationDiagnostics,
   type AppServices,
   type AppNavigation,
   type SidebarRootController,
@@ -236,53 +235,57 @@ export function createAttentionViewModel({
     };
     const inbox = Atom.make(
       (observation) =>
-        services.api.subscribeAttentionNotifications(shellObservationDiagnostics(logger, "attention")).pipe(
-          Stream.runForEach((value) =>
-            Effect.sync(() => {
-              if (value.kind === "event") {
-                get.set(refresh, undefined);
-                if (value.event.type === "pending") pending(get, value.event.pending);
-                else {
-                  const id = attentionNotificationIDKey(value.event.id);
-                  dismissSurface(get, surfaces, status, id);
-                  get.set(remove, id);
+        services.api
+          .subscribeAttentionNotifications(async () => logger.reportObservationOverflow("attention"))
+          .pipe(
+            Stream.runForEach((value) =>
+              Effect.sync(() => {
+                if (value.kind === "event") {
+                  get.set(refresh, undefined);
+                  if (value.event.type === "pending") pending(get, value.event.pending);
+                  else {
+                    const id = attentionNotificationIDKey(value.event.id);
+                    dismissSurface(get, surfaces, status, id);
+                    get.set(remove, id);
+                  }
+                } else if (value.kind === "error") {
+                  get.set(reportFailure, value.error);
+                  status.push({
+                    id: "attention-listener-error",
+                    tone: "danger",
+                    title: t("app.attention.listenerFailed"),
+                    body: errorMessage(value.error),
+                    actionLabel: t("app.retry"),
+                    onAction: () => {
+                      status.dismiss("attention-listener-error");
+                      observation.refreshSelf();
+                    },
+                  });
                 }
-              } else if (value.kind === "error") {
-                get.set(reportFailure, value.error);
-                status.push({
-                  id: "attention-listener-error",
-                  tone: "danger",
-                  title: t("app.attention.listenerFailed"),
-                  body: errorMessage(value.error),
-                  actionLabel: t("app.retry"),
-                  onAction: () => {
-                    status.dismiss("attention-listener-error");
-                    observation.refreshSelf();
-                  },
-                });
-              }
-            }),
+              }),
+            ),
+            Effect.as(null),
           ),
-          Effect.as(null),
-        ),
       { initialValue: null },
     );
     const activation = Atom.make(
-      bridge.notifications.activations(shellObservationDiagnostics(logger, "notification-activation")).pipe(
-        Stream.runForEach((value: NativeNotificationActivation) =>
-          Effect.sync(() => {
-            get.set(activate, { target: value.target, notification: null });
-          }),
-        ),
-        Effect.catch((error) =>
-          Effect.promise(async () =>
-            logger.append("warn", "Listening for native attention notification activation failed.", {
-              error: errorMessage(error),
+      bridge.notifications
+        .activations(async () => logger.reportObservationOverflow("notification-activation"))
+        .pipe(
+          Stream.runForEach((value: NativeNotificationActivation) =>
+            Effect.sync(() => {
+              get.set(activate, { target: value.target, notification: null });
             }),
           ),
+          Effect.catch((error) =>
+            Effect.promise(async () =>
+              logger.append("warn", "Listening for native attention notification activation failed.", {
+                error: errorMessage(error),
+              }),
+            ),
+          ),
+          Effect.as(null),
         ),
-        Effect.as(null),
-      ),
       { initialValue: null },
     );
     const permission = Atom.make(

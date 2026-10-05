@@ -1,5 +1,5 @@
 import { createElement, Fragment, type ComponentType, type ReactNode } from "react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import * as Option from "effect/Option";
 import type {
   SidebarBackResult,

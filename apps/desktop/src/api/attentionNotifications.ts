@@ -84,7 +84,7 @@ export type AttentionNotificationEvent =
 
 export type AttentionNotificationEventParams = Readonly<{ event: AttentionNotificationEvent }>;
 
-export type AttentionObservation =
+export type AttentionNotificationLifecycle =
   | Readonly<{ kind: "open" }>
   | Readonly<{ kind: "event"; event: AttentionNotificationEvent }>
   | Readonly<{ kind: "complete"; code: number; message: string }>

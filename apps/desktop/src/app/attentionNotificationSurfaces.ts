@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import type * as Atom from "effect/unstable/reactivity/Atom";
+import type * as Atom from "effect/reactivity/Atom";
 import type { NativeNotification, NativeNotificationTarget } from "@app/native-bridge";
 
 import type {

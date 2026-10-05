@@ -93,7 +93,7 @@ export { workflowPageSize } from "./clientInputs";
 export type {
   AttentionNotification,
   AttentionNotificationEvent,
-  AttentionObservation,
+  AttentionNotificationLifecycle,
   AttentionNotificationID,
   AttentionNotificationQuestionState,
   AttentionNotificationTarget,

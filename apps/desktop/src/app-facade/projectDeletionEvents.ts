@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { useAtomSuspense } from "@effect/atom-react";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 
 import { errorMessage } from "@/api";
 import { useStableCallback } from "@/ui";
@@ -12,7 +12,6 @@ import { clearLastProjectRoute } from "./projectRoutePersistence";
 import { queryKeys } from "./queryKeys";
 import { removeProjectTaskSearches } from "./taskSearchQueries";
 import { useAppServices } from "./useAppServices";
-import { shellObservationDiagnostics } from "./shellObservationDiagnostics";
 
 export function useProjectDeletedEvents(
   nativeBridge: NativeBridge,
@@ -37,21 +36,23 @@ export function useProjectDeletedEvents(
     );
     const deleted = Atom.make(
       (get) =>
-        nativeBridge.projectDeletion.deleted(shellObservationDiagnostics(logger, "project-deletion")).pipe(
-          Stream.runForEach((event) =>
-            Effect.sync(() => {
-              get.set(action, event);
-            }),
-          ),
-          Effect.catch((error) =>
-            Effect.promise(async () =>
-              logger.append("warn", "Project deletion event listener failed.", {
-                error: errorMessage(error),
+        nativeBridge.projectDeletion
+          .deleted(async () => logger.reportObservationOverflow("project-deletion"))
+          .pipe(
+            Stream.runForEach((event) =>
+              Effect.sync(() => {
+                get.set(action, event);
               }),
             ),
+            Effect.catch((error) =>
+              Effect.promise(async () =>
+                logger.append("warn", "Project deletion event listener failed.", {
+                  error: errorMessage(error),
+                }),
+              ),
+            ),
+            Effect.as(null),
           ),
-          Effect.as(null),
-        ),
       { initialValue: null },
     );
     return { action, deleted };

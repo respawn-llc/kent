@@ -1,4 +1,4 @@
-import type { AttentionObservation } from "./attentionNotifications";
+import type { AttentionNotificationLifecycle } from "./attentionNotifications";
 import { ContractError } from "./errors";
 import { parseRpcResponse } from "./clientParse";
 import { attentionNotificationEventParamsSchema } from "./schemas/attentionNotification";
@@ -9,14 +9,16 @@ export function attentionNotifications(
   transport: DescriptorRpcTransport,
   reportOverflow: () => Promise<void>,
 ) {
-  return subscriptionStream<AttentionObservation>(
+  return subscriptionStream<AttentionNotificationLifecycle>(
     (emit) =>
       transport.subscribe("attention.notification.subscribe", {}, attentionNotificationRpcHandler(emit)),
     reportOverflow,
   );
 }
 
-function attentionNotificationRpcHandler(emit: (value: AttentionObservation) => void): RpcEventHandler {
+function attentionNotificationRpcHandler(
+  emit: (value: AttentionNotificationLifecycle) => void,
+): RpcEventHandler {
   return {
     onOpen: () => {
       emit({ kind: "open" });

@@ -1,4 +1,4 @@
-import type { AttentionObservation } from "./attentionNotifications";
+import type { AttentionNotificationLifecycle } from "./attentionNotifications";
 import type * as Stream from "effect/Stream";
 import { attentionNotifications } from "./attentionNotificationSubscription";
 import { create, operationName } from "@app/server-api-contract";
@@ -424,7 +424,9 @@ export class ApiClient implements ApiService {
     );
   }
 
-  subscribeAttentionNotifications(reportOverflow: () => Promise<void>): Stream.Stream<AttentionObservation> {
+  subscribeAttentionNotifications(
+    reportOverflow: () => Promise<void>,
+  ): Stream.Stream<AttentionNotificationLifecycle> {
     return attentionNotifications(this.#transport, reportOverflow);
   }
 

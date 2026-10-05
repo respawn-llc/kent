@@ -2,27 +2,29 @@ import { useEffect, useMemo } from "react";
 import { useAtomSuspense } from "@effect/atom-react";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 
-import { shellObservationDiagnostics, type AppServices } from "@/app-facade";
+import type { AppServices } from "@/app-facade";
 
 export function useWindowFileDrops({ nativeBridge, logger }: AppServices): void {
   const drops = useMemo(
     () =>
       Atom.make(
-        nativeBridge.window.fileDrops(shellObservationDiagnostics(logger, "file-drop")).pipe(
-          Stream.runForEach((paths) =>
-            Effect.sync(() => {
-              insertFilePaths(paths);
-            }),
-          ),
-          Effect.catch((error) =>
-            Effect.promise(async () =>
-              logger.append("error", "Could not listen for native file drops", { error: String(error) }),
+        nativeBridge.window
+          .fileDrops(async () => logger.reportObservationOverflow("file-drop"))
+          .pipe(
+            Stream.runForEach((paths) =>
+              Effect.sync(() => {
+                insertFilePaths(paths);
+              }),
             ),
+            Effect.catch((error) =>
+              Effect.promise(async () =>
+                logger.append("error", "Could not listen for native file drops", { error: String(error) }),
+              ),
+            ),
+            Effect.as(null),
           ),
-          Effect.as(null),
-        ),
         { initialValue: null },
       ),
     [nativeBridge, logger],

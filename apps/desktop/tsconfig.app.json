@@ -39,7 +39,7 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": ["vitest/globals", "@testing-library/jest-dom/vitest"]
+    "types": ["vitest/globals", "./test/jest-dom.d.ts"]
   },
   "include": ["src", "test", "packages/ui-kit/src/jsx.d.ts"],
   "references": [

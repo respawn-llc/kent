@@ -3,12 +3,11 @@ import { useMemo, type ReactNode } from "react";
 import { useAtomSet, useAtomSuspense, useAtomValue } from "@effect/atom-react";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 
 import { SessionChatCatalogReturnContext, type SessionChatCatalogReturn } from "./sessionChatCatalogReturn";
 import { sessionChatHistoryStateSchema } from "./sessionChatHistory";
 import { NavigationStackContext, navigationHistoryChanges, nextReachableHistoryIndex } from "./navigation";
-import { shellObservationDiagnostics } from "./shellObservationDiagnostics";
 import { useAppServices } from "./useAppServices";
 
 type SessionChatHistoryRead =
@@ -34,7 +33,9 @@ export function SessionChatCatalogReturnProvider({ children }: Readonly<{ childr
     });
     const observation = Atom.make(
       (get) =>
-        navigationHistoryChanges(router.history, shellObservationDiagnostics(logger, "history")).pipe(
+        navigationHistoryChanges(router.history, async () =>
+          logger.reportObservationOverflow("history"),
+        ).pipe(
           Stream.runForEach(({ location, action }) =>
             Effect.sync(() => {
               const previous = get.once(state);

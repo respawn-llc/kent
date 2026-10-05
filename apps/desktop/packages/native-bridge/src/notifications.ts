@@ -52,8 +52,6 @@ export type NativeNotificationActivation = Readonly<{
   target: NativeNotificationTarget;
 }>;
 
-type NativeNotificationUnlisten = () => void;
-
 export type NativeNotificationBridge = Readonly<{
   permissionState(): Promise<NativeNotificationPermission>;
   requestPermission(): Promise<NativeNotificationPermission>;
@@ -91,9 +89,7 @@ type TauriNotificationBackend = Readonly<{
   isPermissionGranted(): Promise<boolean>;
   requestPermission(): Promise<NotificationPermission>;
   send(notification: TauriNotificationRequest): Promise<void>;
-  onActivated(
-    handler: (activation: NativeNotificationActivation) => void,
-  ): Promise<NativeNotificationUnlisten>;
+  onActivated(handler: (activation: NativeNotificationActivation) => void): Promise<() => void>;
   removeActive(backendID: number): Promise<void>;
 }>;
 
@@ -241,9 +237,7 @@ function createTauriDesktopNativeNotifications(backend: TauriNotificationBackend
 function defaultTauriNotificationBackend(): TauriNotificationBackend {
   return {
     isPermissionGranted: tauriIsPermissionGranted,
-    async onActivated(
-      handler: (activation: NativeNotificationActivation) => void,
-    ): Promise<NativeNotificationUnlisten> {
+    async onActivated(handler: (activation: NativeNotificationActivation) => void): Promise<() => void> {
       return listen<unknown>(tauriActivationEvent, (event) => {
         handler(nativeNotificationActivation(event.payload));
       });

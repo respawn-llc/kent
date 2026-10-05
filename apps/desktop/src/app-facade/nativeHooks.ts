@@ -2,10 +2,10 @@ import { createContext, createElement, useCallback, useContext, useMemo, type Re
 import { useAtomSuspense } from "@effect/atom-react";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 
 import { useAppServices } from "./useAppServices";
-import { shellObservationDiagnostics } from "./shellObservationDiagnostics";
+import type { AppServices } from "./services";
 
 const WindowFocusContext = createContext<boolean | null | undefined>(undefined);
 
@@ -39,42 +39,64 @@ export function useWindowFocus(): boolean | null {
 function useWindowFocusSource(): boolean | null {
   const { logger, nativeBridge } = useAppServices();
   const focused = useMemo(
-    () =>
-      Atom.make(
-        Stream.suspend((): Stream.Stream<boolean | null> => {
-          let observed = false;
-          const changes = nativeBridge.window.focusChanges(shellObservationDiagnostics(logger, "focus")).pipe(
-            Stream.catch((error) =>
-              Stream.fromEffect(
-                Effect.promise(async () =>
-                  logger.append("warn", "Listening for native window focus changes failed.", {
-                    error: error.message,
-                  }),
-                ).pipe(Effect.as(false)),
-              ),
-            ),
-            Stream.tap(() =>
-              Effect.sync(() => {
-                observed = true;
-              }),
-            ),
-          );
-          const initial = Stream.fromEffect(
-            Effect.tryPromise(async () => nativeBridge.window.isFocused()).pipe(
-              Effect.catch((error) =>
-                Effect.promise(async () =>
-                  logger.append("warn", "Reading native window focus state failed.", {
-                    error: String(error.cause),
-                  }),
-                ).pipe(Effect.as(false)),
-              ),
-            ),
-          ).pipe(Stream.filter(() => !observed));
-          return Stream.merge(changes, initial);
-        }),
-        { initialValue: null },
-      ),
+    () => Atom.make(windowFocusObservation(nativeBridge, logger), { initialValue: null }),
     [logger, nativeBridge.window],
   );
   return useAtomSuspense(focused).value;
 }
+
+function windowFocusObservation(
+  nativeBridge: AppServices["nativeBridge"],
+  logger: AppServices["logger"],
+): Stream.Stream<boolean | null> {
+  return Stream.suspend(() => {
+    let observed = false;
+    const changes = nativeBridge.window
+      .focusChanges(async () => logger.reportObservationOverflow("focus"))
+      .pipe(
+        Stream.catch((error) => Stream.fromEffect(reportFocusRegistrationFailure(logger, error))),
+        Stream.tap(() =>
+          Effect.sync(() => {
+            observed = true;
+          }),
+        ),
+      );
+    const initial = Stream.fromEffect(readInitialFocus(nativeBridge, logger)).pipe(
+      Stream.filter(() => !observed),
+    );
+    return Stream.merge(changes, initial);
+  });
+}
+
+const reportFocusRegistrationFailure = Effect.fn("reportFocusRegistrationFailure")(function* (
+  logger: AppServices["logger"],
+  error: Error,
+) {
+  yield* Effect.promise(async () =>
+    logger.append("warn", "Listening for native window focus changes failed.", {
+      error: error.message,
+    }),
+  );
+  return false;
+});
+
+const reportInitialFocusReadFailure = Effect.fn("reportInitialFocusReadFailure")(function* (
+  logger: AppServices["logger"],
+  cause: unknown,
+) {
+  yield* Effect.promise(async () =>
+    logger.append("warn", "Reading native window focus state failed.", {
+      error: String(cause),
+    }),
+  );
+  return false;
+});
+
+const readInitialFocus = Effect.fn("readInitialFocus")(function* (
+  nativeBridge: AppServices["nativeBridge"],
+  logger: AppServices["logger"],
+) {
+  return yield* Effect.tryPromise(async () => nativeBridge.window.isFocused()).pipe(
+    Effect.catch((error) => reportInitialFocusReadFailure(logger, error.cause)),
+  );
+});

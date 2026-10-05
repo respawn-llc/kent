@@ -22,12 +22,12 @@ const forbiddenMembers = new Map([
   ["effect/Scope", new Set(["make", "makeUnsafe", "globalScope"])],
   ["effect/ManagedRuntime", new Set(["make"])],
   ["effect/Runtime", new Set(["makeRunMain"])],
-  ["effect/unstable/reactivity/AtomRegistry", new Set(["make", "layer", "layerOptions"])],
+  ["effect/reactivity/AtomRegistry", new Set(["make", "layer", "layerOptions"])],
   ["@effect/atom-react", new Set(["RegistryContext"])],
   ["@effect/atom-react/RegistryContext", new Set(["RegistryContext"])],
 ]);
 
-const namespaceBarrels = new Set(["effect", "effect/unstable/reactivity"]);
+const namespaceBarrels = new Set(["effect", "effect/reactivity"]);
 
 function libraryModule(value) {
   if (typeof value !== "string") return null;
@@ -202,7 +202,7 @@ export const effectRules = {
             }
           }
           if (!isEffectOwner(file)) return;
-          // Native adapters retain private platform callback storage (KENT-656).
+          // Native adapters may own private platform callback storage.
           // Their exported observation contracts are still checked above.
           const nativeAdapter =
             win32.normalize(file.fileName).split(win32.sep).slice(-4, -1).join("/") ===

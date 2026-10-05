@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useCallback, useMemo } from "react";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 
 import {
   CurrentWindowChromeTitleContext,

@@ -1,6 +1,6 @@
 import { createContext, createElement, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { useAtomValue } from "@effect/atom-react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import type { CreatedTaskSummary, TaskDependencyDirection, TaskStatus } from "@/api";
 import type { ResolvedSidebarWidth, SidebarSizePreference } from "./sidebarSizing";
 
