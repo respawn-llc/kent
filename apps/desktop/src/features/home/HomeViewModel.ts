@@ -1,4 +1,4 @@
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import type { HomeSidebarCategory } from "./HomeSidebar";
 import type { QueryClient } from "@tanstack/react-query";

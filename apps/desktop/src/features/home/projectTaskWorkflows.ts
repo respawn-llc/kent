@@ -6,7 +6,7 @@ import {
 } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 
 import { workflowPageSize, type WorkflowPage, type WorkflowRecord, type ApiService } from "@/api";
 import {

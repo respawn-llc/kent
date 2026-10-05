@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import {
   infiniteQueryOptions,
   keepPreviousData,

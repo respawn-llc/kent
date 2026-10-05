@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { useAtomMount, useAtomSet } from "@effect/atom-react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import { queryKeys, type SidebarMode, type SidebarRootController } from "@/app-facade";
 import { createProjectTaskRefresh } from "./ProjectTaskRefresh";
