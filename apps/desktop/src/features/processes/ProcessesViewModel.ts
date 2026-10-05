@@ -2,8 +2,8 @@ import { MutationObserver, QueryObserver, type QueryClient } from "@tanstack/rea
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+import * as Atom from "effect/reactivity/Atom";
 
 import type { ApiService, ChatSessionTarget, DesktopProcess } from "@/api";
 import { mutationPendingAtom, queryAtom, queryKeys } from "@/app-facade";
