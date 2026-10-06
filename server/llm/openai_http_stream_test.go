@@ -988,7 +988,7 @@ func TestToolCallAccumulatorMergesCompletedCustomInputWithoutJSONInput(t *testin
 	}
 }
 
-func TestGenerate_CarriesReasoningStatusWithoutChangingSummaryText(t *testing.T) {
+func TestGenerate_PartitionsReasoningStatusFromTrace(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
 		`{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"**Preparing patch**\n\nPlain summary text"}`,
 		`{"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"**Preparing patch**\n\nPlain summary text"}],"encrypted_content":"enc_1"}]}}`,
@@ -1008,14 +1008,66 @@ func TestGenerate_CarriesReasoningStatusWithoutChangingSummaryText(t *testing.T)
 	if len(reasoning) != 1 {
 		t.Fatalf("expected 1 reasoning delta callback, got %+v", reasoning)
 	}
-	if reasoning[0].Text != "**Preparing patch**\n\nPlain summary text" {
+	if reasoning[0].Text != "\n\nPlain summary text" {
 		t.Fatalf("summary = %q", reasoning[0].Text)
 	}
 	if reasoning[0].CurrentStatus == nil || reasoning[0].CurrentStatus.Text != "Preparing patch" {
 		t.Fatalf("unexpected current status: %+v", reasoning[0].CurrentStatus)
 	}
-	if len(resp.Reasoning) != 1 || resp.Reasoning[0].Text != "**Preparing patch**\n\nPlain summary text" {
+	if len(resp.Reasoning) != 1 || resp.Reasoning[0].Text != "Plain summary text" {
 		t.Fatalf("unexpected final reasoning summary entries: %+v", resp.Reasoning)
+	}
+	for _, entry := range []ReasoningSummaryDelta{
+		reasoning[0],
+		{SourceCoordinate: resp.Reasoning[0].SourceCoordinate, ItemIdentity: resp.Reasoning[0].ItemIdentity},
+	} {
+		if entry.SourceCoordinate == nil || entry.SourceCoordinate.OutputIndex == nil ||
+			*entry.SourceCoordinate.OutputIndex != 0 || entry.SourceCoordinate.PartIndex == nil ||
+			*entry.SourceCoordinate.PartIndex != 0 || entry.ItemIdentity == nil ||
+			entry.ItemIdentity.ItemID != "rs_1" || entry.ItemIdentity.PartIndex == nil ||
+			*entry.ItemIdentity.PartIndex != 0 {
+			t.Fatalf("partition lost provider identity: %+v", entry)
+		}
+	}
+}
+
+func TestGenerate_StatusOnlyReasoningRemainsProviderHistoryButNotTrace(t *testing.T) {
+	transport := newOpenAIStreamTestTransport(t,
+		`{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"**Preparing patch**"}`,
+		`{"type":"response.completed","response":{"output":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"**Preparing patch**"}],"encrypted_content":"enc_1"}]}}`,
+		`[DONE]`,
+	)
+	var deltas []ReasoningSummaryDelta
+	resp, err := transport.Generate(context.Background(), OpenAIRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{
+		OnReasoningSummaryDelta: func(delta ReasoningSummaryDelta) {
+			deltas = append(deltas, delta)
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	if len(deltas) != 1 || deltas[0].Text != "" || deltas[0].CurrentStatus == nil {
+		t.Fatalf("status-only output leaked a trace: %+v", deltas)
+	}
+	if len(resp.Reasoning) != 0 {
+		t.Fatalf("status-only output became completed trace: %+v", resp.Reasoning)
+	}
+	if len(resp.ReasoningItems) != 1 || resp.ReasoningItems[0].EncryptedContent != "enc_1" {
+		t.Fatalf("provider reasoning item lost: %+v", resp.ReasoningItems)
+	}
+	if len(resp.OutputItems) != 1 {
+		t.Fatalf("provider output lost: %+v", resp.OutputItems)
+	}
+	var item struct {
+		Summary []struct {
+			Text string `json:"text"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal(resp.OutputItems[0].Raw, &item); err != nil {
+		t.Fatalf("decode preserved provider output: %v", err)
+	}
+	if len(item.Summary) != 1 || item.Summary[0].Text != "**Preparing patch**" {
+		t.Fatalf("provider history changed: %+v", item)
 	}
 }
 
@@ -1049,7 +1101,10 @@ func TestGenerate_ReasoningCallbacksCarryCurrentAccumulatedStatus(t *testing.T) 
 			t.Fatalf("callback %d status = %+v, want Checking tests", index, reasoning[index].CurrentStatus)
 		}
 	}
-	if reasoning[2].Text != "**Checking tests**\nDetails" {
+	if reasoning[1].Text != "" {
+		t.Fatalf("status-only callback leaked trace text = %q", reasoning[1].Text)
+	}
+	if reasoning[2].Text != "\nDetails" {
 		t.Fatalf("final callback text = %q", reasoning[2].Text)
 	}
 }

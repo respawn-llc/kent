@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -189,23 +190,23 @@ type transcriptReasoningAggregate struct {
 	aliases  map[string]transcriptReasoningCoordinate
 }
 
-func (s *transcriptRuntimeState) SetReasoningState(stepID string, delta llm.ReasoningSummaryDelta) (*TranscriptReasoningTraceIdentity, error) {
+func (s *transcriptRuntimeState) SetReasoningState(stepID string, delta llm.ReasoningSummaryDelta) (*TranscriptReasoningTraceIdentity, bool, error) {
 	if s == nil {
-		return nil, nil
+		return nil, false, nil
 	}
 	stepID = strings.TrimSpace(stepID)
 	if strings.TrimSpace(stepID) == "" {
-		return nil, fmt.Errorf("reasoning update step id is required")
+		return nil, false, fmt.Errorf("reasoning update step id is required")
 	}
 	if delta.SourceCoordinate == nil {
-		return nil, fmt.Errorf("reasoning update source coordinate is required")
+		return nil, false, fmt.Errorf("reasoning update source coordinate is required")
 	}
 	if err := delta.SourceCoordinate.Validate(); err != nil {
-		return nil, fmt.Errorf("validate reasoning update source coordinate: %w", err)
+		return nil, false, fmt.Errorf("validate reasoning update source coordinate: %w", err)
 	}
 	if delta.ItemIdentity != nil {
 		if err := delta.ItemIdentity.Validate(); err != nil {
-			return nil, fmt.Errorf("validate reasoning update item identity: %w", err)
+			return nil, false, fmt.Errorf("validate reasoning update item identity: %w", err)
 		}
 	}
 	output := *delta.SourceCoordinate.OutputIndex
@@ -223,20 +224,33 @@ func (s *transcriptRuntimeState) SetReasoningState(stepID string, delta llm.Reas
 	if delta.CurrentStatus != nil {
 		statusText := strings.TrimSpace(delta.CurrentStatus.Text)
 		if statusText == "" {
-			return nil, fmt.Errorf("reasoning status text is required when present")
+			return nil, false, fmt.Errorf("reasoning status text is required when present")
 		}
 		s.reasoning.status = &TranscriptThinkingStatusState{StepID: stepID, Text: delta.CurrentStatus.Text}
 	}
 	if strings.TrimSpace(delta.Text) == "" {
-		return nil, nil
+		if index, exists := s.reasoning.bySource[coordinate]; exists {
+			// A completed status heading can replace an incomplete provisional
+			// trace. Thinking STATUS must never remain transcript content in
+			// either the Go TUI or Desktop; other real traces stay untouched.
+			s.reasoning.traces = slices.Delete(s.reasoning.traces, index, index+1)
+			delete(s.reasoning.bySource, coordinate)
+			for key, ordinal := range s.reasoning.bySource {
+				if ordinal > index {
+					s.reasoning.bySource[key] = ordinal - 1
+				}
+			}
+			return nil, true, nil
+		}
+		return nil, false, nil
 	}
 	if err := s.observeReasoningItemIdentityLocked(coordinate, delta.ItemIdentity); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if index, exists := s.reasoning.bySource[coordinate]; exists {
 		trace := s.reasoning.traces[index]
 		trace.Text = delta.Text
-		return &trace.Identity, nil
+		return &trace.Identity, false, nil
 	}
 	trace := &TranscriptReasoningTraceState{
 		StepID:    stepID,
@@ -253,7 +267,7 @@ func (s *transcriptRuntimeState) SetReasoningState(stepID string, delta llm.Reas
 	}
 	s.reasoning.bySource[coordinate] = len(s.reasoning.traces)
 	s.reasoning.traces = append(s.reasoning.traces, trace)
-	return &trace.Identity, nil
+	return &trace.Identity, false, nil
 }
 
 func (s *transcriptRuntimeState) ReasoningDurationMs(

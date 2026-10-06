@@ -10,7 +10,8 @@ func normalizeReasoningEntries(entries []ReasoningEntry) []ReasoningEntry {
 	out := make([]ReasoningEntry, 0, len(entries))
 	for _, entry := range entries {
 		role, present := textutil.OptionalTrimmed(entry.Role)
-		summary := normalizeReasoningSummaryLines(strings.Split(strings.ReplaceAll(entry.Text, "\r\n", "\n"), "\n"))
+		trace, _ := partitionReasoningStatus(entry.Text)
+		summary := normalizeReasoningSummaryLines(strings.Split(strings.ReplaceAll(trace, "\r\n", "\n"), "\n"))
 		if !present || summary == "" {
 			continue
 		}
@@ -30,12 +31,13 @@ func reasoningSummaryDeltaFromText(
 	role,
 	text string,
 ) ReasoningSummaryDelta {
+	trace, status := partitionReasoningStatus(text)
 	return ReasoningSummaryDelta{
 		SourceCoordinate: CloneReasoningSourceCoordinate(coordinate),
 		ItemIdentity:     CloneReasoningItemIdentity(itemIdentity),
 		Role:             role,
-		Text:             text,
-		CurrentStatus:    currentReasoningStatus(text),
+		Text:             trace,
+		CurrentStatus:    status,
 	}
 }
 
