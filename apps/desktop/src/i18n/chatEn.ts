@@ -7,6 +7,8 @@ const chatPickerEnglish = {
   next: "Next question",
   declineShortcut: "Decline to answer (Ctrl+D)",
   decline: "Decline to answer",
+  sending: "Sending answers…",
+  declined: "This prompt has already been declined.",
   sendingFailed: "Sending failed",
   sendingFailedBody: "Your answers are still here. Review them and submit again.",
 };

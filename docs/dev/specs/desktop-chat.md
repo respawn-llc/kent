@@ -633,13 +633,13 @@
 
 ## Questions And Approvals
 
-- An active Question or Approval replaces the normal text-editor area inside the same composer island. The ordinary message/settings draft remains preserved but hidden. Settings, Context, and Stop remain available.
-- The ordinary status line and bottom action row stay present beneath the picker. Stop remains visible while the runtime awaits prompts.
+- An active Question or Approval replaces the normal text-editor area inside the same composer island. The ordinary message/settings draft remains preserved but hidden. Settings and Context remain available.
+- The ordinary status line and bottom action row must stay present beneath the picker. While a prompt is active, the composer's Stop button must become `Decline to answer` for the current prompt and use a crossed-out speech-bubble icon instead of a plain cross.
 - Questions and Approvals use one shared prompt-picker interaction and visual language. Their server-provided option kinds differ, but Desktop does not create separate form architectures.
 - The picker shows one pending prompt at a time. It has no tabs, question-title synthesis, or duplicated question previews.
-- The current question is Markdown above a compact navigation line. The line has previous/next chevrons around the current question position. Answer options appear below the navigation line.
+- The current question is Markdown above the answer options. When the batch has more than one prompt, a compact navigation line must appear between them with previous/next chevrons around the current question position. For a single-prompt batch, the entire navigation line must be absent.
 - The navigation line shows only the current position as `Question X of Y`. It has no answered count or aggregate completion indicator.
-- The navigation line also has a trailing compact error-colored `×` with accessible name `Decline to answer` and tooltip `Decline to answer (Ctrl+D)`.
+- The navigation line must not contain a separate Decline button.
 - The picker expands upward through available Chat space. One UI-kit scroll region contains the Markdown question, navigation line, and every answer option. Large questions and large option sets scroll together in that region.
 - Answers must appear as an inline list of radio options without outlined cards. Question and answer content use the shared safe Markdown renderer.
 - Selected answer text must be bold and primary-colored. Unselected answer text must use the secondary foreground tone.
@@ -663,11 +663,11 @@
 - `Decline to answer` immediately marks the current prompt Declined in the local batch draft, makes its options and freeform field read-only, and moves to the next unresolved prompt. It has no confirmation or undo.
 - A declined prompt remains in the `Question X of Y` sequence and is visibly read-only when revisited.
 - Declined is distinct from an ordinary Question's `Neither` answer and an Approval's `Deny` decision.
-- While the answer-picker area is active, Ctrl+D activates the same immediate `Decline to answer` action as the visible `×`.
-- Escape never declines a prompt. The explicit `×` and its Ctrl+D shortcut are the only per-prompt decline actions. On Windows and Linux, otherwise-unhandled Escape follows the whole-Session Stop arming contract.
+- While the answer-picker area is active, Ctrl+D must activate the same immediate `Decline to answer` action as the composer's Decline button.
+- Escape must never decline a prompt. The composer's Decline button and Ctrl+D are the per-prompt decline actions. On Windows and Linux, otherwise-unhandled Escape follows the whole-Session Stop arming contract.
 - Decline follows the shared prompt-cancellation transcript contract. An ordinary Question remains an error/canceled Ask Question tool row instead of becoming a completed answered Question. A canceled or interrupted Ask Question must remain fully visible with an error-colored Message Circle Question Mark icon, its Markdown question, every offered option with none selected, and the backend-supplied tool error text. It must omit commentary presentation. Desktop adds no synthetic user message, and a declined Approval adds no separate decision row.
 - When the final unresolved prompt becomes answered or declined, Desktop sends the complete typed answer batch to the server.
-- While a batch submission is pending, Desktop must keep the picker visible with a loading indicator and disable answer confirmation, selection changes, commentary editing, and decline. Prompt navigation and Stop must remain available.
+- While a batch submission is pending, Desktop must keep the picker visible with a loading indicator and disable answer confirmation, selection changes, commentary editing, and decline. Multi-prompt navigation and whole-Session Stop keyboard shortcuts must remain available.
 - Ordinary Questions with at least one suggested answer include the same `Neither` freeform option used by Task Detail. A Question with no suggestions has only the freeform response and does not offer `Neither`. The freeform/commentary field is always visible below the options and is preserved independently for each prompt.
 - The freeform/commentary field is pinned below the main picker scroll region. It has a three-line minimum, grows through seven lines, and then scrolls internally.
 - For a suggested answer, freeform text is optional commentary. For `Neither`, at least one non-whitespace character is required.
@@ -681,7 +681,7 @@
 - Desktop treats the shared identity-only resolved update as a removal signal. It does not display a selected answer or leave a placeholder/collapsed answer item for an externally resolved prompt.
 - Batch validation, completion, ordering, races, and typed results follow the shared runtime contract in `core-runtime-tools.md`. Desktop matches batch results by prompt identity rather than result-array position.
 - Desktop removes prompts reported as Skipped and keeps the server result for prompts reported as Resolved. An all-Skipped response closes the picker without retrying or replaying local answers.
-- Stop interrupts the active run, cancels the complete pending prompt batch through runtime interrupt semantics, discards its transient answer drafts, closes the picker, and restores the ordinary hidden composer draft.
+- Whole-Session Stop keyboard shortcuts must interrupt the active run, cancel the complete pending prompt batch through runtime interrupt semantics, discard its transient answer drafts, close the picker, and restore the ordinary hidden composer draft. The composer's Decline button must not interrupt the run.
 - Ordinary-Session Questions and Approvals use the shared Desktop attention-notification behavior. The notification target opens the owning Session and picker. Desktop suppresses the duplicate in-app notification only while that Session Chat and picker are already the focused destination.
 - Desktop requires one typed batch-answer operation for this picker. It does not submit each answer before the batch is complete.
 
