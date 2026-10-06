@@ -64,6 +64,7 @@ function project(state: State, admitted: readonly CommittedRow[] = []): State {
       ...state.snapshot,
       showsLive: showsLive(state),
       items: presentation.items,
+      activeAssistant: presentation.provisional.find((item) => item.kind === "assistant") ?? null,
       thinkingStatus: showsLive(state) ? thinkingStatus(state.activity, latestStatus) : null,
     },
   };
@@ -110,9 +111,7 @@ function install(
       lifecycle,
       pending: null,
       snapshot: {
-        showsLive: state.snapshot.showsLive,
-        thinkingStatus: state.snapshot.thinkingStatus,
-        items: state.snapshot.items,
+        ...state.snapshot,
         older: boundary("older", segments[0]?.olderCursor ?? null),
         newer: boundary("newer", segments.at(-1)?.newerCursor ?? null),
         opening: { kind: "ready" },
@@ -136,6 +135,7 @@ function emptyState(opening: "loading" | "disposed"): State {
       showsLive: false,
       thinkingStatus: null,
       items: [],
+      activeAssistant: null,
       older: { kind: "idle", cursor: null },
       newer: { kind: "idle", cursor: null },
       opening: { kind: opening },
@@ -451,7 +451,7 @@ export class TranscriptWindow {
       pool: [],
       provisional: [],
       pending: null,
-      snapshot,
+      snapshot: { ...snapshot, activeAssistant: null },
     };
     this.state = liveWasVisible ? project(completed) : completed;
     return { kind: "accepted", effects: [{ kind: "scratch-rehydration" }] };

@@ -91,12 +91,12 @@ func handshakeBinaryRPC(ctx context.Context, conn rpcwire.Conn) (protocol.Server
 	}, nil
 }
 
-type protocolVersionMismatchError struct {
+type ProtocolVersionMismatchError struct {
 	clientVersion   string
 	requiredVersion string
 }
 
-func (e *protocolVersionMismatchError) Error() string {
+func (e *ProtocolVersionMismatchError) Error() string {
 	return fmt.Sprintf(
 		"server requires protocol version %q but this client uses %q; update the Kent client and server to the same build",
 		e.requiredVersion,
@@ -111,7 +111,7 @@ func handshakeGeneratedError(failure *connectionpb.HandshakeError) error {
 		if err := protoapi.Validate(details); err != nil {
 			return err
 		}
-		return &protocolVersionMismatchError{
+		return &ProtocolVersionMismatchError{
 			clientVersion:   protocol.Version,
 			requiredVersion: details.RequiredProtocolVersion,
 		}

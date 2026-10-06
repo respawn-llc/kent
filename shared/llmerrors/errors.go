@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"core/shared/auth"
+	"core/shared/config"
 )
 
 var ErrModelStreamStalled = errors.New("model stream stalled")
@@ -71,7 +72,8 @@ func (e *ProviderAPIError) Unwrap() error {
 }
 
 type AuthError struct {
-	Err error
+	ConnectionID *config.ConnectionID
+	Err          error
 }
 
 type ProviderSelectionError struct {
@@ -195,8 +197,17 @@ func UserFacingError(err error) string {
 		return providerSelectionErr.Error()
 	}
 	var authErr *AuthError
-	if errors.As(err, &authErr) && errors.Is(authErr.Err, auth.ErrAuthNotConfigured) {
-		return "Not authenticated, run /login to sign in with your provider"
+	if errors.As(err, &authErr) {
+		if errors.Is(authErr.Err, auth.ErrAuthNotConfigured) {
+			return "Not authenticated, run /login to sign in with your provider"
+		}
+		if authErr.ConnectionID != nil {
+			if errors.Is(authErr.Err, auth.ErrOAuthRefreshFailed) {
+				detail := strings.TrimRight(authErr.Error(), ".")
+				return fmt.Sprintf("Failed to authenticate the provider connection: %s.\nRun /login to authenticate connection %s, used for this session.", detail, *authErr.ConnectionID)
+			}
+			return authErr.Error()
+		}
 	}
 	if errors.Is(err, auth.ErrAuthNotConfigured) {
 		return "Not authenticated, run /login to sign in with your provider"

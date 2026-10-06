@@ -99,9 +99,7 @@ export function ChatComposer({
       onKeyDown={onEditorKeyDown}
       placeholder={
         stoppable && activity?.queueAccepting
-          ? t("chatComposer.queuePlaceholder", {
-              shortcut: queueShortcutLabel(nativeBridge.capabilities.platform),
-            })
+          ? t("chatComposer.queuePlaceholder", { context: nativeBridge.capabilities.platform })
           : undefined
       }
     />
@@ -143,10 +141,6 @@ export function ChatComposer({
 }
 
 type Composer = ReturnType<typeof useChatComposer>;
-
-function queueShortcutLabel(platform: string): string {
-  return platform === "macos" ? "⌘+Enter" : "Ctrl+Enter";
-}
 
 function ComposerSuggestions({ composer }: Readonly<{ composer: Composer }>) {
   const { t } = useTranslation();

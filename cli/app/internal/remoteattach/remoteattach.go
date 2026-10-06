@@ -72,6 +72,10 @@ func DialHeadless(ctx context.Context, req HeadlessRequest) (*client.Remote, boo
 	defer cancel()
 	projectViews, err := req.DialProjectView(attachCtx, req.Config)
 	if err != nil {
+		var mismatch *client.ProtocolVersionMismatchError
+		if errors.As(err, &mismatch) {
+			return nil, true, err
+		}
 		return nil, false, nil
 	}
 	if req.Accept != nil && !req.Accept(projectViews.Identity()) {

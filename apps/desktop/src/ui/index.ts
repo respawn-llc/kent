@@ -64,7 +64,7 @@ export type { IslandTabAction, IslandTabItem, IslandTabsProps } from "./IslandTa
 export { islandSurfaceClassName } from "./islandSurfaceStyles";
 export type { IslandLevel } from "./islandSurfaceStyles";
 export { chromeContentPaddingClassName, nativeChromeContentPaddingClassName } from "./chromePadding";
-export { StaticMarkdown, StreamingMarkdown, TaskBodyMarkdown } from "./MarkdownText";
+export { MarkdownLinkProvider, StaticMarkdown, StreamingMarkdown, TaskBodyMarkdown } from "./MarkdownText";
 export { CollapsibleMarkdownViewport } from "./CollapsibleMarkdownViewport";
 export type { StaticMarkdownProps, StreamingMarkdownProps, TaskBodyMarkdownProps } from "./MarkdownText";
 export { SyntaxHighlightedCode } from "./SyntaxHighlightedCode";

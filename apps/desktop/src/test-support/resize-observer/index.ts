@@ -10,6 +10,36 @@ export type ResizeObserverGeometryHarness = Readonly<{
   setGeometry(element: HTMLElement, geometry: ResizeObserverGeometry): void;
 }>;
 
+export function installAnimatedHeightGeometry(initialHeight: number) {
+  const observer = installResizeObserverGeometry();
+  let naturalHeight = initialHeight;
+  // jsdom has no layout. Resolve the rendered height through actual Motion
+  // output while supplying the natural content height at the leaf nodes.
+  const height = (element: HTMLElement): number => {
+    if (element.style.height.endsWith("px")) return Number.parseFloat(element.style.height);
+    return element.children.length === 0
+      ? naturalHeight
+      : Math.max(
+          ...Array.from(element.children, (child) =>
+            child instanceof HTMLElement ? height(child) : naturalHeight,
+          ),
+        );
+  };
+  Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value(this: HTMLElement) {
+      return new DOMRect(0, 0, 320, height(this));
+    },
+  });
+  return {
+    resize(nextHeight: number) {
+      naturalHeight = nextHeight;
+      observer.notify();
+    },
+    restore: observer.restore,
+  };
+}
+
 export function installVirtualizedScrollGeometry(viewportHeight: number): Readonly<{
   resize(element: HTMLElement, height: number): void;
   restore(): void;

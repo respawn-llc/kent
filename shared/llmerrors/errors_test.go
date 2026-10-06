@@ -4,7 +4,27 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+
+	"core/shared/auth"
+	"core/shared/config"
 )
+
+func TestConnectionDiagnosticsPreserveNonRefreshFailures(t *testing.T) {
+	connectionID := config.ConnectionID("removed-connection")
+	configurationFailure := errors.New("selected connection is no longer configured")
+	for _, test := range []struct {
+		cause error
+		want  string
+	}{
+		{cause: configurationFailure, want: configurationFailure.Error()},
+		{cause: auth.ErrAuthNotConfigured, want: UserFacingError(auth.ErrAuthNotConfigured)},
+	} {
+		withConnection := &AuthError{ConnectionID: &connectionID, Err: test.cause}
+		if got, want := UserFacingError(withConnection), test.want; got != want {
+			t.Fatalf("connection identity changed non-refresh diagnostic: got %q, want %q", got, want)
+		}
+	}
+}
 
 func TestHasHTTPStatus(t *testing.T) {
 	cases := []struct {

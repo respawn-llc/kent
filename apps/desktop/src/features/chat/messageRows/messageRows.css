@@ -20,12 +20,12 @@
   max-width: 100%;
 }
 
-.chat-message-island {
+.chat-message-content {
   min-height: calc(var(--space-6) + var(--space-2));
   padding: var(--space-3);
 }
 
-.chat-message-island > .markdown-text > :first-child {
+.chat-message-content > .markdown-text > :first-child {
   text-box: trim-start cap;
 }
 

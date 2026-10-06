@@ -7,6 +7,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/rollbacktarget"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/transcript"
@@ -191,6 +192,12 @@ func TranscriptCommittedRowFactsFromEvent(evt Event) []TranscriptCommittedRowFac
 		}
 		if facts[index].User != nil && facts[index].Provenance != nil {
 			facts[index].User.CommittedAtUnixMs = textutil.Pointer(facts[index].Provenance.CommittedAtUnixMs)
+		}
+		if facts[index].User != nil &&
+			evt.CommittedProvenance != nil &&
+			evt.CommittedProvenance.EventSequence > 0 {
+			targetID := rollbacktarget.EncodeUserMessageSeq(evt.CommittedProvenance.EventSequence)
+			facts[index].User.RollbackTargetID = &targetID
 		}
 		if facts[index].Assistant != nil && facts[index].Provenance != nil {
 			facts[index].Assistant.CommittedAtUnixMs = textutil.Pointer(facts[index].Provenance.CommittedAtUnixMs)
@@ -390,7 +397,15 @@ func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, streamID *
 			}
 			return nil
 		}
-		return []TranscriptCommittedRowFact{runtimeNoticeFactFromMessage(msg, transcript.NoticeSeverityInfo)}
+		entry, visible := visibleDeveloperChatEntry(msg)
+		if !visible {
+			return nil
+		}
+		fact, visible := transcriptCommittedRowFactFromChatEntry(entry)
+		if !visible {
+			return nil
+		}
+		return []TranscriptCommittedRowFact{fact}
 	default:
 		return nil
 	}
@@ -879,32 +894,6 @@ func legacyUntypedNoticeFactFromLocalEntry(entry ChatEntry) TranscriptCommittedR
 	}}
 }
 
-func runtimeNoticeFactFromMessage(msg llm.Message, severity string) TranscriptCommittedRowFact {
-	messageType, _ := textutil.OptionalValue(msg.MessageType)
-	code := strings.TrimSpace(string(messageType))
-	if code == "" {
-		code = "runtime_notice"
-	}
-	sourcePath, _ := textutil.OptionalTrimmed(msg.SourcePath)
-	condensedText, _ := textutil.OptionalTrimmed(msg.CompactContent)
-	backgroundActivityID, _ := textutil.OptionalTrimmed(msg.BackgroundActivityID)
-	backgroundProcessID, _ := textutil.OptionalTrimmed(msg.Name)
-	return TranscriptCommittedRowFact{Kind: TranscriptCommittedRowFactNotice, Visibility: messageTypeTranscriptVisibility(msg.MessageType), Notice: &TranscriptNoticeRowFact{
-		Reason:               transcript.NoticeReasonRuntimeDiagnostic,
-		Severity:             normalizeTranscriptNoticeSeverity(severity),
-		MessageType:          messageType,
-		SourcePath:           sourcePath,
-		WorktreeContext:      session.CloneWorktreeContext(msg.WorktreeContext),
-		CondensedText:        condensedText,
-		CompactLabel:         compactLabelForMessage(msg),
-		BackgroundActivityID: backgroundActivityID,
-		BackgroundProcessID:  backgroundProcessID,
-		BackgroundExitCode:   textutil.Pointer(msg.BackgroundExitCode),
-		DiagnosticCode:       code,
-		DiagnosticDetail:     *msg.Content,
-	}}
-}
-
 func runtimeNoticeFactFromLocalEntry(entry ChatEntry) TranscriptCommittedRowFact {
 	noticeID := strings.TrimSpace(entry.NoticeID)
 	var noticeIDPtr *string
@@ -947,12 +936,4 @@ func emptyDeveloperMessageDiagnosticFact(msg llm.Message) TranscriptCommittedRow
 		DiagnosticCode:   code,
 		DiagnosticDetail: "empty developer message",
 	}}
-}
-
-func normalizeTranscriptNoticeSeverity(severity string) string {
-	severity = strings.TrimSpace(severity)
-	if severity == "" {
-		return transcript.NoticeSeverityInfo
-	}
-	return severity
 }

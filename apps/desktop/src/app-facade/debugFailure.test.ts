@@ -25,6 +25,21 @@ it("fails after recording diagnostics in development without running production 
   expect(recover).not.toHaveBeenCalled();
 });
 
+it("retains the original failure stack and cause when surfacing a debug invariant", async () => {
+  vi.stubEnv("KENT_DEBUG", "true");
+  const original = new Error("broken invariant");
+  const logger = { append: vi.fn().mockResolvedValue(undefined) };
+  const failure = recoverOrThrowDebugFailure({
+    context: { owner: "transcript" },
+    error: original,
+    logger,
+    message: "Invariant failure.",
+    recover: vi.fn(),
+  });
+  await expect(failure).rejects.toHaveProperty("cause", original);
+  expect(logger.append.mock.calls[0]?.[2]).toMatchObject({ stack: original.stack });
+});
+
 it("starts production recovery without waiting for diagnostic persistence", async () => {
   const diagnostic = deferred<undefined>();
   const logger = { append: vi.fn(async () => diagnostic.promise) };

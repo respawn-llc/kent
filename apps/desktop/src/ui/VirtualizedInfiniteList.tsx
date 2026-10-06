@@ -18,7 +18,7 @@ import {
   resolvePreviousLoadEdge,
   useVirtualizedLoadMore,
 } from "./virtualizedInfiniteListLoadMore";
-import { pinnedVirtualRangeExtractor } from "./virtualizedPinnedRange";
+import { pinnedVirtualRangeExtractor, virtualizedVisibleIndexes } from "./virtualizedPinnedRange";
 import { shouldAdjustScrollForVirtualizedResize } from "./virtualizedResizePolicy";
 import {
   requireVirtualizedPixelOffsetRequest,
@@ -265,7 +265,7 @@ function VirtualizedInfiniteListContent<TItem>({
       : (item: VirtualItem) =>
           shouldAdjustScrollForVirtualizedResize(nonAdjustingResizeItemKey, String(item.key));
   const virtualItems = virtualizer.getVirtualItems();
-  const visibleIndexes = virtualItems.map((item) => item.index);
+  const visibleIndexes = virtualizedVisibleIndexes(virtualizer);
 
   useEffect(() => {
     if (initialScrollKey === undefined) {

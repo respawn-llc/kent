@@ -100,7 +100,12 @@ type connectionAuth struct {
 	id    config.ConnectionID
 }
 
-func (a connectionAuth) ResolveDispatchAuth(ctx context.Context) (*llm.DispatchAuth, error) {
+func (a connectionAuth) ResolveDispatchAuth(ctx context.Context) (result *llm.DispatchAuth, err error) {
+	defer func() {
+		if err != nil {
+			err = &llm.AuthError{ConnectionID: &a.id, Err: err}
+		}
+	}()
 	// Definition edits change credential references for future dispatches;
 	// a runtime client retains only the connection identity.
 	app, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: a.owner.root})

@@ -159,6 +159,7 @@
 ## Transcript History And Live Output
 
 - Transcript history uses server-authoritative infinite scroll. The desktop never loads or retains the complete transcript.
+- While an assistant response is streaming, scrolling away and back must preserve its rendered bubble. Returning to the response must not restart animations for already received text or shrink and regrow the bubble solely because it returned into view. After the response commits, ordinary transcript virtualization applies.
 - Bounded transcript pages, hydration, and live committed delivery carry the same committed time from its Session event on eligible user and assistant message rows. They do not derive, look up, sort by, or reconcile through time.
 - A Session event without committed time remains readable. Kent does not synthesize its missing time.
 - Every eligible message event written by Kent includes committed time. Earlier events remain unchanged, so committed time remains optional in persisted and wire contracts.
@@ -340,7 +341,7 @@
 - On macOS, Command-period stops the current Session's stoppable active work immediately.
 - On Windows and Linux, an Escape handled by the current temporary surface performs only that surface's local action. The first otherwise-unhandled Escape arms Stop for two seconds. A second otherwise-unhandled Escape within that window stops the current Session's stoppable active work.
 - The Windows/Linux Stop arm has no visual or notification feedback. Timeout, any non-Escape keyboard or pointer action, route or focus change, disconnection, or work completion clears it.
-- Queue has no visible button. While work is running and an empty composer can queue work, its placeholder must show the platform's Queue shortcut followed by `to queue`.
+- Queue has no visible button. While work is running and an empty composer can queue work, its placeholder must show the localized platform Queue shortcut hint. The English hint must be `⌘ + ⏎ to queue` on macOS and `Ctrl + ⏎ to queue` on other platforms.
 - Outside that queue-hint state, the ordinary message composer must have no placeholder text.
 - While work runs, an icon-only Stop action is visible beside Send/Steer. Stop must remove only human input associated with the stopped execution, following the Runtime Steering specification. Non-message mutations and input accepted after Stop admission must remain accepted.
 - The composer grows to one-third of available Chat height, then scrolls internally.

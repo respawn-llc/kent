@@ -538,6 +538,9 @@ func (t *HTTPTransport) ResolveModelContextWindow(ctx context.Context, model str
 }
 
 func (t *HTTPTransport) ProviderCapabilities(ctx context.Context) (ProviderCapabilities, error) {
+	if t.ProviderCapabilitiesOverride != nil {
+		return *t.ProviderCapabilitiesOverride, nil
+	}
 	_, mode, err := t.resolveAuth(ctx)
 	if err != nil {
 		return ProviderCapabilities{}, err
@@ -551,6 +554,10 @@ func (t *HTTPTransport) resolveAuth(ctx context.Context) (string, OpenAIAuthMode
 	}
 	result, err := t.Auth.ResolveDispatchAuth(ctx)
 	if err != nil {
+		var authErr *AuthError
+		if errors.As(err, &authErr) {
+			return "", OpenAIAuthMode{}, err
+		}
 		return "", OpenAIAuthMode{}, &AuthError{Err: err}
 	}
 	if result == nil {
