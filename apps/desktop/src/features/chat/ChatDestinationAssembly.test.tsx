@@ -33,6 +33,43 @@ import {
 beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
 afterEach(() => vi.unstubAllGlobals());
 
+it("clears submitted text immediately while compaction and steering delivery remain pending", async () => {
+  const accepted = deferred<ChatInputMutationResult>();
+  const view = sessionWithPrompts((services) => {
+    vi.spyOn(services.api.chat, "steer").mockReturnValue(accepted.promise);
+  });
+  await waitFor(() => { expect(view.handlers).toHaveLength(1); });
+  await act(async () => {
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: {
+        ...hydration(),
+        ActiveCompaction: { StepID: "compact", State: "started", Mode: "manual", Count: 1, RequestID: null },
+      },
+    });
+  });
+  const user = userEvent.setup();
+  const editor = await screen.findByRole("textbox");
+  await user.type(editor, "steer during compaction");
+  await user.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
+  await waitFor(() => { expect(view.services.api.chat.steer).toHaveBeenCalledOnce(); });
+  expect(editor).toHaveValue("");
+  await user.type(editor, "next draft");
+  expect(editor).toHaveValue("next draft");
+  await act(async () => {
+    accepted.resolve({
+      sessionID: sessionTarget.sessionID,
+      outcome: {
+        kind: "accepted",
+        queueItemID: parsePendingWorkItemID(crypto.randomUUID()),
+        diagnostic: null,
+      },
+    });
+  });
+  expect(editor).toHaveValue("next draft");
+});
+
 it("keeps streamed output and drafts usable when reviewer suggestions are followed by a question", async () => {
   const geometry = installVirtualizedScrollGeometry(600);
   const view = sessionWithPrompts();

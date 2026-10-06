@@ -143,10 +143,16 @@ func (s *Service) submitUserTurn(
 	if err != nil {
 		return nil, err
 	}
-	runTurn := func(runCtx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
-		shouldCompact, err := engine.ShouldCompactBeforeUserMessage(runCtx, projection.ExecutionText)
-		if err != nil {
-			return err
+	runTurn := func(runCtx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance, onPreSubmitActive func()) error {
+		shouldCompact := false
+		// Existing executions receive steering directly. Only a new execution
+		// runs the pre-submit check, releasing admission when compaction starts.
+		if onPreSubmitActive != nil {
+			var err error
+			shouldCompact, err = engine.ShouldCompactBeforeUserMessage(runCtx, projection.ExecutionText)
+			if err != nil {
+				return err
+			}
 		}
 		compacted := false
 		var acceptedCompactionErr error
@@ -155,6 +161,7 @@ func (s *Service) submitUserTurn(
 				attempt.Context(),
 				engine,
 				projection.ExecutionText,
+				onPreSubmitActive,
 			)
 			if compactionAccepted {
 				compacted = true
@@ -196,7 +203,7 @@ func (s *Service) submitUserTurn(
 			err = preparingErr
 		case preparing:
 			err = s.withRuntime(attempt.Context(), request.SessionID, func(runCtx context.Context, engine *runtime.Engine) error {
-				return runTurn(runCtx, engine, attempt.Accept)
+				return runTurn(runCtx, engine, attempt.Accept, nil)
 			})
 		case s.reactivator != nil:
 			var workflowState *runtime.WorkflowSessionState
@@ -224,7 +231,7 @@ func (s *Service) submitUserTurn(
 				)
 				if err == nil {
 					err = s.withRuntime(attempt.Context(), request.SessionID, func(runCtx context.Context, engine *runtime.Engine) error {
-						return runTurn(runCtx, engine, attempt.Accept)
+						return runTurn(runCtx, engine, attempt.Accept, nil)
 					})
 				}
 			}
@@ -251,9 +258,10 @@ func (s *Service) runPreSubmitCompaction(
 	ctx context.Context,
 	engine *runtime.Engine,
 	text string,
+	onActive func(),
 ) (bool, error) {
 	attempt := newRuntimeCommandAttempt(ctx)
 	defer attempt.Finish()
-	receipt, err := engine.CompactContextForPreSubmitWithAcceptance(attempt.Context(), text, attempt.Accept)
+	receipt, err := engine.CompactContextForPreSubmitWithAcceptance(attempt.Context(), text, onActive, attempt.Accept)
 	return receipt.Committed, err
 }

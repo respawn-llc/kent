@@ -922,7 +922,7 @@ func (a *Authority) RunCurrentTurn(
 	ctx context.Context,
 	descriptor session.SessionDescriptor,
 	accept runtime.CommandAcceptance,
-	run func(context.Context, *runtime.Engine, runtime.CommandAcceptance) error,
+	run func(context.Context, *runtime.Engine, runtime.CommandAcceptance, func()) error,
 ) error {
 	if a == nil {
 		return errors.New("session runtime authority is required")
@@ -996,7 +996,7 @@ func (a *Authority) RunCurrentTurn(
 			return a.RunCurrentTurn(ctx, descriptor, accept, run)
 		}
 		runErr := resource.withEngineUnderAdmission(ctx, func(runCtx context.Context, engine *runtime.Engine) error {
-			return run(runCtx, engine, admit)
+			return run(runCtx, engine, admit, nil)
 		})
 		releaseAdmission()
 		return errors.Join(runErr, a.closeRetiringResource(context.Background(), resource))
@@ -1011,7 +1011,10 @@ func (a *Authority) RunCurrentTurn(
 			runErr := bridge.WithEngine(executionCtx, func(_ context.Context, engine *runtime.Engine) error {
 				callbackRan = true
 				runCtx, stop := MergeContexts(executionCtx, ctx)
-				err := run(runCtx, engine, admit)
+				// An initial turn may compact before accepting its input. Once that
+				// exclusive step starts, admission must remain available for draft
+				// writes and other human steering; the runner still owns its work.
+				err := run(runCtx, engine, admit, releaseAdmission)
 				stop()
 				releaseAdmission()
 				if err != nil {

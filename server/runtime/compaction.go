@@ -164,9 +164,9 @@ func (e *Engine) CompactContextForPreSubmitWithActiveHook(ctx context.Context, t
 	return e.compactionFlow.CompactContextForPreSubmitWithAcceptance(ctx, text, onActive, nil)
 }
 
-func (e *Engine) CompactContextForPreSubmitWithAcceptance(ctx context.Context, text string, accept CommandAcceptance) (session.CommitReceipt, error) {
+func (e *Engine) CompactContextForPreSubmitWithAcceptance(ctx context.Context, text string, onActive func(), accept CommandAcceptance) (session.CommitReceipt, error) {
 	e.ensureOrchestrationCollaborators()
-	return e.compactionFlow.CompactContextForPreSubmitWithAcceptance(ctx, text, nil, accept)
+	return e.compactionFlow.CompactContextForPreSubmitWithAcceptance(ctx, text, onActive, accept)
 }
 
 func (e *Engine) TriggerHandoff(ctx context.Context, stepID string, activeCall llm.ToolCall, summarizerPrompt string, futureAgentMessage string) (string, bool, error) {
