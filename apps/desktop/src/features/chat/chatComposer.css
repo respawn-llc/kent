@@ -57,14 +57,14 @@
 }
 
 .chat-composer-settings {
-  min-width: min(12rem, 100%);
+  min-width: 0;
   flex: 0 1 auto;
   max-width: 100%;
 }
 
 .chat-composer-worktree {
   flex: 0 1 auto;
-  min-width: min(6rem, 100%);
+  min-width: 0;
   max-width: 100%;
 }
 
