@@ -157,6 +157,11 @@ func TranscriptEntriesFromEvent(evt Event) []ChatEntry {
 
 func resolvedToolResultForMessage(msg llm.Message, completions map[string]tools.Result) tools.Result {
 	callID, _ := textutil.OptionalTrimmed(msg.ToolCallID)
+	if completion, ok := completions[callID]; ok {
+		// The model-visible message may decode a JSON scalar into plain text.
+		// Its locator belongs to the completion, so project that durable result.
+		return cloneToolResult(completion)
+	}
 	var output []byte
 	if msg.Content != nil {
 		output = []byte(*msg.Content)
@@ -166,19 +171,6 @@ func resolvedToolResultForMessage(msg llm.Message, completions map[string]tools.
 		CallID: callID,
 		Name:   toolspec.ID(name),
 		Output: output,
-	}
-	if completion, ok := completions[callID]; ok {
-		if result.Name == "" {
-			result.Name = completion.Name
-		}
-		if msg.Content == nil && len(completion.Output) > 0 {
-			result.Output = completion.Output
-		}
-		result.IsError = completion.IsError
-		result.Summary = completion.Summary
-		result.CondensedText = completion.CondensedText
-		result.Presentation = completion.Presentation
-		result.QuestionAnswer = cloneAskQuestionAnswer(completion.QuestionAnswer)
 	}
 	if result.Name == "" {
 		result.Name = toolspec.ID("tool")
