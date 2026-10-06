@@ -30,6 +30,7 @@
 - Post-turn Queue is a separate server-owned first-in, first-out message collection exposed through one public Session Queue operation.
 - Queue accepts the same typed ordinary-text or prompt/Agent-command input as Submit User Turn. The server resolves a prompt or Agent command at admission from the Session's authoritative effective workspace, queues the resolved model input, and preserves the canonical command text for history and Pending Work presentation.
 - Post-turn Queue accepts each input as a distinct Queue Item and returns its identity without waiting for its later eligible turn. If no Agent Turn is active and the Session can start ordinary work, the accepted Queue Item starts immediately; otherwise it retains ordinary after-turn eligibility.
+- Each new Agent Turn must consume at most one post-turn Queue Item, selecting the oldest eligible item. Remaining Queue Items must wait until that Agent Turn ends before starting subsequent turns.
 - Session Name persists immediately while an Agent Step is running.
 - Thinking, Fast Mode, Supervisor, Questions, and Auto-compaction changes may complete failure-prone preparation, durably commit, and return while an Agent Step is running.
 - A committed live-Runtime setting change is accepted in Session mutation order and applies at the next between-Agent-Step boundary.
@@ -154,6 +155,7 @@
 - At each Step Boundary, Kent applies accepted boundary-required Session mutations in order until the next operation starts or no boundary-required mutation remains.
 - Mutations accepted while this processing is underway join the same acceptance-ordered drain.
 - Human input that does not use native steering normally applies at the first Step Boundary after acceptance.
+- At an eligible Step Boundary, Kent must apply all accepted eligible Steer inputs together. This batch must not include post-turn Queue Items waiting for a later Agent Turn.
 - Kent never begins a third provider request with accepted human text still unapplied.
 - Time spent inside an Agent Step or concrete long-running domain work does not count as another provider request for that limit.
 - Later short mutations may apply while a foreground shell process or Worktree transition is still running.

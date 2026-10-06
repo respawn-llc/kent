@@ -285,7 +285,13 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 			ctx,
 			stepID,
 			func() (llm.Request, error) {
-				return s.buildActiveTurnRequestAtBoundary(ctx, stepID, options, &mismatchWarningCommitted)
+				request, err := s.buildActiveTurnRequestAtBoundary(ctx, stepID, options, &mismatchWarningCommitted)
+				if err == nil {
+					// The first request commits this turn's Queue item. Rebuilding
+					// that request may accept more Steers, never another Queue item.
+					options.UserInputSelection = steerUserInjections()
+				}
+				return request, err
 			},
 			func(delta llm.AssistantDelta) {
 				_ = e.steer(stepID, steerAssistantDeltaIntent(delta))
@@ -302,7 +308,6 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 		if err != nil {
 			return stepLoopResult{}, err
 		}
-		options.UserInputSelection = steerUserInjections()
 		if reasoningSteerErr != nil {
 			return stepLoopResult{}, fmt.Errorf("apply streamed reasoning update: %w", reasoningSteerErr)
 		}
