@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { PendingPrompt } from "@/api";
 import {
@@ -9,7 +9,6 @@ import {
   PromptOptionRow,
   RadioGroup,
   ScrollRegion,
-  Spinner,
   StaticMarkdown,
 } from "@/ui";
 import { pickerBatch, sameSelection, type PickerAction, type PickerState } from "./promptPickerState";
@@ -58,44 +57,31 @@ export function PromptPickerView({
           <div className="prompt-picker-content" key={prompt.toolCallID}>
             <PromptQuestion prompt={prompt} />
           </div>
-          <div className="flex items-center gap-[var(--space-1)]">
-            <IconTooltipButton
-              label={t("chat.picker.previous")}
-              onClick={() => {
-                act({ kind: "navigate", direction: -1 });
-              }}
-              size="icon-sm"
-            >
-              <ChevronLeft size={16} />
-            </IconTooltipButton>
-            <span className="min-w-0 text-sm">
-              {t("chat.picker.position", { current: index + 1, count: batch.length })}
-            </span>
-            <IconTooltipButton
-              label={t("chat.picker.next")}
-              onClick={() => {
-                act({ kind: "navigate", direction: 1 });
-              }}
-              size="icon-sm"
-            >
-              <ChevronRight size={16} />
-            </IconTooltipButton>
-            <div className="ml-auto flex items-center gap-[var(--space-2)]">
-              {isPending ? <Spinner size="sm" /> : null}
+          {batch.length > 1 && (
+            <div className="flex items-center gap-[var(--space-1)]">
               <IconTooltipButton
-                disabled={disabled}
-                label={t("chat.picker.decline")}
-                tooltip={t("chat.picker.declineShortcut")}
+                label={t("chat.picker.previous")}
                 onClick={() => {
-                  act({ kind: "decline" });
+                  act({ kind: "navigate", direction: -1 });
                 }}
                 size="icon-sm"
-                variant="danger"
               >
-                <X size={14} />
+                <ChevronLeft size={16} />
+              </IconTooltipButton>
+              <span className="min-w-0 text-sm">
+                {t("chat.picker.position", { current: index + 1, count: batch.length })}
+              </span>
+              <IconTooltipButton
+                label={t("chat.picker.next")}
+                onClick={() => {
+                  act({ kind: "navigate", direction: 1 });
+                }}
+                size="icon-sm"
+              >
+                <ChevronRight size={16} />
               </IconTooltipButton>
             </div>
-          </div>
+          )}
           <div ref={answerArea} tabIndex={0} className="min-w-0 outline-none">
             <RadioGroup
               className="gap-[var(--space-1)]"

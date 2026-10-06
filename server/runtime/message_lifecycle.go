@@ -434,8 +434,8 @@ type preparedUserInjections struct {
 func (m *defaultMessageLifecycle) PreparePendingUserInjections(selection userInjectionSelection) (*preparedUserInjections, error) {
 	var claim *queuedUserMessageClaim
 	switch selected := selection.(type) {
-	case allPendingUserInjectionSelection:
-		claim = m.queue.ClaimAll()
+	case queuedTurnUserInjectionSelection:
+		claim = m.queue.ClaimQueuedTurn()
 	case steerUserInjectionSelection:
 		claim = m.queue.ClaimSteersAndIDs(selected.queueItemIDs)
 	default:

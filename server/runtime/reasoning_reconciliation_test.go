@@ -285,7 +285,7 @@ func TestTranscriptReasoningStateRetainsMetadataWithoutChangingPublicIdentity(t 
 	state := newTranscriptRuntimeState("")
 	outputIndex, partIndex := int64(0), int64(0)
 	coordinate := &llm.ReasoningSourceCoordinate{OutputIndex: &outputIndex, PartIndex: &partIndex}
-	if _, err := state.SetReasoningState("step", llm.ReasoningSummaryDelta{
+	if _, _, err := state.SetReasoningState("step", llm.ReasoningSummaryDelta{
 		SourceCoordinate: coordinate,
 		Text:             "first",
 	}); err != nil {
@@ -313,12 +313,65 @@ func TestTranscriptReasoningStateRetainsMetadataWithoutChangingPublicIdentity(t 
 	}
 	secondOutput := int64(1)
 	secondCoordinate := &llm.ReasoningSourceCoordinate{OutputIndex: &secondOutput, PartIndex: &partIndex}
-	if _, err := state.SetReasoningState("step", llm.ReasoningSummaryDelta{
+	if _, _, err := state.SetReasoningState("step", llm.ReasoningSummaryDelta{
 		SourceCoordinate: secondCoordinate,
 		ItemIdentity:     first,
 		Text:             "second trace",
 	}); err == nil {
 		t.Fatal("provider identity alias across coordinates was accepted")
+	}
+}
+
+func TestThinkingStatusReplacesProvisionalHeaderWithoutLosingRealReasoning(t *testing.T) {
+	var events []Event
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{
+		Model: "gpt-6-sol",
+		OnEvent: func(event Event) {
+			if event.Kind == EventReasoningDelta || event.Kind == EventReasoningDeltaReset {
+				events = append(events, event)
+			}
+		},
+	})
+	restore := setTestActiveStep(engine, "step")
+	defer restore()
+	output, headerPart, bodyPart := int64(0), int64(0), int64(1)
+	header := &llm.ReasoningSourceCoordinate{OutputIndex: &output, PartIndex: &headerPart}
+	body := &llm.ReasoningSourceCoordinate{OutputIndex: &output, PartIndex: &bodyPart}
+	step := runtimeTestStepID("step")
+	for _, delta := range []llm.ReasoningSummaryDelta{
+		{SourceCoordinate: header, Text: "**Checking"},
+		{SourceCoordinate: body, Text: "actual reasoning"},
+		{SourceCoordinate: header, CurrentStatus: &llm.ReasoningStatus{Text: "Checking"}},
+	} {
+		if err := engine.steer(step, steerReasoningDeltaIntent(delta)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	status, traces := engine.transcriptRuntimeState().ReasoningSnapshot()
+	if status == nil || len(traces) != 1 || traces[0].Text != "actual reasoning" {
+		t.Fatalf("status-only header survived as a trace: status=%+v traces=%+v", status, traces)
+	}
+	if len(events) != 5 || events[2].Kind != EventReasoningDeltaReset ||
+		events[3].ReasoningTraceIdentity == nil || events[3].ReasoningDelta.Text != "actual reasoning" ||
+		events[4].ReasoningDelta.CurrentStatus == nil || events[4].ReasoningTraceIdentity != nil {
+		t.Fatalf("clients did not receive status-only replacement and retained trace: %+v", events)
+	}
+	if err := (&defaultStepExecutor{engine: engine}).reconcileReasoning(step, []llm.ReasoningEntry{{
+		Role: textPointer(string(transcript.EntryRoleReasoning)), Text: "actual reasoning", SourceCoordinate: body,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	var reasoningRows int
+	for _, row := range hydrationSnapshot(t, engine).CommittedRows {
+		if row.Kind == TranscriptCommittedRowFactReasoningTrace {
+			reasoningRows++
+			if row.ReasoningTrace.Text != "actual reasoning" {
+				t.Fatal("Thinking Status became a committed transcript row")
+			}
+		}
+	}
+	if reasoningRows != 1 {
+		t.Fatalf("real reasoning rows = %d", reasoningRows)
 	}
 }
 

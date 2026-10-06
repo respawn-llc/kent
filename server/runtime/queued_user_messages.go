@@ -131,10 +131,6 @@ func (s *queuedUserMessageStore) DiscardItem(queueItemID string) (queuedUserMess
 	return item, removed
 }
 
-func (s *queuedUserMessageStore) ClaimAll() *queuedUserMessageClaim {
-	return s.claim(func(queuedUserMessage) bool { return true })
-}
-
 func (s *queuedUserMessageStore) ClaimSteers() *queuedUserMessageClaim {
 	return s.claim(func(pending queuedUserMessage) bool {
 		return pending.steerAdmission != nil
@@ -148,6 +144,22 @@ func (s *queuedUserMessageStore) ClaimSteersAndIDs(ids map[string]struct{}) *que
 		}
 		_, selected := ids[strings.TrimSpace(pending.message.ID)]
 		return selected
+	})
+}
+
+func (s *queuedUserMessageStore) ClaimQueuedTurn() *queuedUserMessageClaim {
+	selectedQueue := false
+	return s.claim(func(pending queuedUserMessage) bool {
+		if pending.steerAdmission != nil {
+			return true
+		}
+		if !pending.autoStart || selectedQueue {
+			return false
+		}
+		// Select the FIFO head under the same lock that claims delivery, so
+		// discarding it before the boundary allows the next item to take its turn.
+		selectedQueue = true
+		return true
 	})
 }
 

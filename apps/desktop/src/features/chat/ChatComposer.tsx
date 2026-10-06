@@ -1,4 +1,3 @@
-import { ComposerIcon } from "./ComposerIcon";
 import { AnimatePresence } from "motion/react";
 import { useLayoutEffect, useRef, type CSSProperties, type RefObject, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,7 +7,6 @@ import {
   AnimatedReveal,
   AnimatedSize,
   ErrorState,
-  IconTooltipButton,
   Island,
   PeekingSurface,
   Spinner,
@@ -18,6 +16,7 @@ import {
 import { ComposerPendingSheet } from "./ComposerPendingSheet";
 import { ChatPromptPicker } from "./ChatPromptPicker";
 import { ComposerSendButton } from "./ComposerSendButton";
+import { ComposerStopButton } from "./ComposerStopButton";
 import { SessionChatContext } from "./SessionChatContext";
 import { useComposerSurface } from "./ChatComposerSurface";
 import type { useChatComposer } from "./useChatComposer";
@@ -130,7 +129,6 @@ export function ChatComposer({
               composer={composer}
               settings={settings}
               settingsChip={settingsChip}
-              stoppable={stoppable}
               controls={controls}
             />
           </div>
@@ -192,16 +190,13 @@ function ComposerControls({
   composer,
   settings,
   settingsChip,
-  stoppable,
   controls,
 }: Readonly<{
   composer: Composer;
   settings: ChatSettingsFeature;
   settingsChip?: ReactNode;
-  stoppable: boolean;
   controls?: ReactNode;
 }>) {
-  const { t } = useTranslation();
   return (
     <div className="chat-composer-controls">
       <div className="chat-composer-settings">
@@ -212,20 +207,7 @@ function ComposerControls({
         {composer.target?.kind === "session" && (
           <SessionChatContext compact={composer.compact} settings={settings} />
         )}
-        {stoppable && (
-          <IconTooltipButton
-            label={t("chatComposer.stop")}
-            onClick={() => {
-              composer.pending.stop();
-            }}
-            size="icon-sm"
-          >
-            <ComposerIcon
-              kind={composer.pending.stopPending ? "loading" : "stop"}
-              className="text-[var(--color-error)]"
-            />
-          </IconTooltipButton>
-        )}
+        <ComposerStopButton />
         <ComposerSendButton />
       </div>
     </div>

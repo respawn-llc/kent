@@ -219,7 +219,7 @@ func TestHumanRebindPreservesExecutionAndQueuedInputAfterCallerDisconnects(t *te
 	const queuedInput = "verify the destination after moving"
 	err = fixture.authority.RunCurrentTurn(ctx, descriptor,
 		func(commit func() (bool, error)) (bool, error) { return commit() },
-		func(ctx context.Context, current *runtime.Engine, accept runtime.CommandAcceptance) error {
+		func(ctx context.Context, current *runtime.Engine, accept runtime.CommandAcceptance, _ func()) error {
 			_, accepted, err := current.QueueUserMessageForActiveRunWithAcceptance(ctx, queuedInput, accept)
 			if err == nil && !accepted {
 				return errors.New("queued input was rejected")

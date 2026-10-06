@@ -33,6 +33,134 @@ import {
 beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
 afterEach(() => vi.unstubAllGlobals());
 
+it.each([question(), approval()])(
+  "hides navigation and position for a single $kind prompt",
+  async (prompt) => {
+    const view = sessionWithPrompts();
+    await waitFor(() => {
+      expect(view.handlers).toHaveLength(1);
+    });
+    act(() =>
+      view.handlers[0]?.onEvent({
+        sequence: 1,
+        kind: "hydration",
+        payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
+      }),
+    );
+    expect(await screen.findByRole("radiogroup")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: appI18n.t("chat.picker.previous") })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: appI18n.t("chat.picker.next") })).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(appI18n.t("chat.picker.position", { current: 1, count: 1 })),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: appI18n.t("chatComposer.stop") })).not.toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") }));
+    await waitFor(() => {
+      expect(view.answer).toHaveBeenCalledOnce();
+    });
+    expect(view.answer.mock.calls[0]?.[0].entries).toEqual([
+      { toolCallID: prompt.toolCallID, kind: "declined" },
+    ]);
+    const decline = screen.getByRole("button", { name: appI18n.t("chat.picker.decline") });
+    expect(decline).toBeDisabled();
+    expect(within(decline).getByTestId("spinner")).toBeInTheDocument();
+    view.unmount();
+  },
+);
+
+it("declines the current prompt from composer actions without stopping the run and submits the completed batch", async () => {
+  const view = sessionWithPrompts((services) => {
+    vi.spyOn(services.api.chat, "stop").mockResolvedValue("stopped");
+  });
+  const prompts = [question(), approval()];
+  await waitFor(() => {
+    expect(view.handlers).toHaveLength(1);
+  });
+  act(() =>
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: { ...hydration(), PendingPrompts: prompts.map((prompt) => ({ state: "pending", prompt })) },
+    }),
+  );
+  const user = userEvent.setup();
+  const decline = await screen.findByRole("button", { name: appI18n.t("chat.picker.decline") });
+  expect(screen.getAllByRole("button", { name: appI18n.t("chat.picker.decline") })).toHaveLength(1);
+  expect(screen.queryByRole("button", { name: appI18n.t("chatComposer.stop") })).not.toBeInTheDocument();
+  expect(screen.getByText(appI18n.t("chat.picker.position", { current: 1, count: 2 }))).toBeInTheDocument();
+  await user.click(decline);
+  expect(view.answer).not.toHaveBeenCalled();
+  expect(screen.getByText(appI18n.t("chat.picker.position", { current: 2, count: 2 }))).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.previous") }));
+  expect(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") })).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.next") }));
+  await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") }));
+  await waitFor(() => {
+    expect(view.answer).toHaveBeenCalledOnce();
+  });
+  expect(view.answer.mock.calls[0]?.[0].entries).toEqual(
+    prompts.map((prompt) => ({ toolCallID: prompt.toolCallID, kind: "declined" })),
+  );
+  const pendingDecline = screen.getByRole("button", { name: appI18n.t("chat.picker.decline") });
+  expect(pendingDecline).toBeDisabled();
+  expect(within(pendingDecline).getByTestId("spinner")).toBeInTheDocument();
+  expect(view.services.api.chat.stop).not.toHaveBeenCalled();
+  await act(async () => {
+    view.response.resolve({
+      results: prompts.map((prompt) => ({ toolCallID: prompt.toolCallID, outcome: "resolved" })),
+    });
+  });
+  const stop = await screen.findByRole("button", { name: appI18n.t("chatComposer.stop") });
+  expect(screen.queryByRole("button", { name: appI18n.t("chat.picker.decline") })).not.toBeInTheDocument();
+  await user.click(stop);
+  await waitFor(() => {
+    expect(view.services.api.chat.stop).toHaveBeenCalledOnce();
+  });
+  view.unmount();
+});
+
+it("clears submitted text immediately while compaction and steering delivery remain pending", async () => {
+  const accepted = deferred<ChatInputMutationResult>();
+  const view = sessionWithPrompts((services) => {
+    vi.spyOn(services.api.chat, "steer").mockReturnValue(accepted.promise);
+  });
+  await waitFor(() => {
+    expect(view.handlers).toHaveLength(1);
+  });
+  await act(async () => {
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: {
+        ...hydration(),
+        ActiveCompaction: { StepID: "compact", State: "started", Mode: "manual", Count: 1, RequestID: null },
+      },
+    });
+  });
+  const user = userEvent.setup();
+  const editor = await screen.findByRole("textbox");
+  await user.type(editor, "steer during compaction");
+  await user.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
+  await waitFor(() => {
+    expect(view.services.api.chat.steer).toHaveBeenCalledOnce();
+  });
+  expect(editor).toHaveValue("");
+  await user.type(editor, "next draft");
+  expect(editor).toHaveValue("next draft");
+  await act(async () => {
+    accepted.resolve({
+      sessionID: sessionTarget.sessionID,
+      outcome: {
+        kind: "accepted",
+        queueItemID: parsePendingWorkItemID(crypto.randomUUID()),
+        diagnostic: null,
+      },
+    });
+  });
+  expect(editor).toHaveValue("next draft");
+});
+
 it("keeps streamed output and drafts usable when reviewer suggestions are followed by a question", async () => {
   const geometry = installVirtualizedScrollGeometry(600);
   const view = sessionWithPrompts();

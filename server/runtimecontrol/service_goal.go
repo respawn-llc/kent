@@ -223,7 +223,7 @@ func (s *Service) applyLiveGoalMutation(
 	}
 	err = s.authority.RunCurrentTurn(ctx, descriptor, func(commit func() (bool, error)) (bool, error) {
 		return commit()
-	}, func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
+	}, func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance, _ func()) error {
 		_, err := accept(func() (bool, error) {
 			err := apply(ctx, engine)
 			return goalResultAccepted(result), err

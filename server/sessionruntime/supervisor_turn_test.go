@@ -266,7 +266,7 @@ func (h *supervisorTurnHarness) queueOrdinarySteer(t *testing.T) <-chan error {
 	steered := make(chan error, 1)
 	steered <- h.authority.RunCurrentTurn(h.ctx, descriptor,
 		func(commit func() (bool, error)) (bool, error) { return commit() },
-		func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
+		func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance, _ func()) error {
 			_, err := engine.QueueAgentSteer(ctx, steer, accept)
 			return err
 		})

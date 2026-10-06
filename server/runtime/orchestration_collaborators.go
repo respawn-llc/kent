@@ -91,9 +91,9 @@ type steerUserInjectionSelection struct {
 
 func (steerUserInjectionSelection) userInjectionSelection() {}
 
-type allPendingUserInjectionSelection struct{}
+type queuedTurnUserInjectionSelection struct{}
 
-func (allPendingUserInjectionSelection) userInjectionSelection() {}
+func (queuedTurnUserInjectionSelection) userInjectionSelection() {}
 
 type userInjectionCommitResult struct {
 	flushed      int

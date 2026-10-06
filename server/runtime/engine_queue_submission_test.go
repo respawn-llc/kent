@@ -14,6 +14,120 @@ import (
 	"core/shared/textutil"
 )
 
+func TestPostTurnQueueDeliversOneItemPerTurnWhileSteersBatch(t *testing.T) {
+	testPostTurnQueueDeliversOneItemPerTurn(t, false)
+}
+
+func TestPostTurnQueueDoesNotConsumeAnotherItemOnProviderRetry(t *testing.T) {
+	testPostTurnQueueDeliversOneItemPerTurn(t, true)
+}
+
+func testPostTurnQueueDeliversOneItemPerTurn(t *testing.T, retryQueuedRequest bool) {
+	t.Helper()
+	started := make(chan int, 4)
+	release := make(chan struct{})
+	defer close(release)
+	var call int
+	client := &hookClient{response: finalTextResponse("done")}
+	if retryQueuedRequest {
+		client.errors = []error{nil, nil, &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 503, Code: llm.UnifiedErrorCodeUnknown}}
+	}
+	client.beforeReturn = func() error {
+		call++
+		started <- call
+		<-release
+		return nil
+	}
+	submitted := make(chan string, 10)
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
+		Model: "gpt-6-sol",
+		OnEvent: func(event Event) {
+			if event.QueuedUserMessageStatus != nil && event.QueuedUserMessageStatus.Status == QueuedUserMessageSubmitted {
+				submitted <- event.QueuedUserMessageStatus.QueueItemID
+			}
+		},
+	})
+	done := make(chan error, 1)
+	go func() {
+		_, err := engine.SubmitUserMessage(t.Context(), "start")
+		done <- err
+	}()
+	waitCall := func(want int) {
+		t.Helper()
+		select {
+		case got := <-started:
+			if got != want {
+				t.Fatalf("provider request = %d, want %d", got, want)
+			}
+		case <-time.After(runtimeTestSynchronizationTimeout):
+			t.Fatalf("provider request %d never started", want)
+		}
+	}
+	waitCall(1)
+	first, err := engine.QueueUserInput(t.Context(), plainQueuedUserInput("first queued"))
+	pendingWorkTestNoError(t, err)
+	second, err := engine.QueueUserInput(t.Context(), plainQueuedUserInput("second queued"))
+	pendingWorkTestNoError(t, err)
+	steerOne, err := engine.Steer(t.Context(), "first steer", nil)
+	pendingWorkTestNoError(t, err)
+	steerTwo, err := engine.Steer(t.Context(), "second steer", nil)
+	pendingWorkTestNoError(t, err)
+	release <- struct{}{}
+	waitCall(2)
+	want := map[string]bool{steerOne.ID: true, steerTwo.ID: true}
+	for len(submitted) > 0 {
+		id := <-submitted
+		if id == first.ID || id == second.ID {
+			t.Fatal("Queue item was drained at an in-turn steering boundary")
+		}
+		delete(want, id)
+	}
+	if len(want) != 0 {
+		t.Fatalf("eligible steers were not delivered together: %+v", want)
+	}
+	release <- struct{}{}
+	waitCall(3)
+	select {
+	case id := <-submitted:
+		if id != first.ID {
+			t.Fatalf("first queued turn submitted %s, want %s", id, first.ID)
+		}
+	default:
+		t.Fatal("first queued turn did not submit the first Queue item")
+	}
+	select {
+	case id := <-submitted:
+		t.Fatalf("first queued turn drained another item %s", id)
+	default:
+	}
+	pending := pendingWorkTestSnapshot(t, engine)
+	if len(pending.Items) != 1 || pending.Items[0].ID.String() != second.ID {
+		t.Fatalf("second Queue item must remain pending: %+v", pending.Items)
+	}
+	release <- struct{}{}
+	waitCall(4)
+	if retryQueuedRequest {
+		select {
+		case id := <-submitted:
+			t.Fatalf("provider retry consumed another Queue item %s", id)
+		default:
+		}
+		release <- struct{}{}
+		waitCall(5)
+	}
+	select {
+	case id := <-submitted:
+		if id != second.ID {
+			t.Fatalf("next queued turn submitted %s, want %s", id, second.ID)
+		}
+	default:
+		t.Fatal("next queued turn did not submit the remaining Queue item")
+	}
+	release <- struct{}{}
+	pendingWorkTestNoError(t, <-done)
+	waitEngineLifecycleTasks(t, engine)
+}
+
 func TestStopRestoresSteerAndPostTurnQueueWithoutContinuation(t *testing.T) {
 	client := newBlockingThenQueuedClient()
 	var mu sync.Mutex

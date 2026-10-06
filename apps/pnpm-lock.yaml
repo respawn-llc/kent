@@ -7,6 +7,9 @@ settings:
 overrides:
   '@tanstack/history': 1.162.2
 
+patchedDependencies:
+  streamdown@2.7.0: 41fbd9a513def601fe0bac32d90a1ffc910e06f0b0a729497980b65571699b76
+
 importers:
 
   .:
@@ -133,7 +136,7 @@ importers:
         version: 2.0.7(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       streamdown:
         specifier: 2.7.0
-        version: 2.7.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@7.2.0)
+        version: 2.7.0(patch_hash=41fbd9a513def601fe0bac32d90a1ffc910e06f0b0a729497980b65571699b76)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@7.2.0)
       tailwind-merge:
         specifier: ^3.6.0
         version: 3.6.0
@@ -9658,7 +9661,7 @@ snapshots:
       es-errors: 1.3.0
       internal-slot: 1.1.0
 
-  streamdown@2.7.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@7.2.0):
+  streamdown@2.7.0(patch_hash=41fbd9a513def601fe0bac32d90a1ffc910e06f0b0a729497980b65571699b76)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@7.2.0):
     dependencies:
       clsx: 2.1.1
       hast-util-to-jsx-runtime: 2.3.6(supports-color@7.2.0)

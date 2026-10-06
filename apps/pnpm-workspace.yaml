@@ -32,3 +32,6 @@ allowBuilds:
   # The resolver ships platform bindings as optional dependencies. Its postinstall
   # fallback is unnecessary for the supported workspace toolchains.
   unrs-resolver: false
+# Temporary text-animation lifetime fix; remove after upstream #619 ships (GH #938, KENT-711).
+patchedDependencies:
+  streamdown@2.7.0: patches/streamdown@2.7.0.patch

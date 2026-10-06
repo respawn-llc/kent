@@ -330,7 +330,7 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 			}
 			return a.RunCurrentTurn(ctx, descriptor, func(commit func() (bool, error)) (bool, error) {
 				return commit()
-			}, func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
+			}, func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance, _ func()) error {
 				_, err := engine.QueueAgentSteer(ctx, steer, accept)
 				return err
 			})

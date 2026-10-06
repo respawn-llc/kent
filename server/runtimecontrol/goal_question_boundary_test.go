@@ -53,7 +53,7 @@ func TestGoalQuestionRemainsInterruptibleAcrossCurrentTurnCompletion(t *testing.
 	go func() {
 		admitted <- service.authority.RunCurrentTurn(admissionCtx, descriptor,
 			func(commit func() (bool, error)) (bool, error) { return commit() },
-			func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
+			func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance, _ func()) error {
 				close(entered)
 				select {
 				case <-proceed:

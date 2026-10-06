@@ -1161,9 +1161,26 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 		}
 		if item.streaming.reasoningDelta != nil {
 			delta := *item.streaming.reasoningDelta
-			identity, err := e.transcriptRuntimeState().SetReasoningState(stepID, delta)
+			identity, replaced, err := e.transcriptRuntimeState().SetReasoningState(stepID, delta)
 			if err != nil {
 				return err
+			}
+			if replaced {
+				// The wire reset replaces the Step's provisional trace collection;
+				// reproject retained real traces in their existing order.
+				if err := e.emitRaw(Event{Kind: EventReasoningDeltaReset, StepID: exactStepIDPointer(stepID)}); err != nil {
+					return err
+				}
+				_, traces := e.transcriptRuntimeState().ReasoningSnapshot()
+				for _, trace := range traces {
+					retained := llm.ReasoningSummaryDelta{SourceCoordinate: &trace.Source, Text: trace.Text}
+					if err := e.emitRaw(Event{
+						Kind: EventReasoningDelta, StepID: exactStepIDPointer(stepID),
+						ReasoningDelta: &retained, ReasoningTraceIdentity: &trace.Identity,
+					}); err != nil {
+						return err
+					}
+				}
 			}
 			return e.emitRaw(Event{
 				Kind:                   EventReasoningDelta,

@@ -448,6 +448,33 @@ func TestTranscriptReasoningHydrationAndLivePreserveOrderedIdentities(t *testing
 	}
 }
 
+func TestTranscriptThinkingStatusIsNeverProjectedAsReasoningTrace(t *testing.T) {
+	status := &llm.ReasoningStatus{Text: "checking"}
+	events, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
+		Kind: runtime.EventReasoningDelta, StepID: runtimeStepIDPointer(transcriptProjectionStepID),
+		ReasoningDelta: &llm.ReasoningSummaryDelta{CurrentStatus: status},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].GetThinkingStatusUpdate() == nil {
+		t.Fatalf("status-only update generated transcript content: %+v", events)
+	}
+	identity := runtimeids.NewReasoningTraceID()
+	events, err = TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
+		Kind: runtime.EventReasoningDelta, StepID: runtimeStepIDPointer(transcriptProjectionStepID),
+		ReasoningDelta:         &llm.ReasoningSummaryDelta{CurrentStatus: status, Text: "actual reasoning"},
+		ReasoningTraceIdentity: &runtime.TranscriptReasoningTraceIdentity{Kent: &identity},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[0].GetThinkingStatusUpdate() == nil ||
+		events[1].GetReasoningTraceUpdate() == nil || events[1].GetReasoningTraceUpdate().Text != "actual reasoning" {
+		t.Fatalf("status and real reasoning lost their separate channels: %+v", events)
+	}
+}
+
 func TestTranscriptCommittedRowsPreserveRuntimeVisibility(t *testing.T) {
 	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:                runtime.EventLocalEntryAdded,
