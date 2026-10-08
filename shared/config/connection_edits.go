@@ -1,10 +1,7 @@
 package config
 
 import (
-	"bytes"
 	"fmt"
-
-	"github.com/BurntSushi/toml"
 )
 
 type ConnectionAlreadyExistsError struct{ ID ConnectionID }
@@ -23,23 +20,23 @@ func AddProviderConnection(path string, id ConnectionID, definition ProviderConn
 	if err := definition.Validate(); err != nil {
 		return err
 	}
-	return editConnectionFile(path, id, func(raw, definitions settingsFile, existing map[ConnectionID]ProviderConnection) error {
+	return editConnectionDocument(path, id, func(document *settingsDocument, existing map[ConnectionID]ProviderConnection) error {
 		if _, present := existing[id]; present {
 			return &ConnectionAlreadyExistsError{ID: id}
 		}
 		if len(existing) == 0 {
-			if _, selected := raw["connection"]; !selected {
-				raw["connection"] = string(id)
+			if _, selected := document.get([]string{"connection"}); !selected {
+				if err := document.set([]string{"connection"}, string(id)); err != nil {
+					return err
+				}
 			}
 		}
-		definitions[string(id)] = connectionSettingsTable(definition)
-		raw["connections"] = map[string]any(definitions)
-		return nil
+		return document.set([]string{"connections", string(id)}, connectionSettingsTable(definition))
 	})
 }
 
 func SetProviderConnectionEnvironment(path string, id ConnectionID, name string) error {
-	return editConnectionFile(path, id, func(_ settingsFile, definitions settingsFile, existing map[ConnectionID]ProviderConnection) error {
+	return editConnectionDocument(path, id, func(document *settingsDocument, existing map[ConnectionID]ProviderConnection) error {
 		connection, present := existing[id]
 		if !present {
 			return &ConnectionReferenceError{Connection: &id}
@@ -47,34 +44,36 @@ func SetProviderConnectionEnvironment(path string, id ConnectionID, name string)
 		if connection.Protocol != ConnectionResponses || connection.EnvironmentVariable == nil {
 			return &ConnectionNotAPIKeyError{ID: id}
 		}
+		if *connection.EnvironmentVariable == name {
+			return nil
+		}
 		connection.EnvironmentVariable = &name
 		if err := connection.Validate(); err != nil {
 			return err
 		}
-		table, _, err := lookupFileTable(definitions, []string{string(id)})
-		if err != nil {
-			return err
-		}
-		table["environment_variable"] = name
-		return nil
+		return document.set([]string{"connections", string(id), "environment_variable"}, name)
 	})
 }
 
 func SetDefaultProviderConnection(path string, id ConnectionID) error {
-	return editConnectionFile(path, id, func(raw, _ settingsFile, existing map[ConnectionID]ProviderConnection) error {
+	return editConnectionDocument(path, id, func(document *settingsDocument, existing map[ConnectionID]ProviderConnection) error {
 		if _, present := existing[id]; !present {
 			return &ConnectionReferenceError{Connection: &id}
 		}
-		raw["connection"] = string(id)
-		return nil
+		if value, present := document.get([]string{"connection"}); present {
+			if current, ok := value.(string); ok && current == string(id) {
+				return nil
+			}
+		}
+		return document.set([]string{"connection"}, string(id))
 	})
 }
 
-func editConnectionFile(path string, id ConnectionID, edit func(settingsFile, settingsFile, map[ConnectionID]ProviderConnection) error) error {
+func editConnectionDocument(path string, id ConnectionID, edit func(*settingsDocument, map[ConnectionID]ProviderConnection) error) error {
 	if _, err := ParseConnectionID(string(id)); err != nil {
 		return err
 	}
-	raw, err := readSettingsFile(path)
+	document, raw, err := readSettingsDocument(path)
 	if err != nil {
 		return err
 	}
@@ -82,17 +81,13 @@ func editConnectionFile(path string, id ConnectionID, edit func(settingsFile, se
 	if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
-	definitions, _, err := lookupFileTable(raw, []string{"connections"})
-	if err != nil {
-		return err
-	}
-	if definitions == nil {
-		definitions = settingsFile{}
-	}
-	if err := edit(raw, definitions, existing); err != nil {
+	if err := edit(document, existing); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
-	return writeSettingsTable(path, raw)
+	if err := document.save(); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	return nil
 }
 
 func readConnectionDefinitions(raw settingsFile) (map[ConnectionID]ProviderConnection, error) {
@@ -115,15 +110,4 @@ func connectionSettingsTable(connection ProviderConnection) map[string]any {
 		table["provider_capabilities"] = connection.Capabilities
 	}
 	return table
-}
-
-func writeSettingsTable(path string, raw settingsFile) error {
-	var output bytes.Buffer
-	if err := toml.NewEncoder(&output).Encode(raw); err != nil {
-		return fmt.Errorf("encode %s: %w", path, err)
-	}
-	if err := replaceSettingsFile(path, output.String()); err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	return nil
 }
