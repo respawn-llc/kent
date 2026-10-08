@@ -7,7 +7,9 @@ import { ProjectDeleteWindowRoute } from "@/features/project-edit";
 import { TaskDetailWindowRoute } from "@/features/task-detail";
 import { InvalidNativeDialogRoute } from "./InvalidNativeDialogRoute";
 import { taskDetailNativeDialogPath } from "./sidebarPopOut";
-import { useWindowChromeTitle } from "@/app-facade";
+import { useWindowChromeTitle, nativeChatRoutePath } from "@/app-facade";
+import { desktopChatEnabled } from "@/shared/feature-flags";
+import { NativeChatRoute } from "./NativeChatRoute";
 
 export const projectDeleteNativeDialogPath = "/native-dialog/project-delete";
 export { taskDeleteNativeDialogPath };
@@ -33,6 +35,24 @@ const taskDetailSearchSchema = z.object({
 });
 
 export function createNativeDialogRoutes(rootRoute: AnyRootRoute) {
+  const chatSearchSchema = z.object({
+    projectID: z.string().trim().min(1),
+    sessionID: z.string().trim().min(1),
+  });
+  const chatRoute = desktopChatEnabled
+    ? createRoute({
+        getParentRoute: () => rootRoute,
+        path: nativeChatRoutePath,
+        validateSearch: (search: Record<string, unknown>) => chatSearchSchema.parse(search),
+        component: ChatNativeRoute,
+      })
+    : undefined;
+
+  function ChatNativeRoute() {
+    if (chatRoute === undefined) return <InvalidNativeDialogRoute />;
+    const search = chatSearchSchema.parse(chatRoute.useSearch());
+    return <NativeChatRoute key={search.sessionID} {...search} />;
+  }
   const projectCreateRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/native-dialog/project-create",
@@ -95,5 +115,11 @@ export function createNativeDialogRoutes(rootRoute: AnyRootRoute) {
     return <TaskDetailWindowRoute taskID={taskID} />;
   }
 
-  return [projectCreateRoute, projectDeleteRoute, taskDeleteWindowRoute, taskDetailWindowRoute] as const;
+  return [
+    projectCreateRoute,
+    projectDeleteRoute,
+    taskDeleteWindowRoute,
+    taskDetailWindowRoute,
+    ...(chatRoute === undefined ? [] : [chatRoute]),
+  ] as const;
 }

@@ -91,7 +91,7 @@ export function ChatComposer({
       className={cx(fieldInputClassName, "chat-composer-editor")}
       rows={1}
       value={composer.text}
-      readOnly={composer.navigationPending}
+      readOnly={composer.interactionRestricted}
       onChange={(event) => {
         composer.edit(event.target.value);
       }}

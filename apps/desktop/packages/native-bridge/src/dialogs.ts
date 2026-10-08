@@ -13,7 +13,11 @@ export type NativeDialogWindowOptions = Readonly<{
   initialHeight?: number;
   maximizable?: boolean;
   resizable?: boolean;
+  presentation?: "content" | "pinned";
+  titleBar?: "integrated" | "native";
 }>;
+
+export type NativeDialogOpenResult = "created" | "reused";
 
 export type NativeDialogTheme = "light" | "dark";
 
@@ -25,7 +29,9 @@ export type NativeDialogContentSize = Readonly<{
 const nativeDialogThemeSearchParam = "__appTheme";
 const themeAttribute = "data-theme";
 
-export async function openNativeDialogWindow(options: NativeDialogWindowOptions): Promise<void> {
+export async function openNativeDialogWindow(
+  options: NativeDialogWindowOptions,
+): Promise<NativeDialogOpenResult> {
   const url = routeWithParams(
     options.route,
     withDialogTheme(options.params, options.theme ?? readEffectiveParentTheme()),
@@ -33,19 +39,20 @@ export async function openNativeDialogWindow(options: NativeDialogWindowOptions)
   const label = options.label.startsWith("native-dialog-") ? options.label : `native-dialog-${options.label}`;
   const existing = await WebviewWindow.getByLabel(label);
   if (existing !== null) {
-    await bringDialogToFront(existing);
-    return;
+    await bringDialogToFront(existing, options);
+    return "reused";
   }
   const placement = await centeredOnCurrentWindow(options);
+  const integratedTitle = options.titleBar !== "native";
   await new Promise<void>((resolve, reject) => {
     const window = new WebviewWindow(label, {
-      alwaysOnTop: true,
+      alwaysOnTop: options.presentation !== "content",
       center: false,
       closable: true,
       decorations: true,
       focus: false,
       height: placement.height,
-      hiddenTitle: true,
+      hiddenTitle: integratedTitle,
       maximizable: options.maximizable ?? false,
       parent: getCurrentWindow(),
       preventOverflow: true,
@@ -53,7 +60,7 @@ export async function openNativeDialogWindow(options: NativeDialogWindowOptions)
       shadow: true,
       skipTaskbar: true,
       title: options.title,
-      titleBarStyle: "overlay",
+      titleBarStyle: integratedTitle ? "overlay" : "visible",
       trafficLightPosition: new LogicalPosition(20, 18),
       transparent: true,
       url,
@@ -64,7 +71,7 @@ export async function openNativeDialogWindow(options: NativeDialogWindowOptions)
     });
     window
       .once("tauri://created", () => {
-        prepareNativeDialogWindow(label, window).then(resolve, reject);
+        prepareNativeDialogWindow(label, window, options).then(resolve, reject);
       })
       .catch(reject);
     window
@@ -73,6 +80,7 @@ export async function openNativeDialogWindow(options: NativeDialogWindowOptions)
       })
       .catch(reject);
   });
+  return "created";
 }
 
 async function centeredOnCurrentWindow(options: NativeDialogWindowOptions): Promise<
@@ -101,13 +109,17 @@ async function centeredOnCurrentWindow(options: NativeDialogWindowOptions): Prom
   };
 }
 
-async function prepareNativeDialogWindow(label: string, window: WebviewWindow): Promise<void> {
+async function prepareNativeDialogWindow(
+  label: string,
+  window: WebviewWindow,
+  options: NativeDialogWindowOptions,
+): Promise<void> {
   try {
     await applyNativeWindowGlass(label);
   } catch (error) {
     void appendDialogGlassWarning(label, error);
   } finally {
-    await bringDialogToFront(window);
+    await bringDialogToFront(window, options);
   }
 }
 
@@ -134,9 +146,10 @@ function nativeErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function bringDialogToFront(window: WebviewWindow): Promise<void> {
+async function bringDialogToFront(window: WebviewWindow, options: NativeDialogWindowOptions): Promise<void> {
   await window.show();
-  await window.setAlwaysOnTop(true);
+  await window.setAlwaysOnTop(options.presentation !== "content");
+  if (options.presentation === "content") await window.unminimize();
   await window.setFocus();
 }
 

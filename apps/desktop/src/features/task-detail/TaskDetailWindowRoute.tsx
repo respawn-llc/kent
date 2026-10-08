@@ -1,6 +1,19 @@
-import { useAppServices } from "@/app-facade";
+import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import { MutationObserver, useQueryClient } from "@tanstack/react-query";
+import { errorMessage } from "@/api";
+import {
+  useAppServices,
+  openNativeChat,
+  queryAction,
+  useQueryAction,
+  useStatusController,
+  type SessionChatTarget,
+} from "@/app-facade";
+import { desktopChatEnabled } from "@/shared/feature-flags";
 import { TaskDetailSurface } from "./TaskDetailSurface";
 import { useExactTaskDetailDeleteDismissal } from "./taskDetailDismissal";
+import { TaskDetailChatOpeningContext } from "./TaskDetailChatOpening";
 
 /**
  * Full-bleed native-window host for a popped-out task detail. Unlike the padded
@@ -11,6 +24,35 @@ import { useExactTaskDetailDeleteDismissal } from "./taskDetailDismissal";
  */
 export function TaskDetailWindowRoute({ taskID }: Readonly<{ taskID: string }>) {
   const { nativeBridge } = useAppServices();
+  const client = useQueryClient();
+  const { push } = useStatusController();
+  const { t } = useTranslation();
+  const model = useMemo(
+    () =>
+      queryAction(
+        new MutationObserver(client, {
+          mutationFn: async (target: SessionChatTarget) => openNativeChat(nativeBridge, target),
+          retry: false,
+          networkMode: "always",
+          onError: (error) => {
+            push({
+              id: "task-chat-pop-out-error",
+              tone: "danger",
+              title: t("app.popOutError"),
+              body: errorMessage(error),
+            });
+          },
+        }),
+      ),
+    [client, nativeBridge, push, t],
+  );
+  const opening = useQueryAction(model);
+  const openSessionChat =
+    desktopChatEnabled && nativeBridge.capabilities.dialogWindows
+      ? async (target: SessionChatTarget) => {
+          opening.submit(target);
+        }
+      : undefined;
   const onDeleteDismiss = useExactTaskDetailDeleteDismissal(taskID, async () => {
     await nativeBridge.window.closeCurrent();
   });
@@ -21,7 +63,14 @@ export function TaskDetailWindowRoute({ taskID }: Readonly<{ taskID: string }>) 
         data-tauri-drag-region
       />
       <div className="app-region-no-drag min-h-0 overflow-hidden">
-        <TaskDetailSurface enabled onDeleteDismiss={onDeleteDismiss} taskId={taskID} />
+        <TaskDetailChatOpeningContext.Provider value={opening.isPending ? opening.variables : null}>
+          <TaskDetailSurface
+            enabled
+            onDeleteDismiss={onDeleteDismiss}
+            taskId={taskID}
+            openSessionChat={openSessionChat}
+          />
+        </TaskDetailChatOpeningContext.Provider>
       </div>
     </main>
   );

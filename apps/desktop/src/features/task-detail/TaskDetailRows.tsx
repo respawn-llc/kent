@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
+import { TaskDetailChatOpeningContext } from "./TaskDetailChatOpening";
 import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -315,6 +316,7 @@ function TaskOpenButtons({
   openSessionChat?: TaskDetailSessionChatEntry | undefined;
 }>) {
   const { t } = useTranslation();
+  const chatOpening = useContext(TaskDetailChatOpeningContext);
   const { nativeBridge } = useAppServices();
   const [openError, setOpenError] = useState("");
   const executionRoot = taskExecutionRoot(detail);
@@ -344,6 +346,7 @@ function TaskOpenButtons({
             {openSessionChat === undefined ? null : (
               <Button
                 aria-label={chatLabel}
+                disabled={chatOpening !== null}
                 onClick={() => {
                   setOpenError("");
                   void openSessionChat({ projectID: detail.projectID, sessionID: session.sessionID }).catch(
@@ -352,9 +355,10 @@ function TaskOpenButtons({
                     },
                   );
                 }}
-                title={chatLabel}
+                title={chatOpening !== null ? t("states.loading") : chatLabel}
                 variant="secondary"
               >
+                {chatOpening?.sessionID === session.sessionID && <Spinner size="sm" />}
                 {t("task.openChat", { name: ellipsizeActionTarget(target) })}
               </Button>
             )}

@@ -1,9 +1,14 @@
 import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
-import type { QueryClient } from "@tanstack/react-query";
+import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
-import type { AppServices } from "@/app-facade";
-import type { ChatNotAcceptedReason, ChatSettingsTarget, WorkspaceCatalogRow } from "@/api";
+import { openNativeChat, queryAtom, type AppServices, type StatusController } from "@/app-facade";
+import {
+  errorMessage,
+  type ChatNotAcceptedReason,
+  type ChatSettingsTarget,
+  type WorkspaceCatalogRow,
+} from "@/api";
 import { createChatSettingsViewModel } from "./ChatSettingsViewModel";
 import { createChatCommandCatalogViewModel } from "./ChatCommandCatalogViewModel";
 import { createChatComposerViewModel } from "./ChatComposerViewModel";
@@ -19,11 +24,13 @@ export function createChatDestinationViewModel({
   services,
   client,
   t,
+  push,
 }: Readonly<{
   opening: ChatDestinationOpening;
   services: AppServices;
   client: QueryClient;
   t: TFunction;
+  push: StatusController["push"];
 }>) {
   const selection = Atom.make(opening);
   const target = Atom.make<ChatSettingsTarget | null>((get) => {
@@ -46,7 +53,55 @@ export function createChatDestinationViewModel({
     if (value.kind === "ready-session") return { kind: "ready" };
     return "error" in value ? { kind: "failed", error: value.error } : { kind: "loading" };
   });
-  const composer = createChatComposerViewModel({ services, client, target, submission, opening, t });
+  type PopOutInput = Readonly<{
+    target: Extract<ChatSettingsTarget, { kind: "session" }>;
+    flushDraft(): Promise<boolean>;
+    onCreated(projectID: string): Promise<void>;
+  }>;
+  const popOutObserver = new MutationObserver(client, {
+    retry: false,
+    networkMode: "always",
+    mutationFn: async (input: PopOutInput) => {
+      if (!(await input.flushDraft())) return;
+      const result = await openNativeChat(services.nativeBridge, input.target);
+      if (result === "created") await input.onCreated(input.target.projectID);
+    },
+    onError: (error) => {
+      push({
+        id: "chat-pop-out-error",
+        tone: "danger",
+        title: t("app.popOutError"),
+        body: errorMessage(error),
+      });
+    },
+  });
+  const popOutRequest = queryAtom(popOutObserver);
+  const transferPending = Atom.make((get) => get(popOutRequest).isPending);
+  const composer = createChatComposerViewModel({
+    services,
+    client,
+    target,
+    submission,
+    opening,
+    t,
+    transferPending,
+  });
+  const popOut = Atom.fn<Omit<PopOutInput, "target">>()(
+    (input, get) =>
+      Effect.gen(function* () {
+        const selected = get(target);
+        if (
+          selected?.kind !== "session" ||
+          !services.nativeBridge.capabilities.dialogWindows ||
+          popOutObserver.getCurrentResult().isPending
+        )
+          return;
+        yield* Effect.tryPromise(async () => popOutObserver.mutate({ ...input, target: selected })).pipe(
+          Effect.ignore,
+        );
+      }),
+    { concurrent: true },
+  );
   const goal = createNewChatGoalBinding({
     api: services.api.chat,
     client,
@@ -102,5 +157,7 @@ export function createChatDestinationViewModel({
     firstActionPending,
     adopt,
     selectWorkspace,
+    popOut,
+    popOutRequest,
   } as const;
 }

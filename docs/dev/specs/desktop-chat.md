@@ -16,8 +16,13 @@
 - Attention descriptions must use secondary text capped at two lines. The date must use muted text beneath the description.
 - Chat can appear as a full-page destination, a separate window, or an adaptive detail presentation.
 - The separate-window action is available only in Chat chrome. Session rows do not offer it in their context menu.
-- Popping out Chat moves that destination into one Session-specific native window and returns the main window to the Project's Sessions tab.
-- Selecting the same Session in the main window afterward opens Chat there normally alongside the pop-out. Desktop adds no focus redirection, move-back behavior, or second pop-out for that Session.
+- Desktop must allow at most one native Chat window per Session. If none exists, Pop Out must open it and return the main window to the Project's Sessions tab.
+- If that Session's native Chat window already exists, Pop Out must show it, restore it if minimized, and request focus subject to normal operating-system behavior. The main window must retain its Chat destination.
+- Selecting the same Session in the main window must open Chat there normally alongside the pop-out. Closing the native window must not automatically move Chat back.
+- When native windows are unavailable, Chat must omit Pop Out. New Chat must omit Pop Out until it has an authoritative Session identity.
+- Native Task Detail must offer Open Chat for each applicable live Session. The action must open or reuse that Session's native Chat window, requesting focus as Pop Out does, and must leave Task Detail open.
+- A native Chat window must retain its Session identity. Its Parent Chat and linked Task Detail actions must open their destinations in the main window and request main-window focus without navigating or closing the native Chat window.
+- A native Chat window must initially open at the Chat content maximum width with a 16:9 aspect ratio, constrained to the available screen. It must support resizing, maximizing, and minimizing without always-on-top pinning.
 - Desktop relaunch restores the selected Project and its active Workflows or Sessions tab. It does not reopen Chat or restore Chat transcript/composer presentation state.
 
 ## Sessions
@@ -195,7 +200,7 @@
 - Back uses the application's ordinary navigation-history availability and behavior.
 - When a Session has no authoritative name, Chat chrome leaves its title area blank.
 - Initial existing-Session loading leaves the Chat chrome title area blank until the authoritative Session name arrives.
-- A separate Chat window shows the Session title without Back or a separate-window action and relies on native window controls to close.
+- A separate Chat window must show the authoritative Session title without Back or a separate-window action and must rely on native window controls to close. On macOS, the title must use integrated application chrome. On Windows and Linux, the title must use the native titlebar without an extra application title line.
 - Chat must fill the available page with one outer island. Its outside gutters and gaps to adjacent islands must match the sidebar spacing. The outer island must add no padding between the transcript and composer.
 - Transcript content and the composer must be at most 960px wide. User and assistant messages must be content-sized within that column with normal wrapping. User messages must align right with fixed left padding equal to 10% of the maximum column width. Assistant messages must align left with the same fixed padding on the right. Messages have no avatars or role labels.
 - User messages, assistant commentary, and assistant final answers are the only durable transcript islands. Tools, Reasoning Traces, context, diagnostics, notices, and every other durable non-conversational item use borderless inline disclosure or tool-row presentation.
@@ -255,7 +260,7 @@
 - Copied history preserves each source event's committed time. Source history without committed time remains without it, and copied compaction replacement history retains its compaction time. Only messages newly committed in the child receive a new committed time.
 - The child inherits the TUI fork contract: execution context, locked contract, continuation context, worktree-reminder state, previous-Session lineage, and parent-agent ancestry. Goal inheritance follows the Rollback Picker contract.
 - The server names the child `<parent name or Session ID> → edit u<N>`. Desktop adds no naming field.
-- After creation, Chat must navigate through the navigation stack to the child Session at latest and focus its ordinary composer. The child draft must contain the selected original user-message text followed by one blank line and the parent's existing composer draft, preserving both texts verbatim. When the parent draft is empty, Chat must omit the separator. The parent draft must remain unchanged. Editing and submission then use the normal child-Session composer flow.
+- After creation, main-window Chat must navigate through the navigation stack to the child Session at latest and focus its ordinary composer. Native Chat must open or focus the child's own native Chat window and leave the original native window on the parent Session. The child draft must contain the selected original user-message text followed by one blank line and the parent's existing composer draft, preserving both texts verbatim. When the parent draft is empty, Chat must omit the separator. The parent draft must remain unchanged. Editing and submission then use the normal child-Session composer flow.
 - Desktop must persist the captured child draft before navigating to the child. A draft-save failure must leave the parent open with its draft unchanged and show ordinary failure feedback; it must not roll back the created child. The server's ordinary fork transition remains unchanged.
 - Fork failure leaves the operator in the unchanged parent Session and surfaces the authoritative diagnostic through Sonner. Desktop creates no optimistic child route or local fork state.
 - `To parent chat` follows the child's previous-Session lineage and opens the parent at latest. Parent-agent lineage remains omitted from ordinary Chat.
@@ -720,7 +725,7 @@
 - Every opening and reopening clears any retained historical transcript window before presenting transcript rows and requests the newest transcript page. While that page loads, the transcript region shows Loading while Chat chrome, composer, and retained Main View remain visible.
 - Every opening and reopening reissues the Main View read even when retained data is still fresh. Desktop keeps retained Main View data visible while that read is pending.
 - Navigation, detach, pop-out or window closure, subscription closure, request cancellation, transport loss, and application shutdown stop only Desktop observation or delivery; they never invoke Runtime Release or alter server-owned Runtime work.
-- Opening a native Chat pop-out failure leaves Chat in the main window and uses the native-window failure notice. Desktop does not create a fallback duplicate window or partially navigate the main window.
+- If opening or bringing forward a native Chat window fails, Desktop must retain the initiating Chat or Task Detail presentation and use the native-window failure notice. Desktop must not create a fallback duplicate window or partially navigate the main window.
 - Prompt-answer races follow the Question/Approval contract: externally resolved prompts disappear, stale results cannot replace current prompt state, and a failed still-pending submission preserves its local answer draft.
 - After a batch failure, Desktop must preserve local drafts according to its latest available prompt state and ordinary server broadcasts without issuing an additional pending-prompt read. Explicit resubmission must use the normal answer action. An already-resolved prompt may remain visible until an authoritative update or subsequent operation supplies its outcome.
 - Desktop must report a failed batch submission through Sonner without adding a retry button or another picker control. Questions that remain pending must retain their selections and commentary and become editable again; declined prompts must remain read-only.

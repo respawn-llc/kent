@@ -25,6 +25,8 @@
     "core:window:allow-scale-factor",
     "core:window:allow-set-always-on-top",
     "core:window:allow-set-focus",
+    "core:window:allow-set-title",
+    "core:window:allow-unminimize",
     "core:window:allow-set-max-size",
     "core:window:allow-set-min-size",
     "core:window:allow-set-position",

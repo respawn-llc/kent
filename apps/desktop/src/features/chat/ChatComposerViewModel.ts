@@ -16,6 +16,7 @@ export function createChatComposerViewModel(
     opening: Parameters<typeof createComposerDraftViewModel>[0]["opening"];
     submission: Atom.Atom<ComposerSubmission>;
     t: TFunction;
+    transferPending?: Atom.Atom<boolean>;
   }>,
 ) {
   const draft = createComposerDraftViewModel(options);

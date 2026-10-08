@@ -9,12 +9,9 @@ import { toggleInMemoryThemeOverride } from "./startup/appEnvironment";
 import { AttentionController } from "./AttentionController";
 import { AppUpdateChip } from "./AppUpdateChip";
 import { useDesktopUpdate, type DesktopUpdateState } from "./useDesktopUpdate";
-import {
-  appChromeInlineTitleClassNames,
-  appChromeTopTreatmentForPlatform,
-  appChromeTitleClassNames,
-  appChromeTitlePlacementClassNames,
-} from "./appChromeStyles";
+import { appChromeTopTreatmentForPlatform } from "./appChromeStyles";
+import { WindowChromeTitle } from "./WindowChromeTitle";
+import { MainWindowNavigation } from "./MainWindowNavigation";
 import { SessionChatCatalogReturnProvider, useAppNavigation, useNavigationStackState } from "@/app-facade";
 import { completeProjectDeletion, useProjectDeletedEvents } from "@/app-facade";
 import { SidebarHost } from "./sidebar";
@@ -22,7 +19,7 @@ import { SidebarProvider } from "./sidebarProvider";
 import { sidebarDestinationPolicy } from "./sidebarDestinationPolicy";
 import { useStatusController } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
-import { useCurrentWindowChromeTitle } from "@/app-facade";
+import { useCurrentWindowChromeTitle, useCurrentWindowChromeAction } from "@/app-facade";
 
 export type AppChromeProps = Readonly<{
   children: ReactNode;
@@ -48,6 +45,7 @@ function AppChromeContent({ children }: AppChromeProps) {
   const macOS = nativeBridge.capabilities.platform === "macos";
   const topTreatment = appChromeTopTreatmentForPlatform(nativeBridge.capabilities.platform);
   const title = useCurrentWindowChromeTitle();
+  const action = useCurrentWindowChromeAction();
   const update = useDesktopUpdate(nativeBridge, logger);
   return (
     <main className="window-glass-fill grid h-screen w-screen overflow-hidden pt-[var(--native-titlebar-height)]">
@@ -105,23 +103,14 @@ function AppChromeContent({ children }: AppChromeProps) {
           />
         ) : null}
         <AppChromeGlobalSearch macOS={macOS} position="trailing" />
+        {action}
         {debugThemeOverrideEnabled ? <DebugThemeToggle label={t("app.toggleTheme")} /> : null}
-        {title !== null && macOS ? (
-          <div className={appChromeInlineTitleClassNames.join(" ")} data-testid="app-chrome-title">
-            {title}
-          </div>
-        ) : null}
+        {title !== null && macOS ? <WindowChromeTitle title={title} inline macOS={macOS} /> : null}
       </div>
       <AppChromeFloatingUpdateChip state={update} visible={macOS} />
-      {title !== null && !macOS ? (
-        <div
-          className={[...appChromeTitleClassNames, ...appChromeTitlePlacementClassNames(macOS)].join(" ")}
-          data-testid="app-chrome-title"
-        >
-          {title}
-        </div>
-      ) : null}
+      {title !== null && !macOS ? <WindowChromeTitle title={title} macOS={macOS} /> : null}
       <ProjectDeletionEventHandler />
+      <MainWindowNavigation />
       <AttentionController />
       <div
         className="app-region-no-drag relative flex min-h-0 min-w-0 w-full overflow-hidden"

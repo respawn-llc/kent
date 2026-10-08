@@ -36,12 +36,14 @@ export function createComposerDraftViewModel({
   target,
   opening,
   t,
+  transferPending,
 }: Readonly<{
   services: AppServices;
   client: QueryClient;
   target: Atom.Atom<ChatSettingsTarget | null>;
   opening: (ChatSessionTarget & Readonly<{ kind: "session" }>) | Readonly<{ kind: "new_chat" }>;
   t: TFunction;
+  transferPending?: Atom.Atom<boolean>;
 }>) {
   const editor = Atom.make<EditorValue>({ kind: "opening", text: "", protectedInput: null });
   const selection = Atom.make<number | null>(null);
@@ -108,6 +110,10 @@ export function createComposerDraftViewModel({
   };
   const saveObserver = new MutationObserver(client, saveOptions);
   const navigationPending = mutationPendingAtom(client, { mutationKey: [...saveKey, "navigation"] });
+  const interactionRestricted = Atom.make(
+    (get) => get(navigationPending) || (transferPending !== undefined && get(transferPending)),
+  );
+  const historyAvailable = Atom.make((get) => get(read).isSuccess && !get(interactionRestricted));
   async function persist(
     target: ChatSessionTarget,
     input: ComposerDraftValue,
@@ -120,6 +126,7 @@ export function createComposerDraftViewModel({
   const edit = Atom.fn<string>()(
     (input, get) =>
       Effect.sync(() => {
+        if (get(interactionRestricted)) return;
         if (input !== get(text)) get.set(selection, null);
         get.set(editor, {
           ...get(value),
@@ -132,6 +139,7 @@ export function createComposerDraftViewModel({
   const restore = Atom.fn<ComposerTextRestoration>()(
     (input, get) =>
       Effect.sync(() => {
+        if (get(interactionRestricted)) return;
         const restored = mergeComposerText(get(text), input.text, input.direction);
         if (restored !== get(text)) get.set(selection, null);
         get.set(editor, {
@@ -144,7 +152,7 @@ export function createComposerDraftViewModel({
   );
   const navigate = Atom.fn<Readonly<{ direction: -1 | 1; entries: readonly string[] }>>()((input, get) =>
     Effect.sync((): ComposerHistoryMovement => {
-      if (!observer.getCurrentResult().isSuccess) return { kind: "none" };
+      if (!get(historyAvailable)) return { kind: "none" };
       const current = get(value);
       const selected = get(selection);
       if (selected === null && current.protectedInput !== null && current.text !== "")
@@ -288,6 +296,7 @@ export function createComposerDraftViewModel({
     consumeNewChat,
     flush,
     navigationPending,
+    interactionRestricted,
   } as const;
 }
 

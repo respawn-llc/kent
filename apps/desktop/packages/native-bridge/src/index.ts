@@ -11,6 +11,7 @@ import {
   openNativeDialogWindow,
   type NativeDialogContentSize,
   type NativeDialogWindowOptions,
+  type NativeDialogOpenResult,
 } from "./dialogs";
 import {
   readBrowserDesktopSettings,
@@ -43,7 +44,12 @@ import { createBrowserWindowFocusControls, createTauriWindowFocusControls } from
 import { createBrowserUpdates, createTauriUpdates, type NativeUpdateBridge } from "./updates";
 export { nativeObservation, type NativeOverflowReporter } from "./observation";
 
-export type { NativeDialogContentSize, NativeDialogTheme, NativeDialogWindowOptions } from "./dialogs";
+export type {
+  NativeDialogContentSize,
+  NativeDialogTheme,
+  NativeDialogWindowOptions,
+  NativeDialogOpenResult,
+} from "./dialogs";
 export type {
   NativeDirectoryPickerOptions,
   NativeDirectorySelection,
@@ -123,13 +129,18 @@ export type NativeBridge = Readonly<{
     closeCurrent(): Promise<void>;
     isFocused(): Promise<boolean>;
     focusMain(): Promise<void>;
+    setCurrentTitle(title: string): Promise<void>;
+    requestMainNavigation(destination: NativeMainNavigation): Promise<void>;
+    mainNavigationRequests(
+      reportOverflow: NativeOverflowReporter,
+    ): Stream.Stream<NativeMainNavigation, Error>;
     focusChanges(reportOverflow: NativeOverflowReporter): Stream.Stream<boolean, Error>;
     fileDrops(reportOverflow: NativeOverflowReporter): Stream.Stream<readonly string[], Error>;
     fitCurrentToContent(size: NativeDialogContentSize): Promise<void>;
     setCurrentGlassTint(tint: NativeWindowGlassTint | null): Promise<void>;
   }>;
   dialogs: Readonly<{
-    openWindow(options: NativeDialogWindowOptions): Promise<void>;
+    openWindow(options: NativeDialogWindowOptions): Promise<NativeDialogOpenResult>;
   }>;
   projectCreation: Readonly<{
     openWindow(draft: NativeProjectCreationDraft): Promise<void>;
@@ -148,6 +159,12 @@ export type NativeWindowGlassTint = Readonly<{
   blue: number;
   alpha: number;
 }>;
+
+export type NativeMainNavigation =
+  | Readonly<{ kind: "sessionChat"; projectID: string; sessionID: string }>
+  | Readonly<{ kind: "taskDetail"; taskID: string }>;
+
+const mainNavigationEvent = "app://main-navigation";
 
 const nativeWindowGlassTintChannels = ["red", "green", "blue", "alpha"] as const;
 
@@ -263,6 +280,14 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
       },
       isFocused: browserWindowFocus.isFocused,
       focusMain: browserWindowFocus.focusMain,
+      async setCurrentTitle(): Promise<void> {
+        return Promise.resolve();
+      },
+      async requestMainNavigation(): Promise<void> {
+        throw new Error("Native navigation is unavailable in this shell.");
+      },
+      mainNavigationRequests: (reportOverflow) =>
+        nativeObservation(async () => () => undefined, reportOverflow),
       focusChanges: browserWindowFocus.focusChanges,
       fileDrops: (reportOverflow) => nativeObservation(async () => () => undefined, reportOverflow),
       async fitCurrentToContent(): Promise<void> {
@@ -273,7 +298,7 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
       },
     },
     dialogs: {
-      async openWindow(): Promise<void> {
+      async openWindow(): Promise<NativeDialogOpenResult> {
         throw new Error("Native dialog windows are unavailable in this shell.");
       },
     },
@@ -355,6 +380,20 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
       },
       isFocused: tauriWindowFocus.isFocused,
       focusMain: tauriWindowFocus.focusMain,
+      async setCurrentTitle(title: string): Promise<void> {
+        await getCurrentWindow().setTitle(title);
+      },
+      async requestMainNavigation(destination: NativeMainNavigation): Promise<void> {
+        await emitTo("main", mainNavigationEvent, destination);
+      },
+      mainNavigationRequests: (reportOverflow) =>
+        nativeObservation(
+          async (handler) =>
+            listen<NativeMainNavigation>(mainNavigationEvent, (event) => {
+              handler(event.payload);
+            }),
+          reportOverflow,
+        ),
       focusChanges: tauriWindowFocus.focusChanges,
       fileDrops: (reportOverflow) =>
         nativeObservation(async (handler) => {
@@ -377,8 +416,8 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
       },
     },
     dialogs: {
-      async openWindow(options: NativeDialogWindowOptions): Promise<void> {
-        await openNativeDialogWindow(options);
+      async openWindow(options: NativeDialogWindowOptions): Promise<NativeDialogOpenResult> {
+        return openNativeDialogWindow(options);
       },
     },
     projectCreation: {

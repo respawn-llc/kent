@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAppServices } from "@/app-facade";
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { createChatDestinationViewModel, type ChatDestinationOpening } from "./ChatDestinationViewModel";
 import { useChatSettings, type ChatSettingsNavigation } from "./useChatSettings";
 import { useChatComposer } from "./useChatComposer";
@@ -30,6 +30,7 @@ export function useChatDestination({
   const services = useAppServices();
   const { t } = useTranslation();
   const client = useQueryClient();
+  const { push } = useStatusController();
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -37,8 +38,11 @@ export function useChatDestination({
       mounted.current = false;
     };
   }, []);
-  const [model] = useState(() => createChatDestinationViewModel({ opening, services, client, t }));
+  const [model] = useState(() => createChatDestinationViewModel({ opening, services, client, t, push }));
   const target = useAtomValue(model.target);
+  useAtomMount(model.popOutRequest);
+  const popOutRequest = useAtomValue(model.popOutRequest);
+  const popOut = useAtomSet(model.popOut);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const focusComposer = useCallback(() => editorRef.current?.focus(), []);
   const worktreeCommands = useWorktreeCommands(
@@ -46,7 +50,6 @@ export function useChatDestination({
     focusComposer,
   );
   const roots = useOwnedSidebarRoots();
-  const { push } = useStatusController();
   const openProcesses = useStableCallback(() => {
     if (target?.kind !== "session") {
       push({
@@ -151,5 +154,7 @@ export function useChatDestination({
     editorRef,
     commandPresentation: worktreeCommands.presentation,
     worktreeObservation: worktreeCommands.observation,
+    popOutRequest,
+    popOut,
   } as const;
 }

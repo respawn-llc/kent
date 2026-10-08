@@ -97,6 +97,7 @@ export function createComposerInputViewModel({
   const submit = Atom.fn<ComposerInputActivation>()(
     (input, get) =>
       Effect.gen(function* () {
+        if (get(draft.interactionRestricted)) return;
         const ready = get(submission);
         if (input.source === "editor" && (!get(draft.read).isSuccess || ready.kind !== "ready")) return;
         const requestTarget = mutationTarget(get(target), ready);
