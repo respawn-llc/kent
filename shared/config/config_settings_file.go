@@ -274,6 +274,10 @@ func readSettingsFile(path string) (settingsFile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read settings file %s: %w", path, err)
 	}
+	return decodeSettingsFile(path, data)
+}
+
+func decodeSettingsFile(path string, data []byte) (settingsFile, error) {
 	if strings.TrimSpace(string(data)) == "" {
 		return settingsFile{}, nil
 	}
