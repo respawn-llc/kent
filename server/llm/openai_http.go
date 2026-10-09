@@ -63,6 +63,7 @@ type HTTPTransport struct {
 	Auth                         DispatchAuthProvider
 	Provider                     Provider
 	Variant                      *ProviderVariantContract
+	ConnectionID                 *config.ConnectionID
 	Store                        bool
 	ModelVerbosity               string
 	ContextWindowTokens          int
@@ -96,7 +97,8 @@ func (t *HTTPTransport) providerUserAgent() string {
 	return t.ProviderIdentifier + "/" + config.Version
 }
 
-func (t *HTTPTransport) Generate(ctx context.Context, request ResponsesRequest, callbacks StreamCallbacks) (ResponsesResponse, error) {
+func (t *HTTPTransport) Generate(ctx context.Context, request ResponsesRequest, callbacks StreamCallbacks) (result ResponsesResponse, err error) {
+	defer func() { t.identifyProviderError(err) }()
 	if t.Client == nil {
 		t.Client = NewHTTPClient(120 * time.Second)
 	}
@@ -138,7 +140,7 @@ func (t *HTTPTransport) Generate(ctx context.Context, request ResponsesRequest, 
 		stream,
 		rawResp,
 		turnStateObserver,
-		preparation.providerCaps.ProviderID,
+		preparation.variant,
 		windowTokens,
 		callbacks,
 		requestEvidence,
@@ -150,12 +152,13 @@ func consumeResponsesStream(
 	stream *ssestream.Stream[responses.ResponseStreamEventUnion],
 	rawResp *http.Response,
 	dispatch *CodexDispatchContext,
-	providerID string,
+	variant ProviderVariantContract,
 	windowTokens int,
 	callbacks StreamCallbacks,
 	requestEvidence modelcontract.ProviderUsageEvidence,
 ) (ResponsesResponse, error) {
-	accumulator := newResponseStreamAccumulator(callbacks, windowTokens)
+	providerID := variant.ProviderID
+	accumulator := newResponseStreamAccumulator(callbacks, windowTokens, variant.ResponsesPolicy)
 	headersObserved := false
 	observeCodexTurnStateResponseHeader(dispatch, rawResp, &headersObserved)
 	for stream.Next() {
@@ -174,7 +177,10 @@ func consumeResponsesStream(
 		if accumulator.hasCompleted() && !callerCanceledStreamRead(ctx) {
 			return responseFromStreamAccumulator(accumulator, providerID, rawResp, requestEvidence)
 		}
-		if rawResp != nil && isResponsesResponsesStreamFramingError(err) {
+		if rawResp != nil && rawResp.StatusCode >= 300 {
+			return ResponsesResponse{}, newResponsesRequestErrorMapper(providerID).Map(err, rawResp, "read responses stream events")
+		}
+		if rawResp != nil && isResponsesStreamFramingError(err) {
 			return ResponsesResponse{}, fmt.Errorf(
 				"read responses stream events: %w",
 				newOpenAIProviderContractError(
@@ -233,7 +239,7 @@ func (t *HTTPTransport) providerUsageRequestEvidence(
 	payload responses.ResponseNewParams,
 ) modelcontract.ProviderUsageEvidence {
 	evidence := modelcontract.ProviderUsageEvidence{
-		ProviderID:     textutil.Value(preparation.providerCaps.ProviderID),
+		ProviderID:     textutil.Value(preparation.variant.ProviderID),
 		RequestedModel: request.Model,
 	}
 	if tier := strings.TrimSpace(string(payload.ServiceTier)); tier != "" {
@@ -250,7 +256,7 @@ func (t *HTTPTransport) providerUsageRequestEvidence(
 	return evidence
 }
 
-func isResponsesResponsesStreamFramingError(err error) bool {
+func isResponsesStreamFramingError(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -313,7 +319,8 @@ func (t *HTTPTransport) streamingHTTPClient() *http.Client {
 	return &http.Client{Transport: transport}
 }
 
-func (t *HTTPTransport) Compact(ctx context.Context, request ResponsesRequest) (ResponsesCompactionResponse, error) {
+func (t *HTTPTransport) Compact(ctx context.Context, request ResponsesRequest) (result ResponsesCompactionResponse, err error) {
+	defer func() { t.identifyProviderError(err) }()
 	if t.Client == nil {
 		t.Client = NewHTTPClient(120 * time.Second)
 	}
@@ -333,6 +340,13 @@ func (t *HTTPTransport) Compact(ctx context.Context, request ResponsesRequest) (
 		return t.compactResponsesTriggerV2(ctx, request, preparation.authHeader, preparation.mode, preparation.variant, preparation.providerCaps, windowTokens, preparation.projection)
 	default:
 		return ResponsesCompactionResponse{}, fmt.Errorf("provider %s does not support remote compaction", preparation.providerCaps.ProviderID)
+	}
+}
+
+func (t *HTTPTransport) identifyProviderError(err error) {
+	var providerErr *ProviderAPIError
+	if errors.As(err, &providerErr) {
+		providerErr.ConnectionID = textutil.Pointer(t.ConnectionID)
 	}
 }
 
@@ -405,12 +419,12 @@ func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request R
 	stream := service.NewStreaming(watchdog.ctx, payload, reqOpts...)
 	defer func() { _ = stream.Close() }()
 
-	accumulator := newResponseStreamAccumulator(StreamCallbacks{}, windowTokens)
+	accumulator := newResponseStreamAccumulator(StreamCallbacks{}, windowTokens, variant.ResponsesPolicy)
 	turnStateObserver := codexTurnStateObserver(projection, request.CodexDispatch)
 	headersObserved := false
 	requestEvidence := t.providerUsageRequestEvidence(
 		request,
-		responsesDispatchPreparation{mode: mode, providerCaps: providerCaps},
+		responsesDispatchPreparation{mode: mode, variant: variant, providerCaps: providerCaps},
 		payload,
 	)
 	observeCodexTurnStateResponseHeader(turnStateObserver, rawResp, &headersObserved)
@@ -419,8 +433,8 @@ func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request R
 		watchdog.ping()
 		event := stream.Current()
 		accumulator.Consume(event)
-		if err := accumulator.Err(providerCaps.ProviderID, newResponsesStatus(rawResp)); err != nil {
-			return ResponsesCompactionResponse{}, newResponsesRequestErrorMapper(providerCaps.ProviderID).Map(err, rawResp, "read responses compaction stream events")
+		if err := accumulator.Err(variant.ProviderID, newResponsesStatus(rawResp)); err != nil {
+			return ResponsesCompactionResponse{}, newResponsesRequestErrorMapper(variant.ProviderID).Map(err, rawResp, "read responses compaction stream events")
 		}
 	}
 	observeCodexTurnStateResponseHeader(turnStateObserver, rawResp, &headersObserved)
@@ -428,18 +442,18 @@ func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request R
 		if errors.Is(context.Cause(watchdog.ctx), ErrModelStreamStalled) {
 			return ResponsesCompactionResponse{}, fmt.Errorf("model stream stalled: %w", ErrModelStreamStalled)
 		}
-		return ResponsesCompactionResponse{}, newResponsesRequestErrorMapper(providerCaps.ProviderID).Map(err, rawResp, "read responses compaction stream events")
+		return ResponsesCompactionResponse{}, newResponsesRequestErrorMapper(variant.ProviderID).Map(err, rawResp, "read responses compaction stream events")
 	}
 	if !accumulator.hasCompleted() {
-		return ResponsesCompactionResponse{}, newOpenAIProviderContractError(providerCaps.ProviderID, rawResp, errors.New(openAIResponsesStreamEndedBeforeTerminalMessage))
+		return ResponsesCompactionResponse{}, newOpenAIProviderContractError(variant.ProviderID, rawResp, errors.New(openAIResponsesStreamEndedBeforeTerminalMessage))
 	}
-	response, err := responseFromStreamAccumulator(accumulator, providerCaps.ProviderID, rawResp, requestEvidence)
+	response, err := responseFromStreamAccumulator(accumulator, variant.ProviderID, rawResp, requestEvidence)
 	if err != nil {
 		return ResponsesCompactionResponse{}, err
 	}
 	checkpoint, err := requireSingleEncryptedCompactionOutput(response.OutputItems)
 	if err != nil {
-		return ResponsesCompactionResponse{}, newOpenAIProviderContractError(providerCaps.ProviderID, rawResp, err)
+		return ResponsesCompactionResponse{}, newOpenAIProviderContractError(variant.ProviderID, rawResp, err)
 	}
 	checkpoint = CloneResponseItems([]ResponseItem{checkpoint})[0]
 	return ResponsesCompactionResponse{

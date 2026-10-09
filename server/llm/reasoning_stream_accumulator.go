@@ -64,12 +64,10 @@ func mergeReasoningEntries(primary, secondary []ReasoningEntry) ([]ReasoningEntr
 		seenInputCoordinates := make(map[reasoningCoordinate]struct{}, len(entries))
 		for _, entry := range entries {
 			role, present := textutil.OptionalTrimmed(entry.Role)
-			text := strings.TrimSpace(entry.Text)
-			if !present || text == "" {
+			if !present || strings.TrimSpace(entry.Text) == "" {
 				continue
 			}
 			entry.Role = textutil.Value(role)
-			entry.Text = text
 			if identity := entry.ItemIdentity; identity != nil {
 				if err := identity.Validate(); err != nil {
 					return err
@@ -244,13 +242,12 @@ func (a *reasoningAccumulator) Entries() []ReasoningEntry {
 		if !ok {
 			continue
 		}
-		text := strings.TrimSpace(entry.Text)
-		if text == "" {
+		if strings.TrimSpace(entry.Text) == "" {
 			continue
 		}
 		out = append(out, ReasoningEntry{
 			Role:             entry.Role,
-			Text:             text,
+			Text:             entry.Text,
 			SourceCoordinate: CloneReasoningSourceCoordinate(entry.SourceCoordinate),
 			ItemIdentity:     CloneReasoningItemIdentity(entry.ItemIdentity),
 		})

@@ -3,6 +3,7 @@ package llm
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,8 +11,180 @@ import (
 
 	"core/internal/testharness/httpclient"
 	"core/shared/config"
+	"core/shared/llmerrors"
 	"core/shared/textutil"
 )
+
+func TestGrokFailedStreamRetainsEmittedTraceAndTypedFailure(t *testing.T) {
+	const trace = "provider trace before failure"
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "text/event-stream")
+		encoded, _ := json.Marshal(trace)
+		_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.reasoning_summary_text.delta\",\"output_index\":0,\"summary_index\":0,\"item_id\":\"r1\",\"delta\":%s}\n\n", encoded)
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"personal-team-blocked:spending-limit\",\"message\":\"fixture quota failure\"}}}\n\n")
+	}))
+	defer server.Close()
+	selected, err := ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionGrokCLIProxy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := NewProviderClient(ProviderClientOptions{
+		Provider: selected.Provider, Variant: &selected.Variant, Auth: oauthStaticAuth{},
+		HTTPClient: newRewritingHTTPClient(t, server), ContextWindowTokens: 256_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var observed []ReasoningSummaryDelta
+	_, err = provider.Generate(t.Context(), Request{
+		Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic,
+	}, StreamCallbacks{OnReasoningSummaryDelta: func(delta ReasoningSummaryDelta) { observed = append(observed, delta) }})
+	var failure *ProviderAPIError
+	if !errors.As(err, &failure) || failure.ProviderCode != "personal-team-blocked:spending-limit" ||
+		!IsNonRetriableModelError(err) || IsAuthenticationError(err) {
+		t.Fatalf("stream failure = %v", err)
+	}
+	if len(observed) != 1 || observed[0].Text != trace || requests != 1 {
+		t.Fatalf("emitted trace/replay = %+v, %d requests", observed, requests)
+	}
+}
+
+func TestGrokToolContinuationKeepsOpaqueItemsAndReasoning(t *testing.T) {
+	const trace = "**provider heading**\n\n  exact provider trace \r\n"
+	encodedTrace, _ := json.Marshal(trace)
+	reasoning := json.RawMessage(fmt.Sprintf(`{"type":"reasoning","id":"r1","encrypted_content":"opaque","summary":[{"type":"summary_text","text":%s}],"xai_extension":{"keep":true}}`, encodedTrace))
+	call := json.RawMessage(`{"type":"function_call","id":"fc1","call_id":"c1","name":"shell","arguments":"{\"cmd\":\"pwd\"}"}`)
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "text/event-stream")
+		if requests == 1 {
+			_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.reasoning_summary_text.delta\",\"output_index\":0,\"summary_index\":0,\"item_id\":\"r1\",\"delta\":%s}\n\n", encodedTrace)
+			_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.output_item.done\",\"output_index\":1,\"item\":%s}\n\n", call)
+			_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"first\",\"output\":[%s,%s]}}\n\n", reasoning, call)
+			return
+		}
+		var request struct {
+			Input []json.RawMessage `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+		}
+		if len(request.Input) != 3 {
+			t.Fatalf("continuation input count = %d", len(request.Input))
+		}
+		var opaque struct {
+			Extension *struct{ Keep bool } `json:"xai_extension"`
+		}
+		if err := json.Unmarshal(request.Input[0], &opaque); err != nil || opaque.Extension == nil || !opaque.Extension.Keep {
+			t.Errorf("opaque reasoning lost: %s, %v", request.Input[0], err)
+		}
+		var result struct {
+			CallID string `json:"call_id"`
+			Output []struct {
+				Type string `json:"type"`
+			} `json:"output"`
+		}
+		if err := json.Unmarshal(request.Input[2], &result); err != nil || result.CallID != "c1" || len(result.Output) != 2 ||
+			result.Output[0].Type != "input_text" || result.Output[1].Type != "input_image" {
+			t.Errorf("call-bound result changed: %s, %v", request.Input[2], err)
+		}
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"second\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"done\"}]}]}}\n\n")
+	}))
+	defer server.Close()
+	selected, err := ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionGrokCLIProxy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := NewProviderClient(ProviderClientOptions{
+		Provider: selected.Provider, Variant: &selected.Variant, Auth: oauthStaticAuth{},
+		HTTPClient: newRewritingHTTPClient(t, server), ContextWindowTokens: 256_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic}
+	var deltas []ReasoningSummaryDelta
+	first, err := provider.Generate(t.Context(), request, StreamCallbacks{OnReasoningSummaryDelta: func(delta ReasoningSummaryDelta) {
+		deltas = append(deltas, delta)
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deltas) != 1 || deltas[0].Text != trace || deltas[0].CurrentStatus != nil ||
+		len(first.Reasoning) != 1 || first.Reasoning[0].Text != trace {
+		t.Fatalf("Grok reasoning was reshaped: deltas=%+v final=%+v", deltas, first.Reasoning)
+	}
+	if len(first.ToolCalls) != 1 || first.ToolCalls[0].ID != "c1" {
+		t.Fatalf("tool calls = %+v", first.ToolCalls)
+	}
+	request.Items = append(first.OutputItems, PrepareResponsesInputItems([]ResponseItem{{
+		Type: ResponseItemTypeFunctionCallOutput, CallID: textutil.Value("c1"),
+		Output: json.RawMessage(`[{"type":"input_text","text":"result"},{"type":"input_image","image_url":"data:image/png;base64,AA=="}]`),
+	}})...)
+	second, err := provider.Generate(t.Context(), request, StreamCallbacks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.ProviderPhase.IsAbsent() || requests != 2 {
+		t.Fatalf("phase/continuation = %+v, %d", second.ProviderPhase, requests)
+	}
+}
+
+func TestGrokFailuresKeepDiagnosticsWithoutRetryOrAuthFallback(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		status int
+		body   string
+		code   string
+		auth   bool
+	}{
+		{"expired sign-in", 401, `{"error":{"code":"invalid_token","message":"fixture expired token"}}`, "invalid_token", true},
+		{"subscription spending limit", 402, `{"error":"fixture credit requirement","code":"personal-team-blocked:spending-limit"}`, "personal-team-blocked:spending-limit", false},
+		{"subscription entitlement", 403, `{"error":"fixture entitlement requirement","code":"personal-team-blocked:spending-limit"}`, "personal-team-blocked:spending-limit", false},
+		{"protocol version", 426, `{"error":"fixture client update required","code":"client_version_unsupported"}`, "client_version_unsupported", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(test.status)
+				_, _ = io.WriteString(w, test.body)
+			}))
+			defer server.Close()
+			selected, err := ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionGrokCLIProxy})
+			if err != nil {
+				t.Fatal(err)
+			}
+			provider, err := NewProviderClient(ProviderClientOptions{
+				Provider: selected.Provider, Variant: &selected.Variant, Auth: oauthStaticAuth{},
+				ConnectionID: textutil.Value(config.ConnectionID("selected-grok")),
+				HTTPClient:   newRewritingHTTPClient(t, server), ContextWindowTokens: 256_000,
+				ProviderCapabilitiesOverride: &ProviderCapabilities{ProviderID: "chatgpt-codex", SupportsResponsesAPI: true},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = provider.Generate(t.Context(), Request{
+				Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic,
+			}, StreamCallbacks{})
+			var failure *ProviderAPIError
+			if !errors.As(err, &failure) || failure.ProviderID != "grok-cli-proxy" || failure.StatusCode != test.status || failure.ProviderCode != test.code || failure.Message == "" ||
+				failure.ConnectionID == nil || *failure.ConnectionID != "selected-grok" {
+				t.Fatalf("provider failure = %#v, %v", failure, err)
+			}
+			if llmerrors.IsAuthenticationError(err) != test.auth || !IsNonRetriableModelError(err) {
+				t.Fatalf("incorrect retry/auth classification: %v", err)
+			}
+			if requests != 1 {
+				t.Fatalf("failed request replayed %d times", requests)
+			}
+		})
+	}
+}
 
 func TestGrokRejectsUnsupportedEffortBeforeInference(t *testing.T) {
 	selected, err := ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionGrokCLIProxy})

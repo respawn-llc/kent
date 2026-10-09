@@ -18,6 +18,7 @@ import (
 
 	openai "github.com/openai/openai-go/v3"
 
+	"github.com/openai/openai-go/v3/packages/ssestream"
 	"github.com/openai/openai-go/v3/responses"
 )
 
@@ -325,7 +326,10 @@ func TestMapOpenAIStreamErrorPayload_UsesSharedStructuredDecoder(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err, ok := mapOpenAIStreamErrorPayload("openai", []byte(tc.body), nil, http.StatusOK)
+			err, ok := newOpenAICompatibleErrorReducer("openai").Reduce(
+				&ssestream.StreamError{Event: ssestream.Event{Data: []byte(tc.body)}},
+				&http.Response{StatusCode: http.StatusOK},
+			)
 			if !ok {
 				t.Fatal("expected stream error payload to map")
 			}

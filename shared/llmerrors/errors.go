@@ -16,6 +16,8 @@ type UnifiedErrorCode string
 const (
 	UnifiedErrorCodeUnknown               UnifiedErrorCode = "unknown"
 	UnifiedErrorCodeAuthentication        UnifiedErrorCode = "authentication"
+	UnifiedErrorCodeEntitlement           UnifiedErrorCode = "entitlement"
+	UnifiedErrorCodeProtocolVersion       UnifiedErrorCode = "protocol_version"
 	UnifiedErrorCodeContextLengthOverflow UnifiedErrorCode = "context_length_overflow"
 	UnifiedErrorCodeProviderContract      UnifiedErrorCode = "provider_contract_error"
 	UnifiedErrorCodeProviderOverload      UnifiedErrorCode = "provider_overload"
@@ -30,6 +32,7 @@ const (
 
 type ProviderAPIError struct {
 	ProviderID              string
+	ConnectionID            *config.ConnectionID
 	StatusCode              int
 	Code                    UnifiedErrorCode
 	ProviderCode            string
@@ -61,7 +64,11 @@ func (e *ProviderAPIError) Error() string {
 	if e == nil {
 		return "provider api error"
 	}
-	return fmt.Sprintf("%s status %d [%s/%s]: %s", e.ProviderID, e.StatusCode, e.Code, e.ProviderCode, e.Message)
+	identity := e.ProviderID
+	if e.ConnectionID != nil {
+		identity = fmt.Sprintf("connection %s (%s)", *e.ConnectionID, identity)
+	}
+	return fmt.Sprintf("%s status %d [%s/%s]: %s", identity, e.StatusCode, e.Code, e.ProviderCode, e.Message)
 }
 
 func (e *ProviderAPIError) Unwrap() error {
@@ -123,6 +130,9 @@ func IsAuthenticationError(err error) bool {
 	}
 	var providerErr *ProviderAPIError
 	if errors.As(err, &providerErr) {
+		if providerErr.Code == UnifiedErrorCodeEntitlement || providerErr.Code == UnifiedErrorCodeProtocolVersion {
+			return false
+		}
 		if providerErr.Code == UnifiedErrorCodeAuthentication {
 			return true
 		}
@@ -150,7 +160,7 @@ func IsNonRetriableModelError(err error) bool {
 		if providerErr.ProviderType == providerTypeResponseIncomplete {
 			return true
 		}
-		if providerErr.Code == UnifiedErrorCodeProviderContract {
+		if providerErr.Code == UnifiedErrorCodeProviderContract || providerErr.Code == UnifiedErrorCodeEntitlement || providerErr.Code == UnifiedErrorCodeProtocolVersion {
 			return true
 		}
 		switch providerErr.StatusCode {
@@ -214,7 +224,13 @@ func UserFacingError(err error) string {
 	}
 	var providerErr *ProviderAPIError
 	if errors.As(err, &providerErr) {
-		if providerErr.Code == UnifiedErrorCodeAuthentication || providerErr.StatusCode == 401 || providerErr.StatusCode == 403 {
+		if providerErr.Code == UnifiedErrorCodeProtocolVersion {
+			return fmt.Sprintf("The provider rejected this client version. Update Kent before trying again. %s", providerErr.Error())
+		}
+		if IsAuthenticationError(providerErr) {
+			if providerErr.ConnectionID != nil {
+				return fmt.Sprintf("Failed to authenticate the provider connection: %s. Run /login to authenticate connection %s, used for this session.", strings.TrimRight(providerErr.Error(), "."), *providerErr.ConnectionID)
+			}
 			message := authenticationFailedWarning(providerErr.ProviderID, providerErr.StatusCode)
 			if diagnostic := optionalDiagnosticValue(providerErr.AuthorizationDiagnostic); diagnostic != "" {
 				message += providerAuthorizationDiagnosticPrefix + diagnostic + "."

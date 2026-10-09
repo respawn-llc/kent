@@ -35,8 +35,8 @@ func TestGenerateRetainsProviderUsageEvidence(t *testing.T) {
 	}
 
 	evidence := response.ProviderEvidence
-	if evidence.ProviderID == nil || *evidence.ProviderID != "openai" {
-		t.Fatalf("provider ID = %v, want openai", evidence.ProviderID)
+	if evidence.ProviderID == nil || *evidence.ProviderID != "openai-compatible" {
+		t.Fatalf("provider ID = %v, want actual transport openai-compatible", evidence.ProviderID)
 	}
 	if evidence.RequestedModel != "gpt-requested" {
 		t.Fatalf("requested model = %q, want gpt-requested", evidence.RequestedModel)

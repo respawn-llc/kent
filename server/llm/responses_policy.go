@@ -18,10 +18,31 @@ type responsesPolicy interface {
 	configurePayload(responsesRequestPayloadBuilder, ResponsesRequest, OpenAIAuthMode, *responses.ResponseNewParams) error
 	requestOptions(string, ResponsesRequest, responsesDispatchPreparation) []option.RequestOption
 	prepareDispatch(string, string, *CodexDispatchContext, *responses.ResponseNewParamsServiceTier, ProviderVariantContract) (*codexDispatchProjection, error)
+	reasoningDelta(ReasoningEntry) ReasoningSummaryDelta
+	reasoningEntries([]ReasoningEntry) []ReasoningEntry
 }
 
 type openAIResponsesPolicy struct{}
 type grokResponsesPolicy struct{}
+
+func (openAIResponsesPolicy) reasoningDelta(entry ReasoningEntry) ReasoningSummaryDelta {
+	return reasoningSummaryDeltaFromText(entry.SourceCoordinate, entry.ItemIdentity, reasoningRoleSummary, entry.Text)
+}
+
+func (openAIResponsesPolicy) reasoningEntries(entries []ReasoningEntry) []ReasoningEntry {
+	return normalizeReasoningEntries(entries)
+}
+
+func (grokResponsesPolicy) reasoningDelta(entry ReasoningEntry) ReasoningSummaryDelta {
+	return ReasoningSummaryDelta{
+		SourceCoordinate: CloneReasoningSourceCoordinate(entry.SourceCoordinate),
+		ItemIdentity:     CloneReasoningItemIdentity(entry.ItemIdentity), Role: reasoningRoleSummary, Text: entry.Text,
+	}
+}
+
+func (grokResponsesPolicy) reasoningEntries(entries []ReasoningEntry) []ReasoningEntry {
+	return entries
+}
 
 func (openAIResponsesPolicy) prepareDispatch(sessionID, model string, dispatch *CodexDispatchContext, tier *responses.ResponseNewParamsServiceTier, variant ProviderVariantContract) (*codexDispatchProjection, error) {
 	return validateOpenAIDispatch(sessionID, model, dispatch, variant.ProviderID == "chatgpt-codex", tier)

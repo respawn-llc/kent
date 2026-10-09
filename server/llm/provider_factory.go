@@ -24,9 +24,10 @@ const (
 )
 
 type ProviderClientOptions struct {
-	Provider Provider
-	Model    string
-	Variant  *ProviderVariantContract
+	Provider     Provider
+	Model        string
+	Variant      *ProviderVariantContract
+	ConnectionID *config.ConnectionID
 
 	Auth                         DispatchAuthProvider
 	HTTPClient                   *http.Client
@@ -227,7 +228,7 @@ func grokVariant(protocol config.ConnectionProtocol, endpoint string) ProviderVa
 			SupportsPromptCacheKey: true, SupportsFastMode: true,
 			SupportsResponsesCompact: true, SupportsNativeWebSearch: true,
 		},
-		NewErrorReducer: newOpenAICompatibleErrorReducer,
+		NewErrorReducer: newGrokErrorReducer,
 	}
 }
 
@@ -332,6 +333,7 @@ func newResponsesProviderClient(opts ProviderClientOptions) (Client, error) {
 func newResponsesHTTPTransport(opts ProviderClientOptions) (*HTTPTransport, error) {
 	transport := NewHTTPTransport(opts.Auth)
 	transport.Variant = opts.Variant
+	transport.ConnectionID = opts.ConnectionID
 	if opts.Provider != "" {
 		transport.Provider = opts.Provider
 	}
