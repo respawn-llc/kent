@@ -8,8 +8,11 @@ import (
 	"testing"
 
 	"core/server/session"
+	"core/server/session/sessiontest"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 	"core/shared/transcript"
 )
 
@@ -74,6 +77,116 @@ func TestQuestionHistorySubscriptionProjectsNewestAnsweredQuestions(t *testing.T
 	}
 	if _, err := sub.Next(t.Context()); err != io.EOF {
 		t.Fatalf("terminal Next error = %v, want EOF", err)
+	}
+}
+
+func TestQuestionHistorySubscriptionProjectsAgentAndUnattributedAnswers(t *testing.T) {
+	store := newSessionViewStore(t, t.TempDir(), "ws", t.TempDir())
+	answerer, err := runtimeids.ParseSessionID("bf18c402-c6d0-4f32-8e0d-01e34cbfc273")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := questionCompletion(
+		t,
+		"agent",
+		[]string{"option"},
+		&session.QuestionAnswerRecord{SelectedOptionNumber: sessionViewIntPointer(1)},
+	)
+	agent.AnsweredBySessionID = &answerer
+	answererText := answerer.String()
+	appendSessionViewRecord(t, store, "step-agent", agent)
+	appendSessionViewRecord(t, store, "step-human", questionCompletion(
+		t,
+		"human",
+		nil,
+		&session.QuestionAnswerRecord{Freeform: sessionViewStringPointer("human answer")},
+	))
+	appendSessionViewRecord(t, store, "step-older", questionCompletion(
+		t,
+		"older",
+		nil,
+		&session.QuestionAnswerRecord{Freeform: sessionViewStringPointer("older answer")},
+	))
+
+	sub, err := NewService(newTestSessionResolver(store), nil, nil).
+		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
+			SessionId: store.Meta().SessionID, MaxHandoffs: 1,
+		})
+	if err != nil {
+		t.Fatalf("subscribe Question history: %v", err)
+	}
+	defer sub.Close()
+	_ = nextQuestionHistoryEvent(t, sub)
+	for _, want := range []struct {
+		question string
+		answerer *string
+	}{
+		{question: "older"},
+		{question: "human"},
+		{question: "agent", answerer: textutil.Pointer(&answererText)},
+	} {
+		question := nextQuestionHistoryEvent(t, sub).GetQuestion()
+		if question == nil || question.Question != want.question {
+			t.Fatalf("Question event = %#v, want %q", question, want.question)
+		}
+		if !textutil.EqualOptional(question.AnsweredBySessionId, want.answerer) {
+			t.Fatalf(
+				"Question %q answerer = %v, want %v",
+				question.Question,
+				question.AnsweredBySessionId,
+				want.answerer,
+			)
+		}
+	}
+}
+
+func TestQuestionHistoryV1ProjectsPersistedAnswererAfterReload(t *testing.T) {
+	store := newSessionViewStore(t, t.TempDir(), "ws", t.TempDir())
+	if err := store.EnsureDurable(); err != nil {
+		t.Fatalf("ensure Session is durable: %v", err)
+	}
+	sessiontest.WriteEventLogHeaderFixture(t, store, session.EventLogHeader{
+		Contract: session.EventLogContract,
+		Version:  session.EventLogVersionV1,
+	})
+	eventLog, err := store.MaterializeEventLog()
+	if err != nil {
+		t.Fatalf("materialize v1 event log: %v", err)
+	}
+	answerer, err := runtimeids.ParseSessionID("bf18c402-c6d0-4f32-8e0d-01e34cbfc273")
+	if err != nil {
+		t.Fatal(err)
+	}
+	completion := questionCompletion(
+		t,
+		"question",
+		[]string{"option"},
+		&session.QuestionAnswerRecord{SelectedOptionNumber: sessionViewIntPointer(1)},
+	)
+	completion.AnsweredBySessionID = &answerer
+	if _, receipt, err := eventLog.AppendRecord(nil, completion); err != nil || !receipt.Committed {
+		t.Fatalf("append v1 Question answer: receipt=%+v error=%v", receipt, err)
+	}
+	reopened, err := sessionViewTestPersistence.Open(store.Dir())
+	if err != nil {
+		t.Fatalf("reopen Session: %v", err)
+	}
+	sub, err := NewService(newTestSessionResolver(reopened), nil, nil).
+		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
+			SessionId: reopened.Meta().SessionID, MaxHandoffs: 1,
+		})
+	if err != nil {
+		t.Fatalf("subscribe reloaded v1 Question history: %v", err)
+	}
+	defer sub.Close()
+	_ = nextQuestionHistoryEvent(t, sub)
+	question := nextQuestionHistoryEvent(t, sub).GetQuestion()
+	if question == nil ||
+		question.Question != "question" ||
+		question.Answer != "flattened" ||
+		question.AnsweredBySessionId == nil ||
+		*question.AnsweredBySessionId != answerer.String() {
+		t.Fatalf("reloaded v1 Question history = %#v", question)
 	}
 }
 

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"core/shared/clientui"
+	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"encoding/json"
@@ -685,6 +686,29 @@ func callAskQuestionTool(t *testing.T, b *AskQuestionBroker, id string, input st
 		t.Fatalf("unexpected call error: %v", err)
 	}
 	return result
+}
+
+func TestAskQuestionToolCarriesAnswererSeparatelyFromAnswerContent(t *testing.T) {
+	answerer := runtimeids.NewSessionID()
+	answerText := "Keep the current behavior."
+	broker := NewAskQuestionBroker()
+	broker.SetAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
+		return AskQuestionAnswer{
+			Freeform:            &answerText,
+			AnsweredBySessionID: &answerer,
+		}, nil
+	})
+
+	result := callAskQuestionTool(t, broker, "agent-answer", `{"question":"What should we do?"}`)
+	if result.AnsweredBySessionID == nil || *result.AnsweredBySessionID != answerer {
+		t.Fatalf("result answerer = %v, want %s", result.AnsweredBySessionID, answerer)
+	}
+	if result.QuestionAnswer == nil ||
+		result.QuestionAnswer.AnsweredBySessionID != nil ||
+		result.QuestionAnswer.Freeform == nil ||
+		*result.QuestionAnswer.Freeform != answerText {
+		t.Fatalf("structured Question answer = %+v, want answer content without a duplicate actor", result.QuestionAnswer)
+	}
 }
 
 func TestToolCallSerializesResponsesAsPlainText(t *testing.T) {

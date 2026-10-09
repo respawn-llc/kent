@@ -867,16 +867,17 @@ func decodeEventRecordPayloadV2(
 		return decodeEventRecordPayloadV1(kind, decode)
 	}
 	var wire struct {
-		CallID         string                       `json:"call_id"`
-		Name           string                       `json:"name"`
-		OutputKind     ToolOutputKind               `json:"output_kind"`
-		IsError        *bool                        `json:"is_error"`
-		Output         json.RawMessage              `json:"output"`
-		Summary        *string                      `json:"summary,omitempty"`
-		CondensedText  *string                      `json:"condensed_text,omitempty"`
-		Presentation   json.RawMessage              `json:"presentation,omitempty"`
-		ProviderItems  []ToolCompletionProviderItem `json:"provider_items,omitempty"`
-		QuestionAnswer *QuestionAnswerRecord        `json:"question_answer,omitempty"`
+		CallID              string                       `json:"call_id"`
+		Name                string                       `json:"name"`
+		OutputKind          ToolOutputKind               `json:"output_kind"`
+		IsError             *bool                        `json:"is_error"`
+		Output              json.RawMessage              `json:"output"`
+		Summary             *string                      `json:"summary,omitempty"`
+		CondensedText       *string                      `json:"condensed_text,omitempty"`
+		Presentation        json.RawMessage              `json:"presentation,omitempty"`
+		ProviderItems       []ToolCompletionProviderItem `json:"provider_items,omitempty"`
+		QuestionAnswer      *QuestionAnswerRecord        `json:"question_answer,omitempty"`
+		AnsweredBySessionID *runtimeids.SessionID        `json:"answered_by_session_id,omitempty"`
 	}
 	if err := decode(&wire); err != nil {
 		return nil, fmt.Errorf("decode %s payload: %w", kind, err)
@@ -889,6 +890,7 @@ func decodeEventRecordPayloadV2(
 		IsError: *wire.IsError, Output: wire.Output, Summary: wire.Summary,
 		CondensedText: wire.CondensedText, Presentation: wire.Presentation,
 		ProviderItems: wire.ProviderItems, QuestionAnswer: wire.QuestionAnswer,
+		AnsweredBySessionID: wire.AnsweredBySessionID,
 	}, nil
 }
 
@@ -919,15 +921,16 @@ func decodeEventRecordPayloadV1(
 			return nil, fmt.Errorf("decode %s payload: is_error is required", kind)
 		}
 		completion := ToolCompletionRecord{
-			CallID:        wire.CallID,
-			Name:          wire.Name,
-			OutputKind:    wire.OutputKind,
-			IsError:       *wire.IsError,
-			Output:        wire.Output,
-			Summary:       wire.Summary,
-			CondensedText: wire.CondensedText,
-			Presentation:  wire.Presentation,
-			ProviderItems: wire.ProviderItems,
+			CallID:              wire.CallID,
+			Name:                wire.Name,
+			OutputKind:          wire.OutputKind,
+			IsError:             *wire.IsError,
+			Output:              wire.Output,
+			Summary:             wire.Summary,
+			CondensedText:       wire.CondensedText,
+			Presentation:        wire.Presentation,
+			ProviderItems:       wire.ProviderItems,
+			AnsweredBySessionID: wire.AnsweredBySessionID,
 		}
 		payload = completion
 	case EventKindLocalEntry:

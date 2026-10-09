@@ -340,7 +340,8 @@ func TestQuestionsAliasDispatchesQuestionCommand(t *testing.T) {
 }
 
 func TestQuestionAnswerSubmitsThenReconcilesWithoutWorkflowDeadline(t *testing.T) {
-	unsetSessionIDEnvironmentForTest(t)
+	invokingSessionID := uuid.NewString()
+	t.Setenv(sessionenv.SessionIDEnv, invokingSessionID)
 	sessionID := uuid.NewString()
 	readCount := 0
 	checkTransportDeadline := func(ctx context.Context) error {
@@ -390,6 +391,9 @@ func TestQuestionAnswerSubmitsThenReconcilesWithoutWorkflowDeadline(t *testing.T
 		t.Fatalf("answer requests = %+v", remote.answerRequests)
 	}
 	request := remote.answerRequests[0]
+	if request.InvokingSessionId == nil || *request.InvokingSessionId != invokingSessionID {
+		t.Fatalf("invoking Session ID = %v, want %q independently of target %q", request.InvokingSessionId, invokingSessionID, request.SessionId)
+	}
 	entry := requireQuestionBatchEntry(t, request)
 	if request.SessionId != sessionID || request.StepId != questionCommandStepID().String() || entry.ToolCallId != "ask-1" {
 		t.Fatalf("answer target = %+v", request)

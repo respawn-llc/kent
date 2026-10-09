@@ -1309,6 +1309,7 @@ func cloneToolResult(result tools.Result) tools.Result {
 	copyResult.Output = append(json.RawMessage(nil), result.Output...)
 	copyResult.Presentation = clonePersistedToolCallMeta(result.Presentation)
 	copyResult.QuestionAnswer = cloneAskQuestionAnswer(result.QuestionAnswer)
+	copyResult.AnsweredBySessionID = cloneOptionalRuntimeSessionID(result.AnsweredBySessionID)
 	return copyResult
 }
 

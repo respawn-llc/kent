@@ -719,6 +719,84 @@ func TestRuntimeScopedToolCompletionProjectsLiveAndHydratedWithoutExactStep(t *t
 	}
 }
 
+func TestQuestionAnswererProjectsAcrossLiveHydrationAndPageRows(t *testing.T) {
+	answerer, err := runtimeids.ParseSessionID("bf18c402-c6d0-4f32-8e0d-01e34cbfc273")
+	if err != nil {
+		t.Fatal(err)
+	}
+	presentation := transcript.NormalizeToolCallMeta(transcript.ToolCallMeta{
+		ToolName:     string(toolspec.ToolAskQuestion),
+		Presentation: transcript.ToolPresentationAskQuestion,
+		Question:     "Choose",
+		Suggestions:  []string{"option"},
+	})
+	result := tools.Result{
+		CallID:              "call-question",
+		Name:                toolspec.ToolAskQuestion,
+		Output:              json.RawMessage(`"Agent answered"`),
+		Presentation:        &presentation,
+		AnsweredBySessionID: &answerer,
+	}
+	live, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
+		Kind:                runtime.EventToolCallCompleted,
+		ToolResult:          &result,
+		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 1},
+	})
+	if err != nil {
+		t.Fatalf("project live Question completion: %v", err)
+	}
+	if len(live) != 1 || live[0].GetCommittedRow().GetTool() == nil {
+		t.Fatalf("live Question rows = %+v, want one ToolRow", live)
+	}
+	assertQuestionAnswererToolRow(t, live[0].GetCommittedRow().GetTool(), answerer)
+
+	provenance := &runtime.TranscriptCommittedRowProvenance{EventSequence: 1}
+	snapshot := runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{
+		Visibility:          transcript.EntryVisibilityOngoingCollapsed,
+		Role:                "tool_result_ok",
+		Text:                "Agent answered",
+		ToolCallID:          "call-question",
+		ToolCall:            &presentation,
+		AnsweredBySessionID: &answerer,
+		CommittedProvenance: provenance,
+	}}}
+	page, err := TranscriptPageFromSegment(
+		"12345678-1234-4234-8234-123456789012",
+		"session",
+		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
+		runtime.TranscriptSegmentPage{Snapshot: snapshot},
+	)
+	if err != nil {
+		t.Fatalf("project Question page: %v", err)
+	}
+	if len(page.Entries) != 1 || page.Entries[0].GetTool() == nil {
+		t.Fatalf("Question page rows = %+v, want one ToolRow", page.Entries)
+	}
+	assertQuestionAnswererToolRow(t, page.Entries[0].GetTool(), answerer)
+
+	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
+		CommittedRows: runtime.TranscriptCommittedRowFactsFromSnapshot(snapshot),
+	})
+	if len(hydration.TailSegment.Entries) != 1 || hydration.TailSegment.Entries[0].GetTool() == nil {
+		t.Fatalf("Question hydration rows = %+v, want one ToolRow", hydration.TailSegment.Entries)
+	}
+	assertQuestionAnswererToolRow(t, hydration.TailSegment.Entries[0].GetTool(), answerer)
+}
+
+func assertQuestionAnswererToolRow(
+	t *testing.T,
+	row *transcriptpb.ToolRow,
+	answerer runtimeids.SessionID,
+) {
+	t.Helper()
+	if row == nil ||
+		row.AnsweredBySessionId == nil ||
+		*row.AnsweredBySessionId != answerer.String() ||
+		row.QuestionAnswer != nil {
+		t.Fatalf("Question ToolRow = %+v, want answerer %s and no structured answer", row, answerer)
+	}
+}
+
 func TestTranscriptCommittedReasoningEventCarriesDedicatedPayload(t *testing.T) {
 	part := int64(0)
 	durationMs := int64(321)

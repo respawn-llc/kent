@@ -72,6 +72,7 @@ func (s *questionHistorySubscription) Next(ctx context.Context) (*sessionpb.Ques
 				SelectedOptionNumber: selected,
 				Commentary:           question.Commentary,
 				CommittedAt:          at,
+				AnsweredBySessionId:  protoapi.OptionalSessionIDToProto(question.AnsweredBySessionID),
 			}},
 		}
 		return event, protoapi.Validate(event)

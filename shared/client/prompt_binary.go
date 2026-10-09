@@ -27,6 +27,13 @@ func (c *Remote) AnswerPromptBatch(ctx context.Context, request *promptpb.Answer
 	response, err := callGeneratedBinary(c, ctx,
 		bootstrapMethod(promptpb.File_kent_api_prompt_prompt_proto, "AnswerService", "AnswerBatch"),
 		request, &promptpb.AnswerBatchResult{}, func(failure *promptpb.AnswerBatchError) error {
+			if details := failure.GetParentQuestionAnswerRejected(); details != nil {
+				rejected, err := protoapi.ParentQuestionAnswerRejectedFromProto(details)
+				if err != nil {
+					return err
+				}
+				return rejected
+			}
 			return runtimeControlGeneratedError(failure)
 		})
 	if err != nil {

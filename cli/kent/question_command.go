@@ -350,6 +350,11 @@ func answerQuestionThroughBatch(
 	stdout io.Writer,
 	stderr io.Writer,
 ) int {
+	invokingSessionID, err := workflowTaskInvokingSessionID()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	entry, err := questionBatchAnswer(question, option, commentary)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -371,13 +376,23 @@ func answerQuestionThroughBatch(
 	}
 	defer func() { _ = watch.Close() }()
 	request := &promptpb.AnswerBatchRequest{
-		SessionId: question.SessionID.String(),
-		StepId:    question.StepID.String(),
-		Entries:   []*promptpb.AnswerBatchEntry{entry},
+		SessionId:         question.SessionID.String(),
+		StepId:            question.StepID.String(),
+		Entries:           []*promptpb.AnswerBatchEntry{entry},
+		InvokingSessionId: invokingSessionID,
 	}
 	response, err := remote.AnswerPromptBatch(answerCtx, request)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		var rejected *serverapi.ParentQuestionAnswerRejectedError
+		if errors.As(err, &rejected) {
+			fmt.Fprintf(
+				stderr,
+				"You are a sub-agent trying to answer a question from your parent session %s. This question is likely intended for someone else. Do not answer questions you are not authorized to answer.\n",
+				rejected.QuestionSessionID,
+			)
+		} else {
+			fmt.Fprintln(stderr, err)
+		}
 		return 1
 	}
 	if err := protoapi.ValidatePromptAnswerBatchResponse(request, response); err != nil {
