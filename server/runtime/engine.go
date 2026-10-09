@@ -425,16 +425,35 @@ func (e *Engine) BeginRetirement() bool {
 	if e.lifecycleClosed || e.closed.Load() {
 		return true
 	}
-	if e.stepLifecycle.IsBusy() ||
-		e.HasQueuedUserWork() ||
-		e.HasScheduledQueuedUserWork() ||
-		e.CurrentNodeExecutionConfigured() ||
-		e.ReviewerActive() ||
-		!e.runtimeFIFO.beginCloseIfIdle() {
+	if e.hasRetirementBlockers() || !e.runtimeFIFO.beginCloseIfIdle() {
 		return false
 	}
 	e.closed.Store(true)
 	return true
+}
+
+// HasRetirementBlockers reports current Runtime activity that would prevent
+// BeginRetirement. BeginRetirement remains authoritative and rechecks while
+// closing admission.
+func (e *Engine) HasRetirementBlockers() bool {
+	if e == nil {
+		return false
+	}
+	e.ensureOrchestrationCollaborators()
+	e.lifecycleMu.Lock()
+	defer e.lifecycleMu.Unlock()
+	if e.lifecycleClosed || e.closed.Load() {
+		return false
+	}
+	return e.hasRetirementBlockers() || e.runtimeFIFO.Pending()
+}
+
+func (e *Engine) hasRetirementBlockers() bool {
+	return e.stepLifecycle.IsBusy() ||
+		e.HasQueuedUserWork() ||
+		e.HasScheduledQueuedUserWork() ||
+		e.CurrentNodeExecutionConfigured() ||
+		e.ReviewerActive()
 }
 
 func (e *Engine) closeAdmissionAfterRuntimeAbort() {

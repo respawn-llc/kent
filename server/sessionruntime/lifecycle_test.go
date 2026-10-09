@@ -904,6 +904,11 @@ func TestNilAuthorityHasNoBlockingRuntimeActivity(t *testing.T) {
 	if err != nil || active {
 		t.Fatalf("nil authority blocking activity = (%t, %v), want (false, nil)", active, err)
 	}
+
+	active, err = fixture.authority.HasBlockingRuntimeActivity(context.Background(), fixture.store.Meta().SessionID)
+	if err != nil || active {
+		t.Fatalf("dormant Session blocking activity = (%t, %v), want (false, nil)", active, err)
+	}
 }
 
 func TestAuthorityMaintenanceRequiresEveryActiveBlockAuthorization(t *testing.T) {

@@ -1649,7 +1649,7 @@ func (s *Service) DeleteTaskWorktree(ctx context.Context, req DeleteTaskWorktree
 	if _, err := deletionSelector(entry); err != nil {
 		return DeleteTaskWorktreeResponse{}, err
 	}
-	if err := s.checkDeleteTargetActivity(ctx, &record, &record.CanonicalRoot); err != nil {
+	if err := s.checkDeleteTargetActivity(ctx, &record, &record.CanonicalRoot, s.authority.HasBlockingRuntimeActivity); err != nil {
 		return DeleteTaskWorktreeResponse{}, err
 	}
 	var target syncedWorktree
