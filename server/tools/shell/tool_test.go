@@ -575,7 +575,7 @@ func TestWriteStdinPollingPreservesTerminalLifecycleForAllCompletionShapes(t *te
 			workspace := t.TempDir()
 			manager := newShellTestManager(t, 50*time.Millisecond)
 			execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-			pollTool := NewWriteStdinTool(16_000, 200_000, manager)
+			pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
 
 			start := callExecCommand(t, execTool, "poll-start", map[string]any{
 				"cmd":           tt.command,
@@ -624,7 +624,7 @@ func TestWriteStdinRejectsShortTimedOutputPolls(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
 	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-	pollTool := NewWriteStdinTool(16_000, 200_000, manager)
+	pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
 
 	start := callExecCommand(t, execTool, "short-poll-start", map[string]any{
 		"cmd":           "sleep 0.15",
@@ -681,7 +681,7 @@ func TestWriteStdinRejectsShortTimedOutputPolls(t *testing.T) {
 func TestWriteStdinCancellationReportsActiveProcess(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newBackgroundTestManager(t)
-	pollTool := NewWriteStdinTool(16_000, 200_000, manager)
+	pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
 
 	result, err := manager.Start(context.Background(), ExecRequest{
 		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
@@ -884,7 +884,7 @@ func TestExecCommandReportsNonZeroExitCode(t *testing.T) {
 func TestWriteStdinWarnsAndRetriesWhenFullLogReadFails(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
-	pollTool := NewWriteStdinTool(16_000, 200_000, manager)
+	pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
 
 	result, err := manager.Start(context.Background(), ExecRequest{
 		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
@@ -993,7 +993,7 @@ func TestWriteStdinPollHonorsRequestedDuration(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
 	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-	pollTool := NewWriteStdinTool(16_000, 200_000, manager)
+	pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
 
 	result := callExecCommand(t, execTool, "poll-duration-exec", map[string]any{
 		"cmd":           "read line; sleep 0.6",
@@ -1051,7 +1051,7 @@ func TestWriteStdinWhitespaceInputRemainsInputAtLongWaits(t *testing.T) {
 			workspace := t.TempDir()
 			manager := newShellTestManager(t, 50*time.Millisecond)
 			execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-			stdinTool := NewWriteStdinTool(16_000, 200_000, manager)
+			stdinTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
 
 			start := callExecCommand(t, execTool, "whitespace-input-start", map[string]any{
 				"cmd":           "read line; sleep 0.6",
@@ -1138,7 +1138,7 @@ func TestWriteStdinRawSessionAddsPresentationMetadata(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
 	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-	stdinTool := NewWriteStdinTool(16_000, 200_000, manager)
+	stdinTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
 
 	result := callExecCommand(t, execTool, "raw-tty-1", map[string]any{
 		"cmd":           "read line; printf '\\033[31m%s\\033[0m' \"$line\"",
@@ -1170,7 +1170,7 @@ func TestWriteStdinSendsInputToInteractiveProcess(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
 	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-	stdinTool := NewWriteStdinTool(16_000, 200_000, manager)
+	stdinTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
 
 	result := callExecCommand(t, execTool, "tty-1", map[string]any{
 		"cmd":           "read line; echo $line",
@@ -1209,7 +1209,7 @@ func TestWriteStdinCompletionTruncationSetsPresentationMetadata(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
 	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-	stdinTool := NewWriteStdinTool(16_000, 200_000, manager)
+	stdinTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
 
 	result := callExecCommand(t, execTool, "tty-trunc-1", map[string]any{
 		"cmd":           "read line; printf '%s' \"$line\"",
@@ -1241,7 +1241,7 @@ func TestWriteStdinPreservesBackgroundSummaryTruncationMetadata(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
 	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-	stdinTool := NewWriteStdinTool(16_000, 200_000, manager)
+	stdinTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
 
 	result := callExecCommand(t, execTool, "tty-summary-trunc-1", map[string]any{
 		"cmd":           "read line; head -c 2200000 /dev/zero | tr '\\0' x",

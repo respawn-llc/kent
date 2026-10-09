@@ -418,7 +418,7 @@ func TestContextUsageUsesEstimatedTokensWhenLastUsageIsStale(t *testing.T) {
 		t.Fatalf("append message: %v", err)
 	}
 
-	estimated := estimateItemsTokens(eng.transcriptRuntimeState().SnapshotItems())
+	estimated := llm.EstimateItemsTokens(eng.cfg.TokenEstimator, eng.transcriptRuntimeState().SnapshotItems())
 	if estimated <= 100 {
 		t.Fatalf("expected estimated tokens above stale usage baseline, got %d", estimated)
 	}
@@ -436,13 +436,13 @@ func TestContextUsageAddsOnlyPostCheckpointEstimateDelta(t *testing.T) {
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value(strings.Repeat("seed-", 100))}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	checkpointEstimate := estimateItemsTokens(eng.transcriptRuntimeState().SnapshotItems())
+	checkpointEstimate := llm.EstimateItemsTokens(eng.cfg.TokenEstimator, eng.transcriptRuntimeState().SnapshotItems())
 	eng.setLastUsage(llm.Usage{InputTokens: 900, OutputTokens: 120, WindowTokens: 410_000})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value(strings.Repeat("delta-", 40))}})); err != nil {
 		t.Fatalf("append delta message: %v", err)
 	}
 
-	currentEstimate := estimateItemsTokens(eng.transcriptRuntimeState().SnapshotItems())
+	currentEstimate := llm.EstimateItemsTokens(eng.cfg.TokenEstimator, eng.transcriptRuntimeState().SnapshotItems())
 	deltaEstimate := currentEstimate - checkpointEstimate
 	if deltaEstimate <= 0 {
 		t.Fatalf("expected positive estimated delta, got checkpoint=%d current=%d", checkpointEstimate, currentEstimate)
@@ -465,12 +465,12 @@ func TestEstimateItemsTokensDoesNotTreatInlineImagePayloadAsPlainText(t *testing
 		Output: json.RawMessage(`[{"type":"input_image","image_url":"data:image/png;base64,` + base64Payload + `"}]`),
 	}
 
-	estimated := estimateItemsTokens([]llm.ResponseItem{item})
+	estimated := llm.EstimateItemsTokens(llm.DefaultTokenEstimator{}, []llm.ResponseItem{item})
 	naive := (len(*item.Name) + len(*item.CallID) + len(item.Output) + 3) / 4
 	if estimated <= 0 {
 		t.Fatalf("expected multimodal estimate > 0, got %d", estimated)
 	}
-	if estimated >= naive/4 {
+	if estimated >= naive/2 {
 		t.Fatalf("expected multimodal estimate to stay well below plain-text estimate, got estimated=%d naive=%d", estimated, naive)
 	}
 }

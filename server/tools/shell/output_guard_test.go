@@ -13,6 +13,7 @@ import (
 	"core/server/tools"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
+	"core/shared/textutil"
 )
 
 func assertOversizedOutputFailure(t *testing.T, result tools.Result, logPath string) {
@@ -55,6 +56,41 @@ func TestExecCommandGuardPreservesOutputPathPresentationAndLog(t *testing.T) {
 	}
 	exitCode := 7
 	assertGuardedPresentation(t, result, true, false, &exitCode)
+}
+
+func TestExecCommandGuardUsesSelectedPlaintextEstimator(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		estimate  func(string) int
+		cap       *int
+		wantError bool
+	}{
+		{"eligible higher estimate", func(text string) int { return len(text) / 2 }, textutil.Value(11), true},
+		{"eligible within threshold", func(text string) int { return len(text) / 3 }, textutil.Value(11), false},
+		{"omitted cap", func(text string) int { return len(text) / 2 }, nil, false},
+		{"cap at threshold", func(text string) int { return len(text) / 2 }, textutil.Value(10), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manager := newBackgroundTestManager(t)
+			tool := NewExecCommandToolWithConfig(t.TempDir(), 16_000, 20, manager, "", ExecCommandToolConfig{
+				EstimateText: test.estimate,
+				Postprocessor: postprocessfixture.NewRunner(t, postprocess.Settings{
+					Mode: config.ShellPostprocessingModeBuiltin,
+				}),
+			})
+			input := map[string]any{
+				"cmd": "printf '123456789012345678901234567890'", "shell": "/bin/sh",
+				"login": false, "raw": true, "yield_time_ms": 1_000,
+			}
+			if test.cap != nil {
+				input["max_output_tokens"] = *test.cap
+			}
+			result := callExecCommand(t, tool, "selected-estimator", input)
+			if result.IsError != test.wantError {
+				t.Fatalf("guarded = %t, want %t", result.IsError, test.wantError)
+			}
+		})
+	}
 }
 
 func TestExecCommandGuardBoundariesAndOrdinaryTruncation(t *testing.T) {
@@ -113,7 +149,7 @@ func TestRunningExecCommandGuardPreservesLifecycleAndIndependentPoll(t *testing.
 	if log, err := os.ReadFile(snapshot.LogPath); err != nil || string(log) != output {
 		t.Fatalf("retained output = %q, error=%v", log, err)
 	}
-	if poll := callWriteStdin(t, NewWriteStdinTool(16_000, 40, manager), "later", map[string]any{
+	if poll := callWriteStdin(t, NewWriteStdinTool(16_000, 40, manager, nil), "later", map[string]any{
 		"session_id": 1000, "yield_time_ms": 15_000, "max_output_tokens": 19,
 	}); poll.IsError {
 		t.Fatalf("independent poll = %s", poll.Output)
@@ -125,11 +161,14 @@ func TestWriteStdinGuardPreservesRunningCompletedEscapedAndIndependentPolls(t *t
 	tests := []struct {
 		name, command, output, chars string
 		running, later, guarded      bool
+		estimate                     func(string) int
 	}{
-		{"running", "read line; printf '" + plain + "'; sleep 0.8", plain, "go\n", true, true, true},
-		{"completed", "sleep 0.1; printf '" + plain + "'", plain, "", false, false, true},
-		{"escaped within plaintext limit", "read line; printf '%s' '" + strings.Repeat(`"\`, 20) + "'; sleep 0.8", strings.Repeat(`"\`, 20), "go\n", true, true, false},
-		{"escaped oversized", "read line; printf '%s' '" + strings.Repeat(`"\`, 40) + "'; sleep 0.8", strings.Repeat(`"\`, 40), "go\n", true, true, true},
+		{"running", "read line; printf '" + plain + "'; sleep 0.8", plain, "go\n", true, true, true, nil},
+		{"completed", "sleep 0.1; printf '" + plain + "'", plain, "", false, false, true, nil},
+		{"escaped within plaintext limit", "read line; printf '%s' '" + strings.Repeat(`"\`, 20) + "'; sleep 0.8", strings.Repeat(`"\`, 20), "go\n", true, true, false, nil},
+		{"escaped oversized", "read line; printf '%s' '" + strings.Repeat(`"\`, 40) + "'; sleep 0.8", strings.Repeat(`"\`, 40), "go\n", true, true, true, nil},
+		{"selected higher estimate", "read line; printf '123456789012345678901234567890'; sleep 0.8", "123456789012345678901234567890", "go\n", true, true, true, func(text string) int { return len(text) }},
+		{"selected lower estimate", "read line; printf '" + plain + "'; sleep 0.8", plain, "go\n", true, true, false, func(text string) int { return len(text) / 8 }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -156,7 +195,7 @@ func TestWriteStdinGuardPreservesRunningCompletedEscapedAndIndependentPolls(t *t
 			if test.chars != "" {
 				input["chars"], input["yield_time_ms"] = test.chars, 50
 			}
-			result := callWriteStdin(t, NewWriteStdinTool(16_000, 40, manager), "poll", input)
+			result := callWriteStdin(t, NewWriteStdinTool(16_000, 40, manager, test.estimate), "poll", input)
 			if test.guarded {
 				assertOversizedOutputFailure(t, result, snapshot.LogPath)
 			} else if result.IsError || !strings.Contains(decodeStringToolOutput(t, result), test.output) {
@@ -171,7 +210,7 @@ func TestWriteStdinGuardPreservesRunningCompletedEscapedAndIndependentPolls(t *t
 					t.Fatalf("guarded snapshot = %+v, error=%v", current, err)
 				}
 			}
-			if test.later && callWriteStdin(t, NewWriteStdinTool(16_000, 40, manager), "later", map[string]any{
+			if test.later && callWriteStdin(t, NewWriteStdinTool(16_000, 40, manager, nil), "later", map[string]any{
 				"session_id": sessionID, "yield_time_ms": 15_000, "max_output_tokens": 19,
 			}).IsError {
 				t.Fatal("later independent poll returned an error")

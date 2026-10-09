@@ -126,6 +126,14 @@ func NewRuntimeWiringWithBackground(
 	if opts.ProviderCapabilitiesOverride != nil {
 		providerCapabilities = *opts.ProviderCapabilitiesOverride
 	}
+	connection, err := active.SelectedConnection()
+	if err != nil {
+		return nil, err
+	}
+	tokenEstimator, err := llm.ResolveConnectionTokenEstimator(connection)
+	if err != nil {
+		return nil, err
+	}
 	var client llm.Client
 	if opts.Client != nil {
 		client = opts.Client
@@ -175,6 +183,7 @@ func NewRuntimeWiringWithBackground(
 		MinimumExecToBgTime: time.Duration(active.MinimumExecToBgSeconds) * time.Second,
 		ShellOutputMaxChars: active.ShellOutputMaxChars,
 		ModelContextWindow:  active.ModelContextWindow,
+		EstimateText:        tokenEstimator.EstimateText,
 		AllowNonCwdEdits:    active.AllowNonCwdEdits,
 		SupportsVision: func() bool {
 			if locked := store.Meta().Locked; locked != nil {
@@ -214,6 +223,7 @@ func NewRuntimeWiringWithBackground(
 	}
 	eng, err = runtime.New(store, eventLog, client, toolRegistry, runtime.Config{
 		Model:                           active.Model,
+		TokenEstimator:                  tokenEstimator,
 		Debug:                           active.Debug,
 		Temperature:                     1,
 		MaxTokens:                       0,

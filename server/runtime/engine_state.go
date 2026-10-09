@@ -992,6 +992,9 @@ func (e *Engine) transcriptRuntimeState() *transcriptRuntimeState {
 	defer e.mu.Unlock()
 	if e.transcriptState == nil {
 		e.transcriptState = newTranscriptRuntimeState(transcriptWorkingDir(e.cfg.TranscriptWorkingDir, e.store.Meta().WorkspaceRoot))
+		if e.cfg.TokenEstimator != nil {
+			e.transcriptState.chatProjection().bindTokenEstimator(e.cfg.TokenEstimator)
+		}
 	}
 	return e.transcriptState
 }

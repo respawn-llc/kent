@@ -73,6 +73,7 @@ func normalizeCacheWarningMode(mode config.CacheWarningMode) (config.CacheWarnin
 
 type Config struct {
 	Model                           string
+	TokenEstimator                  llm.TokenEstimator
 	Debug                           bool
 	Temperature                     float64
 	MaxTokens                       int
@@ -229,6 +230,9 @@ func New(
 		return nil, ErrModelRequired
 	}
 	cfg.Model = strings.TrimSpace(cfg.Model)
+	if cfg.TokenEstimator == nil {
+		cfg.TokenEstimator = llm.DefaultTokenEstimator{}
+	}
 	if cfg.Temperature == 0 {
 		cfg.Temperature = 1
 	}
@@ -291,6 +295,7 @@ func New(
 		currentNodeExecution:        newCurrentNodeExecutionState(),
 		compactionPlanner:           newCompactionPlanner(),
 	}
+	eng.transcriptState.chatProjection().bindTokenEstimator(cfg.TokenEstimator)
 	eng.compactionRuntimeState().SetContextFacts(store.ContextFacts())
 	providerCapabilities, err := eng.providerCapabilities(context.Background())
 	if err != nil {
@@ -1121,7 +1126,7 @@ func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID
 		}
 		resp, err := e.generateWithRetryClient(ctx, stepID, e.llm, req, wrappedDelta, wrappedReasoningDelta, onAttemptReset)
 		if err == nil {
-			return newSuccessfulRequestCandidate(req, resp), nil
+			return newSuccessfulRequestCandidate(e.cfg.TokenEstimator, req, resp), nil
 		}
 		if !llm.HasHTTPStatus(err, 400) {
 			return successfulRequestCandidate{}, err
