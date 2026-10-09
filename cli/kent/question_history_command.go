@@ -175,6 +175,11 @@ func writeQuestionHistoryHumanItem(stdout io.Writer, question *sessionpb.Questio
 	} else if _, err := fmt.Fprintf(stdout, "Answer: %s\n", question.Answer); err != nil {
 		return err
 	}
+	if question.AnsweredBySessionId != nil {
+		if _, err := fmt.Fprintf(stdout, "Answered by agent %s\n", *question.AnsweredBySessionId); err != nil {
+			return err
+		}
+	}
 	if question.Commentary != nil {
 		if _, err := fmt.Fprintf(stdout, "Commentary: %s\n", *question.Commentary); err != nil {
 			return err
@@ -241,6 +246,7 @@ func streamQuestionHistoryJSON(
 				Answer:               question.Answer,
 				SelectedOptionNumber: question.SelectedOptionNumber,
 				Commentary:           question.Commentary,
+				AnsweredBySessionID:  question.AnsweredBySessionId,
 			}
 			if question.CommittedAt != nil {
 				at := question.CommittedAt.AsTime().UTC()
@@ -270,5 +276,6 @@ type questionHistoryJSONRecord struct {
 	Answer               string     `json:"answer"`
 	SelectedOptionNumber *int32     `json:"selected_option_number"`
 	Commentary           *string    `json:"commentary"`
+	AnsweredBySessionID  *string    `json:"answered_by_session_id"`
 	At                   *time.Time `json:"at"`
 }

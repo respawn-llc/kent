@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 	"core/shared/transcript"
 )
@@ -176,6 +177,62 @@ func TestEventLogVersionMatrixClassification(t *testing.T) {
 			t.Fatalf("future-header classification = %#v, error = %#v", classification, unsupported)
 		}
 	})
+}
+
+func TestEventLogVersionMatrixPreservesQuestionAnswerer(t *testing.T) {
+	for _, version := range []int{EventLogVersionV1, EventLogVersionV2} {
+		t.Run(eventLogVersionTestName(version), func(t *testing.T) {
+			answerer, err := runtimeids.ParseSessionID("bf18c402-c6d0-4f32-8e0d-01e34cbfc273")
+			if err != nil {
+				t.Fatal(err)
+			}
+			completion := ToolCompletionRecord{
+				CallID:              "call-question",
+				Name:                "ask_question",
+				OutputKind:          ToolOutputKindFunction,
+				Output:              json.RawMessage(`"Agent answered"`),
+				Presentation:        json.RawMessage(`{"ToolName":"ask_question","Question":"Choose","Suggestions":["one"]}`),
+				QuestionAnswer:      &QuestionAnswerRecord{SelectedOptionNumber: intPointer(1)},
+				AnsweredBySessionID: &answerer,
+			}
+			var record EventRecord
+			if version == EventLogVersionV1 {
+				record, err = NewEventRecord(1, nil, completion)
+			} else {
+				committedAt := transcript.CommittedAtUnixMs(1)
+				record, err = newEventRecord(1, nil, completion, &committedAt)
+			}
+			if err != nil {
+				t.Fatalf("create Question completion: %v", err)
+			}
+
+			path := filepath.Join(t.TempDir(), eventsFile)
+			writeVersionedEventLog(t, path, version, []EventRecord{record})
+			reopened, err := openCurrentEventLog(path, currentEventLogReadOnly)
+			if err != nil {
+				t.Fatalf("reopen v%d event log: %v", version, err)
+			}
+			window, err := reopened.readRecentRecords(1, 128)
+			if err != nil || len(window.Records) != 1 {
+				t.Fatalf("read v%d Question completion: records=%d error=%v", version, len(window.Records), err)
+			}
+			payload, err := window.Records[0].Payload()
+			if err != nil {
+				t.Fatalf("decode persisted v%d completion: %v", version, err)
+			}
+			persisted := payload.(ToolCompletionRecord)
+			if persisted.AnsweredBySessionID == nil ||
+				persisted.AnsweredBySessionID.String() != answerer.String() {
+				t.Fatalf("v%d answerer = %v, want %s", version, persisted.AnsweredBySessionID, answerer)
+			}
+			if version == EventLogVersionV1 && persisted.QuestionAnswer != nil {
+				t.Fatalf("v1 Question answer = %#v, want absent", persisted.QuestionAnswer)
+			}
+			if version == EventLogVersionV2 && persisted.QuestionAnswer == nil {
+				t.Fatal("v2 Question completion dropped structured answer facts")
+			}
+		})
+	}
 }
 
 func TestEventLogVersionMatrixHeaderlessLegacyTransformsToV1(t *testing.T) {

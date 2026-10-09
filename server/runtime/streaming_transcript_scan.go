@@ -111,14 +111,15 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 			return nil
 		}
 		s.completions[callID] = tools.Result{
-			CallID:         completion.CallID,
-			Name:           toolspec.ID(completion.Name),
-			IsError:        completion.IsError,
-			Output:         completion.Output,
-			Summary:        completion.Summary,
-			CondensedText:  completion.CondensedText,
-			Presentation:   completion.Presentation,
-			QuestionAnswer: cloneAskQuestionAnswer(completion.QuestionAnswer),
+			CallID:              completion.CallID,
+			Name:                toolspec.ID(completion.Name),
+			IsError:             completion.IsError,
+			Output:              completion.Output,
+			Summary:             completion.Summary,
+			CondensedText:       completion.CondensedText,
+			Presentation:        completion.Presentation,
+			QuestionAnswer:      cloneAskQuestionAnswer(completion.QuestionAnswer),
+			AnsweredBySessionID: cloneOptionalRuntimeSessionID(completion.AnsweredBySessionID),
 		}
 		provenance, provenanceErr := transcriptProvenanceFromRecord(record)
 		if provenanceErr != nil {
