@@ -73,7 +73,7 @@ export const englishResources = {
       copyFailed: "Could not copy transcript content.",
       answeredByAgent: "Answered by agent",
       copyAnswererSessionID: "Copy answering agent Session ID",
-      answererSessionIDCopied: "Copied answering agent Session ID",
+      answererSessionIDCopied: "Copied to clipboard",
       answererSessionIDCopyFailed: "Could not copy answering agent Session ID",
       edit: "Edit in a new Session",
       editFailed: "Could not create an edited Session.",

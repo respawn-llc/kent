@@ -387,8 +387,7 @@ func answerQuestionThroughBatch(
 		if errors.As(err, &rejected) {
 			fmt.Fprintf(
 				stderr,
-				"You are sub-agent Session %s trying to answer a Question from your parent Session %s. This Question is likely intended for the human. Do not answer Questions you are not authorized to answer.\n",
-				rejected.AnsweringSessionID,
+				"You are a sub-agent trying to answer a question from your parent session %s. This question is likely intended for the human. Do not answer questions you are not authorized to answer.\n",
 				rejected.QuestionSessionID,
 			)
 		} else {
