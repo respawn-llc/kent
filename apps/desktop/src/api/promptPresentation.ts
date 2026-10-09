@@ -9,8 +9,18 @@ import type { PendingAsk } from "./models";
 import type { PendingPrompt } from "./promptModels";
 
 export function orderPendingPrompts(prompts: readonly PendingPrompt[]): readonly PendingPrompt[] {
+  const stepCreatedAt = new Map<string, number>();
+  for (const prompt of prompts) {
+    const createdAt = Date.parse(prompt.createdAt);
+    const previous = stepCreatedAt.get(prompt.stepID);
+    if (previous === undefined || createdAt < previous) stepCreatedAt.set(prompt.stepID, createdAt);
+  }
   return [...prompts].sort((left, right) => {
-    if (left.stepID !== right.stepID) return left.stepID.localeCompare(right.stepID);
+    if (left.stepID !== right.stepID) {
+      const chronological =
+        required(stepCreatedAt.get(left.stepID)) - required(stepCreatedAt.get(right.stepID));
+      return chronological || left.stepID.localeCompare(right.stepID);
+    }
     const leftOrdinal = left.batch?.toolCallIDs.indexOf(left.toolCallID);
     const rightOrdinal = right.batch?.toolCallIDs.indexOf(right.toolCallID);
     const leftPrepared = leftOrdinal !== undefined && leftOrdinal >= 0;

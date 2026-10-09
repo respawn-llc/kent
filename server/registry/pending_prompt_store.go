@@ -217,11 +217,24 @@ func (s *pendingPromptStore) load(sessionID string) map[string]PendingPromptSnap
 
 func listPendingPrompts(pending map[string]PendingPromptSnapshot) []PendingPromptSnapshot {
 	items := make([]PendingPromptSnapshot, 0, len(pending))
+	stepCreatedAt := make(map[string]time.Time)
 	for _, item := range pending {
 		items = append(items, clonePendingPromptSnapshot(item))
+		createdAt, exists := stepCreatedAt[item.Request.StepID]
+		if !exists || item.CreatedAt.Before(createdAt) {
+			stepCreatedAt[item.Request.StepID] = item.CreatedAt
+		}
 	}
 	sort.Slice(items, func(i, j int) bool {
-		return sessionruntime.PendingPromptOrderLess(items[i].Request, items[i].CreatedAt, items[j].Request, items[j].CreatedAt)
+		left, right := items[i], items[j]
+		if left.Request.StepID != right.Request.StepID {
+			leftTime, rightTime := stepCreatedAt[left.Request.StepID], stepCreatedAt[right.Request.StepID]
+			if !leftTime.Equal(rightTime) {
+				return leftTime.Before(rightTime)
+			}
+			return left.Request.StepID < right.Request.StepID
+		}
+		return sessionruntime.SameStepPendingPromptOrderLess(left.Request, left.CreatedAt, right.Request, right.CreatedAt)
 	})
 	return items
 }

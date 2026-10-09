@@ -13,6 +13,19 @@ import (
 	"core/shared/runtimeids"
 )
 
+func TestPendingPromptStepGroupsAreChronological(t *testing.T) {
+	oldStep := "ffffffff-ffff-4fff-8fff-ffffffffffff"
+	newStep := "11111111-1111-4111-8111-111111111111"
+	pending := map[string]PendingPromptSnapshot{
+		"old": {Request: askquestion.AskQuestionRequest{StepID: oldStep, ToolCallID: "old"}, CreatedAt: time.Unix(1, 0)},
+		"new": {Request: askquestion.AskQuestionRequest{StepID: newStep, ToolCallID: "new"}, CreatedAt: time.Unix(2, 0)},
+	}
+	items := listPendingPrompts(pending)
+	if items[0].Request.StepID != oldStep {
+		t.Fatal("newer Step was ordered before older Step")
+	}
+}
+
 func TestPendingPromptsRetainOriginalBatchReadinessAcrossExternalAnswers(t *testing.T) {
 	store := &pendingPromptStore{}
 	resource := registryTestResourceRef("batch-session")
