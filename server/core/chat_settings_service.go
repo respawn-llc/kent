@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"core/server/sessionlaunch"
+	"core/shared/apicontract"
 	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/runtimeids"
@@ -14,6 +15,33 @@ import (
 
 type chatSettingsService struct {
 	core *Core
+}
+
+func (s chatSettingsService) SubscribeChatSettings(ctx context.Context, req *chatsettingspb.SubscribeRequest) (apicontract.ChatSettingsSubscription, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
+	}
+	id, err := runtimeids.ParseSessionID(req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	service, err := s.sessionSettingsService(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	return service.SubscribeChatSettings(ctx, id)
+}
+
+func (s chatSettingsService) PublishSessionSettings(ctx context.Context, sessionID string) error {
+	id, err := runtimeids.ParseSessionID(sessionID)
+	if err != nil {
+		return err
+	}
+	service, err := s.sessionSettingsService(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	return service.PublishSessionSettings(ctx, id)
 }
 
 func (s chatSettingsService) ReadChatSettings(

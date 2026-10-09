@@ -18,6 +18,7 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -79,7 +80,7 @@ func (s controlledRunPrompt) RunPrompt(ctx context.Context, _ serverapi.RunPromp
 	select {
 	case <-s.release:
 		return &runpromptpb.Success{
-			SessionId: s.sessionID, SessionName: "Session", Result: "final answer",
+			SessionId: s.sessionID, SessionName: proto.String("Session"), Result: "final answer",
 			Duration: durationpb.New(time.Millisecond), SelectionWarnings: s.selectionWarnings,
 		}, nil
 	case <-ctx.Done():

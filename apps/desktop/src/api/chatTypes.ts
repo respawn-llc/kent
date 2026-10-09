@@ -1,5 +1,6 @@
 import type { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import type { ApiSubscription } from "./apiService";
+import type * as Stream from "effect/Stream";
 import type { PendingPrompt } from "./promptModels";
 import type { PromptAnswerBatchInput, PromptAnswerBatchResponse } from "./clientInputs";
 import type {
@@ -10,6 +11,8 @@ import type {
   ChatGoalSetTarget,
 } from "./chatGoal";
 import type {
+  ChatSettings,
+  ChatSettingsSessionFacts,
   ChatSettingsRead,
   ChatSettingsMutation,
   ChatSettingsMutationResponse,
@@ -200,7 +203,20 @@ export type ChatGoalObservationHandler = Readonly<{
 }>;
 export type ChatRuntimeAttachment = Readonly<{ sessionID: string; generation: number }>;
 export type ChatRuntimeRelease = Readonly<{ released: boolean; active: boolean }>;
+export type ChatSessionNameMutation = Readonly<{ kind: "set"; name: string }> | Readonly<{ kind: "clear" }>;
+export type ChatSettingsSnapshot = Readonly<{
+  sessionName: string | null;
+  settings: ChatSettings;
+  session: ChatSettingsSessionFacts;
+}>;
+export type ChatSettingsObservation =
+  Readonly<{ kind: "snapshot"; snapshot: ChatSettingsSnapshot }> | Readonly<{ kind: "error"; error: Error }>;
 export type ChatApi = Readonly<{
+  subscribeSettings(
+    target: ChatSessionTarget,
+    reportOverflow: () => Promise<void>,
+  ): Stream.Stream<ChatSettingsObservation>;
+  setSessionName(target: ChatSessionTarget, mutation: ChatSessionNameMutation): Promise<void>;
   getCommandCatalog(
     target: ChatSettingsTarget,
   ): Promise<readonly Readonly<{ name: string; preview: string }>[]>;

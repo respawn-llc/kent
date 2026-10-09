@@ -114,6 +114,26 @@ it("preserves editing before a workspace resolves and admits no early actions", 
   expect(view.result.current.composer.text).toBe("before workspace");
 });
 
+it("restores manually typed New Chat naming without creating a Session", async () => {
+  const view = setup();
+  const setName = vi.spyOn(view.services.api.chat, "setSessionName");
+  await waitFor(() => {
+    expect(view.result.current.settings.kind).toBe("ready-new-chat");
+  });
+  act(() => {
+    view.result.current.composer.edit("/name Later");
+  });
+  expect(view.result.current.composer.suggestions).toEqual([]);
+  await act(async () => {
+    view.result.current.composer.submit("send");
+  });
+  expect(view.result.current.composer.text).toBe("/name Later");
+  expect(view.result.current.target?.kind).toBe("new_chat");
+  expect(setName).not.toHaveBeenCalled();
+  expect(view.steer).not.toHaveBeenCalled();
+  expect(view.queue).not.toHaveBeenCalled();
+});
+
 it("hides Processes discovery until adoption while rejecting typed activation without creating a Session", async () => {
   const view = setup();
   await waitFor(() => {

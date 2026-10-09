@@ -329,7 +329,7 @@ func TestEventLogVersionMatrixForkCloneAndDiagnosticCopyPreserveSourceVersion(t 
 			}
 			assertEventLogVersion(t, filepath.Join(forked.Dir(), eventsFile), version)
 
-			cloned, err := CloneSession(parent, "clone", sessioncontract.SessionCategoryMain, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+			cloned, err := CloneSession(parent, new("clone"), sessioncontract.SessionCategoryMain, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 			if err != nil {
 				t.Fatalf("clone v%d Session: %v", version, err)
 			}

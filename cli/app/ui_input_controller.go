@@ -121,7 +121,7 @@ func (m *uiModel) scheduleSpinnerTick(token uint64, now time.Time) tea.Cmd {
 func (c uiInputController) interruptBusyRuntime() tea.Cmd {
 	m := c.model
 	m.setPendingInterrupt(true)
-	return m.runtimeControlCommand(runtimeControlInterrupt, "", false, "")
+	return m.runtimeControlCommand(runtimeControlInterrupt, nil)
 }
 
 func parseUserShellCommand(text string) (string, bool) {

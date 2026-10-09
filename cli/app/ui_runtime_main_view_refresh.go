@@ -102,9 +102,7 @@ func (m *uiModel) applyRuntimeSessionMetadata(session *runtimepb.SessionView) te
 	if nextSessionID != "" {
 		m.sessionID = nextSessionID
 	}
-	if strings.TrimSpace(session.GetSessionName()) != "" {
-		m.sessionName = strings.TrimSpace(session.GetSessionName())
-	}
+	m.sessionName = session.SessionName
 	m.conversationFreshness = session.ConversationFreshness
 	if previousSessionID == "" || nextSessionID == "" || previousSessionID == nextSessionID {
 		return nil

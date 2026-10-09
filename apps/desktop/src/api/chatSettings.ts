@@ -190,7 +190,7 @@ export function context(value: Context): ChatContext {
   };
 }
 
-function settings(value: Settings): ChatSettings {
+export function settings(value: Settings): ChatSettings {
   const agent = required(value.selectedAgent);
   return {
     selectedAgent: { role: agent.role, model: agent.model, thinking: agent.thinking },
@@ -203,7 +203,7 @@ function settings(value: Settings): ChatSettings {
   };
 }
 
-function sessionFacts(value: SessionFacts, sessionID: string): ChatSettingsSessionFacts {
+export function sessionFacts(value: SessionFacts, sessionID: string): ChatSettingsSessionFacts {
   if (value.sessionId !== sessionID) {
     throw new ContractError("Chat Settings response Session does not match the request.");
   }

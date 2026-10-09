@@ -16,7 +16,7 @@ func TestExecuteBuiltins(t *testing.T) {
 		"/exit":                     {Handled: true, Action: ActionExit},
 		"/compact":                  {Handled: true, Action: ActionCompact},
 		"/compact keep API details": {Handled: true, Action: ActionCompact, Args: "keep API details"},
-		"/name incident triage":     {Handled: true, Action: ActionSetName, SessionName: "incident triage"},
+		"/name incident triage":     {Handled: true, Action: ActionSetName, Args: "incident triage"},
 		"/name":                     {Handled: true, Action: ActionSetName},
 		"/thinking HIGH":            {Handled: true, Action: ActionSetThinking, ThinkingLevel: "high"},
 		"/thinking":                 {Handled: true, Action: ActionSetThinking},

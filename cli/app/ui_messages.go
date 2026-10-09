@@ -89,7 +89,7 @@ type runtimeControlDoneMsg struct {
 	token        uint64
 	sessionID    string
 	operation    runtimeControlOperation
-	text         string
+	name         *runtimepb.SessionNameMutation
 	runtimeTuple *runtimeTupleCandidate
 	err          error
 }

@@ -27,7 +27,7 @@ func TestResolvePersistedSessionRejectsEscapingArtifactRelpath(t *testing.T) {
 		WorkspaceID:          sql.NullString{String: binding.WorkspaceID, Valid: true},
 		WorktreeID:           sql.NullString{},
 		ArtifactRelpath:      "../escape",
-		Name:                 "",
+		Name:                 sql.NullString{},
 		FirstPromptPreview:   "",
 		InputDraft:           "",
 		PreviousSessionID:    sql.NullString{},
@@ -274,8 +274,29 @@ func TestObservedSessionMetadataPersistencePreservesExecutionTarget(t *testing.T
 	if err != nil {
 		t.Fatalf("session.OpenByID: %v", err)
 	}
-	if err := reopened.SetName("hello"); err != nil {
+	if err := reopened.SetName(metadataStringPointer("  hello  ")); err != nil {
 		t.Fatalf("SetName: %v", err)
+	}
+	record, err := store.ResolvePersistedSession(ctx, sess.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Meta.Name == nil || *record.Meta.Name != "hello" {
+		t.Fatalf("persisted name = %v, want normalized name", record.Meta.Name)
+	}
+	if err := reopened.SetName(nil); err != nil {
+		t.Fatal(err)
+	}
+	record, err = store.ResolvePersistedSession(ctx, sess.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleared, err := session.OpenResolved(record, store.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.Meta().Name != nil {
+		t.Fatalf("reopened name = %v, want absent", cleared.Meta().Name)
 	}
 	target, err := store.ResolveSessionExecutionTarget(ctx, sess.Meta().SessionID)
 	if err != nil {
@@ -400,7 +421,7 @@ func TestSessionLaunchVisibilityTransitions(t *testing.T) {
 			wantName:    "incident triage",
 			mutate: func(t *testing.T, _ *Store, _ config.App, _ Binding, sess *session.Store) {
 				t.Helper()
-				if err := sess.SetName("incident triage"); err != nil {
+				if err := sess.SetName(metadataStringPointer("incident triage")); err != nil {
 					t.Fatalf("SetName: %v", err)
 				}
 			},

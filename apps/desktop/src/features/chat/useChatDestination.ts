@@ -7,6 +7,7 @@ import { createChatDestinationViewModel, type ChatDestinationOpening } from "./C
 import { useChatSettings, type ChatSettingsNavigation } from "./useChatSettings";
 import { useChatComposer } from "./useChatComposer";
 import { promptCommands } from "./promptCommands";
+import { createNameCommand } from "./nameCommand";
 import { useWorktreeCommands } from "./WorktreeCommands";
 import { useOwnedSidebarRoots, useStatusController } from "@/app-facade";
 import { useStableCallback } from "@/ui";
@@ -77,7 +78,7 @@ export function useChatDestination({
               return { kind: "local" };
             },
           }
-        : { kind: "unavailable", notify: openProcesses },
+        : { kind: "unavailable", draft: "discard", notify: openProcesses },
   };
   const selection = useAtomValue(model.selection);
   const adoptAction = useAtomSet(model.adopt);
@@ -106,6 +107,19 @@ export function useChatDestination({
       ...promptCommands(catalog.data ?? [], t),
       ...worktreeCommands.commands,
       processesCommand,
+      createNameCommand({
+        api: services.api.chat,
+        existingSession: target?.kind === "session",
+        description: t("chatComposer.commands.name"),
+        notify: () => {
+          push({
+            id: "name-session-required",
+            tone: "danger",
+            title: t("chatComposer.submitFailed"),
+            body: t("chatComposer.nameSessionRequired"),
+          });
+        },
+      }),
       ...commands,
     ],
     catalog,
@@ -141,6 +155,7 @@ export function useChatDestination({
   return {
     target,
     settings,
+    settingsModel: model.settings,
     composer,
     adopt,
     selectWorkspace,

@@ -195,8 +195,8 @@ func TestStatusRefreshCmdSchedulesBaseEnrichmentForProgressiveCollector(t *testi
 	if !ok {
 		t.Fatalf("batched message type = %T, want statusBaseRefreshDoneMsg", batch[0]())
 	}
-	if baseMsg.snapshot.PreviousSessionName != "incident-root" {
-		t.Fatalf("previous session name = %q", baseMsg.snapshot.PreviousSessionName)
+	if baseMsg.snapshot.PreviousSessionName == nil || *baseMsg.snapshot.PreviousSessionName != "incident-root" {
+		t.Fatalf("previous session name = %v", baseMsg.snapshot.PreviousSessionName)
 	}
 }
 

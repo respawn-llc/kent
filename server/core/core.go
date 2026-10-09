@@ -303,6 +303,7 @@ func (s *Core) newSessionLaunchService(projectCtx projectContext) *sessionlaunch
 	}, sessionlaunch.ChatSettingsOwner{
 		Authority: s.safeBundles().Runtime.runtimeAuthority,
 		Registry:  s.safeBundles().Runtime.runtimeRegistry,
+		Changes:   s.safeBundles().Sessions.settingsChanges,
 	})
 }
 

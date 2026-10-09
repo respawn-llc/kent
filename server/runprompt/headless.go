@@ -132,7 +132,7 @@ type headlessRuntimePlan struct {
 	sessionID  string
 	submission chan headlessPromptSubmission
 	content    string
-	name       string
+	name       *string
 	onActive   func()
 	agentSteer *runtime.AgentSteer
 }

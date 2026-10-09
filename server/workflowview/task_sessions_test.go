@@ -196,7 +196,7 @@ func insertRetainedTaskSessionForViewTest(
 		ProjectID:        fixture.binding.ProjectID,
 		WorkspaceID:      sql.NullString{String: fixture.binding.WorkspaceID, Valid: true},
 		ArtifactRelpath:  "missing/" + sessionID.String(),
-		Name:             "Session " + sessionID.String(),
+		Name:             sql.NullString{String: "Session " + sessionID.String(), Valid: true},
 		Category:         sql.NullString{String: string(sessioncontract.SessionCategoryMain), Valid: true},
 		CreatedAtUnixMs:  createdAtUnixMs,
 		UpdatedAtUnixMs:  createdAtUnixMs,

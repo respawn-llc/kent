@@ -14,7 +14,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"io"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -151,8 +150,8 @@ func newWorktreeTestModel(t *testing.T, client *worktreeCommandTestClient, opts 
 	allOpts := []UIOption{WithUIWorktreeClient(client), WithUISessionID("session-1")}
 	allOpts = append(allOpts, opts...)
 	model := newProjectedTestUIModel(newWorktreeTestRuntimeClient("session-1"), allOpts...)
-	if runtimeClient, ok := model.runtimeClient().(*sessionRuntimeClient); ok && strings.TrimSpace(model.sessionName) != "" {
-		runtimeClient.storeMainView(&runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: model.sessionID, SessionName: textutil.Value(model.sessionName)}})
+	if runtimeClient, ok := model.runtimeClient().(*sessionRuntimeClient); ok && model.sessionName != nil {
+		runtimeClient.storeMainView(&runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: model.sessionID, SessionName: model.sessionName}})
 	}
 	return model
 }

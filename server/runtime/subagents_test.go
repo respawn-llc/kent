@@ -468,7 +468,7 @@ func runtimeCatalogStoreForPath(t *testing.T, path string) *session.Store {
 		}
 		return forked
 	case "workflow-fan-out-clone":
-		cloned, err := session.CloneSession(mustMaterializeTestEventLog(t, source), "workflow clone", sessioncontract.SessionCategorySubagent, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+		cloned, err := session.CloneSession(mustMaterializeTestEventLog(t, source), new("workflow clone"), sessioncontract.SessionCategorySubagent, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 		if err != nil {
 			t.Fatalf("CloneSession: %v", err)
 		}

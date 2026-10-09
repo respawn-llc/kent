@@ -9,6 +9,7 @@ import type {
   ListPendingWorkError,
   LiveStopError,
   RemovePendingWorkError,
+  SetSessionNameError,
 } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import type {
   SessionResolveTransitionError,
@@ -60,6 +61,7 @@ type ChatWireError =
   | ListPendingWorkError
   | LiveStopError
   | RemovePendingWorkError
+  | SetSessionNameError
   | SessionInitialInputError
   | SessionPersistInputDraftError
   | SessionResolveTransitionError;

@@ -861,7 +861,7 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 	if err != nil {
 		t.Fatalf("session.Create selected: %v", err)
 	}
-	if err := selected.SetName("selected session"); err != nil {
+	if err := selected.SetName(textutil.Value("selected session")); err != nil {
 		t.Fatalf("SetName selected: %v", err)
 	}
 	if err := selected.SetContinuationContext(session.ContinuationContext{AgentRole: &role}); err != nil {

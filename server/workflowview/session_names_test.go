@@ -2,6 +2,7 @@ package workflowview
 
 import (
 	"context"
+	"database/sql"
 	"reflect"
 	"strings"
 	"testing"
@@ -16,8 +17,8 @@ func TestResolveSessionNamesDeduplicatesInputAndMatchesReorderedRowsByExactID(t 
 		func(_ context.Context, ids []string) ([]sqlitegen.ListSessionNamesByIDsRow, error) {
 			queriedIDs = append([]string(nil), ids...)
 			return []sqlitegen.ListSessionNamesByIDsRow{
-				{ID: "session-b", Name: "Second"},
-				{ID: "session-a", Name: "First"},
+				{ID: "session-b", Name: sql.NullString{String: "Second", Valid: true}},
+				{ID: "session-a", Name: sql.NullString{String: "First", Valid: true}},
 			}, nil
 		},
 		[]string{"session-a", "session-b", "session-a"},
@@ -49,34 +50,34 @@ func TestResolveSessionNamesRejectsInvalidInputsAndResults(t *testing.T) {
 		{
 			name:       "blank result ID",
 			sessionIDs: []string{"session-a"},
-			rows:       []sqlitegen.ListSessionNamesByIDsRow{{ID: " ", Name: "Name"}},
+			rows:       []sqlitegen.ListSessionNamesByIDsRow{{ID: " ", Name: sql.NullString{String: "Name", Valid: true}}},
 			wantError:  "blank session id",
 		},
 		{
 			name:       "duplicate result ID",
 			sessionIDs: []string{"session-a"},
 			rows: []sqlitegen.ListSessionNamesByIDsRow{
-				{ID: "session-a", Name: "First"},
-				{ID: "session-a", Name: "Second"},
+				{ID: "session-a", Name: sql.NullString{String: "First", Valid: true}},
+				{ID: "session-a", Name: sql.NullString{String: "Second", Valid: true}},
 			},
 			wantError: "duplicate session",
 		},
 		{
 			name:       "missing result",
 			sessionIDs: []string{"session-a", "session-b"},
-			rows:       []sqlitegen.ListSessionNamesByIDsRow{{ID: "session-a", Name: "First"}},
+			rows:       []sqlitegen.ListSessionNamesByIDsRow{{ID: "session-a", Name: sql.NullString{String: "First", Valid: true}}},
 			wantError:  "session \"session-b\" has no persisted metadata",
 		},
 		{
 			name:       "non-empty whitespace name",
 			sessionIDs: []string{"session-a"},
-			rows:       []sqlitegen.ListSessionNamesByIDsRow{{ID: "session-a", Name: " "}},
+			rows:       []sqlitegen.ListSessionNamesByIDsRow{{ID: "session-a", Name: sql.NullString{String: " ", Valid: true}}},
 			wantError:  "blank name",
 		},
 		{
 			name:       "result ID only differs by whitespace",
 			sessionIDs: []string{"session-a"},
-			rows:       []sqlitegen.ListSessionNamesByIDsRow{{ID: " session-a ", Name: "Name"}},
+			rows:       []sqlitegen.ListSessionNamesByIDsRow{{ID: " session-a ", Name: sql.NullString{String: "Name", Valid: true}}},
 			wantError:  "session \"session-a\" has no persisted metadata",
 		},
 	}
@@ -96,11 +97,11 @@ func TestResolveSessionNamesRejectsInvalidInputsAndResults(t *testing.T) {
 	}
 }
 
-func TestResolveSessionNamesMapsOnlyTheExactEmptySentinelToUnnamed(t *testing.T) {
+func TestResolveSessionNamesPreservesAbsentName(t *testing.T) {
 	names, err := resolveSessionNames(
 		t.Context(),
 		func(context.Context, []string) ([]sqlitegen.ListSessionNamesByIDsRow, error) {
-			return []sqlitegen.ListSessionNamesByIDsRow{{ID: "session-a", Name: ""}}, nil
+			return []sqlitegen.ListSessionNamesByIDsRow{{ID: "session-a"}}, nil
 		},
 		[]string{"session-a"},
 	)
@@ -108,6 +109,6 @@ func TestResolveSessionNamesMapsOnlyTheExactEmptySentinelToUnnamed(t *testing.T)
 		t.Fatalf("resolveSessionNames: %v", err)
 	}
 	if name, exists := names["session-a"]; !exists || name != nil {
-		t.Fatalf("resolved exact-empty Session name = %v, present = %t; want unnamed", name, exists)
+		t.Fatalf("resolved Session name = %v, present = %t; want unnamed", name, exists)
 	}
 }

@@ -3,6 +3,7 @@ package app
 import (
 	"core/cli/app/commands"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	"core/shared/textutil"
 	"errors"
 	tea "github.com/charmbracelet/bubbletea"
 	"testing"
@@ -19,7 +20,7 @@ func refreshSlashCommandFilterForTest(t *testing.T, m *uiModel) {
 
 func TestSlashCommandEnterIgnoresWhitespaceImmediatelyAfterSlash(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.sessionName = "existing"
+	m.sessionName = textutil.Value("existing")
 	testSetMainInput(m, "/ name")
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -27,8 +28,8 @@ func TestSlashCommandEnterIgnoresWhitespaceImmediatelyAfterSlash(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected /name command to update the window title")
 	}
-	if updated.sessionName != "" {
-		t.Fatalf("expected / name to behave like /name with empty args, got %q", updated.sessionName)
+	if updated.sessionName != nil {
+		t.Fatalf("expected / name to behave like /name with empty args, got %v", updated.sessionName)
 	}
 	if testMainInput(updated) != "" {
 		t.Fatalf("expected input cleared after slash command execution, got %q", testMainInput(updated))

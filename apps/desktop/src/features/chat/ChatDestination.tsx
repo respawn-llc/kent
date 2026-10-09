@@ -29,6 +29,7 @@ import { WorktreeControl } from "./WorktreeControl";
 import { useWorktreeList } from "./useWorktreeList";
 import { ChatProcessesChip } from "./ChatProcessesChip";
 import { chatOperationFailureMessage } from "./chatSettingsPresentation";
+import { useSessionSettingsObservation } from "./useSessionSettingsObservation";
 
 export function ChatDestination(
   props: Readonly<{
@@ -83,6 +84,7 @@ function ChatDestinationShell({
   const client = useQueryClient();
   const { push } = useStatusController();
   const target = destination.target?.kind === "session" ? destination.target : null;
+  useSessionSettingsObservation(target, destination.settingsModel);
   const executionTarget = mainView.kind === "session" ? (mainView.data?.executionTarget ?? null) : null;
   const worktrees = useWorktreeList(target?.sessionID ?? null, executionTarget, "chat-label");
   const newGoal = destination.goalState;

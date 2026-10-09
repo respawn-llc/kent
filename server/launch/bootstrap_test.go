@@ -8,6 +8,7 @@ import (
 	"core/server/metadata"
 	"core/server/session"
 	"core/shared/config"
+	"core/shared/textutil"
 )
 
 func TestResolveBootstrapPlanUsesSessionWorkspace(t *testing.T) {
@@ -127,7 +128,7 @@ func TestResolveBootstrapPlanUsesReboundWorkspaceRootFromMetadataAuthority(t *te
 	}
 	projectSessionsDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	store := createTestSessionInContainer(t, projectSessionsDir, filepath.Base(projectSessionsDir), cfg.WorkspaceRoot, metadataStore.AuthoritativeSessionStoreOptions()...)
-	if err := store.SetName("hello"); err != nil {
+	if err := store.SetName(textutil.Value("hello")); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
 	if err := store.EnsureDurable(); err != nil {

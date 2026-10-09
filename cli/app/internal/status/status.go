@@ -46,7 +46,7 @@ type Request struct {
 	CacheKeys             CacheKeys
 	AuthStatus            apicontract.AuthStatusService
 	AuthSelection         *authpb.ProviderSelection
-	SessionName           string
+	SessionName           *string
 	SessionID             string
 	AgentRole             *string
 	ConfiguredModelName   *string
@@ -64,13 +64,13 @@ type Request struct {
 type Snapshot struct {
 	CollectedAt            time.Time
 	Workdir                string
-	SessionName            string
+	SessionName            *string
 	SessionID              string
 	AgentRole              *string
 	PreviousSessionID      *runtimeids.SessionID
-	PreviousSessionName    string
+	PreviousSessionName    *string
 	ParentAgentSessionID   *runtimeids.SessionID
-	ParentAgentSessionName string
+	ParentAgentSessionName *string
 	Git                    GitInfo
 	Auth                   AuthInfo
 	Context                ContextInfo

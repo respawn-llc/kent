@@ -23,10 +23,10 @@ func (m *uiModel) applySessionSettingFeedback(feedback *transcriptpb.SessionSett
 func sessionSettingFeedbackNotice(feedback *transcriptpb.SessionSettingFeedback) string {
 	switch feedback.Kind {
 	case transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME:
-		if feedback.GetSessionName() == "" {
+		if feedback.GetSessionName().Name == nil {
 			return "Session name reset"
 		}
-		return "Session name: " + feedback.GetSessionName()
+		return "Session name: " + *feedback.GetSessionName().Name
 	case transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_THINKING:
 		return "Thinking: " + feedback.GetThinking()
 	case transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_FAST_MODE:

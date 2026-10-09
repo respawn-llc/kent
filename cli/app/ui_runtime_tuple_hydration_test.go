@@ -393,7 +393,7 @@ func TestHydrationAdmissionSerializesUnaryAndInterruptTupleCommitsUntilWholeEven
 	}
 	assertRuntimeTupleView(t, runtimeClient.MainView(), wantV11)
 
-	interruptCommand := m.runtimeControlCommand(runtimeControlInterrupt, "", false, "")
+	interruptCommand := m.runtimeControlCommand(runtimeControlInterrupt, nil)
 	interruptMessage, ok := interruptCommand().(runtimeControlDoneMsg)
 	if !ok {
 		t.Fatalf("interrupt command returned an unexpected message")

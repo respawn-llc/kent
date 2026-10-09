@@ -116,7 +116,7 @@ func (o *blockingOrderedSessionObserver) ObservePersistedStore(ctx context.Conte
 	if err := o.store.ImportSessionSnapshot(ctx, snapshot); err != nil {
 		return err
 	}
-	o.persisted <- snapshot.Meta.Name
+	o.persisted <- *snapshot.Meta.Name
 	return nil
 }
 
@@ -156,7 +156,7 @@ func TestSessionPersistenceRejectsMissingAuthoritativeExecutionTarget(t *testing
 				SessionDir: sessionStore.Dir(),
 				Meta:       persistedMetaFromMetadata(sessionStore.Meta()),
 			}
-			snapshot.Meta.Name = "must not persist"
+			snapshot.Meta.Name = metadataStringPointer("must not persist")
 			err := metadataStore.ImportSessionSnapshot(t.Context(), snapshot)
 			if !errors.Is(err, test.want) {
 				t.Fatalf("ImportSessionSnapshot error = %v, want %v", err, test.want)
@@ -166,8 +166,8 @@ func TestSessionPersistenceRejectsMissingAuthoritativeExecutionTarget(t *testing
 			if err != nil {
 				t.Fatalf("ResolvePersistedSession: %v", err)
 			}
-			if record.Meta.Name == snapshot.Meta.Name {
-				t.Fatalf("rejected snapshot name persisted: %q", record.Meta.Name)
+			if record.Meta.Name != nil && *record.Meta.Name == *snapshot.Meta.Name {
+				t.Fatalf("rejected snapshot name persisted: %v", record.Meta.Name)
 			}
 		})
 	}
@@ -178,7 +178,7 @@ func TestReadOnlyOpenDoesNotRepublishResolvedSnapshot(t *testing.T) {
 	metadataStore, cfg, binding := newMetadataTestStore(t)
 	sessionStore := createMetadataTestSession(t, metadataStore, cfg, binding)
 	staleMeta := persistedMetaFromMetadata(sessionStore.Meta())
-	if err := sessionStore.SetName("authoritative name"); err != nil {
+	if err := sessionStore.SetName(metadataStringPointer("authoritative name")); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
 
@@ -197,8 +197,8 @@ func TestReadOnlyOpenDoesNotRepublishResolvedSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolvePersistedSession: %v", err)
 	}
-	if record.Meta.Name != "authoritative name" {
-		t.Fatalf("persisted name = %q, want authoritative name", record.Meta.Name)
+	if record.Meta.Name == nil || *record.Meta.Name != "authoritative name" {
+		t.Fatalf("persisted name = %v, want authoritative name", record.Meta.Name)
 	}
 }
 
@@ -206,7 +206,7 @@ func TestEventUseReconciliationUpdatesOnlyEventLogState(t *testing.T) {
 	t.Parallel()
 	metadataStore, cfg, binding := newMetadataTestStore(t)
 	sessionStore := createMetadataTestSession(t, metadataStore, cfg, binding)
-	if err := sessionStore.SetListingMetadata("authoritative name", "authoritative preview"); err != nil {
+	if err := sessionStore.SetListingMetadata(metadataStringPointer("authoritative name"), "authoritative preview"); err != nil {
 		t.Fatalf("SetListingMetadata: %v", err)
 	}
 	staleMeta := persistedMetaFromMetadata(sessionStore.Meta())
@@ -241,7 +241,7 @@ func TestEventUseReconciliationUpdatesOnlyEventLogState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolvePersistedSession: %v", err)
 	}
-	if record.Meta.Name != "authoritative name" || record.Meta.FirstPromptPreview != "authoritative preview" {
+	if record.Meta.Name == nil || *record.Meta.Name != "authoritative name" || record.Meta.FirstPromptPreview != "authoritative preview" {
 		t.Fatalf("persisted listing metadata = %+v, want authoritative values", record.Meta)
 	}
 	if mustEventLogRevision(eventLog) != 1 {
@@ -384,7 +384,7 @@ func TestEventUseReconciliationDoesNotEraseConcurrentlyPersistedCompactedUsage(t
 	if _, err := eventLog.ReadRecentRecords(1); err != nil {
 		t.Fatalf("read materialized event log: %v", err)
 	}
-	if err := reconciledStore.SetName("post-reconciliation metadata write"); err != nil {
+	if err := reconciledStore.SetName(metadataStringPointer("post-reconciliation metadata write")); err != nil {
 		t.Fatalf("SetName through reconciled store: %v", err)
 	}
 
@@ -427,7 +427,7 @@ func TestConcurrentSessionPersistencePublishesSnapshotsInMutationOrder(t *testin
 	observer.Arm()
 	firstDone := make(chan error, 1)
 	go func() {
-		firstDone <- sessionStore.SetName("first update")
+		firstDone <- sessionStore.SetName(metadataStringPointer("first update"))
 	}()
 	select {
 	case <-observer.blocked:
@@ -437,7 +437,7 @@ func TestConcurrentSessionPersistencePublishesSnapshotsInMutationOrder(t *testin
 
 	secondDone := make(chan error, 1)
 	go func() {
-		secondDone <- sessionStore.SetName("second update")
+		secondDone <- sessionStore.SetName(metadataStringPointer("second update"))
 	}()
 	close(observer.release)
 
@@ -468,7 +468,7 @@ func TestConcurrentSessionPersistencePublishesSnapshotsInMutationOrder(t *testin
 	if err != nil {
 		t.Fatalf("session.OpenByID: %v", err)
 	}
-	if reopened.Meta().Name != "second update" {
-		t.Fatalf("reopened name = %q, want latest mutation", reopened.Meta().Name)
+	if reopened.Meta().Name == nil || *reopened.Meta().Name != "second update" {
+		t.Fatalf("reopened name = %v, want latest mutation", reopened.Meta().Name)
 	}
 }

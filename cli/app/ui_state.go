@@ -169,7 +169,7 @@ type uiSessionTransitionFeatureState struct {
 	nextPreviousSessionID                   *runtimeids.SessionID
 	sessionExecutionTarget                  *worktreepb.SessionExecutionTarget
 	sessionRetargeted                       bool
-	sessionName                             string
+	sessionName                             *string
 	sessionID                               string
 	forcedLocalExit                         bool
 }

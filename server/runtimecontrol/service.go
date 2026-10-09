@@ -34,6 +34,10 @@ type sessionSettingPublisher interface {
 	PublishSessionSettingFeedback(sessionID string, feedback *transcriptpb.SessionSettingFeedback) error
 }
 
+type SessionSettingsPublisher interface {
+	PublishSessionSettings(context.Context, string) error
+}
+
 type PromptHistoryStore interface {
 	RecordPromptHistoryEntry(ctx context.Context, entry metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, error)
 }
@@ -70,6 +74,7 @@ type Service struct {
 	persisted      session.PersistedSessionResolver
 	pendingPrompts promptcontrol.PendingPromptSource
 	attention      servicecontract.AttentionNotificationService
+	settings       SessionSettingsPublisher
 }
 
 type sessionUserTurnRequest struct {
@@ -103,6 +108,11 @@ type goalClearRequest struct {
 
 func NewService(authority *sessionruntime.Authority) *Service {
 	return &Service{authority: authority}
+}
+
+func (s *Service) WithSessionSettingsPublisher(publisher SessionSettingsPublisher) *Service {
+	s.settings = publisher
+	return s
 }
 
 func (s *Service) runAgentExecution(
@@ -316,21 +326,43 @@ func (s *Service) SetSessionName(ctx context.Context, req *runtimepb.SetSessionN
 	if err := protoapi.Validate(req); err != nil {
 		return err
 	}
-	return s.withRuntime(ctx, req.SessionId, func(callbackCtx context.Context, engine *runtime.Engine) error {
-		changed, err := engine.SetSessionName(callbackCtx, req.Name)
-		if err != nil {
-			return err
-		}
-		if publisher, ok := s.activity.(sessionSettingPublisher); ok {
-			name := strings.TrimSpace(req.Name)
-			return publisher.PublishSessionSettingFeedback(req.SessionId, &transcriptpb.SessionSettingFeedback{
-				Kind:    transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME,
-				Changed: changed,
-				Value:   &transcriptpb.SessionSettingFeedback_SessionName{SessionName: name},
-			})
-		}
-		return nil
+	name, err := protoapi.SessionNameFromMutation(req.Mutation)
+	if err != nil {
+		return err
+	}
+	if s == nil || s.authority == nil {
+		return errors.New("Session settings authority is required")
+	}
+	var mutation session.NameMutationResult
+	var resultingName *string
+	var live bool
+	err = s.authority.WithSessionChatSettings(ctx, req.SessionId, func(
+		_ context.Context, store *session.Store, engine *runtime.Engine,
+	) (bool, error) {
+		var err error
+		mutation, err = store.MutateName(name)
+		resultingName = store.Meta().Name
+		live = engine != nil
+		return false, err
 	})
+	if err != nil && !mutation.Committed {
+		return err
+	}
+	if s.settings != nil {
+		responseCtx := context.WithoutCancel(ctx)
+		if publishErr := s.settings.PublishSessionSettings(responseCtx, req.SessionId); publishErr != nil {
+			slog.ErrorContext(responseCtx, "Session settings publication failed after name commit", "session_id", req.SessionId, "error", publishErr)
+		}
+	}
+	if publisher, ok := s.activity.(sessionSettingPublisher); ok && live {
+		publishErr := publisher.PublishSessionSettingFeedback(req.SessionId, &transcriptpb.SessionSettingFeedback{
+			Kind:    transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME,
+			Changed: mutation.Changed,
+			Value:   &transcriptpb.SessionSettingFeedback_SessionName{SessionName: &transcriptpb.SessionNameValue{Name: resultingName}},
+		})
+		return errors.Join(err, publishErr)
+	}
+	return err
 }
 
 func (s *Service) AppendCommittedEntry(ctx context.Context, req *transcriptpb.AppendCommittedEntryRequest) error {

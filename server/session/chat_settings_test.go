@@ -208,7 +208,7 @@ func TestInitializeChatDraftTransfersCompleteAggregateAndRoundTrips(t *testing.T
 		},
 	})
 	meta := store.Meta()
-	if meta.Name != "" || meta.FirstPromptPreview != "" || meta.Locked != nil || meta.ModelRequestCount != 0 {
+	if meta.Name != nil || meta.FirstPromptPreview != "" || meta.Locked != nil || meta.ModelRequestCount != 0 {
 		t.Fatalf("initialized metadata includes accepted-prompt facts: %+v", meta)
 	}
 	if err := store.EnsureDurable(); err != nil {

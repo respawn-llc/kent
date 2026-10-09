@@ -1,11 +1,9 @@
 ---
-title: Slash Commands
-description: Available slash commands, how their input is parsed, and how file-backed custom commands are discovered.
+title: Slash commands
+description: Built-in slash commands and file-backed custom prompts.
 ---
 
-## Terminal commands
-
-Press Tab to autocomplete a command, and Enter to autocomplete and send. Press Tab again when command matches fully to **queue** the command. This allows chains like `"commit" -> [Tab] -> "/compact" -> [Tab] -> "/prompts:open_pr" -> [Tab]`.
+## Commands
 
 | Command                                                                                 | Input                        | What it does                                                                                                                                                       |
 | --------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -14,7 +12,7 @@ Press Tab to autocomplete a command, and Enter to autocomplete and send. Press T
 | `/resume`                                                                               | none                         | Open the session picker without stopping active work in the current session.                                                                                       |
 | `/login`, `/logout`                                                                     | none                         | Manage [provider connections](/authentication/), including sign-in and environment references.                                                                     |
 | `/compact <instructions>`                                                               | optional free-form text      | Compact the current context. Trailing text is passed through as **additional** compaction instructions. Active non-workflow goals continue in the resumed context. |
-| `/name <title>`                                                                         | optional free-form text      | Set the session title. Empty input resets.                                                                                                                         |
+| `/name <title>`                                                                         | optional free-form text      | Set an existing session's title. Blank input clears it. Outer whitespace is trimmed.                                                                               |
 | <code>/thinking &lt;low&#124;medium&#124;high&#124;xhigh&#124;max&#124;ultra&gt;</code> | optional single value        | Set [Thinking](/config/#thinking). Empty input shows the current level.                                                                                            |
 | <code>/fast [on&#124;off&#124;status]</code>                                            | optional single value        | Toggle or inspect fast mode.                                                                                                                                       |
 | <code>/supervisor [on&#124;off]</code>                                                  | optional single value        | Toggle supervisor invocation.                                                                                                                                      |
@@ -35,7 +33,7 @@ Press Tab to autocomplete a command, and Enter to autocomplete and send. Press T
 
 ## File-backed prompt commands
 
-Kent discovers Markdown prompt commands on the server that owns the attached Project Workspace.
+Custom prompt commands come from Markdown files on the connected server.
 
 The effective roots, in descending precedence, are:
 

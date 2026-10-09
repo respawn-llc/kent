@@ -211,7 +211,7 @@ func TestSelectWorkflowTaskPromptForFanoutCloneWithInheritedAssignment(t *testin
 	}
 	clone, err := session.CloneSession(
 		sourceLog,
-		"fanout-clone",
+		new("fanout-clone"),
 		sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 
 	if err != nil {

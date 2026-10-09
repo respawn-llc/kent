@@ -20,6 +20,7 @@ import (
 type ChatSettingsOwner struct {
 	Authority *sessionruntime.Authority
 	Registry  *registry.RuntimeRegistry
+	Changes   *SettingsBroadcaster
 }
 
 func (s *Service) MutateChatSettings(ctx context.Context, sessionID runtimeids.SessionID, operation *chatsettingspb.MutationOperation) (*chatsettingspb.MutationResult, error) {
@@ -51,6 +52,7 @@ func (s *Service) applyChatSettings(
 	}
 	result := &chatsettingspb.MutationResult{Outcome: &chatsettingspb.MutationResult_Applied{Applied: &chatsettingspb.MutationApplied{}}}
 	var changed bool
+	var committed bool
 	err := s.settingsOwner.Authority.WithSessionChatSettings(ctx, sessionID.String(), func(
 		runCtx context.Context,
 		sessionStore *session.Store,
@@ -73,14 +75,15 @@ func (s *Service) applyChatSettings(
 				return false, errors.New("fast mode is not supported by the selected provider connection")
 			}
 		}
-		committed, commitErr := sessionStore.CommitChatSettingsState(projected.State)
-		if commitErr != nil && !committed.Committed {
+		receipt, commitErr := sessionStore.CommitChatSettingsState(projected.State)
+		committed = receipt.Committed
+		if commitErr != nil && !receipt.Committed {
 			return false, commitErr
 		}
 		if commitErr != nil {
 			slog.ErrorContext(runCtx, "Chat settings persistence notification failed after durable commit", "session_id", sessionID.String(), "error", commitErr)
 		}
-		changed = committed.Changed
+		changed = receipt.Changed
 		if engine != nil && sameAgent {
 			if err := engine.AcceptPreparedChatSettings(projected.Effective); err != nil {
 				return false, err
@@ -88,6 +91,12 @@ func (s *Service) applyChatSettings(
 		}
 		return !sameAgent && changed, nil
 	})
+	if committed || (err == nil && result.GetApplied() != nil) {
+		responseCtx := context.WithoutCancel(ctx)
+		if publishErr := s.PublishSessionSettings(responseCtx, sessionID); publishErr != nil {
+			slog.ErrorContext(responseCtx, "Session settings publication failed after settings commit", "session_id", sessionID.String(), "error", publishErr)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}

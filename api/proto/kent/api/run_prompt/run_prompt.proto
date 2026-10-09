@@ -44,7 +44,7 @@ message Request {
 
 message Success {
   string session_id = 1 [(buf.validate.field).string.min_len = 1];
-  string session_name = 2;
+  optional string session_name = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   google.protobuf.Duration duration = 3 [(buf.validate.field).required = true];
   repeated string warnings = 4;
   string result = 5;

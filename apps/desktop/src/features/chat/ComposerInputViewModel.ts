@@ -114,7 +114,9 @@ export function createComposerInputViewModel({
           return;
         }
         if (command.kind === "unavailable") {
-          get.set(draft.edit, "");
+          yield* get.setResult(draft.edit, "");
+          if (command.draft === "restore" && original !== null)
+            input.restore({ text: original, direction: "append" });
           command.notify();
           return;
         }

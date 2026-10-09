@@ -1935,7 +1935,7 @@ func TestManualMoveRetainedSessionPreparationFailurePreservesPromptFacingMetadat
 	if err != nil || after.Meta == nil {
 		t.Fatalf("resolve retained Session after rejected Manual Move: %+v, %v", after, err)
 	}
-	if before.Meta.Name != after.Meta.Name ||
+	if !textutil.EqualOptional(before.Meta.Name, after.Meta.Name) ||
 		before.Meta.FirstPromptPreview != after.Meta.FirstPromptPreview ||
 		!reflect.DeepEqual(before.Meta.Continuation, after.Meta.Continuation) ||
 		!reflect.DeepEqual(before.Meta.ChatSettings, after.Meta.ChatSettings) ||

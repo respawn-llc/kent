@@ -3,9 +3,54 @@ import { createTestServices } from "@/test-support/app-services";
 import { composerWrapper } from "@/test-support/composer";
 import { useChatComposer, target } from "./chatComposerTestFixture";
 import { createChatStorageFixture } from "./chatStorageFixture";
+import { createNameCommand } from "./nameCommand";
+import { deferred } from "@/test-support/chat-runtime";
 
 beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
 afterEach(() => vi.unstubAllGlobals());
+
+it("restores a failed name command after new typing without model delivery", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({
+    input: "/name Retry me",
+    protectedInput: null,
+  });
+  vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+  const response = deferred<undefined>();
+  const setName = vi.spyOn(services.api.chat, "setSessionName").mockReturnValue(response.promise);
+  const steer = vi.spyOn(services.api.chat, "steer");
+  const command = createNameCommand({
+    api: services.api.chat,
+    existingSession: true,
+    description: null,
+    notify: vi.fn(),
+  });
+  const { result } = renderHook(
+    () => useChatComposer({ ...target, submission: { kind: "ready" }, commands: [command] }),
+    { wrapper: composerWrapper(services) },
+  );
+  await waitFor(() => {
+    expect(result.current.draft.kind).toBe("ready");
+  });
+  await act(async () => {
+    result.current.submit("send");
+  });
+  await waitFor(() => {
+    expect(setName).toHaveBeenCalledTimes(1);
+  });
+  expect(result.current.text).toBe("");
+  act(() => {
+    result.current.edit("new text");
+  });
+  await act(async () => {
+    response.reject(new Error("Name request failed"));
+  });
+  await waitFor(() => {
+    expect(result.current.text).toBe("new text\n/name Retry me");
+  });
+  expect(steer).not.toHaveBeenCalled();
+  expect(setName).toHaveBeenCalledTimes(1);
+});
 
 it("restores exact text in either direction and does not add separators for empty input", async () => {
   const services = createTestServices([]);

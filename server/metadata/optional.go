@@ -2,6 +2,13 @@ package metadata
 
 import "database/sql"
 
+func nullableString(value *string) sql.NullString {
+	if value == nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: *value, Valid: true}
+}
+
 // OptionalInt64 converts a nullable SQLite value to an optional domain value.
 func OptionalInt64(value sql.NullInt64) *int64 {
 	if !value.Valid {

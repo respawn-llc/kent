@@ -174,7 +174,7 @@ func importSessionPageFixture(
 		Meta: session.Meta{
 			SessionID:          id,
 			Category:           category,
-			Name:               id,
+			Name:               &id,
 			WorkspaceRoot:      binding.CanonicalRoot,
 			WorkspaceContainer: filepath.Base(binding.CanonicalRoot),
 			CreatedAt:          updatedAt.Add(-time.Hour),

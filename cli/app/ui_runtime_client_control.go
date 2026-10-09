@@ -63,14 +63,18 @@ func runtimeRequestCallNoResult(ctx context.Context, c *sessionRuntimeClient, ca
 	return err
 }
 
-func (c *sessionRuntimeClient) SetSessionName(name string) error {
+func (c *sessionRuntimeClient) SetSessionName(mutation *runtimepb.SessionNameMutation) error {
+	name, err := protoapi.SessionNameFromMutation(mutation)
+	if err != nil {
+		return err
+	}
 	if err := runtimeControlCallNoResult(c, func(ctx context.Context) error {
-		return c.controls.SetSessionName(ctx, &runtimepb.SetSessionNameRequest{SessionId: c.sessionID, Name: name})
+		return c.controls.SetSessionName(ctx, &runtimepb.SetSessionNameRequest{SessionId: c.sessionID, Mutation: mutation})
 	}); err != nil {
 		return err
 	}
 	c.patchMainView(func(view *runtimepb.MainView) {
-		view.Session.SessionName = proto.String(name)
+		view.Session.SessionName = name
 	})
 	return nil
 }

@@ -96,11 +96,11 @@ func TestPlannerHeadlessCreatesNewSessionAndAppliesContinuationContext(t *testin
 	if meta.SessionID == "" {
 		t.Fatal("expected session id")
 	}
-	if !strings.HasSuffix(meta.Name, " "+SubagentSessionSuffix) {
-		t.Fatalf("expected subagent session name, got %q", meta.Name)
+	if meta.Name == nil || !strings.HasSuffix(*meta.Name, " "+SubagentSessionSuffix) {
+		t.Fatalf("expected subagent session name, got %v", meta.Name)
 	}
-	if plan.SessionName == nil || *plan.SessionName != meta.Name {
-		t.Fatalf("expected plan session name %q, got %v", meta.Name, plan.SessionName)
+	if plan.SessionName == nil || meta.Name == nil || *plan.SessionName != *meta.Name {
+		t.Fatalf("expected plan session name %v, got %v", meta.Name, plan.SessionName)
 	}
 	if plan.WorkspaceRoot != "/tmp/workspace-a" {
 		t.Fatalf("expected workspace root passthrough, got %q", plan.WorkspaceRoot)
