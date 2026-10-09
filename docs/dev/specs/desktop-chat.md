@@ -22,6 +22,7 @@
 - When native windows are unavailable, Chat must omit Pop Out. New Chat must omit Pop Out until it has an authoritative Session identity.
 - Native Task Detail must offer Open Chat for each applicable live Session. The action must open or reuse that Session's native Chat window, requesting focus as Pop Out does, and must leave Task Detail open.
 - A native Chat window must retain its Session identity. Its Parent Chat and linked Task Detail actions must open their destinations in the main window and request main-window focus without navigating or closing the native Chat window.
+- When a fresh-conversation command such as `/review` or `/init` creates a child Session in native Chat, Desktop must open or focus the child's own native Chat window and leave the original window on its Session. Main-window Chat must retain its same-window transition to the delivered Session.
 - A native Chat window must initially open at the Chat content maximum width with a 16:9 aspect ratio, constrained to the available screen. It must support resizing, maximizing, and minimizing without always-on-top pinning.
 - Desktop relaunch restores the selected Project and its active Workflows or Sessions tab. It does not reopen Chat or restore Chat transcript/composer presentation state.
 

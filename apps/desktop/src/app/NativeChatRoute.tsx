@@ -40,6 +40,13 @@ export function NativeChatRoute({
       reportFailure(error, t("states.error"));
     }
   });
+  const openChildSession = useStableCallback(async (childSessionID: string) => {
+    try {
+      await openNativeChat(nativeBridge, { projectID, sessionID: childSessionID });
+    } catch (error) {
+      reportFailure(error, t("app.popOutError"));
+    }
+  });
   const navigation = useMemo(
     () => ({
       openTask: async (taskID: string) => requestMainNavigation({ kind: "taskDetail", taskID }),
@@ -49,21 +56,19 @@ export function NativeChatRoute({
           projectID,
           sessionID: previousSessionID,
         }),
-      openEditedSession: async (editedSessionID: string) => {
-        try {
-          await openNativeChat(nativeBridge, { projectID, sessionID: editedSessionID });
-        } catch (error) {
-          reportFailure(error, t("app.popOutError"));
-        }
-      },
+      openEditedSession: openChildSession,
     }),
-    [nativeBridge, projectID, requestMainNavigation, reportFailure, t],
+    [projectID, requestMainNavigation, openChildSession],
   );
   return (
     <SidebarProvider policy={sidebarDestinationPolicy}>
       <NativeChatFrame>
         <SidebarRootOwner>
-          <ChatDestination opening={{ kind: "session", projectID, sessionID }} navigation={navigation} />
+          <ChatDestination
+            opening={{ kind: "session", projectID, sessionID }}
+            navigation={navigation}
+            openCreatedSession={openChildSession}
+          />
         </SidebarRootOwner>
       </NativeChatFrame>
     </SidebarProvider>

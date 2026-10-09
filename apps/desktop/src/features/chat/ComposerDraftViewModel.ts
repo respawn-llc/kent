@@ -139,7 +139,7 @@ export function createComposerDraftViewModel({
   const restore = Atom.fn<ComposerTextRestoration>()(
     (input, get) =>
       Effect.sync(() => {
-        if (get(interactionRestricted)) return;
+        // Accepted request completions and runtime restorations must survive read-only navigation.
         const restored = mergeComposerText(get(text), input.text, input.direction);
         if (restored !== get(text)) get.set(selection, null);
         get.set(editor, {

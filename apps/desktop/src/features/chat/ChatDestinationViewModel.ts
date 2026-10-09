@@ -86,19 +86,29 @@ export function createChatDestinationViewModel({
     t,
     transferPending,
   });
-  const popOut = Atom.fn<Omit<PopOutInput, "target">>()(
+  const popOut = Atom.fn<
+    Omit<PopOutInput, "target"> &
+      Readonly<{
+        editRequest: Atom.Atom<Readonly<{ isPending: boolean }>>;
+      }>
+  >()(
     (input, get) =>
       Effect.gen(function* () {
         const selected = get(target);
         if (
           selected?.kind !== "session" ||
+          get(input.editRequest).isPending ||
           !services.nativeBridge.capabilities.dialogWindows ||
           popOutObserver.getCurrentResult().isPending
         )
           return;
-        yield* Effect.tryPromise(async () => popOutObserver.mutate({ ...input, target: selected })).pipe(
-          Effect.ignore,
-        );
+        yield* Effect.tryPromise(async () =>
+          popOutObserver.mutate({
+            flushDraft: input.flushDraft,
+            onCreated: input.onCreated,
+            target: selected,
+          }),
+        ).pipe(Effect.ignore);
       }),
     { concurrent: true },
   );
@@ -116,10 +126,11 @@ export function createChatDestinationViewModel({
       origin: Pick<ChatSettingsTarget, "kind">;
       rejection: ChatNotAcceptedReason | null;
       delivered?(sessionID: string): void;
+      openCreatedSession?(sessionID: string): Promise<void>;
     }>
   >()(
     (input, get) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         if (input.origin.kind === "new_chat") get.set(composer.draft.consumeNewChat, undefined);
         const current = get(selection);
         if (current.kind === "session" && current.sessionID === input.sessionID) {
@@ -131,6 +142,12 @@ export function createChatDestinationViewModel({
           projectID: opening.projectID,
           sessionID: input.sessionID,
         };
+        const openCreatedSession = input.openCreatedSession;
+        if (current.kind === "session" && openCreatedSession !== undefined) {
+          yield* get.setResult(composer.draft.adopt, session);
+          yield* Effect.promise(async () => openCreatedSession(input.sessionID));
+          return;
+        }
         get.set(selection, session);
         get.set(composer.draft.adopt, session);
         input.delivered?.(input.sessionID);

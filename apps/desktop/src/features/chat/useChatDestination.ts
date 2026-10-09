@@ -21,11 +21,13 @@ export function useChatDestination({
   navigation,
   commands = [],
   onSessionDelivered,
+  openCreatedSession,
 }: Readonly<{
   opening: ChatDestinationOpening;
   navigation: ChatSettingsNavigation;
   commands?: readonly ComposerCommand[];
   onSessionDelivered?(sessionID: string): void;
+  openCreatedSession?(sessionID: string): Promise<void>;
 }>) {
   const services = useAppServices();
   const { t } = useTranslation();
@@ -83,24 +85,25 @@ export function useChatDestination({
         : { kind: "unavailable", notify: openProcesses },
   };
   const selection = useAtomValue(model.selection);
-  const adoptAction = useAtomSet(model.adopt);
+  const adoptAction = useAtomSet(model.adopt, { mode: "promise" });
   const selectWorkspace = useAtomSet(model.selectWorkspace);
   const workspace = useChatWorkspace(selection, selectWorkspace);
   const firstActionPending = useAtomValue(model.firstActionPending);
   const settings = useChatSettings({ model: model.settings, ...navigation });
   const catalog = useAtomValue(model.catalog.read);
   const retryCatalog = useAtomSet(model.catalog.retry);
-  const adopt = (
+  const adopt = async (
     sessionID: string,
     origin: Pick<ChatSettingsTarget, "kind">,
     rejection: ChatNotAcceptedReason | null = null,
   ) => {
     if (mounted.current)
-      adoptAction({
+      return adoptAction({
         sessionID,
         origin,
         rejection,
         ...(onSessionDelivered === undefined ? {} : { delivered: onSessionDelivered }),
+        ...(openCreatedSession === undefined ? {} : { openCreatedSession }),
       });
   };
   const composer = useChatComposer({
@@ -115,8 +118,12 @@ export function useChatDestination({
     retryCatalog: () => {
       retryCatalog(undefined);
     },
-    onDeliveredSession: (result, origin) => {
-      adopt(result.sessionID, origin, result.outcome.kind === "not_accepted" ? result.outcome.reason : null);
+    onDeliveredSession: async (result, origin) => {
+      return adopt(
+        result.sessionID,
+        origin,
+        result.outcome.kind === "not_accepted" ? result.outcome.reason : null,
+      );
     },
   });
   const goalActions = useNewChatGoalActions(model.goal);
@@ -136,7 +143,7 @@ export function useChatDestination({
             goalActions.setGoal({
               objective,
               delivered: (delivery) => {
-                adopt(delivery.target.sessionID, delivery.origin);
+                void adopt(delivery.target.sessionID, delivery.origin);
               },
             }),
         },

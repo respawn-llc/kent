@@ -1,5 +1,7 @@
 import { useContext, useState } from "react";
 import { TaskDetailChatOpeningContext } from "./TaskDetailChatOpening";
+import * as Atom from "effect/reactivity/Atom";
+import { useAtomValue } from "@effect/atom-react";
 import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -36,6 +38,31 @@ export type TaskDraft = Readonly<{
   body: string;
 }>;
 export type SaveTaskDraft = (draft?: TaskDraft, onSaved?: () => void) => void;
+
+const idleChatOpening = Atom.make(false);
+
+function TaskSessionChatButton({
+  sessionID,
+  label,
+  name,
+  onClick,
+}: Readonly<{ sessionID: string; label: string; name: string; onClick(): void }>) {
+  const { t } = useTranslation();
+  const opening = useContext(TaskDetailChatOpeningContext);
+  const pending = useAtomValue(opening?.pending(sessionID) ?? idleChatOpening);
+  return (
+    <Button
+      aria-label={label}
+      disabled={pending}
+      onClick={onClick}
+      title={pending ? t("states.loading") : label}
+      variant="secondary"
+    >
+      {pending && <Spinner size="sm" />}
+      {t("task.openChat", { name })}
+    </Button>
+  );
+}
 
 export function TaskHeaderIsland({
   canSaveDraft,
@@ -316,7 +343,6 @@ function TaskOpenButtons({
   openSessionChat?: TaskDetailSessionChatEntry | undefined;
 }>) {
   const { t } = useTranslation();
-  const chatOpening = useContext(TaskDetailChatOpeningContext);
   const { nativeBridge } = useAppServices();
   const [openError, setOpenError] = useState("");
   const executionRoot = taskExecutionRoot(detail);
@@ -344,9 +370,10 @@ function TaskOpenButtons({
         return (
           <span className="contents" key={session.sessionID}>
             {openSessionChat === undefined ? null : (
-              <Button
-                aria-label={chatLabel}
-                disabled={chatOpening !== null}
+              <TaskSessionChatButton
+                sessionID={session.sessionID}
+                label={chatLabel}
+                name={ellipsizeActionTarget(target)}
                 onClick={() => {
                   setOpenError("");
                   void openSessionChat({ projectID: detail.projectID, sessionID: session.sessionID }).catch(
@@ -355,12 +382,7 @@ function TaskOpenButtons({
                     },
                   );
                 }}
-                title={chatOpening !== null ? t("states.loading") : chatLabel}
-                variant="secondary"
-              >
-                {chatOpening?.sessionID === session.sessionID && <Spinner size="sm" />}
-                {t("task.openChat", { name: ellipsizeActionTarget(target) })}
-              </Button>
+              />
             )}
             {openSessionChat === undefined ? (
               <Button

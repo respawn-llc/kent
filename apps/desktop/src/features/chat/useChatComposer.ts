@@ -29,7 +29,7 @@ export type ChatComposerOptions = Readonly<{
   onDeliveredSession?(
     result: Exclude<ComposerCommandResult, { kind: "local" }>,
     target: ChatMutationTarget,
-  ): void;
+  ): void | Promise<void>;
   commands?: readonly ComposerCommand[];
   catalog?: QuerySnapshot<QueryObserverResult<Awaited<ReturnType<ChatApi["getCommandCatalog"]>>>>;
   retryCatalog?(): void;
@@ -72,9 +72,10 @@ export function useChatComposer(options: ChatComposerOptions) {
   const restoreAction = draftActions.restore;
   const restore = useCallback(
     (incoming: string, direction: "append" | "prepend") => {
+      if (interactionRestricted) return;
       restoreAction({ text: incoming, direction });
     },
-    [restoreAction],
+    [restoreAction, interactionRestricted],
   );
   const flushDraft = useCallback(async () => draftActions.flush(undefined), [draftActions.flush]);
   const pending = useComposerPendingWork(model.pending, restoreAction);
@@ -142,11 +143,11 @@ export function useChatComposer(options: ChatComposerOptions) {
       ...(onDeliveredSession === undefined
         ? {}
         : {
-            delivered: (
+            delivered: async (
               result: Exclude<ComposerCommandResult, { kind: "local" }>,
               target: ChatMutationTarget,
             ) => {
-              if (mounted.current) onDeliveredSession(result, target);
+              if (mounted.current) return onDeliveredSession(result, target);
             },
           }),
     });

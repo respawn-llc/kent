@@ -1,19 +1,12 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { MutationObserver, useQueryClient } from "@tanstack/react-query";
-import { errorMessage } from "@/api";
-import {
-  useAppServices,
-  openNativeChat,
-  queryAction,
-  useQueryAction,
-  useStatusController,
-  type SessionChatTarget,
-} from "@/app-facade";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAtomSet } from "@effect/atom-react";
+import { useAppServices, useStatusController } from "@/app-facade";
 import { desktopChatEnabled } from "@/shared/feature-flags";
 import { TaskDetailSurface } from "./TaskDetailSurface";
 import { useExactTaskDetailDeleteDismissal } from "./taskDetailDismissal";
-import { TaskDetailChatOpeningContext } from "./TaskDetailChatOpening";
+import { createTaskDetailChatOpening, TaskDetailChatOpeningContext } from "./TaskDetailChatOpening";
 
 /**
  * Full-bleed native-window host for a popped-out task detail. Unlike the padded
@@ -23,36 +16,17 @@ import { TaskDetailChatOpeningContext } from "./TaskDetailChatOpening";
  * macOS traffic lights off the content — exactly how the in-app sidebar hosts it.
  */
 export function TaskDetailWindowRoute({ taskID }: Readonly<{ taskID: string }>) {
-  const { nativeBridge } = useAppServices();
+  const services = useAppServices();
+  const { nativeBridge } = services;
   const client = useQueryClient();
   const { push } = useStatusController();
   const { t } = useTranslation();
   const model = useMemo(
-    () =>
-      queryAction(
-        new MutationObserver(client, {
-          mutationFn: async (target: SessionChatTarget) => openNativeChat(nativeBridge, target),
-          retry: false,
-          networkMode: "always",
-          onError: (error) => {
-            push({
-              id: "task-chat-pop-out-error",
-              tone: "danger",
-              title: t("app.popOutError"),
-              body: errorMessage(error),
-            });
-          },
-        }),
-      ),
-    [client, nativeBridge, push, t],
+    () => createTaskDetailChatOpening({ client, services, push, t }),
+    [client, services, push, t],
   );
-  const opening = useQueryAction(model);
-  const openSessionChat =
-    desktopChatEnabled && nativeBridge.capabilities.dialogWindows
-      ? async (target: SessionChatTarget) => {
-          opening.submit(target);
-        }
-      : undefined;
+  const open = useAtomSet(model.open, { mode: "promise" });
+  const openSessionChat = desktopChatEnabled && nativeBridge.capabilities.dialogWindows ? open : undefined;
   const onDeleteDismiss = useExactTaskDetailDeleteDismissal(taskID, async () => {
     await nativeBridge.window.closeCurrent();
   });
@@ -63,7 +37,7 @@ export function TaskDetailWindowRoute({ taskID }: Readonly<{ taskID: string }>) 
         data-tauri-drag-region
       />
       <div className="app-region-no-drag min-h-0 overflow-hidden">
-        <TaskDetailChatOpeningContext.Provider value={opening.isPending ? opening.variables : null}>
+        <TaskDetailChatOpeningContext.Provider value={model}>
           <TaskDetailSurface
             enabled
             onDeleteDismiss={onDeleteDismiss}

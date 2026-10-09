@@ -13,7 +13,7 @@ export function ComposerSendButton() {
     return <PromptSendButton picker={promptPicker} restricted={composer.interactionRestricted} />;
   }
   const reason = composer.interactionRestricted
-    ? t("chat.savingDraft")
+    ? t("chat.navigationPending")
     : composer.draft.kind === "loading"
       ? t("chatComposer.loadingDraft")
       : composer.submission.kind !== "ready"
@@ -41,7 +41,7 @@ function PromptSendButton({
     <SendButton
       enabled={!restricted && !picker.request.isPending && canConfirmPicker(picker.state)}
       pending={restricted || picker.request.isPending}
-      tooltip={t("chatComposer.send")}
+      tooltip={restricted ? t("chat.navigationPending") : t("chatComposer.send")}
       onClick={() => {
         dispatch({ action: { kind: "confirm" } });
       }}

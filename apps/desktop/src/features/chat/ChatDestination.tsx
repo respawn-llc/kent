@@ -37,6 +37,7 @@ export function ChatDestination(
     navigation: ChatDestinationNavigation;
     onSessionDelivered?(sessionID: string): void;
     onPopOutCreated?(projectID: string): Promise<void>;
+    openCreatedSession?(sessionID: string): Promise<void>;
   }>,
 ) {
   const destination = useChatDestination(props);
@@ -111,14 +112,19 @@ function ChatDestinationShell({
       target === null || onPopOutCreated === undefined || !nativeBridge.capabilities.dialogWindows ? null : (
         <IconTooltipButton
           label={t("app.popOut")}
-          tooltip={destination.popOutRequest.isPending ? t("states.loading") : t("app.popOut")}
+          tooltip={
+            destination.popOutRequest.isPending || editRequest.isPending
+              ? t("states.loading")
+              : t("app.popOut")
+          }
           size="icon-sm"
           variant="ghost"
-          disabled={destination.popOutRequest.isPending}
+          disabled={destination.popOutRequest.isPending || editRequest.isPending}
           onClick={() => {
             destination.popOut({
               flushDraft: destination.composer.flushDraft,
               onCreated: onPopOutCreated,
+              editRequest: editModel.request,
             });
           }}
         >
@@ -137,6 +143,8 @@ function ChatDestinationShell({
       destination.popOutRequest.isPending,
       destination.popOut,
       destination.composer.flushDraft,
+      editRequest.isPending,
+      editModel.request,
     ],
   );
   return (
