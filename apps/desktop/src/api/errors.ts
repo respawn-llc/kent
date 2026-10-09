@@ -1,22 +1,20 @@
 import { z } from "zod";
 import type { Message } from "@app/server-api-contract";
 
-import type { JsonValue } from "./json";
-import { rpcErrorCodes } from "./rpcErrorCodes";
 import type { ExecutionDetail } from "./taskExecutionFailure";
 import { taskInitialBranchReason, taskExecutionResolutionCode } from "./workflowProtoValues";
 
 export type RpcErrorInfo = Readonly<{
-  code: number;
+  code: string;
   message: string;
   method: string;
-  data?: JsonValue | Message | undefined;
+  data?: Message | undefined;
 }>;
 
 export class RpcError extends Error {
-  readonly code: number;
+  readonly code: string;
   readonly method: string;
-  readonly data: JsonValue | Message | undefined;
+  readonly data: Message | undefined;
 
   constructor(info: RpcErrorInfo) {
     super(info.message);
@@ -65,7 +63,7 @@ export function executionTargetChoiceFailure(error: unknown): ExecutionTargetCho
 }
 
 export function isTaskMissingError(error: unknown): boolean {
-  return error instanceof RpcError && error.code === rpcErrorCodes.workflowTaskNotFound;
+  return error instanceof RpcError && error.code === "task_not_found";
 }
 
 export function isTaskContextSelectionRequiredError(error: unknown): boolean {
@@ -74,7 +72,7 @@ export function isTaskContextSelectionRequiredError(error: unknown): boolean {
 
 export function isProjectMissingError(error: unknown): boolean {
   return (
-    (error instanceof RpcError && error.code === rpcErrorCodes.projectNotFound) ||
+    (error instanceof RpcError && error.code === "project_not_found") ||
     (error instanceof WorkflowLabelError && error.reason === "project_not_found")
   );
 }

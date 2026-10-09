@@ -135,7 +135,6 @@ export type { TaskSearchErrorReason } from "./errors";
 export { ChatOperationError } from "./chatErrors";
 export type { ChatError } from "./chatErrors";
 export { guiTaskCommentAuthor } from "./client";
-export type { JsonArray, JsonObject, JsonPrimitive, JsonValue } from "./json";
 export { newSetupOperationID, parseSetupOperationID, SetupOperationID } from "./setupOperationID";
 export {
   parseCompactionRequestID,
@@ -166,7 +165,6 @@ export {
   CreateTargetResolutionKind,
   SelectorErrorKind,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
-export { rpcErrorCodes } from "./rpcErrorCodes";
 export { WorktreeError, hasDeletableWorktreeBranch } from "./clientWorktree";
 export type { WorktreeErrorDetail } from "./clientWorktree";
 export { workflowIDSchema } from "./schemas/workflowID";

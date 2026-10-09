@@ -101,7 +101,7 @@ const settingsFailureCause = "disk full";
 function typedSettingsFailure() {
   return new ChatOperationError(
     new RpcError({
-      code: -32_000,
+      code: "internal_failure",
       message: "settings.commit (internal_failure)",
       method: "kent.api.chat_settings.chat_settings_service.mutate",
     }),

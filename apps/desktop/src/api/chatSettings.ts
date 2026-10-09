@@ -33,10 +33,10 @@ import type {
 } from "./chatSettingsTypes";
 import { ContractError } from "./errors";
 
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 
 export function createChatSettingsApi(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
 ): Pick<ChatApi, "getSettings" | "mutateSettings"> {
   return {
     async mutateSettings(target, operation) {

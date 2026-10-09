@@ -1,12 +1,4 @@
-import type { JsonValue } from "./json";
 import type { DescMessage, DescMethod, MessageShape } from "@app/server-api-contract";
-
-export type RpcEventHandler = Readonly<{
-  onOpen?(): void;
-  onEvent(method: string, params: unknown): void;
-  onComplete(code: number, message: string): void;
-  onError(error: Error): void;
-}>;
 
 export type RpcSubscription = Readonly<{
   close(): void;
@@ -61,17 +53,6 @@ export type SessionAttachment = Readonly<{
 }>;
 export type SessionAttachmentTarget = Readonly<{ sessionID: string; projectID?: string }>;
 
-export type AttachedRequest =
-  | Readonly<{ kind: "value"; value: JsonValue }>
-  | Readonly<{ kind: "factory"; create(attachment: ProjectAttachment): JsonValue }>;
-
-export type AttachedProjectCall = Readonly<{
-  projectID: string;
-  selector: Readonly<{ workspaceID: string } | { workspaceRoot: string }>;
-  method: string;
-  request: AttachedRequest;
-}>;
-
 export type AttachedProjectDescriptorCall<Method extends DescMethod> = Readonly<{
   projectID: string;
   selector: Readonly<{ workspaceID: string } | { workspaceRoot: string }>;
@@ -81,7 +62,6 @@ export type AttachedProjectDescriptorCall<Method extends DescMethod> = Readonly<
 
 export type RuntimeOwnerContext = Readonly<{
   attachment: SessionAttachment;
-  call(method: string, params: JsonValue): Promise<unknown>;
   callDescriptor<Method extends DescMethod>(
     method: Method,
     request: MessageShape<Method["input"]>,
@@ -95,42 +75,31 @@ export type RuntimeOwnerOptions = Readonly<{
 }>;
 
 export type RpcTransport = Readonly<{
-  call(method: string, params: JsonValue, options?: RpcCallOptions): Promise<unknown>;
-  callDedicated(method: string, params: JsonValue, options?: RpcDedicatedCallOptions): Promise<unknown>;
-  callAttachedProject(
-    input: AttachedProjectCall,
-    options?: RpcDedicatedCallOptions,
-  ): Promise<Readonly<{ result: unknown; attachment: ProjectAttachment }>>;
   runRuntimeOwner<Result>(
     sessionID: string,
     options: RuntimeOwnerOptions,
     run: (context: RuntimeOwnerContext) => Promise<Result>,
   ): Promise<Result>;
-  subscribe(method: string, params: JsonValue, handler: RpcEventHandler): RpcSubscription;
+  callDescriptorAttachedSession<Method extends DescMethod>(
+    target: SessionAttachmentTarget,
+    method: Method,
+    request: MessageShape<Method["input"]>,
+    options?: RpcDedicatedCallOptions,
+  ): Promise<MessageShape<Method["output"]>>;
+  callDescriptor<Method extends DescMethod>(
+    method: Method,
+    request: MessageShape<Method["input"]>,
+    options?: RpcDedicatedCallOptions,
+  ): Promise<MessageShape<Method["output"]>>;
+  callDescriptorAttachedProject<Method extends DescMethod>(
+    input: AttachedProjectDescriptorCall<Method>,
+    options?: RpcDedicatedCallOptions,
+  ): Promise<Readonly<{ result: MessageShape<Method["output"]>; attachment: ProjectAttachment }>>;
+  subscribeDescriptor<
+    Method extends DescMethod,
+    EventDescriptor extends DescMessage,
+    CompletionDescriptor extends DescMessage,
+  >(
+    input: DescriptorSubscriptionInput<Method, EventDescriptor, CompletionDescriptor>,
+  ): RpcSubscription;
 }>;
-
-export type DescriptorRpcTransport = RpcTransport &
-  Readonly<{
-    callDescriptorAttachedSession<Method extends DescMethod>(
-      target: SessionAttachmentTarget,
-      method: Method,
-      request: MessageShape<Method["input"]>,
-      options?: RpcDedicatedCallOptions,
-    ): Promise<MessageShape<Method["output"]>>;
-    callDescriptor<Method extends DescMethod>(
-      method: Method,
-      request: MessageShape<Method["input"]>,
-      options?: RpcDedicatedCallOptions,
-    ): Promise<MessageShape<Method["output"]>>;
-    callDescriptorAttachedProject<Method extends DescMethod>(
-      input: AttachedProjectDescriptorCall<Method>,
-      options?: RpcDedicatedCallOptions,
-    ): Promise<Readonly<{ result: MessageShape<Method["output"]>; attachment: ProjectAttachment }>>;
-    subscribeDescriptor<
-      Method extends DescMethod,
-      EventDescriptor extends DescMessage,
-      CompletionDescriptor extends DescMessage,
-    >(
-      input: DescriptorSubscriptionInput<Method, EventDescriptor, CompletionDescriptor>,
-    ): RpcSubscription;
-  }>;

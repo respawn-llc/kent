@@ -105,7 +105,6 @@ it("replaces all five New Chat settings with the selected Agent's complete serve
     initialSettings: reviewerBaseline,
   });
   expect(services.transport.descriptorCalls).toHaveLength(0);
-  expect(services.transport.calls).toHaveLength(0);
 });
 
 it("preserves the current Agent's transient settings after multiple local edits and repeated selection", async () => {
@@ -146,7 +145,6 @@ it("preserves the current Agent's transient settings after multiple local edits 
   });
   expect(read).toHaveBeenCalledOnce();
   expect(services.transport.descriptorCalls).toHaveLength(0);
-  expect(services.transport.calls).toHaveLength(0);
 });
 
 it("reports exactly InitialChatSettings to the host without catalog or display metadata", async () => {
@@ -179,7 +177,6 @@ it("reports exactly InitialChatSettings to the host without catalog or display m
   if (result.current.kind !== "ready-new-chat") throw new Error("Expected ready New Chat.");
   expect(report.mock.lastCall?.[0]).toBe(result.current.initialSettings);
   expect(services.transport.descriptorCalls).toHaveLength(0);
-  expect(services.transport.calls).toHaveLength(0);
 
   unmount();
   const { result: reopened } = renderHook(

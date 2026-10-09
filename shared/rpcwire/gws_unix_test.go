@@ -3,6 +3,7 @@
 package rpcwire
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -36,11 +37,7 @@ func TestWebSocketTransportUnixRoundTrip(t *testing.T) {
 				serverErr <- event.Err
 				return
 			}
-			request := event.Frame.Request()
-			response := protocol.NewSuccessResponse(request.ID, struct {
-				Status string `json:"status"`
-			}{Status: "ok"})
-			serverErr <- conn.Send(ctx, FrameFromResponse(response))
+			serverErr <- conn.Send(ctx, event.Frame)
 		case <-ctx.Done():
 			serverErr <- ctx.Err()
 		}
@@ -69,8 +66,8 @@ func TestWebSocketTransportUnixRoundTrip(t *testing.T) {
 	}
 	defer func() { _ = conn.Close() }()
 
-	request := protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: "req-uds-1", Method: "test.ping"}
-	if err := conn.Send(ctx, FrameFromRequest(request)); err != nil {
+	request := Frame{Kind: FrameBinary, Payload: []byte{0, 1, 2, 255}}
+	if err := conn.Send(ctx, request); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 
@@ -82,12 +79,8 @@ func TestWebSocketTransportUnixRoundTrip(t *testing.T) {
 		if event.Err != nil {
 			t.Fatalf("Events error: %v", event.Err)
 		}
-		response := event.Frame.Response()
-		if response.ID != request.ID {
-			t.Fatalf("Response ID = %q, want %q", response.ID, request.ID)
-		}
-		if string(response.Result) != `{"status":"ok"}` {
-			t.Fatalf("Response payload = %s, want ok payload", response.Result)
+		if event.Frame.Kind != FrameBinary || !bytes.Equal(event.Frame.Payload, request.Payload) {
+			t.Fatalf("response = %#v, want %#v", event.Frame, request)
 		}
 	case <-ctx.Done():
 		t.Fatalf("Timed out waiting for response: %v", ctx.Err())

@@ -12,7 +12,7 @@ import {
   type SessionCategory,
 } from "./models";
 import { requireUnarySuccess } from "./protobufRpc";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 import { timestampMillis } from "./clientTime";
 
 export function requireCatalogProject(method: string, expected: string, actual: string): void {
@@ -20,7 +20,7 @@ export function requireCatalogProject(method: string, expected: string, actual: 
 }
 
 export async function listSessionPage(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   projectID: string,
   category: SessionCategory,
   offset: number,

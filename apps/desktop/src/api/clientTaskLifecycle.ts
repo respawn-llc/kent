@@ -19,9 +19,9 @@ import type {
   WorkflowExecutionTargetSelection,
 } from "./models";
 import { newSetupOperationID } from "./setupOperationID";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 
-export async function updateTask(transport: DescriptorRpcTransport, input: TaskEditInput): Promise<string> {
+export async function updateTask(transport: RpcTransport, input: TaskEditInput): Promise<string> {
   const method = TaskLifecycleService.method.update;
   const result = await transport.callDescriptor(
     method,
@@ -37,14 +37,14 @@ export async function updateTask(transport: DescriptorRpcTransport, input: TaskE
   return task.id;
 }
 
-export async function deleteTask(transport: DescriptorRpcTransport, taskID: string): Promise<void> {
+export async function deleteTask(transport: RpcTransport, taskID: string): Promise<void> {
   const method = TaskLifecycleService.method.delete;
   const result = await transport.callDescriptor(method, create(method.input, { taskId: taskID }));
   requireWorktreeSuccess(method, result);
 }
 
 export async function interruptTask(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   taskID: string,
   sessionID?: string,
 ): Promise<void> {
@@ -56,10 +56,7 @@ export async function interruptTask(
   requireUnarySuccess(method, result);
 }
 
-export async function startTask(
-  transport: DescriptorRpcTransport,
-  input: TaskStartInput,
-): Promise<TaskStartResponse> {
+export async function startTask(transport: RpcTransport, input: TaskStartInput): Promise<TaskStartResponse> {
   const setupOperationID = input.setupOperationID ?? newSetupOperationID();
   const method = TaskLifecycleService.method.start;
   const result = await transport.callDescriptor(
@@ -95,10 +92,7 @@ export async function startTask(
   }
 }
 
-export async function moveTask(
-  transport: DescriptorRpcTransport,
-  input: TaskMoveInput,
-): Promise<TaskMoveResponse> {
+export async function moveTask(transport: RpcTransport, input: TaskMoveInput): Promise<TaskMoveResponse> {
   const method = TaskLifecycleService.method.move;
   const result = await transport.callDescriptor(
     method,
@@ -150,7 +144,7 @@ export async function moveTask(
 }
 
 export async function previewMoveTask(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   taskID: string,
   targetNodeID: string,
 ): Promise<TaskMovePreviewResponse> {
@@ -197,7 +191,7 @@ export async function previewMoveTask(
 }
 
 export async function approveApproval(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   approvalID: string,
 ): Promise<TaskApproveResponse> {
   const method = TaskLifecycleService.method.approve;
@@ -226,7 +220,7 @@ export async function approveApproval(
 }
 
 export async function resumeTask(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   input: TaskResumeInput,
 ): Promise<TaskResumeResponse> {
   const setupOperationID = input.setupOperationID ?? newSetupOperationID();

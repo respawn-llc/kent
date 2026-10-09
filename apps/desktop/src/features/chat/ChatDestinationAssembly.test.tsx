@@ -806,7 +806,11 @@ it("protects typed commentary even for the preselected recommendation and resets
 });
 
 it("preserves failed answer diagnostics separately while retaining answers for explicit resubmission", async () => {
-  const failure = new RpcError({ code: -32603, method: "answer_batch", message: crypto.randomUUID() });
+  const failure = new RpcError({
+    code: "internal_failure",
+    method: "answer_batch",
+    message: crypto.randomUUID(),
+  });
   const view = sessionWithPrompts();
   const prompt = question();
   await waitFor(() => {

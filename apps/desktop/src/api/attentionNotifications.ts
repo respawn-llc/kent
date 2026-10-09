@@ -1,3 +1,4 @@
+import type { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import type { FileAccessTarget } from "./promptModels";
 
 export type AttentionNotificationKind =
@@ -87,5 +88,9 @@ export type AttentionNotificationEventParams = Readonly<{ event: AttentionNotifi
 export type AttentionNotificationLifecycle =
   | Readonly<{ kind: "open" }>
   | Readonly<{ kind: "event"; event: AttentionNotificationEvent }>
-  | Readonly<{ kind: "complete"; code: number; message: string }>
+  | Readonly<{
+      kind: "complete";
+      code: StreamFailureCode | null;
+      message: string | null;
+    }>
   | Readonly<{ kind: "error"; error: Error }>;

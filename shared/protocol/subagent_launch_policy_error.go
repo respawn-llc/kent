@@ -1,10 +1,8 @@
 package protocol
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"core/shared/runtimeids"
 	"core/shared/textutil"
@@ -98,38 +96,4 @@ func (e *SubagentLaunchPolicyError) Validate() error {
 		return errors.New("subagent launch policy error kind is invalid")
 	}
 	return nil
-}
-
-func (e *SubagentLaunchPolicyError) RPCErrorCode() int {
-	return ErrCodeSubagentLaunchPolicy
-}
-
-func (e *SubagentLaunchPolicyError) RPCErrorData() json.RawMessage {
-	if err := e.Validate(); err != nil {
-		panic("marshal subagent launch policy error: " + err.Error())
-	}
-	data, err := json.Marshal(e)
-	if err != nil {
-		panic("marshal subagent launch policy error: " + err.Error())
-	}
-	return data
-}
-
-func DecodeSubagentLaunchPolicyError(data json.RawMessage, fallback string) error {
-	generic := errors.New(genericSubagentPolicyMessage(fallback))
-	var decoded SubagentLaunchPolicyError
-	if err := DecodeStrictJSON(data, &decoded); err != nil {
-		return generic
-	}
-	if err := decoded.Validate(); err != nil {
-		return generic
-	}
-	return &decoded
-}
-
-func genericSubagentPolicyMessage(fallback string) string {
-	if message := strings.TrimSpace(fallback); message != "" {
-		return message
-	}
-	return "subagent launch rejected"
 }

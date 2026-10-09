@@ -127,7 +127,7 @@ export function useProjectBoardSubscription(
         break;
       }
       case "complete":
-        if (observation.code === 0) yield* refreshBoundary;
+        if (observation.code === null) yield* refreshBoundary;
         break;
       case "error":
         report(observation.error);
