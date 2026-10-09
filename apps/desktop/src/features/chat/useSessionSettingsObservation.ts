@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useAtomMount } from "@effect/atom-react";
+import { useAtomSuspense } from "@effect/atom-react";
 import * as Atom from "effect/reactivity/Atom";
 import * as Stream from "effect/Stream";
 import * as Effect from "effect/Effect";
@@ -50,5 +50,5 @@ export function useSessionSettingsObservation(
       ),
     [sessionID, projectID, owner, services, settings, t],
   );
-  useAtomMount(observation);
+  useAtomSuspense(observation);
 }
