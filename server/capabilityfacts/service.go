@@ -78,7 +78,15 @@ func (s *Service) GetFacts(ctx context.Context, req *capabilitypb.GetFactsReques
 	if err != nil {
 		return nil, err
 	}
-	models, err := modelFacts(currentProvider)
+	connection, err := settings.SelectedConnection()
+	if err != nil {
+		return nil, err
+	}
+	actual, err := llm.ResolveConnectionVariant(connection)
+	if err != nil {
+		return nil, err
+	}
+	models, err := modelFacts(currentProvider, actual.Variant.ProviderID)
 	if err != nil {
 		return nil, err
 	}
@@ -124,11 +132,11 @@ func explicitProviderFacts(providerIDs []string) ([]*capabilitypb.ProviderFact, 
 	return facts, nil
 }
 
-func modelFacts(providerCaps llm.ProviderCapabilities) (*capabilitypb.ModelFacts, error) {
+func modelFacts(providerCaps llm.ProviderCapabilities, actualProviderID string) (*capabilitypb.ModelFacts, error) {
 	contracts := llm.KnownModelCapabilityContracts()
 	known := make([]*capabilitypb.ModelFact, 0, len(contracts))
 	for _, contract := range contracts {
-		fact, err := modelFact(contract, providerCaps)
+		fact, err := modelFact(contract, providerCaps, actualProviderID)
 		if err != nil {
 			return nil, err
 		}
@@ -137,28 +145,31 @@ func modelFacts(providerCaps llm.ProviderCapabilities) (*capabilitypb.ModelFacts
 	return &capabilitypb.ModelFacts{KnownModels: known, UnknownFallback: unknownModelFallback(providerCaps)}, nil
 }
 
-func modelFact(contract llm.ModelCapabilityContract, providerCaps llm.ProviderCapabilities) (*capabilitypb.ModelFact, error) {
+func modelFact(contract llm.ModelCapabilityContract, providerCaps llm.ProviderCapabilities, actualProviderID string) (*capabilitypb.ModelFact, error) {
 	modelID := strings.TrimSpace(contract.Model)
 	if modelID == "" {
 		return nil, errBlankModelCatalogEntry
 	}
-	metadata := contract.ContextMetadata(providerCaps)
-	contextWindow, err := positiveUint32Ptr(metadata.ContextWindowTokens, "model context window")
-	if err != nil {
-		return nil, err
-	}
+	metadata := contract.ContextMetadata(actualProviderID)
 	fact := &capabilitypb.ModelFact{
 		ModelId:                  &modelID,
 		Known:                    true,
-		ContextWindowTokens:      contextWindow,
 		SupportsThinking:         contract.SupportsReasoningEffort,
 		SupportedThinkingLevels:  cloneStrings(llm.SupportedThinkingLevelsModel(modelID)),
 		SupportsReasoningSummary: contract.SupportsReasoningSummary,
 		SupportsVisionInputs:     contract.SupportsVisionInputs,
 		Verbosity:                verbosityFact(llm.VerbositySupportForModelAndProvider(modelID, providerCaps)),
 	}
-	if metadata.LargeContextWindowTokens > metadata.ContextWindowTokens {
-		tokens, err := uint32Value(metadata.LargeContextWindowTokens, "model large context window")
+	if metadata == nil {
+		return fact, nil
+	}
+	contextWindow, err := positiveUint32Ptr(metadata.ContextWindowTokens, "model context window")
+	if err != nil {
+		return nil, err
+	}
+	fact.ContextWindowTokens = contextWindow
+	if metadata.LargeContextWindowTokens != nil && *metadata.LargeContextWindowTokens > metadata.ContextWindowTokens {
+		tokens, err := uint32Value(*metadata.LargeContextWindowTokens, "model large context window")
 		if err != nil {
 			return nil, err
 		}

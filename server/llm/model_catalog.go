@@ -112,7 +112,7 @@ func LookupModelMetadata(model string) (ModelMetadata, bool) {
 	if !ok {
 		return ModelMetadata{}, false
 	}
-	return contract.ContextMetadata(ProviderCapabilities{}), contract.ContextWindowTokens > 0 || contract.LargeContextWindowTokens > 0
+	return *contract.ContextMetadata(""), contract.ContextWindowTokens > 0
 }
 
 func ApplyDerivedModelContextBudget(settings *config.Settings, model string, fallbackWindow, fallbackThreshold int) {

@@ -313,8 +313,8 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Public API-key and public OAuth connections must use a 500,000-token default context window for these models without a separate larger-window choice.
 - On CLI subscription-proxy connections, Grok 4.7 must use a 256,000-token default context window and offer a 500,000-token larger window.
 - The catalog must report Grok 4.7's knowledge cutoff as May 2026 and Grok 4.6's as February 2026.
-- Grok 4.6 and 4.7 must support low, medium, high, and xhigh Thinking effort. Grok Thinking must default to high and must not offer disabled Thinking or custom efforts.
-- Kent must derive disabled-Thinking availability from the model's supported efforts and must reject unsupported configured Grok Thinking values.
+- Grok 4.6 and 4.7 must support low, medium, high, and xhigh Thinking effort. Grok Thinking must default to high.
+- Across providers, Kent must offer disabled Thinking only when the model's supported efforts include `none`. Kent must always offer custom Thinking entry. At backend request time, Kent must reject efforts outside a catalogued model's supported list. For uncatalogued models, Kent must send custom efforts unchanged for provider validation.
 - Grok must apply between-request Thinking changes through the next request's effort setting. Grok must not use cache-preserving Thinking configuration-update appends or apply Thinking changes during generation.
 - Grok must support image input, tool calls, and Kent's existing native Web Search for supported models. Grok Reasoning Summaries must appear unchanged as Reasoning Traces without requiring OpenAI's bold Thinking Status format.
 - Kent must ignore unsupported Grok configuration options such as verbosity.

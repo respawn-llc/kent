@@ -16,6 +16,46 @@ import (
 	"core/shared/toolspec"
 )
 
+func TestGrokCatalogContextUsesActualConnection(t *testing.T) {
+	for _, protocol := range []config.ConnectionProtocol{config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI, config.ConnectionGrokAPIKey} {
+		t.Run(string(protocol), func(t *testing.T) {
+			id := config.ConnectionID("selected")
+			definition := config.ProviderConnection{Protocol: protocol, Capabilities: config.ProviderCapabilitiesOverride{
+				ProviderID: "chatgpt-codex", SupportsResponsesAPI: true,
+			}}
+			if protocol == config.ConnectionGrokAPIKey {
+				definition.EnvironmentVariable = ptr("GROK_KEY")
+			}
+			service := NewService(Options{Config: testConfig(t, config.Settings{
+				Model: "grok-4.7", Connection: &id, Connections: map[config.ConnectionID]config.ProviderConnection{id: definition},
+			})})
+			facts, err := service.GetFacts(t.Context(), &capabilitypb.GetFactsRequest{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			model := knownModelFact(facts.Models.KnownModels, "grok-4.7")
+			if model == nil || model.ContextWindowTokens == nil || !model.SupportsThinking ||
+				!model.SupportsReasoningSummary || !model.SupportsVisionInputs || model.Verbosity.Supported {
+				t.Fatalf("Grok model facts = %+v", model)
+			}
+			if protocol == config.ConnectionGrokCLIProxy {
+				if *model.ContextWindowTokens != 256_000 || model.LargeWindow == nil || model.LargeWindow.Tokens != 500_000 {
+					t.Fatalf("proxy context = %+v", model)
+				}
+				older := knownModelFact(facts.Models.KnownModels, "grok-4.6")
+				if older == nil || older.ContextWindowTokens != nil || older.LargeWindow != nil {
+					t.Fatalf("proxy 4.6 borrowed public limits: %+v", older)
+				}
+			} else if *model.ContextWindowTokens != 500_000 || model.LargeWindow != nil {
+				t.Fatalf("public context = %+v", model)
+			}
+			if knownModelFact(facts.Models.KnownModels, "grok-4.5") != nil {
+				t.Fatal("removed Grok model is catalogued")
+			}
+		})
+	}
+}
+
 func TestImportErrorFactsPreserveItemKind(t *testing.T) {
 	command := onboardingimports.ItemKindCommand
 	facts := importErrorFacts([]onboardingimports.Error{{

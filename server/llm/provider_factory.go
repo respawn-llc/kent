@@ -114,6 +114,10 @@ func providerContracts() []ProviderContract {
 				grokVariant(config.ConnectionGrokOAuthAPI, "https://api.x.ai/v1"),
 				grokVariant(config.ConnectionGrokAPIKey, "https://api.x.ai/v1"),
 			},
+			ModelContracts: []ModelCapabilityContract{
+				grokModelContract("grok-4.6", time.February, nil),
+				grokModelContract("grok-4.7", time.May, &ModelMetadata{ContextWindowTokens: 256_000, LargeContextWindowTokens: textutil.Value(500_000)}),
+			},
 		},
 		{
 			Provider: ProviderAnthropic,
@@ -210,9 +214,9 @@ func providerContracts() []ProviderContract {
 				gpt6ModelContract("gpt-6.1-sol", time.April, []string{"low", "medium", "high", "xhigh", "max"}),
 				gpt6ModelContract("gpt-6-sol", time.April, []string{"none", "low", "medium", "high", "xhigh", "max"}),
 				gpt6ModelContract("gpt-6-luna", time.May, []string{"none", "low", "medium", "high", "xhigh", "max"}),
-				{Model: "gpt-5.6-sol", ContextWindowTokens: 372_000, LargeContextWindowTokens: 372_000, KnowledgeCutoff: ModelKnowledgeCutoff{Month: time.February, Year: 2026}, HasKnowledgeCutoff: true, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
-				{Model: "gpt-5.6-terra", ContextWindowTokens: 372_000, LargeContextWindowTokens: 372_000, KnowledgeCutoff: ModelKnowledgeCutoff{Month: time.February, Year: 2026}, HasKnowledgeCutoff: true, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
-				{Model: "gpt-5.6-luna", ContextWindowTokens: 372_000, LargeContextWindowTokens: 372_000, KnowledgeCutoff: ModelKnowledgeCutoff{Month: time.February, Year: 2026}, HasKnowledgeCutoff: true, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
+				{Model: "gpt-5.6-sol", ContextWindowTokens: 372_000, LargeContextWindowTokens: textutil.Value(372_000), KnowledgeCutoff: &ModelKnowledgeCutoff{Month: time.February, Year: 2026}, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
+				{Model: "gpt-5.6-terra", ContextWindowTokens: 372_000, LargeContextWindowTokens: textutil.Value(372_000), KnowledgeCutoff: &ModelKnowledgeCutoff{Month: time.February, Year: 2026}, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
+				{Model: "gpt-5.6-luna", ContextWindowTokens: 372_000, LargeContextWindowTokens: textutil.Value(372_000), KnowledgeCutoff: &ModelKnowledgeCutoff{Month: time.February, Year: 2026}, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
 			},
 		},
 	}
@@ -234,14 +238,23 @@ func grokVariant(protocol config.ConnectionProtocol, endpoint string) ProviderVa
 	}
 }
 
+func grokModelContract(model string, cutoff time.Month, proxyContext *ModelMetadata) ModelCapabilityContract {
+	return ModelCapabilityContract{
+		Model: model, ContextWindowTokens: 500_000,
+		VariantContexts:         map[string]*ModelMetadata{string(config.ConnectionGrokCLIProxy): proxyContext},
+		KnowledgeCutoff:         &ModelKnowledgeCutoff{Month: cutoff, Year: 2026},
+		SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh"},
+		SupportsReasoningSummary: true, SupportsVisionInputs: true,
+	}
+}
+
 func gpt6ModelContract(model string, cutoff time.Month, efforts []string) ModelCapabilityContract {
 	return ModelCapabilityContract{
 		Model:                         model,
 		ContextWindowTokens:           272_000,
-		LargeContextWindowTokens:      1_050_000,
-		SubscriptionContext:           &ModelMetadata{ContextWindowTokens: 272_000, LargeContextWindowTokens: 872_000},
-		KnowledgeCutoff:               ModelKnowledgeCutoff{Month: cutoff, Year: 2026},
-		HasKnowledgeCutoff:            true,
+		LargeContextWindowTokens:      textutil.Value(1_050_000),
+		VariantContexts:               map[string]*ModelMetadata{"chatgpt-codex": {ContextWindowTokens: 272_000, LargeContextWindowTokens: textutil.Value(872_000)}},
+		KnowledgeCutoff:               &ModelKnowledgeCutoff{Month: cutoff, Year: 2026},
 		SupportsReasoningEffort:       true,
 		SupportsNativeThinkingUpdates: true,
 		SupportedReasoningEfforts:     efforts,

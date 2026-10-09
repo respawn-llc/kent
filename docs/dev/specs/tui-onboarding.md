@@ -17,7 +17,7 @@
   3. **Entry** — "configure now" vs "defaults": choosing defaults finalizes immediately with a default config, preserving the chosen theme and connection, and skips all remaining steps.
   4. **Model** — text input, pre-filled with the current default.
   5. **Context window** — only for models with a large-window variant; default (smaller) window is the recommended pre-selection.
-  6. **Thinking level** — only for reasoning-capable models. Grok must offer only supported effort levels without Disable or custom-value entry. Other providers offer level list + Disable + custom-value entry (custom opens a text sub-step and rejects empty custom values).
+  6. **Thinking level** — only for reasoning-capable models. Every provider must offer its level list and custom-value entry. Disable must appear only when the supported-effort list contains `none`. Custom opens a text sub-step and rejects empty values. Backend request-time validation follows [Core Runtime Tools](core-runtime-tools.md#grok-model-behavior).
   7. **Verbosity** — only for verbosity-capable models.
   8. **Follow-up questions** — enable/disable the ask-question tool.
   9. **Supervisor** — off / after edits / always; when enabled, sub-steps for Supervisor model (pre-filled with the primary model) and Supervisor thinking (mirrors primary until explicitly diverged; custom entry as above).

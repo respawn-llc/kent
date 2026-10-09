@@ -248,15 +248,19 @@ func applyContextWindow(settings *config.Settings, model string, choice *onboard
 		if !ok {
 			return invalidRequest("context_window.kind", "unsupported_for_model")
 		}
-		provider, err := llm.ResolveRuntimeProviderCapabilities(*settings)
+		connection, err := settings.SelectedConnection()
 		if err != nil {
 			return err
 		}
-		meta := contract.ContextMetadata(provider)
-		if meta.LargeContextWindowTokens <= 0 {
+		provider, err := llm.ResolveConnectionVariant(connection)
+		if err != nil {
+			return err
+		}
+		meta := contract.ContextMetadata(provider.Variant.ProviderID)
+		if meta == nil || meta.LargeContextWindowTokens == nil {
 			return invalidRequest("context_window.kind", "unsupported_for_model")
 		}
-		settings.ModelContextWindow = meta.LargeContextWindowTokens
+		settings.ModelContextWindow = *meta.LargeContextWindowTokens
 	case onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_CUSTOM:
 		settings.ModelContextWindow = int(choice.GetTokens())
 	default:

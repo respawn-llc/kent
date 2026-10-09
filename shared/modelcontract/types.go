@@ -2,7 +2,7 @@ package modelcontract
 
 type ModelMetadata struct {
 	ContextWindowTokens      int
-	LargeContextWindowTokens int
+	LargeContextWindowTokens *int
 }
 
 type ProviderCapabilities struct {
