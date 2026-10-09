@@ -86,9 +86,9 @@ func (s *remoteAppServer) manageConnections(ctx context.Context, catalog *authpb
 			return decodeErr
 		}
 		switch connectionTemplateFor(definition) {
-		case connectionTemplateSubscription:
+		case connectionTemplateSubscription, connectionTemplateGrokSubscription:
 			err = signInConnection(ctx, s.remote, selectedTheme, protoapi.ExistingConnectionTarget(id), true)
-		case connectionTemplateAPI:
+		case connectionTemplateAPI, connectionTemplateOpenAIAPI, connectionTemplateGrokAPI:
 			err = editConnectionReference(ctx, s.remote, selectedTheme, id, definition)
 		case connectionTemplateAnonymous:
 			picked, infoErr := runStartupPickerFlow(newStartupPickerModel("**"+selected.Id+"**", selected.Id, selectedTheme,
@@ -143,7 +143,7 @@ func (s *remoteAppServer) manageConnections(ctx context.Context, catalog *authpb
 }
 
 func editConnectionReference(ctx context.Context, remote apicontract.ConnectionManagementService, selectedTheme string, id config.ConnectionID, definition config.ProviderConnection) error {
-	form := &connectionForm{template: connectionTemplateAPI, id: id, definition: definition}
+	form := &connectionForm{template: connectionTemplateFor(definition), id: id, definition: definition}
 	theme, err := seedThemeSelection(selectedTheme)
 	if err != nil {
 		return err

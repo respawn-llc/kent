@@ -286,6 +286,9 @@ func thinkingChoiceValue(choice *onboardingpb.ThinkingChoice, model, defaultEffo
 	case onboardingpb.ThinkingKind_THINKING_KIND_DEFAULT:
 		return defaultEffort, nil
 	case onboardingpb.ThinkingKind_THINKING_KIND_DISABLED:
+		if llm.SupportsReasoningEffortModel(model) && !contains(llm.SupportedThinkingLevelsModel(model), "none") {
+			return "", invalidRequest(field+".kind", "unsupported_for_model")
+		}
 		return llm.ProviderThinkingEffort(model, ""), nil
 	case onboardingpb.ThinkingKind_THINKING_KIND_LEVEL:
 		level := strings.TrimSpace(choice.GetLevel())

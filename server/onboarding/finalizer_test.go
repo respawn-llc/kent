@@ -329,11 +329,11 @@ func TestFinalizerProjectsModelContextThinkingVerbosityAskQuestionSupervisorAndC
 			},
 		},
 		{
-			name: "custom model custom context disabled thinking false ask supervisor inheritance none compaction",
+			name: "custom model custom context custom thinking false ask supervisor inheritance none compaction",
 			req: &onboardingpb.FinalizeRequest{
 				Model:         &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_CUSTOM, Alias: ptr("custom-openai-model")},
 				ContextWindow: &onboardingpb.ContextWindowChoice{Kind: onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_CUSTOM, Tokens: ptr(uint32(123_456))},
-				Thinking:      &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_DISABLED},
+				Thinking:      &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM, Value: ptr("future")},
 				AskQuestion:   &falseValue,
 				Supervisor:    &onboardingpb.SupervisorChoice{Frequency: onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_OFF},
 				Compaction:    ptr(onboardingpb.CompactionMode_COMPACTION_MODE_NONE),
@@ -342,7 +342,7 @@ func TestFinalizerProjectsModelContextThinkingVerbosityAskQuestionSupervisorAndC
 				model:     "custom-openai-model",
 				window:    123_456,
 				threshold: 117_283,
-				thinking:  "",
+				thinking:  "future",
 				verbosity: config.ModelVerbosityLow,
 				enabledTools: map[toolspec.ID]bool{
 					toolspec.ToolAskQuestion: false,
@@ -874,7 +874,7 @@ func TestFinalizerResolvedSupervisorInheritanceFollowsPrimaryChoice(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	model := "gpt-6.1-sol"
+	model := "gpt-6-sol"
 	_, err = finalizer.Finalize(t.Context(), &onboardingpb.FinalizeRequest{
 		Model: &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: &model},
 		Supervisor: &onboardingpb.SupervisorChoice{
@@ -886,7 +886,7 @@ func TestFinalizerResolvedSupervisorInheritanceFollowsPrimaryChoice(t *testing.T
 		t.Fatal(err)
 	}
 	actual := loadFinalizedConfig(t, root)
-	if actual.Settings.Reviewer.Model != model || actual.Settings.Reviewer.ThinkingLevel != "" {
+	if actual.Settings.Reviewer.Model != model || actual.Settings.Reviewer.ThinkingLevel != "none" {
 		t.Fatalf("Supervisor did not follow visible choices: %+v", actual.Settings.Reviewer)
 	}
 	if !actual.Source.Sources["reviewer.model"].Inherited("reviewer.model") {

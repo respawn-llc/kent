@@ -111,6 +111,18 @@ func modelThinkingLevels(state *onboardingFlowState, model string) []string {
 	return append([]string(nil), modelFactFor(state, model).SupportedThinkingLevels...)
 }
 
+func thinkingOptions(levels []string) []onboardingOption {
+	options := make([]onboardingOption, 0, len(levels)+1)
+	for _, level := range levels {
+		if level == "none" {
+			options = append(options, onboardingOption{ID: "disable", Title: "Disable", Description: thinkingLevelEstimate("disable")})
+		} else {
+			options = append(options, onboardingOption{ID: level, Title: titleCaseThinking(level)})
+		}
+	}
+	return append(options, onboardingOption{ID: "custom", Title: "Enter a custom value"})
+}
+
 func modelSupportsVerbosity(state *onboardingFlowState, model string) bool {
 	return modelFactFor(state, model).GetVerbosity().GetSupported()
 }

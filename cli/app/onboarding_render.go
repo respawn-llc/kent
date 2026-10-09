@@ -52,7 +52,7 @@ func newOnboardingStyles(theme string) onboardingStyles {
 		checkboxOn:     lipgloss.NewStyle().Foreground(palette.secondary).Bold(true),
 		spinner:        lipgloss.NewStyle().Foreground(palette.primary).Bold(true),
 		inputText:      lipgloss.NewStyle().Foreground(palette.foreground),
-		group:          lipgloss.NewStyle().Foreground(palette.primary).Bold(true),
+		group:          lipgloss.NewStyle().Foreground(palette.foreground).Bold(true),
 		valueNeutral:   lipgloss.NewStyle().Foreground(palette.primary).Bold(true),
 		valueOn:        lipgloss.NewStyle().Foreground(palette.secondary).Bold(true),
 		valueOff:       lipgloss.NewStyle().Foreground(sharedtheme.DefaultPalette().Status.Error.Adaptive()).Bold(true),

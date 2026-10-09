@@ -304,7 +304,7 @@ func TestOnboardingSupervisorThinkingCapabilityLossDoesNotResurrectLatentValues(
 	facts := emptyOnboardingCapabilityFacts()
 	facts.Models.KnownModels = []*capabilitypb.ModelFact{
 		{ModelId: &mainModel, Known: true, ContextWindowTokens: &contextWindow, SupportsThinking: true, SupportedThinkingLevels: []string{"low", "high"}, Verbosity: &capabilitypb.ModelVerbosityFact{Source: "test"}},
-		{ModelId: &reviewerModel, Known: true, ContextWindowTokens: &contextWindow, SupportsThinking: true, SupportedThinkingLevels: []string{"low"}, Verbosity: &capabilitypb.ModelVerbosityFact{Source: "test"}},
+		{ModelId: &reviewerModel, Known: true, ContextWindowTokens: &contextWindow, SupportsThinking: true, SupportedThinkingLevels: []string{"none", "low"}, Verbosity: &capabilitypb.ModelVerbosityFact{Source: "test"}},
 		{ModelId: &noThinkingReviewer, Known: true, ContextWindowTokens: &contextWindow, Verbosity: &capabilitypb.ModelVerbosityFact{Source: "test"}},
 	}
 	state := testOnboardingFlowStatePtr(t, func(cfg *config.App) {
