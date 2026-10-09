@@ -274,11 +274,11 @@ func captureSessionRequest(
 		return capturedRequest{}, fmt.Errorf("prepare request: %w", err)
 	}
 
-	openAIReq := llm.RequestAsOpenAI(req)
+	responsesReq := llm.RequestAsResponses(req)
 	storeFlag := activeSettings.Store
 	modelVerbosity := string(activeSettings.ModelVerbosity)
-	wireBytes, err := llm.MarshalOpenAIWirePayload(
-		openAIReq,
+	wireBytes, err := llm.MarshalResponsesWirePayload(
+		responsesReq,
 		storeFlag,
 		modelVerbosity,
 		mode,

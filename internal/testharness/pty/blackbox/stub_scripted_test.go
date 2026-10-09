@@ -21,7 +21,7 @@ func TestScriptedResponsesReconcilesCumulativeFunctionAndCustomDeliveries(t *tes
 	customText := "patch"
 	custom := llm.ToolCall{ID: "custom-1", Name: "patch", Custom: true, CustomInput: &customText, Input: json.RawMessage(`"patch"`)}
 	final := withExpected(scriptedllm.FinalAnswer("done"), custom)
-	final.Response.Usage.InputTokens, final.Response.Usage.OutputTokens = 9, 4
+	final.Response.Usage.InputTokens, final.Response.Usage.OutputTokens = textutil.Value(9), textutil.Value(4)
 	stub := startScriptedStub(t, scriptedllm.Script{Steps: []scriptedllm.Step{
 		scriptedllm.ToolBatch("", function),
 		withExpected(scriptedllm.ToolBatch("", custom), function),
@@ -44,7 +44,7 @@ func TestScriptedResponsesReconcilesCumulativeFunctionAndCustomDeliveries(t *tes
 	third := appendItems(second, response2.OutputItems, customResult)
 	response3 := generate(t, provider, sessionID, third)
 	if response3.Assistant.Content == nil || *response3.Assistant.Content != "done" ||
-		response3.Usage.InputTokens != 9 || response3.Usage.OutputTokens != 4 {
+		response3.Usage.InputTokens == nil || response3.Usage.OutputTokens == nil || *response3.Usage.InputTokens != 9 || *response3.Usage.OutputTokens != 4 {
 		t.Fatalf("terminal response = %+v", response3)
 	}
 	if stub.ScriptedRequestCount() != 3 || stub.RemainingScriptedSteps() != 0 {
@@ -545,7 +545,7 @@ func toolOutput(call llm.ToolCall, output json.RawMessage) llm.ResponseItem {
 }
 
 func prepared(items ...llm.ResponseItem) []llm.ResponseItem {
-	return llm.PrepareOpenAIInputItems(items)
+	return llm.PrepareResponsesInputItems(items)
 }
 
 func appendItems(groups ...[]llm.ResponseItem) []llm.ResponseItem {
