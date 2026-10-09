@@ -12,6 +12,20 @@ function open(window: TranscriptWindow, tail: ChatTranscriptPage): void {
 }
 
 describe("bounded transcript window", () => {
+  it("retains both conflicting payloads as diagnostic evidence without replacing resident rows", () => {
+    const window = new TranscriptWindow();
+    const resident = row(30);
+    open(window, page([resident], null));
+    if (resident.User === null) throw new Error("Expected user fixture");
+    const incoming = { ...resident, User: { ...resident.User, Text: "changed" } };
+    const before = window.snapshot;
+    const result = window.dispatch({ kind: "replace-window", page: page([incoming], null) });
+    expect(result.kind).toBe("contract-failure");
+    if (result.kind !== "contract-failure") throw new Error("Expected conflicting payload rejection");
+    expect(result.error.cause).toEqual({ locator: incoming.Locator, resident, incoming });
+    expect(window.snapshot).toBe(before);
+  });
+
   it("finishes a live stream when its persisted completed row arrived first", () => {
     const window = new TranscriptWindow();
     const completed = {
