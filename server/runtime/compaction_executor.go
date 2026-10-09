@@ -398,7 +398,7 @@ func localCompactionToolCallRetryItems(resp llm.Response) ([]llm.ResponseItem, e
 			Output: result.Output,
 		})
 	}
-	return llm.PrepareOpenAIInputItems(items), nil
+	return llm.PrepareResponsesInputItems(items), nil
 }
 
 func isCompactionBoundaryItem(item llm.ResponseItem) bool {

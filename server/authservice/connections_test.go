@@ -92,7 +92,7 @@ endpoint = "https://compatible.example/v1"
 		transports[id] = transport
 	}
 	send := func(id config.ConnectionID) error {
-		request := llm.OpenAIRequest{Model: "gpt-6-sol", SessionID: textutil.Value(string(id)), ToolChoiceMode: llm.ToolChoiceModeAutomatic}
+		request := llm.ResponsesRequest{Model: "gpt-6-sol", SessionID: textutil.Value(string(id)), ToolChoiceMode: llm.ToolChoiceModeAutomatic}
 		if id == "work" || id == "personal" {
 			var err error
 			request.CodexDispatch, err = llm.NewCodexDispatchContext(llm.CodexDispatchFacts{
@@ -185,7 +185,7 @@ environment_variable = "MISSING_KEY"
 			t.Error("missing key reached the network")
 			return nil, context.Canceled
 		})}
-		_, err = transport.Generate(t.Context(), llm.OpenAIRequest{
+		_, err = transport.Generate(t.Context(), llm.ResponsesRequest{
 			Model: "local-model", SessionID: textutil.Value("session"), ToolChoiceMode: llm.ToolChoiceModeAutomatic,
 		}, llm.StreamCallbacks{})
 		if err == nil {

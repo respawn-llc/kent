@@ -243,7 +243,7 @@ func (e *Engine) providerItemsForToolCompletion(r tools.Result) []llm.ResponseIt
 		itemName, _ := textutil.OptionalTrimmed(callItem.Name)
 		name = firstNonEmpty(name, itemName)
 	}
-	return llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+	return llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 		Type:   llm.ToolOutputItemType(custom),
 		CallID: textutil.Value(callID),
 		Name:   textutil.OptionalExactString(name),

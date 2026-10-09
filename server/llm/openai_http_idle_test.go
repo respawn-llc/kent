@@ -53,7 +53,7 @@ func newPacedStreamTransport(t *testing.T, events ...pacedStreamEvent) *HTTPTran
 
 func newPacedWatchdogClient(t *testing.T, idle time.Duration, events ...pacedStreamEvent) *idleWatchdogClient {
 	t.Helper()
-	return newIdleWatchdogClient(NewOpenAIClient(newPacedStreamTransport(t, events...)), idle)
+	return newIdleWatchdogClient(NewResponsesClient(newPacedStreamTransport(t, events...)), idle)
 }
 
 func completedStreamEvent(delay time.Duration) pacedStreamEvent {
@@ -71,7 +71,7 @@ func TestOAuthGenerateSurvivesConfiguredHTTPClientTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dispatch context: %v", err)
 	}
-	response, err := transport.Generate(context.Background(), OpenAIRequest{
+	response, err := transport.Generate(context.Background(), ResponsesRequest{
 		Model: "gpt-6-sol", SessionID: textutil.Value("session-1"), CodexDispatch: dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 	}, StreamCallbacks{})
@@ -204,7 +204,7 @@ func TestGenerate_TransportEmitsActivityHeartbeatPerEvent(t *testing.T) {
 	)
 
 	var beats atomic.Int32
-	if _, err := transport.Generate(context.Background(), OpenAIRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{
+	if _, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{
 		OnStreamActivity: func() { beats.Add(1) },
 	}); err != nil {
 		t.Fatalf("Generate failed: %v", err)

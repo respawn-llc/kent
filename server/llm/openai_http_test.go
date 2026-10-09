@@ -78,7 +78,7 @@ func TestBuildResponsesInputRawTakesPrecedenceOverTypedFields(t *testing.T) {
 
 func TestBuildPayload_SerializesAssistantToolCalls(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
+	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model:        "gpt-6-sol",
 		SystemPrompt: "sys",
 		Items: ItemsFromMessages([]Message{
@@ -212,7 +212,7 @@ func TestBuildResponsesInput_AssistantPreservesPhase(t *testing.T) {
 }
 
 func TestBuildResponsesInput_CanonicalAssistantPreservesPhase(t *testing.T) {
-	items := mustBuildResponsesInput(t, PrepareOpenAIInputItems([]ResponseItem{{
+	items := mustBuildResponsesInput(t, PrepareResponsesInputItems([]ResponseItem{{
 		Type:    ResponseItemTypeMessage,
 		Role:    textutil.Value(RoleAssistant),
 		Content: textutil.Value("done"),
@@ -287,8 +287,8 @@ func TestBuildResponsesInput_ToolOutputSupportsStructuredInputImageItems(t *test
 	}
 }
 
-func TestMapOpenAIRequestError_UsesOpenAISDKContractError(t *testing.T) {
-	err := newOpenAIRequestErrorMapper("openai").Map(&openai.Error{StatusCode: 400, Code: "context_length_exceeded", Type: "invalid_request_error", Message: "prompt too long"},
+func TestMapResponsesRequestError_UsesOpenAISDKContractError(t *testing.T) {
+	err := newResponsesRequestErrorMapper("openai").Map(&openai.Error{StatusCode: 400, Code: "context_length_exceeded", Type: "invalid_request_error", Message: "prompt too long"},
 		nil,
 		"openai responses compact request failed")
 
@@ -336,14 +336,14 @@ func TestMapOpenAIStreamErrorPayload_UsesSharedStructuredDecoder(t *testing.T) {
 	}
 }
 
-func TestMapOpenAIRequestError_UsesOpenAIErrorEnvelopeFromRawResponse(t *testing.T) {
+func TestMapResponsesRequestError_UsesOpenAIErrorEnvelopeFromRawResponse(t *testing.T) {
 	rawResp := &http.Response{
 		StatusCode: 422,
 		Body: io.NopCloser(strings.NewReader(
 			`{"error":{"type":"invalid_request_error","code":"input_too_long","param":"input","message":"too many tokens"}}`,
 		)),
 	}
-	err := newOpenAIRequestErrorMapper("openai").Map(nil, rawResp, "openai responses compact request failed")
+	err := newResponsesRequestErrorMapper("openai").Map(nil, rawResp, "openai responses compact request failed")
 	if !IsContextLengthOverflowError(err) {
 		t.Fatalf("expected overflow classification from raw response contract, got err=%v", err)
 	}
@@ -357,14 +357,14 @@ func TestMapOpenAIRequestError_UsesOpenAIErrorEnvelopeFromRawResponse(t *testing
 	}
 }
 
-func TestMapOpenAIRequestError_UnknownProviderIDFailsFast(t *testing.T) {
+func TestMapResponsesRequestError_UnknownProviderIDFailsFast(t *testing.T) {
 	rawResp := &http.Response{
 		StatusCode: 400,
 		Body: io.NopCloser(strings.NewReader(
 			`{"error":{"type":"invalid_request_error","code":"context_length_exceeded","param":"input","message":"too many tokens"}}`,
 		)),
 	}
-	err := newOpenAIRequestErrorMapper("ollama").Map(nil, rawResp, "openai responses compact request failed")
+	err := newResponsesRequestErrorMapper("ollama").Map(nil, rawResp, "openai responses compact request failed")
 	if err == nil {
 		t.Fatal("expected missing provider reducer error")
 	}
@@ -383,9 +383,9 @@ func TestMapOpenAIRequestError_UnknownProviderIDFailsFast(t *testing.T) {
 	}
 }
 
-func TestMapOpenAIRequestError_HandlesNilResponseBody(t *testing.T) {
+func TestMapResponsesRequestError_HandlesNilResponseBody(t *testing.T) {
 	rawResp := &http.Response{StatusCode: 500, Body: nil}
-	err := newOpenAIRequestErrorMapper("openai").Map(nil, rawResp, "openai responses compact request failed")
+	err := newResponsesRequestErrorMapper("openai").Map(nil, rawResp, "openai responses compact request failed")
 
 	var providerErr *ProviderAPIError
 	if !errors.As(err, &providerErr) {
@@ -396,10 +396,10 @@ func TestMapOpenAIRequestError_HandlesNilResponseBody(t *testing.T) {
 	}
 }
 
-func TestMapOpenAIRequestError_RepopulatesRawResponseBody(t *testing.T) {
+func TestMapResponsesRequestError_RepopulatesRawResponseBody(t *testing.T) {
 	body := `{"error":{"type":"invalid_request_error","code":"context_length_exceeded","param":"input","message":"too many tokens"}}`
 	rawResp := &http.Response{StatusCode: 400, Body: io.NopCloser(strings.NewReader(body))}
-	_ = newOpenAIRequestErrorMapper("openai").Map(nil, rawResp, "openai responses compact request failed")
+	_ = newResponsesRequestErrorMapper("openai").Map(nil, rawResp, "openai responses compact request failed")
 	if rawResp.Body == nil {
 		t.Fatal("expected response body to be re-populated")
 	}
@@ -413,8 +413,8 @@ func TestMapOpenAIRequestError_RepopulatesRawResponseBody(t *testing.T) {
 	}
 }
 
-func TestMapOpenAIRequestError_UnwrapStabilityAcrossWrappingLayers(t *testing.T) {
-	err := newOpenAIRequestErrorMapper("openai").Map(&openai.Error{StatusCode: 400, Code: "context_length_exceeded", Type: "invalid_request_error", Message: "prompt too long"},
+func TestMapResponsesRequestError_UnwrapStabilityAcrossWrappingLayers(t *testing.T) {
+	err := newResponsesRequestErrorMapper("openai").Map(&openai.Error{StatusCode: 400, Code: "context_length_exceeded", Type: "invalid_request_error", Message: "prompt too long"},
 		nil,
 		"openai responses compact request failed")
 
@@ -440,11 +440,11 @@ func TestCompactErrorPath_ReturnsProviderAPIErrorForOpenAIV2(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	transport.Client = newRewritingHTTPClient(t, server)
 
-	_, err := transport.Compact(context.Background(), OpenAIRequest{
+	_, err := transport.Compact(context.Background(), ResponsesRequest{
 		Model:          "gpt-6-sol",
 		SessionID:      textutil.Value("s1"),
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		Items:          PrepareOpenAIInputItems([]ResponseItem{{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value("hello")}}),
+		Items:          PrepareResponsesInputItems([]ResponseItem{{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value("hello")}}),
 	})
 	if err == nil {
 		t.Fatal("expected compact error")
@@ -463,7 +463,7 @@ func TestCompactErrorPath_ReturnsProviderAPIErrorForOpenAIV2(t *testing.T) {
 
 func TestBuildResponsesInput_CanonicalToolOutputPromotesStructuredInputFileItems(t *testing.T) {
 	const pdfDataURL = "data:application/pdf;base64,Zm9v"
-	prepared := PrepareOpenAIInputItems([]ResponseItem{
+	prepared := PrepareResponsesInputItems([]ResponseItem{
 		{
 			Type:   ResponseItemTypeFunctionCallOutput,
 			CallID: textutil.Value("call_1"),
@@ -523,8 +523,8 @@ func TestBuildResponsesInputRejectsUnpreparedItemsWithTypedDiagnostics(t *testin
 	tests := []struct {
 		name      string
 		item      ResponseItem
-		state     OpenAIInputPreparationDetail
-		invariant OpenAIInputPreparationDetail
+		state     ResponsesInputPreparationDetail
+		invariant ResponsesInputPreparationDetail
 	}{
 		{
 			name: "view image output missing raw",
@@ -534,29 +534,29 @@ func TestBuildResponsesInputRejectsUnpreparedItemsWithTypedDiagnostics(t *testin
 				Name:   textutil.Value(string(toolspec.ToolViewImage)),
 				Output: json.RawMessage(`[{"type":"input_file","file_data":"data:application/pdf;base64,Zm9v","filename":"doc.pdf"}]`),
 			},
-			state:     OpenAIInputPreparationMissingRaw,
-			invariant: OpenAIInputPreparationMissingRaw,
+			state:     ResponsesInputPreparationMissingRaw,
+			invariant: ResponsesInputPreparationMissingRaw,
 		},
 		{
 			name:      "message missing content",
 			item:      ResponseItem{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser)},
-			state:     OpenAIInputPreparationMissingRaw,
-			invariant: OpenAIInputInvariantEmptyContent,
+			state:     ResponsesInputPreparationMissingRaw,
+			invariant: ResponsesInputInvariantEmptyContent,
 		},
 		{
 			name:      "invalid raw",
 			item:      ResponseItem{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value("hello"), Raw: json.RawMessage(`{`)},
-			state:     OpenAIInputPreparationInvalidRaw,
-			invariant: OpenAIInputPreparationInvalidRaw,
+			state:     ResponsesInputPreparationInvalidRaw,
+			invariant: ResponsesInputPreparationInvalidRaw,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := buildResponsesInput([]ResponseItem{tt.item})
-			if !errors.Is(err, ErrOpenAIInputItemUnprepared) {
+			if !errors.Is(err, ErrResponsesInputItemUnprepared) {
 				t.Fatalf("expected unprepared input error, got %v", err)
 			}
-			var preparationErr *OpenAIInputItemPreparationError
+			var preparationErr *ResponsesInputItemPreparationError
 			if !errors.As(err, &preparationErr) {
 				t.Fatalf("expected typed preparation error, got %T", err)
 			}
@@ -623,7 +623,7 @@ func TestBuildResponsesInput_MessageToolOutputPromotesPDFToInputMessage(t *testi
 }
 
 func TestBuildResponsesInput_CanonicalNonViewImageToolOutputKeepsStructuredInputFileItems(t *testing.T) {
-	items := mustBuildResponsesInput(t, PrepareOpenAIInputItems([]ResponseItem{
+	items := mustBuildResponsesInput(t, PrepareResponsesInputItems([]ResponseItem{
 		{
 			Type:   ResponseItemTypeFunctionCallOutput,
 			CallID: textutil.Value("call_1"),
@@ -678,7 +678,7 @@ func TestServiceBaseURL_ExplicitBaseURLOverridesOAuthEndpoint(t *testing.T) {
 }
 
 func TestNewOpenAIProviderClientCanonicalizesBareDefaultOpenAIBaseURL(t *testing.T) {
-	client, err := newOpenAIProviderClient(ProviderClientOptions{Auth: staticAuth{}, OpenAIBaseURL: "https://api.openai.com"})
+	client, err := newResponsesProviderClient(ProviderClientOptions{Auth: staticAuth{}, OpenAIBaseURL: "https://api.openai.com"})
 	if err != nil {
 		t.Fatalf("new openai provider client: %v", err)
 	}
@@ -723,7 +723,7 @@ func TestGenerateSendsConfiguredProviderIdentityHeaders(t *testing.T) {
 	transport.Client = server.Client()
 	transport.ProviderIdentifier = "acme_agent"
 
-	if _, err := transport.Generate(context.Background(), OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", SessionID: textutil.Value("session-1")}, StreamCallbacks{}); err != nil {
+	if _, err := transport.Generate(context.Background(), ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", SessionID: textutil.Value("session-1")}, StreamCallbacks{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	headers := <-requestHeaders
@@ -809,10 +809,10 @@ func TestGenerate_ExplicitBaseURLAllowsAnonymousRequests(t *testing.T) {
 		t.Fatalf("expected openai-compatible provider capabilities, got %+v", providerCaps)
 	}
 
-	resp, err := transport.Generate(context.Background(), OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model:     "vendor-custom-model",
 		SessionID: textutil.Value("session-1"),
-		Items:     PrepareOpenAIInputItems([]ResponseItem{{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value("hello")}}),
+		Items:     PrepareResponsesInputItems([]ResponseItem{{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value("hello")}}),
 	}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
@@ -833,7 +833,7 @@ func TestGenerate_ExplicitBaseURLAllowsAnonymousRequests(t *testing.T) {
 func TestBuildPayload_UsesTransportStoreSetting(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	transport.Store = true
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
+	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
 	}
@@ -845,7 +845,7 @@ func TestBuildPayload_UsesTransportStoreSetting(t *testing.T) {
 
 func TestBuildPayload_AddsNativeWebSearchToolWhenEnabled(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
+	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model:                   "gpt-6-sol",
 		EnableNativeWebSearch:   true,
 		SupportsReasoningEffort: true,
@@ -878,7 +878,7 @@ func TestBuildPayload_AddsNativeWebSearchToolWhenEnabled(t *testing.T) {
 
 func TestBuildPayloadRejectsRequiredToolChoiceForNonResponsesAdapter(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
-	_, err := transport.buildPayload(OpenAIRequest{
+	_, err := transport.buildPayload(ResponsesRequest{
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeRequired,
 		Tools:          []Tool{{Name: "shell", Schema: mustTestFunctionSchema(t, struct{}{})}},
@@ -890,7 +890,7 @@ func TestBuildPayloadRejectsRequiredToolChoiceForNonResponsesAdapter(t *testing.
 
 func TestBuildPayloadSerializesRequiredToolChoice(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
-	payload, err := transport.buildPayload(OpenAIRequest{
+	payload, err := transport.buildPayload(ResponsesRequest{
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeRequired,
 		Tools:          []Tool{{Name: "shell", Schema: mustTestFunctionSchema(t, struct{}{})}},
@@ -906,7 +906,7 @@ func TestBuildPayloadSerializesRequiredToolChoice(t *testing.T) {
 
 func TestBuildPayloadSerializesAutomaticToolChoice(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
-	payload, err := transport.buildPayload(OpenAIRequest{
+	payload, err := transport.buildPayload(ResponsesRequest{
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		Tools:          []Tool{{Name: "shell", Schema: mustTestFunctionSchema(t, struct{}{})}},
@@ -923,7 +923,7 @@ func TestBuildPayloadSerializesAutomaticToolChoice(t *testing.T) {
 func TestBuildPayloadRequiredToolChoicePreservesEffectiveToolsAndParallelSetting(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	caps := requireProviderCapabilities(t, transport, OpenAIAuthMode{})
-	base := OpenAIRequest{
+	base := ResponsesRequest{
 		Model:                 "gpt-6-sol",
 		EnableNativeWebSearch: true,
 		Tools: []Tool{
@@ -953,7 +953,7 @@ func TestBuildPayloadRequiredToolChoicePreservesEffectiveToolsAndParallelSetting
 
 func TestBuildPayloadAcceptsRequiredToolChoiceWithHostedWebSearchOnly(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
-	payload, err := transport.buildPayload(OpenAIRequest{
+	payload, err := transport.buildPayload(ResponsesRequest{
 		Model:                 "gpt-6-sol",
 		ToolChoiceMode:        ToolChoiceModeRequired,
 		EnableNativeWebSearch: true,
@@ -970,7 +970,7 @@ func TestBuildPayloadAcceptsRequiredToolChoiceWithHostedWebSearchOnly(t *testing
 
 func TestBuildPayloadRejectsRequiredToolChoiceWithoutMaterializedTools(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
-	_, err := transport.buildPayload(OpenAIRequest{
+	_, err := transport.buildPayload(ResponsesRequest{
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeRequired,
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
@@ -981,7 +981,7 @@ func TestBuildPayloadRejectsRequiredToolChoiceWithoutMaterializedTools(t *testin
 
 func TestBuildPayload_SerializesPatchAsCustomGrammarTool(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
+	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model: "gpt-6-sol",
 		Tools: []Tool{{
 			Name:        string(toolspec.ToolPatch),
@@ -1023,7 +1023,7 @@ func TestBuildPayload_SerializesPatchAsCustomGrammarTool(t *testing.T) {
 func TestBuildPayload_UsesExplicitPatchCustomGrammarTool(t *testing.T) {
 	transport := NewHTTPTransport(oauthStaticAuth{})
 	mode := OpenAIAuthMode{IsOAuth: true, AccountID: "acc-1"}
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
+	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model: "gpt-6-astra",
 		Tools: []Tool{
 			{Name: string(toolspec.ToolExecCommand), Description: "shell", Schema: mustTestFunctionSchema(t, struct{}{})},
@@ -1090,7 +1090,7 @@ func TestBuildFunctionToolParamRejectsBlankCustomToolName(t *testing.T) {
 
 func TestBuildPayload_DoesNotAddNativeWebSearchToolWhenDisabled(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
+	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model:                 "gpt-6-sol",
 		EnableNativeWebSearch: false,
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
@@ -1109,7 +1109,7 @@ func TestBuildPayload_DoesNotAddNativeWebSearchToolWhenDisabled(t *testing.T) {
 
 func TestBuildPayload_SetsPromptCacheKey(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
+	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model:          "gpt-6-sol",
 		PromptCacheKey: "cache-key-1",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
@@ -1125,7 +1125,7 @@ func TestBuildPayload_SetsPromptCacheKey(t *testing.T) {
 
 func TestBuildPayload_DoesNotSetPromptCacheKeyForOpenAICompatibleProvider(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
+	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model:          "gpt-6-sol",
 		PromptCacheKey: "cache-key-1",
 	}, OpenAIAuthMode{}, ProviderCapabilities{
@@ -1143,9 +1143,9 @@ func TestBuildPayload_DoesNotSetPromptCacheKeyForOpenAICompatibleProvider(t *tes
 	}
 }
 
-func TestPrepareOpenAIInputItemsPreservesReasoningPresentationBytes(t *testing.T) {
+func TestPrepareResponsesInputItemsPreservesReasoningPresentationBytes(t *testing.T) {
 	raw := json.RawMessage(`{"type":"reasoning","id":"reason_1","summary":[{"type":"summary_text","text":"**raw reasoning**"}],"encrypted_content":"enc"}`)
-	prepared := PrepareOpenAIInputItems([]ResponseItem{{
+	prepared := PrepareResponsesInputItems([]ResponseItem{{
 		Type: ResponseItemTypeReasoning, ID: textutil.Value("reason_1"), Raw: raw,
 	}})
 	if len(prepared) != 1 || string(prepared[0].Raw) != string(raw) {

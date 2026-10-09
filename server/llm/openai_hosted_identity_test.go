@@ -19,7 +19,7 @@ func TestGenerateHostedSearchIdentityDoesNotDependOnJSONFieldOrder(t *testing.T)
 		`[DONE]`,
 	)
 
-	response, err := transport.Generate(context.Background(), OpenAIRequest{
+	response, err := transport.Generate(context.Background(), ResponsesRequest{
 		SessionID:      textutil.Value("test-session"),
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model:          "gpt-6-sol",
@@ -76,7 +76,7 @@ func TestGenerateHostedSearchKeepsCompletedPayloadAndDistinctCalls(t *testing.T)
 				fmt.Sprintf(`{"type":"response.completed","response":{"output":[%s]}}`, completed),
 				`[DONE]`,
 			)
-			response, err := transport.Generate(context.Background(), OpenAIRequest{
+			response, err := transport.Generate(context.Background(), ResponsesRequest{
 				SessionID:      textutil.Value("test-session"),
 				ToolChoiceMode: ToolChoiceModeAutomatic,
 				Model:          "gpt-6-sol",

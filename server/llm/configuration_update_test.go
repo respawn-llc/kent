@@ -55,7 +55,7 @@ func TestNativeThinkingSupport(t *testing.T) {
 
 func TestConfigurationUpdatePreparedHTTPInput(t *testing.T) {
 	prior := ItemsFromMessages([]Message{{Role: RoleUser, Content: textutil.Value("first")}})
-	items := PrepareOpenAIInputItems(append(CloneResponseItems(prior), ResponseItem{
+	items := PrepareResponsesInputItems(append(CloneResponseItems(prior), ResponseItem{
 		Type: ResponseItemTypeConfigurationUpdate, ConfigurationEffort: textutil.Value("low"),
 	}))
 	input, err := buildResponsesInput(items)

@@ -73,7 +73,7 @@ func prepareNativeThinking(items []llm.ResponseItem, replacementEnd *int, desire
 	if len(items) > 0 && items[len(items)-1].Type == llm.ResponseItemTypeConfigurationUpdate {
 		return projection, nil
 	}
-	item := llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+	item := llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 		Type: llm.ResponseItemTypeConfigurationUpdate, ConfigurationEffort: &desired,
 	}})[0]
 	projection.update = &item

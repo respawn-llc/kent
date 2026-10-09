@@ -26,7 +26,7 @@ func TestCodexTurnStateUsesInitialHTTPHeaderAndIgnoresMetadata(t *testing.T) {
 
 	dispatch := newTestCodexDispatch(t)
 	transport := newCanonicalOAuthTestTransport(t, server)
-	if _, err := transport.Generate(context.Background(), testCodexOpenAIRequest(dispatch), StreamCallbacks{}); err != nil {
+	if _, err := transport.Generate(context.Background(), testCodexResponsesRequest(dispatch), StreamCallbacks{}); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
 	if got, ok := dispatch.currentTurnState(); !ok || got != "header-state" {
@@ -76,8 +76,8 @@ func newTestCodexDispatch(t *testing.T) *CodexDispatchContext {
 	return dispatch
 }
 
-func testCodexOpenAIRequest(dispatch *CodexDispatchContext) OpenAIRequest {
-	return OpenAIRequest{
+func testCodexResponsesRequest(dispatch *CodexDispatchContext) ResponsesRequest {
+	return ResponsesRequest{
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		SessionID:      textutil.Value("session-1"),

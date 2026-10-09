@@ -10,7 +10,7 @@ import (
 	"core/shared/transcript"
 )
 
-type OpenAIRequest struct {
+type ResponsesRequest struct {
 	Model                   string
 	Temperature             float64
 	MaxTokens               int
@@ -28,17 +28,17 @@ type OpenAIRequest struct {
 	StructuredOutput        *StructuredOutput
 }
 
-// RequestAsOpenAI projects the provider-agnostic Request into the OpenAI-family
-// provider DTO. It is the single source of truth for that projection: the
-// OpenAIClient request methods and the offline inspection seam both use it, so
+// RequestAsResponses projects the provider-agnostic Request into the Responses
+// wire DTO. It is the single source of truth for that projection: the
+// ResponsesClient request methods and the offline inspection seam both use it, so
 // the wire shape stays identical between live generation and captured payloads.
-func RequestAsOpenAI(request Request) OpenAIRequest {
+func RequestAsResponses(request Request) ResponsesRequest {
 	var structuredOutput *StructuredOutput
 	if request.StructuredOutput != nil {
 		cloned := *request.StructuredOutput
 		structuredOutput = &cloned
 	}
-	return OpenAIRequest{
+	return ResponsesRequest{
 		Model:                   request.Model,
 		Temperature:             request.Temperature,
 		MaxTokens:               request.MaxTokens,
@@ -57,7 +57,7 @@ func RequestAsOpenAI(request Request) OpenAIRequest {
 	}
 }
 
-type OpenAIResponse struct {
+type ResponsesResponse struct {
 	AssistantText     *string
 	ProviderPhase     *ProviderPhase
 	ServedModel       *string
@@ -70,34 +70,34 @@ type OpenAIResponse struct {
 	Usage             Usage
 }
 
-type OpenAICompactionResponse struct {
+type ResponsesCompactionResponse struct {
 	Checkpoint       ResponseItem
 	Usage            Usage
 	ProviderEvidence modelcontract.ProviderUsageEvidence
 }
 
-type OpenAITransport interface {
-	Generate(ctx context.Context, request OpenAIRequest, callbacks StreamCallbacks) (OpenAIResponse, error)
-	Compact(ctx context.Context, request OpenAIRequest) (OpenAICompactionResponse, error)
+type ResponsesTransport interface {
+	Generate(ctx context.Context, request ResponsesRequest, callbacks StreamCallbacks) (ResponsesResponse, error)
+	Compact(ctx context.Context, request ResponsesRequest) (ResponsesCompactionResponse, error)
 }
 
-type OpenAIModelContextWindowTransport interface {
+type ResponsesModelContextWindowTransport interface {
 	ResolveModelContextWindow(ctx context.Context, model string) (int, error)
 }
 
-type OpenAIProviderCapabilitiesTransport interface {
+type ResponsesProviderCapabilitiesTransport interface {
 	ProviderCapabilities(ctx context.Context) (ProviderCapabilities, error)
 }
 
-type OpenAIClient struct {
-	transport OpenAITransport
+type ResponsesClient struct {
+	transport ResponsesTransport
 }
 
-func NewOpenAIClient(transport OpenAITransport) *OpenAIClient {
-	return &OpenAIClient{transport: transport}
+func NewResponsesClient(transport ResponsesTransport) *ResponsesClient {
+	return &ResponsesClient{transport: transport}
 }
 
-func (c *OpenAIClient) Generate(ctx context.Context, request Request, callbacks StreamCallbacks) (Response, error) {
+func (c *ResponsesClient) Generate(ctx context.Context, request Request, callbacks StreamCallbacks) (Response, error) {
 	if c == nil || c.transport == nil {
 		return Response{}, ErrMissingTransport
 	}
@@ -105,19 +105,19 @@ func (c *OpenAIClient) Generate(ctx context.Context, request Request, callbacks 
 		return Response{}, err
 	}
 
-	providerReq := RequestAsOpenAI(request)
+	providerReq := RequestAsResponses(request)
 
 	providerResp, err := c.transport.Generate(ctx, providerReq, callbacks)
 	if err != nil {
-		return Response{}, fmt.Errorf("openai generate: %w", err)
+		return Response{}, fmt.Errorf("responses generate: %w", err)
 	}
 
-	return responseFromOpenAI(providerResp)
+	return responseFromResponses(providerResp)
 }
 
-func responseFromOpenAI(providerResp OpenAIResponse) (Response, error) {
+func responseFromResponses(providerResp ResponsesResponse) (Response, error) {
 	if providerResp.ProviderPhase == nil {
-		return Response{}, fmt.Errorf("openai response omitted authoritative provider phase fact")
+		return Response{}, fmt.Errorf("responses response omitted authoritative provider phase fact")
 	}
 	assistantPhase := providerPhaseProjection(providerResp.ProviderPhase)
 	var typedAssistantPhase *MessagePhase
@@ -159,7 +159,7 @@ func resolveAssistantContent(role Role, phase MessagePhase, content *string) *st
 	return textutil.Pointer(content)
 }
 
-func (c *OpenAIClient) Compact(ctx context.Context, request CompactionRequest) (CompactionResponse, error) {
+func (c *ResponsesClient) Compact(ctx context.Context, request CompactionRequest) (CompactionResponse, error) {
 	if c == nil || c.transport == nil {
 		return CompactionResponse{}, ErrMissingTransport
 	}
@@ -167,10 +167,10 @@ func (c *OpenAIClient) Compact(ctx context.Context, request CompactionRequest) (
 		return CompactionResponse{}, err
 	}
 
-	providerReq := RequestAsOpenAI(request)
+	providerReq := RequestAsResponses(request)
 	providerResp, err := c.transport.Compact(ctx, providerReq)
 	if err != nil {
-		return CompactionResponse{}, fmt.Errorf("openai compact: %w", err)
+		return CompactionResponse{}, fmt.Errorf("responses compact: %w", err)
 	}
 	return CompactionResponse{
 		Checkpoint:       CloneResponseItems([]ResponseItem{providerResp.Checkpoint})[0],
@@ -179,23 +179,23 @@ func (c *OpenAIClient) Compact(ctx context.Context, request CompactionRequest) (
 	}, nil
 }
 
-func (c *OpenAIClient) ProviderCapabilities(ctx context.Context) (ProviderCapabilities, error) {
+func (c *ResponsesClient) ProviderCapabilities(ctx context.Context) (ProviderCapabilities, error) {
 	if c == nil || c.transport == nil {
 		return ProviderCapabilities{}, ErrMissingTransport
 	}
-	if transport, ok := c.transport.(OpenAIProviderCapabilitiesTransport); ok {
+	if transport, ok := c.transport.(ResponsesProviderCapabilitiesTransport); ok {
 		return transport.ProviderCapabilities(ctx)
 	}
-	return ProviderCapabilities{}, fmt.Errorf("openai provider capabilities are not supported by transport %T", c.transport)
+	return ProviderCapabilities{}, fmt.Errorf("provider capabilities are not supported by Responses transport %T", c.transport)
 }
 
-func (c *OpenAIClient) ResolveModelContextWindow(ctx context.Context, model string) (int, error) {
+func (c *ResponsesClient) ResolveModelContextWindow(ctx context.Context, model string) (int, error) {
 	if c == nil || c.transport == nil {
 		return 0, ErrMissingTransport
 	}
-	resolver, ok := c.transport.(OpenAIModelContextWindowTransport)
+	resolver, ok := c.transport.(ResponsesModelContextWindowTransport)
 	if !ok {
-		return 0, fmt.Errorf("openai model context window resolution is not supported by transport")
+		return 0, fmt.Errorf("model context window resolution is not supported by Responses transport")
 	}
 	return resolver.ResolveModelContextWindow(ctx, model)
 }

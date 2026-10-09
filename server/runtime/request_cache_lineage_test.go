@@ -561,7 +561,7 @@ func TestLocalCompactionSummary_UsesMainConversationRequestIdentityAndPrompt(t *
 	}
 }
 
-func TestOpenAITransport_UsesExpectedSessionHeadersAndPromptCacheKeysAcrossConversationSupervisorAndReopen(t *testing.T) {
+func TestResponsesTransport_UsesExpectedSessionHeadersAndPromptCacheKeysAcrossConversationSupervisorAndReopen(t *testing.T) {
 	t.Parallel()
 	type capturedRequest struct {
 		path      string
@@ -598,7 +598,7 @@ func TestOpenAITransport_UsesExpectedSessionHeadersAndPromptCacheKeysAcrossConve
 		SupportsPromptCacheKey: true,
 		IsOpenAIFirstParty:     true,
 	}
-	openAIClient := llm.NewOpenAIClient(transport)
+	openAIClient := llm.NewResponsesClient(transport)
 
 	store := mustCreateTestSession(t)
 	engineClient := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, SupportsPromptCacheKey: true, IsOpenAIFirstParty: true}}

@@ -285,7 +285,7 @@ func steerReviewerErrorIntent(detail string) steeringIntent {
 }
 
 func steerHistoryReplacementIntent(engine string, mode compactionMode, compactionNumber int, lastCommittedAssistantFinalAnswer *string, items []llm.ResponseItem) steeringIntent {
-	preparedItems := llm.PrepareOpenAIInputItems(items)
+	preparedItems := llm.PrepareResponsesInputItems(items)
 	payload := historyReplacementPayload{
 		Engine:                            normalizeHistoryReplacementEngine(engine),
 		Mode:                              string(mode),

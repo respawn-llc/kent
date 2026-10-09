@@ -10,7 +10,7 @@ import (
 
 func TestNativeThinkingProjection(t *testing.T) {
 	update := func(effort string) llm.ResponseItem {
-		return llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+		return llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 			Type: llm.ResponseItemTypeConfigurationUpdate, ConfigurationEffort: &effort,
 		}})[0]
 	}

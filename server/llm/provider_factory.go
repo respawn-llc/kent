@@ -123,7 +123,7 @@ func providerContracts() []ProviderContract {
 			Provider:                ProviderOpenAI,
 			MatchModel:              matchOpenAIModelFamily,
 			ResolveTransportVariant: resolveOpenAITransportProviderVariant,
-			NewClient:               newOpenAIProviderClient,
+			NewClient:               newResponsesProviderClient,
 			ProviderVariants: []ProviderVariantContract{
 				{
 					ProviderID:               "openai",
@@ -282,18 +282,18 @@ func newUnsupportedProviderClientFactory(provider Provider) ProviderClientFactor
 	}
 }
 
-func newOpenAIProviderClient(opts ProviderClientOptions) (Client, error) {
+func newResponsesProviderClient(opts ProviderClientOptions) (Client, error) {
 	if opts.Auth == nil {
 		return nil, fmt.Errorf("openai auth provider is required")
 	}
-	transport, err := newOpenAIHTTPTransport(opts)
+	transport, err := newResponsesHTTPTransport(opts)
 	if err != nil {
 		return nil, err
 	}
-	return newIdleWatchdogClient(NewOpenAIClient(transport), transport.Client.Timeout), nil
+	return newIdleWatchdogClient(NewResponsesClient(transport), transport.Client.Timeout), nil
 }
 
-func newOpenAIHTTPTransport(opts ProviderClientOptions) (*HTTPTransport, error) {
+func newResponsesHTTPTransport(opts ProviderClientOptions) (*HTTPTransport, error) {
 	transport := NewHTTPTransport(opts.Auth)
 	if opts.Provider != "" {
 		transport.Provider = opts.Provider

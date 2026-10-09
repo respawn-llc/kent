@@ -203,7 +203,7 @@ func responseCompletedEventHasValidPayload(evt responses.ResponseCompletedEvent)
 	return output != nil
 }
 
-func (a *responseStreamAccumulator) Err(providerID string, responseStatus *openAIResponseStatus) error {
+func (a *responseStreamAccumulator) Err(providerID string, responseStatus *responsesStatus) error {
 	if a == nil || a.responseError == nil {
 		return nil
 	}
@@ -272,7 +272,7 @@ func (a *responseStreamAccumulator) recordReasoningAccumulatorError() {
 	}
 }
 
-func (a *responseStreamAccumulator) Response() (OpenAIResponse, error) {
+func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	usage := Usage{WindowTokens: a.windowTokens}
 	streamText, streamPhase, streamProviderPhase, streamOutputIndex, streamDeltaText, hasResolvedStream := a.assistantMessages.Resolve()
 	rawDeltaText := a.assistantText.String()
@@ -298,7 +298,7 @@ func (a *responseStreamAccumulator) Response() (OpenAIResponse, error) {
 	finalOutputItems := mergePassthroughOutputItems(buildOutputItemsFromStream(finalText, finalTextPresent, finalPhase, finalCalls, finalReasoning, finalReasoningItems), a.passthrough.Items())
 
 	if a.completed == nil {
-		return OpenAIResponse{
+		return ResponsesResponse{
 			AssistantText:  finalText,
 			ProviderPhase:  finalProviderPhase,
 			ToolCalls:      finalCalls,
@@ -314,7 +314,7 @@ func (a *responseStreamAccumulator) Response() (OpenAIResponse, error) {
 	}
 	parsedItems, parsedText, parsedPhase, parsedProviderPhase, parsedCalls, parsedReasoning, parsedReasoningItems, err := parseOutputItems(a.completed.Output)
 	if err != nil {
-		return OpenAIResponse{}, err
+		return ResponsesResponse{}, err
 	}
 	parsedTextValue := ""
 	if parsedText != nil {
@@ -345,7 +345,7 @@ func (a *responseStreamAccumulator) Response() (OpenAIResponse, error) {
 		(parsedText == nil || !completedAssistantTextReconcilesStream(streamDeltaText, parsedTextValue))
 	if responseItemsContainAssistantMessage(parsedItems) && !reconciled &&
 		(optionalStringsDiffer(finalText, parsedText) || streamDeltaConflict) {
-		return OpenAIResponse{}, fmt.Errorf(
+		return ResponsesResponse{}, fmt.Errorf(
 			"completed assistant content conflicts with streamed assistant content: streamed bytes=%d completed bytes=%d",
 			lenOptionalString(finalText),
 			lenOptionalString(parsedText),
@@ -359,7 +359,7 @@ func (a *responseStreamAccumulator) Response() (OpenAIResponse, error) {
 	finalCalls = a.toolCalls.ToToolCalls()
 	mergedReasoning, mergeErr := mergeReasoningEntries(parsedReasoning, finalReasoning)
 	if mergeErr != nil {
-		return OpenAIResponse{}, mergeErr
+		return ResponsesResponse{}, mergeErr
 	}
 	finalReasoning = normalizeReasoningEntries(mergedReasoning)
 	finalReasoningItems = mergeReasoningItems(parsedReasoningItems, finalReasoningItems)
@@ -369,10 +369,10 @@ func (a *responseStreamAccumulator) Response() (OpenAIResponse, error) {
 
 	providerEvidence, evidenceErr := providerUsageEvidenceFromResponse(*a.completed, finalOutputItems)
 	if evidenceErr != nil {
-		return OpenAIResponse{}, evidenceErr
+		return ResponsesResponse{}, evidenceErr
 	}
 
-	return OpenAIResponse{
+	return ResponsesResponse{
 		AssistantText:    finalText,
 		ProviderPhase:    finalProviderPhase,
 		ServedModel:      textutil.Pointer(a.standardServedModel),

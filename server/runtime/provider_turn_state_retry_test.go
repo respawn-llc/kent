@@ -50,7 +50,7 @@ func TestGenerateWithRetryReplaysExactProviderTurnState(t *testing.T) {
 		t.Fatalf("NewCodexDispatchContext: %v", err)
 	}
 	transport := newProviderTurnStateTransport(t, server)
-	client := llm.NewOpenAIClient(transport)
+	client := llm.NewResponsesClient(transport)
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	_, err = engine.generateWithRetryClient(context.Background(), runtimeTestStepID("provider-turn-state"), newObservedModelClient(client), llm.Request{
 		Model: "gpt-6-sol", SessionID: textutil.Value("session-1"), CodexDispatch: dispatch,
@@ -82,7 +82,7 @@ func TestGenerationMissingOutputRebuildDoesNotReplayProviderTurnState(t *testing
 	}))
 	t.Cleanup(server.Close)
 	transport := newProviderTurnStateTransport(t, server)
-	client := llm.NewOpenAIClient(transport)
+	client := llm.NewResponsesClient(transport)
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	steerDanglingToolCall(t, engine, "seed", llm.ToolCall{ID: "missing", Name: "exec_command", Input: []byte(`{}`)})
 	err := engine.stepLifecycle.Run(t.Context(), exclusiveStepOptions{ActiveKind: ActiveKindUserTurn}, func(ctx context.Context, stepID string) error {

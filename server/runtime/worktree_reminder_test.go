@@ -830,7 +830,7 @@ func TestSubmitUserMessagePreservesHistoricalWorktreeRemindersInRequest(t *testi
 		t.Fatal("expected exit reminder message")
 	}
 	expectedSecondItems := llm.CloneResponseItems(client.calls[0].Items)
-	expectedSecondItems = append(expectedSecondItems, llm.PrepareOpenAIInputItems([]llm.ResponseItem{firstOutput})...)
+	expectedSecondItems = append(expectedSecondItems, llm.PrepareResponsesInputItems([]llm.ResponseItem{firstOutput})...)
 	expectedSecondItems = append(expectedSecondItems, llm.ItemsFromMessages([]llm.Message{
 		exitMessage,
 		{Role: llm.RoleUser, Content: textutil.Value("second")},

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 )
 
-// MarshalOpenAIWirePayload builds the responses.ResponseNewParams that the
+// MarshalResponsesWirePayload builds the responses.ResponseNewParams that the
 // OpenAI / openai-compatible HTTP transport would POST, using the production
 // buildPayload path, and marshals a request-shape-equivalent diagnostic JSON.
 // JSON escaping may differ from the openai-go SDK HTTP body. No HTTP is
@@ -15,7 +15,7 @@ import (
 // capture a request payload for a session without executing a model turn.
 //
 //   - request: the provider-DTO request (project from a provider-agnostic Request
-//     via RequestAsOpenAI, the same projection the live OpenAIClient uses).
+//     via RequestAsResponses, the same projection the live ResponsesClient uses).
 //   - store: mirrors the transport's Store flag (Responses API persistence),
 //     sourced from the session's provider settings.
 //   - modelVerbosity: mirrors the transport's ModelVerbosity setting.
@@ -24,7 +24,7 @@ import (
 //     plain API-key session.
 //   - capabilities: the resolved provider capabilities for the session's provider
 //     (openai / openai-compatible / chatgpt-codex).
-func MarshalOpenAIWirePayload(request OpenAIRequest, store bool, modelVerbosity string, mode OpenAIAuthMode, capabilities ProviderCapabilities) (json.RawMessage, error) {
+func MarshalResponsesWirePayload(request ResponsesRequest, store bool, modelVerbosity string, mode OpenAIAuthMode, capabilities ProviderCapabilities) (json.RawMessage, error) {
 	transport := &HTTPTransport{Store: store, ModelVerbosity: modelVerbosity}
 	params, err := transport.buildPayload(request, mode, capabilities)
 	if err != nil {

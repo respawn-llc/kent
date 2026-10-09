@@ -13,19 +13,19 @@ import (
 	"core/server/auth"
 )
 
-func openAIClientFromProvider(t *testing.T, client Client) *OpenAIClient {
+func openAIClientFromProvider(t *testing.T, client Client) *ResponsesClient {
 	t.Helper()
 	if watchdog, ok := client.(*idleWatchdogClient); ok {
 		client = watchdog.streamingModelClient
 	}
-	openAIClient, ok := client.(*OpenAIClient)
+	openAIClient, ok := client.(*ResponsesClient)
 	if !ok {
-		t.Fatalf("expected *OpenAIClient, got %T", client)
+		t.Fatalf("expected *ResponsesClient, got %T", client)
 	}
 	return openAIClient
 }
 
-func newOpenAIClientFromOptions(t *testing.T, options ProviderClientOptions) *OpenAIClient {
+func newResponsesClientFromOptions(t *testing.T, options ProviderClientOptions) *ResponsesClient {
 	t.Helper()
 	client, err := NewProviderClient(options)
 	if err != nil {
@@ -34,7 +34,7 @@ func newOpenAIClientFromOptions(t *testing.T, options ProviderClientOptions) *Op
 	return openAIClientFromProvider(t, client)
 }
 
-func httpTransportFromOpenAIClient(t *testing.T, client *OpenAIClient) *HTTPTransport {
+func httpTransportFromResponsesClient(t *testing.T, client *ResponsesClient) *HTTPTransport {
 	t.Helper()
 	transport, ok := client.transport.(*HTTPTransport)
 	if !ok {
@@ -78,14 +78,14 @@ func TestInferProviderFromModel(t *testing.T) {
 func TestNewProviderClient_OpenAI(t *testing.T) {
 	httpClient := &http.Client{Timeout: 7 * time.Second}
 	providerIdentifier := "factory-agent"
-	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
+	openAIClient := newResponsesClientFromOptions(t, ProviderClientOptions{
 		Model:              "gpt-6-sol",
 		Auth:               providerTestAuth{},
 		HTTPClient:         httpClient,
 		ModelVerbosity:     "HIGH",
 		ProviderIdentifier: &providerIdentifier,
 	})
-	transport := httpTransportFromOpenAIClient(t, openAIClient)
+	transport := httpTransportFromResponsesClient(t, openAIClient)
 	if transport.Client != httpClient {
 		t.Fatal("expected provider HTTP client override to be used")
 	}
@@ -100,7 +100,7 @@ func TestNewProviderClient_OpenAI(t *testing.T) {
 	}
 }
 
-func TestNewProviderClient_OpenAIClientPathCompressesCodexRequest(t *testing.T) {
+func TestNewProviderClient_ResponsesClientPathCompressesCodexRequest(t *testing.T) {
 	var requestEncoding string
 	var acceptEncoding string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -175,11 +175,11 @@ func TestNewProviderClient_OAuthPathCompressesCodexRequest(t *testing.T) {
 }
 
 func TestNewProviderClient_LunaUsesCatalogMetadata(t *testing.T) {
-	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
+	openAIClient := newResponsesClientFromOptions(t, ProviderClientOptions{
 		Model: "gpt-6-luna",
 		Auth:  providerTestAuth{},
 	})
-	transport := httpTransportFromOpenAIClient(t, openAIClient)
+	transport := httpTransportFromResponsesClient(t, openAIClient)
 	if transport.ContextWindowTokens != 272_000 {
 		t.Fatalf("expected luna context window from model metadata, got %d", transport.ContextWindowTokens)
 	}
@@ -196,7 +196,7 @@ func TestNewProviderClient_AnthropicNotImplemented(t *testing.T) {
 }
 
 func TestNewProviderClient_ExplicitProviderOverrideAllowsCustomModelAlias(t *testing.T) {
-	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
+	openAIClient := newResponsesClientFromOptions(t, ProviderClientOptions{
 		Provider: ProviderOpenAI,
 		Model:    "my-team-alias",
 		Auth:     providerTestAuth{},
@@ -226,14 +226,14 @@ func TestNewProviderClient_CustomModelInferenceErrorMentionsProviderOverride(t *
 }
 
 func TestNewProviderClient_RemoteOpenAICompatibleBaseURLAllowsCustomModelFamily(t *testing.T) {
-	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
+	openAIClient := newResponsesClientFromOptions(t, ProviderClientOptions{
 		Model:          "vendor-custom-model",
 		Auth:           providerTestAuth{},
 		OpenAIBaseURL:  "https://example.openrouter.ai/api/v1",
 		ModelVerbosity: "MEDIUM",
 	})
 
-	transport := httpTransportFromOpenAIClient(t, openAIClient)
+	transport := httpTransportFromResponsesClient(t, openAIClient)
 	if transport.Provider != ProviderOpenAI {
 		t.Fatalf("expected explicit openai-compatible base URL to select openai transport family, got %q", transport.Provider)
 	}
@@ -257,7 +257,7 @@ func TestNewProviderClient_RemoteOpenAICompatibleBaseURLAllowsCustomModelFamily(
 }
 
 func TestNewProviderClient_RemoteOpenAICompatibleBaseURLAllowsAnonymousCapabilitiesResolution(t *testing.T) {
-	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
+	openAIClient := newResponsesClientFromOptions(t, ProviderClientOptions{
 		Model:         "vendor-custom-model",
 		Auth:          anonymousAuth{},
 		OpenAIBaseURL: "https://example.openrouter.ai/api/v1",
@@ -273,24 +273,24 @@ func TestNewProviderClient_RemoteOpenAICompatibleBaseURLAllowsAnonymousCapabilit
 }
 
 func TestNewProviderClient_KeepsExplicitOpenAIBaseURLExplicit(t *testing.T) {
-	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
+	openAIClient := newResponsesClientFromOptions(t, ProviderClientOptions{
 		Model:         "gpt-6-sol",
 		Auth:          providerTestMissingAuth{},
 		OpenAIBaseURL: "https://api.openai.com",
 	})
-	transport := httpTransportFromOpenAIClient(t, openAIClient)
+	transport := httpTransportFromResponsesClient(t, openAIClient)
 	if !transport.BaseURLExplicit {
 		t.Fatal("expected configured OpenAI URL to remain explicit for OAuth routing")
 	}
 }
 
 func TestNewProviderClient_LocalBaseURLUsesUncompressedTransportByDefault(t *testing.T) {
-	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
+	openAIClient := newResponsesClientFromOptions(t, ProviderClientOptions{
 		Model:         "vendor-custom-model",
 		Auth:          providerTestMissingAuth{},
 		OpenAIBaseURL: "http://127.0.0.1:11434/v1",
 	})
-	transport := httpTransportFromOpenAIClient(t, openAIClient)
+	transport := httpTransportFromResponsesClient(t, openAIClient)
 	if transport.Client.Transport != sharedHTTPTransport {
 		t.Fatalf("local provider transport = %T, want shared uncompressed transport", transport.Client.Transport)
 	}

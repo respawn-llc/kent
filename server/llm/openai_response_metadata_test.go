@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestOpenAIClientSelectsServedModelMetadata(t *testing.T) {
+func TestResponsesClientSelectsServedModelMetadata(t *testing.T) {
 	tests := []struct {
 		name           string
 		createdModel   string
@@ -51,7 +51,7 @@ func TestOpenAIClientSelectsServedModelMetadata(t *testing.T) {
 				writeSuccessfulMetadataResponse(t, w, test.createdModel, test.completedModel)
 			})
 			request := Request{SessionID: stringPointer("metadata-session"), Model: "requested-model", ToolChoiceMode: ToolChoiceModeAutomatic}
-			client := NewOpenAIClient(transport)
+			client := NewResponsesClient(transport)
 			response, err := client.Generate(context.Background(), request, StreamCallbacks{})
 			if err != nil {
 				t.Fatalf("generate: %v", err)
@@ -67,7 +67,7 @@ func TestOpenAIClientSelectsServedModelMetadata(t *testing.T) {
 	}
 }
 
-func TestOpenAIClientParsesStrictReasoningIncludedHeader(t *testing.T) {
+func TestResponsesClientParsesStrictReasoningIncludedHeader(t *testing.T) {
 	headers := []struct {
 		name  string
 		value *string
@@ -87,7 +87,7 @@ func TestOpenAIClientParsesStrictReasoningIncludedHeader(t *testing.T) {
 			})
 
 			request := Request{SessionID: stringPointer("metadata-session"), Model: "requested-model", ToolChoiceMode: ToolChoiceModeAutomatic}
-			client := NewOpenAIClient(transport)
+			client := NewResponsesClient(transport)
 			response, err := client.Generate(context.Background(), request, StreamCallbacks{})
 			if err != nil {
 				t.Fatalf("generate: %v", err)
@@ -99,7 +99,7 @@ func TestOpenAIClientParsesStrictReasoningIncludedHeader(t *testing.T) {
 	}
 }
 
-func TestOpenAIResponseErrorsPreserveHeaderDiagnostics(t *testing.T) {
+func TestResponsesResponseErrorsPreserveHeaderDiagnostics(t *testing.T) {
 	diagnosticHeaders := http.Header{"X-Request-Id": {" ", " request-primary "}, "X-Oai-Request-Id": {"request-fallback"},
 		"X-Openai-Authorization-Error": {" ", " token rejected "}}
 	for _, test := range []struct {

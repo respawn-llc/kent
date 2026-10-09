@@ -23,7 +23,7 @@ func TestGenerateRetainsProviderUsageEvidence(t *testing.T) {
 		SupportsNativeWebSearch: true,
 		IsOpenAIFirstParty:      true,
 	}
-	response, err := transport.Generate(context.Background(), OpenAIRequest{
+	response, err := transport.Generate(context.Background(), ResponsesRequest{
 		Model:                 "gpt-requested",
 		FastMode:              true,
 		EnableNativeWebSearch: true,
@@ -77,7 +77,7 @@ func TestProviderUsageEvidencePreservesNullAndZeroUsage(t *testing.T) {
 			`{"type":"response.completed","response":{"model":"gpt-6-sol","output":[]}}`,
 			`[DONE]`,
 		)
-		response, err := transport.Generate(context.Background(), OpenAIRequest{
+		response, err := transport.Generate(context.Background(), ResponsesRequest{
 			Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic,
 		}, StreamCallbacks{})
 		if err != nil {
@@ -93,7 +93,7 @@ func TestProviderUsageEvidencePreservesNullAndZeroUsage(t *testing.T) {
 			`{"type":"response.completed","response":{"model":"gpt-6-sol","usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0},"output":[]}}`,
 			`[DONE]`,
 		)
-		response, err := transport.Generate(context.Background(), OpenAIRequest{
+		response, err := transport.Generate(context.Background(), ResponsesRequest{
 			Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic,
 		}, StreamCallbacks{})
 		if err != nil {
@@ -117,7 +117,7 @@ func TestGenerateRejectsMalformedHostedToolEvidence(t *testing.T) {
 		`{"type":"response.completed","response":{"model":"gpt-6-sol","output":[{"type":"web_search_call","id":"web_1","status":"completed","action":{"type":1}}]}}`,
 		`[DONE]`,
 	)
-	_, err := transport.Generate(context.Background(), OpenAIRequest{
+	_, err := transport.Generate(context.Background(), ResponsesRequest{
 		Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic,
 	}, StreamCallbacks{})
 	if err == nil {
@@ -141,7 +141,7 @@ func TestCompactRetainsProviderUsageEvidence(t *testing.T) {
 	t.Cleanup(server.Close)
 	transport := NewHTTPTransport(staticAuthHeader{})
 	transport.Client = newRewritingHTTPClient(t, server)
-	response, err := transport.Compact(context.Background(), OpenAIRequest{
+	response, err := transport.Compact(context.Background(), ResponsesRequest{
 		Model:          "gpt-requested",
 		SessionID:      textutil.Value("test-session"),
 		ToolChoiceMode: ToolChoiceModeAutomatic,

@@ -62,7 +62,7 @@ func TestWorkflowCompatibleResponsesHTTPBlackBoxGatesUnphasedAnswer(t *testing.T
 	eng := mustNewWorkflowTestEngine(
 		t,
 		mustCreateTestSession(t),
-		llm.NewOpenAIClient(transport),
+		llm.NewResponsesClient(transport),
 		testWorkflowConfig(controller, config.WorkflowCompletionModeUnstructured),
 		Config{},
 	)

@@ -95,7 +95,7 @@ func TestLocalCompactionKeepsCommittedThinkingAcrossToolRetry(t *testing.T) {
 			}
 			log := mustMaterializeTestEventLog(t, store)
 			if adjacent {
-				item := llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+				item := llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 					Type: llm.ResponseItemTypeConfigurationUpdate, ConfigurationEffort: textutil.Value("medium"),
 				}})[0]
 				history, err := sessionProviderHistoryItemFromLLM(0, item)

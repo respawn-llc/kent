@@ -33,11 +33,11 @@ func (a *countingOAuthAuth) ResolveDispatchAuth(context.Context) (*DispatchAuth,
 func TestOpenAIDispatchRejectsInvalidSessionBeforeAuth(t *testing.T) {
 	methods := map[string]func(*HTTPTransport, *string) error{
 		"generate": func(transport *HTTPTransport, sessionID *string) error {
-			_, err := transport.Generate(context.Background(), OpenAIRequest{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: sessionID}, StreamCallbacks{})
+			_, err := transport.Generate(context.Background(), ResponsesRequest{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: sessionID}, StreamCallbacks{})
 			return err
 		},
 		"compact": func(transport *HTTPTransport, sessionID *string) error {
-			_, err := transport.Compact(context.Background(), OpenAIRequest{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: sessionID})
+			_, err := transport.Compact(context.Background(), ResponsesRequest{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: sessionID})
 			return err
 		},
 	}
@@ -115,7 +115,7 @@ func TestOAuthGenerateSendsCanonicalCodexIdentityAuthAndRoutingTiers(t *testing.
 	transport.BaseURLExplicit = true
 	transport.Client = newRewritingHTTPClient(t, server)
 
-	request := OpenAIRequest{
+	request := ResponsesRequest{
 		Model:          "gpt-5.6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		SessionID:      textutil.Value("session-1"),
@@ -181,7 +181,7 @@ func TestOAuthExplicitCompatibleEndpointSendsCommonIdentityWithoutCodexMetadata(
 	transport.BaseURLExplicit = true
 	transport.Client = server.Client()
 
-	if _, err := transport.Generate(context.Background(), OpenAIRequest{
+	if _, err := transport.Generate(context.Background(), ResponsesRequest{
 		Model:          "gpt-5.6-sol",
 		SessionID:      textutil.Value("session-1"),
 		ToolChoiceMode: ToolChoiceModeAutomatic,
@@ -232,11 +232,11 @@ func requireCodexTurnMetadata(t *testing.T, body map[string]any) map[string]any 
 func TestOAuthDispatchRejectsUnrepresentableRoutingModelBeforeProviderHTTP(t *testing.T) {
 	methods := map[string]func(*HTTPTransport, string, *CodexDispatchContext) error{
 		"generate": func(transport *HTTPTransport, model string, dispatch *CodexDispatchContext) error {
-			_, err := transport.Generate(context.Background(), OpenAIRequest{Model: model, ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: textutil.Value("session-1"), CodexDispatch: dispatch}, StreamCallbacks{})
+			_, err := transport.Generate(context.Background(), ResponsesRequest{Model: model, ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: textutil.Value("session-1"), CodexDispatch: dispatch}, StreamCallbacks{})
 			return err
 		},
 		"compact": func(transport *HTTPTransport, model string, dispatch *CodexDispatchContext) error {
-			_, err := transport.Compact(context.Background(), OpenAIRequest{Model: model, ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: textutil.Value("session-1"), CodexDispatch: dispatch})
+			_, err := transport.Compact(context.Background(), ResponsesRequest{Model: model, ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: textutil.Value("session-1"), CodexDispatch: dispatch})
 			return err
 		},
 	}
@@ -278,11 +278,11 @@ func TestOAuthDispatchRejectsUnrepresentableRoutingModelBeforeProviderHTTP(t *te
 func TestOAuthDispatchRejectsMissingContextBeforeContextWindowHTTP(t *testing.T) {
 	methods := map[string]func(*HTTPTransport) error{
 		"generate": func(transport *HTTPTransport) error {
-			_, err := transport.Generate(context.Background(), OpenAIRequest{Model: "unknown-model", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: textutil.Value("session-1")}, StreamCallbacks{})
+			_, err := transport.Generate(context.Background(), ResponsesRequest{Model: "unknown-model", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: textutil.Value("session-1")}, StreamCallbacks{})
 			return err
 		},
 		"compact": func(transport *HTTPTransport) error {
-			_, err := transport.Compact(context.Background(), OpenAIRequest{Model: "unknown-model", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: textutil.Value("session-1")})
+			_, err := transport.Compact(context.Background(), ResponsesRequest{Model: "unknown-model", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: textutil.Value("session-1")})
 			return err
 		},
 	}

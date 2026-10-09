@@ -18,115 +18,115 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 )
 
-// ErrOpenAIInputItemUnprepared reports that provider-neutral history reached
-// the OpenAI serializer without a valid provider-ready Raw payload.
-var ErrOpenAIInputItemUnprepared = errors.New("openai input item is not prepared")
+// ErrResponsesInputItemUnprepared reports that provider-neutral history reached
+// the Responses serializer without a valid provider-ready Raw payload.
+var ErrResponsesInputItemUnprepared = errors.New("responses input item is not prepared")
 
-type OpenAIInputPreparationDetail string
+type ResponsesInputPreparationDetail string
 
 const (
-	OpenAIInputPreparationMissingRaw           OpenAIInputPreparationDetail = "missing_raw"
-	OpenAIInputPreparationInvalidRaw           OpenAIInputPreparationDetail = "invalid_raw"
-	OpenAIInputInvariantEmptyContent           OpenAIInputPreparationDetail = "empty_content"
-	OpenAIInputInvariantEmptyCallID            OpenAIInputPreparationDetail = "empty_call_id"
-	OpenAIInputInvariantEmptyArguments         OpenAIInputPreparationDetail = "empty_arguments"
-	OpenAIInputInvariantInvalidOutputJSON      OpenAIInputPreparationDetail = "invalid_output_json"
-	OpenAIInputInvariantEmptyReasoningID       OpenAIInputPreparationDetail = "empty_reasoning_id"
-	OpenAIInputInvariantEmptyCompactionContent OpenAIInputPreparationDetail = "empty_compaction_content"
-	OpenAIInputInvariantUnsupportedType        OpenAIInputPreparationDetail = "unsupported_type"
+	ResponsesInputPreparationMissingRaw           ResponsesInputPreparationDetail = "missing_raw"
+	ResponsesInputPreparationInvalidRaw           ResponsesInputPreparationDetail = "invalid_raw"
+	ResponsesInputInvariantEmptyContent           ResponsesInputPreparationDetail = "empty_content"
+	ResponsesInputInvariantEmptyCallID            ResponsesInputPreparationDetail = "empty_call_id"
+	ResponsesInputInvariantEmptyArguments         ResponsesInputPreparationDetail = "empty_arguments"
+	ResponsesInputInvariantInvalidOutputJSON      ResponsesInputPreparationDetail = "invalid_output_json"
+	ResponsesInputInvariantEmptyReasoningID       ResponsesInputPreparationDetail = "empty_reasoning_id"
+	ResponsesInputInvariantEmptyCompactionContent ResponsesInputPreparationDetail = "empty_compaction_content"
+	ResponsesInputInvariantUnsupportedType        ResponsesInputPreparationDetail = "unsupported_type"
 )
 
-type OpenAIInputItemPreparationError struct {
+type ResponsesInputItemPreparationError struct {
 	Index     int
 	Type      ResponseItemType
 	Name      *string
 	CallID    *string
-	State     OpenAIInputPreparationDetail
-	Invariant OpenAIInputPreparationDetail
+	State     ResponsesInputPreparationDetail
+	Invariant ResponsesInputPreparationDetail
 }
 
-func (e *OpenAIInputItemPreparationError) Error() string {
-	return fmt.Sprintf("openai input item at index %d is not prepared (type=%q name=%s call_id=%s state=%q invariant=%q)", e.Index, e.Type, formatOptionalOpenAIInputFact(e.Name), formatOptionalOpenAIInputFact(e.CallID), e.State, e.Invariant)
+func (e *ResponsesInputItemPreparationError) Error() string {
+	return fmt.Sprintf("responses input item at index %d is not prepared (type=%q name=%s call_id=%s state=%q invariant=%q)", e.Index, e.Type, formatOptionalResponsesInputFact(e.Name), formatOptionalResponsesInputFact(e.CallID), e.State, e.Invariant)
 }
 
-func (e *OpenAIInputItemPreparationError) Unwrap() error { return ErrOpenAIInputItemUnprepared }
+func (e *ResponsesInputItemPreparationError) Unwrap() error { return ErrResponsesInputItemUnprepared }
 
 func buildResponsesInput(canonical []ResponseItem) ([]responses.ResponseInputItemUnionParam, error) {
 	items := make([]responses.ResponseInputItemUnionParam, 0, len(canonical))
 	for idx, item := range canonical {
 		raw := bytes.TrimSpace(item.Raw)
 		if len(raw) == 0 {
-			return nil, newOpenAIInputItemPreparationError(idx, item, OpenAIInputPreparationMissingRaw)
+			return nil, newResponsesInputItemPreparationError(idx, item, ResponsesInputPreparationMissingRaw)
 		}
 		if !json.Valid(raw) {
-			return nil, newOpenAIInputItemPreparationError(idx, item, OpenAIInputPreparationInvalidRaw)
+			return nil, newResponsesInputItemPreparationError(idx, item, ResponsesInputPreparationInvalidRaw)
 		}
 		items = append(items, param.Override[responses.ResponseInputItemUnionParam](append(json.RawMessage(nil), raw...)))
 	}
 	return items, nil
 }
 
-func newOpenAIInputItemPreparationError(index int, item ResponseItem, state OpenAIInputPreparationDetail) error {
-	invariant := unpreparedOpenAIInputInvariant(item)
-	if state == OpenAIInputPreparationInvalidRaw {
-		invariant = OpenAIInputPreparationInvalidRaw
+func newResponsesInputItemPreparationError(index int, item ResponseItem, state ResponsesInputPreparationDetail) error {
+	invariant := unpreparedResponsesInputInvariant(item)
+	if state == ResponsesInputPreparationInvalidRaw {
+		invariant = ResponsesInputPreparationInvalidRaw
 	}
-	return &OpenAIInputItemPreparationError{
+	return &ResponsesInputItemPreparationError{
 		Index: index, Type: item.Type, Name: optionalTrimmedPointer(item.Name),
 		CallID: optionalFirstTrimmedPointer(item.CallID, item.ID), State: state, Invariant: invariant,
 	}
 }
 
-func formatOptionalOpenAIInputFact(value *string) string {
+func formatOptionalResponsesInputFact(value *string) string {
 	if value == nil {
 		return "null"
 	}
 	return fmt.Sprintf("%q", *value)
 }
 
-func unpreparedOpenAIInputInvariant(item ResponseItem) OpenAIInputPreparationDetail {
+func unpreparedResponsesInputInvariant(item ResponseItem) ResponsesInputPreparationDetail {
 	switch item.Type {
 	case ResponseItemTypeMessage:
 		if _, present := textutil.OptionalTrimmed(item.Content); !present {
-			return OpenAIInputInvariantEmptyContent
+			return ResponsesInputInvariantEmptyContent
 		}
 	case ResponseItemTypeFunctionCall:
 		if _, present := textutil.FirstOptionalTrimmed(item.CallID, item.ID); !present {
-			return OpenAIInputInvariantEmptyCallID
+			return ResponsesInputInvariantEmptyCallID
 		}
 		if strings.TrimSpace(string(item.Arguments)) == "" {
-			return OpenAIInputInvariantEmptyArguments
+			return ResponsesInputInvariantEmptyArguments
 		}
 	case ResponseItemTypeFunctionCallOutput:
 		if _, present := textutil.OptionalTrimmed(item.CallID); !present {
-			return OpenAIInputInvariantEmptyCallID
+			return ResponsesInputInvariantEmptyCallID
 		}
 		if !json.Valid(item.Output) {
-			return OpenAIInputInvariantInvalidOutputJSON
+			return ResponsesInputInvariantInvalidOutputJSON
 		}
 	case ResponseItemTypeCustomToolCall:
 		if _, present := textutil.FirstOptionalTrimmed(item.CallID, item.ID); !present {
-			return OpenAIInputInvariantEmptyCallID
+			return ResponsesInputInvariantEmptyCallID
 		}
 	case ResponseItemTypeCustomToolOutput:
 		if _, present := textutil.OptionalTrimmed(item.CallID); !present {
-			return OpenAIInputInvariantEmptyCallID
+			return ResponsesInputInvariantEmptyCallID
 		}
 		if !json.Valid(item.Output) {
-			return OpenAIInputInvariantInvalidOutputJSON
+			return ResponsesInputInvariantInvalidOutputJSON
 		}
 	case ResponseItemTypeReasoning:
 		if _, present := textutil.OptionalTrimmed(item.ID); !present {
-			return OpenAIInputInvariantEmptyReasoningID
+			return ResponsesInputInvariantEmptyReasoningID
 		}
 	case ResponseItemTypeCompaction:
 		if _, present := textutil.OptionalTrimmed(item.EncryptedContent); !present {
-			return OpenAIInputInvariantEmptyCompactionContent
+			return ResponsesInputInvariantEmptyCompactionContent
 		}
 	default:
-		return OpenAIInputInvariantUnsupportedType
+		return ResponsesInputInvariantUnsupportedType
 	}
-	return OpenAIInputPreparationMissingRaw
+	return ResponsesInputPreparationMissingRaw
 }
 
 func normalizeToolArguments(arguments string) string {
@@ -153,46 +153,46 @@ func normalizeToolInput(arguments string) json.RawMessage {
 	return json.RawMessage(textutil.CompactNoHTMLEscape(quoted))
 }
 
-// PrepareOpenAIInputItems stamps provider-ready OpenAI input payloads onto
+// PrepareResponsesInputItems stamps provider-ready Responses input payloads onto
 // locally materialized response items. The transport can then pass Raw through
 // without making history-shape decisions at request serialization time.
-func PrepareOpenAIInputItems(items []ResponseItem) []ResponseItem {
+func PrepareResponsesInputItems(items []ResponseItem) []ResponseItem {
 	if len(items) == 0 {
 		return nil
 	}
 	out := make([]ResponseItem, 0, len(items))
 	for _, item := range items {
-		out = append(out, prepareOpenAIInputItem(item)...)
+		out = append(out, prepareResponsesInputItem(item)...)
 	}
 	return out
 }
 
-func prepareOpenAIInputItem(item ResponseItem) []ResponseItem {
+func prepareResponsesInputItem(item ResponseItem) []ResponseItem {
 	copyItem := CloneResponseItems([]ResponseItem{item})[0]
 	if len(bytes.TrimSpace(copyItem.Raw)) > 0 {
 		return []ResponseItem{copyItem}
 	}
-	if promoted, ok := promotedOpenAIViewImageFileItems(copyItem); ok {
+	if promoted, ok := promotedResponsesViewImageFileItems(copyItem); ok {
 		return promoted
 	}
-	if raw, ok := openAIInputRawForResponseItem(copyItem); ok {
+	if raw, ok := responsesInputRawForResponseItem(copyItem); ok {
 		copyItem.Raw = raw
 	}
 	return []ResponseItem{copyItem}
 }
 
-type openAIInputTextContentRaw struct {
+type responsesInputTextContentRaw struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
 }
 
-type openAIOutputTextContentRaw struct {
+type responsesOutputTextContentRaw struct {
 	Type        string `json:"type"`
 	Text        string `json:"text"`
 	Annotations []any  `json:"annotations,omitempty"`
 }
 
-type openAIInputMessageRaw struct {
+type responsesInputMessageRaw struct {
 	Type    string `json:"type"`
 	Role    string `json:"role"`
 	Content any    `json:"content"`
@@ -200,51 +200,51 @@ type openAIInputMessageRaw struct {
 	Phase   string `json:"phase,omitempty"`
 }
 
-type openAIFunctionCallRaw struct {
+type responsesFunctionCallRaw struct {
 	Type      string `json:"type"`
 	CallID    string `json:"call_id"`
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
 }
 
-type openAICustomToolCallRaw struct {
+type responsesCustomToolCallRaw struct {
 	Type   string `json:"type"`
 	CallID string `json:"call_id"`
 	Name   string `json:"name"`
 	Input  string `json:"input"`
 }
 
-type openAIReasoningSummaryRaw struct {
+type responsesReasoningSummaryRaw struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
 }
 
-type openAIReasoningRaw struct {
-	Type             string                      `json:"type"`
-	ID               string                      `json:"id"`
-	Summary          []openAIReasoningSummaryRaw `json:"summary"`
-	EncryptedContent string                      `json:"encrypted_content,omitempty"`
+type responsesReasoningRaw struct {
+	Type             string                         `json:"type"`
+	ID               string                         `json:"id"`
+	Summary          []responsesReasoningSummaryRaw `json:"summary"`
+	EncryptedContent string                         `json:"encrypted_content,omitempty"`
 }
 
-type openAICompactionRaw struct {
+type responsesCompactionRaw struct {
 	Type             string `json:"type"`
 	ID               string `json:"id,omitempty"`
 	EncryptedContent string `json:"encrypted_content"`
 }
 
-func openAIInputRawForResponseItem(item ResponseItem) (json.RawMessage, bool) {
+func responsesInputRawForResponseItem(item ResponseItem) (json.RawMessage, bool) {
 	switch item.Type {
 	case ResponseItemTypeConfigurationUpdate:
 		if item.ConfigurationEffort == nil || *item.ConfigurationEffort == "" {
 			return nil, false
 		}
-		return marshalOpenAIInputRaw(responses.ResponseConfigurationUpdateItemParam{
+		return marshalResponsesInputRaw(responses.ResponseConfigurationUpdateItemParam{
 			Reasoning: responses.ResponseConfigurationUpdateItemParamReasoning{
 				Effort: shared.ReasoningEffort(*item.ConfigurationEffort),
 			},
 		})
 	case ResponseItemTypeMessage:
-		return openAIMessageInputRaw(item)
+		return responsesMessageInputRaw(item)
 	case ResponseItemTypeFunctionCall:
 		callID, present := textutil.FirstOptionalTrimmed(item.CallID, item.ID)
 		arguments := strings.TrimSpace(string(item.Arguments))
@@ -252,7 +252,7 @@ func openAIInputRawForResponseItem(item ResponseItem) (json.RawMessage, bool) {
 			return nil, false
 		}
 		name, _ := textutil.OptionalTrimmed(item.Name)
-		return marshalOpenAIInputRaw(openAIFunctionCallRaw{
+		return marshalResponsesInputRaw(responsesFunctionCallRaw{
 			Type:      string(ResponseItemTypeFunctionCall),
 			CallID:    callID,
 			Name:      name,
@@ -275,7 +275,7 @@ func openAIInputRawForResponseItem(item ResponseItem) (json.RawMessage, bool) {
 		}
 		name, _ := textutil.OptionalTrimmed(item.Name)
 		input, _ := textutil.OptionalExact(item.CustomInput)
-		return marshalOpenAIInputRaw(openAICustomToolCallRaw{
+		return marshalResponsesInputRaw(responsesCustomToolCallRaw{
 			Type:   string(ResponseItemTypeCustomToolCall),
 			CallID: callID,
 			Name:   name,
@@ -296,16 +296,16 @@ func openAIInputRawForResponseItem(item ResponseItem) (json.RawMessage, bool) {
 		if !present {
 			return nil, false
 		}
-		summary := make([]openAIReasoningSummaryRaw, 0, len(item.ReasoningSummary))
+		summary := make([]responsesReasoningSummaryRaw, 0, len(item.ReasoningSummary))
 		for _, entry := range item.ReasoningSummary {
 			text := strings.TrimSpace(entry.Text)
 			if text == "" {
 				continue
 			}
-			summary = append(summary, openAIReasoningSummaryRaw{Type: "summary_text", Text: text})
+			summary = append(summary, responsesReasoningSummaryRaw{Type: "summary_text", Text: text})
 		}
 		encrypted, _ := textutil.OptionalTrimmed(item.EncryptedContent)
-		return marshalOpenAIInputRaw(openAIReasoningRaw{
+		return marshalResponsesInputRaw(responsesReasoningRaw{
 			Type:             string(ResponseItemTypeReasoning),
 			ID:               id,
 			Summary:          summary,
@@ -317,7 +317,7 @@ func openAIInputRawForResponseItem(item ResponseItem) (json.RawMessage, bool) {
 			return nil, false
 		}
 		id, _ := textutil.OptionalTrimmed(item.ID)
-		return marshalOpenAIInputRaw(openAICompactionRaw{
+		return marshalResponsesInputRaw(responsesCompactionRaw{
 			Type:             string(ResponseItemTypeCompaction),
 			ID:               id,
 			EncryptedContent: encrypted,
@@ -327,7 +327,7 @@ func openAIInputRawForResponseItem(item ResponseItem) (json.RawMessage, bool) {
 	}
 }
 
-func openAIMessageInputRaw(item ResponseItem) (json.RawMessage, bool) {
+func responsesMessageInputRaw(item ResponseItem) (json.RawMessage, bool) {
 	text, present := textutil.OptionalExact(item.Content)
 	if !present {
 		return nil, false
@@ -349,12 +349,12 @@ func openAIMessageInputRaw(item ResponseItem) (json.RawMessage, bool) {
 		return nil, false
 	}
 	if role == string(RoleAssistant) {
-		content := []openAIOutputTextContentRaw{{
+		content := []responsesOutputTextContentRaw{{
 			Type:        "output_text",
 			Text:        text,
 			Annotations: []any{},
 		}}
-		raw := openAIInputMessageRaw{
+		raw := responsesInputMessageRaw{
 			Type:    "message",
 			Role:    string(RoleAssistant),
 			Content: content,
@@ -363,21 +363,21 @@ func openAIMessageInputRaw(item ResponseItem) (json.RawMessage, bool) {
 		if item.Phase != nil {
 			raw.Phase = string(*item.Phase)
 		}
-		return marshalOpenAIInputRaw(raw)
+		return marshalResponsesInputRaw(raw)
 	}
 	switch role {
 	case string(RoleSystem), string(RoleDeveloper), string(RoleUser):
 	default:
 		role = string(RoleUser)
 	}
-	return marshalOpenAIInputRaw(openAIInputMessageRaw{
+	return marshalResponsesInputRaw(responsesInputMessageRaw{
 		Type:    "message",
 		Role:    role,
-		Content: []openAIInputTextContentRaw{{Type: "input_text", Text: text}},
+		Content: []responsesInputTextContentRaw{{Type: "input_text", Text: text}},
 	})
 }
 
-func promotedOpenAIViewImageFileItems(item ResponseItem) ([]ResponseItem, bool) {
+func promotedResponsesViewImageFileItems(item ResponseItem) ([]ResponseItem, bool) {
 	name, hasName := textutil.OptionalTrimmed(item.Name)
 	if item.Type != ResponseItemTypeFunctionCallOutput ||
 		!hasName ||
@@ -392,7 +392,7 @@ func promotedOpenAIViewImageFileItems(item ResponseItem) ([]ResponseItem, bool) 
 	if !ok {
 		return nil, false
 	}
-	promotedRaw, promoted := promotedOpenAIInputMessageRaw(content)
+	promotedRaw, promoted := promotedResponsesInputMessageRaw(content)
 	if !promoted {
 		return nil, false
 	}
@@ -431,7 +431,7 @@ func optionalFirstTrimmedPointer[T ~string](values ...*T) *string {
 	return &trimmed
 }
 
-func promotedOpenAIInputMessageRaw(content []openaiwire.InputContent) (json.RawMessage, bool) {
+func promotedResponsesInputMessageRaw(content []openaiwire.InputContent) (json.RawMessage, bool) {
 	if len(content) == 0 {
 		return nil, false
 	}
@@ -445,14 +445,14 @@ func promotedOpenAIInputMessageRaw(content []openaiwire.InputContent) (json.RawM
 	if !hasInputFile {
 		return nil, false
 	}
-	return marshalOpenAIInputRaw(openAIInputMessageRaw{
+	return marshalResponsesInputRaw(responsesInputMessageRaw{
 		Type:    "message",
 		Role:    string(RoleUser),
 		Content: content,
 	})
 }
 
-func marshalOpenAIInputRaw(value any) (json.RawMessage, bool) {
+func marshalResponsesInputRaw(value any) (json.RawMessage, bool) {
 	var buf bytes.Buffer
 	encoder := json.NewEncoder(&buf)
 	encoder.SetEscapeHTML(false)

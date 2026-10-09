@@ -284,7 +284,7 @@ func ItemsFromMessages(messages []Message) []ResponseItem {
 			})
 		}
 	}
-	return PrepareOpenAIInputItems(out)
+	return PrepareResponsesInputItems(out)
 }
 
 func MessagesFromItems(items []ResponseItem) []Message {
