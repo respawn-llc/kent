@@ -11,11 +11,13 @@ import type {
 } from "@/api";
 import {
   worktreeSetupRecovery,
+  errorMessage,
+  RpcError,
   executionTargetChoiceFailure,
   type ExecutionTargetChoiceFailure,
   type WorktreeSetupRecovery,
 } from "@/api";
-import { reportNonCancelledError } from "@/app-facade";
+import { reportNonCancelledError, useAppServices } from "@/app-facade";
 import {
   initialExecutionTargetSelectionDraft,
   moveTaskInitiatingAction,
@@ -163,6 +165,7 @@ function createTaskInitiatingActions(client: QueryClient) {
 }
 
 export function useTaskInitiatingActionController(options: Options) {
+  const { logger } = useAppServices();
   const client = useQueryClient();
   const model = useMemo(() => createTaskInitiatingActions(client), [client]);
   useAtomMount(model.requests);
@@ -192,6 +195,18 @@ export function useTaskInitiatingActionController(options: Options) {
         ...(selection === undefined ? {} : { selection }),
         onConfirmation: setPending,
         onError: (failedAction, error) => {
+          void logger.append("warn", "Task initiating action failed.", {
+            taskID: taskInitiatingActionTaskID(failedAction),
+            action: failedAction.kind,
+            error: errorMessage(error),
+            ...(error instanceof RpcError
+              ? {
+                  method: error.method,
+                  code: String(error.code),
+                  ...(error.data === undefined ? {} : { details: errorMessage(error.data) }),
+                }
+              : {}),
+          });
           const choiceFailure = executionTargetChoiceFailure(error);
           if (
             choiceFailure !== null &&

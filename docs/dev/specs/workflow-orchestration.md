@@ -18,6 +18,7 @@
 - Leaving a Node removes that current execution state. Kent does not retain completed Node execution, execution-attempt, or workflow-movement records as hidden history.
 - Task creation creates a durable Task at the Workflow's Start Node.
 - Automation starts only through explicit Task Start, which applies the Start Node's outgoing Transition and adds the first executable current Node.
+- Task Start must be idempotent. Concurrent Start requests must wait for the accepted Start to finish. If the Task has already left its Start Node, Start must succeed with its existing Current Nodes without preparing an Execution Target, starting execution again, or changing the Task. An unsuccessful Start must not make another Start report success.
 - Automation continues through automatic Nodes until terminal or blocked by a Question, Approval/manual gate, error, capacity, interruption, or validation.
 - Task status combines Current Nodes with current live activity. Kent does not store a second lifecycle status that can disagree with them.
 - Running and waiting require matching Exact Execution Scope evidence. Queued status requires either a queued Exact Execution Scope or Workflow Execution's live automatic-concurrency queue ownership. A current Terminal Node makes the Task done.
