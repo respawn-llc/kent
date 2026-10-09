@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"core/internal/testharness/httpclient"
@@ -401,6 +402,7 @@ func TestGrokDispatchUsesSelectedRouteAndSupportedPayload(t *testing.T) {
 				t.Fatal(err)
 			}
 			requests := 0
+			var dispatched map[string]any
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				requests++
 				var body struct {
@@ -415,7 +417,14 @@ func TestGrokDispatchUsesSelectedRouteAndSupportedPayload(t *testing.T) {
 					Temperature *float64                         `json:"temperature"`
 					Metadata    json.RawMessage                  `json:"client_metadata"`
 				}
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				raw, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := json.Unmarshal(raw, &dispatched); err != nil {
+					t.Fatal(err)
+				}
+				if err := json.Unmarshal(raw, &body); err != nil {
 					t.Error(err)
 				}
 				if body.Model != "grok-4.7" || body.ServiceTier != "priority" || body.Reasoning.Effort != "high" || body.Reasoning.Summary != "concise" {
@@ -468,20 +477,38 @@ func TestGrokDispatchUsesSelectedRouteAndSupportedPayload(t *testing.T) {
 			provider, err := NewProviderClient(ProviderClientOptions{Registration: selected, Model: "grok-4.7",
 				Auth: auth, HTTPClient: client, ModelVerbosity: "high", Store: true,
 				ProviderIdentifier: textutil.Value("kent-fixture"), ContextWindowTokens: 500_000,
+				ProviderCapabilitiesOverride: &ProviderCapabilities{ProviderID: "chatgpt-codex", SupportsResponsesAPI: true, SupportsNativeWebSearch: true, SupportsFastMode: true},
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = provider.Generate(t.Context(), Request{
+			request := Request{
 				Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic,
 				ReasoningEffort: "high", SupportsReasoningEffort: true, FastMode: true, EnableNativeWebSearch: true,
 				Temperature: 0.4, MaxTokens: 128,
-			}, StreamCallbacks{})
+			}
+			_, err = provider.Generate(t.Context(), request, StreamCallbacks{})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if requests != 1 {
 				t.Fatalf("dispatched %d requests", requests)
+			}
+			mode := OpenAIAuthMode{}
+			mode.IsOAuth = protocol != config.ConnectionGrokAPIKey
+			raw, err := MarshalResponsesWirePayload(selected, RequestAsResponses(request), true, "high", mode,
+				ProviderCapabilities{ProviderID: "chatgpt-codex", SupportsResponsesAPI: true, SupportsNativeWebSearch: true, SupportsFastMode: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var inspected map[string]any
+			if err := json.Unmarshal(raw, &inspected); err != nil {
+				t.Fatal(err)
+			}
+			// Streaming is selected by the SDK dispatch method, not payload preparation.
+			delete(dispatched, "stream")
+			if !reflect.DeepEqual(inspected, dispatched) {
+				t.Fatalf("offline/live payload mismatch: inspected=%v dispatched=%v", inspected, dispatched)
 			}
 		})
 	}
