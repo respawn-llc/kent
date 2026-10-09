@@ -59,7 +59,7 @@ type deviceTokenPollResponse struct {
 type oauthTokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
-	ExpiresIn    int    `json:"expires_in"`
+	ExpiresIn    *int   `json:"expires_in"`
 	IDToken      string `json:"id_token"`
 }
 
@@ -307,9 +307,9 @@ func exchangeOpenAIAuthorizationCode(ctx context.Context, opts OpenAIOAuthOption
 		return OAuthMethod{}, errors.New("token exchange response missing access token")
 	}
 
-	expiresAt := time.Now().UTC().Add(time.Hour)
-	if parsed.ExpiresIn > 0 {
-		expiresAt = time.Now().UTC().Add(time.Duration(parsed.ExpiresIn) * time.Second)
+	expiresAt, err := oauthExpiry(parsed.ExpiresIn)
+	if err != nil {
+		return OAuthMethod{}, err
 	}
 
 	return OAuthMethod{
@@ -381,12 +381,22 @@ func RefreshOpenAIAuthToken(ctx context.Context, opts OpenAIOAuthOptions, method
 	if email := extractEmail(parsed); strings.TrimSpace(email) != "" {
 		updated.Email = email
 	}
-	if parsed.ExpiresIn > 0 {
-		updated.Expiry = time.Now().UTC().Add(time.Duration(parsed.ExpiresIn) * time.Second)
-	} else {
-		updated.Expiry = time.Now().UTC().Add(time.Hour)
+	updated.Expiry, err = oauthExpiry(parsed.ExpiresIn)
+	if err != nil {
+		return OAuthMethod{}, fmt.Errorf("%w: %w", ErrOAuthRefreshFailed, err)
 	}
 	return updated, nil
+}
+
+func oauthExpiry(seconds *int) (*time.Time, error) {
+	if seconds == nil {
+		return nil, nil
+	}
+	if *seconds < 0 || int64(*seconds) > math.MaxInt64/int64(time.Second) {
+		return nil, errors.New("OAuth expiry must be a nonnegative duration in seconds")
+	}
+	expiry := time.Now().UTC().Add(time.Duration(*seconds) * time.Second)
+	return &expiry, nil
 }
 
 func NewOpenAIOAuthRefresher(opts OpenAIOAuthOptions, now func() time.Time, refreshBefore time.Duration) *OAuthRefresher {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"core/shared/config"
+	"core/shared/textutil"
 )
 
 func TestFileStoreSaveWritesWithSecurePermissions(t *testing.T) {
@@ -43,7 +44,7 @@ func TestFileStorePreservesCredentialsOnRewrite(t *testing.T) {
 			}`,
 			want: OAuthMethod{
 				AccessToken: "saved-access", RefreshToken: "saved-refresh",
-				Expiry:    time.Date(2030, time.January, 1, 12, 0, 0, 0, time.UTC),
+				Expiry:    textutil.Value(time.Date(2030, time.January, 1, 12, 0, 0, 0, time.UTC)),
 				AccountID: "saved-account", Email: "saved@example.invalid",
 			},
 		},
@@ -114,7 +115,7 @@ func testOAuthState() State {
 			"work": {
 				AccessToken:  "oauth-access",
 				RefreshToken: "oauth-refresh",
-				Expiry:       time.Date(2026, time.January, 1, 11, 0, 0, 0, time.UTC),
+				Expiry:       textutil.Value(time.Date(2026, time.January, 1, 11, 0, 0, 0, time.UTC)),
 			},
 		},
 	}

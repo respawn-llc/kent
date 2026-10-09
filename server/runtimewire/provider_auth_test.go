@@ -46,7 +46,7 @@ func newExpiredConnectionRuntime(t *testing.T, factory RuntimeClientFactory) *ex
 		auth.OpenAIOAuthOptions{Issuer: issuer.URL, HTTPClient: issuer.Client()}, func() time.Time { return now }, time.Minute,
 	))
 	if err := manager.SaveOAuth(t.Context(), fixture.id, auth.OAuthMethod{
-		AccessToken: "expired-access", RefreshToken: "expired-refresh", Expiry: now.Add(-time.Hour),
+		AccessToken: "expired-access", RefreshToken: "expired-refresh", Expiry: textutil.Value(now.Add(-time.Hour)),
 	}); err != nil {
 		t.Fatal(err)
 	}

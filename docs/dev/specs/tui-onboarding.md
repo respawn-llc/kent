@@ -17,7 +17,7 @@
   3. **Entry** — "configure now" vs "defaults": choosing defaults finalizes immediately with a default config, preserving the chosen theme and connection, and skips all remaining steps.
   4. **Model** — text input, pre-filled with the current default.
   5. **Context window** — only for models with a large-window variant; default (smaller) window is the recommended pre-selection.
-  6. **Thinking level** — only for reasoning-capable models; level list + Disable + custom-value entry (custom opens a text sub-step; empty custom value rejected).
+  6. **Thinking level** — only for reasoning-capable models. Grok must offer only supported effort levels without Disable or custom-value entry. Other providers offer level list + Disable + custom-value entry (custom opens a text sub-step and rejects empty custom values).
   7. **Verbosity** — only for verbosity-capable models.
   8. **Follow-up questions** — enable/disable the ask-question tool.
   9. **Supervisor** — off / after edits / always; when enabled, sub-steps for Supervisor model (pre-filled with the primary model) and Supervisor thinking (mirrors primary until explicitly diverged; custom entry as above).
@@ -37,7 +37,7 @@
 
 - Finalizing shows a progress state. For custom setup, imports finish before Kent writes the configuration. A failed import rolls back the imported changes and returns to the wizard with an error. Connection credential persistence and a failed final configuration write must follow the bounded failure contract in [Provider Connections](provider-connections.md).
 - The defaults path writes the default configuration.
-- The default model must be GPT-6.1 Sol with a 272,000-token context window.
+- For Grok connections, the default model must be Grok 4.7. Other connections must default to GPT-6.1 Sol with a 272,000-token context window.
 - When Supervisor is enabled, the Defaults option uses GPT-6 Luna on first-party OpenAI connections and the primary model on other providers.
 - Custom setup must pre-fill Supervisor with the primary model.
 - Custom setup must use the selected Supervisor model at finalization.

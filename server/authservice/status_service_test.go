@@ -14,6 +14,7 @@ import (
 	"core/server/auth"
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	"core/shared/textutil"
 )
 
 type failingAuthStatusStore struct {
@@ -31,7 +32,7 @@ func (failingAuthStatusStore) Save(context.Context, auth.State) error {
 func TestConnectionStatusReadsStoredOAuthWithoutRefreshing(t *testing.T) {
 	now := time.Now()
 	manager := auth.NewManager(auth.NewMemoryStore(auth.State{Connections: map[config.ConnectionID]auth.OAuthMethod{
-		"work": {AccessToken: "stale", AccountID: "account", Expiry: now.Add(-time.Hour)},
+		"work": {AccessToken: "stale", AccountID: "account", Expiry: textutil.Value(now.Add(-time.Hour))},
 	}}), auth.NewOAuthRefresher(func() time.Time { return now }, time.Minute, func(context.Context, auth.OAuthMethod) (auth.OAuthMethod, error) {
 		t.Error("status attempted OAuth refresh")
 		return auth.OAuthMethod{}, errors.New("unexpected refresh")

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"core/shared/config"
+	"core/shared/textutil"
 )
 
 var managerTestNow = time.Date(2026, time.January, 1, 10, 0, 0, 0, time.UTC)
@@ -37,7 +38,7 @@ func TestConnectionCredentialReplacementIsolation(t *testing.T) {
 func TestCurrentOAuthSurfacesRefreshFailureWithoutChangingCredentials(t *testing.T) {
 	initial := testOAuthState()
 	credential := initial.Connections["work"]
-	credential.Expiry = managerTestNow.Add(-time.Minute)
+	credential.Expiry = textutil.Value(managerTestNow.Add(-time.Minute))
 	initial.Connections["work"] = credential
 	store := NewMemoryStore(initial)
 	refreshErr := errors.New("refresh failed")
@@ -59,13 +60,13 @@ func TestCurrentOAuthSurfacesRefreshFailureWithoutChangingCredentials(t *testing
 func TestCurrentOAuthRefreshesAndPersistsSelectedConnection(t *testing.T) {
 	initial := testOAuthState()
 	credential := initial.Connections["work"]
-	credential.Expiry = managerTestNow.Add(-time.Minute)
+	credential.Expiry = textutil.Value(managerTestNow.Add(-time.Minute))
 	initial.Connections["work"] = credential
 	initial.Connections["personal"] = OAuthMethod{AccessToken: "personal-token"}
 	store := NewMemoryStore(initial)
 	refreshed := credential
 	refreshed.AccessToken = "fresh-token"
-	refreshed.Expiry = managerTestNow.Add(time.Hour)
+	refreshed.Expiry = textutil.Value(managerTestNow.Add(time.Hour))
 	manager := NewManager(store, NewOAuthRefresher(
 		func() time.Time { return managerTestNow }, 30*time.Second,
 		func(context.Context, OAuthMethod) (OAuthMethod, error) {

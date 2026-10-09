@@ -306,9 +306,25 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - When a new fork targets a model or provider that does not support native Thinking updates, Kent must exclude those updates from the child's initial input rather than fail because of them. Kent must preserve the parent history and the order of the remaining child input. This exception must not change input already dispatched by the child.
 - A fork must inherit the parent's current desired Thinking selection subject to the target model's existing settings rules. Its next Agent Step must reconcile that selection with the copied history.
 
+## Grok Model Behavior
+
+- Kent's built-in Grok catalog must include `grok-4.6` and `grok-4.7` for public API access. Kent must not include Grok 4.5 in its built-in catalog or defaults or claim CLI subscription-proxy availability for 4.6. Unknown manual model entry must follow the existing provider-dispatch rules.
+- If the user explicitly selects Grok 4.5, Kent must mark native Web Search incompatible and must not advertise or send that provider-hosted tool.
+- Public API-key and public OAuth connections must use a 500,000-token default context window for these models without a separate larger-window choice.
+- On CLI subscription-proxy connections, Grok 4.7 must use a 256,000-token default context window and offer a 500,000-token larger window.
+- The catalog must report Grok 4.7's knowledge cutoff as May 2026 and Grok 4.6's as February 2026.
+- Grok 4.6 and 4.7 must support low, medium, high, and xhigh Thinking effort. Grok Thinking must default to high and must not offer disabled Thinking or custom efforts.
+- Kent must derive disabled-Thinking availability from the model's supported efforts and must reject unsupported configured Grok Thinking values.
+- Grok must apply between-request Thinking changes through the next request's effort setting. Grok must not use cache-preserving Thinking configuration-update appends or apply Thinking changes during generation.
+- Grok must support image input, tool calls, and Kent's existing native Web Search for supported models. Grok Reasoning Summaries must appear unchanged as Reasoning Traces without requiring OpenAI's bold Thinking Status format.
+- Kent must ignore unsupported Grok configuration options such as verbosity.
+- Grok local context estimates must use its provider's text, image, and encrypted-content accounting without OpenAI's encrypted-envelope deduction. Provider-reported context usage must take precedence over estimates. Compaction policy must not change with estimator selection.
+- Both Grok subscription routes and Grok API-key access must support native compaction through the selected service's `/responses/compact` endpoint. Kent must report rejected compaction without automatic fallback.
+
 ## Fast Mode And Context Usage
 
 - Fast Mode is a persisted Session Chat setting available when current capability metadata for the selected Provider Connection declares support for Kent's priority service behavior. Built-in OpenAI and ChatGPT/Codex connections declare support by default; all other connections default to unsupported unless their current metadata explicitly declares support.
+- Grok connections must support Fast Mode through `service_tier=priority`. Fast Mode must not change the selected Grok model.
 - Fast Mode availability is resolved from current Provider Connection metadata without refreshing authentication or making provider network requests. Locked Session provider facts do not determine availability, and availability is not a Session Contract fact or prompt-cache identity input.
 - Changing Fast Mode during an Agent Step persists and publishes immediately, affects the next provider or compaction request, and never changes the request already running.
 - A Fast Mode change creates no transcript row.
@@ -320,6 +336,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Reviewer and compaction requests inherit the Session's effective Fast Mode when their provider supports it.
 - Context usage uses current provider-reported usage when available and Kent's established current-context estimate otherwise.
 - Kent's current-context estimate must use the local estimation behavior owned by the currently resolved [Provider Connection](provider-connections.md#ownership-and-selection). Provider-specific estimates must not change compaction policy or the precedence of provider-reported usage.
+- Kent must distinguish provider-reported context occupancy from billable token categories. Missing provider counts and context occupancy must be nullable. Reported zero context occupancy must take precedence over estimates.
 - Compaction selection compares current usage with the configured thresholds.
 - Kent does not predict future token growth from earlier turns or maintain a separate adaptive compaction policy.
 
@@ -329,6 +346,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Kent must retain the operation's provider, model, time, reported token categories, and available billing-relevant details, including hosted-tool usage, so external consumers can look up prices independently.
 - Kent must preserve historical usage across Session resume and compaction independently of current context usage.
 - Missing usage information must be nullable and must not mean zero consumption.
+- Existing saved usage projections must interpret zero usage values as absent during the data cutover. Newly recorded provider-reported zero usage must be explicit and must not be interpreted as absent.
 - Recording subsequent operations must not fabricate missing historical usage. Retained observations must not certify complete Session billing history.
 - When Session history is copied, retained usage must preserve its original Session and operation identity. Copying history must not represent another provider operation.
 - Usage retention must not calculate monetary costs or fetch or maintain model prices.

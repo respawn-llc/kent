@@ -58,52 +58,63 @@ func BeginOpenAIBrowserFlow(opts OpenAIOAuthOptions, redirectURI string) (Browse
 		redirectURI = defaultManualBrowserRedirectURI
 	}
 
-	state, err := randomBase64URL(24)
+	session, values, err := newPKCEBrowserSession(redirectURI)
 	if err != nil {
-		return BrowserAuthSession{}, fmt.Errorf("generate oauth state: %w", err)
+		return BrowserAuthSession{}, err
 	}
-	codeVerifier, err := randomBase64URL(48)
-	if err != nil {
-		return BrowserAuthSession{}, fmt.Errorf("generate oauth code verifier: %w", err)
-	}
-
-	h := sha256.Sum256([]byte(codeVerifier))
-	challenge := base64.RawURLEncoding.EncodeToString(h[:])
-
 	issuer := strings.TrimSuffix(opts.Issuer, "/")
 	endpoint := issuer + "/oauth/authorize"
-	values := url.Values{}
-	values.Set("response_type", "code")
 	values.Set("client_id", opts.ClientID)
-	values.Set("redirect_uri", redirectURI)
 	values.Set("scope", "openid profile email offline_access")
-	values.Set("code_challenge", challenge)
-	values.Set("code_challenge_method", "S256")
 	values.Set("id_token_add_organizations", "true")
 	values.Set("codex_cli_simplified_flow", "true")
 	values.Set("originator", defaultOAuthOriginator)
-	values.Set("state", state)
 
+	session.AuthorizeURL = endpoint + "?" + values.Encode()
+	return session, nil
+}
+
+func newPKCEBrowserSession(redirectURI string) (BrowserAuthSession, url.Values, error) {
+	state, err := randomBase64URL(24)
+	if err != nil {
+		return BrowserAuthSession{}, nil, fmt.Errorf("generate oauth state: %w", err)
+	}
+	codeVerifier, err := randomBase64URL(48)
+	if err != nil {
+		return BrowserAuthSession{}, nil, fmt.Errorf("generate oauth code verifier: %w", err)
+	}
+	h := sha256.Sum256([]byte(codeVerifier))
+	values := url.Values{
+		"response_type": {"code"}, "redirect_uri": {redirectURI}, "state": {state},
+		"code_challenge": {base64.RawURLEncoding.EncodeToString(h[:])}, "code_challenge_method": {"S256"},
+	}
 	return BrowserAuthSession{
-		AuthorizeURL: endpoint + "?" + values.Encode(),
 		RedirectURI:  redirectURI,
 		State:        state,
 		CodeVerifier: codeVerifier,
-	}, nil
+	}, values, nil
 }
 
 func CompleteOpenAIBrowserFlow(ctx context.Context, opts OpenAIOAuthOptions, session BrowserAuthSession, callbackInput string) (OAuthMethod, error) {
-	parsed, err := ParseOAuthCallbackInput(callbackInput)
+	parsed, err := validateBrowserCallback(session, callbackInput)
 	if err != nil {
 		return OAuthMethod{}, err
 	}
+	return exchangeOpenAIAuthorizationCode(ctx, opts, parsed.Code, session.CodeVerifier, session.RedirectURI)
+}
+
+func validateBrowserCallback(session BrowserAuthSession, callbackInput string) (BrowserCallback, error) {
+	parsed, err := ParseOAuthCallbackInput(callbackInput)
+	if err != nil {
+		return BrowserCallback{}, err
+	}
 	if strings.TrimSpace(session.State) != "" && strings.TrimSpace(parsed.State) != "" && parsed.State != session.State {
-		return OAuthMethod{}, errors.New("oauth state mismatch")
+		return BrowserCallback{}, errors.New("oauth state mismatch")
 	}
 	if strings.TrimSpace(parsed.Code) == "" {
-		return OAuthMethod{}, errors.New("oauth callback is missing code")
+		return BrowserCallback{}, errors.New("oauth callback is missing code")
 	}
-	return exchangeOpenAIAuthorizationCode(ctx, opts, parsed.Code, session.CodeVerifier, session.RedirectURI)
+	return parsed, nil
 }
 
 func ParseOAuthCallbackInput(input string) (BrowserCallback, error) {

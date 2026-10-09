@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"core/shared/textutil"
 )
 
 func rewriteOAuthIssuerClient(server *httptest.Server) *http.Client {
@@ -50,6 +52,22 @@ func writeOAuthTokenResponse(t testing.TB, w http.ResponseWriter, accessToken st
 		"expires_in":    expiresIn,
 	}); err != nil {
 		t.Fatalf("write token response: %v", err)
+	}
+}
+
+func TestOpenAIRefreshPreservesAbsentExpiry(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "new-token"})
+	}))
+	defer server.Close()
+	updated, err := RefreshOpenAIAuthToken(t.Context(), OpenAIOAuthOptions{Issuer: server.URL, HTTPClient: server.Client()}, OAuthMethod{
+		AccessToken: "old-token", RefreshToken: "refresh",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Expiry != nil {
+		t.Fatalf("provider omitted expiry, got %v", updated.Expiry)
 	}
 }
 
@@ -184,7 +202,7 @@ func TestRunOpenAIDeviceCodeFlow(t *testing.T) {
 	if method.AccountID != "" {
 		t.Fatalf("expected empty account id for opaque test tokens, got %q", method.AccountID)
 	}
-	if !method.Expiry.After(time.Now().UTC()) {
+	if method.Expiry == nil || !method.Expiry.After(time.Now().UTC()) {
 		t.Fatalf("expected future expiry, got %s", method.Expiry)
 	}
 }
@@ -257,7 +275,7 @@ func TestRefreshOpenAIAuthToken(t *testing.T) {
 	}, OAuthMethod{
 		AccessToken:  "old-access",
 		RefreshToken: "old-refresh",
-		Expiry:       time.Now().Add(-time.Minute),
+		Expiry:       textutil.Value(time.Now().Add(-time.Minute)),
 	})
 	if err != nil {
 		t.Fatalf("refresh failed: %v", err)
