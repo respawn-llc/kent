@@ -211,6 +211,41 @@ func TestGrokRejectsUnsupportedEffortBeforeInference(t *testing.T) {
 	}
 }
 
+func TestGrokUnknownModelForwardsCustomEffort(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Reasoning struct{ Effort string } `json:"reasoning"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Reasoning.Effort != "future-effort" {
+			t.Errorf("effort = %q", body.Reasoning.Effort)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"fixture\",\"status\":\"completed\",\"output\":[]}}\n\n")
+	}))
+	defer server.Close()
+	selected, err := ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionGrokCLIProxy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := NewProviderClient(ProviderClientOptions{
+		Provider: selected.Provider, Variant: &selected.Variant, Auth: oauthStaticAuth{},
+		HTTPClient: newRewritingHTTPClient(t, server), ContextWindowTokens: 256_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = provider.Generate(t.Context(), Request{
+		Model: "grok-future", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic,
+		ReasoningEffort: "future-effort", SupportsReasoningEffort: true,
+	}, StreamCallbacks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGrokDispatchUsesSelectedRouteAndSupportedPayload(t *testing.T) {
 	for _, protocol := range []config.ConnectionProtocol{config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI, config.ConnectionGrokAPIKey} {
 		t.Run(string(protocol), func(t *testing.T) {

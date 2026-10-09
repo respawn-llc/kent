@@ -1,6 +1,7 @@
 package launch
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"reflect"
@@ -55,7 +56,7 @@ type preparedRoleSettings struct {
 func prepareSubagentSettingsFromRole(base config.Settings, baseSource config.SourceReport, selector string, role config.SubagentRole, providerID *string, allowModelOverride bool, validate bool) (preparedRoleSettings, error) {
 	resolved := cloneSettings(base)
 	if providerID != nil {
-		_ = applyBuiltInRoleHeuristics(&resolved, selector, *providerID, allowModelOverride)
+		applyBuiltInRoleHeuristics(&resolved, selector, *providerID, allowModelOverride)
 	}
 	originalModel := strings.TrimSpace(resolved.Model)
 	resolved, effectiveSources, err := config.OverlaySubagentRoleSettings(config.App{Settings: resolved, Source: baseSource}, role, allowModelOverride)
@@ -70,7 +71,9 @@ func prepareSubagentSettingsFromRole(base config.Settings, baseSource config.Sou
 			explicitSources[key] = origin
 		}
 	}
-	applyDerivedModelContextBudgetOverrides(&resolved, explicitSources, originalModel, allowModelOverride)
+	if err := applyDerivedModelContextBudgetOverrides(&resolved, explicitSources, originalModel, allowModelOverride); err != nil {
+		return preparedRoleSettings{}, err
+	}
 	effectiveSource := baseSource
 	if !allowModelOverride && effectiveSources["model"].Kind == config.SourceDefault {
 		effectiveSources["model"] = config.Origin{Kind: config.SourceSession, Property: config.PropertyAddress{Key: "model"}}
@@ -101,36 +104,47 @@ func prepareSubagentSettingsFromRole(base config.Settings, baseSource config.Sou
 	return preparedRoleSettings{Settings: resolved, Source: effectiveSource, Warning: warning, Model: model, Thinking: thinking}, nil
 }
 
-func applyBuiltInRoleHeuristics(settings *config.Settings, roleName string, providerID string, allowModelOverride bool) bool {
+func applyBuiltInRoleHeuristics(settings *config.Settings, roleName string, providerID string, allowModelOverride bool) {
 	if settings == nil || roleName != config.BuiltInSubagentRoleFast {
-		return false
+		return
 	}
 	if providerID != "openai" && providerID != "chatgpt-codex" {
-		return false
+		return
 	}
 	settings.PriorityRequestMode = true
 	if !allowModelOverride {
-		return true
+		return
 	}
 	settings.Model = "gpt-6-luna"
 	settings.ThinkingLevel = "low"
-	llm.ApplyDerivedModelContextBudget(settings, settings.Model, settings.ModelContextWindow, settings.ContextCompactionThresholdTokens)
+	if contract, known := llm.LookupModelCapabilityContract(settings.Model); known {
+		if meta := contract.ContextMetadata(providerID); meta != nil {
+			settings.ModelContextWindow = meta.ContextWindowTokens
+			settings.ContextCompactionThresholdTokens = meta.ContextWindowTokens * 95 / 100
+		}
+	}
 	settings.PreSubmitCompactionLeadTokens = config.DefaultPreSubmitRunwayTokens
-	return true
 }
 
-func applyDerivedModelContextBudgetOverrides(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool) {
+func applyDerivedModelContextBudgetOverrides(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool) error {
 	if settings == nil || !allowModelOverride {
-		return
+		return nil
 	}
 	if _, ok := explicitSources["model"]; !ok {
-		return
+		return nil
 	}
 	if strings.TrimSpace(settings.Model) == "" || strings.TrimSpace(settings.Model) == originalModel {
-		return
+		return nil
 	}
 	if _, ok := explicitSources["model_context_window"]; !ok {
-		if meta, ok := llm.LookupModelMetadata(settings.Model); ok && meta.ContextWindowTokens > 0 {
+		meta, err := llm.ModelContextForSettings(*settings, settings.Model)
+		// Role facts can be projected before a connection is available. Keep
+		// the inherited budget until its variant context can be resolved.
+		var unavailable *config.ConnectionReferenceError
+		if err != nil && !errors.As(err, &unavailable) {
+			return err
+		}
+		if meta != nil && meta.ContextWindowTokens > 0 {
 			settings.ModelContextWindow = meta.ContextWindowTokens
 		}
 	}
@@ -140,6 +154,7 @@ func applyDerivedModelContextBudgetOverrides(settings *config.Settings, explicit
 	if _, ok := explicitSources["pre_submit_compaction_lead_tokens"]; !ok {
 		settings.PreSubmitCompactionLeadTokens = config.DefaultPreSubmitRunwayTokens
 	}
+	return nil
 }
 
 func cloneSettings(in config.Settings) config.Settings {

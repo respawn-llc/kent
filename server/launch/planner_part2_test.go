@@ -45,10 +45,11 @@ func TestApplyRunPromptOverridesRejectsDerivedContextWindowBelowMinimum(t *testi
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace)
 	plan := newLoadedConfigPlan(t, workspace, loaded)
-	applier := func(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool) {
+	applier := func(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool) error {
 		settings.ModelContextWindow = 39_999
 		settings.ContextCompactionThresholdTokens = 38_000
 		settings.PreSubmitCompactionLeadTokens = 1_000
+		return nil
 	}
 
 	_, _, err := applyRunPromptOverridesWithBudgetApplier(plan, serverapi.RunPromptOverrides{Model: "local-model"}, RunPromptOverrideOptions{}, applier)

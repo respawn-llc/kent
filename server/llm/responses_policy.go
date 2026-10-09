@@ -2,6 +2,7 @@ package llm
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"core/shared/config"
@@ -101,22 +102,21 @@ func (openAIResponsesPolicy) configurePayload(b responsesRequestPayloadBuilder, 
 
 func (grokResponsesPolicy) configurePayload(_ responsesRequestPayloadBuilder, request ResponsesRequest, _ OpenAIAuthMode, out *responses.ResponseNewParams) error {
 	effort := strings.TrimSpace(request.ReasoningEffort)
-	if err := validateGrokReasoningEffort(effort); err != nil {
-		return err
-	}
 	out.Reasoning = shared.ReasoningParam{Effort: shared.ReasoningEffort(effort), Summary: shared.ReasoningSummaryConcise}
 	out.Include = []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent}
 	applySamplingControls(request, out)
 	return applyResponseTextConfig(request, "", out)
 }
 
-func validateGrokReasoningEffort(effort string) error {
-	switch effort {
-	case "", "low", "medium", "high", "xhigh":
+func validateModelReasoningEffort(model, effort string) error {
+	contract, known := LookupModelCapabilityContract(model)
+	if !known || effort == "" {
 		return nil
-	default:
-		return fmt.Errorf("%w: Grok reasoning effort %q is unsupported", ErrInvalidRequest, effort)
 	}
+	if slices.Contains(contract.SupportedReasoningEfforts, effort) {
+		return nil
+	}
+	return fmt.Errorf("%w: model %q does not support reasoning effort %q", ErrInvalidRequest, model, effort)
 }
 
 func applySamplingControls(request ResponsesRequest, out *responses.ResponseNewParams) {

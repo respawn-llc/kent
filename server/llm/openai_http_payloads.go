@@ -76,6 +76,9 @@ func (t *HTTPTransport) buildDispatchPayload(
 }
 
 func (b responsesRequestPayloadBuilder) BuildResponse(request ResponsesRequest, mode OpenAIAuthMode) (responses.ResponseNewParams, error) {
+	if err := validateModelReasoningEffort(request.Model, request.ReasoningEffort); err != nil {
+		return responses.ResponseNewParams{}, err
+	}
 	if err := validateRetainedConnectionContext(request.Items, b.connectionCapabilities); err != nil {
 		return responses.ResponseNewParams{}, err
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"strings"
 
@@ -57,6 +58,10 @@ func (s *Service) GetFacts(ctx context.Context, req *capabilitypb.GetFactsReques
 			return nil, err
 		}
 	}
+	sources := maps.Clone(s.cfg.Source.Sources)
+	if err := llm.ApplyConnectionModelDefaults(&settings, sources); err != nil {
+		return nil, err
+	}
 	currentProvider, err := llm.ResolveRuntimeProviderCapabilities(settings)
 	if err != nil {
 		return nil, err
@@ -65,7 +70,7 @@ func (s *Service) GetFacts(ctx context.Context, req *capabilitypb.GetFactsReques
 	if err != nil {
 		return nil, err
 	}
-	defaults, err := defaultFacts(settings, s.cfg.Source.Sources)
+	defaults, err := defaultFacts(settings, sources)
 	if err != nil {
 		return nil, err
 	}

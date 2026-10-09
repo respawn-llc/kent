@@ -56,6 +56,38 @@ func TestGrokCatalogContextUsesActualConnection(t *testing.T) {
 	}
 }
 
+func TestGrokDefaultsFollowConnectionAndPreserveAuthoredSelections(t *testing.T) {
+	for _, explicit := range []bool{false, true} {
+		id := config.ConnectionID("grok")
+		app := testConfig(t, config.DefaultOnboardingSettings())
+		app.Settings.Connection = &id
+		app.Settings.Connections = map[config.ConnectionID]config.ProviderConnection{id: {Protocol: config.ConnectionGrokCLIProxy}}
+		app.Source.Sources = map[string]config.Origin{}
+		for _, key := range []string{"model", "thinking_level", "model_context_window", "context_compaction_threshold_tokens", "reviewer.model", "reviewer.thinking_level"} {
+			app.Source.Sources[key] = config.Origin{Kind: config.SourceDefault, Property: config.PropertyAddress{Key: key}}
+		}
+		if explicit {
+			app.Settings.Model = "grok-future"
+			app.Settings.ThinkingLevel = "future"
+			app.Settings.Reviewer.Model = "reviewer-custom"
+			for _, key := range []string{"model", "thinking_level", "reviewer.model"} {
+				app.Source.Sources[key] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: key}}
+			}
+		}
+		facts, err := NewService(Options{Config: app}).GetFacts(t.Context(), &capabilitypb.GetFactsRequest{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if explicit {
+			if facts.Defaults.PrimaryModelId != "grok-future" || facts.Defaults.Thinking.GetValue() != "future" || facts.Defaults.Supervisor.Model.GetAlias() != "reviewer-custom" {
+				t.Fatalf("authored defaults changed: %+v", facts.Defaults)
+			}
+		} else if facts.Defaults.PrimaryModelId != "grok-4.7" || facts.Defaults.GetContextWindowTokens() != 256_000 || facts.Defaults.Supervisor.Model != nil {
+			t.Fatalf("connection defaults = %+v", facts.Defaults)
+		}
+	}
+}
+
 func TestImportErrorFactsPreserveItemKind(t *testing.T) {
 	command := onboardingimports.ItemKindCommand
 	facts := importErrorFacts([]onboardingimports.Error{{

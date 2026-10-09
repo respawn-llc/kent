@@ -743,7 +743,7 @@ func baseConfigForPlan(plan SessionPlan) config.App {
 	}
 }
 
-type modelContextBudgetApplier func(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool)
+type modelContextBudgetApplier func(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool) error
 
 // PrepareRunPromptOverrides resolves every config-backed part of a RunPrompt
 // target from one loaded application snapshot. It intentionally performs no
@@ -981,7 +981,9 @@ func applyPreparedConfigOverrides(settings config.Settings, source config.Source
 				explicitSources[key] = value
 			}
 		}
-		applyBudget(&settings, explicitSources, originalModel, true)
+		if err := applyBudget(&settings, explicitSources, originalModel, true); err != nil {
+			return config.Settings{}, config.SourceReport{}, nil, err
+		}
 	}
 	if toolLock == nil && (strings.TrimSpace(overrides.Tools) != "" || strings.TrimSpace(overrides.Model) != "") {
 		var err error
