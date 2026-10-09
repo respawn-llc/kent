@@ -140,6 +140,9 @@ func (e *Engine) buildActiveTurnDispatchRequest(ctx context.Context, stepID stri
 }
 
 func (e *Engine) assembleRequest(ctx context.Context, stepID string, extra []llm.ResponseItem, allowTools bool, refreshPrompt bool) (requestAssembly, error) {
+	if _, pending := e.generationContext.(pendingWorkflowGeneration); pending {
+		return requestAssembly{}, errors.New("workflow summary requires target generation context before request assembly")
+	}
 	locked, err := e.ensureLocked()
 	if err != nil {
 		return requestAssembly{}, err

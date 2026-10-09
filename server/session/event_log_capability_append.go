@@ -159,6 +159,20 @@ func (c MaterializedEventLog) AppendCompactionHistoryReplacement(
 	stepID *string,
 	record HistoryReplacementRecord,
 ) (EventRecord, CommitReceipt, error) {
+	return c.appendCompaction(stepID, record)
+}
+
+func (c MaterializedEventLog) AppendWorkflowCompaction(
+	stepID *string,
+	record WorkflowCompactionRecord,
+) (EventRecord, CommitReceipt, error) {
+	return c.appendCompaction(stepID, record)
+}
+
+func (c MaterializedEventLog) appendCompaction(
+	stepID *string,
+	record EventRecordPayload,
+) (EventRecord, CommitReceipt, error) {
 	outcome, err := c.appendRecordInputsAtomic([]EventRecordAppendInput{{
 		StepID: stepID, Payload: record,
 	}}, func(meta *Meta) (bool, error) {
@@ -444,6 +458,9 @@ func advanceActiveWorkflowAssignmentFromRecords(meta *Meta, records []EventRecor
 					meta.ActiveWorkflowAssignment = nil
 				}
 			}
+		case WorkflowCompactionRecord:
+			meta.ActiveWorkflowAssignment = nil
+			meta.ActiveWorkflowAssignmentState = &ActiveWorkflowAssignmentState{}
 		}
 	}
 	return nil
@@ -524,7 +541,11 @@ func (s *Store) advanceConversationFreshnessFromRecordsLocked(records []EventRec
 		if err != nil {
 			return err
 		}
-		if visible {
+		kind, err := record.Kind()
+		if err != nil {
+			return err
+		}
+		if visible || kind == EventKindWorkflowCompaction {
 			s.conversationFreshness = ConversationFreshnessEstablished
 			s.meta.ConversationEstablished = true
 			return nil

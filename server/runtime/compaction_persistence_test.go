@@ -66,15 +66,10 @@ func TestReplaceHistoryPublishesProjectedTranscriptEntriesBeforeCompactionStatus
 	requestID := runtimeids.NewCompactionRequestID()
 	restoreStep := setTestActiveStep(engine, stepID)
 	defer restoreStep()
-	receipt, err := newCompactionPersistence(engine).replaceHistory(
-		stepID,
-		"local",
-		compactionModeManual,
-		llm.ItemsFromMessages([]llm.Message{
-			{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value("summary")},
-			{Role: llm.RoleUser, Content: textutil.Value("continued input")},
-		}),
-	)
+	receipt, err := newCompactionPersistence(engine).replaceHistory(stepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{
+		{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value("summary")},
+		{Role: llm.RoleUser, Content: textutil.Value("continued input")},
+	})})
 	if err != nil || !receipt.Committed {
 		t.Fatalf("replace history: receipt=%+v error=%v", receipt, err)
 	}

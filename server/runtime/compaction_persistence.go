@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"core/server/llm"
 	"core/server/session"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
@@ -18,9 +17,9 @@ func newCompactionPersistence(engine *Engine) compactionPersistence {
 	return compactionPersistence{engine: engine}
 }
 
-func (p compactionPersistence) replaceHistory(stepID, engine string, mode compactionMode, items []llm.ResponseItem) (session.CommitReceipt, error) {
+func (p compactionPersistence) replaceHistory(stepID, engine string, mode compactionMode, history preparedCompactionHistory) (session.CommitReceipt, error) {
 	e := p.engine
-	return e.steerWithCommitReceipt(stepID, steerHistoryReplacementIntent(engine, mode, e.compactionRuntimeState().Count()+1, e.LastCommittedAssistantFinalAnswer(), items))
+	return e.steerWithCommitReceipt(stepID, steerHistoryReplacementIntent(engine, mode, e.compactionRuntimeState().Count()+1, e.LastCommittedAssistantFinalAnswer(), history))
 }
 
 func (p compactionPersistence) setActivity(

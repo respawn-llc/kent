@@ -290,33 +290,35 @@ func streamReplay(parentLog MaterializedEventLog, version int, appendBatch func(
 		if _, configuration := payload.(ConfigurationUpdateRecord); configuration && !preserveNativeUpdates {
 			return nil
 		}
-		if replacement, ok := payload.(HistoryReplacementRecord); ok {
-			if !preserveNativeUpdates {
-				items := make([]ProviderHistoryItem, 0, len(replacement.Items))
-				for _, item := range replacement.Items {
-					if item.Type != ProviderHistoryItemTypeConfigurationUpdate {
-						items = append(items, item)
-					}
-				}
-				replacement.Items = items
-			}
+		if IsContextBoundary(payload.eventKind()) {
 			if err := flush(); err != nil {
 				return err
 			}
-			rebasedReplacement := rebaseHistoryReplacementRollbackCandidate(
-				replacement,
-				latestRollbackCandidate,
-			)
-			rebasedRecord, err := newEventRecord(
-				record.Seq(),
-				record.StepID(),
-				rebasedReplacement,
-				record.CommittedAtUnixMs(),
-			)
+			candidate, err := normalizeRollbackCandidate(latestRollbackCandidate)
 			if err != nil {
 				return err
 			}
-			record = rebasedRecord
+			switch boundary := payload.(type) {
+			case HistoryReplacementRecord:
+				if !preserveNativeUpdates {
+					items := make([]ProviderHistoryItem, 0, len(boundary.Items))
+					for _, item := range boundary.Items {
+						if item.Type != ProviderHistoryItemTypeConfigurationUpdate {
+							items = append(items, item)
+						}
+					}
+					boundary.Items = items
+				}
+				boundary.LatestRollbackCandidate = candidate
+				payload = boundary
+			case WorkflowCompactionRecord:
+				boundary.LatestRollbackCandidate = candidate
+				payload = boundary
+			}
+			record, err = newEventRecord(record.Seq(), record.StepID(), payload, record.CommittedAtUnixMs())
+			if err != nil {
+				return err
+			}
 		}
 		recordBytes, err := replayRecordByteSizeForVersion(record, version)
 		if err != nil {
@@ -362,19 +364,6 @@ func isForkVisibleUserMessage(record EventRecord) (bool, error) {
 		message.MessageType,
 		message.Content,
 	), nil
-}
-
-func rebaseHistoryReplacementRollbackCandidate(
-	replacement HistoryReplacementRecord,
-	locator *rollbacktarget.CandidateLocator,
-) HistoryReplacementRecord {
-	if locator == nil {
-		replacement.LatestRollbackCandidate = nil
-		return replacement
-	}
-	candidate := *locator
-	replacement.LatestRollbackCandidate = &candidate
-	return replacement
 }
 
 func replayRecordByteSize(record EventRecord) (int, error) {
@@ -613,7 +602,7 @@ func (d *replayDerivedState) apply(record EventRecord) error {
 		if isCompactionSoonReminderMessage(payload) {
 			d.reminderIssued = true
 		}
-	case HistoryReplacementRecord:
+	case HistoryReplacementRecord, WorkflowCompactionRecord:
 		d.reminderIssued = false
 	}
 	return nil

@@ -208,16 +208,11 @@ func TestReopenedSessionAfterTriggerHandoffDoesNotRequeueWhenAnyCompactionAlread
 	stepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, stepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			stepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(stepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if err != nil || !receipt.Committed {

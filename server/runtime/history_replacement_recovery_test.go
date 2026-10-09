@@ -44,16 +44,11 @@ func TestReplaceHistoryDoesNotMutateRuntimeStateWhenEventAppendFails(t *testing.
 	compactionStepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if err == nil || receipt.Committed {
@@ -147,16 +142,11 @@ func TestHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 	compactionStepID := runtimeTestStepID("compaction")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if err != nil || !receipt.Committed {
@@ -205,16 +195,11 @@ func TestReopenedSessionHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 	compactionStepID := runtimeTestStepID("compaction")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if err != nil || !receipt.Committed {
@@ -322,16 +307,11 @@ func TestCommittedCompactionHistoryReplacementInvalidatesUsageAcrossImmediateReo
 	compactionStepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if !receipt.Committed || !errors.Is(err, observerErr) {
@@ -373,16 +353,11 @@ func TestHistoryReplacementAppendObserverFailureUpdatesLiveActiveListForNextTurn
 	compactionStepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if !receipt.Committed || !errors.Is(err, observerErr) {
@@ -895,16 +870,11 @@ func TestCommittedHistoryReplacementPreventsStaleUsageFromLaterMetadataPersisten
 	compactionStepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if !receipt.Committed || !errors.Is(err, replacementErr) {
@@ -957,16 +927,11 @@ func TestWorkflowBudgetResetFailureKeepsCommittedReplacementLive(t *testing.T) {
 	compactionStepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if !receipt.Committed || !errors.Is(err, resetErr) {

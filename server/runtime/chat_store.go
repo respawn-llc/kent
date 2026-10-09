@@ -212,7 +212,7 @@ func (s *chatStore) replaceHistory(stepID string, items []llm.ResponseItem) {
 		textutil.OptionalExactString(stepID),
 		items,
 		nil,
-		transcriptEntriesFromHistoryReplacement(items, nil, session.CompactionModeManual),
+		transcriptEntriesFromHistoryReplacement(historyReplacementPayload{Items: items}),
 	)
 }
 
@@ -224,6 +224,18 @@ func (s *chatStore) replaceHistoryAtCommittedEntryStart(
 ) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	preparedItems := llm.PrepareOpenAIInputItems(items)
+	s.recordReplacementToolCallStepIDsLocked(stepID, preparedItems)
+	s.installWorkingSetLocked(stepID, &compactionCheckpoint{Items: llm.CloneResponseItems(preparedItems)}, committedEntryStart, projectedEntries)
+}
+
+func (s *chatStore) beginGeneration(committedEntryStart int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.installWorkingSetLocked(nil, nil, &committedEntryStart, nil)
+}
+
+func (s *chatStore) installWorkingSetLocked(stepID *string, checkpoint *compactionCheckpoint, committedEntryStart *int, projectedEntries []ChatEntry) {
 	activeSegmentEntryStart := s.transcriptEntryCount
 	if committedEntryStart != nil && *committedEntryStart > s.transcriptEntryCount {
 		s.transcriptEntryCount = *committedEntryStart
@@ -231,8 +243,6 @@ func (s *chatStore) replaceHistoryAtCommittedEntryStart(
 	} else if committedEntryStart != nil {
 		activeSegmentEntryStart = *committedEntryStart
 	}
-	preparedItems := llm.PrepareOpenAIInputItems(items)
-	s.recordReplacementToolCallStepIDsLocked(stepID, preparedItems)
 	// Provider/model history switches to the compacted checkpoint while the
 	// transcript receives its typed projection at the same committed boundary.
 	projectedStart := len(s.local)
@@ -243,9 +253,7 @@ func (s *chatStore) replaceHistoryAtCommittedEntryStart(
 	}
 	s.appendProjectedHistoryReplacementEntriesLocked(projectedEntries)
 	s.local = append([]localChatEntry(nil), s.local[projectedStart:]...)
-	s.compact = &compactionCheckpoint{
-		Items: llm.CloneResponseItems(preparedItems),
-	}
+	s.compact = checkpoint
 	s.activeSegmentEntryStart = activeSegmentEntryStart
 	s.pruneAssistantStreamIDsBeforeLocked(activeSegmentEntryStart)
 	s.messageRecords = nil

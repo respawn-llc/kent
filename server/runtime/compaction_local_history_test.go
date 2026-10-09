@@ -41,24 +41,19 @@ func TestManualCompactionLocalUsesHistorySinceLastCompactionCheckpoint(t *testin
 	}
 	checkpointStepID := runtimeTestStepID("checkpoint")
 	restoreStep := setTestActiveStep(engine, checkpointStepID)
-	receipt, err := newCompactionPersistence(engine).replaceHistory(
-		checkpointStepID,
-		"local",
-		compactionModeManual,
-		llm.ItemsFromMessages([]llm.Message{
-			{
-				Role:       llm.RoleDeveloper,
-				SourcePath: textutil.Value(stablePrefixID),
-				Content:    textutil.Value("stable prefix"),
-			},
-			{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				SourcePath:  textutil.Value(checkpointID),
-				Content:     textutil.Value("checkpoint"),
-			},
-		}),
-	)
+	receipt, err := newCompactionPersistence(engine).replaceHistory(checkpointStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{
+		{
+			Role:       llm.RoleDeveloper,
+			SourcePath: textutil.Value(stablePrefixID),
+			Content:    textutil.Value("stable prefix"),
+		},
+		{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			SourcePath:  textutil.Value(checkpointID),
+			Content:     textutil.Value("checkpoint"),
+		},
+	})})
 	restoreStep()
 	if err != nil || !receipt.Committed {
 		t.Fatalf("persist compaction checkpoint: receipt=%+v error=%v", receipt, err)

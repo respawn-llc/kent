@@ -76,6 +76,9 @@ func TestWorkflowPostCompletionCompactionDefersGenerationContextUntilNextRequest
 	if len(client.compactionCalls) != 1 {
 		t.Fatalf("compaction calls = %d, want one", len(client.compactionCalls))
 	}
+	if engine.ContextUsage().UsedTokens <= 0 {
+		t.Fatal("saved workflow summary was omitted from context usage")
+	}
 	foundTerminalOutput := false
 	for _, item := range client.compactionCalls[0].Items {
 		if item.Type != llm.ResponseItemTypeMessage ||
@@ -107,33 +110,30 @@ func TestWorkflowPostCompletionCompactionDefersGenerationContextUntilNextRequest
 	if workflowModes != 0 || compactionReminders != 0 {
 		t.Fatalf("dormant replacement retained workflow assignment meta: workflow_modes=%d reminders=%d", workflowModes, compactionReminders)
 	}
-	var checkpoint *llm.ResponseItem
-	for _, item := range engine.transcriptRuntimeState().SnapshotItems() {
-		if item.MessageType != nil && *item.MessageType == llm.MessageTypeEnvironment {
-			t.Fatal("post-completion compaction captured the outgoing model's Environment before the target was selected")
-		}
-		if item.Type == llm.ResponseItemTypeCompaction {
-			checkpoint = &item
-		}
+	if _, err := engine.buildRequest(context.Background(), runtimeTestStepID("outgoing"), true); err == nil {
+		t.Fatal("an unfinished workflow generation reached request assembly")
 	}
 
 	window, err := mustMaterializeTestEventLog(t, engine.store).ReadRecentRecords(16)
 	if err != nil {
 		t.Fatalf("read replacement record: %v", err)
 	}
-	foundReplacement := false
+	var checkpoint *llm.ResponseItem
+	foundSummary := false
 	for _, record := range window.Records {
-		replacement, ok := mustSessionEventPayload(record).(session.HistoryReplacementRecord)
+		summary, ok := mustSessionEventPayload(record).(session.WorkflowCompactionRecord)
 		if !ok {
 			continue
 		}
-		if replacement.Mode == session.CompactionModeWorkflowPostCompletion {
-			foundReplacement = true
-			break
+		foundSummary = true
+		if len(summary.Summary) != 1 {
+			t.Fatal("native compaction must preserve one checkpoint")
 		}
+		item := llmResponseItemFromSessionHistory(summary.Summary[0])
+		checkpoint = &item
 	}
-	if !foundReplacement {
-		t.Fatalf("workflow post-completion replacement mode was not persisted: %+v", window.Records)
+	if !foundSummary {
+		t.Fatalf("workflow post-completion summary was not persisted: %+v", window.Records)
 	}
 	if err := engine.Close(); err != nil {
 		t.Fatal(err)
@@ -248,16 +248,11 @@ func TestWorkflowPostCompletionCompactionRestoresBoundaryAndLazyContinuationCons
 
 	stepID = runtimeTestStepID("ordinary-replacement")
 	restoreStep := setTestActiveStep(reopened, stepID)
-	receipt, err = newCompactionPersistence(reopened).replaceHistory(
-		stepID,
-		"local",
-		compactionModeManual,
-		llm.ItemsFromMessages([]llm.Message{{
-			Role:        llm.RoleDeveloper,
-			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-			Content:     textutil.Value("ordinary replacement"),
-		}}),
-	)
+	receipt, err = newCompactionPersistence(reopened).replaceHistory(stepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+		Role:        llm.RoleDeveloper,
+		MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+		Content:     textutil.Value("ordinary replacement"),
+	}})})
 	restoreStep()
 	if err != nil || !receipt.Committed {
 		t.Fatalf("ordinary replacement after restored boundary: receipt=%+v error=%v", receipt, err)
@@ -706,13 +701,17 @@ func TestWorkflowPostCompletionCompactionUsesLocalGenerateClient(t *testing.T) {
 func commitWorkflowPostCompletionTestSummary(t *testing.T, engine *Engine) {
 	t.Helper()
 	err := runTestActiveStep(engine, runtimeTestStepID("post-completion"), func() error {
-		_, err := newCompactionPersistence(engine).replaceHistory(
-			runtimeTestStepID("post-completion"), "local", compactionModeWorkflowPostCompletion,
-			llm.ItemsFromMessages([]llm.Message{{
+		record, err := engine.workflowCompactionRecord(compactionOutput{
+			engine: session.CompactionEngineLocal,
+			summary: llm.ItemsFromMessages([]llm.Message{{
 				Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
 				Content: textutil.Value("completed assignment"),
 			}}),
-		)
+		})
+		if err != nil {
+			return err
+		}
+		_, err = engine.steerWithCommitReceipt(runtimeTestStepID("post-completion"), steerWorkflowCompactionIntent(record))
 		return err
 	})
 	if err != nil {

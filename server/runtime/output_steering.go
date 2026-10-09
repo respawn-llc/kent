@@ -43,6 +43,7 @@ type steeringItem struct {
 	reviewerFeedback            *steeringReviewerFeedback
 	reviewerError               *steeringReviewerError
 	historyReplace              *steeringHistoryReplacement
+	workflowCompaction          *session.WorkflowCompactionRecord
 	toolCompletion              *tools.Result
 	resultGroupReport           *steeringResultGroupReport
 	resultGroupFlush            *steeringResultGroupFlush
@@ -284,8 +285,8 @@ func steerReviewerErrorIntent(detail string) steeringIntent {
 	return steeringIntent{priority: steeringPriorityNormal, items: []steeringItem{{reviewerError: &steeringReviewerError{detail: detail}}}}
 }
 
-func steerHistoryReplacementIntent(engine string, mode compactionMode, compactionNumber int, lastCommittedAssistantFinalAnswer *string, items []llm.ResponseItem) steeringIntent {
-	preparedItems := llm.PrepareOpenAIInputItems(items)
+func steerHistoryReplacementIntent(engine string, mode compactionMode, compactionNumber int, lastCommittedAssistantFinalAnswer *string, history preparedCompactionHistory) steeringIntent {
+	preparedItems := llm.PrepareOpenAIInputItems(history.items)
 	payload := historyReplacementPayload{
 		Engine:                            normalizeHistoryReplacementEngine(engine),
 		Mode:                              string(mode),
@@ -297,8 +298,15 @@ func steerHistoryReplacementIntent(engine string, mode compactionMode, compactio
 		priority: steeringPriorityNormal,
 		items: []steeringItem{{historyReplace: &steeringHistoryReplacement{
 			payload:          payload,
-			projectedEntries: transcriptEntriesFromHistoryReplacement(payload.Items, payload.CompactionNumber, session.CompactionMode(payload.Mode)),
+			projectedEntries: transcriptEntriesFromHistoryReplacement(payload),
 		}}},
+	}
+}
+
+func steerWorkflowCompactionIntent(record session.WorkflowCompactionRecord) steeringIntent {
+	return steeringIntent{
+		priority: steeringPriorityNormal,
+		items:    []steeringItem{{workflowCompaction: &record}},
 	}
 }
 
@@ -701,7 +709,7 @@ func (e *Engine) steerOrderedRaw(provenance steeringProvenance, intents ...steer
 			if err := e.applySteeringItem(provenance, item); err != nil {
 				return err
 			}
-			if item.historyReplace == nil {
+			if item.historyReplace == nil && item.workflowCompaction == nil {
 				e.compactionRuntimeState().ApplyWorkflowPostCompletionActivity(
 					workflowPostCompletionActivityForSteeringItem(item),
 				)
@@ -1010,6 +1018,15 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 		item.recordCommitReceipt(receipt)
 		return err
 	}
+	if item.workflowCompaction != nil {
+		stepID, err := provenance.requireExactStepID()
+		if err != nil {
+			return err
+		}
+		receipt, err := e.persistWorkflowCompaction(stepID, *item.workflowCompaction)
+		item.recordCommitReceipt(receipt)
+		return err
+	}
 	if item.toolCompletion != nil {
 		stepID, exactErr := provenance.requireExactStepID()
 		if exactErr != nil {
@@ -1209,7 +1226,6 @@ func (item steeringItem) recordCommitReceipt(receipt session.CommitReceipt) {
 }
 
 func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryReplacement) (session.CommitReceipt, error) {
-	reminderIssued := false
 	projectedStart := e.CommittedTranscriptEntryCount()
 	replacement.payload.CommittedEntryStart = &projectedStart
 	preparedItems := llm.CloneResponseItems(replacement.payload.Items)
@@ -1225,8 +1241,7 @@ func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryRep
 	if appendErr != nil && !receipt.Committed {
 		return receipt, appendErr
 	}
-	e.lockedContractState().Clear()
-	e.resetPromptCacheObservationBaselines()
+	e.invalidateCompactedRuntime()
 	provenance, provenanceErr := transcriptProvenanceFromRecord(appended)
 	if provenanceErr != nil {
 		return receipt, errors.Join(appendErr, provenanceErr)
@@ -1238,11 +1253,10 @@ func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryRep
 		replacement.projectedEntries,
 		&provenance,
 	)
-	e.baseMetaInjected = replacementHasBaseMetaContext(preparedItems, session.CompactionMode(replacement.payload.Mode))
+	e.generationContext = preparedGenerationContext{}
 	if replacement.payload.CompactionNumber != nil {
 		e.compactionRuntimeState().SetCount(*replacement.payload.CompactionNumber)
 	}
-	e.resetLocalDiagnostics()
 	e.transcriptRuntimeState().ReplaceHistoryAtCommittedEntryStart(
 		exactStepIDPointer(stepID),
 		preparedItems,
@@ -1251,26 +1265,16 @@ func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryRep
 	)
 	replacementMode := session.CompactionMode(replacement.payload.Mode)
 	modeErr := e.compactionRuntimeState().SetHistoryReplacementMode(&replacementMode)
-	e.compactionRuntimeState().SetSoonReminderIssued(false)
 	emitErr := e.emitProjectedHistoryReplacementEntriesRaw(
 		stepID,
 		projectedStart,
 		replacement.projectedEntries,
 	)
-	emitErr = errors.Join(
-		modeErr,
-		emitErr,
-		e.emitRaw(Event{Kind: EventConversationUpdated, StepID: exactStepIDPointer(stepID)}),
-	)
-	// The durable history replacement is the compaction boundary. Apply that
-	// committed replacement in memory before resetting workflow-adjacent state,
-	// so any reset failure cannot make the live engine diverge from restore.
-	budgetResetErr := e.resetWorkflowProtocolViolationBudget(context.Background())
 	return receipt, errors.Join(
 		appendErr,
-		budgetResetErr,
+		modeErr,
 		emitErr,
-		e.store.SetCompactionSoonReminderIssued(reminderIssued),
+		e.finishCompactionCommit(stepID),
 	)
 }
 

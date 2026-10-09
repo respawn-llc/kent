@@ -68,6 +68,7 @@ const (
 	EventKindToolCompletion      EventKind = "tool_completed"
 	EventKindLocalEntry          EventKind = "local_entry"
 	EventKindHistoryReplace      EventKind = "history_replaced"
+	EventKindWorkflowCompaction  EventKind = "workflow_compaction"
 	EventKindConfigurationUpdate EventKind = "configuration_updated"
 	EventKindCacheRequest        EventKind = "cache_request_observed"
 	EventKindCacheResponse       EventKind = "cache_response_observed"
@@ -215,6 +216,12 @@ func newEventRecord(
 		payload = typed
 	case HistoryReplacementRecord:
 		normalized, normalizeErr := normalizeHistoryReplacementRecord(typed)
+		if normalizeErr != nil {
+			return EventRecord{}, fmt.Errorf("%s payload: %w", payload.eventKind(), normalizeErr)
+		}
+		payload = normalized
+	case WorkflowCompactionRecord:
+		normalized, normalizeErr := normalizeWorkflowCompactionRecord(typed)
 		if normalizeErr != nil {
 			return EventRecord{}, fmt.Errorf("%s payload: %w", payload.eventKind(), normalizeErr)
 		}
@@ -656,6 +663,8 @@ func encodeEventRecordPayloadV1(payload EventRecordPayload) ([]byte, error) {
 		return encodeToolCompletionRecordV1(typed)
 	case HistoryReplacementRecord:
 		return encodeHistoryReplacementRecordV1(typed)
+	case WorkflowCompactionRecord:
+		return encodeWorkflowCompactionRecord(typed)
 	default:
 		return json.Marshal(payload)
 	}
@@ -838,6 +847,8 @@ func encodeEventRecordPayloadV2(payload EventRecordPayload) ([]byte, error) {
 		return encodeToolCompletionRecordV2(typed)
 	case HistoryReplacementRecord:
 		return encodeHistoryReplacementRecordV1(typed)
+	case WorkflowCompactionRecord:
+		return encodeWorkflowCompactionRecord(typed)
 	default:
 		return json.Marshal(payload)
 	}
@@ -954,6 +965,12 @@ func decodeEventRecordPayloadV1(
 			return nil, fmt.Errorf("decode %s payload: %w", kind, err)
 		}
 		payload = replacement
+	case EventKindWorkflowCompaction:
+		var compaction WorkflowCompactionRecord
+		if err := decode(&compaction); err != nil {
+			return nil, fmt.Errorf("decode %s payload: %w", kind, err)
+		}
+		payload = compaction
 	case EventKindConfigurationUpdate:
 		var update ConfigurationUpdateRecord
 		if err := decode(&update); err != nil {
@@ -990,6 +1007,7 @@ func validateEventKind(kind EventKind) error {
 		EventKindToolCompletion,
 		EventKindLocalEntry,
 		EventKindHistoryReplace,
+		EventKindWorkflowCompaction,
 		EventKindConfigurationUpdate,
 		EventKindCacheRequest,
 		EventKindCacheResponse,

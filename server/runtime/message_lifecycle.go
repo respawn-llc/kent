@@ -64,6 +64,9 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			}
 			e.transcriptRuntimeState().AppendConfigurationItem(stepIDPointer, llmResponseItemFromSessionHistory(payload.Item), &provenance)
 		case session.MessageRecord:
+			if _, fresh := e.generationContext.(freshGenerationContext); fresh {
+				e.generationContext = preparedGenerationContext{}
+			}
 			msg, err := llmMessageFromSessionRecord(payload)
 			if err != nil {
 				return fmt.Errorf("restore session message record: %w", err)
@@ -166,7 +169,18 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			if cache := e.modelRequests().RequestCache(); cache != nil {
 				cache.RecordResponse(persistedCacheResponseObservedFromSessionRecord(payload))
 			}
+		case session.WorkflowCompactionRecord:
+			if err := e.installWorkflowCompaction(payload); err != nil {
+				return err
+			}
+			e.resetLocalDiagnostics()
+			e.resetPromptCacheObservationBaselines()
+			manualEligible = false
+			reminderIssued = false
+			rollbackLocator.ObserveCompaction(payload.LatestRollbackCandidate)
+			recoveredHandoff.ClearSatisfiedByCompaction()
 		case session.HistoryReplacementRecord:
+			e.generationContext = preparedGenerationContext{}
 			replacement, err := historyReplacementPayloadFromSessionRecord(payload)
 			if err != nil {
 				return fmt.Errorf("restore session history replacement record: %w", err)
@@ -177,11 +191,7 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			if provenanceErr != nil {
 				return fmt.Errorf("restore session history replacement provenance: %w", provenanceErr)
 			}
-			projectedEntries := transcriptEntriesFromHistoryReplacement(
-				replacement.Items,
-				replacement.CompactionNumber,
-				session.CompactionMode(replacement.Mode),
-			)
+			projectedEntries := transcriptEntriesFromHistoryReplacement(replacement)
 			for index := range projectedEntries {
 				projectedEntries[index].StepID = exactStepIDPointer(stepID)
 			}
@@ -207,7 +217,7 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 				count := e.compactionRuntimeState().IncrementCount()
 				e.persistCompletedCompactionFactsBestEffort(stepID, count)
 			}
-			rollbackLocator.ObserveHistoryReplacement(replacement)
+			rollbackLocator.ObserveCompaction(replacement.LatestRollbackCandidate)
 			recoveredHandoff.ClearSatisfiedByCompaction()
 			if replacement.PendingHandoffFutureMessage != nil {
 				recoveredHandoff.SeedFutureMessage(*replacement.PendingHandoffFutureMessage)
@@ -238,13 +248,6 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 	e.compactionRuntimeState().SetManualCompactionEligible(manualEligible)
 	if err := e.store.SetCompactionSoonReminderIssued(reminderIssued); err != nil {
 		return err
-	}
-	e.baseMetaInjected = len(e.transcriptRuntimeState().SnapshotMessages()) > 0
-	if mode, ok := e.compactionRuntimeState().HistoryReplacementMode(); ok {
-		items, replacementEnd := e.transcriptRuntimeState().SnapshotRequestItems()
-		if replacementEnd != nil {
-			e.baseMetaInjected = replacementHasBaseMetaContext(items[:*replacementEnd], *mode)
-		}
 	}
 	if futureMessage := recoveredHandoff.PendingFutureMessage(); futureMessage != "" {
 		e.handoffRuntimeState().QueueFutureMessage(futureMessage)

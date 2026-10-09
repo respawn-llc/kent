@@ -820,7 +820,7 @@ func TestGenerateWithRetryClient_CompactionKeepsConversationCacheKeyWithoutWarni
 	}
 	compactionStepID := runtimeTestStepID("step-compact")
 	if err := runTestActiveStep(eng, compactionStepID, func() error {
-		_, err := newCompactionPersistence(eng).replaceHistory(compactionStepID, "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleAssistant, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value("summary")}}))
+		_, err := newCompactionPersistence(eng).replaceHistory(compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleAssistant, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value("summary")}})})
 		return err
 	}); err != nil {
 		t.Fatalf("replace history: %v", err)
@@ -857,11 +857,11 @@ func TestGenerateWithRetryClient_CompactionResetsConversationAndReviewerCacheBas
 	if _, err := eng.generateWithRetryClient(context.Background(), runtimeTestStepID("reviewer-before"), newObservedModelClient(client), testReviewerPromptCacheRequest(reviewerKey, "review"), nil, nil, nil); err != nil {
 		t.Fatalf("reviewer baseline generate: %v", err)
 	}
-	if _, err := newCompactionPersistence(eng).replaceHistory(compactionStepID, "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{
+	if _, err := newCompactionPersistence(eng).replaceHistory(compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
 		Role:        llm.RoleAssistant,
 		MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
 		Content:     textutil.Value("summary"),
-	}})); err != nil {
+	}})}); err != nil {
 		t.Fatalf("replace history: %v", err)
 	}
 	if _, err := eng.generateWithRetryClient(context.Background(), runtimeTestStepID("main-after"), newObservedModelClient(client), testPromptCacheRequest(cacheKey, "beta"), nil, nil, nil); err != nil {
@@ -892,11 +892,11 @@ func TestGenerateWithRetryClient_ReplayedCompactionResetsConversationAndReviewer
 	if _, err := eng.generateWithRetryClient(context.Background(), runtimeTestStepID("reviewer-before"), newObservedModelClient(client), testReviewerPromptCacheRequest(reviewerKey, "review"), nil, nil, nil); err != nil {
 		t.Fatalf("reviewer baseline generate: %v", err)
 	}
-	if _, err := newCompactionPersistence(eng).replaceHistory(compactionStepID, "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{
+	if _, err := newCompactionPersistence(eng).replaceHistory(compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
 		Role:        llm.RoleAssistant,
 		MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
 		Content:     textutil.Value("summary"),
-	}})); err != nil {
+	}})}); err != nil {
 		t.Fatalf("replace history: %v", err)
 	}
 	if err := eng.Close(); err != nil {
@@ -973,7 +973,7 @@ func TestGenerateWithRetryClient_RestorePreservesRotatedCompactionKeyWithoutWarn
 	}
 	compactionStepID := runtimeTestStepID("step-compact")
 	if err := runTestActiveStep(eng, compactionStepID, func() error {
-		_, err := newCompactionPersistence(eng).replaceHistory(compactionStepID, "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleAssistant, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value("summary")}}))
+		_, err := newCompactionPersistence(eng).replaceHistory(compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleAssistant, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value("summary")}})})
 		return err
 	}); err != nil {
 		t.Fatalf("replace history: %v", err)

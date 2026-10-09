@@ -113,12 +113,11 @@ func (e ProviderHistoryItemError) Unwrap() error {
 }
 
 func normalizeHistoryReplacementRecord(record HistoryReplacementRecord) (HistoryReplacementRecord, error) {
-	record.Engine = strings.TrimSpace(record.Engine)
-	switch record.Engine {
-	case "local", "remote":
-	default:
-		return HistoryReplacementRecord{}, fmt.Errorf("unsupported compaction engine %q", record.Engine)
+	engine, err := normalizeCompactionEngine(CompactionEngine(record.Engine))
+	if err != nil {
+		return HistoryReplacementRecord{}, err
 	}
+	record.Engine = string(engine)
 	switch record.Mode {
 	case CompactionModeAuto, CompactionModeHandoff, CompactionModeManual, CompactionModeWorkflowPostCompletion:
 	default:
@@ -145,7 +144,6 @@ func normalizeHistoryReplacementRecord(record HistoryReplacementRecord) (History
 		value := *record.CommittedEntryStart
 		record.CommittedEntryStart = &value
 	}
-	var err error
 	if record.PendingHandoffFutureMessage, err = normalizeOptionalEventText(
 		"pending handoff future message",
 		record.PendingHandoffFutureMessage,
@@ -158,24 +156,40 @@ func normalizeHistoryReplacementRecord(record HistoryReplacementRecord) (History
 	); err != nil {
 		return HistoryReplacementRecord{}, err
 	}
-	if record.LatestRollbackCandidate != nil {
-		candidate := *record.LatestRollbackCandidate
-		if err := candidate.Validate(); err != nil {
-			return HistoryReplacementRecord{}, fmt.Errorf("latest rollback candidate: %w", err)
-		}
-		record.LatestRollbackCandidate = &candidate
+	record.LatestRollbackCandidate, err = normalizeRollbackCandidate(record.LatestRollbackCandidate)
+	if err != nil {
+		return HistoryReplacementRecord{}, err
 	}
-	if len(record.Items) > 0 {
-		record.Items = append([]ProviderHistoryItem(nil), record.Items...)
-		for index := range record.Items {
-			item, itemErr := normalizeProviderHistoryItem(index, record.Items[index])
-			if itemErr != nil {
-				return HistoryReplacementRecord{}, itemErr
-			}
-			record.Items[index] = item
-		}
+	record.Items, err = normalizeProviderHistoryItems(record.Items)
+	if err != nil {
+		return HistoryReplacementRecord{}, err
 	}
 	return record, nil
+}
+
+func normalizeRollbackCandidate(candidate *rollbacktarget.CandidateLocator) (*rollbacktarget.CandidateLocator, error) {
+	if candidate == nil {
+		return nil, nil
+	}
+	value := *candidate
+	if err := value.Validate(); err != nil {
+		return nil, fmt.Errorf("latest rollback candidate: %w", err)
+	}
+	return &value, nil
+}
+
+func normalizeProviderHistoryItems(items []ProviderHistoryItem) ([]ProviderHistoryItem, error) {
+	if len(items) > 0 {
+		items = append([]ProviderHistoryItem(nil), items...)
+		for index := range items {
+			item, err := normalizeProviderHistoryItem(index, items[index])
+			if err != nil {
+				return nil, err
+			}
+			items[index] = item
+		}
+	}
+	return items, nil
 }
 
 func normalizeProviderHistoryItem(
@@ -373,20 +387,34 @@ func encodeHistoryReplacementRecordV1(record HistoryReplacementRecord) ([]byte, 
 			return nil, err
 		}
 	}
-	if len(record.Items) > 0 {
-		buffer.WriteString(`,"items":[`)
-		for index, item := range record.Items {
-			if index > 0 {
-				buffer.WriteByte(',')
-			}
-			if err := encodeProviderHistoryItemV1(&buffer, item); err != nil {
-				return nil, err
-			}
-		}
-		buffer.WriteByte(']')
+	if err := encodeProviderHistoryItems(&buffer, "items", record.Items); err != nil {
+		return nil, err
 	}
 	buffer.WriteByte('}')
 	return buffer.Bytes(), nil
+}
+
+func encodeProviderHistoryItems(buffer *bytes.Buffer, field string, items []ProviderHistoryItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	buffer.WriteByte(',')
+	name, err := json.Marshal(field)
+	if err != nil {
+		return err
+	}
+	buffer.Write(name)
+	buffer.WriteString(`:[`)
+	for index, item := range items {
+		if index > 0 {
+			buffer.WriteByte(',')
+		}
+		if err := encodeProviderHistoryItemV1(buffer, item); err != nil {
+			return err
+		}
+	}
+	buffer.WriteByte(']')
+	return nil
 }
 
 func encodeProviderHistoryItemV1(buffer *bytes.Buffer, item ProviderHistoryItem) error {

@@ -142,11 +142,15 @@ func inspectEventRecordStream(
 	return inspection, nil
 }
 
-func inspectHistoryReplacementRecordStream(reader io.Reader) error {
+func inspectContextBoundaryRecordStream(reader io.Reader, kind EventKind) error {
 	inspectionReader := &eventRecordInspectionReader{reader: reader}
 	decoder := jx.Decode(inspectionReader, int(eventLogScanChunkSize))
 	var payloadPresent bool
-	replacement := HistoryReplacementRecord{}
+	var engine CompactionEngine
+	var mode CompactionMode
+	var compactionNumber, committedEntryStart *int
+	var latestRollbackCandidate *rollbacktarget.CandidateLocator
+	summaryPresent := false
 	if err := inspectEventRecordObject(decoder, inspectionReader, func(
 		decoder *jx.Decoder,
 		field string,
@@ -155,14 +159,14 @@ func inspectHistoryReplacementRecordStream(reader io.Reader) error {
 			return decoder.Skip()
 		}
 		if payloadPresent {
-			return errors.New("history replacement payload must not be repeated")
+			return errors.New("context boundary payload must not be repeated")
 		}
 		payloadPresent = true
 		if decoder.Next() != jx.Object {
 			if err := decoder.Skip(); err != nil {
 				return err
 			}
-			return errors.New("history replacement payload must be a JSON object")
+			return errors.New("context boundary payload must be a JSON object")
 		}
 		return inspectEventRecordObject(decoder, inspectionReader, func(
 			decoder *jx.Decoder,
@@ -174,25 +178,25 @@ func inspectHistoryReplacementRecordStream(reader io.Reader) error {
 				if err != nil {
 					return err
 				}
-				replacement.Engine = value
+				engine = CompactionEngine(value)
 			case "mode":
 				value, err := inspectEventRecordString(decoder, inspectionReader)
 				if err != nil {
 					return err
 				}
-				replacement.Mode = CompactionMode(value)
+				mode = CompactionMode(value)
 			case "compaction_number":
 				value, err := inspectOptionalEventRecordInt(decoder)
 				if err != nil {
 					return err
 				}
-				replacement.CompactionNumber = value
+				compactionNumber = value
 			case "committed_entry_start":
 				value, err := inspectOptionalEventRecordInt(decoder)
 				if err != nil {
 					return err
 				}
-				replacement.CommittedEntryStart = value
+				committedEntryStart = value
 			case "pending_handoff_future_message",
 				"last_committed_assistant_final_answer":
 				return inspectOptionalEventRecordType(decoder, jx.String, field)
@@ -204,7 +208,20 @@ func inspectHistoryReplacementRecordStream(reader io.Reader) error {
 				if err != nil {
 					return err
 				}
-				replacement.LatestRollbackCandidate = value
+				latestRollbackCandidate = value
+			case "summary":
+				if kind != EventKindWorkflowCompaction {
+					return decoder.Skip()
+				}
+				summaryPresent = false
+				return decoder.Arr(func(decoder *jx.Decoder) error {
+					summaryPresent = true
+					return decoder.Skip()
+				})
+			case "running_shells":
+				return inspectOptionalEventRecordType(decoder, jx.Array, field)
+			case "preserved_user_message":
+				return inspectOptionalEventRecordType(decoder, jx.Object, field)
 			case "items":
 				return inspectOptionalEventRecordType(decoder, jx.Array, field)
 			default:
@@ -219,10 +236,34 @@ func inspectHistoryReplacementRecordStream(reader io.Reader) error {
 		return err
 	}
 	if !payloadPresent {
-		return errors.New("history replacement payload is required")
+		return errors.New("context boundary payload is required")
 	}
-	if _, err := normalizeHistoryReplacementRecord(replacement); err != nil {
-		return fmt.Errorf("validate history replacement payload: %w", err)
+	switch kind {
+	case EventKindHistoryReplace:
+		if _, err := normalizeHistoryReplacementRecord(HistoryReplacementRecord{
+			Engine: string(engine), Mode: mode, CompactionNumber: compactionNumber,
+			CommittedEntryStart: committedEntryStart, LatestRollbackCandidate: latestRollbackCandidate,
+		}); err != nil {
+			return fmt.Errorf("validate history replacement payload: %w", err)
+		}
+	case EventKindWorkflowCompaction:
+		if _, err := normalizeCompactionEngine(engine); err != nil {
+			return err
+		}
+		if compactionNumber == nil || *compactionNumber <= 0 {
+			return errors.New("workflow compaction number must be positive")
+		}
+		if committedEntryStart == nil || *committedEntryStart < 0 {
+			return errors.New("workflow committed entry start must be nonnegative")
+		}
+		if !summaryPresent {
+			return errors.New("workflow compaction summary is required")
+		}
+		if _, err := normalizeRollbackCandidate(latestRollbackCandidate); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unsupported context boundary %q", kind)
 	}
 	return nil
 }

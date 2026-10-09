@@ -18,12 +18,11 @@ func normalizeHistoryReplacementEngine(engine string) string {
 }
 
 func isCompactionEventRecordBoundary(record session.EventRecord) (bool, error) {
-	payload, err := record.Payload()
+	kind, err := record.Kind()
 	if err != nil {
 		return false, err
 	}
-	_, ok := payload.(session.HistoryReplacementRecord)
-	return ok, nil
+	return session.IsContextBoundary(kind), nil
 }
 
 func compactionBoundaryMatcher(matchErr *error) func(session.EventRecord) bool {
@@ -37,12 +36,8 @@ func compactionBoundaryMatcher(matchErr *error) func(session.EventRecord) bool {
 	}
 }
 
-func transcriptEntriesFromHistoryReplacement(items []llm.ResponseItem, compactionNumber *int, mode session.CompactionMode) []ChatEntry {
-	// Deferred workflow output is published together with its generation
-	// context, so assembling that context does not display the summary twice.
-	if mode == session.CompactionModeWorkflowPostCompletion && !replacementHasBaseMetaContext(items, mode) {
-		return nil
-	}
+func transcriptEntriesFromHistoryReplacement(replacement historyReplacementPayload) []ChatEntry {
+	items, compactionNumber := replacement.Items, replacement.CompactionNumber
 	entries := make([]ChatEntry, 0, len(items)+1)
 	hasCompactionSummary := false
 	walker := newResponseItemMessageWalker(func(msg llm.Message) {

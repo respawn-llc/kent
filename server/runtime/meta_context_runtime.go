@@ -22,13 +22,12 @@ import (
 // context must be prepared. Individual prompt families are owned here and by
 // meta_context.go; request entry points must not append those prompts directly.
 func (e *Engine) ensureMetaContextForRequest(ctx context.Context, stepID string) error {
-	if !e.baseMetaInjected {
-		if mode, ok := e.compactionRuntimeState().HistoryReplacementMode(); ok && *mode == session.CompactionModeWorkflowPostCompletion {
-			if err := e.hydrateWorkflowCompactionContext(ctx, stepID); err != nil {
-				return err
-			}
-			return e.ensureMetaContextForRequest(ctx, stepID)
+	switch generation := e.generationContext.(type) {
+	case pendingWorkflowGeneration:
+		if err := e.prepareWorkflowGeneration(ctx, stepID, generation); err != nil {
+			return err
 		}
+	case freshGenerationContext:
 		pendingRebind := e.store.Meta().RebindReminder != nil
 		if err := e.steerFreshMetaContext(ctx, stepID); err != nil {
 			return err
@@ -37,6 +36,9 @@ func (e *Engine) ensureMetaContextForRequest(ctx context.Context, stepID string)
 			return e.store.SetSessionRebindReminder(nil)
 		}
 		return nil
+	case preparedGenerationContext:
+	default:
+		return errors.New("generation context is uninitialized")
 	}
 	if err := e.steerHeadlessModeTransitionIfNeeded(stepID); err != nil {
 		return err
@@ -71,14 +73,14 @@ func (e *Engine) steerFreshMetaContext(ctx context.Context, stepID string) error
 		applyErr := e.withResolvedWorkflowMetaContext(ctx, workflowTaskPromptTriggerTaskDelivery, workflowMetaContextDeliveryConsume, options, func(resolved metaContextBuildOptions, _ bool) error {
 			receipt, err := steer(resolved)
 			if receipt.Committed {
-				e.baseMetaInjected = true
+				e.generationContext = preparedGenerationContext{}
 				committedErr = err
 				return nil
 			}
 			if err != nil {
 				return err
 			}
-			e.baseMetaInjected = true
+			e.generationContext = preparedGenerationContext{}
 			return nil
 		})
 		return errors.Join(applyErr, committedErr)
@@ -96,12 +98,12 @@ func (e *Engine) steerFreshMetaContext(ctx context.Context, stepID string) error
 	}
 	receipt, err := steer(options)
 	if receipt.Committed {
-		e.baseMetaInjected = true
+		e.generationContext = preparedGenerationContext{}
 	}
 	if err != nil {
 		return err
 	}
-	e.baseMetaInjected = true
+	e.generationContext = preparedGenerationContext{}
 	if e.cfg.HeadlessMode != meta.HeadlessActive {
 		return e.store.SetHeadlessActive(e.cfg.HeadlessMode)
 	}
@@ -364,11 +366,14 @@ func sameMetaContextSlot(left, right metaContextKind) bool {
 // session. Workflow post-completion replacements defer generation context until
 // the next request has selected its model and role.
 func (e *Engine) steerBaseMetaContextIfNeeded(stepID string) error {
-	if e.baseMetaInjected {
+	switch generation := e.generationContext.(type) {
+	case preparedGenerationContext:
 		return nil
-	}
-	if mode, ok := e.compactionRuntimeState().HistoryReplacementMode(); ok && *mode == session.CompactionModeWorkflowPostCompletion {
-		return e.hydrateWorkflowCompactionContext(context.Background(), stepID)
+	case pendingWorkflowGeneration:
+		return e.prepareWorkflowGeneration(context.Background(), stepID, generation)
+	case freshGenerationContext:
+	default:
+		return errors.New("generation context is uninitialized")
 	}
 	builder := e.activeMetaContextBuilder(e.cfg.Model, e.cfg.SkillPolicy)
 	invocationContext := config.SubagentInvocationContextOrdinary
@@ -378,7 +383,7 @@ func (e *Engine) steerBaseMetaContextIfNeeded(stepID string) error {
 	if err := e.steerBaseMetaContext(stepID, builder, invocationContext); err != nil {
 		return err
 	}
-	e.baseMetaInjected = true
+	e.generationContext = preparedGenerationContext{}
 	return nil
 }
 
@@ -556,18 +561,6 @@ func roleOrUser(role *llm.Role) llm.Role {
 }
 
 func (e *Engine) compactionReinjectedMetaContextProjection(ctx context.Context, mode compactionMode) (metaContextProjection, error) {
-	if mode == compactionModeWorkflowPostCompletion {
-		return metaContextProjection{RunningShells: e.compactionRunningShellReminder()}, nil
-	}
-	projection, err := e.compactionGenerationMetaContextProjection(ctx, mode)
-	if err != nil {
-		return metaContextProjection{}, err
-	}
-	projection.RunningShells = e.compactionRunningShellReminder()
-	return projection, nil
-}
-
-func (e *Engine) compactionGenerationMetaContextProjection(ctx context.Context, mode compactionMode) (metaContextProjection, error) {
 	meta := e.store.Meta()
 	skillPolicy, err := e.reconstructionSkillPolicy(ctx)
 	if err != nil {

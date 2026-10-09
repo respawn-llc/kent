@@ -46,6 +46,10 @@ func LatestCommittedAssistantFinalAnswerFromEventLog(eventLog TranscriptEventLog
 			answer = &text
 			matchErr = nil
 			return true
+		case session.WorkflowCompactionRecord:
+			answer = nil
+			matchErr = nil
+			return true
 		case session.HistoryReplacementRecord:
 			_, restoreErr := historyReplacementPayloadFromSessionRecord(payload)
 			if restoreErr != nil {

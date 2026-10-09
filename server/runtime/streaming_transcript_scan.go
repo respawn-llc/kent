@@ -193,6 +193,10 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 			CacheWarning:        copyCacheWarning(&warning),
 			CommittedProvenance: &provenance,
 		})
+	case session.WorkflowCompactionRecord:
+		s.closeTurn()
+		s.scan.MarkCompactionBoundary()
+		s.lastCommittedAssistantFinalAnswer = textutil.Pointer(payload.LastCommittedAssistantFinalAnswer)
 	case session.HistoryReplacementRecord:
 		s.closeTurn()
 		replacement, err := historyReplacementPayloadFromSessionRecord(payload)
@@ -204,11 +208,8 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 		if provenanceErr != nil {
 			return provenanceErr
 		}
-		entries := transcriptEntriesFromHistoryReplacement(
-			llm.PrepareOpenAIInputItems(replacement.Items),
-			replacement.CompactionNumber,
-			session.CompactionMode(replacement.Mode),
-		)
+		replacement.Items = llm.PrepareOpenAIInputItems(replacement.Items)
+		entries := transcriptEntriesFromHistoryReplacement(replacement)
 		for index := range entries {
 			entries[index].StepID = cloneOptionalStepID(stepID)
 		}

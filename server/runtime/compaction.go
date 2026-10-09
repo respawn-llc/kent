@@ -754,37 +754,38 @@ func (e *Engine) compactNowWithAcceptance(
 	}
 
 	compactionNumber := e.compactionRuntimeState().Count() + 1
-	postReplacementMeta, err := e.compactionReinjectedMetaContextProjection(ctx, mode)
-	if err != nil {
-		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
+	output := compactionOutput{
+		engine:        session.CompactionEngine(result.engine),
+		summary:       result.items,
+		runningShells: e.compactionRunningShellReminder(),
 	}
-	var replacementItems []llm.ResponseItem
-	if result.engine == "remote" {
-		replacementItems = append(replacementItems, llm.ItemsFromMessages([]llm.Message{{
-			Role:    llm.RoleDeveloper,
-			Content: textutil.Value(prompts.CompactionContinuationReminder),
-		}})...)
-	}
-	replacementItems = append(replacementItems, llm.ItemsFromMessages(postReplacementMeta.StablePrefix)...)
-	replacementItems = append(replacementItems, llm.CloneResponseItems(result.items)...)
-	replacementItems = append(replacementItems, llm.ItemsFromMessages(postReplacementMeta.RunningShells)...)
-	replacementItems = append(replacementItems, llm.ItemsFromMessages(postReplacementMeta.Environment)...)
 	if preservedUserMessageText != nil {
 		if preservedMessage, ok := compactionPreservedUserMessage(*preservedUserMessageText); ok {
-			replacementItems = append(replacementItems, llm.ItemsFromMessages([]llm.Message{preservedMessage})...)
+			output.preservedUserMessage = &preservedMessage
 		}
 	}
 	if mode == compactionModeHandoff {
 		if req := e.handoffRuntimeState().RequestSnapshot(); req != nil {
 			if futureMessage, ok := handoffFutureAgentMessage(req.futureAgentMessage); ok {
-				replacementItems = append(replacementItems, llm.ItemsFromMessages([]llm.Message{futureMessage})...)
+				output.futureAgentMessage = &futureMessage
 			}
 		}
 	}
 	var replacementReceipt session.CommitReceipt
 	committed, replacementErr := runCommandAcceptance(accept, func() (bool, error) {
-		var err error
-		replacementReceipt, err = persistence.replaceHistory(stepID, result.engine, mode, replacementItems)
+		if mode == compactionModeWorkflowPostCompletion {
+			record, recordErr := e.workflowCompactionRecord(output)
+			if recordErr != nil {
+				return false, recordErr
+			}
+			replacementReceipt, err = e.steerWithCommitReceipt(stepID, steerWorkflowCompactionIntent(record))
+		} else {
+			meta, metaErr := e.compactionReinjectedMetaContextProjection(ctx, mode)
+			if metaErr != nil {
+				return false, metaErr
+			}
+			replacementReceipt, err = persistence.replaceHistory(stepID, result.engine, mode, output.prepare(meta))
+		}
 		return replacementReceipt.Committed, err
 	})
 	if accept != nil {
@@ -818,6 +819,9 @@ func (e *Engine) compactNowWithAcceptance(
 		windowTokens = e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())
 	}
 	inputTokens := estimateItemsTokens(e.transcriptRuntimeState().SnapshotItems())
+	if mode == compactionModeWorkflowPostCompletion {
+		inputTokens += output.estimateTokens()
+	}
 	compactedUsage := llm.Usage{
 		InputTokens:  inputTokens,
 		OutputTokens: 0,
