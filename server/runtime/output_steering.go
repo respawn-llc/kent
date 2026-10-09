@@ -1217,7 +1217,7 @@ func (item steeringItem) recordCommitReceipt(receipt session.CommitReceipt) {
 
 func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryReplacement) (session.CommitReceipt, error) {
 	if replacement.purpose == session.HistoryReplacementPreparation {
-		pending, ok := e.generationContext.(pendingGenerationContext)
+		pending, ok := e.generationContextSnapshot().(pendingGenerationContext)
 		if !ok || replacement.payload.Output != nil ||
 			replacement.payload.CompactionNumber == nil ||
 			*replacement.payload.CompactionNumber != *pending.replacement.CompactionNumber {

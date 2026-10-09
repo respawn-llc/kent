@@ -503,6 +503,11 @@ func (e *Engine) maybeReserveEagerCompaction(activeKind ActiveKind, resultKind L
 }
 func (c *defaultContextCompactor) AutoCompactIfNeeded(ctx context.Context, stepID string, mode compactionMode, preview ...llm.ResponseItem) error {
 	e := c.engine
+	// A completed summary is awaiting its first live request, not another
+	// compaction pass over the still-unprepared generation.
+	if _, pending := e.generationContextSnapshot().(pendingGenerationContext); pending {
+		return nil
+	}
 	selectedPreview := func() ([]llm.ResponseItem, error) {
 		if len(preview) == 0 {
 			return nil, nil
@@ -531,10 +536,6 @@ func (c *defaultContextCompactor) AutoCompactIfNeeded(ctx context.Context, stepI
 		return fmt.Errorf("auto compaction failed: %w", err)
 	}
 	if err == nil && mode == compactionModeAuto {
-		projected, projectionErr := selectedPreview()
-		if projectionErr != nil {
-			return projectionErr
-		}
 		if e.shouldAutoCompactWithContext(ctx, projected...) {
 			return errors.New("auto compaction did not reduce context below threshold")
 		}
@@ -602,7 +603,7 @@ func (e *Engine) usageAtOrAboveLimit(_ context.Context, limit int, preview ...ll
 func (e *Engine) estimatedCurrentTokenUsage(preview ...llm.ResponseItem) int {
 	estimated := 0
 	if e != nil {
-		estimated = e.transcriptRuntimeState().EstimatedProviderTokens()
+		estimated = e.estimatedProviderHistoryTokens()
 	}
 	estimated += llm.EstimateItemsTokens(e.cfg.TokenEstimator, preview)
 	if e.modelRequests().TokenUsage() != nil {
@@ -647,6 +648,11 @@ func (e *Engine) compactNowWithAcceptance(
 		return compactionResult{}, session.CommitReceipt{}, errCompactionDisabledModeNone
 	}
 
+	if _, pending := e.generationContextSnapshot().(pendingGenerationContext); pending {
+		if err := e.prepareRequestGenerationContext(ctx, stepID); err != nil {
+			return compactionResult{}, session.CommitReceipt{}, err
+		}
+	}
 	input, replacementEnd := e.transcriptRuntimeState().SnapshotRequestItems()
 	if len(input) == 0 {
 		return compactionResult{}, session.CommitReceipt{}, nil
@@ -757,8 +763,7 @@ func (e *Engine) compactNowWithAcceptance(
 
 	compactionNumber := e.compactionRuntimeState().Count() + 1
 	output := compactionOutput{
-		summary:       result.items,
-		runningShells: e.compactionRunningShellReminder(),
+		summary: result.items,
 	}
 	if preservedUserMessageText != nil {
 		if preservedMessage, ok := compactionPreservedUserMessage(*preservedUserMessageText); ok {
@@ -774,15 +779,7 @@ func (e *Engine) compactNowWithAcceptance(
 	}
 	var replacementReceipt session.CommitReceipt
 	committed, replacementErr := runCommandAcceptance(accept, func() (bool, error) {
-		var history compactionHistory = output
-		if mode != compactionModeWorkflowPostCompletion {
-			meta, metaErr := e.compactionReinjectedMetaContextProjection(ctx, mode)
-			if metaErr != nil {
-				return false, metaErr
-			}
-			history = output.prepare(session.CompactionEngine(result.engine), meta)
-		}
-		replacementReceipt, err = persistence.replaceHistory(stepID, result.engine, mode, history)
+		replacementReceipt, err = persistence.replaceHistory(stepID, result.engine, mode, output)
 		return replacementReceipt.Committed, err
 	})
 	if accept != nil {
@@ -815,10 +812,7 @@ func (e *Engine) compactNowWithAcceptance(
 	if windowTokens <= 0 {
 		windowTokens = e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())
 	}
-	inputTokens := llm.EstimateItemsTokens(e.cfg.TokenEstimator, e.transcriptRuntimeState().SnapshotItems())
-	if pending, ok := e.generationContext.(pendingGenerationContext); ok {
-		inputTokens += pending.replacement.Output.estimateTokens(e.cfg.TokenEstimator)
-	}
+	inputTokens := e.estimatedProviderHistoryTokens()
 	compactedUsage := llm.Usage{
 		InputTokens:  inputTokens,
 		OutputTokens: 0,

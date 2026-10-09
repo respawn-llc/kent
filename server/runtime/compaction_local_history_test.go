@@ -126,6 +126,7 @@ func TestPreSubmitCompactionLocalCarriesPreservedUserMessageInOrder(t *testing.T
 	if len(client.calls) != 1 {
 		t.Fatalf("local Generate calls = %d, want one", len(client.calls))
 	}
+	buildActiveTurnRequestForTest(t, engine, nil, true)
 	assertCompactionReplacementOrder(t, engine.transcriptRuntimeState().SnapshotItems(), false)
 }
 

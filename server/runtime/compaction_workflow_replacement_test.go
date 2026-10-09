@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"sync/atomic"
@@ -143,10 +144,7 @@ func TestWorkflowPostCompletionCompactionDefersGenerationContextUntilNextRequest
 	if err := target.ensureMetaContextForRequest(context.Background(), runtimeTestStepID("target")); err != nil {
 		t.Fatal(err)
 	}
-	request, err := target.buildRequest(context.Background(), runtimeTestStepID("target"), true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	request := buildActiveTurnRequestForTest(t, target, nil, true)
 	if request.Model != "gpt-6.1-sol" {
 		t.Fatalf("target model = %q", request.Model)
 	}
@@ -189,13 +187,8 @@ func TestWorkflowPostCompletionCompactionDefersGenerationContextUntilNextRequest
 	if err := reopened.ensureMetaContextForRequest(context.Background(), runtimeTestStepID("resume")); err != nil {
 		t.Fatal(err)
 	}
-	resumedRequest, err := reopened.buildRequest(context.Background(), runtimeTestStepID("resume"), true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(request.Items, resumedRequest.Items) {
-		t.Fatal("reopening the hydrated target changed its model input")
-	}
+	resumedRequest := buildActiveTurnRequestForTest(t, reopened, nil, true)
+	assertCompactionRequestItemsEqual(t, request.Items, resumedRequest.Items)
 }
 
 func TestWorkflowPostCompletionCompactionRestoresBoundaryAndLazyContinuationConsumesIt(t *testing.T) {
@@ -541,10 +534,10 @@ func TestPendingCompactionRetainsDormantGoalNoticeAcrossPreparation(t *testing.T
 	if !target.WorkflowContinuationCompactionRequired() {
 		t.Fatal("dormant Goal mutation did not consume the prior CAC boundary")
 	}
-	request, err := PrepareInspectionRequest(t.Context(), target, false)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := PrepareInspectionRequest(t.Context(), target, false); err == nil {
+		t.Fatal("inspection prepared dormant compacted output")
 	}
+	request := buildActiveTurnRequestForTest(t, target, nil, false)
 	if deliveredGoalNotices != 0 {
 		t.Error("generation preparation redelivered an already-visible Goal notice")
 	}
@@ -565,8 +558,34 @@ func TestPendingCompactionRetainsDormantGoalNoticeAcrossPreparation(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(request.Items, resumedRequest.Items) {
-		t.Error("reopening changed prepared model input")
+	assertCompactionRequestItemsEqual(t, request.Items, resumedRequest.Items)
+}
+
+func assertCompactionRequestItemsEqual(t *testing.T, original, resumed []llm.ResponseItem) {
+	t.Helper()
+	if len(original) != len(resumed) {
+		t.Fatalf("request item counts changed across reopen: %d/%d", len(original), len(resumed))
+	}
+	for index, item := range original {
+		restored := resumed[index]
+		var originalRaw, restoredRaw any
+		for _, raw := range []struct {
+			data   json.RawMessage
+			target *any
+		}{{item.Raw, &originalRaw}, {restored.Raw, &restoredRaw}} {
+			if len(raw.data) > 0 {
+				if err := json.Unmarshal(raw.data, raw.target); err != nil {
+					t.Fatalf("decode request item %d: %v", index, err)
+				}
+			}
+		}
+		if !reflect.DeepEqual(originalRaw, restoredRaw) {
+			t.Fatalf("reopen changed provider payload for item %d (%s)", index, item.Type)
+		}
+		item.Raw, restored.Raw = nil, nil
+		if !reflect.DeepEqual(item, restored) {
+			t.Fatalf("reopen changed typed request item %d (%s)", index, item.Type)
+		}
 	}
 }
 
@@ -774,6 +793,7 @@ func TestWorkflowPostCompletionCompactionUsesLocalGenerateClient(t *testing.T) {
 	if err := engine.ensureMetaContextForRequest(context.Background(), runtimeTestStepID("target")); err != nil {
 		t.Fatal(err)
 	}
+	buildActiveTurnRequestForTest(t, engine, nil, true)
 	assertCompactionReplacementOrder(t, engine.transcriptRuntimeState().SnapshotItems(), false)
 }
 
@@ -802,16 +822,14 @@ func TestWorkflowCompactionContextRetryPreservesSummaryAndTargetContext(t *testi
 	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6.1-sol"})
 	commitWorkflowPostCompletionTestSummary(t, engine)
 	gate.FailNext(observerErr)
-	if err := engine.ensureMetaContextForRequest(context.Background(), runtimeTestStepID("target")); !errors.Is(err, observerErr) {
+	err := withActiveTestRun(t, engine, ActiveKindUserTurn, func(ctx context.Context, stepID string) error {
+		_, err := engine.buildActiveTurnDispatchRequest(ctx, stepID, nil, true)
+		return err
+	})
+	if !errors.Is(err, observerErr) {
 		t.Fatalf("context preparation error = %v, want %v", err, observerErr)
 	}
-	if err := engine.ensureMetaContextForRequest(context.Background(), runtimeTestStepID("retry")); err != nil {
-		t.Fatal(err)
-	}
-	request, err := engine.buildRequest(context.Background(), runtimeTestStepID("retry"), true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	request := buildActiveTurnRequestForTest(t, engine, nil, true)
 	environments, summaries := 0, 0
 	for _, item := range request.Items {
 		if item.MessageType == nil {
@@ -871,6 +889,7 @@ func TestRemoteCompactionRefreshesWorkflowTaskAwareness(t *testing.T) {
 		t.Fatalf("compact workflow context: %v", err)
 	}
 	restoreStep()
+	buildActiveTurnRequestForTest(t, engine, nil, true)
 	expectedIdentity := workflowruntime.CurrentNodePromptIdentity(
 		mustTestCurrentNodeReference(t, "task", "node", &branchKey),
 	)

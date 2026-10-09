@@ -42,6 +42,7 @@ func TestRemoteCompactionReplacementOwnsExactlyOneTranscriptSummary(t *testing.T
 		t.Fatalf("persist compaction input: %v", err)
 	}
 	scheduleManualCompactionAndWait(t, engine)
+	buildActiveTurnRequestForTest(t, engine, nil, true)
 
 	liveFacts := make([]TranscriptCommittedRowFact, 0)
 	for _, event := range events {

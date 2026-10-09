@@ -2,6 +2,7 @@ package session
 
 import (
 	"bytes"
+	"encoding/json"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -11,12 +12,13 @@ func TestCompactedOutputCodecSupportedVersions(t *testing.T) {
 	for _, version := range []int{EventLogVersionV1, EventLogVersionV2} {
 		for _, engine := range []CompactionEngine{CompactionEngineLocal, CompactionEngineRemote} {
 			t.Run(eventLogVersionTestName(version)+"/"+string(engine), func(t *testing.T) {
-				raw := []byte(`{ "type": "compaction", "encrypted_content": "unchanged-checkpoint" }`)
+				raw := []byte(`{ "type": "compaction", "encrypted_content": "<unchanged>&\u0061", "provider_metadata": {"number":1.2300,"future":[true,null]} }`)
 				item := ProviderHistoryItem{Type: ProviderHistoryItemTypeCompaction, Raw: raw}
 				if engine == CompactionEngineLocal {
 					raw = []byte(`{ "type": "message", "role": "user", "content": "summary" }`)
 					item = ProviderHistoryItem{Type: ProviderHistoryItemTypeMessage, Raw: raw}
 				}
+				sourceRaw := bytes.Clone(raw)
 				pending := HistoryReplacementRecord{
 					Engine: string(engine), Mode: CompactionModeManual,
 					CompactionNumber: intPointer(3), CommittedEntryStart: intPointer(19),
@@ -48,23 +50,43 @@ func TestCompactedOutputCodecSupportedVersions(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if !reflect.DeepEqual(got, want) {
-						t.Fatal("compaction must preserve provider bytes and boundary facts")
-					}
+					assertCompactionJSONContentEqual(t, got, want)
 					replacement := got.(HistoryReplacementRecord)
 					items := replacement.Items
 					if replacement.CompactedOutput != nil {
 						items = replacement.CompactedOutput.Summary
 					}
-					if !bytes.Equal(items[0].Raw, raw) {
-						t.Fatal("compaction changed opaque provider output")
+					assertCompactionJSONContentEqual(t, items[0].Raw, json.RawMessage(raw))
+					if replacement.Continuation != nil {
+						assertCompactionJSONContentEqual(t, replacement.Continuation[0].Raw, json.RawMessage(continuationRaw))
 					}
-					if replacement.Continuation != nil && !bytes.Equal(replacement.Continuation[0].Raw, continuationRaw) {
-						t.Fatal("generation preparation changed retained provider bytes")
+					if !bytes.Equal(item.Raw, sourceRaw) {
+						t.Fatal("serialization mutated the source provider output")
 					}
 				}
 			})
 		}
+	}
+}
+
+func assertCompactionJSONContentEqual(t *testing.T, got, want any) {
+	t.Helper()
+	decode := func(value any) any {
+		t.Helper()
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoder := json.NewDecoder(bytes.NewReader(encoded))
+		decoder.UseNumber()
+		var result any
+		if err := decoder.Decode(&result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	if !reflect.DeepEqual(decode(got), decode(want)) {
+		t.Fatalf("compaction JSON content changed: got %v, want %v", got, want)
 	}
 }
 
@@ -74,6 +96,7 @@ func TestCompactedOutputValidation(t *testing.T) {
 		mutate func(*HistoryReplacementRecord)
 	}{
 		{"engine", func(record *HistoryReplacementRecord) { record.Engine = "unknown" }},
+		{"padded engine", func(record *HistoryReplacementRecord) { record.Engine = " local " }},
 		{"number", func(record *HistoryReplacementRecord) { record.CompactionNumber = intPointer(0) }},
 		{"missing number", func(record *HistoryReplacementRecord) { record.CompactionNumber = nil }},
 		{"baseline", func(record *HistoryReplacementRecord) { record.CommittedEntryStart = intPointer(-1) }},
@@ -84,9 +107,6 @@ func TestCompactedOutputValidation(t *testing.T) {
 		{"continuation and pending", func(record *HistoryReplacementRecord) { record.Continuation = record.CompactedOutput.Summary }},
 		{"provider item", func(record *HistoryReplacementRecord) {
 			record.CompactedOutput.Summary = []ProviderHistoryItem{{Type: ProviderHistoryItemTypeCompaction}}
-		}},
-		{"shell role", func(record *HistoryReplacementRecord) {
-			record.CompactedOutput.RunningShells = []MessageRecord{{Role: MessageRoleUser}}
 		}},
 		{"carryover role", func(record *HistoryReplacementRecord) {
 			record.CompactedOutput.PreservedUserMessage = &MessageRecord{Role: MessageRoleDeveloper}

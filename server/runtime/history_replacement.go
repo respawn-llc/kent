@@ -23,10 +23,10 @@ func (e *Engine) installHistoryReplacement(record session.EventRecord, replaceme
 	}
 	entries = assignHistoryReplacementEntryProvenance(entries, &provenance)
 	if replacement.Output != nil {
-		e.generationContext = pendingGenerationContext{replacement: replacement}
+		e.setGenerationContext(pendingGenerationContext{replacement: replacement})
 		e.transcriptRuntimeState().BeginGeneration(*replacement.CommittedEntryStart)
 	} else {
-		e.generationContext = preparedGenerationContext{}
+		e.setGenerationContext(preparedGenerationContext{})
 		items := append(llm.CloneResponseItems(replacement.Items), replacement.Continuation...)
 		e.transcriptRuntimeState().ReplaceHistoryAtCommittedEntryStart(
 			record.StepID(), items, replacement.CommittedEntryStart, entries,

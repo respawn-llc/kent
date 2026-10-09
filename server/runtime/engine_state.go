@@ -897,7 +897,7 @@ type historyReplacementPayload struct {
 func (e *Engine) setLastUsage(usage llm.Usage) {
 	baselineEstimate := 0
 	if e != nil {
-		baselineEstimate = e.transcriptRuntimeState().EstimatedProviderTokens()
+		baselineEstimate = e.estimatedProviderHistoryTokens()
 	}
 	normalizedUsage, totalInputTokens, totalCachedInputTokens := e.usageTrackingState().Next(usage)
 	e.applyUsageTrackingState(normalizedUsage, baselineEstimate, totalInputTokens, totalCachedInputTokens)
@@ -906,7 +906,7 @@ func (e *Engine) setLastUsage(usage llm.Usage) {
 func (e *Engine) recordLastUsage(usage llm.Usage) (session.CommitReceipt, error) {
 	baselineEstimate := 0
 	if e != nil {
-		baselineEstimate = e.transcriptRuntimeState().EstimatedProviderTokens()
+		baselineEstimate = e.estimatedProviderHistoryTokens()
 	}
 	return e.recordLastUsageWithBaseline(usage, baselineEstimate)
 }

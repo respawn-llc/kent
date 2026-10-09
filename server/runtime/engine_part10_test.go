@@ -439,7 +439,7 @@ func TestManualCompactionReinjectsOnlyActiveHeadlessState(t *testing.T) {
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("condensed summary")},
 				Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
 			}}}
-			eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol", CompactionMode: "local"})
+			eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol", CompactionMode: "local", HeadlessMode: test.active})
 			if test.active {
 				if err := store.SetHeadlessActive(true); err != nil {
 					t.Fatalf("mark headless active: %v", err)
@@ -452,6 +452,7 @@ func TestManualCompactionReinjectsOnlyActiveHeadlessState(t *testing.T) {
 			}
 			completeManualEligibilityAgentStep(t, eng)
 			scheduleManualCompactionAndWait(t, eng)
+			buildActiveTurnRequestForTest(t, eng, nil, true)
 
 			headlessCount := 0
 			exitCount := 0

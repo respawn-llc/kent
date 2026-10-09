@@ -1,10 +1,8 @@
 package session
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 type CompactionEngine string
@@ -14,13 +12,12 @@ const (
 	CompactionEngineRemote CompactionEngine = "remote"
 )
 
-func normalizeCompactionEngine(engine CompactionEngine) (CompactionEngine, error) {
-	engine = CompactionEngine(strings.TrimSpace(string(engine)))
+func validateCompactionEngine(engine CompactionEngine) error {
 	switch engine {
 	case CompactionEngineLocal, CompactionEngineRemote:
-		return engine, nil
+		return nil
 	default:
-		return "", fmt.Errorf("unsupported compaction engine %q", engine)
+		return fmt.Errorf("unsupported compaction engine %q", engine)
 	}
 }
 
@@ -28,7 +25,6 @@ func normalizeCompactionEngine(engine CompactionEngine) (CompactionEngine, error
 // supplies its generation context. It is not yet a prepared provider history.
 type CompactedOutput struct {
 	Summary              []ProviderHistoryItem `json:"summary"`
-	RunningShells        []MessageRecord       `json:"running_shells,omitempty"`
 	PreservedUserMessage *MessageRecord        `json:"preserved_user_message,omitempty"`
 	FutureAgentMessage   *MessageRecord        `json:"future_agent_message,omitempty"`
 }
@@ -41,16 +37,6 @@ func normalizeCompactedOutput(record CompactedOutput) (CompactedOutput, error) {
 	record.Summary, err = normalizeProviderHistoryItems(record.Summary)
 	if err != nil {
 		return CompactedOutput{}, err
-	}
-	record.RunningShells = append([]MessageRecord(nil), record.RunningShells...)
-	for index, message := range record.RunningShells {
-		if message.Role != MessageRoleDeveloper {
-			return CompactedOutput{}, fmt.Errorf("running shell reminder %d must be a developer message", index)
-		}
-		record.RunningShells[index], err = normalizeMessageRecord(message)
-		if err != nil {
-			return CompactedOutput{}, fmt.Errorf("running shell reminder %d: %w", index, err)
-		}
 	}
 	if record.PreservedUserMessage != nil {
 		if record.PreservedUserMessage.Role != MessageRoleDeveloper ||
@@ -72,32 +58,4 @@ func normalizeCompactedOutput(record CompactedOutput) (CompactedOutput, error) {
 		record.FutureAgentMessage = &message
 	}
 	return record, nil
-}
-
-func encodeCompactedOutput(buffer *bytes.Buffer, record CompactedOutput) error {
-	buffer.WriteByte('{')
-	// The item encoder preserves opaque provider bytes, including whitespace.
-	buffer.WriteString(`"summary":`)
-	if err := encodeProviderHistoryItemArray(buffer, record.Summary); err != nil {
-		return err
-	}
-	if len(record.RunningShells) > 0 {
-		if err := writeMarshaledJSONField(buffer, "running_shells", record.RunningShells, true); err != nil {
-			return err
-		}
-	}
-	for _, write := range []func() error{
-		func() error {
-			return writeOptionalHistoryField(buffer, "preserved_user_message", record.PreservedUserMessage)
-		},
-		func() error {
-			return writeOptionalHistoryField(buffer, "future_agent_message", record.FutureAgentMessage)
-		},
-	} {
-		if err := write(); err != nil {
-			return err
-		}
-	}
-	buffer.WriteByte('}')
-	return nil
 }
