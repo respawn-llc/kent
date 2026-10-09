@@ -312,6 +312,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Changing Fast Mode does not create another Session Contract generation.
 - Reviewer and compaction requests inherit the Session's effective Fast Mode when their provider supports it.
 - Context usage uses current provider-reported usage when available and Kent's established current-context estimate otherwise.
+- Kent's current-context estimate must use the local estimation behavior owned by the currently resolved [Provider Connection](provider-connections.md#ownership-and-selection). Provider-specific estimates must not change compaction policy or the precedence of provider-reported usage.
 - Compaction selection compares current usage with the configured thresholds.
 - Kent does not predict future token growth from earlier turns or maintain a separate adaptive compaction policy.
 

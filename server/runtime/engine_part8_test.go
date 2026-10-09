@@ -240,7 +240,7 @@ func TestCompletedWriteStdinGuardConsumesPendingBackgroundNotice(t *testing.T) {
 	}}, delay: 300 * time.Millisecond}
 	registry := newTestToolRegistry(t,
 		tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: shelltool.NewExecCommandToolWithPostprocessor(store.Meta().WorkspaceRoot, 16_000, 40, manager, store.Meta().SessionID, postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))},
-		tools.HandlerRegistration{ID: toolspec.ToolWriteStdin, Handler: shelltool.NewWriteStdinTool(16_000, 40, manager)},
+		tools.HandlerRegistration{ID: toolspec.ToolWriteStdin, Handler: shelltool.NewWriteStdinTool(16_000, 40, manager, nil)},
 	)
 	eng := mustNewTestEngine(t, store, client, registry, Config{Model: "gpt-6-sol"})
 	forwardBackgroundEvents(t, manager, eng, store.Meta().SessionID)
