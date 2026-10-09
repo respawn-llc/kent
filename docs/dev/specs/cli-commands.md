@@ -327,6 +327,7 @@
 - Run control commands reject workspace, model, provider, agent, timeout, tools, and progress flags.
 - Headless stdin is not a steering channel.
 - `kent worktree list`, `create`, and `delete` must accept `--project <project-id>` and `--workspace <workspace-id>`.
+- `kent worktree delete` must accept `--timeout <duration>` with a default of five minutes. The duration must be positive and must bound the command's connection, Workspace resolution, and deletion request.
 - With `--project` and no `--workspace`, Worktree management must use the selected Project's default Workspace independently of the caller's Project and current directory.
 - With `--workspace`, Worktree management must select that Workspace within the selected or inferred Project.
 - Without `--project`, Worktree management must infer its Project and default target Workspace from the issuing agent Session, otherwise from `--session`, otherwise from the current directory.

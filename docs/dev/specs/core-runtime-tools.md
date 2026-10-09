@@ -371,6 +371,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - If either automatic-compaction condition no longer holds, Kent skips compaction without a provider call or history replacement.
 - A user message submitted while eager compaction is running waits behind that compaction and is then processed against the compacted context.
 - Eager compaction is speculative. Its failure does not change the preceding successful turn, retains the uncompacted context, uses the ordinary diagnostic reporting, and is not retried automatically.
+- A failed compaction must use ordinary run-failure reporting for its durable error message. Compaction progress must report the failed outcome without appending a second error message for the same failure.
 - `compaction_mode=none` disables manual and automatic compaction and lets provider context-overflow errors surface.
 - A manual compact request is a typed Pending Work item and follows the Session's accepted mutation order.
 - Compaction is an Agent Step selected after earlier accepted short mutations apply according to the Runtime Steering specification.
