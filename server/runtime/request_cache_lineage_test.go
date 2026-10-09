@@ -249,7 +249,7 @@ func newCacheWarningTestEngine(t *testing.T, client llm.Client, mode config.Cach
 
 func TestGenerateWithRetryClient_PersistsExactNonPostfixCacheWarningInDefaultMode(t *testing.T) {
 	t.Parallel()
-	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: 10, CachedInputTokens: textutil.Value(7)}}, {Usage: llm.Usage{InputTokens: 12, CachedInputTokens: textutil.Value(0)}}}}
+	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: textutil.Value(10), CachedInputTokens: textutil.Value(7), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}}, {Usage: llm.Usage{InputTokens: textutil.Value(12), CachedInputTokens: textutil.Value(0), ContextUsage: &llm.ContextUsage{Tokens: 12, MeasurementPoint: llm.ContextMeasurementInput}}}}}
 	store, eng := newCacheWarningTestEngine(t, client, config.CacheWarningModeDefault)
 
 	if _, err := generateTestActiveStep(context.Background(), eng, "step-1", client, testPromptCacheRequest("cache-key-1", "alpha")); err != nil {
@@ -277,8 +277,8 @@ func TestGenerateWithRetryClient_PersistsExactNonPostfixCacheWarningInDefaultMod
 func TestGenerateWithRetryClient_SuppressesExactNonPostfixWarningWhenProviderReuseIncreases(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{responses: []llm.Response{
-		{Usage: llm.Usage{InputTokens: 10, CachedInputTokens: textutil.Value(2_432)}},
-		{Usage: llm.Usage{InputTokens: 12, CachedInputTokens: textutil.Value(12_160)}},
+		{Usage: llm.Usage{InputTokens: textutil.Value(10), CachedInputTokens: textutil.Value(2_432), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}},
+		{Usage: llm.Usage{InputTokens: textutil.Value(12), CachedInputTokens: textutil.Value(12_160), ContextUsage: &llm.ContextUsage{Tokens: 12, MeasurementPoint: llm.ContextMeasurementInput}}},
 	}}
 	store, eng := newCacheWarningTestEngine(t, client, config.CacheWarningModeDefault)
 
@@ -300,8 +300,8 @@ func TestGenerateWithRetryClient_SuppressesExactNonPostfixWarningWhenProviderReu
 func TestGenerateWithRetryClient_SuppressesExactNonPostfixWarningWithoutProviderCacheMetadata(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{responses: []llm.Response{
-		{Usage: llm.Usage{InputTokens: 10}},
-		{Usage: llm.Usage{InputTokens: 12}},
+		{Usage: llm.Usage{InputTokens: textutil.Value(10), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}},
+		{Usage: llm.Usage{InputTokens: textutil.Value(12), ContextUsage: &llm.ContextUsage{Tokens: 12, MeasurementPoint: llm.ContextMeasurementInput}}},
 	}}
 	store, eng := newCacheWarningTestEngine(t, client, config.CacheWarningModeDefault)
 
@@ -327,7 +327,7 @@ func TestNew_RejectsInvalidCacheWarningMode(t *testing.T) {
 
 func TestGenerateWithRetryClient_OffModeSuppressesExactNonPostfixWarning(t *testing.T) {
 	t.Parallel()
-	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: 10, CachedInputTokens: textutil.Value(7)}}, {Usage: llm.Usage{InputTokens: 12}}}}
+	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: textutil.Value(10), CachedInputTokens: textutil.Value(7), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}}, {Usage: llm.Usage{InputTokens: textutil.Value(12), ContextUsage: &llm.ContextUsage{Tokens: 12, MeasurementPoint: llm.ContextMeasurementInput}}}}}
 	store, eng := newCacheWarningTestEngine(t, client, config.CacheWarningModeOff)
 
 	if _, err := generateTestActiveStep(context.Background(), eng, "step-1", client, testPromptCacheRequest("cache-key-1", "alpha")); err != nil {
@@ -346,7 +346,7 @@ func TestGenerateWithRetryClient_OffModeSuppressesExactNonPostfixWarning(t *test
 func TestGenerateWithRetryClient_FailedRequestDoesNotAdvanceLineage(t *testing.T) {
 	withGenerateRetryDelays(t, []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond, time.Millisecond, time.Millisecond})
 
-	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: 10}}, {Usage: llm.Usage{InputTokens: 12}}}}
+	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: textutil.Value(10), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}}, {Usage: llm.Usage{InputTokens: textutil.Value(12), ContextUsage: &llm.ContextUsage{Tokens: 12, MeasurementPoint: llm.ContextMeasurementInput}}}}}
 	store, eng := newCacheWarningTestEngine(t, client, config.CacheWarningModeDefault)
 	if _, err := generateTestActiveStep(context.Background(), eng, "step-1", client, testPromptCacheRequest("cache-key-1", "alpha")); err != nil {
 		t.Fatalf("first generate: %v", err)
@@ -366,7 +366,7 @@ func TestGenerateWithRetryClient_FailedRequestDoesNotAdvanceLineage(t *testing.T
 
 func TestGenerateWithRetryClient_PersistsReuseDropWarningInDefaultMode(t *testing.T) {
 	t.Parallel()
-	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: 10, CachedInputTokens: textutil.Value(4)}}, {Usage: llm.Usage{InputTokens: 12, CachedInputTokens: textutil.Value(0)}}}}
+	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: textutil.Value(10), CachedInputTokens: textutil.Value(4), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}}, {Usage: llm.Usage{InputTokens: textutil.Value(12), CachedInputTokens: textutil.Value(0), ContextUsage: &llm.ContextUsage{Tokens: 12, MeasurementPoint: llm.ContextMeasurementInput}}}}}
 	store, eng := newCacheWarningTestEngine(t, client, config.CacheWarningModeDefault)
 
 	if _, err := generateTestActiveStep(context.Background(), eng, "step-1", client, testPromptCacheRequest("cache-key-1", "alpha")); err != nil {
@@ -406,7 +406,7 @@ func TestGenerateWithRetryClient_OffModeSuppressesReuseDropWarning(t *testing.T)
 
 func TestGenerateWithRetryClient_DoesNotWarnAcrossDistinctCacheKeys(t *testing.T) {
 	t.Parallel()
-	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: 10}}, {Usage: llm.Usage{InputTokens: 12}}}}
+	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: textutil.Value(10), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}}, {Usage: llm.Usage{InputTokens: textutil.Value(12), ContextUsage: &llm.ContextUsage{Tokens: 12, MeasurementPoint: llm.ContextMeasurementInput}}}}}
 	store, eng := newCacheWarningTestEngine(t, client, config.CacheWarningModeVerbose)
 
 	if _, err := generateTestActiveStep(context.Background(), eng, "step-1", client, testPromptCacheRequest("cache-key-1", "alpha")); err != nil {
@@ -777,10 +777,10 @@ func TestReviewerSuggestions_PromptCacheKeyStaysOnReviewerSessionAfterConversati
 func TestGenerateWithRetryClient_KeepsReviewerLineageIndependent(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{responses: []llm.Response{
-		{Usage: llm.Usage{InputTokens: 10, CachedInputTokens: textutil.Value(8)}},
-		{Usage: llm.Usage{InputTokens: 10, CachedInputTokens: textutil.Value(6)}},
-		{Usage: llm.Usage{InputTokens: 12, CachedInputTokens: textutil.Value(10)}},
-		{Usage: llm.Usage{InputTokens: 12, CachedInputTokens: textutil.Value(0)}},
+		{Usage: llm.Usage{InputTokens: textutil.Value(10), CachedInputTokens: textutil.Value(8), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}},
+		{Usage: llm.Usage{InputTokens: textutil.Value(10), CachedInputTokens: textutil.Value(6), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}},
+		{Usage: llm.Usage{InputTokens: textutil.Value(12), CachedInputTokens: textutil.Value(10), ContextUsage: &llm.ContextUsage{Tokens: 12, MeasurementPoint: llm.ContextMeasurementInput}}},
+		{Usage: llm.Usage{InputTokens: textutil.Value(12), CachedInputTokens: textutil.Value(0), ContextUsage: &llm.ContextUsage{Tokens: 12, MeasurementPoint: llm.ContextMeasurementInput}}},
 	}}
 	store, eng := newCacheWarningTestEngine(t, client, config.CacheWarningModeVerbose)
 
@@ -811,7 +811,7 @@ func TestGenerateWithRetryClient_KeepsReviewerLineageIndependent(t *testing.T) {
 
 func TestGenerateWithRetryClient_CompactionKeepsConversationCacheKeyWithoutWarning(t *testing.T) {
 	t.Parallel()
-	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: 10, CachedInputTokens: textutil.Value(7)}}, {Usage: llm.Usage{InputTokens: 12}}}}
+	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: textutil.Value(10), CachedInputTokens: textutil.Value(7), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}}, {Usage: llm.Usage{InputTokens: textutil.Value(12), ContextUsage: &llm.ContextUsage{Tokens: 12, MeasurementPoint: llm.ContextMeasurementInput}}}}}
 	store, eng := newCacheWarningTestEngine(t, client, config.CacheWarningModeDefault)
 	cacheKey := eng.SessionID()
 
@@ -841,10 +841,10 @@ func TestGenerateWithRetryClient_CompactionKeepsConversationCacheKeyWithoutWarni
 func TestGenerateWithRetryClient_CompactionResetsConversationAndReviewerCacheBaselines(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{responses: []llm.Response{
-		{Usage: llm.Usage{InputTokens: 10, CachedInputTokens: textutil.Value(7)}},
-		{Usage: llm.Usage{InputTokens: 11, CachedInputTokens: textutil.Value(7)}},
-		{Usage: llm.Usage{InputTokens: 12}},
-		{Usage: llm.Usage{InputTokens: 13}},
+		{Usage: llm.Usage{InputTokens: textutil.Value(10), CachedInputTokens: textutil.Value(7), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}},
+		{Usage: llm.Usage{InputTokens: textutil.Value(11), CachedInputTokens: textutil.Value(7), ContextUsage: &llm.ContextUsage{Tokens: 11, MeasurementPoint: llm.ContextMeasurementInput}}},
+		{Usage: llm.Usage{InputTokens: textutil.Value(12), ContextUsage: &llm.ContextUsage{Tokens: 12, MeasurementPoint: llm.ContextMeasurementInput}}},
+		{Usage: llm.Usage{InputTokens: textutil.Value(13), ContextUsage: &llm.ContextUsage{Tokens: 13, MeasurementPoint: llm.ContextMeasurementInput}}},
 	}}
 	store, eng := newCacheWarningTestEngine(t, client, config.CacheWarningModeDefault)
 	cacheKey := eng.SessionID()
@@ -878,8 +878,8 @@ func TestGenerateWithRetryClient_CompactionResetsConversationAndReviewerCacheBas
 func TestGenerateWithRetryClient_ReplayedCompactionResetsConversationAndReviewerCacheBaselines(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{responses: []llm.Response{
-		{Usage: llm.Usage{InputTokens: 10, CachedInputTokens: textutil.Value(7)}},
-		{Usage: llm.Usage{InputTokens: 11, CachedInputTokens: textutil.Value(7)}},
+		{Usage: llm.Usage{InputTokens: textutil.Value(10), CachedInputTokens: textutil.Value(7), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}},
+		{Usage: llm.Usage{InputTokens: textutil.Value(11), CachedInputTokens: textutil.Value(7), ContextUsage: &llm.ContextUsage{Tokens: 11, MeasurementPoint: llm.ContextMeasurementInput}}},
 	}}
 	store, eng := newCacheWarningTestEngine(t, client, config.CacheWarningModeDefault)
 	cacheKey := eng.SessionID()
@@ -905,8 +905,8 @@ func TestGenerateWithRetryClient_ReplayedCompactionResetsConversationAndReviewer
 
 	reopened := mustOpenTestSession(t, store.Dir())
 	replayClient := &fakeClient{responses: []llm.Response{
-		{Usage: llm.Usage{InputTokens: 12}},
-		{Usage: llm.Usage{InputTokens: 13}},
+		{Usage: llm.Usage{InputTokens: textutil.Value(12), ContextUsage: &llm.ContextUsage{Tokens: 12, MeasurementPoint: llm.ContextMeasurementInput}}},
+		{Usage: llm.Usage{InputTokens: textutil.Value(13), ContextUsage: &llm.ContextUsage{Tokens: 13, MeasurementPoint: llm.ContextMeasurementInput}}},
 	}}
 	replayed := mustNewTestEngine(t, reopened, replayClient, newTestToolRegistry(t), Config{
 		Model:            "gpt-6-sol",
@@ -940,7 +940,7 @@ func TestGenerateWithRetryClient_RestoreIgnoresRequestObservationWithoutResponse
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: 12}}}}
+	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: textutil.Value(12), ContextUsage: &llm.ContextUsage{Tokens: 12, MeasurementPoint: llm.ContextMeasurementInput}}}}}
 	eng := mustNewTestEngine(t, reopened, client, tools.NewRegistry(), Config{Model: "gpt-6-sol", CacheWarningMode: config.CacheWarningModeDefault})
 	if _, err := generateTestActiveStep(context.Background(), eng, "step-1", client, testPromptCacheRequest("cache-key-1", "alpha", "omega")); err != nil {
 		t.Fatalf("generate after reopen: %v", err)
@@ -965,7 +965,7 @@ func (f *failingCacheClient) ProviderCapabilities(context.Context) (llm.Provider
 
 func TestGenerateWithRetryClient_RestorePreservesRotatedCompactionKeyWithoutWarning(t *testing.T) {
 	t.Parallel()
-	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: 10}}}}
+	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: textutil.Value(10), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}}}}
 	store, eng := newCacheWarningTestEngine(t, client, config.CacheWarningModeVerbose)
 
 	if _, err := generateTestActiveStep(context.Background(), eng, "step-1", client, testPromptCacheRequest("cache-key-1", "alpha")); err != nil {
@@ -986,7 +986,7 @@ func TestGenerateWithRetryClient_RestorePreservesRotatedCompactionKeyWithoutWarn
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	reopenedClient := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: 12}}}}
+	reopenedClient := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: textutil.Value(12), ContextUsage: &llm.ContextUsage{Tokens: 12, MeasurementPoint: llm.ContextMeasurementInput}}}}}
 	reopenedEng := mustNewTestEngine(t, reopened, reopenedClient, tools.NewRegistry(), Config{Model: "gpt-6-sol", CacheWarningMode: config.CacheWarningModeVerbose})
 
 	if _, err := generateTestActiveStep(context.Background(), reopenedEng, "step-2", reopenedClient, testPromptCacheRequest("cache-key-1", "beta")); err != nil {

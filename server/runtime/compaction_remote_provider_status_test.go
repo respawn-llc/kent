@@ -673,7 +673,7 @@ func newRemoteCompactionFixture(
 				Type:             llm.ResponseItemTypeCompaction,
 				EncryptedContent: textutil.Value("checkpoint"),
 			},
-			Usage: llm.Usage{InputTokens: 1_000, OutputTokens: 100, WindowTokens: 200_000},
+			Usage: llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{

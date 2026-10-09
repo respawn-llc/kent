@@ -142,7 +142,7 @@ func newReminderRecoveryEngine(t *testing.T, store *session.Store, client llm.Cl
 
 func seedReminderUsage(t *testing.T, engine *Engine) {
 	t.Helper()
-	engine.setLastUsage(llm.Usage{InputTokens: 890, WindowTokens: 2_000})
+	engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}})
 }
 
 func typedReminderEvents(events []Event) int {

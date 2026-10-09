@@ -183,7 +183,7 @@ func TestCompactionReestablishesThinking(t *testing.T) {
 				responses: []llm.Response{finalOutputItemResponse("seed"), finalOutputItemResponse("next"), finalOutputItemResponse("last")},
 				compactionResponses: []llm.CompactionResponse{{
 					Checkpoint: llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")},
-					Usage:      llm.Usage{InputTokens: 100, OutputTokens: 10, WindowTokens: 200000},
+					Usage:      llm.Usage{InputTokens: textutil.Value(100), OutputTokens: textutil.Value(10), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}},
 				}},
 			}
 			if mode == "local" {

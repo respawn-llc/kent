@@ -2,10 +2,12 @@ package runtime
 
 import (
 	"sync"
+
+	"core/shared/textutil"
 )
 
 type usageEstimateBaseline struct {
-	inputTokens             int
+	reportedContextTokens   *int
 	estimatedProviderTokens int
 }
 
@@ -19,12 +21,9 @@ func newTokenUsageTracker() *tokenUsageTracker {
 	return &tokenUsageTracker{}
 }
 
-func (t *tokenUsageTracker) storeUsageBaseline(inputTokens, estimatedProviderTokens int) {
+func (t *tokenUsageTracker) storeUsageBaseline(reportedContextTokens *int, estimatedProviderTokens int) {
 	if t == nil {
 		return
-	}
-	if inputTokens < 0 {
-		inputTokens = 0
 	}
 	if estimatedProviderTokens < 0 {
 		estimatedProviderTokens = 0
@@ -32,12 +31,12 @@ func (t *tokenUsageTracker) storeUsageBaseline(inputTokens, estimatedProviderTok
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.usageBaseline = usageEstimateBaseline{
-		inputTokens:             inputTokens,
+		reportedContextTokens:   textutil.Pointer(reportedContextTokens),
 		estimatedProviderTokens: estimatedProviderTokens,
 	}
 }
 
-func (t *tokenUsageTracker) estimateCurrentInputTokens(currentEstimatedProviderTokens int) (int, bool) {
+func (t *tokenUsageTracker) estimateCurrentContextTokens(currentEstimatedProviderTokens int) (int, bool) {
 	if t == nil {
 		return 0, false
 	}
@@ -47,7 +46,7 @@ func (t *tokenUsageTracker) estimateCurrentInputTokens(currentEstimatedProviderT
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	baseline := t.usageBaseline
-	if baseline.inputTokens <= 0 {
+	if baseline.reportedContextTokens == nil {
 		if currentEstimatedProviderTokens <= 0 {
 			return 0, false
 		}
@@ -55,7 +54,7 @@ func (t *tokenUsageTracker) estimateCurrentInputTokens(currentEstimatedProviderT
 	}
 	delta := currentEstimatedProviderTokens - baseline.estimatedProviderTokens
 	if delta <= 0 {
-		return baseline.inputTokens, true
+		return *baseline.reportedContextTokens, true
 	}
-	return baseline.inputTokens + delta, true
+	return *baseline.reportedContextTokens + delta, true
 }

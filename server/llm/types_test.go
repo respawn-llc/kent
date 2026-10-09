@@ -392,7 +392,7 @@ func TestPreparedOpenAIItemKeepsWorktreeContextOutOfProviderPayload(t *testing.T
 }
 
 func TestUsageCacheHitPercent(t *testing.T) {
-	usage := Usage{InputTokens: 200, CachedInputTokens: textutil.Value(50)}
+	usage := Usage{InputTokens: textutil.Value(200), CachedInputTokens: textutil.Value(50)}
 	pct, ok := usage.CacheHitPercent()
 	if !ok {
 		t.Fatal("expected cache hit percentage to be available")
@@ -401,7 +401,7 @@ func TestUsageCacheHitPercent(t *testing.T) {
 		t.Fatalf("cache hit percent=%d, want 25", pct)
 	}
 
-	unknown := Usage{InputTokens: 200}
+	unknown := Usage{InputTokens: textutil.Value(200)}
 	if pct, ok := unknown.CacheHitPercent(); ok || pct != 0 {
 		t.Fatalf("expected unknown cache hit percentage, got pct=%d ok=%t", pct, ok)
 	}

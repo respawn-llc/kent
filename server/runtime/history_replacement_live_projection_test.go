@@ -23,7 +23,7 @@ func TestRemoteCompactionReplacementOwnsExactlyOneTranscriptSummary(t *testing.T
 			ID:               textutil.Value("checkpoint"),
 			EncryptedContent: textutil.Value("encrypted"),
 		},
-		Usage: llm.Usage{InputTokens: 100, WindowTokens: 200_000},
+		Usage: llm.Usage{InputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
 		Model:          "gpt-6-sol",

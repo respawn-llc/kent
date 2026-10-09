@@ -23,15 +23,15 @@ func TestRunStepLoopDoesNotDuplicateCompactionSoonReminderAfterAutoCompactionIsD
 			{
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("checking"), Phase: textutil.Value(llm.MessagePhaseCommentary)},
 				ToolCalls: []llm.ToolCall{{ID: "call_1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}},
-				Usage:     llm.Usage{InputTokens: 890, WindowTokens: 2_000},
+				Usage:     llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 			{
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
-				Usage:     llm.Usage{InputTokens: 920, WindowTokens: 2_000},
+				Usage:     llm.Usage{InputTokens: textutil.Value(920), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 920, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 			{
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("next"), Phase: textutil.Value(llm.MessagePhaseFinal)},
-				Usage:     llm.Usage{InputTokens: 930, WindowTokens: 2_000},
+				Usage:     llm.Usage{InputTokens: textutil.Value(930), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 930, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 		},
 	}
@@ -107,7 +107,7 @@ func TestCompactionSoonReminderUsesResponseBaselineAfterTranscriptMutation(t *te
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setLastUsage(llm.Usage{InputTokens: 860, WindowTokens: 2_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(860), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 860, MeasurementPoint: llm.ContextMeasurementInput}})
 
 	restoreStep := setTestActiveStep(eng, "step-1")
 	if err := newCompactionReminderCoordinator(eng).maybeAppend(context.Background(), runtimeTestStepID("step-1")); err != nil {
@@ -198,7 +198,7 @@ func TestTriggerHandoffWithProviderCompactionCarriesPreservedUserMessageInOrder(
 				Type:             llm.ResponseItemTypeCompaction,
 				EncryptedContent: textutil.Value("encrypted"),
 			},
-			Usage: llm.Usage{InputTokens: 1_000, OutputTokens: 100, WindowTokens: 200_000},
+			Usage: llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{
@@ -282,7 +282,7 @@ func TestPrepareModelTurnSkipsAutoCompactionAfterPendingHandoffCompaction(t *tes
 	client := &fakeCompactionClient{
 		responses: []llm.Response{{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("handoff summary")},
-			Usage:     llm.Usage{InputTokens: 1_900, WindowTokens: 2_000},
+			Usage:     llm.Usage{InputTokens: textutil.Value(1_900), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 1_900, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{
@@ -293,7 +293,7 @@ func TestPrepareModelTurnSkipsAutoCompactionAfterPendingHandoffCompaction(t *tes
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setLastUsage(llm.Usage{InputTokens: 1_900, WindowTokens: 2_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(1_900), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 1_900, MeasurementPoint: llm.ContextMeasurementInput}})
 	eng.handoffRuntimeState().QueueRequest("keep runtime details", "")
 
 	executor := &defaultStepExecutor{engine: eng}
@@ -320,7 +320,7 @@ func TestPrepareModelTurnMaterializesWorktreeReminderAfterPendingHandoffCompacti
 	client := &fakeCompactionClient{
 		responses: []llm.Response{{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("handoff summary")},
-			Usage:     llm.Usage{InputTokens: 1_900, WindowTokens: 2_000},
+			Usage:     llm.Usage{InputTokens: textutil.Value(1_900), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 1_900, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{
@@ -331,7 +331,7 @@ func TestPrepareModelTurnMaterializesWorktreeReminderAfterPendingHandoffCompacti
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setLastUsage(llm.Usage{InputTokens: 1_900, WindowTokens: 2_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(1_900), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 1_900, MeasurementPoint: llm.ContextMeasurementInput}})
 	eng.handoffRuntimeState().QueueRequest("keep runtime details", "")
 
 	executor := &defaultStepExecutor{engine: eng}
@@ -369,11 +369,11 @@ func TestPendingTriggerHandoffFailsToolCallsAndRetriesLocalSummary(t *testing.T)
 					Input: json.RawMessage(`{"query":"handoff"}`),
 				},
 			},
-			Usage: llm.Usage{InputTokens: 100, WindowTokens: 2_000},
+			Usage: llm.Usage{InputTokens: textutil.Value(100), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}},
 		},
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("condensed summary")},
-			Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
+			Usage:     llm.Usage{InputTokens: textutil.Value(200), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 200, MeasurementPoint: llm.ContextMeasurementInput}},
 		},
 	}}
 	eng := mustNewExecTestEngine(t, store, client, Config{
@@ -424,7 +424,7 @@ func TestPendingTriggerHandoffFailsMalformedToolCallWithEmptyID(t *testing.T) {
 			Name:  string(toolspec.ToolExecCommand),
 			Input: json.RawMessage(`{"cmd":"pwd"}`),
 		}},
-		Usage: llm.Usage{InputTokens: 100, WindowTokens: 2_000},
+		Usage: llm.Usage{InputTokens: textutil.Value(100), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
@@ -485,11 +485,11 @@ func TestPendingTriggerHandoffRetriesCustomToolCallOutput(t *testing.T) {
 				Custom:      true,
 				CustomInput: textutil.Value("*** Begin Patch\n*** End Patch"),
 			}},
-			Usage: llm.Usage{InputTokens: 100, WindowTokens: 2_000},
+			Usage: llm.Usage{InputTokens: textutil.Value(100), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}},
 		},
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("condensed summary")},
-			Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
+			Usage:     llm.Usage{InputTokens: textutil.Value(200), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 200, MeasurementPoint: llm.ContextMeasurementInput}},
 		},
 	}}
 	eng := mustNewFakeToolEngine(t, store, client, Config{
@@ -547,7 +547,7 @@ func TestPendingTriggerHandoffLeavesRequestPendingWhenSummaryRetryStillToolCalls
 				Name:  string(toolspec.ToolExecCommand),
 				Input: json.RawMessage(`{"cmd":"pwd"}`),
 			}},
-			Usage: llm.Usage{InputTokens: 100, WindowTokens: 2_000},
+			Usage: llm.Usage{InputTokens: textutil.Value(100), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}},
 		},
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant},
@@ -556,7 +556,7 @@ func TestPendingTriggerHandoffLeavesRequestPendingWhenSummaryRetryStillToolCalls
 				Name:  string(toolspec.ToolExecCommand),
 				Input: json.RawMessage(`{"cmd":"pwd"}`),
 			}},
-			Usage: llm.Usage{InputTokens: 200, WindowTokens: 2_000},
+			Usage: llm.Usage{InputTokens: textutil.Value(200), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 200, MeasurementPoint: llm.ContextMeasurementInput}},
 		},
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant},
@@ -565,7 +565,7 @@ func TestPendingTriggerHandoffLeavesRequestPendingWhenSummaryRetryStillToolCalls
 				Name:  string(toolspec.ToolExecCommand),
 				Input: json.RawMessage(`{"cmd":"pwd"}`),
 			}},
-			Usage: llm.Usage{InputTokens: 300, WindowTokens: 2_000},
+			Usage: llm.Usage{InputTokens: textutil.Value(300), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 300, MeasurementPoint: llm.ContextMeasurementInput}},
 		},
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant},
@@ -574,7 +574,7 @@ func TestPendingTriggerHandoffLeavesRequestPendingWhenSummaryRetryStillToolCalls
 				Name:  string(toolspec.ToolExecCommand),
 				Input: json.RawMessage(`{"cmd":"pwd"}`),
 			}},
-			Usage: llm.Usage{InputTokens: 400, WindowTokens: 2_000},
+			Usage: llm.Usage{InputTokens: textutil.Value(400), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 400, MeasurementPoint: llm.ContextMeasurementInput}},
 		},
 	}}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{})
@@ -634,7 +634,7 @@ func TestPendingTriggerHandoffRetriesAfterCompactionFailure(t *testing.T) {
 	client := &fakeClient{responses: []llm.Response{
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("condensed summary")},
-			Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
+			Usage:     llm.Usage{InputTokens: textutil.Value(200), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 200, MeasurementPoint: llm.ContextMeasurementInput}},
 		},
 	}}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{})
@@ -668,7 +668,7 @@ func TestPendingTriggerHandoffRetriesAfterCompactionFailure(t *testing.T) {
 
 	client.responses = []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("condensed summary")},
-		Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
+		Usage:     llm.Usage{InputTokens: textutil.Value(200), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 200, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}
 	if _, err := eng.applyPendingHandoffIfNeeded(context.Background(), runtimeTestStepID("step-1")); err != nil {
 		t.Fatalf("retry pending handoff: %v", err)
@@ -703,15 +703,15 @@ func TestRunStepLoopTriggerHandoffOmitsCallAndOutputFromFollowUpRequestAndKeepsF
 					Name:  string(toolspec.ToolTriggerHandoff),
 					Input: json.RawMessage(`{"summarizer_prompt":"keep API details","future_agent_message":"resume with tests"}`),
 				}},
-				Usage: llm.Usage{InputTokens: 100, WindowTokens: 2_000},
+				Usage: llm.Usage{InputTokens: textutil.Value(100), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 			{
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("condensed summary")},
-				Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
+				Usage:     llm.Usage{InputTokens: textutil.Value(200), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 200, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 			{
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
-				Usage:     llm.Usage{InputTokens: 300, WindowTokens: 2_000},
+				Usage:     llm.Usage{InputTokens: textutil.Value(300), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 300, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 		},
 	}
@@ -783,15 +783,15 @@ func TestRunStepLoopInjectsReminderBeforeTriggerHandoff(t *testing.T) {
 					Name:  string(toolspec.ToolTriggerHandoff),
 					Input: json.RawMessage(`{"future_agent_message":"resume with tests"}`),
 				}},
-				Usage: llm.Usage{InputTokens: 100, WindowTokens: 2_000},
+				Usage: llm.Usage{InputTokens: textutil.Value(100), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 			{
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("condensed summary")},
-				Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
+				Usage:     llm.Usage{InputTokens: textutil.Value(200), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 200, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 			{
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
-				Usage:     llm.Usage{InputTokens: 300, WindowTokens: 2_000},
+				Usage:     llm.Usage{InputTokens: textutil.Value(300), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 300, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 		},
 	}
@@ -810,7 +810,7 @@ func TestRunStepLoopInjectsReminderBeforeTriggerHandoff(t *testing.T) {
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setLastUsage(llm.Usage{InputTokens: 8_900, WindowTokens: 20_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(8_900), WindowTokens: 20_000, ContextUsage: &llm.ContextUsage{Tokens: 8_900, MeasurementPoint: llm.ContextMeasurementInput}})
 
 	restoreStep := setTestActiveStep(eng, "step-1")
 	msg, err := eng.runStepLoop(context.Background(), runtimeTestStepID("step-1"))

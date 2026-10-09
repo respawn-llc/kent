@@ -3264,7 +3264,7 @@ func TestServicePreSubmitCompactionDoesNotOwnDraftOrSteeringAdmission(t *testing
 	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{
 		Model: "gpt-6-sol", ProviderCapabilitiesOverride: &runtimeControlOpenAICapabilities,
 	})
-	client.responses[0].Usage.InputTokens = int(engine.LiveChatContextSnapshot().Policy.AutomaticThresholdTokens) - config.DefaultPreSubmitRunwayTokens + 1
+	client.responses[0].Usage.InputTokens = textutil.Value(int(engine.LiveChatContextSnapshot().Policy.AutomaticThresholdTokens) - config.DefaultPreSubmitRunwayTokens + 1)
 	if _, err := engine.SubmitUserMessage(t.Context(), "seed"); err != nil {
 		t.Fatal(err)
 	}

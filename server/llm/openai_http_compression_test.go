@@ -81,7 +81,7 @@ func TestGenerateChatGPTCodexCompressesLargeResponsesBodyWithZstd(t *testing.T) 
 	if payload["model"] != "gpt-5.6-sol" {
 		t.Fatalf("model = %#v, want gpt-5.6-sol", payload["model"])
 	}
-	if response.Usage.InputTokens != 1 || response.Usage.OutputTokens != 1 {
+	if response.Usage.InputTokens == nil || response.Usage.OutputTokens == nil || *response.Usage.InputTokens != 1 || *response.Usage.OutputTokens != 1 {
 		t.Fatalf("response usage = %+v, want input/output tokens 1/1", response.Usage)
 	}
 }

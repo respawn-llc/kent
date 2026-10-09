@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -16,6 +17,7 @@ import (
 // The registry selects protocol differences; the Responses engine owns ordered
 // input serialization, streaming, cancellation, and tool-call reconciliation.
 type responsesPolicy interface {
+	usage(responses.ResponseUsage, int) (Usage, error)
 	configurePayload(responsesRequestPayloadBuilder, ResponsesRequest, OpenAIAuthMode, *responses.ResponseNewParams) error
 	requestOptions(string, ResponsesRequest, responsesDispatchPreparation) []option.RequestOption
 	prepareDispatch(string, string, *CodexDispatchContext, *responses.ResponseNewParamsServiceTier, ProviderVariantContract) (*codexDispatchProjection, error)
@@ -25,6 +27,33 @@ type responsesPolicy interface {
 
 type openAIResponsesPolicy struct{}
 type grokResponsesPolicy struct{}
+
+func (openAIResponsesPolicy) usage(raw responses.ResponseUsage, window int) (Usage, error) {
+	usage := usageFromSDK(raw, window)
+	if usage.InputTokens != nil {
+		usage.ContextUsage = &ContextUsage{Tokens: *usage.InputTokens, MeasurementPoint: ContextMeasurementInput}
+	}
+	return usage, nil
+}
+
+func (grokResponsesPolicy) usage(raw responses.ResponseUsage, window int) (Usage, error) {
+	usage := usageFromSDK(raw, window)
+	field, present := raw.JSON.ExtraFields["context_details"]
+	if !present {
+		return usage, nil
+	}
+	var context struct {
+		Input  *int `json:"input_tokens"`
+		Output *int `json:"output_tokens"`
+	}
+	if err := json.Unmarshal([]byte(field.Raw()), &context); err != nil {
+		return Usage{}, fmt.Errorf("decode Grok context usage: %w", err)
+	}
+	if context.Input != nil && context.Output != nil {
+		usage.ContextUsage = &ContextUsage{Tokens: *context.Input + *context.Output, MeasurementPoint: ContextMeasurementCompletedResponse}
+	}
+	return usage, nil
+}
 
 func (openAIResponsesPolicy) reasoningDelta(entry ReasoningEntry) ReasoningSummaryDelta {
 	return reasoningSummaryDeltaFromText(entry.SourceCoordinate, entry.ItemIdentity, reasoningRoleSummary, entry.Text)

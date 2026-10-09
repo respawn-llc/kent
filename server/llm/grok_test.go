@@ -289,6 +289,114 @@ func TestGrokManualModelNativeSearchCompatibility(t *testing.T) {
 	}
 }
 
+func TestGrokUsagePreservesAbsentAndZeroCounts(t *testing.T) {
+	for _, rawUsage := range []string{`{}`, `{"input_tokens":0,"output_tokens":0,"input_tokens_details":{"cached_tokens":0}}`} {
+		t.Run(rawUsage, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"status\":\"completed\",\"output\":[],\"usage\":%s}}\n\n", rawUsage)
+			}))
+			defer server.Close()
+			selected, err := ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionGrokCLIProxy})
+			if err != nil {
+				t.Fatal(err)
+			}
+			provider, err := NewProviderClient(ProviderClientOptions{
+				Provider: selected.Provider, Variant: &selected.Variant, Auth: oauthStaticAuth{},
+				HTTPClient: newRewritingHTTPClient(t, server), ContextWindowTokens: 256_000,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := provider.Generate(t.Context(), Request{
+				Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic,
+			}, StreamCallbacks{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(result.Usage)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var counts struct {
+				Input  *int `json:"input_tokens"`
+				Output *int `json:"output_tokens"`
+				Cached *int `json:"cached_input_tokens"`
+			}
+			if err := json.Unmarshal(encoded, &counts); err != nil {
+				t.Fatal(err)
+			}
+			if rawUsage == "{}" {
+				if counts.Input != nil || counts.Output != nil || counts.Cached != nil {
+					t.Fatalf("absent counts fabricated: %s", encoded)
+				}
+			} else if counts.Input == nil || counts.Output == nil || counts.Cached == nil || *counts.Input != 0 || *counts.Output != 0 || *counts.Cached != 0 {
+				t.Fatalf("reported zeros lost: %s", encoded)
+			}
+		})
+	}
+}
+
+func TestGrokContextUsageRemainsSeparateFromBilling(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":12,\"output_tokens\":8,\"total_tokens\":20,\"context_details\":{\"input_tokens\":30,\"output_tokens\":7}}}}\n\n")
+	}))
+	defer server.Close()
+	selected, err := ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionGrokCLIProxy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := NewProviderClient(ProviderClientOptions{
+		Provider: selected.Provider, Variant: &selected.Variant, Auth: oauthStaticAuth{},
+		HTTPClient: newRewritingHTTPClient(t, server), ContextWindowTokens: 256_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := provider.Generate(t.Context(), Request{
+		Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic,
+	}, StreamCallbacks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(result.Usage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var projected struct {
+		Context *struct {
+			Tokens int    `json:"tokens"`
+			Point  string `json:"measurement_point"`
+		} `json:"context_usage"`
+	}
+	if err := json.Unmarshal(encoded, &projected); err != nil {
+		t.Fatal(err)
+	}
+	if projected.Context == nil || projected.Context.Tokens != 37 || projected.Context.Point != "completed_response" {
+		t.Fatalf("context measurement = %s", encoded)
+	}
+	if result.Usage.InputTokens == nil || *result.Usage.InputTokens != 12 || result.Usage.OutputTokens == nil || *result.Usage.OutputTokens != 8 {
+		t.Fatalf("billing counts changed: %s", encoded)
+	}
+	var evidence struct {
+		Total   int `json:"total_tokens"`
+		Context struct {
+			Input  int `json:"input_tokens"`
+			Output int `json:"output_tokens"`
+		} `json:"context_details"`
+	}
+	if result.ProviderEvidence.Usage == nil {
+		t.Fatal("raw usage evidence missing")
+	}
+	if err := json.Unmarshal(*result.ProviderEvidence.Usage, &evidence); err != nil {
+		t.Fatal(err)
+	}
+	if evidence.Total != 20 || evidence.Context.Input != 30 || evidence.Context.Output != 7 {
+		t.Fatalf("raw usage changed: %+v", evidence)
+	}
+}
+
 func TestGrokDispatchUsesSelectedRouteAndSupportedPayload(t *testing.T) {
 	for _, protocol := range []config.ConnectionProtocol{config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI, config.ConnectionGrokAPIKey} {
 		t.Run(string(protocol), func(t *testing.T) {

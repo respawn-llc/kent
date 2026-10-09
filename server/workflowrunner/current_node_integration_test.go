@@ -98,7 +98,7 @@ func workflowPostCompletionCompactionResponse(summary string) llm.CompactionResp
 			ID:               textutil.Value("workflow-post-completion"),
 			EncryptedContent: textutil.Value("encrypted"),
 		},
-		Usage: llm.Usage{InputTokens: 1_000, OutputTokens: 100, WindowTokens: 200_000},
+		Usage: llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 	}
 }
 
@@ -2203,7 +2203,7 @@ func TestWorkflowPostCompletionCompactionReachesCACTargetWithoutSecondSummary(t 
 				ID:               textutil.Value("workflow-post-completion"),
 				EncryptedContent: textutil.Value("encrypted"),
 			},
-			Usage: llm.Usage{InputTokens: 1_000, OutputTokens: 100, WindowTokens: 200_000},
+			Usage: llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 		ScriptedToolBatch(
 			"complete first node",
@@ -2333,7 +2333,7 @@ func runDisabledCACResumeAfterConfigurationChange(t *testing.T, keepRuntimeOpen 
 				ID:               textutil.Value("target-time-cac"),
 				EncryptedContent: textutil.Value("encrypted"),
 			},
-			Usage: llm.Usage{InputTokens: 1_000, OutputTokens: 100, WindowTokens: 200_000},
+			Usage: llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 		ScriptedToolBatch(
 			"complete first node",

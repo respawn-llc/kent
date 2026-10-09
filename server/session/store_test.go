@@ -11,6 +11,7 @@ import (
 	"core/internal/testharness/filemode"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
+	"core/shared/textutil"
 )
 
 func appendSessionTestRecord(
@@ -211,25 +212,32 @@ func TestInputDraftPersistsAcrossReopenAndCanBeCleared(t *testing.T) {
 }
 
 func TestSetUsageStatePersistsAcrossReopen(t *testing.T) {
-	store := newSessionTestLazyStore(t)
-	if _, err := store.SetUsageState(&UsageState{
-		InputTokens:             900,
-		OutputTokens:            120,
+	for _, state := range []UsageState{{
+		InputTokens:             textutil.Value(900),
+		OutputTokens:            textutil.Value(120),
 		WindowTokens:            400_000,
-		CachedInputTokens:       50,
-		HasCachedInputTokens:    true,
+		CachedInputTokens:       textutil.Value(50),
 		EstimatedProviderTokens: 180,
 		TotalInputTokens:        1_200,
 		TotalCachedInputTokens:  60,
-	}); err != nil {
-		t.Fatalf("set usage state: %v", err)
-	}
-	reopened := mustOpenSessionTestStore(t, store)
-	if reopened.Meta().UsageState == nil {
-		t.Fatal("expected persisted usage state")
-	}
-	if got := reopened.Meta().UsageState; got.InputTokens != 900 || got.EstimatedProviderTokens != 180 || got.TotalInputTokens != 1_200 {
-		t.Fatalf("unexpected usage state after reopen: %+v", got)
+		ReportedContextTokens:   textutil.Value(900),
+	}, {
+		InputTokens: textutil.Value(0), OutputTokens: textutil.Value(0),
+		CachedInputTokens: textutil.Value(0), ReportedContextTokens: textutil.Value(0),
+	}} {
+		store := newSessionTestLazyStore(t)
+		if _, err := store.SetUsageState(&state); err != nil {
+			t.Fatalf("set usage state: %v", err)
+		}
+		reopened := mustOpenSessionTestStore(t, store)
+		got := reopened.Meta().UsageState
+		if got == nil || !textutil.EqualOptional(got.InputTokens, state.InputTokens) ||
+			!textutil.EqualOptional(got.OutputTokens, state.OutputTokens) ||
+			!textutil.EqualOptional(got.CachedInputTokens, state.CachedInputTokens) ||
+			!textutil.EqualOptional(got.ReportedContextTokens, state.ReportedContextTokens) ||
+			got.EstimatedProviderTokens != state.EstimatedProviderTokens || got.TotalInputTokens != state.TotalInputTokens {
+			t.Fatalf("unexpected usage state after reopen: %+v, want %+v", got, state)
+		}
 	}
 }
 
@@ -1024,7 +1032,7 @@ func TestInitializeChildFromParentCopiesContextWithoutConversationState(t *testi
 	if err := parent.SetContinuationContext(ContinuationContext{AgentRole: &role}); err != nil {
 		t.Fatalf("SetContinuationContext parent: %v", err)
 	}
-	if _, err := parent.SetUsageState(&UsageState{InputTokens: 123}); err != nil {
+	if _, err := parent.SetUsageState(&UsageState{InputTokens: textutil.Value(123), ReportedContextTokens: textutil.Value(123)}); err != nil {
 		t.Fatalf("SetUsageState parent: %v", err)
 	}
 	if err := parent.SetWorktreeReminderState(&WorktreeReminderState{

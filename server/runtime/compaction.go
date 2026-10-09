@@ -604,18 +604,11 @@ func (e *Engine) estimatedCurrentTokenUsage(preview ...llm.ResponseItem) int {
 	}
 	estimated += llm.EstimateItemsTokens(e.cfg.TokenEstimator, preview)
 	if e.modelRequests().TokenUsage() != nil {
-		if baseline, ok := e.modelRequests().TokenUsage().estimateCurrentInputTokens(estimated); ok {
+		if baseline, ok := e.modelRequests().TokenUsage().estimateCurrentContextTokens(estimated); ok {
 			return baseline
 		}
 	}
-	if estimated > 0 {
-		return estimated
-	}
-	usage := e.usageTrackingState().Last()
-	if usage.InputTokens > 0 {
-		return usage.InputTokens
-	}
-	return 0
+	return estimated
 }
 
 func (e *Engine) currentTokenUsage() int {
@@ -821,10 +814,7 @@ func (e *Engine) compactNowWithAcceptance(
 	if windowTokens <= 0 {
 		windowTokens = e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())
 	}
-	inputTokens := llm.EstimateItemsTokens(e.cfg.TokenEstimator, e.transcriptRuntimeState().SnapshotItems())
 	compactedUsage := llm.Usage{
-		InputTokens:  inputTokens,
-		OutputTokens: 0,
 		WindowTokens: windowTokens,
 	}
 	usageReceipt, usageErr := e.recordLastUsage(compactedUsage)

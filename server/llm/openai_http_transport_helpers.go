@@ -227,7 +227,13 @@ func parsePositiveInt(value any) int {
 }
 
 func usageFromSDK(usage responses.ResponseUsage, window int) Usage {
-	out := Usage{InputTokens: int(usage.InputTokens), OutputTokens: int(usage.OutputTokens), WindowTokens: window}
+	out := Usage{WindowTokens: window}
+	if usage.JSON.InputTokens.Valid() {
+		out.InputTokens = textutil.Value(int(usage.InputTokens))
+	}
+	if usage.JSON.OutputTokens.Valid() {
+		out.OutputTokens = textutil.Value(int(usage.OutputTokens))
+	}
 	if usage.JSON.InputTokensDetails.Valid() && usage.InputTokensDetails.JSON.CachedTokens.Valid() {
 		out.CachedInputTokens = textutil.Value(int(usage.InputTokensDetails.CachedTokens))
 	}

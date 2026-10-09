@@ -47,7 +47,9 @@ func (e *Engine) commitAcceptedResponseCandidate(stepID string, candidate succes
 func newSuccessfulRequestCandidate(estimator llm.TokenEstimator, request llm.Request, response llm.Response) successfulRequestCandidate {
 	fullEstimate := llm.EstimateItemsTokens(estimator, request.Items)
 	baseline := fullEstimate
-	if !response.ReasoningIncluded {
+	if response.Usage.ContextUsage != nil && response.Usage.ContextUsage.MeasurementPoint == llm.ContextMeasurementCompletedResponse {
+		baseline += llm.EstimateItemsTokens(estimator, response.OutputItems)
+	} else if !response.ReasoningIncluded {
 		baseline -= llm.EstimateItemsTokens(estimator, pastReasoningBeforeLatestKentInstructionBoundary(request.Items))
 		if baseline < 0 {
 			baseline = 0

@@ -25,7 +25,7 @@ func TestMissingToolOutputRepairAppendsSyntheticOutputAndRetries(t *testing.T) {
 		errors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown, Message: "tool call without output"}},
 		responses: []llm.Response{{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("repaired")},
-			Usage:     llm.Usage{InputTokens: 10, OutputTokens: 2, WindowTokens: 100},
+			Usage:     llm.Usage{InputTokens: textutil.Value(10), OutputTokens: textutil.Value(2), WindowTokens: 100, ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})

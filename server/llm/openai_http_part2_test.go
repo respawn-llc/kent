@@ -575,7 +575,7 @@ func TestOAuthCompactRequestTargetsStreamingResponsesWithFinalTrigger(t *testing
 	if checkpoint.Type != ResponseItemTypeCompaction || optionalStringValue(checkpoint.ID) != "cmp_1" || optionalStringValue(checkpoint.EncryptedContent) != "enc_1" || !json.Valid(checkpoint.Raw) {
 		t.Fatalf("checkpoint = %+v, want canonical encrypted compaction with raw JSON", checkpoint)
 	}
-	if resp.Usage.InputTokens != 10 || resp.Usage.OutputTokens != 5 {
+	if resp.Usage.InputTokens == nil || resp.Usage.OutputTokens == nil || *resp.Usage.InputTokens != 10 || *resp.Usage.OutputTokens != 5 {
 		t.Fatalf("usage = %+v, want completed response usage", resp.Usage)
 	}
 	if got := captured["stream"]; got != true {
@@ -712,7 +712,7 @@ func TestOAuthCompactRequestUsesStreamedCompactionWhenCompletedOutputIsEmpty(t *
 	if optionalStringValue(resp.Checkpoint.ID) != "cmp_streamed" || optionalStringValue(resp.Checkpoint.EncryptedContent) != "enc_streamed" {
 		t.Fatalf("checkpoint = %+v, want streamed compaction checkpoint", resp.Checkpoint)
 	}
-	if resp.Usage.InputTokens != 9 || resp.Usage.OutputTokens != 4 {
+	if resp.Usage.InputTokens == nil || resp.Usage.OutputTokens == nil || *resp.Usage.InputTokens != 9 || *resp.Usage.OutputTokens != 4 {
 		t.Fatalf("usage = %+v, want terminal completed usage", resp.Usage)
 	}
 }

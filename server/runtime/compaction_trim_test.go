@@ -94,7 +94,7 @@ func TestRemoteCompactionCollapsesToolPayloadAfterOverflowAndPersistsCacheWarnin
 				ID:               textutil.Value("cmp_1"),
 				EncryptedContent: textutil.Value("enc_1"),
 			},
-			Usage: llm.Usage{InputTokens: 1000, OutputTokens: 10, WindowTokens: 2500},
+			Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(10), WindowTokens: 2500, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{
@@ -311,7 +311,7 @@ func TestCompactionTransientRetryObservesCacheLineageOnce(t *testing.T) {
 				ID:               textutil.Value("cmp_1"),
 				EncryptedContent: textutil.Value("enc_1"),
 			},
-			Usage: llm.Usage{CachedInputTokens: textutil.Value(123), InputTokens: 1000, WindowTokens: 200000},
+			Usage: llm.Usage{CachedInputTokens: textutil.Value(123), InputTokens: textutil.Value(1000), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{

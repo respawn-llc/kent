@@ -20,7 +20,7 @@ func TestAutoCompactionDoesNotRetryNonOverflow400(t *testing.T) {
 				ToolCalls: []llm.ToolCall{
 					{ID: "call_1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)},
 				},
-				Usage: llm.Usage{InputTokens: 390000, OutputTokens: 1000, WindowTokens: 400000},
+				Usage: llm.Usage{InputTokens: textutil.Value(390000), OutputTokens: textutil.Value(1000), WindowTokens: 400000, ContextUsage: &llm.ContextUsage{Tokens: 390000, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 		},
 		compactionErrors: []error{
@@ -34,7 +34,7 @@ func TestAutoCompactionDoesNotRetryNonOverflow400(t *testing.T) {
 					ID:               textutil.Value("cmp_1"),
 					EncryptedContent: textutil.Value("enc_1"),
 				},
-				Usage: llm.Usage{InputTokens: 8000, OutputTokens: 500, WindowTokens: 400000},
+				Usage: llm.Usage{InputTokens: textutil.Value(8000), OutputTokens: textutil.Value(500), WindowTokens: 400000, ContextUsage: &llm.ContextUsage{Tokens: 8000, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 		},
 	}
@@ -59,15 +59,15 @@ func TestOpenAIModelCompact404DoesNotFallbackToLocalCompaction(t *testing.T) {
 				ToolCalls: []llm.ToolCall{
 					{ID: "call_1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)},
 				},
-				Usage: llm.Usage{InputTokens: 190000, OutputTokens: 2000, WindowTokens: 200000},
+				Usage: llm.Usage{InputTokens: textutil.Value(190000), OutputTokens: textutil.Value(2000), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 190000, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 			{
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("summary")},
-				Usage:     llm.Usage{InputTokens: 8000, OutputTokens: 1000, WindowTokens: 200000},
+				Usage:     llm.Usage{InputTokens: textutil.Value(8000), OutputTokens: textutil.Value(1000), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 8000, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 			{
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done")},
-				Usage:     llm.Usage{InputTokens: 4000, OutputTokens: 1000, WindowTokens: 200000},
+				Usage:     llm.Usage{InputTokens: textutil.Value(4000), OutputTokens: textutil.Value(1000), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 4000, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 		},
 		compactionErr: &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 404, Code: llm.UnifiedErrorCodeUnknown, Message: "not found"},

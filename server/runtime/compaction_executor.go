@@ -248,7 +248,7 @@ func (e *Engine) compactLocal(ctx context.Context, stepID string, input []llm.Re
 	return compactionResult{
 		engine:                      "local",
 		items:                       replacement,
-		usage:                       llm.Usage{InputTokens: usageInputTokens, WindowTokens: e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())},
+		usage:                       llm.Usage{InputTokens: textutil.Value(usageInputTokens), WindowTokens: e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())},
 		trimmedItemsCount:           nil,
 		overflowRepair:              repairStats,
 		localToolCallRejectionCount: toolCallRejectionCount,

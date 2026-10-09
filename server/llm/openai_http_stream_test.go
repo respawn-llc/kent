@@ -219,7 +219,7 @@ func TestGenerate_AcceptsCompletedResponseEOFWithoutDoneSentinel(t *testing.T) {
 	if optionalStringValue(resp.AssistantText) != "Hello" {
 		t.Fatalf("assistant text = %q, want Hello", optionalStringValue(resp.AssistantText))
 	}
-	if resp.Usage.InputTokens != 11 || resp.Usage.OutputTokens != 7 {
+	if resp.Usage.InputTokens == nil || resp.Usage.OutputTokens == nil || *resp.Usage.InputTokens != 11 || *resp.Usage.OutputTokens != 7 {
 		t.Fatalf("unexpected usage: %+v", resp.Usage)
 	}
 }
@@ -243,7 +243,7 @@ func TestGenerate_SalvagesCompletedResponseBeforeTrailingMalformedEvent(t *testi
 	if optionalStringValue(resp.AssistantText) != "Done" {
 		t.Fatalf("assistant text = %q, want Done", optionalStringValue(resp.AssistantText))
 	}
-	if resp.Usage.InputTokens != 3 || resp.Usage.OutputTokens != 5 {
+	if resp.Usage.InputTokens == nil || resp.Usage.OutputTokens == nil || *resp.Usage.InputTokens != 3 || *resp.Usage.OutputTokens != 5 {
 		t.Fatalf("unexpected usage: %+v", resp.Usage)
 	}
 }
@@ -460,7 +460,7 @@ func TestGenerate_EmitsAssistantDeltasAndToolCalls(t *testing.T) {
 	if string(resp.ToolCalls[0].Input) != "{\"command\":\"pwd\"}" {
 		t.Fatalf("unexpected tool args: %s", string(resp.ToolCalls[0].Input))
 	}
-	if resp.Usage.InputTokens != 11 || resp.Usage.OutputTokens != 7 {
+	if resp.Usage.InputTokens == nil || resp.Usage.OutputTokens == nil || *resp.Usage.InputTokens != 11 || *resp.Usage.OutputTokens != 7 {
 		t.Fatalf("unexpected usage: %+v", resp.Usage)
 	}
 	if resp.Usage.CachedInputTokens == nil || *resp.Usage.CachedInputTokens != 4 {

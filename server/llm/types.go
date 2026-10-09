@@ -610,10 +610,23 @@ func RequestFromLockedContract(locked session.LockedContract, systemPrompt strin
 }
 
 type Usage struct {
-	InputTokens       int  `json:"input_tokens"`
-	OutputTokens      int  `json:"output_tokens"`
-	WindowTokens      int  `json:"window_tokens"`
-	CachedInputTokens *int `json:"cached_input_tokens,omitempty"`
+	InputTokens       *int          `json:"input_tokens"`
+	OutputTokens      *int          `json:"output_tokens"`
+	WindowTokens      int           `json:"window_tokens"`
+	CachedInputTokens *int          `json:"cached_input_tokens,omitempty"`
+	ContextUsage      *ContextUsage `json:"context_usage,omitempty"`
+}
+
+type ContextMeasurementPoint string
+
+const (
+	ContextMeasurementInput             ContextMeasurementPoint = "input"
+	ContextMeasurementCompletedResponse ContextMeasurementPoint = "completed_response"
+)
+
+type ContextUsage struct {
+	Tokens           int                     `json:"tokens"`
+	MeasurementPoint ContextMeasurementPoint `json:"measurement_point"`
 }
 
 type ReasoningEntry struct {
@@ -661,36 +674,18 @@ type ReasoningItem struct {
 	EncryptedContent string `json:"encrypted_content,omitempty"`
 }
 
-func (u Usage) Percent() int {
-	if u.WindowTokens <= 0 {
-		return 0
-	}
-	total := u.InputTokens + u.OutputTokens
-	if total <= 0 {
-		return 0
-	}
-	pct := (total * 100) / u.WindowTokens
-	if pct < 0 {
-		return 0
-	}
-	if pct > 100 {
-		return 100
-	}
-	return pct
-}
-
 func (u Usage) CacheHitPercent() (int, bool) {
-	if u.CachedInputTokens == nil || u.InputTokens <= 0 {
+	if u.CachedInputTokens == nil || u.InputTokens == nil || *u.InputTokens <= 0 {
 		return 0, false
 	}
 	cached := *u.CachedInputTokens
 	if cached < 0 {
 		cached = 0
 	}
-	if cached > u.InputTokens {
-		cached = u.InputTokens
+	if cached > *u.InputTokens {
+		cached = *u.InputTokens
 	}
-	pct := (cached * 100) / u.InputTokens
+	pct := (cached * 100) / *u.InputTokens
 	if pct < 0 {
 		return 0, false
 	}

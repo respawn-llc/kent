@@ -422,7 +422,7 @@ func TestPersistedHistoryReplacementMatchesActualEngineLiveDelivery(t *testing.T
 					Type: llm.ResponseItemTypeCompaction, ID: textutil.Value("checkpoint"),
 					EncryptedContent: textutil.Value("encrypted"),
 				},
-				Usage: llm.Usage{InputTokens: 100, WindowTokens: 200_000},
+				Usage: llm.Usage{InputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}},
 			}
 			client := scriptedllm.NewClient(scriptedllm.Script{
 				Capabilities: &caps,

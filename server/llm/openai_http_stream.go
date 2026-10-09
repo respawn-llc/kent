@@ -297,8 +297,10 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 		}, nil
 	}
 
-	if a.completed.Usage.InputTokens > 0 || a.completed.Usage.OutputTokens > 0 {
-		usage = usageFromSDK(a.completed.Usage, a.windowTokens)
+	var err error
+	usage, err = a.policy.usage(a.completed.Usage, a.windowTokens)
+	if err != nil {
+		return ResponsesResponse{}, err
 	}
 	parsedItems, parsedText, parsedPhase, parsedProviderPhase, parsedCalls, parsedReasoning, parsedReasoningItems, err := parseOutputItems(a.completed.Output)
 	if err != nil {

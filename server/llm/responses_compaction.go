@@ -58,7 +58,11 @@ func (t *HTTPTransport) compactStandardResponses(ctx context.Context, request Re
 	}
 	evidence.ProviderID = textutil.Value(preparation.variant.ProviderID)
 	evidence.RequestedModel = request.Model
+	usage, err := preparation.variant.ResponsesPolicy.usage(response.Usage, windowTokens)
+	if err != nil {
+		return ResponsesCompactionResponse{}, err
+	}
 	return ResponsesCompactionResponse{
-		Checkpoint: checkpoint, Usage: usageFromSDK(response.Usage, windowTokens), ProviderEvidence: evidence,
+		Checkpoint: checkpoint, Usage: usage, ProviderEvidence: evidence,
 	}, nil
 }

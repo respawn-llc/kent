@@ -11,6 +11,7 @@ import (
 
 	"core/server/session"
 	"core/shared/sessioncontract"
+	"core/shared/textutil"
 )
 
 type blockingOrderedSessionObserver struct {
@@ -261,10 +262,9 @@ func TestEventUseReconciliationAppliesHistoryReplacementUsageSemantics(t *testin
 			metadataStore, cfg, binding := newMetadataTestStore(t)
 			sessionStore := createMetadataTestSession(t, metadataStore, cfg, binding)
 			usage := &session.UsageState{
-				InputTokens:          190_000,
-				WindowTokens:         200_000,
-				CachedInputTokens:    190_000,
-				HasCachedInputTokens: true,
+				InputTokens:       textutil.Value(190_000),
+				WindowTokens:      200_000,
+				CachedInputTokens: textutil.Value(190_000), ReportedContextTokens: textutil.Value(190_000),
 			}
 			if receipt, err := sessionStore.SetUsageState(usage); err != nil || !receipt.Committed {
 				t.Fatalf("SetUsageState receipt=%+v error=%v", receipt, err)
@@ -326,10 +326,9 @@ func TestEventUseReconciliationDoesNotEraseConcurrentlyPersistedCompactedUsage(t
 	metadataStore, cfg, binding := newMetadataTestStore(t)
 	sessionStore := createMetadataTestSession(t, metadataStore, cfg, binding)
 	oldUsage := &session.UsageState{
-		InputTokens:          190_000,
-		WindowTokens:         200_000,
-		CachedInputTokens:    190_000,
-		HasCachedInputTokens: true,
+		InputTokens:       textutil.Value(190_000),
+		WindowTokens:      200_000,
+		CachedInputTokens: textutil.Value(190_000), ReportedContextTokens: textutil.Value(190_000),
 	}
 	if receipt, err := sessionStore.SetUsageState(oldUsage); err != nil || !receipt.Committed {
 		t.Fatalf("SetUsageState receipt=%+v error=%v", receipt, err)
@@ -356,7 +355,7 @@ func TestEventUseReconciliationDoesNotEraseConcurrentlyPersistedCompactedUsage(t
 		t.Fatalf("restore stale metadata snapshot: %v", err)
 	}
 
-	compactedUsage := &session.UsageState{InputTokens: 2_000, WindowTokens: oldUsage.WindowTokens}
+	compactedUsage := &session.UsageState{InputTokens: textutil.Value(2_000), WindowTokens: oldUsage.WindowTokens, ReportedContextTokens: textutil.Value(2_000)}
 	authoritativeObserver := sessionObserver{store: metadataStore}
 	observer := &reconciliationInterleavingObserver{
 		delegate:   authoritativeObserver,
@@ -392,7 +391,7 @@ func TestEventUseReconciliationDoesNotEraseConcurrentlyPersistedCompactedUsage(t
 	if err != nil {
 		t.Fatalf("ResolvePersistedSession: %v", err)
 	}
-	if record.Meta.UsageState == nil || record.Meta.UsageState.InputTokens != compactedUsage.InputTokens {
+	if record.Meta.UsageState == nil || !textutil.EqualOptional(record.Meta.UsageState.InputTokens, compactedUsage.InputTokens) {
 		t.Fatalf("stale reconciliation erased newer compacted usage: %+v", record.Meta.UsageState)
 	}
 	if mustEventLogRevision(eventLog) != staleRevision+1 {
@@ -402,7 +401,7 @@ func TestEventUseReconciliationDoesNotEraseConcurrentlyPersistedCompactedUsage(t
 	if err != nil {
 		t.Fatalf("reopen authoritative session: %v", err)
 	}
-	if usage := reopened.Meta().UsageState; usage == nil || usage.InputTokens != compactedUsage.InputTokens {
+	if usage := reopened.Meta().UsageState; usage == nil || !textutil.EqualOptional(usage.InputTokens, compactedUsage.InputTokens) {
 		t.Fatalf("authoritative reopen usage = %+v, want %+v", usage, compactedUsage)
 	}
 }

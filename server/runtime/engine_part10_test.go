@@ -437,7 +437,7 @@ func TestManualCompactionReinjectsOnlyActiveHeadlessState(t *testing.T) {
 			store := mustCreateTestSession(t)
 			client := &fakeClient{responses: []llm.Response{{
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("condensed summary")},
-				Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
+				Usage:     llm.Usage{InputTokens: textutil.Value(200), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 200, MeasurementPoint: llm.ContextMeasurementInput}},
 			}}}
 			eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol", CompactionMode: "local"})
 			if test.active {
