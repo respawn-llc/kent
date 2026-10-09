@@ -27,9 +27,10 @@ import (
 )
 
 type Core struct {
-	bundles   *Bundles
-	closeOnce sync.Once
-	closeErr  error
+	connectionRotation *launch.ConnectionRotation
+	bundles            *Bundles
+	closeOnce          sync.Once
+	closeErr           error
 }
 
 type unregisteredSessionLaunchClient struct{}
@@ -291,6 +292,7 @@ func (s *Core) sessionLaunchServiceForProjectContextLocked(projectCtx projectCon
 
 func (s *Core) newSessionLaunchService(projectCtx projectContext) *sessionlaunch.Service {
 	return sessionlaunch.NewService(launch.Planner{
+		Rotation:          s.connectionRotation,
 		Config:            projectCtx.config,
 		ContainerDir:      projectCtx.projectSession,
 		StoreOptions:      s.safeBundles().Persistence.metadataStore.AuthoritativeSessionStoreOptions(),

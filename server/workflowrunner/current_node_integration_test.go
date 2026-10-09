@@ -189,11 +189,7 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 	if err != nil {
 		t.Fatal(err)
 	}
-	metadataStore, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("open metadata: %v", err)
-	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
+	metadataStore := testsetup.OpenStore(t, cfg.PersistenceRoot)
 	binding, err := metadataStore.RegisterWorkspaceBinding(context.Background(), workspace)
 	if err != nil {
 		t.Fatalf("register workspace: %v", err)
@@ -227,8 +223,10 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		}
 	}
 	fixture.runtimes = registry.NewRuntimeRegistry()
+	connectionRotation := new(launch.ConnectionRotation)
 	var controller *workflowexecution.CurrentNodeController
 	fixture.authority = sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
+		ConnectionRotation:  connectionRotation,
 		WorkspaceMembership: fixture.metadata,
 		PersistenceRoot:     cfg.PersistenceRoot,
 		StoreOptions:        storeOptions,
@@ -264,6 +262,7 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		t.Fatalf("new Task dependency counter: %v", err)
 	}
 	starter, err := NewStarter(cfg, metadataStore, store, nil, nil, StarterOptions{
+		ConnectionRotation:         connectionRotation,
 		WorkspaceConfigLoadOptions: loadOptions,
 		RuntimeAuthority:           fixture.authority,
 		TaskDependencies:           dependencyCounter,
@@ -334,7 +333,7 @@ func writeCurrentNodeConfig(t testing.TB, cfg config.App) {
 			case "thinking_level":
 				values[key] = role.Settings.ThinkingLevel
 			case "connection":
-				values[key] = string(*role.Settings.Connection)
+				values[key] = role.Settings.Connection.TOMLValue()
 			case "model_capabilities":
 				values[key] = map[string]any{"supports_reasoning_effort": role.Settings.ModelCapabilities.SupportsReasoningEffort, "supports_vision_inputs": role.Settings.ModelCapabilities.SupportsVisionInputs}
 			default:
@@ -989,9 +988,9 @@ func (f *currentNodeRunnerFixture) runHeadlessOrdinaryContinuation(
 		t.Fatalf("start scripted Responses provider: %v", err)
 	}
 	t.Cleanup(func() { _ = provider.Stop() })
-	definition := f.cfg.Settings.Connections[*f.cfg.Settings.Connection]
+	definition := f.cfg.Settings.Connections[(*f.cfg.Settings.Connection)[0]]
 	definition.Endpoint = textutil.Value(provider.URL())
-	f.cfg.Settings.Connections[*f.cfg.Settings.Connection] = definition
+	f.cfg.Settings.Connections[(*f.cfg.Settings.Connection)[0]] = definition
 	f.cfg.Settings = testsetup.WriteProviderSettings(t, f.cfg.PersistenceRoot, f.cfg.Settings)
 	headless := runprompt.NewInProcessRunPromptClient(runprompt.HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
@@ -1878,7 +1877,7 @@ func TestManualMoveAssignmentPreparationFailureLeavesOriginCurrent(t *testing.T)
 	}
 }
 
-func TestManualMoveRetainedSessionPreparationFailurePreservesPromptFacingMetadata(t *testing.T) {
+func TestManualMoveRetainedSessionCompactionPreparationFailurePreservesPromptFacingMetadata(t *testing.T) {
 	cause := errors.New("provider preparation failed")
 	f := newCurrentNodeRunnerFixtureWithClient(
 		t,
@@ -1928,9 +1927,14 @@ func TestManualMoveRetainedSessionPreparationFailurePreservesPromptFacingMetadat
 	f.mu.Lock()
 	f.clientErr = cause
 	f.mu.Unlock()
-	if _, err := f.controller.ApplyManualMove(context.Background(), prepared, nil); !errors.Is(err, cause) {
-		t.Fatalf("ApplyManualMove error = %v, want %v", err, cause)
+	if _, err := f.controller.ApplyManualMove(context.Background(), prepared, nil); err != nil {
+		t.Fatalf("ApplyManualMove: %v", err)
 	}
+	f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
+		return len(nodes) == 1 && nodes[0].Reference.NodeID == target && nodes[0].Scheduling != nil &&
+			nodes[0].Scheduling.Interruption != nil
+	})
+	f.waitForTaskQuiescence(t, task.ID)
 	after, err := f.metadata.ResolvePersistedSession(context.Background(), sessionID.String())
 	if err != nil || after.Meta == nil {
 		t.Fatalf("resolve retained Session after rejected Manual Move: %+v, %v", after, err)
@@ -2173,7 +2177,7 @@ func TestCompactAndContinueSessionEstablishesTargetRoleGeneration(t *testing.T) 
 		t.Fatalf("direct continuation models = %q -> %q, want coder -> reviewer", client.Requests()[0].Model, client.Requests()[1].Model)
 	}
 	if client.Requests()[0].ReasoningEffort != "low" || client.Requests()[1].ReasoningEffort != "high" {
-		t.Fatalf("direct continuation Thinking = %q -> %q, want low -> high", client.Requests()[0].ReasoningEffort, client.Requests()[1].ReasoningEffort)
+		t.Fatalf("direct continuation Thinking = %q -> %q, want low -> high (models %q -> %q)", client.Requests()[0].ReasoningEffort, client.Requests()[1].ReasoningEffort, client.Requests()[0].Model, client.Requests()[1].Model)
 	}
 
 	requests := f.runtimeRequests()
@@ -3518,12 +3522,12 @@ func TestCurrentNodeRuntimePreparationFailureLeavesTaskUnstarted(t *testing.T) {
 	f := newCurrentNodeRunnerFixture(t)
 	workflowID := createCurrentNodeAgentWorkflow(t, f.store)
 	task := f.createTask(t, workflowID)
-	definition := f.starter.cfg.Settings.Connections[*f.starter.cfg.Settings.Connection]
+	definition := f.starter.cfg.Settings.Connections[(*f.starter.cfg.Settings.Connection)[0]]
 	definition.Capabilities = config.ProviderCapabilitiesOverride{
 		ProviderID:           "test",
 		SupportsResponsesAPI: true,
 	}
-	f.starter.cfg.Settings.Connections[*f.starter.cfg.Settings.Connection] = definition
+	f.starter.cfg.Settings.Connections[(*f.starter.cfg.Settings.Connection)[0]] = definition
 	f.starter.cfg.Settings = testsetup.WriteProviderSettings(t, f.cfg.PersistenceRoot, f.starter.cfg.Settings)
 	f.mu.Lock()
 	f.clientErr = errors.New("provider unavailable")

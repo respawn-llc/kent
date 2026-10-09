@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -103,7 +104,7 @@ func TestFinishPersistsPendingConnectionAfterObserverCancellation(t *testing.T) 
 	}
 	app := loadFinalizedConfig(t, root)
 	connection, err := app.Settings.SelectedConnection()
-	if err != nil || *app.Settings.Connection != "first" || connection.Endpoint == nil || *connection.Endpoint != "http://localhost:1234/v1" {
+	if err != nil || !reflect.DeepEqual(app.Settings.Connection, config.SingleConnection("first")) || connection.Endpoint == nil || *connection.Endpoint != "http://localhost:1234/v1" {
 		t.Fatalf("Finish did not persist the pending selection: %+v %v", connection, err)
 	}
 	catalog, err := owner.GetConnections(t.Context(), &authpb.GetConnectionsRequest{})

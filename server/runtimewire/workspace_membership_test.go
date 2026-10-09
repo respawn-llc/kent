@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
+	"core/server/metadata"
 	"core/server/tools"
 
 	sqlitedriver "modernc.org/sqlite"
@@ -52,7 +53,13 @@ func TestWorkspaceAuthorityFailureUsesDiagnosticPolicy(t *testing.T) {
 }
 
 func TestWorkspaceAuthorityContentionExhaustionIsOperationFailure(t *testing.T) {
-	store := testsetup.OpenStore(t, t.TempDir())
+	// Exclusive disk locking uses SQLITE_BUSY. Shared-cache memory databases
+	// instead block new connections until the transaction releases its lock.
+	store, err := metadata.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
 	binding, err := store.RegisterWorkspaceBinding(t.Context(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)

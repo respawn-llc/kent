@@ -6,9 +6,10 @@ import (
 	"time"
 
 	"core/server/llm"
+	"core/shared/llmerrors"
 )
 
-var ErrScriptExhausted = errors.New("scripted llm: no steps remaining")
+var ErrScriptExhausted = llmerrors.NewProviderContractError("scripted", 0, errors.New("scripted llm: no steps remaining"))
 var ErrUnexpectedToolResult = errors.New("scripted llm: unexpected tool result")
 var ErrConcurrentCall = errors.New("scripted llm: undeclared concurrent call")
 

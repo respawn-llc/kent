@@ -104,6 +104,10 @@ func workflowViewApprovalRequest() tools.AskQuestionRequest {
 }
 
 func newCurrentNodeViewFixture(t *testing.T, requiresApproval bool) currentNodeViewFixture {
+	return newCurrentNodeViewFixtureWithStore(t, requiresApproval, testsetup.OpenStore)
+}
+
+func newCurrentNodeViewFixtureWithStore(t *testing.T, requiresApproval bool, openStore func(testing.TB, string) *metadata.Store) currentNodeViewFixture {
 	t.Helper()
 	home := t.TempDir()
 	workspaceRoot := t.TempDir()
@@ -113,7 +117,7 @@ func newCurrentNodeViewFixture(t *testing.T, requiresApproval bool) currentNodeV
 		t.Fatalf("config.Load: %v", err)
 	}
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
-	metadataStore := testsetup.OpenStore(t, cfg.PersistenceRoot)
+	metadataStore := openStore(t, cfg.PersistenceRoot)
 	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)

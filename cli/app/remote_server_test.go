@@ -23,9 +23,13 @@ func startRemoteAuthTestFixture(t *testing.T, workspace string) remoteAuthTestFi
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	cfg.Settings = testsetup.WithResponsesProvider(cfg.Settings, "http://127.0.0.1:1/v1")
 	keyName := "REMOTE_TEST_KEY"
-	definition := cfg.Settings.Connections[*cfg.Settings.Connection]
+	id, err := cfg.Settings.Connection.ConcreteID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := cfg.Settings.Connections[*id]
 	definition.EnvironmentVariable = &keyName
-	cfg.Settings.Connections[*cfg.Settings.Connection] = definition
+	cfg.Settings.Connections[*id] = definition
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 	daemon, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,

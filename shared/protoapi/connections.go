@@ -8,6 +8,40 @@ import (
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 )
 
+func ConnectionSelectionToProto(selection *config.ConnectionSelection) *authpb.ConnectionSelection {
+	if selection == nil {
+		return nil
+	}
+	ids := make([]string, len(*selection))
+	for index, id := range *selection {
+		ids[index] = string(id)
+	}
+	return &authpb.ConnectionSelection{Ids: ids}
+}
+
+func ConnectionSelectionFromProto(value *authpb.ConnectionSelection) (*config.ConnectionSelection, error) {
+	if value == nil {
+		return nil, nil
+	}
+	if len(value.Ids) == 0 {
+		return nil, errors.New("connection selection must contain at least one ID")
+	}
+	selection := make(config.ConnectionSelection, 0, len(value.Ids))
+	seen := make(map[config.ConnectionID]bool, len(value.Ids))
+	for _, raw := range value.Ids {
+		id, err := config.ParseConnectionID(raw)
+		if err != nil {
+			return nil, err
+		}
+		if seen[id] {
+			return nil, fmt.Errorf("duplicate connection ID %q", id)
+		}
+		seen[id] = true
+		selection = append(selection, id)
+	}
+	return &selection, nil
+}
+
 func ConnectionToProto(id config.ConnectionID, definition config.ProviderConnection) *authpb.ConnectionDefinition {
 	protocol := authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES
 	if definition.Protocol == config.ConnectionChatGPT {

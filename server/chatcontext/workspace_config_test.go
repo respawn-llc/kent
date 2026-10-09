@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/metadata"
 	"core/shared/config"
 
@@ -14,20 +15,14 @@ import (
 
 func TestFixedRootWorkspaceResolverUsesMainWorkspacePrivateConfigForManagedWorktree(t *testing.T) {
 	root, main, worktree := t.TempDir(), t.TempDir(), t.TempDir()
-	binding, err := metadata.RegisterBinding(context.Background(), root, main)
-	if err != nil {
-		t.Fatal(err)
-	}
-	store, err := metadata.Open(root)
+	store := testsetup.OpenStore(t, root)
+	binding, err := store.RegisterWorkspaceBinding(context.Background(), main)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := store.UpsertWorktreeRecord(context.Background(), metadata.WorktreeRecord{
 		ID: uuid.NewString(), WorkspaceID: binding.WorkspaceID, CanonicalRoot: worktree, Managed: true, GitMetadataJSON: "{}",
 	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
 	for _, dir := range []string{main, worktree} {
@@ -44,7 +39,7 @@ func TestFixedRootWorkspaceResolverUsesMainWorkspacePrivateConfigForManagedWorkt
 			t.Fatal(err)
 		}
 	}
-	app, err := NewFixedRootWorkspaceResolver(root, main, config.LoadOptions{}).Resolve(worktree)
+	app, err := NewFixedRootWorkspaceResolver(store, main, config.LoadOptions{}).Resolve(worktree)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +63,7 @@ func TestFixedRootWorkspaceResolverRetainsStartupOverridesAcrossFreshLoads(t *te
 	); err != nil {
 		t.Fatalf("write startup config: %v", err)
 	}
-	resolver := NewFixedRootWorkspaceResolver(configRoot, workspace, config.LoadOptions{
+	resolver := NewFixedRootWorkspaceResolver(testsetup.OpenStore(t, configRoot), workspace, config.LoadOptions{
 		Model: "cli-model",
 	})
 
@@ -109,7 +104,7 @@ func TestFixedRootWorkspaceResolverReportsLoadFailure(t *testing.T) {
 		t.Fatalf("write invalid config: %v", err)
 	}
 
-	if _, err := NewFixedRootWorkspaceResolver(configRoot, workspace, config.LoadOptions{}).Resolve(workspace); err == nil {
+	if _, err := NewFixedRootWorkspaceResolver(testsetup.OpenStore(t, configRoot), workspace, config.LoadOptions{}).Resolve(workspace); err == nil {
 		t.Fatal("Resolve succeeded with invalid fixed-root config")
 	}
 }

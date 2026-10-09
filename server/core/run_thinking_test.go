@@ -16,7 +16,6 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/launch"
-	"core/server/metadata"
 	"core/server/runprompt"
 	"core/server/session"
 	"core/server/sessionlaunch"
@@ -61,11 +60,11 @@ thinking_level = "medium"
 		t.Fatal(err)
 	}
 	cfg.Settings = testsetup.WithResponsesProvider(cfg.Settings, provider.URL)
-	binding, err := metadata.RegisterBinding(t.Context(), root, workspace)
+	app := newCoreTestApp(t, cfg, auth.EmptyState())
+	binding, err := app.MetadataStore().RegisterWorkspaceBinding(t.Context(), workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := newCoreTestApp(t, cfg, auth.EmptyState())
 	store := createCoreSettingsSession(t, app, cfg, binding.ProjectID)
 	client, err := app.RunPromptClientForProjectWorkspace(t.Context(), binding.ProjectID, workspace)
 	if err != nil {

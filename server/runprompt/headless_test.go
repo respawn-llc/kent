@@ -414,11 +414,7 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 	root := t.TempDir()
 	workspace := t.TempDir()
 	sibling := t.TempDir()
-	meta, err := metadata.Open(root)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
+	meta := testsetup.OpenStore(t, root)
 	binding, err := meta.RegisterWorkspaceBinding(ctx, workspace)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
@@ -510,11 +506,7 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 			t.Fatalf("MkdirAll(%q): %v", dir, err)
 		}
 	}
-	meta, err := metadata.Open(root)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
+	meta := testsetup.OpenStore(t, root)
 	binding, err := meta.RegisterWorkspaceBinding(ctx, workspace)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
@@ -713,11 +705,7 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 	ctx := context.Background()
 	root := t.TempDir()
 	workspace := t.TempDir()
-	meta, err := metadata.Open(root)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
+	meta := testsetup.OpenStore(t, root)
 	binding, err := meta.RegisterWorkspaceBinding(ctx, workspace)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
@@ -941,11 +929,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	workspace := t.TempDir()
-	meta, err := metadata.Open(root)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
+	meta := testsetup.OpenStore(t, root)
 	binding, err := meta.RegisterWorkspaceBinding(ctx, workspace)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)

@@ -29,7 +29,7 @@ supports_responses_api = true
 connection = "local_1"
 model = "local-model"
 `, LoadOptions{})
-	if app.Settings.Connection == nil || *app.Settings.Connection != "chatgpt-1" {
+	if app.Settings.Connection == nil || !reflect.DeepEqual(*app.Settings.Connection, ConnectionSelection{"chatgpt-1"}) {
 		t.Fatalf("default connection = %v", app.Settings.Connection)
 	}
 	local := app.Settings.Connections["local_1"]
@@ -41,8 +41,85 @@ model = "local-model"
 		t.Fatal("connection capabilities must not become agent capability overrides")
 	}
 	role := app.Settings.Subagents["local"]
-	if role.Settings.Connection == nil || *role.Settings.Connection != "local_1" || role.Settings.Model != "local-model" || app.Settings.Model != "gpt-6-sol" {
+	if role.Settings.Connection == nil || !reflect.DeepEqual(*role.Settings.Connection, ConnectionSelection{"local_1"}) || role.Settings.Model != "local-model" || app.Settings.Model != "gpt-6-sol" {
 		t.Fatalf("independent role declaration = %+v", role.Settings)
+	}
+}
+
+func TestProviderConnectionSetDeclarationOrder(t *testing.T) {
+	_, _, app := loadConfigTestFileApp(t, `
+connection = ["account-a", "account-z", "account-a", "unknown"]
+[connections.account-z]
+protocol = "chatgpt-codex"
+[connections.account-a]
+protocol = "responses"
+endpoint = "http://localhost:1234"
+`, LoadOptions{})
+	members, err := app.Settings.ConnectionMembers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(members, []ConnectionID{"account-z", "account-a"}) {
+		t.Fatalf("effective members = %v", members)
+	}
+}
+
+func TestProviderConnectionSetRejectsInvalidInput(t *testing.T) {
+	for _, body := range []string{
+		`connection = []`,
+		`connection = ["valid", "Invalid"]`,
+		`connection = ["valid", ""]`,
+		`connection = ["valid", 1]`,
+		"[reviewer]\nconnection = [\"valid\"]",
+	} {
+		t.Run(body, func(t *testing.T) {
+			_, workspace, path := newConfigTestFile(t)
+			writeConfigTestFile(t, path, body)
+			if _, err := Load(workspace, workspace, LoadOptions{}); err == nil {
+				t.Fatal("invalid selection accepted")
+			}
+		})
+	}
+}
+
+func TestProviderConnectionSetInheritanceAndEdits(t *testing.T) {
+	_, workspace, path := newConfigTestFile(t)
+	writeConfigTestFile(t, path, `
+connection = ["account-a", "unknown", "account-z", "account-a"]
+connections = { account-z = { protocol = "chatgpt-codex" }, account-a = { protocol = "chatgpt-codex" } }
+[subagents.inherited]
+thinking_level = "low"
+[subagents.override]
+connection = ["account-z", "account-z", "unknown"]
+`)
+	app := loadConfigTestApp(t, workspace, LoadOptions{})
+	inherited, _, err := OverlaySubagentRoleSettings(app, app.Settings.Subagents["inherited"], true)
+	if err != nil || !reflect.DeepEqual(inherited.Connection, app.Settings.Connection) {
+		t.Fatalf("inherited selection = %v, %v", inherited.Connection, err)
+	}
+	overridden, _, err := OverlaySubagentRoleSettings(app, app.Settings.Subagents["override"], true)
+	if err != nil || !reflect.DeepEqual(*overridden.Connection, ConnectionSelection{"account-z", "unknown"}) {
+		t.Fatalf("overridden selection = %v, %v", overridden.Connection, err)
+	}
+	members, err := app.Settings.ConnectionMembers()
+	if err != nil || !reflect.DeepEqual(members, []ConnectionID{"account-z", "account-a"}) {
+		t.Fatalf("inline declaration order = %v, %v", members, err)
+	}
+	if err := AddProviderConnection(path, "added", ProviderConnection{Protocol: ConnectionChatGPT}); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := loadConfigTestApp(t, workspace, LoadOptions{})
+	if !reflect.DeepEqual(app.Settings.Connection, reloaded.Settings.Connection) {
+		t.Fatalf("unrelated edit changed configured membership: %v", reloaded.Settings.Connection)
+	}
+	rendered, err := RenderSettingsTOMLForOnboarding(app.Settings, OnboardingWriteOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeConfigTestFile(t, path, rendered)
+	reloaded = loadConfigTestApp(t, workspace, LoadOptions{})
+	if !reflect.DeepEqual(app.Settings.Connection, reloaded.Settings.Connection) {
+		t.Fatalf("render changed configured membership: %v", reloaded.Settings.Connection)
 	}
 }
 
@@ -144,16 +221,16 @@ thinking_level = "low"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if child.Connection == nil || *child.Connection != "local" || child.Model != "local-model" {
+	if child.Connection == nil || !reflect.DeepEqual(*child.Connection, ConnectionSelection{"local"}) || child.Model != "local-model" {
 		t.Fatalf("child selection = %+v", child)
 	}
 	InheritReviewerSettings(&child, sources)
-	if child.Reviewer.Connection == nil || *child.Reviewer.Connection != "local" ||
+	if child.Reviewer.Connection == nil || !reflect.DeepEqual(*child.Reviewer.Connection, ConnectionSelection{"local"}) ||
 		!reflect.DeepEqual(sources["reviewer.connection"], sources["connection"]) {
 		t.Fatal("Supervisor must inherit the effective agent connection and its declaration")
 	}
 	inherited, _, err := OverlaySubagentRoleSettings(app, app.Settings.Subagents["inherited"], true)
-	if err != nil || inherited.Connection == nil || *inherited.Connection != "chatgpt-1" || inherited.Model != "gpt-6-sol" {
+	if err != nil || inherited.Connection == nil || !reflect.DeepEqual(*inherited.Connection, ConnectionSelection{"chatgpt-1"}) || inherited.Model != "gpt-6-sol" {
 		t.Fatalf("default inheritance = %+v, %v", inherited, err)
 	}
 	private := filepath.Join(workspace, ConfigDirName, "config.local.toml")
@@ -169,7 +246,7 @@ connection = "chatgpt-1"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *app.Settings.Connection != "local" || *child.Connection != "chatgpt-1" || *app.Settings.Reviewer.Connection != "chatgpt-1" || child.Model != "local-model" {
+	if !reflect.DeepEqual(*app.Settings.Connection, ConnectionSelection{"local"}) || !reflect.DeepEqual(*child.Connection, ConnectionSelection{"chatgpt-1"}) || !reflect.DeepEqual(*app.Settings.Reviewer.Connection, ConnectionSelection{"chatgpt-1"}) || child.Model != "local-model" {
 		t.Fatal("private selections must overlay without changing agent model settings")
 	}
 	if origin := sources["connection"]; origin.File == nil || origin.File.Path != private || origin.Property.Role == nil || *origin.Property.Role != "child" {
@@ -429,7 +506,7 @@ connection = "local"
 		t.Fatal(overlayErr)
 	}
 	if effective.ModelContextWindow != 110000 || effective.ContextCompactionThresholdTokens != 90000 ||
-		effective.Connection == nil || *effective.Connection != "local" {
+		effective.Connection == nil || !reflect.DeepEqual(*effective.Connection, ConnectionSelection{"local"}) {
 		t.Fatalf("assembled role = %+v", effective)
 	}
 	writeConfigTestFile(t, privatePath, "[subagents.worker]\nmodel_context_window = 85000\n")
@@ -1480,7 +1557,7 @@ func TestSettingsTOMLRoundTripsCapabilityOverrides(t *testing.T) {
 	if err := os.WriteFile(path, []byte(toml), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	raw, err := readSettingsFile(path)
+	raw, _, err := readSettingsFile(path)
 	if err != nil {
 		t.Fatalf("read settings file: %v", err)
 	}

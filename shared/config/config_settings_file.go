@@ -7,6 +7,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -208,7 +209,7 @@ func RenderSettingsTOMLForOnboarding(settings Settings, options OnboardingWriteO
 	var output bytes.Buffer
 	encoder := toml.NewEncoder(&output)
 	if normalized.Connection != nil {
-		if err := encoder.Encode(map[string]any{"connection": string(*normalized.Connection)}); err != nil {
+		if err := encoder.Encode(map[string]any{"connection": normalized.Connection.TOMLValue()}); err != nil {
 			return "", err
 		}
 	}
@@ -269,21 +270,34 @@ func WriteSettingsFileForOnboardingWithOptionsAt(path string, settings Settings,
 	return path, nil
 }
 
-func readSettingsFile(path string) (settingsFile, error) {
+func readSettingsFile(path string) (settingsFile, []ConnectionID, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read settings file %s: %w", path, err)
+		return nil, nil, fmt.Errorf("read settings file %s: %w", path, err)
 	}
 	return decodeSettingsFile(path, data)
 }
 
 func decodeSettingsFile(path string, data []byte) (settingsFile, error) {
 	if strings.TrimSpace(string(data)) == "" {
-		return settingsFile{}, nil
+		return settingsFile{}, nil, nil
 	}
 	var raw settingsFile
-	if _, err := toml.NewDecoder(bytes.NewReader(data)).Decode(&raw); err != nil {
-		return nil, fmt.Errorf("parse settings file %s: %w", path, err)
+	metadata, err := toml.NewDecoder(bytes.NewReader(data)).Decode(&raw)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse settings file %s: %w", path, err)
 	}
-	return raw, nil
+	var order []ConnectionID
+	for _, key := range metadata.Keys() {
+		if len(key) >= 2 && key[0] == "connections" {
+			id, err := ParseConnectionID(key[1])
+			if err != nil {
+				return nil, nil, err
+			}
+			if !slices.Contains(order, id) {
+				order = append(order, id)
+			}
+		}
+	}
+	return raw, order, nil
 }

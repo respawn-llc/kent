@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"core/internal/testharness/httpclient"
@@ -18,6 +19,51 @@ import (
 
 	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+func TestConnectionCatalogPreservesConfiguredSetsAndDefaultEdit(t *testing.T) {
+	root, workspace := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(`
+connection = ["a", "unknown", "b", "a"]
+[connections.a]
+protocol = "responses"
+endpoint = "http://localhost:1234/v1"
+[connections.b]
+protocol = "responses"
+endpoint = "http://localhost:1234/v1"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(workspace, config.ConfigDirName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, config.ConfigDirName, "config.toml"), []byte(`connection = ["b", "unknown"]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	resolver := NewConnectionResolver(root, nil, func(string) (string, bool) {
+		t.Fatal("catalog/default editing accessed credentials")
+		return "", false
+	})
+	service := NewBootstrapService(t.Context(), resolver, auth.OpenAIOAuthOptions{})
+	for range 2 {
+		catalog, err := service.GetConnections(t.Context(), &authpb.GetConnectionsRequest{WorkspaceRoot: &workspace})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if catalog.DefaultSelection == nil || !reflect.DeepEqual(catalog.DefaultSelection.Ids, []string{"a", "unknown", "b"}) ||
+			catalog.WorkspaceSelection == nil || !reflect.DeepEqual(catalog.WorkspaceSelection.Ids, []string{"b", "unknown"}) {
+			t.Fatalf("configured selections = %+v", catalog)
+		}
+	}
+	if _, err := service.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{
+		Change: &authpb.ConfigureConnectionRequest_DefaultConnectionId{DefaultConnectionId: "b"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := service.GetConnections(t.Context(), &authpb.GetConnectionsRequest{})
+	if err != nil || catalog.DefaultSelection == nil || !reflect.DeepEqual(catalog.DefaultSelection.Ids, []string{"b"}) || catalog.WorkspaceSelection != nil {
+		t.Fatalf("default edit = %+v, %v", catalog, err)
+	}
+}
 
 func TestConnectionReferenceSavingDoesNotCheckCredentials(t *testing.T) {
 	resolver := authServiceResolver(t, auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil), func(string) (string, bool) {
@@ -44,11 +90,11 @@ func TestConnectionReferenceSavingDoesNotCheckCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *app.Settings.Connections["new-api"].EnvironmentVariable != "OTHER_MISSING_KEY" || *app.Settings.Connection != "work" {
+	if *app.Settings.Connections["new-api"].EnvironmentVariable != "OTHER_MISSING_KEY" || !reflect.DeepEqual(app.Settings.Connection, config.SingleConnection("work")) {
 		t.Fatal("reference edit changed the default or failed to save")
 	}
 	id := config.ConnectionID("new-api")
-	app.Settings.Connection = &id
+	app.Settings.Connection = config.SingleConnection(id)
 	dispatchResolver := NewConnectionResolver(filepath.Dir(app.Source.File(config.FileGlobal).Path), resolver.manager, func(string) (string, bool) { return "", false })
 	connection, err := dispatchResolver.Resolve(app.Settings)
 	if err != nil {
@@ -80,8 +126,8 @@ func TestFirstAddedConnectionBecomesDefault(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if catalog.DefaultConnectionId == nil || *catalog.DefaultConnectionId != "first" {
-			t.Fatalf("default after adding %s: %v", id, catalog.DefaultConnectionId)
+		if catalog.DefaultSelection == nil || !reflect.DeepEqual(catalog.DefaultSelection.Ids, []string{"first"}) {
+			t.Fatalf("default after adding %s: %v", id, catalog.DefaultSelection)
 		}
 	}
 }

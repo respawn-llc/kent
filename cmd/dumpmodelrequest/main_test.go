@@ -21,9 +21,13 @@ func TestInspectionResolvesNativeSupportOutsideLockedContract(t *testing.T) {
 		for _, override := range []string{"", "openai"} {
 			settings := testsetup.ProviderSettings(config.Settings{Model: "gpt-6-astra"})
 			if endpoint != "" {
-				definition := settings.Connections[*settings.Connection]
+				id, err := settings.Connection.ConcreteID()
+				if err != nil {
+					t.Fatal(err)
+				}
+				definition := settings.Connections[*id]
 				definition.Endpoint = &endpoint
-				settings.Connections[*settings.Connection] = definition
+				settings.Connections[*id] = definition
 			}
 			caps, _, err := resolveInspectionProviderCapabilities(settings, &session.LockedContract{
 				Model:            "gpt-6-astra",

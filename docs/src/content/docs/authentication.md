@@ -64,6 +64,32 @@ connection = "api"
 
 The API-key variable is optional for `responses` connections. Omit it for an auth-less endpoint. Choose a model that the selected provider offers. See [Configuration](../config/) for model settings and precedence.
 
+### Share work across equivalent connections
+
+Set the default or a session-producing role's `connection` to an array of connection names:
+
+```toml
+connection = ["account-a", "account-b"]
+
+[connections.account-a]
+protocol = "chatgpt-codex"
+
+[connections.account-b]
+protocol = "chatgpt-codex"
+```
+
+New sessions alternate between the defined members in their global declaration order, regardless of array order. The same member set shares one rotation across roles and workspaces. Restarting the server may start at the first member again.
+
+Duplicate names count once. Unknown names are ignored for selection without removing them from your configuration. Empty arrays, invalid names, and selections with no defined members fail. Listing connections or previewing agents leaves rotation unchanged.
+
+Existing sessions use their saved connection across turns, resume, workflow Continue, and copied or rollback-fork sessions, even if the current selection has no usable members. An explicit Chat settings agent change, successful workflow Compact-and-Continue, or removal of the saved connection definition selects from the current set.
+
+Include connections only if you consider them equivalent for the configured work. Kent keeps your model and prompts and prepares requests using the selected connection's capabilities. Missing credentials or provider rejection surface for that member without automatically switching to another.
+
+An explicit `reviewer.connection` accepts one name. When omitted, the supervisor uses the main session's selected connection.
+
+Make default replaces the global selection with the chosen single connection, including a member already in an array. An explicit workspace selection takes precedence. Existing sessions use their saved connection.
+
 ## Updating an older configuration
 
 Kent converts global `provider_override`, `openai_base_url`, and `provider_capabilities` settings into connections, including choices for roles and the supervisor. Sign in again for converted ChatGPT connections.

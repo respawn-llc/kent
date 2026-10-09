@@ -34,11 +34,15 @@ func ProviderFacts(providerID string, isOpenAIFirstParty bool, connection config
 	}
 }
 
-func ProviderSelection(settings config.Settings) *authpb.ProviderSelection {
+func ProviderSelection(settings config.Settings) (*authpb.ProviderSelection, error) {
 	if settings.Connection == nil {
-		return nil
+		return nil, nil
 	}
-	return &authpb.ProviderSelection{ConnectionId: string(*settings.Connection)}
+	id, err := settings.Connection.ConcreteID()
+	if err != nil {
+		return nil, err
+	}
+	return &authpb.ProviderSelection{ConnectionId: string(*id)}, nil
 }
 
 func providerDisplayOrigin(raw string) *authpb.ProviderDisplayOrigin {

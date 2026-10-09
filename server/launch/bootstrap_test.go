@@ -103,7 +103,7 @@ func TestResolveSessionCallerTreatsUnownedSessionAsOrdinary(t *testing.T) {
 		"/tmp/ordinary-workspace",
 		session.ContinuationContext{},
 	)
-	ordinaryCaller, err := ResolveSessionCaller(persistenceRoot, ordinary.Meta().SessionID)
+	ordinaryCaller, err := ResolveSessionCaller(t.Context(), metadataStore, ordinary.Meta().SessionID)
 	if err != nil {
 		t.Fatalf("ResolveSessionCaller ordinary: %v", err)
 	}

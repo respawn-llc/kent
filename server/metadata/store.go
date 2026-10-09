@@ -223,6 +223,24 @@ func OpenAtPath(persistenceRoot string, databasePath string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	store, err := NewStore(trimmedRoot, db)
+	if err != nil {
+		_ = db.Close()
+	}
+	return store, err
+}
+
+// NewStore takes ownership of an initialized metadata database on success.
+func NewStore(persistenceRoot string, db *sql.DB) (*Store, error) {
+	trimmedRoot := strings.TrimSpace(persistenceRoot)
+	if trimmedRoot == "" {
+		return nil, errors.New("persistence root is required")
+	}
+	if db == nil {
+		return nil, errors.New("metadata database is required")
+	}
+	db.SetMaxOpenConns(sqlitegen.ConnectionPoolSize)
+	db.SetMaxIdleConns(sqlitegen.ConnectionPoolSize)
 	store := &Store{
 		persistenceRoot:  trimmedRoot,
 		db:               db,
@@ -230,7 +248,6 @@ func OpenAtPath(persistenceRoot string, databasePath string) (*Store, error) {
 		goalObservations: newGoalObservationBroker(),
 	}
 	if err := store.BackfillProjectKeys(context.Background()); err != nil {
-		_ = db.Close()
 		return nil, err
 	}
 	return store, nil

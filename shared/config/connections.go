@@ -3,11 +3,62 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 )
 
 type ConnectionID string
+type ConnectionSelection []ConnectionID
 type ConnectionProtocol string
+
+func SingleConnection(id ConnectionID) *ConnectionSelection {
+	selection := ConnectionSelection{id}
+	return &selection
+}
+
+func (s *ConnectionSelection) ConcreteID() (*ConnectionID, error) {
+	if s == nil {
+		return nil, &ConnectionReferenceError{}
+	}
+	if len(*s) != 1 {
+		return nil, fmt.Errorf("connection selection must be resolved to one connection before provider preparation")
+	}
+	return &(*s)[0], nil
+}
+
+func (s *ConnectionSelection) TOMLValue() any {
+	if len(*s) == 1 {
+		return string((*s)[0])
+	}
+	values := make([]string, len(*s))
+	for index, id := range *s {
+		values[index] = string(id)
+	}
+	return values
+}
+
+func (s Settings) ConnectionMembers() ([]ConnectionID, error) {
+	if s.Connection == nil {
+		return nil, &ConnectionReferenceError{}
+	}
+	members := make([]ConnectionID, 0, len(*s.Connection))
+	if len(*s.Connection) == 1 {
+		id := (*s.Connection)[0]
+		if _, present := s.Connections[id]; present {
+			return []ConnectionID{id}, nil
+		}
+		return nil, &ConnectionReferenceError{Connection: &id}
+	}
+	for _, id := range s.ConnectionOrder {
+		if slices.Contains(*s.Connection, id) {
+			members = append(members, id)
+		}
+	}
+	if len(members) == 0 {
+		return nil, &ConnectionReferenceError{Selection: s.Connection}
+	}
+	return members, nil
+}
 
 type ConnectionReplacement struct {
 	Previous ConnectionID
@@ -29,9 +80,13 @@ type ProviderConnection struct {
 
 type ConnectionReferenceError struct {
 	Connection *ConnectionID
+	Selection  *ConnectionSelection
 }
 
 func (e *ConnectionReferenceError) Error() string {
+	if e.Selection != nil {
+		return fmt.Sprintf("connection selection %v has no defined members; add its connections to global config.toml or select an existing connection", *e.Selection)
+	}
 	if e.Connection == nil {
 		return "Kent has no provider connection selected. Run kent in an interactive terminal to set one up, or choose a connection in the server's global config.toml. See " + DocsURL + "/authentication/"
 	}
@@ -41,13 +96,13 @@ func (e *ConnectionReferenceError) Error() string {
 // SelectedConnection reads an already effective reference; role inheritance and
 // persisted Session binding selection happen before this lookup.
 func (s Settings) SelectedConnection() (ProviderConnection, error) {
-	if s.Connection == nil {
-		return ProviderConnection{}, &ConnectionReferenceError{}
+	id, err := s.Connection.ConcreteID()
+	if err != nil {
+		return ProviderConnection{}, err
 	}
-	connection, present := s.Connections[*s.Connection]
+	connection, present := s.Connections[*id]
 	if !present {
-		id := *s.Connection
-		return ProviderConnection{}, &ConnectionReferenceError{Connection: &id}
+		return ProviderConnection{}, &ConnectionReferenceError{Connection: id}
 	}
 	return connection, connection.Validate()
 }
@@ -88,21 +143,45 @@ func ParseConnectionID(value string) (ConnectionID, error) {
 	return ConnectionID(value), nil
 }
 
-func newConnectionReference(key string, apply func(*settingsState, *ConnectionID), get func(settingsState) *ConnectionID) scalarSetting[*ConnectionID] {
-	return scalarSetting[*ConnectionID]{
+func newConnectionReference(key string, allowSet bool, apply func(*settingsState, *ConnectionSelection), get func(settingsState) *ConnectionSelection) scalarSetting[*ConnectionSelection] {
+	return scalarSetting[*ConnectionSelection]{
 		key: key, apply: apply, get: get,
-		equal: func(a, b *ConnectionID) bool { return a == b || a != nil && b != nil && *a == *b },
-		decodeFile: func(raw settingsFile, path []string) (*ConnectionID, bool, error) {
+		equal: func(a, b *ConnectionSelection) bool { return a == b || a != nil && b != nil && slices.Equal(*a, *b) },
+		decodeFile: func(raw settingsFile, path []string) (*ConnectionSelection, bool, error) {
 			value, present, err := lookupFileValue(raw, path)
 			if err != nil || !present {
 				return nil, present, err
 			}
-			text, ok := value.(string)
-			if !ok {
-				return nil, false, &SettingsKeyTypeError{Key: key, ExpectedType: "string"}
+			var values []any
+			switch value := value.(type) {
+			case string:
+				values = []any{value}
+			case []any:
+				if !allowSet {
+					return nil, false, &SettingsKeyTypeError{Key: key, ExpectedType: "string"}
+				}
+				values = value
+			default:
+				return nil, false, &SettingsKeyTypeError{Key: key, ExpectedType: "string or array of strings"}
 			}
-			id, err := ParseConnectionID(text)
-			return &id, true, err
+			if len(values) == 0 {
+				return nil, false, fmt.Errorf("%s must contain at least one connection ID", key)
+			}
+			selection := ConnectionSelection{}
+			for _, value := range values {
+				text, ok := value.(string)
+				if !ok {
+					return nil, false, &SettingsKeyTypeError{Key: key, ExpectedType: "array of strings"}
+				}
+				id, err := ParseConnectionID(text)
+				if err != nil {
+					return nil, false, err
+				}
+				if !slices.Contains(selection, id) {
+					selection = append(selection, id)
+				}
+			}
+			return &selection, true, nil
 		},
 		doc: settingDocOptions{omitInTOML: true},
 	}

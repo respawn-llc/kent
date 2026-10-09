@@ -221,14 +221,6 @@ USING fts5(
     tokenize = 'trigram case_sensitive 0 remove_diacritics 1'
 );
 
-CREATE TABLE 'task_search_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID;
-
-CREATE TABLE 'task_search_fts_data'(id INTEGER PRIMARY KEY, block BLOB);
-
-CREATE TABLE 'task_search_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB);
-
-CREATE TABLE 'task_search_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID;
-
 CREATE VIRTUAL TABLE task_search_short_id_fts
 USING fts5(
     short_id,
@@ -236,14 +228,6 @@ USING fts5(
     content_rowid = 'document_id',
     tokenize = 'trigram case_sensitive 0 remove_diacritics 1'
 );
-
-CREATE TABLE 'task_search_short_id_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID;
-
-CREATE TABLE 'task_search_short_id_fts_data'(id INTEGER PRIMARY KEY, block BLOB);
-
-CREATE TABLE 'task_search_short_id_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB);
-
-CREATE TABLE 'task_search_short_id_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID;
 
 CREATE TABLE "tasks" (
     id TEXT PRIMARY KEY,

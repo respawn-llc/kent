@@ -25,7 +25,7 @@ func TestResolveForkThinkingUsesCurrentSelectionAndTargetSupport(t *testing.T) {
 			settings := config.DefaultOnboardingSettings()
 			settings.Model = test.model
 			id := config.ConnectionID("test")
-			settings.Connection = &id
+			settings.Connection = config.SingleConnection(id)
 			definition := config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://api.openai.com/v1")}
 			if test.endpoint != "" {
 				definition.Endpoint = &test.endpoint

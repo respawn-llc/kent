@@ -428,8 +428,8 @@ supports_responses_api = true
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(app.Settings.Connections) != 2 || *app.Settings.Connection != *equal.Connection ||
-		*distinct.Connection == *equal.Connection || *distinct.Connection != *app.Settings.Reviewer.Connection {
+	if len(app.Settings.Connections) != 2 || !reflect.DeepEqual(app.Settings.Connection, equal.Connection) ||
+		reflect.DeepEqual(distinct.Connection, equal.Connection) || !reflect.DeepEqual(distinct.Connection, app.Settings.Reviewer.Connection) {
 		t.Fatalf("connections not deduplicated: main=%v equal=%v distinct=%v supervisor=%v catalog=%+v",
 			app.Settings.Connection, equal.Connection, distinct.Connection, app.Settings.Reviewer.Connection, app.Settings.Connections)
 	}
@@ -459,7 +459,7 @@ openai_base_url = ""
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(app.Settings.Connections) != 1 || *child.Connection != *app.Settings.Connection || *app.Settings.Reviewer.Connection != *app.Settings.Connection {
+	if len(app.Settings.Connections) != 1 || !reflect.DeepEqual(child.Connection, app.Settings.Connection) || !reflect.DeepEqual(app.Settings.Reviewer.Connection, app.Settings.Connection) {
 		t.Fatal("empty inherited access settings changed the provider endpoint")
 	}
 }
@@ -593,7 +593,7 @@ openai_base_url = "http://localhost:5678/v1"
 	}
 	app := loadConfigTestApp(t, workspace, LoadOptions{})
 	connection, err := app.Settings.SelectedConnection()
-	if err != nil || connection.EnvironmentVariable == nil || *connection.EnvironmentVariable != "MY_SERVER_KEY" || *app.Settings.Connection != "api" {
+	if err != nil || connection.EnvironmentVariable == nil || *connection.EnvironmentVariable != "MY_SERVER_KEY" || !reflect.DeepEqual(*app.Settings.Connection, ConnectionSelection{"api"}) {
 		t.Fatalf("explicit reference changed: %+v %v", connection, err)
 	}
 	child, _, err := OverlaySubagentRoleSettings(app, app.Settings.Subagents["child"], true)

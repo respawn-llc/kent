@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"core/shared/apicontract"
 	"core/shared/config"
@@ -105,7 +106,7 @@ func (s *remoteAppServer) manageConnections(ctx context.Context, catalog *authpb
 	if err != nil {
 		return err
 	}
-	if catalog.DefaultConnectionId != nil && *catalog.DefaultConnectionId == selected.Id {
+	if catalog.DefaultSelection != nil && len(catalog.DefaultSelection.Ids) == 1 && catalog.DefaultSelection.Ids[0] == selected.Id {
 		return nil
 	}
 	defaultPicker := newStartupPickerModel("**Default connection**", "Default connection", selectedTheme,
@@ -134,9 +135,9 @@ func (s *remoteAppServer) manageConnections(ctx context.Context, catalog *authpb
 	if err != nil {
 		return err
 	}
-	if catalog.WorkspaceConnectionId != nil {
+	if catalog.WorkspaceSelection != nil {
 		_, err = runStartupPickerFlow(newStartupPickerModel("**Global default saved**", "Global default saved", selectedTheme,
-			startupPickerNotice{Text: "This workspace still overrides the default with " + *catalog.WorkspaceConnectionId + ".", Kind: startupPickerNoticeNeutral},
+			startupPickerNotice{Text: "This workspace still overrides the default with " + strings.Join(catalog.WorkspaceSelection.Ids, ", ") + ".", Kind: startupPickerNoticeNeutral},
 			[]startupPickerOption{{ID: "done", Title: "Done"}}))
 	}
 	return err

@@ -53,7 +53,7 @@ func newExpiredConnectionRuntime(t *testing.T, factory RuntimeClientFactory) *ex
 	active := runtimeWireShellSettings(config.ShellPostprocessingModeBuiltin, nil)
 	active.Model = "gpt-6-astra"
 	active.ThinkingLevel = "high"
-	active.Connection = &fixture.id
+	active.Connection = config.SingleConnection(fixture.id)
 	active.Connections = map[config.ConnectionID]config.ProviderConnection{fixture.id: {Protocol: config.ConnectionChatGPT}}
 	root := t.TempDir()
 	store := newRuntimeWireSession(t, root, "expired-auth")
@@ -162,7 +162,7 @@ func TestRuntimeNativeThinkingUsesActualConnectionDespiteLockedProvider(t *testi
 			active := runtimeWireShellSettings(config.ShellPostprocessingModeBuiltin, nil)
 			active.Model, active.ThinkingLevel = "gpt-6-astra", "low"
 			id := config.ConnectionID("actual")
-			active.Connection = &id
+			active.Connection = config.SingleConnection(id)
 			active.Connections = map[config.ConnectionID]config.ProviderConnection{id: test.actual}
 			wiring, err := newTestRuntimeWiringWithBackground(t, store, materializedRuntimeWireEventLog(t, store),
 				active, nil, nil, nil, nil, requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root)}))

@@ -257,7 +257,16 @@ func TestTaskSearchRawFTS5SQLiteErrorsRemainOperational(t *testing.T) {
 }
 
 func TestTaskSearchKeepsSQLiteLockContentionOperational(t *testing.T) {
-	fixture, search := newTaskSearchFixture(t, false)
+	fixture := newCurrentNodeViewFixtureWithStore(t, false, func(t testing.TB, root string) *metadata.Store {
+		t.Helper()
+		store, err := metadata.Open(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = store.Close() })
+		return store
+	})
+	search := newTaskSearch(t, fixture.metadata, fixture.projection)
 	createTaskSearchTask(t, fixture, "needle title", "needle body")
 	if _, err := fixture.metadata.DB().ExecContext(fixture.ctx, "PRAGMA journal_mode = DELETE"); err != nil {
 		t.Fatalf("switch isolated fixture to rollback journaling: %v", err)

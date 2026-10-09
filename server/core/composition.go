@@ -15,6 +15,7 @@ import (
 	"core/server/capabilityfacts"
 	"core/server/chatcontext"
 	"core/server/chatmutation"
+	"core/server/launch"
 	"core/server/metadata"
 
 	"core/server/processview"
@@ -55,6 +56,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 }
 
 type Options struct {
+	MetadataStore              *metadata.Store
 	RuntimeClientFactory       runtimewire.RuntimeClientFactory
 	RootLease                  *RootLockLease
 	WorkspaceConfigLoadOptions config.LoadOptions
@@ -64,11 +66,6 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	workspaceConfigResolver := chatcontext.NewFixedRootWorkspaceResolver(
-		cfg.PersistenceRoot,
-		cfg.WorkspaceRoot,
-		opts.WorkspaceConfigLoadOptions,
-	)
 	rootLease := opts.RootLease
 	ownsIncomingRootLease := rootLease != nil
 	if rootLease == nil {
@@ -87,11 +84,20 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		closeRootLeaseOnFailure()
 		return nil, fmt.Errorf("persistence bundle: generated support: %w", err)
 	}
-	metadataStore, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
+	metadataStore := opts.MetadataStore
+	if metadataStore != nil && metadataStore.PersistenceRoot() != cfg.PersistenceRoot {
 		closeRootLeaseOnFailure()
-		return nil, fmt.Errorf("persistence bundle: metadata store: %w", err)
+		return nil, errors.New("supplied metadata store belongs to a different persistence root")
 	}
+	if metadataStore == nil {
+		var err error
+		metadataStore, err = metadata.Open(cfg.PersistenceRoot)
+		if err != nil {
+			closeRootLeaseOnFailure()
+			return nil, fmt.Errorf("persistence bundle: metadata store: %w", err)
+		}
+	}
+	workspaceConfigResolver := chatcontext.NewFixedRootWorkspaceResolver(metadataStore, cfg.WorkspaceRoot, opts.WorkspaceConfigLoadOptions)
 	if err := validateAuthBundleSupport(authSupport); err != nil {
 		closeRootLeaseOnFailure()
 		_ = metadataStore.Close()
@@ -107,7 +113,9 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	runtimeRegistry := registry.NewRuntimeRegistry().WithAttentionNotifications(attentionBroker, metadataStore.ResolveSessionNavigationBinding)
 	runtimeRegistry.WithTranscriptContractViolationPanic(cfg.Settings.Debug)
 	var workflowController *workflowexecution.CurrentNodeController
+	connectionRotation := new(launch.ConnectionRotation)
 	runtimeAuthority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
+		ConnectionRotation:  connectionRotation,
 		Environment:         authSupport.Environment,
 		WorkspaceMembership: metadataStore,
 		Debug:               cfg.Settings.Debug,
@@ -282,6 +290,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	workflowTaskMutations := workflowexecution.NewTaskMutationCoordinator()
 	workflowExecutionTargets := taskExecutionTargetInfrastructure{service: worktreeService, git: gitInspector}
 	workflowRuntimeStarter, err = workflowrunner.NewStarter(cfg, metadataStore, workflowStore, authSupport.AuthManager, runtimeRegistry, workflowrunner.StarterOptions{
+		ConnectionRotation:         connectionRotation,
 		WorkspaceConfigLoadOptions: opts.WorkspaceConfigLoadOptions,
 		Environment:                authSupport.Environment,
 		RuntimeClientFactory:       opts.RuntimeClientFactory,
@@ -365,7 +374,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		cleanupNewFailure()
 		return nil, fmt.Errorf("workflow bundle: service: %w", err)
 	}
-	core := &Core{bundles: composeBundles(bundleCompositionInput{
+	core := &Core{connectionRotation: connectionRotation, bundles: composeBundles(bundleCompositionInput{
 		cfg:                     cfg,
 		workspaceConfigResolver: workspaceConfigResolver,
 		authSupport:             authSupport,

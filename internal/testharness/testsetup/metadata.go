@@ -26,10 +26,11 @@ var metadataPersistenceRootLocks = struct {
 
 func OpenStore(t testing.TB, persistenceRoot string) *metadata.Store {
 	t.Helper()
-	materializeCurrentDatabaseSeed(t, persistenceRoot)
-	store, err := metadata.Open(persistenceRoot)
+	db := databaseseed.OpenCurrentMetadataDatabase(t)
+	store, err := metadata.NewStore(persistenceRoot, db)
 	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
+		_ = db.Close()
+		t.Fatalf("metadata.NewStore: %v", err)
 	}
 	t.Cleanup(func() {
 		if err := store.Close(); err != nil {

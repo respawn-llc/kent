@@ -30,7 +30,11 @@ func ensureRemoteAuthReady(ctx context.Context, remote onboardingConnectionClien
 	if settings.Connection == nil {
 		return nil
 	}
-	target := protoapi.ExistingConnectionTarget(*settings.Connection)
+	id, err := settings.Connection.ConcreteID()
+	if err != nil {
+		return err
+	}
+	target := protoapi.ExistingConnectionTarget(*id)
 	status, err := remote.GetBootstrapStatus(ctx, &authpb.GetBootstrapStatusRequest{Target: target})
 	if err != nil {
 		return err
@@ -65,6 +69,10 @@ func (*headlessAuthInteractor) authenticateRemote(ctx context.Context, remote on
 }
 
 func (i *interactiveAuthInteractor) authenticateRemote(ctx context.Context, remote onboardingConnectionClient, settings config.Settings, status *authpb.BootstrapStatus) error {
+	id, err := settings.Connection.ConcreteID()
+	if err != nil {
+		return err
+	}
 	if status.Method == authpb.AuthMethod_AUTH_METHOD_API_KEY {
 		catalog, err := remote.GetConnections(ctx, &authpb.GetConnectionsRequest{})
 		if err != nil {
@@ -79,9 +87,9 @@ func (i *interactiveAuthInteractor) authenticateRemote(ctx context.Context, remo
 				return editConnectionReference(ctx, remote, string(settings.Theme), id, definition)
 			}
 		}
-		return &config.ConnectionReferenceError{Connection: settings.Connection}
+		return &config.ConnectionReferenceError{Connection: id}
 	}
-	return i.completeRemoteAuthBootstrap(ctx, remote, settings, protoapi.ExistingConnectionTarget(*settings.Connection), status, false)
+	return i.completeRemoteAuthBootstrap(ctx, remote, settings, protoapi.ExistingConnectionTarget(*id), status, false)
 }
 
 func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Context, remote apicontract.AuthBootstrapService, settings config.Settings, target *authpb.ConnectionTarget, status *authpb.BootstrapStatus, force bool) error {

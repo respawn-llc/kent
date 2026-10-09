@@ -458,11 +458,15 @@ message GetConnectionsRequest {
   optional string workspace_root = 1 [(buf.validate.field).string.min_len = 1];
 }
 
+message ConnectionSelection {
+  repeated string ids = 1 [(buf.validate.field).repeated = {min_items: 1, unique: true, items: {string: {min_len: 1}}}];
+}
+
 message ConnectionCatalog {
   repeated ConnectionDefinition connections = 1;
-  optional string default_connection_id = 2 [(buf.validate.field).string.min_len = 1];
+  ConnectionSelection default_selection = 2;
   ConnectionDefinition pending_setup = 3;
-  optional string workspace_connection_id = 4 [(buf.validate.field).string.min_len = 1];
+  ConnectionSelection workspace_selection = 4;
 }
 
 message GetConnectionsResult {

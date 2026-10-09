@@ -135,7 +135,11 @@ func TestStartupConvertsOldSubscriptionAndRequiresSignIn(t *testing.T) {
 			if err != nil || len(state.Connections) != 0 {
 				t.Fatalf("old token survived cutover: %+v, %v", state, err)
 			}
-			status, err := server.AuthBootstrapClient().GetBootstrapStatus(context.Background(), &authpb.GetBootstrapStatusRequest{Target: protoapi.ExistingConnectionTarget(*server.Config().Settings.Connection)})
+			id, err := server.Config().Settings.Connection.ConcreteID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			status, err := server.AuthBootstrapClient().GetBootstrapStatus(context.Background(), &authpb.GetBootstrapStatusRequest{Target: protoapi.ExistingConnectionTarget(*id)})
 			if err != nil || status.AuthReady || !status.AuthRequired {
 				t.Fatalf("subscription must be available for sign-in: %+v, %v", status, err)
 			}

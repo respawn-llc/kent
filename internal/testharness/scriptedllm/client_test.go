@@ -13,6 +13,14 @@ import (
 	"core/shared/textutil"
 )
 
+func TestExhaustedScriptIsTerminalForRuntimeRetries(t *testing.T) {
+	client := scriptedllm.NewClient(scriptedllm.Script{})
+	_, err := client.Generate(t.Context(), llm.Request{Model: "test", ToolChoiceMode: llm.ToolChoiceModeAutomatic}, llm.StreamCallbacks{})
+	if !errors.Is(err, scriptedllm.ErrScriptExhausted) || !llm.IsNonRetriableModelError(err) {
+		t.Fatalf("exhausted script error = %v, want a terminal harness error", err)
+	}
+}
+
 func TestClientStreamsDeltasFinalResponseAndReasoning(t *testing.T) {
 	client := scriptedllm.NewClient(scriptedllm.Script{
 		Steps: []scriptedllm.Step{{

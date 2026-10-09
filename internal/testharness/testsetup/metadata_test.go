@@ -2,6 +2,8 @@ package testsetup
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -10,6 +12,16 @@ import (
 
 func TestOpenStoreMaterializesIsolatedCurrentStores(t *testing.T) {
 	first := OpenStore(t, t.TempDir())
+	var journalMode string
+	if err := first.DB().QueryRowContext(t.Context(), "PRAGMA journal_mode").Scan(&journalMode); err != nil {
+		t.Fatal(err)
+	}
+	if journalMode != "memory" {
+		t.Fatalf("ordinary fixture journal mode = %v, want memory", journalMode)
+	}
+	if _, err := os.Stat(filepath.Join(first.PersistenceRoot(), "db", "main.sqlite3")); !os.IsNotExist(err) {
+		t.Fatalf("ordinary fixture created a database file: %v", err)
+	}
 	workspaceRoot := t.TempDir()
 	if _, err := first.RegisterWorkspaceBinding(context.Background(), workspaceRoot); err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
