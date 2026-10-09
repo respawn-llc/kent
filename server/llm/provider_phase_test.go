@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"core/shared/config"
 	"core/shared/llmerrors"
 	"core/shared/textutil"
 )
@@ -178,7 +179,7 @@ func (providerPhaseProjectionTransport) Compact(context.Context, ResponsesReques
 func newProviderPhaseResponseTransport(t *testing.T, phaseField string) *HTTPTransport {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/responses" {
+		if r.URL.Path != "/v1/responses" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -187,9 +188,9 @@ func newProviderPhaseResponseTransport(t *testing.T, phaseField string) *HTTPTra
 	}))
 	t.Cleanup(server.Close)
 
-	transport := NewHTTPTransport(staticAuthHeader{})
-	transport.BaseURL = server.URL
-	transport.Client = server.Client()
+	transport := newTestHTTPTransport(t, staticAuthHeader{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
+	transport.Client = newRewritingHTTPClient(t, server)
 	transport.ProviderCapabilitiesOverride = &ProviderCapabilities{
 		ProviderID:           "openai-compatible",
 		SupportsResponsesAPI: true,

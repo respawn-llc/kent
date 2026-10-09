@@ -7,6 +7,7 @@ import (
 
 	"core/server/session"
 	"core/shared/config"
+	"core/shared/textutil"
 )
 
 // ResolveEffectiveProviderCapabilities preserves the historical request
@@ -89,9 +90,14 @@ func ResolveConnectionVariant(connection config.ProviderConnection) (ProviderVar
 	if err != nil {
 		return ProviderVariantRegistration{}, err
 	}
-	variant, err := resolveRuntimeTransportVariant(ProviderOpenAI, endpoint, OpenAIAuthMode{IsOAuth: connection.Protocol == config.ConnectionChatGPT})
+	variant, err := resolveProviderTransportVariant(ProviderOpenAI, endpoint, OpenAIAuthMode{IsOAuth: connection.Protocol == config.ConnectionChatGPT})
 	if err != nil {
 		return ProviderVariantRegistration{}, err
+	}
+	if connection.Protocol == config.ConnectionChatGPT {
+		variant.BaseURL = textutil.Value(strings.TrimSuffix(codexResponsesEndpoint, "/responses"))
+	} else {
+		variant.BaseURL = textutil.Value(normalizeOpenAIBaseURL(endpoint.URL))
 	}
 	return ProviderVariantRegistration{Provider: ProviderOpenAI, Variant: variant}, nil
 }
@@ -109,21 +115,4 @@ func newProviderTransportEndpoint(rawURL string, explicit bool) (ProviderTranspo
 		return ProviderTransportEndpoint{}, fmt.Errorf("parse provider endpoint URL: %w", err)
 	}
 	return ProviderTransportEndpoint{URL: parsed, Explicit: explicit}, nil
-}
-
-func resolveRuntimeTransportVariant(provider Provider, endpoint ProviderTransportEndpoint, mode OpenAIAuthMode) (ProviderVariantContract, error) {
-	if variant, err := resolveProviderTransportVariant(provider, endpoint, mode); err == nil {
-		return variant, nil
-	} else if provider == ProviderOpenAI {
-		return ProviderVariantContract{}, err
-	}
-	providerID := strings.TrimSpace(string(provider))
-	registration, ok := lookupProviderVariantContract(providerID)
-	if !ok {
-		return ProviderVariantContract{}, fmt.Errorf("%w: %s", ErrUnsupportedProvider, providerID)
-	}
-	if registration.Provider != provider {
-		return ProviderVariantContract{}, fmt.Errorf("provider %q maps to provider_id %q owned by %q", provider, providerID, registration.Provider)
-	}
-	return registration.Variant, nil
 }

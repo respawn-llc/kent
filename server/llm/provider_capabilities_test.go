@@ -10,6 +10,7 @@ import (
 	"core/server/httpcompression"
 	"core/server/session"
 	"core/shared/config"
+	"core/shared/textutil"
 )
 
 func TestGrokConnectionRouteIsIndependentOfCapabilities(t *testing.T) {
@@ -228,9 +229,7 @@ func TestInferProviderCapabilities_UnknownProviderFailsExplicitly(t *testing.T) 
 }
 
 func TestHTTPTransportPreservesConfiguredCapabilitiesOverrideAcrossEndpointVariant(t *testing.T) {
-	transport := NewHTTPTransport(oauthStaticAuth{})
-	transport.BaseURL = "https://proxy.example/v1"
-	transport.BaseURLExplicit = true
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://proxy.example/v1")}))
 	transport.ProviderCapabilitiesOverride = &ProviderCapabilities{
 		ProviderID:                    "chatgpt-codex",
 		SupportsResponsesAPI:          true,

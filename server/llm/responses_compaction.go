@@ -29,7 +29,7 @@ func (t *HTTPTransport) compactStandardResponses(ctx context.Context, request Re
 		payload.Instructions = openai.String(request.SystemPrompt)
 	}
 	service := responses.NewResponseService(
-		option.WithBaseURL(t.serviceBaseURL(preparation.mode)),
+		option.WithBaseURL(t.serviceBaseURL()),
 		option.WithHTTPClient(t.Client), option.WithMaxRetries(0),
 	)
 	var rawResponse *http.Response

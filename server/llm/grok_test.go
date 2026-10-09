@@ -30,8 +30,7 @@ func TestGrokFailedStreamRetainsEmittedTraceAndTypedFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider, err := NewProviderClient(ProviderClientOptions{
-		Provider: selected.Provider, Variant: &selected.Variant, Auth: oauthStaticAuth{},
+	provider, err := NewProviderClient(ProviderClientOptions{Registration: selected, Auth: oauthStaticAuth{},
 		HTTPClient: newRewritingHTTPClient(t, server), ContextWindowTokens: 256_000,
 	})
 	if err != nil {
@@ -98,8 +97,7 @@ func TestGrokToolContinuationKeepsOpaqueItemsAndReasoning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider, err := NewProviderClient(ProviderClientOptions{
-		Provider: selected.Provider, Variant: &selected.Variant, Auth: oauthStaticAuth{},
+	provider, err := NewProviderClient(ProviderClientOptions{Registration: selected, Auth: oauthStaticAuth{},
 		HTTPClient: newRewritingHTTPClient(t, server), ContextWindowTokens: 256_000,
 	})
 	if err != nil {
@@ -159,8 +157,7 @@ func TestGrokFailuresKeepDiagnosticsWithoutRetryOrAuthFallback(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			provider, err := NewProviderClient(ProviderClientOptions{
-				Provider: selected.Provider, Variant: &selected.Variant, Auth: oauthStaticAuth{},
+			provider, err := NewProviderClient(ProviderClientOptions{Registration: selected, Auth: oauthStaticAuth{},
 				ConnectionID: textutil.Value(config.ConnectionID("selected-grok")),
 				HTTPClient:   newRewritingHTTPClient(t, server), ContextWindowTokens: 256_000,
 				ProviderCapabilitiesOverride: &ProviderCapabilities{ProviderID: "chatgpt-codex", SupportsResponsesAPI: true},
@@ -195,8 +192,7 @@ func TestGrokRejectsUnsupportedEffortBeforeInference(t *testing.T) {
 		t.Fatal("unsupported effort reached inference")
 		return nil, errors.New("unexpected request")
 	})}
-	provider, err := NewProviderClient(ProviderClientOptions{
-		Provider: selected.Provider, Variant: &selected.Variant, Auth: oauthStaticAuth{}, HTTPClient: client,
+	provider, err := NewProviderClient(ProviderClientOptions{Registration: selected, Auth: oauthStaticAuth{}, HTTPClient: client,
 		ContextWindowTokens: 256_000,
 	})
 	if err != nil {
@@ -230,8 +226,7 @@ func TestGrokUnknownModelForwardsCustomEffort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider, err := NewProviderClient(ProviderClientOptions{
-		Provider: selected.Provider, Variant: &selected.Variant, Auth: oauthStaticAuth{},
+	provider, err := NewProviderClient(ProviderClientOptions{Registration: selected, Auth: oauthStaticAuth{},
 		HTTPClient: newRewritingHTTPClient(t, server), ContextWindowTokens: 256_000,
 	})
 	if err != nil {
@@ -271,8 +266,7 @@ func TestGrokManualModelNativeSearchCompatibility(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			provider, err := NewProviderClient(ProviderClientOptions{
-				Provider: selected.Provider, Variant: &selected.Variant, Auth: oauthStaticAuth{},
+			provider, err := NewProviderClient(ProviderClientOptions{Registration: selected, Auth: oauthStaticAuth{},
 				HTTPClient: newRewritingHTTPClient(t, server), ContextWindowTokens: 256_000,
 			})
 			if err != nil {
@@ -301,8 +295,7 @@ func TestGrokUsagePreservesAbsentAndZeroCounts(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			provider, err := NewProviderClient(ProviderClientOptions{
-				Provider: selected.Provider, Variant: &selected.Variant, Auth: oauthStaticAuth{},
+			provider, err := NewProviderClient(ProviderClientOptions{Registration: selected, Auth: oauthStaticAuth{},
 				HTTPClient: newRewritingHTTPClient(t, server), ContextWindowTokens: 256_000,
 			})
 			if err != nil {
@@ -347,8 +340,7 @@ func TestGrokContextUsageRemainsSeparateFromBilling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider, err := NewProviderClient(ProviderClientOptions{
-		Provider: selected.Provider, Variant: &selected.Variant, Auth: oauthStaticAuth{},
+	provider, err := NewProviderClient(ProviderClientOptions{Registration: selected, Auth: oauthStaticAuth{},
 		HTTPClient: newRewritingHTTPClient(t, server), ContextWindowTokens: 256_000,
 	})
 	if err != nil {
@@ -473,8 +465,7 @@ func TestGrokDispatchUsesSelectedRouteAndSupportedPayload(t *testing.T) {
 			if protocol == config.ConnectionGrokAPIKey {
 				auth = staticAuth{}
 			}
-			provider, err := NewProviderClient(ProviderClientOptions{
-				Provider: selected.Provider, Variant: &selected.Variant, Model: "grok-4.7",
+			provider, err := NewProviderClient(ProviderClientOptions{Registration: selected, Model: "grok-4.7",
 				Auth: auth, HTTPClient: client, ModelVerbosity: "high", Store: true,
 				ProviderIdentifier: textutil.Value("kent-fixture"), ContextWindowTokens: 500_000,
 			})

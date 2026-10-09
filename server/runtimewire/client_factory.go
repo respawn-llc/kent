@@ -75,10 +75,10 @@ func NewRuntimeClient(ctx context.Context, factory RuntimeClientFactory, request
 		return nil, err
 	}
 	return llm.NewProviderClient(llm.ProviderClientOptions{
-		Provider: selected.Provider, Variant: &selected.Variant, Model: active.Model, Auth: connection.Auth,
-		ConnectionID:  &connection.ID,
-		HTTPClient:    llm.NewProviderHTTPClient(endpoint, time.Duration(active.Timeouts.ModelRequestSeconds)*time.Second),
-		OpenAIBaseURL: endpoint, ModelVerbosity: string(active.ModelVerbosity),
+		Registration: selected, Model: active.Model, Auth: connection.Auth,
+		ConnectionID:       &connection.ID,
+		HTTPClient:         llm.NewProviderHTTPClient(endpoint, time.Duration(active.Timeouts.ModelRequestSeconds)*time.Second),
+		ModelVerbosity:     string(active.ModelVerbosity),
 		ProviderIdentifier: &active.ProviderIdentifier, Store: active.Store,
 		ContextWindowTokens: active.ModelContextWindow, ProviderCapabilitiesOverride: &capabilities,
 		RequestCapabilities: &request.RequestCapabilities,

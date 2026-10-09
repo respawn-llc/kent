@@ -24,14 +24,12 @@ const (
 )
 
 type ProviderClientOptions struct {
-	Provider     Provider
+	Registration ProviderVariantRegistration
 	Model        string
-	Variant      *ProviderVariantContract
 	ConnectionID *config.ConnectionID
 
 	Auth                         DispatchAuthProvider
 	HTTPClient                   *http.Client
-	OpenAIBaseURL                string
 	ModelVerbosity               string
 	ProviderIdentifier           *string
 	Store                        bool
@@ -343,26 +341,16 @@ func newResponsesProviderClient(opts ProviderClientOptions) (Client, error) {
 }
 
 func newResponsesHTTPTransport(opts ProviderClientOptions) (*HTTPTransport, error) {
-	transport := NewHTTPTransport(opts.Auth)
-	transport.Variant = opts.Variant
-	transport.ConnectionID = opts.ConnectionID
-	if opts.Provider != "" {
-		transport.Provider = opts.Provider
+	transport, err := NewHTTPTransport(opts.Auth, opts.Registration)
+	if err != nil {
+		return nil, err
 	}
+	transport.ConnectionID = opts.ConnectionID
 	if opts.HTTPClient != nil {
 		transport.Client = opts.HTTPClient
 	}
-	if v := strings.TrimSpace(opts.OpenAIBaseURL); v != "" {
-		parsedBaseURL, err := url.Parse(v)
-		if err != nil {
-			return nil, fmt.Errorf("parse OpenAI base URL: %w", err)
-		}
-		normalizedBaseURL := normalizeOpenAIBaseURL(parsedBaseURL)
-		transport.BaseURL = normalizedBaseURL
-		transport.BaseURLExplicit = true
-	}
 	if opts.HTTPClient == nil {
-		transport.Client = NewProviderHTTPClient(transport.BaseURL, transport.Client.Timeout)
+		transport.Client = NewProviderHTTPClient(transport.serviceBaseURL(), transport.Client.Timeout)
 	}
 	transport.ModelVerbosity = strings.ToLower(strings.TrimSpace(opts.ModelVerbosity))
 	if opts.ProviderIdentifier != nil {
@@ -384,22 +372,15 @@ func newResponsesHTTPTransport(opts ProviderClientOptions) (*HTTPTransport, erro
 }
 
 func NewProviderClient(opts ProviderClientOptions) (Client, error) {
-	provider := opts.Provider
-	if provider == "" {
-		if strings.TrimSpace(opts.OpenAIBaseURL) != "" {
-			provider = ProviderOpenAI
-		} else {
-			inferredProvider, err := InferProviderFromModel(opts.Model)
-			if err != nil {
-				return nil, &ProviderSelectionError{Model: strings.TrimSpace(opts.Model), Err: err}
-			}
-			provider = inferredProvider
-		}
+	if opts.Registration.Provider == "" || opts.Registration.Variant.ProviderID == "" {
+		return nil, fmt.Errorf("%w: resolved provider registration is required", ErrUnsupportedProvider)
 	}
-	opts.Provider = provider
+	provider := opts.Registration.Provider
 	if opts.ContextWindowTokens <= 0 {
-		if meta, ok := LookupModelMetadata(opts.Model); ok && meta.ContextWindowTokens > 0 {
-			opts.ContextWindowTokens = meta.ContextWindowTokens
+		if model, known := LookupModelCapabilityContract(opts.Model); known {
+			if meta := model.ContextMetadata(opts.Registration.Variant.ProviderID); meta != nil {
+				opts.ContextWindowTokens = meta.ContextWindowTokens
+			}
 		}
 	}
 	contract, ok := globalProviderRegistry.contractsByProvider[provider]

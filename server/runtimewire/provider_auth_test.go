@@ -218,8 +218,12 @@ func TestRuntimeAcceptsNextTurnAfterConnectionReauthentication(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
+		selected, err := llm.ResolveConnectionVariant(request.Connection.Definition)
+		if err != nil {
+			return nil, err
+		}
 		return llm.NewProviderClient(llm.ProviderClientOptions{
-			Provider: llm.ProviderOpenAI, Model: request.ActiveSettings.Model, Auth: request.Connection.Auth,
+			Registration: selected, Model: request.ActiveSettings.Model, Auth: request.Connection.Auth,
 			HTTPClient: client, ContextWindowTokens: request.ActiveSettings.ModelContextWindow,
 			ProviderCapabilitiesOverride: &capabilities, RequestCapabilities: &request.RequestCapabilities,
 		})

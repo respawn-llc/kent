@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"core/server/httpcompression"
+	"core/shared/config"
 	"core/shared/textutil"
 	"github.com/klauspost/compress/zstd"
 )
@@ -46,7 +47,8 @@ func TestGenerateChatGPTCodexCompressesLargeResponsesBodyWithZstd(t *testing.T) 
 	}))
 	defer server.Close()
 
-	transport := NewHTTPTransport(oauthStaticAuth{})
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
+
 	transport.Client = httpcompression.NewClient(newRewritingHTTPClient(t, server))
 	sessionID, dispatch := compressionDispatch(t, CodexRequestKindTurn)
 
@@ -94,10 +96,9 @@ func TestGenerateOpenAIAPIKeyLeavesLargeResponsesBodyUncompressed(t *testing.T) 
 	}))
 	defer server.Close()
 
-	transport := NewHTTPTransport(staticAuth{})
-	transport.BaseURL = server.URL
-	transport.BaseURLExplicit = true
-	transport.Client = server.Client()
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
+	transport.Client = newRewritingHTTPClient(t, server)
 	sessionID, dispatch := compressionDispatch(t, CodexRequestKindTurn)
 
 	if _, err := transport.Generate(context.Background(), ResponsesRequest{
@@ -122,10 +123,9 @@ func TestGenerateExplicitLocalOAuthCompatibleEndpointLeavesResponsesBodyUncompre
 	}))
 	defer server.Close()
 
-	transport := NewHTTPTransport(oauthStaticAuth{})
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("http://127.0.0.1:11434/v1")}))
+
 	transport.Client = newRewritingHTTPClient(t, server)
-	transport.BaseURL = "http://127.0.0.1:11434/v1"
-	transport.BaseURLExplicit = true
 	sessionID, dispatch := compressionDispatch(t, CodexRequestKindTurn)
 	if _, err := transport.Generate(context.Background(), ResponsesRequest{
 		Model:          "gpt-5.6-sol",
@@ -152,10 +152,9 @@ func TestGenerateChatGPTCodexCompressesResponsesBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transport := NewHTTPTransport(oauthStaticAuth{})
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
+
 	transport.Client = newRewritingHTTPClient(t, server)
-	transport.BaseURL = server.URL
-	transport.BaseURLExplicit = false
 	sessionID, dispatch := compressionDispatch(t, CodexRequestKindTurn)
 	_, err := transport.Generate(context.Background(), ResponsesRequest{
 		Model:          "gpt-5.6-sol",
@@ -186,7 +185,8 @@ func TestCompactChatGPTCodexCompressesResponsesBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transport := NewHTTPTransport(oauthStaticAuth{})
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
+
 	transport.Client = newRewritingHTTPClient(t, server)
 	sessionID, dispatch := compressionDispatch(t, CodexRequestKindCompaction)
 	response, err := transport.Compact(context.Background(), ResponsesRequest{
@@ -226,7 +226,8 @@ func TestGenerateLogicalRetrySendsCompressedSemanticEquivalents(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transport := NewHTTPTransport(oauthStaticAuth{})
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
+
 	transport.Client = newRewritingHTTPClient(t, server)
 	sessionID, dispatch := compressionDispatch(t, CodexRequestKindTurn)
 	request := ResponsesRequest{

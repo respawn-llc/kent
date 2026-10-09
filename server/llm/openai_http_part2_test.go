@@ -20,7 +20,8 @@ import (
 )
 
 func TestBuildPayload_AppliesStructuredOutputJSONSchema(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
 	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model: "gpt-6-sol",
 		StructuredOutput: &StructuredOutput{
@@ -53,7 +54,8 @@ func TestBuildPayload_AppliesStructuredOutputJSONSchema(t *testing.T) {
 }
 
 func TestBuildPayload_ForwardsPreparedStructuredOutputSchemaUnchanged(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
 	prepared := mustTestStructuredSchema(t, testWorkflowStructuredOutput{})
 	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model: "gpt-6-sol",
@@ -100,7 +102,8 @@ func mustDecodeSchemaObject(t *testing.T, raw []byte) map[string]any {
 }
 
 func TestBuildPayload_AppliesConfiguredModelVerbosityForSupportedModels(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
 	transport.ModelVerbosity = "high"
 	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
@@ -118,7 +121,8 @@ func TestBuildPayload_AppliesConfiguredModelVerbosityForSupportedModels(t *testi
 }
 
 func TestBuildPayload_MergesConfiguredModelVerbosityWithStructuredOutput(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
 	transport.ModelVerbosity = "low"
 	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model: "gpt-6-sol",
@@ -145,7 +149,8 @@ func TestBuildPayload_MergesConfiguredModelVerbosityWithStructuredOutput(t *test
 }
 
 func TestBuildPayload_AppliesReasoningEffortForOpenAIModels(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
 	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model:           "gpt-6-sol",
 		ReasoningEffort: "xhigh",
@@ -165,7 +170,8 @@ func TestBuildPayload_AppliesReasoningEffortForOpenAIModels(t *testing.T) {
 }
 
 func TestBuildPayload_SkipsReasoningSummaryForUnknownModels(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
 	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model:           "custom-model",
 		ReasoningEffort: "high",
@@ -194,7 +200,8 @@ func TestBuildPayload_SkipsReasoningSummaryForUnknownModels(t *testing.T) {
 }
 
 func TestBuildPayload_AppliesFastModeForOpenAIProvider(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
 	capabilities := ProviderCapabilities{
 		ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsFastMode: true,
 	}
@@ -258,7 +265,8 @@ func TestBuildResponsesInput_AssistantReasoningItemsUseEncryptedContentOnly(t *t
 }
 
 func TestBuildPayload_ForwardsPreparedFunctionSchemaUnchanged(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
 	prepared := mustTestFunctionSchema(t, testNestedFunctionInput{})
 	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model: "gpt-6-sol",
@@ -457,7 +465,8 @@ func TestCompactRequestUsesSelectedProtocol(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 
-			transport := NewHTTPTransport(staticAuth{})
+			transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
 			transport.Client = newRewritingHTTPClient(t, server)
 			if standard {
 				definition := config.ProviderConnection{Protocol: protocol}
@@ -468,7 +477,8 @@ func TestCompactRequestUsesSelectedProtocol(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				transport.Provider, transport.Variant = selected.Provider, &selected.Variant
+				transport = newTestHTTPTransport(t, staticAuth{}, selected)
+				transport.Client = newRewritingHTTPClient(t, server)
 			}
 
 			resp, err := transport.Compact(context.Background(), ResponsesRequest{
@@ -537,9 +547,8 @@ func TestOAuthCompactRequestTargetsStreamingResponsesWithFinalTrigger(t *testing
 	}))
 	t.Cleanup(server.Close)
 
-	transport := NewHTTPTransport(oauthStaticAuth{})
-	transport.BaseURL = "https://chatgpt.com/backend-api/codex"
-	transport.BaseURLExplicit = true
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
+
 	transport.Client = newRewritingHTTPClient(t, server)
 
 	request := ResponsesRequest{
@@ -667,9 +676,9 @@ func TestCompactRequestPreservesTypedCheckpointContractReasons(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					transport = NewHTTPTransport(oauthStaticAuth{})
+					transport = newTestHTTPTransport(t, oauthStaticAuth{}, selected)
+
 					transport.Client = newRewritingHTTPClient(t, server)
-					transport.Provider, transport.Variant = selected.Provider, &selected.Variant
 				}
 
 				_, err := transport.Compact(context.Background(), testOAuthCompactionRequest(t, "gpt-5.6-sol"))
@@ -882,7 +891,8 @@ func testOAuthCompactionRequest(t *testing.T, model string) ResponsesRequest {
 }
 
 func TestResponsesRequestBuildersRejectUnpreparedViewImageInputFileOutput(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
 	unpreparedItems := []ResponseItem{unmaterializedViewImageInputFileOutput()}
 	caps := requireProviderCapabilities(t, transport, OpenAIAuthMode{})
 	checkErr := func(name string, err error) {
@@ -943,9 +953,9 @@ func TestResolveModelContextWindowUsesModelMetadataFromAPI(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transport := NewHTTPTransport(staticAuth{})
-	transport.BaseURL = server.URL + "/v1"
-	transport.Client = server.Client()
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
+	transport.Client = newRewritingHTTPClient(t, server)
 	transport.ContextWindowTokens = 0
 
 	window, err := transport.ResolveModelContextWindow(context.Background(), "gpt-6-sol")
@@ -974,9 +984,9 @@ func TestResolveModelContextWindowFallsBackToInputTokenLimitField(t *testing.T) 
 	}))
 	defer server.Close()
 
-	transport := NewHTTPTransport(staticAuth{})
-	transport.BaseURL = server.URL + "/v1"
-	transport.Client = server.Client()
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
+	transport.Client = newRewritingHTTPClient(t, server)
 	transport.ContextWindowTokens = 0
 
 	window, err := transport.ResolveModelContextWindow(context.Background(), "gpt-6-sol")

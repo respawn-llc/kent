@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"core/server/httpcompression"
-	"core/shared/llmerrors"
 	"core/shared/textutil"
 
 	"github.com/openai/openai-go/v3/option"
@@ -19,18 +18,8 @@ func requestCompressionOption(variant ProviderVariantContract) option.RequestOpt
 	return option.WithMiddleware(httpcompression.Middleware(variant.RequestCompression))
 }
 
-func (t *HTTPTransport) serviceBaseURL(mode OpenAIAuthMode) string {
-	if t.Variant != nil && t.Variant.BaseURL != nil {
-		return *t.Variant.BaseURL
-	}
-	if mode.IsOAuth && !t.BaseURLExplicit {
-		return strings.TrimSuffix(codexResponsesEndpoint, "/responses")
-	}
-	base := strings.TrimSuffix(t.BaseURL, "/")
-	if base == "" {
-		base = defaultOpenAIBaseURL
-	}
-	return base
+func (t *HTTPTransport) serviceBaseURL() string {
+	return *t.registration.Variant.BaseURL
 }
 
 func (t *HTTPTransport) buildRequestOptions(request ResponsesRequest, preparation responsesDispatchPreparation) []option.RequestOption {
@@ -86,37 +75,6 @@ func (t *HTTPTransport) resolveContextWindowFallback(ctx context.Context, model 
 		return fallbackMeta.ContextWindowTokens
 	}
 	return 0
-}
-
-func (t *HTTPTransport) providerVariantForMode(mode OpenAIAuthMode) (ProviderVariantContract, error) {
-	if t.Variant != nil {
-		return *t.Variant, nil
-	}
-	provider := t.Provider
-	if provider == "" {
-		provider = ProviderOpenAI
-	}
-	endpoint, err := newProviderTransportEndpoint(t.BaseURL, t.BaseURLExplicit)
-	if err != nil {
-		return ProviderVariantContract{}, err
-	}
-	variant, err := resolveProviderTransportVariant(provider, endpoint, mode)
-	if err != nil {
-		providerID := strings.TrimSpace(string(provider))
-		if providerID == "" {
-			providerID = "unknown-provider"
-		}
-		return ProviderVariantContract{}, llmerrors.NewProviderContractError(providerID, 0, err)
-	}
-	return variant, nil
-}
-
-func (t *HTTPTransport) providerCapabilitiesForMode(mode OpenAIAuthMode) (ProviderCapabilities, error) {
-	variant, err := t.providerVariantForMode(mode)
-	if err != nil {
-		return ProviderCapabilities{}, err
-	}
-	return t.providerCapabilitiesForVariant(variant), nil
 }
 
 func (t *HTTPTransport) providerCapabilitiesForVariant(variant ProviderVariantContract) ProviderCapabilities {

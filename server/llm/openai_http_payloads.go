@@ -53,10 +53,7 @@ func (t *HTTPTransport) requestPayloadBuilder(connectionCapabilities ProviderCap
 }
 
 func (t *HTTPTransport) buildPayload(request ResponsesRequest, mode OpenAIAuthMode, capabilities ProviderCapabilities) (responses.ResponseNewParams, error) {
-	variant, err := t.providerVariantForMode(mode)
-	if err != nil {
-		return responses.ResponseNewParams{}, err
-	}
+	variant := t.registration.Variant
 	builder := t.requestPayloadBuilder(capabilities, variant.ResponsesPolicy)
 	return builder.BuildResponse(request, mode)
 }

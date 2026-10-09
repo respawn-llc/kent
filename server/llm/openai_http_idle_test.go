@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"core/shared/config"
 	"core/shared/textutil"
 	"errors"
 	"fmt"
@@ -20,7 +21,7 @@ type pacedStreamEvent struct {
 func newPacedStreamTransport(t *testing.T, events ...pacedStreamEvent) *HTTPTransport {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/responses" {
+		if r.URL.Path != "/v1/responses" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -45,9 +46,9 @@ func newPacedStreamTransport(t *testing.T, events ...pacedStreamEvent) *HTTPTran
 	}))
 	t.Cleanup(server.Close)
 
-	transport := NewHTTPTransport(staticAuthHeader{})
-	transport.BaseURL = server.URL
-	transport.Client = server.Client()
+	transport := newTestHTTPTransport(t, staticAuthHeader{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
+	transport.Client = newRewritingHTTPClient(t, server)
 	return transport
 }
 
@@ -63,7 +64,6 @@ func completedStreamEvent(delay time.Duration) pacedStreamEvent {
 func TestOAuthGenerateSurvivesConfiguredHTTPClientTimeout(t *testing.T) {
 	transport := newPacedStreamTransport(t, completedStreamEvent(150*time.Millisecond), pacedStreamEvent{data: `[DONE]`})
 	transport.Auth = oauthStaticAuth{}
-	transport.BaseURLExplicit = true
 	transport.Client.Timeout = 50 * time.Millisecond
 	dispatch, err := NewCodexDispatchContext(CodexDispatchFacts{
 		SessionID: "session-1", RunID: "run-1", RequestKind: CodexRequestKindTurn.Optional(),

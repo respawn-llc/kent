@@ -24,8 +24,12 @@ import (
 //     plain API-key session.
 //   - capabilities: the resolved provider capabilities for the session's provider
 //     (openai / openai-compatible / chatgpt-codex).
-func MarshalResponsesWirePayload(request ResponsesRequest, store bool, modelVerbosity string, mode OpenAIAuthMode, capabilities ProviderCapabilities) (json.RawMessage, error) {
-	transport := &HTTPTransport{Store: store, ModelVerbosity: modelVerbosity}
+func MarshalResponsesWirePayload(registration ProviderVariantRegistration, request ResponsesRequest, store bool, modelVerbosity string, mode OpenAIAuthMode, capabilities ProviderCapabilities) (json.RawMessage, error) {
+	transport, err := NewHTTPTransport(nil, registration)
+	if err != nil {
+		return nil, err
+	}
+	transport.Store, transport.ModelVerbosity = store, modelVerbosity
 	params, err := transport.buildPayload(request, mode, capabilities)
 	if err != nil {
 		return nil, err

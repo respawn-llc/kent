@@ -2,6 +2,8 @@ package llm
 
 import (
 	"context"
+	"core/shared/config"
+	"core/shared/textutil"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -140,8 +142,9 @@ func newResponseMetadataTransport(t *testing.T, headers http.Header, writeRespon
 		writeResponse(w, request)
 	}))
 	t.Cleanup(server.Close)
-	transport := NewHTTPTransport(staticAuth{})
-	transport.BaseURL, transport.BaseURLExplicit, transport.Client = server.URL, true, server.Client()
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
+	transport.Client = newRewritingHTTPClient(t, server)
 	return transport
 }
 

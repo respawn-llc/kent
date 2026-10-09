@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"core/internal/testharness/httpclient"
+	"core/shared/config"
 	"core/shared/textutil"
 	"encoding/json"
 	"errors"
@@ -48,15 +49,14 @@ func TestOpenAIDispatchRejectsInvalidSessionBeforeAuth(t *testing.T) {
 	authModes := map[string]func() (*HTTPTransport, func() int32){
 		"api key": func() (*HTTPTransport, func() int32) {
 			auth := &countingAuth{}
-			return NewHTTPTransport(auth), auth.calls.Load
+			return newTestHTTPTransport(t, auth, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)})), auth.calls.Load
 		},
 		"OAuth": func() (*HTTPTransport, func() int32) {
 			auth := &countingOAuthAuth{}
-			return NewHTTPTransport(auth), auth.calls.Load
+			return newTestHTTPTransport(t, auth, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT})), auth.calls.Load
 		},
 		"anonymous explicit base": func() (*HTTPTransport, func() int32) {
-			transport := NewHTTPTransport(nil)
-			transport.BaseURL, transport.BaseURLExplicit = "https://compatible.example/v1", true
+			transport := newTestHTTPTransport(t, nil, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://compatible.example/v1")}))
 			return transport, func() int32 { return 0 }
 		},
 	}
@@ -110,9 +110,8 @@ func TestOAuthGenerateSendsCanonicalCodexIdentityAuthAndRoutingTiers(t *testing.
 	if err != nil {
 		t.Fatalf("dispatch context: %v", err)
 	}
-	transport := NewHTTPTransport(oauthStaticAuth{})
-	transport.BaseURL = "https://chatgpt.com/backend-api/codex"
-	transport.BaseURLExplicit = true
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
+
 	transport.Client = newRewritingHTTPClient(t, server)
 
 	request := ResponsesRequest{
@@ -176,9 +175,7 @@ func TestOAuthExplicitCompatibleEndpointSendsCommonIdentityWithoutCodexMetadata(
 	}))
 	t.Cleanup(server.Close)
 
-	transport := NewHTTPTransport(oauthStaticAuth{})
-	transport.BaseURL = server.URL
-	transport.BaseURLExplicit = true
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(server.URL)}))
 	transport.Client = server.Client()
 
 	if _, err := transport.Generate(context.Background(), ResponsesRequest{
@@ -256,7 +253,8 @@ func TestOAuthDispatchRejectsUnrepresentableRoutingModelBeforeProviderHTTP(t *te
 					t.Fatalf("dispatch context: %v", err)
 				}
 				networkCalls := atomic.Int32{}
-				transport := NewHTTPTransport(oauthStaticAuth{})
+				transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
+
 				transport.ContextWindowTokens = 0
 				transport.Client = &http.Client{Transport: httpclient.RoundTripFunc(func(*http.Request) (*http.Response, error) {
 					networkCalls.Add(1)
@@ -289,7 +287,8 @@ func TestOAuthDispatchRejectsMissingContextBeforeContextWindowHTTP(t *testing.T)
 	for name, dispatch := range methods {
 		t.Run(name, func(t *testing.T) {
 			networkCalls := atomic.Int32{}
-			transport := NewHTTPTransport(oauthStaticAuth{})
+			transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
+
 			transport.ContextWindowTokens = 0
 			transport.Client = &http.Client{Transport: httpclient.RoundTripFunc(func(*http.Request) (*http.Response, error) {
 				networkCalls.Add(1)

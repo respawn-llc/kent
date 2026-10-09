@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"core/server/llm"
+	"core/shared/config"
 	"core/shared/textutil"
 )
 
@@ -117,9 +118,14 @@ func newProviderTurnStateTransport(t *testing.T, server *httptest.Server) *llm.H
 	if err != nil {
 		t.Fatalf("parse test server URL: %v", err)
 	}
-	transport := llm.NewHTTPTransport(providerTurnStateOAuthAuth{})
-	transport.BaseURL = "https://chatgpt.com/backend-api/codex"
-	transport.BaseURLExplicit = true
+	registration, err := llm.ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionChatGPT})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := llm.NewHTTPTransport(providerTurnStateOAuthAuth{}, registration)
+	if err != nil {
+		t.Fatal(err)
+	}
 	transport.Client = &http.Client{
 		Transport: httpclient.NewURLRewriteTransport(target, server.Client().Transport, ""),
 	}

@@ -8,6 +8,7 @@ import (
 	modelstub "core/internal/testharness/pty/blackbox"
 	"core/server/llm"
 	"core/shared/config"
+	"core/shared/textutil"
 
 	"github.com/google/uuid"
 )
@@ -47,9 +48,14 @@ func TestWorkflowCompatibleResponsesHTTPBlackBoxGatesUnphasedAnswer(t *testing.T
 		}
 	})
 
-	transport := llm.NewHTTPTransport(workflowCompatibleHTTPAuth{})
-	transport.BaseURL = stub.URL()
-	transport.BaseURLExplicit = true
+	registration, err := llm.ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(stub.URL())})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := llm.NewHTTPTransport(workflowCompatibleHTTPAuth{}, registration)
+	if err != nil {
+		t.Fatal(err)
+	}
 	transport.Client = &http.Client{Transport: &http.Transport{Proxy: nil}}
 	transport.ContextWindowTokens = 200000
 	transport.ProviderCapabilitiesOverride = &llm.ProviderCapabilities{

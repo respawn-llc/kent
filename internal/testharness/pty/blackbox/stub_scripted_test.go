@@ -12,6 +12,7 @@ import (
 	"core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/scriptedllm"
 	"core/server/llm"
+	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 )
@@ -493,8 +494,12 @@ func providerClient(t *testing.T, stub *blackbox.ResponsesStub) llm.Client {
 
 func providerClientWithWindow(t *testing.T, stub *blackbox.ResponsesStub, window int) llm.Client {
 	t.Helper()
+	selected, err := llm.ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(stub.URL())})
+	if err != nil {
+		t.Fatal(err)
+	}
 	client, err := llm.NewProviderClient(llm.ProviderClientOptions{
-		Provider: llm.ProviderOpenAI, Model: "gpt-6-sol", OpenAIBaseURL: stub.URL(), ContextWindowTokens: window,
+		Registration: selected, Model: "gpt-6-sol", ContextWindowTokens: window,
 		Auth: staticTransportAuth{},
 	})
 	if err != nil {

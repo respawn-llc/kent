@@ -57,12 +57,9 @@ type responsesDispatchPreparation struct {
 }
 
 type HTTPTransport struct {
-	BaseURL                      string
-	BaseURLExplicit              bool
 	Client                       *http.Client
 	Auth                         DispatchAuthProvider
-	Provider                     Provider
-	Variant                      *ProviderVariantContract
+	registration                 ProviderVariantRegistration
 	ConnectionID                 *config.ConnectionID
 	Store                        bool
 	ModelVerbosity               string
@@ -75,7 +72,10 @@ type HTTPTransport struct {
 	modelContextWindows map[string]int
 }
 
-func NewHTTPTransport(auth DispatchAuthProvider) *HTTPTransport {
+func NewHTTPTransport(auth DispatchAuthProvider, registration ProviderVariantRegistration) (*HTTPTransport, error) {
+	if registration.Provider == "" || registration.Variant.ResponsesPolicy == nil || registration.Variant.BaseURL == nil || *registration.Variant.BaseURL == "" {
+		return nil, fmt.Errorf("%w: resolved Responses registration and endpoint are required", ErrInvalidRequest)
+	}
 	window := 200000
 	if raw := strings.TrimSpace(os.Getenv("KENT_CONTEXT_WINDOW")); raw != "" {
 		if value, err := strconv.Atoi(raw); err == nil && value > 0 {
@@ -83,14 +83,13 @@ func NewHTTPTransport(auth DispatchAuthProvider) *HTTPTransport {
 		}
 	}
 	return &HTTPTransport{
-		BaseURL:             defaultOpenAIBaseURL,
 		Client:              NewHTTPClient(120 * time.Second),
 		Auth:                auth,
-		Provider:            ProviderOpenAI,
+		registration:        registration,
 		ProviderIdentifier:  config.Command,
 		ContextWindowTokens: window,
 		modelContextWindows: make(map[string]int),
-	}
+	}, nil
 }
 
 func (t *HTTPTransport) providerUserAgent() string {
@@ -121,7 +120,7 @@ func (t *HTTPTransport) Generate(ctx context.Context, request ResponsesRequest, 
 	compressionOption := requestCompressionOption(preparation.variant)
 
 	service := responses.NewResponseService(
-		option.WithBaseURL(t.serviceBaseURL(preparation.mode)),
+		option.WithBaseURL(t.serviceBaseURL()),
 		option.WithHTTPClient(t.streamingHTTPClient()),
 		option.WithMaxRetries(0),
 	)
@@ -376,10 +375,7 @@ func (t *HTTPTransport) prepareDispatch(
 	if err != nil {
 		return responsesDispatchPreparation{}, err
 	}
-	variant, err := t.providerVariantForMode(mode)
-	if err != nil {
-		return responsesDispatchPreparation{}, err
-	}
+	variant := t.registration.Variant
 	providerCaps := t.providerCapabilitiesForVariant(variant)
 	projection, err := variant.ResponsesPolicy.prepareDispatch(
 		*sessionID,
@@ -408,7 +404,7 @@ func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request R
 	applyCodexClientMetadata(&payload, projection)
 	compressionOption := requestCompressionOption(variant)
 	service := responses.NewResponseService(
-		option.WithBaseURL(t.serviceBaseURL(mode)),
+		option.WithBaseURL(t.serviceBaseURL()),
 		option.WithHTTPClient(t.streamingHTTPClient()),
 		option.WithMaxRetries(0),
 	)
@@ -523,12 +519,9 @@ func (t *HTTPTransport) ResolveModelContextWindow(ctx context.Context, model str
 	resolved := 0
 	authHeader, mode, err := t.resolveAuth(ctx)
 	if err == nil {
-		variant, variantErr := t.providerVariantForMode(mode)
-		if variantErr != nil {
-			return 0, variantErr
-		}
+		variant := t.registration.Variant
 		service := openai.NewModelService(
-			option.WithBaseURL(t.serviceBaseURL(mode)),
+			option.WithBaseURL(t.serviceBaseURL()),
 			option.WithHTTPClient(t.Client),
 			option.WithMaxRetries(0),
 		)
@@ -557,15 +550,8 @@ func (t *HTTPTransport) ResolveModelContextWindow(ctx context.Context, model str
 	return resolved, nil
 }
 
-func (t *HTTPTransport) ProviderCapabilities(ctx context.Context) (ProviderCapabilities, error) {
-	if t.ProviderCapabilitiesOverride != nil {
-		return *t.ProviderCapabilitiesOverride, nil
-	}
-	_, mode, err := t.resolveAuth(ctx)
-	if err != nil {
-		return ProviderCapabilities{}, err
-	}
-	return t.providerCapabilitiesForMode(mode)
+func (t *HTTPTransport) ProviderCapabilities(context.Context) (ProviderCapabilities, error) {
+	return t.providerCapabilitiesForVariant(t.registration.Variant), nil
 }
 
 func (t *HTTPTransport) resolveAuth(ctx context.Context) (string, OpenAIAuthMode, error) {

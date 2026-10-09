@@ -13,6 +13,7 @@ import (
 
 	"core/internal/testharness/pty/blackbox"
 	"core/server/llm"
+	"core/shared/config"
 	"core/shared/textutil"
 
 	"github.com/google/uuid"
@@ -647,8 +648,7 @@ func TestResponsesStubStreamsRequiredOperationToHTTPTransport(t *testing.T) {
 	}
 	t.Cleanup(stub.Close)
 
-	transport := llm.NewHTTPTransport(staticTransportAuth{})
-	transport.BaseURL = stub.URL()
+	transport := newStubTransport(t, stub)
 	transport.Client = &http.Client{Transport: &http.Transport{Proxy: nil}}
 	var deltas []string
 	response, err := transport.Generate(context.Background(), llm.ResponsesRequest{
@@ -684,9 +684,14 @@ func TestResponsesStubServesCompactAndModelMetadataTransportRoutes(t *testing.T)
 		t.Fatalf("StartResponsesStub compact: %v", err)
 	}
 	t.Cleanup(compact.Close)
-	compactTransport := llm.NewHTTPTransport(oauthStaticTransportAuth{})
-	compactTransport.BaseURL = "https://chatgpt.com/backend-api/codex"
-	compactTransport.BaseURLExplicit = true
+	selected, err := llm.ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionChatGPT})
+	if err != nil {
+		t.Fatal(err)
+	}
+	compactTransport, err := llm.NewHTTPTransport(oauthStaticTransportAuth{}, selected)
+	if err != nil {
+		t.Fatal(err)
+	}
 	compactTransport.Client = newCanonicalOAuthStubClient(t, compact)
 	if _, err := compactTransport.Compact(context.Background(), llm.ResponsesRequest{
 		Model:          "gpt-6-sol",
@@ -710,7 +715,7 @@ func TestResponsesStubServesCompactAndModelMetadataTransportRoutes(t *testing.T)
 		t.Fatalf("StartResponsesStub model metadata: %v", err)
 	}
 	t.Cleanup(model.Close)
-	modelTransport := newStubTransport(model)
+	modelTransport := newStubTransport(t, model)
 	modelTransport.ContextWindowTokens = 0
 	window, err := modelTransport.ResolveModelContextWindow(context.Background(), "gpt-6-sol")
 	if err != nil {
@@ -738,9 +743,16 @@ func testCodexDispatch(t *testing.T, sessionID string, requestKind llm.CodexRequ
 	return dispatch
 }
 
-func newStubTransport(stub *blackbox.ResponsesStub) *llm.HTTPTransport {
-	transport := llm.NewHTTPTransport(staticTransportAuth{})
-	transport.BaseURL = stub.URL()
+func newStubTransport(t *testing.T, stub *blackbox.ResponsesStub) *llm.HTTPTransport {
+	t.Helper()
+	selected, err := llm.ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(stub.URL())})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := llm.NewHTTPTransport(staticTransportAuth{}, selected)
+	if err != nil {
+		t.Fatal(err)
+	}
 	transport.Client = &http.Client{Transport: &http.Transport{Proxy: nil}}
 	return transport
 }

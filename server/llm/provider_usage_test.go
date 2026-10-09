@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"core/shared/config"
 	"core/shared/textutil"
 )
 
@@ -139,7 +140,8 @@ func TestCompactRetainsProviderUsageEvidence(t *testing.T) {
 		))
 	}))
 	t.Cleanup(server.Close)
-	transport := NewHTTPTransport(staticAuthHeader{})
+	transport := newTestHTTPTransport(t, staticAuthHeader{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
 	transport.Client = newRewritingHTTPClient(t, server)
 	response, err := transport.Compact(context.Background(), ResponsesRequest{
 		Model:          "gpt-requested",

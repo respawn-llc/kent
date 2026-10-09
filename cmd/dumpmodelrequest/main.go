@@ -186,6 +186,10 @@ func captureSessionRequest(
 	if err != nil {
 		return capturedRequest{}, err
 	}
+	registration, err := llm.ResolveConnectionVariant(definition)
+	if err != nil {
+		return capturedRequest{}, err
+	}
 	mode := llm.OpenAIAuthMode{IsOAuth: definition.Protocol == config.ConnectionChatGPT}
 	if activeSettings.Connection != nil {
 		mode.AccountID = authState.Connections[*activeSettings.Connection].AccountID
@@ -278,6 +282,7 @@ func captureSessionRequest(
 	storeFlag := activeSettings.Store
 	modelVerbosity := string(activeSettings.ModelVerbosity)
 	wireBytes, err := llm.MarshalResponsesWirePayload(
+		registration,
 		responsesReq,
 		storeFlag,
 		modelVerbosity,

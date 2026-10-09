@@ -31,7 +31,8 @@ func TestNativeThinkingSupport(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			transport := NewHTTPTransport(missingAuth{})
+			transport := newTestHTTPTransport(t, missingAuth{}, testConnectionRegistration(t, definition))
+
 			transport.ProviderCapabilitiesOverride = &prepared
 			caps, err := transport.ProviderCapabilities(context.Background())
 			if err != nil {

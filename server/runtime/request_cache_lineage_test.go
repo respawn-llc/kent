@@ -589,8 +589,14 @@ func TestResponsesTransport_UsesExpectedSessionHeadersAndPromptCacheKeysAcrossCo
 	}))
 	defer server.Close()
 
-	transport := llm.NewHTTPTransport(transportStaticAuth{})
-	transport.BaseURL = server.URL + "/v1"
+	registration, err := llm.ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(server.URL + "/v1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := llm.NewHTTPTransport(transportStaticAuth{}, registration)
+	if err != nil {
+		t.Fatal(err)
+	}
 	transport.Client = server.Client()
 	transport.ProviderCapabilitiesOverride = &llm.ProviderCapabilities{
 		ProviderID:             "openai",

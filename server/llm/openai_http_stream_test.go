@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"core/shared/config"
 	"core/shared/textutil"
 )
 
@@ -34,7 +35,7 @@ func newOpenAIStreamTestServer(t *testing.T, events ...string) *httptest.Server 
 func newOpenAIRawStreamTestServer(t *testing.T, stream string) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/responses" {
+		if r.URL.Path != "/v1/responses" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -48,20 +49,20 @@ func newOpenAIRawStreamTestServer(t *testing.T, stream string) *httptest.Server 
 func newOpenAIStreamTestTransport(t *testing.T, events ...string) *HTTPTransport {
 	t.Helper()
 	server := newOpenAIStreamTestServer(t, events...)
-	return newOpenAIStreamTestTransportForServer(server)
+	return newOpenAIStreamTestTransportForServer(t, server)
 }
 
-func newOpenAIStreamTestTransportForServer(server *httptest.Server) *HTTPTransport {
-	transport := NewHTTPTransport(staticAuthHeader{})
-	transport.BaseURL = server.URL
-	transport.Client = server.Client()
+func newOpenAIStreamTestTransportForServer(t *testing.T, server *httptest.Server) *HTTPTransport {
+	transport := newTestHTTPTransport(t, staticAuthHeader{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(server.URL + "/v1")}))
+
+	transport.Client = newRewritingHTTPClient(t, server)
 	return transport
 }
 
 func newOpenAIRawStreamTestTransport(t *testing.T, stream string) *HTTPTransport {
 	t.Helper()
 	server := newOpenAIRawStreamTestServer(t, stream)
-	return newOpenAIStreamTestTransportForServer(server)
+	return newOpenAIStreamTestTransportForServer(t, server)
 }
 
 func joinedAssistantDeltas(deltas []AssistantDelta) string {
@@ -394,8 +395,8 @@ func TestGenerate_RejectsPreTerminalMalformedResponsesStream(t *testing.T) {
 }
 
 func TestGenerate_LeavesPreResponseEOFRetryable(t *testing.T) {
-	transport := NewHTTPTransport(staticAuthHeader{})
-	transport.BaseURL = "https://example.invalid"
+	transport := newTestHTTPTransport(t, staticAuthHeader{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
 	transport.Client = &http.Client{Transport: httpclient.RoundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, io.EOF
 	})}

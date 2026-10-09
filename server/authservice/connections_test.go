@@ -139,11 +139,15 @@ endpoint = "https://compatible.example/v1"
 		if err != nil {
 			t.Fatal(err)
 		}
-		transport := llm.NewHTTPTransport(connection.Auth)
-		transport.Client = client
-		if connection.Definition.Endpoint != nil {
-			transport.BaseURL, transport.BaseURLExplicit = *connection.Definition.Endpoint, true
+		registration, err := llm.ResolveConnectionVariant(connection.Definition)
+		if err != nil {
+			t.Fatal(err)
 		}
+		transport, err := llm.NewHTTPTransport(connection.Auth, registration)
+		if err != nil {
+			t.Fatal(err)
+		}
+		transport.Client = client
 		transports[id] = transport
 	}
 	send := func(id config.ConnectionID) error {
@@ -234,8 +238,14 @@ environment_variable = "MISSING_KEY"
 		if err != nil {
 			t.Fatal(err)
 		}
-		transport := llm.NewHTTPTransport(resolved.Auth)
-		transport.BaseURL, transport.BaseURLExplicit = *resolved.Definition.Endpoint, true
+		registration, err := llm.ResolveConnectionVariant(resolved.Definition)
+		if err != nil {
+			t.Fatal(err)
+		}
+		transport, err := llm.NewHTTPTransport(resolved.Auth, registration)
+		if err != nil {
+			t.Fatal(err)
+		}
 		transport.Client = &http.Client{Transport: httpclient.RoundTripFunc(func(*http.Request) (*http.Response, error) {
 			t.Error("missing key reached the network")
 			return nil, context.Canceled
