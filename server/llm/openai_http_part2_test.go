@@ -2,11 +2,13 @@ package llm
 
 import (
 	"context"
+	"core/shared/config"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -426,49 +428,95 @@ func TestParseOutputItems_UsesTrailingAssistantPhaseBlock(t *testing.T) {
 	}
 }
 
-func TestAPIKeyCompactRequestTargetsStreamingResponsesV2(t *testing.T) {
-	var captured map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/responses" {
-			http.Error(w, "unexpected path: "+r.URL.Path, http.StatusNotFound)
-			return
-		}
-		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte(`data: {"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15},"output":[{"type":"compaction","id":"cmp_1","encrypted_content":"enc_1"}]}}` + "\n\n"))
-	}))
-	t.Cleanup(server.Close)
+func TestCompactRequestUsesSelectedProtocol(t *testing.T) {
+	for _, protocol := range []config.ConnectionProtocol{config.ConnectionResponses, config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI, config.ConnectionGrokAPIKey} {
+		t.Run(string(protocol), func(t *testing.T) {
+			standard := protocol != config.ConnectionResponses
+			var captured map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				path := "/v1/responses"
+				if standard {
+					path += "/compact"
+				}
+				if r.URL.Path != path {
+					http.Error(w, "unexpected path: "+r.URL.Path, http.StatusNotFound)
+					return
+				}
+				if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				response := `{"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15},"output":[{"type":"compaction","id":"cmp_1","encrypted_content":"enc_1","opaque_extension":{"keep":true}}]}`
+				if standard {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, response)
+				} else {
+					w.Header().Set("Content-Type", "text/event-stream")
+					_, _ = io.WriteString(w, `data: {"type":"response.completed","response":`+response+"}\n\n")
+				}
+			}))
+			t.Cleanup(server.Close)
 
-	transport := NewHTTPTransport(staticAuth{})
-	transport.Client = newRewritingHTTPClient(t, server)
+			transport := NewHTTPTransport(staticAuth{})
+			transport.Client = newRewritingHTTPClient(t, server)
+			if standard {
+				definition := config.ProviderConnection{Protocol: protocol}
+				if protocol == config.ConnectionGrokAPIKey {
+					definition.EnvironmentVariable = textutil.Value("GROK_KEY")
+				}
+				selected, err := ResolveConnectionVariant(definition)
+				if err != nil {
+					t.Fatal(err)
+				}
+				transport.Provider, transport.Variant = selected.Provider, &selected.Variant
+			}
 
-	resp, err := transport.Compact(context.Background(), ResponsesRequest{
-		Model:          "gpt-6-sol",
-		SessionID:      textutil.Value("test-session"),
-		ToolChoiceMode: ToolChoiceModeAutomatic,
-		Items: PrepareResponsesInputItems([]ResponseItem{
-			{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value("u1")},
-		}),
-	})
-	if err != nil {
-		t.Fatalf("compact request failed: %v", err)
-	}
-	if resp.Checkpoint.Type != ResponseItemTypeCompaction {
-		t.Fatalf("expected one compact output item, got %+v", resp.Checkpoint)
-	}
-	if captured["stream"] != true {
-		t.Fatalf("stream = %#v, want true", captured["stream"])
-	}
-	input, ok := captured["input"].([]any)
-	if !ok || len(input) != 2 {
-		t.Fatalf("input = %#v, want history plus trigger", captured["input"])
-	}
-	trigger, _ := input[len(input)-1].(map[string]any)
-	if len(trigger) != 1 || trigger["type"] != "compaction_trigger" {
-		t.Fatalf("final input = %#v, want exact compaction trigger", trigger)
+			resp, err := transport.Compact(context.Background(), ResponsesRequest{
+				Model:          "gpt-6-sol",
+				SessionID:      textutil.Value("test-session"),
+				ToolChoiceMode: ToolChoiceModeAutomatic,
+				Items: PrepareResponsesInputItems([]ResponseItem{
+					{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value("u1")},
+				}),
+			})
+			if err != nil {
+				t.Fatalf("compact request failed: %v", err)
+			}
+			if resp.Checkpoint.Type != ResponseItemTypeCompaction {
+				t.Fatalf("expected one compact output item, got %+v", resp.Checkpoint)
+			}
+			var raw struct {
+				Extension *struct{ Keep bool } `json:"opaque_extension"`
+			}
+			if err := json.Unmarshal(resp.Checkpoint.Raw, &raw); err != nil || raw.Extension == nil || !raw.Extension.Keep {
+				t.Fatalf("lost opaque checkpoint: %s, %v", resp.Checkpoint.Raw, err)
+			}
+			if resp.ProviderEvidence.Usage == nil {
+				t.Fatal("compaction omitted provider usage evidence")
+			}
+			if standard {
+				if _, present := captured["stream"]; present {
+					t.Fatal("standard compaction must not stream")
+				}
+			} else if captured["stream"] != true {
+				t.Fatalf("stream = %#v, want true", captured["stream"])
+			}
+			input, ok := captured["input"].([]any)
+			expectedInputs := 2
+			if standard {
+				expectedInputs = 1
+			}
+			if !ok || len(input) != expectedInputs {
+				t.Fatalf("input = %#v, want history plus trigger", captured["input"])
+			}
+			if standard {
+				return
+			}
+			trigger, _ := input[len(input)-1].(map[string]any)
+			if len(trigger) != 1 || trigger["type"] != "compaction_trigger" {
+				t.Fatalf("final input = %#v, want exact compaction trigger", trigger)
+			}
+		})
 	}
 }
 
@@ -561,7 +609,7 @@ func TestOAuthCompactRequestTargetsStreamingResponsesWithFinalTrigger(t *testing
 	}
 }
 
-func TestOAuthCompactRequestPreservesTypedCheckpointContractReasons(t *testing.T) {
+func TestCompactRequestPreservesTypedCheckpointContractReasons(t *testing.T) {
 	tests := []struct {
 		name            string
 		output          string
@@ -596,34 +644,58 @@ func TestOAuthCompactRequestPreservesTypedCheckpointContractReasons(t *testing.T
 		},
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			server := newOAuthCompactStreamServer(t, []string{test.output})
-			transport := newCanonicalOAuthTestTransport(t, server)
+	for _, protocol := range []config.ConnectionProtocol{config.ConnectionChatGPT, config.ConnectionGrokCLIProxy} {
+		for _, test := range tests {
+			t.Run(string(protocol)+"/"+test.name, func(t *testing.T) {
+				var transport *HTTPTransport
+				if protocol == config.ConnectionChatGPT {
+					server := newOAuthCompactStreamServer(t, []string{test.output})
+					transport = newCanonicalOAuthTestTransport(t, server)
+				} else {
+					var event struct {
+						Response json.RawMessage `json:"response"`
+					}
+					if err := json.Unmarshal([]byte(test.output), &event); err != nil {
+						t.Fatal(err)
+					}
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						w.Header().Set("Content-Type", "application/json")
+						_, _ = w.Write(event.Response)
+					}))
+					t.Cleanup(server.Close)
+					selected, err := ResolveConnectionVariant(config.ProviderConnection{Protocol: protocol})
+					if err != nil {
+						t.Fatal(err)
+					}
+					transport = NewHTTPTransport(oauthStaticAuth{})
+					transport.Client = newRewritingHTTPClient(t, server)
+					transport.Provider, transport.Variant = selected.Provider, &selected.Variant
+				}
 
-			_, err := transport.Compact(context.Background(), testOAuthCompactionRequest(t, "gpt-5.6-sol"))
-			if err == nil {
-				t.Fatal("compact request unexpectedly succeeded")
-			}
-			var contractErr *CompactionCheckpointContractError
-			if !errors.As(err, &contractErr) {
-				t.Fatalf("error = %T %v, want typed checkpoint contract error", err, err)
-			}
-			if contractErr.Reason != test.reason ||
-				contractErr.CompactionCount != test.compactionCount ||
-				contractErr.OutputCount != test.outputCount ||
-				!reflect.DeepEqual(contractErr.OutputTypeCounts, test.typeCounts) {
-				t.Fatalf("checkpoint contract error = %+v, want reason=%q compaction_count=%d output_count=%d type_counts=%v",
-					contractErr, test.reason, test.compactionCount, test.outputCount, test.typeCounts)
-			}
-			var providerErr *ProviderAPIError
-			if !errors.As(err, &providerErr) {
-				t.Fatalf("error = %T %v, want provider-contract wrapper", err, err)
-			}
-			if providerErr.Code != UnifiedErrorCodeProviderContract {
-				t.Fatalf("provider error code = %q, want provider contract", providerErr.Code)
-			}
-		})
+				_, err := transport.Compact(context.Background(), testOAuthCompactionRequest(t, "gpt-5.6-sol"))
+				if err == nil {
+					t.Fatal("compact request unexpectedly succeeded")
+				}
+				var contractErr *CompactionCheckpointContractError
+				if !errors.As(err, &contractErr) {
+					t.Fatalf("error = %T %v, want typed checkpoint contract error", err, err)
+				}
+				if contractErr.Reason != test.reason ||
+					contractErr.CompactionCount != test.compactionCount ||
+					contractErr.OutputCount != test.outputCount ||
+					!reflect.DeepEqual(contractErr.OutputTypeCounts, test.typeCounts) {
+					t.Fatalf("checkpoint contract error = %+v, want reason=%q compaction_count=%d output_count=%d type_counts=%v",
+						contractErr, test.reason, test.compactionCount, test.outputCount, test.typeCounts)
+				}
+				var providerErr *ProviderAPIError
+				if !errors.As(err, &providerErr) {
+					t.Fatalf("error = %T %v, want provider-contract wrapper", err, err)
+				}
+				if providerErr.Code != UnifiedErrorCodeProviderContract {
+					t.Fatalf("provider error code = %q, want provider contract", providerErr.Code)
+				}
+			})
+		}
 	}
 }
 

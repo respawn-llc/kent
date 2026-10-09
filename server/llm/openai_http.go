@@ -336,6 +336,8 @@ func (t *HTTPTransport) Compact(ctx context.Context, request ResponsesRequest) (
 	}
 	windowTokens := t.resolveContextWindowFallback(ctx, request.Model)
 	switch preparation.variant.RemoteCompactionProtocol {
+	case remoteCompactionStandardResponses:
+		return t.compactStandardResponses(ctx, request, preparation, windowTokens)
 	case remoteCompactionResponsesTriggerV2:
 		return t.compactResponsesTriggerV2(ctx, request, preparation.authHeader, preparation.mode, preparation.variant, preparation.providerCaps, windowTokens, preparation.projection)
 	default:

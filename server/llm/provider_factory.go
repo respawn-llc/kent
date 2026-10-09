@@ -69,6 +69,7 @@ type remoteCompactionProtocol uint8
 const (
 	remoteCompactionUnsupported remoteCompactionProtocol = iota
 	remoteCompactionResponsesTriggerV2
+	remoteCompactionStandardResponses
 )
 
 type ProviderContract struct {
@@ -221,8 +222,9 @@ func grokVariant(protocol config.ConnectionProtocol, endpoint string) ProviderVa
 	id := string(protocol)
 	return ProviderVariantContract{
 		ProviderID: id, BaseURL: textutil.Value(endpoint),
-		ResponsesPolicy:    grokResponsesPolicy{},
-		RequestCompression: httpcompression.ContentCodingIdentity,
+		ResponsesPolicy:          grokResponsesPolicy{},
+		RequestCompression:       httpcompression.ContentCodingIdentity,
+		RemoteCompactionProtocol: remoteCompactionStandardResponses,
 		Capabilities: ProviderCapabilities{
 			ProviderID: id, SupportsResponsesAPI: true, SupportsReasoningEncrypted: true,
 			SupportsPromptCacheKey: true, SupportsFastMode: true,
