@@ -131,7 +131,7 @@ func (a connectionAuth) ResolveDispatchAuth(ctx context.Context) (result *llm.Di
 		if a.owner.manager == nil {
 			return nil, fmt.Errorf("connection %s: %w", a.id, auth.ErrAuthNotConfigured)
 		}
-		credential, err := a.owner.manager.CurrentOAuth(ctx, a.id)
+		credential, err := a.owner.manager.CurrentOAuth(ctx, a.id, definition.Protocol)
 		if err != nil {
 			return nil, err
 		}

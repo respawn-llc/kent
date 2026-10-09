@@ -33,10 +33,10 @@ func TestConnectionStatusReadsStoredOAuthWithoutRefreshing(t *testing.T) {
 	now := time.Now()
 	manager := auth.NewManager(auth.NewMemoryStore(auth.State{Connections: map[config.ConnectionID]auth.OAuthMethod{
 		"work": {AccessToken: "stale", AccountID: "account", Expiry: textutil.Value(now.Add(-time.Hour))},
-	}}), auth.NewOAuthRefresher(func() time.Time { return now }, time.Minute, func(context.Context, auth.OAuthMethod) (auth.OAuthMethod, error) {
+	}}), map[config.ConnectionProtocol]*auth.OAuthRefresher{config.ConnectionChatGPT: auth.NewOAuthRefresher(func() time.Time { return now }, time.Minute, func(context.Context, auth.OAuthMethod) (auth.OAuthMethod, error) {
 		t.Error("status attempted OAuth refresh")
 		return auth.OAuthMethod{}, errors.New("unexpected refresh")
-	}))
+	})})
 	status, err := NewStatusService(authServiceResolver(t, manager, nil)).GetStatus(t.Context(), &authpb.GetStatusRequest{SkipSubscriptionUsage: true})
 	if err != nil {
 		t.Fatal(err)

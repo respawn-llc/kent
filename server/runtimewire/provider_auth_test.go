@@ -42,9 +42,9 @@ func newExpiredConnectionRuntime(t *testing.T, factory RuntimeClientFactory) *ex
 	}))
 	t.Cleanup(issuer.Close)
 	now := time.Now()
-	manager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), auth.NewOpenAIOAuthRefresher(
+	manager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), map[config.ConnectionProtocol]*auth.OAuthRefresher{config.ConnectionChatGPT: auth.NewOpenAIOAuthRefresher(
 		auth.OpenAIOAuthOptions{Issuer: issuer.URL, HTTPClient: issuer.Client()}, func() time.Time { return now }, time.Minute,
-	))
+	)})
 	if err := manager.SaveOAuth(t.Context(), fixture.id, auth.OAuthMethod{
 		AccessToken: "expired-access", RefreshToken: "expired-refresh", Expiry: textutil.Value(now.Add(-time.Hour)),
 	}); err != nil {
