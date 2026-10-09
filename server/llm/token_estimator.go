@@ -2,6 +2,7 @@ package llm
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 
 	"core/server/llm/openaiwire"
@@ -46,19 +47,33 @@ func (DefaultTokenEstimator) EstimateImageBytes(ImageEstimateInput) int {
 }
 
 func (estimator DefaultTokenEstimator) EstimateItem(item ResponseItem) int {
-	return textutil.ApproxTokenCount(EstimateDefaultItemBytes(estimator, item))
+	size := EstimateItemContentBytes(estimator, item)
+	switch item.Type {
+	case ResponseItemTypeFunctionCall, ResponseItemTypeCustomToolCall:
+		size += stringBytes(item.Name) + len(defaultFunctionNamespace)
+	case ResponseItemTypeFunctionCallOutput, ResponseItemTypeCustomToolOutput:
+		size += stringBytes(item.CallID) + stringBytes(item.Name)
+	}
+	return textutil.ApproxTokenCount(size)
 }
 
-// EstimateDefaultItemBytes shares content traversal with providers that override
+// EstimateItemContentBytes shares content traversal with providers that override
 // image, reasoning, or rounding accounting. Accounting follows OpenAI Codex history.rs at
 // 0b47040dc9eb08d9c37d51e0824870ce5b27101b (Copyright 2025 OpenAI, Apache-2.0).
-func EstimateDefaultItemBytes(estimator TokenEstimator, item ResponseItem) int {
+func EstimateItemContentBytes(estimator TokenEstimator, item ResponseItem) int {
 	size := 0
 	switch item.Type {
 	case ResponseItemTypeMessage:
 		size = stringBytes(item.Content)
+		var message struct {
+			Content json.RawMessage `json:"content"`
+		}
+		if len(item.Raw) > 0 && json.Unmarshal(item.Raw, &message) == nil {
+			if content, structured := openaiwire.DecodeInputContentItems(message.Content); structured {
+				size = estimateInputContentBytes(estimator, content)
+			}
+		}
 	case ResponseItemTypeFunctionCall, ResponseItemTypeCustomToolCall:
-		size = stringBytes(item.Name) + len(defaultFunctionNamespace)
 		if item.Type == ResponseItemTypeFunctionCall {
 			size += len(item.Arguments)
 		} else {
@@ -70,26 +85,31 @@ func EstimateDefaultItemBytes(estimator TokenEstimator, item ResponseItem) int {
 			size += len(summary.Text)
 		}
 	case ResponseItemTypeFunctionCallOutput, ResponseItemTypeCustomToolOutput:
-		size = stringBytes(item.CallID) + stringBytes(item.Name)
 		content, structured := openaiwire.DecodeInputContentItems(item.Output)
 		if item.Type == ResponseItemTypeFunctionCallOutput && structured {
-			for _, part := range content {
-				switch part.Type {
-				case "input_text":
-					size += len(part.Text)
-				case "input_image":
-					var detail *string
-					if part.Detail != "" {
-						detail = &part.Detail
-					}
-					size += estimator.EstimateImageBytes(ImageEstimateInput{Reference: part.ImageURL, Detail: detail})
-				case "input_file":
-					size += 2048 + referenceBytes(part.FileData) + referenceBytes(part.FileID) +
-						referenceBytes(part.FileURL) + len(part.Filename)
-				}
-			}
+			size = estimateInputContentBytes(estimator, content)
 		} else {
 			size += len(openaiwire.OutputText(bytes.TrimSpace(item.Output)))
+		}
+	}
+	return size
+}
+
+func estimateInputContentBytes(estimator TokenEstimator, content []openaiwire.InputContent) int {
+	size := 0
+	for _, part := range content {
+		switch part.Type {
+		case "input_text":
+			size += len(part.Text)
+		case "input_image":
+			var detail *string
+			if part.Detail != "" {
+				detail = &part.Detail
+			}
+			size += estimator.EstimateImageBytes(ImageEstimateInput{Reference: part.ImageURL, Detail: detail})
+		case "input_file":
+			size += 2048 + referenceBytes(part.FileData) + referenceBytes(part.FileID) +
+				referenceBytes(part.FileURL) + len(part.Filename)
 		}
 	}
 	return size

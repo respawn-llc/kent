@@ -227,6 +227,7 @@ func grokVariant(protocol config.ConnectionProtocol, endpoint string) ProviderVa
 	return ProviderVariantContract{
 		ProviderID: id, BaseURL: textutil.Value(endpoint),
 		ResponsesPolicy:          grokResponsesPolicy{},
+		TokenEstimator:           GrokTokenEstimator{},
 		RequestCompression:       httpcompression.ContentCodingIdentity,
 		RemoteCompactionProtocol: remoteCompactionStandardResponses,
 		Capabilities: ProviderCapabilities{
