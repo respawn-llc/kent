@@ -73,6 +73,14 @@ func TestInferProviderFromModel(t *testing.T) {
 	if _, err := InferProviderFromModel("custom-model"); !errors.Is(err, ErrUnsupportedProvider) {
 		t.Fatalf("expected unsupported provider inference for unknown model family, got %v", err)
 	}
+	for _, model := range []string{"grok-4.6", "grok-4.7"} {
+		if got, err := InferProviderFromModel(model); err != nil || got != ProviderGrok {
+			t.Fatalf("registered Grok model %s ownership = %q, %v", model, got, err)
+		}
+	}
+	if _, err := InferProviderFromModel("grok-uncatalogued"); !errors.Is(err, ErrUnsupportedProvider) {
+		t.Fatalf("uncatalogued Grok model acquired catalog ownership: %v", err)
+	}
 }
 
 func TestNewProviderClient_OpenAI(t *testing.T) {

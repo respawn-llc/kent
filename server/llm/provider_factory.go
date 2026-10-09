@@ -104,10 +104,7 @@ var globalProviderRegistry = mustBuildProviderRegistry(providerContracts())
 func providerContracts() []ProviderContract {
 	return []ProviderContract{
 		{
-			Provider: ProviderGrok,
-			MatchModel: func(model string) bool {
-				return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "grok-")
-			},
+			Provider:  ProviderGrok,
 			NewClient: newResponsesProviderClient,
 			ProviderVariants: []ProviderVariantContract{
 				grokVariant(config.ConnectionGrokCLIProxy, "https://cli-chat-proxy.grok.com/v1"),
@@ -278,9 +275,6 @@ func mustBuildProviderRegistry(contracts []ProviderContract) providerRegistry {
 		if contract.Provider == "" {
 			panic("provider contract missing provider key")
 		}
-		if contract.MatchModel == nil {
-			panic(fmt.Sprintf("provider %q missing model matcher", contract.Provider))
-		}
 		if contract.NewClient == nil {
 			panic(fmt.Sprintf("provider %q missing client factory", contract.Provider))
 		}
@@ -291,7 +285,9 @@ func mustBuildProviderRegistry(contracts []ProviderContract) providerRegistry {
 			panic(fmt.Sprintf("duplicate provider contract for %q", contract.Provider))
 		}
 		registry.contractsByProvider[contract.Provider] = contract
-		registry.modelMatchers = append(registry.modelMatchers, contract)
+		if contract.MatchModel != nil {
+			registry.modelMatchers = append(registry.modelMatchers, contract)
+		}
 
 		for _, variant := range contract.ProviderVariants {
 			normalizedID := strings.ToLower(strings.TrimSpace(variant.ProviderID))
@@ -417,6 +413,9 @@ func InferProviderFromModel(model string) (Provider, error) {
 	normalizedModel := strings.TrimSpace(model)
 	if normalizedModel == "" {
 		return "", fmt.Errorf("%w: model is required to infer provider", ErrUnsupportedProvider)
+	}
+	if model, present := globalProviderRegistry.modelContractsByName[strings.ToLower(normalizedModel)]; present {
+		return model.Provider, nil
 	}
 	for _, contract := range globalProviderRegistry.modelMatchers {
 		if contract.MatchModel(normalizedModel) {
