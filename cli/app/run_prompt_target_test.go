@@ -13,6 +13,7 @@ import (
 
 func TestStartRunPromptClientUnavailableServerDoesNotValidateCallerLocally(t *testing.T) {
 	home := newAppTestHome(t)
+	configureAppTestServerPort(t)
 	workspace := t.TempDir()
 	configPath := filepath.Join(home, config.ConfigDirName, "config.toml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {

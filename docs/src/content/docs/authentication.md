@@ -66,6 +66,6 @@ The API-key variable is optional for `responses` connections. Omit it for an aut
 
 ## Updating an older configuration
 
-Kent converts global `provider_override`, `openai_base_url`, and `provider_capabilities` settings into connections, including choices for roles and the supervisor. Other setting values are unchanged, but TOML comments and formatting may change. Sign in again for converted ChatGPT connections.
+Kent converts global `provider_override`, `openai_base_url`, and `provider_capabilities` settings into connections, including choices for roles and the supervisor. Sign in again for converted ChatGPT connections.
 
 If startup identifies an API connection without an environment-variable reference, add a connection with `environment_variable` as shown above. Replace the old access settings with its `connection` name. Apply the same edits manually to shared workspace and private `config.local.toml` files when startup identifies them. Keep model, thinking, tools, and context settings in their existing scopes.
