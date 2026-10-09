@@ -7,6 +7,7 @@ import (
 
 	"core/server/llm"
 	"core/server/session"
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 	"core/shared/transcript"
 )
@@ -19,6 +20,7 @@ func TestCompactionReplacementAtomicallyEmbedsReinjectedMetaAndPreservedUserMess
 	}}
 	client.compactionResponses[0].Checkpoint.Raw = json.RawMessage(`{"type":"compaction","id":"compaction-checkpoint","encrypted_content":"encrypted","provider_extension":{"retained":true}}`)
 	checkpoint := llm.CloneResponseItems([]llm.ResponseItem{client.compactionResponses[0].Checkpoint})[0]
+	checkpoint.Attribution = &modelcontract.ReasoningAttribution{Type: textutil.Value(modelcontract.ReasoningTypeOpenAI)}
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{
 		Model:           "gpt-6-sol",
 		GlobalConfigDir: globalConfigDir,

@@ -255,6 +255,7 @@ function noticeReasonIcon(notice: TranscriptNotice): LucideIcon | undefined {
     case "legacy_untyped_notice":
     case "runtime_diagnostic":
     case "thinking_update":
+    case "reasoning_omission":
       return undefined;
   }
 }

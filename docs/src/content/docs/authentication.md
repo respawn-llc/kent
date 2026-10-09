@@ -21,6 +21,8 @@ Choose another connection when you want to save subscription usage for later. Ch
 
 Switching the default leaves requests already in progress on their original connection. Re-authenticating or editing an API-key reference takes effect for subsequent requests.
 
+When an existing session switches to a provider that cannot use its encrypted reasoning, Kent omits that reasoning from subsequent requests and warns about reduced output quality. You can view the omitted reasoning in the transcript. If the provider cannot use the session's active encrypted compaction summary, restore a compatible connection to continue.
+
 ## API keys and background services
 
 During setup, enter the **name** of an environment variable, such as `MY_PROVIDER_KEY`, instead of pasting the key. Set its value in the Kent server's environment or in `~/.kent/.env`:

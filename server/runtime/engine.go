@@ -1124,9 +1124,9 @@ func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID
 				onReasoningDelta(delta)
 			}
 		}
-		resp, err := e.generateWithRetryClient(ctx, stepID, e.llm, req, wrappedDelta, wrappedReasoningDelta, onAttemptReset)
+		candidate, err := e.generateWithRetryClient(ctx, stepID, e.llm, req, wrappedDelta, wrappedReasoningDelta, onAttemptReset)
 		if err == nil {
-			return newSuccessfulRequestCandidate(e.cfg.TokenEstimator, req, resp), nil
+			return candidate, nil
 		}
 		if !llm.HasHTTPStatus(err, 400) {
 			return successfulRequestCandidate{}, err
@@ -1147,15 +1147,17 @@ func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID
 	}
 }
 
-func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
+func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (successfulRequestCandidate, error) {
 	observed, err := e.prepareCacheObservedRequest(
+		ctx,
 		stepID,
+		client,
 		req,
 		modelcontract.ProviderOperationPurposeGeneration,
 		cacheResponseObservationExactStep,
 	)
 	if err != nil {
-		return llm.Response{}, err
+		return successfulRequestCandidate{}, err
 	}
 	publishedProviderDiagnostics := make(map[llm.CodexTurnStateDiagnosticCategory]struct{}, 2)
 	resp, err := generateWithRetryClient(
@@ -1170,9 +1172,9 @@ func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, cli
 		},
 	)
 	if err != nil {
-		return llm.Response{}, err
+		return successfulRequestCandidate{}, err
 	}
-	return resp, nil
+	return newSuccessfulRequestCandidate(e.cfg.TokenEstimator, observed.request, resp), nil
 }
 
 func generateWithRetryClient(

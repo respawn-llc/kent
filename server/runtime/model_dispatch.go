@@ -70,14 +70,37 @@ func (c *observedModelClient) generateObserved(ctx context.Context, request cach
 	if c == nil || c.generate == nil {
 		return llm.Response{}, errors.New("model generation client is unavailable")
 	}
-	return c.generate(ctx, request, callbacks, onProviderReturn)
+	response, err := c.generate(ctx, request, callbacks, onProviderReturn)
+	if err != nil {
+		return llm.Response{}, err
+	}
+	capabilities, err := c.capabilities(ctx)
+	if err != nil {
+		return llm.Response{}, err
+	}
+	if err := stampProducedReasoning(&response, capabilities.ProviderID); err != nil {
+		return llm.Response{}, err
+	}
+	return response, nil
 }
 
 func (c *observedModelClient) compactObserved(ctx context.Context, request cacheObservedRequest, onProviderReturn func()) (llm.CompactionResponse, error) {
 	if c == nil || c.compact == nil {
 		return llm.CompactionResponse{}, errors.New("model compaction client is unavailable")
 	}
-	return c.compact(ctx, request, onProviderReturn)
+	response, err := c.compact(ctx, request, onProviderReturn)
+	if err != nil {
+		return llm.CompactionResponse{}, err
+	}
+	capabilities, err := c.capabilities(ctx)
+	if err != nil {
+		return llm.CompactionResponse{}, err
+	}
+	if err := llm.RestoreRetainedItemFacts(&response.Checkpoint); err != nil {
+		return llm.CompactionResponse{}, err
+	}
+	response.Checkpoint.Attribution = producedReasoningAttribution(capabilities.ProviderID, response.Checkpoint.EncryptedContent != nil)
+	return response, nil
 }
 
 func (c *observedModelClient) supportsCompaction() bool {

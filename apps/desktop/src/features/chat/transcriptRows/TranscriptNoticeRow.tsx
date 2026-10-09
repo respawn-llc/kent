@@ -141,6 +141,8 @@ function reasonNoticeText(notice: TranscriptNotice, t: Translate, expanded: bool
       return toolOutputRepairText(notice, t);
     case "provider_model_mismatch":
       return providerModelMismatchText(notice, t);
+    case "reasoning_omission":
+      return t("chatTranscript.notice.reasoningOmission");
     case "legacy_untyped_notice":
     case "runtime_diagnostic":
       return undefined;

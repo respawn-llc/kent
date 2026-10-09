@@ -89,6 +89,7 @@ func sessionMessageRecordFromLLM(message llm.Message) (session.MessageRecord, er
 		record.ReasoningItems = make([]session.MessageReasoningRecord, 0, len(message.ReasoningItems))
 		for _, reasoning := range message.ReasoningItems {
 			record.ReasoningItems = append(record.ReasoningItems, session.MessageReasoningRecord{
+				Attribution:      reasoning.Attribution.Clone(),
 				ID:               reasoning.ID,
 				EncryptedContent: reasoning.EncryptedContent,
 			})
@@ -140,6 +141,7 @@ func llmMessageFromSessionRecord(record session.MessageRecord) (llm.Message, err
 		message.ReasoningItems = make([]llm.ReasoningItem, 0, len(record.ReasoningItems))
 		for _, reasoning := range record.ReasoningItems {
 			message.ReasoningItems = append(message.ReasoningItems, llm.ReasoningItem{
+				Attribution:      reasoning.Attribution.Clone(),
 				ID:               reasoning.ID,
 				EncryptedContent: reasoning.EncryptedContent,
 			})
@@ -314,6 +316,7 @@ func sessionLocalEntryRecordFromRuntime(
 		AfterToolCallID:       textutil.Pointer(entry.AfterToolCallID),
 		ToolOutputRepair:      textutil.Pointer(entry.ToolOutputRepair),
 		ProviderModelMismatch: textutil.Pointer(entry.ProviderModelMismatch),
+		ReasoningOmission:     textutil.Pointer(entry.ReasoningOmission),
 	}
 	normalized, err := session.NewEventRecord(1, nil, record)
 	if err != nil {
@@ -383,6 +386,7 @@ func storedLocalEntryFromSessionRecord(
 		AfterToolCallID:       textutil.Pointer(record.AfterToolCallID),
 		ToolOutputRepair:      textutil.Pointer(record.ToolOutputRepair),
 		ProviderModelMismatch: textutil.Pointer(record.ProviderModelMismatch),
+		ReasoningOmission:     textutil.Pointer(record.ReasoningOmission),
 	}, nil
 }
 
@@ -557,7 +561,11 @@ func historyReplacementPayloadFromSessionRecord(
 	if len(record.Items) > 0 {
 		payload.Items = make([]llm.ResponseItem, 0, len(record.Items))
 		for _, item := range record.Items {
-			payload.Items = append(payload.Items, llmResponseItemFromSessionHistory(item))
+			restored := llmResponseItemFromSessionHistory(item)
+			if err := llm.RestoreRetainedItemFacts(&restored); err != nil {
+				return historyReplacementPayload{}, err
+			}
+			payload.Items = append(payload.Items, restored)
 		}
 	}
 	return payload, nil
@@ -568,6 +576,7 @@ func sessionProviderHistoryItemFromLLM(
 	item llm.ResponseItem,
 ) (session.ProviderHistoryItem, error) {
 	historyItem := session.ProviderHistoryItem{
+		Attribution:          item.Attribution.Clone(),
 		Type:                 session.ProviderHistoryItemType(item.Type),
 		Role:                 convertOptionalString[llm.Role, session.MessageRole](item.Role),
 		MessageType:          convertOptionalString[llm.MessageType, session.MessageType](item.MessageType),
@@ -615,6 +624,7 @@ func sessionProviderHistoryItemFromLLM(
 
 func llmResponseItemFromSessionHistory(item session.ProviderHistoryItem) llm.ResponseItem {
 	responseItem := llm.ResponseItem{
+		Attribution:          item.Attribution.Clone(),
 		Type:                 llm.ResponseItemType(item.Type),
 		Role:                 convertOptionalString[session.MessageRole, llm.Role](item.Role),
 		MessageType:          convertOptionalString[session.MessageType, llm.MessageType](item.MessageType),
