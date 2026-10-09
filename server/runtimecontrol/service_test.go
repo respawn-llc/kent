@@ -2,6 +2,7 @@ package runtimecontrol
 
 import (
 	"context"
+	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
 	"encoding/json"
 	"errors"
@@ -591,7 +592,7 @@ func (c *steeringDrainRuntimeControlClient) Generate(ctx context.Context, req ll
 			Usage:     llm.Usage{WindowTokens: 200000},
 		}, nil
 	default:
-		return llm.Response{}, errors.New("unexpected model request after final response")
+		return llm.Response{}, scriptedllm.ErrScriptExhausted
 	}
 }
 

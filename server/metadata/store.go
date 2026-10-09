@@ -207,7 +207,23 @@ func Open(persistenceRoot string) (*Store, error) {
 	if trimmedRoot == "" {
 		return nil, errors.New("persistence root is required")
 	}
-	return OpenAtPath(trimmedRoot, filepath.Join(trimmedRoot, "db", "main.sqlite3"))
+	return OpenAtPath(trimmedRoot, databasePath(trimmedRoot))
+}
+
+func databasePath(persistenceRoot string) string {
+	return filepath.Join(persistenceRoot, "db", "main.sqlite3")
+}
+
+func DatabaseExists(persistenceRoot string) (bool, error) {
+	root := strings.TrimSpace(persistenceRoot)
+	if root == "" {
+		return false, errors.New("persistence root is required")
+	}
+	_, err := os.Stat(databasePath(root))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func OpenAtPath(persistenceRoot string, databasePath string) (*Store, error) {

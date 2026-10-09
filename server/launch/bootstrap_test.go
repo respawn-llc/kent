@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/metadata"
 	"core/server/session"
 	"core/shared/config"
@@ -91,11 +92,7 @@ func TestResolveBootstrapPlanUsesMetadataSessionLookupByID(t *testing.T) {
 
 func TestResolveSessionCallerTreatsUnownedSessionAsOrdinary(t *testing.T) {
 	persistenceRoot := t.TempDir()
-	metadataStore, err := metadata.Open(persistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	defer func() { _ = metadataStore.Close() }()
+	metadataStore := testsetup.OpenStore(t, persistenceRoot)
 	ordinary := createMetadataBackedSession(
 		t,
 		metadataStore,

@@ -760,9 +760,6 @@ func TestMissingConfigFinalizeActivationFailureIsTypedAndRetryConflicts(t *testi
 		t.Fatal(err)
 	}
 	metadataBlocker := filepath.Join(server.cfg.PersistenceRoot, "db")
-	if err := os.Rename(metadataBlocker, filepath.Join(server.cfg.PersistenceRoot, "saved-db")); err != nil {
-		t.Fatalf("move metadata directory before blocking activation: %v", err)
-	}
 	if err := os.WriteFile(metadataBlocker, []byte("block metadata open"), 0o644); err != nil {
 		t.Fatalf("write metadata blocker: %v", err)
 	}

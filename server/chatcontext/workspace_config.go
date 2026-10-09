@@ -56,6 +56,13 @@ func (r FixedRootWorkspaceResolver) Resolve(workspaceRoot string) (config.App, e
 // ResolveMainWorkspaceRoot uses workspace/worktree bindings, without registering
 // an ordinary unbound workspace or inferring ownership from its parent folders.
 func ResolveMainWorkspaceRoot(persistenceRoot, workspaceRoot string) (string, error) {
+	exists, err := metadata.DatabaseExists(persistenceRoot)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return config.CanonicalWorkspaceRoot(workspaceRoot)
+	}
 	store, err := metadata.Open(persistenceRoot)
 	if err != nil {
 		return "", err

@@ -13,6 +13,25 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestResolveMainWorkspaceRootWithoutDatabaseDoesNotCreateStorage(t *testing.T) {
+	root, workspace := t.TempDir(), t.TempDir()
+	want, err := config.CanonicalWorkspaceRoot(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ResolveMainWorkspaceRoot(root, workspace)
+	if err != nil || got != want {
+		t.Fatalf("workspace root = %q, error = %v, want %q", got, err, want)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("read-only workspace resolution created storage: %+v", entries)
+	}
+}
+
 func TestFixedRootWorkspaceResolverUsesMainWorkspacePrivateConfigForManagedWorktree(t *testing.T) {
 	root, main, worktree := t.TempDir(), t.TempDir(), t.TempDir()
 	store := testsetup.OpenStore(t, root)
