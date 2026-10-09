@@ -19,6 +19,7 @@ func TestCompactionReplacementAtomicallyEmbedsReinjectedMetaAndPreservedUserMess
 		remoteCompactionReplacement(1_000, 100, 200_000),
 	}}
 	client.compactionResponses[0].Checkpoint.Raw = json.RawMessage(`{"type":"compaction","id":"compaction-checkpoint","encrypted_content":"encrypted","provider_extension":{"retained":true}}`)
+	client.compactionResponses[0].ProviderEvidence.ProviderID = textutil.Value("openai")
 	checkpoint := llm.CloneResponseItems([]llm.ResponseItem{client.compactionResponses[0].Checkpoint})[0]
 	checkpoint.Attribution = &modelcontract.ReasoningAttribution{Type: textutil.Value(modelcontract.ReasoningTypeOpenAI)}
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{

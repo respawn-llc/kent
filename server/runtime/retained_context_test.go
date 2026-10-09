@@ -353,26 +353,26 @@ func testLegacyReasoningEvidence(t *testing.T, providers []string, want *modelco
 }
 
 func TestProducedCheckpointAttributionSurvivesResume(t *testing.T) {
-	testProducedCheckpointAttributionSurvivesResume(t, defaultTestProviderCapabilities(), textutil.Value(modelcontract.ReasoningTypeOpenAI))
+	testProducedCheckpointAttributionSurvivesResume(t, defaultTestProviderCapabilities(), textutil.Value(modelcontract.ReasoningTypeOpenAI), textutil.Value("openai"))
 }
 
 func TestRecordedUnknownCheckpointSurvivesResume(t *testing.T) {
-	caps := defaultTestProviderCapabilities()
-	caps.ProviderID = "openai-compatible"
-	testProducedCheckpointAttributionSurvivesResume(t, caps, nil)
+	for _, provider := range []*string{nil, textutil.Value("openai-compatible"), textutil.Value("unregistered-provider")} {
+		testProducedCheckpointAttributionSurvivesResume(t, defaultTestProviderCapabilities(), nil, provider)
+	}
 }
 
-func testProducedCheckpointAttributionSurvivesResume(t *testing.T, caps llm.ProviderCapabilities, want *modelcontract.ReasoningType) {
+func testProducedCheckpointAttributionSurvivesResume(t *testing.T, caps llm.ProviderCapabilities, want *modelcontract.ReasoningType, provider *string) {
 	t.Helper()
 	store := mustCreateTestSession(t)
 	raw := json.RawMessage(`{"type":"compaction","id":"cmp_origin","encrypted_content":"checkpoint-opaque"}`)
 	client := &fakeCompactionClient{
 		caps: caps,
-		compactionResponses: []llm.CompactionResponse{{Checkpoint: llm.ResponseItem{
+		compactionResponses: []llm.CompactionResponse{{ProviderEvidence: modelcontract.ProviderUsageEvidence{ProviderID: provider}, Checkpoint: llm.ResponseItem{
 			Type: llm.ResponseItemTypeCompaction, Raw: raw,
 		}}},
 	}
-	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{CompactionMode: "native"})
+	engine := mustNewTestEngine(t, store, &completedDispatchClient{Client: client}, tools.NewRegistry(), Config{CompactionMode: "native"})
 	completeManualEligibilityAgentStep(t, engine)
 	scheduleManualCompactionAndWait(t, engine)
 	if len(client.compactionCalls) != 1 {
@@ -404,16 +404,16 @@ func testProducedCheckpointAttributionSurvivesResume(t *testing.T, caps llm.Prov
 }
 
 func TestProducedReasoningAttributionSurvivesResume(t *testing.T) {
-	testProducedReasoningAttributionSurvivesResume(t, defaultTestProviderCapabilities(), textutil.Value(modelcontract.ReasoningTypeOpenAI))
+	testProducedReasoningAttributionSurvivesResume(t, defaultTestProviderCapabilities(), textutil.Value(modelcontract.ReasoningTypeOpenAI), textutil.Value("openai"))
 }
 
 func TestRecordedUnknownReasoningDoesNotInheritOldContractOnResume(t *testing.T) {
-	caps := defaultTestProviderCapabilities()
-	caps.ProviderID = "openai-compatible"
-	testProducedReasoningAttributionSurvivesResume(t, caps, nil)
+	for _, provider := range []*string{nil, textutil.Value("openai-compatible"), textutil.Value("unregistered-provider")} {
+		testProducedReasoningAttributionSurvivesResume(t, defaultTestProviderCapabilities(), nil, provider)
+	}
 }
 
-func testProducedReasoningAttributionSurvivesResume(t *testing.T, producingCaps llm.ProviderCapabilities, want *modelcontract.ReasoningType) {
+func testProducedReasoningAttributionSurvivesResume(t *testing.T, producingCaps llm.ProviderCapabilities, want *modelcontract.ReasoningType, provider *string) {
 	t.Helper()
 	store := mustCreateTestSession(t)
 	original := mustNewTestEngine(t, store, &fakeClient{responses: []llm.Response{finalTextResponse("original")}}, tools.NewRegistry(), Config{})
@@ -425,7 +425,7 @@ func testProducedReasoningAttributionSurvivesResume(t *testing.T, producingCaps 
 	}
 	raw := json.RawMessage(`{"type":"reasoning","id":"rs_origin","encrypted_content":"opaque","summary":[]}`)
 	response := llm.Response{
-		ProviderEvidence: modelcontract.ProviderUsageEvidence{ProviderID: textutil.Value("openai"), RequestedModel: "gpt-6-sol"},
+		ProviderEvidence: modelcontract.ProviderUsageEvidence{ProviderID: provider, RequestedModel: "gpt-6-sol"},
 		Assistant:        llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
 		ReasoningItems:   []llm.ReasoningItem{{ID: "rs_origin", EncryptedContent: "opaque"}},
 		OutputItems: []llm.ResponseItem{
@@ -433,7 +433,7 @@ func testProducedReasoningAttributionSurvivesResume(t *testing.T, producingCaps 
 			{Type: llm.ResponseItemTypeMessage, Role: textutil.Value(llm.RoleAssistant), Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
 		},
 	}
-	engine := mustNewTestEngine(t, store, &fakeClient{responses: []llm.Response{response}, caps: producingCaps}, tools.NewRegistry(), Config{})
+	engine := mustNewTestEngine(t, store, &completedDispatchClient{Client: &fakeClient{responses: []llm.Response{response}, caps: producingCaps}}, tools.NewRegistry(), Config{})
 	if _, err := engine.SubmitUserMessage(context.Background(), "start"); err != nil {
 		t.Fatal(err)
 	}
@@ -459,4 +459,30 @@ func testProducedReasoningAttributionSurvivesResume(t *testing.T, producingCaps 
 		}
 	}
 	t.Fatal("restored request lost reasoning")
+}
+
+// The producing response remains valid even if credentials become unavailable
+// or the connection changes immediately after the provider returns.
+type completedDispatchClient struct {
+	llm.Client
+	completed bool
+}
+
+func (c *completedDispatchClient) ProviderCapabilities(ctx context.Context) (llm.ProviderCapabilities, error) {
+	if c.completed {
+		return llm.ProviderCapabilities{}, errors.New("credentials no longer available")
+	}
+	return c.Client.(llm.ProviderCapabilitiesClient).ProviderCapabilities(ctx)
+}
+
+func (c *completedDispatchClient) Generate(ctx context.Context, request llm.Request, callbacks llm.StreamCallbacks) (llm.Response, error) {
+	response, err := c.Client.Generate(ctx, request, callbacks)
+	c.completed = true
+	return response, err
+}
+
+func (c *completedDispatchClient) Compact(ctx context.Context, request llm.CompactionRequest) (llm.CompactionResponse, error) {
+	response, err := c.Client.(llm.CompactionClient).Compact(ctx, request)
+	c.completed = true
+	return response, err
 }

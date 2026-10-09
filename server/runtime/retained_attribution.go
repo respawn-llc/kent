@@ -54,15 +54,18 @@ func (e producingStepEvidence) infer(attribution *modelcontract.ReasoningAttribu
 	return &modelcontract.ReasoningAttribution{Type: textutil.Pointer(typ)}
 }
 
-func producedReasoningAttribution(providerID string, encrypted bool) *modelcontract.ReasoningAttribution {
-	typ := llm.LookupProviderReasoningType(providerID)
+func producedReasoningAttribution(providerID *string, encrypted bool) *modelcontract.ReasoningAttribution {
+	var typ *modelcontract.ReasoningType
+	if providerID != nil {
+		typ = llm.LookupProviderReasoningType(*providerID)
+	}
 	if !encrypted {
 		typ = textutil.Value(modelcontract.ReasoningTypeUnencrypted)
 	}
 	return &modelcontract.ReasoningAttribution{Type: typ}
 }
 
-func stampProducedReasoning(response *llm.Response, providerID string) error {
+func stampProducedReasoning(response *llm.Response, providerID *string) error {
 	for index := range response.OutputItems {
 		item := &response.OutputItems[index]
 		if item.Type == llm.ResponseItemTypeReasoning || item.Type == llm.ResponseItemTypeCompaction {

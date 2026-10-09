@@ -74,11 +74,7 @@ func (c *observedModelClient) generateObserved(ctx context.Context, request cach
 	if err != nil {
 		return llm.Response{}, err
 	}
-	capabilities, err := c.capabilities(ctx)
-	if err != nil {
-		return llm.Response{}, err
-	}
-	if err := stampProducedReasoning(&response, capabilities.ProviderID); err != nil {
+	if err := stampProducedReasoning(&response, response.ProviderEvidence.ProviderID); err != nil {
 		return llm.Response{}, err
 	}
 	return response, nil
@@ -92,14 +88,10 @@ func (c *observedModelClient) compactObserved(ctx context.Context, request cache
 	if err != nil {
 		return llm.CompactionResponse{}, err
 	}
-	capabilities, err := c.capabilities(ctx)
-	if err != nil {
-		return llm.CompactionResponse{}, err
-	}
 	if err := llm.RestoreRetainedItemFacts(&response.Checkpoint); err != nil {
 		return llm.CompactionResponse{}, err
 	}
-	response.Checkpoint.Attribution = producedReasoningAttribution(capabilities.ProviderID, response.Checkpoint.EncryptedContent != nil)
+	response.Checkpoint.Attribution = producedReasoningAttribution(response.ProviderEvidence.ProviderID, response.Checkpoint.EncryptedContent != nil)
 	return response, nil
 }
 
