@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"core/cli/app/internal/authui"
+	sharedauth "core/shared/auth"
 	"core/shared/config"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
@@ -205,8 +206,9 @@ func TestRemoteAuthBootstrapHybridBrowserAcceptsCallbackOrPaste(t *testing.T) {
 			useStartupTestTerminal(t)
 			listener := &stubOAuthCallbackListener{callback: authui.OAuthBrowserCallback{Code: "code-1"}}
 			remote := &stubAuthBootstrapClient{status: &authpb.BootstrapStatus{
-				AuthReady:    false,
-				AuthRequired: true,
+				AuthReady:         false,
+				AuthRequired:      true,
+				CallbackTransport: &authpb.BootstrapCallbackTransport{BindAddress: "127.0.0.1:1455", RedirectHost: "localhost", CallbackPath: "/auth/callback"},
 				SupportedModes: []authpb.BootstrapMode{
 					authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL,
 				},
@@ -215,7 +217,7 @@ func TestRemoteAuthBootstrapHybridBrowserAcceptsCallbackOrPaste(t *testing.T) {
 				pickMethod: func(authInteraction) (authMethodPickerResult, error) {
 					return authMethodPickerResult{Choice: authMethodChoiceBrowserAuto}, nil
 				},
-				startCallbackListener: func() (oauthCallbackListener, error) { return listener, nil },
+				startCallbackListener: func(sharedauth.CallbackTransport) (oauthCallbackListener, error) { return listener, nil },
 				openBrowser:           func(string) error { return nil },
 				runCallbackPage:       tt.runPage,
 			}
@@ -238,8 +240,9 @@ func TestRemoteAuthBootstrapHybridBrowserCancelClosesListener(t *testing.T) {
 	useStartupTestTerminal(t)
 	listener := &stubOAuthCallbackListener{}
 	remote := &stubAuthBootstrapClient{status: &authpb.BootstrapStatus{
-		AuthReady:    false,
-		AuthRequired: true,
+		AuthReady:         false,
+		AuthRequired:      true,
+		CallbackTransport: &authpb.BootstrapCallbackTransport{BindAddress: "127.0.0.1:1455", RedirectHost: "localhost", CallbackPath: "/auth/callback"},
 		SupportedModes: []authpb.BootstrapMode{
 			authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL,
 		},
@@ -253,7 +256,7 @@ func TestRemoteAuthBootstrapHybridBrowserCancelClosesListener(t *testing.T) {
 			}
 			return authMethodPickerResult{Choice: authMethodChoiceBrowserAuto}, nil
 		},
-		startCallbackListener: func() (oauthCallbackListener, error) { return listener, nil },
+		startCallbackListener: func(sharedauth.CallbackTransport) (oauthCallbackListener, error) { return listener, nil },
 		openBrowser:           func(string) error { return nil },
 		runCallbackPage: func(context.Context, authCallbackPageData, func(context.Context) (authui.OAuthBrowserCallback, error), func(context.Context, string) error) (authCallbackPageResult, error) {
 			return authCallbackPageResult{Canceled: true}, nil
@@ -273,14 +276,15 @@ func TestRemoteAuthBootstrapRejectsMismatchedOAuthState(t *testing.T) {
 	useStartupTestTerminal(t)
 	listener := &stubOAuthCallbackListener{}
 	remote := &stubAuthBootstrapClient{status: &authpb.BootstrapStatus{
-		AuthReady:    false,
-		AuthRequired: true,
+		AuthReady:         false,
+		AuthRequired:      true,
+		CallbackTransport: &authpb.BootstrapCallbackTransport{BindAddress: "127.0.0.1:1455", RedirectHost: "localhost", CallbackPath: "/auth/callback"},
 		SupportedModes: []authpb.BootstrapMode{
 			authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL,
 		},
 	}}
 	interactor := &interactiveAuthInteractor{
-		startCallbackListener: func() (oauthCallbackListener, error) { return listener, nil },
+		startCallbackListener: func(sharedauth.CallbackTransport) (oauthCallbackListener, error) { return listener, nil },
 		openBrowser:           func(string) error { return nil },
 		runCallbackPage: func(ctx context.Context, _ authCallbackPageData, _ func(context.Context) (authui.OAuthBrowserCallback, error), complete func(context.Context, string) error) (authCallbackPageResult, error) {
 			input := "http://localhost/callback?code=pasted&state=wrong"

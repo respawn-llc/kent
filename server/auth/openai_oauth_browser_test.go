@@ -9,7 +9,67 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"core/shared/config"
 )
+
+func TestGrokCallbackPreflightAndCodeDeliveryAreSeparate(t *testing.T) {
+	transport, err := CallbackTransport(config.ConnectionGrokCLIProxy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := StartOAuthCallbackListener(transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	redirect, err := url.Parse(listener.RedirectURI())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if redirect.Hostname() != "127.0.0.1" || redirect.Port() == "0" || redirect.Port() == "" || redirect.Path != "/callback" {
+		t.Fatalf("unbound Grok redirect: %s", redirect)
+	}
+	for _, origin := range []string{"https://accounts.x.ai", "https://untrusted.example"} {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodOptions, listener.RedirectURI(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Method", "GET")
+		req.Header.Set("Access-Control-Request-Private-Network", "true")
+		response, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if origin == "https://accounts.x.ai" {
+			if response.StatusCode != http.StatusNoContent || response.Header.Get("Access-Control-Allow-Origin") != origin ||
+				response.Header.Get("Access-Control-Allow-Methods") != "GET" || response.Header.Get("Access-Control-Allow-Private-Network") != "true" {
+				t.Fatalf("preflight response = %d, %v", response.StatusCode, response.Header)
+			}
+		} else if response.Header.Get("Access-Control-Allow-Origin") != "" {
+			t.Fatal("untrusted origin was CORS-authorized")
+		}
+	}
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, listener.RedirectURI()+"?code=fixture-code&state=fixture-state", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Origin", "https://accounts.x.ai")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.Header.Get("Access-Control-Allow-Origin") != "https://accounts.x.ai" {
+		t.Fatal("callback GET omitted allowlisted CORS")
+	}
+	callback, err := listener.Wait(t.Context(), time.Second)
+	if err != nil || callback.Code != "fixture-code" || callback.State != "fixture-state" {
+		t.Fatalf("preflight consumed callback delivery: %+v, %v", callback, err)
+	}
+}
 
 func TestBeginOpenAIBrowserFlowBuildsOAuthAuthorizeURL(t *testing.T) {
 	session, err := BeginOpenAIBrowserFlow(OpenAIOAuthOptions{
@@ -61,7 +121,11 @@ func TestBeginOpenAIBrowserFlowBuildsOAuthAuthorizeURL(t *testing.T) {
 }
 
 func TestStartOAuthCallbackListenerUsesLocalhostAuthCallback(t *testing.T) {
-	listener, err := StartOAuthCallbackListener()
+	transport, err := CallbackTransport(config.ConnectionChatGPT)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := StartOAuthCallbackListener(transport)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "address already in use") {
 			t.Skipf("oauth callback port in use: %v", err)
@@ -89,7 +153,11 @@ func TestStartOAuthCallbackListenerUsesLocalhostAuthCallback(t *testing.T) {
 }
 
 func TestOAuthCallbackSuccessResponseServesAuthCompleteHTML(t *testing.T) {
-	listener, err := StartOAuthCallbackListener()
+	transport, err := CallbackTransport(config.ConnectionChatGPT)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := StartOAuthCallbackListener(transport)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "address already in use") {
 			t.Skipf("oauth callback port in use: %v", err)

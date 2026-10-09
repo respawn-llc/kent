@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	sharedauth "core/shared/auth"
+
 	_ "embed"
 )
 
@@ -143,18 +145,21 @@ func ParseOAuthCallbackInput(input string) (BrowserCallback, error) {
 	return BrowserCallback{Code: input}, nil
 }
 
-func StartOAuthCallbackListener() (*OAuthCallbackListener, error) {
+func StartOAuthCallbackListener(transport sharedauth.CallbackTransport) (*OAuthCallbackListener, error) {
+	if transport.BindAddress == "" || transport.RedirectHost == "" || transport.CallbackPath == "" {
+		return nil, errors.New("OAuth callback transport is required")
+	}
 	var (
 		ln              net.Listener
 		err             error
 		cancelAttempted bool
 	)
 	for attempts := 0; attempts < oauthListenerRetryMax; attempts++ {
-		ln, err = net.Listen("tcp", oauthBindAddress)
+		ln, err = net.Listen("tcp", transport.BindAddress)
 		if err == nil {
 			break
 		}
-		if isAddrInUse(err) {
+		if transport.BindAddress == oauthBindAddress && isAddrInUse(err) {
 			if !cancelAttempted {
 				_ = sendOAuthCancelRequest()
 				cancelAttempted = true
@@ -164,10 +169,10 @@ func StartOAuthCallbackListener() (*OAuthCallbackListener, error) {
 				continue
 			}
 		}
-		return nil, fmt.Errorf("listen oauth callback on %s: %w", oauthBindAddress, err)
+		return nil, fmt.Errorf("listen oauth callback on %s: %w", transport.BindAddress, err)
 	}
 	if ln == nil {
-		return nil, fmt.Errorf("listen oauth callback on %s: exhausted retries", oauthBindAddress)
+		return nil, fmt.Errorf("listen oauth callback on %s: exhausted retries", transport.BindAddress)
 	}
 	resultCh := make(chan BrowserCallback, 1)
 	errCh := make(chan error, 1)
@@ -177,10 +182,28 @@ func StartOAuthCallbackListener() (*OAuthCallbackListener, error) {
 			_, _ = w.Write([]byte("OAuth callback listener canceled"))
 			return
 		}
-		if r.URL.Path != oauthCallbackPath {
+		if r.URL.Path != transport.CallbackPath {
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte("Not found"))
 			return
+		}
+		if transport.AllowedOrigin != nil {
+			w.Header().Add("Vary", "Origin")
+			w.Header().Add("Vary", "Access-Control-Request-Method")
+			w.Header().Add("Vary", "Access-Control-Request-Private-Network")
+			if r.Header.Get("Origin") == *transport.AllowedOrigin {
+				w.Header().Set("Access-Control-Allow-Origin", *transport.AllowedOrigin)
+				w.Header().Set("Access-Control-Allow-Methods", http.MethodGet)
+				w.Header().Set("Access-Control-Allow-Private-Network", "true")
+			}
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			if r.Method != http.MethodGet {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
 		}
 		q := r.URL.Query()
 		if authErr := strings.TrimSpace(q.Get("error")); authErr != "" {
@@ -209,13 +232,19 @@ func StartOAuthCallbackListener() (*OAuthCallbackListener, error) {
 		default:
 		}
 	})}
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
+	redirectURI := (&url.URL{Scheme: "http", Host: net.JoinHostPort(transport.RedirectHost, port), Path: transport.CallbackPath}).String()
 	go func() {
 		if serveErr := srv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			errCh <- serveErr
 		}
 	}()
 	return &OAuthCallbackListener{
-		redirectURI: defaultManualBrowserRedirectURI,
+		redirectURI: redirectURI,
 		resultCh:    resultCh,
 		errCh:       errCh,
 		server:      srv,

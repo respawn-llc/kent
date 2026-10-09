@@ -59,7 +59,7 @@ func (s *remoteAppServer) manageConnections(ctx context.Context, catalog *authpb
 		}
 		err = runConnectionForm(ctx, model, func() error {
 			selected = protoapi.ConnectionToProto(form.id, form.definition)
-			if selected.Protocol == authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT {
+			if form.definition.Protocol.IsSubscription() {
 				return signInConnection(ctx, s.remote, selectedTheme, &authpb.ConnectionTarget{Target: &authpb.ConnectionTarget_AddConnection{AddConnection: selected}}, false)
 			}
 			_, err = runConnectionOperation(ctx, selectedTheme, func() (*emptypb.Empty, error) {

@@ -87,7 +87,7 @@ func runOnboardingFlow(ctx context.Context, cfg config.Connection, local config.
 			}
 			return &emptypb.Empty{}, nil
 		})
-		if err == nil && form.definition.Protocol == config.ConnectionChatGPT {
+		if err == nil && form.definition.Protocol.IsSubscription() {
 			err = signInConnection(ctx, connections, selectedTheme, &authpb.ConnectionTarget{Target: &authpb.ConnectionTarget_PendingSetup{PendingSetup: &emptypb.Empty{}}}, false)
 		}
 		if errors.Is(err, ErrAuthCanceledByUser) {

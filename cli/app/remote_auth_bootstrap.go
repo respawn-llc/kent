@@ -10,6 +10,7 @@ import (
 	"core/cli/app/internal/authui"
 	serverauth "core/server/auth"
 	"core/shared/apicontract"
+	sharedauth "core/shared/auth"
 	"core/shared/config"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
@@ -154,7 +155,10 @@ func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Co
 	}
 	switch choice {
 	case authMethodChoiceBrowserAuto:
-		return i.collectRemoteBrowserAuto(ctx, remote, target, theme)
+		if status.CallbackTransport == nil {
+			return nil, errors.New("server returned no browser callback transport")
+		}
+		return i.collectRemoteBrowserAuto(ctx, remote, target, protoapi.CallbackTransportFromProto(status.CallbackTransport), theme)
 	case authMethodChoiceDevice:
 		return i.collectRemoteDevice(ctx, remote, target, theme)
 	default:
@@ -162,18 +166,18 @@ func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Co
 	}
 }
 
-func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context, remote apicontract.AuthBootstrapService, target *authpb.ConnectionTarget, theme string) (*authpb.CompleteBootstrapRequest, error) {
+func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context, remote apicontract.AuthBootstrapService, target *authpb.ConnectionTarget, transport sharedauth.CallbackTransport, theme string) (*authpb.CompleteBootstrapRequest, error) {
 	startListener := i.startCallbackListener
 	if startListener == nil {
-		startListener = func() (oauthCallbackListener, error) {
-			return serverauth.StartOAuthCallbackListener()
+		startListener = func(transport sharedauth.CallbackTransport) (oauthCallbackListener, error) {
+			return serverauth.StartOAuthCallbackListener(transport)
 		}
 	}
 	openBrowser := i.openBrowser
 	if openBrowser == nil {
 		openBrowser = serverauth.OpenBrowser
 	}
-	listener, err := startListener()
+	listener, err := startListener(transport)
 	if err != nil {
 		return nil, err
 	}

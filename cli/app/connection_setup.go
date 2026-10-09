@@ -54,7 +54,7 @@ func newConnectionForm(catalog *authpb.ConnectionCatalog) (*connectionForm, erro
 }
 
 func connectionTemplateFor(definition config.ProviderConnection) connectionTemplate {
-	if definition.Protocol == config.ConnectionChatGPT {
+	if definition.Protocol.IsSubscription() {
 		return connectionTemplateSubscription
 	}
 	if definition.EnvironmentVariable != nil {
