@@ -45,7 +45,9 @@ Grok connections default to `grok-4.7` with `high` thinking. The supervisor inhe
 
 Kent's built-in catalog includes `grok-4.6` and `grok-4.7`. The subscription proxy uses a 256,000-token context setting for `grok-4.7`, with 500,000 available as the larger choice. Its `grok-4.6` context limit is unknown. Public API connections use 500,000 tokens for both models.
 
-Both catalogued models offer `low`, `medium`, `high`, and `xhigh` thinking, vision, reasoning summaries, and native web search. Fast mode requests priority processing with the same model. Verbosity settings do not affect Grok requests. Native compaction uses the selected connection's `/responses/compact` endpoint. Subscription-proxy compaction is experimental pending live verification.
+Both catalogued models offer `low`, `medium`, `high`, and `xhigh` thinking, vision, reasoning summaries, and native web search. Fast mode requests priority processing with the same model. Verbosity settings do not affect Grok requests.
+
+Native compaction uses the selected connection's `/responses/compact` endpoint and keeps the provider's complete returned context for continuation. Compaction sends the session cache key, effective priority tier, and non-tool request settings. Subscription-proxy compaction and acceptance of these extra request fields are experimental pending live verification.
 
 Custom thinking accepts manual values for any model. Kent rejects unsupported efforts for catalogued models when sending a request. For uncatalogued models, the provider validates the custom value. Across providers, Disable is available only for models whose supported efforts include `none`. Native web search is incompatible with manually entered `grok-4.5`.
 
