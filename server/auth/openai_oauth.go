@@ -35,8 +35,9 @@ type OpenAIOAuthOptions struct {
 type DeviceCode struct {
 	VerificationURL string
 	UserCode        string
-	DeviceAuthID    string
+	Code            string
 	PollInterval    time.Duration
+	ExpiresAt       *time.Time
 }
 
 type DeviceAuthorizationGrant struct {
@@ -194,7 +195,7 @@ func requestOpenAIDeviceCode(ctx context.Context, opts OpenAIOAuthOptions) (Devi
 	return DeviceCode{
 		VerificationURL: issuer + "/codex/device",
 		UserCode:        parsed.UserCode,
-		DeviceAuthID:    parsed.DeviceAuthID,
+		Code:            parsed.DeviceAuthID,
 		PollInterval:    time.Duration(intervalSeconds) * time.Second,
 	}, nil
 }
@@ -210,7 +211,7 @@ func pollOpenAIDeviceAuthToken(ctx context.Context, opts OpenAIOAuthOptions, cod
 		}
 
 		payload, _ := json.Marshal(map[string]string{
-			"device_auth_id": code.DeviceAuthID,
+			"device_auth_id": code.Code,
 			"user_code":      code.UserCode,
 		})
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
@@ -392,11 +393,19 @@ func oauthExpiry(seconds *int) (*time.Time, error) {
 	if seconds == nil {
 		return nil, nil
 	}
-	if *seconds < 0 || int64(*seconds) > math.MaxInt64/int64(time.Second) {
-		return nil, errors.New("OAuth expiry must be a nonnegative duration in seconds")
+	duration, err := oauthDuration(*seconds)
+	if err != nil {
+		return nil, err
 	}
-	expiry := time.Now().UTC().Add(time.Duration(*seconds) * time.Second)
+	expiry := time.Now().UTC().Add(duration)
 	return &expiry, nil
+}
+
+func oauthDuration(seconds int) (time.Duration, error) {
+	if seconds < 0 || int64(seconds) > math.MaxInt64/int64(time.Second) {
+		return 0, errors.New("OAuth duration must be a nonnegative number of seconds")
+	}
+	return time.Duration(seconds) * time.Second, nil
 }
 
 func NewOpenAIOAuthRefresher(opts OpenAIOAuthOptions, now func() time.Time, refreshBefore time.Duration) *OAuthRefresher {
