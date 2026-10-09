@@ -59,4 +59,5 @@ type PendingApproval struct {
 	Options       []ApprovalOption
 	AccessTargets []FileAccessTarget
 	CreatedAt     time.Time
+	Batch         *QuestionBatch
 }

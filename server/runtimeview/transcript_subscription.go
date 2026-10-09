@@ -185,6 +185,15 @@ func transcriptToolStartsFromRuntime(starts []runtime.TranscriptLiveToolStart) (
 }
 
 func TranscriptMessagesFromRuntimeEventChecked(evt runtime.Event) ([]*transcriptpb.Event, error) {
+	if evt.Kind == runtime.EventQuestionCandidateFinished {
+		if evt.StepID == nil || evt.FinishedQuestionCandidate == nil {
+			return nil, errors.New("finished Question candidate has no Step or tool call identity")
+		}
+		if _, err := runtimeids.ParseStepID(*evt.StepID); err != nil {
+			return nil, err
+		}
+		return nil, evt.FinishedQuestionCandidate.Validate()
+	}
 	for index, fact := range runtime.TranscriptCommittedRowFactsFromEvent(evt) {
 		if err := fact.Locator.Validate(); err != nil {
 			return nil, fmt.Errorf("runtime committed row fact %d from event %q lacks valid provenance: %w", index, evt.Kind, err)

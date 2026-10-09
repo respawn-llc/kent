@@ -72,6 +72,7 @@ message Question {
     (buf.validate.field).required = true,
     (buf.validate.field).timestamp.gt = {seconds: 0}
   ];
+  QuestionBatch batch = 8;
 
   option (buf.validate.message).cel = {
     id: "kent.prompt.question_recommendation"
@@ -132,6 +133,7 @@ message Approval {
     (buf.validate.field).timestamp.gt = {seconds: 0}
   ];
   repeated FileAccessTarget access_targets = 7 [(buf.validate.field).repeated.items.required = true];
+  QuestionBatch batch = 8;
 
   option (buf.validate.message).cel = {
     id: "kent.prompt.approval_decisions_unique"
@@ -636,4 +638,25 @@ service LiveWatchService {
       unary_connection: UNARY_CONNECTION_DEDICATED
     };
   }
+}
+
+message QuestionBatch {
+  repeated string tool_call_ids = 1 [(buf.validate.field).repeated = {
+    min_items: 1
+    unique: true
+    items: {
+      string: {min_len: 1}
+      cel: {
+        id: "kent.prompt.batch_tool_call_id_canonical"
+        message: "tool_call_ids must not have surrounding whitespace"
+        expression: "this == this.trim()"
+      }
+    }
+  }];
+  uint32 unmaterialized_count = 2;
+  option (buf.validate.message).cel = {
+    id: "kent.prompt.batch_unmaterialized_count"
+    message: "unmaterialized_count must not exceed the original batch size"
+    expression: "this.unmaterialized_count <= size(this.tool_call_ids)"
+  };
 }

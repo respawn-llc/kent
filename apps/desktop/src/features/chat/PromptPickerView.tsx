@@ -9,6 +9,7 @@ import {
   PromptOptionRow,
   RadioGroup,
   ScrollRegion,
+  Spinner,
   StaticMarkdown,
 } from "@/ui";
 import { pickerBatch, sameSelection, type PickerAction, type PickerState } from "./promptPickerState";
@@ -39,6 +40,10 @@ export function PromptPickerView({
   const draft = state.current === null ? undefined : state.drafts.get(state.current);
   if (prompt === undefined || draft === undefined) return null;
   const disabled = isPending || draft.status === "declined";
+  const materializing = batch.some((item) => (item.batch?.unmaterializedCount ?? 0) > 0);
+  const navigationDisabled = batch.length < 2;
+  const navigationTooltipKey = pickerNavigationTooltip(navigationDisabled, materializing);
+  const navigationTooltipProps = navigationTooltipKey === null ? {} : { tooltip: t(navigationTooltipKey) };
   const options = pickerOptions(prompt, t);
   const selected = options.find((option) => sameSelection(option.selection, draft.selection));
   const act = (action: PickerAction) => {
@@ -57,10 +62,12 @@ export function PromptPickerView({
           <div className="prompt-picker-content" key={prompt.toolCallID}>
             <PromptQuestion prompt={prompt} />
           </div>
-          {batch.length > 1 && (
+          {state.batchToolCallIDs.length > 1 && (
             <div className="flex items-center gap-[var(--space-1)]">
               <IconTooltipButton
                 label={t("chat.picker.previous")}
+                disabled={navigationDisabled}
+                {...navigationTooltipProps}
                 onClick={() => {
                   act({ kind: "navigate", direction: -1 });
                 }}
@@ -69,10 +76,16 @@ export function PromptPickerView({
                 <ChevronLeft size={16} />
               </IconTooltipButton>
               <span className="min-w-0 text-sm">
-                {t("chat.picker.position", { current: index + 1, count: batch.length })}
+                {t("chat.picker.position", {
+                  current: state.batchToolCallIDs.indexOf(prompt.toolCallID) + 1,
+                  count: state.batchToolCallIDs.length,
+                })}
               </span>
+              {materializing && <Spinner size="sm" tone="inherit" />}
               <IconTooltipButton
                 label={t("chat.picker.next")}
+                disabled={navigationDisabled}
+                {...navigationTooltipProps}
                 onClick={() => {
                   act({ kind: "navigate", direction: 1 });
                 }}
@@ -126,6 +139,11 @@ export function PromptPickerView({
       />
     </div>
   );
+}
+
+function pickerNavigationTooltip(disabled: boolean, materializing: boolean) {
+  if (!disabled) return null;
+  return materializing ? "chat.picker.waitingQuestions" : "chat.picker.noOtherQuestions";
 }
 
 function PromptQuestion({ prompt }: Readonly<{ prompt: PendingPrompt }>) {
