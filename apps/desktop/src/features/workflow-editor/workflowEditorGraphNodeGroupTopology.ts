@@ -4,7 +4,7 @@ import { uniqueWorkflowModelKey } from "./workflowEditorGraphKeys";
 import {
   edgesForTransitionGroup,
   incidentEdges,
-  transitionIDsForSource,
+  transitionIDsForWorkflow,
   workflowEdge,
   workflowTransitionGroup,
 } from "./workflowEditorGraphMutationHelpers";
@@ -266,31 +266,22 @@ function nodeGroupV1TopologyTransitionGroups(
   ids: InferredNodeGroupTopologyIDs,
   topology: InferredNodeGroupTopology,
 ) {
-  const groups = [
-    workflowTransitionGroup({
-      id: ids.addedBranchJoinTransitionGroupID,
+  const transitionIDs = new Set(transitionIDsForWorkflow(draft));
+  const joinTransitionGroup = (id: string, sourceNodeID: string) => {
+    const transitionID = uniqueWorkflowModelKey(topology.join.key, transitionIDs);
+    transitionIDs.add(transitionID);
+    return workflowTransitionGroup({
+      id,
       name: topology.join.name,
-      sourceNodeID: topology.addedBranch.id,
-      transitionID: uniqueWorkflowModelKey(
-        topology.join.key,
-        transitionIDsForSource(draft, topology.addedBranch.id),
-      ),
+      sourceNodeID,
+      transitionID,
       workflowID: draft.workflow.id,
-    }),
-  ];
+    });
+  };
   return topology.kind === "initial"
     ? [
-        workflowTransitionGroup({
-          id: ids.existingBranchJoinTransitionGroupID,
-          name: topology.join.name,
-          sourceNodeID: topology.existingBranch.id,
-          transitionID: uniqueWorkflowModelKey(
-            topology.join.key,
-            transitionIDsForSource(draft, topology.existingBranch.id),
-          ),
-          workflowID: draft.workflow.id,
-        }),
-        ...groups,
+        joinTransitionGroup(ids.existingBranchJoinTransitionGroupID, topology.existingBranch.id),
+        joinTransitionGroup(ids.addedBranchJoinTransitionGroupID, topology.addedBranch.id),
       ]
-    : groups;
+    : [joinTransitionGroup(ids.addedBranchJoinTransitionGroupID, topology.addedBranch.id)];
 }

@@ -101,13 +101,8 @@ export function incidentEdges(draft: DraftWorkflowDefinition, nodeID: string): r
   );
 }
 
-export function transitionIDsForSource(
-  draft: DraftWorkflowDefinition,
-  sourceNodeID: string,
-): readonly string[] {
-  return draft.transitionGroups
-    .filter((group) => group.sourceNodeID === sourceNodeID)
-    .map((group) => group.transitionID);
+export function transitionIDsForWorkflow(draft: DraftWorkflowDefinition): readonly string[] {
+  return draft.transitionGroups.map((group) => group.transitionID);
 }
 
 export function edgesForTransitionGroup(

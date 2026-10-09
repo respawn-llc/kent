@@ -63,6 +63,8 @@ describe("workflow editor Node Group membership", () => {
     });
 
     expect(result.warnings).toEqual([]);
+    const transitionIDs = result.draft.transitionGroups.map((group) => group.transitionID);
+    expect(new Set(transitionIDs).size).toBe(transitionIDs.length);
     expect(
       edgesForTransition(result.draft, "group-start")
         .map((edge) => edge.targetNodeID)
