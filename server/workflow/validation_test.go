@@ -50,7 +50,16 @@ func TestStartNodeRules(t *testing.T) {
 			code: workflow.CodeInvalidStartOutgoingShape,
 		},
 		{
-			name: "start group has two edges",
+			name: "start transition has no branches",
+			edit: func(def *workflow.Definition) {
+				def.Edges = slices.DeleteFunc(def.Edges, func(edge workflow.Edge) bool {
+					return edge.TransitionGroupID == "group_start"
+				})
+			},
+			code: workflow.CodeInvalidStartOutgoingShape,
+		},
+		{
+			name: "start group has malformed fanout topology",
 			edit: func(def *workflow.Definition) {
 				def.Edges = append(def.Edges, workflow.Edge{
 					WorkflowID:        def.ID,
@@ -61,7 +70,7 @@ func TestStartNodeRules(t *testing.T) {
 					ContextMode:       workflow.ContextModeNewSession,
 				})
 			},
-			code: workflow.CodeInvalidStartOutgoingShape,
+			code: workflow.CodeInvalidFanoutJoinTopology,
 		},
 		{
 			name: "start targets terminal",
@@ -670,6 +679,35 @@ func TestFanoutJoinTopology(t *testing.T) {
 	}
 }
 
+func TestStartCanFanOutToNodeGroup(t *testing.T) {
+	def := startFanoutWorkflow(t)
+
+	result := validateForTask(def)
+
+	if result.HasBlockingErrors() {
+		t.Fatalf("Start fan-out workflow has blocking errors: %+v", result.BlockingErrors())
+	}
+}
+
+func TestStartCanFanOutToAgentAndScriptNodeGroup(t *testing.T) {
+	def := startFanoutWorkflow(t)
+	for index := range def.Nodes {
+		if workflow.NodeIDOf(def.Nodes[index]) == "node_impl_b" {
+			updateNodeAt(&def, index, func(_ *workflow.NodeIdentity, kind *workflow.NodeKind, fields *workflow.NodeFields) {
+				*kind = workflow.NodeKindScript
+				fields.ScriptPath = workflow.MustPresentScriptPath("./script.sh")
+			})
+		}
+	}
+	edgeByIDForValidationTest(t, &def, "edge_split_b").PromptTemplate = ""
+
+	result := validateForTask(def)
+
+	if result.HasBlockingErrors() {
+		t.Fatalf("Start fan-out workflow with a Script branch has blocking errors: %+v", result.BlockingErrors())
+	}
+}
+
 func TestRetainedTargetRequiresExactActiveContinuationSource(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -1051,6 +1089,28 @@ func fanoutWorkflow(t *testing.T) workflow.Definition {
 			{WorkflowID: testsetup.WorkflowID(t, "workflow_fanout"), ID: "edge_join_done", Key: "done", TransitionGroupID: "group_join_done", TargetNodeID: "node_done", ContextMode: workflow.ContextModeNewSession},
 		},
 	})
+	return def
+}
+
+func startFanoutWorkflow(t *testing.T) workflow.Definition {
+	def := fanoutWorkflow(t)
+	def.Nodes = slices.DeleteFunc(def.Nodes, func(node workflow.Node) bool {
+		return workflow.NodeIDOf(node) == "node_plan"
+	})
+	def.TransitionGroups = slices.DeleteFunc(def.TransitionGroups, func(group workflow.TransitionGroup) bool {
+		return group.ID == "group_start"
+	})
+	for index := range def.TransitionGroups {
+		if def.TransitionGroups[index].ID == "group_split" {
+			def.TransitionGroups[index].SourceNodeID = "node_start"
+			def.TransitionGroups[index].TransitionID = "start"
+			def.TransitionGroups[index].DisplayName = "Start"
+		}
+	}
+	def.Edges = slices.DeleteFunc(def.Edges, func(edge workflow.Edge) bool {
+		return edge.ID == "edge_start"
+	})
+	addV1NodeGroup(&def)
 	return def
 }
 

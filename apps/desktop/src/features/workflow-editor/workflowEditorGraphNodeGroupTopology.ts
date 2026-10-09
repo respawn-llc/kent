@@ -108,8 +108,7 @@ function inferInitialFanoutTopology(
   const fanoutGroup = draft.transitionGroups.find(
     (group) => group.id === incomingToExistingBranch[0]?.transitionGroupID,
   );
-  const fanoutSource = draft.nodes.find((node) => node.id === fanoutGroup?.sourceNodeID);
-  if (fanoutGroup === undefined || fanoutSource === undefined || fanoutSource.kind === "start") {
+  if (fanoutGroup === undefined) {
     return null;
   }
   const fanoutEdges = edgesForTransitionGroup(draft, fanoutGroup.id);

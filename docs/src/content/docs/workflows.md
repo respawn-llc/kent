@@ -73,7 +73,7 @@ See [Headless runs](../headless/#subagent-roles) for the role configuration refe
 - A task directly owns its current nodes: normally one node, or several while a transition fans out into parallel branches. Current nodes have no independent identity.
 - An agent current node can bind to an existing Kent session. A script current node uses its saved script state for resumption.
 
-Creating a task puts it in Backlog. Starting the task applies the workflow's start transition and creates its first executable current node.
+Creating a task leaves it in Backlog. Explicitly starting it applies the workflow's start transition, which starts every executable branch in that transition. The task enters one node or several parallel branches, and a join waits for every branch before continuing.
 
 ### Nodes
 

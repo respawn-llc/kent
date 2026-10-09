@@ -452,31 +452,34 @@ func (s *Store) DeleteTask(ctx context.Context, taskID workflow.TaskID) (DeleteT
 	return DeleteTaskResult{TaskRecord: record, TaskAttentionResolution: resolution}, nil
 }
 
-func (s *Store) materializeTaskStart(prepared preparedTaskStart) (workflow.CurrentNode, error) {
-	var targetSelection *workflow.AgentExecutionSelection
-	if prepared.target.Kind() == workflow.NodeKindAgent {
-		selectionPlan, selectionErr := workflow.PlanTransitionSelection(workflow.TransitionParameterContractRequest{
-			Edge:       prepared.startEdge,
-			SourceKind: prepared.start.Kind(),
-			TargetKind: prepared.target.Kind(),
-			TargetRole: workflow.NodeSubagentRole(prepared.target),
-			Catalog:    s.roleResolver,
-			Materialization: &workflow.TransitionSelectionMaterializationRequest{
-				FallbackRole: workflow.NodeSubagentRole(prepared.target),
-			},
-		})
-		var value workflow.AgentExecutionSelection
-		if selectionErr == nil && selectionPlan.ExecutionSelection != nil {
-			value = *selectionPlan.ExecutionSelection
-		} else if selectionErr == nil {
-			selectionErr = errors.New("transition selection planner omitted Agent execution selection")
-		}
-		if selectionErr != nil {
-			return workflow.CurrentNode{}, fmt.Errorf("materialize Agent target selection: %w", selectionErr)
-		}
-		targetSelection = &value
+func (s *Store) materializeTaskStart(ctx context.Context, prepared preparedTaskStart) ([]workflow.CurrentNode, error) {
+	targets := make([]workflow.CurrentNode, 0, len(prepared.targets))
+	noStartValues := func(workflow.ModelKey, workflow.ModelKey, string) (string, bool) {
+		return "", false
 	}
-	return newReadyCurrentNode(workflow.TaskID(prepared.task.ID), workflow.NodeIDOf(prepared.target), prepared.startEdge.ID, targetSelection)
+	for _, target := range prepared.targets {
+		var branchKey *workflow.TransitionBranchKey
+		if len(prepared.targets) > 1 {
+			value := workflow.TransitionBranchKey(strings.TrimSpace(string(target.Edge.Key)))
+			branchKey = &value
+		}
+		materialized, err := materializeTransitionTargetCurrentNode(ctx, s.queries, transitionTargetMaterializationRequest{
+			Definition:          prepared.definition,
+			Edge:                target.Edge,
+			Source:              prepared.start,
+			Target:              target.Node,
+			Catalog:             s.roleResolver,
+			ContextTaskID:       workflow.TaskID(prepared.task.ID),
+			PriorValues:         workflow.MaterializedPriorValues{},
+			Value:               noStartValues,
+			TransitionBranchKey: branchKey,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("materialize Task Start transition %q target %q: %w", prepared.transition.TransitionID, target.Edge.Key, err)
+		}
+		targets = append(targets, materialized.CurrentNode)
+	}
+	return targets, nil
 }
 
 func (s *Store) ValidateTaskStart(ctx context.Context, taskID workflow.TaskID) error {
@@ -487,9 +490,10 @@ func (s *Store) ValidateTaskStart(ctx context.Context, taskID workflow.TaskID) e
 type preparedTaskStart struct {
 	task             sqlitegen.TaskRecord
 	workflowVersion  int64
+	definition       workflow.Definition
 	start            workflow.Node
-	target           workflow.Node
-	startEdge        workflow.Edge
+	transition       workflow.TransitionGroup
+	targets          []currentNodeCompletionTarget
 	startCurrentNode workflow.CurrentNode
 }
 
@@ -523,11 +527,14 @@ func (s *Store) prepareTaskStart(ctx context.Context, taskID workflow.TaskID) (p
 	if err := s.preflightInitialExecution(definition); err != nil {
 		return preparedTaskStart{}, err
 	}
-	_, edge, target, err := startTransition(definition, workflow.NodeIDOf(start))
+	transition, targets, err := startTransition(definition, start)
 	if err != nil {
 		return preparedTaskStart{}, err
 	}
-	return preparedTaskStart{task: task, workflowVersion: record.Version, start: start, target: target, startEdge: edge, startCurrentNode: current}, nil
+	return preparedTaskStart{
+		task: task, workflowVersion: record.Version, definition: definition, start: start,
+		transition: transition, targets: targets, startCurrentNode: current,
+	}, nil
 }
 
 func (s *Store) preflightInitialExecution(definition workflow.Definition) error {
@@ -650,29 +657,19 @@ func startNode(definition workflow.Definition) (workflow.Node, error) {
 	return nil, errors.New("workflow has no start node")
 }
 
-func startTransition(definition workflow.Definition, startNodeID workflow.NodeID) (workflow.TransitionGroup, workflow.Edge, workflow.Node, error) {
+func startTransition(definition workflow.Definition, start workflow.Node) (workflow.TransitionGroup, []currentNodeCompletionTarget, error) {
 	var groups []workflow.TransitionGroup
 	for _, group := range definition.TransitionGroups {
-		if group.SourceNodeID == startNodeID {
+		if group.SourceNodeID == workflow.NodeIDOf(start) {
 			groups = append(groups, group)
 		}
 	}
 	if len(groups) != 1 {
-		return workflow.TransitionGroup{}, workflow.Edge{}, nil, errors.New("start node must have exactly one transition group")
+		return workflow.TransitionGroup{}, nil, errors.New("start node must have exactly one transition group")
 	}
-	var edges []workflow.Edge
-	for _, edge := range definition.Edges {
-		if edge.TransitionGroupID == groups[0].ID {
-			edges = append(edges, edge)
-		}
+	transition, targets, err := currentNodeCompletionTransition(definition, start, string(groups[0].TransitionID))
+	if err != nil {
+		return workflow.TransitionGroup{}, nil, err
 	}
-	if len(edges) != 1 {
-		return workflow.TransitionGroup{}, workflow.Edge{}, nil, errors.New("start transition group must have exactly one edge")
-	}
-	for _, node := range definition.Nodes {
-		if workflow.NodeIDOf(node) == edges[0].TargetNodeID {
-			return groups[0], edges[0], node, nil
-		}
-	}
-	return workflow.TransitionGroup{}, workflow.Edge{}, nil, errors.New("start transition target missing")
+	return transition, targets, nil
 }

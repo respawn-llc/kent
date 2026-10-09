@@ -17,7 +17,7 @@
 - An executable current Node owns only its current execution state and optional Session binding. Script Nodes have no Session.
 - Leaving a Node removes that current execution state. Kent does not retain completed Node execution, execution-attempt, or workflow-movement records as hidden history.
 - Task creation creates a durable Task at the Workflow's Start Node.
-- Automation starts only through explicit Task Start, which applies the Start Node's outgoing Transition and adds the first executable current Node.
+- Automation must start only through explicit Task Start, which applies the Start Node's outgoing Transition and adds every selected executable Current Node.
 - Automation continues through automatic Nodes until terminal or blocked by a Question, Approval/manual gate, error, capacity, interruption, or validation.
 - Task status combines Current Nodes with current live activity. Kent does not store a second lifecycle status that can disagree with them.
 - Running and waiting require matching Exact Execution Scope evidence. Queued status requires either a queued Exact Execution Scope or Workflow Execution's live automatic-concurrency queue ownership. A current Terminal Node makes the Task done.
@@ -251,7 +251,9 @@
 - Each visible executable or terminal Node is also a Kanban column and status. Join Nodes are omitted from boards.
 - Workflows can contain Start, Agent, Script, Join, and Terminal Nodes. Approval is a Transition Branch property.
 - Each Workflow has exactly one Start Node. It is non-executable.
-- For Task Start, the Start Node must have exactly one outgoing Transition with exactly one branch that targets an executable Node.
+- For Task Start, the Start Node must have exactly one outgoing Transition with one or more branches. Each branch must target an Agent or Script Node.
+- Task Start must select every branch of that Transition together. A Start Fan-Out Transition must follow the ordinary Fan-Out and Join rules.
+- Existing serial Start Transitions must remain usable without rewriting saved Workflows or Task content. Backlog Tasks must use the latest saved Start Transition when explicitly started. Editing Start must not move executing Tasks or change their captured parallel branch set.
 - Terminal Nodes are strict sinks. Manual reopen or rework is an explicit override, not retained Workflow history.
 - Draft validation reports semantic errors but does not block save/link/default selection.
 - Task creation and execution validation accumulate all safe actionable errors and reject invalid graph, role, and Parameter configurations.
@@ -458,6 +460,8 @@
 - Read-model actions, including the Interrupt affordance, inherit that stale-tolerant contract and do not acquire Runtime ownership for freshness. Accepting Interrupt revalidates exact live execution and may reject an action offered from an older snapshot.
 - Stale live facts must not authorize a Workflow mutation. Lifecycle owners revalidate exact Runtime activity and Task Quiescence when applying an action.
 - Task Start must keep the Task at Start/Backlog throughout preparation. It must create no executable Current Node, Task-owned Session provenance, or durable preparation state before cutover.
+- Task Start must prepare every selected branch before cutover and commit all target Current Nodes together. A branch preparation failure must leave the Task in Backlog. Every Agent branch must receive a separate new Session, and all branches must share the Task's Execution Root.
+- After Task Start cutover, a branch startup or execution failure must report that branch's failure without rolling back or stopping healthy siblings. Existing capacity limits must govern startup, without requiring simultaneous execution.
 - Once a Manual Move is ready to apply and any required Execution Target selection has succeeded, Kent automatically interrupts all live Agent and Script work on the Task, waits for it to stop, revalidates the move, and applies it. A separate Interrupt action is not required.
 - As part of that interruption, Manual Move cancels every pending Question and denies and removes every pending Approval on the Task before applying the move. A direct Manual Move and a concurrent live Approval answer race at the exact live tool call owner. If the Approval is accepted first, Manual Move waits for that acceptance and then continues its interruption and move. If Manual Move closes the Approval first, the answer is Skipped without commentary.
 - Human `kent task complete --force` composes Task Interrupt and Manual Move. It explicitly interrupts and waits first, then invokes this same Manual Move owner with the selected outgoing Transition, commentary, and Parameter values; it is not another completion authority. Its Manual Move phase must not publish an already-closed Approval again, block on it, or apply its commentary.
