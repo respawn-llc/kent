@@ -246,6 +246,49 @@ func TestGrokUnknownModelForwardsCustomEffort(t *testing.T) {
 	}
 }
 
+func TestGrokManualModelNativeSearchCompatibility(t *testing.T) {
+	for _, model := range []string{"grok-4.5", "grok-future"} {
+		t.Run(model, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body struct {
+					Tools []struct{ Type string } `json:"tools"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Fatal(err)
+				}
+				wantCount := 1
+				if model == "grok-4.5" {
+					wantCount = 0
+				}
+				if len(body.Tools) != wantCount {
+					t.Errorf("native tools = %+v", body.Tools)
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"status\":\"completed\",\"output\":[]}}\n\n")
+			}))
+			defer server.Close()
+			selected, err := ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionGrokCLIProxy})
+			if err != nil {
+				t.Fatal(err)
+			}
+			provider, err := NewProviderClient(ProviderClientOptions{
+				Provider: selected.Provider, Variant: &selected.Variant, Auth: oauthStaticAuth{},
+				HTTPClient: newRewritingHTTPClient(t, server), ContextWindowTokens: 256_000,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = provider.Generate(t.Context(), Request{
+				Model: model, SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic,
+				ReasoningEffort: "high", EnableNativeWebSearch: true,
+			}, StreamCallbacks{})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestGrokDispatchUsesSelectedRouteAndSupportedPayload(t *testing.T) {
 	for _, protocol := range []config.ConnectionProtocol{config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI, config.ConnectionGrokAPIKey} {
 		t.Run(string(protocol), func(t *testing.T) {

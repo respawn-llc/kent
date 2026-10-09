@@ -22,6 +22,11 @@ func ResolveEffectiveProviderCapabilities(locked *session.LockedContract, settin
 		effective.SupportsNativeThinkingUpdates = actual.SupportsNativeThinkingUpdates
 		effective.SupportsFastMode = actual.SupportsFastMode
 	}
+	model := settings.Model
+	if locked != nil {
+		model = locked.Model
+	}
+	effective.SupportsNativeWebSearch = SupportsNativeWebSearchModel(model, effective)
 	return effective, nil
 }
 
@@ -30,7 +35,12 @@ func ResolveRuntimeProviderCapabilities(settings config.Settings) (ProviderCapab
 	if err != nil {
 		return ProviderCapabilities{}, err
 	}
-	return ResolveConnectionCapabilities(connection)
+	caps, err := ResolveConnectionCapabilities(connection)
+	if err != nil {
+		return ProviderCapabilities{}, err
+	}
+	caps.SupportsNativeWebSearch = SupportsNativeWebSearchModel(settings.Model, caps)
+	return caps, nil
 }
 
 func ResolveConnectionCapabilities(connection config.ProviderConnection) (ProviderCapabilities, error) {

@@ -177,7 +177,11 @@ func (e *Engine) assembleRequest(ctx context.Context, stepID string, extra []llm
 	if err != nil {
 		return requestAssembly{}, err
 	}
-	thinking, err := prepareNativeThinking(items, replacementEnd, llm.ProviderThinkingEffort(locked.Model, e.ThinkingLevel()), e.store.Meta().OriginalThinkingEffort, llm.SupportsNativeThinkingUpdates(locked.Model, caps))
+	effort := llm.ProviderThinkingEffort(locked.Model, e.ThinkingLevel())
+	if err := llm.ValidateModelReasoningEffort(locked.Model, effort); err != nil {
+		return requestAssembly{}, err
+	}
+	thinking, err := prepareNativeThinking(items, replacementEnd, effort, e.store.Meta().OriginalThinkingEffort, llm.SupportsNativeThinkingUpdates(locked.Model, caps))
 	if err != nil {
 		return requestAssembly{}, err
 	}
@@ -364,7 +368,7 @@ func (e *Engine) enableNativeWebSearch(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("resolve provider capabilities for native web search: %w", err)
 	}
-	return caps.SupportsNativeWebSearch, nil
+	return llm.SupportsNativeWebSearchModel(e.currentModel(), caps), nil
 }
 
 func (e *Engine) currentNodeExecutionActive() bool {

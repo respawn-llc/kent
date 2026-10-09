@@ -76,7 +76,7 @@ func (t *HTTPTransport) buildDispatchPayload(
 }
 
 func (b responsesRequestPayloadBuilder) BuildResponse(request ResponsesRequest, mode OpenAIAuthMode) (responses.ResponseNewParams, error) {
-	if err := validateModelReasoningEffort(request.Model, request.ReasoningEffort); err != nil {
+	if err := ValidateModelReasoningEffort(request.Model, request.ReasoningEffort); err != nil {
 		return responses.ResponseNewParams{}, err
 	}
 	if err := validateRetainedConnectionContext(request.Items, b.connectionCapabilities); err != nil {
@@ -153,7 +153,7 @@ func (b responsesRequestPayloadBuilder) prepareToolControls(request ResponsesReq
 	if err := ValidateToolChoiceSupport(b.capabilities, request.ToolChoiceMode); err != nil {
 		return responsesPayloadToolControls{}, err
 	}
-	tools, err := b.buildTools(request.Tools, request.EnableNativeWebSearch)
+	tools, err := b.buildTools(request.Tools, request.EnableNativeWebSearch && SupportsNativeWebSearchModel(request.Model, b.capabilities))
 	if err != nil {
 		return responsesPayloadToolControls{}, err
 	}

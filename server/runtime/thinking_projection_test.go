@@ -78,6 +78,25 @@ func TestThinkingInspectionDoesNotAdoptOrCommit(t *testing.T) {
 	}
 }
 
+func TestThinkingRejectsUnsupportedCatalogEffortBeforeNativeProjection(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeClient{caps: llm.ProviderCapabilities{
+		ProviderID: "openai", SupportsResponsesAPI: true, SupportsNativeThinkingUpdates: true,
+	}}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+		Model: "gpt-6-astra", ThinkingLevel: "high",
+	})
+	if err := store.AdoptOriginalThinkingEffort("high"); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.SetThinkingLevel(t.Context(), "unsupported-future-effort"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PrepareInspectionRequest(t.Context(), engine, false); err == nil {
+		t.Fatal("catalogued model accepted unsupported native Thinking update")
+	}
+}
+
 func TestThinkingLookupNearActiveContextLimit(t *testing.T) {
 	items := make([]llm.ResponseItem, 25000)
 	items[0] = llm.ResponseItem{Type: llm.ResponseItemTypeConfigurationUpdate, ConfigurationEffort: textutil.Value("low")}

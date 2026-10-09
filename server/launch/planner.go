@@ -294,6 +294,9 @@ func resolvePromptFacingSnapshotPlan(app config.App, store *session.Store, skipC
 	meta := store.Meta()
 	baseActive := EffectiveSettings(app.Settings, meta.Locked)
 	baseSource := app.Source
+	if err := projectSessionConnection(&baseActive, baseSource, meta); err != nil {
+		return SessionPlan{}, err
+	}
 	active, source, chatSettings, err := resolveReadOnlySessionContextSettings(app, meta, skipContinuationAgentRoleValidation)
 	if err != nil {
 		return SessionPlan{}, err
@@ -464,6 +467,11 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 	}
 	baseActive := EffectiveSettings(p.Config.Settings, meta.Locked)
 	baseSource := p.Config.Source
+	if meta.ConnectionID != nil || baseActive.Connection != nil {
+		if err := projectSessionConnection(&baseActive, baseSource, meta); err != nil {
+			return SessionPlan{}, err
+		}
+	}
 	var continuationAgentRole *string
 	if meta.Continuation != nil {
 		continuationAgentRole = cloneContinuationRole(meta.Continuation.AgentRole)
@@ -481,7 +489,7 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 			return SessionPlan{}, err
 		}
 	}
-	if meta.ConnectionID != nil {
+	if meta.ConnectionID != nil || active.Connection != nil {
 		if err := projectSessionConnection(&active, source, meta); err != nil {
 			return SessionPlan{}, err
 		}
@@ -828,7 +836,10 @@ func prepareAgent(app config.App, overrides serverapi.RunPromptOverrides, prepar
 		} else {
 			resolved := EffectiveSettings(app.Settings, preparation.ModelLock)
 			source := cloneSourceReport(app.Source)
-			config.InheritReviewerSettings(&resolved, source.Sources)
+			var unavailable *config.ConnectionReferenceError
+			if err := projectSessionConnection(&resolved, source, session.Meta{Locked: preparation.ModelLock}); err != nil && !errors.As(err, &unavailable) {
+				return agentPreparation{}, err
+			}
 			capabilities, err := llm.ResolveRuntimeProviderCapabilities(resolved)
 			if err != nil {
 				var reference *config.ConnectionReferenceError

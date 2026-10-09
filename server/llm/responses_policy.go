@@ -108,7 +108,7 @@ func (grokResponsesPolicy) configurePayload(_ responsesRequestPayloadBuilder, re
 	return applyResponseTextConfig(request, "", out)
 }
 
-func validateModelReasoningEffort(model, effort string) error {
+func ValidateModelReasoningEffort(model, effort string) error {
 	contract, known := LookupModelCapabilityContract(model)
 	if !known || effort == "" {
 		return nil

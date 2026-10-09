@@ -59,6 +59,37 @@ func TestSessionConnectionResumeBindingAndReplacement(t *testing.T) {
 	}
 }
 
+func TestGrokSessionDefaultsPreserveSavedModel(t *testing.T) {
+	root, workspace := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(`
+connection = "grok"
+[connections.grok]
+protocol = "grok-cli-proxy"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, locked := range []*session.LockedContract{nil, {Model: "grok-future"}} {
+		result, err := ResolveReadOnlySessionContextSettings(app, session.Meta{Locked: locked}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantModel := "grok-4.7"
+		if locked != nil {
+			wantModel = locked.Model
+		}
+		if result.Settings.Model != wantModel || result.Settings.ThinkingLevel != "high" || result.Settings.Reviewer.Model != wantModel {
+			t.Fatalf("resolved model/thinking/Supervisor = %s/%s/%s", result.Settings.Model, result.Settings.ThinkingLevel, result.Settings.Reviewer.Model)
+		}
+		if locked == nil && result.Settings.ModelContextWindow != 256_000 {
+			t.Fatalf("window = %d", result.Settings.ModelContextWindow)
+		}
+	}
+}
+
 type failingUpdateMetadataExecutionTargetStore struct {
 	base             *metadata.Store
 	updateErr        error

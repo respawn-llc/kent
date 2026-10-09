@@ -71,13 +71,17 @@ func prepareSubagentSettingsFromRole(base config.Settings, baseSource config.Sou
 			explicitSources[key] = origin
 		}
 	}
+	if !allowModelOverride && effectiveSources["model"].Kind == config.SourceDefault {
+		effectiveSources["model"] = config.Origin{Kind: config.SourceSession, Property: config.PropertyAddress{Key: "model"}}
+	}
+	var unavailable *config.ConnectionReferenceError
+	if err := llm.ApplyConnectionModelDefaults(&resolved, effectiveSources); err != nil && !errors.As(err, &unavailable) {
+		return preparedRoleSettings{}, err
+	}
 	if err := applyDerivedModelContextBudgetOverrides(&resolved, explicitSources, originalModel, allowModelOverride); err != nil {
 		return preparedRoleSettings{}, err
 	}
 	effectiveSource := baseSource
-	if !allowModelOverride && effectiveSources["model"].Kind == config.SourceDefault {
-		effectiveSources["model"] = config.Origin{Kind: config.SourceSession, Property: config.PropertyAddress{Key: "model"}}
-	}
 	config.InheritReviewerSettings(&resolved, effectiveSources)
 	effectiveSource.Sources = effectiveSources
 	if validate {

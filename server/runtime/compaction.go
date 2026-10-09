@@ -693,7 +693,11 @@ func (e *Engine) compactNowWithAcceptance(
 	if err != nil {
 		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
 	}
-	thinking, err := prepareNativeThinking(input, replacementEnd, llm.ProviderThinkingEffort(e.cfg.Model, e.ThinkingLevel()), e.store.Meta().OriginalThinkingEffort, llm.SupportsNativeThinkingUpdates(e.cfg.Model, caps))
+	effort := llm.ProviderThinkingEffort(e.cfg.Model, e.ThinkingLevel())
+	if err := llm.ValidateModelReasoningEffort(e.cfg.Model, effort); err != nil {
+		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
+	}
+	thinking, err := prepareNativeThinking(input, replacementEnd, effort, e.store.Meta().OriginalThinkingEffort, llm.SupportsNativeThinkingUpdates(e.cfg.Model, caps))
 	if err != nil {
 		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
 	}
