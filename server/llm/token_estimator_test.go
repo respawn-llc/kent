@@ -148,11 +148,11 @@ func TestDefaultTokenEstimatorToolInputsAndMetadata(t *testing.T) {
 		{Type: llm.ResponseItemTypeCustomToolCall, Name: &name, CustomInput: &input},
 	} {
 		estimator := llm.DefaultTokenEstimator{}
-		if got := estimator.EstimateItem(item); got != 1 {
-			t.Fatalf("tool input estimate = %d, want 1", got)
+		if got := estimator.EstimateItem(item); got != 4 {
+			t.Fatalf("tool input with implicit namespace estimate = %d, want 4", got)
 		}
 		item.ID, item.CallID, item.ConfigurationEffort = &metadata, &metadata, &metadata
-		if got := estimator.EstimateItem(item); got != 1 {
+		if got := estimator.EstimateItem(item); got != 4 {
 			t.Fatalf("metadata changed tool input estimate to %d", got)
 		}
 	}

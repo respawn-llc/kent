@@ -13,6 +13,7 @@ import (
 	"core/server/tools"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
+	"core/shared/textutil"
 )
 
 func assertOversizedOutputFailure(t *testing.T, result tools.Result, logPath string) {
@@ -64,10 +65,10 @@ func TestExecCommandGuardUsesSelectedPlaintextEstimator(t *testing.T) {
 		cap       *int
 		wantError bool
 	}{
-		{"eligible higher estimate", func(text string) int { return len(text) / 2 }, intPointer(11), true},
-		{"eligible within threshold", func(text string) int { return len(text) / 3 }, intPointer(11), false},
+		{"eligible higher estimate", func(text string) int { return len(text) / 2 }, textutil.Value(11), true},
+		{"eligible within threshold", func(text string) int { return len(text) / 3 }, textutil.Value(11), false},
 		{"omitted cap", func(text string) int { return len(text) / 2 }, nil, false},
-		{"cap at threshold", func(text string) int { return len(text) / 2 }, intPointer(10), false},
+		{"cap at threshold", func(text string) int { return len(text) / 2 }, textutil.Value(10), false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			manager := newBackgroundTestManager(t)
@@ -90,10 +91,6 @@ func TestExecCommandGuardUsesSelectedPlaintextEstimator(t *testing.T) {
 			}
 		})
 	}
-}
-
-func intPointer(value int) *int {
-	return &value
 }
 
 func TestExecCommandGuardBoundariesAndOrdinaryTruncation(t *testing.T) {

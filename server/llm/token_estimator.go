@@ -8,6 +8,9 @@ import (
 	"core/shared/textutil"
 )
 
+// Top-level tools have this implicit namespace in Codex's content accounting.
+const defaultFunctionNamespace = "functions"
+
 // TokenEstimator performs local accounting without provider requests.
 type TokenEstimator interface {
 	EstimateText(string) int
@@ -54,10 +57,13 @@ func EstimateDefaultItemBytes(estimator TokenEstimator, item ResponseItem) int {
 	switch item.Type {
 	case ResponseItemTypeMessage:
 		size = stringBytes(item.Content)
-	case ResponseItemTypeFunctionCall:
-		size = stringBytes(item.Name) + len(item.Arguments)
-	case ResponseItemTypeCustomToolCall:
-		size = stringBytes(item.Name) + stringBytes(item.CustomInput)
+	case ResponseItemTypeFunctionCall, ResponseItemTypeCustomToolCall:
+		size = stringBytes(item.Name) + len(defaultFunctionNamespace)
+		if item.Type == ResponseItemTypeFunctionCall {
+			size += len(item.Arguments)
+		} else {
+			size += stringBytes(item.CustomInput)
+		}
 	case ResponseItemTypeReasoning, ResponseItemTypeCompaction:
 		size = stringBytes(item.Content) + stringBytes(item.EncryptedContent)
 		for _, summary := range item.ReasoningSummary {
