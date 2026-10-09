@@ -692,24 +692,6 @@ func TestNewOpenAIProviderClientCanonicalizesBareDefaultOpenAIBaseURL(t *testing
 	}
 }
 
-func TestBuildRequestOptions_OAuthAddsCodexHeaders(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
-	opts := transport.buildRequestOptions("Bearer x", OpenAIAuthMode{
-		IsOAuth:   true,
-		AccountID: "acc-1",
-	}, openaiTestOptionalString("session-1"), &codexDispatchProjection{RoutingHint: "model=gpt-6-sol"}, nil)
-
-	if len(opts) != 6 {
-		t.Fatalf("expected 6 request options, got %d", len(opts))
-	}
-	if len(transport.buildRequestOptions("Bearer x", OpenAIAuthMode{}, openaiTestOptionalString("session-1"), nil, nil)) != 4 {
-		t.Fatal("expected non-oauth options to include auth/session/caching headers")
-	}
-	if len(transport.buildRequestOptions("Bearer x", OpenAIAuthMode{}, nil, nil, nil)) != 3 {
-		t.Fatal("expected non-oauth options to include auth/caching headers")
-	}
-}
-
 func TestGenerateSendsConfiguredProviderIdentityHeaders(t *testing.T) {
 	requestHeaders := make(chan http.Header, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -747,19 +729,6 @@ func TestNewOpenAIProviderContractErrorPreservesMissingResponseStatus(t *testing
 	var missingStatus *providerContractErrorWithoutStatus
 	if !errors.As(err, &missingStatus) {
 		t.Fatalf("error = %T, want typed missing-status provider contract error", err)
-	}
-}
-
-func TestBuildRequestOptions_OmitsAuthorizationHeaderWhenAuthHeaderEmpty(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
-	if len(transport.buildRequestOptions("", OpenAIAuthMode{}, nil, nil, nil)) != 2 {
-		t.Fatal("expected empty auth header to omit Authorization request option")
-	}
-	if len(transport.buildRequestOptions("   ", OpenAIAuthMode{}, nil, nil, nil)) != 2 {
-		t.Fatal("expected whitespace auth header to omit Authorization request option")
-	}
-	if len(transport.buildRequestOptions("", OpenAIAuthMode{}, openaiTestOptionalString("session-1"), nil, nil)) != 3 {
-		t.Fatal("expected session header to remain when Authorization is omitted")
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 var ErrCustomToolNameRequired = errors.New("custom tool name is required")
 
 type responsesRequestPayloadBuilder struct {
+	policy                 responsesPolicy
 	store                  bool
 	modelVerbosity         string
 	capabilities           ProviderCapabilities
@@ -43,15 +44,20 @@ func (t *HTTPTransport) effectiveRequestCapabilities(connectionCapabilities Prov
 	return connectionCapabilities
 }
 
-func (t *HTTPTransport) requestPayloadBuilder(connectionCapabilities ProviderCapabilities) responsesRequestPayloadBuilder {
+func (t *HTTPTransport) requestPayloadBuilder(connectionCapabilities ProviderCapabilities, policy responsesPolicy) responsesRequestPayloadBuilder {
 	return responsesRequestPayloadBuilder{
-		store: t.Store, modelVerbosity: strings.ToLower(strings.TrimSpace(t.ModelVerbosity)),
+		policy: policy,
+		store:  t.Store, modelVerbosity: strings.ToLower(strings.TrimSpace(t.ModelVerbosity)),
 		capabilities: t.effectiveRequestCapabilities(connectionCapabilities), connectionCapabilities: connectionCapabilities,
 	}
 }
 
 func (t *HTTPTransport) buildPayload(request ResponsesRequest, mode OpenAIAuthMode, capabilities ProviderCapabilities) (responses.ResponseNewParams, error) {
-	builder := t.requestPayloadBuilder(capabilities)
+	variant, err := t.providerVariantForMode(mode)
+	if err != nil {
+		return responses.ResponseNewParams{}, err
+	}
+	builder := t.requestPayloadBuilder(capabilities, variant.ResponsesPolicy)
 	return builder.BuildResponse(request, mode)
 }
 
@@ -84,7 +90,6 @@ func (b responsesRequestPayloadBuilder) BuildResponse(request ResponsesRequest, 
 
 	out := responses.ResponseNewParams{
 		Model: request.Model,
-		Store: openai.Bool(b.store),
 		ToolChoice: responses.ResponseNewParamsToolChoiceUnion{
 			OfToolChoiceMode: openai.Opt(toolControls.choice),
 		},
@@ -100,32 +105,12 @@ func (b responsesRequestPayloadBuilder) BuildResponse(request ResponsesRequest, 
 	}
 	if len(toolControls.tools) > 0 {
 		out.Tools = toolControls.tools
-		out.ParallelToolCalls = openai.Bool(true)
-	}
-	if request.EnableNativeWebSearch {
-		out.Include = append(out.Include,
-			responses.ResponseIncludableWebSearchCallResults,
-			responses.ResponseIncludableWebSearchCallActionSources)
-	}
-	if shouldApplyReasoningEffort(request.SupportsReasoningEffort, request.Model, request.ReasoningEffort) {
-		out.Reasoning = buildReasoningParam(request.Model, request.ReasoningEffort)
-		out.Include = append(out.Include, responses.ResponseIncludableReasoningEncryptedContent)
 	}
 	if request.FastMode && SupportsFastModeProvider(b.capabilities) {
 		out.ServiceTier = responses.ResponseNewParamsServiceTierPriority
 	}
-	if request.MaxTokens > 0 && !mode.IsOAuth {
-		out.MaxOutputTokens = openai.Int(int64(request.MaxTokens))
-	}
-	if request.Temperature != 0 && !mode.IsOAuth {
-		out.Temperature = openai.Float(request.Temperature)
-	}
-	textConfig, ok, err := buildResponseTextConfig(request.StructuredOutput, configuredTextVerbosity(request.Model, b.modelVerbosity, b.capabilities))
-	if err != nil {
+	if err := b.policy.configurePayload(b, request, mode, &out); err != nil {
 		return responses.ResponseNewParams{}, err
-	}
-	if ok {
-		out.Text = textConfig
 	}
 	return out, nil
 }

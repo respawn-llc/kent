@@ -55,6 +55,7 @@ type ProviderTransportVariantResolver func(endpoint ProviderTransportEndpoint, m
 type ProviderVariantContract struct {
 	ProviderID               string
 	BaseURL                  *string
+	ResponsesPolicy          responsesPolicy
 	TokenEstimator           TokenEstimator
 	RequestCompression       httpcompression.RequestContentCoding
 	Capabilities             ProviderCapabilities
@@ -144,6 +145,7 @@ func providerContracts() []ProviderContract {
 			ProviderVariants: []ProviderVariantContract{
 				{
 					ProviderID:               "openai",
+					ResponsesPolicy:          openAIResponsesPolicy{},
 					TokenEstimator:           OpenAITokenEstimator{},
 					RequestCompression:       httpcompression.ContentCodingIdentity,
 					RemoteCompactionProtocol: remoteCompactionResponsesTriggerV2,
@@ -164,6 +166,7 @@ func providerContracts() []ProviderContract {
 				},
 				{
 					ProviderID:         "openai-compatible",
+					ResponsesPolicy:    openAIResponsesPolicy{},
 					RequestCompression: httpcompression.ContentCodingIdentity,
 					Capabilities: ProviderCapabilities{
 						ProviderID:                    "openai-compatible",
@@ -180,6 +183,7 @@ func providerContracts() []ProviderContract {
 				},
 				{
 					ProviderID:               "chatgpt-codex",
+					ResponsesPolicy:          openAIResponsesPolicy{},
 					TokenEstimator:           OpenAITokenEstimator{},
 					RequestCompression:       httpcompression.ContentCodingZstd,
 					RemoteCompactionProtocol: remoteCompactionResponsesTriggerV2,
@@ -216,6 +220,7 @@ func grokVariant(protocol config.ConnectionProtocol, endpoint string) ProviderVa
 	id := string(protocol)
 	return ProviderVariantContract{
 		ProviderID: id, BaseURL: textutil.Value(endpoint),
+		ResponsesPolicy:    grokResponsesPolicy{},
 		RequestCompression: httpcompression.ContentCodingIdentity,
 		Capabilities: ProviderCapabilities{
 			ProviderID: id, SupportsResponsesAPI: true, SupportsReasoningEncrypted: true,

@@ -33,27 +33,14 @@ func (t *HTTPTransport) serviceBaseURL(mode OpenAIAuthMode) string {
 	return base
 }
 
-func (t *HTTPTransport) buildRequestOptions(authHeader string, mode OpenAIAuthMode, sessionID *string, projection *codexDispatchProjection, dispatch *CodexDispatchContext) []option.RequestOption {
+func (t *HTTPTransport) buildRequestOptions(request ResponsesRequest, preparation responsesDispatchPreparation) []option.RequestOption {
 	opts := []option.RequestOption{
-		option.WithHeader("originator", t.ProviderIdentifier),
 		option.WithHeader("User-Agent", t.providerUserAgent()),
 	}
-	if strings.TrimSpace(authHeader) != "" {
-		opts = append([]option.RequestOption{option.WithHeader("Authorization", authHeader)}, opts...)
+	if strings.TrimSpace(preparation.authHeader) != "" {
+		opts = append(opts, option.WithHeader("Authorization", preparation.authHeader))
 	}
-	if sessionID != nil {
-		opts = append(opts, option.WithHeader("session-id", *sessionID))
-	}
-	if mode.IsOAuth && mode.AccountID != "" {
-		opts = append(opts, option.WithHeader("ChatGPT-Account-Id", mode.AccountID))
-	}
-	if projection != nil {
-		opts = append(opts, option.WithHeader("x-codex-routing-hint", projection.RoutingHint))
-		if turnState, present := dispatch.turnStateForRetry(); present {
-			opts = append(opts, option.WithHeader(codexTurnStateHeader, turnState))
-		}
-	}
-	return opts
+	return append(opts, preparation.variant.ResponsesPolicy.requestOptions(t.ProviderIdentifier, request, preparation)...)
 }
 
 func servedModelMetadata(rawResp *http.Response, standardModel string) *string {

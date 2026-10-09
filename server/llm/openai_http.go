@@ -123,7 +123,7 @@ func (t *HTTPTransport) Generate(ctx context.Context, request ResponsesRequest, 
 		option.WithHTTPClient(t.streamingHTTPClient()),
 		option.WithMaxRetries(0),
 	)
-	reqOpts := t.buildRequestOptions(preparation.authHeader, preparation.mode, request.SessionID, preparation.projection, request.CodexDispatch)
+	reqOpts := t.buildRequestOptions(request, preparation)
 	reqOpts = append(reqOpts, compressionOption)
 	var rawResp *http.Response
 	reqOpts = append(reqOpts, option.WithResponseInto(&rawResp))
@@ -365,13 +365,12 @@ func (t *HTTPTransport) prepareDispatch(
 		return responsesDispatchPreparation{}, err
 	}
 	providerCaps := t.providerCapabilitiesForVariant(variant)
-	isChatGPTCodex := variant.ProviderID == "chatgpt-codex"
-	projection, err := validateOpenAIDispatch(
+	projection, err := variant.ResponsesPolicy.prepareDispatch(
 		*sessionID,
 		model,
 		dispatch,
-		isChatGPTCodex,
 		effectiveServiceTier(fastMode, t.effectiveRequestCapabilities(providerCaps)),
+		variant,
 	)
 	if err != nil {
 		return responsesDispatchPreparation{}, err
@@ -386,7 +385,7 @@ func (t *HTTPTransport) prepareDispatch(
 }
 
 func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request ResponsesRequest, authHeader string, mode OpenAIAuthMode, variant ProviderVariantContract, providerCaps ProviderCapabilities, windowTokens int, projection *codexDispatchProjection) (ResponsesCompactionResponse, error) {
-	payload, err := t.requestPayloadBuilder(providerCaps).BuildCompactV2(request, mode)
+	payload, err := t.requestPayloadBuilder(providerCaps, variant.ResponsesPolicy).BuildCompactV2(request, mode)
 	if err != nil {
 		return ResponsesCompactionResponse{}, err
 	}
@@ -397,7 +396,7 @@ func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request R
 		option.WithHTTPClient(t.streamingHTTPClient()),
 		option.WithMaxRetries(0),
 	)
-	reqOpts := t.buildRequestOptions(authHeader, mode, request.SessionID, projection, request.CodexDispatch)
+	reqOpts := t.buildRequestOptions(request, responsesDispatchPreparation{authHeader: authHeader, mode: mode, variant: variant, providerCaps: providerCaps, projection: projection})
 	reqOpts = append(reqOpts, compressionOption)
 	var rawResp *http.Response
 	reqOpts = append(reqOpts, option.WithResponseInto(&rawResp))
@@ -508,12 +507,16 @@ func (t *HTTPTransport) ResolveModelContextWindow(ctx context.Context, model str
 	resolved := 0
 	authHeader, mode, err := t.resolveAuth(ctx)
 	if err == nil {
+		variant, variantErr := t.providerVariantForMode(mode)
+		if variantErr != nil {
+			return 0, variantErr
+		}
 		service := openai.NewModelService(
 			option.WithBaseURL(t.serviceBaseURL(mode)),
 			option.WithHTTPClient(t.Client),
 			option.WithMaxRetries(0),
 		)
-		reqOpts := t.buildRequestOptions(authHeader, mode, nil, nil, nil)
+		reqOpts := t.buildRequestOptions(ResponsesRequest{Model: model}, responsesDispatchPreparation{authHeader: authHeader, mode: mode, variant: variant})
 		var rawResp *http.Response
 		reqOpts = append(reqOpts, option.WithResponseInto(&rawResp))
 		modelResponse, modelErr := service.Get(ctx, strings.TrimSpace(model), reqOpts...)

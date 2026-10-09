@@ -833,7 +833,7 @@ func TestResponsesRequestBuildersRejectUnpreparedViewImageInputFileOutput(t *tes
 	_, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", Items: unpreparedItems}, OpenAIAuthMode{}, caps)
 	checkErr("buildPayload", err)
 
-	_, err = transport.requestPayloadBuilder(caps).BuildCompactV2(ResponsesRequest{
+	_, err = transport.requestPayloadBuilder(caps, openAIResponsesPolicy{}).BuildCompactV2(ResponsesRequest{
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		Items:          unpreparedItems,
