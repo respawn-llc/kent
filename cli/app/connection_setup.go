@@ -103,7 +103,7 @@ func (f *connectionForm) steps() []onboardingStepDefinition {
 	}
 	return []onboardingStepDefinition{
 		{id: connectionStepTemplate, build: func(*onboardingFlowState) onboardingScreen {
-			return onboardingScreen{ID: connectionStepTemplate, Kind: onboardingScreenChoice, Title: "Choose a provider connection",
+			return onboardingScreen{ID: connectionStepTemplate, Kind: onboardingScreenChoice, Title: "Choose the inference provider to add",
 				DefaultOptionID: string(f.template), Options: []onboardingOption{
 					{ID: string(connectionTemplateSubscription), Group: "OpenAI", Title: "Subscription"},
 					{ID: string(connectionTemplateOpenAIAPI), Group: "OpenAI", Title: "API Key"},
@@ -123,7 +123,7 @@ func (f *connectionForm) steps() []onboardingStepDefinition {
 		}},
 		{id: connectionStepID, build: func(*onboardingFlowState) onboardingScreen {
 			return onboardingScreen{ID: connectionStepID, Kind: onboardingScreenInput, Title: "Name this connection", InputValue: string(f.id),
-				Helper: "Start with a lowercase letter. Use lowercase letters, numbers, hyphens, or underscores."}
+				Helper: "Use lowercase letters, numbers, hyphens, or underscores."}
 		}, apply: func(state *onboardingFlowState, value string) error {
 			f.id = config.ConnectionID(value)
 			if f.definition.Protocol.IsSubscription() {

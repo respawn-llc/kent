@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	tuiinput "core/cli/tui/input"
 	"core/shared/config"
 	sharedtheme "core/shared/theme"
 
@@ -28,6 +27,7 @@ type onboardingStyles struct {
 	checkboxOn     lipgloss.Style
 	spinner        lipgloss.Style
 	inputText      lipgloss.Style
+	inputBorder    lipgloss.Style
 	group          lipgloss.Style
 	valueNeutral   lipgloss.Style
 	valueOn        lipgloss.Style
@@ -52,6 +52,7 @@ func newOnboardingStyles(theme string) onboardingStyles {
 		checkboxOn:     lipgloss.NewStyle().Foreground(palette.secondary).Bold(true),
 		spinner:        lipgloss.NewStyle().Foreground(palette.primary).Bold(true),
 		inputText:      lipgloss.NewStyle().Foreground(palette.foreground),
+		inputBorder:    lipgloss.NewStyle().Foreground(palette.primary),
 		group:          lipgloss.NewStyle().Foreground(palette.foreground).Bold(true),
 		valueNeutral:   lipgloss.NewStyle().Foreground(palette.primary).Bold(true),
 		valueOn:        lipgloss.NewStyle().Foreground(palette.secondary).Bold(true),
@@ -69,7 +70,7 @@ func (m *onboardingModel) View() string {
 	if m.finalizing || m.currentScreen.Kind == onboardingScreenLoading {
 		return m.renderLoadingView()
 	}
-	headerLines := wrapANSIText(m.styles.title.Render(m.currentScreen.Title), max(1, m.width))
+	headerLines := m.renderHeaderLines(max(1, m.width))
 	footerLines := m.renderFooterLines(max(1, m.width))
 	content := m.buildContent(max(1, m.width))
 	contentHeight := m.contentHeight()
@@ -88,24 +89,21 @@ func (m *onboardingModel) View() string {
 	if len(content.lines) > 0 {
 		visible = content.lines[m.offset:end]
 	}
-	var b strings.Builder
-	b.WriteString(strings.Join(headerLines, "\n"))
-	b.WriteString("\n\n")
-	if len(visible) > 0 {
-		b.WriteString(strings.Join(visible, "\n"))
-	}
+	viewLines := append(headerLines, "")
+	contentStartRow := len(viewLines)
+	viewLines = append(viewLines, visible...)
 	if filler := m.contentHeight() - len(visible); filler > 0 {
-		b.WriteString(strings.Repeat("\n", filler))
+		viewLines = append(viewLines, make([]string, filler)...)
 	}
 	if len(footerLines) > 0 {
-		b.WriteString("\n\n")
-		b.WriteString(strings.Join(footerLines, "\n"))
+		viewLines = append(viewLines, "")
+		viewLines = append(viewLines, footerLines...)
 	}
-	m.updateTerminalCursor(headerLines, content, visible)
-	return b.String()
+	m.updateTerminalCursor(contentStartRow, content, visible)
+	return strings.Join(viewLines, "\n")
 }
 
-func (m *onboardingModel) updateTerminalCursor(headerLines []string, content onboardingRenderedContent, visible []string) {
+func (m *onboardingModel) updateTerminalCursor(contentStartRow int, content onboardingRenderedContent, visible []string) {
 	if m.terminalCursor == nil {
 		return
 	}
@@ -120,7 +118,7 @@ func (m *onboardingModel) updateTerminalCursor(headerLines []string, content onb
 	}
 	m.terminalCursor.Set(uiTerminalCursorPlacement{
 		Visible:   true,
-		CursorRow: len(headerLines) + 2 + visibleCursorRow,
+		CursorRow: contentStartRow + visibleCursorRow,
 		CursorCol: content.cursorCol,
 		AnchorRow: max(0, m.height-1),
 		AltScreen: true,
@@ -128,13 +126,22 @@ func (m *onboardingModel) updateTerminalCursor(headerLines []string, content onb
 }
 
 func (m *onboardingModel) contentHeight() int {
-	headerLines := wrapANSIText(m.styles.title.Render(m.currentScreen.Title), max(1, m.width))
+	headerLines := m.renderHeaderLines(max(1, m.width))
 	footerLines := m.renderFooterLines(max(1, m.width))
 	height := m.height - len(headerLines) - len(footerLines) - 2
 	if height < 1 {
 		return 1
 	}
 	return height
+}
+
+func (m *onboardingModel) renderHeaderLines(width int) []string {
+	var lines []string
+	if m.currentScreen.ID == onboardingStepTheme {
+		lines = append(lines, wrapANSIText(renderStartupBanner(startupBannerANSI), width)...)
+		lines = append(lines, "")
+	}
+	return append(lines, wrapANSIText(m.styles.title.Render(m.currentScreen.Title), width)...)
 }
 
 func (m *onboardingModel) buildContent(width int) onboardingRenderedContent {
@@ -214,7 +221,10 @@ func (m *onboardingModel) buildContent(width int) onboardingRenderedContent {
 		}
 	case onboardingScreenInput:
 		appendBlank()
-		renderedInput := renderSingleLineEditor(width, 0, m.input, "> ", true, m.inputMask, m.inputPlaceholder)
+		field := m.input
+		field.MaxLines = inputContentLineLimit(m.contentHeight())
+		renderedInput := field.Render(width)
+		renderedInput = renderFramedInputField(width, renderedInput, m.styles.inputText, m.styles.inputBorder, m.terminalCursor == nil)
 		if renderedInput.Cursor.Visible {
 			cursorRow = len(lines) + renderedInput.Cursor.Row
 			cursorCol = renderedInput.Cursor.Col
@@ -222,13 +232,7 @@ func (m *onboardingModel) buildContent(width int) onboardingRenderedContent {
 			cursorRow = len(lines)
 			cursorCol = 0
 		}
-		if m.terminalCursor == nil {
-			lines = append(lines, tuiinput.RenderSoftCursorLines(width, renderedInput, m.styles.inputText)...)
-		} else {
-			for _, line := range renderedInput.Lines {
-				lines = append(lines, m.styles.inputText.Render(line))
-			}
-		}
+		lines = append(lines, renderedInput.Lines...)
 	}
 	if helper := strings.TrimSpace(m.currentScreen.Helper); helper != "" {
 		appendBlank()
@@ -238,13 +242,24 @@ func (m *onboardingModel) buildContent(width int) onboardingRenderedContent {
 }
 
 func (m *onboardingModel) renderFooterLines(width int) []string {
-	help := "↑/↓ pick or scroll | <-/-> back or forward | enter confirm | space toggle | esc cancel"
+	movement := "↑/↓ pick or scroll"
 	if m.currentScreen.Kind == onboardingScreenInput {
-		help = "↑/↓ scroll | <-/-> back or forward | enter confirm | esc cancel"
-	} else if m.currentScreen.Kind == onboardingScreenMulti && screenHasToggleAllOption(m.currentScreen) {
-		help = "↑/↓ pick or scroll | <-/-> back or forward | enter confirm | space toggle | a toggle all | esc cancel"
+		movement = "←/→/↑/↓ move cursor"
 	}
-	return wrapStyledParagraphs(help, width, m.styles.footer)
+	hints := []string{
+		movement,
+		sharedtheme.KeyTabGlyph + " next",
+		sharedtheme.KeyShiftGlyph + " + " + sharedtheme.KeyTabGlyph + " back",
+		sharedtheme.KeyEnterGlyph + " confirm",
+	}
+	if m.currentScreen.Kind != onboardingScreenInput {
+		hints = append(hints, sharedtheme.KeySpaceGlyph+" toggle")
+	}
+	if m.currentScreen.Kind == onboardingScreenMulti && screenHasToggleAllOption(m.currentScreen) {
+		hints = append(hints, "a toggle all")
+	}
+	hints = append(hints, sharedtheme.KeyEscapeGlyph+" cancel")
+	return wrapStyledParagraphs(strings.Join(hints, " | "), width, m.styles.footer)
 }
 
 type onboardingThemePreviewStyles struct {

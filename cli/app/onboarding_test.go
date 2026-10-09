@@ -332,6 +332,7 @@ func TestOnboardingModelToggleAllInputsToggleMultiSelection(t *testing.T) {
 				Options: []onboardingOption{{ID: onboardingToggleAllOptionID, Title: "Disable all"}, {ID: "one", Title: "One"}, {ID: "two", Title: "Two"}, {ID: "three", Title: "Three"}},
 			}
 			model.selection = map[string]bool{"one": true, "two": true, "three": true}
+			model.cursor = 0
 			model.refreshToggleAllOption()
 			if !model.selection[onboardingToggleAllOptionID] {
 				t.Fatal("toggle-all action is unchecked while every option is enabled")
@@ -354,7 +355,7 @@ func TestOnboardingSubmitCurrentScreenShowsValidationError(t *testing.T) {
 	model := newOnboardingModelForWorkspace(t.TempDir(), "", testOnboardingFlowState(t, nil))
 	model.stepIndex = 2
 	model.syncScreen(true)
-	model.input.Replace(strings.NewReplacer("\r", "", "\n", "").Replace(""))
+	model.input.Editor.Replace(strings.NewReplacer("\r", "", "\n", "").Replace(""))
 	next, _ := model.submitCurrentScreen()
 	updated := next.(*onboardingModel)
 	if updated.errorText == "" {
@@ -365,26 +366,26 @@ func TestOnboardingSubmitCurrentScreenShowsValidationError(t *testing.T) {
 	}
 }
 
-func TestThemeStepDefaultsToDetectedTheme(t *testing.T) {
+func TestThemeStepDefaultsToAuto(t *testing.T) {
 	original := lipgloss.HasDarkBackground()
 	defer lipgloss.SetHasDarkBackground(original)
 
 	lipgloss.SetHasDarkBackground(false)
 	lightState := testOnboardingFlowStatePtr(t, nil)
 	lightScreen := newOnboardingWorkflow(lightState).visibleSteps(lightState)[0].build(lightState)
-	if lightScreen.DefaultOptionID != "light" {
-		t.Fatalf("expected light background detection to preselect light theme, got %q", lightScreen.DefaultOptionID)
+	if lightScreen.DefaultOptionID != theme.Auto {
+		t.Fatalf("expected auto, got %q", lightScreen.DefaultOptionID)
 	}
 
 	lipgloss.SetHasDarkBackground(true)
 	darkState := testOnboardingFlowStatePtr(t, nil)
 	darkScreen := newOnboardingWorkflow(darkState).visibleSteps(darkState)[0].build(darkState)
-	if darkScreen.DefaultOptionID != "dark" {
-		t.Fatalf("expected dark background detection to preselect dark theme, got %q", darkScreen.DefaultOptionID)
+	if darkScreen.DefaultOptionID != theme.Auto {
+		t.Fatalf("expected auto, got %q", darkScreen.DefaultOptionID)
 	}
 }
 
-func TestThemeStepChoicePreservesAutoWhenKeepingDetectedDefault(t *testing.T) {
+func TestThemeStepExplicitChoiceOverridesDetection(t *testing.T) {
 	original := lipgloss.HasDarkBackground()
 	defer lipgloss.SetHasDarkBackground(original)
 
@@ -394,8 +395,8 @@ func TestThemeStepChoicePreservesAutoWhenKeepingDetectedDefault(t *testing.T) {
 	if err := themeStep.apply(state, "dark"); err != nil {
 		t.Fatalf("apply detected theme choice: %v", err)
 	}
-	if state.selections.theme.kind != onboardingThemeAuto {
-		t.Fatalf("expected detected default to preserve auto, got %q", state.selections.theme.kind)
+	if state.selections.theme.kind != onboardingThemeDark {
+		t.Fatalf("expected explicit dark, got %q", state.selections.theme.kind)
 	}
 
 	lipgloss.SetHasDarkBackground(false)
@@ -406,5 +407,46 @@ func TestThemeStepChoicePreservesAutoWhenKeepingDetectedDefault(t *testing.T) {
 	}
 	if state.selections.theme.kind != onboardingThemeDark {
 		t.Fatalf("expected overriding detected default to persist explicit dark, got %q", state.selections.theme.kind)
+	}
+}
+
+func TestThemeStepAutoPreviewAndSelection(t *testing.T) {
+	original := lipgloss.HasDarkBackground()
+	defer lipgloss.SetHasDarkBackground(original)
+
+	for _, detected := range []string{theme.Light, theme.Dark} {
+		t.Run(detected, func(t *testing.T) {
+			lipgloss.SetHasDarkBackground(detected == theme.Dark)
+			for _, initial := range []string{theme.Auto, theme.Dark, theme.Light} {
+				model := newOnboardingModelForWorkspace(t.TempDir(), "", testOnboardingFlowState(t, func(cfg *config.App) {
+					cfg.Settings.Theme = initial
+				}))
+				if model.currentScreen.DefaultOptionID != initial {
+					t.Fatalf("selected theme = %q, want %q", model.currentScreen.DefaultOptionID, initial)
+				}
+				for index, choice := range []string{theme.Auto, theme.Dark, theme.Light} {
+					if model.currentScreen.Options[index].ID != choice {
+						t.Fatalf("option %d = %q, want %q", index, model.currentScreen.Options[index].ID, choice)
+					}
+					model.cursor = index
+					want := choice
+					if choice == theme.Auto {
+						want = detected
+					}
+					if got := model.activeTheme(); got != want {
+						t.Fatalf("preview for %q = %q, want %q", choice, got, want)
+					}
+				}
+				model.cursor = 0
+				next, _ := model.submitCurrentScreen()
+				updated := next.(*onboardingModel)
+				if updated.state.selections.theme.kind != onboardingThemeAuto {
+					t.Fatalf("selected theme = %q, want auto", updated.state.selections.theme.kind)
+				}
+				if got := updated.activeTheme(); got != detected {
+					t.Fatalf("applied theme = %q, want %q", got, detected)
+				}
+			}
+		})
 	}
 }

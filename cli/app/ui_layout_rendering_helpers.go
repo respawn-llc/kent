@@ -35,7 +35,15 @@ func renderFramedEditableInputLines(width, maxContentLines int, spec uiEditableI
 	field.Mask = spec.Mask
 	field.Placeholder = spec.Placeholder
 	rendered := field.Render(width)
-	return renderFramedLines(width, tuiinput.RenderSoftCursorLines(width, rendered, lineStyle), borderStyle)
+	return renderFramedInputField(width, rendered, lineStyle, borderStyle, true).Lines
+}
+
+func renderFramedInputField(width int, rendered tuiinput.RenderResult, lineStyle, borderStyle lipgloss.Style, softCursor bool) tuiinput.RenderResult {
+	rendered.Lines = renderFramedLines(width, renderInputFieldLines(width, rendered, lineStyle, softCursor), borderStyle)
+	if rendered.Cursor.Visible {
+		rendered.Cursor.Row++
+	}
+	return rendered
 }
 
 func renderFramedLines(width int, lines []string, borderStyle lipgloss.Style) []string {

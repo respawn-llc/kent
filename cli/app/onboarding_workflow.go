@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"core/shared/config"
-	"core/shared/theme"
 )
 
 type onboardingStepID string
@@ -56,15 +55,15 @@ func newOnboardingWorkflow(state *onboardingFlowState) onboardingWorkflow {
 		onboardingStepDefinition{
 			id: onboardingStepTheme,
 			build: func(state *onboardingFlowState) onboardingScreen {
-				defaultOption := theme.Resolve(state.selections.themeValue())
 				return onboardingScreen{
 					ID:              "theme",
 					Kind:            onboardingScreenChoice,
-					Title:           "Choose a theme",
-					Body:            "Pick the theme Kent should use. The preview updates as you move. If you keep the detected default, Kent stays on auto.",
+					Title:           "Welcome to Kent.",
+					Body:            "Pick the theme Kent should use.",
 					ThemePreview:    true,
-					DefaultOptionID: defaultOption,
+					DefaultOptionID: state.selections.themeValue(),
 					Options: []onboardingOption{
+						{ID: "auto", Title: "Auto"},
 						{ID: "dark", Title: "Dark"},
 						{ID: "light", Title: "Light"},
 					},

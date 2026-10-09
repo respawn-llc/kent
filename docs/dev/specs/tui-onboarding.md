@@ -4,6 +4,7 @@
 
 - A missing `config.toml` must open first-time setup before Session selection. First sign-in must be part of setup under [Provider Connections](provider-connections.md), not a preceding persistent configuration write.
 - The wizard is a bounded Alternate Screen surface.
+- Theme selection must show the Kent banner above the heading "Welcome to Kent.". Authentication pages must not show the banner.
 - Text fields use the native terminal cursor.
 - Every asynchronous operation shows a loading state.
 - Back navigation follows the startup navigation history.
@@ -12,7 +13,7 @@
 
 - The wizard is an ordered list of steps, one screen each, of three kinds: single-choice, text input (shared editor), and multi-select. Steps show or hide dynamically based on choices so far and detected capabilities. Connection setup must precede provider-dependent choices and the Defaults finalization path.
 - Step graph (order + visibility conditions):
-  1. **Theme** — dark/light with live preview as the cursor moves; keeping the detected default stays on auto-detection.
+  1. **Theme** — the picker must offer Auto, Dark, Light in that order, with live preview as the cursor moves. Auto must be the default and apply the detected terminal theme. Dark and Light must apply explicit overrides.
   2. **Connection setup** — choose and configure the first Provider Connection, including sign-in under [Provider Connections](provider-connections.md).
   3. **Entry** — "configure now" vs "defaults": choosing defaults finalizes immediately with a default config, preserving the chosen theme and connection, and skips all remaining steps.
   4. **Model** — text input, pre-filled with the current default.
@@ -29,8 +30,10 @@
 
 ## Keys
 
-- `Up`/`Down` (+`j`/`k`) move the cursor on choice/multi screens and scroll long content; `Enter`/`→` submit the screen; number keys `1-9` jump to an option (choice: select + submit; multi: toggle); `Space`/`Backspace` toggle on multi screens; `a` toggles all when a toggle-all exists.
-- `←` and `Esc` step back one step. `Esc` on the first step cancels the wizard.
+- `Up`/`Down` (+`j`/`k`) move the cursor on choice/multi screens and scroll long content. Number keys `1-9` jump to an option (choice: select + submit, multi: toggle). `Space`/`Backspace` toggle on multi screens. `a` toggles all when a toggle-all exists.
+- Across onboarding and Provider Connection setup, `Tab` and `Enter` must submit the current screen and advance. `Shift+Tab` must step back. Validation must block advancing when the current input is invalid.
+- In input fields, `←`/`→` must move the text cursor horizontally. `↑`/`↓` must move the cursor through wrapped input lines. Arrow keys must not switch screens or scroll the page while an input field is focused.
+- `Esc` steps back one step. `Esc` on the first step cancels the wizard.
 - After finalization starts, the spinner remains active and input cannot cancel or dismiss the operation. The wizard waits up to 30 seconds for a final result.
 
 ## Finalize And Cancel

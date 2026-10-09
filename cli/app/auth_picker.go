@@ -50,7 +50,6 @@ type startupPickerStyles struct {
 }
 
 type startupPickerModel struct {
-	banner         string
 	headerMarkdown string
 	headerFallback string
 	items          []startupPickerOption
@@ -130,10 +129,6 @@ func (m *startupPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *startupPickerModel) View() string {
 	var out strings.Builder
-	if banner := renderStartupBanner(m.banner); banner != "" {
-		out.WriteString(banner)
-		out.WriteString("\n\n")
-	}
 	out.WriteString(m.renderHeader())
 	if notice := m.renderNotice(); strings.TrimSpace(notice) != "" {
 		out.WriteString("\n\n")
@@ -246,9 +241,6 @@ func (m *startupPickerModel) contentWidth() int {
 
 func (m *startupPickerModel) staticLineCount() int {
 	lines := 2
-	if bannerLines := startupBannerLineCount(m.banner); bannerLines > 0 {
-		lines += bannerLines + 2
-	}
 	if strings.TrimSpace(m.notice.Text) != "" {
 		lines += 2
 	}
@@ -356,9 +348,7 @@ func authMethodOptions() []startupPickerOption {
 }
 
 func newAuthMethodPickerModel(theme string, notice startupPickerNotice) *startupPickerModel {
-	model := newStartupPickerModel(authPickerHeaderMarkdown, "Pick auth options", theme, notice, authMethodOptions())
-	model.banner = startupBannerANSI
-	return model
+	return newStartupPickerModel(authPickerHeaderMarkdown, "Pick auth options", theme, notice, authMethodOptions())
 }
 
 func authMethodPickerNoticeForRequest(req authInteraction) startupPickerNotice {

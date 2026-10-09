@@ -156,10 +156,9 @@ func (selections onboardingSelections) clone() onboardingSelections {
 
 func (selections *onboardingSelections) chooseTheme(choiceID string) error {
 	normalizedChoice := theme.Normalize(choiceID)
-	if selections.theme.kind == onboardingThemeAuto && normalizedChoice == theme.Resolve(theme.Auto) {
-		return nil
-	}
 	switch normalizedChoice {
+	case theme.Auto:
+		selections.theme = onboardingThemeSelection{kind: onboardingThemeAuto}
 	case theme.Light:
 		selections.theme = onboardingThemeSelection{kind: onboardingThemeLight}
 	case theme.Dark:

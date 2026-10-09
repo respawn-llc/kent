@@ -156,8 +156,7 @@ func (m *authCallbackPageModel) View() string {
 		contentWidth = 1
 	}
 	var lines []string
-	lines = append(lines, strings.Split(renderStartupBanner(startupBannerANSI), "\n")...)
-	lines = append(lines, "", m.styles.title.Render("Sign in with OpenAI Codex"))
+	lines = append(lines, m.styles.title.Render("Sign in with OpenAI Codex"))
 	lines = append(lines, m.styles.body.Render("Complete sign-in in your browser, or paste the callback URL/code below."))
 	if strings.TrimSpace(m.data.AuthorizeURL) != "" {
 		lines = append(lines, m.styles.url.Render(truncateQueuedMessageLine(m.data.AuthorizeURL, contentWidth)))

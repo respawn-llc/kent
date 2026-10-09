@@ -2,12 +2,14 @@ package app
 
 import (
 	"core/shared/config"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
 	"runtime"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestOnboardingImportDiscoveryKeepsTypedInput(t *testing.T) {
@@ -25,29 +27,14 @@ func TestOnboardingImportDiscoveryKeepsTypedInput(t *testing.T) {
 	}
 	model.stepIndex = modelStepIndex
 	model.syncScreen(true)
-	model.input.Replace(strings.NewReplacer("\r", "", "\n", "").Replace("draft-model-alias"))
+	model.input.Editor.Replace(strings.NewReplacer("\r", "", "\n", "").Replace("draft-model-alias"))
 	next, _ := model.Update(onboardingImportDiscoveryDoneMsg{discovery: onboardingImportDiscovery{skillSymlinkItems: map[onboardingImportProviderID][]onboardingSkillImportItem{}}})
 	updated := next.(*onboardingModel)
 	if updated.currentScreen.ID != "model" {
 		t.Fatalf("expected to stay on model input screen, got %q", updated.currentScreen.ID)
 	}
-	if got := updated.input.Text(); got != "draft-model-alias" {
+	if got := updated.input.Editor.Text(); got != "draft-model-alias" {
 		t.Fatalf("expected import discovery refresh to preserve typed input, got %q", got)
-	}
-}
-
-func TestOnboardingInputCursorRowTracksWrappedReusableEditorField(t *testing.T) {
-	model := newOnboardingModelForWorkspace(t.TempDir(), "", testOnboardingFlowState(t, func(cfg *config.App) { cfg.Settings.Theme = "dark" }))
-	model.currentScreen = onboardingScreen{Kind: onboardingScreenInput, Title: "Enter value"}
-	model.input = newSingleLineEditor("alpha beta gamma")
-
-	content := model.buildContent(8)
-	rendered := renderSingleLineEditor(8, 0, model.input, "> ", true, 0, "")
-	if !rendered.Cursor.Visible || rendered.Cursor.Row < 1 {
-		t.Fatalf("expected wrapped input cursor below first row, cursor=%+v lines=%#v", rendered.Cursor, rendered.Lines)
-	}
-	if got, want := content.cursorRow, rendered.Cursor.Row; got != want {
-		t.Fatalf("content cursor row = %d, want %d", got, want)
 	}
 }
 
@@ -58,7 +45,7 @@ func TestOnboardingInputUsesRealAltScreenCursorWhenAvailable(t *testing.T) {
 	model.width = 24
 	model.height = 12
 	model.currentScreen = onboardingScreen{Kind: onboardingScreenInput, Title: "Enter value"}
-	model.input = newSingleLineEditor("alpha beta gamma")
+	model.input.Editor = newSingleLineEditor("alpha beta gamma")
 
 	view := model.View()
 	placement, ok := state.Snapshot()
@@ -70,6 +57,50 @@ func TestOnboardingInputUsesRealAltScreenCursorWhenAvailable(t *testing.T) {
 	}
 	if placement.CursorCol >= model.width {
 		t.Fatalf("cursor col %d outside width %d", placement.CursorCol, model.width)
+	}
+}
+
+func TestOnboardingInputCursorTargetsEditedCharacter(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		width  int
+		height int
+		title  string
+		body   string
+		value  string
+		mask   rune
+	}{
+		{name: "connection name", width: 80, height: 24, title: "Connection", value: "chatgpt-1"},
+		{name: "wrapped input", width: 12, height: 16, title: "Connection", value: "abcdefghijklmno"},
+		{name: "wrapped heading and body", width: 12, height: 20, title: "A heading that wraps", body: "Some instructions that wrap too", value: "abcdef"},
+		{name: "scrolled input", width: 20, height: 10, title: "Connection", body: strings.Repeat("instructions ", 20), value: "abcdef"},
+		{name: "wide characters", width: 12, height: 16, title: "Connection", value: "界🙂界🙂X"},
+		{name: "masked input", width: 12, height: 16, title: "Credential", value: "sensitive-value", mask: '•'},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			model := newOnboardingModelForWorkspace(t.TempDir(), "", testOnboardingFlowState(t, nil))
+			model.terminalCursor = newUITerminalCursorState()
+			model.width, model.height = tc.width, tc.height
+			model.currentScreen = onboardingScreen{Kind: onboardingScreenInput, Title: tc.title, Body: tc.body}
+			model.input.Editor = newSingleLineEditor(tc.value)
+			model.input.Mask = tc.mask
+			model.input.Editor.SetCursor(len(tc.value) - 1)
+			model.Update(tea.WindowSizeMsg{Width: tc.width, Height: tc.height})
+
+			lines := strings.Split(model.View(), "\n")
+			placement, ok := model.terminalCursor.Snapshot()
+			if !ok || !placement.Visible || placement.CursorRow >= len(lines) {
+				t.Fatalf("cursor unavailable: %+v, view has %d rows", placement, len(lines))
+			}
+			got := ansi.Cut(ansi.Strip(lines[placement.CursorRow]), placement.CursorCol, placement.CursorCol+1)
+			want := tc.value[len(tc.value)-1:]
+			if tc.mask != 0 {
+				want = string(tc.mask)
+			}
+			if got != want {
+				t.Fatalf("cursor targets %q, want edited character %q; placement=%+v", got, want, placement)
+			}
+		})
 	}
 }
 
@@ -92,15 +123,15 @@ func TestOnboardingEditorFieldDeleteCurrentLineUsesAppKeyAdapter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			model := newOnboardingModelForWorkspace(t.TempDir(), "", testOnboardingFlowState(t, func(cfg *config.App) { cfg.Settings.Theme = "dark" }))
 			model.currentScreen = onboardingScreen{Kind: onboardingScreenInput, Title: "Enter value"}
-			model.input = newSingleLineEditor("project name")
-			model.input.SetCursor(byteOffsetForRuneCursor(model.input.Text(), len([]rune("project"))))
+			model.input.Editor = newSingleLineEditor("project name")
+			model.input.Editor.SetCursor(byteOffsetForRuneCursor(model.input.Editor.Text(), len([]rune("project"))))
 
 			next, _ := model.Update(tt.key)
 			updated := next.(*onboardingModel)
-			if got := updated.input.Text(); got != "" {
+			if got := updated.input.Editor.Text(); got != "" {
 				t.Fatalf("value after delete-current-line key = %q, want empty", got)
 			}
-			if got := runeOffsetForByteCursor(updated.input.Text(), updated.input.Cursor()); got != 0 {
+			if got := runeOffsetForByteCursor(updated.input.Editor.Text(), updated.input.Editor.Cursor()); got != 0 {
 				t.Fatalf("cursor after delete-current-line key = %d, want 0", got)
 			}
 		})
@@ -166,9 +197,9 @@ func TestOnboardingInputWordNavigationStaysInField(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			model := newOnboardingModelAtModelInput(t)
 			const input = "alpha beta gamma"
-			model.input = newSingleLineEditor(input)
+			model.input.Editor = newSingleLineEditor(input)
 			initialCursor := tt.initialCursor(input)
-			model.input.SetCursor(byteOffsetForRuneCursor(input, initialCursor))
+			model.input.Editor.SetCursor(byteOffsetForRuneCursor(input, initialCursor))
 			screenID := model.currentScreen.ID
 
 			next, _ := model.Update(tt.key)
@@ -176,36 +207,129 @@ func TestOnboardingInputWordNavigationStaysInField(t *testing.T) {
 			if got := updated.currentScreen.ID; got != screenID {
 				t.Fatalf("screen after %s = %q, want %q", tt.name, got, screenID)
 			}
-			if got := updated.input.Text(); got != input {
+			if got := updated.input.Editor.Text(); got != input {
 				t.Fatalf("input after %s = %q, want %q", tt.name, got, input)
 			}
-			if got, want := runeOffsetForByteCursor(updated.input.Text(), updated.input.Cursor()), tt.wantCursor; got != want {
+			if got, want := runeOffsetForByteCursor(updated.input.Editor.Text(), updated.input.Editor.Cursor()), tt.wantCursor; got != want {
 				t.Fatalf("cursor after %s = %d, want %d", tt.name, got, want)
 			}
 		})
 	}
 }
 
-func TestOnboardingInputPlainArrowsKeepStepNavigation(t *testing.T) {
+func TestOnboardingInputPlainArrowsMoveCursorWithoutChangingStep(t *testing.T) {
 	cases := []struct {
 		name      string
 		key       tea.KeyMsg
-		stepDelta int
+		cursor    int
 	}{
-		{name: "left", key: tea.KeyMsg{Type: tea.KeyLeft}, stepDelta: -1},
-		{name: "right", key: tea.KeyMsg{Type: tea.KeyRight}, stepDelta: 1},
+		{name: "left", key: tea.KeyMsg{Type: tea.KeyLeft}, cursor: 0},
+		{name: "right", key: tea.KeyMsg{Type: tea.KeyRight}, cursor: 2},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			model := newOnboardingModelAtModelInput(t)
 			initialStepIndex := model.stepIndex
+			const input = "abc"
+			model.input.Editor = newSingleLineEditor(input)
+			model.input.Editor.SetCursor(1)
 
 			next, _ := model.Update(tt.key)
 			updated := next.(*onboardingModel)
-			if got, want := updated.stepIndex, initialStepIndex+tt.stepDelta; got != want {
+			if got, want := updated.stepIndex, initialStepIndex; got != want {
 				t.Fatalf("step index after plain %s = %d, want %d", tt.name, got, want)
 			}
+			if got := updated.input.Editor.Cursor(); got != tt.cursor {
+				t.Fatalf("cursor after %s = %d, want %d", tt.name, got, tt.cursor)
+			}
+			if got := updated.input.Editor.Text(); got != input {
+				t.Fatalf("input after %s = %q, want %q", tt.name, got, input)
+			}
 		})
+	}
+}
+
+func TestOnboardingInputVerticalArrowsMoveWithinWrappedField(t *testing.T) {
+	for _, mask := range []rune{0, '*'} {
+		model := newOnboardingModelAtModelInput(t)
+		model.width = 8
+		model.height = 24
+		model.input.Editor = newSingleLineEditor("abcdefghijklmno")
+		model.input.Mask = mask
+		model.input.Editor.SetCursor(12)
+		screenID := model.currentScreen.ID
+		for _, step := range []struct {
+			key    tea.KeyType
+			cursor int
+		}{
+			{tea.KeyUp, 4},
+			{tea.KeyDown, 12},
+			{tea.KeyUp, 4},
+			{tea.KeyUp, 0},
+		} {
+			model.Update(tea.KeyMsg{Type: step.key})
+			if model.currentScreen.ID != screenID {
+				t.Fatalf("%v left the input screen", step.key)
+			}
+			if got := model.input.Editor.Cursor(); got != step.cursor {
+				t.Fatalf("mask=%q key=%v cursor=%d, want %d", mask, step.key, got, step.cursor)
+			}
+		}
+	}
+}
+
+func TestOnboardingTabNavigation(t *testing.T) {
+	for _, key := range []tea.KeyType{tea.KeyTab, tea.KeyEnter} {
+		model := newOnboardingModelAtModelInput(t)
+		inputScreen := model.currentScreen.ID
+		model.Update(tea.KeyMsg{Type: key})
+		if model.currentScreen.ID == inputScreen {
+			t.Fatalf("%v did not advance from input", key)
+		}
+		model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+		if model.currentScreen.ID != inputScreen {
+			t.Fatalf("shift+tab returned to %q, want %q", model.currentScreen.ID, inputScreen)
+		}
+		model.input.Editor.Replace("")
+		model.Update(tea.KeyMsg{Type: key})
+		if model.currentScreen.ID != inputScreen || model.currentScreen.ErrorText == "" {
+			t.Fatalf("%v did not block invalid input: %+v", key, model.currentScreen)
+		}
+	}
+}
+
+func TestOnboardingConnectionTabNavigation(t *testing.T) {
+	_, model, err := newConnectionFormModel("dark", &authpb.ConnectionCatalog{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if model.currentScreen.ID != connectionStepTemplate {
+		t.Fatalf("tab from theme opened %q", model.currentScreen.ID)
+	}
+	for _, key := range []tea.KeyType{tea.KeyLeft, tea.KeyRight} {
+		model.Update(tea.KeyMsg{Type: key})
+		if model.currentScreen.ID != connectionStepTemplate {
+			t.Fatalf("%v switched a choice screen", key)
+		}
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if model.currentScreen.ID != onboardingStepTheme {
+		t.Fatalf("shift+tab from provider choice opened %q", model.currentScreen.ID)
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if model.currentScreen.ID != connectionStepID {
+		t.Fatalf("tab from provider choice opened %q", model.currentScreen.ID)
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if model.currentScreen.ID != connectionStepEndpoint {
+		t.Fatalf("tab from provider input opened %q", model.currentScreen.ID)
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if model.currentScreen.ID != connectionStepID {
+		t.Fatalf("shift+tab from endpoint opened %q", model.currentScreen.ID)
 	}
 }
 
