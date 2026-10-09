@@ -523,6 +523,9 @@ func TestCompactRequestUsesSelectedProtocol(t *testing.T) {
 			if resp.ProviderEvidence.Usage == nil {
 				t.Fatal("compaction omitted provider usage evidence")
 			}
+			if resp.ProviderEvidence.RequestedServiceTier == nil || *resp.ProviderEvidence.RequestedServiceTier != "priority" {
+				t.Fatal("compaction omitted requested priority evidence")
+			}
 			if standard {
 				if captured["prompt_cache_key"] != "session-cache-key" || captured["service_tier"] != "priority" ||
 					captured["instructions"] != "system instructions" || captured["max_output_tokens"] != float64(128) ||

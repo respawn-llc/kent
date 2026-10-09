@@ -43,9 +43,7 @@ func (t *HTTPTransport) compactStandardResponses(ctx context.Context, request Re
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return ResponsesCompactionResponse{}, err
 	}
-	delete(fields, "tools")
 	delete(fields, "tool_choice")
-	delete(fields, "parallel_tool_calls")
 	payload := responses.ResponseCompactParams{}
 	extras := make(map[string]any, len(fields))
 	for name, value := range fields {
@@ -78,6 +76,7 @@ func (t *HTTPTransport) compactStandardResponses(ctx context.Context, request Re
 	}
 	evidence.ProviderID = textutil.Value(preparation.variant.ProviderID)
 	evidence.RequestedModel = request.Model
+	evidence.RequestedServiceTier = t.providerUsageRequestEvidence(request, preparation, generation).RequestedServiceTier
 	usage, err := preparation.variant.ResponsesPolicy.usage(response.Usage, windowTokens)
 	if err != nil {
 		return ResponsesCompactionResponse{}, err

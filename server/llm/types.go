@@ -729,6 +729,7 @@ type CompactionResponse struct {
 type CompactionClient interface {
 	// PrepareCompaction selects the protocol request before cache observation.
 	PrepareCompaction(request CompactionRequest) CompactionRequest
+	// Compact dispatches the prepared request without changing its observed context.
 	Compact(ctx context.Context, request CompactionRequest) (CompactionResponse, error)
 }
 
