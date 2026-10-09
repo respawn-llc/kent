@@ -127,10 +127,11 @@ func runOnboardingFlow(ctx context.Context, cfg config.Connection, local config.
 			} else {
 				model.state.facts = facts
 				model.state.imports = onboardingImportDiscoveryFromFacts(facts.GetImports())
-				if err := model.state.submitPrimaryModel(model.state.selections.model.value); err != nil {
+				// Reconcile the refreshed skill candidates before validating model selections.
+				if err := model.state.refreshSkillSelectionsAfterDiscovery(); err != nil {
 					return onboardingResult{}, err
 				}
-				if err := model.state.refreshSkillSelectionsAfterDiscovery(); err != nil {
+				if err := model.state.submitPrimaryModel(model.state.selections.model.value); err != nil {
 					return onboardingResult{}, err
 				}
 			}
