@@ -96,7 +96,7 @@ function NativeChatFrame({ children }: Readonly<{ children: ReactNode }>) {
             className="app-region-drag fixed inset-x-0 top-0 z-20 h-[var(--native-titlebar-height)]"
             data-tauri-drag-region
           />
-          {title !== null && <WindowChromeTitle title={title} macOS />}
+          {title !== null && <WindowChromeTitle title={title} macOS contentWindow />}
         </>
       )}
       <div className="app-region-no-drag relative flex min-h-0 min-w-0 w-full overflow-hidden">

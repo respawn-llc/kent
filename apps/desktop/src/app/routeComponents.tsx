@@ -243,14 +243,14 @@ function ChatRouteOpening({
           projectID={projectID}
           navigation={navigation}
           onSessionDelivered={bookmark.delivered}
-          onPopOutCreated={appNavigation.openProjectSessions}
+          onPopOutCreated={appNavigation.back}
         />
       ) : (
         <ChatDestination
           opening={{ kind: "session", projectID, sessionID: bookmark.sessionID }}
           navigation={navigation}
           onSessionDelivered={bookmark.delivered}
-          onPopOutCreated={appNavigation.openProjectSessions}
+          onPopOutCreated={appNavigation.back}
         />
       )}
     </SidebarRootOwner>

@@ -54,7 +54,7 @@ export async function openNativeDialogWindow(
       height: placement.height,
       hiddenTitle: integratedTitle,
       maximizable: options.maximizable ?? false,
-      parent: getCurrentWindow(),
+      ...(options.presentation === "content" ? {} : { parent: getCurrentWindow() }),
       preventOverflow: true,
       resizable: options.resizable ?? false,
       shadow: true,

@@ -34,7 +34,6 @@ export type AppNavigation = Readonly<{
   openProjectTask(projectID: string, workflowID: string, taskID: string): Promise<void>;
   openSessionChat(target: SessionChatTarget): Promise<void>;
   openNewChat(projectID: string): Promise<void>;
-  openProjectSessions(projectID: string): Promise<void>;
   closeProjectTask(projectID: string, workflowID?: string): Promise<void>;
 }>;
 
@@ -207,18 +206,6 @@ export function useAppNavigation(): AppNavigation {
                 catalogOrigin: { category: "main" },
                 deliveredSessionID: null,
               },
-            }),
-          });
-        });
-      },
-      async openProjectSessions(projectID) {
-        await runNavigation(async () => {
-          await navigate({
-            to: "/",
-            search: { projectId: projectID },
-            state: (previous) => ({
-              ...previous,
-              sessionChat: { projectID, catalogOrigin: { category: "main" } },
             }),
           });
         });

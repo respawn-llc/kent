@@ -16,7 +16,7 @@
 - Attention descriptions must use secondary text capped at two lines. The date must use muted text beneath the description.
 - Chat can appear as a full-page destination, a separate window, or an adaptive detail presentation.
 - The separate-window action is available only in Chat chrome. Session rows do not offer it in their context menu.
-- Desktop must allow at most one native Chat window per Session. If none exists, Pop Out must open it and return the main window to the Project's Sessions tab.
+- Desktop must allow at most one native Chat window per Session. If none exists, Pop Out must open it and navigate Back in the main window using the ordinary navigation history described in [Desktop GUI](desktop-gui.md#home-and-navigation).
 - If that Session's native Chat window already exists, Pop Out must show it, restore it if minimized, and request focus subject to normal operating-system behavior. The main window must retain its Chat destination.
 - Selecting the same Session in the main window must open Chat there normally alongside the pop-out. Closing the native window must not automatically move Chat back.
 - When native windows are unavailable, Chat must omit Pop Out. New Chat must omit Pop Out until it has an authoritative Session identity.
@@ -24,6 +24,7 @@
 - A native Chat window must retain its Session identity. Its Parent Chat and linked Task Detail actions must open their destinations in the main window and request main-window focus without navigating or closing the native Chat window.
 - When a fresh-conversation command such as `/review` or `/init` creates a child Session in native Chat, Desktop must open or focus the child's own native Chat window and leave the original window on its Session. Main-window Chat must retain its same-window transition to the delivered Session.
 - A native Chat window must initially open at the Chat content maximum width with a 16:9 aspect ratio, constrained to the available screen. It must support resizing, maximizing, and minimizing without always-on-top pinning.
+- When Desktop follows system appearance, every open native Chat window must update its page and native glass appearance when the system appearance changes.
 - Desktop relaunch restores the selected Project and its active Workflows or Sessions tab. It does not reopen Chat or restore Chat transcript/composer presentation state.
 
 ## Sessions
