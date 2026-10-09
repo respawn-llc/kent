@@ -417,6 +417,7 @@ func TestPersistedHistoryReplacementMatchesActualEngineLiveDelivery(t *testing.T
 			if mode == "local" {
 				steps = append(steps, scriptedllm.FinalAnswer("second compacted summary"))
 			}
+			steps = append(steps, scriptedllm.FinalAnswer("continued in the target context"))
 			checkpoint := llm.CompactionResponse{
 				Checkpoint: llm.ResponseItem{
 					Type: llm.ResponseItemTypeCompaction, ID: textutil.Value("checkpoint"),
@@ -487,6 +488,14 @@ func TestPersistedHistoryReplacementMatchesActualEngineLiveDelivery(t *testing.T
 			events = nil
 			if _, err := engine.CompactContextForWorkflowPostCompletion(t.Context()); err != nil {
 				t.Fatalf("compact context: %v", err)
+			}
+			for _, event := range events {
+				if event.Kind == runtime.EventLocalEntryAdded && event.LocalEntryProjected {
+					t.Fatal("deferred summary was displayed before the target started")
+				}
+			}
+			if _, err := engine.SubmitUserMessage(t.Context(), "start the next context"); err != nil {
+				t.Fatalf("submit target user message: %v", err)
 			}
 			replacementRows := 0
 			for _, event := range events {

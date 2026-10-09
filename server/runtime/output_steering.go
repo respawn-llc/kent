@@ -297,7 +297,7 @@ func steerHistoryReplacementIntent(engine string, mode compactionMode, compactio
 		priority: steeringPriorityNormal,
 		items: []steeringItem{{historyReplace: &steeringHistoryReplacement{
 			payload:          payload,
-			projectedEntries: transcriptEntriesFromHistoryReplacement(payload.Items, payload.CompactionNumber),
+			projectedEntries: transcriptEntriesFromHistoryReplacement(payload.Items, payload.CompactionNumber, session.CompactionMode(payload.Mode)),
 		}}},
 	}
 }
@@ -1238,10 +1238,7 @@ func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryRep
 		replacement.projectedEntries,
 		&provenance,
 	)
-	// Compaction reinjects canonical generation context, including base meta,
-	// into the same replacement payload. Mirror the restore-time length signal
-	// here rather than scanning individual items.
-	e.baseMetaInjected = len(preparedItems) > 0
+	e.baseMetaInjected = replacementHasBaseMetaContext(preparedItems, session.CompactionMode(replacement.payload.Mode))
 	if replacement.payload.CompactionNumber != nil {
 		e.compactionRuntimeState().SetCount(*replacement.payload.CompactionNumber)
 	}

@@ -180,6 +180,7 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			projectedEntries := transcriptEntriesFromHistoryReplacement(
 				replacement.Items,
 				replacement.CompactionNumber,
+				session.CompactionMode(replacement.Mode),
 			)
 			for index := range projectedEntries {
 				projectedEntries[index].StepID = exactStepIDPointer(stepID)
@@ -238,12 +239,13 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 	if err := e.store.SetCompactionSoonReminderIssued(reminderIssued); err != nil {
 		return err
 	}
-	// Base meta context is injected once at the birth of a session's active list
-	// (fresh-session boot injects it first; compaction reinjects it into the
-	// history_replaced payload). Any restored history therefore already carries
-	// it, so a non-empty restore means injection has happened. This is a
-	// deterministic length check, never a scan of which messages are present.
 	e.baseMetaInjected = len(e.transcriptRuntimeState().SnapshotMessages()) > 0
+	if mode, ok := e.compactionRuntimeState().HistoryReplacementMode(); ok {
+		items, replacementEnd := e.transcriptRuntimeState().SnapshotRequestItems()
+		if replacementEnd != nil {
+			e.baseMetaInjected = replacementHasBaseMetaContext(items[:*replacementEnd], *mode)
+		}
+	}
 	if futureMessage := recoveredHandoff.PendingFutureMessage(); futureMessage != "" {
 		e.handoffRuntimeState().QueueFutureMessage(futureMessage)
 	}

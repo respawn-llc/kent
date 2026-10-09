@@ -37,7 +37,12 @@ func compactionBoundaryMatcher(matchErr *error) func(session.EventRecord) bool {
 	}
 }
 
-func transcriptEntriesFromHistoryReplacement(items []llm.ResponseItem, compactionNumber *int) []ChatEntry {
+func transcriptEntriesFromHistoryReplacement(items []llm.ResponseItem, compactionNumber *int, mode session.CompactionMode) []ChatEntry {
+	// Deferred workflow output is published together with its generation
+	// context, so assembling that context does not display the summary twice.
+	if mode == session.CompactionModeWorkflowPostCompletion && !replacementHasBaseMetaContext(items, mode) {
+		return nil
+	}
 	entries := make([]ChatEntry, 0, len(items)+1)
 	hasCompactionSummary := false
 	walker := newResponseItemMessageWalker(func(msg llm.Message) {

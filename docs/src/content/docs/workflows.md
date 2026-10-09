@@ -221,11 +221,11 @@ Transition-selected effort follows the session's [thinking settings](/config/#th
 Context mode controls how the target agent starts its session.
 It applies to transitions into agent nodes. Transitions into joins or terminal nodes do not start agent sessions.
 
-| Mode                         | Best for                                                                   | Trade-offs                                                                                                                                                                                                           |
-| ---------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| New session                  | Independent work, QA, code review, security review, release note drafting. | Lowest starting context and cleanest role boundary. The prompt and parameters must contain the context the target needs.                                                                                             |
-| Compact and continue session | A large phase handing off to another role or another direction.            | Adds a handoff step and starts a new session from a summary. Good when full conversation history is unnecessary but a clean summary matters. This mode forces compaction at the transition and allows a role switch. |
-| Continue session             | Tight loops and direct follow-up work with the same context.               | Uses the same conversation history and prompt cache.                                                                                                                                                                 |
+| Mode                         | Best for                                                                   | Trade-offs                                                                                                               |
+| ---------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| New session                  | Independent work, QA, code review, security review, release note drafting. | Lowest starting context and cleanest role boundary. The prompt and parameters must contain the context the target needs. |
+| Compact and continue session | A large phase handing off to another role or another direction.            | Replaces active context with a summary and applies the target role's configuration.                                      |
+| Continue session             | Tight loops and direct follow-up work with the same context.               | Uses the same conversation history and prompt cache.                                                                     |
 
 Continuation modes also have a context source:
 
@@ -262,7 +262,7 @@ Workflow design affects prompt-cache continuity and token spend:
 
 - `continue_session` gives the strongest cache continuity because it uses the same session, conversation history, and provider cache.
 - `new_session` starts clean. The prompt and parameters must carry enough context for the agent, otherwise the target agent will spend tokens re-orienting in the workspace, negating the cost and quality benefits of fresh context.
-- `compact_and_continue_session` compacts the previous session, then starts a fresh session from that summary with the target role. It frees context but adds costs to compact the session.
+- `compact_and_continue_session` normally keeps the selected session but replaces its active context with a summary and the target role's configuration. Fan-out branches can receive separate sessions copied from that summary, each with its own cache key. The outgoing model generates the summary. If compaction finishes before an approval is granted, the summary is saved and appears in the transcript when the next agent starts.
 
 ## 6. Manage tasks
 

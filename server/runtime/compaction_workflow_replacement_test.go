@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sync/atomic"
 	"testing"
 
@@ -18,7 +19,7 @@ import (
 	"core/shared/transcript"
 )
 
-func TestWorkflowPostCompletionCompactionKeepsCompletedOutputAndDormantMetaContext(t *testing.T) {
+func TestWorkflowPostCompletionCompactionDefersGenerationContextUntilNextRequest(t *testing.T) {
 	t.Parallel()
 	scopeID := runtimeids.NewExecutionScopeID()
 	currentNode := mustTestCurrentNodeReference(t, "task", "node", nil)
@@ -106,7 +107,15 @@ func TestWorkflowPostCompletionCompactionKeepsCompletedOutputAndDormantMetaConte
 	if workflowModes != 0 || compactionReminders != 0 {
 		t.Fatalf("dormant replacement retained workflow assignment meta: workflow_modes=%d reminders=%d", workflowModes, compactionReminders)
 	}
-	assertCompactionReplacementOrder(t, engine.transcriptRuntimeState().SnapshotItems(), false)
+	var checkpoint *llm.ResponseItem
+	for _, item := range engine.transcriptRuntimeState().SnapshotItems() {
+		if item.MessageType != nil && *item.MessageType == llm.MessageTypeEnvironment {
+			t.Fatal("post-completion compaction captured the outgoing model's Environment before the target was selected")
+		}
+		if item.Type == llm.ResponseItemTypeCompaction {
+			checkpoint = &item
+		}
+	}
 
 	window, err := mustMaterializeTestEventLog(t, engine.store).ReadRecentRecords(16)
 	if err != nil {
@@ -125,6 +134,66 @@ func TestWorkflowPostCompletionCompactionKeepsCompletedOutputAndDormantMetaConte
 	}
 	if !foundReplacement {
 		t.Fatalf("workflow post-completion replacement mode was not persisted: %+v", window.Records)
+	}
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+	target := mustNewTestEngine(t, mustOpenTestSession(t, engine.store.Dir()), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6.1-sol"})
+	if err := target.ensureMetaContextForRequest(context.Background(), runtimeTestStepID("target")); err != nil {
+		t.Fatal(err)
+	}
+	request, err := target.buildRequest(context.Background(), runtimeTestStepID("target"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.Model != "gpt-6.1-sol" {
+		t.Fatalf("target model = %q", request.Model)
+	}
+	assertCompactionReplacementOrder(t, target.transcriptRuntimeState().SnapshotItems(), false)
+	if target.CompactionCount() != 1 || len(client.compactionCalls) != 1 {
+		t.Fatal("target hydration repeated compaction")
+	}
+	var hydratedCheckpoint *llm.ResponseItem
+	for _, item := range request.Items {
+		if item.Type == llm.ResponseItemTypeCompaction {
+			hydratedCheckpoint = &item
+		}
+	}
+	if checkpoint == nil || !reflect.DeepEqual(checkpoint, hydratedCheckpoint) {
+		t.Fatal("target hydration changed the provider checkpoint")
+	}
+	window, err = mustMaterializeTestEventLog(t, target.store).ReadRecentRecords(32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	for _, record := range window.Records {
+		if err := scan.ApplyPersistedEvent(record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	summaries := 0
+	for _, entry := range scan.CollectedPageSnapshot().Entries {
+		if entry.MessageType == llm.MessageTypeCompactionSummary {
+			summaries++
+		}
+	}
+	if summaries != 1 {
+		t.Fatalf("visible summaries = %d, want one", summaries)
+	}
+	if err := target.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened := mustNewTestEngine(t, mustOpenTestSession(t, target.store.Dir()), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6.1-sol"})
+	if err := reopened.ensureMetaContextForRequest(context.Background(), runtimeTestStepID("resume")); err != nil {
+		t.Fatal(err)
+	}
+	resumedRequest, err := reopened.buildRequest(context.Background(), runtimeTestStepID("resume"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(request.Items, resumedRequest.Items) {
+		t.Fatal("reopening the hydrated target changed its model input")
 	}
 }
 
@@ -417,10 +486,7 @@ func TestWorkflowPostCompletionBoundarySurvivesFailedWorkflowRequest(t *testing.
 		},
 		Config{Model: "gpt-6-sol"},
 	)
-	mode := session.CompactionModeWorkflowPostCompletion
-	if err := engine.compactionRuntimeState().SetHistoryReplacementMode(&mode); err != nil {
-		t.Fatalf("set post-completion replacement mode: %v", err)
-	}
+	commitWorkflowPostCompletionTestSummary(t, engine)
 
 	if _, err := engine.SubmitWorkflowTurn(context.Background()); !errors.Is(err, requestErr) {
 		t.Fatalf("failed workflow request error = %v, want %v", err, requestErr)
@@ -458,10 +524,7 @@ func TestWorkflowContinuationPreservesBoundaryAcrossFailedCACAttempt(t *testing.
 		},
 		Config{Model: "gpt-6-sol"},
 	)
-	mode := session.CompactionModeWorkflowPostCompletion
-	if err := engine.compactionRuntimeState().SetHistoryReplacementMode(&mode); err != nil {
-		t.Fatalf("set post-completion replacement mode: %v", err)
-	}
+	commitWorkflowPostCompletionTestSummary(t, engine)
 	headlessType := llm.MessageTypeHeadlessMode
 	if err := steerTestActiveStep(engine, "meta", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, MessageType: &headlessType}})); err != nil {
 		t.Fatalf("steer canonical meta context: %v", err)
@@ -634,7 +697,62 @@ func TestWorkflowPostCompletionCompactionUsesLocalGenerateClient(t *testing.T) {
 	if !engine.compactionRuntimeState().WorkflowPostCompletionBoundary() {
 		t.Fatal("local workflow compaction did not commit its post-completion boundary")
 	}
+	if err := engine.ensureMetaContextForRequest(context.Background(), runtimeTestStepID("target")); err != nil {
+		t.Fatal(err)
+	}
 	assertCompactionReplacementOrder(t, engine.transcriptRuntimeState().SnapshotItems(), false)
+}
+
+func commitWorkflowPostCompletionTestSummary(t *testing.T, engine *Engine) {
+	t.Helper()
+	err := runTestActiveStep(engine, runtimeTestStepID("post-completion"), func() error {
+		_, err := newCompactionPersistence(engine).replaceHistory(
+			runtimeTestStepID("post-completion"), "local", compactionModeWorkflowPostCompletion,
+			llm.ItemsFromMessages([]llm.Message{{
+				Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+				Content: textutil.Value("completed assignment"),
+			}}),
+		)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWorkflowCompactionContextRetryPreservesSummaryAndTargetContext(t *testing.T) {
+	t.Parallel()
+	observerErr := errors.New("target context persistence failed")
+	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
+	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6.1-sol"})
+	commitWorkflowPostCompletionTestSummary(t, engine)
+	gate.FailNext(observerErr)
+	if err := engine.ensureMetaContextForRequest(context.Background(), runtimeTestStepID("target")); !errors.Is(err, observerErr) {
+		t.Fatalf("context preparation error = %v, want %v", err, observerErr)
+	}
+	if err := engine.ensureMetaContextForRequest(context.Background(), runtimeTestStepID("retry")); err != nil {
+		t.Fatal(err)
+	}
+	request, err := engine.buildRequest(context.Background(), runtimeTestStepID("retry"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	environments, summaries := 0, 0
+	for _, item := range request.Items {
+		if item.MessageType == nil {
+			continue
+		}
+		switch *item.MessageType {
+		case llm.MessageTypeEnvironment:
+			environments++
+		case llm.MessageTypeCompactionSummary:
+			summaries++
+		}
+	}
+	if environments != 1 || summaries != 1 || engine.CompactionCount() != 1 {
+		t.Fatalf("retry duplicated context: environments=%d summaries=%d compactions=%d", environments, summaries, engine.CompactionCount())
+	}
 }
 
 func TestRemoteCompactionRefreshesWorkflowTaskAwareness(t *testing.T) {

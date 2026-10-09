@@ -212,7 +212,7 @@ func (s *chatStore) replaceHistory(stepID string, items []llm.ResponseItem) {
 		textutil.OptionalExactString(stepID),
 		items,
 		nil,
-		transcriptEntriesFromHistoryReplacement(items, nil),
+		transcriptEntriesFromHistoryReplacement(items, nil, session.CompactionModeManual),
 	)
 }
 

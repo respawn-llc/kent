@@ -207,6 +207,7 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 		entries := transcriptEntriesFromHistoryReplacement(
 			llm.PrepareOpenAIInputItems(replacement.Items),
 			replacement.CompactionNumber,
+			session.CompactionMode(replacement.Mode),
 		)
 		for index := range entries {
 			entries[index].StepID = cloneOptionalStepID(stepID)

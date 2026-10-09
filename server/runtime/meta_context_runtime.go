@@ -23,6 +23,12 @@ import (
 // meta_context.go; request entry points must not append those prompts directly.
 func (e *Engine) ensureMetaContextForRequest(ctx context.Context, stepID string) error {
 	if !e.baseMetaInjected {
+		if mode, ok := e.compactionRuntimeState().HistoryReplacementMode(); ok && *mode == session.CompactionModeWorkflowPostCompletion {
+			if err := e.hydrateWorkflowCompactionContext(ctx, stepID); err != nil {
+				return err
+			}
+			return e.ensureMetaContextForRequest(ctx, stepID)
+		}
 		pendingRebind := e.store.Meta().RebindReminder != nil
 		if err := e.steerFreshMetaContext(ctx, stepID); err != nil {
 			return err
@@ -355,14 +361,14 @@ func sameMetaContextSlot(left, right metaContextKind) bool {
 
 // steerBaseMetaContextIfNeeded injects base meta context (AGENTS.md, skills,
 // subagents, environment) exactly once, at the first request of a fresh
-// session. The guard is deterministic: it is seeded from restored-history
-// length at startup and from the replacement length after compaction (which
-// reinjects base meta into the history_replaced payload). It never scans the
-// conversation to decide whether context is "missing" — every session's active
-// list is born carrying base meta, so re-injection cannot occur.
+// session. Workflow post-completion replacements defer generation context until
+// the next request has selected its model and role.
 func (e *Engine) steerBaseMetaContextIfNeeded(stepID string) error {
 	if e.baseMetaInjected {
 		return nil
+	}
+	if mode, ok := e.compactionRuntimeState().HistoryReplacementMode(); ok && *mode == session.CompactionModeWorkflowPostCompletion {
+		return e.hydrateWorkflowCompactionContext(context.Background(), stepID)
 	}
 	builder := e.activeMetaContextBuilder(e.cfg.Model, e.cfg.SkillPolicy)
 	invocationContext := config.SubagentInvocationContextOrdinary
@@ -550,6 +556,18 @@ func roleOrUser(role *llm.Role) llm.Role {
 }
 
 func (e *Engine) compactionReinjectedMetaContextProjection(ctx context.Context, mode compactionMode) (metaContextProjection, error) {
+	if mode == compactionModeWorkflowPostCompletion {
+		return metaContextProjection{RunningShells: e.compactionRunningShellReminder()}, nil
+	}
+	projection, err := e.compactionGenerationMetaContextProjection(ctx, mode)
+	if err != nil {
+		return metaContextProjection{}, err
+	}
+	projection.RunningShells = e.compactionRunningShellReminder()
+	return projection, nil
+}
+
+func (e *Engine) compactionGenerationMetaContextProjection(ctx context.Context, mode compactionMode) (metaContextProjection, error) {
 	meta := e.store.Meta()
 	skillPolicy, err := e.reconstructionSkillPolicy(ctx)
 	if err != nil {
@@ -580,9 +598,7 @@ func (e *Engine) compactionReinjectedMetaContextProjection(ctx context.Context, 
 	if err != nil {
 		return metaContextProjection{}, err
 	}
-	projection := metaResult.Projection()
-	projection.RunningShells = e.compactionRunningShellReminder()
-	return projection, nil
+	return metaResult.Projection(), nil
 }
 
 const compactionRunningShellCommandPreviewLimit = 120
