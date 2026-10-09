@@ -310,12 +310,25 @@ func publishConfiguredRemoteForWorkspace(t *testing.T, workspace string) func() 
 		if err := serveConfiguredRemoteHandshake(ws, identity); err != nil {
 			return
 		}
-		var req protocol.Request
 		for {
-			if err := websocket.JSON.Receive(ws, &req); err != nil {
+			var encoded []byte
+			if err := websocket.Message.Receive(ws, &encoded); err != nil {
 				return
 			}
-			_ = websocket.JSON.Send(ws, protocol.NewErrorResponse(req.ID, protocol.ErrCodeMethodNotFound, "method not found"))
+			envelope, err := protoapi.DecodeEnvelope(encoded)
+			if err != nil || envelope.GetCall() == nil {
+				return
+			}
+			call := envelope.GetCall()
+			response, err := protoapi.EncodeEnvelope(&sharedpb.Envelope{
+				Frame: &sharedpb.Envelope_TransportFailure{TransportFailure: &sharedpb.TransportFailure{
+					Code:        sharedpb.TransportFailureCode_TRANSPORT_FAILURE_CODE_UNKNOWN_OPERATION,
+					Correlation: call.Correlation,
+				}},
+			})
+			if err != nil || websocket.Message.Send(ws, response) != nil {
+				return
+			}
 		}
 	}))
 	host, port, err := net.SplitHostPort(strings.TrimPrefix(server.URL, "http://"))

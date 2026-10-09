@@ -137,6 +137,11 @@ type gatewayBinaryStreamSubscriber[Event proto.Message] struct {
 	gatewaySubscription[Event]
 }
 
+type gatewaySubscription[Event any] interface {
+	Next(context.Context) (Event, error)
+	Close() error
+}
+
 func (s gatewayBinaryStreamSubscriber[Event]) Next(ctx context.Context) (proto.Message, error) {
 	return s.gatewaySubscription.Next(ctx)
 }
@@ -146,8 +151,8 @@ func binaryStreamCompletion(err error) proto.Message {
 	if err == nil || errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return completion
 	}
-	code, message := protocolError(err)
-	completion.Code = proto.Int32(int32(code))
+	code, message := streamFailure(err)
+	completion.Code = code.Enum()
 	completion.Message = proto.String(message)
 	if reason, ok := serverapi.TranscriptCloseReasonOf(err); ok {
 		switch reason {

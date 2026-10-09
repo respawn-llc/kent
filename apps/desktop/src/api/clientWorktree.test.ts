@@ -36,7 +36,6 @@ import { ContractError } from "./errors";
 import { requireWorktreeSuccess, WorktreeError } from "./clientWorktree";
 import { newSetupOperationID } from "./index";
 import { RpcError } from "./errors";
-import { rpcErrorCodes } from "./rpcErrorCodes";
 
 const ids = ["123e4567-e89b-42d3-a456-426614174000", "223e4567-e89b-42d3-a456-426614174000"] as const;
 
@@ -162,7 +161,7 @@ describe("Desktop Worktree client", () => {
       unexpectedProjectOverflow,
     );
     await expect(client.listWorktrees("retained-session")).rejects.toSatisfy(
-      (error: unknown) => error instanceof RpcError && error.code === rpcErrorCodes.workspaceNotRegistered,
+      (error: unknown) => error instanceof RpcError && error.code === "workspace_not_registered",
     );
   });
 

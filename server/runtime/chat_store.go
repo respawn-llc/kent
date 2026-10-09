@@ -115,6 +115,7 @@ type chatStore struct {
 
 	providerTokenEstimate      int
 	providerTokenEstimateDirty bool
+	tokenEstimator             llm.TokenEstimator
 }
 
 type chatMessageRecord struct {
@@ -167,6 +168,7 @@ func newChatStoreWithCWD(cwd string) *chatStore {
 		synthesizedToolResults:      make(map[string]struct{}, 16),
 		cwd:                         strings.TrimSpace(cwd),
 		providerTokenEstimateDirty:  true,
+		tokenEstimator:              llm.DefaultTokenEstimator{},
 	}
 }
 
@@ -312,13 +314,20 @@ func (s *chatStore) estimatedProviderTokens() int {
 		return s.providerTokenEstimate
 	}
 	items, _ := s.snapshotProviderItemsLocked()
-	total := estimateItemsTokens(items)
+	total := llm.EstimateItemsTokens(s.tokenEstimator, items)
 	if total < 0 {
 		total = 0
 	}
 	s.providerTokenEstimate = total
 	s.providerTokenEstimateDirty = false
 	return total
+}
+
+func (s *chatStore) bindTokenEstimator(estimator llm.TokenEstimator) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tokenEstimator = estimator
+	s.providerTokenEstimateDirty = true
 }
 
 func (s *chatStore) snapshotItems() []llm.ResponseItem {

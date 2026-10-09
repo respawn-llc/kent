@@ -1,3 +1,4 @@
+import { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { create } from "@app/server-api-contract";
 import * as pb from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { StreamCompletionSchema } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
@@ -76,7 +77,7 @@ export function projectEventsFixture(transport: FakeRpcTransport) {
       transport.completeDescriptor(
         service.subscribe,
         service.complete,
-        create(StreamCompletionSchema, { code: -32010, message: "stream gap" }),
+        create(StreamCompletionSchema, { code: StreamFailureCode.STREAM_GAP, message: "stream gap" }),
       );
     },
     emit(

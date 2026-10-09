@@ -25,7 +25,7 @@ func NewFunctionCallOutput(callID string, output json.RawMessage) (Raw, error) {
 	} else if items, ok := InputContentItems(trimmed); ok {
 		value = items
 	} else {
-		value = providerOutputString(trimmed)
+		value = OutputText(trimmed)
 	}
 	return encodeOutputEnvelope("function_call_output", callID, value)
 }
@@ -45,11 +45,12 @@ func NewCustomToolOutput(callID string, output json.RawMessage) (Raw, error) {
 	return encodeOutputEnvelope(
 		"custom_tool_call_output",
 		callID,
-		providerOutputString(trimmed),
+		OutputText(trimmed),
 	)
 }
 
-func providerOutputString(value []byte) string {
+// OutputText returns the plaintext body used by the provider wire projection.
+func OutputText(value []byte) string {
 	var decoded string
 	if json.Unmarshal(value, &decoded) == nil {
 		return decoded

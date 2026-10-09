@@ -311,7 +311,11 @@ function createFixtureRuntime(
           outcome: {
             kind: "rejected",
             error: new ChatOperationError(
-              new RpcError({ code: 500, message: "Fixture Goal Set failed", method: "runtime.goal.set" }),
+              new RpcError({
+                code: "internal_failure",
+                message: "Fixture Goal Set failed",
+                method: "runtime.goal.set",
+              }),
               { kind: "runtime_unavailable", sessionID: fixtureSessionID },
             ),
           },
@@ -337,7 +341,11 @@ function createFixtureRuntime(
           diagnostic:
             (state === "new-chat" || state === "questions-off") && setMode === "diagnostic"
               ? new ChatOperationError(
-                  new RpcError({ code: 500, message: "Fixture warning", method: "runtime.detach" }),
+                  new RpcError({
+                    code: "internal_failure",
+                    message: "Fixture warning",
+                    method: "runtime.detach",
+                  }),
                   { kind: "internal_failure", operation: "runtime.detach", cause: "fixture warning" },
                 )
               : null,

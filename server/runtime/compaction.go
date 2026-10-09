@@ -578,7 +578,7 @@ func (c *defaultContextCompactor) ShouldCompactBeforeUserMessage(ctx context.Con
 	if preSubmitLimit > 0 && estimatedCurrentTotal >= preSubmitLimit {
 		return true, nil
 	}
-	promptEstimate := estimateItemsTokens(llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value(text)}}))
+	promptEstimate := llm.EstimateItemsTokens(e.cfg.TokenEstimator, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value(text)}}))
 	return estimatedCurrentTotal+promptEstimate >= limit, nil
 }
 
@@ -602,7 +602,7 @@ func (e *Engine) estimatedCurrentTokenUsage(preview ...llm.ResponseItem) int {
 	if e != nil {
 		estimated = e.transcriptRuntimeState().EstimatedProviderTokens()
 	}
-	estimated += estimateItemsTokens(preview)
+	estimated += llm.EstimateItemsTokens(e.cfg.TokenEstimator, preview)
 	if e.modelRequests().TokenUsage() != nil {
 		if baseline, ok := e.modelRequests().TokenUsage().estimateCurrentInputTokens(estimated); ok {
 			return baseline
@@ -818,9 +818,9 @@ func (e *Engine) compactNowWithAcceptance(
 	if windowTokens <= 0 {
 		windowTokens = e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())
 	}
-	inputTokens := estimateItemsTokens(e.transcriptRuntimeState().SnapshotItems())
+	inputTokens := llm.EstimateItemsTokens(e.cfg.TokenEstimator, e.transcriptRuntimeState().SnapshotItems())
 	if mode == compactionModeWorkflowPostCompletion {
-		inputTokens += output.estimateTokens()
+		inputTokens += output.estimateTokens(e.cfg.TokenEstimator)
 	}
 	compactedUsage := llm.Usage{
 		InputTokens:  inputTokens,

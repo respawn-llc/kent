@@ -1,3 +1,4 @@
+import type { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import type { ApiSubscription } from "./apiService";
 import type { PendingPrompt } from "./promptModels";
 import type { PromptAnswerBatchInput, PromptAnswerBatchResponse } from "./clientInputs";
@@ -180,8 +181,8 @@ export type ChatTranscriptPage = Readonly<{
 }>;
 export type ChatTranscriptCommittedRow = ChatTranscriptPayloadByKind["committed_row"];
 export type ChatTranscriptCompletion = Readonly<{
-  code: number;
-  message: string;
+  code: StreamFailureCode | null;
+  message: string | null;
   reason: "subscriber_overflow" | "contract_violation" | null;
 }>;
 export type ChatTranscriptHandler = Readonly<{
@@ -194,7 +195,7 @@ export type ChatTranscriptHandler = Readonly<{
 export type ChatGoalObservationHandler = Readonly<{
   onOpen?(): void;
   onEvent(observation: ChatGoalObservation): void;
-  onComplete(code: number, message: string): void;
+  onComplete(code: StreamFailureCode | null, message: string | null): void;
   onError(error: Error): void;
 }>;
 export type ChatRuntimeAttachment = Readonly<{ sessionID: string; generation: number }>;

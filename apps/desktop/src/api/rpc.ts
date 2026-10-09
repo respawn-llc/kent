@@ -7,37 +7,27 @@ import {
   encodeDescriptorCall,
 } from "./descriptorRpc";
 import { TransportError } from "./errors";
-import type { JsonValue } from "./json";
 import {
   unaryConnectionPolicy,
   type DescMessage,
   type DescMethod,
   type MessageShape,
 } from "@app/server-api-contract";
-import { z } from "zod";
 import {
-  jsonRpcVersion,
   openSocket,
-  parseFrame,
-  responseSchema,
   sendSocketDescriptorRequest,
   runSocketDescriptorSubscription,
-  sendSocketRequest,
   setupSocket,
-  socketRequestError,
   requireSessionAttachment,
-} from "./jsonRpcSocket";
-import { JsonRpcRuntimeOwner } from "./jsonRpcRuntimeOwner";
-import { isTerminalSubscriptionError, runJsonSubscription } from "./jsonRpcSubscription";
+} from "./rpcSocket";
+import { RpcRuntimeOwner } from "./rpcRuntimeOwner";
+import { TerminalSubscriptionError } from "./subscriptionErrors";
 import { requireProjectAttachment } from "./chatAttachment";
 import type {
   RpcCallOptions,
-  DescriptorRpcTransport,
   DescriptorSubscriptionInput,
   AttachedProjectDescriptorCall,
-  AttachedProjectCall,
   RpcDedicatedCallOptions,
-  RpcEventHandler,
   RpcSubscription,
   RpcTransport,
   ProjectAttachment,
@@ -49,7 +39,6 @@ import type {
 
 const socketOpenTimeoutMs = 10_000;
 const rpcRequestTimeoutMs = 30_000;
-const textFrameSchema = z.string();
 
 type PendingRequestBase = Readonly<{
   label: string;
@@ -58,36 +47,27 @@ type PendingRequestBase = Readonly<{
 }>;
 
 type PendingRequest = PendingRequestBase &
-  Readonly<
-    | { kind: "json"; resolve(value: unknown): void }
-    | {
-        kind: "descriptor";
-        complete(response: ReturnType<typeof decodeDescriptorResponse>): void;
-      }
-  >;
+  Readonly<{
+    complete(response: ReturnType<typeof decodeDescriptorResponse>): void;
+  }>;
 
-export function createJsonRpcTransport(endpoint: string, expectedRootId = ""): DescriptorRpcTransport {
-  return new JsonRpcWebSocketTransport(endpoint, expectedRootId);
+export function createRpcTransport(endpoint: string, expectedRootId = ""): RpcTransport {
+  return new RpcWebSocketTransport(endpoint, expectedRootId);
 }
 
-class JsonRpcWebSocketTransport implements RpcTransport {
+class RpcWebSocketTransport implements RpcTransport {
   #endpoint: string;
   #expectedRootId: string;
   #socket: WebSocket | null = null;
   #opening: Promise<WebSocket> | null = null;
   #nextID = 1;
   #pending = new Map<string, PendingRequest>();
-  #runtimeOwner: JsonRpcRuntimeOwner;
+  #runtimeOwner: RpcRuntimeOwner;
 
   constructor(endpoint: string, expectedRootId: string) {
     this.#endpoint = endpoint;
     this.#expectedRootId = expectedRootId;
-    this.#runtimeOwner = new JsonRpcRuntimeOwner(endpoint, expectedRootId);
-  }
-
-  async call(method: string, params: JsonValue, options?: RpcCallOptions): Promise<unknown> {
-    const socket = await this.#open();
-    return this.#send(socket, method, params, options);
+    this.#runtimeOwner = new RpcRuntimeOwner(endpoint, expectedRootId);
   }
 
   async callDescriptor<Method extends DescMethod>(
@@ -108,39 +88,6 @@ class JsonRpcWebSocketTransport implements RpcTransport {
           sendSocketDescriptorRequest(socket, method, request, requestOptions),
         );
     }
-  }
-
-  async callDedicated(
-    method: string,
-    params: JsonValue,
-    options?: RpcDedicatedCallOptions,
-  ): Promise<unknown> {
-    return this.#withDedicatedSocket(options, async (socket, requestOptions) =>
-      sendSocketRequest(socket, method, params, requestOptions),
-    );
-  }
-
-  async callAttachedProject(
-    input: AttachedProjectCall,
-    options?: RpcDedicatedCallOptions,
-  ): Promise<Readonly<{ result: unknown; attachment: ProjectAttachment }>> {
-    const { projectID, selector, method, request } = input;
-    return this.#withDedicatedSocket(
-      options,
-      async (socket, requestOptions, attachment) => {
-        const validatedAttachment = requireProjectAttachment(attachment, { projectID, workspace: selector });
-        return {
-          result: await sendSocketRequest(
-            socket,
-            method,
-            request.kind === "factory" ? request.create(validatedAttachment) : request.value,
-            requestOptions,
-          ),
-          attachment: validatedAttachment,
-        };
-      },
-      { projectID, workspace: selector },
-    );
   }
 
   async callDescriptorAttachedProject<Method extends DescMethod>(
@@ -224,27 +171,6 @@ class JsonRpcWebSocketTransport implements RpcTransport {
     }
   }
 
-  subscribe(method: string, params: JsonValue, handler: RpcEventHandler): RpcSubscription {
-    const controller = new AbortController();
-    void this.#openSubscription(
-      async (socket) =>
-        runJsonSubscription({
-          socket,
-          method,
-          params,
-          handler,
-          signal: controller.signal,
-        }),
-      handler.onError,
-      controller.signal,
-    );
-    return {
-      close() {
-        controller.abort();
-      },
-    };
-  }
-
   subscribeDescriptor<
     Method extends DescMethod,
     EventDescriptor extends DescMessage,
@@ -309,42 +235,6 @@ class JsonRpcWebSocketTransport implements RpcTransport {
     return socket;
   }
 
-  async #send(
-    socket: WebSocket,
-    method: string,
-    params: JsonValue,
-    options?: RpcCallOptions,
-  ): Promise<unknown> {
-    if (socket.readyState !== WebSocket.OPEN) {
-      return Promise.reject(new TransportError("WebSocket is not open."));
-    }
-    const id = `gui-${this.#nextID.toString()}`;
-    this.#nextID += 1;
-    const frame = JSON.stringify({ jsonrpc: jsonRpcVersion, id, method, params });
-    return new Promise((resolve, reject) => {
-      const timeoutMs = options?.timeoutMs === undefined ? rpcRequestTimeoutMs : options.timeoutMs;
-      const timeout =
-        timeoutMs === null
-          ? null
-          : setTimeout(() => {
-              if (!this.#pending.delete(id)) {
-                return;
-              }
-              reject(new TransportError(`${method} request timed out.`));
-            }, timeoutMs);
-      this.#pending.set(id, { kind: "json", label: method, timeout, resolve, reject });
-      try {
-        socket.send(frame);
-      } catch (error) {
-        if (timeout !== null) {
-          clearTimeout(timeout);
-        }
-        this.#pending.delete(id);
-        reject(error instanceof Error ? error : new TransportError(`${method} request failed to send.`));
-      }
-    });
-  }
-
   async #sendDescriptor<Method extends DescMethod>(
     socket: WebSocket,
     method: Method,
@@ -369,7 +259,6 @@ class JsonRpcWebSocketTransport implements RpcTransport {
               reject(new TransportError(`${operation} request timed out.`));
             }, timeoutMs);
       this.#pending.set(id, {
-        kind: "descriptor",
         label: operation,
         timeout,
         complete: (response) => {
@@ -390,19 +279,8 @@ class JsonRpcWebSocketTransport implements RpcTransport {
   }
 
   #handleControlMessage(event: MessageEvent<unknown>): void {
-    const textFrame = textFrameSchema.safeParse(event.data);
-    if (textFrame.success) {
-      const parsed = parseFrame(textFrame.data);
-      const response = responseSchema.safeParse(parsed);
-      if (!response.success || response.data.id === undefined) {
-        return;
-      }
-      this.#resolveResponse(response.data.id, response.data.result, response.data.error);
-      return;
-    }
     const bytes = binaryFrameBytes(event.data);
     if (bytes === undefined) {
-      this.#rejectAll(new TransportError("Unsupported WebSocket frame type."));
       return;
     }
     this.#handleBinaryControlMessage(bytes);
@@ -413,11 +291,6 @@ class JsonRpcWebSocketTransport implements RpcTransport {
       const response = decodeDescriptorResponse(bytes);
       const pending = this.#pending.get(response.correlation);
       if (pending === undefined) {
-        return;
-      }
-      if (pending.kind !== "descriptor") {
-        this.#takePending(response.correlation);
-        pending.reject(new TransportError(`${pending.label} received a binary response.`));
         return;
       }
       try {
@@ -439,27 +312,6 @@ class JsonRpcWebSocketTransport implements RpcTransport {
         error instanceof Error ? error : new TransportError("Binary response decoding failed."),
       );
     }
-  }
-
-  #resolveResponse(
-    id: string,
-    result: unknown,
-    error: { code: number; message: string; data?: JsonValue | undefined } | undefined,
-  ): void {
-    const pending = this.#pending.get(id);
-    if (pending === undefined) {
-      return;
-    }
-    this.#takePending(id);
-    if (pending.kind !== "json") {
-      pending.reject(new TransportError(`${pending.label} received a JSON response.`));
-      return;
-    }
-    if (error !== undefined) {
-      pending.reject(socketRequestError(pending.label, error));
-      return;
-    }
-    pending.resolve(result);
   }
 
   #takePending(id: string): PendingRequest | undefined {
@@ -504,7 +356,7 @@ class JsonRpcWebSocketTransport implements RpcTransport {
     try {
       await this.#withSubscriptionSocket(signal, run, attachmentTarget);
     } catch (error) {
-      if (abortSignalWasRequested(signal) || isTerminalSubscriptionError(error)) {
+      if (abortSignalWasRequested(signal) || error instanceof TerminalSubscriptionError) {
         return;
       }
       onError(error instanceof Error ? error : new TransportError("Subscription failed."));

@@ -34,15 +34,7 @@ func ResolveRuntimeProviderCapabilities(settings config.Settings) (ProviderCapab
 }
 
 func ResolveConnectionCapabilities(connection config.ProviderConnection) (ProviderCapabilities, error) {
-	rawURL := ""
-	if connection.Endpoint != nil {
-		rawURL = *connection.Endpoint
-	}
-	endpoint, err := newProviderTransportEndpoint(rawURL, connection.Endpoint != nil)
-	if err != nil {
-		return ProviderCapabilities{}, err
-	}
-	variant, err := resolveRuntimeTransportVariant(ProviderOpenAI, endpoint, OpenAIAuthMode{IsOAuth: connection.Protocol == config.ConnectionChatGPT})
+	variant, err := resolveConnectionVariant(connection)
 	if err != nil {
 		return ProviderCapabilities{}, err
 	}
@@ -52,6 +44,29 @@ func ResolveConnectionCapabilities(connection config.ProviderConnection) (Provid
 		caps.SupportsNativeThinkingUpdates = variant.Capabilities.SupportsNativeThinkingUpdates
 	}
 	return caps, nil
+}
+
+func ResolveConnectionTokenEstimator(connection config.ProviderConnection) (TokenEstimator, error) {
+	variant, err := resolveConnectionVariant(connection)
+	if err != nil {
+		return nil, err
+	}
+	if variant.TokenEstimator != nil {
+		return variant.TokenEstimator, nil
+	}
+	return DefaultTokenEstimator{}, nil
+}
+
+func resolveConnectionVariant(connection config.ProviderConnection) (ProviderVariantContract, error) {
+	rawURL := ""
+	if connection.Endpoint != nil {
+		rawURL = *connection.Endpoint
+	}
+	endpoint, err := newProviderTransportEndpoint(rawURL, connection.Endpoint != nil)
+	if err != nil {
+		return ProviderVariantContract{}, err
+	}
+	return resolveRuntimeTransportVariant(ProviderOpenAI, endpoint, OpenAIAuthMode{IsOAuth: connection.Protocol == config.ConnectionChatGPT})
 }
 
 func newProviderTransportEndpoint(rawURL string, explicit bool) (ProviderTransportEndpoint, error) {

@@ -20,11 +20,11 @@ import (
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
-	"core/shared/protocol"
 	"core/shared/serverapi"
 	"core/shared/worktreecontract"
 
 	"github.com/google/uuid"
+	"golang.org/x/net/websocket"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -248,9 +248,19 @@ func TestWorkflowBinaryRejectsWrongEncodingAndMalformedPayloadWithoutClosingConn
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 	handshakeGateway(t, conn)
-	failure := callGatewayExpectError(t, conn, "old-workflow-list", "workflow.list", struct{}{})
-	if failure.Code != protocol.ErrCodeMethodNotFound {
-		t.Fatalf("obsolete encoding = %v", failure)
+	if err := websocket.Message.Send(conn, "unsupported application frame"); err != nil {
+		t.Fatal(err)
+	}
+	var rejected []byte
+	if err := websocket.Message.Receive(conn, &rejected); err != nil {
+		t.Fatal(err)
+	}
+	failure, err := protoapi.DecodeEnvelope(rejected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failure.GetTransportFailure().GetCode() != sharedpb.TransportFailureCode_TRANSPORT_FAILURE_CODE_MALFORMED_ENVELOPE || failure.GetTransportFailure().Correlation != nil {
+		t.Fatalf("text rejection = %v", failure)
 	}
 	method := pb.File_kent_api_workflow_definition_workflow_definition_proto.Services().ByName("WorkflowDefinitionService").Methods().ByName("List")
 	envelope := callGatewayDescriptorPayload(t, conn, "malformed-workflow", method, []byte{0xff})

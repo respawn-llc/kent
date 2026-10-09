@@ -17,19 +17,29 @@ const (
 	LegacyConnectionAPIKey    LegacyConnectionAuth = "api-key"
 )
 
+type connectionConversion struct {
+	reference  ConnectionID
+	definition *connectionDefinition
+}
+
+type connectionDefinition struct {
+	id       ConnectionID
+	settings map[string]any
+}
+
 func ConvertGlobalConnections(path string, selection *LegacyConnectionAuth) (bool, error) {
-	raw, err := readSettingsFile(path)
+	document, raw, err := readSettingsDocument(path)
 	if err != nil {
 		return false, err
 	}
-	changed, err := convertConnectionScopes(raw, selection)
+	changed, err := convertConnectionScopes(document, raw, selection)
 	if err != nil {
 		return false, fmt.Errorf("convert %s: %w", path, err)
 	}
 	if !changed {
 		return false, nil
 	}
-	if err := writeSettingsTable(path, raw); err != nil {
+	if err := document.save(); err != nil {
 		return false, fmt.Errorf("convert %s: %w", path, err)
 	}
 	return true, nil
@@ -128,7 +138,7 @@ func inheritedLegacyAccess(base, overlay settingsFile) (settingsFile, error) {
 	return result, nil
 }
 
-func convertConnectionScopes(raw settingsFile, selection *LegacyConnectionAuth) (bool, error) {
+func convertConnectionScopes(document *settingsDocument, raw settingsFile, selection *LegacyConnectionAuth) (bool, error) {
 	mainAccess, err := inheritedLegacyAccess(nil, raw)
 	if err != nil {
 		return false, err
@@ -141,15 +151,26 @@ func convertConnectionScopes(raw settingsFile, selection *LegacyConnectionAuth) 
 	if err != nil {
 		return false, err
 	}
-	changed, err := convertMainConnection(raw, selection, nil)
+	changed := false
+	conversion, err := convertMainConnection(raw, selection, nil)
+	if err != nil {
+		return false, err
+	}
+	if conversion != nil {
+		if err := applyConnectionConversion(document, nil, conversion); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+	current, err := document.settings()
 	if err != nil {
 		return false, err
 	}
 	var inheritedEnvironment *string
-	if reference, present, err := lookupFileString(raw, []string{"connection"}); err != nil {
+	if reference, present, err := lookupFileString(current, []string{"connection"}); err != nil {
 		return false, err
 	} else if present {
-		name, present, err := lookupFileString(raw, []string{"connections", reference, "environment_variable"})
+		name, present, err := lookupFileString(current, []string{"connections", reference, "environment_variable"})
 		if err != nil {
 			return false, err
 		}
@@ -157,28 +178,30 @@ func convertConnectionScopes(raw settingsFile, selection *LegacyConnectionAuth) 
 			inheritedEnvironment = &name
 		}
 	}
-	convert := func(target, effective settingsFile, scope string) error {
-		if definitions, present := raw["connections"]; present {
+	convert := func(target, effective settingsFile, path []string, scope string) error {
+		current, err := document.settings()
+		if err != nil {
+			return fmt.Errorf("%s: %w", scope, err)
+		}
+		if definitions, present := current["connections"]; present {
 			effective["connections"] = definitions
 		}
 		if reference, present := target["connection"]; present {
 			effective["connection"] = reference
 		}
-		didChange, err := convertMainConnection(effective, selection, inheritedEnvironment)
+		conversion, err := convertMainConnection(effective, selection, inheritedEnvironment)
 		if err != nil {
 			return fmt.Errorf("%s: %w", scope, err)
 		}
-		if didChange {
-			target["connection"] = effective["connection"]
-			raw["connections"] = effective["connections"]
-			for _, key := range legacyAccessKeys {
-				delete(target, key)
+		if conversion != nil {
+			if err := applyConnectionConversion(document, path, conversion); err != nil {
+				return fmt.Errorf("%s: %w", scope, err)
 			}
 			changed = true
 		}
 		return nil
 	}
-	convertReviewer := func(target, agent, declared settingsFile, scope string) error {
+	convertReviewer := func(target, agent, declared settingsFile, path []string, scope string) error {
 		if !hasLegacyAccess(declared) {
 			return nil
 		}
@@ -205,9 +228,9 @@ func convertConnectionScopes(raw settingsFile, selection *LegacyConnectionAuth) 
 		if err != nil {
 			return fmt.Errorf("%s: %w", scope, err)
 		}
-		return convert(target, effective, scope)
+		return convert(target, effective, path, scope)
 	}
-	if err := convertReviewer(reviewer, mainAccess, reviewerAccess, "reviewer"); err != nil {
+	if err := convertReviewer(reviewer, mainAccess, reviewerAccess, []string{"reviewer"}, "reviewer"); err != nil {
 		return false, err
 	}
 	roles, _, err := lookupFileTable(raw, []string{"subagents"})
@@ -224,7 +247,7 @@ func convertConnectionScopes(raw settingsFile, selection *LegacyConnectionAuth) 
 			return false, fmt.Errorf("subagents.%s: %w", name, err)
 		}
 		if hasLegacyAccess(role) {
-			if err := convert(role, maps.Clone(effective), "subagents."+name); err != nil {
+			if err := convert(role, maps.Clone(effective), []string{"subagents", name}, "subagents."+name); err != nil {
 				return false, err
 			}
 		}
@@ -239,9 +262,8 @@ func convertConnectionScopes(raw settingsFile, selection *LegacyConnectionAuth) 
 		if hasLegacyAccess(declared) {
 			if !present {
 				roleReviewer = settingsFile{}
-				role["reviewer"] = map[string]any(roleReviewer)
 			}
-			if err := convertReviewer(roleReviewer, effective, declared, "subagents."+name+".reviewer"); err != nil {
+			if err := convertReviewer(roleReviewer, effective, declared, []string{"subagents", name, "reviewer"}, "subagents."+name+".reviewer"); err != nil {
 				return false, err
 			}
 		}
@@ -249,7 +271,34 @@ func convertConnectionScopes(raw settingsFile, selection *LegacyConnectionAuth) 
 	return changed, nil
 }
 
-func convertMainConnection(raw settingsFile, selection *LegacyConnectionAuth, inheritedEnvironment *string) (bool, error) {
+func applyConnectionConversion(document *settingsDocument, scope []string, conversion *connectionConversion) error {
+	if conversion.definition != nil {
+		path := []string{"connections", string(conversion.definition.id)}
+		if err := document.set(path, conversion.definition.settings); err != nil {
+			return err
+		}
+	}
+	referencePath := append(slices.Clone(scope), "connection")
+	current, present := document.get(referencePath)
+	if !present {
+		if err := document.set(referencePath, string(conversion.reference)); err != nil {
+			return err
+		}
+	} else if reference, ok := current.(string); !ok || reference != string(conversion.reference) {
+		if err := document.set(referencePath, string(conversion.reference)); err != nil {
+			return err
+		}
+	}
+	for _, key := range legacyAccessKeys {
+		path := append(slices.Clone(scope), key)
+		if err := document.delete(path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func convertMainConnection(raw settingsFile, selection *LegacyConnectionAuth, inheritedEnvironment *string) (*connectionConversion, error) {
 	_, providerPresent := raw["provider_override"]
 	_, endpointPresent := raw["openai_base_url"]
 	_, capabilitiesPresent := raw["provider_capabilities"]
@@ -257,28 +306,28 @@ func convertMainConnection(raw settingsFile, selection *LegacyConnectionAuth, in
 	_, referencePresent := raw["connection"]
 	_, connectionsPresent := raw["connections"]
 	if !legacy && (selection == nil || referencePresent || connectionsPresent) {
-		return false, nil
+		return nil, nil
 	}
 	provider, _, err := lookupFileString(raw, []string{"provider_override"})
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	if provider != "" && strings.ToLower(provider) != "openai" {
-		return false, fmt.Errorf("provider_override %q cannot be converted to a supported connection; configure a named connection manually", provider)
+		return nil, fmt.Errorf("provider_override %q cannot be converted to a supported connection; configure a named connection manually", provider)
 	}
 	if selection == nil {
-		return false, fmt.Errorf("provider_override/openai_base_url: authentication selection is unknown; configure a named connection explicitly")
+		return nil, fmt.Errorf("provider_override/openai_base_url: authentication selection is unknown; configure a named connection explicitly")
 	}
 	existingConnections, err := readConnectionDefinitions(raw)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	connection := ProviderConnection{Protocol: ConnectionResponses}
 	switch *selection {
 	case LegacyConnectionAnonymous, LegacyConnectionAPIKey:
 		endpoint, present, err := lookupFileString(raw, []string{"openai_base_url"})
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		if !present {
 			endpoint = DefaultOpenAIResponsesEndpoint
@@ -287,39 +336,32 @@ func convertMainConnection(raw settingsFile, selection *LegacyConnectionAuth, in
 		if *selection == LegacyConnectionAPIKey {
 			reference, explicit, err := lookupFileString(raw, []string{"connection"})
 			if err != nil {
-				return false, err
+				return nil, err
 			}
 			connection.EnvironmentVariable = inheritedEnvironment
 			if explicit {
 				connection.EnvironmentVariable = existingConnections[ConnectionID(reference)].EnvironmentVariable
 			}
 			if connection.EnvironmentVariable == nil {
-				return false, fmt.Errorf("API-backed access needs an explicit connections.<id>.environment_variable and connection reference; replace provider_override/openai_base_url manually, then restart")
+				return nil, fmt.Errorf("API-backed access needs an explicit connections.<id>.environment_variable and connection reference; replace provider_override/openai_base_url manually, then restart")
 			}
 		}
 	case LegacyConnectionOAuth:
 		connection.Protocol = ConnectionChatGPT
 		if endpoint, present, err := lookupFileString(raw, []string{"openai_base_url"}); err != nil {
-			return false, err
+			return nil, err
 		} else if present {
-			return false, fmt.Errorf("openai_base_url %q conflicts with subscription authentication; configure a named connection manually", endpoint)
+			return nil, fmt.Errorf("openai_base_url %q conflicts with subscription authentication; configure a named connection manually", endpoint)
 		}
 	default:
-		return false, fmt.Errorf("unsupported old authentication selection %q", *selection)
+		return nil, fmt.Errorf("unsupported old authentication selection %q", *selection)
 	}
 	connection.Capabilities, err = readConnectionCapabilities(raw)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	if err := connection.Validate(); err != nil {
-		return false, err
-	}
-	definitions, _, err := lookupFileTable(raw, []string{"connections"})
-	if err != nil {
-		return false, err
-	}
-	if definitions == nil {
-		definitions = settingsFile{}
+		return nil, err
 	}
 	id := SuggestConnectionID(connection.Protocol, existingConnections)
 	for _, existing := range slices.Sorted(maps.Keys(existingConnections)) {
@@ -329,31 +371,27 @@ func convertMainConnection(raw settingsFile, selection *LegacyConnectionAuth, in
 		}
 	}
 	if reference, present, err := lookupFileStringAllowEmpty(raw, []string{"connection"}); err != nil {
-		return false, err
+		return nil, err
 	} else if present {
 		existingID, err := ParseConnectionID(reference)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		existing, found := existingConnections[existingID]
 		if !found || !equalConnection(existing, connection) {
-			return false, fmt.Errorf("connection %q conflicts with old provider-access settings; select one definition manually", reference)
+			return nil, fmt.Errorf("connection %q conflicts with old provider-access settings; select one definition manually", reference)
 		}
 		id = existingID
 	}
-	table := connectionSettingsTable(connection)
-	if capabilitiesPresent {
-		table["provider_capabilities"] = raw["provider_capabilities"]
+	var definition *connectionDefinition
+	if _, present := existingConnections[id]; !present {
+		settings := connectionSettingsTable(connection)
+		if capabilitiesPresent {
+			settings["provider_capabilities"] = raw["provider_capabilities"]
+		}
+		definition = &connectionDefinition{id: id, settings: settings}
 	}
-	raw["connection"] = string(id)
-	if _, present := definitions[string(id)]; !present {
-		definitions[string(id)] = table
-	}
-	raw["connections"] = map[string]any(definitions)
-	delete(raw, "provider_override")
-	delete(raw, "openai_base_url")
-	delete(raw, "provider_capabilities")
-	return true, nil
+	return &connectionConversion{reference: id, definition: definition}, nil
 }
 
 func equalConnection(a, b ProviderConnection) bool {

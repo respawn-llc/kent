@@ -14,10 +14,9 @@ import { timestampMillis } from "./clientTime";
 import { ContractError } from "./errors";
 import { chatOperationError, type ChatOperationError } from "./chatErrors";
 import { requireUnarySuccess, streamCompletionFailure } from "./protobufRpc";
-import { defaultSubscriptionEstablishmentTimeoutMs } from "./jsonRpcSubscription";
 import type { ChatApi, ChatSessionTarget, InitialChatSettings } from "./chatTypes";
 import type { ChatGoalFacts } from "./chatTranscriptTypes";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 
 export type ChatGoalAvailability = "available" | "agent_capability_missing";
 export type ChatGoalStatus = "active" | "paused" | "complete";
@@ -215,7 +214,7 @@ function goalSetOutcome(success: R.GoalSetSuccess): ChatGoalSetResult["outcome"]
 }
 
 export function createChatGoalApi(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
 ): Pick<
   ChatApi,
   "getGoal" | "setGoal" | "pauseGoal" | "resumeGoal" | "completeGoal" | "clearGoal" | "subscribeGoal"
@@ -314,7 +313,7 @@ export function createChatGoalApi(
         method,
         request: create(method.input, { sessionId: sessionID }),
         attachment: { projectID: target.projectID, sessionID },
-        establishmentTimeoutMs: defaultSubscriptionEstablishmentTimeoutMs,
+        establishmentTimeoutMs: 30_000,
         eventDescriptor: R.GoalObservationSchema,
         completionDescriptor: StreamCompletionSchema,
         onStart: (result) => {
@@ -326,7 +325,7 @@ export function createChatGoalApi(
             handler.onEvent(observation(value));
           },
           onComplete(value) {
-            handler.onComplete(value.code ?? 0, value.message ?? "");
+            handler.onComplete(value.code ?? null, value.message ?? null);
             return streamCompletionFailure(value);
           },
           onError: handler.onError,

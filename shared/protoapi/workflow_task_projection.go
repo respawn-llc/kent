@@ -6,8 +6,7 @@ import (
 	"core/shared/serverapi"
 )
 
-// WorkflowValidationErrorsForJSON projects the diagnostic contract still used
-// inside Task JSON responses and CLI reports, not migrated Workflow API calls.
+// WorkflowValidationErrorsForJSON projects generated diagnostics for CLI reports.
 func WorkflowValidationErrorsForJSON(in []*pb.WorkflowValidationError) ([]serverapi.WorkflowValidationError, error) {
 	out := make([]serverapi.WorkflowValidationError, 0, len(in))
 	for _, value := range in {

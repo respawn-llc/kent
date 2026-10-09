@@ -38,10 +38,10 @@ type preparedCompactionHistory struct {
 	items []llm.ResponseItem
 }
 
-func (output compactionOutput) estimateTokens() int {
-	return estimateItemsTokens(output.summary) +
-		estimateItemsTokens(llm.ItemsFromMessages(output.runningShells)) +
-		estimateItemsTokens(llm.ItemsFromMessages(output.continuationMessages()))
+func (output compactionOutput) estimateTokens(estimator llm.TokenEstimator) int {
+	return llm.EstimateItemsTokens(estimator, output.summary) +
+		llm.EstimateItemsTokens(estimator, llm.ItemsFromMessages(output.runningShells)) +
+		llm.EstimateItemsTokens(estimator, llm.ItemsFromMessages(output.continuationMessages()))
 }
 
 func (output compactionOutput) continuationMessages() []llm.Message {

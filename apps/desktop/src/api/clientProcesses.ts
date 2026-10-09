@@ -15,10 +15,10 @@ import { timestampMillis } from "./clientTime";
 import { requireUnarySuccess, streamCompletionFailure } from "./protobufRpc";
 import { ProcessObservationError, type DesktopProcess } from "./processes";
 import type { ChatSessionTarget } from "./chatTypes";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 
 export function observeProcesses(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   target: ChatSessionTarget,
 ): Stream.Stream<readonly DesktopProcess[], ProcessObservationError> {
   return Stream.callback<readonly DesktopProcess[], ProcessObservationError>(
@@ -73,7 +73,7 @@ export function observeProcesses(
   );
 }
 
-export async function killProcess(transport: DescriptorRpcTransport, processID: string): Promise<void> {
+export async function killProcess(transport: RpcTransport, processID: string): Promise<void> {
   const method = ControlService.method.kill;
   const request = create(method.input, { processId: processID.trim() });
   requireUnarySuccess(method, await transport.callDescriptor(method, request));

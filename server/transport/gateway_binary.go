@@ -732,7 +732,7 @@ func (g *Gateway) dispatchBinary(
 	if err := newRoutePolicyExecutor(g).authorizeScopeFacts(
 		ctx,
 		state,
-		routeScopePolicy(binding.operation.Options.ScopePolicy),
+		binding.operation.Options.ScopePolicy,
 		binding.operation.Name,
 		scopeFacts,
 	); err != nil {

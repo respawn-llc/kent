@@ -1,13 +1,12 @@
 import { TransportError } from "./errors";
-import type { JsonValue } from "./json";
-import { openSocket, sendSocketDescriptorRequest, sendSocketRequest, setupSocket } from "./jsonRpcSocket";
+import { openSocket, sendSocketDescriptorRequest, setupSocket } from "./rpcSocket";
 import type { RuntimeOwnerContext, RuntimeOwnerOptions, SessionAttachment } from "./transport";
 import type { DescMethod, MessageShape } from "@app/server-api-contract";
 
 const socketOpenTimeoutMs = 10_000;
 const rpcRequestTimeoutMs = 30_000;
 
-export class JsonRpcRuntimeOwner {
+export class RpcRuntimeOwner {
   #endpoint: string;
   #expectedRootId: string;
   #owner: Readonly<{ socket: WebSocket; attachment: SessionAttachment }> | null = null;
@@ -73,16 +72,6 @@ export class JsonRpcRuntimeOwner {
         sendSocketDescriptorRequest(owner.socket, method, request, {
           timeoutMilliseconds: rpcRequestTimeoutMs,
         }),
-      call: async (method: string, params: JsonValue) => {
-        try {
-          return await sendSocketRequest(owner.socket, method, params, {
-            timeoutMilliseconds: rpcRequestTimeoutMs,
-          });
-        } catch (error) {
-          this.#discard(owner);
-          throw error;
-        }
-      },
       poison: () => {
         this.#discard(owner);
       },

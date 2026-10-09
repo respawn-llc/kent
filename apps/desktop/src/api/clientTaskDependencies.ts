@@ -12,7 +12,7 @@ import type {
   TaskDependencyListResponse,
   TaskDependencyMutationResponse,
 } from "./models";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 
 function dependencyMutation(value: DependencyMutationSuccess): TaskDependencyMutationResponse {
   return {
@@ -25,7 +25,7 @@ function dependencyMutation(value: DependencyMutationSuccess): TaskDependencyMut
 }
 
 export async function addTaskDependency(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   blockerTaskID: string,
   blockedTaskID: string,
 ): Promise<TaskDependencyMutationResponse> {
@@ -39,7 +39,7 @@ export async function addTaskDependency(
 }
 
 export async function removeTaskDependency(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   blockerTaskID: string,
   blockedTaskID: string,
 ): Promise<TaskDependencyMutationResponse> {
@@ -53,7 +53,7 @@ export async function removeTaskDependency(
 }
 
 export async function listTaskDependencies(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   taskID: string,
   direction?: TaskDependencyDirection,
 ): Promise<TaskDependencyListResponse> {

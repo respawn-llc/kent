@@ -50,6 +50,7 @@ type ProviderTransportVariantResolver func(endpoint ProviderTransportEndpoint, m
 
 type ProviderVariantContract struct {
 	ProviderID               string
+	TokenEstimator           TokenEstimator
 	RequestCompression       httpcompression.RequestContentCoding
 	Capabilities             ProviderCapabilities
 	RemoteCompactionProtocol remoteCompactionProtocol
@@ -126,6 +127,7 @@ func providerContracts() []ProviderContract {
 			ProviderVariants: []ProviderVariantContract{
 				{
 					ProviderID:               "openai",
+					TokenEstimator:           OpenAITokenEstimator{},
 					RequestCompression:       httpcompression.ContentCodingIdentity,
 					RemoteCompactionProtocol: remoteCompactionResponsesTriggerV2,
 					Capabilities: ProviderCapabilities{
@@ -161,6 +163,7 @@ func providerContracts() []ProviderContract {
 				},
 				{
 					ProviderID:               "chatgpt-codex",
+					TokenEstimator:           OpenAITokenEstimator{},
 					RequestCompression:       httpcompression.ContentCodingZstd,
 					RemoteCompactionProtocol: remoteCompactionResponsesTriggerV2,
 					Capabilities: ProviderCapabilities{

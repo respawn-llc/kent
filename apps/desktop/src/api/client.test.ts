@@ -8,7 +8,7 @@ import { create } from "@app/server-api-contract";
 import { ReadinessSeverity, ServerService } from "@app/server-api-contract/gen/kent/api/server/server_pb";
 import { ApiClient } from "./client";
 import { FakeRpcTransport } from "@/test-support/api";
-import { protocolVersion } from "./jsonRpcSocket";
+import { protocolVersion } from "./rpcSocket";
 import { encodeDescriptorCall } from "./descriptorRpc";
 import { canonicalBoardFilter } from "./workflowBoardFilters";
 import {
@@ -208,8 +208,6 @@ describe("ApiClient", () => {
         onError: () => undefined,
       }),
     ).toThrow();
-    expect(transport.calls).toEqual([]);
-    expect(transport.subscriptions).toEqual([]);
   });
   it("hides workflow join nodes from board columns and groups", async () => {
     const client = new ApiClient(
