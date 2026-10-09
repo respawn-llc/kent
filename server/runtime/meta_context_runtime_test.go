@@ -154,7 +154,7 @@ func assertFreshRequestMatchesCompactionProjection(t *testing.T, engine *Engine,
 	if err != nil {
 		t.Fatalf("build fresh request: %v", err)
 	}
-	projection, err := engine.compactionReinjectedMetaContextProjection(context.Background(), compactionModeManual)
+	projection, err := engine.generationMetaContextProjection(context.Background(), workflowTaskPromptTriggerCompaction)
 	if err != nil {
 		t.Fatalf("build compaction meta context: %v", err)
 	}

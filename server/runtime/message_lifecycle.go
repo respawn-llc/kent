@@ -64,8 +64,8 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			}
 			e.transcriptRuntimeState().AppendConfigurationItem(stepIDPointer, llmResponseItemFromSessionHistory(payload.Item), &provenance)
 		case session.MessageRecord:
-			if _, fresh := e.generationContext.(freshGenerationContext); fresh {
-				e.generationContext = preparedGenerationContext{}
+			if _, fresh := e.generationContextSnapshot().(freshGenerationContext); fresh {
+				e.setGenerationContext(preparedGenerationContext{})
 			}
 			msg, err := llmMessageFromSessionRecord(payload)
 			if err != nil {

@@ -45,7 +45,7 @@ func TestManualRemoteCompactionRebuildsCanonicalPrefixOrder(t *testing.T) {
 		newTestToolRegistry(t, tools.HandlerRegistration{
 			ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand},
 		}),
-		Config{Model: "gpt-6-sol", GlobalConfigDir: globalConfigDir},
+		Config{Model: "gpt-6-sol", GlobalConfigDir: globalConfigDir, HeadlessMode: true},
 	)
 	if err := store.SetHeadlessActive(true); err != nil {
 		t.Fatalf("enable headless context: %v", err)
@@ -68,7 +68,7 @@ func TestManualRemoteCompactionRebuildsCanonicalPrefixOrder(t *testing.T) {
 		t.Fatalf("compact remote context: receipt=%+v error=%v", receipt, err)
 	}
 
-	items := engine.transcriptRuntimeState().SnapshotItems()
+	items := buildActiveTurnRequestForTest(t, engine, nil, true).Items
 	if len(items) < 8 {
 		t.Fatalf("canonical replacement items = %+v, want remote output and canonical context", items)
 	}

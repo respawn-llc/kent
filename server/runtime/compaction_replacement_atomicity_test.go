@@ -11,7 +11,7 @@ import (
 	"core/shared/transcript"
 )
 
-func TestCompactionReplacementAtomicallyEmbedsReinjectedMetaAndPreservedUserMessage(t *testing.T) {
+func TestCompactionDispatchPreparationAtomicallyEmbedsMetaAndPreservedUserMessage(t *testing.T) {
 	t.Parallel()
 	store, globalConfigDir := mustCreateBaseMetaContextTestSession(t)
 	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{
@@ -38,6 +38,7 @@ func TestCompactionReplacementAtomicallyEmbedsReinjectedMetaAndPreservedUserMess
 	}
 
 	scheduleManualCompactionAndWait(t, engine)
+	buildActiveTurnRequestForTest(t, engine, nil, true)
 
 	window, err := mustMaterializeTestEventLog(t, store).ReadRecentRecords(16)
 	if err != nil {
@@ -48,6 +49,9 @@ func TestCompactionReplacementAtomicallyEmbedsReinjectedMetaAndPreservedUserMess
 	for index, event := range window.Records {
 		record, ok := mustSessionEventPayload(event).(session.HistoryReplacementRecord)
 		if !ok {
+			continue
+		}
+		if record.CompactedOutput != nil {
 			continue
 		}
 		if replacementIndex >= 0 {
@@ -96,10 +100,7 @@ func TestCompactionReplacementAtomicallyEmbedsReinjectedMetaAndPreservedUserMess
 		GlobalConfigDir: globalConfigDir,
 	})
 	for range 2 {
-		request, err := reopened.buildRequest(t.Context(), "", true)
-		if err != nil {
-			t.Fatalf("build reopened request: %v", err)
-		}
+		request := buildActiveTurnRequestForTest(t, reopened, nil, true)
 		assertCompactionReplacementOrder(t, request.Items, false)
 		assertCompactionCheckpointUnchanged(t, request.Items, checkpoint)
 	}

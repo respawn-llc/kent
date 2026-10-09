@@ -309,6 +309,12 @@ func TestManualCompactionReinjectsWorktreeReminderExactlyOnce(t *testing.T) {
 		t.Fatal("timed out waiting for compaction")
 	}
 
+	if err := runExclusiveStepWhenIdle(t.Context(), eng.stepLifecycle, ActiveKindUserTurn, nil, func(ctx context.Context, stepID string) error {
+		_, err := eng.buildActiveTurnDispatchRequest(ctx, stepID, nil, true)
+		return err
+	}); err != nil {
+		t.Fatalf("build post-compaction request: %v", err)
+	}
 	compactedMessages := eng.transcriptRuntimeState().SnapshotMessages()
 	if got := worktreeReminderMessageCount(compactedMessages); got != 1 {
 		t.Fatalf("worktree reminders after compaction = %d, want 1 messages=%+v", got, compactedMessages)

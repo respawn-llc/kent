@@ -71,14 +71,12 @@ func TestCompactedOutputSurvivesReopenAndClone(t *testing.T) {
 					Raw: json.RawMessage(`{"type":"compaction","encrypted_content":"encrypted-checkpoint"}`),
 				}
 			}
-			shells := "shell 7 was running when captured"
 			carryoverType := session.MessageTypeCompactionPreservedUserMessage
 			record := session.HistoryReplacementRecord{
 				Engine: string(engine), Mode: session.CompactionModeWorkflowPostCompletion,
 				CompactionNumber: textutil.Value(1), CommittedEntryStart: textutil.Value(5),
 				CompactedOutput: &session.CompactedOutput{
 					Summary:              []session.ProviderHistoryItem{item},
-					RunningShells:        []session.MessageRecord{{Role: session.MessageRoleDeveloper, Content: &shells}},
 					PreservedUserMessage: &session.MessageRecord{Role: session.MessageRoleDeveloper, MessageType: &carryoverType, Content: &prompt},
 				},
 				LastCommittedAssistantFinalAnswer: &final,

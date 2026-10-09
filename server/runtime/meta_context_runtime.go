@@ -22,11 +22,9 @@ import (
 // context must be prepared. Individual prompt families are owned here and by
 // meta_context.go; request entry points must not append those prompts directly.
 func (e *Engine) ensureMetaContextForRequest(ctx context.Context, stepID string) error {
-	switch generation := e.generationContext.(type) {
+	switch e.generationContextSnapshot().(type) {
 	case pendingGenerationContext:
-		if err := e.prepareGenerationContext(ctx, stepID, generation); err != nil {
-			return err
-		}
+		return nil
 	case freshGenerationContext:
 		pendingRebind := e.store.Meta().RebindReminder != nil
 		if err := e.steerFreshMetaContext(ctx, stepID); err != nil {
@@ -73,14 +71,14 @@ func (e *Engine) steerFreshMetaContext(ctx context.Context, stepID string) error
 		applyErr := e.withResolvedWorkflowMetaContext(ctx, workflowTaskPromptTriggerTaskDelivery, workflowMetaContextDeliveryConsume, options, func(resolved metaContextBuildOptions, _ bool) error {
 			receipt, err := steer(resolved)
 			if receipt.Committed {
-				e.generationContext = preparedGenerationContext{}
+				e.setGenerationContext(preparedGenerationContext{})
 				committedErr = err
 				return nil
 			}
 			if err != nil {
 				return err
 			}
-			e.generationContext = preparedGenerationContext{}
+			e.setGenerationContext(preparedGenerationContext{})
 			return nil
 		})
 		return errors.Join(applyErr, committedErr)
@@ -98,12 +96,12 @@ func (e *Engine) steerFreshMetaContext(ctx context.Context, stepID string) error
 	}
 	receipt, err := steer(options)
 	if receipt.Committed {
-		e.generationContext = preparedGenerationContext{}
+		e.setGenerationContext(preparedGenerationContext{})
 	}
 	if err != nil {
 		return err
 	}
-	e.generationContext = preparedGenerationContext{}
+	e.setGenerationContext(preparedGenerationContext{})
 	if e.cfg.HeadlessMode != meta.HeadlessActive {
 		return e.store.SetHeadlessActive(e.cfg.HeadlessMode)
 	}
@@ -363,14 +361,13 @@ func sameMetaContextSlot(left, right metaContextKind) bool {
 
 // steerBaseMetaContextIfNeeded injects base meta context (AGENTS.md, skills,
 // subagents, environment) exactly once, at the first request of a fresh
-// session. Saved compacted output defers generation context until the next
-// operation has selected its model and role.
+// session. Saved compacted output remains pending until live request dispatch.
 func (e *Engine) steerBaseMetaContextIfNeeded(stepID string) error {
-	switch generation := e.generationContext.(type) {
+	switch e.generationContextSnapshot().(type) {
 	case preparedGenerationContext:
 		return nil
 	case pendingGenerationContext:
-		return e.prepareGenerationContext(context.Background(), stepID, generation)
+		return nil
 	case freshGenerationContext:
 	default:
 		return errors.New("generation context is uninitialized")
@@ -383,7 +380,7 @@ func (e *Engine) steerBaseMetaContextIfNeeded(stepID string) error {
 	if err := e.steerBaseMetaContext(stepID, builder, invocationContext); err != nil {
 		return err
 	}
-	e.generationContext = preparedGenerationContext{}
+	e.setGenerationContext(preparedGenerationContext{})
 	return nil
 }
 
@@ -560,7 +557,7 @@ func roleOrUser(role *llm.Role) llm.Role {
 	return *role
 }
 
-func (e *Engine) compactionReinjectedMetaContextProjection(ctx context.Context, mode compactionMode) (metaContextProjection, error) {
+func (e *Engine) generationMetaContextProjection(ctx context.Context, trigger workflowTaskPromptTrigger) (metaContextProjection, error) {
 	meta := e.store.Meta()
 	skillPolicy, err := e.reconstructionSkillPolicy(ctx)
 	if err != nil {
@@ -568,21 +565,20 @@ func (e *Engine) compactionReinjectedMetaContextProjection(ctx context.Context, 
 	}
 	builder := e.activeMetaContextBuilder(e.currentModel(), skillPolicy)
 	opts := baseMetaContextBuildOptions(false)
-	opts.IncludeHeadless = meta.HeadlessActive
+	opts.IncludeHeadless = e.cfg.HeadlessMode
 	opts.WorktreePromptKind = prompts.WorktreePromptPostCompaction
 	opts.WorktreeReminder = session.CloneWorktreeReminderState(meta.WorktreeReminder)
-	if mode == compactionModeWorkflowPostCompletion {
+	if e.workflowPromptActive() {
+		opts.IncludeHeadless = false
 		opts.SubagentInvocationContext = config.SubagentInvocationContextWorkflow
-	} else if e.currentNodeExecutionActive() {
-		err := e.withResolvedWorkflowMetaContext(ctx, workflowTaskPromptTriggerCompaction, workflowMetaContextDeliveryObserve, opts, func(resolved metaContextBuildOptions, shouldInject bool) error {
-			if !shouldInject {
-				panic("build compaction meta context: active workflow did not select a workflow task prompt")
-			}
-			opts = resolved
-			return nil
-		})
+		resolved, shouldInject, err := e.resolveWorkflowMetaContext(ctx, trigger)
 		if err != nil {
 			return metaContextProjection{}, err
+		}
+		if shouldInject {
+			opts.SubagentInvocationContext = resolved.SubagentInvocationContext
+			opts.IncludeWorkflow = resolved.IncludeWorkflow
+			opts.WorkflowMessage = resolved.WorkflowMessage
 		}
 	} else if goal, ok := e.goalContinuation().activeGoal(); ok {
 		opts.ActiveGoal = &goal

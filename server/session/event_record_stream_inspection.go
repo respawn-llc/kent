@@ -227,8 +227,6 @@ func inspectContextBoundaryRecordStream(reader io.Reader, kind EventKind) error 
 							summaryPresent = true
 							return decoder.Skip()
 						})
-					case "running_shells":
-						return inspectOptionalEventRecordType(decoder, jx.Array, field)
 					case "preserved_user_message", "future_agent_message":
 						return inspectOptionalEventRecordType(decoder, jx.Object, field)
 					default:

@@ -654,8 +654,6 @@ func encodeEventRecordPayloadV1(payload EventRecordPayload) ([]byte, error) {
 	switch typed := payload.(type) {
 	case ToolCompletionRecord:
 		return encodeToolCompletionRecordV1(typed)
-	case HistoryReplacementRecord:
-		return encodeHistoryReplacementRecordV1(typed)
 	default:
 		return json.Marshal(payload)
 	}
@@ -836,8 +834,6 @@ func encodeEventRecordPayloadV2(payload EventRecordPayload) ([]byte, error) {
 	switch typed := payload.(type) {
 	case ToolCompletionRecord:
 		return encodeToolCompletionRecordV2(typed)
-	case HistoryReplacementRecord:
-		return encodeHistoryReplacementRecordV1(typed)
 	default:
 		return json.Marshal(payload)
 	}
