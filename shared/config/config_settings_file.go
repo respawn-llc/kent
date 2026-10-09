@@ -278,7 +278,7 @@ func readSettingsFile(path string) (settingsFile, []ConnectionID, error) {
 	return decodeSettingsFile(path, data)
 }
 
-func decodeSettingsFile(path string, data []byte) (settingsFile, error) {
+func decodeSettingsFile(path string, data []byte) (settingsFile, []ConnectionID, error) {
 	if strings.TrimSpace(string(data)) == "" {
 		return settingsFile{}, nil, nil
 	}

@@ -167,7 +167,7 @@ endpoint = "http://localhost:1234/v1" # named endpoint note
 	if app.Settings.Reviewer.Connection == nil {
 		t.Fatal("Supervisor connection was not converted")
 	}
-	supervisorConnection := app.Settings.Connections[*app.Settings.Reviewer.Connection]
+	supervisorConnection := app.Settings.Connections[(*app.Settings.Reviewer.Connection)[0]]
 	if supervisorConnection.Endpoint == nil || *supervisorConnection.Endpoint != "http://localhost:5678/v1" {
 		t.Fatalf("Supervisor connection = %+v", supervisorConnection)
 	}
@@ -220,7 +220,7 @@ endpoint   = "http://localhost:1234/v1" # user-authored endpoint note
 
 	app := loadConfigTestApp(t, workspace, LoadOptions{})
 	connection, err := app.Settings.SelectedConnection()
-	if err != nil || app.Settings.Connection == nil || *app.Settings.Connection != "openai-1" ||
+	if err != nil || app.Settings.Connection == nil || !reflect.DeepEqual(*app.Settings.Connection, ConnectionSelection{"openai-1"}) ||
 		connection.Protocol != ConnectionResponses || connection.Endpoint == nil ||
 		*connection.Endpoint != "http://localhost:1234/v1" || len(app.Settings.Connections) != 1 {
 		t.Fatalf("named definition was not reused: connection=%+v settings=%+v error=%v", connection, app.Settings, err)
@@ -285,7 +285,7 @@ endpoint = "http://localhost:1234/v1" # retain the base endpoint
 	if app.Settings.Reviewer.Connection == nil {
 		t.Fatal("root Supervisor connection was not converted")
 	}
-	supervisorConnection := app.Settings.Connections[*app.Settings.Reviewer.Connection]
+	supervisorConnection := app.Settings.Connections[(*app.Settings.Reviewer.Connection)[0]]
 	if supervisorConnection.Endpoint == nil || *supervisorConnection.Endpoint != "http://localhost:5678/v1" {
 		t.Fatalf("root Supervisor connection = %+v", supervisorConnection)
 	}
@@ -300,8 +300,8 @@ endpoint = "http://localhost:1234/v1" # retain the base endpoint
 	if child.Connection == nil || child.Reviewer.Connection == nil {
 		t.Fatalf("child or child Supervisor connection was not converted: %+v", child)
 	}
-	childConnection := app.Settings.Connections[*child.Connection]
-	childReviewerConnection := app.Settings.Connections[*child.Reviewer.Connection]
+	childConnection := app.Settings.Connections[(*child.Connection)[0]]
+	childReviewerConnection := app.Settings.Connections[(*child.Reviewer.Connection)[0]]
 	if childConnection.Endpoint == nil || *childConnection.Endpoint != "http://localhost:6789/v1" ||
 		childReviewerConnection.Endpoint == nil || *childReviewerConnection.Endpoint != "http://localhost:7890/v1" {
 		t.Fatalf("child connections = role:%+v Supervisor:%+v", childConnection, childReviewerConnection)
@@ -358,7 +358,7 @@ supports_responses_api = true
 
 	app := loadConfigTestApp(t, workspace, LoadOptions{})
 	connection, err := app.Settings.SelectedConnection()
-	if err != nil || *app.Settings.Connection != "openai-1" ||
+	if err != nil || !reflect.DeepEqual(*app.Settings.Connection, ConnectionSelection{"openai-1"}) ||
 		connection.Endpoint == nil || *connection.Endpoint != "http://localhost:1234/v1" ||
 		connection.Capabilities.ProviderID != "openai-compatible" || !connection.Capabilities.SupportsResponsesAPI {
 		t.Fatalf("converted connection = %+v error=%v", connection, err)

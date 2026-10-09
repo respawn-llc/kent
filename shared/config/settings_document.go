@@ -23,7 +23,7 @@ func readSettingsDocument(path string) (*settingsDocument, settingsFile, error) 
 	if err != nil {
 		return nil, nil, fmt.Errorf("read settings file %s: %w", path, err)
 	}
-	raw, err := decodeSettingsFile(path, data)
+	raw, _, err := decodeSettingsFile(path, data)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -41,7 +41,8 @@ func readSettingsDocument(path string) (*settingsDocument, settingsFile, error) 
 }
 
 func (d *settingsDocument) settings() (settingsFile, error) {
-	return decodeSettingsFile(d.path, d.bytes())
+	raw, _, err := decodeSettingsFile(d.path, d.bytes())
+	return raw, err
 }
 
 func (d *settingsDocument) get(path []string) (any, bool) {

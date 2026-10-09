@@ -42,7 +42,7 @@ func TestConnectionEstimatorUsesActualTransport(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			id := config.ConnectionID("selected")
-			settings := config.Settings{Connection: &id, Model: "claude-model-alias",
+			settings := config.Settings{Connection: config.SingleConnection(id), Model: "claude-model-alias",
 				Connections: map[config.ConnectionID]config.ProviderConnection{id: test.connection}}
 			locked := &session.LockedContract{ProviderContract: session.LockedProviderCapabilities{ProviderID: "anthropic"}}
 			if _, err := llm.ResolveEffectiveProviderCapabilities(locked, settings); err != nil {
