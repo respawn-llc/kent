@@ -169,53 +169,15 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			if cache := e.modelRequests().RequestCache(); cache != nil {
 				cache.RecordResponse(persistedCacheResponseObservedFromSessionRecord(payload))
 			}
-		case session.WorkflowCompactionRecord:
-			if err := e.installWorkflowCompaction(payload); err != nil {
-				return err
-			}
-			e.resetLocalDiagnostics()
-			e.resetPromptCacheObservationBaselines()
-			manualEligible = false
-			reminderIssued = false
-			rollbackLocator.ObserveCompaction(payload.LatestRollbackCandidate)
-			recoveredHandoff.ClearSatisfiedByCompaction()
 		case session.HistoryReplacementRecord:
-			e.generationContext = preparedGenerationContext{}
 			replacement, err := historyReplacementPayloadFromSessionRecord(payload)
 			if err != nil {
 				return fmt.Errorf("restore session history replacement record: %w", err)
 			}
 			e.resetLocalDiagnostics()
 			manualEligible = false
-			provenance, provenanceErr := transcriptProvenanceFromRecord(record)
-			if provenanceErr != nil {
-				return fmt.Errorf("restore session history replacement provenance: %w", provenanceErr)
-			}
-			projectedEntries := transcriptEntriesFromHistoryReplacement(replacement)
-			for index := range projectedEntries {
-				projectedEntries[index].StepID = exactStepIDPointer(stepID)
-			}
-			projectedEntries = assignHistoryReplacementEntryProvenance(projectedEntries, &provenance)
-			e.transcriptRuntimeState().ReplaceHistoryAtCommittedEntryStart(
-				record.StepID(),
-				replacement.Items,
-				replacement.CommittedEntryStart,
-				projectedEntries,
-			)
-			replacementMode := session.CompactionMode(replacement.Mode)
-			if err := e.compactionRuntimeState().SetHistoryReplacementMode(&replacementMode); err != nil {
-				return fmt.Errorf("restore history replacement mode: %w", err)
-			}
-			if replacement.LastCommittedAssistantFinalAnswer != nil {
-				e.transcriptRuntimeState().SeedLastCommittedAssistantFinalAnswerIfAbsent(
-					replacement.LastCommittedAssistantFinalAnswer,
-				)
-			}
-			if replacement.CompactionNumber != nil && *replacement.CompactionNumber > 0 {
-				e.compactionRuntimeState().SetCount(*replacement.CompactionNumber)
-			} else {
-				count := e.compactionRuntimeState().IncrementCount()
-				e.persistCompletedCompactionFactsBestEffort(stepID, count)
+			if _, err := e.installHistoryReplacement(record, replacement, session.HistoryReplacementCompaction); err != nil {
+				return err
 			}
 			rollbackLocator.ObserveCompaction(replacement.LatestRollbackCandidate)
 			recoveredHandoff.ClearSatisfiedByCompaction()

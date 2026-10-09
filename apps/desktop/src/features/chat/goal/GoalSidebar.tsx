@@ -547,9 +547,9 @@ function useGoalObservation(
       onComplete: (code, message) => {
         fail(
           new ContractError(
-            code === 0
+            code === null
               ? "Goal observation completed unexpectedly."
-              : `Goal observation completed with code ${code.toString()}: ${message}`,
+              : `Goal observation completed with code ${code.toString()}: ${String(message)}`,
           ),
         );
       },

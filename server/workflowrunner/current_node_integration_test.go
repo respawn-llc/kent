@@ -606,7 +606,7 @@ func (f *currentNodeRunnerFixture) appendManualCompactionReplacement(
 				return err
 			}
 			stepID := "manual-compaction"
-			_, receipt, err := log.AppendCompactionHistoryReplacement(
+			_, receipt, err := log.AppendHistoryReplacement(session.HistoryReplacementCompaction,
 				&stepID,
 				session.HistoryReplacementRecord{
 					Engine: "local",

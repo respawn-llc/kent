@@ -23,8 +23,8 @@ import (
 // meta_context.go; request entry points must not append those prompts directly.
 func (e *Engine) ensureMetaContextForRequest(ctx context.Context, stepID string) error {
 	switch generation := e.generationContext.(type) {
-	case pendingWorkflowGeneration:
-		if err := e.prepareWorkflowGeneration(ctx, stepID, generation); err != nil {
+	case pendingGenerationContext:
+		if err := e.prepareGenerationContext(ctx, stepID, generation); err != nil {
 			return err
 		}
 	case freshGenerationContext:
@@ -363,14 +363,14 @@ func sameMetaContextSlot(left, right metaContextKind) bool {
 
 // steerBaseMetaContextIfNeeded injects base meta context (AGENTS.md, skills,
 // subagents, environment) exactly once, at the first request of a fresh
-// session. Workflow post-completion replacements defer generation context until
-// the next request has selected its model and role.
+// session. Saved compacted output defers generation context until the next
+// operation has selected its model and role.
 func (e *Engine) steerBaseMetaContextIfNeeded(stepID string) error {
 	switch generation := e.generationContext.(type) {
 	case preparedGenerationContext:
 		return nil
-	case pendingWorkflowGeneration:
-		return e.prepareWorkflowGeneration(context.Background(), stepID, generation)
+	case pendingGenerationContext:
+		return e.prepareGenerationContext(context.Background(), stepID, generation)
 	case freshGenerationContext:
 	default:
 		return errors.New("generation context is uninitialized")

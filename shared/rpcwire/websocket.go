@@ -3,7 +3,6 @@ package rpcwire
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,15 +13,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"core/shared/protocol"
 	"github.com/lxzan/gws"
 )
 
 type Frame struct {
 	Kind    FrameKind
 	Payload []byte
-
-	encodingErr error
 }
 
 type FrameKind uint8
@@ -115,17 +111,8 @@ func (c *webSocketConn) Send(ctx context.Context, frame Frame) error {
 	if c.socket == nil {
 		return errors.New("websocket connection is required")
 	}
-	if frame.encodingErr != nil {
-		return frame.encodingErr
-	}
-	var opcode gws.Opcode
-	switch frame.Kind {
-	case FrameText:
-		opcode = gws.OpcodeText
-	case FrameBinary:
-		opcode = gws.OpcodeBinary
-	default:
-		return fmt.Errorf("unsupported websocket frame kind %d", frame.Kind)
+	if frame.Kind != FrameBinary {
+		return fmt.Errorf("outbound websocket frame must be binary, got kind %d", frame.Kind)
 	}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
@@ -135,7 +122,7 @@ func (c *webSocketConn) Send(ctx context.Context, frame Frame) error {
 		}
 		defer func() { _ = c.socket.SetWriteDeadline(time.Time{}) }()
 	}
-	if err := c.socket.WriteMessage(opcode, frame.Payload); err != nil {
+	if err := c.socket.WriteMessage(gws.OpcodeBinary, frame.Payload); err != nil {
 		if cerr := ctx.Err(); cerr != nil {
 			return cerr
 		}
@@ -315,52 +302,4 @@ func webSocketHandshakeTimeout(ctx context.Context) time.Duration {
 		return time.Millisecond
 	}
 	return defaultWebSocketHandshakeTimeout
-}
-
-func FrameFromRequest(req protocol.Request) Frame {
-	payload, err := json.Marshal(req)
-	return Frame{Kind: FrameText, Payload: payload, encodingErr: err}
-}
-
-func FrameFromResponse(resp protocol.Response) Frame {
-	payload, err := json.Marshal(resp)
-	return Frame{Kind: FrameText, Payload: payload, encodingErr: err}
-}
-
-func (f Frame) Request() protocol.Request {
-	request, err := f.DecodeRequest()
-	if err != nil {
-		panic(err)
-	}
-	return request
-}
-
-func (f Frame) Response() protocol.Response {
-	response, err := f.DecodeResponse()
-	if err != nil {
-		panic(err)
-	}
-	return response
-}
-
-func (f Frame) DecodeRequest() (protocol.Request, error) {
-	if f.Kind != FrameText {
-		return protocol.Request{}, fmt.Errorf("JSON request requires a text frame, got kind %d", f.Kind)
-	}
-	var request protocol.Request
-	if err := json.Unmarshal(f.Payload, &request); err != nil {
-		return protocol.Request{}, fmt.Errorf("decode JSON request: %w", err)
-	}
-	return request, nil
-}
-
-func (f Frame) DecodeResponse() (protocol.Response, error) {
-	if f.Kind != FrameText {
-		return protocol.Response{}, fmt.Errorf("JSON response requires a text frame, got kind %d", f.Kind)
-	}
-	var response protocol.Response
-	if err := json.Unmarshal(f.Payload, &response); err != nil {
-		return protocol.Response{}, fmt.Errorf("decode JSON response: %w", err)
-	}
-	return response, nil
 }

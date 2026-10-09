@@ -111,14 +111,15 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 			return nil
 		}
 		s.completions[callID] = tools.Result{
-			CallID:         completion.CallID,
-			Name:           toolspec.ID(completion.Name),
-			IsError:        completion.IsError,
-			Output:         completion.Output,
-			Summary:        completion.Summary,
-			CondensedText:  completion.CondensedText,
-			Presentation:   completion.Presentation,
-			QuestionAnswer: cloneAskQuestionAnswer(completion.QuestionAnswer),
+			CallID:              completion.CallID,
+			Name:                toolspec.ID(completion.Name),
+			IsError:             completion.IsError,
+			Output:              completion.Output,
+			Summary:             completion.Summary,
+			CondensedText:       completion.CondensedText,
+			Presentation:        completion.Presentation,
+			QuestionAnswer:      cloneAskQuestionAnswer(completion.QuestionAnswer),
+			AnsweredBySessionID: cloneOptionalRuntimeSessionID(completion.AnsweredBySessionID),
 		}
 		provenance, provenanceErr := transcriptProvenanceFromRecord(record)
 		if provenanceErr != nil {
@@ -193,10 +194,6 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 			CacheWarning:        copyCacheWarning(&warning),
 			CommittedProvenance: &provenance,
 		})
-	case session.WorkflowCompactionRecord:
-		s.closeTurn()
-		s.scan.MarkCompactionBoundary()
-		s.lastCommittedAssistantFinalAnswer = textutil.Pointer(payload.LastCommittedAssistantFinalAnswer)
 	case session.HistoryReplacementRecord:
 		s.closeTurn()
 		replacement, err := historyReplacementPayloadFromSessionRecord(payload)

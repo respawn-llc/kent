@@ -59,15 +59,16 @@ type TranscriptAssistantRowFact struct {
 }
 
 type TranscriptToolRowFact struct {
-	ToolCallID     string
-	ToolName       string
-	Text           string
-	IsError        bool
-	ResultSummary  string
-	CondensedText  string
-	Presentation   *transcript.ToolCallMeta
-	QuestionAnswer *tools.AskQuestionAnswer
-	WebSearch      *transcript.WebSearchDetail
+	ToolCallID          string
+	ToolName            string
+	Text                string
+	IsError             bool
+	ResultSummary       string
+	CondensedText       string
+	Presentation        *transcript.ToolCallMeta
+	QuestionAnswer      *tools.AskQuestionAnswer
+	AnsweredBySessionID *runtimeids.SessionID
+	WebSearch           *transcript.WebSearchDetail
 }
 
 type TranscriptReasoningTraceRowFact struct {
@@ -530,15 +531,16 @@ func transcriptCommittedRowFactFromChatEntryUnlocated(entry ChatEntry) (Transcri
 			Visibility: transcriptVisibilityForIntegrity(resolveTranscriptVisibility(visibility, transcript.EntryVisibilityOngoingCollapsed), integrity),
 			Integrity:  integrity,
 			Tool: &TranscriptToolRowFact{
-				ToolCallID:     strings.TrimSpace(entry.ToolCallID),
-				ToolName:       toolName,
-				Text:           entry.Text,
-				IsError:        role == "tool_result_error",
-				ResultSummary:  strings.TrimSpace(entry.ToolResultSummary),
-				CondensedText:  strings.TrimSpace(firstNonBlankTranscriptValue(entry.CondensedText, entry.CompactLabel)),
-				Presentation:   cloneTranscriptToolCallMeta(entry.ToolCall),
-				QuestionAnswer: cloneAskQuestionAnswer(entry.QuestionAnswer),
-				WebSearch:      entry.WebSearch,
+				ToolCallID:          strings.TrimSpace(entry.ToolCallID),
+				ToolName:            toolName,
+				Text:                entry.Text,
+				IsError:             role == "tool_result_error",
+				ResultSummary:       strings.TrimSpace(entry.ToolResultSummary),
+				CondensedText:       strings.TrimSpace(firstNonBlankTranscriptValue(entry.CondensedText, entry.CompactLabel)),
+				Presentation:        cloneTranscriptToolCallMeta(entry.ToolCall),
+				QuestionAnswer:      cloneAskQuestionAnswer(entry.QuestionAnswer),
+				AnsweredBySessionID: cloneOptionalRuntimeSessionID(entry.AnsweredBySessionID),
+				WebSearch:           entry.WebSearch,
 			},
 		}, true
 	default:
@@ -839,15 +841,16 @@ func transcriptToolRowFactFromResult(result tools.Result) TranscriptCommittedRow
 	condensedText, _ := textutil.OptionalTrimmed(result.CondensedText)
 	content := projectToolResultContent(result)
 	return TranscriptCommittedRowFact{Kind: TranscriptCommittedRowFactTool, Visibility: transcript.EntryVisibilityOngoingCollapsed, Tool: &TranscriptToolRowFact{
-		ToolCallID:     strings.TrimSpace(result.CallID),
-		ToolName:       strings.TrimSpace(string(result.Name)),
-		Text:           content.text,
-		IsError:        content.isError,
-		WebSearch:      content.webSearch,
-		ResultSummary:  resultSummary,
-		CondensedText:  condensedText,
-		Presentation:   cloneTranscriptToolCallMeta(result.Presentation),
-		QuestionAnswer: cloneAskQuestionAnswer(result.QuestionAnswer),
+		ToolCallID:          strings.TrimSpace(result.CallID),
+		ToolName:            strings.TrimSpace(string(result.Name)),
+		Text:                content.text,
+		IsError:             content.isError,
+		WebSearch:           content.webSearch,
+		ResultSummary:       resultSummary,
+		CondensedText:       condensedText,
+		Presentation:        cloneTranscriptToolCallMeta(result.Presentation),
+		QuestionAnswer:      cloneAskQuestionAnswer(result.QuestionAnswer),
+		AnsweredBySessionID: cloneOptionalRuntimeSessionID(result.AnsweredBySessionID),
 	}}
 }
 

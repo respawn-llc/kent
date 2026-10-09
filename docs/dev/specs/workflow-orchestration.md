@@ -498,6 +498,7 @@
 - Guarantee and eligibility follow all Context Source semantics, including direct and transitive `immediate_source`, `node:<node_key>`, `previous_target`, and `previous_target_or_new`. A source that may fall back to a new Session remains optional unless the accepted path guarantees selection of the retained Session.
 - Eager `compact_and_continue_session` and threshold-triggered Workflow Pre-Compaction must produce one summary. The next agent must use that summary with its selected Assignee without another compaction or a change to the completed-compaction count. The selected Session's prompt-cache key remains its Kent Session ID.
 - Kent must save the completed summary during an Approval wait and display it once when the next agent starts.
+- Kent must prepare the saved summary with the actual next agent's context. Approval, Manual Move, fan-out, and restart must preserve summary reuse without binding it to a predicted Assignee.
 - A target skips its lazy CAC summary only when the selected Session has an unconsumed committed Workflow Pre-Compaction replacement. Otherwise CAC runs when the target starts.
 - Nodes own no agent input or output contract. Transition Branches exclusively declare the Parameters they provide to their targets.
 - Prompt placeholders validate against the prompt-owning Transition Branch's Parameters through `.Params.<parameter_key>`.

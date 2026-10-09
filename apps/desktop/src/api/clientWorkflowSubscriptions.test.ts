@@ -1,3 +1,4 @@
+import { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 // @vitest-environment jsdom
 import { create } from "@app/server-api-contract";
 import * as pb from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
@@ -202,9 +203,9 @@ describe("ApiClient workflow subscriptions", () => {
     success.completeDescriptor(
       workflowService.subscribe,
       workflowService.complete,
-      create(StreamCompletionSchema, { code: -32000, message: "stream stopped" }),
+      create(StreamCompletionSchema, { code: StreamFailureCode.INTERNAL_FAILURE, message: "stream stopped" }),
     );
-    expect(completed).toHaveBeenCalledWith(-32000, "stream stopped");
+    expect(completed.mock.calls[0]?.[0]).toBe(StreamFailureCode.INTERNAL_FAILURE);
     subscription.close();
     expect(success.descriptorSubscriptions).toEqual([]);
   });

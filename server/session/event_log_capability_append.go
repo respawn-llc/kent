@@ -155,35 +155,40 @@ func replayRecordInputs(records []EventRecord) ([]EventRecordAppendInput, error)
 	return inputs, nil
 }
 
-func (c MaterializedEventLog) AppendCompactionHistoryReplacement(
+type HistoryReplacementPurpose uint8
+
+const (
+	HistoryReplacementCompaction HistoryReplacementPurpose = iota + 1
+	HistoryReplacementPreparation
+)
+
+func (c MaterializedEventLog) AppendHistoryReplacement(
+	purpose HistoryReplacementPurpose,
 	stepID *string,
 	record HistoryReplacementRecord,
 ) (EventRecord, CommitReceipt, error) {
-	return c.appendCompaction(stepID, record)
-}
-
-func (c MaterializedEventLog) AppendWorkflowCompaction(
-	stepID *string,
-	record WorkflowCompactionRecord,
-) (EventRecord, CommitReceipt, error) {
-	return c.appendCompaction(stepID, record)
-}
-
-func (c MaterializedEventLog) appendCompaction(
-	stepID *string,
-	record EventRecordPayload,
-) (EventRecord, CommitReceipt, error) {
+	switch purpose {
+	case HistoryReplacementCompaction:
+	case HistoryReplacementPreparation:
+		if record.CompactedOutput != nil || record.CompactionNumber == nil {
+			return EventRecord{}, CommitReceipt{}, errors.New("generation preparation requires prepared history and its compaction number")
+		}
+	default:
+		return EventRecord{}, CommitReceipt{}, errors.New("history replacement purpose is required")
+	}
 	outcome, err := c.appendRecordInputsAtomic([]EventRecordAppendInput{{
 		StepID: stepID, Payload: record,
 	}}, func(meta *Meta) (bool, error) {
-		*meta = ProjectCompactedMeta(*meta)
+		if purpose == HistoryReplacementCompaction {
+			*meta = ProjectCompactedMeta(*meta)
+		}
 		return true, nil
 	})
 	if len(outcome.records) != 1 {
 		return EventRecord{}, CommitReceipt{Committed: outcome.committed}, errors.Join(
 			err,
 			fmt.Errorf(
-				"typed compaction append produced %d records, want 1",
+				"history replacement append produced %d records, want 1",
 				len(outcome.records),
 			),
 		)
@@ -433,34 +438,33 @@ func advanceActiveWorkflowAssignmentFromRecords(meta *Meta, records []EventRecor
 		case HistoryReplacementRecord:
 			meta.ActiveWorkflowAssignment = nil
 			meta.ActiveWorkflowAssignmentState = &ActiveWorkflowAssignmentState{}
-			for _, item := range value.Items {
-				if item.Type != ProviderHistoryItemTypeMessage ||
-					item.Role == nil ||
-					*item.Role != MessageRoleDeveloper ||
-					item.MessageType == nil {
-					continue
-				}
-				switch *item.MessageType {
-				case MessageTypeWorkflowMode:
-					message, err := normalizeMessageRecord(MessageRecord{
-						Role:            *item.Role,
-						MessageType:     item.MessageType,
-						SourcePath:      item.SourcePath,
-						WorktreeContext: item.WorktreeContext,
-						Content:         item.Content,
-						CompactContent:  item.CompactContent,
-					})
-					if err != nil {
-						return err
+			for _, segment := range [][]ProviderHistoryItem{value.Items, value.Continuation} {
+				for _, item := range segment {
+					if item.Type != ProviderHistoryItemTypeMessage ||
+						item.Role == nil ||
+						*item.Role != MessageRoleDeveloper ||
+						item.MessageType == nil {
+						continue
 					}
-					meta.ActiveWorkflowAssignment = &message
-				case MessageTypeWorkflowModeExit:
-					meta.ActiveWorkflowAssignment = nil
+					switch *item.MessageType {
+					case MessageTypeWorkflowMode:
+						message, err := normalizeMessageRecord(MessageRecord{
+							Role:            *item.Role,
+							MessageType:     item.MessageType,
+							SourcePath:      item.SourcePath,
+							WorktreeContext: item.WorktreeContext,
+							Content:         item.Content,
+							CompactContent:  item.CompactContent,
+						})
+						if err != nil {
+							return err
+						}
+						meta.ActiveWorkflowAssignment = &message
+					case MessageTypeWorkflowModeExit:
+						meta.ActiveWorkflowAssignment = nil
+					}
 				}
 			}
-		case WorkflowCompactionRecord:
-			meta.ActiveWorkflowAssignment = nil
-			meta.ActiveWorkflowAssignmentState = &ActiveWorkflowAssignmentState{}
 		}
 	}
 	return nil
@@ -545,7 +549,7 @@ func (s *Store) advanceConversationFreshnessFromRecordsLocked(records []EventRec
 		if err != nil {
 			return err
 		}
-		if visible || kind == EventKindWorkflowCompaction {
+		if visible || IsContextBoundary(kind) {
 			s.conversationFreshness = ConversationFreshnessEstablished
 			s.meta.ConversationEstablished = true
 			return nil

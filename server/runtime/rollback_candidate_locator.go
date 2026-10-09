@@ -65,8 +65,6 @@ func rollbackCandidateLocatorFromActiveWindow(window session.EventRecordWindow) 
 			if err := tracker.ObserveMessage(record.Seq(), message); err != nil {
 				return nil, err
 			}
-		case session.WorkflowCompactionRecord:
-			tracker.ObserveCompaction(payload.LatestRollbackCandidate)
 		case session.HistoryReplacementRecord:
 			replacement, err := historyReplacementPayloadFromSessionRecord(payload)
 			if err != nil {

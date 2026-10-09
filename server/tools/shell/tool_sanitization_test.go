@@ -97,7 +97,7 @@ func TestRawBackgroundOutputPathsPreserveAnsi(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newBackgroundTestManager(t)
 	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-	stdinTool := NewWriteStdinTool(16_000, 200_000, manager)
+	stdinTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
 
 	result := callExecCommand(t, execTool, "raw-bg", map[string]any{
 		"cmd":           "printf '\\033[31mhello\\033[0m\\n'; sleep 0.3; printf '\\033[32mdone\\033[0m'",

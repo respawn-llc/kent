@@ -192,15 +192,16 @@ func (e *Engine) prepareStoredToolCompletion(
 		return storedToolCompletion{}, "", false, err
 	}
 	payload := storedToolCompletion{
-		CallID:         r.CallID,
-		Name:           string(r.Name),
-		IsError:        r.IsError,
-		Output:         append(json.RawMessage(nil), r.Output...),
-		Summary:        r.Summary,
-		CondensedText:  r.CondensedText,
-		Presentation:   r.Presentation,
-		ProviderItems:  e.providerItemsForToolCompletion(r),
-		QuestionAnswer: cloneAskQuestionAnswer(r.QuestionAnswer),
+		CallID:              r.CallID,
+		Name:                string(r.Name),
+		IsError:             r.IsError,
+		Output:              append(json.RawMessage(nil), r.Output...),
+		Summary:             r.Summary,
+		CondensedText:       r.CondensedText,
+		Presentation:        r.Presentation,
+		ProviderItems:       e.providerItemsForToolCompletion(r),
+		QuestionAnswer:      cloneAskQuestionAnswer(r.QuestionAnswer),
+		AnsweredBySessionID: cloneOptionalRuntimeSessionID(r.AnsweredBySessionID),
 	}
 	return payload, backgroundSessionID, hasBackgroundSession, nil
 }

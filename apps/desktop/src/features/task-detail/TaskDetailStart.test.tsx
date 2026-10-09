@@ -8,6 +8,7 @@ import {
   backlogTaskFixture,
   taskStartRoute,
   taskStartApplied,
+  taskStartFailure,
   taskStartNeedsDependencies,
   mountTaskDetailSurface,
   taskDetailResponse,
@@ -27,12 +28,9 @@ it("replaces Start with a visible loading spinner and restores the action after 
   });
   expect(within(start).getByText(appI18n.t("task.start"))).not.toBeVisible();
   expect(within(start).getByTestId("spinner")).toBeVisible();
-  const failure = {
-    code: "internal_failure",
-    detail: { case: "internalFailure", value: { cause: "preparation failed" } },
-  };
+  const failure = taskStartFailure;
   const error = new RpcError({
-    code: -32603,
+    code: failure.code,
     method: "task.start",
     message: "start rejected",
     data: failure,
@@ -50,7 +48,7 @@ it("replaces Start with a visible loading spinner and restores the action after 
   expect(diagnostic?.[2]).toMatchObject({
     action: "start",
     method: error.method,
-    code: String(error.code),
+    code: error.code,
     details: JSON.stringify(failure),
   });
 });

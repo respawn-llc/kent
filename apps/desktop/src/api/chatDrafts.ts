@@ -4,11 +4,9 @@ import { SessionLifecycleService } from "@app/server-api-contract/gen/kent/api/s
 import { requireChatSuccess } from "./chatErrors";
 import { requireChatSessionID } from "./chatTarget";
 import type { ChatApi } from "./chatTypes";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 
-export function createChatDraftApi(
-  transport: DescriptorRpcTransport,
-): Pick<ChatApi, "getDraft" | "persistDraft"> {
+export function createChatDraftApi(transport: RpcTransport): Pick<ChatApi, "getDraft" | "persistDraft"> {
   return {
     async getDraft(target) {
       const method = SessionLifecycleService.method.getInitialInput;

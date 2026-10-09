@@ -10,24 +10,27 @@ import (
 	"core/shared/textutil"
 )
 
-// A saved Workflow summary is not a prepared conversation. Its role-dependent
-// context can only be constructed after the target runtime has been selected.
+// A compacted output becomes request-ready only when the next operation supplies
+// its context. That can happen immediately or after a dormant interval.
 type generationContext interface {
 	generationContext()
 }
 
 type freshGenerationContext struct{}
 type preparedGenerationContext struct{}
-type pendingWorkflowGeneration struct {
-	summary session.WorkflowCompactionRecord
+type pendingGenerationContext struct {
+	replacement historyReplacementPayload
 }
 
 func (freshGenerationContext) generationContext()    {}
 func (preparedGenerationContext) generationContext() {}
-func (pendingWorkflowGeneration) generationContext() {}
+func (pendingGenerationContext) generationContext()  {}
+
+type compactionHistory interface {
+	compactionHistory()
+}
 
 type compactionOutput struct {
-	engine               session.CompactionEngine
 	summary              []llm.ResponseItem
 	runningShells        []llm.Message
 	preservedUserMessage *llm.Message
@@ -35,13 +38,17 @@ type compactionOutput struct {
 }
 
 type preparedCompactionHistory struct {
-	items []llm.ResponseItem
+	items        []llm.ResponseItem
+	continuation []llm.ResponseItem
 }
 
-func (output compactionOutput) estimateTokens() int {
-	return estimateItemsTokens(output.summary) +
-		estimateItemsTokens(llm.ItemsFromMessages(output.runningShells)) +
-		estimateItemsTokens(llm.ItemsFromMessages(output.continuationMessages()))
+func (compactionOutput) compactionHistory()          {}
+func (preparedCompactionHistory) compactionHistory() {}
+
+func (output compactionOutput) estimateTokens(estimator llm.TokenEstimator) int {
+	return llm.EstimateItemsTokens(estimator, output.summary) +
+		llm.EstimateItemsTokens(estimator, llm.ItemsFromMessages(output.runningShells)) +
+		llm.EstimateItemsTokens(estimator, llm.ItemsFromMessages(output.continuationMessages()))
 }
 
 func (output compactionOutput) continuationMessages() []llm.Message {
@@ -54,9 +61,9 @@ func (output compactionOutput) continuationMessages() []llm.Message {
 	return messages
 }
 
-func (output compactionOutput) prepare(meta metaContextProjection) preparedCompactionHistory {
+func (output compactionOutput) prepare(engine session.CompactionEngine, meta metaContextProjection) preparedCompactionHistory {
 	var items []llm.ResponseItem
-	if output.engine == session.CompactionEngineRemote {
+	if engine == session.CompactionEngineRemote {
 		items = append(items, llm.ItemsFromMessages([]llm.Message{{
 			Role: llm.RoleDeveloper, Content: textutil.Value(prompts.CompactionContinuationReminder),
 		}})...)
@@ -69,35 +76,33 @@ func (output compactionOutput) prepare(meta metaContextProjection) preparedCompa
 	return preparedCompactionHistory{items: items}
 }
 
-func (e *Engine) prepareWorkflowGeneration(ctx context.Context, stepID string, pending pendingWorkflowGeneration) error {
-	output, err := compactionOutputFromRecord(pending.summary)
+func (e *Engine) prepareGenerationContext(ctx context.Context, stepID string, pending pendingGenerationContext) error {
+	output := pending.replacement.Output
+	meta, err := e.compactionReinjectedMetaContextProjection(ctx, compactionMode(pending.replacement.Mode))
 	if err != nil {
 		return err
 	}
-	meta, err := e.compactionReinjectedMetaContextProjection(ctx, compactionModeWorkflowPostCompletion)
-	if err != nil {
-		return err
-	}
-	history := output.prepare(meta)
-	history.items = append(history.items, e.transcriptRuntimeState().SnapshotItems()...)
+	history := output.prepare(session.CompactionEngine(pending.replacement.Engine), meta)
+	history.continuation = e.transcriptRuntimeState().SnapshotItems()
 	receipt, err := e.steerWithCommitReceipt(stepID, steerHistoryReplacementIntent(
-		string(output.engine),
-		compactionModeWorkflowPostCompletion,
-		pending.summary.CompactionNumber,
-		pending.summary.LastCommittedAssistantFinalAnswer,
+		session.HistoryReplacementPreparation,
+		pending.replacement.Engine,
+		compactionMode(pending.replacement.Mode),
+		*pending.replacement.CompactionNumber,
+		pending.replacement.LastCommittedAssistantFinalAnswer,
 		history,
 	))
 	if err != nil {
 		return err
 	}
 	if !receipt.Committed {
-		return errors.New("workflow generation context was not committed")
+		return errors.New("generation context was not committed")
 	}
 	return nil
 }
 
-func compactionOutputFromRecord(record session.WorkflowCompactionRecord) (compactionOutput, error) {
-	output := compactionOutput{engine: record.Engine}
+func compactionOutputFromRecord(record session.CompactedOutput) (compactionOutput, error) {
+	output := compactionOutput{}
 	for _, item := range record.Summary {
 		output.summary = append(output.summary, llmResponseItemFromSessionHistory(item))
 	}
@@ -115,57 +120,47 @@ func compactionOutputFromRecord(record session.WorkflowCompactionRecord) (compac
 		}
 		output.preservedUserMessage = &message
 	}
+	if record.FutureAgentMessage != nil {
+		message, err := llmMessageFromSessionRecord(*record.FutureAgentMessage)
+		if err != nil {
+			return compactionOutput{}, err
+		}
+		output.futureAgentMessage = &message
+	}
 	return output, nil
 }
 
-func (e *Engine) workflowCompactionRecord(output compactionOutput) (session.WorkflowCompactionRecord, error) {
-	record := session.WorkflowCompactionRecord{
-		Engine: output.engine, CompactionNumber: e.compactionRuntimeState().Count() + 1,
-		CommittedEntryStart:               e.CommittedTranscriptEntryCount(),
-		LastCommittedAssistantFinalAnswer: e.LastCommittedAssistantFinalAnswer(),
-		LatestRollbackCandidate:           e.transcriptRuntimeState().LatestRollbackCandidate(),
-	}
+func compactedOutputRecord(output compactionOutput) (session.CompactedOutput, error) {
+	record := session.CompactedOutput{}
 	for index, item := range llm.PrepareOpenAIInputItems(output.summary) {
 		stored, err := sessionProviderHistoryItemFromLLM(index, item)
 		if err != nil {
-			return session.WorkflowCompactionRecord{}, err
+			return session.CompactedOutput{}, err
 		}
 		record.Summary = append(record.Summary, stored)
 	}
 	for _, message := range output.runningShells {
 		stored, err := sessionMessageRecordFromLLM(message)
 		if err != nil {
-			return session.WorkflowCompactionRecord{}, err
+			return session.CompactedOutput{}, err
 		}
 		record.RunningShells = append(record.RunningShells, stored)
 	}
 	if output.preservedUserMessage != nil {
 		stored, err := sessionMessageRecordFromLLM(*output.preservedUserMessage)
 		if err != nil {
-			return session.WorkflowCompactionRecord{}, err
+			return session.CompactedOutput{}, err
 		}
 		record.PreservedUserMessage = &stored
 	}
-	return record, nil
-}
-
-func (e *Engine) installWorkflowCompaction(record session.WorkflowCompactionRecord) error {
-	e.generationContext = pendingWorkflowGeneration{summary: record}
-	e.transcriptRuntimeState().BeginGeneration(record.CommittedEntryStart)
-	e.transcriptRuntimeState().SeedLastCommittedAssistantFinalAnswerIfAbsent(record.LastCommittedAssistantFinalAnswer)
-	e.compactionRuntimeState().SetCount(record.CompactionNumber)
-	mode := session.CompactionModeWorkflowPostCompletion
-	return e.compactionRuntimeState().SetHistoryReplacementMode(&mode)
-}
-
-func (e *Engine) persistWorkflowCompaction(stepID string, record session.WorkflowCompactionRecord) (session.CommitReceipt, error) {
-	_, receipt, err := e.eventLog.AppendWorkflowCompaction(textutil.OptionalExactString(stepID), record)
-	if !receipt.Committed {
-		return receipt, err
+	if output.futureAgentMessage != nil {
+		stored, err := sessionMessageRecordFromLLM(*output.futureAgentMessage)
+		if err != nil {
+			return session.CompactedOutput{}, err
+		}
+		record.FutureAgentMessage = &stored
 	}
-	e.invalidateCompactedRuntime()
-	installErr := e.installWorkflowCompaction(record)
-	return receipt, errors.Join(err, installErr, e.finishCompactionCommit(stepID))
+	return record, nil
 }
 
 func (e *Engine) invalidateCompactedRuntime() {

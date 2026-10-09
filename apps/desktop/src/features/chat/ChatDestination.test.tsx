@@ -788,7 +788,6 @@ it.each(["creation failed", "response lost"])(
     });
     expect(view.steer).toHaveBeenCalledOnce();
     expect(view.draft).not.toHaveBeenCalled();
-    expect(view.services.transport.calls).toHaveLength(0);
     expect(view.services.transport.descriptorCalls).toHaveLength(0);
   },
 );

@@ -283,6 +283,14 @@ message ToolRow {
   optional ToolPresentation presentation = 8;
   optional kent.api.prompt.QuestionAnswer question_answer = 9;
   optional WebSearchDetail web_search = 10;
+  optional string answered_by_session_id = 11 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).cel = {
+      id: "kent.transcript.tool_row_answerer_nonblank"
+      message: "answered-by Session ID must be non-blank"
+      expression: "this.trim() != ''"
+    }
+  ];
   option (buf.validate.message).cel = {
     id: "kent.transcript.ask_result"
     message: "errored Ask Question results require nonblank failure text"

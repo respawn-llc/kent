@@ -48,12 +48,9 @@ import {
   type WorktreeDeletePreview,
   type WorktreeTransition,
 } from "./schemas/worktree";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 
-export async function getWorktreeStatus(
-  transport: DescriptorRpcTransport,
-  sessionID: string,
-): Promise<StatusSuccess> {
+export async function getWorktreeStatus(transport: RpcTransport, sessionID: string): Promise<StatusSuccess> {
   const method = StatusService.method.get;
   return requireUnarySuccess(
     method,
@@ -65,10 +62,7 @@ export async function getWorktreeStatus(
   );
 }
 
-export async function listWorktrees(
-  transport: DescriptorRpcTransport,
-  sessionID: string,
-): Promise<ListSuccess> {
+export async function listWorktrees(transport: RpcTransport, sessionID: string): Promise<ListSuccess> {
   const method = ListService.method.list;
   const success = requireUnarySuccess(
     method,
@@ -83,7 +77,7 @@ export async function listWorktrees(
 }
 
 export async function resolveWorktreeSelector(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   sessionID: string,
   selector: string,
 ): Promise<SelectorResolveSuccess> {
@@ -102,7 +96,7 @@ export async function resolveWorktreeSelector(
 }
 
 export async function resolveWorktreeCreateTarget(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   sessionID: string,
   target: string,
 ): Promise<CreateTargetResolveSuccess> {
@@ -120,7 +114,7 @@ export async function resolveWorktreeCreateTarget(
 }
 
 export async function previewWorktreeDelete(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   sessionID: string,
   selector: string,
 ): Promise<WorktreeDeletePreview> {
@@ -138,7 +132,7 @@ export async function previewWorktreeDelete(
 }
 
 export async function createWorktree(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   input: WorktreeCreateInput,
 ): Promise<CreateSuccess> {
   const resolution = requireWorktreeAuthority(input.resolution, "create");
@@ -173,7 +167,7 @@ export async function createWorktree(
 }
 
 export async function switchWorktree(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   sessionID: string,
   operation: WorktreeTransition,
 ): Promise<ScheduledAcknowledgement> {
@@ -223,7 +217,7 @@ function transitionSelector(operation: WorktreeTransition): string | null {
 }
 
 export async function deleteWorktree(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   sessionID: string,
   preview: WorktreeDeletePreview,
   confirmation: WorktreeDeleteConfirmationChoice,

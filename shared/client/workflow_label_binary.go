@@ -12,7 +12,6 @@ import (
 )
 
 // WorkflowLabelError retains the generated detail selected by the operation.
-// Task creation's remaining JSON label error is a separate containing contract.
 type WorkflowLabelError struct {
 	Detail proto.Message
 }

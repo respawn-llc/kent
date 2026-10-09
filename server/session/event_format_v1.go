@@ -68,7 +68,6 @@ const (
 	EventKindToolCompletion      EventKind = "tool_completed"
 	EventKindLocalEntry          EventKind = "local_entry"
 	EventKindHistoryReplace      EventKind = "history_replaced"
-	EventKindWorkflowCompaction  EventKind = "workflow_compaction"
 	EventKindConfigurationUpdate EventKind = "configuration_updated"
 	EventKindCacheRequest        EventKind = "cache_request_observed"
 	EventKindCacheResponse       EventKind = "cache_response_observed"
@@ -216,12 +215,6 @@ func newEventRecord(
 		payload = typed
 	case HistoryReplacementRecord:
 		normalized, normalizeErr := normalizeHistoryReplacementRecord(typed)
-		if normalizeErr != nil {
-			return EventRecord{}, fmt.Errorf("%s payload: %w", payload.eventKind(), normalizeErr)
-		}
-		payload = normalized
-	case WorkflowCompactionRecord:
-		normalized, normalizeErr := normalizeWorkflowCompactionRecord(typed)
 		if normalizeErr != nil {
 			return EventRecord{}, fmt.Errorf("%s payload: %w", payload.eventKind(), normalizeErr)
 		}
@@ -663,8 +656,6 @@ func encodeEventRecordPayloadV1(payload EventRecordPayload) ([]byte, error) {
 		return encodeToolCompletionRecordV1(typed)
 	case HistoryReplacementRecord:
 		return encodeHistoryReplacementRecordV1(typed)
-	case WorkflowCompactionRecord:
-		return encodeWorkflowCompactionRecord(typed)
 	default:
 		return json.Marshal(payload)
 	}
@@ -847,8 +838,6 @@ func encodeEventRecordPayloadV2(payload EventRecordPayload) ([]byte, error) {
 		return encodeToolCompletionRecordV2(typed)
 	case HistoryReplacementRecord:
 		return encodeHistoryReplacementRecordV1(typed)
-	case WorkflowCompactionRecord:
-		return encodeWorkflowCompactionRecord(typed)
 	default:
 		return json.Marshal(payload)
 	}
@@ -878,16 +867,17 @@ func decodeEventRecordPayloadV2(
 		return decodeEventRecordPayloadV1(kind, decode)
 	}
 	var wire struct {
-		CallID         string                       `json:"call_id"`
-		Name           string                       `json:"name"`
-		OutputKind     ToolOutputKind               `json:"output_kind"`
-		IsError        *bool                        `json:"is_error"`
-		Output         json.RawMessage              `json:"output"`
-		Summary        *string                      `json:"summary,omitempty"`
-		CondensedText  *string                      `json:"condensed_text,omitempty"`
-		Presentation   json.RawMessage              `json:"presentation,omitempty"`
-		ProviderItems  []ToolCompletionProviderItem `json:"provider_items,omitempty"`
-		QuestionAnswer *QuestionAnswerRecord        `json:"question_answer,omitempty"`
+		CallID              string                       `json:"call_id"`
+		Name                string                       `json:"name"`
+		OutputKind          ToolOutputKind               `json:"output_kind"`
+		IsError             *bool                        `json:"is_error"`
+		Output              json.RawMessage              `json:"output"`
+		Summary             *string                      `json:"summary,omitempty"`
+		CondensedText       *string                      `json:"condensed_text,omitempty"`
+		Presentation        json.RawMessage              `json:"presentation,omitempty"`
+		ProviderItems       []ToolCompletionProviderItem `json:"provider_items,omitempty"`
+		QuestionAnswer      *QuestionAnswerRecord        `json:"question_answer,omitempty"`
+		AnsweredBySessionID *runtimeids.SessionID        `json:"answered_by_session_id,omitempty"`
 	}
 	if err := decode(&wire); err != nil {
 		return nil, fmt.Errorf("decode %s payload: %w", kind, err)
@@ -900,6 +890,7 @@ func decodeEventRecordPayloadV2(
 		IsError: *wire.IsError, Output: wire.Output, Summary: wire.Summary,
 		CondensedText: wire.CondensedText, Presentation: wire.Presentation,
 		ProviderItems: wire.ProviderItems, QuestionAnswer: wire.QuestionAnswer,
+		AnsweredBySessionID: wire.AnsweredBySessionID,
 	}, nil
 }
 
@@ -930,15 +921,16 @@ func decodeEventRecordPayloadV1(
 			return nil, fmt.Errorf("decode %s payload: is_error is required", kind)
 		}
 		completion := ToolCompletionRecord{
-			CallID:        wire.CallID,
-			Name:          wire.Name,
-			OutputKind:    wire.OutputKind,
-			IsError:       *wire.IsError,
-			Output:        wire.Output,
-			Summary:       wire.Summary,
-			CondensedText: wire.CondensedText,
-			Presentation:  wire.Presentation,
-			ProviderItems: wire.ProviderItems,
+			CallID:              wire.CallID,
+			Name:                wire.Name,
+			OutputKind:          wire.OutputKind,
+			IsError:             *wire.IsError,
+			Output:              wire.Output,
+			Summary:             wire.Summary,
+			CondensedText:       wire.CondensedText,
+			Presentation:        wire.Presentation,
+			ProviderItems:       wire.ProviderItems,
+			AnsweredBySessionID: wire.AnsweredBySessionID,
 		}
 		payload = completion
 	case EventKindLocalEntry:
@@ -965,12 +957,6 @@ func decodeEventRecordPayloadV1(
 			return nil, fmt.Errorf("decode %s payload: %w", kind, err)
 		}
 		payload = replacement
-	case EventKindWorkflowCompaction:
-		var compaction WorkflowCompactionRecord
-		if err := decode(&compaction); err != nil {
-			return nil, fmt.Errorf("decode %s payload: %w", kind, err)
-		}
-		payload = compaction
 	case EventKindConfigurationUpdate:
 		var update ConfigurationUpdateRecord
 		if err := decode(&update); err != nil {
@@ -1007,7 +993,6 @@ func validateEventKind(kind EventKind) error {
 		EventKindToolCompletion,
 		EventKindLocalEntry,
 		EventKindHistoryReplace,
-		EventKindWorkflowCompaction,
 		EventKindConfigurationUpdate,
 		EventKindCacheRequest,
 		EventKindCacheResponse,

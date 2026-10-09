@@ -915,16 +915,17 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact) (*transcript
 			return nil, err
 		}
 		row.Row = &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
-			StepId:         textutil.Pointer(fact.StepID),
-			ToolCallId:     textutil.OptionalTrimmedString(fact.Tool.ToolCallID),
-			ToolName:       textutil.OptionalTrimmedString(fact.Tool.ToolName),
-			Text:           fact.Tool.Text,
-			IsError:        fact.Tool.IsError,
-			ResultSummary:  optionalNonBlankString(fact.Tool.ResultSummary),
-			CondensedText:  optionalNonBlankString(fact.Tool.CondensedText),
-			Presentation:   presentation,
-			QuestionAnswer: answer,
-			WebSearch:      webSearch,
+			StepId:              textutil.Pointer(fact.StepID),
+			ToolCallId:          textutil.OptionalTrimmedString(fact.Tool.ToolCallID),
+			ToolName:            textutil.OptionalTrimmedString(fact.Tool.ToolName),
+			Text:                fact.Tool.Text,
+			IsError:             fact.Tool.IsError,
+			ResultSummary:       optionalNonBlankString(fact.Tool.ResultSummary),
+			CondensedText:       optionalNonBlankString(fact.Tool.CondensedText),
+			Presentation:        presentation,
+			QuestionAnswer:      answer,
+			AnsweredBySessionId: protoapi.OptionalSessionIDToProto(fact.Tool.AnsweredBySessionID),
+			WebSearch:           webSearch,
 		}}
 	case runtime.TranscriptCommittedRowFactReasoningTrace:
 		if fact.ReasoningTrace == nil || fact.StepID == nil {

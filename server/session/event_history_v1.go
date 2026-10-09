@@ -66,6 +66,13 @@ type HistoryReplacementRecord struct {
 	LastCommittedAssistantFinalAnswer *string                          `json:"last_committed_assistant_final_answer,omitempty"`
 	LatestRollbackCandidate           *rollbacktarget.CandidateLocator `json:"latest_rollback_candidate,omitempty"`
 	Items                             []ProviderHistoryItem            `json:"items,omitempty"`
+	// Continuation is already-committed activity after compaction, retained for
+	// model input without projecting its original transcript rows a second time.
+	Continuation []ProviderHistoryItem `json:"continuation,omitempty"`
+	// CompactedOutput excludes both prepared segments. Items followed by
+	// Continuation is the complete prepared model input; CompactedOutput still
+	// needs operation context.
+	CompactedOutput *CompactedOutput `json:"compacted_output,omitempty"`
 }
 
 var ErrProviderHistoryItem = errors.New("invalid provider history item")
@@ -163,6 +170,23 @@ func normalizeHistoryReplacementRecord(record HistoryReplacementRecord) (History
 	record.Items, err = normalizeProviderHistoryItems(record.Items)
 	if err != nil {
 		return HistoryReplacementRecord{}, err
+	}
+	record.Continuation, err = normalizeProviderHistoryItems(record.Continuation)
+	if err != nil {
+		return HistoryReplacementRecord{}, err
+	}
+	if record.CompactedOutput != nil {
+		if record.Items != nil || record.Continuation != nil {
+			return HistoryReplacementRecord{}, errors.New("history replacement cannot contain both prepared history and compacted output")
+		}
+		if record.CompactionNumber == nil || record.CommittedEntryStart == nil {
+			return HistoryReplacementRecord{}, errors.New("compacted output requires compaction number and committed entry start")
+		}
+		output, err := normalizeCompactedOutput(*record.CompactedOutput)
+		if err != nil {
+			return HistoryReplacementRecord{}, err
+		}
+		record.CompactedOutput = &output
 	}
 	return record, nil
 }
@@ -390,6 +414,15 @@ func encodeHistoryReplacementRecordV1(record HistoryReplacementRecord) ([]byte, 
 	if err := encodeProviderHistoryItems(&buffer, "items", record.Items); err != nil {
 		return nil, err
 	}
+	if err := encodeProviderHistoryItems(&buffer, "continuation", record.Continuation); err != nil {
+		return nil, err
+	}
+	if record.CompactedOutput != nil {
+		buffer.WriteString(`,"compacted_output":`)
+		if err := encodeCompactedOutput(&buffer, *record.CompactedOutput); err != nil {
+			return nil, err
+		}
+	}
 	buffer.WriteByte('}')
 	return buffer.Bytes(), nil
 }
@@ -404,7 +437,12 @@ func encodeProviderHistoryItems(buffer *bytes.Buffer, field string, items []Prov
 		return err
 	}
 	buffer.Write(name)
-	buffer.WriteString(`:[`)
+	buffer.WriteByte(':')
+	return encodeProviderHistoryItemArray(buffer, items)
+}
+
+func encodeProviderHistoryItemArray(buffer *bytes.Buffer, items []ProviderHistoryItem) error {
+	buffer.WriteByte('[')
 	for index, item := range items {
 		if index > 0 {
 			buffer.WriteByte(',')

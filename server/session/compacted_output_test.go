@@ -10,9 +10,10 @@ import (
 	"core/server/session"
 	"core/shared/rollbacktarget"
 	"core/shared/sessioncontract"
+	"core/shared/textutil"
 )
 
-func TestWorkflowCompactionSurvivesReopenAndClone(t *testing.T) {
+func TestCompactedOutputSurvivesReopenAndClone(t *testing.T) {
 	for _, engine := range []session.CompactionEngine{session.CompactionEngineLocal, session.CompactionEngineRemote} {
 		t.Run(string(engine), func(t *testing.T) {
 			root, workspace := t.TempDir(), t.TempDir()
@@ -72,24 +73,28 @@ func TestWorkflowCompactionSurvivesReopenAndClone(t *testing.T) {
 			}
 			shells := "shell 7 was running when captured"
 			carryoverType := session.MessageTypeCompactionPreservedUserMessage
-			record := session.WorkflowCompactionRecord{
-				Engine: engine, CompactionNumber: 1, CommittedEntryStart: 5, Summary: []session.ProviderHistoryItem{item},
-				RunningShells:                     []session.MessageRecord{{Role: session.MessageRoleDeveloper, Content: &shells}},
-				PreservedUserMessage:              &session.MessageRecord{Role: session.MessageRoleDeveloper, MessageType: &carryoverType, Content: &prompt},
+			record := session.HistoryReplacementRecord{
+				Engine: string(engine), Mode: session.CompactionModeWorkflowPostCompletion,
+				CompactionNumber: textutil.Value(1), CommittedEntryStart: textutil.Value(5),
+				CompactedOutput: &session.CompactedOutput{
+					Summary:              []session.ProviderHistoryItem{item},
+					RunningShells:        []session.MessageRecord{{Role: session.MessageRoleDeveloper, Content: &shells}},
+					PreservedUserMessage: &session.MessageRecord{Role: session.MessageRoleDeveloper, MessageType: &carryoverType, Content: &prompt},
+				},
 				LastCommittedAssistantFinalAnswer: &final,
 				LatestRollbackCandidate: &rollbacktarget.CandidateLocator{
 					UserMessageSeq: user.Record.Seq(), CandidatePageEndByte: *user.EndByteCursor,
 				},
 			}
 			invalid := record
-			invalid.CompactionNumber = 0
-			if _, receipt, err := log.AppendWorkflowCompaction(nil, invalid); err == nil || receipt.Committed {
+			invalid.CompactionNumber = textutil.Value(0)
+			if _, receipt, err := log.AppendHistoryReplacement(session.HistoryReplacementCompaction, nil, invalid); err == nil || receipt.Committed {
 				t.Fatalf("invalid pending summary committed: receipt=%+v err=%v", receipt, err)
 			}
 			if meta := store.Meta(); meta.Locked == nil || meta.OriginalThinkingEffort == nil || meta.UsageState == nil {
 				t.Fatal("rejected summary reset outgoing context")
 			}
-			appended, receipt, err := log.AppendWorkflowCompaction(nil, record)
+			appended, receipt, err := log.AppendHistoryReplacement(session.HistoryReplacementCompaction, nil, record)
 			if err != nil || !receipt.Committed {
 				t.Fatalf("append: receipt=%+v err=%v", receipt, err)
 			}
@@ -113,13 +118,13 @@ func TestWorkflowCompactionSurvivesReopenAndClone(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			assertPendingWorkflowCompaction(t, reopenedLog, want)
+			assertPendingCompactedOutput(t, reopenedLog, want)
 			child, err := session.CloneSession(reopenedLog, "copy", sessioncontract.SessionCategoryMain,
 				session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 			if err != nil {
 				t.Fatal(err)
 			}
-			assertCopiedPendingWorkflowCompaction(t, child, want.(session.WorkflowCompactionRecord))
+			assertCopiedPendingCompactedOutput(t, child, want.(session.HistoryReplacementRecord))
 			target, _, err := reopenedLog.AppendRecord(nil, session.MessageRecord{Role: session.MessageRoleUser, Content: &prompt})
 			if err != nil {
 				t.Fatal(err)
@@ -129,7 +134,7 @@ func TestWorkflowCompactionSurvivesReopenAndClone(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			assertCopiedPendingWorkflowCompaction(t, fork, want.(session.WorkflowCompactionRecord))
+			assertCopiedPendingCompactedOutput(t, fork, want.(session.HistoryReplacementRecord))
 			if !reopened.Meta().ConversationEstablished {
 				t.Fatal("pending compaction must retain established conversation")
 			}
@@ -137,7 +142,7 @@ func TestWorkflowCompactionSurvivesReopenAndClone(t *testing.T) {
 	}
 }
 
-func assertCopiedPendingWorkflowCompaction(t *testing.T, store *session.Store, want session.WorkflowCompactionRecord) {
+func assertCopiedPendingCompactedOutput(t *testing.T, store *session.Store, want session.HistoryReplacementRecord) {
 	t.Helper()
 	log, err := store.MaterializeEventLog()
 	if err != nil {
@@ -152,7 +157,7 @@ func assertCopiedPendingWorkflowCompaction(t *testing.T, store *session.Store, w
 		if err != nil {
 			t.Fatal(err)
 		}
-		return kind == session.EventKindWorkflowCompaction
+		return kind == session.EventKindHistoryReplace
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -160,17 +165,17 @@ func assertCopiedPendingWorkflowCompaction(t *testing.T, store *session.Store, w
 	candidate := *want.LatestRollbackCandidate
 	candidate.CandidatePageEndByte = candidateWindow.EndOffset
 	want.LatestRollbackCandidate = &candidate
-	assertPendingWorkflowCompaction(t, log, want)
+	assertPendingCompactedOutput(t, log, want)
 }
 
-func assertPendingWorkflowCompaction(t *testing.T, log session.MaterializedEventLog, want session.EventRecordPayload) {
+func assertPendingCompactedOutput(t *testing.T, log session.MaterializedEventLog, want session.EventRecordPayload) {
 	t.Helper()
 	window, err := log.ReadNewestSegmentBackward(func(record session.EventRecord) bool {
 		kind, err := record.Kind()
 		if err != nil {
 			t.Fatal(err)
 		}
-		return kind == session.EventKindWorkflowCompaction || kind == session.EventKindHistoryReplace
+		return kind == session.EventKindHistoryReplace
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -183,8 +188,8 @@ func assertPendingWorkflowCompaction(t *testing.T, log session.MaterializedEvent
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(got, want) {
-		if pending, ok := got.(session.WorkflowCompactionRecord); ok {
-			t.Logf("rollback candidate: got=%+v want=%+v", pending.LatestRollbackCandidate, want.(session.WorkflowCompactionRecord).LatestRollbackCandidate)
+		if pending, ok := got.(session.HistoryReplacementRecord); ok {
+			t.Logf("rollback candidate: got=%+v want=%+v", pending.LatestRollbackCandidate, want.(session.HistoryReplacementRecord).LatestRollbackCandidate)
 		}
 		t.Fatalf("pending summary changed: got=%+v want=%+v", got, want)
 	}

@@ -4,6 +4,9 @@
 
 - Kent must own Provider Connection definitions in global server configuration. Workspace configuration must not define connections.
 - A connection must own provider implementation, endpoint, authentication selection, and connection/protocol capabilities. Model, thinking, model-specific capabilities, and context/compaction policy must remain agent or role settings.
+- The currently resolved Provider Connection's provider must own local context-token estimation. Saved Session Contracts and capability overrides must not select the estimator.
+- Providers must use shared default content and image estimates unless their implementation overrides them. Default reasoning estimates must treat reasoning as plain text. First-party OpenAI API and ChatGPT connections must use provider-specific encrypted-reasoning and encrypted-compaction estimates.
+- Local context-token estimation must not make remote token-count calls or fetch remote image content.
 - Each connection must have one user-chosen configuration ID. IDs must begin with a lowercase ASCII letter and contain only lowercase ASCII letters, digits, hyphens, and underscores. Kent must reject duplicate IDs.
 - Creation must suggest an editable unused numbered provider-based ID. Connections must not require a separate display name or hidden identity.
 - Top-level `connection` must select the default for new unroled interactive Sessions. Roles must inherit that selection unless overridden. Main Workspace private configuration may assign developer-specific connection IDs to shared roles.
@@ -69,7 +72,8 @@
 
 - Kent must automatically convert provider-access settings in global configuration, including globally declared roles and Supervisor, into connection definitions and references. Identical access settings must share a connection.
 - Conversion must preserve model, role, tool, endpoint, capability, and unrelated user-authored settings. Workspace/shared/private provider-access settings must require manual edits with actionable diagnostics.
-- Automatic conversion and connection edits must preserve unrelated setting values. They may reformat the file and discard comments.
+- Automatic conversion and connection edits must leave untouched configuration source exactly unchanged, including comments, spacing, ordering, quoting, and line endings. Kent may change edited settings and the syntax required to insert or remove settings. Kent may format inserted content.
+- When Kent removes a setting, comments attached to that setting may disappear. When Kent removes a table, comments within that table may disappear. When a deletion reaches the end of the file, empty separator lines immediately before the deleted content may disappear. Kent must leave all other comments unchanged, including comments surrounding a changed setting.
 - Converted ChatGPT connections must require re-authentication. Obsolete saved API keys need not be preserved.
 - Kent must report changed and failed files, write individual files atomically, and stop affected work on ambiguous mappings or write failures. Cross-file rollback is not required.
 - Kent must remove obsolete provider-selection settings and readers after conversion. It must not retain permanent old/new authorities or fallback readers.

@@ -9,6 +9,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -156,13 +157,14 @@ func sessionToolCompletionRecordFromRuntime(
 		return session.ToolCompletionRecord{}, err
 	}
 	record := session.ToolCompletionRecord{
-		CallID:        result.CallID,
-		Name:          string(result.Name),
-		OutputKind:    outputKind,
-		IsError:       result.IsError,
-		Output:        append(json.RawMessage(nil), result.Output...),
-		Summary:       textutil.Pointer(result.Summary),
-		CondensedText: textutil.Pointer(result.CondensedText),
+		CallID:              result.CallID,
+		Name:                string(result.Name),
+		OutputKind:          outputKind,
+		IsError:             result.IsError,
+		Output:              append(json.RawMessage(nil), result.Output...),
+		Summary:             textutil.Pointer(result.Summary),
+		CondensedText:       textutil.Pointer(result.CondensedText),
+		AnsweredBySessionID: cloneOptionalRuntimeSessionID(result.AnsweredBySessionID),
 	}
 	if result.QuestionAnswer != nil {
 		record.QuestionAnswer = &session.QuestionAnswerRecord{
@@ -250,15 +252,16 @@ func storedToolCompletionFromSessionRecord(
 		providerItems = append(providerItems, providerItem)
 	}
 	return storedToolCompletion{
-		CallID:         record.CallID,
-		Name:           record.Name,
-		IsError:        record.IsError,
-		Output:         append(json.RawMessage(nil), record.Output...),
-		Summary:        textutil.Pointer(record.Summary),
-		CondensedText:  textutil.Pointer(record.CondensedText),
-		Presentation:   presentation,
-		ProviderItems:  providerItems,
-		QuestionAnswer: questionAnswerFromSession(record.QuestionAnswer),
+		CallID:              record.CallID,
+		Name:                record.Name,
+		IsError:             record.IsError,
+		Output:              append(json.RawMessage(nil), record.Output...),
+		Summary:             textutil.Pointer(record.Summary),
+		CondensedText:       textutil.Pointer(record.CondensedText),
+		Presentation:        presentation,
+		ProviderItems:       providerItems,
+		QuestionAnswer:      questionAnswerFromSession(record.QuestionAnswer),
+		AnsweredBySessionID: cloneOptionalRuntimeSessionID(record.AnsweredBySessionID),
 	}, nil
 }
 
@@ -266,16 +269,21 @@ func sessionToolCompletionRecordFromStored(
 	completion storedToolCompletion,
 ) (session.ToolCompletionRecord, error) {
 	result := tools.Result{
-		CallID:         completion.CallID,
-		Name:           toolspec.ID(completion.Name),
-		IsError:        completion.IsError,
-		Output:         append(json.RawMessage(nil), completion.Output...),
-		Summary:        completion.Summary,
-		CondensedText:  completion.CondensedText,
-		Presentation:   completion.Presentation,
-		QuestionAnswer: cloneAskQuestionAnswer(completion.QuestionAnswer),
+		CallID:              completion.CallID,
+		Name:                toolspec.ID(completion.Name),
+		IsError:             completion.IsError,
+		Output:              append(json.RawMessage(nil), completion.Output...),
+		Summary:             completion.Summary,
+		CondensedText:       completion.CondensedText,
+		Presentation:        completion.Presentation,
+		QuestionAnswer:      cloneAskQuestionAnswer(completion.QuestionAnswer),
+		AnsweredBySessionID: cloneOptionalRuntimeSessionID(completion.AnsweredBySessionID),
 	}
 	return sessionToolCompletionRecordFromRuntime(result, completion.ProviderItems)
+}
+
+func cloneOptionalRuntimeSessionID(id *runtimeids.SessionID) *runtimeids.SessionID {
+	return textutil.Pointer(id)
 }
 
 func questionAnswerFromSession(answer *session.QuestionAnswerRecord) *tools.AskQuestionAnswer {
@@ -509,14 +517,23 @@ func sessionHistoryReplacementRecordFromRuntime(
 		LatestRollbackCandidate:           textutil.Pointer(payload.LatestRollbackCandidate),
 	}
 	record.CompactionNumber = textutil.Pointer(payload.CompactionNumber)
-	if len(payload.Items) > 0 {
-		record.Items = make([]session.ProviderHistoryItem, 0, len(payload.Items))
-		for index, item := range payload.Items {
+	if payload.Output != nil {
+		output, err := compactedOutputRecord(*payload.Output)
+		if err != nil {
+			return session.HistoryReplacementRecord{}, err
+		}
+		record.CompactedOutput = &output
+	}
+	for _, segment := range []struct {
+		source []llm.ResponseItem
+		target *[]session.ProviderHistoryItem
+	}{{payload.Items, &record.Items}, {payload.Continuation, &record.Continuation}} {
+		for index, item := range segment.source {
 			historyItem, err := sessionProviderHistoryItemFromLLM(index, item)
 			if err != nil {
 				return session.HistoryReplacementRecord{}, err
 			}
-			record.Items = append(record.Items, historyItem)
+			*segment.target = append(*segment.target, historyItem)
 		}
 	}
 	normalized, err := session.NewEventRecord(1, nil, record)
@@ -546,10 +563,19 @@ func historyReplacementPayloadFromSessionRecord(
 		LatestRollbackCandidate:           textutil.Pointer(record.LatestRollbackCandidate),
 	}
 	payload.CompactionNumber = textutil.Pointer(record.CompactionNumber)
-	if len(record.Items) > 0 {
-		payload.Items = make([]llm.ResponseItem, 0, len(record.Items))
-		for _, item := range record.Items {
-			payload.Items = append(payload.Items, llmResponseItemFromSessionHistory(item))
+	if record.CompactedOutput != nil {
+		output, err := compactionOutputFromRecord(*record.CompactedOutput)
+		if err != nil {
+			return historyReplacementPayload{}, err
+		}
+		payload.Output = &output
+	}
+	for _, segment := range []struct {
+		source []session.ProviderHistoryItem
+		target *[]llm.ResponseItem
+	}{{record.Items, &payload.Items}, {record.Continuation, &payload.Continuation}} {
+		for _, item := range segment.source {
+			*segment.target = append(*segment.target, llmResponseItemFromSessionHistory(item))
 		}
 	}
 	return payload, nil

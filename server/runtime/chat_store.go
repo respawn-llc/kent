@@ -35,6 +35,7 @@ type ChatEntry struct {
 	ToolResultSummary     string
 	ToolCallID            string
 	QuestionAnswer        *tools.AskQuestionAnswer
+	AnsweredBySessionID   *runtimeids.SessionID
 	WebSearch             *transcript.WebSearchDetail
 	NoticeID              string
 	BackgroundActivityID  string
@@ -80,15 +81,16 @@ type TranscriptWindowSnapshot struct {
 }
 
 type storedToolCompletion struct {
-	CallID         string                   `json:"call_id"`
-	Name           string                   `json:"name"`
-	IsError        bool                     `json:"is_error"`
-	Output         json.RawMessage          `json:"output"`
-	Summary        *string                  `json:"summary,omitempty"`
-	CondensedText  *string                  `json:"condensed_text,omitempty"`
-	Presentation   *transcript.ToolCallMeta `json:"presentation,omitempty"`
-	ProviderItems  []llm.ResponseItem       `json:"provider_items,omitempty"`
-	QuestionAnswer *tools.AskQuestionAnswer `json:"question_answer,omitempty"`
+	CallID              string                   `json:"call_id"`
+	Name                string                   `json:"name"`
+	IsError             bool                     `json:"is_error"`
+	Output              json.RawMessage          `json:"output"`
+	Summary             *string                  `json:"summary,omitempty"`
+	CondensedText       *string                  `json:"condensed_text,omitempty"`
+	Presentation        *transcript.ToolCallMeta `json:"presentation,omitempty"`
+	ProviderItems       []llm.ResponseItem       `json:"provider_items,omitempty"`
+	QuestionAnswer      *tools.AskQuestionAnswer `json:"question_answer,omitempty"`
+	AnsweredBySessionID *runtimeids.SessionID    `json:"answered_by_session_id,omitempty"`
 }
 
 type chatStore struct {
@@ -115,6 +117,7 @@ type chatStore struct {
 
 	providerTokenEstimate      int
 	providerTokenEstimateDirty bool
+	tokenEstimator             llm.TokenEstimator
 }
 
 type chatMessageRecord struct {
@@ -167,6 +170,7 @@ func newChatStoreWithCWD(cwd string) *chatStore {
 		synthesizedToolResults:      make(map[string]struct{}, 16),
 		cwd:                         strings.TrimSpace(cwd),
 		providerTokenEstimateDirty:  true,
+		tokenEstimator:              llm.DefaultTokenEstimator{},
 	}
 }
 
@@ -312,13 +316,20 @@ func (s *chatStore) estimatedProviderTokens() int {
 		return s.providerTokenEstimate
 	}
 	items, _ := s.snapshotProviderItemsLocked()
-	total := estimateItemsTokens(items)
+	total := llm.EstimateItemsTokens(s.tokenEstimator, items)
 	if total < 0 {
 		total = 0
 	}
 	s.providerTokenEstimate = total
 	s.providerTokenEstimateDirty = false
 	return total
+}
+
+func (s *chatStore) bindTokenEstimator(estimator llm.TokenEstimator) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tokenEstimator = estimator
+	s.providerTokenEstimateDirty = true
 }
 
 func (s *chatStore) snapshotItems() []llm.ResponseItem {
@@ -377,14 +388,15 @@ func (s *chatStore) restoreToolCompletionRecord(record session.ToolCompletionRec
 		return fmt.Errorf("restore session tool completion record: %w", err)
 	}
 	s.recordToolCompletionWithProviderItems(tools.Result{
-		CallID:         completion.CallID,
-		Name:           toolspec.ID(completion.Name),
-		IsError:        completion.IsError,
-		Output:         completion.Output,
-		Summary:        completion.Summary,
-		CondensedText:  completion.CondensedText,
-		Presentation:   completion.Presentation,
-		QuestionAnswer: completion.QuestionAnswer,
+		CallID:              completion.CallID,
+		Name:                toolspec.ID(completion.Name),
+		IsError:             completion.IsError,
+		Output:              completion.Output,
+		Summary:             completion.Summary,
+		CondensedText:       completion.CondensedText,
+		Presentation:        completion.Presentation,
+		QuestionAnswer:      completion.QuestionAnswer,
+		AnsweredBySessionID: completion.AnsweredBySessionID,
 	}, completion.ProviderItems, provenances...)
 	return nil
 }

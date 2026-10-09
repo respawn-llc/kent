@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 import {
   create,
   decode,
@@ -18,49 +16,18 @@ import {
   decodeDescriptorResponse,
   encodeDescriptorCall,
 } from "./descriptorRpc";
-import {
-  ContractError,
-  ProtocolMismatchError,
-  RpcError,
-  ServerRootMismatchError,
-  TransportError,
-} from "./errors";
-import { jsonValueSchema, type JsonValue } from "./json";
+import { ContractError, ProtocolMismatchError, ServerRootMismatchError, TransportError } from "./errors";
 import { protobufRpcError } from "./protobufRpc";
 import { requireProjectAttachment } from "./chatAttachment";
 import { handleDescriptorSubscriptionFailure, InvalidTranscriptEventError } from "./subscriptionErrors";
 import type {
   DescriptorSubscriptionInput,
   ProjectAttachment,
-  RpcEventHandler,
   SessionAttachment,
   SessionAttachmentTarget,
 } from "./transport";
 
 export const protocolVersion = __KENT_PROTOCOL_VERSION__;
-export const jsonRpcVersion = "2.0";
-
-export const responseSchema = z.object({
-  jsonrpc: z.literal(jsonRpcVersion),
-  id: z.string().optional(),
-  result: z.unknown().optional(),
-  error: z
-    .object({
-      code: z.number(),
-      message: z.string(),
-      data: jsonValueSchema.optional().catch(undefined),
-    })
-    .optional(),
-});
-
-const notificationSchema = z
-  .object({
-    jsonrpc: z.literal(jsonRpcVersion),
-    method: z.string().refine((value) => value.trim().length > 0),
-    params: z.unknown(),
-  })
-  .strict();
-const textFrameSchema = z.string();
 type SocketResponse<Result> = Readonly<{ kind: "unmatched" }> | Readonly<{ kind: "matched"; result: Result }>;
 type SocketRequestOptions = Readonly<{
   timeoutMilliseconds: number | null;
@@ -291,14 +258,6 @@ function requireAssociatedDescriptor(
   }
 }
 
-export function parseFrame(data: string): unknown {
-  try {
-    return JSON.parse(data);
-  } catch {
-    return {};
-  }
-}
-
 export async function setupSocket(
   socket: WebSocket,
   options: Readonly<{
@@ -416,37 +375,9 @@ export function requireSessionAttachment(
   return attachment;
 }
 
-export async function sendSocketRequest(
-  socket: WebSocket,
-  method: string,
-  params: JsonValue,
-  options: SocketRequestOptions,
-): Promise<unknown> {
-  const id = `${method}-${Date.now().toString()}`;
-  return sendSocketFrame(
-    socket,
-    { label: method, frame: JSON.stringify({ jsonrpc: jsonRpcVersion, id, method, params }) },
-    (event): SocketResponse<unknown> => {
-      const textFrame = textFrameSchema.safeParse(event.data);
-      if (!textFrame.success) {
-        return { kind: "unmatched" };
-      }
-      const response = responseSchema.safeParse(parseFrame(textFrame.data));
-      if (!response.success || response.data.id !== id) {
-        return { kind: "unmatched" };
-      }
-      if (response.data.error !== undefined) {
-        throw socketRequestError(method, response.data.error);
-      }
-      return { kind: "matched", result: response.data.result };
-    },
-    options,
-  );
-}
-
 async function sendSocketFrame<Result>(
   socket: WebSocket,
-  request: Readonly<{ label: string; frame: string | ArrayBuffer }>,
+  request: Readonly<{ label: string; frame: ArrayBuffer }>,
   decodeResponse: (event: MessageEvent<unknown>) => SocketResponse<Result>,
   options: SocketRequestOptions,
 ): Promise<Result> {
@@ -509,13 +440,6 @@ async function sendSocketFrame<Result>(
   });
 }
 
-export function socketRequestError(
-  method: string,
-  error: Readonly<{ code: number; message: string; data?: JsonValue | undefined }>,
-): Error {
-  return new RpcError({ code: error.code, message: error.message, method, data: error.data });
-}
-
 function requireDescriptorSuccess(
   method:
     | typeof ConnectionService.method.handshake
@@ -555,77 +479,4 @@ function assertReportedRoot(reported: string | undefined, expectedRootId: string
       "The Kent server on this endpoint serves a different persistence root than the one this app is configured for. Start a server for the selected root (kent serve --persistence-root <root>) or check KENT_PERSISTENCE_ROOT.",
     );
   }
-}
-
-export async function waitForSubscriptionEnd(socket: WebSocket, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted || socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING) {
-      resolve();
-      return;
-    }
-    const cleanup = () => {
-      socket.removeEventListener("close", close);
-      socket.removeEventListener("error", error);
-      signal.removeEventListener("abort", abort);
-    };
-    const close = () => {
-      cleanup();
-      if (signal.aborted) {
-        resolve();
-        return;
-      }
-      reject(new TransportError("Subscription socket closed."));
-    };
-    const error = () => {
-      cleanup();
-      reject(new TransportError("Subscription socket failed."));
-    };
-    const abort = () => {
-      cleanup();
-      resolve();
-    };
-    socket.addEventListener("close", close, { once: true });
-    socket.addEventListener("error", error, { once: true });
-    signal.addEventListener("abort", abort, { once: true });
-  });
-}
-
-export type SubscriptionMessageResult = Readonly<
-  { kind: "active" } | { kind: "complete"; code: number; message: string }
->;
-
-export function handleSubscriptionMessage(
-  event: MessageEvent<unknown>,
-  handler: RpcEventHandler,
-  completeMethod: string | null,
-): SubscriptionMessageResult {
-  const textFrame = textFrameSchema.safeParse(event.data);
-  if (!textFrame.success) {
-    throw new ContractError("Subscription received a non-text frame.");
-  }
-  const parsed = parseFrame(textFrame.data);
-  const notification = notificationSchema.safeParse(parsed);
-  if (!notification.success) {
-    throw new ContractError("Subscription notification envelope is invalid.");
-  }
-  if (completeMethod !== null && notification.data.method === completeMethod) {
-    const completeSchema = z
-      .object({
-        code: z.number().int().default(0),
-        message: z.string().default(""),
-      })
-      .strict();
-    const complete = completeSchema.safeParse(notification.data.params);
-    if (!complete.success) {
-      throw new ContractError("Subscription completion notification is invalid.");
-    }
-    handler.onComplete(complete.data.code, complete.data.message);
-    return {
-      kind: "complete",
-      code: complete.data.code,
-      message: complete.data.message,
-    };
-  }
-  handler.onEvent(notification.data.method, notification.data.params);
-  return { kind: "active" };
 }

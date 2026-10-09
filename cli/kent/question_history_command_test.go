@@ -86,14 +86,20 @@ func TestQuestionHistoryHumanStreamingReportsOutputFailure(t *testing.T) {
 }
 
 func TestQuestionHistoryJSONStreamsExplicitNullsAndCompletion(t *testing.T) {
+	answerer := uuid.NewString()
 	sub := &questionHistoryScriptSubscription{
 		events: []*sessionpb.QuestionHistoryEvent{
 			{Event: &sessionpb.QuestionHistoryEvent_Started{Started: &sessionpb.QuestionHistoryStarted{LargeHistory: true}}},
 			{Event: &sessionpb.QuestionHistoryEvent_Question{Question: &sessionpb.QuestionHistoryQuestion{
-				Question: "q",
-				Answer:   "a",
+				Question:            "q",
+				Answer:              "a",
+				AnsweredBySessionId: &answerer,
 			}},
 			},
+			{Event: &sessionpb.QuestionHistoryEvent_Question{Question: &sessionpb.QuestionHistoryQuestion{
+				Question: "human question",
+				Answer:   "human answer",
+			}}},
 			{Event: &sessionpb.QuestionHistoryEvent_Completed{Completed: &sessionpb.QuestionHistoryCompleted{HistoryOmitted: false}}},
 		},
 	}
@@ -106,6 +112,7 @@ func TestQuestionHistoryJSONStreamsExplicitNullsAndCompletion(t *testing.T) {
 		Questions []struct {
 			SelectedOptionNumber *int    `json:"selected_option_number"`
 			Commentary           *string `json:"commentary"`
+			AnsweredBySessionID  *string `json:"answered_by_session_id"`
 			At                   *string `json:"at"`
 		} `json:"questions"`
 		HistoryOmitted bool `json:"history_omitted"`
@@ -113,10 +120,13 @@ func TestQuestionHistoryJSONStreamsExplicitNullsAndCompletion(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &decoded); err != nil {
 		t.Fatalf("decode JSON output: %v", err)
 	}
-	if len(decoded.Questions) != 1 ||
+	if len(decoded.Questions) != 2 ||
 		decoded.Questions[0].SelectedOptionNumber != nil ||
 		decoded.Questions[0].Commentary != nil ||
+		decoded.Questions[0].AnsweredBySessionID == nil ||
+		*decoded.Questions[0].AnsweredBySessionID != answerer ||
 		decoded.Questions[0].At != nil ||
+		decoded.Questions[1].AnsweredBySessionID != nil ||
 		decoded.HistoryOmitted {
 		t.Fatalf("decoded JSON output = %#v", decoded)
 	}

@@ -186,7 +186,7 @@ it.each(["base_ref", "form"] as const)("classifies Create rejection owned by %s"
   const { services, model, push } = createFormModel();
   vi.spyOn(services.api, "resolveWorktreeCreateTarget").mockResolvedValue(resolvedCreateTarget);
   vi.spyOn(services.api, "createWorktree").mockRejectedValue(
-    new WorktreeError(new RpcError({ code: 1, method: "create", message: "rejected" }), {
+    new WorktreeError(new RpcError({ code: "internal_failure", method: "create", message: "rejected" }), {
       kind: "create",
       owner,
       diagnostic: "rejected",
@@ -538,12 +538,15 @@ it.each(["operational", "precondition"] as const)(
     const remove = vi.spyOn(services.api, "deleteWorktree").mockRejectedValue(
       kind === "operational"
         ? new Error("offline")
-        : new WorktreeError(new RpcError({ code: 1, method: "delete", message: "changed" }), {
-            kind: "delete_precondition",
-            details: {
-              $typeName: "kent.api.worktree.DeletePreconditionDetails",
+        : new WorktreeError(
+            new RpcError({ code: "internal_failure", method: "delete", message: "changed" }),
+            {
+              kind: "delete_precondition",
+              details: {
+                $typeName: "kent.api.worktree.DeletePreconditionDetails",
+              },
             },
-          }),
+          ),
     );
     const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
     render(

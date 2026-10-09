@@ -202,7 +202,7 @@ export function useTaskInitiatingActionController(options: Options) {
             ...(error instanceof RpcError
               ? {
                   method: error.method,
-                  code: String(error.code),
+                  code: error.code,
                   ...(error.data === undefined ? {} : { details: errorMessage(error.data) }),
                 }
               : {}),

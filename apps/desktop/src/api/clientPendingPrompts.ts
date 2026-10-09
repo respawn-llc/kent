@@ -4,10 +4,10 @@ import { listPendingAsks } from "./clientTaskDetail";
 import { approvalPrompt, orderPendingPrompts } from "./promptPresentation";
 import { requireUnarySuccess } from "./protobufRpc";
 import type { PendingPrompt } from "./promptModels";
-import type { DescriptorRpcTransport, SessionAttachmentTarget } from "./transport";
+import type { RpcTransport, SessionAttachmentTarget } from "./transport";
 
 export async function listPendingPrompts(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   target: SessionAttachmentTarget,
 ): Promise<readonly PendingPrompt[]> {
   const method = ApprovalService.method.listPending;
