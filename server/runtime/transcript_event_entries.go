@@ -192,15 +192,16 @@ func toolResultChatEntry(result tools.Result) ChatEntry {
 	condensedText, _ := textutil.OptionalTrimmed(result.CondensedText)
 	summary, _ := textutil.OptionalTrimmed(result.Summary)
 	return ChatEntry{
-		Visibility:        transcript.EntryVisibilityOngoingCollapsed,
-		Role:              role,
-		Text:              content.text,
-		WebSearch:         content.webSearch,
-		CondensedText:     condensedText,
-		ToolCallID:        strings.TrimSpace(result.CallID),
-		ToolResultSummary: summary,
-		ToolCall:          presentation,
-		QuestionAnswer:    cloneAskQuestionAnswer(result.QuestionAnswer),
+		Visibility:          transcript.EntryVisibilityOngoingCollapsed,
+		Role:                role,
+		Text:                content.text,
+		WebSearch:           content.webSearch,
+		CondensedText:       condensedText,
+		ToolCallID:          strings.TrimSpace(result.CallID),
+		ToolResultSummary:   summary,
+		ToolCall:            presentation,
+		QuestionAnswer:      cloneAskQuestionAnswer(result.QuestionAnswer),
+		AnsweredBySessionID: cloneOptionalRuntimeSessionID(result.AnsweredBySessionID),
 	}
 }
 

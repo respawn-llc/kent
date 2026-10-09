@@ -3,6 +3,7 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { ChatTranscriptCommittedRow } from "@/api";
+import { CopyableValue } from "@/shared/copyable-value";
 import { RadioGroup, RadioGroupItem, StaticMarkdown } from "@/ui";
 
 import { TranscriptCopyAction } from "./TranscriptCopyAction";
@@ -29,6 +30,25 @@ export function TranscriptAskQuestionRow({ row }: Readonly<{ row: ChatTranscript
           <p className="chat-transcript-row-body">{copyText}</p>
         ) : (
           <AskQuestionBody presentation={presentation} tool={tool} />
+        )}
+        {tool.AnsweredBySessionID == null ? null : (
+          <CopyableValue
+            accessibleLabel={t("chatTranscript.copyAnswererSessionID")}
+            className="mt-[var(--space-1)] inline-flex w-fit items-center gap-[var(--space-1)]"
+            clipboardValue={tool.AnsweredBySessionID}
+            copySucceeded={{
+              id: "chat-transcript-answerer-copy-succeeded",
+              title: t("chatTranscript.answererSessionIDCopied"),
+            }}
+            copyFailed={{
+              id: "chat-transcript-answerer-copy-failed",
+              title: t("chatTranscript.answererSessionIDCopyFailed"),
+            }}
+            size="xs"
+          >
+            <span>{t("chatTranscript.answeredByAgent")}</span>
+            <span className="font-mono">{tool.AnsweredBySessionID}</span>
+          </CopyableValue>
         )}
       </div>
       <TranscriptCopyAction

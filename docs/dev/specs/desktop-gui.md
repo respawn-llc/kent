@@ -480,6 +480,8 @@
 
 ## Inbox, Questions, Approvals, And Notifications
 
+- An agent-answered Question in the transcript must show a small faint `Answered by agent <session ID>` line below the commentary block. Clicking the line must copy only the Session ID and use the same copy feedback as Task Detail copyable values. Human answers and older answers without recorded agent identity must omit this line.
+
 - If the attention-notification observation fails, Desktop must show an ordinary temporary error notification with Retry. Retry must restart only that observation without disabling actions or refreshing unrelated screens.
 - Inbox lists the global infinite-scrolling attention feed. Task Detail owns Question and Approval actions through its bounded Task attention view.
 - Inbox-opened Task Detail can move through the live Inbox order with Previous and Next. After resolution removes the open Task, Next advances to the replacement item. These controls are unavailable outside Inbox.

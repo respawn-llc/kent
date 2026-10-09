@@ -150,6 +150,14 @@ message QuestionHistoryQuestion {
     }
   ];
   optional google.protobuf.Timestamp committed_at = 5;
+  optional string answered_by_session_id = 6 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).cel = {
+      id: "kent.session.question_history_answerer_nonblank"
+      message: "answered-by Session ID must be non-blank"
+      expression: "this.trim() != ''"
+    }
+  ];
 }
 
 message QuestionHistoryCompleted {

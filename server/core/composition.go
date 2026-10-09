@@ -174,7 +174,10 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		},
 	})
 	projectService.WithRuntimeAuthority(runtimeAuthority)
-	promptControlService := promptcontrol.NewPromptControlService(authorityPromptResponder{authority: runtimeAuthority})
+	promptControlService := promptcontrol.NewPromptControlService(
+		authorityPromptResponder{authority: runtimeAuthority},
+		metadataStore,
+	)
 	runtimeRegistry.WithExecutionTargetResolver(metadataStore.ResolveOptionalSessionExecutionTarget)
 	runtimeRegistry.WithBackgroundProcessSnapshots(background.List)
 	runtimeControlService := runtimecontrol.NewService(runtimeAuthority).

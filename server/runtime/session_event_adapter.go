@@ -9,6 +9,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -156,13 +157,14 @@ func sessionToolCompletionRecordFromRuntime(
 		return session.ToolCompletionRecord{}, err
 	}
 	record := session.ToolCompletionRecord{
-		CallID:        result.CallID,
-		Name:          string(result.Name),
-		OutputKind:    outputKind,
-		IsError:       result.IsError,
-		Output:        append(json.RawMessage(nil), result.Output...),
-		Summary:       textutil.Pointer(result.Summary),
-		CondensedText: textutil.Pointer(result.CondensedText),
+		CallID:              result.CallID,
+		Name:                string(result.Name),
+		OutputKind:          outputKind,
+		IsError:             result.IsError,
+		Output:              append(json.RawMessage(nil), result.Output...),
+		Summary:             textutil.Pointer(result.Summary),
+		CondensedText:       textutil.Pointer(result.CondensedText),
+		AnsweredBySessionID: cloneOptionalRuntimeSessionID(result.AnsweredBySessionID),
 	}
 	if result.QuestionAnswer != nil {
 		record.QuestionAnswer = &session.QuestionAnswerRecord{
@@ -250,15 +252,16 @@ func storedToolCompletionFromSessionRecord(
 		providerItems = append(providerItems, providerItem)
 	}
 	return storedToolCompletion{
-		CallID:         record.CallID,
-		Name:           record.Name,
-		IsError:        record.IsError,
-		Output:         append(json.RawMessage(nil), record.Output...),
-		Summary:        textutil.Pointer(record.Summary),
-		CondensedText:  textutil.Pointer(record.CondensedText),
-		Presentation:   presentation,
-		ProviderItems:  providerItems,
-		QuestionAnswer: questionAnswerFromSession(record.QuestionAnswer),
+		CallID:              record.CallID,
+		Name:                record.Name,
+		IsError:             record.IsError,
+		Output:              append(json.RawMessage(nil), record.Output...),
+		Summary:             textutil.Pointer(record.Summary),
+		CondensedText:       textutil.Pointer(record.CondensedText),
+		Presentation:        presentation,
+		ProviderItems:       providerItems,
+		QuestionAnswer:      questionAnswerFromSession(record.QuestionAnswer),
+		AnsweredBySessionID: cloneOptionalRuntimeSessionID(record.AnsweredBySessionID),
 	}, nil
 }
 
@@ -266,16 +269,21 @@ func sessionToolCompletionRecordFromStored(
 	completion storedToolCompletion,
 ) (session.ToolCompletionRecord, error) {
 	result := tools.Result{
-		CallID:         completion.CallID,
-		Name:           toolspec.ID(completion.Name),
-		IsError:        completion.IsError,
-		Output:         append(json.RawMessage(nil), completion.Output...),
-		Summary:        completion.Summary,
-		CondensedText:  completion.CondensedText,
-		Presentation:   completion.Presentation,
-		QuestionAnswer: cloneAskQuestionAnswer(completion.QuestionAnswer),
+		CallID:              completion.CallID,
+		Name:                toolspec.ID(completion.Name),
+		IsError:             completion.IsError,
+		Output:              append(json.RawMessage(nil), completion.Output...),
+		Summary:             completion.Summary,
+		CondensedText:       completion.CondensedText,
+		Presentation:        completion.Presentation,
+		QuestionAnswer:      cloneAskQuestionAnswer(completion.QuestionAnswer),
+		AnsweredBySessionID: cloneOptionalRuntimeSessionID(completion.AnsweredBySessionID),
 	}
 	return sessionToolCompletionRecordFromRuntime(result, completion.ProviderItems)
+}
+
+func cloneOptionalRuntimeSessionID(id *runtimeids.SessionID) *runtimeids.SessionID {
+	return textutil.Pointer(id)
 }
 
 func questionAnswerFromSession(answer *session.QuestionAnswerRecord) *tools.AskQuestionAnswer {
