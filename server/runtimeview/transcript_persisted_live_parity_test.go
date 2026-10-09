@@ -418,10 +418,10 @@ func TestPersistedHistoryReplacementMatchesActualEngineLiveDelivery(t *testing.T
 				steps = append(steps, scriptedllm.FinalAnswer("second compacted summary"))
 			}
 			checkpoint := llm.CompactionResponse{
-				Checkpoint: llm.ResponseItem{
+				OutputItems: []llm.ResponseItem{llm.ResponseItem{
 					Type: llm.ResponseItemTypeCompaction, ID: textutil.Value("checkpoint"),
 					EncryptedContent: textutil.Value("encrypted"),
-				},
+				}},
 				Usage: llm.Usage{InputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}},
 			}
 			client := scriptedllm.NewClient(scriptedllm.Script{

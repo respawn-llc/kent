@@ -31,11 +31,11 @@ func TestManualRemoteCompactionRebuildsCanonicalPrefixOrder(t *testing.T) {
 	const checkpointID = "remote-compaction-checkpoint"
 	store := mustCreateNamedTestSession(t, "ws", workspace)
 	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
-		Checkpoint: llm.ResponseItem{
+		OutputItems: []llm.ResponseItem{llm.ResponseItem{
 			Type:             llm.ResponseItemTypeCompaction,
 			ID:               textutil.Value(checkpointID),
 			EncryptedContent: textutil.Value("encrypted"),
-		},
+		}},
 		Usage: llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}
 	engine := mustNewTestEngine(

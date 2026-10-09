@@ -455,7 +455,7 @@ func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request R
 	}
 	checkpoint = CloneResponseItems([]ResponseItem{checkpoint})[0]
 	return ResponsesCompactionResponse{
-		Checkpoint:       checkpoint,
+		OutputItems:      []ResponseItem{checkpoint},
 		Usage:            response.Usage,
 		ProviderEvidence: response.ProviderEvidence,
 	}, nil

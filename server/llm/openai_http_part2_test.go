@@ -456,6 +456,7 @@ func TestCompactRequestUsesSelectedProtocol(t *testing.T) {
 				}
 				response := `{"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15},"output":[{"type":"compaction","id":"cmp_1","encrypted_content":"enc_1","opaque_extension":{"keep":true}}]}`
 				if standard {
+					response = `{"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15},"output":[{"type":"message","role":"user","content":[{"type":"input_text","text":"retained"}],"opaque_extension":{"keep":true}},{"type":"compaction","id":"cmp_1","encrypted_content":"enc_1","opaque_extension":{"keep":true}},{"type":"compaction","id":"cmp_2","encrypted_content":"enc_2"}]}`
 					w.Header().Set("Content-Type", "application/json")
 					_, _ = io.WriteString(w, response)
 				} else {
@@ -492,14 +493,25 @@ func TestCompactRequestUsesSelectedProtocol(t *testing.T) {
 			if err != nil {
 				t.Fatalf("compact request failed: %v", err)
 			}
-			if resp.Checkpoint.Type != ResponseItemTypeCompaction {
-				t.Fatalf("expected one compact output item, got %+v", resp.Checkpoint)
+			checkpointIndex := 0
+			if standard {
+				checkpointIndex = 1
+				if len(resp.OutputItems) != 3 || resp.OutputItems[0].Type != ResponseItemTypeMessage ||
+					optionalStringValue(resp.OutputItems[2].EncryptedContent) != "enc_2" ||
+					resp.ContextPlacement != CompactionContextAfterOutput {
+					t.Fatalf("provider bundle changed: %+v", resp)
+				}
+			} else if len(resp.OutputItems) != 1 {
+				t.Fatalf("OpenAI checkpoint count = %d", len(resp.OutputItems))
+			}
+			if resp.OutputItems[checkpointIndex].Type != ResponseItemTypeCompaction {
+				t.Fatalf("expected compact output item, got %+v", resp.OutputItems)
 			}
 			var raw struct {
 				Extension *struct{ Keep bool } `json:"opaque_extension"`
 			}
-			if err := json.Unmarshal(resp.Checkpoint.Raw, &raw); err != nil || raw.Extension == nil || !raw.Extension.Keep {
-				t.Fatalf("lost opaque checkpoint: %s, %v", resp.Checkpoint.Raw, err)
+			if err := json.Unmarshal(resp.OutputItems[checkpointIndex].Raw, &raw); err != nil || raw.Extension == nil || !raw.Extension.Keep {
+				t.Fatalf("lost opaque checkpoint: %s, %v", resp.OutputItems[checkpointIndex].Raw, err)
 			}
 			if resp.ProviderEvidence.Usage == nil {
 				t.Fatal("compaction omitted provider usage evidence")
@@ -580,7 +592,7 @@ func TestOAuthCompactRequestTargetsStreamingResponsesWithFinalTrigger(t *testing
 	if err != nil {
 		t.Fatalf("oauth compact request failed: %v", err)
 	}
-	checkpoint := resp.Checkpoint
+	checkpoint := resp.OutputItems[0]
 	if checkpoint.Type != ResponseItemTypeCompaction || optionalStringValue(checkpoint.ID) != "cmp_1" || optionalStringValue(checkpoint.EncryptedContent) != "enc_1" || !json.Valid(checkpoint.Raw) {
 		t.Fatalf("checkpoint = %+v, want canonical encrypted compaction with raw JSON", checkpoint)
 	}
@@ -681,7 +693,13 @@ func TestCompactRequestPreservesTypedCheckpointContractReasons(t *testing.T) {
 					transport.Client = newRewritingHTTPClient(t, server)
 				}
 
-				_, err := transport.Compact(context.Background(), testOAuthCompactionRequest(t, "gpt-5.6-sol"))
+				result, err := transport.Compact(context.Background(), testOAuthCompactionRequest(t, "gpt-5.6-sol"))
+				if protocol == config.ConnectionGrokCLIProxy {
+					if err != nil || len(result.OutputItems) != test.outputCount {
+						t.Fatalf("Grok output must not use OpenAI checkpoint validation: %+v, %v", result, err)
+					}
+					return
+				}
 				if err == nil {
 					t.Fatal("compact request unexpectedly succeeded")
 				}
@@ -718,8 +736,8 @@ func TestOAuthCompactRequestUsesStreamedCompactionWhenCompletedOutputIsEmpty(t *
 	if err != nil {
 		t.Fatalf("compact request failed: %v", err)
 	}
-	if optionalStringValue(resp.Checkpoint.ID) != "cmp_streamed" || optionalStringValue(resp.Checkpoint.EncryptedContent) != "enc_streamed" {
-		t.Fatalf("checkpoint = %+v, want streamed compaction checkpoint", resp.Checkpoint)
+	if optionalStringValue(resp.OutputItems[0].ID) != "cmp_streamed" || optionalStringValue(resp.OutputItems[0].EncryptedContent) != "enc_streamed" {
+		t.Fatalf("checkpoint = %+v, want streamed compaction checkpoint", resp.OutputItems[0])
 	}
 	if resp.Usage.InputTokens == nil || resp.Usage.OutputTokens == nil || *resp.Usage.InputTokens != 9 || *resp.Usage.OutputTokens != 4 {
 		t.Fatalf("usage = %+v, want terminal completed usage", resp.Usage)
@@ -757,9 +775,9 @@ func TestOAuthCompactRequestUsesCompletedCheckpointAtStreamedPosition(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !textutil.EqualOptional(resp.Checkpoint.ID, test.completedID) ||
-				!textutil.EqualOptional(resp.Checkpoint.EncryptedContent, textutil.Value("enc_completed")) {
-				t.Fatalf("checkpoint = %+v, want completed checkpoint", resp.Checkpoint)
+			if !textutil.EqualOptional(resp.OutputItems[0].ID, test.completedID) ||
+				!textutil.EqualOptional(resp.OutputItems[0].EncryptedContent, textutil.Value("enc_completed")) {
+				t.Fatalf("checkpoint = %+v, want completed checkpoint", resp.OutputItems[0])
 			}
 		})
 	}

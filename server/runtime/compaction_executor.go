@@ -36,13 +36,13 @@ func (e *Engine) compactRemote(ctx context.Context, stepID string, input []llm.R
 		return compactionResult{overflowRepair: repairStats, provider: providerID}, sentInput, err
 	}
 
-	replacement := []llm.ResponseItem{llm.CloneResponseItems([]llm.ResponseItem{resp.Checkpoint})[0]}
 	return compactionResult{
-		engine:         "remote",
-		items:          replacement,
-		usage:          resp.Usage,
-		overflowRepair: repairStats,
-		provider:       providerID,
+		engine:           "remote",
+		items:            llm.CloneResponseItems(resp.OutputItems),
+		contextPlacement: resp.ContextPlacement,
+		usage:            resp.Usage,
+		overflowRepair:   repairStats,
+		provider:         providerID,
 	}, nil, nil
 }
 

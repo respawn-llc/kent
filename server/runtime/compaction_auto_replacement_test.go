@@ -125,11 +125,11 @@ func remoteCompactionReplacement(
 	windowTokens int,
 ) llm.CompactionResponse {
 	return llm.CompactionResponse{
-		Checkpoint: llm.ResponseItem{
+		OutputItems: []llm.ResponseItem{llm.ResponseItem{
 			Type:             llm.ResponseItemTypeCompaction,
 			ID:               textutil.Value("compaction-checkpoint"),
 			EncryptedContent: textutil.Value("encrypted"),
-		},
+		}},
 		Usage: llm.Usage{
 			InputTokens:  textutil.Value(inputTokens),
 			OutputTokens: textutil.Value(outputTokens),

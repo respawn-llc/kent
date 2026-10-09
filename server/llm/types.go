@@ -710,8 +710,18 @@ type Response struct {
 
 type CompactionRequest = Request
 
+// CompactionContextPlacement locates runtime continuation context relative to
+// the provider's complete replacement bundle.
+type CompactionContextPlacement uint8
+
+const (
+	CompactionContextBeforeOutput CompactionContextPlacement = iota
+	CompactionContextAfterOutput
+)
+
 type CompactionResponse struct {
-	Checkpoint       ResponseItem
+	OutputItems      []ResponseItem
+	ContextPlacement CompactionContextPlacement
 	Usage            Usage
 	ProviderEvidence modelcontract.ProviderUsageEvidence
 }

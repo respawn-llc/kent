@@ -53,8 +53,8 @@ func TestPendingBudgetRebuildSelectsNewSteerAndExcludesQueue(t *testing.T) {
 		fakeCompactionClient: &fakeCompactionClient{
 			responses: []llm.Response{finalOutputItemResponse("done")},
 			compactionResponses: []llm.CompactionResponse{{
-				Checkpoint: llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")},
-				Usage:      llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(10), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
+				OutputItems: []llm.ResponseItem{llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")}},
+				Usage:       llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(10), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 			}},
 		},
 		started: make(chan struct{}), release: make(chan struct{}),
@@ -103,8 +103,8 @@ func testSelectedPendingInputBudget(t *testing.T, toolContinuation bool) {
 			finalOutputItemResponse("done"),
 		},
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")},
-			Usage:      llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(10), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")}},
+			Usage:       llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(10), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	registry := tools.NewRegistry()

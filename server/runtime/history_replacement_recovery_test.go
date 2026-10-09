@@ -450,11 +450,11 @@ func newCommittedRemoteCompactionFixture(
 		store: mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(observer)),
 		client: &fakeCompactionClient{
 			compactionResponses: []llm.CompactionResponse{{
-				Checkpoint: llm.ResponseItem{
+				OutputItems: []llm.ResponseItem{llm.ResponseItem{
 					Type:             llm.ResponseItemTypeCompaction,
 					ID:               textutil.Value("cmp-1"),
 					EncryptedContent: textutil.Value("encrypted"),
-				},
+				}},
 				Usage: llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 			}},
 		},
@@ -809,11 +809,11 @@ func TestRemoteCompactionTaskAwarenessErrorDoesNotReplaceHistory(t *testing.T) {
 	scopeID := runtimeids.NewExecutionScopeID()
 	client := &fakeCompactionClient{
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				ID:               textutil.Value("cmp-1"),
 				EncryptedContent: textutil.Value("encrypted"),
-			},
+			}},
 			Usage: llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}

@@ -56,6 +56,7 @@ var (
 type compactionResult struct {
 	engine                      string
 	items                       []llm.ResponseItem
+	contextPlacement            llm.CompactionContextPlacement
 	usage                       llm.Usage
 	trimmedItemsCount           *int
 	overflowRepair              compactionOverflowRepairStats
@@ -756,6 +757,9 @@ func (e *Engine) compactNowWithAcceptance(
 		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
 	}
 	var replacementItems []llm.ResponseItem
+	if result.contextPlacement == llm.CompactionContextAfterOutput {
+		replacementItems = append(replacementItems, llm.CloneResponseItems(result.items)...)
+	}
 	if result.engine == "remote" {
 		replacementItems = append(replacementItems, llm.ItemsFromMessages([]llm.Message{{
 			Role:    llm.RoleDeveloper,
@@ -763,7 +767,9 @@ func (e *Engine) compactNowWithAcceptance(
 		}})...)
 	}
 	replacementItems = append(replacementItems, llm.ItemsFromMessages(postReplacementMeta.StablePrefix)...)
-	replacementItems = append(replacementItems, llm.CloneResponseItems(result.items)...)
+	if result.contextPlacement == llm.CompactionContextBeforeOutput {
+		replacementItems = append(replacementItems, llm.CloneResponseItems(result.items)...)
+	}
 	replacementItems = append(replacementItems, llm.ItemsFromMessages(postReplacementMeta.RunningShells)...)
 	replacementItems = append(replacementItems, llm.ItemsFromMessages(postReplacementMeta.Environment)...)
 	if preservedUserMessageText != nil {

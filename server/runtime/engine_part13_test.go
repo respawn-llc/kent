@@ -194,10 +194,10 @@ func TestTriggerHandoffWithProviderCompactionCarriesPreservedUserMessageInOrder(
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				EncryptedContent: textutil.Value("encrypted"),
-			},
+			}},
 			Usage: llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}

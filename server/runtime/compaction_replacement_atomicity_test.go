@@ -13,12 +13,47 @@ import (
 
 func TestCompactionReplacementAtomicallyEmbedsReinjectedMetaAndPreservedUserMessage(t *testing.T) {
 	t.Parallel()
+	for name, placement := range map[string]llm.CompactionContextPlacement{
+		"OpenAI checkpoint": llm.CompactionContextBeforeOutput,
+		"Grok full bundle":  llm.CompactionContextAfterOutput,
+	} {
+		t.Run(name, func(t *testing.T) {
+			testCompactionReplacementContextPlacement(t, placement)
+		})
+	}
+}
+
+func testCompactionReplacementContextPlacement(t *testing.T, placement llm.CompactionContextPlacement) {
 	store, globalConfigDir := mustCreateBaseMetaContextTestSession(t)
 	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{
 		remoteCompactionReplacement(1_000, 100, 200_000),
 	}}
-	client.compactionResponses[0].Checkpoint.Raw = json.RawMessage(`{"type":"compaction","id":"compaction-checkpoint","encrypted_content":"encrypted","provider_extension":{"retained":true}}`)
-	checkpoint := llm.CloneResponseItems([]llm.ResponseItem{client.compactionResponses[0].Checkpoint})[0]
+	client.compactionResponses[0].OutputItems[0].Raw = json.RawMessage(`{"type":"compaction","id":"compaction-checkpoint","encrypted_content":"encrypted","provider_extension":{"retained":true}}`)
+	checkpoint := llm.CloneResponseItems([]llm.ResponseItem{client.compactionResponses[0].OutputItems[0]})[0]
+	client.compactionResponses[0].ContextPlacement = placement
+	if placement == llm.CompactionContextAfterOutput {
+		bundle := llm.PrepareResponsesInputItems([]llm.ResponseItem{{
+			Type: llm.ResponseItemTypeMessage, Role: textutil.Value(llm.RoleUser), Content: textutil.Value("provider-retained input"),
+		}})
+		bundle = append(bundle, checkpoint)
+		bundle = append(bundle, llm.ResponseItem{
+			Type: llm.ResponseItemTypeReasoning, EncryptedContent: textutil.Value("opaque-reasoning"),
+			Raw: json.RawMessage(`{"type":"reasoning","encrypted_content":"opaque-reasoning","summary":[],"extension":{"retain":true}}`),
+		})
+		client.compactionResponses[0].OutputItems = bundle
+	}
+	bundle := llm.CloneResponseItems(client.compactionResponses[0].OutputItems)
+	assertReplacement := func(items []llm.ResponseItem) {
+		t.Helper()
+		if placement == llm.CompactionContextAfterOutput {
+			if len(items) < len(bundle) || !reflect.DeepEqual(items[:len(bundle)], bundle) {
+				t.Fatalf("provider output bundle changed: got %+v, want prefix %+v", items, bundle)
+			}
+		} else {
+			assertCompactionReplacementOrder(t, items, false)
+		}
+		assertCompactionCheckpointUnchanged(t, items, checkpoint)
+	}
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{
 		Model:           "gpt-6-sol",
 		GlobalConfigDir: globalConfigDir,
@@ -79,8 +114,7 @@ func TestCompactionReplacementAtomicallyEmbedsReinjectedMetaAndPreservedUserMess
 	for _, item := range replacement.Items {
 		persistedItems = append(persistedItems, llmResponseItemFromSessionHistory(item))
 	}
-	assertCompactionReplacementOrder(t, persistedItems, false)
-	assertCompactionCheckpointUnchanged(t, persistedItems, checkpoint)
+	assertReplacement(persistedItems)
 
 	for _, event := range window.Records[replacementIndex+1:] {
 		message, ok := mustSessionEventPayload(event).(session.MessageRecord)
@@ -91,7 +125,10 @@ func TestCompactionReplacementAtomicallyEmbedsReinjectedMetaAndPreservedUserMess
 	}
 
 	reopenedStore := mustOpenTestSession(t, store.Dir())
-	reopened := mustNewTestEngine(t, reopenedStore, &fakeClient{}, newTestToolRegistry(t), Config{
+	reopenedClient := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
+		OutputItems: llm.CloneResponseItems(bundle), ContextPlacement: placement,
+	}}}
+	reopened := mustNewTestEngine(t, reopenedStore, reopenedClient, newTestToolRegistry(t), Config{
 		Model:           "gpt-6-sol",
 		GlobalConfigDir: globalConfigDir,
 	})
@@ -100,8 +137,7 @@ func TestCompactionReplacementAtomicallyEmbedsReinjectedMetaAndPreservedUserMess
 		if err != nil {
 			t.Fatalf("build reopened request: %v", err)
 		}
-		assertCompactionReplacementOrder(t, request.Items, false)
-		assertCompactionCheckpointUnchanged(t, request.Items, checkpoint)
+		assertReplacement(request.Items)
 	}
 
 	page, err := TranscriptNewestSegmentPageFromEventLog(mustMaterializeTestEventLog(t, reopenedStore), "")
@@ -120,6 +156,24 @@ func TestCompactionReplacementAtomicallyEmbedsReinjectedMetaAndPreservedUserMess
 	}
 	if notices != 1 {
 		t.Fatalf("persisted native reminder notices = %d, want one", notices)
+	}
+	scheduleManualCompactionAndWait(t, reopened)
+	if len(reopenedClient.compactionCalls) != 1 {
+		t.Fatalf("recompaction requests = %d", len(reopenedClient.compactionCalls))
+	}
+	if placement == llm.CompactionContextAfterOutput {
+		assertReplacement(reopenedClient.compactionCalls[0].Items)
+	} else {
+		assertCompactionCheckpointUnchanged(t, reopenedClient.compactionCalls[0].Items, checkpoint)
+	}
+	request, err := reopened.buildRequest(t.Context(), "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if placement == llm.CompactionContextAfterOutput {
+		assertReplacement(request.Items)
+	} else {
+		assertCompactionCheckpointUnchanged(t, request.Items, checkpoint)
 	}
 }
 

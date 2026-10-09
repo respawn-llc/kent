@@ -48,10 +48,6 @@ func (t *HTTPTransport) compactStandardResponses(ctx context.Context, request Re
 	if err != nil {
 		return ResponsesCompactionResponse{}, err
 	}
-	checkpoint, err := requireSingleEncryptedCompactionOutput(items)
-	if err != nil {
-		return ResponsesCompactionResponse{}, newOpenAIProviderContractError(preparation.variant.ProviderID, rawResponse, err)
-	}
 	evidence, err := providerUsageEvidenceFromResponse(response, items)
 	if err != nil {
 		return ResponsesCompactionResponse{}, err
@@ -63,6 +59,7 @@ func (t *HTTPTransport) compactStandardResponses(ctx context.Context, request Re
 		return ResponsesCompactionResponse{}, err
 	}
 	return ResponsesCompactionResponse{
-		Checkpoint: checkpoint, Usage: usage, ProviderEvidence: evidence,
+		OutputItems: items, ContextPlacement: CompactionContextAfterOutput,
+		Usage: usage, ProviderEvidence: evidence,
 	}, nil
 }

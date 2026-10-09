@@ -230,11 +230,11 @@ func TestRunStepLoopCountsPendingWorktreeReminderBeforeAutoCompaction(t *testing
 		},
 		},
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				ID:               textutil.Value("cmp_1"),
 				EncryptedContent: textutil.Value("enc_1"),
-			},
+			}},
 			Usage: llm.Usage{InputTokens: textutil.Value(100), WindowTokens: 20_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}

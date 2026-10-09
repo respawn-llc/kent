@@ -71,7 +71,8 @@ type ResponsesResponse struct {
 }
 
 type ResponsesCompactionResponse struct {
-	Checkpoint       ResponseItem
+	OutputItems      []ResponseItem
+	ContextPlacement CompactionContextPlacement
 	Usage            Usage
 	ProviderEvidence modelcontract.ProviderUsageEvidence
 }
@@ -173,7 +174,8 @@ func (c *ResponsesClient) Compact(ctx context.Context, request CompactionRequest
 		return CompactionResponse{}, fmt.Errorf("responses compact: %w", err)
 	}
 	return CompactionResponse{
-		Checkpoint:       CloneResponseItems([]ResponseItem{providerResp.Checkpoint})[0],
+		OutputItems:      CloneResponseItems(providerResp.OutputItems),
+		ContextPlacement: providerResp.ContextPlacement,
 		Usage:            providerResp.Usage,
 		ProviderEvidence: providerResp.ProviderEvidence.Clone(),
 	}, nil

@@ -182,8 +182,8 @@ func TestCompactionReestablishesThinking(t *testing.T) {
 				caps:      llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, SupportsResponsesCompact: true, SupportsNativeThinkingUpdates: true},
 				responses: []llm.Response{finalOutputItemResponse("seed"), finalOutputItemResponse("next"), finalOutputItemResponse("last")},
 				compactionResponses: []llm.CompactionResponse{{
-					Checkpoint: llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")},
-					Usage:      llm.Usage{InputTokens: textutil.Value(100), OutputTokens: textutil.Value(10), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}},
+					OutputItems: []llm.ResponseItem{llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")}},
+					Usage:       llm.Usage{InputTokens: textutil.Value(100), OutputTokens: textutil.Value(10), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}},
 				}},
 			}
 			if mode == "local" {

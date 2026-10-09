@@ -2701,10 +2701,10 @@ func TestServiceAdmitManualCompactionAcceptsEligibleIdleRuntime(t *testing.T) {
 			Usage: llm.Usage{WindowTokens: 200000},
 		}},
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				EncryptedContent: textutil.Value("checkpoint"),
-			},
+			}},
 			Usage: llm.Usage{WindowTokens: 200000},
 		}},
 	}
@@ -3253,7 +3253,7 @@ func TestServicePreSubmitCompactionDoesNotOwnDraftOrSteeringAdmission(t *testing
 				{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("delivered"), Phase: textutil.Value(llm.MessagePhaseFinal)}},
 			},
 			compactionResponses: []llm.CompactionResponse{
-				{Checkpoint: llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")}},
+				{OutputItems: []llm.ResponseItem{llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")}}},
 			},
 		},
 		started: make(chan struct{}), release: make(chan struct{}),
@@ -3332,10 +3332,10 @@ func TestServiceInterruptCompactionAllowsNextTurnWithoutRestart(t *testing.T) {
 				},
 			},
 			compactionResponses: []llm.CompactionResponse{{
-				Checkpoint: llm.ResponseItem{
+				OutputItems: []llm.ResponseItem{llm.ResponseItem{
 					Type:             llm.ResponseItemTypeCompaction,
 					EncryptedContent: textutil.Value("checkpoint"),
-				},
+				}},
 				Usage: llm.Usage{WindowTokens: 200000},
 			}},
 		},

@@ -69,11 +69,11 @@ func TestManualCompactionPreservesLastVisibleUserMessage(t *testing.T) {
 	client := &fakeCompactionClient{
 		compactionResponses: []llm.CompactionResponse{
 			{
-				Checkpoint: llm.ResponseItem{
+				OutputItems: []llm.ResponseItem{llm.ResponseItem{
 					Type:             llm.ResponseItemTypeCompaction,
 					ID:               textutil.Value("cmp_1"),
 					EncryptedContent: textutil.Value("enc_1"),
-				},
+				}},
 				Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 		},

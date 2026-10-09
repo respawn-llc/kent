@@ -168,11 +168,11 @@ func TestSkillsPolicyChangesOnlyAtMainContextReconstruction(t *testing.T) {
 		caps:      caps,
 		responses: []llm.Response{finalOutputItemResponse("disabled response")},
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				ID:               textutil.Value("cmp_skills_policy"),
 				EncryptedContent: textutil.Value("encrypted"),
-			},
+			}},
 			Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
@@ -241,11 +241,11 @@ func TestLiveReloadedSkillsPolicyAppliesOnlyAtCompaction(t *testing.T) {
 	client := &fakeCompactionClient{
 		responses: []llm.Response{finalOutputItemResponse("enabled response")},
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				ID:               textutil.Value("cmp_live_reload_skills"),
 				EncryptedContent: textutil.Value("encrypted"),
-			},
+			}},
 			Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
