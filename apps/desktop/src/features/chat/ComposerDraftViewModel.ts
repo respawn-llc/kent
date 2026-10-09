@@ -229,7 +229,10 @@ export function createComposerDraftViewModel({
         const input = get(value);
         get.set(editor, { ...input, kind: "editing" });
         get.set(persistence, "editing");
-        yield* Effect.tryPromise(async () => persist(session, input)).pipe(Effect.ignore);
+        return yield* Effect.tryPromise(async () => persist(session, input)).pipe(
+          Effect.as(true),
+          Effect.orElseSucceed(() => false),
+        );
       }),
     { concurrent: true },
   );

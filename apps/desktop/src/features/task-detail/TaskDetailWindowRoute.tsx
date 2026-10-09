@@ -25,8 +25,13 @@ export function TaskDetailWindowRoute({ taskID }: Readonly<{ taskID: string }>) 
     () => createTaskDetailChatOpening({ client, services, push, t }),
     [client, services, push, t],
   );
-  const open = useAtomSet(model.open, { mode: "promise" });
-  const openSessionChat = desktopChatEnabled && nativeBridge.capabilities.dialogWindows ? open : undefined;
+  const open = useAtomSet(model.open);
+  const openSessionChat =
+    desktopChatEnabled && nativeBridge.capabilities.dialogWindows
+      ? async (target: Parameters<typeof open>[0]) => {
+          open(target);
+        }
+      : undefined;
   const onDeleteDismiss = useExactTaskDetailDeleteDismissal(taskID, async () => {
     await nativeBridge.window.closeCurrent();
   });

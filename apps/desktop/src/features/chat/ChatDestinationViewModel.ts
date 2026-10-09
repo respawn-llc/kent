@@ -144,7 +144,8 @@ export function createChatDestinationViewModel({
         };
         const openCreatedSession = input.openCreatedSession;
         if (current.kind === "session" && openCreatedSession !== undefined) {
-          yield* get.setResult(composer.draft.adopt, session);
+          const saved = yield* get.setResult(composer.draft.adopt, session);
+          if (!saved) return;
           yield* Effect.promise(async () => openCreatedSession(input.sessionID));
           return;
         }

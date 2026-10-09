@@ -85,6 +85,8 @@ export function useChatDestination({
         : { kind: "unavailable", notify: openProcesses },
   };
   const selection = useAtomValue(model.selection);
+  // Delivery must await draft persistence and native opening within the input Query completion.
+  // Promise-mode is explicitly approved for this completion boundary (KENT-623).
   const adoptAction = useAtomSet(model.adopt, { mode: "promise" });
   const selectWorkspace = useAtomSet(model.selectWorkspace);
   const workspace = useChatWorkspace(selection, selectWorkspace);
