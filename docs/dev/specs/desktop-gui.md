@@ -364,7 +364,7 @@
 - Side-by-side Description and Metadata islands use the same surface elevation and render their complete shadows without clipping.
 - Metadata property labels use one consistent font size, line height, weight, and foreground treatment. Value typography may still communicate value semantics such as code, status, or muted secondary information.
 - Task Description uses the shared collapsible large Markdown field.
-- Long descriptions start collapsed only when they overflow, at roughly half the available height and never fewer than about five or more than about ten rendered lines, with an expand action. Expansion lasts until that Task Detail closes, keeps the description top anchored, grows downward, and occurs automatically for editing.
+- Long descriptions use a collapsed intrinsic height of roughly half the available height, bounded by about five and ten rendered lines. Collapsed text must fill the Description island's allocated height, including extra height supplied by Metadata. The fade and expand action must stay at the bottom of that allocated viewport and appear only when the full Markdown overflows it. Expansion lasts until that Task Detail closes, keeps the description top anchored, grows downward, and occurs automatically for editing.
 - A Markdown task-list item uses one product-styled checkbox in place of its list bullet.
 - Selecting a checkbox in an editable Task description updates the local Markdown body Draft without saving it. Task Save persists the changed body.
 - From an editable Task description with a valid title and a dirty Draft, the text-field submission shortcut must submit the current Task title and body together.
