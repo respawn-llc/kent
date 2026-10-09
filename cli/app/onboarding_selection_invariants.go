@@ -41,7 +41,7 @@ func (e *onboardingInternalStateError) Error() string {
 func (state *onboardingFlowState) validateInvariant(operation string, stepID onboardingStepID) error {
 	if state.facts == nil {
 		switch stepID {
-		case onboardingStepTheme, connectionStepTemplate, connectionStepID, connectionStepEndpoint, connectionStepEnvironment:
+		case onboardingStepTheme, connectionStepTemplate, connectionStepID, connectionStepEndpoint, connectionStepEnvironment, connectionStepBrowserAuth, connectionStepAuthMethod:
 			return nil
 		}
 	}

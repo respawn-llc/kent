@@ -219,9 +219,9 @@ func TestOnboardingInputWordNavigationStaysInField(t *testing.T) {
 
 func TestOnboardingInputPlainArrowsMoveCursorWithoutChangingStep(t *testing.T) {
 	cases := []struct {
-		name      string
-		key       tea.KeyMsg
-		cursor    int
+		name   string
+		key    tea.KeyMsg
+		cursor int
 	}{
 		{name: "left", key: tea.KeyMsg{Type: tea.KeyLeft}, cursor: 0},
 		{name: "right", key: tea.KeyMsg{Type: tea.KeyRight}, cursor: 2},
@@ -318,7 +318,11 @@ func TestOnboardingConnectionTabNavigation(t *testing.T) {
 		t.Fatalf("shift+tab from provider choice opened %q", model.currentScreen.ID)
 	}
 	model.Update(tea.KeyMsg{Type: tea.KeyTab})
-	model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	for index, option := range model.currentScreen.Options {
+		if option.ID == string(connectionTemplateAPI) {
+			model.cursor = index
+		}
+	}
 	model.Update(tea.KeyMsg{Type: tea.KeyTab})
 	if model.currentScreen.ID != connectionStepID {
 		t.Fatalf("tab from provider choice opened %q", model.currentScreen.ID)

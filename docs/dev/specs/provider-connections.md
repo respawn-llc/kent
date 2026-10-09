@@ -32,7 +32,7 @@
 - Kent must not automatically adopt `OPENAI_API_KEY` or borrow another connection's credentials. Auth-less requests must send no authentication credentials.
 - ChatGPT must retain browser and device sign-in, including browser callback or pasted callback URL/code. OAuth failure must not fall back to an API key. Refresh failures must remain observable and actionable.
 - OAuth credential expiry must be optional for both ChatGPT and Grok. If the provider omits expiry, Kent must store no expiry and must not schedule expiry-based refresh or invent an expiration time.
-- Grok subscription connections must offer browser and device sign-in with the supported callback and pasted-code paths.
+- Grok subscription connections must use device authorization as their sole sign-in method. Kent must open the verification page automatically and keep the issued code visible while the server waits for authorization. The user must be able to compare that code with the browser before approving access. Successful authorization must complete the sign-in step.
 - Grok must identify Kent as the client while sending the selected service's required protocol headers. Kent must send proxy-specific authentication and version headers only to the CLI subscription proxy.
 - If Grok rejects the client's protocol version, Kent must report the update requirement without switching routes or replaying the request.
 - Grok entitlement rejection must include the provider's original readable diagnostic and identify the affected connection. Kent must distinguish subscription or credit requirements from invalid sign-in and must not claim that re-authentication will fix entitlement.
@@ -74,10 +74,12 @@
 - After onboarding, `/login` must list Add connection first and existing connections afterward. With zero connections it must enter Add directly. Config-authored connections must appear in the same flow.
 - Add must save the new connection in global configuration. When no connections or global default are configured, Add must select the first added connection as the global default without confirmation. Otherwise, Add must offer an explicit Make default choice. Make default must change only the global default and explain any overriding workspace default. Existing role assignments and Session bindings must stay unchanged.
 - Connection setup must group choices under OpenAI, Grok, and Generic headers, in that order. Each header must use the existing bold, full-foreground header style. Each section must retain the choice order specified under Authentication.
+- Connection setup must combine provider and authentication-method selection in one scrollable list. OpenAI subscription browser and device options must appear in that list without a second method picker. Grok subscription must lead directly to device authorization. Authentication must use the shared onboarding presentation and navigation.
+- Suggested connection IDs must use the selected provider's name and the next available numbered ID. Grok subscription and API-key connections must share the `grok` prefix.
 - Add for a subscription connection must save its definition only after successful sign-in. Failed sign-in or cancellation before the operation is accepted must leave no definition. Observer disconnect must not cancel accepted work.
 - Selecting an existing subscription connection must re-authenticate without changing its ID or creating a duplicate. Selecting an API-key connection must show and allow replacement of its environment-variable reference, never request the secret. Selecting an auth-less connection must explain that sign-in is unnecessary without editing its endpoint.
 - The API-key field must show: "Don't paste your API key here. This is the name of the **environment variable** Kent will read **at the server's location** to get the api key from. Alternatively, place it in a ~/.kent/.env file."
-- Connection setup and management operations must show a full-screen animated spinner without loading labels while waiting for a response.
+- Connection setup and management requests must show a full-screen animated spinner without loading labels while waiting for a response, except during device authorization. Device authorization must keep its verification instructions and code visible with a waiting indicator until authorization completes or the user navigates back.
 - The server must validate connection definitions and references. Terminal forms must not define separate validation rules.
 - `/logout` must open the same picker without deleting credentials.
 

@@ -16,6 +16,7 @@ import (
 type authInteraction struct {
 	Theme   string
 	FlowErr error
+	Modes   []authpb.BootstrapMode
 }
 
 type authInteractor interface {

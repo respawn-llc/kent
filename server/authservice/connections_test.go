@@ -2,6 +2,7 @@ package authservice
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,8 @@ import (
 	"core/server/auth"
 	"core/server/llm"
 	"core/shared/config"
+	"core/shared/protoapi"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	"core/shared/textutil"
 )
 
@@ -69,6 +72,24 @@ func TestGrokConnectionCredentialIsolation(t *testing.T) {
 			}
 			if credential == nil || credential.Header != "Bearer "+expected || credential.Mode.AccountID != "" {
 				t.Fatalf("wrong selected credential: %+v", credential)
+			}
+			if connection.Definition.Protocol.IsSubscription() {
+				service := NewBootstrapService(t.Context(), resolver, auth.OpenAIOAuthOptions{})
+				target := protoapi.ExistingConnectionTarget(id)
+				status, err := service.GetBootstrapStatus(t.Context(), &authpb.GetBootstrapStatusRequest{Target: target})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(status.SupportedModes) != 1 || status.SupportedModes[0] != authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE || status.CallbackTransport != nil {
+					t.Fatalf("Grok auth modes = %+v", status)
+				}
+				_, err = service.StartBootstrap(t.Context(), &authpb.StartBootstrapRequest{
+					Target: target, Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL,
+					RedirectUri: textutil.Value("http://127.0.0.1:48219/callback"),
+				})
+				if !errors.Is(err, auth.ErrInvalidAuthMethod) {
+					t.Fatalf("unsupported Grok browser grant = %v", err)
+				}
 			}
 		})
 	}

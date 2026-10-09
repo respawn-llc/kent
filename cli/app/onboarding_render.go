@@ -180,6 +180,8 @@ func (m *onboardingModel) buildContent(width int) onboardingRenderedContent {
 		appendWrapped(text, m.styles.errorText)
 	}
 	switch m.currentScreen.Kind {
+	case onboardingScreenPending:
+		lines = append(lines, m.styles.spinner.Render(pendingToolSpinner.Frames[m.spinnerFrame%len(pendingToolSpinner.Frames)])+" "+m.currentScreen.LoadingText)
 	case onboardingScreenChoice, onboardingScreenMulti:
 		appendBlank()
 		for index, option := range m.currentScreen.Options {
@@ -242,6 +244,9 @@ func (m *onboardingModel) buildContent(width int) onboardingRenderedContent {
 }
 
 func (m *onboardingModel) renderFooterLines(width int) []string {
+	if m.currentScreen.Kind == onboardingScreenPending {
+		return wrapStyledParagraphs(sharedtheme.KeyShiftGlyph+" + "+sharedtheme.KeyTabGlyph+" back | "+sharedtheme.KeyEscapeGlyph+" back", width, m.styles.footer)
+	}
 	movement := "↑/↓ pick or scroll"
 	if m.currentScreen.Kind == onboardingScreenInput {
 		movement = "←/→/↑/↓ move cursor"
@@ -258,7 +263,11 @@ func (m *onboardingModel) renderFooterLines(width int) []string {
 	if m.currentScreen.Kind == onboardingScreenMulti && screenHasToggleAllOption(m.currentScreen) {
 		hints = append(hints, "a toggle all")
 	}
-	hints = append(hints, sharedtheme.KeyEscapeGlyph+" cancel")
+	escapeAction := "back"
+	if m.stepIndex == 0 && m.currentScreen.ID != onboardingStepEntry && m.currentScreen.ID != connectionStepBrowserAuth {
+		escapeAction = "cancel"
+	}
+	hints = append(hints, sharedtheme.KeyEscapeGlyph+" "+escapeAction)
 	return wrapStyledParagraphs(strings.Join(hints, " | "), width, m.styles.footer)
 }
 

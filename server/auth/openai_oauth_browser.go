@@ -187,24 +187,6 @@ func StartOAuthCallbackListener(transport sharedauth.CallbackTransport) (*OAuthC
 			_, _ = w.Write([]byte("Not found"))
 			return
 		}
-		if transport.AllowedOrigin != nil {
-			w.Header().Add("Vary", "Origin")
-			w.Header().Add("Vary", "Access-Control-Request-Method")
-			w.Header().Add("Vary", "Access-Control-Request-Private-Network")
-			if r.Header.Get("Origin") == *transport.AllowedOrigin {
-				w.Header().Set("Access-Control-Allow-Origin", *transport.AllowedOrigin)
-				w.Header().Set("Access-Control-Allow-Methods", http.MethodGet)
-				w.Header().Set("Access-Control-Allow-Private-Network", "true")
-			}
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			if r.Method != http.MethodGet {
-				w.WriteHeader(http.StatusMethodNotAllowed)
-				return
-			}
-		}
 		q := r.URL.Query()
 		if authErr := strings.TrimSpace(q.Get("error")); authErr != "" {
 			authErrDesc := strings.TrimSpace(q.Get("error_description"))

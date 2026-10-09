@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 )
 
@@ -51,55 +50,5 @@ func TestGrokRefreshFailureRetainsProviderDiagnostic(t *testing.T) {
 	}
 	if tokenRequests != 1 {
 		t.Fatalf("refresh attempted %d exchanges", tokenRequests)
-	}
-}
-
-func TestGrokBrowserExchangeUsesBoundRedirect(t *testing.T) {
-	const redirect = "http://127.0.0.1:48219/callback"
-	var verifier string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/.well-known/openid-configuration":
-			_ = json.NewEncoder(w).Encode(grokDiscovery{
-				Issuer: "https://auth.x.ai", AuthorizationEndpoint: "https://auth.x.ai/oauth2/authorize",
-				TokenEndpoint: "https://auth.x.ai/oauth2/token", DeviceAuthorizationEndpoint: "https://auth.x.ai/oauth2/device/code",
-			})
-		case "/oauth2/token":
-			if err := r.ParseForm(); err != nil {
-				t.Error(err)
-			}
-			if r.Form.Get("redirect_uri") != redirect || r.Form.Get("code_verifier") != verifier ||
-				r.Form.Get("grant_type") != "authorization_code" || r.Form.Get("code") != "fixture-code" {
-				t.Errorf("unexpected browser grant: %v", r.Form)
-			}
-			_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "browser-token", "refresh_token": "browser-refresh"})
-		default:
-			t.Errorf("unexpected route: %s", r.URL.Path)
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer server.Close()
-	client := rewriteOAuthIssuerClient(server)
-	session, err := BeginGrokBrowserFlow(t.Context(), client, redirect)
-	if err != nil {
-		t.Fatal(err)
-	}
-	verifier = session.CodeVerifier
-	authorization, err := url.Parse(session.AuthorizeURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if authorization.Query().Get("redirect_uri") != redirect {
-		t.Fatalf("authorization changed bound redirect: %s", authorization)
-	}
-	if authorization.Query().Get("code_challenge") == "" || authorization.Query().Get("state") != session.State {
-		t.Fatal("authorization omitted PKCE/state")
-	}
-	credential, err := CompleteGrokBrowserFlow(t.Context(), client, session, redirect+"?code=fixture-code&state="+session.State)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if credential.AccessToken != "browser-token" || credential.RefreshToken != "browser-refresh" || credential.Expiry != nil {
-		t.Fatalf("credential = %+v", credential)
 	}
 }

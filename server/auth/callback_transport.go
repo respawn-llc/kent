@@ -8,18 +8,12 @@ import (
 
 	sharedauth "core/shared/auth"
 	"core/shared/config"
-	"core/shared/textutil"
 )
 
 func CallbackTransport(protocol config.ConnectionProtocol) (sharedauth.CallbackTransport, error) {
 	switch protocol {
 	case config.ConnectionChatGPT:
 		return sharedauth.CallbackTransport{BindAddress: oauthBindAddress, RedirectHost: "localhost", CallbackPath: oauthCallbackPath}, nil
-	case config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI:
-		return sharedauth.CallbackTransport{
-			BindAddress: "127.0.0.1:0", RedirectHost: "127.0.0.1", CallbackPath: "/callback",
-			AllowedOrigin: textutil.Value("https://accounts.x.ai"),
-		}, nil
 	default:
 		return sharedauth.CallbackTransport{}, fmt.Errorf("connection protocol %s has no browser callback transport", protocol)
 	}

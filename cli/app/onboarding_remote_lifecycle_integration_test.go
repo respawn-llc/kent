@@ -286,7 +286,7 @@ func TestOnboardingRemoteLifecycleKeepsSubmittedRPCAliveAfterParentCancellation(
 
 	capture, err := runOnboardingLifecycleTerminal(binary, processConfigPath, []onboardingTerminalInput{
 		{restored: 1, bytes: []byte("\r")},
-		{restored: 1, bytes: []byte("\x1b[B\x1b[B\x1b[B\x1b[B\x1b[B\r")},
+		{restored: 1, bytes: []byte("\x1b[B\x1b[B\x1b[B\x1b[B\x1b[B\x1b[B\r")},
 		{restored: 1, bytes: []byte("\r")},
 		{restored: 1, bytes: []byte("http://localhost:1234/v1\r")},
 		{restored: 4, bytes: []byte("\x1b[B\r")},

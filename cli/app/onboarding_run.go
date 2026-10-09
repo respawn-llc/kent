@@ -49,7 +49,7 @@ func runOnboardingFlow(ctx context.Context, cfg config.Connection, local config.
 	catalog, err := runConnectionOperation(ctx, local.Theme, func() (*authpb.ConnectionCatalog, error) {
 		return connections.GetConnections(ctx, &authpb.GetConnectionsRequest{})
 	})
-	if errors.Is(err, ErrAuthCanceledByUser) {
+	if errors.Is(err, ErrAuthCanceledByUser) || errors.Is(err, ErrAuthBack) {
 		return discard()
 	}
 	if err != nil {
@@ -88,10 +88,16 @@ func runOnboardingFlow(ctx context.Context, cfg config.Connection, local config.
 			return &emptypb.Empty{}, nil
 		})
 		if err == nil && form.definition.Protocol.IsSubscription() {
-			err = signInConnection(ctx, connections, selectedTheme, &authpb.ConnectionTarget{Target: &authpb.ConnectionTarget_PendingSetup{PendingSetup: &emptypb.Empty{}}}, false)
+			err = signInConnection(ctx, connections, selectedTheme, &authpb.ConnectionTarget{Target: &authpb.ConnectionTarget_PendingSetup{PendingSetup: &emptypb.Empty{}}}, false, form.authenticationMethod())
 		}
 		if errors.Is(err, ErrAuthCanceledByUser) {
 			return discard()
+		}
+		if errors.Is(err, ErrAuthBack) {
+			if err := showConnectionSelection(formModel); err != nil {
+				return onboardingResult{}, err
+			}
+			continue
 		}
 		if err != nil {
 			formModel.errorText = connectionOperationErrorText(err)
@@ -102,6 +108,10 @@ func runOnboardingFlow(ctx context.Context, cfg config.Connection, local config.
 			facts, err := runConnectionOperation(ctx, selectedTheme, func() (*capabilitypb.Facts, error) {
 				return factsClient.GetFacts(ctx, &capabilitypb.GetFactsRequest{WorkspaceRoot: workspaceRoot})
 			})
+			if errors.Is(err, ErrAuthBack) {
+				formModel.syncScreen(true)
+				continue
+			}
 			if errors.Is(err, ErrAuthCanceledByUser) {
 				return discard()
 			}

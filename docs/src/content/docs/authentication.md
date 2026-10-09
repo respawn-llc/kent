@@ -13,7 +13,7 @@ A connection gives Kent access to a model provider. Keep separate connections fo
 
 Run `kent` for first-time setup. Use `/login` to add a connection or update an existing sign-in or API-key reference. `/logout` opens the same connection manager and keeps saved credentials.
 
-OpenAI and Grok subscription sign-in offer browser and device authorization. Browser sign-in also accepts pasted callback input. Each named connection keeps its own credentials.
+OpenAI subscription sign-in offers browser and device authorization. Browser sign-in also accepts pasted callback input. Grok subscription sign-in opens a device-authorization page automatically. Compare the code displayed by Kent with the browser, then approve access in the browser. Kent shows the code until authorization completes. Each named connection keeps its own credentials.
 
 ## Subscription usage
 

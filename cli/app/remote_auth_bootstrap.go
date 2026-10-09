@@ -21,6 +21,7 @@ import (
 
 var (
 	ErrAuthCanceledByUser = errors.New("auth canceled by user")
+	ErrAuthBack           = errors.New("return to connection setup")
 	ErrOAuthStateMismatch = errors.New("oauth state mismatch")
 )
 
@@ -82,24 +83,33 @@ func (i *interactiveAuthInteractor) authenticateRemote(ctx context.Context, remo
 		}
 		return &config.ConnectionReferenceError{Connection: settings.Connection}
 	}
-	return i.completeRemoteAuthBootstrap(ctx, remote, settings, protoapi.ExistingConnectionTarget(*settings.Connection), status, false)
+	return i.completeRemoteAuthBootstrap(ctx, remote, settings, protoapi.ExistingConnectionTarget(*settings.Connection), status, false, nil)
 }
 
-func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Context, remote apicontract.AuthBootstrapService, settings config.Settings, target *authpb.ConnectionTarget, status *authpb.BootstrapStatus, force bool) error {
+func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Context, remote apicontract.AuthBootstrapService, settings config.Settings, target *authpb.ConnectionTarget, status *authpb.BootstrapStatus, force bool, selected *authMethodChoice) error {
 	if i == nil {
 		return errors.New("interactive auth interactor is required")
 	}
 	req := authInteraction{
 		Theme: string(settings.Theme),
+		Modes: status.SupportedModes,
 	}
 	for {
-		choice, err := i.chooseMethod(req)
-		if err != nil {
-			return err
+		var choice authMethodChoice
+		if selected != nil {
+			choice = *selected
+		} else if supportsBootstrapMode(status.SupportedModes, authMethodChoiceDevice) && !supportsBootstrapMode(status.SupportedModes, authMethodChoiceBrowserAuto) {
+			choice = authMethodChoiceDevice
+		} else {
+			var err error
+			choice, err = i.chooseMethod(req)
+			if err != nil {
+				return err
+			}
 		}
 		completeReq, err := i.collectRemoteBootstrapRequest(ctx, remote, target, req.Theme, choice, status)
 		if err != nil {
-			if errors.Is(err, ErrAuthCanceledByUser) {
+			if errors.Is(err, ErrAuthCanceledByUser) || errors.Is(err, ErrAuthBack) || selected != nil || !supportsBootstrapMode(status.SupportedModes, authMethodChoiceBrowserAuto) {
 				return err
 			}
 			log.Printf("collect connection sign-in: %v", err)
@@ -108,11 +118,11 @@ func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Cont
 		}
 		completeReq.Force = force
 		completeReq.Target = target
-		resp, err := runConnectionOperation(ctx, req.Theme, func() (*authpb.BootstrapCompletion, error) {
-			return remote.CompleteBootstrap(ctx, completeReq)
+		resp, err := runConnectionOperationScreen(ctx, req.Theme, completeReq.screen, func() (*authpb.BootstrapCompletion, error) {
+			return remote.CompleteBootstrap(ctx, completeReq.CompleteBootstrapRequest)
 		})
 		if err != nil {
-			if errors.Is(err, ErrAuthCanceledByUser) {
+			if errors.Is(err, ErrAuthCanceledByUser) || errors.Is(err, ErrAuthBack) || selected != nil || !supportsBootstrapMode(status.SupportedModes, authMethodChoiceBrowserAuto) {
 				return err
 			}
 			log.Printf("complete connection sign-in: %v", err)
@@ -132,7 +142,7 @@ func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Cont
 	}
 }
 
-func signInConnection(ctx context.Context, remote apicontract.AuthBootstrapService, selectedTheme string, target *authpb.ConnectionTarget, force bool) error {
+func signInConnection(ctx context.Context, remote apicontract.AuthBootstrapService, selectedTheme string, target *authpb.ConnectionTarget, force bool, method *authMethodChoice) error {
 	status, err := runConnectionOperation(ctx, selectedTheme, func() (*authpb.BootstrapStatus, error) {
 		return remote.GetBootstrapStatus(ctx, &authpb.GetBootstrapStatusRequest{Target: target})
 	})
@@ -143,10 +153,15 @@ func signInConnection(ctx context.Context, remote apicontract.AuthBootstrapServi
 		return nil
 	}
 	interactor := newInteractiveAuthInteractor()
-	return interactor.completeRemoteAuthBootstrap(ctx, remote, config.Settings{Theme: selectedTheme}, target, status, force)
+	return interactor.completeRemoteAuthBootstrap(ctx, remote, config.Settings{Theme: selectedTheme}, target, status, force, method)
 }
 
-func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Context, remote apicontract.AuthBootstrapService, target *authpb.ConnectionTarget, theme string, choice authMethodChoice, status *authpb.BootstrapStatus) (*authpb.CompleteBootstrapRequest, error) {
+type remoteBootstrapAttempt struct {
+	*authpb.CompleteBootstrapRequest
+	screen onboardingScreen
+}
+
+func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Context, remote apicontract.AuthBootstrapService, target *authpb.ConnectionTarget, theme string, choice authMethodChoice, status *authpb.BootstrapStatus) (*remoteBootstrapAttempt, error) {
 	if status == nil {
 		return nil, errors.New("auth bootstrap status is required")
 	}
@@ -158,7 +173,11 @@ func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Co
 		if status.CallbackTransport == nil {
 			return nil, errors.New("server returned no browser callback transport")
 		}
-		return i.collectRemoteBrowserAuto(ctx, remote, target, protoapi.CallbackTransportFromProto(status.CallbackTransport), theme)
+		request, err := i.collectRemoteBrowserAuto(ctx, remote, target, protoapi.CallbackTransportFromProto(status.CallbackTransport), theme)
+		if err != nil {
+			return nil, err
+		}
+		return &remoteBootstrapAttempt{CompleteBootstrapRequest: request, screen: onboardingScreen{Kind: onboardingScreenLoading}}, nil
 	case authMethodChoiceDevice:
 		return i.collectRemoteDevice(ctx, remote, target, theme)
 	default:
@@ -237,7 +256,7 @@ func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context
 	}, nil
 }
 
-func (i *interactiveAuthInteractor) collectRemoteDevice(ctx context.Context, remote apicontract.AuthBootstrapService, target *authpb.ConnectionTarget, theme string) (*authpb.CompleteBootstrapRequest, error) {
+func (i *interactiveAuthInteractor) collectRemoteDevice(ctx context.Context, remote apicontract.AuthBootstrapService, target *authpb.ConnectionTarget, theme string) (*remoteBootstrapAttempt, error) {
 	start, err := runConnectionOperation(ctx, theme, func() (*authpb.BootstrapStart, error) {
 		return remote.StartBootstrap(ctx, &authpb.StartBootstrapRequest{
 			Target: target, Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE,
@@ -250,15 +269,30 @@ func (i *interactiveAuthInteractor) collectRemoteDevice(ctx context.Context, rem
 	if code == nil || start.GetContinuation().GetDevice() == nil {
 		return nil, errors.New("server returned no device sign-in instructions")
 	}
-	i.printAuthSection(theme, authMethodDisplayTitle(authMethodChoiceDevice), []string{
-		lipgloss.NewStyle().Foreground(uiPalette(theme).primary).Underline(true).Render(code.VerificationUrl),
-		lipgloss.NewStyle().Foreground(uiPalette(theme).foreground).Render("Code: ") + lipgloss.NewStyle().Foreground(uiPalette(theme).secondary).Bold(true).Render(code.UserCode),
-		lipgloss.NewStyle().Foreground(uiPalette(theme).muted).Faint(true).Render("Waiting for authorization..."),
-	})
-	return &authpb.CompleteBootstrapRequest{
+	instruction := "Open the sign-in page and enter this code, then approve access:"
+	var openErr error
+	switch start.Continuation.Protocol {
+	case authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_CLI_PROXY, authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_OAUTH_API:
+		instruction = "Check that the browser shows this code, then approve access:"
+		openBrowser := i.openBrowser
+		if openBrowser == nil {
+			openBrowser = serverauth.OpenBrowser
+		}
+		openErr = openBrowser(code.VerificationUrl)
+	}
+	screen := onboardingScreen{
+		Kind: onboardingScreenPending, Title: "Confirm sign-in in your browser",
+		Body: newStartupMarkdownRendererWithWordWrap(theme).Render(
+			fmt.Sprintf("%s\n\n**%s**\n\n[Open sign-in page](%s)", instruction, code.UserCode, code.VerificationUrl), defaultPickerWidth),
+		LoadingText: "Waiting for authorization...",
+	}
+	if openErr != nil {
+		screen.Helper = "Browser did not open automatically: " + openErr.Error()
+	}
+	return &remoteBootstrapAttempt{CompleteBootstrapRequest: &authpb.CompleteBootstrapRequest{
 		Mode:         authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE,
 		Continuation: start.Continuation,
-	}, nil
+	}, screen: screen}, nil
 }
 
 func supportsBootstrapMode(modes []authpb.BootstrapMode, choice authMethodChoice) bool {

@@ -14,18 +14,21 @@ const (
 	connectionStepID                 onboardingStepID = "connection_id"
 	connectionStepEndpoint           onboardingStepID = "connection_endpoint"
 	connectionStepEnvironment        onboardingStepID = "connection_environment"
+	connectionStepBrowserAuth        onboardingStepID = "connection_browser_auth"
+	connectionStepAuthMethod         onboardingStepID = "connection_auth_method"
 	connectionEnvironmentExplanation                  = "Don't paste your API key here. This is the name of the **environment variable** Kent will read **at the server's location** to get the api key from. Alternatively, place it in a ~/.kent/.env file."
 )
 
 type connectionTemplate string
 
 const (
-	connectionTemplateSubscription     connectionTemplate = "subscription"
-	connectionTemplateAPI              connectionTemplate = "api"
-	connectionTemplateAnonymous        connectionTemplate = "anonymous"
-	connectionTemplateOpenAIAPI        connectionTemplate = "openai_api"
-	connectionTemplateGrokSubscription connectionTemplate = "grok_subscription"
-	connectionTemplateGrokAPI          connectionTemplate = "grok_api"
+	connectionTemplateSubscription       connectionTemplate = "subscription"
+	connectionTemplateSubscriptionDevice connectionTemplate = "subscription_device"
+	connectionTemplateAPI                connectionTemplate = "api"
+	connectionTemplateAnonymous          connectionTemplate = "anonymous"
+	connectionTemplateOpenAIAPI          connectionTemplate = "openai_api"
+	connectionTemplateGrokSubscription   connectionTemplate = "grok_subscription"
+	connectionTemplateGrokAPI            connectionTemplate = "grok_api"
 )
 
 type connectionForm struct {
@@ -81,7 +84,7 @@ func (f *connectionForm) selectTemplate(template connectionTemplate) {
 	}
 	f.template = template
 	switch template {
-	case connectionTemplateSubscription:
+	case connectionTemplateSubscription, connectionTemplateSubscriptionDevice:
 		f.definition = config.ProviderConnection{Protocol: config.ConnectionChatGPT}
 	case connectionTemplateGrokSubscription:
 		f.definition = config.ProviderConnection{Protocol: config.ConnectionGrokCLIProxy}
@@ -105,7 +108,8 @@ func (f *connectionForm) steps() []onboardingStepDefinition {
 		{id: connectionStepTemplate, build: func(*onboardingFlowState) onboardingScreen {
 			return onboardingScreen{ID: connectionStepTemplate, Kind: onboardingScreenChoice, Title: "Choose the inference provider to add",
 				DefaultOptionID: string(f.template), Options: []onboardingOption{
-					{ID: string(connectionTemplateSubscription), Group: "OpenAI", Title: "Subscription"},
+					{ID: string(connectionTemplateSubscription), Group: "OpenAI", Title: "Subscription — browser"},
+					{ID: string(connectionTemplateSubscriptionDevice), Group: "OpenAI", Title: "Subscription — device code"},
 					{ID: string(connectionTemplateOpenAIAPI), Group: "OpenAI", Title: "API Key"},
 					{ID: string(connectionTemplateGrokSubscription), Group: "Grok", Title: "Subscription"},
 					{ID: string(connectionTemplateGrokAPI), Group: "Grok", Title: "API Key"},
@@ -114,7 +118,7 @@ func (f *connectionForm) steps() []onboardingStepDefinition {
 				}}
 		}, apply: func(_ *onboardingFlowState, value string) error {
 			switch template := connectionTemplate(value); template {
-			case connectionTemplateSubscription, connectionTemplateOpenAIAPI, connectionTemplateGrokSubscription, connectionTemplateGrokAPI, connectionTemplateAPI, connectionTemplateAnonymous:
+			case connectionTemplateSubscription, connectionTemplateSubscriptionDevice, connectionTemplateOpenAIAPI, connectionTemplateGrokSubscription, connectionTemplateGrokAPI, connectionTemplateAPI, connectionTemplateAnonymous:
 				f.selectTemplate(template)
 				return nil
 			default:
@@ -164,6 +168,19 @@ func (f *connectionForm) steps() []onboardingStepDefinition {
 	}
 }
 
+func (f *connectionForm) authenticationMethod() *authMethodChoice {
+	var choice authMethodChoice
+	switch f.template {
+	case connectionTemplateSubscription:
+		choice = authMethodChoiceBrowserAuto
+	case connectionTemplateSubscriptionDevice, connectionTemplateGrokSubscription:
+		choice = authMethodChoiceDevice
+	default:
+		return nil
+	}
+	return &choice
+}
+
 func newConnectionFormModel(selectedTheme string, catalog *authpb.ConnectionCatalog, includeTheme bool) (*connectionForm, *onboardingModel, error) {
 	form, err := newConnectionForm(catalog)
 	if err != nil {
@@ -196,10 +213,27 @@ func runConnectionForm(ctx context.Context, model *onboardingModel, submit func(
 			return model.terminalErr
 		}
 		err := submit()
+		if errors.Is(err, ErrAuthBack) && ctx.Err() == nil {
+			if err := showConnectionSelection(model); err != nil {
+				return err
+			}
+			continue
+		}
 		if err == nil || errors.Is(err, ErrAuthCanceledByUser) || ctx.Err() != nil {
 			return err
 		}
 		model.errorText = connectionOperationErrorText(err)
 		model.syncScreen(false)
 	}
+}
+
+func showConnectionSelection(model *onboardingModel) error {
+	for index, step := range model.workflow.visibleSteps(&model.state) {
+		if step.id == connectionStepTemplate {
+			model.stepIndex = index
+			model.syncScreen(true)
+			return model.terminalErr
+		}
+	}
+	return errors.New("connection form has no provider selection step")
 }

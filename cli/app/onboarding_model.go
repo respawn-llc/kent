@@ -81,7 +81,7 @@ func tickOnboardingSpinner(delay time.Duration) tea.Cmd {
 }
 
 func (m *onboardingModel) shouldAnimateSpinner() bool {
-	return m.finalizing || m.currentScreen.Kind == onboardingScreenLoading
+	return m.finalizing || m.currentScreen.Kind == onboardingScreenLoading || m.currentScreen.Kind == onboardingScreenPending
 }
 
 func (m *onboardingModel) activeTheme() string {
@@ -169,9 +169,15 @@ func (m *onboardingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		switch typed.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
+		case tea.KeyCtrlC:
 			m.canceled = true
 			return m, tea.Quit
+		case tea.KeyEsc:
+			if m.stepIndex == 0 && m.currentScreen.ID != onboardingStepEntry {
+				m.canceled = true
+				return m, tea.Quit
+			}
+			return m.goBack()
 		case tea.KeyShiftTab:
 			return m.goBack()
 		case tea.KeyTab, tea.KeyEnter:

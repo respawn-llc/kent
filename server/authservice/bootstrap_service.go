@@ -43,16 +43,15 @@ func (s *BootstrapService) GetBootstrapStatus(ctx context.Context, req *authpb.G
 	}
 	switch method {
 	case authpb.AuthMethod_AUTH_METHOD_OAUTH:
-		status.SupportedModes = []authpb.BootstrapMode{
-			authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL,
-			authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE,
-			authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE,
+		status.SupportedModes = []authpb.BootstrapMode{authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE}
+		if snapshot.connection.Definition.Protocol == config.ConnectionChatGPT {
+			status.SupportedModes = append(status.SupportedModes, authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL, authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE)
+			transport, err := auth.CallbackTransport(snapshot.connection.Definition.Protocol)
+			if err != nil {
+				return nil, err
+			}
+			status.CallbackTransport = protoapi.CallbackTransportToProto(transport)
 		}
-		transport, err := auth.CallbackTransport(snapshot.connection.Definition.Protocol)
-		if err != nil {
-			return nil, err
-		}
-		status.CallbackTransport = protoapi.CallbackTransportToProto(transport)
 	case authpb.AuthMethod_AUTH_METHOD_API_KEY:
 		status.SupportedModes = []authpb.BootstrapMode{authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY}
 	case authpb.AuthMethod_AUTH_METHOD_NONE:
@@ -78,15 +77,13 @@ func (s *BootstrapService) StartBootstrap(_ context.Context, req *authpb.StartBo
 	}}
 	switch req.Mode {
 	case authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL, authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE:
+		if protocol != config.ConnectionChatGPT {
+			return nil, auth.ErrInvalidAuthMethod
+		}
 		if err := auth.ValidateCallbackRedirect(protocol, req.GetRedirectUri()); err != nil {
 			return nil, err
 		}
-		var browser auth.BrowserAuthSession
-		if protocol == config.ConnectionChatGPT {
-			browser, err = auth.BeginOpenAIBrowserFlow(s.oauthOptions, req.GetRedirectUri())
-		} else {
-			browser, err = auth.BeginGrokBrowserFlow(s.ctx, s.oauthOptions.HTTPClient, req.GetRedirectUri())
-		}
+		browser, err := auth.BeginOpenAIBrowserFlow(s.oauthOptions, req.GetRedirectUri())
 		if err != nil {
 			return nil, err
 		}
@@ -141,6 +138,9 @@ func (s *BootstrapService) CompleteBootstrap(_ context.Context, req *authpb.Comp
 		var credential auth.OAuthMethod
 		switch req.Mode {
 		case authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL, authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE:
+			if protocol != config.ConnectionChatGPT {
+				return nil, auth.ErrInvalidAuthMethod
+			}
 			browser := req.Continuation.GetBrowser()
 			if browser == nil {
 				return nil, auth.ErrInvalidAuthMethod
@@ -149,11 +149,7 @@ func (s *BootstrapService) CompleteBootstrap(_ context.Context, req *authpb.Comp
 				return nil, err
 			}
 			session := auth.BrowserAuthSession{RedirectURI: browser.RedirectUri, State: browser.State, CodeVerifier: browser.CodeVerifier}
-			if protocol == config.ConnectionChatGPT {
-				credential, err = auth.CompleteOpenAIBrowserFlow(ctx, s.oauthOptions, session, req.GetCallbackInput())
-			} else {
-				credential, err = auth.CompleteGrokBrowserFlow(ctx, s.oauthOptions.HTTPClient, session, req.GetCallbackInput())
-			}
+			credential, err = auth.CompleteOpenAIBrowserFlow(ctx, s.oauthOptions, session, req.GetCallbackInput())
 		case authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE:
 			device := req.Continuation.GetDevice()
 			if device == nil || device.PollIntervalSeconds <= 0 || device.PollIntervalSeconds > int64((1<<63-1)/time.Second) {

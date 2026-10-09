@@ -15,6 +15,7 @@ const (
 	onboardingScreenInput   onboardingScreenKind = "input"
 	onboardingScreenMulti   onboardingScreenKind = "multi"
 	onboardingScreenLoading onboardingScreenKind = "loading"
+	onboardingScreenPending onboardingScreenKind = "pending"
 )
 
 type onboardingOption struct {

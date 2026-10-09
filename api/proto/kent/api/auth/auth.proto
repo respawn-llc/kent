@@ -22,7 +22,6 @@ message BootstrapCallbackTransport {
   string bind_address = 1 [(buf.validate.field).string.min_len = 1];
   string redirect_host = 2 [(buf.validate.field).string.min_len = 1];
   string callback_path = 3 [(buf.validate.field).string.min_len = 1];
-  optional string allowed_origin = 4 [(buf.validate.field).string.min_len = 1];
 }
 
 message BootstrapStatus {

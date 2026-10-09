@@ -16,6 +16,7 @@ import (
 )
 
 type stubAuthBootstrapClient struct {
+	protocol      *authpb.ConnectionProtocol
 	status        *authpb.BootstrapStatus
 	completeReq   *authpb.CompleteBootstrapRequest
 	completeCalls int
@@ -27,8 +28,11 @@ func (c *stubAuthBootstrapClient) GetBootstrapStatus(context.Context, *authpb.Ge
 	return c.status, nil
 }
 
-func (*stubAuthBootstrapClient) StartBootstrap(_ context.Context, req *authpb.StartBootstrapRequest) (*authpb.BootstrapStart, error) {
+func (c *stubAuthBootstrapClient) StartBootstrap(_ context.Context, req *authpb.StartBootstrapRequest) (*authpb.BootstrapStart, error) {
 	result := &authpb.BootstrapStart{Continuation: &authpb.BootstrapContinuation{Protocol: authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT}}
+	if c.protocol != nil {
+		result.Continuation.Protocol = *c.protocol
+	}
 	if req.Mode == authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE {
 		result.Instructions = &authpb.BootstrapStart_Device{Device: &authpb.BootstrapDeviceInstructions{VerificationUrl: "https://provider.example/device", UserCode: "CODE-1"}}
 		result.Continuation.Grant = &authpb.BootstrapContinuation_Device{Device: &authpb.DeviceBootstrapContinuation{Code: "device-1", UserCode: "CODE-1", PollIntervalSeconds: 1}}
@@ -154,11 +158,31 @@ func (l *stubOAuthCallbackListener) Close() error {
 
 func TestRemoteAuthBootstrapForwardsDeviceContinuation(t *testing.T) {
 	useStartupTestTerminal(t)
+	for _, protocol := range []authpb.ConnectionProtocol{
+		authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT,
+		authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_CLI_PROXY,
+		authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_OAUTH_API,
+	} {
+		t.Run(protocol.String(), func(t *testing.T) {
+			testRemoteDeviceContinuation(t, protocol)
+		})
+	}
+}
+
+func testRemoteDeviceContinuation(t *testing.T, protocol authpb.ConnectionProtocol) {
 	remote := &stubAuthBootstrapClient{status: &authpb.BootstrapStatus{
 		AuthRequired:   true,
 		SupportedModes: []authpb.BootstrapMode{authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE},
-	}}
+	}, protocol: &protocol}
+	opened := false
 	interactor := &interactiveAuthInteractor{
+		openBrowser: func(value string) error {
+			opened = true
+			if value != "https://provider.example/device" {
+				t.Fatalf("device verification URL changed: %q", value)
+			}
+			return nil
+		},
 		pickMethod: func(authInteraction) (authMethodPickerResult, error) {
 			return authMethodPickerResult{Choice: authMethodChoiceDevice}, nil
 		},
@@ -171,6 +195,9 @@ func TestRemoteAuthBootstrapForwardsDeviceContinuation(t *testing.T) {
 	if request.Mode != authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE ||
 		request.GetContinuation().GetDevice().GetCode() != "device-1" {
 		t.Fatalf("unexpected completion request: %+v", request)
+	}
+	if opened != (protocol != authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT) {
+		t.Fatalf("automatic browser launch = %v for %v", opened, protocol)
 	}
 }
 

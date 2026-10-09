@@ -27,6 +27,15 @@ func (s *remoteAppServer) EnsureConnectionSetup(ctx context.Context) error {
 }
 
 func (s *remoteAppServer) manageConnections(ctx context.Context, catalog *authpb.ConnectionCatalog) error {
+	for {
+		err := s.manageConnectionSelection(ctx, catalog)
+		if !errors.Is(err, ErrAuthBack) {
+			return err
+		}
+	}
+}
+
+func (s *remoteAppServer) manageConnectionSelection(ctx context.Context, catalog *authpb.ConnectionCatalog) error {
 	selectedTheme := s.PresentationTheme()
 	var workspace *string
 	if s.connection.WorkspaceRoot != "" {
@@ -60,7 +69,7 @@ func (s *remoteAppServer) manageConnections(ctx context.Context, catalog *authpb
 		err = runConnectionForm(ctx, model, func() error {
 			selected = protoapi.ConnectionToProto(form.id, form.definition)
 			if form.definition.Protocol.IsSubscription() {
-				return signInConnection(ctx, s.remote, selectedTheme, &authpb.ConnectionTarget{Target: &authpb.ConnectionTarget_AddConnection{AddConnection: selected}}, false)
+				return signInConnection(ctx, s.remote, selectedTheme, &authpb.ConnectionTarget{Target: &authpb.ConnectionTarget_AddConnection{AddConnection: selected}}, false, form.authenticationMethod())
 			}
 			_, err = runConnectionOperation(ctx, selectedTheme, func() (*emptypb.Empty, error) {
 				return s.remote.ConfigureConnection(ctx, &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_Add{Add: selected}})
@@ -87,7 +96,7 @@ func (s *remoteAppServer) manageConnections(ctx context.Context, catalog *authpb
 		}
 		switch connectionTemplateFor(definition) {
 		case connectionTemplateSubscription, connectionTemplateGrokSubscription:
-			err = signInConnection(ctx, s.remote, selectedTheme, protoapi.ExistingConnectionTarget(id), true)
+			err = signInConnection(ctx, s.remote, selectedTheme, protoapi.ExistingConnectionTarget(id), true, nil)
 		case connectionTemplateAPI, connectionTemplateOpenAIAPI, connectionTemplateGrokAPI:
 			err = editConnectionReference(ctx, s.remote, selectedTheme, id, definition)
 		case connectionTemplateAnonymous:

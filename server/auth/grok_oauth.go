@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"core/server/httpcompression"
-	"core/shared/config"
 )
 
 const (
@@ -22,7 +21,6 @@ const (
 
 type grokDiscovery struct {
 	Issuer                      string `json:"issuer"`
-	AuthorizationEndpoint       string `json:"authorization_endpoint"`
 	TokenEndpoint               string `json:"token_endpoint"`
 	DeviceAuthorizationEndpoint string `json:"device_authorization_endpoint"`
 }
@@ -58,7 +56,7 @@ func discoverGrokOAuth(ctx context.Context, client *http.Client) (grokDiscovery,
 	if discovery.Issuer != grokOAuthIssuer {
 		return grokDiscovery{}, errors.New("Grok OAuth discovery returned an unexpected issuer")
 	}
-	for _, endpoint := range []string{discovery.AuthorizationEndpoint, discovery.TokenEndpoint, discovery.DeviceAuthorizationEndpoint} {
+	for _, endpoint := range []string{discovery.TokenEndpoint, discovery.DeviceAuthorizationEndpoint} {
 		u, err := url.Parse(endpoint)
 		if err != nil || u.Scheme != "https" || u.Host == "" {
 			return grokDiscovery{}, errors.New("Grok OAuth discovery requires absolute HTTPS endpoints")
@@ -139,51 +137,4 @@ func grokCredential(token oauthTokenResponse, method OAuthMethod) (OAuthMethod, 
 	}
 	method.Expiry = expiry
 	return method, nil
-}
-
-func BeginGrokBrowserFlow(ctx context.Context, client *http.Client, redirectURI string) (BrowserAuthSession, error) {
-	if err := ValidateCallbackRedirect(config.ConnectionGrokCLIProxy, redirectURI); err != nil {
-		return BrowserAuthSession{}, err
-	}
-	discovery, err := discoverGrokOAuth(ctx, grokOAuthHTTPClient(client))
-	if err != nil {
-		return BrowserAuthSession{}, err
-	}
-	session, values, err := newPKCEBrowserSession(redirectURI)
-	if err != nil {
-		return BrowserAuthSession{}, err
-	}
-	nonce, err := randomBase64URL(24)
-	if err != nil {
-		return BrowserAuthSession{}, err
-	}
-	values.Set("client_id", grokOAuthClientID)
-	values.Set("scope", grokOAuthScopes)
-	values.Set("nonce", nonce)
-	values.Set("referrer", config.Command)
-	session.AuthorizeURL = discovery.AuthorizationEndpoint + "?" + values.Encode()
-	return session, nil
-}
-
-func CompleteGrokBrowserFlow(ctx context.Context, client *http.Client, session BrowserAuthSession, callbackInput string) (OAuthMethod, error) {
-	if err := ValidateCallbackRedirect(config.ConnectionGrokCLIProxy, session.RedirectURI); err != nil {
-		return OAuthMethod{}, err
-	}
-	callback, err := validateBrowserCallback(session, callbackInput)
-	if err != nil {
-		return OAuthMethod{}, err
-	}
-	client = grokOAuthHTTPClient(client)
-	discovery, err := discoverGrokOAuth(ctx, client)
-	if err != nil {
-		return OAuthMethod{}, err
-	}
-	token, err := grokOAuthTokenRequest(ctx, client, discovery.TokenEndpoint, url.Values{
-		"grant_type": {"authorization_code"}, "code": {callback.Code},
-		"redirect_uri": {session.RedirectURI}, "code_verifier": {session.CodeVerifier},
-	})
-	if err != nil {
-		return OAuthMethod{}, err
-	}
-	return grokCredential(token, OAuthMethod{})
 }
