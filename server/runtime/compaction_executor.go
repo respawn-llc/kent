@@ -134,6 +134,7 @@ func (e *Engine) compactWithContextRepairRetry(
 }
 
 func (e *Engine) compactWithRetry(ctx context.Context, stepID string, client *observedModelClient, request llm.CompactionRequest) (llm.CompactionResponse, error) {
+	request = client.prepareCompaction(request)
 	observed, err := e.prepareCacheObservedRequest(
 		stepID,
 		request,

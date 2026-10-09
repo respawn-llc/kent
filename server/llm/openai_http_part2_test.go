@@ -483,9 +483,16 @@ func TestCompactRequestUsesSelectedProtocol(t *testing.T) {
 			}
 
 			resp, err := transport.Compact(context.Background(), ResponsesRequest{
-				Model:          "gpt-6-sol",
-				SessionID:      textutil.Value("test-session"),
-				ToolChoiceMode: ToolChoiceModeAutomatic,
+				Model:                   "gpt-6-sol",
+				SessionID:               textutil.Value("test-session"),
+				PromptCacheKey:          "session-cache-key",
+				FastMode:                true,
+				SystemPrompt:            "system instructions",
+				ReasoningEffort:         "high",
+				SupportsReasoningEffort: true,
+				Temperature:             0.4,
+				MaxTokens:               128,
+				ToolChoiceMode:          ToolChoiceModeAutomatic,
 				Items: PrepareResponsesInputItems([]ResponseItem{
 					{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value("u1")},
 				}),
@@ -517,6 +524,11 @@ func TestCompactRequestUsesSelectedProtocol(t *testing.T) {
 				t.Fatal("compaction omitted provider usage evidence")
 			}
 			if standard {
+				if captured["prompt_cache_key"] != "session-cache-key" || captured["service_tier"] != "priority" ||
+					captured["instructions"] != "system instructions" || captured["max_output_tokens"] != float64(128) ||
+					captured["temperature"] != 0.4 || captured["tools"] != nil || captured["context_management"] != nil {
+					t.Fatalf("standard compaction controls changed: %+v", captured)
+				}
 				if _, present := captured["stream"]; present {
 					t.Fatal("standard compaction must not stream")
 				}

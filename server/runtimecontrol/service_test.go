@@ -1007,6 +1007,10 @@ func (c *runtimeControlFakeClient) Generate(context.Context, llm.Request, llm.St
 	return resp, nil
 }
 
+func (c *runtimeControlFakeClient) PrepareCompaction(request llm.CompactionRequest) llm.CompactionRequest {
+	return request
+}
+
 func (c *runtimeControlFakeClient) Compact(context.Context, llm.CompactionRequest) (llm.CompactionResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

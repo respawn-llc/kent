@@ -57,6 +57,10 @@ func (c *Client) Generate(ctx context.Context, req llm.Request, callbacks llm.St
 	return outcome.Response, err
 }
 
+func (c *Client) PrepareCompaction(request llm.CompactionRequest) llm.CompactionRequest {
+	return request
+}
+
 func (c *Client) GenerateOutcome(
 	ctx context.Context,
 	req llm.Request,

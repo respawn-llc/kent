@@ -4,16 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"core/internal/testharness/httpclient"
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/config"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
@@ -267,6 +273,124 @@ func TestMalformedRemoteCompactionCombinesRemoteAndLocalOverflowRepairFacts(t *t
 }
 
 func TestRemoteCompactionInheritsEffectiveFastMode(t *testing.T) {
+	t.Run("OpenAI", testRemoteCompactionInheritsEffectiveFastMode)
+	for _, protocol := range []config.ConnectionProtocol{config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI, config.ConnectionGrokAPIKey} {
+		t.Run(string(protocol), func(t *testing.T) {
+			testGrokCompactionCacheDispatch(t, protocol)
+		})
+	}
+}
+
+type capturingCompactionClient struct {
+	llm.Client
+	llm.CompactionClient
+	llm.ProviderCapabilitiesClient
+	request llm.CompactionRequest
+}
+
+func (c *capturingCompactionClient) Compact(ctx context.Context, request llm.CompactionRequest) (llm.CompactionResponse, error) {
+	c.request = request
+	return c.CompactionClient.Compact(ctx, request)
+}
+
+func testGrokCompactionCacheDispatch(t *testing.T, protocol config.ConnectionProtocol) {
+	var wire struct {
+		Input        []json.RawMessage `json:"input"`
+		Tools        json.RawMessage   `json:"tools"`
+		CacheKey     string            `json:"prompt_cache_key"`
+		Tier         string            `json:"service_tier"`
+		Instructions string            `json:"instructions"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/responses/compact" {
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&wire); err != nil {
+			t.Error(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"output":[{"type":"compaction","encrypted_content":"opaque"}],"usage":{"input_tokens":10,"output_tokens":2}}`)
+	}))
+	defer server.Close()
+	definition := config.ProviderConnection{Protocol: protocol}
+	if protocol == config.ConnectionGrokAPIKey {
+		definition.EnvironmentVariable = textutil.Value("GROK_KEY")
+	}
+	registration, err := llm.ResolveConnectionVariant(definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := llm.NewProviderClient(llm.ProviderClientOptions{
+		Registration: registration, Auth: transportStaticAuth{},
+		HTTPClient:          &http.Client{Transport: httpclient.NewURLRewriteTransport(target, server.Client().Transport, "")},
+		ContextWindowTokens: 256_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &capturingCompactionClient{Client: provider, CompactionClient: provider.(llm.CompactionClient), ProviderCapabilitiesClient: provider.(llm.ProviderCapabilitiesClient)}
+	store := mustCreateTestSession(t)
+	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{
+		ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand},
+	}), Config{
+		Model: "grok-4.7", ThinkingLevel: "high", CompactionMode: "native", FastModeEnabled: true,
+		EnabledTools: []toolspec.ID{toolspec.ToolExecCommand},
+	})
+	if err := steerTestActiveStep(engine, "input", steerMessagesWithPersistenceIntent(
+		steeringPriorityNormal, steeringMessageEventNone, true,
+		[]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("compact")}},
+	)); err != nil {
+		t.Fatal(err)
+	}
+	scheduleManualCompactionAndWait(t, engine)
+	if len(client.request.Tools) != 0 || len(wire.Tools) != 0 || wire.CacheKey != engine.SessionID() ||
+		wire.Tier != "priority" || wire.Instructions != client.request.SystemPrompt || wire.Instructions == "" ||
+		len(wire.Input) != len(client.request.Items) {
+		t.Fatalf("observed/dispatch request mismatch: observed tools=%d wire tools=%s key=%q tier=%q observed items=%d wire items=%d",
+			len(client.request.Tools), wire.Tools, wire.CacheKey, wire.Tier, len(client.request.Items), len(wire.Input))
+	}
+	for index, item := range client.request.Items {
+		var observed, dispatched any
+		if err := json.Unmarshal(item.Raw, &observed); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(wire.Input[index], &dispatched); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(observed, dispatched) {
+			t.Fatalf("wire input %d differs from observed item", index)
+		}
+	}
+	if client.request.Items[0].Role == nil || *client.request.Items[0].Role != llm.RoleSystem {
+		t.Fatal("compaction input omitted system prompt")
+	}
+	expected, err := summarizePromptCacheRequest(client.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	window, err := mustMaterializeTestEventLog(t, store).ReadRecentRecords(32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, event := range window.Records {
+		if record, ok := mustSessionEventPayload(event).(session.CacheRequestObservationRecord); ok {
+			found = true
+			if record.TerminalHash != expected.terminalHash || record.CacheKey != wire.CacheKey || record.ChunkCount != expected.chunkCount {
+				t.Fatalf("cache observation differs from dispatch: %+v", record)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("missing compaction cache observation")
+	}
+}
+
+func testRemoteCompactionInheritsEffectiveFastMode(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{
 		compactionResponses: []llm.CompactionResponse{remoteCompactionReplacement(1_000, 100, 2_500)},

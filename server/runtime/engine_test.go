@@ -186,6 +186,10 @@ func (f *fakeCompactionClient) Generate(_ context.Context, req llm.Request, _ ll
 	return resp, nil
 }
 
+func (f *fakeCompactionClient) PrepareCompaction(request llm.CompactionRequest) llm.CompactionRequest {
+	return request
+}
+
 func (f *fakeCompactionClient) Compact(_ context.Context, req llm.CompactionRequest) (llm.CompactionResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

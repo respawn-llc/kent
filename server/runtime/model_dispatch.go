@@ -21,6 +21,7 @@ func (e *cacheObservationDispatchError) Unwrap() error {
 }
 
 type observedModelClient struct {
+	prepareCompaction    func(llm.CompactionRequest) llm.CompactionRequest
 	generate             func(context.Context, cacheObservedRequest, llm.StreamCallbacks, func()) (llm.Response, error)
 	compact              func(context.Context, cacheObservedRequest, func()) (llm.CompactionResponse, error)
 	providerCapabilities func(context.Context) (llm.ProviderCapabilities, error)
@@ -46,6 +47,7 @@ func newObservedModelClient(client llm.Client) *observedModelClient {
 		},
 	}
 	if compactor, ok := client.(llm.CompactionClient); ok {
+		observed.prepareCompaction = compactor.PrepareCompaction
 		observed.compact = func(ctx context.Context, request cacheObservedRequest, onProviderReturn func()) (llm.CompactionResponse, error) {
 			response, err := compactor.Compact(ctx, request.request)
 			if onProviderReturn != nil {

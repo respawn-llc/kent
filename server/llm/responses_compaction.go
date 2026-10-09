@@ -8,26 +8,50 @@ import (
 
 	"core/shared/textutil"
 
-	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
 )
 
-func (t *HTTPTransport) compactStandardResponses(ctx context.Context, request ResponsesRequest, preparation responsesDispatchPreparation, windowTokens int) (ResponsesCompactionResponse, error) {
-	if err := validateRetainedConnectionContext(request.Items, preparation.providerCaps); err != nil {
-		return ResponsesCompactionResponse{}, err
+func (t *HTTPTransport) PrepareCompaction(request CompactionRequest) CompactionRequest {
+	if t.registration.Variant.RemoteCompactionProtocol != remoteCompactionStandardResponses {
+		return request
 	}
-	input, err := buildResponsesInput(request.Items)
+	request.Tools = nil
+	request.EnableNativeWebSearch = false
+	request.ToolChoiceMode = ToolChoiceModeAutomatic
+	if request.SystemPrompt != "" {
+		prefix := PrepareResponsesInputItems(ItemsFromMessages([]Message{{
+			Role: RoleSystem, Content: textutil.Value(request.SystemPrompt),
+		}}))
+		request.Items = append(prefix, request.Items...)
+	}
+	return request
+}
+
+func (t *HTTPTransport) compactStandardResponses(ctx context.Context, request ResponsesRequest, preparation responsesDispatchPreparation, windowTokens int) (ResponsesCompactionResponse, error) {
+	// The standard SDK DTO is narrower than Grok's accepted request envelope.
+	// Keep the shared policy's non-tool controls as SDK extension fields.
+	generation, err := t.buildPayload(request, preparation.mode, preparation.providerCaps)
 	if err != nil {
 		return ResponsesCompactionResponse{}, err
 	}
-	payload := responses.ResponseCompactParams{
-		Model: responses.ResponseCompactParamsModel(request.Model),
-		Input: responses.ResponseCompactParamsInputUnion{OfResponseInputItemArray: input},
+	raw, err := json.Marshal(generation)
+	if err != nil {
+		return ResponsesCompactionResponse{}, err
 	}
-	if request.SystemPrompt != "" {
-		payload.Instructions = openai.String(request.SystemPrompt)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return ResponsesCompactionResponse{}, err
 	}
+	delete(fields, "tools")
+	delete(fields, "tool_choice")
+	delete(fields, "parallel_tool_calls")
+	payload := responses.ResponseCompactParams{}
+	extras := make(map[string]any, len(fields))
+	for name, value := range fields {
+		extras[name] = value
+	}
+	payload.SetExtraFields(extras)
 	service := responses.NewResponseService(
 		option.WithBaseURL(t.serviceBaseURL()),
 		option.WithHTTPClient(t.Client), option.WithMaxRetries(0),

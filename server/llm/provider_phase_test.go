@@ -168,6 +168,10 @@ type providerPhaseProjectionTransport struct {
 	response ResponsesResponse
 }
 
+func (providerPhaseProjectionTransport) PrepareCompaction(request CompactionRequest) CompactionRequest {
+	return request
+}
+
 func (t providerPhaseProjectionTransport) Generate(context.Context, ResponsesRequest, StreamCallbacks) (ResponsesResponse, error) {
 	return t.response, nil
 }
