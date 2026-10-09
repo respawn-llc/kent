@@ -335,7 +335,13 @@ func ResolveSessionChatSettings(meta session.Meta, current config.Settings) (ses
 	if supervisor := strings.TrimSpace(current.Reviewer.Frequency); supervisor != "" {
 		currentOverrides.Supervisor = &supervisor
 	}
-	if thinking := llm.ProviderThinkingEffort(current.Model, strings.TrimSpace(current.ThinkingLevel)); thinking != "" {
+	thinking := llm.ProviderThinkingEffort(current.Model, strings.TrimSpace(current.ThinkingLevel))
+	if meta.ChatSettings == nil || meta.ChatSettings.Thinking == nil {
+		if err := llm.ValidateModelReasoningEffort(current.Model, thinking); err != nil {
+			return session.ChatSettings{}, err
+		}
+	}
+	if thinking != "" {
 		currentOverrides.Thinking = &thinking
 	}
 	return session.ResolveEffectiveChatSettings(
