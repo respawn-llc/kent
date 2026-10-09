@@ -1,5 +1,7 @@
 package llm
 
+// Arithmetic adapted from Grok Build 2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8.
+// Copyright 2023–2026 SpaceXAI, Apache-2.0; see third_party/grok-build.
 type GrokTokenEstimator struct{}
 
 func (GrokTokenEstimator) EstimateText(text string) int {

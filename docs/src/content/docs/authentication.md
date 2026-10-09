@@ -5,13 +5,15 @@ description: Use subscriptions, API keys, and local models with Kent.
 
 ## Choose how to access models
 
-A connection gives Kent access to a model provider. Keep separate connections for your ChatGPT subscription, an API account, or a local model server, then choose which one each agent uses.
+A connection gives Kent access to a model provider. Keep separate connections for subscriptions, API accounts, and local model servers, then choose which one each agent uses.
 
-- **ChatGPT subscription:** sign in with your ChatGPT account.
-- **API key:** use OpenAI or another provider that supports the OpenAI Responses API.
-- **Local models:** connect to a Responses-compatible server such as omlx, with auth-less access when the server permits it.
+- **OpenAI:** ChatGPT subscription or API key.
+- **Grok:** subscription or xAI API key.
+- **Generic:** Responses-compatible API key or no auth, including local servers such as omlx.
 
 Run `kent` for first-time setup. Use `/login` to add a connection or update an existing sign-in or API-key reference. `/logout` opens the same connection manager and keeps saved credentials.
+
+OpenAI and Grok subscription sign-in offer browser and device authorization. Browser sign-in also accepts pasted callback input. Each named connection keeps its own credentials.
 
 ## Subscription usage
 
@@ -35,6 +37,22 @@ A background service reads this file independently of your terminal shell. A var
 
 Kent can start without an `.env` file. If you create one, it must be readable by its owner, private to that owner, and valid dotenv. Referenced provider-key variables are excluded from agent shell processes.
 
+The OpenAI and Grok API-key choices use their official endpoints. Choose Generic to supply a different Responses endpoint.
+
+## Grok models and subscription routes
+
+Grok connections default to `grok-4.7` with `high` thinking. The supervisor inherits the primary model unless explicitly configured. Saved sessions and explicit role settings keep their selected models.
+
+Kent's built-in catalog includes `grok-4.6` and `grok-4.7`. The subscription proxy uses a 256,000-token context setting for `grok-4.7`, with 500,000 available as the larger choice. Its `grok-4.6` context limit is unknown. Public API connections use 500,000 tokens for both models.
+
+Both catalogued models offer `low`, `medium`, `high`, and `xhigh` thinking, vision, reasoning summaries, and native web search. Fast mode requests priority processing with the same model. Verbosity settings do not affect Grok requests. Native compaction uses the selected connection's `/responses/compact` endpoint. Subscription-proxy compaction is experimental pending live verification.
+
+Custom thinking accepts manual values for any model. Kent rejects unsupported efforts for catalogued models when sending a request. For uncatalogued models, the provider validates the custom value. Across providers, Disable is available only for models whose supported efforts include `none`. Native web search is incompatible with manually entered `grok-4.5`.
+
+Subscription setup creates `grok-cli-proxy`. Public API OAuth is an experimental, configuration-only alternative: set the connection's `protocol` to `grok-oauth-api`, then reopen or resume the session. Requests already running keep their original route. Switching routes requires an explicit configuration edit. Public API OAuth inference is not live-verified.
+
+Expired or invalid sign-in requires `/login`. A subscription or spending-limit rejection requires resolving the account's entitlement or credits with xAI, rather than signing in again. A protocol-version rejection requires updating Kent.
+
 ## Configure connections and roles
 
 Declare connections in the global `config.toml`. Workspace settings, agent roles, and the supervisor can select them by name:
@@ -50,6 +68,13 @@ protocol = "responses"
 endpoint = "https://api.openai.com/v1"
 environment_variable = "MY_PROVIDER_KEY"
 
+[connections.grok]
+protocol = "grok-cli-proxy"
+
+[connections.xai]
+protocol = "grok-api-key"
+environment_variable = "XAI_API_KEY"
+
 [connections.local]
 protocol = "responses"
 endpoint = "http://127.0.0.1:8000/v1"
@@ -63,6 +88,8 @@ connection = "api"
 ```
 
 The API-key variable is optional for `responses` connections. Omit it for an auth-less endpoint. Choose a model that the selected provider offers. See [Configuration](../config/) for model settings and precedence.
+
+Grok protocols use fixed endpoints: `grok-cli-proxy` uses `https://cli-chat-proxy.grok.com/v1`, while `grok-oauth-api` and `grok-api-key` use `https://api.x.ai/v1`. Omit `endpoint` for these protocols. Only `grok-api-key` accepts and requires `environment_variable`.
 
 ## Updating an older configuration
 
