@@ -12,6 +12,41 @@ import (
 	"core/shared/config"
 )
 
+func TestGrokConnectionRouteIsIndependentOfCapabilities(t *testing.T) {
+	for protocol, endpoint := range map[config.ConnectionProtocol]string{
+		"grok-cli-proxy": "https://cli-chat-proxy.grok.com/v1",
+		"grok-oauth-api": "https://api.x.ai/v1",
+		"grok-api-key":   "https://api.x.ai/v1",
+	} {
+		t.Run(string(protocol), func(t *testing.T) {
+			connection := config.ProviderConnection{
+				Protocol: protocol,
+				Capabilities: config.ProviderCapabilitiesOverride{
+					ProviderID: "chatgpt-codex", SupportsResponsesAPI: true,
+				},
+			}
+			if protocol == "grok-api-key" {
+				connection.EnvironmentVariable = openaiTestOptionalString("GROK_KEY")
+			}
+			if err := connection.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			selected, err := ResolveConnectionVariant(connection)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if selected.Provider != ProviderGrok || selected.Variant.ProviderID != string(protocol) ||
+				selected.Variant.BaseURL == nil || *selected.Variant.BaseURL != endpoint {
+				t.Fatalf("selected transport = %+v", selected)
+			}
+			caps, err := ResolveConnectionCapabilities(connection)
+			if err != nil || caps.ProviderID != "chatgpt-codex" {
+				t.Fatalf("request capability override = %+v, %v", caps, err)
+			}
+		})
+	}
+}
+
 func TestConnectionCapabilitiesPreserveLockedRequestContract(t *testing.T) {
 	id := config.ConnectionID("local")
 	settings := config.Settings{

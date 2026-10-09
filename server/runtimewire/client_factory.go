@@ -60,16 +60,22 @@ func NewRuntimeClient(ctx context.Context, factory RuntimeClientFactory, request
 	}
 	active := request.ActiveSettings
 	connection := request.Connection
+	selected, err := llm.ResolveConnectionVariant(connection.Definition)
+	if err != nil {
+		return nil, err
+	}
 	endpoint := ""
 	if connection.Definition.Endpoint != nil {
 		endpoint = *connection.Definition.Endpoint
+	} else if selected.Variant.BaseURL != nil {
+		endpoint = *selected.Variant.BaseURL
 	}
 	capabilities, err := llm.ResolveConnectionCapabilities(connection.Definition)
 	if err != nil {
 		return nil, err
 	}
 	return llm.NewProviderClient(llm.ProviderClientOptions{
-		Provider: llm.ProviderOpenAI, Model: active.Model, Auth: connection.Auth,
+		Provider: selected.Provider, Variant: &selected.Variant, Model: active.Model, Auth: connection.Auth,
 		HTTPClient:    llm.NewProviderHTTPClient(endpoint, time.Duration(active.Timeouts.ModelRequestSeconds)*time.Second),
 		OpenAIBaseURL: endpoint, ModelVerbosity: string(active.ModelVerbosity),
 		ProviderIdentifier: &active.ProviderIdentifier, Store: active.Store,

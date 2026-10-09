@@ -62,6 +62,7 @@ type HTTPTransport struct {
 	Client                       *http.Client
 	Auth                         DispatchAuthProvider
 	Provider                     Provider
+	Variant                      *ProviderVariantContract
 	Store                        bool
 	ModelVerbosity               string
 	ContextWindowTokens          int

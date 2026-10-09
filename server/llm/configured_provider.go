@@ -34,10 +34,11 @@ func ResolveRuntimeProviderCapabilities(settings config.Settings) (ProviderCapab
 }
 
 func ResolveConnectionCapabilities(connection config.ProviderConnection) (ProviderCapabilities, error) {
-	variant, err := resolveConnectionVariant(connection)
+	selected, err := ResolveConnectionVariant(connection)
 	if err != nil {
 		return ProviderCapabilities{}, err
 	}
+	variant := selected.Variant
 	caps := variant.Capabilities
 	if override, ok := ProviderCapabilitiesFromOverride(connection.Capabilities); ok {
 		caps = override
@@ -47,26 +48,42 @@ func ResolveConnectionCapabilities(connection config.ProviderConnection) (Provid
 }
 
 func ResolveConnectionTokenEstimator(connection config.ProviderConnection) (TokenEstimator, error) {
-	variant, err := resolveConnectionVariant(connection)
+	selected, err := ResolveConnectionVariant(connection)
 	if err != nil {
 		return nil, err
 	}
+	variant := selected.Variant
 	if variant.TokenEstimator != nil {
 		return variant.TokenEstimator, nil
 	}
 	return DefaultTokenEstimator{}, nil
 }
 
-func resolveConnectionVariant(connection config.ProviderConnection) (ProviderVariantContract, error) {
+func ResolveConnectionVariant(connection config.ProviderConnection) (ProviderVariantRegistration, error) {
+	if err := connection.Validate(); err != nil {
+		return ProviderVariantRegistration{}, err
+	}
+	switch connection.Protocol {
+	case config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI, config.ConnectionGrokAPIKey:
+		registration, ok := lookupProviderVariantContract(string(connection.Protocol))
+		if !ok {
+			return ProviderVariantRegistration{}, fmt.Errorf("unregistered connection protocol %q", connection.Protocol)
+		}
+		return registration, nil
+	}
 	rawURL := ""
 	if connection.Endpoint != nil {
 		rawURL = *connection.Endpoint
 	}
 	endpoint, err := newProviderTransportEndpoint(rawURL, connection.Endpoint != nil)
 	if err != nil {
-		return ProviderVariantContract{}, err
+		return ProviderVariantRegistration{}, err
 	}
-	return resolveRuntimeTransportVariant(ProviderOpenAI, endpoint, OpenAIAuthMode{IsOAuth: connection.Protocol == config.ConnectionChatGPT})
+	variant, err := resolveRuntimeTransportVariant(ProviderOpenAI, endpoint, OpenAIAuthMode{IsOAuth: connection.Protocol == config.ConnectionChatGPT})
+	if err != nil {
+		return ProviderVariantRegistration{}, err
+	}
+	return ProviderVariantRegistration{Provider: ProviderOpenAI, Variant: variant}, nil
 }
 
 func newProviderTransportEndpoint(rawURL string, explicit bool) (ProviderTransportEndpoint, error) {

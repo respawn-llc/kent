@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"core/server/httpcompression"
+	"core/shared/config"
+	"core/shared/textutil"
 )
 
 var ErrUnsupportedProvider = errors.New("unsupported llm provider")
@@ -18,11 +20,13 @@ type Provider string
 const (
 	ProviderOpenAI    Provider = "openai"
 	ProviderAnthropic Provider = "anthropic"
+	ProviderGrok      Provider = "grok"
 )
 
 type ProviderClientOptions struct {
 	Provider Provider
 	Model    string
+	Variant  *ProviderVariantContract
 
 	Auth                         DispatchAuthProvider
 	HTTPClient                   *http.Client
@@ -50,6 +54,7 @@ type ProviderTransportVariantResolver func(endpoint ProviderTransportEndpoint, m
 
 type ProviderVariantContract struct {
 	ProviderID               string
+	BaseURL                  *string
 	TokenEstimator           TokenEstimator
 	RequestCompression       httpcompression.RequestContentCoding
 	Capabilities             ProviderCapabilities
@@ -73,7 +78,7 @@ type ProviderContract struct {
 	ModelContracts          []ModelCapabilityContract
 }
 
-type providerVariantRegistration struct {
+type ProviderVariantRegistration struct {
 	Provider Provider
 	Variant  ProviderVariantContract
 }
@@ -85,7 +90,7 @@ type modelCapabilityRegistration struct {
 
 type providerRegistry struct {
 	contractsByProvider  map[Provider]ProviderContract
-	providerVariantsByID map[string]providerVariantRegistration
+	providerVariantsByID map[string]ProviderVariantRegistration
 	modelContractsByName map[string]modelCapabilityRegistration
 	modelContracts       []ModelCapabilityContract
 	modelMatchers        []ProviderContract
@@ -95,6 +100,18 @@ var globalProviderRegistry = mustBuildProviderRegistry(providerContracts())
 
 func providerContracts() []ProviderContract {
 	return []ProviderContract{
+		{
+			Provider: ProviderGrok,
+			MatchModel: func(model string) bool {
+				return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "grok-")
+			},
+			NewClient: newResponsesProviderClient,
+			ProviderVariants: []ProviderVariantContract{
+				grokVariant(config.ConnectionGrokCLIProxy, "https://cli-chat-proxy.grok.com/v1"),
+				grokVariant(config.ConnectionGrokOAuthAPI, "https://api.x.ai/v1"),
+				grokVariant(config.ConnectionGrokAPIKey, "https://api.x.ai/v1"),
+			},
+		},
 		{
 			Provider: ProviderAnthropic,
 			MatchModel: func(model string) bool {
@@ -195,6 +212,20 @@ func providerContracts() []ProviderContract {
 	}
 }
 
+func grokVariant(protocol config.ConnectionProtocol, endpoint string) ProviderVariantContract {
+	id := string(protocol)
+	return ProviderVariantContract{
+		ProviderID: id, BaseURL: textutil.Value(endpoint),
+		RequestCompression: httpcompression.ContentCodingIdentity,
+		Capabilities: ProviderCapabilities{
+			ProviderID: id, SupportsResponsesAPI: true, SupportsReasoningEncrypted: true,
+			SupportsPromptCacheKey: true, SupportsFastMode: true,
+			SupportsResponsesCompact: true, SupportsNativeWebSearch: true,
+		},
+		NewErrorReducer: newOpenAICompatibleErrorReducer,
+	}
+}
+
 func gpt6ModelContract(model string, cutoff time.Month, efforts []string) ModelCapabilityContract {
 	return ModelCapabilityContract{
 		Model:                         model,
@@ -216,7 +247,7 @@ func gpt6ModelContract(model string, cutoff time.Month, efforts []string) ModelC
 func mustBuildProviderRegistry(contracts []ProviderContract) providerRegistry {
 	registry := providerRegistry{
 		contractsByProvider:  make(map[Provider]ProviderContract, len(contracts)),
-		providerVariantsByID: make(map[string]providerVariantRegistration),
+		providerVariantsByID: make(map[string]ProviderVariantRegistration),
 		modelContractsByName: make(map[string]modelCapabilityRegistration),
 		modelMatchers:        make([]ProviderContract, 0, len(contracts)),
 	}
@@ -257,7 +288,7 @@ func mustBuildProviderRegistry(contracts []ProviderContract) providerRegistry {
 			if _, exists := registry.providerVariantsByID[normalizedID]; exists {
 				panic(fmt.Sprintf("duplicate provider variant registration for provider_id %q", normalizedID))
 			}
-			registry.providerVariantsByID[normalizedID] = providerVariantRegistration{Provider: contract.Provider, Variant: variant}
+			registry.providerVariantsByID[normalizedID] = ProviderVariantRegistration{Provider: contract.Provider, Variant: variant}
 		}
 
 		for _, modelContract := range contract.ModelContracts {
@@ -284,7 +315,7 @@ func newUnsupportedProviderClientFactory(provider Provider) ProviderClientFactor
 
 func newResponsesProviderClient(opts ProviderClientOptions) (Client, error) {
 	if opts.Auth == nil {
-		return nil, fmt.Errorf("openai auth provider is required")
+		return nil, fmt.Errorf("Responses auth provider is required")
 	}
 	transport, err := newResponsesHTTPTransport(opts)
 	if err != nil {
@@ -295,6 +326,7 @@ func newResponsesProviderClient(opts ProviderClientOptions) (Client, error) {
 
 func newResponsesHTTPTransport(opts ProviderClientOptions) (*HTTPTransport, error) {
 	transport := NewHTTPTransport(opts.Auth)
+	transport.Variant = opts.Variant
 	if opts.Provider != "" {
 		transport.Provider = opts.Provider
 	}

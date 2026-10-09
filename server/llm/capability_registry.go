@@ -46,10 +46,10 @@ func (c ModelCapabilityContract) ContextMetadata(provider ProviderCapabilities) 
 	}
 }
 
-func lookupProviderVariantContract(providerID string) (providerVariantRegistration, bool) {
+func lookupProviderVariantContract(providerID string) (ProviderVariantRegistration, bool) {
 	key := strings.ToLower(strings.TrimSpace(providerID))
 	if key == "" {
-		return providerVariantRegistration{}, false
+		return ProviderVariantRegistration{}, false
 	}
 	registration, ok := globalProviderRegistry.providerVariantsByID[key]
 	return registration, ok

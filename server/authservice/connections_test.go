@@ -19,6 +19,61 @@ import (
 	"core/shared/textutil"
 )
 
+func TestGrokConnectionCredentialIsolation(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := auth.NewMemoryStore(auth.EmptyState())
+	manager := auth.NewManager(store, nil)
+	for _, protocol := range []config.ConnectionProtocol{config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI, config.ConnectionGrokAPIKey} {
+		id := config.ConnectionID(protocol)
+		definition := config.ProviderConnection{Protocol: protocol, Capabilities: config.ProviderCapabilitiesOverride{
+			ProviderID: "chatgpt-codex", SupportsResponsesAPI: true,
+		}}
+		if protocol == config.ConnectionGrokAPIKey {
+			definition.EnvironmentVariable = textutil.Value("SELECTED_GROK_KEY")
+		}
+		if err := config.AddProviderConnection(filepath.Join(root, "config.toml"), id, definition); err != nil {
+			t.Fatal(err)
+		}
+		if err := manager.SaveOAuth(t.Context(), id, auth.OAuthMethod{AccessToken: string(id), AccountID: "must-not-send-chatgpt-account"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := NewConnectionResolver(root, manager, func(name string) (string, bool) {
+		if name != "SELECTED_GROK_KEY" {
+			t.Fatalf("read unrelated credential %q", name)
+		}
+		return "selected-api-key", true
+	})
+	for id := range app.Settings.Connections {
+		t.Run(string(id), func(t *testing.T) {
+			settings := app.Settings
+			settings.Connection = &id
+			connection, err := resolver.Resolve(settings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			credential, err := connection.Auth.ResolveDispatchAuth(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected := string(id)
+			if id == config.ConnectionID(config.ConnectionGrokAPIKey) {
+				expected = "selected-api-key"
+			}
+			if credential == nil || credential.Header != "Bearer "+expected || credential.Mode.AccountID != "" {
+				t.Fatalf("wrong selected credential: %+v", credential)
+			}
+		})
+	}
+}
+
 func TestConnectionDispatchCredentialIsolation(t *testing.T) {
 	root := t.TempDir()
 	body := `

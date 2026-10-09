@@ -20,6 +20,9 @@ func requestCompressionOption(variant ProviderVariantContract) option.RequestOpt
 }
 
 func (t *HTTPTransport) serviceBaseURL(mode OpenAIAuthMode) string {
+	if t.Variant != nil && t.Variant.BaseURL != nil {
+		return *t.Variant.BaseURL
+	}
 	if mode.IsOAuth && !t.BaseURLExplicit {
 		return strings.TrimSuffix(codexResponsesEndpoint, "/responses")
 	}
@@ -99,6 +102,9 @@ func (t *HTTPTransport) resolveContextWindowFallback(ctx context.Context, model 
 }
 
 func (t *HTTPTransport) providerVariantForMode(mode OpenAIAuthMode) (ProviderVariantContract, error) {
+	if t.Variant != nil {
+		return *t.Variant, nil
+	}
 	provider := t.Provider
 	if provider == "" {
 		provider = ProviderOpenAI
