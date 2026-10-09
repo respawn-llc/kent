@@ -2,6 +2,9 @@
 
 ## Authority, Connection, And Shared Behavior
 
+- Read-only filesystem paths projected from structured data are home-relative when inside the user's home directory. This applies to labels, tooltips, execution-target facts, approvals, and image-tool labels. Editable path fields, clipboard values, and action/link targets retain their canonical values.
+- Model-visible arbitrary text, conversation bodies, errors, and diagnostics are not path-rewritten. Patch labels preserve absolute paths supplied by the model exactly; general environment CWD and Session rebind target-directory context remain absolute.
+
 - All surface elevations use the shared global shadow styles in light and dark themes. Shadows must provide soft, low-contrast separation with diffuse edges. Individual screens use those shared styles rather than defining their own shadow treatments.
 
 - Desktop must buffer at most 1,000 pending events per discrete shell observation: notification activation, file drops, Project deletion, attention events, and navigation history. When an observation reaches this limit, production Desktop must drop each incoming overflow event, log it, and continue observing. Debug Desktop must surface a fatal UI error instead of a retryable status. The native process and browser may stay open after this error. Desktop must not replay dropped events. Overflow must not change server-owned work.

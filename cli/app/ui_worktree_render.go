@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"core/cli/app/internal/worktreeui"
+	"core/cli/internal/pathdisplay"
 	tuiinput "core/cli/tui/input"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	sharedtheme "core/shared/theme"
@@ -140,7 +141,7 @@ func renderWorktreeEntry(item worktreeui.Item, selected bool, width int, theme s
 	title := truncateQueuedMessageLine(worktreeui.DisplayName(item), max(1, width-2))
 	badges := renderWorktreeBadges(item, selected, theme)
 	line1 := worktreeOverlayComposeTitleLine(railStyle.Render(rail), title, titleStyle, badges, width, line)
-	path := metaStyle.Render(truncateQueuedMessageLine(strings.TrimSpace(item.CanonicalRoot), max(1, width-2)))
+	path := metaStyle.Render(truncateQueuedMessageLine(pathdisplay.Home(strings.TrimSpace(item.CanonicalRoot)), max(1, width-2)))
 	line2 := worktreeOverlayPadLine([]string{railStyle.Render(rail), line.Render(" "), path}, width, line)
 	return []string{
 		line1,
@@ -274,8 +275,8 @@ func (l uiViewLayout) renderWorktreeCreateDialog(width, height int, style uiStyl
 		if dialog.setupEvent != nil &&
 			dialog.setupEvent.GetStarted() != nil {
 			footer = append(footer,
-				style.meta.Render(truncateQueuedMessageLine("Setup script: "+dialog.setupEvent.GetStarted().ScriptPath, width)),
-				style.meta.Render(truncateQueuedMessageLine("Setup worktree: "+dialog.setupEvent.GetStarted().WorktreeRoot, width)),
+				style.meta.Render(truncateQueuedMessageLine("Setup script: "+pathdisplay.Home(dialog.setupEvent.GetStarted().ScriptPath), width)),
+				style.meta.Render(truncateQueuedMessageLine("Setup worktree: "+pathdisplay.Home(dialog.setupEvent.GetStarted().WorktreeRoot), width)),
 			)
 		}
 	}
@@ -387,7 +388,9 @@ func (l uiViewLayout) renderWorktreeDeleteDialog(width, height int, style uiStyl
 		style.brand.Render(truncateQueuedMessageLine("Delete "+worktreeui.DisplayName(dialog.target)+"?", width)),
 		"",
 	}
-	body := worktreeui.PreviewLines(dialog.target, dialog.selectedAction)
+	displayTarget := dialog.target
+	displayTarget.CanonicalRoot = pathdisplay.Home(displayTarget.CanonicalRoot)
+	body := worktreeui.PreviewLines(displayTarget, dialog.selectedAction)
 	for _, line := range body {
 		lineStyle := style.chat
 		switch line.Kind {

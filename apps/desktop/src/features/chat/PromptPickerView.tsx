@@ -12,6 +12,7 @@ import {
   Spinner,
   StaticMarkdown,
 } from "@/ui";
+import { usePathFormatter } from "@/app-facade";
 import { pickerBatch, sameSelection, type PickerAction, type PickerState } from "./promptPickerState";
 import { pickerOptions } from "./promptPickerPresentation";
 import { promptPickerKeyboard } from "./promptPickerKeyboard";
@@ -147,7 +148,8 @@ function pickerNavigationTooltip(disabled: boolean, materializing: boolean) {
 }
 
 function PromptQuestion({ prompt }: Readonly<{ prompt: PendingPrompt }>) {
+  const formatPath = usePathFormatter();
   if (prompt.kind === "approval" && prompt.accessTargets.length > 0)
-    return <PromptAccessTargets targets={prompt.accessTargets} />;
+    return <PromptAccessTargets targets={prompt.accessTargets} formatPath={formatPath} />;
   return prompt.question === null ? null : <StaticMarkdown value={prompt.question} />;
 }

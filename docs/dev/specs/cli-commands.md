@@ -2,6 +2,8 @@
 
 ## General Contracts
 
+- Human-readable list output collapses filesystem-path columns using the shared path collapser. Single-item output, suggested executable commands, errors, diagnostics, and JSON output retain canonical or explicitly supplied paths.
+
 - The CLI provides complete control of Kent's supported command surfaces for operators and agents.
 - CLI command grouping is not a compatibility contract. Documented behavior, accepted data, and machine-readable output are compatibility contracts.
 - CLI output includes stable identifiers needed by later commands.

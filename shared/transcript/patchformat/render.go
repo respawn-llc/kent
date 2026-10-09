@@ -417,6 +417,7 @@ func resolvePath(path, cwd string) Path {
 	var absolute string
 	if filepath.IsAbs(p) {
 		absolute = filepath.Clean(p)
+		return Path{Absolute: filepath.ToSlash(absolute), Relative: p}
 	} else if cwd != "" {
 		absolute = filepath.Clean(filepath.Join(cwd, p))
 	} else {
@@ -424,9 +425,6 @@ func resolvePath(path, cwd string) Path {
 	}
 	absolute = filepath.ToSlash(absolute)
 	if cwd == "" {
-		if filepath.IsAbs(p) {
-			return Path{Absolute: absolute, Relative: absolute}
-		}
 		return Path{
 			Absolute: absolute,
 			Relative: "./" + filepath.ToSlash(strings.TrimPrefix(p, "./")),

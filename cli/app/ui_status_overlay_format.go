@@ -1,9 +1,9 @@
 package app
 
 import (
+	"core/cli/internal/pathdisplay"
 	sharedtheme "core/shared/theme"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -180,25 +180,9 @@ func statusDisplayPath(path, workdir string) string {
 		return "<unknown>"
 	}
 	if work := filepath.ToSlash(strings.TrimSpace(workdir)); work != "" {
-		if trimmed == work {
-			return trimmed
-		}
-		if strings.HasPrefix(trimmed, work+"/") {
-			return "." + strings.TrimPrefix(trimmed, work)
-		}
+		return pathdisplay.Compact(trimmed, work)
 	}
-	if home, err := os.UserHomeDir(); err == nil {
-		home = filepath.ToSlash(strings.TrimSpace(home))
-		if home != "" {
-			if trimmed == home {
-				return "~"
-			}
-			if strings.HasPrefix(trimmed, home+"/") {
-				return "~" + strings.TrimPrefix(trimmed, home)
-			}
-		}
-	}
-	return trimmed
+	return pathdisplay.Home(trimmed)
 }
 
 func statusValueOrFallback(value, fallback string) string {

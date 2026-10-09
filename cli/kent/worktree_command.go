@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"core/cli/internal/pathdisplay"
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
@@ -158,15 +159,19 @@ func writeWorktreeList(stdout io.Writer, worktrees []*worktreepb.ListEntry, show
 			fmt.Fprintln(stdout, err)
 			continue
 		}
+		selector := entry.GetProjection().GetSelector()
+		if filepath.IsAbs(selector) {
+			selector = pathdisplay.Home(selector)
+		}
 		if !showCurrent {
-			fmt.Fprintf(stdout, "%s\t%s\n", entry.GetProjection().GetSelector(), variant)
+			fmt.Fprintf(stdout, "%s\t%s\n", selector, variant)
 			continue
 		}
 		current := " "
 		if entry.GetProjection().GetIsCurrent() {
 			current = "*"
 		}
-		fmt.Fprintf(stdout, "%s %s\t%s\n", current, entry.GetProjection().GetSelector(), variant)
+		fmt.Fprintf(stdout, "%s %s\t%s\n", current, selector, variant)
 	}
 }
 

@@ -2,6 +2,9 @@
 
 ## Authority And Client Boundaries
 
+- New Worktree entry, exit, startup, and post-compaction reminders collapse their CWD relative to home. General environment CWD and Session rebind target-directory context remain absolute. Existing conversation content is never rewritten to apply path presentation.
+- Patch presentation retains an absolute path supplied by the model exactly as its display label while resolving its canonical filesystem target separately. Image-tool clients collapse structured path labels without changing tool arguments, persisted results, or model-visible arbitrary text. Errors and diagnostics may retain absolute paths.
+
 - Kent does not virtualize or sandbox command execution. Isolation requires running Kent on a remote machine or in Docker.
 - The server is the single authority for tool calls, session and other durable data, agent execution, and provider communication. CLI and GUI clients control and observe that authority; they do not own parallel local state or execution.
 - Client presence and connection lifecycle are transport-only and are never server-work authority. Connecting, disconnecting, canceling or closing a client request, reconnecting, changing subscriber count, navigating away, or closing a UI may stop that client's observation or delivery only; it never starts, stops, pauses, cancels, retries, replays, duplicates, authorizes, or otherwise changes server-owned work. The detached Session archive lifetime defined by the [CLI Commands](cli-commands.md) specification is the sole exception. Server event publication never depends on subscriber count.
