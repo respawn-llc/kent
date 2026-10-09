@@ -301,17 +301,16 @@ func streamReplay(parentLog MaterializedEventLog, version int, appendBatch func(
 			switch boundary := payload.(type) {
 			case HistoryReplacementRecord:
 				if !preserveNativeUpdates {
-					items := make([]ProviderHistoryItem, 0, len(boundary.Items))
-					for _, item := range boundary.Items {
-						if item.Type != ProviderHistoryItemTypeConfigurationUpdate {
-							items = append(items, item)
+					for _, segment := range []*[]ProviderHistoryItem{&boundary.Items, &boundary.Continuation} {
+						var items []ProviderHistoryItem
+						for _, item := range *segment {
+							if item.Type != ProviderHistoryItemTypeConfigurationUpdate {
+								items = append(items, item)
+							}
 						}
+						*segment = items
 					}
-					boundary.Items = items
 				}
-				boundary.LatestRollbackCandidate = candidate
-				payload = boundary
-			case WorkflowCompactionRecord:
 				boundary.LatestRollbackCandidate = candidate
 				payload = boundary
 			}
@@ -602,7 +601,7 @@ func (d *replayDerivedState) apply(record EventRecord) error {
 		if isCompactionSoonReminderMessage(payload) {
 			d.reminderIssued = true
 		}
-	case HistoryReplacementRecord, WorkflowCompactionRecord:
+	case HistoryReplacementRecord:
 		d.reminderIssued = false
 	}
 	return nil

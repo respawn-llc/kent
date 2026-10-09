@@ -329,6 +329,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 ## Compaction
 
 - Compaction starts a new bounded active conversation from compacted output while retaining the full durable session history. The compacted output and all new generation context are committed atomically before later model work.
+- All compaction triggers must share one context-replacement operation. Preparing a saved summary for its next operation must not run compaction again, increment the completed-compaction count, or repeat compaction completion feedback.
 - `compaction_mode=dynamic` must be the default when configuration does not explicitly select a mode. Explicit `local`, `native`, and `none` selections must retain their behavior.
 - Dynamic compaction must ask the model which carryover-summary sections are relevant, assemble the handoff prompt from the selected section templates, and generate the resulting sectioned carryover.
 - Dynamic sections must be sections of the handoff summary, not separate persistent note files.

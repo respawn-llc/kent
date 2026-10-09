@@ -193,10 +193,6 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 			CacheWarning:        copyCacheWarning(&warning),
 			CommittedProvenance: &provenance,
 		})
-	case session.WorkflowCompactionRecord:
-		s.closeTurn()
-		s.scan.MarkCompactionBoundary()
-		s.lastCommittedAssistantFinalAnswer = textutil.Pointer(payload.LastCommittedAssistantFinalAnswer)
 	case session.HistoryReplacementRecord:
 		s.closeTurn()
 		replacement, err := historyReplacementPayloadFromSessionRecord(payload)

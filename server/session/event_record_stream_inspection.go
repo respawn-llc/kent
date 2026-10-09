@@ -150,7 +150,7 @@ func inspectContextBoundaryRecordStream(reader io.Reader, kind EventKind) error 
 	var mode CompactionMode
 	var compactionNumber, committedEntryStart *int
 	var latestRollbackCandidate *rollbacktarget.CandidateLocator
-	summaryPresent := false
+	var outputPresent, summaryPresent, itemsPresent, continuationPresent bool
 	if err := inspectEventRecordObject(decoder, inspectionReader, func(
 		decoder *jx.Decoder,
 		field string,
@@ -209,21 +209,44 @@ func inspectContextBoundaryRecordStream(reader io.Reader, kind EventKind) error 
 					return err
 				}
 				latestRollbackCandidate = value
-			case "summary":
-				if kind != EventKindWorkflowCompaction {
+			case "compacted_output":
+				if decoder.Next() == jx.Null {
+					outputPresent = false
+					summaryPresent = false
 					return decoder.Skip()
 				}
-				summaryPresent = false
+				outputPresent = true
+				return inspectEventRecordObject(decoder, inspectionReader, func(decoder *jx.Decoder, field string) error {
+					switch field {
+					case "summary":
+						summaryPresent = false
+						if decoder.Next() == jx.Null {
+							return decoder.Skip()
+						}
+						return decoder.Arr(func(decoder *jx.Decoder) error {
+							summaryPresent = true
+							return decoder.Skip()
+						})
+					case "running_shells":
+						return inspectOptionalEventRecordType(decoder, jx.Array, field)
+					case "preserved_user_message", "future_agent_message":
+						return inspectOptionalEventRecordType(decoder, jx.Object, field)
+					default:
+						return decoder.Skip()
+					}
+				})
+			case "items", "continuation":
+				if field == "items" {
+					itemsPresent = decoder.Next() != jx.Null
+				} else {
+					continuationPresent = decoder.Next() != jx.Null
+				}
+				if decoder.Next() == jx.Null {
+					return decoder.Skip()
+				}
 				return decoder.Arr(func(decoder *jx.Decoder) error {
-					summaryPresent = true
 					return decoder.Skip()
 				})
-			case "running_shells":
-				return inspectOptionalEventRecordType(decoder, jx.Array, field)
-			case "preserved_user_message":
-				return inspectOptionalEventRecordType(decoder, jx.Object, field)
-			case "items":
-				return inspectOptionalEventRecordType(decoder, jx.Array, field)
 			default:
 				return decoder.Skip()
 			}
@@ -238,32 +261,22 @@ func inspectContextBoundaryRecordStream(reader io.Reader, kind EventKind) error 
 	if !payloadPresent {
 		return errors.New("context boundary payload is required")
 	}
-	switch kind {
-	case EventKindHistoryReplace:
-		if _, err := normalizeHistoryReplacementRecord(HistoryReplacementRecord{
-			Engine: string(engine), Mode: mode, CompactionNumber: compactionNumber,
-			CommittedEntryStart: committedEntryStart, LatestRollbackCandidate: latestRollbackCandidate,
-		}); err != nil {
-			return fmt.Errorf("validate history replacement payload: %w", err)
-		}
-	case EventKindWorkflowCompaction:
-		if _, err := normalizeCompactionEngine(engine); err != nil {
-			return err
-		}
-		if compactionNumber == nil || *compactionNumber <= 0 {
-			return errors.New("workflow compaction number must be positive")
-		}
-		if committedEntryStart == nil || *committedEntryStart < 0 {
-			return errors.New("workflow committed entry start must be nonnegative")
-		}
-		if !summaryPresent {
-			return errors.New("workflow compaction summary is required")
-		}
-		if _, err := normalizeRollbackCandidate(latestRollbackCandidate); err != nil {
-			return err
-		}
-	default:
+	if kind != EventKindHistoryReplace {
 		return fmt.Errorf("unsupported context boundary %q", kind)
+	}
+	if _, err := normalizeHistoryReplacementRecord(HistoryReplacementRecord{
+		Engine: string(engine), Mode: mode, CompactionNumber: compactionNumber,
+		CommittedEntryStart: committedEntryStart, LatestRollbackCandidate: latestRollbackCandidate,
+	}); err != nil {
+		return fmt.Errorf("validate history replacement payload: %w", err)
+	}
+	if outputPresent {
+		if itemsPresent || continuationPresent {
+			return errors.New("history replacement cannot contain both prepared history and compacted output")
+		}
+		if compactionNumber == nil || committedEntryStart == nil || !summaryPresent {
+			return errors.New("compacted output requires boundary facts and a nonempty summary")
+		}
 	}
 	return nil
 }

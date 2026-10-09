@@ -121,10 +121,11 @@ func TestWorkflowPostCompletionCompactionDefersGenerationContextUntilNextRequest
 	var checkpoint *llm.ResponseItem
 	foundSummary := false
 	for _, record := range window.Records {
-		summary, ok := mustSessionEventPayload(record).(session.WorkflowCompactionRecord)
-		if !ok {
+		replacement, ok := mustSessionEventPayload(record).(session.HistoryReplacementRecord)
+		if !ok || replacement.CompactedOutput == nil {
 			continue
 		}
+		summary := replacement.CompactedOutput
 		foundSummary = true
 		if len(summary.Summary) != 1 {
 			t.Fatal("native compaction must preserve one checkpoint")
@@ -491,6 +492,84 @@ func TestWorkflowPostCompletionBoundarySurvivesFailedWorkflowRequest(t *testing.
 	}
 }
 
+func TestPendingCompactionRetainsDormantGoalNoticeAcrossPreparation(t *testing.T) {
+	t.Parallel()
+	goalNotices := func(engine *Engine) []TranscriptCommittedRowFact {
+		var notices []TranscriptCommittedRowFact
+		page := mustEngineNewestSegmentPage(t, engine)
+		for {
+			for _, fact := range TranscriptCommittedRowFactsFromSnapshot(page.Snapshot) {
+				if fact.Notice != nil && fact.Notice.MessageType == llm.MessageTypeGoal {
+					notices = append(notices, fact)
+				}
+			}
+			if !page.HasMoreAbove {
+				return notices
+			}
+			page = mustEngineSegmentPage(t, engine, page.OlderCursor)
+		}
+	}
+	store := mustCreateTestSession(t)
+	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{
+		remoteCompactionReplacement(1_000, 100, 200_000),
+	}}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
+	if receipt, err := engine.CompactContextForWorkflowPostCompletion(t.Context()); err != nil || !receipt.Committed {
+		t.Fatalf("save completed compaction: %+v, %v", receipt, err)
+	}
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+	dormant := mustOpenTestSession(t, store.Dir())
+	if receipt, err := SteerPersistedGoalNotice(dormant, GoalNoticeClear, nil); err != nil || !receipt.Committed {
+		t.Fatalf("clear dormant Goal: %+v, %v", receipt, err)
+	}
+	var deliveredGoalNotices int
+	target := mustNewTestEngine(t, dormant, &fakeClient{}, tools.NewRegistry(), Config{
+		Model: "gpt-6-sol", OnEvent: func(event Event) {
+			for _, fact := range TranscriptCommittedRowFactsFromEvent(event) {
+				if fact.Notice != nil && fact.Notice.MessageType == llm.MessageTypeGoal {
+					deliveredGoalNotices++
+				}
+			}
+		},
+	})
+	before := goalNotices(target)
+	if len(before) != 1 {
+		t.Fatalf("dormant Goal notices = %d, want one", len(before))
+	}
+	if !target.WorkflowContinuationCompactionRequired() {
+		t.Fatal("dormant Goal mutation did not consume the prior CAC boundary")
+	}
+	request, err := PrepareInspectionRequest(t.Context(), target, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deliveredGoalNotices != 0 {
+		t.Error("generation preparation redelivered an already-visible Goal notice")
+	}
+	if got := goalNotices(target); !reflect.DeepEqual(got, before) {
+		t.Errorf("generation preparation changed the original Goal transcript row: got=%+v want=%+v", got, before)
+	}
+	if err := target.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened := mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
+	if !reopened.WorkflowContinuationCompactionRequired() {
+		t.Error("reopening prepared generation resurrected a consumed CAC boundary")
+	}
+	if got := goalNotices(reopened); !reflect.DeepEqual(got, before) {
+		t.Errorf("reopening changed the original Goal transcript row: got=%+v want=%+v", got, before)
+	}
+	resumedRequest, err := PrepareInspectionRequest(t.Context(), reopened, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(request.Items, resumedRequest.Items) {
+		t.Error("reopening changed prepared model input")
+	}
+}
+
 func TestWorkflowContinuationPreservesBoundaryAcrossFailedCACAttempt(t *testing.T) {
 	t.Parallel()
 	requestErr := &llm.ProviderAPIError{
@@ -701,17 +780,13 @@ func TestWorkflowPostCompletionCompactionUsesLocalGenerateClient(t *testing.T) {
 func commitWorkflowPostCompletionTestSummary(t *testing.T, engine *Engine) {
 	t.Helper()
 	err := runTestActiveStep(engine, runtimeTestStepID("post-completion"), func() error {
-		record, err := engine.workflowCompactionRecord(compactionOutput{
-			engine: session.CompactionEngineLocal,
+		output := compactionOutput{
 			summary: llm.ItemsFromMessages([]llm.Message{{
 				Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
 				Content: textutil.Value("completed assignment"),
 			}}),
-		})
-		if err != nil {
-			return err
 		}
-		_, err = engine.steerWithCommitReceipt(runtimeTestStepID("post-completion"), steerWorkflowCompactionIntent(record))
+		_, err := newCompactionPersistence(engine).replaceHistory(runtimeTestStepID("post-completion"), string(session.CompactionEngineLocal), compactionModeWorkflowPostCompletion, output)
 		return err
 	})
 	if err != nil {
@@ -856,6 +931,8 @@ func TestWorkflowRequestAfterCompactionUsesOneCurrentAssignmentPrompt(t *testing
 		t.Run(test.name, func(t *testing.T) {
 			scopeID := runtimeids.NewExecutionScopeID()
 			currentBranchKey := workflow.TransitionBranchKey("review")
+			controller := &fakeWorkflowController{}
+			var completedCompactions, summaries int
 			client := &fakeCompactionClient{
 				compactionResponses: []llm.CompactionResponse{
 					remoteCompactionReplacement(1_000, 100, 200_000),
@@ -884,10 +961,19 @@ func TestWorkflowRequestAfterCompactionUsesOneCurrentAssignmentPrompt(t *testing
 						}},
 					},
 					CompletionMode: workflowruntime.CompletionModeTool,
-					Controller:     &externallyCompletedWorkflowController{},
+					Controller:     controller,
 					Instructions:   workflowruntime.TaskInstructions{CurrentNode: mustTestCurrentNodeReference(t, "task", "node", &currentBranchKey)},
 				},
-				Config{Model: "gpt-6-sol"},
+				Config{Model: "gpt-6-sol", OnEvent: func(event Event) {
+					if event.Kind == EventCompactionCompleted {
+						completedCompactions++
+					}
+					for _, fact := range TranscriptCommittedRowFactsFromEvent(event) {
+						if fact.Notice != nil && fact.Notice.MessageType == llm.MessageTypeCompactionSummary {
+							summaries++
+						}
+					}
+				}},
 			)
 			currentNodeIdentity := workflowruntime.CurrentNodePromptIdentity(
 				mustTestCurrentNodeReference(t, "task", "node", &currentBranchKey),
@@ -916,11 +1002,22 @@ func TestWorkflowRequestAfterCompactionUsesOneCurrentAssignmentPrompt(t *testing
 			if err := test.compact(context.Background(), engine); err != nil {
 				t.Fatalf("compact workflow context: %v", err)
 			}
+			if !test.existingCurrentNode && summaries != 0 {
+				t.Fatal("saved output displayed a summary before the next Agent started")
+			}
+			// A completed compaction must not repeat its lifecycle effects when
+			// the next assignment prepares its request.
+			controller.protocolBudgetResetErr = errors.New("compaction finalization is unavailable")
 			if _, err := engine.SubmitWorkflowTurn(context.Background()); err != nil {
 				t.Fatalf("submit workflow turn: %v", err)
 			}
 			if len(client.calls) != 1 {
 				t.Fatalf("post-compaction model calls = %d, want one", len(client.calls))
+			}
+			if completedCompactions != 1 || engine.CompactionCount() != 1 ||
+				len(client.compactionCalls) != 1 || summaries != 1 {
+				t.Fatalf("generation preparation repeated or omitted compaction: completions=%d count=%d requests=%d summaries=%d",
+					completedCompactions, engine.CompactionCount(), len(client.compactionCalls), summaries)
 			}
 
 			workflowModes := 0

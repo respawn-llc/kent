@@ -755,7 +755,6 @@ func (e *Engine) compactNowWithAcceptance(
 
 	compactionNumber := e.compactionRuntimeState().Count() + 1
 	output := compactionOutput{
-		engine:        session.CompactionEngine(result.engine),
 		summary:       result.items,
 		runningShells: e.compactionRunningShellReminder(),
 	}
@@ -773,19 +772,15 @@ func (e *Engine) compactNowWithAcceptance(
 	}
 	var replacementReceipt session.CommitReceipt
 	committed, replacementErr := runCommandAcceptance(accept, func() (bool, error) {
-		if mode == compactionModeWorkflowPostCompletion {
-			record, recordErr := e.workflowCompactionRecord(output)
-			if recordErr != nil {
-				return false, recordErr
-			}
-			replacementReceipt, err = e.steerWithCommitReceipt(stepID, steerWorkflowCompactionIntent(record))
-		} else {
+		var history compactionHistory = output
+		if mode != compactionModeWorkflowPostCompletion {
 			meta, metaErr := e.compactionReinjectedMetaContextProjection(ctx, mode)
 			if metaErr != nil {
 				return false, metaErr
 			}
-			replacementReceipt, err = persistence.replaceHistory(stepID, result.engine, mode, output.prepare(meta))
+			history = output.prepare(session.CompactionEngine(result.engine), meta)
 		}
+		replacementReceipt, err = persistence.replaceHistory(stepID, result.engine, mode, history)
 		return replacementReceipt.Committed, err
 	})
 	if accept != nil {
@@ -819,8 +814,8 @@ func (e *Engine) compactNowWithAcceptance(
 		windowTokens = e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())
 	}
 	inputTokens := llm.EstimateItemsTokens(e.cfg.TokenEstimator, e.transcriptRuntimeState().SnapshotItems())
-	if mode == compactionModeWorkflowPostCompletion {
-		inputTokens += output.estimateTokens(e.cfg.TokenEstimator)
+	if pending, ok := e.generationContext.(pendingGenerationContext); ok {
+		inputTokens += pending.replacement.Output.estimateTokens(e.cfg.TokenEstimator)
 	}
 	compactedUsage := llm.Usage{
 		InputTokens:  inputTokens,

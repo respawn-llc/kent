@@ -43,7 +43,6 @@ type steeringItem struct {
 	reviewerFeedback            *steeringReviewerFeedback
 	reviewerError               *steeringReviewerError
 	historyReplace              *steeringHistoryReplacement
-	workflowCompaction          *session.WorkflowCompactionRecord
 	toolCompletion              *tools.Result
 	resultGroupReport           *steeringResultGroupReport
 	resultGroupFlush            *steeringResultGroupFlush
@@ -143,8 +142,8 @@ type steeringCompletedResponseResolution struct {
 }
 
 type steeringHistoryReplacement struct {
-	payload          historyReplacementPayload
-	projectedEntries []ChatEntry
+	payload historyReplacementPayload
+	purpose session.HistoryReplacementPurpose
 }
 
 type steeringResultGroupReport struct {
@@ -285,28 +284,28 @@ func steerReviewerErrorIntent(detail string) steeringIntent {
 	return steeringIntent{priority: steeringPriorityNormal, items: []steeringItem{{reviewerError: &steeringReviewerError{detail: detail}}}}
 }
 
-func steerHistoryReplacementIntent(engine string, mode compactionMode, compactionNumber int, lastCommittedAssistantFinalAnswer *string, history preparedCompactionHistory) steeringIntent {
-	preparedItems := llm.PrepareOpenAIInputItems(history.items)
+func steerHistoryReplacementIntent(purpose session.HistoryReplacementPurpose, engine string, mode compactionMode, compactionNumber int, lastCommittedAssistantFinalAnswer *string, history compactionHistory) steeringIntent {
 	payload := historyReplacementPayload{
 		Engine:                            normalizeHistoryReplacementEngine(engine),
 		Mode:                              string(mode),
 		CompactionNumber:                  textutil.Value(compactionNumber),
 		LastCommittedAssistantFinalAnswer: textutil.Pointer(lastCommittedAssistantFinalAnswer),
-		Items:                             llm.CloneResponseItems(preparedItems),
+	}
+	switch history := history.(type) {
+	case preparedCompactionHistory:
+		payload.Items = llm.CloneResponseItems(llm.PrepareOpenAIInputItems(history.items))
+		payload.Continuation = llm.CloneResponseItems(llm.PrepareOpenAIInputItems(history.continuation))
+	case compactionOutput:
+		payload.Output = &history
+	default:
+		panic("unknown compaction history")
 	}
 	return steeringIntent{
 		priority: steeringPriorityNormal,
 		items: []steeringItem{{historyReplace: &steeringHistoryReplacement{
-			payload:          payload,
-			projectedEntries: transcriptEntriesFromHistoryReplacement(payload),
+			payload: payload,
+			purpose: purpose,
 		}}},
-	}
-}
-
-func steerWorkflowCompactionIntent(record session.WorkflowCompactionRecord) steeringIntent {
-	return steeringIntent{
-		priority: steeringPriorityNormal,
-		items:    []steeringItem{{workflowCompaction: &record}},
 	}
 }
 
@@ -709,7 +708,7 @@ func (e *Engine) steerOrderedRaw(provenance steeringProvenance, intents ...steer
 			if err := e.applySteeringItem(provenance, item); err != nil {
 				return err
 			}
-			if item.historyReplace == nil && item.workflowCompaction == nil {
+			if item.historyReplace == nil {
 				e.compactionRuntimeState().ApplyWorkflowPostCompletionActivity(
 					workflowPostCompletionActivityForSteeringItem(item),
 				)
@@ -1018,15 +1017,6 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 		item.recordCommitReceipt(receipt)
 		return err
 	}
-	if item.workflowCompaction != nil {
-		stepID, err := provenance.requireExactStepID()
-		if err != nil {
-			return err
-		}
-		receipt, err := e.persistWorkflowCompaction(stepID, *item.workflowCompaction)
-		item.recordCommitReceipt(receipt)
-		return err
-	}
 	if item.toolCompletion != nil {
 		stepID, exactErr := provenance.requireExactStepID()
 		if exactErr != nil {
@@ -1226,55 +1216,49 @@ func (item steeringItem) recordCommitReceipt(receipt session.CommitReceipt) {
 }
 
 func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryReplacement) (session.CommitReceipt, error) {
+	if replacement.purpose == session.HistoryReplacementPreparation {
+		pending, ok := e.generationContext.(pendingGenerationContext)
+		if !ok || replacement.payload.Output != nil ||
+			replacement.payload.CompactionNumber == nil ||
+			*replacement.payload.CompactionNumber != *pending.replacement.CompactionNumber {
+			return session.CommitReceipt{}, errors.New("generation preparation requires the current pending compaction")
+		}
+	}
 	projectedStart := e.CommittedTranscriptEntryCount()
 	replacement.payload.CommittedEntryStart = &projectedStart
-	preparedItems := llm.CloneResponseItems(replacement.payload.Items)
 	replacement.payload.LatestRollbackCandidate = e.transcriptRuntimeState().LatestRollbackCandidate()
 	record, adaptErr := sessionHistoryReplacementRecordFromRuntime(replacement.payload)
 	if adaptErr != nil {
 		return session.CommitReceipt{}, fmt.Errorf("adapt history replacement record: %w", adaptErr)
 	}
-	appended, receipt, appendErr := e.eventLog.AppendCompactionHistoryReplacement(
+	appended, receipt, appendErr := e.eventLog.AppendHistoryReplacement(
+		replacement.purpose,
 		textutil.OptionalExactString(stepID),
 		record,
 	)
 	if appendErr != nil && !receipt.Committed {
 		return receipt, appendErr
 	}
-	e.invalidateCompactedRuntime()
-	provenance, provenanceErr := transcriptProvenanceFromRecord(appended)
-	if provenanceErr != nil {
-		return receipt, errors.Join(appendErr, provenanceErr)
+	if replacement.purpose == session.HistoryReplacementCompaction {
+		e.invalidateCompactedRuntime()
 	}
-	for index := range replacement.projectedEntries {
-		replacement.projectedEntries[index].StepID = exactStepIDPointer(stepID)
+	entries, installErr := e.installHistoryReplacement(appended, replacement.payload, replacement.purpose)
+	if installErr != nil {
+		return receipt, errors.Join(appendErr, installErr)
 	}
-	replacement.projectedEntries = assignHistoryReplacementEntryProvenance(
-		replacement.projectedEntries,
-		&provenance,
-	)
-	e.generationContext = preparedGenerationContext{}
-	if replacement.payload.CompactionNumber != nil {
-		e.compactionRuntimeState().SetCount(*replacement.payload.CompactionNumber)
-	}
-	e.transcriptRuntimeState().ReplaceHistoryAtCommittedEntryStart(
-		exactStepIDPointer(stepID),
-		preparedItems,
-		&projectedStart,
-		replacement.projectedEntries,
-	)
-	replacementMode := session.CompactionMode(replacement.payload.Mode)
-	modeErr := e.compactionRuntimeState().SetHistoryReplacementMode(&replacementMode)
 	emitErr := e.emitProjectedHistoryReplacementEntriesRaw(
 		stepID,
 		projectedStart,
-		replacement.projectedEntries,
+		entries,
 	)
+	var finishErr error
+	if replacement.purpose == session.HistoryReplacementCompaction {
+		finishErr = e.finishCompactionCommit(stepID)
+	}
 	return receipt, errors.Join(
 		appendErr,
-		modeErr,
 		emitErr,
-		e.finishCompactionCommit(stepID),
+		finishErr,
 	)
 }
 

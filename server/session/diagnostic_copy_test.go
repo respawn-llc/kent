@@ -119,7 +119,7 @@ func TestDiagnosticSessionCopyContainsOnlyTheActiveEventSegment(t *testing.T) {
 	}); err != nil || !receipt.Committed {
 		t.Fatalf("append pre-compaction event = %+v, %v; want committed", receipt, err)
 	}
-	if _, receipt, err := persistedLog.AppendCompactionHistoryReplacement(
+	if _, receipt, err := persistedLog.AppendHistoryReplacement(HistoryReplacementCompaction,
 		nil,
 		HistoryReplacementRecord{Engine: "local", Mode: CompactionModeAuto},
 	); err != nil || !receipt.Committed {

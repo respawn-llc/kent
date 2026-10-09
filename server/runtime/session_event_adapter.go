@@ -509,14 +509,23 @@ func sessionHistoryReplacementRecordFromRuntime(
 		LatestRollbackCandidate:           textutil.Pointer(payload.LatestRollbackCandidate),
 	}
 	record.CompactionNumber = textutil.Pointer(payload.CompactionNumber)
-	if len(payload.Items) > 0 {
-		record.Items = make([]session.ProviderHistoryItem, 0, len(payload.Items))
-		for index, item := range payload.Items {
+	if payload.Output != nil {
+		output, err := compactedOutputRecord(*payload.Output)
+		if err != nil {
+			return session.HistoryReplacementRecord{}, err
+		}
+		record.CompactedOutput = &output
+	}
+	for _, segment := range []struct {
+		source []llm.ResponseItem
+		target *[]session.ProviderHistoryItem
+	}{{payload.Items, &record.Items}, {payload.Continuation, &record.Continuation}} {
+		for index, item := range segment.source {
 			historyItem, err := sessionProviderHistoryItemFromLLM(index, item)
 			if err != nil {
 				return session.HistoryReplacementRecord{}, err
 			}
-			record.Items = append(record.Items, historyItem)
+			*segment.target = append(*segment.target, historyItem)
 		}
 	}
 	normalized, err := session.NewEventRecord(1, nil, record)
@@ -546,10 +555,19 @@ func historyReplacementPayloadFromSessionRecord(
 		LatestRollbackCandidate:           textutil.Pointer(record.LatestRollbackCandidate),
 	}
 	payload.CompactionNumber = textutil.Pointer(record.CompactionNumber)
-	if len(record.Items) > 0 {
-		payload.Items = make([]llm.ResponseItem, 0, len(record.Items))
-		for _, item := range record.Items {
-			payload.Items = append(payload.Items, llmResponseItemFromSessionHistory(item))
+	if record.CompactedOutput != nil {
+		output, err := compactionOutputFromRecord(*record.CompactedOutput)
+		if err != nil {
+			return historyReplacementPayload{}, err
+		}
+		payload.Output = &output
+	}
+	for _, segment := range []struct {
+		source []session.ProviderHistoryItem
+		target *[]llm.ResponseItem
+	}{{record.Items, &payload.Items}, {record.Continuation, &payload.Continuation}} {
+		for _, item := range segment.source {
+			*segment.target = append(*segment.target, llmResponseItemFromSessionHistory(item))
 		}
 	}
 	return payload, nil
