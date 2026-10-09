@@ -162,6 +162,9 @@ func (f *connectionForm) steps() []onboardingStepDefinition {
 				return onboardingScreen{ID: connectionStepEnvironment, Kind: onboardingScreenInput, Title: "API-key environment variable", InputValue: value,
 					Body: newStartupMarkdownRendererWithWordWrap(state.selections.themeValue()).Render(connectionEnvironmentExplanation, defaultPickerWidth)}
 			}, apply: func(state *onboardingFlowState, value string) error {
+				if value == "" {
+					return errors.New("Enter the environment-variable name that holds your API key, not the API key itself.")
+				}
 				f.definition.EnvironmentVariable = &value
 				return finish(state)
 			}},
