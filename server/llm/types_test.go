@@ -17,14 +17,14 @@ func messageContent(message Message) string {
 }
 
 func TestRequestValidateRejectsMissingToolChoiceMode(t *testing.T) {
-	err := (Request{Model: "gpt-6-sol"}).Validate()
+	err := (Request{Model: "gpt-6-sol", ReasoningEffort: "high"}).Validate()
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("Validate() error = %v, want ErrInvalidRequest", err)
 	}
 }
 
 func TestRequestValidateRejectsUnknownToolChoiceMode(t *testing.T) {
-	err := (Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceMode("sometimes")}).Validate()
+	err := (Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceMode("sometimes"), ReasoningEffort: "high"}).Validate()
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("Validate() error = %v, want ErrInvalidRequest", err)
 	}
@@ -34,7 +34,7 @@ func TestRequestValidateAcceptsRequiredToolChoiceWithLocalTool(t *testing.T) {
 	err := (Request{
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeRequired,
-		Tools:          []Tool{{Name: "shell", Schema: mustTestFunctionSchema(t, struct{}{})}},
+		Tools:          []Tool{{Name: "shell", Schema: mustTestFunctionSchema(t, struct{}{})}}, ReasoningEffort: "high",
 	}).Validate()
 	if err != nil {
 		t.Fatalf("Validate() error = %v", err)
@@ -45,7 +45,7 @@ func TestRequestValidateRejectsUnpreparedFunctionSchema(t *testing.T) {
 	err := (Request{
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		Tools:          []Tool{{Name: "shell"}},
+		Tools:          []Tool{{Name: "shell"}}, ReasoningEffort: "high",
 	}).Validate()
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("Validate() error = %v, want ErrInvalidRequest", err)
@@ -56,7 +56,7 @@ func TestRequestValidateRejectsUnpreparedStructuredOutputSchema(t *testing.T) {
 	err := (Request{
 		Model:            "gpt-6-sol",
 		ToolChoiceMode:   ToolChoiceModeAutomatic,
-		StructuredOutput: &StructuredOutput{Name: "reviewer_suggestions"},
+		StructuredOutput: &StructuredOutput{Name: "reviewer_suggestions"}, ReasoningEffort: "high",
 	}).Validate()
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("Validate() error = %v, want ErrInvalidRequest", err)
@@ -67,7 +67,7 @@ func TestRequestValidateAcceptsRequiredToolChoiceWithHostedWebSearchOnly(t *test
 	err := (Request{
 		Model:                 "gpt-6-sol",
 		ToolChoiceMode:        ToolChoiceModeRequired,
-		EnableNativeWebSearch: true,
+		EnableNativeWebSearch: true, ReasoningEffort: "high",
 	}).Validate()
 	if err != nil {
 		t.Fatalf("Validate() error = %v", err)
@@ -75,7 +75,7 @@ func TestRequestValidateAcceptsRequiredToolChoiceWithHostedWebSearchOnly(t *test
 }
 
 func TestRequestValidateRejectsRequiredToolChoiceWithoutAdvertisedTools(t *testing.T) {
-	err := (Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeRequired}).Validate()
+	err := (Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeRequired, ReasoningEffort: "high"}).Validate()
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("Validate() error = %v, want ErrInvalidRequest", err)
 	}

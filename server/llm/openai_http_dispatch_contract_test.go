@@ -34,11 +34,11 @@ func (a *countingOAuthAuth) ResolveDispatchAuth(context.Context) (*DispatchAuth,
 func TestOpenAIDispatchRejectsInvalidSessionBeforeAuth(t *testing.T) {
 	methods := map[string]func(*HTTPTransport, *string) error{
 		"generate": func(transport *HTTPTransport, sessionID *string) error {
-			_, err := transport.Generate(context.Background(), ResponsesRequest{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: sessionID}, StreamCallbacks{})
+			_, err := transport.Generate(context.Background(), ResponsesRequest{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: sessionID, ReasoningEffort: "high"}, StreamCallbacks{})
 			return err
 		},
 		"compact": func(transport *HTTPTransport, sessionID *string) error {
-			_, err := transport.Compact(context.Background(), ResponsesRequest{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: sessionID})
+			_, err := transport.Compact(context.Background(), ResponsesRequest{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: sessionID, ReasoningEffort: "high"})
 			return err
 		},
 	}
@@ -118,7 +118,7 @@ func TestOAuthGenerateSendsCanonicalCodexIdentityAuthAndRoutingTiers(t *testing.
 		Model:          "gpt-5.6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		SessionID:      textutil.Value("session-1"),
-		CodexDispatch:  dispatch,
+		CodexDispatch:  dispatch, ReasoningEffort: "high",
 	}
 	_, err = transport.Generate(context.Background(), request, StreamCallbacks{})
 	if err != nil {
@@ -181,7 +181,7 @@ func TestOAuthExplicitCompatibleEndpointSendsCommonIdentityWithoutCodexMetadata(
 	if _, err := transport.Generate(context.Background(), ResponsesRequest{
 		Model:          "gpt-5.6-sol",
 		SessionID:      textutil.Value("session-1"),
-		ToolChoiceMode: ToolChoiceModeAutomatic,
+		ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, StreamCallbacks{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}

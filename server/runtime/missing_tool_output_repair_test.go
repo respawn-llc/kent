@@ -377,7 +377,7 @@ func TestCompactionMissingToolOutputRepairAppendsAndRetries(t *testing.T) {
 		Model:          "gpt-6-sol",
 		SessionID:      textutil.Value(store.Meta().SessionID),
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
-		Items:          eng.transcriptRuntimeState().SnapshotItems(),
+		Items:          eng.transcriptRuntimeState().SnapshotItems(), ReasoningEffort: "high",
 	}
 
 	restoreStep := setTestActiveStep(eng, "step")
@@ -425,7 +425,7 @@ func TestCompactionCheckpointContractErrorReturnsExactRepairedInput(t *testing.T
 	request := llm.CompactionRequest{
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
-		Items:          eng.transcriptRuntimeState().SnapshotItems(),
+		Items:          eng.transcriptRuntimeState().SnapshotItems(), ReasoningEffort: "high",
 	}
 	var sentInput []llm.ResponseItem
 	err := withActiveTestRun(t, eng, ActiveKindCompaction, func(ctx context.Context, stepID string) error {
@@ -575,7 +575,7 @@ func TestCompactionMissingOutputAfterCollapsePanics(t *testing.T) {
 		Model:          "gpt-6-sol",
 		SessionID:      textutil.Value(store.Meta().SessionID),
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
-		Items:          eng.transcriptRuntimeState().SnapshotItems(),
+		Items:          eng.transcriptRuntimeState().SnapshotItems(), ReasoningEffort: "high",
 	}
 
 	defer func() {

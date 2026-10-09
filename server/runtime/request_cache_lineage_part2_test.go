@@ -65,7 +65,7 @@ func testPromptCacheRequest(cacheKey string, messages ...string) llm.Request {
 		SystemPrompt:     "system",
 		PromptCacheKey:   cacheKey,
 		PromptCacheScope: transcript.CacheWarningScopeConversation,
-		Items:            items,
+		Items:            items, ReasoningEffort: "high",
 	}
 }
 

@@ -55,7 +55,7 @@ func TestGenerateWithRetryReplaysExactProviderTurnState(t *testing.T) {
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	_, err = engine.generateWithRetryClient(context.Background(), runtimeTestStepID("provider-turn-state"), newObservedModelClient(client), llm.Request{
 		Model: "gpt-6-sol", SessionID: textutil.Value("session-1"), CodexDispatch: dispatch,
-		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
+		ToolChoiceMode: llm.ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("generateWithRetryClient: %v", err)

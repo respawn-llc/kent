@@ -72,7 +72,7 @@ func providerUsageTestRequest(sessionID string, withPromptCache bool) llm.Reques
 	request := llm.Request{
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
-		Items:          llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("retain usage")}}),
+		Items:          llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("retain usage")}}), ReasoningEffort: "high",
 	}
 	if withPromptCache {
 		request.PromptCacheKey = sessionID

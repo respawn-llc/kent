@@ -36,7 +36,7 @@ func TestRequestAsResponsesClonesPreparedSchemaCarriers(t *testing.T) {
 		StructuredOutput: &StructuredOutput{
 			Name:   "reviewer_suggestions",
 			Schema: mustTestStructuredSchema(t, testReviewerStructuredOutput{}),
-		},
+		}, ReasoningEffort: "high",
 	}
 	projected := RequestAsResponses(request)
 	request.Tools[0].Name = "mutated"
@@ -56,7 +56,7 @@ func TestRequestAsResponsesClonesPreparedSchemaCarriers(t *testing.T) {
 
 func TestResponsesClientGenerateDoesNotReplayFinalTextAsDelta(t *testing.T) {
 	client := NewResponsesClient(streamingOnlyTransport{})
-	req := Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic}
+	req := Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"}
 
 	var deltas []string
 	resp, err := client.Generate(context.Background(), req, StreamCallbacks{
@@ -82,7 +82,7 @@ func TestResponsesClientGeneratePreservesFinalTextThatExtendsStreamWithWhitespac
 	var deltas []string
 	resp, err := client.Generate(
 		context.Background(),
-		Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic},
+		Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"},
 		StreamCallbacks{
 			OnAssistantDelta: func(delta AssistantDelta) {
 				deltas = append(deltas, delta.Text)
@@ -120,7 +120,7 @@ func (trailingWhitespaceStreamingTransport) Generate(
 
 func TestResponsesClientGenerateEmitsUnknownDeltaPhase(t *testing.T) {
 	client := NewResponsesClient(streamingOnlyTransport{})
-	req := Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic}
+	req := Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"}
 
 	var deltas []AssistantDelta
 	_, err := client.Generate(context.Background(), req, StreamCallbacks{

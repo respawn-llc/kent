@@ -139,7 +139,7 @@ func (grokResponsesPolicy) configurePayload(_ responsesRequestPayloadBuilder, re
 
 func ValidateModelReasoningEffort(model, effort string) error {
 	contract, known := LookupModelCapabilityContract(model)
-	if !known || effort == "" {
+	if !known || (!contract.SupportsReasoningEffort && effort == "") {
 		return nil
 	}
 	if slices.Contains(contract.SupportedReasoningEfforts, effort) {

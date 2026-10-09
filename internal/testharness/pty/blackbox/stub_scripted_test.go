@@ -509,7 +509,7 @@ func providerClientWithWindow(t *testing.T, stub *blackbox.ResponsesStub, window
 }
 
 func request(sessionID string, items []llm.ResponseItem) llm.Request {
-	return llm.Request{Model: "gpt-6-sol", SessionID: textutil.Value(sessionID), Items: items, ToolChoiceMode: llm.ToolChoiceModeAutomatic}
+	return llm.Request{Model: "gpt-6-sol", SessionID: textutil.Value(sessionID), Items: items, ToolChoiceMode: llm.ToolChoiceModeAutomatic, ReasoningEffort: "high"}
 }
 
 func generate(t *testing.T, client llm.Client, sessionID string, items []llm.ResponseItem) llm.Response {

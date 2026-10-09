@@ -151,7 +151,7 @@ endpoint = "https://compatible.example/v1"
 		transports[id] = transport
 	}
 	send := func(id config.ConnectionID) error {
-		request := llm.ResponsesRequest{Model: "gpt-6-sol", SessionID: textutil.Value(string(id)), ToolChoiceMode: llm.ToolChoiceModeAutomatic}
+		request := llm.ResponsesRequest{Model: "gpt-6-sol", SessionID: textutil.Value(string(id)), ToolChoiceMode: llm.ToolChoiceModeAutomatic, ReasoningEffort: "high"}
 		if id == "work" || id == "personal" {
 			var err error
 			request.CodexDispatch, err = llm.NewCodexDispatchContext(llm.CodexDispatchFacts{

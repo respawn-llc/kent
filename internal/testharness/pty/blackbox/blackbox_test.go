@@ -655,7 +655,7 @@ func TestResponsesStubStreamsRequiredOperationToHTTPTransport(t *testing.T) {
 		Model:          "gpt-6-sol",
 		SessionID:      textutil.Value("session-1"),
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
-		Items:          llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value(probe)}}),
+		Items:          llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value(probe)}}), ReasoningEffort: "high",
 	}, llm.StreamCallbacks{OnAssistantDelta: func(delta llm.AssistantDelta) {
 		deltas = append(deltas, delta.Text)
 	}})
@@ -698,7 +698,7 @@ func TestResponsesStubServesCompactAndModelMetadataTransportRoutes(t *testing.T)
 		SessionID:      textutil.Value("session-1"),
 		CodexDispatch:  testCodexDispatch(t, "session-1", llm.CodexRequestKindCompaction),
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
-		Items:          llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}}),
+		Items:          llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}}), ReasoningEffort: "high",
 	}); err != nil {
 		t.Fatalf("Compact: %v", err)
 	}

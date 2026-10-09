@@ -137,7 +137,7 @@ func TestNewProviderClient_ResponsesClientPathCompressesCodexRequest(t *testing.
 		SessionID:      sessionID,
 		CodexDispatch:  dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		SystemPrompt:   strings.Repeat("large request content ", 100),
+		SystemPrompt:   strings.Repeat("large request content ", 100), ReasoningEffort: "high",
 	}, StreamCallbacks{}); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestNewProviderClient_OAuthPathCompressesCodexRequest(t *testing.T) {
 		SessionID:      sessionID,
 		CodexDispatch:  dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		SystemPrompt:   strings.Repeat("large request content ", 100),
+		SystemPrompt:   strings.Repeat("large request content ", 100), ReasoningEffort: "high",
 	}, StreamCallbacks{}); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}

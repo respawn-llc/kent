@@ -344,7 +344,7 @@ func TestGenerateWithRetryDoesNotRetryContextOverflow(t *testing.T) {
 		responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("unexpected")}}},
 	}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
-	req := llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-6-sol", Items: llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("hello")}})}
+	req := llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-6-sol", Items: llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("hello")}}), ReasoningEffort: "high"}
 
 	_, err := eng.generateWithRetryClient(context.Background(), "step-context-overflow", newObservedModelClient(client), req, nil, nil, nil)
 	if err == nil {

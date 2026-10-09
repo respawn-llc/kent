@@ -98,7 +98,7 @@ func TestGenerate_RejectsMalformedReasoningCoordinates(t *testing.T) {
 				`{"type":"response.completed","response":{"output":[]}}`,
 				`[DONE]`,
 			)
-			_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+			_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 			if err == nil {
 				t.Fatal("malformed reasoning coordinate was accepted")
 			}
@@ -148,7 +148,7 @@ func TestGenerate_RejectsConflictingReasoningIdentities(t *testing.T) {
 			}
 			events = append(events, `[DONE]`)
 			transport := newOpenAIStreamTestTransport(t, events...)
-			_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+			_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 			if err == nil {
 				t.Fatal("conflicting reasoning identity was accepted")
 			}
@@ -170,7 +170,7 @@ func TestGeneratePreservesDistinctReasoningTracesWithSameText(t *testing.T) {
 		`{"type":"response.completed","response":{"output":[]}}`,
 		`[DONE]`,
 	)
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestGenerateCompletedReasoningTextOverridesStreamedPartial(t *testing.T) {
 		`{"type":"response.completed","response":{"output":[{"type":"reasoning","id":"reason_1","summary":[{"type":"summary_text","text":"completed final"}]}]}}`,
 		`[DONE]`,
 	)
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestGenerate_AcceptsCompletedResponseEOFWithoutDoneSentinel(t *testing.T) {
 		``,
 	}, "\n"))
 
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestGenerate_SalvagesCompletedResponseBeforeTrailingMalformedEvent(t *testi
 		``,
 	}, "\n"))
 
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestGenerate_MapsResponseIncompleteEventToProviderAPIError(t *testing.T) {
 		``,
 	}, "\n"))
 
-	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err == nil {
 		t.Fatal("expected response incomplete event")
 	}
@@ -293,7 +293,7 @@ func TestGenerate_MapsResponseIncompleteWithoutReasonToProviderContractError(t *
 		``,
 	}, "\n"))
 
-	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err == nil {
 		t.Fatal("expected response incomplete event")
 	}
@@ -328,7 +328,7 @@ func TestGenerate_RejectsCompletedEventWithoutResponsePayload(t *testing.T) {
 				``,
 			}, "\n"))
 
-			_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+			_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 			if err == nil {
 				t.Fatal("expected provider contract error")
 			}
@@ -376,7 +376,7 @@ func TestGenerate_RejectsPreTerminalMalformedResponsesStream(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			transport := newOpenAIRawStreamTestTransport(t, stream)
 
-			_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+			_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 			if err == nil {
 				t.Fatal("expected provider contract error")
 			}
@@ -401,7 +401,7 @@ func TestGenerate_LeavesPreResponseEOFRetryable(t *testing.T) {
 		return nil, io.EOF
 	})}
 
-	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err == nil {
 		t.Fatal("expected pre-response EOF")
 	}
@@ -428,7 +428,7 @@ func TestGenerate_EmitsAssistantDeltasAndToolCalls(t *testing.T) {
 
 	var deltas []AssistantDelta
 	var reasoning []ReasoningSummaryDelta
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{
 		OnAssistantDelta: func(delta AssistantDelta) {
 			deltas = append(deltas, delta)
 		},
@@ -493,7 +493,7 @@ func TestGenerate_PreservesWhitespaceOnlyFunctionArgumentDelta(t *testing.T) {
 		`[DONE]`,
 	)
 
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
@@ -522,7 +522,7 @@ func TestGenerate_EmitsUnknownPhaseWhenDeltaPrecedesAssistantItem(t *testing.T) 
 	)
 
 	var deltas []AssistantDelta
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{
 		OnAssistantDelta: func(delta AssistantDelta) {
 			deltas = append(deltas, delta)
 		},
@@ -560,7 +560,7 @@ func TestGenerateRejectsUnmatchedAssistantDelta(t *testing.T) {
 	var deltas []AssistantDelta
 	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"),
 		Model:          "gpt-6-sol",
-		ToolChoiceMode: ToolChoiceModeAutomatic,
+		ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, StreamCallbacks{
 		OnAssistantDelta: func(delta AssistantDelta) {
 			deltas = append(deltas, delta)
@@ -592,7 +592,7 @@ func TestGenerate_RejectsCompletedMessageThatConflictsWithDisplayedDeltas(t *tes
 	)
 
 	var deltas []AssistantDelta
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{
 		OnAssistantDelta: func(delta AssistantDelta) {
 			deltas = append(deltas, delta)
 		},
@@ -629,7 +629,7 @@ func TestGenerate_OmitsNonFinalEmptyAssistantContentBeforeToolCall(t *testing.T)
 	)
 
 	var deltas []AssistantDelta
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{
 		OnAssistantDelta: func(delta AssistantDelta) {
 			deltas = append(deltas, delta)
 		},
@@ -655,7 +655,7 @@ func TestGenerate_UsesFinalizedOutputTextWhenProviderOmitsDeltas(t *testing.T) {
 		`[DONE]`,
 	)
 
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
@@ -681,7 +681,7 @@ func TestGenerate_DeliversTrailingWhitespaceBeforeToolCallWithoutBuffering(t *te
 	)
 
 	var deltas []AssistantDelta
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{
 		OnAssistantDelta: func(delta AssistantDelta) {
 			deltas = append(deltas, delta)
 		},
@@ -709,7 +709,7 @@ func TestGenerate_IgnoresStructuredTrailingWhitespaceShimWithoutDeltaConsumer(t 
 		`[DONE]`,
 	)
 
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
@@ -730,7 +730,7 @@ func TestGenerate_IgnoresLeadingWhitespaceAssistantShimBeforeContent(t *testing.
 	)
 
 	var deltas []AssistantDelta
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{
 		OnAssistantDelta: func(delta AssistantDelta) {
 			deltas = append(deltas, delta)
 		},
@@ -756,7 +756,7 @@ func TestGenerate_PreservesResumedOutputWhitespaceAfterInterleavedOutput(t *test
 	)
 
 	var deltas []AssistantDelta
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{
 		OnAssistantDelta: func(delta AssistantDelta) {
 			deltas = append(deltas, delta)
 		},
@@ -781,7 +781,7 @@ func TestGenerate_PreservesPendingOutputIndexAfterFinalizedOutput(t *testing.T) 
 		`[DONE]`,
 	)
 
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
@@ -802,7 +802,7 @@ func TestGenerateAcceptsCompletedEmptyFinalAfterDoneOnlyStream(t *testing.T) {
 
 	resp, err := NewResponsesClient(transport).Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
 		Model:          "gpt-6-sol",
-		ToolChoiceMode: ToolChoiceModeAutomatic,
+		ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("generate stream: %v", err)
@@ -826,7 +826,7 @@ func TestGenerate_PreservesWhitespaceBetweenAssistantContent(t *testing.T) {
 	)
 
 	var deltas []AssistantDelta
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{
 		OnAssistantDelta: func(delta AssistantDelta) {
 			deltas = append(deltas, delta)
 		},
@@ -848,7 +848,7 @@ func TestGenerate_DoesNotRepairMultiMessageAssistantOutputWithAggregateText(t *t
 		`[DONE]`,
 	)
 
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
@@ -866,7 +866,7 @@ func TestGenerate_DoesNotRepairMultiMessageAssistantOutputWithAggregateText(t *t
 func TestGenerate_MapsStructuredStreamErrorToProviderAPIError(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t, `{"type":"error","error":{"type":"invalid_request_error","code":"context_length_exceeded","param":"input","message":"too many tokens"}}`)
 
-	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err == nil {
 		t.Fatal("expected stream error")
 	}
@@ -887,7 +887,7 @@ func TestGenerate_MapsProviderOverloadCodeWithoutMessageMatching(t *testing.T) {
 		`{"type":"error","error":{"type":"server_error","code":"server_is_overloaded","param":"request","message":"not the overload wording"}}`,
 		`[DONE]`,
 	)
-	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	var providerErr *ProviderAPIError
 	if err == nil || !errors.As(err, &providerErr) {
 		t.Fatalf("expected ProviderAPIError, got %T", err)
@@ -905,7 +905,7 @@ func TestGenerate_MapsResponseErrorEventToProviderAPIError(t *testing.T) {
 		`[DONE]`,
 	)
 
-	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err == nil {
 		t.Fatal("expected response error event")
 	}
@@ -920,7 +920,7 @@ func TestGenerate_MapsResponseFailedEventToProviderAPIError(t *testing.T) {
 		`[DONE]`,
 	)
 
-	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err == nil {
 		t.Fatal("expected response failed event")
 	}
@@ -935,7 +935,7 @@ func TestGenerate_ReturnsUnknownProviderErrorForUnrecognizedStructuredStreamErro
 		`[DONE]`,
 	)
 
-	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err == nil {
 		t.Fatal("expected unrecognized stream error")
 	}
@@ -957,7 +957,7 @@ func TestGenerate_ParsesCustomPatchToolCall(t *testing.T) {
 		`[DONE]`,
 	)
 
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
@@ -997,7 +997,7 @@ func TestGenerate_PartitionsReasoningStatusFromTrace(t *testing.T) {
 	)
 
 	var reasoning []ReasoningSummaryDelta
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{
 		OnReasoningSummaryDelta: func(delta ReasoningSummaryDelta) {
 			reasoning = append(reasoning, delta)
 		},
@@ -1039,7 +1039,7 @@ func TestGenerate_StatusOnlyReasoningRemainsProviderHistoryButNotTrace(t *testin
 		`[DONE]`,
 	)
 	var deltas []ReasoningSummaryDelta
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{
 		OnReasoningSummaryDelta: func(delta ReasoningSummaryDelta) {
 			deltas = append(deltas, delta)
 		},
@@ -1082,7 +1082,7 @@ func TestGenerate_ReasoningCallbacksCarryCurrentAccumulatedStatus(t *testing.T) 
 	)
 
 	var reasoning []ReasoningSummaryDelta
-	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{
+	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{
 		OnReasoningSummaryDelta: func(delta ReasoningSummaryDelta) {
 			reasoning = append(reasoning, delta)
 		},
@@ -1119,7 +1119,7 @@ func TestGenerate_ReasoningCallbackNilStatusMeansCurrentAbsence(t *testing.T) {
 	)
 
 	var reasoning []ReasoningSummaryDelta
-	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{
+	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{
 		OnReasoningSummaryDelta: func(delta ReasoningSummaryDelta) {
 			reasoning = append(reasoning, delta)
 		},
@@ -1148,7 +1148,7 @@ func TestGenerate_EmptyReasoningSnapshotClearsCurrentStatus(t *testing.T) {
 	)
 
 	var reasoning []ReasoningSummaryDelta
-	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{
+	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{
 		OnReasoningSummaryDelta: func(delta ReasoningSummaryDelta) {
 			reasoning = append(reasoning, delta)
 		},
@@ -1178,7 +1178,7 @@ func TestGenerate_RejectsEmptyCompletedMessageAfterAssistantDeltas(t *testing.T)
 		`[DONE]`,
 	)
 
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err == nil {
 		t.Fatalf("Generate response = %+v, want provider contract error", resp)
 	}
@@ -1208,7 +1208,7 @@ func TestGenerate_PreservesAssistantOutputItemPhaseWhenCompletedPhaseIsMissing(t
 		`[DONE]`,
 	)
 
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
@@ -1237,7 +1237,7 @@ func TestGenerate_PrefersPhaseResolvedAssistantTextOverRawDeltaConcatenation(t *
 		`[DONE]`,
 	)
 
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
@@ -1265,7 +1265,7 @@ func TestGenerate_EmitsCommentaryThenFinalDeltasWithTheirOutputItemPhases(t *tes
 	var deltas []AssistantDelta
 	resp, err := transport.Generate(
 		context.Background(),
-		ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"},
+		ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"},
 		StreamCallbacks{OnAssistantDelta: func(delta AssistantDelta) {
 			deltas = append(deltas, delta)
 		}},
@@ -1295,7 +1295,7 @@ func TestGenerate_RepairsMissingAssistantOutputItemAtNonZeroOutputIndex(t *testi
 		`[DONE]`,
 	)
 
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
@@ -1323,7 +1323,7 @@ func TestGenerate_PreservesHostedWebSearchOutputItemFromStream(t *testing.T) {
 		`[DONE]`,
 	)
 
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}

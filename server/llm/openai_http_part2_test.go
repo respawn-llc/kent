@@ -27,7 +27,7 @@ func TestBuildPayload_AppliesStructuredOutputJSONSchema(t *testing.T) {
 		StructuredOutput: &StructuredOutput{
 			Name:   "reviewer_suggestions",
 			Schema: mustTestStructuredSchema(t, testReviewerStructuredOutput{}),
-		},
+		}, ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
@@ -62,7 +62,7 @@ func TestBuildPayload_ForwardsPreparedStructuredOutputSchemaUnchanged(t *testing
 		StructuredOutput: &StructuredOutput{
 			Name:   "workflow_completion",
 			Schema: prepared,
-		},
+		}, ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
@@ -105,7 +105,7 @@ func TestBuildPayload_AppliesConfiguredModelVerbosityForSupportedModels(t *testi
 	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
 
 	transport.ModelVerbosity = "high"
-	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
+	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestBuildPayload_MergesConfiguredModelVerbosityWithStructuredOutput(t *test
 		StructuredOutput: &StructuredOutput{
 			Name:   "reviewer_suggestions",
 			Schema: mustTestStructuredSchema(t, testReviewerStructuredOutput{}),
-		},
+		}, ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
@@ -207,7 +207,7 @@ func TestBuildPayload_AppliesFastModeForOpenAIProvider(t *testing.T) {
 	}
 	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model:    "gpt-6-sol",
-		FastMode: true,
+		FastMode: true, ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, capabilities)
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
@@ -222,7 +222,7 @@ func TestBuildPayload_AppliesFastModeForOpenAIProvider(t *testing.T) {
 	}
 
 	unsupportedPayload, err := transport.buildPayload(ResponsesRequest{
-		ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", FastMode: true,
+		ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", FastMode: true, ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, ProviderCapabilities{
 		ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true,
 	})
@@ -275,7 +275,7 @@ func TestBuildPayload_ForwardsPreparedFunctionSchemaUnchanged(t *testing.T) {
 				Name:   "ask_question",
 				Schema: prepared,
 			},
-		},
+		}, ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
@@ -584,7 +584,7 @@ func TestOAuthCompactRequestTargetsStreamingResponsesWithFinalTrigger(t *testing
 		Tools: []Tool{{
 			Name:   "exec_command",
 			Schema: mustTestFunctionSchema(t, struct{}{}),
-		}},
+		}}, ReasoningEffort: "high",
 	}
 	dispatch, err := NewCodexDispatchContext(CodexDispatchFacts{
 		SessionID:   "test-session",
@@ -913,10 +913,11 @@ func testOAuthCompactionRequest(t *testing.T, model string) ResponsesRequest {
 		t.Fatalf("dispatch context: %v", err)
 	}
 	return ResponsesRequest{
-		Model:          model,
-		SessionID:      textutil.Value("test-session"),
-		CodexDispatch:  dispatch,
-		ToolChoiceMode: ToolChoiceModeAutomatic,
+		Model:           model,
+		ReasoningEffort: "high",
+		SessionID:       textutil.Value("test-session"),
+		CodexDispatch:   dispatch,
+		ToolChoiceMode:  ToolChoiceModeAutomatic,
 	}
 }
 
@@ -942,13 +943,13 @@ func TestResponsesRequestBuildersRejectUnpreparedViewImageInputFileOutput(t *tes
 		}
 	}
 
-	_, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", Items: unpreparedItems}, OpenAIAuthMode{}, caps)
+	_, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", Items: unpreparedItems, ReasoningEffort: "high"}, OpenAIAuthMode{}, caps)
 	checkErr("buildPayload", err)
 
 	_, err = transport.requestPayloadBuilder(caps, openAIResponsesPolicy{}).BuildCompactV2(ResponsesRequest{
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		Items:          unpreparedItems,
+		Items:          unpreparedItems, ReasoningEffort: "high",
 	}, OpenAIAuthMode{})
 	checkErr("buildCompactPayload", err)
 }

@@ -57,7 +57,7 @@ func TestGenerateChatGPTCodexCompressesLargeResponsesBodyWithZstd(t *testing.T) 
 		SessionID:      sessionID,
 		CodexDispatch:  dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		SystemPrompt:   strings.Repeat("large request content ", 100),
+		SystemPrompt:   strings.Repeat("large request content ", 100), ReasoningEffort: "high",
 	}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
@@ -106,7 +106,7 @@ func TestGenerateOpenAIAPIKeyLeavesLargeResponsesBodyUncompressed(t *testing.T) 
 		SessionID:      sessionID,
 		CodexDispatch:  dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		SystemPrompt:   strings.Repeat("large request content ", 100),
+		SystemPrompt:   strings.Repeat("large request content ", 100), ReasoningEffort: "high",
 	}, StreamCallbacks{}); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestGenerateExplicitLocalOAuthCompatibleEndpointLeavesResponsesBodyUncompre
 		SessionID:      sessionID,
 		CodexDispatch:  dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		SystemPrompt:   strings.Repeat("large request content ", 100),
+		SystemPrompt:   strings.Repeat("large request content ", 100), ReasoningEffort: "high",
 	}, StreamCallbacks{}); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestGenerateChatGPTCodexCompressesResponsesBody(t *testing.T) {
 		SessionID:      sessionID,
 		CodexDispatch:  dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		SystemPrompt:   strings.Repeat("large request content ", 100),
+		SystemPrompt:   strings.Repeat("large request content ", 100), ReasoningEffort: "high",
 	}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
@@ -194,7 +194,7 @@ func TestCompactChatGPTCodexCompressesResponsesBody(t *testing.T) {
 		SessionID:      sessionID,
 		CodexDispatch:  dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		Items:          PrepareResponsesInputItems([]ResponseItem{{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value(strings.Repeat("history ", 200))}}),
+		Items:          PrepareResponsesInputItems([]ResponseItem{{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value(strings.Repeat("history ", 200))}}), ReasoningEffort: "high",
 	})
 	if err != nil {
 		t.Fatalf("Compact: %v", err)
@@ -235,7 +235,7 @@ func TestGenerateLogicalRetrySendsCompressedSemanticEquivalents(t *testing.T) {
 		SessionID:      sessionID,
 		CodexDispatch:  dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		SystemPrompt:   strings.Repeat("large request content ", 100),
+		SystemPrompt:   strings.Repeat("large request content ", 100), ReasoningEffort: "high",
 	}
 	if _, err := transport.Generate(context.Background(), request, StreamCallbacks{}); err == nil {
 		t.Fatal("first Generate unexpectedly succeeded")

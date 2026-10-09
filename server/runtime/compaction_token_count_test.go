@@ -22,7 +22,7 @@ func TestCompletedResponseContextMeasurementAnchorsAcceptedOutput(t *testing.T) 
 		)); err != nil {
 			t.Fatal(err)
 		}
-		candidate := newSuccessfulRequestCandidate(engine.cfg.TokenEstimator, llm.Request{Model: "grok-4.7", Items: requestItems}, llm.Response{
+		candidate := newSuccessfulRequestCandidate(engine.cfg.TokenEstimator, llm.Request{Model: "grok-4.7", Items: requestItems, ReasoningEffort: "high"}, llm.Response{
 			OutputItems: output,
 			Usage: llm.Usage{InputTokens: textutil.Value(12), OutputTokens: textutil.Value(8), ContextUsage: &llm.ContextUsage{
 				Tokens: count, MeasurementPoint: llm.ContextMeasurementCompletedResponse,
@@ -64,7 +64,7 @@ func TestMissingContextMeasurementUsesEstimateInsteadOfBilling(t *testing.T) {
 		t.Fatal(err)
 	}
 	items := engine.transcriptRuntimeState().SnapshotItems()
-	candidate := newSuccessfulRequestCandidate(engine.cfg.TokenEstimator, llm.Request{Model: "grok-4.7", Items: items}, llm.Response{
+	candidate := newSuccessfulRequestCandidate(engine.cfg.TokenEstimator, llm.Request{Model: "grok-4.7", Items: items, ReasoningEffort: "high"}, llm.Response{
 		Usage: llm.Usage{InputTokens: textutil.Value(1900), OutputTokens: textutil.Value(100)},
 	})
 	if _, err := engine.commitAcceptedResponseCandidate("accepted", candidate, false); err != nil {

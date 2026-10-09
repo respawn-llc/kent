@@ -92,7 +92,7 @@ func TestBuildPayload_SerializesAssistantToolCalls(t *testing.T) {
 				},
 			},
 			{Role: RoleTool, ToolCallID: textutil.Value("call-1"), Name: textutil.Value("shell"), Content: textutil.Value("{}")},
-		}),
+		}), ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
@@ -450,7 +450,7 @@ func TestCompactErrorPath_ReturnsProviderAPIErrorForOpenAIV2(t *testing.T) {
 		Model:          "gpt-6-sol",
 		SessionID:      textutil.Value("s1"),
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		Items:          PrepareResponsesInputItems([]ResponseItem{{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value("hello")}}),
+		Items:          PrepareResponsesInputItems([]ResponseItem{{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value("hello")}}), ReasoningEffort: "high",
 	})
 	if err == nil {
 		t.Fatal("expected compact error")
@@ -702,7 +702,7 @@ func TestGenerateSendsConfiguredProviderIdentityHeaders(t *testing.T) {
 	transport.Client = newRewritingHTTPClient(t, server)
 	transport.ProviderIdentifier = "acme_agent"
 
-	if _, err := transport.Generate(context.Background(), ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", SessionID: textutil.Value("session-1")}, StreamCallbacks{}); err != nil {
+	if _, err := transport.Generate(context.Background(), ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", SessionID: textutil.Value("session-1"), ReasoningEffort: "high"}, StreamCallbacks{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	headers := <-requestHeaders
@@ -796,7 +796,7 @@ func TestBuildPayload_UsesTransportStoreSetting(t *testing.T) {
 	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
 
 	transport.Store = true
-	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
+	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
 	}
@@ -846,7 +846,7 @@ func TestBuildPayloadRejectsRequiredToolChoiceForNonResponsesAdapter(t *testing.
 	_, err := transport.buildPayload(ResponsesRequest{
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeRequired,
-		Tools:          []Tool{{Name: "shell", Schema: mustTestFunctionSchema(t, struct{}{})}},
+		Tools:          []Tool{{Name: "shell", Schema: mustTestFunctionSchema(t, struct{}{})}}, ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, ProviderCapabilities{ProviderID: "anthropic"})
 	if !errors.Is(err, ErrUnsupportedToolChoicePolicy) {
 		t.Fatalf("buildPayload() error = %v, want ErrUnsupportedToolChoicePolicy", err)
@@ -859,7 +859,7 @@ func TestBuildPayloadSerializesRequiredToolChoice(t *testing.T) {
 	payload, err := transport.buildPayload(ResponsesRequest{
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeRequired,
-		Tools:          []Tool{{Name: "shell", Schema: mustTestFunctionSchema(t, struct{}{})}},
+		Tools:          []Tool{{Name: "shell", Schema: mustTestFunctionSchema(t, struct{}{})}}, ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("buildPayload: %v", err)
@@ -876,7 +876,7 @@ func TestBuildPayloadSerializesAutomaticToolChoice(t *testing.T) {
 	payload, err := transport.buildPayload(ResponsesRequest{
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		Tools:          []Tool{{Name: "shell", Schema: mustTestFunctionSchema(t, struct{}{})}},
+		Tools:          []Tool{{Name: "shell", Schema: mustTestFunctionSchema(t, struct{}{})}}, ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("buildPayload: %v", err)
@@ -897,7 +897,7 @@ func TestBuildPayloadRequiredToolChoicePreservesEffectiveToolsAndParallelSetting
 		Tools: []Tool{
 			{Name: "shell", Schema: mustTestFunctionSchema(t, struct{}{})},
 			{Name: "patch", Schema: mustTestFunctionSchema(t, struct{}{})},
-		},
+		}, ReasoningEffort: "high",
 	}
 	base.ToolChoiceMode = ToolChoiceModeAutomatic
 	automatic, err := transport.buildPayload(base, OpenAIAuthMode{}, caps)
@@ -925,7 +925,7 @@ func TestBuildPayloadAcceptsRequiredToolChoiceWithHostedWebSearchOnly(t *testing
 	payload, err := transport.buildPayload(ResponsesRequest{
 		Model:                 "gpt-6-sol",
 		ToolChoiceMode:        ToolChoiceModeRequired,
-		EnableNativeWebSearch: true,
+		EnableNativeWebSearch: true, ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("buildPayload: %v", err)
@@ -942,7 +942,7 @@ func TestBuildPayloadRejectsRequiredToolChoiceWithoutMaterializedTools(t *testin
 
 	_, err := transport.buildPayload(ResponsesRequest{
 		Model:          "gpt-6-sol",
-		ToolChoiceMode: ToolChoiceModeRequired,
+		ToolChoiceMode: ToolChoiceModeRequired, ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("buildPayload() error = %v, want ErrInvalidRequest", err)
@@ -958,7 +958,7 @@ func TestBuildPayload_SerializesPatchAsCustomGrammarTool(t *testing.T) {
 			Name:        string(toolspec.ToolPatch),
 			Description: "Apply edits to files using freeform patch syntax.",
 			Custom:      &CustomToolFormat{Type: "grammar", Syntax: "lark", Definition: "start: \"x\""},
-		}},
+		}}, ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
@@ -1000,7 +1000,7 @@ func TestBuildPayload_UsesExplicitPatchCustomGrammarTool(t *testing.T) {
 		Tools: []Tool{
 			{Name: string(toolspec.ToolExecCommand), Description: "shell", Schema: mustTestFunctionSchema(t, struct{}{})},
 			{Name: string(toolspec.ToolPatch), Description: "patch", Custom: &CustomToolFormat{Type: "grammar", Syntax: "lark", Definition: PatchToolLarkGrammar}},
-		},
+		}, ReasoningEffort: "high",
 	}, mode, requireProviderCapabilities(t, transport, mode))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
@@ -1065,7 +1065,7 @@ func TestBuildPayload_DoesNotAddNativeWebSearchToolWhenDisabled(t *testing.T) {
 
 	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model:                 "gpt-6-sol",
-		EnableNativeWebSearch: false,
+		EnableNativeWebSearch: false, ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
@@ -1075,8 +1075,10 @@ func TestBuildPayload_DoesNotAddNativeWebSearchToolWhenDisabled(t *testing.T) {
 	if _, ok := jsonPayload["tools"]; ok {
 		t.Fatalf("expected no tools in payload, got %#v", jsonPayload["tools"])
 	}
-	if len(payload.Include) != 0 {
-		t.Fatalf("unexpected includes without hosted search: %v", payload.Include)
+	for _, include := range payload.Include {
+		if include == responses.ResponseIncludableWebSearchCallResults || include == responses.ResponseIncludableWebSearchCallActionSources {
+			t.Fatalf("unexpected search include without hosted search: %v", payload.Include)
+		}
 	}
 }
 
@@ -1085,7 +1087,7 @@ func TestBuildPayload_SetsPromptCacheKey(t *testing.T) {
 
 	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model:          "gpt-6-sol",
-		PromptCacheKey: "cache-key-1",
+		PromptCacheKey: "cache-key-1", ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
@@ -1102,7 +1104,7 @@ func TestBuildPayload_DoesNotSetPromptCacheKeyForOpenAICompatibleProvider(t *tes
 
 	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model:          "gpt-6-sol",
-		PromptCacheKey: "cache-key-1",
+		PromptCacheKey: "cache-key-1", ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, ProviderCapabilities{
 		ProviderID:           "openai-compatible",
 		SupportsResponsesAPI: true,

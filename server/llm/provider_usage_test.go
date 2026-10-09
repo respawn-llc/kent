@@ -79,7 +79,7 @@ func TestProviderUsageEvidencePreservesNullAndZeroUsage(t *testing.T) {
 			`[DONE]`,
 		)
 		response, err := transport.Generate(context.Background(), ResponsesRequest{
-			Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic,
+			Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 		}, StreamCallbacks{})
 		if err != nil {
 			t.Fatalf("Generate failed: %v", err)
@@ -95,7 +95,7 @@ func TestProviderUsageEvidencePreservesNullAndZeroUsage(t *testing.T) {
 			`[DONE]`,
 		)
 		response, err := transport.Generate(context.Background(), ResponsesRequest{
-			Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic,
+			Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 		}, StreamCallbacks{})
 		if err != nil {
 			t.Fatalf("Generate failed: %v", err)
@@ -119,7 +119,7 @@ func TestGenerateRejectsMalformedHostedToolEvidence(t *testing.T) {
 		`[DONE]`,
 	)
 	_, err := transport.Generate(context.Background(), ResponsesRequest{
-		Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic,
+		Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, StreamCallbacks{})
 	if err == nil {
 		t.Fatal("Generate succeeded with malformed hosted-tool evidence")

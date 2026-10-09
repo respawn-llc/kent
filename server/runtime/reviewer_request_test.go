@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -85,6 +87,38 @@ func TestReviewerSuggestions_ReusesStableMetaForPromptCachePrefix(t *testing.T) 
 
 func TestBuildReviewerRequestUsesReviewerModelCapabilities(t *testing.T) {
 	t.Parallel()
+	for _, authored := range []bool{false, true} {
+		t.Run(map[bool]string{false: "omitted Grok effort", true: "authored empty Grok effort"}[authored], func(t *testing.T) {
+			root, workspace := t.TempDir(), t.TempDir()
+			source := "connection = \"grok\"\n[connections.grok]\nprotocol = \"grok-cli-proxy\"\n"
+			if authored {
+				source += "[reviewer]\nthinking_level = \"\"\n"
+			}
+			if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(source), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			app, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
+			if err != nil {
+				t.Fatal(err)
+			}
+			settings := app.Settings
+			if err := llm.ApplyConnectionModelDefaults(&settings, app.Source.Sources); err != nil {
+				t.Fatal(err)
+			}
+			engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{
+				Model: settings.Model, ThinkingLevel: settings.ThinkingLevel,
+				Reviewer: ReviewerConfig{Model: settings.Reviewer.Model, ThinkingLevel: settings.Reviewer.ThinkingLevel},
+			})
+			request, err := engine.buildReviewerRequest(t.Context(), newObservedModelClient(&fakeClient{}))
+			if authored {
+				if !errors.Is(err, llm.ErrInvalidRequest) {
+					t.Fatalf("authored disabled effort %q accepted: %v", request.ReasoningEffort, err)
+				}
+			} else if err != nil || request.ReasoningEffort != "high" {
+				t.Fatalf("omitted Supervisor effort = %q, %v", request.ReasoningEffort, err)
+			}
+		})
+	}
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
 		Model: "gpt-6-sol",

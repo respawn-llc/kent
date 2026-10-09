@@ -39,7 +39,7 @@ func TestGrokFailedStreamRetainsEmittedTraceAndTypedFailure(t *testing.T) {
 	}
 	var observed []ReasoningSummaryDelta
 	_, err = provider.Generate(t.Context(), Request{
-		Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic,
+		Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, StreamCallbacks{OnReasoningSummaryDelta: func(delta ReasoningSummaryDelta) { observed = append(observed, delta) }})
 	var failure *ProviderAPIError
 	if !errors.As(err, &failure) || failure.ProviderCode != "personal-team-blocked:spending-limit" ||
@@ -104,7 +104,7 @@ func TestGrokToolContinuationKeepsOpaqueItemsAndReasoning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := Request{Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic}
+	request := Request{Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"}
 	var deltas []ReasoningSummaryDelta
 	first, err := provider.Generate(t.Context(), request, StreamCallbacks{OnReasoningSummaryDelta: func(delta ReasoningSummaryDelta) {
 		deltas = append(deltas, delta)
@@ -167,7 +167,7 @@ func TestGrokFailuresKeepDiagnosticsWithoutRetryOrAuthFallback(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err = provider.Generate(t.Context(), Request{
-				Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic,
+				Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 			}, StreamCallbacks{})
 			var failure *ProviderAPIError
 			if !errors.As(err, &failure) || failure.ProviderID != "grok-cli-proxy" || failure.StatusCode != test.status || failure.ProviderCode != test.code || failure.Message == "" ||
@@ -199,12 +199,14 @@ func TestGrokRejectsUnsupportedEffortBeforeInference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = provider.Generate(t.Context(), Request{
-		Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic,
-		ReasoningEffort: "none", SupportsReasoningEffort: true,
-	}, StreamCallbacks{})
-	if !errors.Is(err, ErrInvalidRequest) {
-		t.Fatalf("invalid effort error = %v", err)
+	for _, effort := range []string{"none", ""} {
+		_, err = provider.Generate(t.Context(), Request{
+			Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic,
+			ReasoningEffort: effort, SupportsReasoningEffort: true,
+		}, StreamCallbacks{})
+		if !errors.Is(err, ErrInvalidRequest) {
+			t.Fatalf("invalid effort %q error = %v", effort, err)
+		}
 	}
 }
 
@@ -303,7 +305,7 @@ func TestGrokUsagePreservesAbsentAndZeroCounts(t *testing.T) {
 				t.Fatal(err)
 			}
 			result, err := provider.Generate(t.Context(), Request{
-				Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic,
+				Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 			}, StreamCallbacks{})
 			if err != nil {
 				t.Fatal(err)
@@ -348,7 +350,7 @@ func TestGrokContextUsageRemainsSeparateFromBilling(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := provider.Generate(t.Context(), Request{
-		Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic,
+		Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, StreamCallbacks{})
 	if err != nil {
 		t.Fatal(err)

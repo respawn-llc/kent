@@ -80,7 +80,7 @@ func TestPromptCacheLineageExcludesToolChoiceMode(t *testing.T) {
 		ToolChoiceMode:        llm.ToolChoiceModeAutomatic,
 		EnableNativeWebSearch: true,
 		Tools:                 []llm.Tool{{Name: "shell"}, {Name: "patch"}},
-		Items:                 []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: textutil.Value(llm.RoleUser), Content: textutil.Value("hello")}},
+		Items:                 []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: textutil.Value(llm.RoleUser), Content: textutil.Value("hello")}}, ReasoningEffort: "high",
 	}
 	required := automatic
 	required.ToolChoiceMode = llm.ToolChoiceModeRequired
@@ -187,7 +187,7 @@ func TestPromptCacheResponseAppliesLineageByCommitReceipt(t *testing.T) {
 
 	stepID := runtimeTestStepID("step-1")
 	err := runTestActiveStep(eng, stepID, func() error {
-		return eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-6-sol"}, modelcontract.ProviderOperationPurposeGeneration, prepared, modelcontract.ProviderUsageEvidence{}, llm.Usage{
+		return eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-6-sol", ReasoningEffort: "high"}, modelcontract.ProviderOperationPurposeGeneration, prepared, modelcontract.ProviderUsageEvidence{}, llm.Usage{
 			CachedInputTokens: textutil.Value(7),
 		})
 	})

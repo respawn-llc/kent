@@ -82,7 +82,7 @@ func TestOpenAIBlankFinalClientPresence(t *testing.T) {
 			})
 			response, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
 				Model:          "gpt-6-sol",
-				ToolChoiceMode: ToolChoiceModeAutomatic,
+				ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 			}, StreamCallbacks{})
 			if err != nil {
 				t.Fatalf("generate: %v", err)
@@ -160,7 +160,7 @@ func TestOpenAIBlankFinalStreamingAfterCommentary(t *testing.T) {
 			)
 			response, err := NewResponsesClient(transport).Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
 				Model:          "gpt-6-sol",
-				ToolChoiceMode: ToolChoiceModeAutomatic,
+				ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 			}, StreamCallbacks{})
 			if err != nil {
 				t.Fatalf("generate stream: %v", err)
@@ -201,7 +201,7 @@ func TestOpenAIBlankFinalStreamingRejectsPendingUnmaterializedOutput(t *testing.
 			transport := newOpenAIStreamTestTransport(t, events...)
 			_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"),
 				Model:          "gpt-6-sol",
-				ToolChoiceMode: ToolChoiceModeAutomatic,
+				ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 			}, StreamCallbacks{})
 			if err == nil {
 				t.Fatal("pending assistant output without a matching output item was accepted")
@@ -217,7 +217,7 @@ func TestOpenAIBlankFinalRejectsMalformedContentShape(t *testing.T) {
 	)
 	if _, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"),
 		Model:          "gpt-6-sol",
-		ToolChoiceMode: ToolChoiceModeAutomatic,
+		ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, StreamCallbacks{}); err == nil {
 		t.Fatal("expected malformed content shape to fail")
 	}
@@ -233,7 +233,7 @@ func TestOpenAIBlankFinalStreamingPresence(t *testing.T) {
 
 	response, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"),
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model:          "gpt-6-sol",
+		Model:          "gpt-6-sol", ReasoningEffort: "high",
 	}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("generate stream: %v", err)
@@ -248,7 +248,7 @@ func TestOpenAIBlankFinalStreamingPresence(t *testing.T) {
 	client := NewResponsesClient(transport)
 	clientResponse, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
 		Model:          "gpt-6-sol",
-		ToolChoiceMode: ToolChoiceModeAutomatic,
+		ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("client generate stream: %v", err)
@@ -267,7 +267,7 @@ func TestOpenAIBlankFinalStreamingPresence(t *testing.T) {
 	)
 	omittedResponse, err := NewResponsesClient(omittedTransport).Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
 		Model:          "gpt-6-sol",
-		ToolChoiceMode: ToolChoiceModeAutomatic,
+		ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("omitted client generate stream: %v", err)

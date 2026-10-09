@@ -106,7 +106,7 @@ func TestCacheWarningObservationSerializesPersistProjectEmitOrder(t *testing.T) 
 
 	cacheDone := make(chan error, 1)
 	go func() {
-		cacheDone <- eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-6-sol"}, modelcontract.ProviderOperationPurposeGeneration, preparedCacheRequestObservation{
+		cacheDone <- eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-6-sol", ReasoningEffort: "high"}, modelcontract.ProviderOperationPurposeGeneration, preparedCacheRequestObservation{
 			request: persistedCacheRequestObserved{
 				DigestVersion: requestCacheDigestVersion,
 				CacheKey:      "session-1/cache-key",
@@ -188,7 +188,7 @@ func TestAssistantMessageAfterCacheWarningDoesNotOwnCacheWarningRange(t *testing
 	restoreStep := setTestActiveStep(eng, stepID)
 	defer restoreStep()
 
-	if err := eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-6-sol"}, modelcontract.ProviderOperationPurposeGeneration, preparedCacheRequestObservation{
+	if err := eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-6-sol", ReasoningEffort: "high"}, modelcontract.ProviderOperationPurposeGeneration, preparedCacheRequestObservation{
 		request: persistedCacheRequestObserved{
 			DigestVersion: requestCacheDigestVersion,
 			CacheKey:      "session-1/cache-key",

@@ -81,6 +81,6 @@ func testCodexResponsesRequest(dispatch *CodexDispatchContext) ResponsesRequest 
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		SessionID:      textutil.Value("session-1"),
-		CodexDispatch:  dispatch,
+		CodexDispatch:  dispatch, ReasoningEffort: "high",
 	}
 }

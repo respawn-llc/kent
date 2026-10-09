@@ -35,13 +35,13 @@ func TestGenerateWithRetryRetryPolicyByToolChoice(t *testing.T) {
 	}{
 		{
 			name:         "automatic stall uses reduced budget",
-			request:      llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-6-sol"},
+			request:      llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"},
 			err:          fmt.Errorf("model stream stalled: %w", llm.ErrModelStreamStalled),
 			wantAttempts: int32(len(idleStallRetryDelays) + 1),
 		},
 		{
 			name:         "automatic retriable uses full budget",
-			request:      llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-6-sol"},
+			request:      llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"},
 			err:          &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 503, Code: llm.UnifiedErrorCodeUnknown, Message: "overloaded"},
 			wantAttempts: int32(len(generateRetryDelays) + 1),
 		},
@@ -53,7 +53,7 @@ func TestGenerateWithRetryRetryPolicyByToolChoice(t *testing.T) {
 				Tools: []llm.Tool{{
 					Name:   "complete_node",
 					Schema: mustTestFunctionSchema(t),
-				}},
+				}}, ReasoningEffort: "high",
 			},
 			err:          &llm.ProviderAPIError{StatusCode: 503, Code: llm.UnifiedErrorCodeUnknown},
 			wantAttempts: int32(len(generateRetryDelays) + 1),
@@ -66,7 +66,7 @@ func TestGenerateWithRetryRetryPolicyByToolChoice(t *testing.T) {
 				Tools: []llm.Tool{{
 					Name:   "complete_node",
 					Schema: mustTestFunctionSchema(t),
-				}},
+				}}, ReasoningEffort: "high",
 			},
 			err:          fmt.Errorf("model stream stalled: %w", llm.ErrModelStreamStalled),
 			wantAttempts: int32(len(idleStallRetryDelays) + 1),
@@ -105,7 +105,7 @@ func TestRequiredRetryClearsIncompleteAssistantReasoningAndTools(t *testing.T) {
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	var sequence []EventKind
 	resp, err := engine.generateWithRetryClient(context.Background(), runtimeTestStepID("step"), newObservedModelClient(&retryingEventsClient{}),
-		llm.Request{Model: "gpt-6-sol", ToolChoiceMode: llm.ToolChoiceModeRequired},
+		llm.Request{Model: "gpt-6-sol", ToolChoiceMode: llm.ToolChoiceModeRequired, ReasoningEffort: "high"},
 		func(_ llm.AssistantDelta) { sequence = append(sequence, EventAssistantDelta) },
 		func(_ llm.ReasoningSummaryDelta) { sequence = append(sequence, EventReasoningDelta) },
 		func() { sequence = append(sequence, EventAssistantDeltaReset, EventReasoningDeltaReset) },
@@ -119,10 +119,10 @@ func TestRetryBudgetResetsAfterSuccessAndRetainsOverloadCause(t *testing.T) {
 	cause := &llm.ProviderAPIError{StatusCode: 200, Code: llm.UnifiedErrorCodeProviderOverload}
 	client := &fakeClient{errors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 503, Code: llm.UnifiedErrorCodeUnknown}, nil, cause, cause, cause, cause, cause, cause}}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
-	if _, err := engine.generateWithRetryClient(context.Background(), runtimeTestStepID("first"), newObservedModelClient(client), llm.Request{Model: "gpt-6-sol", ToolChoiceMode: llm.ToolChoiceModeAutomatic}, nil, nil, nil); err != nil {
+	if _, err := engine.generateWithRetryClient(context.Background(), runtimeTestStepID("first"), newObservedModelClient(client), llm.Request{Model: "gpt-6-sol", ToolChoiceMode: llm.ToolChoiceModeAutomatic, ReasoningEffort: "high"}, nil, nil, nil); err != nil {
 		t.Fatalf("first generation: %v", err)
 	}
-	_, err := engine.generateWithRetryClient(context.Background(), runtimeTestStepID("second"), newObservedModelClient(client), llm.Request{Model: "gpt-6-sol", ToolChoiceMode: llm.ToolChoiceModeAutomatic}, nil, nil, nil)
+	_, err := engine.generateWithRetryClient(context.Background(), runtimeTestStepID("second"), newObservedModelClient(client), llm.Request{Model: "gpt-6-sol", ToolChoiceMode: llm.ToolChoiceModeAutomatic, ReasoningEffort: "high"}, nil, nil, nil)
 	if !errors.Is(err, cause) || fakeClientCallCount(client) != 2+len(generateRetryDelays)+1 {
 		t.Fatalf("exhausted overload = %v, calls = %d", err, fakeClientCallCount(client))
 	}
