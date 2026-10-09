@@ -161,9 +161,16 @@ func TestFinalizerPersistsContextWindowForPendingConnection(t *testing.T) {
 						}}); err != nil {
 							t.Fatal(err)
 						}
+						target := &authpb.ConnectionTarget{Target: &authpb.ConnectionTarget_PendingSetup{PendingSetup: &emptypb.Empty{}}}
+						start, err := owner.StartBootstrap(t.Context(), &authpb.StartBootstrapRequest{
+							Target: target, Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE, RedirectUri: ptr("http://localhost:1455/auth/callback"),
+						})
+						if err != nil {
+							t.Fatal(err)
+						}
 						if _, err := owner.CompleteBootstrap(t.Context(), &authpb.CompleteBootstrapRequest{
-							Target: &authpb.ConnectionTarget{Target: &authpb.ConnectionTarget_PendingSetup{PendingSetup: &emptypb.Empty{}}},
-							Mode:   authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE, DeviceAuthorizationCode: ptr("grant"), DeviceCodeVerifier: ptr("verifier"),
+							Target: target,
+							Mode:   authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE, CallbackInput: ptr("grant"), Continuation: start.Continuation,
 						}); err != nil {
 							t.Fatal(err)
 						}

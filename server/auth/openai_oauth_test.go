@@ -146,7 +146,7 @@ func TestDefaultOAuthHTTPClientNegotiatesAndDecodesCompressedResponse(t *testing
 	}
 }
 
-func TestRunOpenAIDeviceCodeFlow(t *testing.T) {
+func TestOpenAIDeviceCodeFlow(t *testing.T) {
 	var pollCalls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -182,14 +182,16 @@ func TestRunOpenAIDeviceCodeFlow(t *testing.T) {
 	}))
 	defer server.Close()
 
-	var shown DeviceCode
-	method, err := RunOpenAIDeviceCodeFlow(context.Background(), OpenAIOAuthOptions{
+	options := OpenAIOAuthOptions{
 		ClientID:    "client-1",
 		HTTPClient:  rewriteOAuthIssuerClient(server),
 		PollTimeout: 10 * time.Second,
-	}, func(code DeviceCode) {
-		shown = code
-	})
+	}
+	shown, err := BeginOpenAIDeviceFlow(t.Context(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	method, err := CompleteOpenAIDeviceFlow(t.Context(), options, shown)
 	if err != nil {
 		t.Fatalf("device code flow failed: %v", err)
 	}
@@ -213,7 +215,7 @@ func TestRequestOpenAIDeviceCodeUnsupported(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := requestOpenAIDeviceCode(context.Background(), OpenAIOAuthOptions{
+	_, err := BeginOpenAIDeviceFlow(context.Background(), OpenAIOAuthOptions{
 		ClientID:   "client-1",
 		HTTPClient: rewriteOAuthIssuerClient(server),
 	})
@@ -222,8 +224,12 @@ func TestRequestOpenAIDeviceCodeUnsupported(t *testing.T) {
 	}
 }
 
-func TestCompleteOpenAIDeviceAuthorizationGrantNormalizesIssuerBeforeRedirectURI(t *testing.T) {
+func TestCompleteOpenAIDeviceFlowNormalizesIssuerBeforeRedirectURI(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/accounts/deviceauth/token" {
+			_, _ = io.WriteString(w, `{"authorization_code":"auth-code-1","code_verifier":"verifier-1"}`)
+			return
+		}
 		if r.URL.Path != "/oauth/token" {
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -238,12 +244,12 @@ func TestCompleteOpenAIDeviceAuthorizationGrantNormalizesIssuerBeforeRedirectURI
 	}))
 	defer server.Close()
 
-	method, err := CompleteOpenAIDeviceAuthorizationGrant(context.Background(), OpenAIOAuthOptions{
+	method, err := CompleteOpenAIDeviceFlow(context.Background(), OpenAIOAuthOptions{
 		ClientID:   "client-1",
 		HTTPClient: rewriteOAuthIssuerClient(server),
-	}, "auth-code-1", "verifier-1")
+	}, DeviceCode{Code: "device-1", UserCode: "user-1", PollInterval: time.Second})
 	if err != nil {
-		t.Fatalf("CompleteOpenAIDeviceAuthorizationGrant: %v", err)
+		t.Fatalf("CompleteOpenAIDeviceFlow: %v", err)
 	}
 	if err := method.Validate(); err != nil {
 		t.Fatalf("invalid credential returned: %v", err)

@@ -228,9 +228,16 @@ func TestRuntimeAcceptsNextTurnAfterConnectionReauthentication(t *testing.T) {
 		t.Fatalf("expired request failure = %v", err)
 	}
 	service := authservice.NewBootstrapService(t.Context(), fixture.resolver, auth.OpenAIOAuthOptions{Issuer: server.URL, HTTPClient: client})
+	start, err := service.StartBootstrap(t.Context(), &authpb.StartBootstrapRequest{
+		Target: protoapi.ExistingConnectionTarget(fixture.id), Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE,
+		RedirectUri: textutil.Value("http://localhost:1455/auth/callback"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	result, err := service.CompleteBootstrap(t.Context(), &authpb.CompleteBootstrapRequest{
-		Target: protoapi.ExistingConnectionTarget(fixture.id), Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE,
-		DeviceAuthorizationCode: textutil.Value("synthetic-grant"), DeviceCodeVerifier: textutil.Value("synthetic-verifier"), Force: true,
+		Target: protoapi.ExistingConnectionTarget(fixture.id), Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE,
+		CallbackInput: textutil.Value("synthetic-grant"), Continuation: start.Continuation, Force: true,
 	})
 	if err != nil || !result.AuthReady || result.ConnectionId != string(fixture.id) {
 		t.Fatalf("re-authentication result = %+v, %v", result, err)

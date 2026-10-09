@@ -96,7 +96,7 @@ func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Cont
 		if err != nil {
 			return err
 		}
-		completeReq, err := i.collectRemoteBootstrapRequest(ctx, req.Theme, choice, status)
+		completeReq, err := i.collectRemoteBootstrapRequest(ctx, remote, target, req.Theme, choice, status)
 		if err != nil {
 			if errors.Is(err, ErrAuthCanceledByUser) {
 				return err
@@ -145,25 +145,24 @@ func signInConnection(ctx context.Context, remote apicontract.AuthBootstrapServi
 	return interactor.completeRemoteAuthBootstrap(ctx, remote, config.Settings{Theme: selectedTheme}, target, status, force)
 }
 
-func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Context, theme string, choice authMethodChoice, status *authpb.BootstrapStatus) (*authpb.CompleteBootstrapRequest, error) {
+func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Context, remote apicontract.AuthBootstrapService, target *authpb.ConnectionTarget, theme string, choice authMethodChoice, status *authpb.BootstrapStatus) (*authpb.CompleteBootstrapRequest, error) {
 	if status == nil {
 		return nil, errors.New("auth bootstrap status is required")
 	}
 	if !supportsBootstrapMode(status.SupportedModes, choice) {
 		return nil, fmt.Errorf("auth method %q is not supported by this server", choice)
 	}
-	oauthOpts := authui.OAuthOptions{Issuer: status.GetOauth().GetIssuer(), ClientID: status.GetOauth().GetClientId()}
 	switch choice {
 	case authMethodChoiceBrowserAuto:
-		return i.collectRemoteBrowserAuto(ctx, oauthOpts, theme)
+		return i.collectRemoteBrowserAuto(ctx, remote, target, theme)
 	case authMethodChoiceDevice:
-		return i.collectRemoteDevice(ctx, oauthOpts, theme)
+		return i.collectRemoteDevice(ctx, remote, target, theme)
 	default:
 		return nil, fmt.Errorf("unsupported auth method %q", choice)
 	}
 }
 
-func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context, opts authui.OAuthOptions, theme string) (*authpb.CompleteBootstrapRequest, error) {
+func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context, remote apicontract.AuthBootstrapService, target *authpb.ConnectionTarget, theme string) (*authpb.CompleteBootstrapRequest, error) {
 	startListener := i.startCallbackListener
 	if startListener == nil {
 		startListener = func() (oauthCallbackListener, error) {
@@ -179,21 +178,30 @@ func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context
 		return nil, err
 	}
 	defer func() { _ = listener.Close() }()
-	session, err := serverauth.BeginOpenAIBrowserFlow(opts, listener.RedirectURI())
+	redirect := listener.RedirectURI()
+	start, err := runConnectionOperation(ctx, theme, func() (*authpb.BootstrapStart, error) {
+		return remote.StartBootstrap(ctx, &authpb.StartBootstrapRequest{
+			Target: target, Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL, RedirectUri: &redirect,
+		})
+	})
 	if err != nil {
 		return nil, err
 	}
-	openErr := openBrowser(session.AuthorizeURL)
+	session := start.GetContinuation().GetBrowser()
+	if session == nil || start.GetAuthorizationUrl() == "" {
+		return nil, errors.New("server returned no browser sign-in instructions")
+	}
+	openErr := openBrowser(start.GetAuthorizationUrl())
 	runPage := i.runCallbackPage
 	if runPage == nil {
 		runPage = runAuthCallbackPage
 	}
 	result, err := runPage(ctx, authCallbackPageData{
 		Theme:        theme,
-		AuthorizeURL: session.AuthorizeURL,
+		AuthorizeURL: start.GetAuthorizationUrl(),
 		OpenErr:      openErr,
 	}, func(waitCtx context.Context) (authui.OAuthBrowserCallback, error) {
-		return listener.Wait(waitCtx, opts.PollTimeout)
+		return listener.Wait(waitCtx, 0)
 	}, func(_ context.Context, input string) error {
 		parsed, err := serverauth.ParseOAuthCallbackInput(input)
 		if err != nil {
@@ -219,29 +227,33 @@ func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context
 		return nil, result.Err
 	}
 	return &authpb.CompleteBootstrapRequest{
-		Mode:              authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL,
-		CallbackInput:     &result.CallbackInput,
-		RedirectUri:       &session.RedirectURI,
-		OauthState:        &session.State,
-		OauthCodeVerifier: &session.CodeVerifier,
+		Mode:          authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL,
+		CallbackInput: &result.CallbackInput,
+		Continuation:  start.Continuation,
 	}, nil
 }
 
-func (i *interactiveAuthInteractor) collectRemoteDevice(ctx context.Context, opts authui.OAuthOptions, theme string) (*authpb.CompleteBootstrapRequest, error) {
-	grant, err := serverauth.CollectOpenAIDeviceAuthorizationGrant(ctx, opts, func(code authui.OAuthDeviceCode) {
-		i.printAuthSection(theme, authMethodDisplayTitle(authMethodChoiceDevice), []string{
-			lipgloss.NewStyle().Foreground(uiPalette(theme).primary).Underline(true).Render(code.VerificationURL),
-			lipgloss.NewStyle().Foreground(uiPalette(theme).foreground).Render("Code: ") + lipgloss.NewStyle().Foreground(uiPalette(theme).secondary).Bold(true).Render(code.UserCode),
-			lipgloss.NewStyle().Foreground(uiPalette(theme).muted).Faint(true).Render("Waiting for authorization..."),
+func (i *interactiveAuthInteractor) collectRemoteDevice(ctx context.Context, remote apicontract.AuthBootstrapService, target *authpb.ConnectionTarget, theme string) (*authpb.CompleteBootstrapRequest, error) {
+	start, err := runConnectionOperation(ctx, theme, func() (*authpb.BootstrapStart, error) {
+		return remote.StartBootstrap(ctx, &authpb.StartBootstrapRequest{
+			Target: target, Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE,
 		})
 	})
 	if err != nil {
 		return nil, err
 	}
+	code := start.GetDevice()
+	if code == nil || start.GetContinuation().GetDevice() == nil {
+		return nil, errors.New("server returned no device sign-in instructions")
+	}
+	i.printAuthSection(theme, authMethodDisplayTitle(authMethodChoiceDevice), []string{
+		lipgloss.NewStyle().Foreground(uiPalette(theme).primary).Underline(true).Render(code.VerificationUrl),
+		lipgloss.NewStyle().Foreground(uiPalette(theme).foreground).Render("Code: ") + lipgloss.NewStyle().Foreground(uiPalette(theme).secondary).Bold(true).Render(code.UserCode),
+		lipgloss.NewStyle().Foreground(uiPalette(theme).muted).Faint(true).Render("Waiting for authorization..."),
+	})
 	return &authpb.CompleteBootstrapRequest{
-		Mode:                    authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE,
-		DeviceAuthorizationCode: &grant.AuthorizationCode,
-		DeviceCodeVerifier:      &grant.CodeVerifier,
+		Mode:         authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE,
+		Continuation: start.Continuation,
 	}, nil
 }
 

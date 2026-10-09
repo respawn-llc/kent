@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -143,7 +142,7 @@ func grokCredential(token oauthTokenResponse, method OAuthMethod) (OAuthMethod, 
 }
 
 func BeginGrokBrowserFlow(ctx context.Context, client *http.Client, redirectURI string) (BrowserAuthSession, error) {
-	if err := validateGrokRedirect(redirectURI); err != nil {
+	if err := ValidateCallbackRedirect(config.ConnectionGrokCLIProxy, redirectURI); err != nil {
 		return BrowserAuthSession{}, err
 	}
 	discovery, err := discoverGrokOAuth(ctx, grokOAuthHTTPClient(client))
@@ -167,7 +166,7 @@ func BeginGrokBrowserFlow(ctx context.Context, client *http.Client, redirectURI 
 }
 
 func CompleteGrokBrowserFlow(ctx context.Context, client *http.Client, session BrowserAuthSession, callbackInput string) (OAuthMethod, error) {
-	if err := validateGrokRedirect(session.RedirectURI); err != nil {
+	if err := ValidateCallbackRedirect(config.ConnectionGrokCLIProxy, session.RedirectURI); err != nil {
 		return OAuthMethod{}, err
 	}
 	callback, err := validateBrowserCallback(session, callbackInput)
@@ -187,17 +186,4 @@ func CompleteGrokBrowserFlow(ctx context.Context, client *http.Client, session B
 		return OAuthMethod{}, err
 	}
 	return grokCredential(token, OAuthMethod{})
-}
-
-func validateGrokRedirect(redirect string) error {
-	u, err := url.Parse(redirect)
-	if err != nil {
-		return fmt.Errorf("parse Grok callback redirect: %w", err)
-	}
-	port, err := strconv.ParseUint(u.Port(), 10, 16)
-	if err != nil || port == 0 || u.Scheme != "http" || u.Hostname() != "127.0.0.1" ||
-		u.Path != "/callback" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return errors.New("Grok callback redirect must use http://127.0.0.1:<bound-port>/callback")
-	}
-	return nil
 }

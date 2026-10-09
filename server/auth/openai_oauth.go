@@ -40,11 +40,6 @@ type DeviceCode struct {
 	ExpiresAt       *time.Time
 }
 
-type DeviceAuthorizationGrant struct {
-	AuthorizationCode string
-	CodeVerifier      string
-}
-
 type deviceUserCodeResponse struct {
 	DeviceAuthID string `json:"device_auth_id"`
 	UserCode     string `json:"user_code"`
@@ -91,62 +86,17 @@ func normalizeOpenAIOAuthOptions(opts OpenAIOAuthOptions) OpenAIOAuthOptions {
 	return opts
 }
 
-func RunOpenAIDeviceCodeFlow(ctx context.Context, opts OpenAIOAuthOptions, onCode func(DeviceCode)) (OAuthMethod, error) {
+func CompleteOpenAIDeviceFlow(ctx context.Context, opts OpenAIOAuthOptions, code DeviceCode) (OAuthMethod, error) {
 	opts = normalizeOpenAIOAuthOptions(opts)
-
-	code, err := requestOpenAIDeviceCode(ctx, opts)
-	if err != nil {
-		return OAuthMethod{}, err
-	}
-	if onCode != nil {
-		onCode(code)
-	}
-
 	poll, err := pollOpenAIDeviceAuthToken(ctx, opts, code)
 	if err != nil {
 		return OAuthMethod{}, err
 	}
-
-	method, err := exchangeOpenAIAuthorizationCode(ctx, opts, poll.AuthorizationCode, poll.CodeVerifier, issuerRedirectURI(opts))
-	if err != nil {
-		return OAuthMethod{}, err
-	}
-	return method, nil
+	return exchangeOpenAIAuthorizationCode(ctx, opts, poll.AuthorizationCode, poll.CodeVerifier, issuerRedirectURI(opts))
 }
 
-func CollectOpenAIDeviceAuthorizationGrant(ctx context.Context, opts OpenAIOAuthOptions, onCode func(DeviceCode)) (DeviceAuthorizationGrant, error) {
+func BeginOpenAIDeviceFlow(ctx context.Context, opts OpenAIOAuthOptions) (DeviceCode, error) {
 	opts = normalizeOpenAIOAuthOptions(opts)
-	code, err := requestOpenAIDeviceCode(ctx, opts)
-	if err != nil {
-		return DeviceAuthorizationGrant{}, err
-	}
-	if onCode != nil {
-		onCode(code)
-	}
-	poll, err := pollOpenAIDeviceAuthToken(ctx, opts, code)
-	if err != nil {
-		return DeviceAuthorizationGrant{}, err
-	}
-	return DeviceAuthorizationGrant{
-		AuthorizationCode: poll.AuthorizationCode,
-		CodeVerifier:      poll.CodeVerifier,
-	}, nil
-}
-
-func CompleteOpenAIDeviceAuthorizationGrant(ctx context.Context, opts OpenAIOAuthOptions, authorizationCode string, codeVerifier string) (OAuthMethod, error) {
-	opts = normalizeOpenAIOAuthOptions(opts)
-	authorizationCode = strings.TrimSpace(authorizationCode)
-	codeVerifier = strings.TrimSpace(codeVerifier)
-	if authorizationCode == "" {
-		return OAuthMethod{}, errors.New("device authorization code is required")
-	}
-	if codeVerifier == "" {
-		return OAuthMethod{}, errors.New("device code verifier is required")
-	}
-	return exchangeOpenAIAuthorizationCode(ctx, opts, authorizationCode, codeVerifier, issuerRedirectURI(opts))
-}
-
-func requestOpenAIDeviceCode(ctx context.Context, opts OpenAIOAuthOptions) (DeviceCode, error) {
 	issuer := strings.TrimSuffix(opts.Issuer, "/")
 	endpoint := issuer + "/api/accounts/deviceauth/usercode"
 	body, _ := json.Marshal(map[string]string{"client_id": opts.ClientID})

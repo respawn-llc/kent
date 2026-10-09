@@ -41,6 +41,7 @@ type AskViewService interface {
 
 type AuthBootstrapService interface {
 	GetBootstrapStatus(ctx context.Context, req *authpb.GetBootstrapStatusRequest) (*authpb.BootstrapStatus, error)
+	StartBootstrap(ctx context.Context, req *authpb.StartBootstrapRequest) (*authpb.BootstrapStart, error)
 	CompleteBootstrap(ctx context.Context, req *authpb.CompleteBootstrapRequest) (*authpb.BootstrapCompletion, error)
 }
 
