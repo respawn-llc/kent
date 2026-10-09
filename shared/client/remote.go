@@ -212,16 +212,6 @@ func (c *Remote) projectBinding() (ProjectAttachment, bool) {
 	return remoteAttachmentProjectBinding(c.attachment)
 }
 
-func callUnscopedRPC[Req any, Resp any](c *Remote, ctx context.Context, method string, req Req) (Resp, error) {
-	var resp Resp
-	return resp, c.callUnscoped(ctx, method, req, &resp)
-}
-
-func callDedicatedRPC[Req any, Resp any](c *Remote, ctx context.Context, requestID string, method string, req Req) (Resp, error) {
-	var resp Resp
-	return resp, c.callDedicated(ctx, requestID, method, req, &resp)
-}
-
 func (c *Remote) GetBootstrapStatus(ctx context.Context, req *authpb.GetBootstrapStatusRequest) (*authpb.BootstrapStatus, error) {
 	return callGeneratedBinary(c, ctx,
 		bootstrapMethod(authpb.File_kent_api_auth_auth_proto, "AuthService", "GetBootstrapStatus"),
@@ -688,14 +678,6 @@ func (c *Remote) ensureOpen() error {
 		return errors.New("remote client is closed")
 	}
 	return nil
-}
-
-func (c *Remote) callUnscoped(ctx context.Context, method string, params any, out any) error {
-	control, err := c.ensureControl(ctx)
-	if err != nil {
-		return err
-	}
-	return control.call(ctx, method, params, out)
 }
 
 func (c *Remote) ensureControl(ctx context.Context) (*remoteControlConn, error) {

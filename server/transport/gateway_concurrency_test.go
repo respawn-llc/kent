@@ -384,22 +384,14 @@ func TestGatewayOrdinaryHandlerPanicPropagates(t *testing.T) {
 		t.Fatal(failure)
 	}
 	state := &connectionState{handshakeDone: true}
-	stopped := false
 	defer func() {
 		recovered := recover()
 		cause, ok := recovered.(error)
 		if !ok || !errors.Is(cause, panicCause) {
 			t.Fatalf("recovered panic = %#v, want original panic cause", recovered)
 		}
-		if stopped {
-			t.Fatal("ordinary request stop callback ran after panic")
-		}
 	}()
-	gateway.serveOrdinaryEstablishedRequest(nil, context.Background(), state, gatewayEstablishedRequest{binary: request}, gatewayRequestSchedule{
-		kind: gatewayRequestScheduleOrdinary,
-	}, func() {
-		stopped = true
-	})
+	gateway.serveBinaryRequest(nil, context.Background(), state, *request)
 }
 
 func TestGatewayExplicitAdmissionInterruptionPersistenceFailureRemainsNonFatal(t *testing.T) {

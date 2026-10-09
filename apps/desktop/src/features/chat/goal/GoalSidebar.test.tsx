@@ -277,7 +277,7 @@ describe("Goal sidebar", () => {
       outcome: {
         kind: "rejected",
         error: new ChatOperationError(
-          new RpcError({ code: 500, message: "Goal Set failed", method: "runtime.goal.set" }),
+          new RpcError({ code: "internal_failure", message: "Goal Set failed", method: "runtime.goal.set" }),
           { kind: "runtime_unavailable", sessionID },
         ),
       },
@@ -473,7 +473,7 @@ function goalSetResult(objective: string, id: string): GoalSetResult {
         },
       },
       diagnostic: new ChatOperationError(
-        new RpcError({ code: 500, message: "Fixture warning", method: "runtime.detach" }),
+        new RpcError({ code: "internal_failure", message: "Fixture warning", method: "runtime.detach" }),
         { kind: "internal_failure", operation: "runtime.detach", cause: "fixture warning" },
       ),
     },

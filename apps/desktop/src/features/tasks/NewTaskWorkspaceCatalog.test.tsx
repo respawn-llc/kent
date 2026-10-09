@@ -7,7 +7,6 @@ import {
   RpcError,
   WorkflowTaskDependencyError,
   type ApiService,
-  rpcErrorCodes,
   type TaskDependencyDirection,
   type WorkspaceCatalogPage,
   type WorkspaceCatalogRow,
@@ -394,7 +393,7 @@ describe("New Task Workspace catalog integration", () => {
     client.removeQueries({ queryKey: queryKeys.projectWorkspace("project-1", "source") });
     getProjectWorkspace.mockRejectedValueOnce(
       new RpcError({
-        code: rpcErrorCodes.projectNotFound,
+        code: "project_not_found",
         message: "gone",
         method: "project.workspace.get",
       }),
@@ -614,7 +613,7 @@ describe("New Task Workspace catalog integration", () => {
     state.create.mockRejectedValueOnce(
       new WorkflowTaskDependencyError(
         new RpcError({
-          code: rpcErrorCodes.workflowTaskDependency,
+          code: "task_dependency",
           message: "workflow task dependency error: reciprocal_dependency",
           method: "test.create",
         }),

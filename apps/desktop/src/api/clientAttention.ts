@@ -15,11 +15,11 @@ import { taskUnavailableTargetCause, workflowExecutionTargetMode } from "./workf
 import type { AttentionItem } from "./attention";
 import type { AttentionPage, TaskAttention } from "./models";
 import type { AttentionQuestionPrompt } from "./promptModels";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 import { requireTaskBoundItems } from "./clientParse";
 
 export async function listAttention(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   pageToken: string | null,
 ): Promise<AttentionPage> {
   const method = AttentionReadService.method.list;
@@ -40,10 +40,7 @@ export async function listAttention(
   };
 }
 
-export async function listTaskAttention(
-  transport: DescriptorRpcTransport,
-  taskId: string,
-): Promise<TaskAttention> {
+export async function listTaskAttention(transport: RpcTransport, taskId: string): Promise<TaskAttention> {
   const method = AttentionReadService.method.listTask;
   const response = requireUnarySuccess(
     method,

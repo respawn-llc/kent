@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 
-import { RpcError, rpcErrorCodes } from "@/api";
+import { RpcError } from "@/api";
 import { NewTaskForm } from "@/features/tasks";
 import { LinkWorkflowSidebar } from "@/features/workflows";
 import { appI18n, initializeI18n } from "@/i18n";
@@ -36,7 +36,7 @@ vi.mock("@/ui", async (original) => ({
   VirtualizedInfiniteList: (await import("@/test-support/workflow-rendering")).WorkflowListStub,
 }));
 
-const missing = new RpcError({ code: rpcErrorCodes.projectNotFound, message: "gone", method: "mutation" });
+const missing = new RpcError({ code: "project_not_found", message: "gone", method: "mutation" });
 
 beforeAll(async () => initializeI18n());
 beforeEach(() => Object.assign(fixture, { createError: null }));

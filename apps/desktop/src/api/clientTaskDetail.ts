@@ -11,16 +11,16 @@ import { taskDetail, taskComment, taskActivity } from "./clientTaskProjection";
 import { taskCommentAuthor } from "./workflowProtoValues";
 import { requireTaskBoundItems } from "./clientParse";
 import type { ActivityPage, CommentPage, PendingAsk, TaskComment, TaskDetail } from "./models";
-import type { DescriptorRpcTransport, SessionAttachmentTarget } from "./transport";
+import type { RpcTransport, SessionAttachmentTarget } from "./transport";
 
-export async function getTask(transport: DescriptorRpcTransport, taskID: string): Promise<TaskDetail> {
+export async function getTask(transport: RpcTransport, taskID: string): Promise<TaskDetail> {
   const method = TaskReadService.method.get;
   const result = await transport.callDescriptor(method, create(method.input, { taskId: taskID }));
   return taskDetail(requireUnarySuccess(method, result).task);
 }
 
 export async function listTaskActivity(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   taskID: string,
   offset: number,
 ): Promise<ActivityPage> {
@@ -36,7 +36,7 @@ export async function listTaskActivity(
 }
 
 export async function listTaskComments(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   taskID: string,
   offset: number,
 ): Promise<CommentPage> {
@@ -54,7 +54,7 @@ export async function listTaskComments(
 }
 
 export async function addComment(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   taskID: string,
   body: string,
   author: string,
@@ -72,7 +72,7 @@ export async function addComment(
 }
 
 export async function replaceComment(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   commentID: string,
   body: string,
 ): Promise<void> {
@@ -81,14 +81,14 @@ export async function replaceComment(
   requireUnarySuccess(method, result);
 }
 
-export async function deleteComment(transport: DescriptorRpcTransport, commentID: string): Promise<void> {
+export async function deleteComment(transport: RpcTransport, commentID: string): Promise<void> {
   const method = TaskCommentService.method.delete;
   const result = await transport.callDescriptor(method, create(method.input, { commentId: commentID }));
   requireUnarySuccess(method, result);
 }
 
 export async function listPendingAsks(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   target: SessionAttachmentTarget,
 ): Promise<readonly PendingAsk[]> {
   const method = QuestionService.method.listPending;

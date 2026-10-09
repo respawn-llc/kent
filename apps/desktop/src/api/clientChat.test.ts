@@ -1,3 +1,4 @@
+import { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
 import { ContractError, RpcError, TransportError } from "./errors";
@@ -549,7 +550,7 @@ describe("Desktop Chat read client", () => {
     ]);
     transport.failDescriptor(
       R.GoalService.method.observe,
-      new RpcError({ code: -32000, message: "Session unavailable", method: "goal.observe" }),
+      new RpcError({ code: "internal_failure", message: "Session unavailable", method: "goal.observe" }),
     );
     transport.failDescriptor(R.GoalService.method.observe, new TransportError("Subscription socket closed."));
     expect(observationErrors).toHaveLength(2);
@@ -680,7 +681,7 @@ describe("Desktop Chat read client", () => {
       T.StreamService.method.subscribe,
       T.StreamService.method.complete,
       create(T.StreamService.method.complete.input, {
-        code: -17,
+        code: StreamFailureCode.STREAM_GAP,
         message: "subscriber overflow",
         transcriptCloseReason: TranscriptCloseReason.SUBSCRIBER_OVERFLOW,
       }),
@@ -692,7 +693,7 @@ describe("Desktop Chat read client", () => {
     expect(errors).toHaveLength(1);
     expect(errors[0]).toBeInstanceOf(ContractError);
     expect(completions).toEqual([
-      { code: -17, message: "subscriber overflow", reason: "subscriber_overflow" },
+      { code: StreamFailureCode.STREAM_GAP, message: "subscriber overflow", reason: "subscriber_overflow" },
     ]);
   });
 

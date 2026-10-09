@@ -9,10 +9,10 @@ import { protobufRpcError, requireUnarySuccess } from "./protobufRpc";
 import { taskStatus } from "./clientTaskProjection";
 import { taskSearchMode, taskSearchSourceKind, taskStatusKind } from "./workflowProtoValues";
 import type { TaskSearchHit, TaskSearchInput, TaskSearchResponse, TaskSearchSource } from "./taskSearch";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 
 export async function searchTasks(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   input: TaskSearchInput,
   signal?: AbortSignal,
 ): Promise<TaskSearchResponse> {

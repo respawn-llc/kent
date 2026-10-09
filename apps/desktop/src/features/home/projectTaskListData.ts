@@ -380,7 +380,7 @@ function createProjectTaskObservation(
           break;
         }
         case "complete":
-          if (observation.code === 0) yield* Effect.tryPromise(refresh.linked);
+          if (observation.code === null) yield* Effect.tryPromise(refresh.linked);
           break;
         case "error":
           reportBackgroundError(observation.error);

@@ -6,8 +6,11 @@ export function partialWorktreeDeletionError(
   input: Parameters<typeof create<typeof DeletePartialDetailsSchema>>[1],
 ) {
   const details = create(DeletePartialDetailsSchema, input);
-  return new WorktreeError(new RpcError({ code: -32000, message: details.diagnostic, method: "delete" }), {
-    kind: "delete_partial",
-    details,
-  });
+  return new WorktreeError(
+    new RpcError({ code: "internal_failure", message: details.diagnostic, method: "delete" }),
+    {
+      kind: "delete_partial",
+      details,
+    },
+  );
 }
