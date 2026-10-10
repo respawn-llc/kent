@@ -22,10 +22,11 @@ func TestAuthStageFromResponseProjectsTypedMethods(t *testing.T) {
 				Resolution: &authpb.StatusResolution_Known{Known: &authpb.StatusFacts{
 					ConnectionId: "work",
 					Method:       method,
+					Provider:     &authpb.ProviderFacts{Kind: authpb.ProviderKind_PROVIDER_KIND_OPENAI},
 				}},
 			},
 		})
-		if result.Auth.Method != method || !result.Auth.Visible || result.Auth.Unavailable {
+		if result.Auth.Method != method || result.Auth.Visible != (method == authpb.AuthMethod_AUTH_METHOD_OAUTH) || result.Auth.Unavailable {
 			t.Fatalf("method %v projection = %+v", method, result)
 		}
 	}

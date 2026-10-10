@@ -128,7 +128,7 @@ func cacheLineageRequest(cacheKey string, scope transcript.CacheWarningScope, co
 		Model:            "gpt-6-sol",
 		PromptCacheKey:   cacheKey,
 		PromptCacheScope: scope,
-		Items:            items,
+		Items:            items, ReasoningEffort: "high",
 	}
 }
 

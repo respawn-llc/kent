@@ -494,15 +494,16 @@ func (s *ResponsesStub) writeResponseAssistantDelta(writer http.ResponseWriter, 
 }
 
 func (s *ResponsesStub) writeResponseCompleted(writer http.ResponseWriter, model string, output []any, usage llm.Usage) bool {
+	counts := map[string]any{"input_tokens": usage.InputTokens, "output_tokens": usage.OutputTokens}
+	if usage.InputTokens != nil && usage.OutputTokens != nil {
+		counts["total_tokens"] = *usage.InputTokens + *usage.OutputTokens
+	}
 	return s.writeResponseEvent(writer, map[string]any{
 		"type": "response.completed",
 		"response": map[string]any{
 			"id": "resp_scripted", "object": "response", "status": "completed", "model": model,
 			"output": output,
-			"usage": map[string]int{
-				"input_tokens": usage.InputTokens, "output_tokens": usage.OutputTokens,
-				"total_tokens": usage.InputTokens + usage.OutputTokens,
-			},
+			"usage":  counts,
 		},
 	})
 }

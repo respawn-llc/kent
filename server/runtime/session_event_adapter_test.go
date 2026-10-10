@@ -159,7 +159,7 @@ func TestSessionToolCompletionRecordAdapterRoundTrip(t *testing.T) {
 		CondensedText: textutil.Value("failed"),
 		Presentation:  &presentation,
 	}
-	providerItems := llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+	providerItems := llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 		Type:   llm.ResponseItemTypeFunctionCallOutput,
 		CallID: textutil.Value(result.CallID),
 		Name:   textutil.Value(string(result.Name)),
@@ -243,7 +243,7 @@ func TestSessionQuestionCompletionAdapterCarriesTypedAnswer(t *testing.T) {
 		}
 		assertQuestionAnswerJSONField(t, resultJSON, "runtime Result")
 
-		providerItems := llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+		providerItems := llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 			Type:   llm.ResponseItemTypeFunctionCallOutput,
 			CallID: textutil.Value(result.CallID),
 			Name:   textutil.Value(string(result.Name)),
@@ -488,7 +488,7 @@ func TestSessionHistoryReplacementRecordAdapterRejectsInvalidOptionalFacts(t *te
 	base := historyReplacementPayload{
 		Engine: "local",
 		Mode:   string(compactionModeAuto),
-		Items: llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+		Items: llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 			Type:    llm.ResponseItemTypeMessage,
 			Role:    textutil.Value(llm.RoleUser),
 			Content: textutil.Value("summary"),
@@ -502,7 +502,7 @@ func TestSessionHistoryReplacementRecordAdapterRejectsInvalidOptionalFacts(t *te
 	}
 
 	invalid = base
-	invalid.Items = llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+	invalid.Items = llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 		Type:       llm.ResponseItemTypeMessage,
 		Role:       textutil.Value(llm.RoleUser),
 		Content:    textutil.Value("summary"),
@@ -549,7 +549,7 @@ func TestMigratedToolCompletionRecordsPreserveProviderAndCacheLineage(t *testing
 					Name: stringPointerRuntime("exec_command"), CallID: stringPointerRuntime("call-generated"),
 				}},
 			},
-			before: llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+			before: llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 				Type: llm.ResponseItemTypeFunctionCallOutput, Name: textutil.Value("exec_command"),
 				CallID: textutil.Value("call-generated"), Output: json.RawMessage(`{"cwd":"/tmp"}`),
 			}}),
@@ -565,7 +565,7 @@ func TestMigratedToolCompletionRecordsPreserveProviderAndCacheLineage(t *testing
 					Name: stringPointerRuntime("patch"), CallID: stringPointerRuntime("call-fallback"),
 				}},
 			},
-			before: llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+			before: llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 				Type: llm.ResponseItemTypeCustomToolOutput, Name: textutil.Value("patch"),
 				CallID: textutil.Value("call-fallback"), Output: json.RawMessage(`"patched"`),
 			}}),
@@ -625,7 +625,7 @@ func TestSessionToolCompletionRecordAdaptersPreserveProviderPaths(t *testing.T) 
 				Output: json.RawMessage(`{"cwd":"/tmp"}`),
 			},
 			providerItems: func(result tools.Result) []llm.ResponseItem {
-				return llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+				return llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 					Type: llm.ResponseItemTypeFunctionCallOutput, CallID: textutil.Value(result.CallID),
 					Name: textutil.Value(string(result.Name)), Output: result.Output,
 				}})
@@ -640,7 +640,7 @@ func TestSessionToolCompletionRecordAdaptersPreserveProviderPaths(t *testing.T) 
 				Output: json.RawMessage(`"patched"`),
 			},
 			providerItems: func(result tools.Result) []llm.ResponseItem {
-				return llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+				return llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 					Type: llm.ResponseItemTypeCustomToolOutput, CallID: textutil.Value(result.CallID),
 					Name: textutil.Value(string(result.Name)), Output: result.Output,
 				}})
@@ -656,7 +656,7 @@ func TestSessionToolCompletionRecordAdaptersPreserveProviderPaths(t *testing.T) 
 				IsError: true,
 			},
 			providerItems: func(result tools.Result) []llm.ResponseItem {
-				return llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+				return llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 					Type: llm.ResponseItemTypeFunctionCallOutput, CallID: textutil.Value(result.CallID),
 					Name: textutil.Value(string(result.Name)), Output: result.Output,
 				}})
@@ -671,7 +671,7 @@ func TestSessionToolCompletionRecordAdaptersPreserveProviderPaths(t *testing.T) 
 				Output: json.RawMessage(`[{"type":"input_file","file_id":"file-1"}]`),
 			},
 			providerItems: func(result tools.Result) []llm.ResponseItem {
-				return llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+				return llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 					Type: llm.ResponseItemTypeFunctionCallOutput, CallID: textutil.Value(result.CallID),
 					Name: textutil.Value(string(result.Name)), Output: result.Output,
 				}})
@@ -759,7 +759,7 @@ func TestSessionHistoryReplacementRecordAdapterPreservesProviderHistoryAndProven
 			UserMessageSeq:       11,
 			CandidatePageEndByte: 8192,
 		},
-		Items: llm.PrepareOpenAIInputItems([]llm.ResponseItem{
+		Items: llm.PrepareResponsesInputItems([]llm.ResponseItem{
 			{
 				Type:        llm.ResponseItemTypeMessage,
 				Role:        textutil.Value(llm.RoleUser),
@@ -906,7 +906,7 @@ func TestSessionHistoryReplacementRecordAdapterGeneratesOnlyDerivableOutputRaw(t
 		if err != nil {
 			t.Fatalf("restore %q output history: %v", item.Type, err)
 		}
-		want := llm.PrepareOpenAIInputItems([]llm.ResponseItem{item})
+		want := llm.PrepareResponsesInputItems([]llm.ResponseItem{item})
 		if len(restored.Items) != 1 || !bytes.Equal(restored.Items[0].Raw, want[0].Raw) {
 			t.Fatalf("restored %q Raw = %s, want %s", item.Type, restored.Items[0].Raw, want[0].Raw)
 		}
@@ -928,7 +928,7 @@ func TestSessionHistoryReplacementRecordAdapterGeneratesOnlyDerivableOutputRaw(t
 
 func TestSessionHistoryReplacementUsesItemOrderInsteadOfProviderParserOutputIndex(t *testing.T) {
 	t.Parallel()
-	items := llm.PrepareOpenAIInputItems([]llm.ResponseItem{
+	items := llm.PrepareResponsesInputItems([]llm.ResponseItem{
 		{
 			Type:        llm.ResponseItemTypeMessage,
 			OutputIndex: 91,

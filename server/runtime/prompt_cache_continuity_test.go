@@ -168,12 +168,12 @@ func TestSkillsPolicyChangesOnlyAtMainContextReconstruction(t *testing.T) {
 		caps:      caps,
 		responses: []llm.Response{finalOutputItemResponse("disabled response")},
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				ID:               textutil.Value("cmp_skills_policy"),
 				EncryptedContent: textutil.Value("encrypted"),
-			},
-			Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+			}},
+			Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	disabled := mustNewTestEngine(t, reopenedStore, disabledClient, registry, Config{
@@ -241,12 +241,12 @@ func TestLiveReloadedSkillsPolicyAppliesOnlyAtCompaction(t *testing.T) {
 	client := &fakeCompactionClient{
 		responses: []llm.Response{finalOutputItemResponse("enabled response")},
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				ID:               textutil.Value("cmp_live_reload_skills"),
 				EncryptedContent: textutil.Value("encrypted"),
-			},
-			Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+			}},
+			Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
@@ -756,7 +756,7 @@ func seq21To28ShapeRequest(t testing.TB, thirdCallInput json.RawMessage) llm.Req
 			{Role: llm.RoleTool, ToolCallID: textutil.Value("call-search"), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`"docs/dev/specs/README.md:1:# Product Specs"`)},
 			{Role: llm.RoleTool, ToolCallID: textutil.Value("call-status"), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`"M\tdocs/dev/specs/README.md"`)},
 		}),
-		Tools: []llm.Tool{{Name: string(toolspec.ToolExecCommand), Description: "execute command", Schema: mustTestFunctionSchema(t)}},
+		Tools: []llm.Tool{{Name: string(toolspec.ToolExecCommand), Description: "execute command", Schema: mustTestFunctionSchema(t)}}, ReasoningEffort: "high",
 	}
 }
 

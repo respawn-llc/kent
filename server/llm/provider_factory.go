@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"core/server/httpcompression"
+	"core/shared/config"
 	"core/shared/modelcontract"
 	"core/shared/textutil"
 )
@@ -20,15 +21,16 @@ type Provider string
 const (
 	ProviderOpenAI    Provider = "openai"
 	ProviderAnthropic Provider = "anthropic"
+	ProviderGrok      Provider = "grok"
 )
 
 type ProviderClientOptions struct {
-	Provider Provider
-	Model    string
+	Registration ProviderVariantRegistration
+	Model        string
+	ConnectionID *config.ConnectionID
 
 	Auth                         DispatchAuthProvider
 	HTTPClient                   *http.Client
-	OpenAIBaseURL                string
 	ModelVerbosity               string
 	ProviderIdentifier           *string
 	Store                        bool
@@ -53,6 +55,8 @@ type ProviderTransportVariantResolver func(endpoint ProviderTransportEndpoint, m
 type ProviderVariantContract struct {
 	ReasoningType            *modelcontract.ReasoningType
 	ProviderID               string
+	BaseURL                  *string
+	ResponsesPolicy          responsesPolicy
 	TokenEstimator           TokenEstimator
 	RequestCompression       httpcompression.RequestContentCoding
 	Capabilities             ProviderCapabilities
@@ -65,6 +69,7 @@ type remoteCompactionProtocol uint8
 const (
 	remoteCompactionUnsupported remoteCompactionProtocol = iota
 	remoteCompactionResponsesTriggerV2
+	remoteCompactionStandardResponses
 )
 
 type ProviderContract struct {
@@ -76,7 +81,7 @@ type ProviderContract struct {
 	ModelContracts          []ModelCapabilityContract
 }
 
-type providerVariantRegistration struct {
+type ProviderVariantRegistration struct {
 	Provider Provider
 	Variant  ProviderVariantContract
 }
@@ -88,7 +93,7 @@ type modelCapabilityRegistration struct {
 
 type providerRegistry struct {
 	contractsByProvider  map[Provider]ProviderContract
-	providerVariantsByID map[string]providerVariantRegistration
+	providerVariantsByID map[string]ProviderVariantRegistration
 	modelContractsByName map[string]modelCapabilityRegistration
 	modelContracts       []ModelCapabilityContract
 	modelMatchers        []ProviderContract
@@ -98,6 +103,19 @@ var globalProviderRegistry = mustBuildProviderRegistry(providerContracts())
 
 func providerContracts() []ProviderContract {
 	return []ProviderContract{
+		{
+			Provider:  ProviderGrok,
+			NewClient: newResponsesProviderClient,
+			ProviderVariants: []ProviderVariantContract{
+				grokVariant(config.ConnectionGrokCLIProxy, "https://cli-chat-proxy.grok.com/v1"),
+				grokVariant(config.ConnectionGrokOAuthAPI, "https://api.x.ai/v1"),
+				grokVariant(config.ConnectionGrokAPIKey, "https://api.x.ai/v1"),
+			},
+			ModelContracts: []ModelCapabilityContract{
+				grokModelContract("grok-4.6", time.February, nil),
+				grokModelContract("grok-4.7", time.May, &ModelMetadata{ContextWindowTokens: 256_000, LargeContextWindowTokens: textutil.Value(500_000)}),
+			},
+		},
 		{
 			Provider: ProviderAnthropic,
 			MatchModel: func(model string) bool {
@@ -127,10 +145,11 @@ func providerContracts() []ProviderContract {
 			Provider:                ProviderOpenAI,
 			MatchModel:              matchOpenAIModelFamily,
 			ResolveTransportVariant: resolveOpenAITransportProviderVariant,
-			NewClient:               newOpenAIProviderClient,
+			NewClient:               newResponsesProviderClient,
 			ProviderVariants: []ProviderVariantContract{
 				{
 					ProviderID:               "openai",
+					ResponsesPolicy:          openAIResponsesPolicy{},
 					TokenEstimator:           OpenAITokenEstimator{},
 					ReasoningType:            textutil.Value(modelcontract.ReasoningTypeOpenAI),
 					RequestCompression:       httpcompression.ContentCodingIdentity,
@@ -152,6 +171,7 @@ func providerContracts() []ProviderContract {
 				},
 				{
 					ProviderID:         "openai-compatible",
+					ResponsesPolicy:    openAIResponsesPolicy{},
 					RequestCompression: httpcompression.ContentCodingIdentity,
 					Capabilities: ProviderCapabilities{
 						ProviderID:                    "openai-compatible",
@@ -168,6 +188,7 @@ func providerContracts() []ProviderContract {
 				},
 				{
 					ProviderID:               "chatgpt-codex",
+					ResponsesPolicy:          openAIResponsesPolicy{},
 					TokenEstimator:           OpenAITokenEstimator{},
 					ReasoningType:            textutil.Value(modelcontract.ReasoningTypeOpenAI),
 					RequestCompression:       httpcompression.ContentCodingZstd,
@@ -193,11 +214,43 @@ func providerContracts() []ProviderContract {
 				gpt6ModelContract("gpt-6.1-sol", time.April, []string{"low", "medium", "high", "xhigh", "max"}),
 				gpt6ModelContract("gpt-6-sol", time.April, []string{"none", "low", "medium", "high", "xhigh", "max"}),
 				gpt6ModelContract("gpt-6-luna", time.May, []string{"none", "low", "medium", "high", "xhigh", "max"}),
-				{Model: "gpt-5.6-sol", ContextWindowTokens: 372_000, LargeContextWindowTokens: 372_000, KnowledgeCutoff: ModelKnowledgeCutoff{Month: time.February, Year: 2026}, HasKnowledgeCutoff: true, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
-				{Model: "gpt-5.6-terra", ContextWindowTokens: 372_000, LargeContextWindowTokens: 372_000, KnowledgeCutoff: ModelKnowledgeCutoff{Month: time.February, Year: 2026}, HasKnowledgeCutoff: true, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
-				{Model: "gpt-5.6-luna", ContextWindowTokens: 372_000, LargeContextWindowTokens: 372_000, KnowledgeCutoff: ModelKnowledgeCutoff{Month: time.February, Year: 2026}, HasKnowledgeCutoff: true, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
+				{Model: "gpt-5.6-sol", ContextWindowTokens: 372_000, LargeContextWindowTokens: textutil.Value(372_000), KnowledgeCutoff: &ModelKnowledgeCutoff{Month: time.February, Year: 2026}, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
+				{Model: "gpt-5.6-terra", ContextWindowTokens: 372_000, LargeContextWindowTokens: textutil.Value(372_000), KnowledgeCutoff: &ModelKnowledgeCutoff{Month: time.February, Year: 2026}, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
+				{Model: "gpt-5.6-luna", ContextWindowTokens: 372_000, LargeContextWindowTokens: textutil.Value(372_000), KnowledgeCutoff: &ModelKnowledgeCutoff{Month: time.February, Year: 2026}, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
 			},
 		},
+	}
+}
+
+func grokVariant(protocol config.ConnectionProtocol, endpoint string) ProviderVariantContract {
+	id := string(protocol)
+	compaction := remoteCompactionStandardResponses
+	if protocol == config.ConnectionGrokCLIProxy {
+		compaction = remoteCompactionUnsupported
+	}
+	return ProviderVariantContract{
+		ProviderID: id, BaseURL: textutil.Value(endpoint),
+		ReasoningType:            textutil.Value(modelcontract.ReasoningTypeGrok),
+		ResponsesPolicy:          grokResponsesPolicy{},
+		TokenEstimator:           GrokTokenEstimator{},
+		RequestCompression:       httpcompression.ContentCodingIdentity,
+		RemoteCompactionProtocol: compaction,
+		Capabilities: ProviderCapabilities{
+			ProviderID: id, SupportsResponsesAPI: true, SupportsReasoningEncrypted: true,
+			SupportsPromptCacheKey: true, SupportsFastMode: true,
+			SupportsResponsesCompact: compaction != remoteCompactionUnsupported, SupportsNativeWebSearch: true,
+		},
+		NewErrorReducer: newGrokErrorReducer,
+	}
+}
+
+func grokModelContract(model string, cutoff time.Month, proxyContext *ModelMetadata) ModelCapabilityContract {
+	return ModelCapabilityContract{
+		Model: model, ContextWindowTokens: 500_000,
+		VariantContexts:         map[string]*ModelMetadata{string(config.ConnectionGrokCLIProxy): proxyContext},
+		KnowledgeCutoff:         &ModelKnowledgeCutoff{Month: cutoff, Year: 2026},
+		SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh"},
+		SupportsReasoningSummary: true, SupportsVisionInputs: true,
 	}
 }
 
@@ -205,10 +258,9 @@ func gpt6ModelContract(model string, cutoff time.Month, efforts []string) ModelC
 	return ModelCapabilityContract{
 		Model:                         model,
 		ContextWindowTokens:           272_000,
-		LargeContextWindowTokens:      1_050_000,
-		SubscriptionContext:           &ModelMetadata{ContextWindowTokens: 272_000, LargeContextWindowTokens: 872_000},
-		KnowledgeCutoff:               ModelKnowledgeCutoff{Month: cutoff, Year: 2026},
-		HasKnowledgeCutoff:            true,
+		LargeContextWindowTokens:      textutil.Value(1_050_000),
+		VariantContexts:               map[string]*ModelMetadata{"chatgpt-codex": {ContextWindowTokens: 272_000, LargeContextWindowTokens: textutil.Value(872_000)}},
+		KnowledgeCutoff:               &ModelKnowledgeCutoff{Month: cutoff, Year: 2026},
 		SupportsReasoningEffort:       true,
 		SupportsNativeThinkingUpdates: true,
 		SupportedReasoningEfforts:     efforts,
@@ -222,7 +274,7 @@ func gpt6ModelContract(model string, cutoff time.Month, efforts []string) ModelC
 func mustBuildProviderRegistry(contracts []ProviderContract) providerRegistry {
 	registry := providerRegistry{
 		contractsByProvider:  make(map[Provider]ProviderContract, len(contracts)),
-		providerVariantsByID: make(map[string]providerVariantRegistration),
+		providerVariantsByID: make(map[string]ProviderVariantRegistration),
 		modelContractsByName: make(map[string]modelCapabilityRegistration),
 		modelMatchers:        make([]ProviderContract, 0, len(contracts)),
 	}
@@ -230,9 +282,6 @@ func mustBuildProviderRegistry(contracts []ProviderContract) providerRegistry {
 	for _, contract := range contracts {
 		if contract.Provider == "" {
 			panic("provider contract missing provider key")
-		}
-		if contract.MatchModel == nil {
-			panic(fmt.Sprintf("provider %q missing model matcher", contract.Provider))
 		}
 		if contract.NewClient == nil {
 			panic(fmt.Sprintf("provider %q missing client factory", contract.Provider))
@@ -244,7 +293,9 @@ func mustBuildProviderRegistry(contracts []ProviderContract) providerRegistry {
 			panic(fmt.Sprintf("duplicate provider contract for %q", contract.Provider))
 		}
 		registry.contractsByProvider[contract.Provider] = contract
-		registry.modelMatchers = append(registry.modelMatchers, contract)
+		if contract.MatchModel != nil {
+			registry.modelMatchers = append(registry.modelMatchers, contract)
+		}
 
 		for _, variant := range contract.ProviderVariants {
 			normalizedID := strings.ToLower(strings.TrimSpace(variant.ProviderID))
@@ -263,7 +314,7 @@ func mustBuildProviderRegistry(contracts []ProviderContract) providerRegistry {
 			if _, exists := registry.providerVariantsByID[normalizedID]; exists {
 				panic(fmt.Sprintf("duplicate provider variant registration for provider_id %q", normalizedID))
 			}
-			registry.providerVariantsByID[normalizedID] = providerVariantRegistration{Provider: contract.Provider, Variant: variant}
+			registry.providerVariantsByID[normalizedID] = ProviderVariantRegistration{Provider: contract.Provider, Variant: variant}
 		}
 
 		for _, modelContract := range contract.ModelContracts {
@@ -288,36 +339,28 @@ func newUnsupportedProviderClientFactory(provider Provider) ProviderClientFactor
 	}
 }
 
-func newOpenAIProviderClient(opts ProviderClientOptions) (Client, error) {
+func newResponsesProviderClient(opts ProviderClientOptions) (Client, error) {
 	if opts.Auth == nil {
-		return nil, fmt.Errorf("openai auth provider is required")
+		return nil, fmt.Errorf("Responses auth provider is required")
 	}
-	transport, err := newOpenAIHTTPTransport(opts)
+	transport, err := newResponsesHTTPTransport(opts)
 	if err != nil {
 		return nil, err
 	}
-	return newIdleWatchdogClient(NewOpenAIClient(transport), transport.Client.Timeout), nil
+	return newIdleWatchdogClient(NewResponsesClient(transport), transport.Client.Timeout), nil
 }
 
-func newOpenAIHTTPTransport(opts ProviderClientOptions) (*HTTPTransport, error) {
-	transport := NewHTTPTransport(opts.Auth)
-	if opts.Provider != "" {
-		transport.Provider = opts.Provider
+func newResponsesHTTPTransport(opts ProviderClientOptions) (*HTTPTransport, error) {
+	transport, err := NewHTTPTransport(opts.Auth, opts.Registration)
+	if err != nil {
+		return nil, err
 	}
+	transport.ConnectionID = opts.ConnectionID
 	if opts.HTTPClient != nil {
 		transport.Client = opts.HTTPClient
 	}
-	if v := strings.TrimSpace(opts.OpenAIBaseURL); v != "" {
-		parsedBaseURL, err := url.Parse(v)
-		if err != nil {
-			return nil, fmt.Errorf("parse OpenAI base URL: %w", err)
-		}
-		normalizedBaseURL := normalizeOpenAIBaseURL(parsedBaseURL)
-		transport.BaseURL = normalizedBaseURL
-		transport.BaseURLExplicit = true
-	}
 	if opts.HTTPClient == nil {
-		transport.Client = NewProviderHTTPClient(transport.BaseURL, transport.Client.Timeout)
+		transport.Client = NewProviderHTTPClient(transport.serviceBaseURL(), transport.Client.Timeout)
 	}
 	transport.ModelVerbosity = strings.ToLower(strings.TrimSpace(opts.ModelVerbosity))
 	if opts.ProviderIdentifier != nil {
@@ -339,22 +382,15 @@ func newOpenAIHTTPTransport(opts ProviderClientOptions) (*HTTPTransport, error) 
 }
 
 func NewProviderClient(opts ProviderClientOptions) (Client, error) {
-	provider := opts.Provider
-	if provider == "" {
-		if strings.TrimSpace(opts.OpenAIBaseURL) != "" {
-			provider = ProviderOpenAI
-		} else {
-			inferredProvider, err := InferProviderFromModel(opts.Model)
-			if err != nil {
-				return nil, &ProviderSelectionError{Model: strings.TrimSpace(opts.Model), Err: err}
-			}
-			provider = inferredProvider
-		}
+	if opts.Registration.Provider == "" || opts.Registration.Variant.ProviderID == "" {
+		return nil, fmt.Errorf("%w: resolved provider registration is required", ErrUnsupportedProvider)
 	}
-	opts.Provider = provider
+	provider := opts.Registration.Provider
 	if opts.ContextWindowTokens <= 0 {
-		if meta, ok := LookupModelMetadata(opts.Model); ok && meta.ContextWindowTokens > 0 {
-			opts.ContextWindowTokens = meta.ContextWindowTokens
+		if model, known := LookupModelCapabilityContract(opts.Model); known {
+			if meta := model.ContextMetadata(opts.Registration.Variant.ProviderID); meta != nil {
+				opts.ContextWindowTokens = meta.ContextWindowTokens
+			}
 		}
 	}
 	contract, ok := globalProviderRegistry.contractsByProvider[provider]
@@ -368,6 +404,9 @@ func InferProviderFromModel(model string) (Provider, error) {
 	normalizedModel := strings.TrimSpace(model)
 	if normalizedModel == "" {
 		return "", fmt.Errorf("%w: model is required to infer provider", ErrUnsupportedProvider)
+	}
+	if model, present := globalProviderRegistry.modelContractsByName[strings.ToLower(normalizedModel)]; present {
+		return model.Provider, nil
 	}
 	for _, contract := range globalProviderRegistry.modelMatchers {
 		if contract.MatchModel(normalizedModel) {

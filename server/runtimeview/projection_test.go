@@ -79,7 +79,7 @@ type projectionUsageClient struct{}
 func (projectionUsageClient) Generate(context.Context, llm.Request, llm.StreamCallbacks) (llm.Response, error) {
 	return llm.Response{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
-		Usage:     llm.Usage{InputTokens: 900, OutputTokens: 100, WindowTokens: 400_000},
+		Usage:     llm.Usage{InputTokens: textutil.Value(900), OutputTokens: textutil.Value(100), WindowTokens: 400_000, ContextUsage: &llm.ContextUsage{Tokens: 900, MeasurementPoint: llm.ContextMeasurementInput}},
 	}, nil
 }
 

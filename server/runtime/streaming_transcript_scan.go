@@ -206,7 +206,7 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 			return provenanceErr
 		}
 		entries := transcriptEntriesFromHistoryReplacement(
-			llm.PrepareOpenAIInputItems(replacement.Items),
+			llm.PrepareResponsesInputItems(replacement.Items),
 			replacement.CompactionNumber,
 		)
 		for index := range entries {

@@ -346,16 +346,14 @@ func headerInsetFromRenderedHeader(rendered string) string {
 }
 
 func trimRenderedHeaderInset(rendered string) string {
-	trimmed := strings.TrimRight(rendered, "\n")
+	trimmed := strings.Trim(rendered, "\n")
 	inset := headerInsetFromRenderedHeader(trimmed)
 	if inset == "" {
 		return trimmed
 	}
 	lines := strings.Split(trimmed, "\n")
 	for i, line := range lines {
-		if strings.HasPrefix(line, inset) {
-			lines[i] = strings.TrimPrefix(line, inset)
-		}
+		lines[i] = ansi.TruncateLeft(line, lipgloss.Width(inset), "")
 	}
 	return strings.Join(lines, "\n")
 }

@@ -7,6 +7,7 @@ import (
 	"core/server/session"
 	"core/shared/config"
 	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
+	"core/shared/textutil"
 )
 
 func TestLiveChatContextSnapshotUsesRuntimeFactsBehindPersistencePresenceGates(t *testing.T) {
@@ -29,7 +30,7 @@ func TestLiveChatContextSnapshotUsesRuntimeFactsBehindPersistencePresenceGates(t
 			AutoCompactionEnabled: &autoCompaction,
 		},
 	)
-	engine.setLastUsage(llm.Usage{InputTokens: 64_000})
+	engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(64_000), ContextUsage: &llm.ContextUsage{Tokens: 64_000, MeasurementPoint: llm.ContextMeasurementInput}})
 	engine.compactionRuntimeState().SetCount(7)
 	engine.compactionRuntimeState().SetManualCompactionEligible(true)
 	engine.compactionRuntimeState().SetActive("compact-step", nil, "manual", 8, ActiveKindCompaction)

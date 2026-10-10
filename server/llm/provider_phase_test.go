@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"core/shared/config"
 	"core/shared/llmerrors"
 	"core/shared/textutil"
 )
@@ -56,15 +57,15 @@ func TestProviderPhaseConstruction(t *testing.T) {
 	}
 }
 
-func TestOpenAIClientProjectsProviderPhaseFromOneAuthoritativeFact(t *testing.T) {
-	client := NewOpenAIClient(providerPhaseProjectionTransport{
-		response: OpenAIResponse{
+func TestResponsesClientProjectsProviderPhaseFromOneAuthoritativeFact(t *testing.T) {
+	client := NewResponsesClient(providerPhaseProjectionTransport{
+		response: ResponsesResponse{
 			AssistantText: textutil.Value("done"),
 			ProviderPhase: FinalProviderPhase(),
 		},
 	})
 
-	resp, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
+	resp, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -86,7 +87,7 @@ func TestGenerateDecodesAbsentProviderPhaseStructurally(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := NewOpenAIClient(newProviderPhaseResponseTransport(t, tt.phaseField))
+			client := NewResponsesClient(newProviderPhaseResponseTransport(t, tt.phaseField))
 			resp, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"), Model: "compatible-model", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
 			if err != nil {
 				t.Fatalf("generate: %v", err)
@@ -115,7 +116,7 @@ func TestGenerateRejectsInvalidProviderPhaseContracts(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := NewOpenAIClient(newProviderPhaseResponseTransport(t, tt.phaseField))
+			client := NewResponsesClient(newProviderPhaseResponseTransport(t, tt.phaseField))
 			_, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"), Model: "compatible-model", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
 			if err == nil {
 				t.Fatal("expected provider contract error")
@@ -138,7 +139,7 @@ func TestGenerateAccumulatesOutputItemProviderPhase(t *testing.T) {
 		`[DONE]`,
 	)
 
-	resp, err := transport.Generate(context.Background(), OpenAIRequest{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("generate stream: %v", err)
 	}
@@ -154,7 +155,7 @@ func TestGenerateAggregatesCompletedResponseProviderPhase(t *testing.T) {
 		`[DONE]`,
 	)
 
-	resp, err := transport.Generate(context.Background(), OpenAIRequest{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
+	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("generate stream: %v", err)
 	}
@@ -164,21 +165,25 @@ func TestGenerateAggregatesCompletedResponseProviderPhase(t *testing.T) {
 }
 
 type providerPhaseProjectionTransport struct {
-	response OpenAIResponse
+	response ResponsesResponse
 }
 
-func (t providerPhaseProjectionTransport) Generate(context.Context, OpenAIRequest, StreamCallbacks) (OpenAIResponse, error) {
+func (providerPhaseProjectionTransport) PrepareCompaction(request CompactionRequest) CompactionRequest {
+	return request
+}
+
+func (t providerPhaseProjectionTransport) Generate(context.Context, ResponsesRequest, StreamCallbacks) (ResponsesResponse, error) {
 	return t.response, nil
 }
 
-func (providerPhaseProjectionTransport) Compact(context.Context, OpenAIRequest) (OpenAICompactionResponse, error) {
-	return OpenAICompactionResponse{}, nil
+func (providerPhaseProjectionTransport) Compact(context.Context, ResponsesRequest) (ResponsesCompactionResponse, error) {
+	return ResponsesCompactionResponse{}, nil
 }
 
 func newProviderPhaseResponseTransport(t *testing.T, phaseField string) *HTTPTransport {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/responses" {
+		if r.URL.Path != "/v1/responses" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -187,9 +192,9 @@ func newProviderPhaseResponseTransport(t *testing.T, phaseField string) *HTTPTra
 	}))
 	t.Cleanup(server.Close)
 
-	transport := NewHTTPTransport(staticAuthHeader{})
-	transport.BaseURL = server.URL
-	transport.Client = server.Client()
+	transport := newTestHTTPTransport(t, staticAuthHeader{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
+	transport.Client = newRewritingHTTPClient(t, server)
 	transport.ProviderCapabilitiesOverride = &ProviderCapabilities{
 		ProviderID:           "openai-compatible",
 		SupportsResponsesAPI: true,

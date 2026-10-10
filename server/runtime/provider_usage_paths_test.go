@@ -85,7 +85,7 @@ func TestProviderUsageHistorySurvivesCompactionAndReopen(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{
 		responses:           []llm.Response{providerUsageTestMixedResponse(2), providerUsageTestMixedResponse(5)},
-		compactionResponses: []llm.CompactionResponse{{Checkpoint: remoteCompactionReplacement(9, 4, 200_000).Checkpoint, Usage: llm.Usage{InputTokens: 9, OutputTokens: 4}, ProviderEvidence: providerUsageTestMixedResponse(7).ProviderEvidence}},
+		compactionResponses: []llm.CompactionResponse{{OutputItems: remoteCompactionReplacement(9, 4, 200_000).OutputItems, Usage: llm.Usage{InputTokens: textutil.Value(9), OutputTokens: textutil.Value(4), ContextUsage: &llm.ContextUsage{Tokens: 9, MeasurementPoint: llm.ContextMeasurementInput}}, ProviderEvidence: providerUsageTestMixedResponse(7).ProviderEvidence}},
 	}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol", CompactionMode: "native"})
 	request := providerUsageTestRequest(store.Meta().SessionID, false)

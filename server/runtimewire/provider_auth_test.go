@@ -42,11 +42,11 @@ func newExpiredConnectionRuntime(t *testing.T, factory RuntimeClientFactory) *ex
 	}))
 	t.Cleanup(issuer.Close)
 	now := time.Now()
-	manager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), auth.NewOpenAIOAuthRefresher(
+	manager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), map[config.ConnectionProtocol]*auth.OAuthRefresher{config.ConnectionChatGPT: auth.NewOpenAIOAuthRefresher(
 		auth.OpenAIOAuthOptions{Issuer: issuer.URL, HTTPClient: issuer.Client()}, func() time.Time { return now }, time.Minute,
-	))
+	)})
 	if err := manager.SaveOAuth(t.Context(), fixture.id, auth.OAuthMethod{
-		AccessToken: "expired-access", RefreshToken: "expired-refresh", Expiry: now.Add(-time.Hour),
+		AccessToken: "expired-access", RefreshToken: "expired-refresh", Expiry: textutil.Value(now.Add(-time.Hour)),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -218,8 +218,12 @@ func TestRuntimeAcceptsNextTurnAfterConnectionReauthentication(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
+		selected, err := llm.ResolveConnectionVariant(request.Connection.Definition)
+		if err != nil {
+			return nil, err
+		}
 		return llm.NewProviderClient(llm.ProviderClientOptions{
-			Provider: llm.ProviderOpenAI, Model: request.ActiveSettings.Model, Auth: request.Connection.Auth,
+			Registration: selected, Model: request.ActiveSettings.Model, Auth: request.Connection.Auth,
 			HTTPClient: client, ContextWindowTokens: request.ActiveSettings.ModelContextWindow,
 			ProviderCapabilitiesOverride: &capabilities, RequestCapabilities: &request.RequestCapabilities,
 		})
@@ -228,9 +232,16 @@ func TestRuntimeAcceptsNextTurnAfterConnectionReauthentication(t *testing.T) {
 		t.Fatalf("expired request failure = %v", err)
 	}
 	service := authservice.NewBootstrapService(t.Context(), fixture.resolver, auth.OpenAIOAuthOptions{Issuer: server.URL, HTTPClient: client})
+	start, err := service.StartBootstrap(t.Context(), &authpb.StartBootstrapRequest{
+		Target: protoapi.ExistingConnectionTarget(fixture.id), Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE,
+		RedirectUri: textutil.Value("http://localhost:1455/auth/callback"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	result, err := service.CompleteBootstrap(t.Context(), &authpb.CompleteBootstrapRequest{
-		Target: protoapi.ExistingConnectionTarget(fixture.id), Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE,
-		DeviceAuthorizationCode: textutil.Value("synthetic-grant"), DeviceCodeVerifier: textutil.Value("synthetic-verifier"), Force: true,
+		Target: protoapi.ExistingConnectionTarget(fixture.id), Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE,
+		CallbackInput: textutil.Value("synthetic-grant"), Continuation: start.Continuation, Force: true,
 	})
 	if err != nil || !result.AuthReady || result.ConnectionId != string(fixture.id) {
 		t.Fatalf("re-authentication result = %+v, %v", result, err)

@@ -28,7 +28,7 @@ func TestAutoCompactionRecomputesUsageFromReplacementHistory(t *testing.T) {
 	if err := steerTestActiveStep(engine, "input", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {
 		t.Fatalf("persist compaction input: %v", err)
 	}
-	engine.setLastUsage(llm.Usage{InputTokens: autoCompactLimit, WindowTokens: 200_000})
+	engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(autoCompactLimit), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: autoCompactLimit, MeasurementPoint: llm.ContextMeasurementInput}})
 
 	stepID := runtimeTestStepID("compact")
 	if err := runTestActiveStep(engine, stepID, func() error {
@@ -88,7 +88,7 @@ func TestAutoCompactionLocalCarriesPreservedUserMessageInOrder(t *testing.T) {
 				Role:    llm.RoleAssistant,
 				Content: textutil.Value("local summary"),
 			},
-			Usage: llm.Usage{InputTokens: 1_000, OutputTokens: 100, WindowTokens: 200_000},
+			Usage: llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
@@ -105,7 +105,7 @@ func TestAutoCompactionLocalCarriesPreservedUserMessageInOrder(t *testing.T) {
 	)); err != nil {
 		t.Fatalf("persist compaction input: %v", err)
 	}
-	engine.setLastUsage(llm.Usage{InputTokens: 190_000, WindowTokens: 200_000})
+	engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(190_000), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 190_000, MeasurementPoint: llm.ContextMeasurementInput}})
 
 	err := withActiveTestRun(t, engine, ActiveKindUserTurn, func(ctx context.Context, stepID string) error {
 		return engine.autoCompactIfNeeded(ctx, stepID, compactionModeAuto)
@@ -125,15 +125,15 @@ func remoteCompactionReplacement(
 	windowTokens int,
 ) llm.CompactionResponse {
 	return llm.CompactionResponse{
-		Checkpoint: llm.ResponseItem{
+		OutputItems: []llm.ResponseItem{llm.ResponseItem{
 			Type:             llm.ResponseItemTypeCompaction,
 			ID:               textutil.Value("compaction-checkpoint"),
 			EncryptedContent: textutil.Value("encrypted"),
-		},
+		}},
 		Usage: llm.Usage{
-			InputTokens:  inputTokens,
-			OutputTokens: outputTokens,
-			WindowTokens: windowTokens,
+			InputTokens:  textutil.Value(inputTokens),
+			OutputTokens: textutil.Value(outputTokens),
+			WindowTokens: windowTokens, ContextUsage: &llm.ContextUsage{Tokens: inputTokens, MeasurementPoint: llm.ContextMeasurementInput},
 		},
 	}
 }

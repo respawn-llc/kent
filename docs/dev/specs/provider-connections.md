@@ -13,17 +13,31 @@
 - Main agents, child roles, Supervisor, and Workflow must use the same connection-selection rules.
 - Workflow preparation must use completed connection and default edits without requiring a server restart. Saved Session bindings must retain their defined precedence.
 - Credentials must remain server-owned. Requests must use only the selected connection's credentials.
+- The server must own provider sign-in initiation, device polling, token exchange, and refresh. Clients must receive sign-in instructions without access or refresh credentials. Clients must own browser launch and callback or pasted-input collection.
 - Setup completion must remain server-wide. Credential readiness must be checked for the actual Session/role connection, not as a default-connection gate before Session selection. A broken default must not block working connections. If credentials are missing when an interactive Session opens, Kent must open the affected connection's authentication flow. Headless credential failures must return actionable errors.
 
 ## Authentication
 
-- Kent must offer ChatGPT subscription, API-key Responses-compatible, and auth-less Responses-compatible setup choices.
+- Kent must offer OpenAI Subscription and API Key, Grok Subscription and API Key, and Generic Responses-compatible api key and No auth setup choices.
 - The two Responses-compatible choices must share one connection model with an optional environment-variable reference. Absence must select auth-less access. A configured reference whose value is missing or empty must fail with an actionable error, not select anonymous access.
-- API-key setup must accept an endpoint prefilled with the OpenAI endpoint and an environment-variable name. Auth-less setup must require an endpoint.
+- OpenAI and Grok API-key setup must use their official endpoints without an endpoint field and must request an environment-variable name. Generic API-key setup must request an endpoint and environment-variable name. Auth-less setup must require an endpoint.
+- Grok Subscription setup must select the Grok Build CLI subscription proxy.
+- Global connection configuration must allow explicit `protocol` values `grok-cli-proxy` and `grok-oauth-api`. The first must select the official Grok Build subscription proxy. The second must select the official public xAI API with subscription OAuth.
+- The terminal must not offer a separate public-API OAuth setup choice. Users must explicitly edit global connection configuration to select it.
+- Manual changes between the two Grok subscription protocols must apply when the runtime opens or resumes. Such changes must not reroute an in-flight request.
+- Grok API-key access must use the official public xAI API and the connection's referenced server environment variable.
+- Grok must not automatically switch between subscription routes or fall back to API-key access.
 - First-run setup, Add, and reference edits must require a nonempty environment-variable name for API-key access but must not check the variable's value or probe the provider before saving. Credential failures must be reported when the connection is used.
 - Kent must not persist API keys in configuration or the OAuth credential store. API-key authentication must read the explicitly referenced server environment value.
 - Kent must not automatically adopt `OPENAI_API_KEY` or borrow another connection's credentials. Auth-less requests must send no authentication credentials.
 - ChatGPT must retain browser and device sign-in, including browser callback or pasted callback URL/code. OAuth failure must not fall back to an API key. Refresh failures must remain observable and actionable.
+- OAuth credential expiry must be optional for both ChatGPT and Grok. If the provider omits expiry, Kent must store no expiry and must not schedule expiry-based refresh or invent an expiration time.
+- Grok subscription connections must use device authorization as their sole sign-in method. Kent must open the verification page automatically and keep the issued code visible while the server waits for authorization. The user must be able to compare that code with the browser before approving access. Successful authorization must complete the sign-in step.
+- Grok must identify Kent as the client while sending the selected service's required protocol headers. Kent must send proxy-specific authentication and version headers only to the CLI subscription proxy.
+- If Grok rejects the client's protocol version, Kent must report the update requirement without switching routes or replaying the request.
+- Grok entitlement rejection must include the provider's original readable diagnostic and identify the affected connection. Kent must distinguish subscription or credit requirements from invalid sign-in and must not claim that re-authentication will fix entitlement.
+- HTTP 403 alone must not classify a response as an authentication failure for any provider. Permission or safety refusals without authentication evidence must not direct the user to sign in again.
+- Subscription usage requests must use only ChatGPT subscription credentials. The terminal `/status` Auth section must be hidden for other authentication methods until provider-specific quota support exists.
 - If a terminal Session has saved OAuth credentials, opening it must not attempt refresh. An expired refresh token must not close the terminal, block chat or `/login`, or require deleting saved credentials.
 - If refreshing a terminal Session's saved OAuth credentials fails during a request, Kent must persist a transcript error identifying the Provider Connection, preserving readable original diagnostics, and directing the user to sign in. The error must read: "Failed to authenticate the provider connection: <readable Go error>. Run /login to authenticate connection <conn-id>, used for this session."
 - Provider authentication failure must not automatically retry or replay the failed request or select another connection.
@@ -77,10 +91,13 @@
 - First-run onboarding must implicitly select the first connection as default without confirmation.
 - After onboarding, `/login` must list Add connection first and existing connections afterward. With zero connections it must enter Add directly. Config-authored connections must appear in the same flow.
 - Add must save the new connection in global configuration. When no connections or global default are configured, Add must select the first added connection as the global default without confirmation. Otherwise, Add must offer an explicit Make default choice. Make default must change only the global default and explain any overriding workspace default. Existing role assignments and Session bindings must stay unchanged.
-- Add for a ChatGPT connection must save its definition only after successful sign-in. Failed sign-in or cancellation before the operation is accepted must leave no definition. Observer disconnect must not cancel accepted work.
-- Selecting an existing ChatGPT connection must re-authenticate without changing its ID or creating a duplicate. Selecting an API-key connection must show and allow replacement of its environment-variable reference, never request the secret. Selecting an auth-less connection must explain that sign-in is unnecessary without editing its endpoint.
+- Connection setup must group choices under OpenAI, Grok, and Generic headers, in that order. Each header must use the existing bold, full-foreground header style. Each section must retain the choice order specified under Authentication.
+- Connection setup must combine provider and authentication-method selection in one scrollable list. OpenAI subscription browser and device options must appear in that list without a second method picker. Grok subscription must lead directly to device authorization. Authentication must use the shared onboarding presentation and navigation.
+- Suggested connection IDs must use the selected provider's name and the next available numbered ID. Grok subscription and API-key connections must share the `grok` prefix.
+- Add for a subscription connection must save its definition only after successful sign-in. Failed sign-in or cancellation before the operation is accepted must leave no definition. Observer disconnect must not cancel accepted work.
+- Selecting an existing subscription connection must re-authenticate without changing its ID or creating a duplicate. Selecting an API-key connection must show and allow replacement of its environment-variable reference, never request the secret. Selecting an auth-less connection must explain that sign-in is unnecessary without editing its endpoint.
 - The API-key field must show: "Don't paste your API key here. This is the name of the **environment variable** Kent will read **at the server's location** to get the api key from. Alternatively, place it in a ~/.kent/.env file."
-- Connection setup and management operations must show a full-screen animated spinner without loading labels while waiting for a response.
+- Connection setup and management requests must show a full-screen animated spinner without loading labels while waiting for a response, except during device authorization. Device authorization must keep its verification instructions and code visible with a waiting indicator until authorization completes or the user navigates back.
 - The server must validate connection definitions and references. Terminal forms must not define separate validation rules.
 - `/logout` must open the same picker without deleting credentials.
 

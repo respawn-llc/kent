@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"core/shared/config"
 )
 
 func TestBeginOpenAIBrowserFlowBuildsOAuthAuthorizeURL(t *testing.T) {
@@ -61,7 +63,11 @@ func TestBeginOpenAIBrowserFlowBuildsOAuthAuthorizeURL(t *testing.T) {
 }
 
 func TestStartOAuthCallbackListenerUsesLocalhostAuthCallback(t *testing.T) {
-	listener, err := StartOAuthCallbackListener()
+	transport, err := CallbackTransport(config.ConnectionChatGPT)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := StartOAuthCallbackListener(transport)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "address already in use") {
 			t.Skipf("oauth callback port in use: %v", err)
@@ -89,7 +95,11 @@ func TestStartOAuthCallbackListenerUsesLocalhostAuthCallback(t *testing.T) {
 }
 
 func TestOAuthCallbackSuccessResponseServesAuthCompleteHTML(t *testing.T) {
-	listener, err := StartOAuthCallbackListener()
+	transport, err := CallbackTransport(config.ConnectionChatGPT)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := StartOAuthCallbackListener(transport)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "address already in use") {
 			t.Skipf("oauth callback port in use: %v", err)

@@ -207,11 +207,6 @@ func RenderSettingsTOMLForOnboarding(settings Settings, options OnboardingWriteO
 	}
 	var output bytes.Buffer
 	encoder := toml.NewEncoder(&output)
-	if normalized.Connection != nil {
-		if err := encoder.Encode(map[string]any{"connection": string(*normalized.Connection)}); err != nil {
-			return "", err
-		}
-	}
 	output.WriteString(settingsTOMLForOnboarding(normalized, options.PreservedDefaults))
 	if len(normalized.Connections) > 0 {
 		connections := map[string]any{}

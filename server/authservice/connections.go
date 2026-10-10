@@ -75,7 +75,7 @@ func (r *ConnectionResolver) snapshot(ctx context.Context, raw *string) (connect
 		return connectionSnapshot{}, err
 	}
 	snapshot := connectionSnapshot{connection: connection}
-	if connection.Definition.Protocol == config.ConnectionChatGPT {
+	if connection.Definition.Protocol.IsSubscription() {
 		if r.manager == nil {
 			snapshot.failure = auth.ErrAuthNotConfigured
 			return snapshot, nil
@@ -117,7 +117,7 @@ func (a connectionAuth) ResolveDispatchAuth(ctx context.Context) (result *llm.Di
 		return nil, fmt.Errorf("provider connection %q is no longer defined", a.id)
 	}
 	switch definition.Protocol {
-	case config.ConnectionResponses:
+	case config.ConnectionResponses, config.ConnectionGrokAPIKey:
 		if definition.EnvironmentVariable == nil {
 			return nil, nil
 		}
@@ -127,17 +127,21 @@ func (a connectionAuth) ResolveDispatchAuth(ctx context.Context) (result *llm.Di
 			return nil, err
 		}
 		return &llm.DispatchAuth{Header: "Bearer " + value}, nil
-	case config.ConnectionChatGPT:
+	case config.ConnectionChatGPT, config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI:
 		if a.owner.manager == nil {
 			return nil, fmt.Errorf("connection %s: %w", a.id, auth.ErrAuthNotConfigured)
 		}
-		credential, err := a.owner.manager.CurrentOAuth(ctx, a.id)
+		credential, err := a.owner.manager.CurrentOAuth(ctx, a.id, definition.Protocol)
 		if err != nil {
 			return nil, err
 		}
+		mode := llm.OpenAIAuthMode{IsOAuth: true}
+		if definition.Protocol == config.ConnectionChatGPT {
+			mode.AccountID = credential.AccountID
+		}
 		return &llm.DispatchAuth{
 			Header: "Bearer " + credential.AccessToken,
-			Mode:   llm.OpenAIAuthMode{IsOAuth: true, AccountID: credential.AccountID},
+			Mode:   mode,
 		}, nil
 	default:
 		return nil, fmt.Errorf("connection %s has unsupported protocol %q", a.id, definition.Protocol)

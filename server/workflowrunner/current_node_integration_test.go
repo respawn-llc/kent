@@ -93,12 +93,12 @@ type currentNodeRunnerConversationState struct {
 
 func workflowPostCompletionCompactionResponse(summary string) llm.CompactionResponse {
 	return llm.CompactionResponse{
-		Checkpoint: llm.ResponseItem{
+		OutputItems: []llm.ResponseItem{llm.ResponseItem{
 			Type:             llm.ResponseItemTypeCompaction,
 			ID:               textutil.Value("workflow-post-completion"),
 			EncryptedContent: textutil.Value("encrypted"),
-		},
-		Usage: llm.Usage{InputTokens: 1_000, OutputTokens: 100, WindowTokens: 200_000},
+		}},
+		Usage: llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 	}
 }
 
@@ -2198,12 +2198,12 @@ func TestWorkflowPostCompletionCompactionReachesCACTargetWithoutSecondSummary(t 
 			SupportsPromptCacheKey:   true,
 		},
 		[]llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				ID:               textutil.Value("workflow-post-completion"),
 				EncryptedContent: textutil.Value("encrypted"),
-			},
-			Usage: llm.Usage{InputTokens: 1_000, OutputTokens: 100, WindowTokens: 200_000},
+			}},
+			Usage: llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 		ScriptedToolBatch(
 			"complete first node",
@@ -2328,12 +2328,12 @@ func runDisabledCACResumeAfterConfigurationChange(t *testing.T, keepRuntimeOpen 
 			SupportsPromptCacheKey:   true,
 		},
 		[]llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				ID:               textutil.Value("target-time-cac"),
 				EncryptedContent: textutil.Value("encrypted"),
-			},
-			Usage: llm.Usage{InputTokens: 1_000, OutputTokens: 100, WindowTokens: 200_000},
+			}},
+			Usage: llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 		ScriptedToolBatch(
 			"complete first node",

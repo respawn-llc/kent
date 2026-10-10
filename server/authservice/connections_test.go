@@ -2,6 +2,7 @@ package authservice
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,8 +17,98 @@ import (
 	"core/server/auth"
 	"core/server/llm"
 	"core/shared/config"
+	"core/shared/protoapi"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	"core/shared/textutil"
 )
+
+func TestGrokConnectionCredentialIsolation(t *testing.T) {
+	transport := http.DefaultTransport
+	http.DefaultTransport = httpclient.RoundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Error("Grok status must not query ChatGPT subscription usage")
+		return nil, errors.New("unexpected subscription usage request")
+	})
+	t.Cleanup(func() { http.DefaultTransport = transport })
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := auth.NewMemoryStore(auth.EmptyState())
+	manager := auth.NewManager(store, nil)
+	for _, protocol := range []config.ConnectionProtocol{config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI, config.ConnectionGrokAPIKey} {
+		id := config.ConnectionID(protocol)
+		definition := config.ProviderConnection{Protocol: protocol, Capabilities: config.ProviderCapabilitiesOverride{
+			ProviderID: "chatgpt-codex", SupportsResponsesAPI: true, IsOpenAIFirstParty: true,
+		}}
+		if protocol == config.ConnectionGrokAPIKey {
+			definition.EnvironmentVariable = textutil.Value("SELECTED_GROK_KEY")
+		}
+		if err := config.AddProviderConnection(filepath.Join(root, "config.toml"), id, definition); err != nil {
+			t.Fatal(err)
+		}
+		if err := manager.SaveOAuth(t.Context(), id, auth.OAuthMethod{AccessToken: string(id), AccountID: "must-not-send-chatgpt-account"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := NewConnectionResolver(root, manager, func(name string) (string, bool) {
+		if name != "SELECTED_GROK_KEY" {
+			t.Fatalf("read unrelated credential %q", name)
+		}
+		return "selected-api-key", true
+	})
+	for id := range app.Settings.Connections {
+		t.Run(string(id), func(t *testing.T) {
+			settings := app.Settings
+			settings.Connection = &id
+			connection, err := resolver.Resolve(settings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			credential, err := connection.Auth.ResolveDispatchAuth(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected := string(id)
+			if id == config.ConnectionID(config.ConnectionGrokAPIKey) {
+				expected = "selected-api-key"
+			}
+			if credential == nil || credential.Header != "Bearer "+expected || credential.Mode.AccountID != "" {
+				t.Fatalf("wrong selected credential: %+v", credential)
+			}
+			authStatus, err := NewStatusService(resolver).GetStatus(t.Context(), &authpb.GetStatusRequest{
+				Provider: &authpb.ProviderSelection{ConnectionId: string(id)},
+			})
+			if err != nil || authStatus.GetResolution().GetKnown() == nil || authStatus.GetSubscription().GetApplicable() {
+				t.Fatalf("unsupported Grok subscription status = %+v, %v", authStatus, err)
+			}
+			if facts := authStatus.GetResolution().GetKnown().GetProvider(); facts.GetKind() != authpb.ProviderKind_PROVIDER_KIND_CONFIGURED_PROVIDER || facts.Identifier != string(id) {
+				t.Fatalf("capability override changed authentication provider identity: %+v", facts)
+			}
+			if connection.Definition.Protocol.IsSubscription() {
+				service := NewBootstrapService(t.Context(), resolver, auth.OpenAIOAuthOptions{})
+				target := protoapi.ExistingConnectionTarget(id)
+				status, err := service.GetBootstrapStatus(t.Context(), &authpb.GetBootstrapStatusRequest{Target: target})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(status.SupportedModes) != 1 || status.SupportedModes[0] != authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE || status.CallbackTransport != nil {
+					t.Fatalf("Grok auth modes = %+v", status)
+				}
+				_, err = service.StartBootstrap(t.Context(), &authpb.StartBootstrapRequest{
+					Target: target, Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL,
+					RedirectUri: textutil.Value("http://127.0.0.1:48219/callback"),
+				})
+				if !errors.Is(err, auth.ErrInvalidAuthMethod) {
+					t.Fatalf("unsupported Grok browser grant = %v", err)
+				}
+			}
+		})
+	}
+}
 
 func TestConnectionDispatchCredentialIsolation(t *testing.T) {
 	root := t.TempDir()
@@ -84,15 +175,19 @@ endpoint = "https://compatible.example/v1"
 		if err != nil {
 			t.Fatal(err)
 		}
-		transport := llm.NewHTTPTransport(connection.Auth)
-		transport.Client = client
-		if connection.Definition.Endpoint != nil {
-			transport.BaseURL, transport.BaseURLExplicit = *connection.Definition.Endpoint, true
+		registration, err := llm.ResolveConnectionVariant(connection.Definition)
+		if err != nil {
+			t.Fatal(err)
 		}
+		transport, err := llm.NewHTTPTransport(connection.Auth, registration)
+		if err != nil {
+			t.Fatal(err)
+		}
+		transport.Client = client
 		transports[id] = transport
 	}
 	send := func(id config.ConnectionID) error {
-		request := llm.OpenAIRequest{Model: "gpt-6-sol", SessionID: textutil.Value(string(id)), ToolChoiceMode: llm.ToolChoiceModeAutomatic}
+		request := llm.ResponsesRequest{Model: "gpt-6-sol", SessionID: textutil.Value(string(id)), ToolChoiceMode: llm.ToolChoiceModeAutomatic, ReasoningEffort: "high"}
 		if id == "work" || id == "personal" {
 			var err error
 			request.CodexDispatch, err = llm.NewCodexDispatchContext(llm.CodexDispatchFacts{
@@ -179,13 +274,19 @@ environment_variable = "MISSING_KEY"
 		if err != nil {
 			t.Fatal(err)
 		}
-		transport := llm.NewHTTPTransport(resolved.Auth)
-		transport.BaseURL, transport.BaseURLExplicit = *resolved.Definition.Endpoint, true
+		registration, err := llm.ResolveConnectionVariant(resolved.Definition)
+		if err != nil {
+			t.Fatal(err)
+		}
+		transport, err := llm.NewHTTPTransport(resolved.Auth, registration)
+		if err != nil {
+			t.Fatal(err)
+		}
 		transport.Client = &http.Client{Transport: httpclient.RoundTripFunc(func(*http.Request) (*http.Response, error) {
 			t.Error("missing key reached the network")
 			return nil, context.Canceled
 		})}
-		_, err = transport.Generate(t.Context(), llm.OpenAIRequest{
+		_, err = transport.Generate(t.Context(), llm.ResponsesRequest{
 			Model: "local-model", SessionID: textutil.Value("session"), ToolChoiceMode: llm.ToolChoiceModeAutomatic,
 		}, llm.StreamCallbacks{})
 		if err == nil {

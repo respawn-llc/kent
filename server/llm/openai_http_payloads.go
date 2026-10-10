@@ -16,13 +16,14 @@ import (
 // Callers match it via errors.Is.
 var ErrCustomToolNameRequired = errors.New("custom tool name is required")
 
-type openAIRequestPayloadBuilder struct {
+type responsesRequestPayloadBuilder struct {
+	policy         responsesPolicy
 	store          bool
 	modelVerbosity string
 	capabilities   ProviderCapabilities
 }
 
-type openAIPayloadToolControls struct {
+type responsesPayloadToolControls struct {
 	tools  []responses.ToolUnionParam
 	choice responses.ToolChoiceOptions
 }
@@ -42,20 +43,22 @@ func (t *HTTPTransport) effectiveRequestCapabilities(connectionCapabilities Prov
 	return connectionCapabilities
 }
 
-func (t *HTTPTransport) requestPayloadBuilder(connectionCapabilities ProviderCapabilities) openAIRequestPayloadBuilder {
-	return openAIRequestPayloadBuilder{
-		store: t.Store, modelVerbosity: strings.ToLower(strings.TrimSpace(t.ModelVerbosity)),
+func (t *HTTPTransport) requestPayloadBuilder(connectionCapabilities ProviderCapabilities, policy responsesPolicy) responsesRequestPayloadBuilder {
+	return responsesRequestPayloadBuilder{
+		policy: policy,
+		store:  t.Store, modelVerbosity: strings.ToLower(strings.TrimSpace(t.ModelVerbosity)),
 		capabilities: t.effectiveRequestCapabilities(connectionCapabilities),
 	}
 }
 
-func (t *HTTPTransport) buildPayload(request OpenAIRequest, mode OpenAIAuthMode, capabilities ProviderCapabilities) (responses.ResponseNewParams, error) {
-	builder := t.requestPayloadBuilder(capabilities)
+func (t *HTTPTransport) buildPayload(request ResponsesRequest, mode OpenAIAuthMode, capabilities ProviderCapabilities) (responses.ResponseNewParams, error) {
+	variant := t.registration.Variant
+	builder := t.requestPayloadBuilder(capabilities, variant.ResponsesPolicy)
 	return builder.BuildResponse(request, mode)
 }
 
 func (t *HTTPTransport) buildDispatchPayload(
-	request OpenAIRequest,
+	request ResponsesRequest,
 	mode OpenAIAuthMode,
 	capabilities ProviderCapabilities,
 	projection *codexDispatchProjection,
@@ -68,7 +71,10 @@ func (t *HTTPTransport) buildDispatchPayload(
 	return payload, nil
 }
 
-func (b openAIRequestPayloadBuilder) BuildResponse(request OpenAIRequest, mode OpenAIAuthMode) (responses.ResponseNewParams, error) {
+func (b responsesRequestPayloadBuilder) BuildResponse(request ResponsesRequest, mode OpenAIAuthMode) (responses.ResponseNewParams, error) {
+	if err := ValidateModelReasoningEffort(request.Model, request.ReasoningEffort); err != nil {
+		return responses.ResponseNewParams{}, err
+	}
 	input, err := buildResponsesInput(request.Items)
 	if err != nil {
 		return responses.ResponseNewParams{}, err
@@ -80,7 +86,6 @@ func (b openAIRequestPayloadBuilder) BuildResponse(request OpenAIRequest, mode O
 
 	out := responses.ResponseNewParams{
 		Model: request.Model,
-		Store: openai.Bool(b.store),
 		ToolChoice: responses.ResponseNewParamsToolChoiceUnion{
 			OfToolChoiceMode: openai.Opt(toolControls.choice),
 		},
@@ -96,52 +101,32 @@ func (b openAIRequestPayloadBuilder) BuildResponse(request OpenAIRequest, mode O
 	}
 	if len(toolControls.tools) > 0 {
 		out.Tools = toolControls.tools
-		out.ParallelToolCalls = openai.Bool(true)
-	}
-	if request.EnableNativeWebSearch {
-		out.Include = append(out.Include,
-			responses.ResponseIncludableWebSearchCallResults,
-			responses.ResponseIncludableWebSearchCallActionSources)
-	}
-	if shouldApplyReasoningEffort(request.SupportsReasoningEffort, request.Model, request.ReasoningEffort) {
-		out.Reasoning = buildReasoningParam(request.Model, request.ReasoningEffort)
-		out.Include = append(out.Include, responses.ResponseIncludableReasoningEncryptedContent)
 	}
 	if request.FastMode && SupportsFastModeProvider(b.capabilities) {
 		out.ServiceTier = responses.ResponseNewParamsServiceTierPriority
 	}
-	if request.MaxTokens > 0 && !mode.IsOAuth {
-		out.MaxOutputTokens = openai.Int(int64(request.MaxTokens))
-	}
-	if request.Temperature != 0 && !mode.IsOAuth {
-		out.Temperature = openai.Float(request.Temperature)
-	}
-	textConfig, ok, err := buildResponseTextConfig(request.StructuredOutput, configuredTextVerbosity(request.Model, b.modelVerbosity, b.capabilities))
-	if err != nil {
+	if err := b.policy.configurePayload(b, request, mode, &out); err != nil {
 		return responses.ResponseNewParams{}, err
-	}
-	if ok {
-		out.Text = textConfig
 	}
 	return out, nil
 }
 
-func (b openAIRequestPayloadBuilder) prepareToolControls(request OpenAIRequest) (openAIPayloadToolControls, error) {
+func (b responsesRequestPayloadBuilder) prepareToolControls(request ResponsesRequest) (responsesPayloadToolControls, error) {
 	if err := ValidateToolChoiceSupport(b.capabilities, request.ToolChoiceMode); err != nil {
-		return openAIPayloadToolControls{}, err
+		return responsesPayloadToolControls{}, err
 	}
-	tools, err := b.buildTools(request.Tools, request.EnableNativeWebSearch)
+	tools, err := b.buildTools(request.Tools, request.EnableNativeWebSearch && SupportsNativeWebSearchModel(request.Model, b.capabilities))
 	if err != nil {
-		return openAIPayloadToolControls{}, err
+		return responsesPayloadToolControls{}, err
 	}
 	if request.ToolChoiceMode == ToolChoiceModeRequired && len(tools) == 0 {
-		return openAIPayloadToolControls{}, fmt.Errorf("%w: required tool choice needs at least one materialized tool", ErrInvalidRequest)
+		return responsesPayloadToolControls{}, fmt.Errorf("%w: required tool choice needs at least one materialized tool", ErrInvalidRequest)
 	}
 	choice, err := openAIToolChoice(request.ToolChoiceMode)
 	if err != nil {
-		return openAIPayloadToolControls{}, err
+		return responsesPayloadToolControls{}, err
 	}
-	return openAIPayloadToolControls{tools: tools, choice: choice}, nil
+	return responsesPayloadToolControls{tools: tools, choice: choice}, nil
 }
 
 func openAIToolChoice(mode ToolChoiceMode) (responses.ToolChoiceOptions, error) {
@@ -155,7 +140,7 @@ func openAIToolChoice(mode ToolChoiceMode) (responses.ToolChoiceOptions, error) 
 	}
 }
 
-func (b openAIRequestPayloadBuilder) BuildCompactV2(request OpenAIRequest, mode OpenAIAuthMode) (responses.ResponseNewParams, error) {
+func (b responsesRequestPayloadBuilder) BuildCompactV2(request ResponsesRequest, mode OpenAIAuthMode) (responses.ResponseNewParams, error) {
 	out, err := b.BuildResponse(request, mode)
 	if err != nil {
 		return responses.ResponseNewParams{}, err
@@ -178,7 +163,7 @@ func applyCodexClientMetadata(payload *responses.ResponseNewParams, projection *
 	})
 }
 
-func (b openAIRequestPayloadBuilder) buildTools(requestTools []Tool, enableNativeWebSearch bool) ([]responses.ToolUnionParam, error) {
+func (b responsesRequestPayloadBuilder) buildTools(requestTools []Tool, enableNativeWebSearch bool) ([]responses.ToolUnionParam, error) {
 	tools := make([]responses.ToolUnionParam, 0, len(requestTools)+1)
 	for _, tool := range requestTools {
 		toolParam, err := buildFunctionToolParam(tool)

@@ -11,21 +11,23 @@ import (
 	"time"
 
 	"core/server/auth"
+	"core/shared/config"
+	"core/shared/textutil"
 )
 
-func openAIClientFromProvider(t *testing.T, client Client) *OpenAIClient {
+func openAIClientFromProvider(t *testing.T, client Client) *ResponsesClient {
 	t.Helper()
 	if watchdog, ok := client.(*idleWatchdogClient); ok {
 		client = watchdog.streamingModelClient
 	}
-	openAIClient, ok := client.(*OpenAIClient)
+	openAIClient, ok := client.(*ResponsesClient)
 	if !ok {
-		t.Fatalf("expected *OpenAIClient, got %T", client)
+		t.Fatalf("expected *ResponsesClient, got %T", client)
 	}
 	return openAIClient
 }
 
-func newOpenAIClientFromOptions(t *testing.T, options ProviderClientOptions) *OpenAIClient {
+func newResponsesClientFromOptions(t *testing.T, options ProviderClientOptions) *ResponsesClient {
 	t.Helper()
 	client, err := NewProviderClient(options)
 	if err != nil {
@@ -34,7 +36,7 @@ func newOpenAIClientFromOptions(t *testing.T, options ProviderClientOptions) *Op
 	return openAIClientFromProvider(t, client)
 }
 
-func httpTransportFromOpenAIClient(t *testing.T, client *OpenAIClient) *HTTPTransport {
+func httpTransportFromResponsesClient(t *testing.T, client *ResponsesClient) *HTTPTransport {
 	t.Helper()
 	transport, ok := client.transport.(*HTTPTransport)
 	if !ok {
@@ -73,19 +75,28 @@ func TestInferProviderFromModel(t *testing.T) {
 	if _, err := InferProviderFromModel("custom-model"); !errors.Is(err, ErrUnsupportedProvider) {
 		t.Fatalf("expected unsupported provider inference for unknown model family, got %v", err)
 	}
+	for _, model := range []string{"grok-4.6", "grok-4.7"} {
+		if got, err := InferProviderFromModel(model); err != nil || got != ProviderGrok {
+			t.Fatalf("registered Grok model %s ownership = %q, %v", model, got, err)
+		}
+	}
+	if _, err := InferProviderFromModel("grok-uncatalogued"); !errors.Is(err, ErrUnsupportedProvider) {
+		t.Fatalf("uncatalogued Grok model acquired catalog ownership: %v", err)
+	}
 }
 
 func TestNewProviderClient_OpenAI(t *testing.T) {
 	httpClient := &http.Client{Timeout: 7 * time.Second}
 	providerIdentifier := "factory-agent"
-	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
+	openAIClient := newResponsesClientFromOptions(t, ProviderClientOptions{
 		Model:              "gpt-6-sol",
+		Registration:       testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}),
 		Auth:               providerTestAuth{},
 		HTTPClient:         httpClient,
 		ModelVerbosity:     "HIGH",
 		ProviderIdentifier: &providerIdentifier,
 	})
-	transport := httpTransportFromOpenAIClient(t, openAIClient)
+	transport := httpTransportFromResponsesClient(t, openAIClient)
 	if transport.Client != httpClient {
 		t.Fatal("expected provider HTTP client override to be used")
 	}
@@ -100,7 +111,7 @@ func TestNewProviderClient_OpenAI(t *testing.T) {
 	}
 }
 
-func TestNewProviderClient_OpenAIClientPathCompressesCodexRequest(t *testing.T) {
+func TestNewProviderClient_ResponsesClientPathCompressesCodexRequest(t *testing.T) {
 	var requestEncoding string
 	var acceptEncoding string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -112,9 +123,10 @@ func TestNewProviderClient_OpenAIClientPathCompressesCodexRequest(t *testing.T) 
 	defer server.Close()
 
 	client, err := NewProviderClient(ProviderClientOptions{
-		Model:      "gpt-5.6-sol",
-		Auth:       oauthStaticAuth{},
-		HTTPClient: newRewritingHTTPClient(t, server),
+		Model:        "gpt-5.6-sol",
+		Registration: testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}),
+		Auth:         oauthStaticAuth{},
+		HTTPClient:   newRewritingHTTPClient(t, server),
 	})
 	if err != nil {
 		t.Fatalf("NewProviderClient: %v", err)
@@ -125,7 +137,7 @@ func TestNewProviderClient_OpenAIClientPathCompressesCodexRequest(t *testing.T) 
 		SessionID:      sessionID,
 		CodexDispatch:  dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		SystemPrompt:   strings.Repeat("large request content ", 100),
+		SystemPrompt:   strings.Repeat("large request content ", 100), ReasoningEffort: "high",
 	}, StreamCallbacks{}); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -149,9 +161,10 @@ func TestNewProviderClient_OAuthPathCompressesCodexRequest(t *testing.T) {
 	defer server.Close()
 
 	client, err := NewProviderClient(ProviderClientOptions{
-		Model:      "gpt-5.6-sol",
-		Auth:       oauthStaticAuth{},
-		HTTPClient: newRewritingHTTPClient(t, server),
+		Model:        "gpt-5.6-sol",
+		Registration: testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}),
+		Auth:         oauthStaticAuth{},
+		HTTPClient:   newRewritingHTTPClient(t, server),
 	})
 	if err != nil {
 		t.Fatalf("NewProviderClient: %v", err)
@@ -162,7 +175,7 @@ func TestNewProviderClient_OAuthPathCompressesCodexRequest(t *testing.T) {
 		SessionID:      sessionID,
 		CodexDispatch:  dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		SystemPrompt:   strings.Repeat("large request content ", 100),
+		SystemPrompt:   strings.Repeat("large request content ", 100), ReasoningEffort: "high",
 	}, StreamCallbacks{}); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -175,11 +188,12 @@ func TestNewProviderClient_OAuthPathCompressesCodexRequest(t *testing.T) {
 }
 
 func TestNewProviderClient_LunaUsesCatalogMetadata(t *testing.T) {
-	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
-		Model: "gpt-6-luna",
-		Auth:  providerTestAuth{},
+	openAIClient := newResponsesClientFromOptions(t, ProviderClientOptions{
+		Model:        "gpt-6-luna",
+		Registration: testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}),
+		Auth:         providerTestAuth{},
 	})
-	transport := httpTransportFromOpenAIClient(t, openAIClient)
+	transport := httpTransportFromResponsesClient(t, openAIClient)
 	if transport.ContextWindowTokens != 272_000 {
 		t.Fatalf("expected luna context window from model metadata, got %d", transport.ContextWindowTokens)
 	}
@@ -187,8 +201,9 @@ func TestNewProviderClient_LunaUsesCatalogMetadata(t *testing.T) {
 
 func TestNewProviderClient_AnthropicNotImplemented(t *testing.T) {
 	_, err := NewProviderClient(ProviderClientOptions{
-		Model: "claude-3-7-sonnet",
-		Auth:  providerTestAuth{},
+		Model:        "claude-3-7-sonnet",
+		Registration: globalProviderRegistry.providerVariantsByID["anthropic"],
+		Auth:         providerTestAuth{},
 	})
 	if !errors.Is(err, ErrUnsupportedProvider) {
 		t.Fatalf("expected unsupported provider error, got %v", err)
@@ -196,10 +211,10 @@ func TestNewProviderClient_AnthropicNotImplemented(t *testing.T) {
 }
 
 func TestNewProviderClient_ExplicitProviderOverrideAllowsCustomModelAlias(t *testing.T) {
-	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
-		Provider: ProviderOpenAI,
-		Model:    "my-team-alias",
-		Auth:     providerTestAuth{},
+	openAIClient := newResponsesClientFromOptions(t, ProviderClientOptions{
+		Registration: testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}),
+		Model:        "my-team-alias",
+		Auth:         providerTestAuth{},
 	})
 
 	providerCaps, err := openAIClient.ProviderCapabilities(context.Background())
@@ -211,34 +226,27 @@ func TestNewProviderClient_ExplicitProviderOverrideAllowsCustomModelAlias(t *tes
 	}
 }
 
-func TestNewProviderClient_CustomModelInferenceErrorMentionsProviderOverride(t *testing.T) {
+func TestNewProviderClientRequiresResolvedRegistration(t *testing.T) {
 	_, err := NewProviderClient(ProviderClientOptions{
-		Model: "my-team-alias",
+		Model: "gpt-6-sol",
 		Auth:  providerTestAuth{},
 	})
-	if !errors.Is(err, ErrUnsupportedProvider) {
-		t.Fatalf("expected unsupported provider error, got %v", err)
-	}
-	var providerSelectionErr *ProviderSelectionError
-	if !errors.As(err, &providerSelectionErr) {
-		t.Fatalf("expected provider selection error, got %T", err)
+	if err == nil {
+		t.Fatal("client inferred transport policy without a resolved registration")
 	}
 }
 
 func TestNewProviderClient_RemoteOpenAICompatibleBaseURLAllowsCustomModelFamily(t *testing.T) {
-	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
+	openAIClient := newResponsesClientFromOptions(t, ProviderClientOptions{
 		Model:          "vendor-custom-model",
 		Auth:           providerTestAuth{},
-		OpenAIBaseURL:  "https://example.openrouter.ai/api/v1",
+		Registration:   testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://example.openrouter.ai/api/v1")}),
 		ModelVerbosity: "MEDIUM",
 	})
 
-	transport := httpTransportFromOpenAIClient(t, openAIClient)
-	if transport.Provider != ProviderOpenAI {
-		t.Fatalf("expected explicit openai-compatible base URL to select openai transport family, got %q", transport.Provider)
-	}
-	if transport.BaseURL != "https://example.openrouter.ai/api/v1" {
-		t.Fatalf("expected custom base url to be preserved, got %q", transport.BaseURL)
+	transport := httpTransportFromResponsesClient(t, openAIClient)
+	if transport.serviceBaseURL() != "https://example.openrouter.ai/api/v1" {
+		t.Fatalf("expected custom base url to be preserved, got %q", transport.serviceBaseURL())
 	}
 
 	providerCaps, err := openAIClient.ProviderCapabilities(context.Background())
@@ -257,10 +265,10 @@ func TestNewProviderClient_RemoteOpenAICompatibleBaseURLAllowsCustomModelFamily(
 }
 
 func TestNewProviderClient_RemoteOpenAICompatibleBaseURLAllowsAnonymousCapabilitiesResolution(t *testing.T) {
-	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
-		Model:         "vendor-custom-model",
-		Auth:          anonymousAuth{},
-		OpenAIBaseURL: "https://example.openrouter.ai/api/v1",
+	openAIClient := newResponsesClientFromOptions(t, ProviderClientOptions{
+		Model:        "vendor-custom-model",
+		Auth:         anonymousAuth{},
+		Registration: testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://example.openrouter.ai/api/v1")}),
 	})
 
 	providerCaps, err := openAIClient.ProviderCapabilities(context.Background())
@@ -273,24 +281,24 @@ func TestNewProviderClient_RemoteOpenAICompatibleBaseURLAllowsAnonymousCapabilit
 }
 
 func TestNewProviderClient_KeepsExplicitOpenAIBaseURLExplicit(t *testing.T) {
-	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
-		Model:         "gpt-6-sol",
-		Auth:          providerTestMissingAuth{},
-		OpenAIBaseURL: "https://api.openai.com",
+	openAIClient := newResponsesClientFromOptions(t, ProviderClientOptions{
+		Model:        "gpt-6-sol",
+		Auth:         providerTestMissingAuth{},
+		Registration: testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://api.openai.com")}),
 	})
-	transport := httpTransportFromOpenAIClient(t, openAIClient)
-	if !transport.BaseURLExplicit {
-		t.Fatal("expected configured OpenAI URL to remain explicit for OAuth routing")
+	transport := httpTransportFromResponsesClient(t, openAIClient)
+	if transport.serviceBaseURL() != defaultOpenAIBaseURL {
+		t.Fatal("expected configured OpenAI URL")
 	}
 }
 
 func TestNewProviderClient_LocalBaseURLUsesUncompressedTransportByDefault(t *testing.T) {
-	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
-		Model:         "vendor-custom-model",
-		Auth:          providerTestMissingAuth{},
-		OpenAIBaseURL: "http://127.0.0.1:11434/v1",
+	openAIClient := newResponsesClientFromOptions(t, ProviderClientOptions{
+		Model:        "vendor-custom-model",
+		Auth:         providerTestMissingAuth{},
+		Registration: testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("http://127.0.0.1:11434/v1")}),
 	})
-	transport := httpTransportFromOpenAIClient(t, openAIClient)
+	transport := httpTransportFromResponsesClient(t, openAIClient)
 	if transport.Client.Transport != sharedHTTPTransport {
 		t.Fatalf("local provider transport = %T, want shared uncompressed transport", transport.Client.Transport)
 	}

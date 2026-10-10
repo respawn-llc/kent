@@ -230,12 +230,12 @@ func TestRunStepLoopCountsPendingWorktreeReminderBeforeAutoCompaction(t *testing
 		},
 		},
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				ID:               textutil.Value("cmp_1"),
 				EncryptedContent: textutil.Value("enc_1"),
-			},
-			Usage: llm.Usage{InputTokens: 100, WindowTokens: 20_000},
+			}},
+			Usage: llm.Usage{InputTokens: textutil.Value(100), WindowTokens: 20_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
@@ -246,7 +246,7 @@ func TestRunStepLoopCountsPendingWorktreeReminderBeforeAutoCompaction(t *testing
 	if err := steerTestActiveStep(eng, "seed", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 		t.Fatalf("append seed: %v", err)
 	}
-	eng.setLastUsage(llm.Usage{InputTokens: 9_999, WindowTokens: 20_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(9_999), WindowTokens: 20_000, ContextUsage: &llm.ContextUsage{Tokens: 9_999, MeasurementPoint: llm.ContextMeasurementInput}})
 
 	if _, err := runStepLoopInActiveTestRun(t, context.Background(), eng); err != nil {
 		t.Fatalf("runStepLoop: %v", err)
@@ -281,7 +281,7 @@ func TestManualCompactionReinjectsWorktreeReminderExactlyOnce(t *testing.T) {
 		finalOutputItemResponse("before compaction"),
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("compacted summary")},
-			Usage:     llm.Usage{InputTokens: 1_000, OutputTokens: 100, WindowTokens: 200_000},
+			Usage:     llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 		},
 	}}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
@@ -830,7 +830,7 @@ func TestSubmitUserMessagePreservesHistoricalWorktreeRemindersInRequest(t *testi
 		t.Fatal("expected exit reminder message")
 	}
 	expectedSecondItems := llm.CloneResponseItems(client.calls[0].Items)
-	expectedSecondItems = append(expectedSecondItems, llm.PrepareOpenAIInputItems([]llm.ResponseItem{firstOutput})...)
+	expectedSecondItems = append(expectedSecondItems, llm.PrepareResponsesInputItems([]llm.ResponseItem{firstOutput})...)
 	expectedSecondItems = append(expectedSecondItems, llm.ItemsFromMessages([]llm.Message{
 		exitMessage,
 		{Role: llm.RoleUser, Content: textutil.Value("second")},

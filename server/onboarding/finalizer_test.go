@@ -86,6 +86,53 @@ func TestFinalizerDefaultsSelectSupervisorModelOnlyForFirstPartyOpenAI(t *testin
 	}
 }
 
+func TestFinalizerGrokSelectionsSurviveConnectionDefaults(t *testing.T) {
+	cases := []struct {
+		name     string
+		request  onboardingpb.FinalizeRequest
+		model    string
+		thinking string
+		window   int
+	}{
+		{name: "defaults", model: "grok-4.7", thinking: "high", window: 500000},
+		{name: "medium level", request: onboardingpb.FinalizeRequest{Thinking: &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_LEVEL, Level: ptr("medium")}}, model: "grok-4.7", thinking: "medium", window: 500000},
+		{name: "custom medium", request: onboardingpb.FinalizeRequest{Thinking: &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM, Value: ptr("medium")}}, model: "grok-4.7", thinking: "medium", window: 500000},
+		{name: "explicit global model", request: onboardingpb.FinalizeRequest{Model: &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-6.1-sol")}}, model: "gpt-6.1-sol", thinking: "high", window: 272000},
+		{name: "explicit global window", request: onboardingpb.FinalizeRequest{ContextWindow: &onboardingpb.ContextWindowChoice{Kind: onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_CUSTOM, Tokens: ptr(uint32(272000))}}, model: "grok-4.7", thinking: "high", window: 272000},
+	}
+	for i := range cases {
+		tc := &cases[i]
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			baseline := loadFinalizedConfig(t, root)
+			owner := newPendingConnection(t, root, "http://localhost:1234/v1")
+			_, err := owner.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_PendingSetup{
+				PendingSetup: &authpb.ConnectionDefinition{Id: "grok-1", Protocol: authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_API_KEY, EnvironmentVariable: ptr("XAI_API_KEY_QA")},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			finalizer, err := onboarding.NewFinalizer(onboarding.Options{
+				Baseline: baseline.Settings, BaselineSources: baseline.Source.Sources,
+				PersistenceRoot: root, HomeDir: t.TempDir(), Connections: owner,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := finalizer.Finalize(t.Context(), &tc.request); err != nil {
+				t.Fatal(err)
+			}
+			actual := loadFinalizedConfig(t, root)
+			if err := llm.ApplyConnectionModelDefaults(&actual.Settings, actual.Source.Sources); err != nil {
+				t.Fatal(err)
+			}
+			if actual.Settings.Model != tc.model || actual.Settings.ThinkingLevel != tc.thinking || actual.Settings.Reviewer.ThinkingLevel != tc.thinking || actual.Settings.ModelContextWindow != tc.window {
+				t.Fatalf("reloaded selection = %s/%s/%d, Supervisor %s; want %s/%s/%d inherited", actual.Settings.Model, actual.Settings.ThinkingLevel, actual.Settings.ModelContextWindow, actual.Settings.Reviewer.ThinkingLevel, tc.model, tc.thinking, tc.window)
+			}
+		})
+	}
+}
+
 func TestFinishPersistsPendingConnectionAfterObserverCancellation(t *testing.T) {
 	root := t.TempDir()
 	owner := newPendingConnection(t, root, "http://localhost:1234/v1")
@@ -161,9 +208,16 @@ func TestFinalizerPersistsContextWindowForPendingConnection(t *testing.T) {
 						}}); err != nil {
 							t.Fatal(err)
 						}
+						target := &authpb.ConnectionTarget{Target: &authpb.ConnectionTarget_PendingSetup{PendingSetup: &emptypb.Empty{}}}
+						start, err := owner.StartBootstrap(t.Context(), &authpb.StartBootstrapRequest{
+							Target: target, Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE, RedirectUri: ptr("http://localhost:1455/auth/callback"),
+						})
+						if err != nil {
+							t.Fatal(err)
+						}
 						if _, err := owner.CompleteBootstrap(t.Context(), &authpb.CompleteBootstrapRequest{
-							Target: &authpb.ConnectionTarget{Target: &authpb.ConnectionTarget_PendingSetup{PendingSetup: &emptypb.Empty{}}},
-							Mode:   authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE, DeviceAuthorizationCode: ptr("grant"), DeviceCodeVerifier: ptr("verifier"),
+							Target: target,
+							Mode:   authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE, CallbackInput: ptr("grant"), Continuation: start.Continuation,
 						}); err != nil {
 							t.Fatal(err)
 						}
@@ -322,11 +376,11 @@ func TestFinalizerProjectsModelContextThinkingVerbosityAskQuestionSupervisorAndC
 			},
 		},
 		{
-			name: "custom model custom context disabled thinking false ask supervisor inheritance none compaction",
+			name: "custom model custom context custom thinking false ask supervisor inheritance none compaction",
 			req: &onboardingpb.FinalizeRequest{
 				Model:         &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_CUSTOM, Alias: ptr("custom-openai-model")},
 				ContextWindow: &onboardingpb.ContextWindowChoice{Kind: onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_CUSTOM, Tokens: ptr(uint32(123_456))},
-				Thinking:      &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_DISABLED},
+				Thinking:      &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM, Value: ptr("future")},
 				AskQuestion:   &falseValue,
 				Supervisor:    &onboardingpb.SupervisorChoice{Frequency: onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_OFF},
 				Compaction:    ptr(onboardingpb.CompactionMode_COMPACTION_MODE_NONE),
@@ -335,7 +389,7 @@ func TestFinalizerProjectsModelContextThinkingVerbosityAskQuestionSupervisorAndC
 				model:     "custom-openai-model",
 				window:    123_456,
 				threshold: 117_283,
-				thinking:  "",
+				thinking:  "future",
 				verbosity: config.ModelVerbosityLow,
 				enabledTools: map[toolspec.ID]bool{
 					toolspec.ToolAskQuestion: false,
@@ -867,7 +921,7 @@ func TestFinalizerResolvedSupervisorInheritanceFollowsPrimaryChoice(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	model := "gpt-6.1-sol"
+	model := "gpt-6-sol"
 	_, err = finalizer.Finalize(t.Context(), &onboardingpb.FinalizeRequest{
 		Model: &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: &model},
 		Supervisor: &onboardingpb.SupervisorChoice{
@@ -879,7 +933,7 @@ func TestFinalizerResolvedSupervisorInheritanceFollowsPrimaryChoice(t *testing.T
 		t.Fatal(err)
 	}
 	actual := loadFinalizedConfig(t, root)
-	if actual.Settings.Reviewer.Model != model || actual.Settings.Reviewer.ThinkingLevel != "" {
+	if actual.Settings.Reviewer.Model != model || actual.Settings.Reviewer.ThinkingLevel != "none" {
 		t.Fatalf("Supervisor did not follow visible choices: %+v", actual.Settings.Reviewer)
 	}
 	if !actual.Source.Sources["reviewer.model"].Inherited("reviewer.model") {

@@ -33,21 +33,21 @@ func TestAutoCompactionRemoteReplacesHistoryAndCarriesCompactionItem(t *testing.
 				ToolCalls: []llm.ToolCall{
 					{ID: "call_1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)},
 				},
-				Usage: llm.Usage{InputTokens: 190000, OutputTokens: 2000, WindowTokens: 200000},
+				Usage: llm.Usage{InputTokens: textutil.Value(190000), OutputTokens: textutil.Value(2000), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 190000, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 			{
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done")},
-				Usage:     llm.Usage{InputTokens: 2000, OutputTokens: 1000, WindowTokens: 200000},
+				Usage:     llm.Usage{InputTokens: textutil.Value(2000), OutputTokens: textutil.Value(1000), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 2000, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 		},
 		compactionResponses: []llm.CompactionResponse{
 			{
-				Checkpoint: llm.ResponseItem{
+				OutputItems: []llm.ResponseItem{llm.ResponseItem{
 					Type:             llm.ResponseItemTypeCompaction,
 					ID:               textutil.Value("cmp_1"),
 					EncryptedContent: textutil.Value("enc_1"),
-				},
-				Usage: llm.Usage{InputTokens: 12000, OutputTokens: 1000, WindowTokens: 200000},
+				}},
+				Usage: llm.Usage{InputTokens: textutil.Value(12000), OutputTokens: textutil.Value(1000), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 12000, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 		},
 	}
@@ -102,12 +102,12 @@ func TestCompactionReplacementPayloadEmbedsReinjectedBaseMetaAndPreservedUserMes
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
-		Checkpoint: llm.ResponseItem{
+		OutputItems: []llm.ResponseItem{llm.ResponseItem{
 			Type:             llm.ResponseItemTypeCompaction,
 			ID:               textutil.Value("cmp_1"),
 			EncryptedContent: textutil.Value("enc_1"),
-		},
-		Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+		}},
+		Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}
 	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(time.Millisecond))
 	if err != nil {
@@ -313,12 +313,12 @@ func TestCompactionReplacementCapturesShellsStillRunningWhenCompactionCompletes(
 
 	client := &heldRuntimeCompactionClient{
 		fakeCompactionClient: &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				ID:               textutil.Value("cmp_running_shells"),
 				EncryptedContent: textutil.Value("enc_running_shells"),
-			},
-			Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+			}},
+			Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}}},
 		started: make(chan struct{}),
 		release: make(chan struct{}),
@@ -455,12 +455,12 @@ func TestCompactionReplacementOmitsRunningShellReminderWhenNoOwnedShellsRemain(t
 	}
 
 	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
-		Checkpoint: llm.ResponseItem{
+		OutputItems: []llm.ResponseItem{llm.ResponseItem{
 			Type:             llm.ResponseItemTypeCompaction,
 			ID:               textutil.Value("cmp_no_owned_shells"),
 			EncryptedContent: textutil.Value("enc_no_owned_shells"),
-		},
-		Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+		}},
+		Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
 		Model:                  "gpt-6-sol",
@@ -537,12 +537,12 @@ func TestCompactionRunningShellReminderNormalizesAndLimitsCommandPreview(t *test
 	}
 
 	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
-		Checkpoint: llm.ResponseItem{
+		OutputItems: []llm.ResponseItem{llm.ResponseItem{
 			Type:             llm.ResponseItemTypeCompaction,
 			ID:               textutil.Value("cmp_shell_preview"),
 			EncryptedContent: textutil.Value("enc_shell_preview"),
-		},
-		Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+		}},
+		Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
 		Model:                  "gpt-6-sol",
@@ -638,12 +638,12 @@ func newCommittedCompactionFixture(t *testing.T, observer session.PersistenceObs
 			IsOpenAIFirstParty:       true,
 		},
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				ID:               textutil.Value("cmp_1"),
 				EncryptedContent: textutil.Value("enc_1"),
-			},
-			Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+			}},
+			Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	fixture := &committedCompactionFixture{store: store, client: client}
@@ -663,12 +663,12 @@ func newCommittedCompactionFixture(t *testing.T, observer session.PersistenceObs
 
 func activeGoalCompactionTestClient() *fakeCompactionClient {
 	return &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
-		Checkpoint: llm.ResponseItem{
+		OutputItems: []llm.ResponseItem{llm.ResponseItem{
 			Type:             llm.ResponseItemTypeCompaction,
 			ID:               textutil.Value("cmp_goal"),
 			EncryptedContent: textutil.Value("enc_goal"),
-		},
-		Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+		}},
+		Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}
 }
 
@@ -715,11 +715,11 @@ func TestAutoCompactionRetries400ByCollapsingShellOutput(t *testing.T) {
 				ToolCalls: []llm.ToolCall{
 					{ID: "call_1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)},
 				},
-				Usage: llm.Usage{InputTokens: 390000, OutputTokens: 1000, WindowTokens: 400000},
+				Usage: llm.Usage{InputTokens: textutil.Value(390000), OutputTokens: textutil.Value(1000), WindowTokens: 400000, ContextUsage: &llm.ContextUsage{Tokens: 390000, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 			{
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done")},
-				Usage:     llm.Usage{InputTokens: 2000, OutputTokens: 500, WindowTokens: 400000},
+				Usage:     llm.Usage{InputTokens: textutil.Value(2000), OutputTokens: textutil.Value(500), WindowTokens: 400000, ContextUsage: &llm.ContextUsage{Tokens: 2000, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 		},
 		compactionErrors: []error{
@@ -728,12 +728,12 @@ func TestAutoCompactionRetries400ByCollapsingShellOutput(t *testing.T) {
 		},
 		compactionResponses: []llm.CompactionResponse{
 			{
-				Checkpoint: llm.ResponseItem{
+				OutputItems: []llm.ResponseItem{llm.ResponseItem{
 					Type:             llm.ResponseItemTypeCompaction,
 					ID:               textutil.Value("cmp_1"),
 					EncryptedContent: textutil.Value("enc_1"),
-				},
-				Usage: llm.Usage{InputTokens: 8000, OutputTokens: 500, WindowTokens: 400000},
+				}},
+				Usage: llm.Usage{InputTokens: textutil.Value(8000), OutputTokens: textutil.Value(500), WindowTokens: 400000, ContextUsage: &llm.ContextUsage{Tokens: 8000, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 		},
 	}

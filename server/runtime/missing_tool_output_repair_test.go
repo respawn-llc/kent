@@ -25,7 +25,7 @@ func TestMissingToolOutputRepairAppendsSyntheticOutputAndRetries(t *testing.T) {
 		errors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown, Message: "tool call without output"}},
 		responses: []llm.Response{{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("repaired")},
-			Usage:     llm.Usage{InputTokens: 10, OutputTokens: 2, WindowTokens: 100},
+			Usage:     llm.Usage{InputTokens: textutil.Value(10), OutputTokens: textutil.Value(2), WindowTokens: 100, ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
@@ -377,7 +377,7 @@ func TestCompactionMissingToolOutputRepairAppendsAndRetries(t *testing.T) {
 		Model:          "gpt-6-sol",
 		SessionID:      textutil.Value(store.Meta().SessionID),
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
-		Items:          eng.transcriptRuntimeState().SnapshotItems(),
+		Items:          eng.transcriptRuntimeState().SnapshotItems(), ReasoningEffort: "high",
 	}
 
 	restoreStep := setTestActiveStep(eng, "step")
@@ -425,7 +425,7 @@ func TestCompactionCheckpointContractErrorReturnsExactRepairedInput(t *testing.T
 	request := llm.CompactionRequest{
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
-		Items:          eng.transcriptRuntimeState().SnapshotItems(),
+		Items:          eng.transcriptRuntimeState().SnapshotItems(), ReasoningEffort: "high",
 	}
 	var sentInput []llm.ResponseItem
 	err := withActiveTestRun(t, eng, ActiveKindCompaction, func(ctx context.Context, stepID string) error {
@@ -575,7 +575,7 @@ func TestCompactionMissingOutputAfterCollapsePanics(t *testing.T) {
 		Model:          "gpt-6-sol",
 		SessionID:      textutil.Value(store.Meta().SessionID),
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
-		Items:          eng.transcriptRuntimeState().SnapshotItems(),
+		Items:          eng.transcriptRuntimeState().SnapshotItems(), ReasoningEffort: "high",
 	}
 
 	defer func() {

@@ -14,15 +14,21 @@ const (
 	connectionStepID                 onboardingStepID = "connection_id"
 	connectionStepEndpoint           onboardingStepID = "connection_endpoint"
 	connectionStepEnvironment        onboardingStepID = "connection_environment"
+	connectionStepBrowserAuth        onboardingStepID = "connection_browser_auth"
+	connectionStepAuthMethod         onboardingStepID = "connection_auth_method"
 	connectionEnvironmentExplanation                  = "Don't paste your API key here. This is the name of the **environment variable** Kent will read **at the server's location** to get the api key from. Alternatively, place it in a ~/.kent/.env file."
 )
 
 type connectionTemplate string
 
 const (
-	connectionTemplateSubscription connectionTemplate = "subscription"
-	connectionTemplateAPI          connectionTemplate = "api"
-	connectionTemplateAnonymous    connectionTemplate = "anonymous"
+	connectionTemplateSubscription       connectionTemplate = "subscription"
+	connectionTemplateSubscriptionDevice connectionTemplate = "subscription_device"
+	connectionTemplateAPI                connectionTemplate = "api"
+	connectionTemplateAnonymous          connectionTemplate = "anonymous"
+	connectionTemplateOpenAIAPI          connectionTemplate = "openai_api"
+	connectionTemplateGrokSubscription   connectionTemplate = "grok_subscription"
+	connectionTemplateGrokAPI            connectionTemplate = "grok_api"
 )
 
 type connectionForm struct {
@@ -54,10 +60,19 @@ func newConnectionForm(catalog *authpb.ConnectionCatalog) (*connectionForm, erro
 }
 
 func connectionTemplateFor(definition config.ProviderConnection) connectionTemplate {
-	if definition.Protocol == config.ConnectionChatGPT {
+	switch definition.Protocol {
+	case config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI:
+		return connectionTemplateGrokSubscription
+	case config.ConnectionGrokAPIKey:
+		return connectionTemplateGrokAPI
+	}
+	if definition.Protocol.IsSubscription() {
 		return connectionTemplateSubscription
 	}
 	if definition.EnvironmentVariable != nil {
+		if definition.Endpoint != nil && *definition.Endpoint == config.DefaultOpenAIResponsesEndpoint {
+			return connectionTemplateOpenAIAPI
+		}
 		return connectionTemplateAPI
 	}
 	return connectionTemplateAnonymous
@@ -68,13 +83,18 @@ func (f *connectionForm) selectTemplate(template connectionTemplate) {
 		return
 	}
 	f.template = template
-	f.definition = config.ProviderConnection{Protocol: config.ConnectionChatGPT}
-	if template != connectionTemplateSubscription {
-		f.definition.Protocol = config.ConnectionResponses
-	}
-	if template == connectionTemplateAPI {
+	switch template {
+	case connectionTemplateSubscription, connectionTemplateSubscriptionDevice:
+		f.definition = config.ProviderConnection{Protocol: config.ConnectionChatGPT}
+	case connectionTemplateGrokSubscription:
+		f.definition = config.ProviderConnection{Protocol: config.ConnectionGrokCLIProxy}
+	case connectionTemplateGrokAPI:
+		f.definition = config.ProviderConnection{Protocol: config.ConnectionGrokAPIKey}
+	case connectionTemplateOpenAIAPI:
 		endpoint := config.DefaultOpenAIResponsesEndpoint
-		f.definition.Endpoint = &endpoint
+		f.definition = config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: &endpoint}
+	default:
+		f.definition = config.ProviderConnection{Protocol: config.ConnectionResponses}
 	}
 	f.id = config.SuggestConnectionID(f.definition.Protocol, f.catalog)
 }
@@ -86,15 +106,19 @@ func (f *connectionForm) steps() []onboardingStepDefinition {
 	}
 	return []onboardingStepDefinition{
 		{id: connectionStepTemplate, build: func(*onboardingFlowState) onboardingScreen {
-			return onboardingScreen{ID: connectionStepTemplate, Kind: onboardingScreenChoice, Title: "Choose a provider connection",
+			return onboardingScreen{ID: connectionStepTemplate, Kind: onboardingScreenChoice, Title: "Choose the inference provider to add",
 				DefaultOptionID: string(f.template), Options: []onboardingOption{
-					{ID: string(connectionTemplateSubscription), Title: "ChatGPT subscription"},
-					{ID: string(connectionTemplateAPI), Title: "API-key Responses-compatible"},
-					{ID: string(connectionTemplateAnonymous), Title: "Auth-less Responses-compatible"},
+					{ID: string(connectionTemplateSubscription), Group: "OpenAI", Title: "Subscription — browser"},
+					{ID: string(connectionTemplateSubscriptionDevice), Group: "OpenAI", Title: "Subscription — device code"},
+					{ID: string(connectionTemplateOpenAIAPI), Group: "OpenAI", Title: "API Key"},
+					{ID: string(connectionTemplateGrokSubscription), Group: "Grok", Title: "Subscription"},
+					{ID: string(connectionTemplateGrokAPI), Group: "Grok", Title: "API Key"},
+					{ID: string(connectionTemplateAPI), Group: "Generic", Title: "Responses-compatible API key"},
+					{ID: string(connectionTemplateAnonymous), Group: "Generic", Title: "No auth"},
 				}}
 		}, apply: func(_ *onboardingFlowState, value string) error {
 			switch template := connectionTemplate(value); template {
-			case connectionTemplateSubscription, connectionTemplateAPI, connectionTemplateAnonymous:
+			case connectionTemplateSubscription, connectionTemplateSubscriptionDevice, connectionTemplateOpenAIAPI, connectionTemplateGrokSubscription, connectionTemplateGrokAPI, connectionTemplateAPI, connectionTemplateAnonymous:
 				f.selectTemplate(template)
 				return nil
 			default:
@@ -103,15 +127,17 @@ func (f *connectionForm) steps() []onboardingStepDefinition {
 		}},
 		{id: connectionStepID, build: func(*onboardingFlowState) onboardingScreen {
 			return onboardingScreen{ID: connectionStepID, Kind: onboardingScreenInput, Title: "Name this connection", InputValue: string(f.id),
-				Helper: "Start with a lowercase letter. Use lowercase letters, numbers, hyphens, or underscores."}
+				Helper: "Use lowercase letters, numbers, hyphens, or underscores."}
 		}, apply: func(state *onboardingFlowState, value string) error {
 			f.id = config.ConnectionID(value)
-			if f.template == connectionTemplateSubscription {
+			if f.definition.Protocol.IsSubscription() {
 				return finish(state)
 			}
 			return nil
 		}},
-		{id: connectionStepEndpoint, visible: func(*onboardingFlowState) bool { return f.template != connectionTemplateSubscription },
+		{id: connectionStepEndpoint, visible: func(*onboardingFlowState) bool {
+			return f.template == connectionTemplateAPI || f.template == connectionTemplateAnonymous
+		},
 			build: func(*onboardingFlowState) onboardingScreen {
 				value := ""
 				if f.definition.Endpoint != nil {
@@ -125,7 +151,9 @@ func (f *connectionForm) steps() []onboardingStepDefinition {
 				}
 				return nil
 			}},
-		{id: connectionStepEnvironment, visible: func(*onboardingFlowState) bool { return f.template == connectionTemplateAPI },
+		{id: connectionStepEnvironment, visible: func(*onboardingFlowState) bool {
+			return !f.definition.Protocol.IsSubscription() && f.template != connectionTemplateAnonymous
+		},
 			build: func(state *onboardingFlowState) onboardingScreen {
 				value := ""
 				if f.definition.EnvironmentVariable != nil {
@@ -135,9 +163,25 @@ func (f *connectionForm) steps() []onboardingStepDefinition {
 					Body: newStartupMarkdownRendererWithWordWrap(state.selections.themeValue()).Render(connectionEnvironmentExplanation, defaultPickerWidth)}
 			}, apply: func(state *onboardingFlowState, value string) error {
 				f.definition.EnvironmentVariable = &value
+				if err := f.definition.Validate(); err != nil {
+					return err
+				}
 				return finish(state)
 			}},
 	}
+}
+
+func (f *connectionForm) authenticationMethod() *authMethodChoice {
+	var choice authMethodChoice
+	switch f.template {
+	case connectionTemplateSubscription:
+		choice = authMethodChoiceBrowserAuto
+	case connectionTemplateSubscriptionDevice, connectionTemplateGrokSubscription:
+		choice = authMethodChoiceDevice
+	default:
+		return nil
+	}
+	return &choice
 }
 
 func newConnectionFormModel(selectedTheme string, catalog *authpb.ConnectionCatalog, includeTheme bool) (*connectionForm, *onboardingModel, error) {
@@ -172,10 +216,27 @@ func runConnectionForm(ctx context.Context, model *onboardingModel, submit func(
 			return model.terminalErr
 		}
 		err := submit()
+		if errors.Is(err, ErrAuthBack) && ctx.Err() == nil {
+			if err := showConnectionSelection(model); err != nil {
+				return err
+			}
+			continue
+		}
 		if err == nil || errors.Is(err, ErrAuthCanceledByUser) || ctx.Err() != nil {
 			return err
 		}
 		model.errorText = connectionOperationErrorText(err)
 		model.syncScreen(false)
 	}
+}
+
+func showConnectionSelection(model *onboardingModel) error {
+	for index, step := range model.workflow.visibleSteps(&model.state) {
+		if step.id == connectionStepTemplate {
+			model.stepIndex = index
+			model.syncScreen(true)
+			return model.terminalErr
+		}
+	}
+	return errors.New("connection form has no provider selection step")
 }

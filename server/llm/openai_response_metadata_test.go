@@ -2,6 +2,8 @@ package llm
 
 import (
 	"context"
+	"core/shared/config"
+	"core/shared/textutil"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +12,7 @@ import (
 	"testing"
 )
 
-func TestOpenAIClientSelectsServedModelMetadata(t *testing.T) {
+func TestResponsesClientSelectsServedModelMetadata(t *testing.T) {
 	tests := []struct {
 		name           string
 		createdModel   string
@@ -51,7 +53,7 @@ func TestOpenAIClientSelectsServedModelMetadata(t *testing.T) {
 				writeSuccessfulMetadataResponse(t, w, test.createdModel, test.completedModel)
 			})
 			request := Request{SessionID: stringPointer("metadata-session"), Model: "requested-model", ToolChoiceMode: ToolChoiceModeAutomatic}
-			client := NewOpenAIClient(transport)
+			client := NewResponsesClient(transport)
 			response, err := client.Generate(context.Background(), request, StreamCallbacks{})
 			if err != nil {
 				t.Fatalf("generate: %v", err)
@@ -67,7 +69,7 @@ func TestOpenAIClientSelectsServedModelMetadata(t *testing.T) {
 	}
 }
 
-func TestOpenAIClientParsesStrictReasoningIncludedHeader(t *testing.T) {
+func TestResponsesClientParsesStrictReasoningIncludedHeader(t *testing.T) {
 	headers := []struct {
 		name  string
 		value *string
@@ -87,7 +89,7 @@ func TestOpenAIClientParsesStrictReasoningIncludedHeader(t *testing.T) {
 			})
 
 			request := Request{SessionID: stringPointer("metadata-session"), Model: "requested-model", ToolChoiceMode: ToolChoiceModeAutomatic}
-			client := NewOpenAIClient(transport)
+			client := NewResponsesClient(transport)
 			response, err := client.Generate(context.Background(), request, StreamCallbacks{})
 			if err != nil {
 				t.Fatalf("generate: %v", err)
@@ -99,7 +101,7 @@ func TestOpenAIClientParsesStrictReasoningIncludedHeader(t *testing.T) {
 	}
 }
 
-func TestOpenAIResponseErrorsPreserveHeaderDiagnostics(t *testing.T) {
+func TestResponsesResponseErrorsPreserveHeaderDiagnostics(t *testing.T) {
 	diagnosticHeaders := http.Header{"X-Request-Id": {" ", " request-primary "}, "X-Oai-Request-Id": {"request-fallback"},
 		"X-Openai-Authorization-Error": {" ", " token rejected "}}
 	for _, test := range []struct {
@@ -140,8 +142,9 @@ func newResponseMetadataTransport(t *testing.T, headers http.Header, writeRespon
 		writeResponse(w, request)
 	}))
 	t.Cleanup(server.Close)
-	transport := NewHTTPTransport(staticAuth{})
-	transport.BaseURL, transport.BaseURLExplicit, transport.Client = server.URL, true, server.Client()
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
+	transport.Client = newRewritingHTTPClient(t, server)
 	return transport
 }
 

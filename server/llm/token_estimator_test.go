@@ -26,6 +26,82 @@ func TestDefaultTokenEstimatorUTF8AndItemRounding(t *testing.T) {
 	}
 }
 
+func TestGrokEstimatorUsesUTF8FloorForEveryActualVariant(t *testing.T) {
+	for _, protocol := range []config.ConnectionProtocol{config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI, config.ConnectionGrokAPIKey} {
+		connection := config.ProviderConnection{Protocol: protocol, Capabilities: config.ProviderCapabilitiesOverride{ProviderID: "chatgpt-codex", SupportsResponsesAPI: true}}
+		if protocol == config.ConnectionGrokAPIKey {
+			connection.EnvironmentVariable = textutil.Value("GROK_KEY")
+		}
+		estimator, err := llm.ResolveConnectionTokenEstimator(connection)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := estimator.EstimateText("éabc"); got != 1 {
+			t.Fatalf("%s text estimate = %d, want floor 1", protocol, got)
+		}
+		items := []llm.ResponseItem{
+			{Type: llm.ResponseItemTypeMessage, Content: textutil.Value("éabc")},
+			{Type: llm.ResponseItemTypeMessage, Content: textutil.Value("éabc")},
+		}
+		if got := llm.EstimateItemsTokens(estimator, items); got != 2 {
+			t.Fatalf("%s item estimates = %d, want 2", protocol, got)
+		}
+	}
+}
+
+func TestGrokEstimatorToolContentExcludesRoutingMetadata(t *testing.T) {
+	estimator := llm.GrokTokenEstimator{}
+	for _, item := range []llm.ResponseItem{
+		{Type: llm.ResponseItemTypeFunctionCall, Name: textutil.Value("long-tool-name"), Arguments: json.RawMessage(`{"a":1}`)},
+		{Type: llm.ResponseItemTypeCustomToolCall, Name: textutil.Value("long-tool-name"), CustomInput: textutil.Value("abcdefg")},
+		{Type: llm.ResponseItemTypeFunctionCallOutput, CallID: textutil.Value("call-identifier"), Name: textutil.Value("tool"), Output: json.RawMessage(`"abcdefg"`)},
+	} {
+		if got := estimator.EstimateItem(item); got != 1 {
+			t.Fatalf("%s content estimate = %d, want 1", item.Type, got)
+		}
+	}
+}
+
+func TestGrokEstimatorSharesStructuredImageAndFileTraversal(t *testing.T) {
+	estimator := llm.GrokTokenEstimator{}
+	content := `[{"type":"input_text","text":"éabc"},{"type":"input_image","image_url":"data:image/png;base64,AAAA"},{"type":"input_image","image_url":"https://example.org/image.png","detail":"high"}]`
+	for _, item := range []llm.ResponseItem{
+		{Type: llm.ResponseItemTypeFunctionCallOutput, Output: json.RawMessage(content)},
+		{Type: llm.ResponseItemTypeMessage, Raw: json.RawMessage(`{"type":"message","role":"user","content":` + content + `}`)},
+	} {
+		if got := estimator.EstimateItem(item); got != 1531 {
+			t.Fatalf("%s images/text estimate = %d, want 1531", item.Type, got)
+		}
+	}
+	file := llm.ResponseItem{Type: llm.ResponseItemTypeFunctionCallOutput, Output: json.RawMessage(`[{"type":"input_file","file_data":"data:application/pdf;base64,AAAA","filename":"abcd"}]`)}
+	if got := estimator.EstimateItem(file); got != 513 {
+		t.Fatalf("shared file estimate = %d, want 513", got)
+	}
+}
+
+func TestGrokEstimatorReasoningAndCompactionUseLargestRepresentation(t *testing.T) {
+	estimator := llm.GrokTokenEstimator{}
+	for _, fixture := range []struct {
+		text, cipher int
+		want         int
+	}{
+		{4000, 4000, 1000},
+		{100, 4000, 750},
+		{0, 868, 162},
+		{7, 0, 1},
+	} {
+		for _, kind := range []llm.ResponseItemType{llm.ResponseItemTypeReasoning, llm.ResponseItemTypeCompaction} {
+			item := llm.ResponseItem{Type: kind, Content: textutil.Value(strings.Repeat("a", fixture.text))}
+			if fixture.cipher > 0 {
+				item.EncryptedContent = textutil.Value(strings.Repeat("b", fixture.cipher))
+			}
+			if got := estimator.EstimateItem(item); got != fixture.want {
+				t.Fatalf("%s text=%d cipher=%d estimate=%d, want %d", kind, fixture.text, fixture.cipher, got, fixture.want)
+			}
+		}
+	}
+}
+
 func TestConnectionEstimatorUsesActualTransport(t *testing.T) {
 	payload := strings.Repeat("a", 4000)
 	item := llm.ResponseItem{Type: llm.ResponseItemTypeReasoning, EncryptedContent: &payload}

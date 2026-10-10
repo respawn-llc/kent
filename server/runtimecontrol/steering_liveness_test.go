@@ -115,7 +115,7 @@ func TestServiceRepeatedConcurrentSteersDrainWithoutInterrupt(t *testing.T) {
 				ID: fmt.Sprintf("call-%d", round), Name: string(toolspec.ToolExecCommand),
 				Input: json.RawMessage(`{"cmd":":"}`),
 			}},
-			Usage: llm.Usage{InputTokens: inputTokens, WindowTokens: int(policy.ContextWindowTokens)},
+			Usage: llm.Usage{InputTokens: textutil.Value(inputTokens), WindowTokens: int(policy.ContextWindowTokens), ContextUsage: &llm.ContextUsage{Tokens: inputTokens, MeasurementPoint: llm.ContextMeasurementInput}},
 		}
 		exchange = nextSteeringExchange(t, client)
 		var gotMessages []string

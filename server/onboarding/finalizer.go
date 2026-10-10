@@ -132,6 +132,10 @@ func (f *Finalizer) Finalize(_ context.Context, req *onboardingpb.FinalizeReques
 }
 
 func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings, sources map[string]config.Origin) (config.Settings, map[string]bool, error) {
+	sources = maps.Clone(sources)
+	if err := llm.ApplyConnectionModelDefaults(&settings, sources); err != nil {
+		return config.Settings{}, nil, err
+	}
 	settings.EnabledTools = maps.Clone(settings.EnabledTools)
 	preserved := map[string]bool{}
 	for key, origin := range sources {
@@ -148,8 +152,11 @@ func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings
 		if model != settings.Model {
 			settings.Model = model
 			effectiveModel = model
-			llm.ApplyDerivedModelContextBudget(&settings, model, settings.ModelContextWindow, settings.ContextCompactionThresholdTokens)
+			if err := llm.ApplyDerivedModelContextBudget(&settings, model, settings.ModelContextWindow, settings.ContextCompactionThresholdTokens); err != nil {
+				return config.Settings{}, nil, err
+			}
 		}
+		preserved["model"] = true
 	}
 	if req.Theme != nil {
 		themeValue, err := onboardingTheme(*req.Theme)
@@ -162,14 +169,17 @@ func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings
 		if err := applyContextWindow(&settings, effectiveModel, req.ContextWindow); err != nil {
 			return config.Settings{}, nil, err
 		}
+		if req.ContextWindow.Kind != onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_DEFAULT {
+			preserved["model_context_window"] = true
+		}
 	}
 	if req.Thinking != nil {
-		value, err := thinkingChoiceValue(req.Thinking, effectiveModel, "thinking")
+		value, err := thinkingChoiceValue(req.Thinking, effectiveModel, settings.ThinkingLevel, "thinking")
 		if err != nil {
 			return config.Settings{}, nil, err
 		}
 		settings.ThinkingLevel = value
-		if req.Thinking.Kind == onboardingpb.ThinkingKind_THINKING_KIND_DISABLED {
+		if req.Thinking.Kind != onboardingpb.ThinkingKind_THINKING_KIND_DEFAULT {
 			preserved["thinking_level"] = true
 		}
 	}
@@ -242,21 +252,18 @@ func applyContextWindow(settings *config.Settings, model string, choice *onboard
 	switch choice.Kind {
 	case onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_DEFAULT:
 		defaults := config.DefaultOnboardingSettings()
-		llm.ApplyDerivedModelContextBudget(settings, model, defaults.ModelContextWindow, defaults.ContextCompactionThresholdTokens)
-	case onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_LARGE:
-		contract, ok := llm.LookupModelCapabilityContract(model)
-		if !ok {
-			return invalidRequest("context_window.kind", "unsupported_for_model")
+		if err := llm.ApplyDerivedModelContextBudget(settings, model, defaults.ModelContextWindow, defaults.ContextCompactionThresholdTokens); err != nil {
+			return err
 		}
-		provider, err := llm.ResolveRuntimeProviderCapabilities(*settings)
+	case onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_LARGE:
+		meta, err := llm.ModelContextForSettings(*settings, model)
 		if err != nil {
 			return err
 		}
-		meta := contract.ContextMetadata(provider)
-		if meta.LargeContextWindowTokens <= 0 {
+		if meta == nil || meta.LargeContextWindowTokens == nil {
 			return invalidRequest("context_window.kind", "unsupported_for_model")
 		}
-		settings.ModelContextWindow = meta.LargeContextWindowTokens
+		settings.ModelContextWindow = *meta.LargeContextWindowTokens
 	case onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_CUSTOM:
 		settings.ModelContextWindow = int(choice.GetTokens())
 	default:
@@ -278,11 +285,14 @@ func clampedPreSubmitRunway(thresholdTokens int, windowTokens int, configuredRun
 	return configuredRunway
 }
 
-func thinkingChoiceValue(choice *onboardingpb.ThinkingChoice, model, field string) (string, error) {
+func thinkingChoiceValue(choice *onboardingpb.ThinkingChoice, model, defaultEffort, field string) (string, error) {
 	switch choice.Kind {
 	case onboardingpb.ThinkingKind_THINKING_KIND_DEFAULT:
-		return config.DefaultOnboardingSettings().ThinkingLevel, nil
+		return defaultEffort, nil
 	case onboardingpb.ThinkingKind_THINKING_KIND_DISABLED:
+		if llm.SupportsReasoningEffortModel(model) && !contains(llm.SupportedThinkingLevelsModel(model), "none") {
+			return "", invalidRequest(field+".kind", "unsupported_for_model")
+		}
 		return llm.ProviderThinkingEffort(model, ""), nil
 	case onboardingpb.ThinkingKind_THINKING_KIND_LEVEL:
 		level := strings.TrimSpace(choice.GetLevel())
@@ -327,7 +337,7 @@ func applySupervisor(settings *config.Settings, preserved map[string]bool, choic
 		if choice.Thinking.Kind == onboardingpb.ThinkingKind_THINKING_KIND_DEFAULT {
 			return nil
 		}
-		thinking, err := thinkingChoiceValue(choice.Thinking, reviewerModel, "supervisor.thinking")
+		thinking, err := thinkingChoiceValue(choice.Thinking, reviewerModel, settings.ThinkingLevel, "supervisor.thinking")
 		if err != nil {
 			return err
 		}

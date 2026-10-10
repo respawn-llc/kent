@@ -9,15 +9,15 @@ import (
 	"core/shared/llmerrors"
 )
 
-type openAIRequestErrorMapper struct {
+type responsesRequestErrorMapper struct {
 	providerID string
 }
 
-func newOpenAIRequestErrorMapper(providerID string) openAIRequestErrorMapper {
-	return openAIRequestErrorMapper{providerID: providerID}
+func newResponsesRequestErrorMapper(providerID string) responsesRequestErrorMapper {
+	return responsesRequestErrorMapper{providerID: providerID}
 }
 
-func (m openAIRequestErrorMapper) Map(err error, rawResp *http.Response, prefix string) error {
+func (m responsesRequestErrorMapper) Map(err error, rawResp *http.Response, prefix string) error {
 	reducer, reducerErr := providerErrorReducerForID(m.providerID)
 	if reducerErr != nil {
 		statusCode := 0

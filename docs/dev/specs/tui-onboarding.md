@@ -4,20 +4,23 @@
 
 - A missing `config.toml` must open first-time setup before Session selection. First sign-in must be part of setup under [Provider Connections](provider-connections.md), not a preceding persistent configuration write.
 - The wizard is a bounded Alternate Screen surface.
+- Theme selection must show the Kent banner above the heading "Welcome to Kent.". Authentication pages must not show the banner.
 - Text fields use the native terminal cursor.
 - Every asynchronous operation shows a loading state.
 - Back navigation follows the startup navigation history.
+- Setup summaries must hide verbosity for models that do not support it.
+- Skill multi-select rows must start with text-symbol checkboxes rather than numbers or literal bracket marks. Provider group headings must not be repeated as prefixes on each skill row.
 
 ## Flow Model
 
 - The wizard is an ordered list of steps, one screen each, of three kinds: single-choice, text input (shared editor), and multi-select. Steps show or hide dynamically based on choices so far and detected capabilities. Connection setup must precede provider-dependent choices and the Defaults finalization path.
 - Step graph (order + visibility conditions):
-  1. **Theme** — dark/light with live preview as the cursor moves; keeping the detected default stays on auto-detection.
+  1. **Theme** — the picker must offer Auto, Dark, Light in that order, with live preview as the cursor moves. Auto must be the default and apply the detected terminal theme. Dark and Light must apply explicit overrides.
   2. **Connection setup** — choose and configure the first Provider Connection, including sign-in under [Provider Connections](provider-connections.md).
   3. **Entry** — "configure now" vs "defaults": choosing defaults finalizes immediately with a default config, preserving the chosen theme and connection, and skips all remaining steps.
   4. **Model** — text input, pre-filled with the current default.
   5. **Context window** — only for models with a large-window variant; default (smaller) window is the recommended pre-selection.
-  6. **Thinking level** — only for reasoning-capable models; level list + Disable + custom-value entry (custom opens a text sub-step; empty custom value rejected).
+  6. **Thinking level** — only for reasoning-capable models. Every provider must offer its level list and custom-value entry. Disable must appear only when the supported-effort list contains `none`. Custom opens a text sub-step and rejects empty values. Backend request-time validation follows [Core Runtime Tools](core-runtime-tools.md#grok-model-behavior).
   7. **Verbosity** — only for verbosity-capable models.
   8. **Follow-up questions** — enable/disable the ask-question tool.
   9. **Supervisor** — off / after edits / always; when enabled, sub-steps for Supervisor model (pre-filled with the primary model) and Supervisor thinking (mirrors primary until explicitly diverged; custom entry as above).
@@ -29,15 +32,18 @@
 
 ## Keys
 
-- `Up`/`Down` (+`j`/`k`) move the cursor on choice/multi screens and scroll long content; `Enter`/`→` submit the screen; number keys `1-9` jump to an option (choice: select + submit; multi: toggle); `Space`/`Backspace` toggle on multi screens; `a` toggles all when a toggle-all exists.
-- `←` and `Esc` step back one step. `Esc` on the first step cancels the wizard.
+- `Up`/`Down` (+`j`/`k`) move the cursor on choice/multi screens and scroll long content. Number keys `1-9` jump to an option (choice: select + submit, multi: toggle). `Space`/`Backspace` toggle on multi screens. `a` toggles all when a toggle-all exists.
+- Across onboarding and Provider Connection setup, `Tab` and `Enter` must submit the current screen and advance. `Shift+Tab` must step back. Validation must block advancing when the current input is invalid.
+- In input fields, `←`/`→` must move the text cursor horizontally. `↑`/`↓` must move the cursor through wrapped input lines. Arrow keys must not switch screens or scroll the page while an input field is focused.
+- `Esc` steps back one step. `Esc` on the first step cancels the wizard.
 - After finalization starts, the spinner remains active and input cannot cancel or dismiss the operation. The wizard waits up to 30 seconds for a final result.
 
 ## Finalize And Cancel
 
 - Finalizing shows a progress state. For custom setup, imports finish before Kent writes the configuration. A failed import rolls back the imported changes and returns to the wizard with an error. Connection credential persistence and a failed final configuration write must follow the bounded failure contract in [Provider Connections](provider-connections.md).
 - The defaults path writes the default configuration.
-- The default model must be GPT-6.1 Sol with a 272,000-token context window.
+- Generated configuration model examples must use the configured main model. If that model cannot be determined, the example may use GPT-6 Luna.
+- For Grok connections, the default model must be Grok 4.7. Other connections must default to GPT-6.1 Sol with a 272,000-token context window.
 - When Supervisor is enabled, the Defaults option uses GPT-6 Luna on first-party OpenAI connections and the primary model on other providers.
 - Custom setup must pre-fill Supervisor with the primary model.
 - Custom setup must use the selected Supervisor model at finalization.

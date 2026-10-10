@@ -156,10 +156,9 @@ func (selections onboardingSelections) clone() onboardingSelections {
 
 func (selections *onboardingSelections) chooseTheme(choiceID string) error {
 	normalizedChoice := theme.Normalize(choiceID)
-	if selections.theme.kind == onboardingThemeAuto && normalizedChoice == theme.Resolve(theme.Auto) {
-		return nil
-	}
 	switch normalizedChoice {
+	case theme.Auto:
+		selections.theme = onboardingThemeSelection{kind: onboardingThemeAuto}
 	case theme.Light:
 		selections.theme = onboardingThemeSelection{kind: onboardingThemeLight}
 	case theme.Dark:
@@ -225,6 +224,9 @@ func (selections *onboardingSelections) chooseContextWindow(choiceID string, fac
 func (selections *onboardingSelections) choosePrimaryThinking(choiceID string, facts *capabilitypb.Facts) error {
 	switch choiceID {
 	case "disable":
+		if !slices.Contains(modelFactForFacts(facts, selections.model.value).SupportedThinkingLevels, "none") {
+			return conversionError("thinking", choiceID, "unsupported thinking choice")
+		}
 		selections.thinking = onboardingThinkingSelection{kind: onboardingThinkingDisabled}
 		selections.pendingPrimaryThinking = onboardingThinkingEdit{kind: onboardingThinkingEditNone}
 	case "custom":
@@ -317,6 +319,9 @@ func (selections *onboardingSelections) submitReviewerModel(value string, facts 
 func (selections *onboardingSelections) chooseReviewerThinking(choiceID string, facts *capabilitypb.Facts) error {
 	switch choiceID {
 	case "disable":
+		if !slices.Contains(modelFactForFacts(facts, selections.reviewerModelValue()).SupportedThinkingLevels, "none") {
+			return conversionError("reviewer.thinking", choiceID, "unsupported thinking choice")
+		}
 		selections.supervisor.thinking = onboardingReviewerThinkingSelection{
 			kind:     onboardingReviewerThinkingOverridden,
 			override: onboardingThinkingSelection{kind: onboardingThinkingDisabled},

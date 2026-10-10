@@ -737,7 +737,7 @@ func TestSetAutoCompactionDisabledDuringBusyStepAppliesAtBoundary(t *testing.T) 
 			{
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("working"), Phase: textutil.Value(llm.MessagePhaseCommentary)},
 				ToolCalls: []llm.ToolCall{{ID: "call_shell_1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}},
-				Usage:     llm.Usage{InputTokens: 390000, OutputTokens: 1000, WindowTokens: 400000},
+				Usage:     llm.Usage{InputTokens: textutil.Value(390000), OutputTokens: textutil.Value(1000), WindowTokens: 400000, ContextUsage: &llm.ContextUsage{Tokens: 390000, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 			{
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
@@ -746,12 +746,12 @@ func TestSetAutoCompactionDisabledDuringBusyStepAppliesAtBoundary(t *testing.T) 
 		},
 		compactionResponses: []llm.CompactionResponse{
 			{
-				Checkpoint: llm.ResponseItem{
+				OutputItems: []llm.ResponseItem{llm.ResponseItem{
 					Type:             llm.ResponseItemTypeCompaction,
 					ID:               textutil.Value("cmp_1"),
 					EncryptedContent: textutil.Value("enc_1"),
-				},
-				Usage: llm.Usage{InputTokens: 8000, OutputTokens: 500, WindowTokens: 400000},
+				}},
+				Usage: llm.Usage{InputTokens: textutil.Value(8000), OutputTokens: textutil.Value(500), WindowTokens: 400000, ContextUsage: &llm.ContextUsage{Tokens: 8000, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 		},
 	}

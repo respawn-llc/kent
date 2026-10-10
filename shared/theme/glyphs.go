@@ -1,6 +1,13 @@
 package theme
 
 const (
-	SelectionRailGlyph = "▎"
-	SelectionRailBlank = " "
+	SelectionRailGlyph     = "▎"
+	SelectionRailBlank     = " "
+	KeyShiftGlyph          = "⇧"
+	KeyTabGlyph            = "⇥"
+	KeyEnterGlyph          = "↵"
+	KeySpaceGlyph          = "␣"
+	KeyEscapeGlyph         = "⎋"
+	CheckboxUncheckedGlyph = "☐"
+	CheckboxCheckedGlyph   = "☑︎"
 )

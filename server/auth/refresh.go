@@ -38,8 +38,7 @@ func (r *OAuthRefresher) MaybeRefresh(ctx context.Context, method OAuthMethod) (
 	}
 
 	now := r.now().UTC()
-	expiry := method.Expiry.UTC()
-	if expiry.IsZero() || expiry.After(now.Add(r.refreshBefore)) {
+	if method.Expiry == nil || method.Expiry.After(now.Add(r.refreshBefore)) {
 		return method, false, nil
 	}
 	if r.refresh == nil {

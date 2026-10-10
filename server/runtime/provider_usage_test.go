@@ -72,7 +72,7 @@ func providerUsageTestRequest(sessionID string, withPromptCache bool) llm.Reques
 	request := llm.Request{
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
-		Items:          llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("retain usage")}}),
+		Items:          llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("retain usage")}}), ReasoningEffort: "high",
 	}
 	if withPromptCache {
 		request.PromptCacheKey = sessionID
@@ -89,7 +89,7 @@ func providerUsageTestResponse(outputTokens int) llm.Response {
 	))
 	return llm.Response{
 		Assistant:        llm.Message{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("retained")},
-		Usage:            llm.Usage{InputTokens: 1, OutputTokens: outputTokens},
+		Usage:            llm.Usage{InputTokens: textutil.Value(1), OutputTokens: textutil.Value(outputTokens), ContextUsage: &llm.ContextUsage{Tokens: 1, MeasurementPoint: llm.ContextMeasurementInput}},
 		ProviderEvidence: modelcontract.ProviderUsageEvidence{ProviderID: textutil.Value("test-provider"), Usage: &raw},
 	}
 }

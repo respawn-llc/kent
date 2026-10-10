@@ -14,8 +14,6 @@ import (
 	ansi "github.com/charmbracelet/x/ansi"
 )
 
-const authPickerHeaderMarkdown = "**Pick auth options**"
-
 var runStartupPickerFlow = runStartupPicker
 
 type startupPickerOption struct {
@@ -50,7 +48,6 @@ type startupPickerStyles struct {
 }
 
 type startupPickerModel struct {
-	banner         string
 	headerMarkdown string
 	headerFallback string
 	items          []startupPickerOption
@@ -130,10 +127,6 @@ func (m *startupPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *startupPickerModel) View() string {
 	var out strings.Builder
-	if banner := renderStartupBanner(m.banner); banner != "" {
-		out.WriteString(banner)
-		out.WriteString("\n\n")
-	}
 	out.WriteString(m.renderHeader())
 	if notice := m.renderNotice(); strings.TrimSpace(notice) != "" {
 		out.WriteString("\n\n")
@@ -246,9 +239,6 @@ func (m *startupPickerModel) contentWidth() int {
 
 func (m *startupPickerModel) staticLineCount() int {
 	lines := 2
-	if bannerLines := startupBannerLineCount(m.banner); bannerLines > 0 {
-		lines += bannerLines + 2
-	}
 	if strings.TrimSpace(m.notice.Text) != "" {
 		lines += 2
 	}
@@ -342,23 +332,35 @@ type authMethodPickerResult struct {
 	Canceled bool
 }
 
-func authMethodOptions() []startupPickerOption {
-	return []startupPickerOption{
-		startupPickerOption{
-			ID:    string(authMethodChoiceBrowserAuto),
-			Title: "Sign in with OpenAI Codex using browser",
-		},
-		startupPickerOption{
-			ID:    string(authMethodChoiceDevice),
-			Title: "Sign in with OpenAI Codex using device code",
-		},
+func newAuthMethodPickerModel(req authInteraction) (*onboardingModel, *authMethodPickerResult, error) {
+	theme, err := seedThemeSelection(req.Theme)
+	if err != nil {
+		return nil, nil, err
 	}
-}
-
-func newAuthMethodPickerModel(theme string, notice startupPickerNotice) *startupPickerModel {
-	model := newStartupPickerModel(authPickerHeaderMarkdown, "Pick auth options", theme, notice, authMethodOptions())
-	model.banner = startupBannerANSI
-	return model
+	options := []onboardingOption{}
+	for _, choice := range []struct {
+		method authMethodChoice
+		title  string
+	}{
+		{authMethodChoiceBrowserAuto, "Browser"},
+		{authMethodChoiceDevice, "Device code"},
+	} {
+		if supportsBootstrapMode(req.Modes, choice.method) {
+			options = append(options, onboardingOption{ID: string(choice.method), Title: choice.title})
+		}
+	}
+	result := &authMethodPickerResult{}
+	model := newOnboardingFormModel(onboardingFlowState{selections: onboardingSelections{theme: theme}}, onboardingWorkflow{
+		steps: []onboardingStepDefinition{{id: connectionStepAuthMethod, build: func(*onboardingFlowState) onboardingScreen {
+			return onboardingScreen{ID: connectionStepAuthMethod, Kind: onboardingScreenChoice, Title: "Choose a sign-in method",
+				Options: options, ErrorText: authMethodPickerNoticeForRequest(req).Text}
+		}, apply: func(state *onboardingFlowState, value string) error {
+			result.Choice = authMethodChoice(value)
+			state.pendingAction = onboardingPendingActionConnectionComplete
+			return nil
+		}}},
+	})
+	return model, result, nil
 }
 
 func authMethodPickerNoticeForRequest(req authInteraction) startupPickerNotice {
@@ -372,20 +374,15 @@ func authMethodPickerNoticeForRequest(req authInteraction) startupPickerNotice {
 	return startupPickerNotice{Text: notice.Text, Kind: kind}
 }
 
-func authMethodDisplayTitle(choice authMethodChoice) string {
-	for _, item := range authMethodOptions() {
-		if item.ID == string(choice) {
-			return item.Title
-		}
-	}
-	return string(choice)
-}
-
 func runAuthMethodPicker(req authInteraction) (authMethodPickerResult, error) {
-	model := newAuthMethodPickerModel(req.Theme, authMethodPickerNoticeForRequest(req))
-	picked, err := runStartupPickerFlow(model)
+	model, result, err := newAuthMethodPickerModel(req)
 	if err != nil {
 		return authMethodPickerResult{}, err
 	}
-	return authMethodPickerResult{Choice: authMethodChoice(picked.ChoiceID), Canceled: picked.Canceled}, nil
+	_, err = runOnboardingProgram(context.Background(), model)
+	if err != nil {
+		return authMethodPickerResult{}, err
+	}
+	result.Canceled = model.canceled
+	return *result, nil
 }

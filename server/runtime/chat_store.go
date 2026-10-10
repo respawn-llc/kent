@@ -236,7 +236,7 @@ func (s *chatStore) replaceHistoryAtCommittedEntryStart(
 	} else if committedEntryStart != nil {
 		activeSegmentEntryStart = *committedEntryStart
 	}
-	preparedItems := llm.PrepareOpenAIInputItems(items)
+	preparedItems := llm.PrepareResponsesInputItems(items)
 	s.recordReplacementToolCallStepIDsLocked(stepID, preparedItems)
 	// Provider/model history switches to the compacted checkpoint while the
 	// transcript receives its typed projection at the same committed boundary.
@@ -733,7 +733,7 @@ func (s *chatStore) snapshotProviderItemsLocked() ([]llm.ResponseItem, *int) {
 		if completionName == "" {
 			completionName = itemName
 		}
-		pendingOutputs = append(pendingOutputs, llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+		pendingOutputs = append(pendingOutputs, llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 			Type:   llm.ToolOutputItemType(item.Type == llm.ResponseItemTypeCustomToolCall),
 			CallID: textutil.Value(callID),
 			Name:   textutil.OptionalExactString(completionName),

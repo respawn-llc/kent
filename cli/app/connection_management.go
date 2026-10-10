@@ -27,6 +27,15 @@ func (s *remoteAppServer) EnsureConnectionSetup(ctx context.Context) error {
 }
 
 func (s *remoteAppServer) manageConnections(ctx context.Context, catalog *authpb.ConnectionCatalog) error {
+	for {
+		err := s.manageConnectionSelection(ctx, catalog)
+		if !errors.Is(err, ErrAuthBack) {
+			return err
+		}
+	}
+}
+
+func (s *remoteAppServer) manageConnectionSelection(ctx context.Context, catalog *authpb.ConnectionCatalog) error {
 	selectedTheme := s.PresentationTheme()
 	var workspace *string
 	if s.connection.WorkspaceRoot != "" {
@@ -59,8 +68,8 @@ func (s *remoteAppServer) manageConnections(ctx context.Context, catalog *authpb
 		}
 		err = runConnectionForm(ctx, model, func() error {
 			selected = protoapi.ConnectionToProto(form.id, form.definition)
-			if selected.Protocol == authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT {
-				return signInConnection(ctx, s.remote, selectedTheme, &authpb.ConnectionTarget{Target: &authpb.ConnectionTarget_AddConnection{AddConnection: selected}}, false)
+			if form.definition.Protocol.IsSubscription() {
+				return signInConnection(ctx, s.remote, selectedTheme, &authpb.ConnectionTarget{Target: &authpb.ConnectionTarget_AddConnection{AddConnection: selected}}, false, form.authenticationMethod())
 			}
 			_, err = runConnectionOperation(ctx, selectedTheme, func() (*emptypb.Empty, error) {
 				return s.remote.ConfigureConnection(ctx, &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_Add{Add: selected}})
@@ -86,9 +95,9 @@ func (s *remoteAppServer) manageConnections(ctx context.Context, catalog *authpb
 			return decodeErr
 		}
 		switch connectionTemplateFor(definition) {
-		case connectionTemplateSubscription:
-			err = signInConnection(ctx, s.remote, selectedTheme, protoapi.ExistingConnectionTarget(id), true)
-		case connectionTemplateAPI:
+		case connectionTemplateSubscription, connectionTemplateGrokSubscription:
+			err = signInConnection(ctx, s.remote, selectedTheme, protoapi.ExistingConnectionTarget(id), true, nil)
+		case connectionTemplateAPI, connectionTemplateOpenAIAPI, connectionTemplateGrokAPI:
 			err = editConnectionReference(ctx, s.remote, selectedTheme, id, definition)
 		case connectionTemplateAnonymous:
 			picked, infoErr := runStartupPickerFlow(newStartupPickerModel("**"+selected.Id+"**", selected.Id, selectedTheme,
@@ -143,7 +152,7 @@ func (s *remoteAppServer) manageConnections(ctx context.Context, catalog *authpb
 }
 
 func editConnectionReference(ctx context.Context, remote apicontract.ConnectionManagementService, selectedTheme string, id config.ConnectionID, definition config.ProviderConnection) error {
-	form := &connectionForm{template: connectionTemplateAPI, id: id, definition: definition}
+	form := &connectionForm{template: connectionTemplateFor(definition), id: id, definition: definition}
 	theme, err := seedThemeSelection(selectedTheme)
 	if err != nil {
 		return err

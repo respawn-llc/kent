@@ -68,7 +68,14 @@ func BuildAuthSupport(ctx context.Context, root string, store auth.Store, lookup
 		Issuer:   auth.DefaultOpenAIIssuer,
 		ClientID: textutil.FirstNonEmpty(strings.TrimSpace(clientID), auth.DefaultOpenAIClientID),
 	}
-	manager := auth.NewManager(store, auth.NewOpenAIOAuthRefresher(oauthOpts, now, 5*time.Minute))
+	grokRefresher := auth.NewOAuthRefresher(now, 5*time.Minute, func(ctx context.Context, credential auth.OAuthMethod) (auth.OAuthMethod, error) {
+		return auth.RefreshGrokAuthToken(ctx, nil, credential)
+	})
+	manager := auth.NewManager(store, map[config.ConnectionProtocol]*auth.OAuthRefresher{
+		config.ConnectionChatGPT:      auth.NewOpenAIOAuthRefresher(oauthOpts, now, 5*time.Minute),
+		config.ConnectionGrokCLIProxy: grokRefresher,
+		config.ConnectionGrokOAuthAPI: grokRefresher,
+	})
 	connections := authservice.NewBootstrapService(ctx, authservice.NewConnectionResolver(root, manager, lookupEnv), oauthOpts)
 	return AuthSupport{
 		OAuthOptions: oauthOpts,

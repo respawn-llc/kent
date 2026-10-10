@@ -41,7 +41,7 @@ func SetProviderConnectionEnvironment(path string, id ConnectionID, name string)
 		if !present {
 			return &ConnectionReferenceError{Connection: &id}
 		}
-		if connection.Protocol != ConnectionResponses || connection.EnvironmentVariable == nil {
+		if connection.EnvironmentVariable == nil {
 			return &ConnectionNotAPIKeyError{ID: id}
 		}
 		if *connection.EnvironmentVariable == name {

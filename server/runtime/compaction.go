@@ -56,6 +56,7 @@ var (
 type compactionResult struct {
 	engine                      string
 	items                       []llm.ResponseItem
+	contextPlacement            llm.CompactionContextPlacement
 	usage                       llm.Usage
 	trimmedItemsCount           *int
 	overflowRepair              compactionOverflowRepairStats
@@ -604,18 +605,11 @@ func (e *Engine) estimatedCurrentTokenUsage(preview ...llm.ResponseItem) int {
 	}
 	estimated += llm.EstimateItemsTokens(e.cfg.TokenEstimator, preview)
 	if e.modelRequests().TokenUsage() != nil {
-		if baseline, ok := e.modelRequests().TokenUsage().estimateCurrentInputTokens(estimated); ok {
+		if baseline, ok := e.modelRequests().TokenUsage().estimateCurrentContextTokens(estimated); ok {
 			return baseline
 		}
 	}
-	if estimated > 0 {
-		return estimated
-	}
-	usage := e.usageTrackingState().Last()
-	if usage.InputTokens > 0 {
-		return usage.InputTokens
-	}
-	return 0
+	return estimated
 }
 
 func (e *Engine) currentTokenUsage() int {
@@ -693,7 +687,11 @@ func (e *Engine) compactNowWithAcceptance(
 	if err != nil {
 		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
 	}
-	thinking, err := prepareNativeThinking(input, replacementEnd, llm.ProviderThinkingEffort(e.cfg.Model, e.ThinkingLevel()), e.store.Meta().OriginalThinkingEffort, llm.SupportsNativeThinkingUpdates(e.cfg.Model, caps))
+	effort := llm.ProviderThinkingEffort(e.cfg.Model, e.ThinkingLevel())
+	if err := llm.ValidateModelReasoningEffort(e.cfg.Model, effort); err != nil {
+		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
+	}
+	thinking, err := prepareNativeThinking(input, replacementEnd, effort, e.store.Meta().OriginalThinkingEffort, llm.SupportsNativeThinkingUpdates(e.cfg.Model, caps))
 	if err != nil {
 		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
 	}
@@ -759,6 +757,9 @@ func (e *Engine) compactNowWithAcceptance(
 		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
 	}
 	var replacementItems []llm.ResponseItem
+	if result.contextPlacement == llm.CompactionContextAfterOutput {
+		replacementItems = append(replacementItems, llm.CloneResponseItems(result.items)...)
+	}
 	if result.engine == "remote" {
 		replacementItems = append(replacementItems, llm.ItemsFromMessages([]llm.Message{{
 			Role:    llm.RoleDeveloper,
@@ -766,7 +767,9 @@ func (e *Engine) compactNowWithAcceptance(
 		}})...)
 	}
 	replacementItems = append(replacementItems, llm.ItemsFromMessages(postReplacementMeta.StablePrefix)...)
-	replacementItems = append(replacementItems, llm.CloneResponseItems(result.items)...)
+	if result.contextPlacement == llm.CompactionContextBeforeOutput {
+		replacementItems = append(replacementItems, llm.CloneResponseItems(result.items)...)
+	}
 	replacementItems = append(replacementItems, llm.ItemsFromMessages(postReplacementMeta.RunningShells)...)
 	replacementItems = append(replacementItems, llm.ItemsFromMessages(postReplacementMeta.Environment)...)
 	if preservedUserMessageText != nil {
@@ -817,10 +820,7 @@ func (e *Engine) compactNowWithAcceptance(
 	if windowTokens <= 0 {
 		windowTokens = e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())
 	}
-	inputTokens := llm.EstimateItemsTokens(e.cfg.TokenEstimator, e.transcriptRuntimeState().SnapshotItems())
 	compactedUsage := llm.Usage{
-		InputTokens:  inputTokens,
-		OutputTokens: 0,
 		WindowTokens: windowTokens,
 	}
 	usageReceipt, usageErr := e.recordLastUsage(compactedUsage)

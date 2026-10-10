@@ -20,7 +20,7 @@ import (
 
 func TestDispatchOmitsForeignReasoningAndPreservesConversation(t *testing.T) {
 	store := mustCreateTestSession(t)
-	items := llm.PrepareOpenAIInputItems([]llm.ResponseItem{
+	items := llm.PrepareResponsesInputItems([]llm.ResponseItem{
 		{Type: llm.ResponseItemTypeMessage, Role: textutil.Value(llm.RoleUser), Content: textutil.Value("retained user")},
 		{
 			Type: llm.ResponseItemTypeReasoning, ID: textutil.Value("rs_foreign"),
@@ -60,7 +60,7 @@ func TestDispatchOmitsForeignReasoningAndPreservesConversation(t *testing.T) {
 
 func persistRetainedItems(t *testing.T, store *session.Store, items []llm.ResponseItem) {
 	t.Helper()
-	replacement, err := sessionHistoryReplacementRecordFromRuntime(historyReplacementPayload{Engine: "local", Mode: string(compactionModeManual), Items: llm.PrepareOpenAIInputItems(items)})
+	replacement, err := sessionHistoryReplacementRecordFromRuntime(historyReplacementPayload{Engine: "local", Mode: string(compactionModeManual), Items: llm.PrepareResponsesInputItems(items)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestRetainedReasoningDispatchCompatibility(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := mustCreateTestSession(t)
-			item := llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+			item := llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 				Type: llm.ResponseItemTypeReasoning, ID: textutil.Value("rs_matrix"), Attribution: test.attribution,
 				EncryptedContent: test.encrypted, ReasoningSummary: []llm.ReasoningEntry{{Text: "readable trace"}},
 			}})[0]
@@ -135,7 +135,7 @@ func TestActiveCheckpointIsBlockedRatherThanOmitted(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := mustCreateTestSession(t)
-			checkpoint := llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+			checkpoint := llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 				Type: llm.ResponseItemTypeCompaction, ID: textutil.Value("cmp_kept"),
 				EncryptedContent: textutil.Value("checkpoint"), Attribution: test.origin,
 			}})[0]
@@ -368,9 +368,9 @@ func testProducedCheckpointAttributionSurvivesResume(t *testing.T, caps llm.Prov
 	raw := json.RawMessage(`{"type":"compaction","id":"cmp_origin","encrypted_content":"checkpoint-opaque"}`)
 	client := &fakeCompactionClient{
 		caps: caps,
-		compactionResponses: []llm.CompactionResponse{{ProviderEvidence: modelcontract.ProviderUsageEvidence{ProviderID: provider}, Checkpoint: llm.ResponseItem{
+		compactionResponses: []llm.CompactionResponse{{ProviderEvidence: modelcontract.ProviderUsageEvidence{ProviderID: provider}, OutputItems: []llm.ResponseItem{{
 			Type: llm.ResponseItemTypeCompaction, Raw: raw,
-		}}},
+		}}}},
 	}
 	engine := mustNewTestEngine(t, store, &completedDispatchClient{Client: client}, tools.NewRegistry(), Config{CompactionMode: "native"})
 	completeManualEligibilityAgentStep(t, engine)
@@ -485,4 +485,8 @@ func (c *completedDispatchClient) Compact(ctx context.Context, request llm.Compa
 	response, err := c.Client.(llm.CompactionClient).Compact(ctx, request)
 	c.completed = true
 	return response, err
+}
+
+func (c *completedDispatchClient) PrepareCompaction(request llm.CompactionRequest) llm.CompactionRequest {
+	return c.Client.(llm.CompactionClient).PrepareCompaction(request)
 }

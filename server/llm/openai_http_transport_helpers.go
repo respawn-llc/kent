@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"core/server/httpcompression"
-	"core/shared/llmerrors"
 	"core/shared/textutil"
 
 	"github.com/openai/openai-go/v3/option"
@@ -19,38 +18,18 @@ func requestCompressionOption(variant ProviderVariantContract) option.RequestOpt
 	return option.WithMiddleware(httpcompression.Middleware(variant.RequestCompression))
 }
 
-func (t *HTTPTransport) serviceBaseURL(mode OpenAIAuthMode) string {
-	if mode.IsOAuth && !t.BaseURLExplicit {
-		return strings.TrimSuffix(codexResponsesEndpoint, "/responses")
-	}
-	base := strings.TrimSuffix(t.BaseURL, "/")
-	if base == "" {
-		base = defaultOpenAIBaseURL
-	}
-	return base
+func (t *HTTPTransport) serviceBaseURL() string {
+	return *t.registration.Variant.BaseURL
 }
 
-func (t *HTTPTransport) buildRequestOptions(authHeader string, mode OpenAIAuthMode, sessionID *string, projection *codexDispatchProjection, dispatch *CodexDispatchContext) []option.RequestOption {
+func (t *HTTPTransport) buildRequestOptions(request ResponsesRequest, preparation responsesDispatchPreparation) []option.RequestOption {
 	opts := []option.RequestOption{
-		option.WithHeader("originator", t.ProviderIdentifier),
 		option.WithHeader("User-Agent", t.providerUserAgent()),
 	}
-	if strings.TrimSpace(authHeader) != "" {
-		opts = append([]option.RequestOption{option.WithHeader("Authorization", authHeader)}, opts...)
+	if strings.TrimSpace(preparation.authHeader) != "" {
+		opts = append(opts, option.WithHeader("Authorization", preparation.authHeader))
 	}
-	if sessionID != nil {
-		opts = append(opts, option.WithHeader("session-id", *sessionID))
-	}
-	if mode.IsOAuth && mode.AccountID != "" {
-		opts = append(opts, option.WithHeader("ChatGPT-Account-Id", mode.AccountID))
-	}
-	if projection != nil {
-		opts = append(opts, option.WithHeader("x-codex-routing-hint", projection.RoutingHint))
-		if turnState, present := dispatch.turnStateForRetry(); present {
-			opts = append(opts, option.WithHeader(codexTurnStateHeader, turnState))
-		}
-	}
-	return opts
+	return append(opts, preparation.variant.ResponsesPolicy.requestOptions(t.ProviderIdentifier, request, preparation)...)
 }
 
 func servedModelMetadata(rawResp *http.Response, standardModel string) *string {
@@ -96,34 +75,6 @@ func (t *HTTPTransport) resolveContextWindowFallback(ctx context.Context, model 
 		return fallbackMeta.ContextWindowTokens
 	}
 	return 0
-}
-
-func (t *HTTPTransport) providerVariantForMode(mode OpenAIAuthMode) (ProviderVariantContract, error) {
-	provider := t.Provider
-	if provider == "" {
-		provider = ProviderOpenAI
-	}
-	endpoint, err := newProviderTransportEndpoint(t.BaseURL, t.BaseURLExplicit)
-	if err != nil {
-		return ProviderVariantContract{}, err
-	}
-	variant, err := resolveProviderTransportVariant(provider, endpoint, mode)
-	if err != nil {
-		providerID := strings.TrimSpace(string(provider))
-		if providerID == "" {
-			providerID = "unknown-provider"
-		}
-		return ProviderVariantContract{}, llmerrors.NewProviderContractError(providerID, 0, err)
-	}
-	return variant, nil
-}
-
-func (t *HTTPTransport) providerCapabilitiesForMode(mode OpenAIAuthMode) (ProviderCapabilities, error) {
-	variant, err := t.providerVariantForMode(mode)
-	if err != nil {
-		return ProviderCapabilities{}, err
-	}
-	return t.providerCapabilitiesForVariant(variant), nil
 }
 
 func (t *HTTPTransport) providerCapabilitiesForVariant(variant ProviderVariantContract) ProviderCapabilities {
@@ -234,7 +185,13 @@ func parsePositiveInt(value any) int {
 }
 
 func usageFromSDK(usage responses.ResponseUsage, window int) Usage {
-	out := Usage{InputTokens: int(usage.InputTokens), OutputTokens: int(usage.OutputTokens), WindowTokens: window}
+	out := Usage{WindowTokens: window}
+	if usage.JSON.InputTokens.Valid() {
+		out.InputTokens = textutil.Value(int(usage.InputTokens))
+	}
+	if usage.JSON.OutputTokens.Valid() {
+		out.OutputTokens = textutil.Value(int(usage.OutputTokens))
+	}
 	if usage.JSON.InputTokensDetails.Valid() && usage.InputTokensDetails.JSON.CachedTokens.Valid() {
 		out.CachedInputTokens = textutil.Value(int(usage.InputTokensDetails.CachedTokens))
 	}

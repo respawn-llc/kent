@@ -36,13 +36,13 @@ func (e *Engine) compactRemote(ctx context.Context, stepID string, input []llm.R
 		return compactionResult{overflowRepair: repairStats, provider: providerID}, sentInput, err
 	}
 
-	replacement := []llm.ResponseItem{llm.CloneResponseItems([]llm.ResponseItem{resp.Checkpoint})[0]}
 	return compactionResult{
-		engine:         "remote",
-		items:          replacement,
-		usage:          resp.Usage,
-		overflowRepair: repairStats,
-		provider:       providerID,
+		engine:           "remote",
+		items:            llm.CloneResponseItems(resp.OutputItems),
+		contextPlacement: resp.ContextPlacement,
+		usage:            resp.Usage,
+		overflowRepair:   repairStats,
+		provider:         providerID,
 	}, nil, nil
 }
 
@@ -134,6 +134,7 @@ func (e *Engine) compactWithContextRepairRetry(
 }
 
 func (e *Engine) compactWithRetry(ctx context.Context, stepID string, client *observedModelClient, request llm.CompactionRequest) (llm.CompactionResponse, error) {
+	request = client.prepareCompaction(request)
 	observed, err := e.prepareCacheObservedRequest(
 		ctx,
 		stepID,
@@ -250,7 +251,7 @@ func (e *Engine) compactLocal(ctx context.Context, stepID string, input []llm.Re
 	return compactionResult{
 		engine:                      "local",
 		items:                       replacement,
-		usage:                       llm.Usage{InputTokens: usageInputTokens, WindowTokens: e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())},
+		usage:                       llm.Usage{InputTokens: textutil.Value(usageInputTokens), WindowTokens: e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())},
 		trimmedItemsCount:           nil,
 		overflowRepair:              repairStats,
 		localToolCallRejectionCount: toolCallRejectionCount,
@@ -401,7 +402,7 @@ func localCompactionToolCallRetryItems(resp llm.Response) ([]llm.ResponseItem, e
 			Output: result.Output,
 		})
 	}
-	return llm.PrepareOpenAIInputItems(items), nil
+	return llm.PrepareResponsesInputItems(items), nil
 }
 
 func isCompactionBoundaryItem(item llm.ResponseItem) bool {

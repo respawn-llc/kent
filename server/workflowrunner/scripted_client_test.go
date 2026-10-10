@@ -43,6 +43,10 @@ func (c *compactingScriptedClient) Requests() []llm.Request {
 	return c.base.Requests()
 }
 
+func (c *compactingScriptedClient) PrepareCompaction(request llm.CompactionRequest) llm.CompactionRequest {
+	return request
+}
+
 func (c *compactingScriptedClient) Compact(ctx context.Context, request llm.CompactionRequest) (llm.CompactionResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return llm.CompactionResponse{}, err

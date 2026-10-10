@@ -93,7 +93,7 @@ func TestCompactionSoonReminderStaysSingleShotAfterReEnablingAutoCompactionAbove
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setLastUsage(llm.Usage{InputTokens: 890, WindowTokens: 2_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}})
 
 	changed, enabled, err := eng.SetAutoCompactionEnabled(t.Context(), false)
 	if err != nil {
@@ -145,14 +145,14 @@ func TestCompactionSoonReminderStaysSingleShotAfterReEnablingAutoCompactionAbove
 		t.Fatalf("expected one reminder after re-enable, got %d entries=%+v", reminders, snap.Entries)
 	}
 
-	eng.setLastUsage(llm.Usage{InputTokens: 800, WindowTokens: 2_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(800), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 800, MeasurementPoint: llm.ContextMeasurementInput}})
 	resetStepID := runtimeTestStepID("step-reset")
 	if err := runTestActiveStep(eng, resetStepID, func() error {
 		return newCompactionReminderCoordinator(eng).maybeAppend(context.Background(), resetStepID)
 	}); err != nil {
 		t.Fatalf("reset reminder state: %v", err)
 	}
-	eng.setLastUsage(llm.Usage{InputTokens: 860, WindowTokens: 2_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(860), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 860, MeasurementPoint: llm.ContextMeasurementInput}})
 	reissueStepID := runtimeTestStepID("step-reissue")
 	if err := runTestActiveStep(eng, reissueStepID, func() error {
 		return newCompactionReminderCoordinator(eng).maybeAppend(context.Background(), reissueStepID)
@@ -199,7 +199,7 @@ func TestReopenedSessionRestoresCompactionSoonReminderIssuedState(t *testing.T) 
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
 	})
-	restored.setLastUsage(llm.Usage{InputTokens: 890, WindowTokens: 2_000})
+	restored.setLastUsage(llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}})
 	if !restored.compactionRuntimeState().SoonReminderIssued() {
 		t.Fatal("expected reopened session to restore reminder-issued state")
 	}
@@ -247,7 +247,7 @@ func TestForkedSessionBeforeReminderDoesNotCopyReminderIssuedState(t *testing.T)
 	if err != nil {
 		t.Fatalf("restore forked engine: %v", err)
 	}
-	forked.setLastUsage(llm.Usage{InputTokens: 890, WindowTokens: 2_000})
+	forked.setLastUsage(llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}})
 	if forked.compactionRuntimeState().SoonReminderIssued() {
 		t.Fatal("expected forked session before reminder to start with cleared reminder-issued state")
 	}
@@ -270,7 +270,7 @@ func TestForkedSessionDoesNotCopyPersistedUsageState(t *testing.T) {
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	if _, err := eng.recordLastUsage(llm.Usage{InputTokens: 900, WindowTokens: 410_000}); err != nil {
+	if _, err := eng.recordLastUsage(llm.Usage{InputTokens: textutil.Value(900), WindowTokens: 410_000, ContextUsage: &llm.ContextUsage{Tokens: 900, MeasurementPoint: llm.ContextMeasurementInput}}); err != nil {
 		t.Fatalf("record last usage: %v", err)
 	}
 	if store.Meta().UsageState == nil {
@@ -343,7 +343,7 @@ func TestCompactionSoonReminderPreservesIssuedStateWhenSuppressed(t *testing.T) 
 			if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 				t.Fatalf("append seed message: %v", err)
 			}
-			eng.setLastUsage(llm.Usage{InputTokens: 890, WindowTokens: 2_000})
+			eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}})
 			eng.compactionRuntimeState().SetSoonReminderIssued(true)
 
 			if tt.disableAuto {
@@ -377,12 +377,12 @@ func TestRunStepLoopSkipsCompactionSoonReminderWhenImmediateAutoCompactionRuns(t
 	client := &fakeCompactionClient{
 		responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)}}},
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				ID:               textutil.Value("cmp_1"),
 				EncryptedContent: textutil.Value("enc_1"),
-			},
-			Usage: llm.Usage{InputTokens: 100, WindowTokens: 2_000},
+			}},
+			Usage: llm.Usage{InputTokens: textutil.Value(100), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 
@@ -396,7 +396,7 @@ func TestRunStepLoopSkipsCompactionSoonReminderWhenImmediateAutoCompactionRuns(t
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setLastUsage(llm.Usage{InputTokens: 9_990, WindowTokens: 20_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(9_990), WindowTokens: 20_000, ContextUsage: &llm.ContextUsage{Tokens: 9_990, MeasurementPoint: llm.ContextMeasurementInput}})
 
 	restoreStep := setTestActiveStep(eng, "step-1")
 	msg, err := eng.runStepLoop(context.Background(), runtimeTestStepID("step-1"))
@@ -431,7 +431,7 @@ func TestRunStepLoopInjectsCompactionSoonReminderBeforeFinalAnswerRequest(t *tes
 	client := &fakeCompactionClient{
 		responses: []llm.Response{{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
-			Usage:     llm.Usage{InputTokens: 890, WindowTokens: 2_000},
+			Usage:     llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 
@@ -444,7 +444,7 @@ func TestRunStepLoopInjectsCompactionSoonReminderBeforeFinalAnswerRequest(t *tes
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setLastUsage(llm.Usage{InputTokens: 890, WindowTokens: 2_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}})
 
 	restoreStep := setTestActiveStep(eng, "step-1")
 	msg, err := eng.runStepLoop(context.Background(), runtimeTestStepID("step-1"))
@@ -498,11 +498,11 @@ func TestRunStepLoopAppendsCompactionSoonReminderImmediatelyAfterToolOutputBound
 			{
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("checking"), Phase: textutil.Value(llm.MessagePhaseCommentary)},
 				ToolCalls: []llm.ToolCall{{ID: "call_1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}},
-				Usage:     llm.Usage{InputTokens: 890, WindowTokens: 2_000},
+				Usage:     llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 			{
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
-				Usage:     llm.Usage{InputTokens: 920, WindowTokens: 2_000},
+				Usage:     llm.Usage{InputTokens: textutil.Value(920), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 920, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 		},
 	}

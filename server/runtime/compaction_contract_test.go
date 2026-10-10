@@ -31,7 +31,7 @@ func TestCompactionRefreshesFullContract(t *testing.T) {
 				},
 				responses: []llm.Response{finalOutputItemResponse("seed"), finalOutputItemResponse("next")},
 				compactionResponses: []llm.CompactionResponse{{
-					Checkpoint: llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")},
+					OutputItems: []llm.ResponseItem{llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")}},
 				}},
 			}
 			if mode == "local" {

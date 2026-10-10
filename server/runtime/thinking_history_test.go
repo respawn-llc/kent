@@ -19,7 +19,7 @@ func TestConfigurationHistoryReopensWithDetailRows(t *testing.T) {
 
 func testConfigurationHistoryReopen(t *testing.T, replacement bool) {
 	store := mustCreateTestSession(t)
-	item := llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+	item := llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 		Type: llm.ResponseItemTypeConfigurationUpdate, ConfigurationEffort: textutil.Value("low"),
 	}})[0]
 	history, err := sessionProviderHistoryItemFromLLM(0, item)
@@ -92,7 +92,7 @@ func testConfigurationHistoryReopen(t *testing.T, replacement bool) {
 func TestThinkingReestablishesAfterCheckpointWithSynthesizedToolOutput(t *testing.T) {
 	store := mustCreateTestSession(t)
 	log := mustMaterializeTestEventLog(t, store)
-	items := llm.PrepareOpenAIInputItems([]llm.ResponseItem{
+	items := llm.PrepareResponsesInputItems([]llm.ResponseItem{
 		{Type: llm.ResponseItemTypeFunctionCall, CallID: textutil.Value("call"), Name: textutil.Value("tool"), Arguments: []byte(`{}`)},
 		{Type: llm.ResponseItemTypeConfigurationUpdate, ConfigurationEffort: textutil.Value("low")},
 	})

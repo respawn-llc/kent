@@ -287,7 +287,7 @@ func ItemsFromMessages(messages []Message) []ResponseItem {
 			})
 		}
 	}
-	return PrepareOpenAIInputItems(out)
+	return PrepareResponsesInputItems(out)
 }
 
 func MessagesFromItems(items []ResponseItem) []Message {
@@ -614,10 +614,23 @@ func RequestFromLockedContract(locked session.LockedContract, systemPrompt strin
 }
 
 type Usage struct {
-	InputTokens       int  `json:"input_tokens"`
-	OutputTokens      int  `json:"output_tokens"`
-	WindowTokens      int  `json:"window_tokens"`
-	CachedInputTokens *int `json:"cached_input_tokens,omitempty"`
+	InputTokens       *int          `json:"input_tokens"`
+	OutputTokens      *int          `json:"output_tokens"`
+	WindowTokens      int           `json:"window_tokens"`
+	CachedInputTokens *int          `json:"cached_input_tokens,omitempty"`
+	ContextUsage      *ContextUsage `json:"context_usage,omitempty"`
+}
+
+type ContextMeasurementPoint string
+
+const (
+	ContextMeasurementInput             ContextMeasurementPoint = "input"
+	ContextMeasurementCompletedResponse ContextMeasurementPoint = "completed_response"
+)
+
+type ContextUsage struct {
+	Tokens           int                     `json:"tokens"`
+	MeasurementPoint ContextMeasurementPoint `json:"measurement_point"`
 }
 
 type ReasoningEntry struct {
@@ -666,36 +679,18 @@ type ReasoningItem struct {
 	EncryptedContent string                              `json:"encrypted_content,omitempty"`
 }
 
-func (u Usage) Percent() int {
-	if u.WindowTokens <= 0 {
-		return 0
-	}
-	total := u.InputTokens + u.OutputTokens
-	if total <= 0 {
-		return 0
-	}
-	pct := (total * 100) / u.WindowTokens
-	if pct < 0 {
-		return 0
-	}
-	if pct > 100 {
-		return 100
-	}
-	return pct
-}
-
 func (u Usage) CacheHitPercent() (int, bool) {
-	if u.CachedInputTokens == nil || u.InputTokens <= 0 {
+	if u.CachedInputTokens == nil || u.InputTokens == nil || *u.InputTokens <= 0 {
 		return 0, false
 	}
 	cached := *u.CachedInputTokens
 	if cached < 0 {
 		cached = 0
 	}
-	if cached > u.InputTokens {
-		cached = u.InputTokens
+	if cached > *u.InputTokens {
+		cached = *u.InputTokens
 	}
-	pct := (cached * 100) / u.InputTokens
+	pct := (cached * 100) / *u.InputTokens
 	if pct < 0 {
 		return 0, false
 	}
@@ -720,13 +715,26 @@ type Response struct {
 
 type CompactionRequest = Request
 
+// CompactionContextPlacement locates runtime continuation context relative to
+// the provider's complete replacement bundle.
+type CompactionContextPlacement uint8
+
+const (
+	CompactionContextBeforeOutput CompactionContextPlacement = iota
+	CompactionContextAfterOutput
+)
+
 type CompactionResponse struct {
-	Checkpoint       ResponseItem
+	OutputItems      []ResponseItem
+	ContextPlacement CompactionContextPlacement
 	Usage            Usage
 	ProviderEvidence modelcontract.ProviderUsageEvidence
 }
 
 type CompactionClient interface {
+	// PrepareCompaction selects the protocol request before cache observation.
+	PrepareCompaction(request CompactionRequest) CompactionRequest
+	// Compact dispatches the prepared request without changing its observed context.
 	Compact(ctx context.Context, request CompactionRequest) (CompactionResponse, error)
 }
 

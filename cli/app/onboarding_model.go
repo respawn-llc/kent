@@ -26,29 +26,27 @@ type onboardingSpinnerTickMsg struct {
 const onboardingToggleAllOptionID = "__toggle_all__"
 
 type onboardingModel struct {
-	workflow         onboardingWorkflow
-	state            onboardingFlowState
-	result           onboardingResult
-	finalization     *onboardingFinalization
-	width            int
-	height           int
-	styles           onboardingStyles
-	spinnerClock     frameAnimationClock
-	spinnerFrame     int
-	input            tuiinput.Editor
-	inputMask        rune
-	inputPlaceholder string
-	terminalCursor   *uiTerminalCursorState
-	currentScreen    onboardingScreen
-	stepIndex        int
-	cursor           int
-	offset           int
-	selection        map[string]bool
-	errorText        string
-	finalizing       bool
-	finalizingLabel  string
-	canceled         bool
-	terminalErr      error
+	workflow        onboardingWorkflow
+	state           onboardingFlowState
+	result          onboardingResult
+	finalization    *onboardingFinalization
+	width           int
+	height          int
+	styles          onboardingStyles
+	spinnerClock    frameAnimationClock
+	spinnerFrame    int
+	input           tuiinput.Field
+	terminalCursor  *uiTerminalCursorState
+	currentScreen   onboardingScreen
+	stepIndex       int
+	cursor          int
+	offset          int
+	selection       map[string]bool
+	errorText       string
+	finalizing      bool
+	finalizingLabel string
+	canceled        bool
+	terminalErr     error
 }
 
 func newOnboardingModel(finalization *onboardingFinalization, state onboardingFlowState) *onboardingModel {
@@ -58,7 +56,8 @@ func newOnboardingModel(finalization *onboardingFinalization, state onboardingFl
 }
 
 func newOnboardingFormModel(state onboardingFlowState, workflow onboardingWorkflow) *onboardingModel {
-	input := newSingleLineEditor("")
+	input := tuiinput.NewField()
+	input.Prefix = "› "
 	m := &onboardingModel{
 		workflow: workflow,
 		state:    state,
@@ -82,13 +81,13 @@ func tickOnboardingSpinner(delay time.Duration) tea.Cmd {
 }
 
 func (m *onboardingModel) shouldAnimateSpinner() bool {
-	return m.finalizing || m.currentScreen.Kind == onboardingScreenLoading
+	return m.finalizing || m.currentScreen.Kind == onboardingScreenLoading || m.currentScreen.Kind == onboardingScreenPending
 }
 
 func (m *onboardingModel) activeTheme() string {
 	if m.currentScreen.ThemePreview && m.currentScreen.Kind == onboardingScreenChoice && m.cursor >= 0 && m.cursor < len(m.currentScreen.Options) {
-		if optionTheme := strings.TrimSpace(m.currentScreen.Options[m.cursor].ID); optionTheme == "light" || optionTheme == "dark" {
-			return optionTheme
+		if optionTheme := strings.TrimSpace(m.currentScreen.Options[m.cursor].ID); optionTheme == theme.Auto || optionTheme == theme.Light || optionTheme == theme.Dark {
+			return theme.Resolve(optionTheme)
 		}
 	}
 	return theme.Resolve(m.state.selections.themeValue())
@@ -170,35 +169,39 @@ func (m *onboardingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		switch typed.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
+		case tea.KeyCtrlC:
 			m.canceled = true
 			return m, tea.Quit
-		case tea.KeyUp:
-			if m.currentScreen.Kind == onboardingScreenInput {
-				return m, m.scrollContent(-1)
+		case tea.KeyEsc:
+			if m.stepIndex == 0 && m.currentScreen.ID != onboardingStepEntry {
+				m.canceled = true
+				return m, tea.Quit
 			}
+			return m.goBack()
+		case tea.KeyShiftTab:
+			return m.goBack()
+		case tea.KeyTab, tea.KeyEnter:
+			return m.submitCurrentScreen()
+		}
+		if m.currentScreen.Kind == onboardingScreenInput {
+			cmd := updateInputFieldWithAppKeys(&m.input, max(1, m.width), typed)
+			m.ensureCursorVisible()
+			if m.terminalCursor != nil {
+				cmd = tea.Batch(cmd, tea.ShowCursor)
+			}
+			return m, cmd
+		}
+		switch typed.Type {
+		case tea.KeyUp:
 			if cmd := m.moveCursor(-1); cmd != nil {
 				return m, m.scrollContent(-1)
 			}
 			return m, nil
 		case tea.KeyDown:
-			if m.currentScreen.Kind == onboardingScreenInput {
-				return m, m.scrollContent(1)
-			}
 			if cmd := m.moveCursor(1); cmd != nil {
 				return m, m.scrollContent(1)
 			}
 			return m, nil
-		case tea.KeyLeft:
-			if !typed.Alt {
-				return m.goBack()
-			}
-		case tea.KeyRight:
-			if !typed.Alt {
-				return m.submitCurrentScreen()
-			}
-		case tea.KeyEnter:
-			return m.submitCurrentScreen()
 		case tea.KeySpace:
 			if m.currentScreen.Kind == onboardingScreenMulti {
 				return m, m.toggleCurrentSelection()
@@ -213,19 +216,19 @@ func (m *onboardingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if (filtered[0] == 'a' || filtered[0] == 'A') && m.currentScreen.Kind == onboardingScreenMulti && screenHasToggleAllOption(m.currentScreen) {
 					return m, m.toggleAllSelections()
 				}
-				if filtered[0] == 'j' && m.currentScreen.Kind != onboardingScreenInput {
+				if filtered[0] == 'j' {
 					if cmd := m.moveCursor(1); cmd != nil {
 						return m, m.scrollContent(1)
 					}
 					return m, nil
 				}
-				if filtered[0] == 'k' && m.currentScreen.Kind != onboardingScreenInput {
+				if filtered[0] == 'k' {
 					if cmd := m.moveCursor(-1); cmd != nil {
 						return m, m.scrollContent(-1)
 					}
 					return m, nil
 				}
-				if filtered[0] >= '1' && filtered[0] <= '9' && m.currentScreen.Kind != onboardingScreenInput {
+				if filtered[0] >= '1' && filtered[0] <= '9' {
 					index := int(filtered[0] - '1')
 					if index < len(m.currentScreen.Options) {
 						m.cursor = index
@@ -240,9 +243,6 @@ func (m *onboardingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-	}
-	if m.currentScreen.Kind == onboardingScreenInput {
-		return m, updateSingleLineEditorWithAppKeys(&m.input, msg)
 	}
 	return m, nil
 }
@@ -264,7 +264,7 @@ func (m *onboardingModel) submitCurrentScreen() (tea.Model, tea.Cmd) {
 		}
 	case onboardingScreenInput:
 		if step.apply != nil {
-			err = step.apply(&m.state, strings.TrimSpace(m.input.Text()))
+			err = step.apply(&m.state, strings.TrimSpace(m.input.Editor.Text()))
 		}
 	case onboardingScreenMulti:
 		if step.applyMultiSelect != nil {
@@ -291,12 +291,12 @@ func (m *onboardingModel) submitCurrentScreen() (tea.Model, tea.Cmd) {
 		m.state.pendingAction = onboardingPendingActionNone
 		m.finalizing = true
 		m.finalizingLabel = "Writing default configuration..."
-		return m, m.finalizeCmd(true)
+		return m, tea.Batch(m.finalizeCmd(true), tickOnboardingSpinner(spinnerTickInterval))
 	case onboardingPendingActionWriteCustom:
 		m.state.pendingAction = onboardingPendingActionNone
 		m.finalizing = true
 		m.finalizingLabel = "Saving first-time setup..."
-		return m, m.finalizeCmd(false)
+		return m, tea.Batch(m.finalizeCmd(false), tickOnboardingSpinner(spinnerTickInterval))
 	default:
 		m.stepIndex++
 		m.syncScreen(true)
@@ -365,22 +365,22 @@ func (m *onboardingModel) syncScreen(resetViewport bool) {
 	screen := step.build(&m.state)
 	previousID := m.currentScreen.ID
 	previousKind := m.currentScreen.Kind
-	inputDraft := m.input.Text()
+	inputDraft := m.input.Editor.Text()
 	m.currentScreen = screen
 	if resetViewport || previousID != screen.ID {
 		m.offset = 0
 	}
 	if screen.Kind == onboardingScreenInput {
 		if !resetViewport && previousID == screen.ID && previousKind == onboardingScreenInput {
-			m.input.Replace(strings.NewReplacer("\r", "", "\n", "").Replace(inputDraft))
+			m.input.Editor.Replace(strings.NewReplacer("\r", "", "\n", "").Replace(inputDraft))
 		} else {
-			m.input.Replace(strings.NewReplacer("\r", "", "\n", "").Replace(screen.InputValue))
+			m.input.Editor.Replace(strings.NewReplacer("\r", "", "\n", "").Replace(screen.InputValue))
 		}
-		m.inputPlaceholder = screen.Placeholder
+		m.input.Placeholder = screen.Placeholder
 		if screen.SensitiveInput {
-			m.inputMask = '*'
+			m.input.Mask = '*'
 		} else {
-			m.inputMask = 0
+			m.input.Mask = 0
 		}
 	}
 	if screen.Kind == onboardingScreenMulti {

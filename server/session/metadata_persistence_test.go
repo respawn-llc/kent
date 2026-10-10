@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"core/shared/textutil"
 	"errors"
 	"fmt"
 	"os"
@@ -501,13 +502,13 @@ func TestSetUsageStateReportsCommittedObserverFailureAndRetries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewLazy: %v", err)
 	}
-	usage := &UsageState{InputTokens: 900, WindowTokens: 200_000}
+	usage := &UsageState{InputTokens: textutil.Value(900), WindowTokens: 200_000, ReportedContextTokens: textutil.Value(900)}
 
 	receipt, err := store.SetUsageState(usage)
 	if err == nil || !receipt.Committed {
 		t.Fatalf("first SetUsageState receipt=%+v error=%v, want committed observer failure", receipt, err)
 	}
-	if stored := store.Meta().UsageState; stored == nil || stored.InputTokens != usage.InputTokens {
+	if stored := store.Meta().UsageState; stored == nil || !textutil.EqualOptional(stored.InputTokens, usage.InputTokens) {
 		t.Fatalf("committed usage state = %+v, want %+v", stored, usage)
 	}
 
@@ -515,7 +516,7 @@ func TestSetUsageStateReportsCommittedObserverFailureAndRetries(t *testing.T) {
 	if err != nil || !receipt.Committed {
 		t.Fatalf("retried SetUsageState receipt=%+v error=%v, want committed success", receipt, err)
 	}
-	if stored := store.Meta().UsageState; stored == nil || stored.InputTokens != usage.InputTokens {
+	if stored := store.Meta().UsageState; stored == nil || !textutil.EqualOptional(stored.InputTokens, usage.InputTokens) {
 		t.Fatalf("committed usage state = %+v, want %+v", stored, usage)
 	}
 }

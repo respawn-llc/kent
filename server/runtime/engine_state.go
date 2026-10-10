@@ -899,7 +899,7 @@ func (e *Engine) setLastUsage(usage llm.Usage) {
 		baselineEstimate = e.transcriptRuntimeState().EstimatedProviderTokens()
 	}
 	normalizedUsage, totalInputTokens, totalCachedInputTokens := e.usageTrackingState().Next(usage)
-	e.applyUsageTrackingState(normalizedUsage, baselineEstimate, totalInputTokens, totalCachedInputTokens)
+	e.applyUsageTrackingState(normalizedUsage, reportedContextTokens(normalizedUsage), baselineEstimate, totalInputTokens, totalCachedInputTokens)
 }
 
 func (e *Engine) recordLastUsage(usage llm.Usage) (session.CommitReceipt, error) {
@@ -915,14 +915,13 @@ func (e *Engine) recordLastUsageWithBaseline(usage llm.Usage, baselineEstimate i
 	receipt := session.CommitReceipt{Committed: true}
 	var persistenceErr error
 	if e != nil && e.store != nil {
-		cachedInputTokens, hasCachedInputTokens := textutil.OptionalValue(normalizedUsage.CachedInputTokens)
 		receipt, persistenceErr = e.store.SetUsageState(&session.UsageState{
 			InputTokens:             normalizedUsage.InputTokens,
 			OutputTokens:            normalizedUsage.OutputTokens,
 			WindowTokens:            normalizedUsage.WindowTokens,
-			CachedInputTokens:       cachedInputTokens,
-			HasCachedInputTokens:    hasCachedInputTokens,
+			CachedInputTokens:       normalizedUsage.CachedInputTokens,
 			EstimatedProviderTokens: baselineEstimate,
+			ReportedContextTokens:   reportedContextTokens(normalizedUsage),
 			TotalInputTokens:        totalInputTokens,
 			TotalCachedInputTokens:  totalCachedInputTokens,
 		})
@@ -930,7 +929,7 @@ func (e *Engine) recordLastUsageWithBaseline(usage llm.Usage, baselineEstimate i
 			return receipt, persistenceErr
 		}
 	}
-	e.applyUsageTrackingState(normalizedUsage, baselineEstimate, totalInputTokens, totalCachedInputTokens)
+	e.applyUsageTrackingState(normalizedUsage, reportedContextTokens(normalizedUsage), baselineEstimate, totalInputTokens, totalCachedInputTokens)
 	return receipt, persistenceErr
 }
 
@@ -939,31 +938,35 @@ func (e *Engine) restorePersistedUsageState(state *session.UsageState) {
 		return
 	}
 	normalized := normalizePersistedUsageTrackingState(*state)
-	var cachedInputTokens *int
-	if normalized.HasCachedInputTokens {
-		cachedInputTokens = textutil.Value(normalized.CachedInputTokens)
-	}
 	e.applyUsageTrackingState(
 		llm.Usage{
 			InputTokens:       normalized.InputTokens,
 			OutputTokens:      normalized.OutputTokens,
 			WindowTokens:      normalized.WindowTokens,
-			CachedInputTokens: cachedInputTokens,
+			CachedInputTokens: normalized.CachedInputTokens,
 		},
+		normalized.ReportedContextTokens,
 		normalized.EstimatedProviderTokens,
 		normalized.TotalInputTokens,
 		normalized.TotalCachedInputTokens,
 	)
 }
 
-func (e *Engine) applyUsageTrackingState(usage llm.Usage, baselineEstimate, totalInputTokens, totalCachedInputTokens int) {
+func (e *Engine) applyUsageTrackingState(usage llm.Usage, reported *int, baselineEstimate, totalInputTokens, totalCachedInputTokens int) {
 	if baselineEstimate < 0 {
 		baselineEstimate = 0
 	}
 	e.usageTrackingState().Apply(usage, totalInputTokens, totalCachedInputTokens)
 	if e.modelRequests().TokenUsage() != nil {
-		e.modelRequests().TokenUsage().storeUsageBaseline(usage.InputTokens, baselineEstimate)
+		e.modelRequests().TokenUsage().storeUsageBaseline(reported, baselineEstimate)
 	}
+}
+
+func reportedContextTokens(usage llm.Usage) *int {
+	if usage.ContextUsage == nil {
+		return nil
+	}
+	return textutil.Value(usage.ContextUsage.Tokens)
 }
 
 func (e *Engine) usageTrackingState() *usageTrackingState {

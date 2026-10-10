@@ -92,7 +92,7 @@ func TestClientCompactionCapabilitiesAndContextWindow(t *testing.T) {
 		Capabilities:        &caps,
 		ContextWindowTokens: &window,
 		Compactions: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("encrypted")},
+			OutputItems: []llm.ResponseItem{{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("encrypted")}},
 		}},
 	})
 
@@ -105,7 +105,7 @@ func TestClientCompactionCapabilitiesAndContextWindow(t *testing.T) {
 		t.Fatalf("ResolveModelContextWindow = %d, %v", resolved, err)
 	}
 	compaction, err := client.Compact(context.Background(), llm.CompactionRequest{Model: "m"})
-	if err != nil || compaction.Checkpoint.Type != llm.ResponseItemTypeCompaction {
+	if err != nil || len(compaction.OutputItems) != 1 || compaction.OutputItems[0].Type != llm.ResponseItemTypeCompaction {
 		t.Fatalf("Compact = %+v, %v", compaction, err)
 	}
 }

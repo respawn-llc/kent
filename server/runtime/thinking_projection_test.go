@@ -10,7 +10,7 @@ import (
 
 func TestNativeThinkingProjection(t *testing.T) {
 	update := func(effort string) llm.ResponseItem {
-		return llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+		return llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 			Type: llm.ResponseItemTypeConfigurationUpdate, ConfigurationEffort: &effort,
 		}})[0]
 	}
@@ -75,6 +75,25 @@ func TestThinkingInspectionDoesNotAdoptOrCommit(t *testing.T) {
 	if second.ReasoningEffort != "high" || last.ConfigurationEffort == nil || *last.ConfigurationEffort != "low" ||
 		store.Meta().LastSequence != before || len(client.calls) != 0 || engine.ThinkingLevel() != "low" {
 		t.Fatal("inspection did not purely project desired Thinking")
+	}
+}
+
+func TestThinkingRejectsUnsupportedCatalogEffortBeforeNativeProjection(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeClient{caps: llm.ProviderCapabilities{
+		ProviderID: "openai", SupportsResponsesAPI: true, SupportsNativeThinkingUpdates: true,
+	}}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+		Model: "gpt-6-astra", ThinkingLevel: "high",
+	})
+	if err := store.AdoptOriginalThinkingEffort("high"); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.SetThinkingLevel(t.Context(), "unsupported-future-effort"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PrepareInspectionRequest(t.Context(), engine, false); err == nil {
+		t.Fatal("catalogued model accepted unsupported native Thinking update")
 	}
 }
 

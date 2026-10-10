@@ -11,6 +11,42 @@ import (
 	"core/shared/toolspec"
 )
 
+func TestGrokRoleConnectionDefaultsPreserveAuthoredModel(t *testing.T) {
+	root, workspace := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(`
+connection = "openai"
+[connections.openai]
+protocol = "chatgpt-codex"
+[connections.grok]
+protocol = "grok-cli-proxy"
+[subagents.worker]
+connection = "grok"
+[subagents.explicit]
+connection = "grok"
+model = "grok-4.6"
+thinking_level = "low"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range []string{"worker", "explicit"} {
+		settings, err := ResolveConfiguredSubagentSettings(app, role)
+		if err != nil {
+			t.Fatal(err)
+		}
+		model, thinking := "grok-4.7", "high"
+		if role == "explicit" {
+			model, thinking = "grok-4.6", "low"
+		}
+		if settings.Model != model || settings.ThinkingLevel != thinking || settings.Reviewer.Model != model {
+			t.Fatalf("%s model/effort/Supervisor = %s/%s/%s", role, settings.Model, settings.ThinkingLevel, settings.Reviewer.Model)
+		}
+	}
+}
+
 func TestOrdinaryOverridesDominateRoleWithoutChangingExplicitSupervisor(t *testing.T) {
 	root := t.TempDir()
 	workspace := t.TempDir()

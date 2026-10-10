@@ -9,19 +9,23 @@ import (
 
 type streamingOnlyTransport struct{}
 
-func (streamingOnlyTransport) Compact(context.Context, OpenAIRequest) (OpenAICompactionResponse, error) {
-	return OpenAICompactionResponse{}, nil
+func (streamingOnlyTransport) PrepareCompaction(request CompactionRequest) CompactionRequest {
+	return request
 }
 
-func (streamingOnlyTransport) Generate(_ context.Context, _ OpenAIRequest, callbacks StreamCallbacks) (OpenAIResponse, error) {
+func (streamingOnlyTransport) Compact(context.Context, ResponsesRequest) (ResponsesCompactionResponse, error) {
+	return ResponsesCompactionResponse{}, nil
+}
+
+func (streamingOnlyTransport) Generate(_ context.Context, _ ResponsesRequest, callbacks StreamCallbacks) (ResponsesResponse, error) {
 	if callbacks.OnAssistantDelta != nil {
 		callbacks.OnAssistantDelta(AssistantDelta{Text: "Hel"})
 		callbacks.OnAssistantDelta(AssistantDelta{Text: "lo"})
 	}
-	return OpenAIResponse{AssistantText: textutil.Value("Hello"), ProviderPhase: AbsentProviderPhase()}, nil
+	return ResponsesResponse{AssistantText: textutil.Value("Hello"), ProviderPhase: AbsentProviderPhase()}, nil
 }
 
-func TestRequestAsOpenAIClonesPreparedSchemaCarriers(t *testing.T) {
+func TestRequestAsResponsesClonesPreparedSchemaCarriers(t *testing.T) {
 	request := Request{
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
@@ -32,9 +36,9 @@ func TestRequestAsOpenAIClonesPreparedSchemaCarriers(t *testing.T) {
 		StructuredOutput: &StructuredOutput{
 			Name:   "reviewer_suggestions",
 			Schema: mustTestStructuredSchema(t, testReviewerStructuredOutput{}),
-		},
+		}, ReasoningEffort: "high",
 	}
-	projected := RequestAsOpenAI(request)
+	projected := RequestAsResponses(request)
 	request.Tools[0].Name = "mutated"
 	request.StructuredOutput.Name = "mutated"
 	if len(projected.Tools) != 1 ||
@@ -50,9 +54,9 @@ func TestRequestAsOpenAIClonesPreparedSchemaCarriers(t *testing.T) {
 	}
 }
 
-func TestOpenAIClientGenerateDoesNotReplayFinalTextAsDelta(t *testing.T) {
-	client := NewOpenAIClient(streamingOnlyTransport{})
-	req := Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic}
+func TestResponsesClientGenerateDoesNotReplayFinalTextAsDelta(t *testing.T) {
+	client := NewResponsesClient(streamingOnlyTransport{})
+	req := Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"}
 
 	var deltas []string
 	resp, err := client.Generate(context.Background(), req, StreamCallbacks{
@@ -71,14 +75,14 @@ func TestOpenAIClientGenerateDoesNotReplayFinalTextAsDelta(t *testing.T) {
 	}
 }
 
-func TestOpenAIClientGeneratePreservesFinalTextThatExtendsStreamWithWhitespace(t *testing.T) {
+func TestResponsesClientGeneratePreservesFinalTextThatExtendsStreamWithWhitespace(t *testing.T) {
 	transport := trailingWhitespaceStreamingTransport{}
-	client := NewOpenAIClient(transport)
+	client := NewResponsesClient(transport)
 
 	var deltas []string
 	resp, err := client.Generate(
 		context.Background(),
-		Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic},
+		Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"},
 		StreamCallbacks{
 			OnAssistantDelta: func(delta AssistantDelta) {
 				deltas = append(deltas, delta.Text)
@@ -102,21 +106,21 @@ type trailingWhitespaceStreamingTransport struct {
 
 func (trailingWhitespaceStreamingTransport) Generate(
 	_ context.Context,
-	_ OpenAIRequest,
+	_ ResponsesRequest,
 	callbacks StreamCallbacks,
-) (OpenAIResponse, error) {
+) (ResponsesResponse, error) {
 	if callbacks.OnAssistantDelta != nil {
 		callbacks.OnAssistantDelta(AssistantDelta{Text: "done\n\n"})
 	}
-	return OpenAIResponse{
+	return ResponsesResponse{
 		AssistantText: textutil.Value("done\n\n"),
 		ProviderPhase: AbsentProviderPhase(),
 	}, nil
 }
 
-func TestOpenAIClientGenerateEmitsUnknownDeltaPhase(t *testing.T) {
-	client := NewOpenAIClient(streamingOnlyTransport{})
-	req := Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic}
+func TestResponsesClientGenerateEmitsUnknownDeltaPhase(t *testing.T) {
+	client := NewResponsesClient(streamingOnlyTransport{})
+	req := Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"}
 
 	var deltas []AssistantDelta
 	_, err := client.Generate(context.Background(), req, StreamCallbacks{

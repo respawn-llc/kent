@@ -25,10 +25,9 @@ type ModelKnowledgeCutoff struct {
 type ModelCapabilityContract struct {
 	Model                         string
 	ContextWindowTokens           int
-	LargeContextWindowTokens      int
-	SubscriptionContext           *ModelMetadata
-	KnowledgeCutoff               ModelKnowledgeCutoff
-	HasKnowledgeCutoff            bool
+	LargeContextWindowTokens      *int
+	VariantContexts               map[string]*ModelMetadata
+	KnowledgeCutoff               *ModelKnowledgeCutoff
 	SupportsReasoningEffort       bool
 	SupportsNativeThinkingUpdates bool
 	SupportedReasoningEfforts     []string
@@ -38,20 +37,20 @@ type ModelCapabilityContract struct {
 	SupportsVisionInputs          bool
 }
 
-func (c ModelCapabilityContract) ContextMetadata(provider ProviderCapabilities) ModelMetadata {
-	if provider.ProviderID == "chatgpt-codex" && c.SubscriptionContext != nil {
-		return *c.SubscriptionContext
+func (c ModelCapabilityContract) ContextMetadata(providerID string) *ModelMetadata {
+	if metadata, present := c.VariantContexts[providerID]; present {
+		return metadata
 	}
-	return ModelMetadata{
+	return &ModelMetadata{
 		ContextWindowTokens:      c.ContextWindowTokens,
 		LargeContextWindowTokens: c.LargeContextWindowTokens,
 	}
 }
 
-func lookupProviderVariantContract(providerID string) (providerVariantRegistration, bool) {
+func lookupProviderVariantContract(providerID string) (ProviderVariantRegistration, bool) {
 	key := strings.ToLower(strings.TrimSpace(providerID))
 	if key == "" {
-		return providerVariantRegistration{}, false
+		return ProviderVariantRegistration{}, false
 	}
 	registration, ok := globalProviderRegistry.providerVariantsByID[key]
 	return registration, ok
@@ -71,10 +70,10 @@ func LookupModelCapabilityContract(model string) (ModelCapabilityContract, bool)
 
 func LookupModelKnowledgeCutoff(model string) (ModelKnowledgeCutoff, bool) {
 	contract, ok := LookupModelCapabilityContract(model)
-	if !ok || !contract.HasKnowledgeCutoff {
+	if !ok || contract.KnowledgeCutoff == nil {
 		return ModelKnowledgeCutoff{}, false
 	}
-	return contract.KnowledgeCutoff, true
+	return *contract.KnowledgeCutoff, true
 }
 
 func KnownModelCapabilityContracts() []ModelCapabilityContract {

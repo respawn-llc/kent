@@ -1438,20 +1438,24 @@ func normalizeUsageState(state *UsageState) *UsageState {
 		return nil
 	}
 	normalized := *state
-	if normalized.InputTokens < 0 {
-		normalized.InputTokens = 0
+	normalized.InputTokens = textutil.Pointer(state.InputTokens)
+	normalized.OutputTokens = textutil.Pointer(state.OutputTokens)
+	normalized.CachedInputTokens = textutil.Pointer(state.CachedInputTokens)
+	normalized.ReportedContextTokens = textutil.Pointer(state.ReportedContextTokens)
+	if normalized.InputTokens != nil && *normalized.InputTokens < 0 {
+		*normalized.InputTokens = 0
 	}
-	if normalized.OutputTokens < 0 {
-		normalized.OutputTokens = 0
+	if normalized.OutputTokens != nil && *normalized.OutputTokens < 0 {
+		*normalized.OutputTokens = 0
 	}
 	if normalized.WindowTokens < 0 {
 		normalized.WindowTokens = 0
 	}
-	if normalized.CachedInputTokens < 0 {
-		normalized.CachedInputTokens = 0
+	if normalized.CachedInputTokens != nil && *normalized.CachedInputTokens < 0 {
+		*normalized.CachedInputTokens = 0
 	}
-	if normalized.CachedInputTokens > normalized.InputTokens {
-		normalized.CachedInputTokens = normalized.InputTokens
+	if normalized.CachedInputTokens != nil && normalized.InputTokens != nil && *normalized.CachedInputTokens > *normalized.InputTokens {
+		*normalized.CachedInputTokens = *normalized.InputTokens
 	}
 	if normalized.EstimatedProviderTokens < 0 {
 		normalized.EstimatedProviderTokens = 0
@@ -1465,7 +1469,7 @@ func normalizeUsageState(state *UsageState) *UsageState {
 	if normalized.TotalCachedInputTokens > normalized.TotalInputTokens {
 		normalized.TotalCachedInputTokens = normalized.TotalInputTokens
 	}
-	if normalized.InputTokens == 0 && normalized.OutputTokens == 0 && normalized.WindowTokens == 0 && normalized.CachedInputTokens == 0 && !normalized.HasCachedInputTokens && normalized.EstimatedProviderTokens == 0 && normalized.TotalInputTokens == 0 && normalized.TotalCachedInputTokens == 0 {
+	if normalized.InputTokens == nil && normalized.OutputTokens == nil && normalized.WindowTokens == 0 && normalized.CachedInputTokens == nil && normalized.ReportedContextTokens == nil && normalized.EstimatedProviderTokens == 0 && normalized.TotalInputTokens == 0 && normalized.TotalCachedInputTokens == 0 {
 		return nil
 	}
 	return &normalized
@@ -1477,5 +1481,12 @@ func usageStatesEqual(left, right *UsageState) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}
-	return *left == *right
+	return textutil.EqualOptional(left.InputTokens, right.InputTokens) &&
+		textutil.EqualOptional(left.OutputTokens, right.OutputTokens) &&
+		textutil.EqualOptional(left.CachedInputTokens, right.CachedInputTokens) &&
+		textutil.EqualOptional(left.ReportedContextTokens, right.ReportedContextTokens) &&
+		left.WindowTokens == right.WindowTokens &&
+		left.EstimatedProviderTokens == right.EstimatedProviderTokens &&
+		left.TotalInputTokens == right.TotalInputTokens &&
+		left.TotalCachedInputTokens == right.TotalCachedInputTokens
 }
