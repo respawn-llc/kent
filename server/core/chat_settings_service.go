@@ -3,10 +3,12 @@ package core
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"strings"
 
 	"core/server/sessionlaunch"
+	"core/shared/apicontract"
 	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/runtimeids"
@@ -14,6 +16,38 @@ import (
 
 type chatSettingsService struct {
 	core *Core
+}
+
+func (s chatSettingsService) SubscribeChatSettings(ctx context.Context, req *chatsettingspb.SubscribeRequest) (apicontract.ChatSettingsSubscription, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
+	}
+	id, err := runtimeids.ParseSessionID(req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	service, err := s.sessionSettingsService(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	return service.SubscribeChatSettings(ctx, id)
+}
+
+func (s chatSettingsService) PublishSessionSettings(ctx context.Context, sessionID string) {
+	id, err := runtimeids.ParseSessionID(sessionID)
+	defer func() {
+		if err != nil {
+			slog.ErrorContext(ctx, "Session settings publication target resolution failed", "session_id", sessionID, "error", err)
+		}
+	}()
+	if err != nil {
+		return
+	}
+	service, err := s.sessionSettingsService(ctx, sessionID)
+	if err != nil {
+		return
+	}
+	service.PublishSessionSettings(ctx, id)
 }
 
 func (s chatSettingsService) ReadChatSettings(

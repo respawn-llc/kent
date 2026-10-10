@@ -32,10 +32,13 @@
 - Post-turn Queue accepts each input as a distinct Queue Item and returns its identity without waiting for its later eligible turn. If no Agent Turn is active and the Session can start ordinary work, the accepted Queue Item starts immediately; otherwise it retains ordinary after-turn eligibility.
 - Each new Agent Turn must consume at most one post-turn Queue Item, selecting the oldest eligible item. Remaining Queue Items must wait until that Agent Turn ends before starting subsequent turns.
 - Session Name persists immediately while an Agent Step is running.
+- An unnamed Session must have explicit name absence. Setting a name must require nonblank text. Clearing a name must remove it rather than store an empty name.
+- A dormant existing Session's name change must persist without starting an Active Session Runtime. Name changes must remain available while an Agent Step runs.
 - Thinking, Fast Mode, Supervisor, Questions, and Auto-compaction changes may complete failure-prone preparation, durably commit, and return while an Agent Step is running.
 - A committed live-Runtime setting change is accepted in Session mutation order and applies at the next between-Agent-Step boundary.
 - Setting changes enter neither user-visible Pending Work nor the post-turn Queue.
 - The server publishes each successful setting change and its typed transient feedback to every connected client.
+- Clients observing an existing Session's settings must receive one complete authoritative settings snapshot when its name or Agent, Thinking, Fast Mode, Supervisor, Questions, or Auto-compaction settings change. The snapshot must include explicit name absence and must be available without an Active Session Runtime. Snapshot delivery must follow ordinary delivery semantics without an additional ordering or replay guarantee.
 - A setting change affects later provider and compaction requests and never alters an Agent Step already running. Native Thinking updates follow the legal-position deferral rule in Model Requests And Cache Continuity.
 - Setting changes create no model-visible entries or transcript rows except for the cache-preserving Thinking configuration items defined by Model Requests And Cache Continuity.
 - An operator Thinking change and a Workflow-owned Thinking change have no relative ordering or precedence guarantee when they overlap.

@@ -475,7 +475,7 @@ func TestLiveWatchResultClassifiesTypedTerminalStates(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			response, err := liveWatchResult(id, "session", tc.result, tc.err)
+			response, err := liveWatchResult(id, textutil.Value("session"), tc.result, tc.err)
 			if err != nil {
 				t.Fatalf("result = %+v, err = %v", response, err)
 			}

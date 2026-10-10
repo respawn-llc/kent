@@ -10,7 +10,7 @@ import (
 
 const RecentTailEntryLimit = 500
 
-func TranscriptPageFromSegment(sessionID, sessionName string, freshness runtimepb.ConversationFreshness, page runtime.TranscriptSegmentPage) (*transcriptpb.Page, error) {
+func TranscriptPageFromSegment(sessionID string, sessionName *string, freshness runtimepb.ConversationFreshness, page runtime.TranscriptSegmentPage) (*transcriptpb.Page, error) {
 	segment, err := TranscriptTailSegmentFromSegment(page)
 	if err != nil {
 		return nil, err
@@ -24,7 +24,7 @@ func TranscriptPageFromSegment(sessionID, sessionName string, freshness runtimep
 	}
 	return &transcriptpb.Page{
 		SessionId:               sessionID,
-		SessionName:             textutil.OptionalExactString(sessionName),
+		SessionName:             textutil.Pointer(sessionName),
 		ConversationFreshness:   freshness,
 		OlderCursor:             segment.OlderCursor,
 		HasMoreAbove:            segment.HasMoreAbove,

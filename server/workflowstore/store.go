@@ -443,7 +443,7 @@ func (s *Store) ListWorkflows(ctx context.Context, req ListWorkflowsRequest) (Li
 	rows, err := s.queries.ListWorkflowRecordsPage(ctx, sqlitegen.ListWorkflowRecordsPageParams{
 		PageLimit:   int64(req.Limit + 1),
 		PageOffset:  int64(req.Offset),
-		ProjectID:   nullableStringPointer(projectID),
+		ProjectID:   metadata.NullableString(projectID),
 		WorkflowID:  workflowID,
 		SearchQuery: query,
 	})

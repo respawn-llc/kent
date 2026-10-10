@@ -298,7 +298,7 @@ func (f currentNodeViewFixture) newCurrentNodeViewSession(t *testing.T) runtimei
 	if err := sessionStore.EnsureDurable(); err != nil {
 		t.Fatalf("session.EnsureDurable: %v", err)
 	}
-	if err := sessionStore.SetName("Current Node session"); err != nil {
+	if err := sessionStore.SetName(textutil.Value("Current Node session")); err != nil {
 		t.Fatalf("session.SetName: %v", err)
 	}
 	if _, err := f.metadata.ResolvePersistedSession(f.ctx, sessionStore.Meta().SessionID); err != nil {

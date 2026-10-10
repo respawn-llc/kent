@@ -139,16 +139,6 @@ type RunPromptOverrideOptions struct {
 	WorkflowThinking        workflow.ThinkingMutation
 }
 
-func optionalSessionName(name string) (*string, error) {
-	if name == "" {
-		return nil, nil
-	}
-	if strings.TrimSpace(name) == "" {
-		return nil, errors.New("session name cannot be blank")
-	}
-	return &name, nil
-}
-
 // PreparedRunPromptOverrides is the immutable, snapshot-bound portion of a
 // RunPrompt override. Session launch prepares it before any new session is
 // materialized; applying it later must not reload config or look up a role.
@@ -306,16 +296,12 @@ func resolvePromptFacingSnapshotPlan(app config.App, store *session.Store, skipC
 	if meta.Locked == nil {
 		configuredModelName = active.Model
 	}
-	sessionName, err := optionalSessionName(meta.Name)
-	if err != nil {
-		return SessionPlan{}, err
-	}
 	return sessionPlanWithMeta(SessionPlan{
 		ActiveSettings:                      active,
 		BaseSettings:                        baseActive,
 		EnabledTools:                        enabledTools,
 		ConfiguredModelName:                 configuredModelName,
-		SessionName:                         sessionName,
+		SessionName:                         textutil.Pointer(meta.Name),
 		ModelContractLocked:                 meta.Locked != nil,
 		SkipContinuationAgentRoleValidation: skipContinuationAgentRoleValidation,
 		WorkspaceRoot:                       app.WorkspaceRoot,
@@ -458,8 +444,8 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 				return SessionPlan{}, err
 			}
 			meta = store.Meta()
-		} else if strings.TrimSpace(meta.Name) == "" {
-			meta.Name = subagentSessionName(meta)
+		} else if meta.Name == nil {
+			meta.Name = textutil.Value(subagentSessionName(meta))
 		}
 	}
 	baseActive := EffectiveSettings(p.Config.Settings, meta.Locked)
@@ -530,10 +516,6 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 	if meta.Locked == nil {
 		configuredModelName = active.Model
 	}
-	sessionName, err := optionalSessionName(meta.Name)
-	if err != nil {
-		return SessionPlan{}, err
-	}
 	executionContext, err := p.resolveSessionPlanExecutionContext(ctx, meta.SessionID, preparedContext)
 	if err != nil {
 		return SessionPlan{}, err
@@ -543,7 +525,7 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 		BaseSettings:                        baseActive,
 		EnabledTools:                        enabledTools,
 		ConfiguredModelName:                 configuredModelName,
-		SessionName:                         sessionName,
+		SessionName:                         textutil.Pointer(meta.Name),
 		ModelContractLocked:                 meta.Locked != nil,
 		SkipContinuationAgentRoleValidation: req.SkipContinuationAgentRoleValidation,
 		WorkspaceRoot:                       p.Config.WorkspaceRoot,
@@ -1336,10 +1318,10 @@ func EnsureSubagentSessionName(store *session.Store) error {
 		return errors.New("session store is required")
 	}
 	meta := store.Meta()
-	if strings.TrimSpace(meta.Name) != "" {
+	if meta.Name != nil {
 		return nil
 	}
-	return store.SetName(subagentSessionName(meta))
+	return store.SetName(textutil.Value(subagentSessionName(meta)))
 }
 
 func subagentSessionName(meta session.Meta) string {

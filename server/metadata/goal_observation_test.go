@@ -65,7 +65,7 @@ func TestGoalObservationHydratesDormantSessionAndPublishesLaterPersistence(t *te
 		update.Status.Goal.Id != goal.ID {
 		t.Fatalf("update = %+v, want Goal %q", update, goal.ID)
 	}
-	if err := sessionStore.SetName("unrelated metadata"); err != nil {
+	if err := sessionStore.SetName(metadataStringPointer("unrelated metadata")); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
 	assertNoGoalObservation(t, subscription)

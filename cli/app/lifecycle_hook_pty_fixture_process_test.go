@@ -14,6 +14,7 @@ import (
 	"core/shared/lifecyclecontract"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 )
 
 func runLifecycleHookPTYFixtureProcess(
@@ -252,7 +253,7 @@ func setLifecycleFixtureSessionName(persistenceRoot string, sessionID string) er
 	if err != nil {
 		return fmt.Errorf("open lifecycle fixture session: %w", err)
 	}
-	if err := store.SetName("Lifecycle fixture"); err != nil {
+	if err := store.SetName(textutil.Value("Lifecycle fixture")); err != nil {
 		return fmt.Errorf("name lifecycle fixture session: %w", err)
 	}
 	return nil

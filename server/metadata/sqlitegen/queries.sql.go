@@ -2069,7 +2069,7 @@ LIMIT 1
 type GetSessionRecordByIDRow struct {
 	ID                       string
 	ArtifactRelpath          string
-	Name                     string
+	Name                     sql.NullString
 	FirstPromptPreview       string
 	InputDraft               string
 	ProtectedInputDraft      sql.NullString
@@ -3737,7 +3737,7 @@ type ListActiveWorkflowTaskSessionsParams struct {
 
 type ListActiveWorkflowTaskSessionsRow struct {
 	SessionID        string
-	SessionName      string
+	SessionName      sql.NullString
 	NodeName         sql.NullString
 	ContinuationJson string
 	CreatedAtUnixMs  int64
@@ -4281,7 +4281,7 @@ type ListIdleWorkflowTaskSessionsParams struct {
 
 type ListIdleWorkflowTaskSessionsRow struct {
 	SessionID        string
-	SessionName      string
+	SessionName      sql.NullString
 	NodeName         sql.NullString
 	ContinuationJson string
 	CreatedAtUnixMs  int64
@@ -4434,7 +4434,7 @@ type ListNewerSessionPageParams struct {
 
 type ListNewerSessionPageRow struct {
 	ID                 string
-	Name               string
+	Name               sql.NullString
 	FirstPromptPreview string
 	Category           string
 	UpdatedAtUnixMs    int64
@@ -4500,7 +4500,7 @@ type ListNewestSessionPageParams struct {
 
 type ListNewestSessionPageRow struct {
 	ID                 string
-	Name               string
+	Name               sql.NullString
 	FirstPromptPreview string
 	Category           string
 	UpdatedAtUnixMs    int64
@@ -4568,7 +4568,7 @@ type ListOlderSessionPageParams struct {
 
 type ListOlderSessionPageRow struct {
 	ID                 string
-	Name               string
+	Name               sql.NullString
 	FirstPromptPreview string
 	Category           string
 	UpdatedAtUnixMs    int64
@@ -5221,7 +5221,7 @@ WHERE id IN (/*SLICE:ids*/?)
 
 type ListSessionNamesByIDsRow struct {
 	ID   string
-	Name string
+	Name sql.NullString
 }
 
 func (q *Queries) ListSessionNamesByIDs(ctx context.Context, ids []string) ([]ListSessionNamesByIDsRow, error) {
@@ -5283,7 +5283,7 @@ type ListSessionPageParams struct {
 
 type ListSessionPageRow struct {
 	ID                 string
-	Name               string
+	Name               sql.NullString
 	FirstPromptPreview string
 	Category           string
 	UpdatedAtUnixMs    int64
@@ -5423,7 +5423,7 @@ type ListSessionsTargetingWorktreePageParams struct {
 
 type ListSessionsTargetingWorktreePageRow struct {
 	ID              string
-	Name            string
+	Name            sql.NullString
 	UpdatedAtUnixMs int64
 }
 
@@ -9490,7 +9490,7 @@ type UpsertSessionParams struct {
 	WorkspaceID              sql.NullString
 	WorktreeID               sql.NullString
 	ArtifactRelpath          string
-	Name                     string
+	Name                     sql.NullString
 	FirstPromptPreview       string
 	InputDraft               string
 	ProtectedInputDraft      sql.NullString

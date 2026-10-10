@@ -330,10 +330,10 @@ func TestMetadataPersistencePublishesObserver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if err := store.SetName("incident triage"); err != nil {
+	if err := store.SetName(stringPointer("incident triage")); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
-	if !observer.called || observer.snapshot.Meta.Name != "incident triage" {
+	if !observer.called || observer.snapshot.Meta.Name == nil || *observer.snapshot.Meta.Name != "incident triage" {
 		t.Fatalf("observer snapshot = %+v, called = %t", observer.snapshot.Meta, observer.called)
 	}
 }
@@ -428,11 +428,11 @@ func TestMetadataMutationRequiresPersistenceObserverWithoutChangingState(t *test
 	if err != nil {
 		t.Fatalf("NewLazy: %v", err)
 	}
-	if err := store.SetName("must not persist"); !errors.Is(err, errPersistenceObserverRequired) {
+	if err := store.SetName(stringPointer("must not persist")); !errors.Is(err, errPersistenceObserverRequired) {
 		t.Fatalf("SetName error = %v, want persistence observer required", err)
 	}
-	if store.Meta().Name != "" {
-		t.Fatalf("name changed without persistence observer: %q", store.Meta().Name)
+	if store.Meta().Name != nil {
+		t.Fatalf("name changed without persistence observer: %v", store.Meta().Name)
 	}
 	if _, err := os.Stat(store.Dir()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("session artifact created without persistence observer: %v", err)
@@ -530,13 +530,13 @@ func TestPersistenceObserverRunsOutsideStoreLock(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- store.SetName("incident triage")
+		errCh <- store.SetName(stringPointer("incident triage"))
 	}()
 
 	select {
 	case meta := <-observer.ch:
-		if meta.Name != "incident triage" {
-			t.Fatalf("observer reentrant read name = %q, want incident triage", meta.Name)
+		if meta.Name == nil || *meta.Name != "incident triage" {
+			t.Fatalf("observer reentrant read name = %v, want incident triage", meta.Name)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("observer did not complete; possible store lock reentrancy deadlock")
@@ -621,7 +621,7 @@ func TestCommittedObservationFailurePrecedesLaterMutation(t *testing.T) {
 
 	secondDone := make(chan error, 1)
 	go func() {
-		secondDone <- store.SetName("later mutation")
+		secondDone <- store.SetName(stringPointer("later mutation"))
 	}()
 	close(observer.release)
 
@@ -632,8 +632,8 @@ func TestCommittedObservationFailurePrecedesLaterMutation(t *testing.T) {
 	if err := <-secondDone; err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
-	if store.Meta().Name != "later mutation" {
-		t.Fatalf("session name = %q, want later mutation", store.Meta().Name)
+	if store.Meta().Name == nil || *store.Meta().Name != "later mutation" {
+		t.Fatalf("session name = %v, want later mutation", store.Meta().Name)
 	}
 	if locked := store.Meta().Locked; locked == nil || !locked.HasReviewerPrompt {
 		t.Fatalf("committed reviewer snapshot = %+v, want present", locked)
@@ -643,8 +643,8 @@ func TestCommittedObservationFailurePrecedesLaterMutation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenByID: %v", err)
 	}
-	if reopened.Meta().Name != "later mutation" {
-		t.Fatalf("reopened name = %q, want later mutation", reopened.Meta().Name)
+	if reopened.Meta().Name == nil || *reopened.Meta().Name != "later mutation" {
+		t.Fatalf("reopened name = %v, want later mutation", reopened.Meta().Name)
 	}
 	if locked := reopened.Meta().Locked; locked == nil || !locked.HasReviewerPrompt {
 		t.Fatalf("reopened reviewer snapshot = %+v, want present", locked)

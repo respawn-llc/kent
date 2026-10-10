@@ -9,6 +9,7 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
+	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 	"google.golang.org/protobuf/proto"
@@ -35,7 +36,7 @@ func TestReviewerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing.T) {
 	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{CommittedRows: liveFacts})
 	page, err := TranscriptPageFromSegment(
 		"58e121b5-30f7-4d0f-a1fa-fb3e6695e39c",
-		"name",
+		textutil.Value("name"),
 		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{Snapshot: snapshot},
 	)
@@ -120,7 +121,7 @@ func TestQuestionAnswerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing
 	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{CommittedRows: facts})
 	page, err := TranscriptPageFromSegment(
 		sessionID,
-		"name",
+		textutil.Value("name"),
 		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{Snapshot: snapshot},
 	)

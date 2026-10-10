@@ -545,7 +545,7 @@ func mustProjectNewestPersistedTranscript(
 	}
 	page, err := TranscriptPageFromSegment(
 		store.Meta().SessionID,
-		"",
+		nil,
 		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		segment,
 	)

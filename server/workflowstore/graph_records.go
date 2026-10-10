@@ -28,13 +28,6 @@ func nullableGraphIdentity(value any) (*string, error) {
 	}
 }
 
-func nullableGraphIdentityArgument(value *string) sql.NullString {
-	if value == nil {
-		return sql.NullString{}
-	}
-	return sql.NullString{String: *value, Valid: true}
-}
-
 func workflowDefinitionFromPreparedGraph(
 	prepared preparedWorkflowGraphSave,
 	workflowID runtimeids.WorkflowID,

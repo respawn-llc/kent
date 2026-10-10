@@ -9,6 +9,7 @@ import {
   type ChatSettingsRead,
   type ChatSettingsMutation,
   type ChatSettingsMutationResponse,
+  type ChatSettingsSnapshot,
 } from "@/api";
 import { queryAtom, type AppServices } from "@/app-facade";
 import { showStatusToast } from "@/ui";
@@ -65,23 +66,27 @@ export function createChatSettingsViewModel({
         return edit?.source === result.data ? edit.state : loadedState(result.data);
       return loadingState(selected?.kind ?? "new_chat");
     });
+    const publishSettings = (snapshot: Pick<ChatSettingsSnapshot, "settings" | "session">) => {
+      get.set(local, null);
+      client.setQueryData(observer.options.queryKey, {
+        kind: "session",
+        settings: snapshot.settings,
+        session: snapshot.session,
+      } satisfies ChatSettingsRead);
+    };
     return {
       selected,
       local,
       observer,
       read,
       state,
+      publishSettings,
       publish(
         response: ChatSettingsMutationResponse,
         onContextChange: ((context: ChatContext) => void) | undefined,
       ) {
         if (get.get(target) !== selected || !observer.hasListeners()) return;
-        get.set(local, null);
-        client.setQueryData(observer.options.queryKey, {
-          kind: "session",
-          settings: response.settings,
-          session: response.session,
-        } satisfies ChatSettingsRead);
+        publishSettings(response);
         onContextChange?.(response.context);
         if (response.result.kind === "rejected")
           report(t(`chatSettings.rejections.${response.result.reason}`));
@@ -155,6 +160,16 @@ export function createChatSettingsViewModel({
     (_, get) => Effect.promise(async () => get(current).observer.refetch()),
     { concurrent: true },
   );
-  return { state, activate, refresh, requests } as const;
+  const receive = Atom.fn<ChatSettingsSnapshot>()(
+    (snapshot, get) =>
+      Effect.sync(() => {
+        const scope = get(current);
+        if (scope.selected?.kind !== "session" || scope.selected.sessionID !== snapshot.session.sessionID)
+          return;
+        scope.publishSettings(snapshot);
+      }),
+    { concurrent: true },
+  );
+  return { state, activate, refresh, requests, receive } as const;
 }
 export type ChatSettingsViewModel = ReturnType<typeof createChatSettingsViewModel>;

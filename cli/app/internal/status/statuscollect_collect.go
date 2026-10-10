@@ -63,7 +63,7 @@ func (c Collector) CollectBase(req Request) Snapshot {
 	return Snapshot{
 		CollectedAt:          collectedAt,
 		Workdir:              filepath.ToSlash(strings.TrimSpace(workdir)),
-		SessionName:          strings.TrimSpace(req.SessionName),
+		SessionName:          req.SessionName,
 		SessionID:            strings.TrimSpace(req.SessionID),
 		AgentRole:            textutil.Pointer(req.AgentRole),
 		PreviousSessionID:    previousSessionID,
@@ -106,15 +106,15 @@ func JoinWarnings(existing string, warning string) string {
 	}), " | ")
 }
 
-func (c Collector) relatedSessionName(ctx context.Context, sessionViews apicontract.SessionViewService, sessionID *runtimeids.SessionID, label string) (string, string) {
+func (c Collector) relatedSessionName(ctx context.Context, sessionViews apicontract.SessionViewService, sessionID *runtimeids.SessionID, label string) (*string, string) {
 	if sessionID == nil {
-		return "", ""
+		return nil, ""
 	}
 	sessionView, err := c.resolveSessionView(ctx, sessionViews, sessionID.String())
 	if err != nil {
-		return "", label + ": " + err.Error()
+		return nil, label + ": " + err.Error()
 	}
-	return strings.TrimSpace(sessionView.GetSessionName()), ""
+	return sessionView.SessionName, ""
 }
 
 func (c Collector) resolveSessionView(ctx context.Context, sessionViews apicontract.SessionViewService, sessionID string) (*runtimepb.SessionView, error) {

@@ -41,8 +41,8 @@ func TestEmptyEnterFlushesOnlyNextQueuedItem(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected command from queued /name flush")
 	}
-	if updated.sessionName != "queued title" {
-		t.Fatalf("expected only first queued item to execute, got session name %q", updated.sessionName)
+	if updated.sessionName == nil || *updated.sessionName != "queued title" {
+		t.Fatalf("expected only first queued item to execute, got session name %v", updated.sessionName)
 	}
 	if updated.isBusy() {
 		t.Fatal("did not expect follow-up prompt submission from empty-enter flush")
@@ -63,8 +63,8 @@ func TestIdleTabWithExistingQueueFlushesOnlyNextQueuedItem(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected command from queued /name flush")
 	}
-	if updated.sessionName != "queued title" {
-		t.Fatalf("expected queued /name to execute first, got %q", updated.sessionName)
+	if updated.sessionName == nil || *updated.sessionName != "queued title" {
+		t.Fatalf("expected queued /name to execute first, got %v", updated.sessionName)
 	}
 	if updated.isBusy() {
 		t.Fatal("did not expect appended prompt to auto-submit while idle tab is flushing one queued item")

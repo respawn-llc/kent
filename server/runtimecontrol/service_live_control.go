@@ -111,19 +111,19 @@ func (s *Service) LiveStop(ctx context.Context, req *runtimepb.LiveStopRequest) 
 	return resp, nil
 }
 
-func (s *Service) captureLiveRun(ctx context.Context, id runtimeids.SessionID) (*runtime.LiveRunWaitHandle, string, error) {
+func (s *Service) captureLiveRun(ctx context.Context, id runtimeids.SessionID) (*runtime.LiveRunWaitHandle, *string, error) {
 	var handle *runtime.LiveRunWaitHandle
-	var name string
+	var name *string
 	err := s.withLiveExecutionRuntime(ctx, id, func(callbackCtx context.Context, engine *runtime.Engine) error {
 		var err error
 		handle, err = engine.CaptureActiveRunResult(callbackCtx)
 		if err == nil {
-			name = strings.TrimSpace(engine.SessionName())
+			name = engine.SessionName()
 		}
 		return err
 	})
 	if errors.Is(err, runtime.ErrNoActiveLiveRun) {
-		return nil, "", serverapi.ErrRuntimeNoActiveRun
+		return nil, nil, serverapi.ErrRuntimeNoActiveRun
 	}
 	return handle, name, err
 }
@@ -147,9 +147,6 @@ func (s *Service) LiveWait(ctx context.Context, req *runtimepb.LiveWaitRequest) 
 	}
 	if err != nil {
 		return resp, err
-	}
-	if sessionName == "" {
-		sessionName = sessionID.String()
 	}
 	if result.AssistantMessage.Content == nil {
 		return nil, errors.New("live run final answer content is required")
@@ -383,11 +380,8 @@ func classifyLiveRun(result runtime.LiveRunResult, err error) liveRunTerminal {
 	return terminal
 }
 
-func liveWatchResult(id runtimeids.SessionID, name string, result runtime.LiveRunResult, err error) (*promptpb.LiveWatchSuccess, error) {
+func liveWatchResult(id runtimeids.SessionID, name *string, result runtime.LiveRunResult, err error) (*promptpb.LiveWatchSuccess, error) {
 	terminal := classifyLiveRun(result, err)
-	if name == "" {
-		name = id.String()
-	}
 	if terminal.noFinal {
 		reason := strings.TrimSpace(string(terminal.noFinalReason))
 		if reason == "" {

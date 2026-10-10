@@ -3,7 +3,10 @@ package client
 import (
 	"context"
 
+	"core/shared/apicontract"
+	"core/shared/protoapi"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
@@ -14,6 +17,13 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
+
+func (c *Remote) SubscribeChatSettings(ctx context.Context, request *chatsettingspb.SubscribeRequest) (apicontract.ChatSettingsSubscription, error) {
+	return subscribeSessionBinary(c, ctx,
+		bootstrapMethod(chatsettingspb.File_kent_api_chat_settings_chat_settings_proto, "ChatSettingsService", "Subscribe"),
+		request, &chatsettingspb.SubscribeResult{}, protoapi.ChatSettingsErrorFromProto,
+		func() *chatsettingspb.SettingsSnapshot { return &chatsettingspb.SettingsSnapshot{} })
+}
 
 func subscribeSessionBinary[
 	Request interface {

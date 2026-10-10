@@ -35,6 +35,7 @@ import (
 	"core/shared/toolspec"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 var runtimeControlOpenAICapabilities = llm.ProviderCapabilities{
@@ -3504,11 +3505,12 @@ func TestServiceRemovePendingWorkIsRuntimeOnly(t *testing.T) {
 
 func TestSetSessionNamePublishesChangedAndUnchangedFeedback(t *testing.T) {
 	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{})
+	beforeSequence := store.Meta().LastSequence
 	publisher := &runtimeControlSettingPublisher{}
 	service.WithRuntimeActivityResolver(publisher)
 	request := &runtimepb.SetSessionNameRequest{
 		SessionId: store.Meta().SessionID,
-		Name:      "renamed",
+		Mutation:  &runtimepb.SessionNameMutation{Action: &runtimepb.SessionNameMutation_Set{Set: "renamed"}},
 	}
 	if err := service.SetSessionName(t.Context(), request); err != nil {
 		t.Fatalf("SetSessionName changed: %v", err)
@@ -3524,9 +3526,30 @@ func TestSetSessionNamePublishesChangedAndUnchangedFeedback(t *testing.T) {
 	}
 	for _, feedback := range publisher.feedback {
 		if feedback.Kind != transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME ||
-			feedback.GetSessionName() != "renamed" {
+			feedback.GetSessionName().Name == nil || *feedback.GetSessionName().Name != "renamed" {
 			t.Fatalf("published Session Name feedback = %+v", feedback)
 		}
+	}
+	persisted, err := runtimeControlTestSessionPersistence.Open(store.Dir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Meta().Name == nil || *persisted.Meta().Name != "renamed" {
+		t.Fatal("live Set did not persist its name")
+	}
+	request.Mutation.Action = &runtimepb.SessionNameMutation_Clear{Clear: &emptypb.Empty{}}
+	if err := service.SetSessionName(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	persisted, err = runtimeControlTestSessionPersistence.Open(store.Dir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Meta().Name != nil || store.Meta().LastSequence != beforeSequence {
+		t.Fatal("live Clear must persist absence without adding transcript content")
+	}
+	if len(publisher.feedback) != 3 || publisher.feedback[2].GetSessionName().Name != nil {
+		t.Fatal("Clear feedback did not report absence")
 	}
 }
 

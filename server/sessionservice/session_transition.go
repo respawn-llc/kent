@@ -12,6 +12,7 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
+	"core/shared/textutil"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -97,9 +98,9 @@ func resolveForkRollback(req sessionTransitionResolveRequest) (*sessionlaunchpb.
 		return &sessionlaunchpb.SessionDirective{}, errors.New("rollback fork user message seq must be > 0")
 	}
 	parentMeta := req.Store.Meta()
-	baseName := strings.TrimSpace(parentMeta.Name)
-	if baseName == "" {
-		baseName = parentMeta.SessionID
+	baseName := parentMeta.SessionID
+	if parentMeta.Name != nil {
+		baseName = *parentMeta.Name
 	}
 	eventLog, err := req.Store.MaterializeEventLog()
 	if err != nil {
@@ -109,7 +110,7 @@ func resolveForkRollback(req sessionTransitionResolveRequest) (*sessionlaunchpb.
 	if err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
-	if err := forkedStore.SetName(strings.TrimSpace(baseName + " \u2192 edit u" + strconv.Itoa(forkOrdinal))); err != nil {
+	if err := forkedStore.SetName(textutil.Value(strings.TrimSpace(baseName + " \u2192 edit u" + strconv.Itoa(forkOrdinal)))); err != nil {
 		return &sessionlaunchpb.SessionDirective{}, errors.Join(err, forkedStore.RemoveDurable())
 	}
 	forkID, err := runtimeids.ParseSessionID(forkedStore.Meta().SessionID)

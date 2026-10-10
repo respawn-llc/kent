@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/textutil"
 	"core/shared/worktreecontract"
 )
 
@@ -13,7 +14,7 @@ func TestBoundedOverlayFramesFitTerminal(t *testing.T) {
 
 	status := sizedTestUIModel(newProjectedStaticUIModel(), width, height)
 	status.status.open = true
-	status.status.snapshot = uiStatusSnapshot{SessionName: "session", Workdir: "/workspace"}
+	status.status.snapshot = uiStatusSnapshot{SessionName: textutil.Value("session"), Workdir: "/workspace"}
 	for range 12 {
 		status.status.snapshot.AgentsPaths = append(status.status.snapshot.AgentsPaths, "/workspace/long/path/to/AGENTS.md")
 	}

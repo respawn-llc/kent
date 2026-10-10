@@ -128,7 +128,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("materialize parent event log: %v", err)
 	}
-	child, err := session.CloneSession(parentLog, "", sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+	child, err := session.CloneSession(parentLog, nil, sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("clone source child: %v", err)
 	}
@@ -268,7 +268,7 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 			if err != nil {
 				t.Fatalf("materialize parent event log: %v", err)
 			}
-			child, err := session.CloneSession(parentLog, "", sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+			child, err := session.CloneSession(parentLog, nil, sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 			if err != nil {
 				t.Fatalf("clone child from parent: %v", err)
 			}

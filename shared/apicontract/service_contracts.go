@@ -175,6 +175,12 @@ type SessionLaunchService interface {
 type ChatSettingsService interface {
 	ReadChatSettings(ctx context.Context, req *chatsettingspb.ReadRequest) (*chatsettingspb.ReadSuccess, error)
 	MutateChatSettings(ctx context.Context, req *chatsettingspb.MutationRequest) (*chatsettingspb.MutationSuccess, error)
+	SubscribeChatSettings(ctx context.Context, req *chatsettingspb.SubscribeRequest) (ChatSettingsSubscription, error)
+}
+
+type ChatSettingsSubscription interface {
+	Next(context.Context) (*chatsettingspb.SettingsSnapshot, error)
+	Close() error
 }
 
 type SessionLifecycleService interface {

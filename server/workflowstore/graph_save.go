@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/metadata/sqlitelifecyclegen"
 	"core/server/workflow"
@@ -984,7 +985,7 @@ func upsertWorkflowNode(ctx context.Context, q *sqlitegen.Queries, node NodeReco
 		CompletionMode:         nodeCompletionMode(node),
 		ScriptPath:             nullableString(node.ScriptPath),
 		JoinInputProvidersJson: joinProviders,
-		GroupID:                nullableGraphIdentityArgument(node.GroupID),
+		GroupID:                metadata.NullableString(node.GroupID),
 		SortOrder:              sortOrder,
 	})
 	if err != nil {

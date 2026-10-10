@@ -50,7 +50,6 @@ type Result struct {
 	User               string
 	PromptCommand      *runtimeinput.PromptCommand
 	FreshConversation  bool
-	SessionName        string
 	ThinkingLevel      string
 	FastMode           string
 	SupervisorMode     string
@@ -111,7 +110,7 @@ func NewDefaultRegistry() *Registry {
 		return Result{Handled: true, Action: ActionCompact, Args: strings.TrimSpace(args)}
 	})
 	r.RegisterWithOptions("name", "Set session title and terminal title (usage: /name <title>; empty resets)", RegisterOptions{ActiveRunPolicy: ActiveRunPolicyAllowed, PreservePromptHistoryDraft: true}, func(args string) Result {
-		return Result{Handled: true, Action: ActionSetName, SessionName: strings.TrimSpace(args)}
+		return Result{Handled: true, Action: ActionSetName, Args: strings.TrimSpace(args)}
 	})
 	r.RegisterWithOptions("thinking", "Set or show thinking level (usage: /thinking <low|medium|high|xhigh|max|ultra>; empty shows current)", RegisterOptions{ActiveRunPolicy: ActiveRunPolicyAllowed}, func(args string) Result {
 		return Result{Handled: true, Action: ActionSetThinking, ThinkingLevel: strings.ToLower(strings.TrimSpace(args))}

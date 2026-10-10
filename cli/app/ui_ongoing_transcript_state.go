@@ -282,10 +282,7 @@ func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionI
 	}
 	m.sessionID = nextSessionID
 	m.reconcileMissingPromptRecoveryScope()
-	m.sessionName = ""
-	if identity.SessionName != nil {
-		m.sessionName = strings.TrimSpace(*identity.SessionName)
-	}
+	m.sessionName = identity.SessionName
 	m.conversationFreshness = identity.ConversationFreshness
 	titleCmd := tea.SetWindowTitle(sessionTitle(m.sessionName))
 	if previousTarget != nil && m.sessionExecutionTarget != nil &&

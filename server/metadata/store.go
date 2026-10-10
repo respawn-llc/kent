@@ -59,7 +59,7 @@ type WorktreeRecord struct {
 
 type WorktreeSessionBlocker struct {
 	SessionID   string
-	SessionName string
+	SessionName *string
 	UpdatedAt   time.Time
 }
 
@@ -719,7 +719,7 @@ func (s *Store) ListSessionsTargetingWorktreePage(ctx context.Context, worktreeI
 	}
 	page := WorktreeSessionPage{Sessions: make([]WorktreeSessionBlocker, 0, len(rows))}
 	for _, row := range rows {
-		page.Sessions = append(page.Sessions, WorktreeSessionBlocker{SessionID: row.ID, SessionName: row.Name, UpdatedAt: timeFromStoredTimestamp(row.UpdatedAtUnixMs)})
+		page.Sessions = append(page.Sessions, WorktreeSessionBlocker{SessionID: row.ID, SessionName: OptionalString(row.Name), UpdatedAt: timeFromStoredTimestamp(row.UpdatedAtUnixMs)})
 	}
 	if len(rows) == pageSize {
 		last := page.Sessions[len(page.Sessions)-1]
@@ -2000,9 +2000,7 @@ func (s *Store) ListSessionPage(
 			Category:  rowCategory,
 			UpdatedAt: timeFromStoredTimestamp(row.UpdatedAtUnixMs),
 		}
-		if row.Name != "" {
-			summary.Name = textutil.Value(row.Name)
-		}
+		summary.Name = OptionalString(row.Name)
 		if row.FirstPromptPreview != "" {
 			summary.FirstPromptPreview = textutil.Value(row.FirstPromptPreview)
 		}
@@ -2475,7 +2473,7 @@ func (s *Store) serializeSessionSnapshot(snapshot session.PersistedStoreSnapshot
 	return sqlitegen.UpsertSessionParams{
 		ID:                       snapshot.Meta.SessionID,
 		ArtifactRelpath:          relpath,
-		Name:                     snapshot.Meta.Name,
+		Name:                     NullableString(snapshot.Meta.Name),
 		FirstPromptPreview:       snapshot.Meta.FirstPromptPreview,
 		InputDraft:               snapshot.Meta.InputDraft,
 		ProtectedInputDraft:      protectedInputDraft,
@@ -2557,7 +2555,7 @@ func displayNameForPath(path string) string {
 }
 
 func sessionLaunchVisible(meta session.Meta) bool {
-	if strings.TrimSpace(meta.Name) != "" {
+	if meta.Name != nil {
 		return true
 	}
 	if strings.TrimSpace(meta.FirstPromptPreview) != "" {
@@ -2664,7 +2662,7 @@ func sessionMetaFromRecordRow(row sqlitegen.GetSessionRecordByIDRow) (session.Me
 	return session.Meta{
 		SessionID:                       row.ID,
 		Category:                        category,
-		Name:                            row.Name,
+		Name:                            OptionalString(row.Name),
 		FirstPromptPreview:              row.FirstPromptPreview,
 		InputDraft:                      row.InputDraft,
 		ProtectedInputDraft:             OptionalString(row.ProtectedInputDraft),

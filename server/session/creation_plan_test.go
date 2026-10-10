@@ -41,7 +41,7 @@ func TestCommittedCloneReplaysThroughTheOwningSourceStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := PrepareClone(descriptor, PersistedSessionRecord{SessionDir: parent.Dir(), Meta: &parentMeta}, "child", ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+	plan, err := PrepareClone(descriptor, PersistedSessionRecord{SessionDir: parent.Dir(), Meta: &parentMeta}, new("child"), ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestCommittedClonePreservesSourceContextAndDoesNotReplayTwice(t *testing.T)
 		t.Fatal(err)
 	}
 	parentMeta := parent.Meta()
-	plan, err := PrepareClone(descriptor, PersistedSessionRecord{SessionDir: parent.Dir(), Meta: &parentMeta}, "child", ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+	plan, err := PrepareClone(descriptor, PersistedSessionRecord{SessionDir: parent.Dir(), Meta: &parentMeta}, new("child"), ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,7 @@ func TestCommittedCloneDoesNotHideFailedMetadataPublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := PrepareClone(descriptor, PersistedSessionRecord{SessionDir: parent.Dir(), Meta: &meta}, "clone", ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+	plan, err := PrepareClone(descriptor, PersistedSessionRecord{SessionDir: parent.Dir(), Meta: &meta}, new("clone"), ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatal(err)
 	}

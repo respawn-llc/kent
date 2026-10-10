@@ -25,6 +25,7 @@ import (
 	"core/server/runtimecontrol"
 	"core/server/runtimewire"
 	"core/server/serverstatus"
+	"core/server/sessionlaunch"
 	"core/server/sessionruntime"
 	"core/server/sessionservice"
 	"core/server/sessionview"
@@ -366,6 +367,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		return nil, fmt.Errorf("workflow bundle: service: %w", err)
 	}
 	core := &Core{bundles: composeBundles(bundleCompositionInput{
+		settingsChanges:         sessionlaunch.NewSettingsBroadcaster(),
 		cfg:                     cfg,
 		workspaceConfigResolver: workspaceConfigResolver,
 		authSupport:             authSupport,
@@ -396,6 +398,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		sleepManager:            sleepManager,
 		chatOperationOwner:      chatOperationOwner,
 	})}
+	runtimeControlService.WithSessionSettingsPublisher(chatSettingsService{core: core})
 	sourceSessionLaunch := func(
 		ctx context.Context,
 		sessionID runtimeids.SessionID,

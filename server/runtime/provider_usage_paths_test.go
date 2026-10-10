@@ -163,7 +163,7 @@ func TestProviderUsageHistoryContinuesFromOldSessionAndPreservesForkIdentity(t *
 		}
 		child, err := session.CloneSession(
 			mustMaterializeTestEventLog(t, parent),
-			"forked continuation",
+			new("forked continuation"),
 			sessioncontract.SessionCategoryMain,
 			session.ForkThinking{Desired: sourceEngine.ThinkingLevel(), PreserveNativeUpdates: false},
 		)

@@ -99,7 +99,7 @@ func TestSessionCategoryUnaffectedByUnrelatedMetadataMutations(t *testing.T) {
 		}
 	}
 
-	if err := store.SetName("renamed session"); err != nil {
+	if err := store.SetName(stringPointer("renamed session")); err != nil {
 		t.Fatalf("rename: %v", err)
 	}
 	assertSubagent("rename")
@@ -502,14 +502,14 @@ func TestSetListingMetadataPersistsNameAndFirstPromptPreview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if err := store.SetListingMetadata("  Workflow Session  ", "\n  Rendered workflow prompt\nsecond line"); err != nil {
+	if err := store.SetListingMetadata(stringPointer("  Workflow Session  "), "\n  Rendered workflow prompt\nsecond line"); err != nil {
 		t.Fatalf("SetListingMetadata: %v", err)
 	}
 	meta := storeTestMeta(store)
-	if meta.Name != "Workflow Session" || meta.FirstPromptPreview != "Rendered workflow prompt" {
-		t.Fatalf("metadata = name %q preview %q, want trimmed name and normalized preview", meta.Name, meta.FirstPromptPreview)
+	if meta.Name == nil || *meta.Name != "Workflow Session" || meta.FirstPromptPreview != "Rendered workflow prompt" {
+		t.Fatalf("metadata = name %v preview %q, want trimmed name and normalized preview", meta.Name, meta.FirstPromptPreview)
 	}
-	if !observer.called || observer.snapshot.Meta.Name != "Workflow Session" || observer.snapshot.Meta.FirstPromptPreview != "Rendered workflow prompt" {
+	if !observer.called || observer.snapshot.Meta.Name == nil || *observer.snapshot.Meta.Name != "Workflow Session" || observer.snapshot.Meta.FirstPromptPreview != "Rendered workflow prompt" {
 		t.Fatalf("observer snapshot = %+v, called %v", observer.snapshot.Meta, observer.called)
 	}
 
@@ -519,7 +519,7 @@ func TestSetListingMetadataPersistsNameAndFirstPromptPreview(t *testing.T) {
 	}
 
 	longPreview := strings.Repeat("x", firstPromptPreviewMaxChars+5)
-	if err := store.SetListingMetadata("Updated", longPreview); err != nil {
+	if err := store.SetListingMetadata(stringPointer("Updated"), longPreview); err != nil {
 		t.Fatalf("SetListingMetadata overwrite: %v", err)
 	}
 	wantTruncated := strings.Repeat("x", firstPromptPreviewMaxChars-1) + "…"
@@ -527,10 +527,10 @@ func TestSetListingMetadataPersistsNameAndFirstPromptPreview(t *testing.T) {
 		t.Fatalf("truncated preview = %q, want %q", got, wantTruncated)
 	}
 
-	if err := store.SetListingMetadata("  ", " \n\t "); err != nil {
+	if err := store.SetListingMetadata(nil, " \n\t "); err != nil {
 		t.Fatalf("SetListingMetadata clear: %v", err)
 	}
-	if store.Meta().Name != "" || store.Meta().FirstPromptPreview != "" {
+	if store.Meta().Name != nil || store.Meta().FirstPromptPreview != "" {
 		t.Fatalf("cleared metadata = %+v, want empty name and preview", store.Meta())
 	}
 
@@ -541,7 +541,7 @@ func TestSetListingMetadataPersistsNameAndFirstPromptPreview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	if reopened.Meta().Name != "" || reopened.Meta().FirstPromptPreview != "" {
+	if reopened.Meta().Name != nil || reopened.Meta().FirstPromptPreview != "" {
 		t.Fatalf("reopened metadata = %+v, want empty name and preview", reopened.Meta())
 	}
 }
@@ -800,8 +800,8 @@ func TestForkAtUserMessageCopiesPrefixBeforeSelectedMessage(t *testing.T) {
 	if meta.PreviousSessionID == nil || *meta.PreviousSessionID != parentID {
 		t.Fatalf("expected fork previous session id, got %v", meta.PreviousSessionID)
 	}
-	if meta.Name != "Parent → edit u2" {
-		t.Fatalf("expected fork name, got %q", meta.Name)
+	if meta.Name == nil || *meta.Name != "Parent → edit u2" {
+		t.Fatalf("expected fork name, got %v", meta.Name)
 	}
 	if meta.FirstPromptPreview != "u1" {
 		t.Fatalf("expected fork preview to persist first user message, got %q", meta.FirstPromptPreview)

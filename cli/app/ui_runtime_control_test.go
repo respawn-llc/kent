@@ -33,7 +33,7 @@ type runtimeControlFakeClient struct {
 	mainView              *runtimepb.MainView
 	cachedMainView        *runtimepb.MainView
 	hasCachedMainView     bool
-	setSessionNameArg     string
+	setSessionNameArg     *runtimepb.SessionNameMutation
 	goal                  *runtimepb.GoalView
 	showGoalCalls         int
 	setGoalArg            string
@@ -122,8 +122,8 @@ func (f *runtimeControlFakeClient) SessionView() *runtimepb.SessionView {
 	}
 	return proto.Clone(f.sessionView).(*runtimepb.SessionView)
 }
-func (f *runtimeControlFakeClient) SetSessionName(name string) error {
-	f.setSessionNameArg = name
+func (f *runtimeControlFakeClient) SetSessionName(mutation *runtimepb.SessionNameMutation) error {
+	f.setSessionNameArg = mutation
 	return f.err
 }
 func (f *runtimeControlFakeClient) ReadChatSettings() (*chatsettingspb.Settings, error) {
@@ -686,7 +686,7 @@ func TestRuntimeControlCompletionsAreScopedPerOperation(t *testing.T) {
 	m := newProjectedTestUIModel(client)
 	m.startupCmds = nil
 
-	sessionCmd := m.runtimeControlCommand(runtimeControlSetSessionName, "incident triage", false, "")
+	sessionCmd := m.runtimeControlCommand(runtimeControlSetSessionName, sessionNameCommandMutation("incident triage"))
 	thinkingCmd := m.chatSettingsMutationCommand(&chatsettingspb.MutationOperation{Operation: &chatsettingspb.MutationOperation_Thinking{Thinking: "high"}})
 	sessionMsgs := collectCmdMessages(t, sessionCmd)
 	thinkingMsgs := collectCmdMessages(t, thinkingCmd)
@@ -708,8 +708,8 @@ func TestRuntimeControlCompletionsAreScopedPerOperation(t *testing.T) {
 	updated := next.(*uiModel)
 	next, _ = updated.Update(sessionDone)
 	updated = next.(*uiModel)
-	if updated.thinkingLevel != "high" || updated.sessionName != "incident triage" {
-		t.Fatalf("expected independent completions to apply, session=%q thinking=%q", updated.sessionName, updated.thinkingLevel)
+	if updated.thinkingLevel != "high" || updated.sessionName == nil || *updated.sessionName != "incident triage" {
+		t.Fatalf("expected independent completions to apply, session=%v thinking=%q", updated.sessionName, updated.thinkingLevel)
 	}
 }
 func TestSubmitErrorShowsTransientStatusWithoutPersisting(t *testing.T) {

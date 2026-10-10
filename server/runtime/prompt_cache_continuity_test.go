@@ -544,7 +544,7 @@ func assertPromptCacheChunkPrefix(t *testing.T, previous llm.Request, next llm.R
 
 type promptCacheComparableMainView struct {
 	SessionID                      string                        `json:"session_id"`
-	SessionName                    string                        `json:"session_name,omitempty"`
+	SessionName                    *string                       `json:"session_name,omitempty"`
 	ConversationFreshness          string                        `json:"conversation_freshness"`
 	Revision                       int64                         `json:"revision"`
 	CommittedEntryCount            int                           `json:"committed_entry_count"`
