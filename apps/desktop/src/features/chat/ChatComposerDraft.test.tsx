@@ -5,6 +5,7 @@ import { useChatComposer, target } from "./chatComposerTestFixture";
 import { createChatStorageFixture } from "./chatStorageFixture";
 import { createNameCommand } from "./nameCommand";
 import { deferred } from "@/test-support/chat-runtime";
+import { ChatOperationError, RpcError } from "@/api";
 
 beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
 afterEach(() => vi.unstubAllGlobals());
@@ -43,7 +44,16 @@ it("restores a failed name command after new typing without model delivery", asy
     result.current.edit("new text");
   });
   await act(async () => {
-    response.reject(new Error("Name request failed"));
+    response.reject(
+      new ChatOperationError(
+        new RpcError({
+          code: -32603,
+          method: "kent.api.runtime.settings_service.set_session_name",
+          message: "kent.api.runtime.settings_service.set_session_name failed with code internal_failure.",
+        }),
+        { kind: "internal_failure", operation: null, cause: null },
+      ),
+    );
   });
   await waitFor(() => {
     expect(result.current.text).toBe("new text\n/name Retry me");

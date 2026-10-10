@@ -5,7 +5,6 @@ import * as Atom from "effect/reactivity/Atom";
 import type { TFunction } from "i18next";
 
 import {
-  errorMessage,
   type ChatSettingsTarget,
   type ChatMutationTarget,
   type InitialChatSettings,
@@ -13,6 +12,7 @@ import {
 } from "@/api";
 import { mutationPendingAtom, queryAtom, type AppServices } from "@/app-facade";
 import { showStatusToast } from "@/ui";
+import { chatOperationFailureMessage } from "./chatSettingsPresentation";
 import {
   composerRequestOptions,
   type ComposerDraftViewModel,
@@ -88,7 +88,7 @@ export function createComposerInputViewModel({
         id: "chat-composer-input",
         tone: "danger",
         title: t("chatComposer.submitFailed"),
-        body: errorMessage(error),
+        body: chatOperationFailureMessage(t, error, "input"),
       });
     },
   });
