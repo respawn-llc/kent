@@ -31,7 +31,7 @@ func TestRunErrorMessagePreservesCallerContext(t *testing.T) {
 
 func TestRunCommandEmitsLaunchFailures(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, "")
-	const sessionID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+	sessionID := "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 	for _, tc := range []struct {
 		name string
 		err  error
@@ -39,14 +39,14 @@ func TestRunCommandEmitsLaunchFailures(t *testing.T) {
 	}{
 		{
 			name: "selected attachment",
-			err:  fmt.Errorf("attach session: %w", &sessioncontract.SessionNotFoundError{SessionID: sessionID}),
+			err:  fmt.Errorf("attach session: %w", &sessioncontract.SessionNotFoundError{SessionID: &sessionID}),
 			code: "runtime",
 		},
 		{
 			name: "inherited caller",
 			err: fmt.Errorf("calling session context: %w", errors.Join(
 				&serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialCallerMissing},
-				&sessioncontract.SessionNotFoundError{SessionID: sessionID},
+				&sessioncontract.SessionNotFoundError{SessionID: &sessionID},
 			)),
 			code: "subagent_denied",
 		},

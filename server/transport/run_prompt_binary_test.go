@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/shared/apicontract"
 	remoteclient "core/shared/client"
 	"core/shared/config"
@@ -27,7 +28,7 @@ type rejectedSelectionRunPrompt struct {
 	reason chatsettingspb.MutationRejectionReason
 }
 
-func (s rejectedSelectionRunPrompt) RunPrompt(context.Context, serverapi.RunPromptRequest, serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
+func (s rejectedSelectionRunPrompt) RunPrompt(context.Context, *runpromptpb.Request, serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
 	return nil, &serverapi.RunSelectionRejectedError{Reason: s.reason}
 }
 
@@ -50,10 +51,10 @@ func TestRunPromptBinaryPreservesSelectionRejection(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	_, err = client.RunPrompt(ctx, serverapi.RunPromptRequest{
+	_, err = client.RunPrompt(ctx, requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(runtimeids.NewSessionID()),
 		Prompt: "reject this selection", Overrides: serverapi.RunPromptOverrides{ThinkingLevel: "unsupported"},
-	}, nil)
+	}), nil)
 	var rejected *serverapi.RunSelectionRejectedError
 	if !errors.As(err, &rejected) || rejected.Reason != reason {
 		t.Fatalf("Run rejection did not survive transport: %v", err)
@@ -112,11 +113,11 @@ type rejectedRunPrompt struct {
 	err error
 }
 
-func (s rejectedRunPrompt) RunPrompt(context.Context, serverapi.RunPromptRequest, serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
+func (s rejectedRunPrompt) RunPrompt(context.Context, *runpromptpb.Request, serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
 	return nil, s.err
 }
 
-func (s controlledRunPrompt) RunPrompt(ctx context.Context, _ serverapi.RunPromptRequest, sink serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
+func (s controlledRunPrompt) RunPrompt(ctx context.Context, _ *runpromptpb.Request, sink serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
 	sink.PublishRunPromptProgress(&runpromptpb.ProgressEvent{Payload: &runpromptpb.ProgressEvent_AssistantMessage{
 		AssistantMessage: &runpromptpb.AssistantMessage{Phase: runpromptpb.MessagePhase_MESSAGE_PHASE_COMMENTARY, Content: "partial answer"},
 	}})
@@ -199,10 +200,10 @@ func TestRunPromptBinaryDeliversProgressBeforeFinalAnswer(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		response, err := client.RunPrompt(ctx, serverapi.RunPromptRequest{
+		response, err := client.RunPrompt(ctx, requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 			Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 			Prompt: "continue",
-		}, serverapi.RunPromptProgressFunc(func(event *runpromptpb.ProgressEvent) { progress <- event }))
+		}), serverapi.RunPromptProgressFunc(func(event *runpromptpb.ProgressEvent) { progress <- event }))
 		done <- result{response: response, err: err}
 	}()
 	select {
@@ -338,18 +339,18 @@ func TestRunPromptBinaryPreservesLaunchDenials(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer client.Close()
-			response, err := client.RunPrompt(ctx, serverapi.RunPromptRequest{
+			response, err := client.RunPrompt(ctx, requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 				Intent:          serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 				CallerSessionID: tc.caller,
 				Prompt:          "must not dispatch",
-			}, nil)
+			}), nil)
 			var denied *serverapi.SubagentLaunchDeniedError
 			if response != nil || !errors.As(err, &denied) || !reflect.DeepEqual(*denied, tc.denied) {
 				t.Fatalf("remote denial = %+v (%v), want %+v", denied, err, tc.denied)
 			}
 			if tc.caller != nil {
 				var missing *sessioncontract.SessionNotFoundError
-				if !errors.Is(err, sessioncontract.ErrSessionNotFound) || !errors.As(err, &missing) || missing.SessionID != *tc.caller {
+				if !errors.Is(err, sessioncontract.ErrSessionNotFound) || !errors.As(err, &missing) || missing.SessionID == nil || *missing.SessionID != *tc.caller {
 					t.Fatalf("missing caller lost typed session metadata: %v", err)
 				}
 			}

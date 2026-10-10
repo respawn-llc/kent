@@ -53,6 +53,13 @@ func (e routePolicyExecutor) authorizeScopeFacts(
 	method string,
 	scopeParams routeScopeParams,
 ) error {
+	if scopeParams.sessionSelector != nil {
+		id, err := e.gateway.deps.MetadataStore().ResolveSessionTarget(ctx, scopeParams.sessionSelector)
+		if err != nil {
+			return err
+		}
+		scopeParams.sessionID = id.String()
+	}
 	switch scope {
 	case sharedpb.ScopePolicy_SCOPE_POLICY_NONE, sharedpb.ScopePolicy_SCOPE_POLICY_PROJECT_VIEW, sharedpb.ScopePolicy_SCOPE_POLICY_ATTACH_PROJECT, sharedpb.ScopePolicy_SCOPE_POLICY_NOTIFICATION:
 		return nil
@@ -118,6 +125,7 @@ func (e routePolicyExecutor) authorizeScopeFacts(
 
 type routeScopeParams struct {
 	sessionID                 string
+	sessionSelector           *sharedpb.SessionSelector
 	sessionReattachCapability *string
 	processID                 string
 	projectID                 string

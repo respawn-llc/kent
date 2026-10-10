@@ -106,7 +106,7 @@ func sessionRemovalFailureDetails(request proto.Message, err error) proto.Messag
 		if sessionID == nil {
 			return binaryInternalFailure(err)
 		}
-		return &sessionlaunchpb.SessionNotFoundDetails{SessionId: *sessionID}
+		return &sessionlaunchpb.SessionNotFoundDetails{SessionId: sessionID}
 	}
 	var runtimeInUse *sessionruntime.SessionInUseError
 	var metadataInUse *metadata.SessionInUseError

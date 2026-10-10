@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	modelstub "core/internal/testharness/pty/blackbox"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/launch"
@@ -134,7 +135,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 			CallerSessions:    meta,
 			SessionProjects:   fixedSessionProjectResolver{}, ManagedWorktreeRoots: fixedSessionProjectResolver{},
 			ExecutionTargets: meta,
-		}, sessionlaunch.ChatSettingsOwner{}),
+		}, sessionlaunch.ChatSettingsOwner{}, meta),
 		RuntimeAuthority: authority,
 		PromptHistory:    history,
 	})
@@ -151,11 +152,11 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	} else {
 		intent = serverapi.OpenExistingSessionLaunchIntent(mustRunPromptSessionID(t, targetID))
 	}
-	response, err := client.RunPrompt(ctx, serverapi.RunPromptRequest{
+	response, err := client.RunPrompt(ctx, requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent:          intent,
 		CallerSessionID: callerID,
 		Prompt:          prompt,
-	}, nil)
+	}), nil)
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}

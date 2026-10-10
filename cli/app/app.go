@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"core/cli/app/internal/runner"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
 )
 
@@ -33,7 +34,7 @@ func Run(ctx context.Context, opts Options) error {
 		StartSessionServer: func(ctx context.Context) (io.Closer, error) {
 			return startSessionServer(ctx, opts, interactor, true)
 		},
-		RunSessionLifecycle: func(ctx context.Context, server io.Closer, intent *serverapi.SessionLaunchIntent, overrides serverapi.RunPromptOverrides) error {
+		RunSessionLifecycle: func(ctx context.Context, server io.Closer, intent *sessionlaunchpb.SessionLaunchRequestIntent, overrides serverapi.RunPromptOverrides) error {
 			interactive, ok := server.(interactiveSessionServer)
 			if !ok {
 				return errors.New("interactive session server is required")

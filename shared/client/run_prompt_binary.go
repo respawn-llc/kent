@@ -13,9 +13,8 @@ import (
 	"core/shared/sessioncontract"
 )
 
-func (c *Remote) RunPrompt(ctx context.Context, request serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
-	generated, err := protoapi.RunPromptRequestToProto(request)
-	if err != nil {
+func (c *Remote) RunPrompt(ctx context.Context, request *runpromptpb.Request, progress serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
+	if err := protoapi.Validate(request); err != nil {
 		return nil, err
 	}
 	method := bootstrapMethod(runpromptpb.File_kent_api_run_prompt_run_prompt_proto, "RunService", "Prompt")
@@ -25,7 +24,7 @@ func (c *Remote) RunPrompt(ctx context.Context, request serverapi.RunPromptReque
 	}
 	result := &runpromptpb.Result{}
 	const correlation = "run-prompt"
-	frame, operation, err := binaryCallFrame(correlation, method, generated, result)
+	frame, operation, err := binaryCallFrame(correlation, method, request, result)
 	if err != nil {
 		return nil, err
 	}

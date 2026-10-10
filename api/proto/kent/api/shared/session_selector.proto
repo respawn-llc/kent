@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package kent.api.shared;
+
+import "buf/validate/validate.proto";
+import "kent/api/shared/validation.proto";
+
+option go_package = "core/shared/protoapi/gen/kent/api/shared;sharedpb";
+
+message SessionSelector {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    string session_id = 1 [
+      (buf.validate.field).string.uuid = true,
+      (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+    ];
+    int64 short_id = 2 [(buf.validate.field).int64 = {
+      gt: 0
+      lte: 9007199254740991
+    }];
+  }
+}

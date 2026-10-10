@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
 	"core/server/metadata"
@@ -1152,7 +1153,7 @@ func TestDeleteWorktreeRetiresIdleRuntimeAndRetargetsSessionBeforePhysicalRemova
 	settings.Reviewer.Frequency = "off"
 	ownerID := "delete-idle-runtime-retargeted"
 	activated, err := api.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID:             otherSession.Meta().SessionID,
+		SessionID:             requestfixture.SessionID(t, otherSession.Meta().SessionID),
 		OwnerID:               ownerID,
 		ActiveSettings:        settings,
 		EnabledToolIDs:        []string{string(toolspec.ToolEdit), string(toolspec.ToolExecCommand)},

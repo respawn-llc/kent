@@ -137,7 +137,7 @@ func (r *TargetResolver) Resolve(
 	if service == nil {
 		return ResolvedTarget{}, errors.New("Session launch service is required")
 	}
-	intent, err := protoapi.SessionLaunchIntentToProto(
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(
 		serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	)
 	if err != nil {

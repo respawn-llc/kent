@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"core/internal/testharness/requestfixture"
 	"core/server/session"
 	serverstartup "core/server/startup"
 	"core/shared/apicontract"
@@ -218,7 +219,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 		t.Fatalf("workspace-change prompts after remote /back = %d, want 0", promptCalls)
 	}
 	planner := newSessionLaunchPlanner(targetServer)
-	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeInteractive, Intent: intent})
+	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, intent)})
 	if err != nil {
 		t.Fatalf("plan target parent: %v", err)
 	}
@@ -380,7 +381,7 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 			planner := newSessionLaunchPlanner(server)
 			parentPlan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{
 				Mode:   launchModeInteractive,
-				Intent: serverapi.OpenExistingSessionLaunchIntent(sessionLifecycleSessionIDForTest(t, parent.Meta().SessionID)),
+				Intent: requestfixture.LaunchIntent(t, serverapi.OpenExistingSessionLaunchIntent(sessionLifecycleSessionIDForTest(t, parent.Meta().SessionID))),
 			})
 			if err != nil {
 				t.Fatalf("plan parent session: %v", err)

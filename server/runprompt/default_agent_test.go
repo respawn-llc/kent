@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	modelstub "core/internal/testharness/pty/blackbox"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/session"
@@ -48,11 +49,11 @@ func TestHeadlessDefaultSelectionSurvivesRuntimeActivation(t *testing.T) {
 			SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 			RuntimeAuthority: newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...),
 		})
-		_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+		_, err = client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 			Intent:    serverapi.OpenExistingSessionLaunchIntent(mustRunPromptSessionID(t, store.Meta().SessionID)),
 			Prompt:    "finish",
 			Overrides: serverapi.RunPromptOverrides{AgentRole: textutil.Value(config.DefaultSubagentRole)},
-		}, nil)
+		}), nil)
 		if err != nil {
 			t.Fatal(err)
 		}

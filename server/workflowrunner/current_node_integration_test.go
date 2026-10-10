@@ -18,6 +18,7 @@ import (
 	"time"
 
 	modelstub "core/internal/testharness/pty/blackbox"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
 	"core/prompts"
@@ -1001,14 +1002,14 @@ func (f *currentNodeRunnerFixture) runHeadlessOrdinaryContinuation(
 			PersistedSessions: f.metadata,
 			ExecutionTargets:  f.metadata,
 			SessionProjects:   f.metadata, ManagedWorktreeRoots: f.metadata,
-		}, sessionlaunch.ChatSettingsOwner{}),
+		}, sessionlaunch.ChatSettingsOwner{}, nil),
 		PromptHistory:    f.metadata,
 		RuntimeAuthority: f.authority,
 	})
-	response, err := headless.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+	response, err := headless.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(sessionID),
 		Prompt: prompt,
-	}, nil)
+	}), nil)
 	if err != nil {
 		t.Fatalf("headless ordinary continuation: %v", err)
 	}

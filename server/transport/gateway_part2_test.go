@@ -25,6 +25,7 @@ import (
 	"core/server/tools/shell/postprocess"
 	remoteclient "core/shared/client"
 	"core/shared/config"
+	"core/shared/protoapi"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	processpb "core/shared/protoapi/gen/kent/api/process"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -32,6 +33,7 @@ import (
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/worktreecontract"
@@ -324,11 +326,14 @@ func TestGatewaySessionReattachCapabilitySurvivesGatewayReplacement(t *testing.T
 	if err != nil {
 		t.Fatalf("NewGateway first: %v", err)
 	}
+	if movedSession.Identity().ShortID == nil {
+		t.Fatal("fresh Session has no assigned number")
+	}
 	firstAttachment, err := invokeBinaryAttachSession(
 		firstGateway,
 		t.Context(),
 		&connectionState{attachedProject: sourceBinding.ProjectID},
-		&connectionpb.AttachSessionRequest{SessionId: movedSession.Meta().SessionID},
+		&connectionpb.AttachSessionRequest{SessionId: protoapi.SessionSelectorToProto(*movedSession.Identity().ShortID)},
 	)
 	if err != nil {
 		t.Fatalf("attach Session before move: %v", err)
@@ -354,7 +359,7 @@ func TestGatewaySessionReattachCapabilitySurvivesGatewayReplacement(t *testing.T
 		t.Context(),
 		&connectionState{attachedProject: sourceBinding.ProjectID},
 		&connectionpb.AttachSessionRequest{
-			SessionId:          movedSession.Meta().SessionID,
+			SessionId:          protoapi.SessionSelectorToProto(movedSession.Identity().ID),
 			ReattachCapability: &capability,
 		},
 	)
@@ -406,6 +411,27 @@ func TestGatewayRequiresExplicitWorkspaceSelectionForMultiWorkspaceProject(t *te
 	target := gatewaySessionExecutionTarget(t, conn, "main-view-after-explicit-workspace", planResp.Plan.SessionId)
 	if got, want := target.EffectiveWorkdir, bindingB.CanonicalRoot; got != want {
 		t.Fatalf("planned execution workdir = %q, want %q", got, want)
+	}
+}
+
+func TestGatewayAttachMissingNumericSessionOmitsUnknownUUID(t *testing.T) {
+	fixture := newRoutePolicyFixture(t)
+	shortID, err := runtimeids.NewSessionShortID(runtimeids.MaxSessionShortID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := &connectionpb.AttachSessionRequest{SessionId: protoapi.SessionSelectorToProto(shortID)}
+	state := &connectionState{attachedProject: fixture.bindingA.ProjectID}
+	_, err = invokeBinaryAttachSession(fixture.gateway, t.Context(), state, request)
+	if !errors.Is(err, sessioncontract.ErrSessionNotFound) {
+		t.Fatalf("missing numeric attachment = %v", err)
+	}
+	failure, ok := binaryAttachSessionFailure(fixture.gateway, state, request, err).(*connectionpb.AttachSessionError)
+	if !ok || failure.GetSessionNotFound() == nil || failure.GetSessionNotFound().SessionId != nil {
+		t.Fatalf("missing numeric failure invented an identity: %v", failure)
+	}
+	if err := protoapi.Validate(failure); err != nil {
+		t.Fatal(err)
 	}
 }
 

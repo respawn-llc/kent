@@ -8,8 +8,18 @@ import (
 
 	"core/server/metadata/sqlitegen"
 	"core/server/session"
+	"core/shared/protoapi"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 )
+
+func (s *Store) ResolveSessionTarget(ctx context.Context, target *sharedpb.SessionSelector) (runtimeids.SessionID, error) {
+	selector, err := protoapi.SessionSelectorFromProto(target)
+	if err != nil {
+		return runtimeids.SessionID{}, err
+	}
+	return s.ResolveSessionSelector(ctx, selector)
+}
 
 // Both creation paths already hold the metadata write lock in their transaction.
 func persistSessionWithShortID(ctx context.Context, q *sqlitegen.Queries, params sqlitegen.UpsertSessionParams) error {

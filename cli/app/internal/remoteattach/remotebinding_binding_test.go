@@ -278,7 +278,7 @@ func serveRemoteBindingBinary(
 							ProjectId:          options.projectID,
 							WorkspaceId:        options.workspaceID,
 							WorkspaceRoot:      options.workspaceRoot,
-							SessionId:          request.SessionId,
+							SessionId:          request.SessionId.GetSessionId(),
 							ReattachCapability: "reattach-capability",
 						},
 					},

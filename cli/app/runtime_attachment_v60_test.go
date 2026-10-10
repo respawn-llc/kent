@@ -38,7 +38,7 @@ func (c *recordingSessionRuntimeClient) ActivateSessionRuntime(ctx context.Conte
 	if c.activate != nil {
 		return c.activate(ctx, req)
 	}
-	return sessionRuntimeActivateResponse(req.SessionID, 1), nil
+	return sessionRuntimeActivateResponse(req.SessionID.String(), 1), nil
 }
 
 func (c *recordingSessionRuntimeClient) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
@@ -62,7 +62,7 @@ func TestRuntimeAttachmentRequiresTranscriptServiceAndReleasesRuntime(t *testing
 	server := runtimeAttachmentTestServer{
 		runtime: &recordingSessionRuntimeClient{
 			activate: func(_ context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error) {
-				return sessionRuntimeActivateResponse(req.SessionID, 1), nil
+				return sessionRuntimeActivateResponse(req.SessionID.String(), 1), nil
 			},
 			release: func(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
 				releaseCount++
@@ -96,7 +96,7 @@ func TestRuntimeAttachmentUsesTranscriptBellHook(t *testing.T) {
 	server := runtimeAttachmentTestServer{
 		runtime: &recordingSessionRuntimeClient{
 			activate: func(_ context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error) {
-				return sessionRuntimeActivateResponse(req.SessionID, 1), nil
+				return sessionRuntimeActivateResponse(req.SessionID.String(), 1), nil
 			},
 			release: func(context.Context, serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
 				releaseCount++
@@ -169,10 +169,10 @@ func TestRuntimeAttachmentReactivationUsesActivation(t *testing.T) {
 		runtime: &recordingSessionRuntimeClient{
 			activate: func(_ context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error) {
 				activateCalls++
-				if req.SessionID != "session-recover" || req.ActiveSettings.Model != "gpt-test" {
+				if req.SessionID.String() != "session-recover" || req.ActiveSettings.Model != "gpt-test" {
 					t.Fatalf("unexpected activation request: %+v", req)
 				}
-				return sessionRuntimeActivateResponse(req.SessionID, uint64(activateCalls)), nil
+				return sessionRuntimeActivateResponse(req.SessionID.String(), uint64(activateCalls)), nil
 			},
 			release: func(_ context.Context, req serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
 				released = req.Attachment

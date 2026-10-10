@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
@@ -426,7 +427,7 @@ func attachGatewaySession(
 		conn,
 		correlation,
 		method,
-		&connectionpb.AttachSessionRequest{SessionId: sessionID},
+		&connectionpb.AttachSessionRequest{SessionId: protoapi.SessionSelectorToProto(requestfixture.SessionID(t, sessionID))},
 		result,
 	)
 	return result

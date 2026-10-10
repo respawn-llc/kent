@@ -144,7 +144,7 @@ func TestSessionRemovalCommandPreflightsBeforeDial(t *testing.T) {
 func TestSessionRemovalFailureClassification(t *testing.T) {
 	sessionID := "session-failure"
 	outputPath := "/tmp/session-failure.tar.zst"
-	notFound := &sessionlaunchpb.SessionArchiveError_SessionNotFound{SessionNotFound: &sessionlaunchpb.SessionNotFoundDetails{SessionId: sessionID}}
+	notFound := &sessionlaunchpb.SessionArchiveError_SessionNotFound{SessionNotFound: &sessionlaunchpb.SessionNotFoundDetails{SessionId: &sessionID}}
 	inUse := &sessionlaunchpb.SessionDeleteError_SessionInUse{SessionInUse: &sessionlaunchpb.SessionInUseDetails{SessionId: sessionID}}
 	invalidPath := &sessionlaunchpb.SessionArchiveError_InvalidOutputPath{InvalidOutputPath: &sessionlaunchpb.InvalidArchiveOutputPathDetails{Path: outputPath, Reason: sessionlaunchpb.InvalidArchiveOutputPathReason_INVALID_ARCHIVE_OUTPUT_PATH_REASON_NOT_ABSOLUTE}}
 	outputExists := &sessionlaunchpb.SessionArchiveError_OutputExists{OutputExists: &sessionlaunchpb.ArchiveOutputExistsDetails{Path: outputPath}}

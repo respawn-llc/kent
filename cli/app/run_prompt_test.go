@@ -36,7 +36,7 @@ type staticRunPromptService struct {
 
 func (s staticRunPromptService) RunPrompt(
 	context.Context,
-	serverapi.RunPromptRequest,
+	*runpromptpb.Request,
 	serverapi.RunPromptProgressSink,
 ) (*runpromptpb.Success, error) {
 	return s.response, nil
@@ -171,7 +171,7 @@ func TestRunPromptRejectsStaleWorkspaceContextSession(t *testing.T) {
 			_, err := RunPrompt(context.Background(), tc.options, "must not dispatch", 0, nil)
 			var missing *sessioncontract.SessionNotFoundError
 			if !errors.Is(err, sessioncontract.ErrSessionNotFound) ||
-				!errors.As(err, &missing) || missing.SessionID != missingID {
+				!errors.As(err, &missing) || missing.SessionID == nil || *missing.SessionID != missingID {
 				t.Fatalf("error = %v, want typed missing session %s", err, missingID)
 			}
 			if errors.Is(err, startupconfig.ErrWorkspaceContextSessionMissing) != tc.inherited {

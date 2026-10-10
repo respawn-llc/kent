@@ -50,7 +50,7 @@ type interactiveSessionServer interface {
 }
 
 type sessionLifecycleOptions struct {
-	Intent              *serverapi.SessionLaunchIntent
+	Intent              *sessionlaunchpb.SessionLaunchRequestIntent
 	Overrides           serverapi.RunPromptOverrides
 	InvocationOverrides serverapi.RunPromptOverrides
 }
@@ -74,68 +74,71 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 	next := &sessionlaunchpb.SessionDirective{Directive: &sessionlaunchpb.SessionDirective_SelectSession{
 		SelectSession: &sessionlaunchpb.SessionSelectDirective{Auth: sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_KEEP_CURRENT_AUTH},
 	}}
-	if opts.Intent != nil {
-		next, err = defaultSessionLaunchDirective(*opts.Intent)
-		if err != nil {
-			return err
-		}
-	}
 	nextSessionOverrides := opts.Overrides
 	var pickerNotice *startupPickerNotice
 	for {
-		switch next.Directive.(type) {
-		case *sessionlaunchpb.SessionDirective_Stop:
-			return nil
-		case *sessionlaunchpb.SessionDirective_SelectSession:
-			picked, err := planner.selectSession(ctx, pickerNotice)
+		intent := opts.Intent
+		preparation := defaultSessionLaunchPreparation()
+		opts.Intent = nil
+		if intent == nil {
+			switch next.Directive.(type) {
+			case *sessionlaunchpb.SessionDirective_Stop:
+				return nil
+			case *sessionlaunchpb.SessionDirective_SelectSession:
+				picked, err := planner.selectSession(ctx, pickerNotice)
+				if err != nil {
+					return err
+				}
+				pickerNotice = nil
+				switch picked := picked.(type) {
+				case sessionPickerCancelResult:
+					next = &sessionlaunchpb.SessionDirective{Directive: &sessionlaunchpb.SessionDirective_Stop{Stop: &emptypb.Empty{}}}
+				case sessionPickerCreateResult:
+					next, err = defaultSessionLaunchDirective(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
+					if err != nil {
+						return err
+					}
+				case sessionPickerOpenResult:
+					sessionID := picked.sessionID
+					executionTarget, err := loadSelectedSessionExecutionTarget(ctx, server.SessionViewClient(), sessionID.String())
+					if err != nil {
+						pickerNotice = &startupPickerNotice{
+							Text:       "Could not inspect the selected session. Try again.",
+							Kind:       startupPickerNoticeError,
+							Diagnostic: err,
+						}
+						continue
+					}
+					workspaceChangeAction, err := maybeHandlePickedSessionWorkspaceChange(ctx, server, sessionID.String(), executionTarget)
+					if err != nil {
+						return err
+					}
+					if workspaceChangeAction == sessionWorkspaceChangePickAgain {
+						continue
+					}
+					next, err = defaultSessionLaunchDirective(serverapi.OpenExistingSessionLaunchIntent(sessionID))
+					if err != nil {
+						return err
+					}
+				default:
+					return errors.New("session picker returned an invalid result")
+				}
+				continue
+			case *sessionlaunchpb.SessionDirective_Launch:
+			default:
+				return errors.New("session lifecycle returned no result")
+			}
+
+			canonicalIntent, err := protoapi.SessionLaunchIntentFromProto(next.GetLaunch().Intent)
 			if err != nil {
 				return err
 			}
-			pickerNotice = nil
-			switch picked := picked.(type) {
-			case sessionPickerCancelResult:
-				next = &sessionlaunchpb.SessionDirective{Directive: &sessionlaunchpb.SessionDirective_Stop{Stop: &emptypb.Empty{}}}
-			case sessionPickerCreateResult:
-				next, err = defaultSessionLaunchDirective(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
-				if err != nil {
-					return err
-				}
-			case sessionPickerOpenResult:
-				sessionID := picked.sessionID
-				executionTarget, err := loadSelectedSessionExecutionTarget(ctx, server.SessionViewClient(), sessionID.String())
-				if err != nil {
-					pickerNotice = &startupPickerNotice{
-						Text:       "Could not inspect the selected session. Try again.",
-						Kind:       startupPickerNoticeError,
-						Diagnostic: err,
-					}
-					continue
-				}
-				workspaceChangeAction, err := maybeHandlePickedSessionWorkspaceChange(ctx, server, sessionID.String(), executionTarget)
-				if err != nil {
-					return err
-				}
-				if workspaceChangeAction == sessionWorkspaceChangePickAgain {
-					continue
-				}
-				next, err = defaultSessionLaunchDirective(serverapi.OpenExistingSessionLaunchIntent(sessionID))
-				if err != nil {
-					return err
-				}
-			default:
-				return errors.New("session picker returned an invalid result")
+			intent, err = protoapi.SessionLaunchRequestIntentToProto(canonicalIntent)
+			if err != nil {
+				return err
 			}
-			continue
-		case *sessionlaunchpb.SessionDirective_Launch:
-		default:
-			return errors.New("session lifecycle returned no result")
+			preparation = next.GetLaunch().Preparation
 		}
-
-		intent, err := protoapi.SessionLaunchIntentFromProto(next.GetLaunch().Intent)
-		if err != nil {
-			return err
-		}
-		preparation := next.GetLaunch().Preparation
 		if preparation == nil {
 			return errors.New("launch directive is missing preparation")
 		}
@@ -168,10 +171,10 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 			return err
 		}
 		plan.ClientLifecycleCommand = clientSettings.Hooks.LifecycleCommand()
-		switch intent.Kind() {
-		case serverapi.SessionLaunchIntentCreateNew:
+		switch intent.Intent.(type) {
+		case *sessionlaunchpb.SessionLaunchRequestIntent_CreateNew:
 			plan.ClientLifecycleOpeningKind = lifecyclecontract.OpeningKindNew
-		case serverapi.SessionLaunchIntentOpenExisting:
+		case *sessionlaunchpb.SessionLaunchRequestIntent_OpenExistingSessionId:
 			plan.ClientLifecycleOpeningKind = lifecyclecontract.OpeningKindResumed
 		}
 		nextSessionOverrides = serverapi.RunPromptOverrides{}
@@ -250,10 +253,14 @@ func reopenRetargetedSession(
 }
 
 func defaultSessionLaunchDirective(intent serverapi.SessionLaunchIntent) (*sessionlaunchpb.SessionDirective, error) {
-	return protoapi.SessionLaunchDirectiveToProto(intent, &sessionlaunchpb.SessionLaunchPreparation{
+	return protoapi.SessionLaunchDirectiveToProto(intent, defaultSessionLaunchPreparation())
+}
+
+func defaultSessionLaunchPreparation() *sessionlaunchpb.SessionLaunchPreparation {
+	return &sessionlaunchpb.SessionLaunchPreparation{
 		Auth:        sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_KEEP_CURRENT_AUTH,
 		InputPolicy: &sessionlaunchpb.SessionDraftDisposition{Disposition: &sessionlaunchpb.SessionDraftDisposition_RestoreStoredDraft{RestoreStoredDraft: &emptypb.Empty{}}},
-	})
+	}
 }
 
 func bindNavigationSessionContext(ctx context.Context, server interactiveSessionServer, preparation *sessionlaunchpb.SessionLaunchPreparation) (interactiveSessionServer, bool, error) {
@@ -428,19 +435,14 @@ func persistSessionDraftToServer(ctx context.Context, server sessionLifecycleCli
 	return err
 }
 
-func sessionLaunchRequestFromIntent(intent serverapi.SessionLaunchIntent, overrides serverapi.RunPromptOverrides) (sessionLaunchRequest, error) {
-	if err := intent.Validate(); err != nil {
+func sessionLaunchRequestFromIntent(intent *sessionlaunchpb.SessionLaunchRequestIntent, overrides serverapi.RunPromptOverrides) (sessionLaunchRequest, error) {
+	if err := protoapi.Validate(intent); err != nil {
 		return sessionLaunchRequest{}, err
 	}
 	request := sessionLaunchRequest{
 		Mode:      launchModeInteractive,
 		Intent:    intent,
 		Overrides: overrides,
-	}
-	switch intent.Kind() {
-	case serverapi.SessionLaunchIntentCreateNew, serverapi.SessionLaunchIntentOpenExisting:
-	default:
-		return sessionLaunchRequest{}, errors.New("session launch intent kind is invalid")
 	}
 	return request, nil
 }

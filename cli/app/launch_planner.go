@@ -36,7 +36,7 @@ const (
 
 type sessionLaunchRequest struct {
 	Mode      launchMode
-	Intent    serverapi.SessionLaunchIntent
+	Intent    *sessionlaunchpb.SessionLaunchRequestIntent
 	Overrides serverapi.RunPromptOverrides
 }
 
@@ -186,7 +186,7 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	if p == nil || p.server == nil || p.server.SessionLaunchClient() == nil {
 		return sessionLaunchPlan{}, errors.New("launch planner bootstrap is required")
 	}
-	if err := req.Intent.Validate(); err != nil {
+	if err := protoapi.Validate(req.Intent); err != nil {
 		return sessionLaunchPlan{}, err
 	}
 	var mode sessionlaunchpb.SessionLaunchMode
@@ -198,13 +198,10 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	default:
 		return sessionLaunchPlan{}, errors.New("Session launch mode is invalid")
 	}
-	intent, err := protoapi.SessionLaunchIntentToProto(req.Intent)
-	if err != nil {
-		return sessionLaunchPlan{}, err
-	}
 	overrides := req.Overrides
-	generatedRequest := &sessionlaunchpb.SessionPlanRequest{Mode: mode, Intent: intent}
+	generatedRequest := &sessionlaunchpb.SessionPlanRequest{Mode: mode, Intent: req.Intent}
 	if overrides.HasAny() {
+		var err error
 		generatedRequest.Overrides, err = protoapi.RunPromptOverridesToProto(overrides)
 		if err != nil {
 			return sessionLaunchPlan{}, err

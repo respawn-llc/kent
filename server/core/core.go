@@ -41,7 +41,7 @@ func (unregisteredSessionLaunchClient) PlanSession(context.Context, *sessionlaun
 
 type unregisteredRunPromptClient struct{}
 
-func (unregisteredRunPromptClient) RunPrompt(context.Context, serverapi.RunPromptRequest, serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
+func (unregisteredRunPromptClient) RunPrompt(context.Context, *runpromptpb.Request, serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
 	return nil, serverapi.ErrWorkspaceNotRegistered
 }
 
@@ -307,7 +307,7 @@ func (s *Core) newSessionLaunchService(projectCtx projectContext) *sessionlaunch
 		Authority: s.safeBundles().Runtime.runtimeAuthority,
 		Registry:  s.safeBundles().Runtime.runtimeRegistry,
 		Changes:   s.safeBundles().Sessions.settingsChanges,
-	})
+	}, s.safeBundles().Persistence.metadataStore)
 }
 
 func (s *Core) runPromptClientForProjectContext(projectCtx projectContext) apicontract.RunPromptService {

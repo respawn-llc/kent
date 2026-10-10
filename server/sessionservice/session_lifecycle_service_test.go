@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/launch"
@@ -878,7 +879,7 @@ func TestServiceResolveTransitionForkRollbackActivatesChildInPreservedWorktree(t
 	activateSettings = testsetup.WithResponsesProvider(activateSettings, "http://127.0.0.1:1/v1")
 	activateSettings.Shell.PostprocessingMode = config.ShellPostprocessingModeBuiltin
 	activation, err := runtimeService.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID:             forkID.String(),
+		SessionID:             requestfixture.SessionID(t, forkID.String()),
 		OwnerID:               "test-owner",
 		ActiveSettings:        activateSettings,
 		QuestionsEnabled:      textutil.Value(true),

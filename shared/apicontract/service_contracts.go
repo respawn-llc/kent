@@ -125,7 +125,7 @@ type PromptControlService interface {
 }
 
 type RunPromptService interface {
-	RunPrompt(ctx context.Context, req serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (*runpromptpb.Success, error)
+	RunPrompt(ctx context.Context, req *runpromptpb.Request, progress serverapi.RunPromptProgressSink) (*runpromptpb.Success, error)
 }
 
 type ServerStatusService interface {

@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"net/http"
 	"net/http/httptest"
@@ -159,7 +160,7 @@ func runSecondClientLiveControlsActiveRun(
 	if err != nil {
 		t.Fatalf("SessionLaunchClientForProjectWorkspace: %v", err)
 	}
-	intent, err := protoapi.SessionLaunchIntentToProto(
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(
 		serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	)
 	if err != nil {
@@ -188,10 +189,10 @@ func runSecondClientLiveControlsActiveRun(
 	runDone := make(chan error, 1)
 	runResult := make(chan *runpromptpb.Success, 1)
 	go func() {
-		resp, runErr := runClient.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+		resp, runErr := runClient.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 			Intent: serverapi.OpenExistingSessionLaunchIntent(typedSessionID),
 			Prompt: "drive the run",
-		}, nil)
+		}), nil)
 		runResult <- resp
 		runDone <- runErr
 	}()

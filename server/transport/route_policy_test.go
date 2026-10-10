@@ -234,6 +234,14 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	fixture := newRoutePolicyFixture(t)
 	executor := newRoutePolicyExecutor(fixture.gateway)
 	ctx := context.Background()
+	own, err := fixture.appCore.MetadataStore().ResolvePersistedSession(ctx, fixture.ownSessionID)
+	if err != nil || own.ShortID == nil {
+		t.Fatalf("own Session projection = %+v, %v", own, err)
+	}
+	foreign, err := fixture.appCore.MetadataStore().ResolvePersistedSession(ctx, fixture.foreignSessionID)
+	if err != nil || foreign.ShortID == nil {
+		t.Fatalf("foreign Session projection = %+v, %v", foreign, err)
+	}
 
 	for _, method := range []protoreflect.MethodDescriptor{
 		sessionpb.File_kent_api_session_session_proto.Services().ByName("ReadService").Methods().ByName("GetMainView"),
@@ -249,6 +257,12 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 		}
 		if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, operation.Options.ScopePolicy, operation.Name, routeScopeParams{sessionID: fixture.foreignSessionID}); err == nil {
 			t.Fatalf("active project foreign Session %s unexpectedly allowed", operation.Name)
+		}
+		if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, operation.Options.ScopePolicy, operation.Name, routeScopeParams{sessionSelector: protoapi.SessionSelectorToProto(*own.ShortID)}); err != nil {
+			t.Fatalf("own numeric Session %s: %v", operation.Name, err)
+		}
+		if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, operation.Options.ScopePolicy, operation.Name, routeScopeParams{sessionSelector: protoapi.SessionSelectorToProto(*foreign.ShortID)}); err == nil {
+			t.Fatalf("foreign numeric Session %s unexpectedly allowed", operation.Name)
 		}
 	}
 	draftOperation, err := protoapi.OperationFromDescriptor(sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionLifecycleService").Methods().ByName("PersistInputDraft"))

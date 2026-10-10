@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"core/shared/config"
+	"core/shared/protoapi"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -38,7 +40,7 @@ func RunInteractive(ctx context.Context, req Request, deps Dependencies) (runErr
 	return runErr
 }
 
-func SessionLifecycleOptionsFor(req Request) (*serverapi.SessionLaunchIntent, serverapi.RunPromptOverrides, error) {
+func SessionLifecycleOptionsFor(req Request) (*sessionlaunchpb.SessionLaunchRequestIntent, serverapi.RunPromptOverrides, error) {
 	var agentRole *string
 	if req.AgentRole != nil {
 		value := strings.TrimSpace(*req.AgentRole)
@@ -52,24 +54,24 @@ func SessionLifecycleOptionsFor(req Request) (*serverapi.SessionLaunchIntent, se
 		return nil, serverapi.RunPromptOverrides{}, errors.New("session ID and workspace context session ID cannot both be set")
 	}
 	if req.SessionID != "" {
-		sessionID, err := runtimeids.ParseSessionID(req.SessionID)
+		sessionID, err := runtimeids.ParseSessionSelector(req.SessionID)
 		if err != nil {
 			return nil, serverapi.RunPromptOverrides{}, err
 		}
-		intent := serverapi.OpenExistingSessionLaunchIntent(sessionID)
-		return &intent, overrides, nil
+		intent := &sessionlaunchpb.SessionLaunchRequestIntent{Intent: &sessionlaunchpb.SessionLaunchRequestIntent_OpenExistingSessionId{OpenExistingSessionId: protoapi.SessionSelectorToProto(sessionID)}}
+		return intent, overrides, nil
 	}
 	if req.WorkspaceContextSessionID != "" {
 		parentID, err := runtimeids.ParseSessionID(req.WorkspaceContextSessionID)
 		if err != nil {
 			return nil, serverapi.RunPromptOverrides{}, err
 		}
-		intent := serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(parentID))
-		return &intent, overrides, nil
+		intent, err := protoapi.SessionLaunchRequestIntentToProto(serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(parentID)))
+		return intent, overrides, err
 	}
 	if agentRole != nil && *agentRole != config.DefaultSubagentRole {
-		intent := serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())
-		return &intent, overrides, nil
+		intent, err := protoapi.SessionLaunchRequestIntentToProto(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
+		return intent, overrides, err
 	}
 	return nil, overrides, nil
 }
