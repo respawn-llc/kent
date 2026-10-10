@@ -94,7 +94,7 @@ export const queryKeys = {
   chatMainView: (sessionID: string) => ["chat", sessionID, "main-view"] as const,
   viewedImage: (sessionID: string, locator: Readonly<{ event_sequence: number; row_ordinal: number }>) =>
     ["chat", sessionID, "viewed-image", locator.event_sequence, locator.row_ordinal] as const,
-  viewedPDF: (sessionID: string, target: Readonly<{ path: string; basePath: string }>) =>
+  viewedPDF: (sessionID: string, target: Readonly<{ path: string; basePath: string | null }>) =>
     ["chat", sessionID, "viewed-pdf", target.basePath, target.path] as const,
   boardWorkflowRoot: (projectID: string, workflowID: string | undefined) => ["board", projectID, workflowID],
   projectBoardsRoot: (projectID: string) => ["board", projectID],

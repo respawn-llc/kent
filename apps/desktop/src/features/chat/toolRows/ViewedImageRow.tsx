@@ -17,7 +17,7 @@ import type { TranscriptToolSlotItem } from "./toolSlotTypes";
 import { StaticToolRow } from "./StaticToolRow";
 
 type ImagePresentation = Extract<ToolPresentation, { kind: "view-image" }>;
-type RowContext = Readonly<{ target: ChatSessionTarget; effectiveWorkdir: string }>;
+type RowContext = Readonly<{ target: ChatSessionTarget; effectiveWorkdir: string | null }>;
 
 export function ViewedImageRow({
   presentation,
@@ -65,7 +65,7 @@ type PreviewContext = RowContext & Pick<ViewedImagePreviewInput, "path" | "locat
 
 function PresentImagePreview(props: PreviewContext) {
   const present = useIsPresent();
-  return present ? <ImagePreview {...props} /> : null;
+  return present ? <ImagePreview key={props.effectiveWorkdir} {...props} /> : null;
 }
 
 function ImagePreview(props: PreviewContext) {
@@ -98,9 +98,9 @@ function ViewedPDFRow({
 }: RowContext & Readonly<{ presentation: ImagePresentation }>) {
   const { nativeBridge, logger } = useAppServices();
   const { t } = useTranslation();
-  const fileTarget = { path: presentation.path, basePath: effectiveWorkdir };
+  const fileTarget = { path: presentation.path, basePath: effectiveWorkdir ?? undefined };
   const availability = useQuery({
-    queryKey: queryKeys.viewedPDF(target.sessionID, fileTarget),
+    queryKey: queryKeys.viewedPDF(target.sessionID, { path: presentation.path, basePath: effectiveWorkdir }),
     queryFn: async () => {
       try {
         return await nativeBridge.files.fileAvailable(fileTarget);
@@ -109,7 +109,10 @@ function ViewedPDFRow({
         return false;
       }
     },
-    enabled: nativeBridge.capabilities.files.stat && nativeBridge.capabilities.files.open,
+    enabled:
+      effectiveWorkdir !== null &&
+      nativeBridge.capabilities.files.stat &&
+      nativeBridge.capabilities.files.open,
     networkMode: "always",
     retry: false,
     refetchOnWindowFocus: false,
@@ -122,7 +125,7 @@ function ViewedPDFRow({
       icon={<Image className="size-4" strokeWidth={1.8} />}
       iconTone={presentation.iconTone}
       actions={
-        nativeBridge.capabilities.files.open && availability.data === true ? (
+        effectiveWorkdir !== null && nativeBridge.capabilities.files.open && availability.data === true ? (
           <Button
             variant="ghost"
             onClick={() => {

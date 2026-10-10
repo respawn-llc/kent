@@ -22,7 +22,7 @@ export type ViewedImagePreviewInput = Readonly<{
   services: AppServices;
   client: QueryClient;
   target: ChatSessionTarget;
-  effectiveWorkdir: string;
+  effectiveWorkdir: string | null;
   path: string;
   locator: ChatTranscriptCommittedRow["Locator"];
 }>;
@@ -87,9 +87,10 @@ export function useViewedImagePreview(model: ReturnType<typeof createViewedImage
 
 const resolveOriginal = Effect.fnUntraced(function* (input: ViewedImagePreviewInput) {
   const localRead = input.services.nativeBridge.files.readImage;
-  if (localRead !== null) {
+  const effectiveWorkdir = input.effectiveWorkdir;
+  if (localRead !== null && effectiveWorkdir !== null) {
     const bytes = yield* Effect.tryPromise({
-      try: async () => localRead({ path: input.path, basePath: input.effectiveWorkdir }),
+      try: async () => localRead({ path: input.path, basePath: effectiveWorkdir }),
       catch: asError,
     }).pipe(
       Effect.catch((failure) =>

@@ -35,7 +35,7 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals());
 
-function fixture(localEnabled = true) {
+function fixture(localEnabled = true, effectiveWorkdir: string | null = "/workspace") {
   const services = createTestServices([]);
   const server = vi.spyOn(services.api.chat, "getViewedImageOriginal").mockResolvedValue({
     kind: "content",
@@ -51,7 +51,7 @@ function fixture(localEnabled = true) {
     services: { ...services, nativeBridge },
     client,
     target: { projectID: "project", sessionID: "session" },
-    effectiveWorkdir: "/workspace",
+    effectiveWorkdir,
     path: "image.png",
     locator: { event_sequence: 1, row_ordinal: 0 },
   });
@@ -76,6 +76,15 @@ it("uses a decoded local original without transferring server bytes", async () =
   await waitFor(() => {
     expect(revokeURL).toHaveBeenCalledWith("blob:preview");
   });
+});
+
+it("uses the server original without local path context", async () => {
+  const context = fixture(true, null);
+  const view = mount(context);
+  await waitFor(() => {
+    expect(view.result.current.data).toMatchObject({ kind: "image", source: "server" });
+  });
+  expect(context.local).not.toHaveBeenCalled();
 });
 
 it("uses the server original when local acquisition fails", async () => {

@@ -27,7 +27,7 @@ export function ChatTranscriptContent({
   openingVisible: boolean;
   bottomInset: number;
   target: ChatSessionTarget;
-  effectiveWorkdir: string;
+  effectiveWorkdir: string | null;
 }>) {
   const { transcript } = useChatRuntimeSnapshot();
   const neighbors = useMemo(() => messageNeighbors(transcript.items), [transcript.items]);
@@ -55,7 +55,7 @@ function Tool({
 }: Readonly<{
   item: Extract<TranscriptRenderItem, { kind: "tool" }>;
   target: ChatSessionTarget;
-  effectiveWorkdir: string;
+  effectiveWorkdir: string | null;
 }>) {
   if (item.state === "committed" && isAskQuestionToolRow(item.row))
     return <TranscriptAskQuestionSlot row={item.row} />;

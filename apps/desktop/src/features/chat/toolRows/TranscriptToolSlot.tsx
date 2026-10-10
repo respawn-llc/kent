@@ -33,7 +33,7 @@ export function TranscriptToolSlot({
 }: Readonly<{
   item: TranscriptToolSlotItem;
   target: ChatSessionTarget;
-  effectiveWorkdir: string;
+  effectiveWorkdir: string | null;
 }>) {
   const { t } = useTranslation();
   const presentation = resolveToolPresentation(item, {
