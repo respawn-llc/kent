@@ -950,8 +950,8 @@ func (s *Service) startWorkflowTask(ctx context.Context, req *taskpb.StartReques
 	if err != nil {
 		return nil, workflowTaskStartError(err)
 	}
-	if len(started.Mutation.Created) != 1 {
-		return nil, errors.New("task start did not create exactly one current node")
+	if len(started.Mutation.Created) == 0 {
+		return nil, errors.New("task start did not create any current nodes")
 	}
 	if detail, detailErr := s.readModels.TaskDetail.GetTask(ctx, req.TaskId); detailErr == nil {
 		workflowID, err := runtimeids.ParseWorkflowID(detail.Summary.WorkflowId)

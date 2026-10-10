@@ -4,7 +4,7 @@ import { uniqueWorkflowModelKey } from "./workflowEditorGraphKeys";
 import {
   edgesForTransitionGroup,
   removeEdges,
-  transitionIDsForSource,
+  transitionIDsForWorkflow,
 } from "./workflowEditorGraphMutationHelpers";
 import {
   emptySummary,
@@ -38,8 +38,7 @@ export function connectWorkflowNodes(
     return connectNodeGroupFanoutBranch(draft, input, nodeGroupFanout);
   }
   const transitionID =
-    input.transitionID ??
-    uniqueWorkflowModelKey(target.key, transitionIDsForSource(draft, input.sourceNodeID));
+    input.transitionID ?? uniqueWorkflowModelKey(target.key, transitionIDsForWorkflow(draft));
   const transitionName = input.transitionName ?? target.name;
   const edgeKey =
     input.edgeKey ??

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"core/server/metadata"
@@ -60,6 +61,174 @@ func TestTaskStartPlanKeepsBacklogUntilAtomicAdmission(t *testing.T) {
 	target, err = fixture.store.GetTaskExecutionTargetContext(fixture.ctx, fixture.task.ID)
 	if err != nil || target.Task.ExecutionTarget == nil {
 		t.Fatalf("cutover did not lock execution target: %+v, %v", target, err)
+	}
+}
+
+func TestTaskStartFanoutPlacesEveryBranchWithItsOwnSessionAndSharedRoot(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	workflowID := createMixedExecutableFanoutWorkflow(t, ctx, store)
+	var startNodeID workflow.NodeID
+	saveWorkflowGraphFixture(t, ctx, store, workflowID, func(def workflow.Definition, request *WorkflowGraphSaveRequest) {
+		start := nodeByKind(t, def, workflow.NodeKindStart)
+		source := nodeByKey(t, def, "source")
+		join := nodeByKey(t, def, "join")
+		startNodeID = workflow.NodeIDOf(start)
+		request.Confirmed = true
+		request.ExpectedRemovedEdgeCount = 1
+		request.ExpectedRemovedTransitionGroupCount = 1
+		var startGroupID, sourceGroupID workflow.TransitionGroupID
+		for _, group := range def.TransitionGroups {
+			switch group.SourceNodeID {
+			case startNodeID:
+				startGroupID = group.ID
+			case workflow.NodeIDOf(source):
+				sourceGroupID = group.ID
+			}
+		}
+		request.TransitionGroups = slices.DeleteFunc(request.TransitionGroups, func(group TransitionGroupRecord) bool {
+			return group.ID == startGroupID
+		})
+		for index := range request.TransitionGroups {
+			if request.TransitionGroups[index].ID == sourceGroupID {
+				request.TransitionGroups[index].SourceNodeID = startNodeID
+				request.TransitionGroups[index].TransitionID = "start"
+				request.TransitionGroups[index].DisplayName = "Start"
+			}
+		}
+		request.Edges = slices.DeleteFunc(request.Edges, func(edge EdgeRecord) bool {
+			return edge.TransitionGroupID == startGroupID
+		})
+		request.Edges = append(request.Edges,
+			EdgeRecord{
+				ID: testEdgeID("edge-start-source-" + workflowID.String()), WorkflowID: workflowID,
+				TransitionGroupID: sourceGroupID, Key: "source", TargetNodeID: workflow.NodeIDOf(source),
+				AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured,
+				ContextMode: workflow.ContextModeNewSession, PromptTemplate: "Work on this branch.",
+			},
+		)
+		request.TransitionGroups = append(request.TransitionGroups, TransitionGroupRecord{
+			ID: testTransitionGroupID("group-source-join-" + workflowID.String()), WorkflowID: workflowID,
+			SourceNodeID: workflow.NodeIDOf(source), TransitionID: "source_done", DisplayName: "Join",
+		})
+		request.Edges = append(request.Edges, EdgeRecord{
+			ID: testEdgeID("edge-source-join-" + workflowID.String()), WorkflowID: workflowID,
+			TransitionGroupID: testTransitionGroupID("group-source-join-" + workflowID.String()),
+			Key:               "source_done", TargetNodeID: workflow.NodeIDOf(join),
+			AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured,
+			ContextMode: workflow.ContextModeNewSession,
+		})
+	})
+	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+
+	plan, err := store.PlanTaskStart(ctx, task.ID, noneManualMoveExecutionTargetCandidate(binding))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contexts := plan.StartContexts()
+	if len(contexts) != 3 {
+		t.Fatalf("planned Start branches = %d, want three", len(contexts))
+	}
+	contextByNode := make(map[workflow.NodeID]CurrentNodeStartContext, len(contexts))
+	contextByKey := make(map[workflow.ModelKey]CurrentNodeStartContext, len(contexts))
+	for _, input := range contexts {
+		if _, duplicate := contextByNode[input.CurrentNode.Reference.NodeID]; duplicate {
+			t.Fatalf("Start targets contain duplicate Nodes: %+v", contexts)
+		}
+		contextByNode[input.CurrentNode.Reference.NodeID] = input
+		contextByKey[input.Node.Key] = input
+		if !input.IsFanoutBranch || !input.CurrentNode.Reference.IsBranchScoped() {
+			t.Fatalf("Start target is not branch-scoped: %+v", input.CurrentNode.Reference)
+		}
+		if input.CurrentNode.EnteredByEdgeID == nil || *input.CurrentNode.EnteredByEdgeID != input.EnteringEdge.ID {
+			t.Fatalf("Start target entering edge = %v, want %q", input.CurrentNode.EnteredByEdgeID, input.EnteringEdge.ID)
+		}
+		branchKey, present := input.CurrentNode.Reference.TransitionBranchKey()
+		if !present || branchKey != workflow.TransitionBranchKey(input.EnteringEdge.Key) {
+			t.Fatalf("Start target branch key = %q, want %q", branchKey, input.EnteringEdge.Key)
+		}
+		if input.ExecutionRoot == nil ||
+			input.ExecutionRoot.SourceWorkspaceID != binding.WorkspaceID ||
+			input.ExecutionRoot.SourceWorkspaceRoot != binding.CanonicalRoot {
+			t.Fatalf("Start target execution root = %+v, want shared workspace root", input.ExecutionRoot)
+		}
+	}
+	for key, kind := range map[workflow.ModelKey]workflow.NodeKind{
+		"source": workflow.NodeKindAgent,
+		"agent":  workflow.NodeKindAgent,
+		"script": workflow.NodeKindScript,
+	} {
+		input, exists := contextByKey[key]
+		if !exists || input.Node.Kind != kind {
+			t.Fatalf("Start target %q was not prepared as %s: %+v", key, kind, contexts)
+		}
+	}
+
+	before, err := store.ListCurrentNodes(ctx, task.ID)
+	if err != nil || len(before) != 1 ||
+		before[0].Reference.NodeID != startNodeID ||
+		before[0].Scheduling != nil || before[0].SessionID != nil {
+		t.Fatalf("Start preparation changed Backlog: %+v, %v", before, err)
+	}
+	targetBefore, err := store.GetTaskExecutionTargetContext(ctx, task.ID)
+	if err != nil || targetBefore.Task.ExecutionTarget != nil {
+		t.Fatalf("Start preparation locked execution target: %+v, %v", targetBefore, err)
+	}
+
+	sessions := plannedSessionsForStoreTest(t, ctx, store, contexts)
+	sessionByNode := make(map[workflow.NodeID]runtimeids.SessionID, len(sessions))
+	for _, planned := range sessions {
+		if _, duplicate := sessionByNode[planned.CurrentNode.NodeID]; duplicate {
+			t.Fatalf("multiple Sessions planned for Node %q", planned.CurrentNode.NodeID)
+		}
+		for _, sessionID := range sessionByNode {
+			if sessionID == planned.SessionID {
+				t.Fatalf("Agent branches share Session %q", sessionID)
+			}
+		}
+		sessionByNode[planned.CurrentNode.NodeID] = planned.SessionID
+	}
+	if len(sessionByNode) != 2 {
+		t.Fatalf("planned Agent Sessions = %d, want two", len(sessionByNode))
+	}
+
+	result, err := store.CommitTaskStart(ctx, plan, sessions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentNodes, err := store.ListCurrentNodes(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Mutation.Created) != 3 || len(currentNodes) != 3 {
+		t.Fatalf("Start cutover created %d nodes and read back %d, want three", len(result.Mutation.Created), len(currentNodes))
+	}
+	createdByNode := make(map[workflow.NodeID]workflow.CurrentNode, len(result.Mutation.Created))
+	for _, current := range result.Mutation.Created {
+		createdByNode[current.Reference.NodeID] = current
+	}
+	currentByNode := make(map[workflow.NodeID]workflow.CurrentNode, len(currentNodes))
+	for _, current := range currentNodes {
+		currentByNode[current.Reference.NodeID] = current
+	}
+	for nodeID, input := range contextByNode {
+		created, createdExists := createdByNode[nodeID]
+		persisted, persistedExists := currentByNode[nodeID]
+		if !createdExists || !persistedExists ||
+			!created.Reference.Equal(input.CurrentNode.Reference) ||
+			!persisted.Reference.Equal(input.CurrentNode.Reference) ||
+			persisted.EnteredByEdgeID == nil || *persisted.EnteredByEdgeID != input.EnteringEdge.ID ||
+			persisted.Scheduling == nil || persisted.Scheduling.State != workflow.CurrentNodeSchedulingAdmitted {
+			t.Fatalf("Start cutover did not persist target %q with its incoming branch: created=%+v persisted=%+v", nodeID, created, persisted)
+		}
+		if input.Node.Kind == workflow.NodeKindAgent {
+			sessionID, assigned := sessionByNode[nodeID]
+			if !assigned || persisted.SessionID == nil || *persisted.SessionID != sessionID {
+				t.Fatalf("Agent target %q Session = %v, want planned %q", nodeID, persisted.SessionID, sessionID)
+			}
+		} else if input.Node.Kind == workflow.NodeKindScript && persisted.SessionID != nil {
+			t.Fatalf("Script target %q acquired Session %q", nodeID, *persisted.SessionID)
+		}
 	}
 }
 
