@@ -46,11 +46,11 @@ func TestOnboardingNativeCursorMovesWithoutTextChanges(t *testing.T) {
 	}()
 	t.Cleanup(func() {
 		program.Quit()
-		_ = keyboard.Close()
-		_ = input.Close()
 		if runErr := <-done; runErr != nil {
 			t.Errorf("terminal program: %v", runErr)
 		}
+		_ = keyboard.Close()
+		_ = input.Close()
 		cancel()
 		if _, finishErr := stream.Finish(); finishErr != nil {
 			t.Errorf("terminal interpretation: %v", finishErr)
