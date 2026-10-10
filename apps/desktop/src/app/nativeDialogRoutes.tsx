@@ -43,15 +43,23 @@ export function createNativeDialogRoutes(rootRoute: AnyRootRoute) {
     ? createRoute({
         getParentRoute: () => rootRoute,
         path: nativeChatRoutePath,
-        validateSearch: (search: Record<string, unknown>) => chatSearchSchema.parse(search),
+        validateSearch: (search: Record<string, unknown>) => {
+          const parsed = chatSearchSchema.safeParse(search);
+          return {
+            chat: parsed.success
+              ? { kind: "valid" as const, ...parsed.data }
+              : { kind: "invalid" as const },
+          };
+        },
         component: ChatNativeRoute,
       })
     : undefined;
 
   function ChatNativeRoute() {
     if (chatRoute === undefined) return <InvalidNativeDialogRoute />;
-    const search = chatSearchSchema.parse(chatRoute.useSearch());
-    return <NativeChatRoute key={search.sessionID} {...search} />;
+    const { chat } = chatRoute.useSearch();
+    if (chat.kind === "invalid") return <InvalidNativeDialogRoute />;
+    return <NativeChatRoute key={chat.sessionID} projectID={chat.projectID} sessionID={chat.sessionID} />;
   }
   const projectCreateRoute = createRoute({
     getParentRoute: () => rootRoute,
