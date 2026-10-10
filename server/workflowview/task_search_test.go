@@ -23,11 +23,7 @@ func TestNewTaskSearchRequiresTaskStatusProjection(t *testing.T) {
 	if _, err := NewTaskSearch(nil, nil); err == nil {
 		t.Fatal("NewTaskSearch accepted absent metadata and projection")
 	}
-	store, err := metadata.Open(t.TempDir())
-	if err != nil {
-		t.Fatalf("open metadata: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := testsetup.OpenStore(t, t.TempDir())
 	if _, err := NewTaskSearch(store, nil); err == nil {
 		t.Fatal("NewTaskSearch accepted absent projection")
 	}

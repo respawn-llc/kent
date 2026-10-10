@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"core/server/auth"
+	"core/server/launch"
 	"core/server/runtime"
 	"core/server/runtimewire"
 	"core/server/session"
@@ -25,6 +26,7 @@ var ErrExecutionNoLongerLive = errors.New("exact execution scope is no longer li
 var ErrAgentRuntimePlanRequired = errors.New("agent runtime plan is required")
 
 type AuthorityOptions struct {
+	ConnectionRotation  *launch.ConnectionRotation
 	Environment         func(string) (string, bool)
 	WorkspaceMembership runtimewire.WorkspaceMembership
 	Debug               bool

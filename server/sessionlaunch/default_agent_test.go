@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/launch"
-	"core/server/metadata"
+	"core/server/registry"
 	"core/server/session"
+	"core/server/sessionruntime"
 	"core/shared/config"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/serverapi"
@@ -16,6 +19,170 @@ import (
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
+
+func TestChatAgentMutationAllocatesActualMemberAndPreservesUnchangedBinding(t *testing.T) {
+	cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
+	selection := config.ConnectionSelection{"b", "a"}
+	cfg.Settings.Connection = &selection
+	cfg.Settings.ConnectionOrder = []config.ConnectionID{"a", "b"}
+	definition := cfg.Settings.Connections["test"]
+	other := definition
+	other.Capabilities = config.ProviderCapabilitiesOverride{ProviderID: "openai-compatible", SupportsResponsesAPI: true}
+	cfg.Settings.Connections = map[config.ConnectionID]config.ProviderConnection{"a": definition, "b": other}
+	cfg.Settings.Subagents["worker"] = config.SubagentRole{
+		Settings: config.Settings{Model: "gpt-6-luna"},
+		Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
+	}
+	db := testsetup.OpenStore(t, cfg.PersistenceRoot)
+	binding, err := db.RegisterWorkspaceBinding(t.Context(), cfg.WorkspaceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotation := new(launch.ConnectionRotation)
+	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
+		PersistenceRoot: cfg.PersistenceRoot, StoreOptions: db.AuthoritativeSessionStoreOptions(), ConnectionRotation: rotation,
+	})
+	t.Cleanup(func() { _ = authority.Close(context.Background()) })
+	service := NewService(launch.Planner{
+		Config: cfg, Rotation: rotation, ContainerDir: filepath.Join(cfg.PersistenceRoot, "projects", binding.ProjectID, "sessions"),
+		StoreOptions: db.AuthoritativeSessionStoreOptions(), PersistedSessions: db, SessionProjects: db, ManagedWorktreeRoots: db,
+	}, ChatSettingsOwner{Authority: authority, Registry: registry.NewRuntimeRegistry()})
+	initial, err := service.PlanLaunchSession(t.Context(), PlanRequest{
+		Mode: launch.ModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := initial.Plan.Descriptor.SessionID()
+	for range 2 {
+		if _, err := service.NewChatSettings(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.SessionChatSettings(t.Context(), id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, operation := range []*chatsettingspb.MutationOperation{
+		{Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: config.DefaultSubagentRole}},
+		{Operation: &chatsettingspb.MutationOperation_QuestionsEnabled{QuestionsEnabled: false}},
+	} {
+		if _, err := service.MutateChatSettings(t.Context(), id, operation); err != nil {
+			t.Fatal(err)
+		}
+	}
+	changed, err := service.MutateChatSettings(t.Context(), id, &chatsettingspb.MutationOperation{
+		Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: "worker"},
+	})
+	if err != nil || changed.GetApplied() == nil {
+		t.Fatalf("Agent change = %v, %v", changed, err)
+	}
+	record, err := db.ResolvePersistedSession(t.Context(), id.String())
+	if err != nil || record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != "b" {
+		t.Fatalf("actual selected member = %+v, %v", record.Meta, err)
+	}
+	if record.Meta.ChatSettings == nil || record.Meta.ChatSettings.Fast == nil || *record.Meta.ChatSettings.Fast {
+		t.Fatalf("selected member baseline did not disable unsupported Fast: %+v", record.Meta.ChatSettings)
+	}
+	next, err := rotation.Prepare(cfg.Settings, true)
+	if err != nil || next != "a" {
+		t.Fatalf("reads/unchanged edits consumed a slot: %s, %v", next, err)
+	}
+	before := record.Meta
+	if _, err := service.MutateChatSettings(t.Context(), id, &chatsettingspb.MutationOperation{
+		Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: "worker"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	record, err = db.ResolvePersistedSession(t.Context(), id.String())
+	if err != nil || !reflect.DeepEqual(before, record.Meta) {
+		t.Fatalf("unchanged Agent changed Session: %v", err)
+	}
+	// Return to the default on a, then fail preparation of the next member b.
+	if _, err := rotation.Prepare(cfg.Settings, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.MutateChatSettings(t.Context(), id, &chatsettingspb.MutationOperation{
+		Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: config.DefaultSubagentRole},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	record, err = db.ResolvePersistedSession(t.Context(), id.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before = record.Meta
+	broken := other
+	broken.Endpoint = textutil.Value("%")
+	cfg.Settings.Connections["b"] = broken
+	if _, err := service.MutateChatSettings(t.Context(), id, &chatsettingspb.MutationOperation{
+		Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: "worker"},
+	}); err == nil {
+		t.Fatal("selected-member preparation unexpectedly succeeded")
+	}
+	record, err = db.ResolvePersistedSession(t.Context(), id.String())
+	if err != nil || !reflect.DeepEqual(before, record.Meta) {
+		t.Fatalf("failed preparation changed Session: %v", err)
+	}
+	next, err = rotation.Prepare(cfg.Settings, true)
+	if err != nil || next != "a" {
+		t.Fatalf("failed selection switched or replayed a slot: %s, %v", next, err)
+	}
+}
+
+func TestDistinctConnectionSetInitialSelectionAndUnavailableAgentRepair(t *testing.T) {
+	cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
+	defaultSelection := config.ConnectionSelection{"a", "b"}
+	roleSelection := config.ConnectionSelection{"a", "c"}
+	cfg.Settings.Connection = &defaultSelection
+	cfg.Settings.ConnectionOrder = []config.ConnectionID{"a", "b", "c"}
+	definition := cfg.Settings.Connections["test"]
+	cfg.Settings.Connections = map[config.ConnectionID]config.ProviderConnection{
+		"a": definition, "b": definition, "c": definition,
+	}
+	cfg.Settings.Subagents["worker"] = config.SubagentRole{
+		Settings: config.Settings{Connection: &roleSelection},
+		Sources:  map[string]config.Origin{"connection": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "connection"}}},
+	}
+	service := newSessionLaunchTestService(cfg, t.TempDir())
+	service.planner.Config = cfg
+	service.planner.Rotation = new(launch.ConnectionRotation)
+	for _, want := range []config.ConnectionID{"a", "c"} {
+		result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
+			Mode:   launch.ModeInteractive,
+			Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+			InitialChat: &InitialChatCreation{Settings: serverapi.InitialChatSettings{
+				AgentRole: "worker", Supervisor: "off", QuestionsEnabled: true, AutoCompactionEnabled: true,
+			}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		store, err := session.Open(filepath.Join(service.planner.ContainerDir, result.Plan.Descriptor.SessionID().String()), service.planner.StoreOptions...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if store.Meta().ConnectionID == nil || *store.Meta().ConnectionID != want {
+			t.Fatalf("initial role binding = %v, want %v", store.Meta().ConnectionID, want)
+		}
+		if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("removed")}); err != nil {
+			t.Fatal(err)
+		}
+		input, err := service.PrepareSessionChatSettingsOperation(t.Context(), store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resolved, rejected, err := resolveChatSettingsSelection(input, &chatsettingspb.MutationOperation{
+			Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: "worker"},
+		})
+		if err != nil || rejected != nil || resolved.Selection.State.AgentSelector() != "worker" {
+			t.Fatalf("distinct role unavailable-Agent repair = %+v, %+v, %v", resolved, rejected, err)
+		}
+	}
+	next, err := service.planner.Rotation.Prepare(cfg.Settings, true)
+	if err != nil || next != "a" {
+		t.Fatalf("role launch consumed default rotation: %v, %v", next, err)
+	}
+}
 
 type workflowChatSettingsTaskIdentityResolver struct {
 	session.PersistedSessionResolver
@@ -259,11 +426,7 @@ func TestDefaultAgentCallabilityRestrictsCreationNotContinuation(t *testing.T) {
 
 		AgentCallable: false, Sources: map[string]config.Origin{"agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
 	}
-	db, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := testsetup.OpenStore(t, cfg.PersistenceRoot)
 	binding, err := db.RegisterWorkspaceBinding(t.Context(), cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatal(err)
@@ -278,7 +441,7 @@ func TestDefaultAgentCallabilityRestrictsCreationNotContinuation(t *testing.T) {
 	}
 	service := NewService(launch.Planner{
 		Config: cfg, ContainerDir: containerDir, StoreOptions: db.AuthoritativeSessionStoreOptions(),
-		PersistedSessions: db, SessionProjects: db, ManagedWorktreeRoots: db,
+		PersistedSessions: db, CallerSessions: db, ExecutionTargets: db, SessionProjects: db, ManagedWorktreeRoots: db,
 	}, ChatSettingsOwner{})
 	removed, err := session.Create(containerDir, "removed", cfg.WorkspaceRoot, sessioncontract.SessionCategoryMain, db.AuthoritativeSessionStoreOptions()...)
 	if err != nil {

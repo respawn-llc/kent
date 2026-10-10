@@ -68,5 +68,5 @@ func binaryRuntimeLifetimeFailure(sessionID string, err error) proto.Message {
 	if errors.Is(err, serverapi.ErrRuntimeUnavailable) {
 		return &sessionlaunchpb.SessionRuntimeUnavailableDetails{SessionId: sessionID}
 	}
-	return binaryAuthFailure(err)
+	return binaryAuthReadinessFailure(err)
 }

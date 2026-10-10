@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"core/server/launch"
 	"core/server/registry"
 	"core/server/runtime"
 	"core/server/session"
@@ -36,6 +37,19 @@ func (s *Service) MutateChatSettings(ctx context.Context, sessionID runtimeids.S
 			return input, rejectedChatSettingsOperation(input.ChatSettingsMutationContext, rejected.Reason), nil
 		}
 		projected, err := ProjectResolvedChatSettingsOperation(resolved)
+		_, agentEdit := operation.Operation.(*chatsettingspb.MutationOperation_AgentRole)
+		if agentEdit && err == nil && projected.Rejection == nil && !textutil.EqualOptional(projected.State.AgentRole, input.Raw.AgentRole) {
+			entry, selectionErr := launch.PrepareChatAgentSelection(input.Configuration, projected.State.AgentSelector(), store.Meta(), s.planner.Rotation)
+			if selectionErr != nil {
+				return input, PreparedChatSettingsOperationResult{}, selectionErr
+			}
+			resolved.Selection.Settings = *entry.Settings
+			resolved.Selection.State, err = session.ChatSettingsStateFromCompleteSettings(entry.Choice.Role, entry.Settings.Baseline)
+			if err == nil {
+				resolved.Selection.State.ConnectionID = entry.ConnectionID
+				projected, err = ProjectResolvedChatSettingsOperation(resolved)
+			}
+		}
 		return input, projected, err
 	})
 }

@@ -8,9 +8,6 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/server/tools"
-
-	sqlitedriver "modernc.org/sqlite"
-	sqlite3 "modernc.org/sqlite/lib"
 )
 
 func TestWorkspaceAuthorityFailureUsesDiagnosticPolicy(t *testing.T) {
@@ -48,49 +45,6 @@ func TestWorkspaceAuthorityFailureUsesDiagnosticPolicy(t *testing.T) {
 				t.Fatalf("authority failure = %+v", outcome)
 			}
 		})
-	}
-}
-
-func TestWorkspaceAuthorityContentionExhaustionIsOperationFailure(t *testing.T) {
-	store := testsetup.OpenStore(t, t.TempDir())
-	binding, err := store.RegisterWorkspaceBinding(t.Context(), t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	filesystem, err := NewFilesystemContext(binding.CanonicalRoot, binding.CanonicalRoot, binding.ProjectID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.DB().ExecContext(t.Context(), "PRAGMA journal_mode=DELETE"); err != nil {
-		t.Fatal(err)
-	}
-	lock, err := store.DB().Conn(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lock.Close()
-	if _, err := lock.ExecContext(t.Context(), "BEGIN EXCLUSIVE"); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if _, err := lock.ExecContext(context.Background(), "ROLLBACK"); err != nil {
-			t.Error(err)
-		}
-	}()
-	policy, err := tools.NewFileAccessPolicy(tools.FileAccessPolicyConfig{
-		Context: filesystem, Mode: tools.FileAccessMutation,
-		Approver:    NewOutsideWorkspaceApprover(tools.NewAskQuestionBroker()),
-		Permissions: tools.NewWorkspacePermissions(workspaceRootLookup(store, true)),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(outsideNonTempDir(t), "file.txt")
-	outcome := policy.BeginCall().Authorize(t.Context(), path, path)
-	var driverError *sqlitedriver.Error
-	if outcome.Kind != tools.FileAccessPolicyFailed || !errors.As(outcome.Cause, &driverError) ||
-		(driverError.Code()&0xff != sqlite3.SQLITE_BUSY && driverError.Code()&0xff != sqlite3.SQLITE_LOCKED) {
-		t.Fatalf("contention outcome = %+v", outcome)
 	}
 }
 

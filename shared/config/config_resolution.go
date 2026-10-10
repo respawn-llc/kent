@@ -13,7 +13,10 @@ import (
 func resolveSettings(roots *workspaceConfigRoots, opts LoadOptions) (loadedConfig, error) {
 	state := configRegistry.defaultState()
 	sources := configRegistry.defaultSourceMap()
-	locations, err := readConfigurationSources(roots, opts, func(raw settingsFile, file SourceFile) (bool, error) {
+	locations, err := readConfigurationSources(roots, opts, func(raw settingsFile, order []ConnectionID, file SourceFile) (bool, error) {
+		if file.Layer == FileGlobal {
+			state.Settings.ConnectionOrder = order
+		}
 		if err := rejectRemovedPersistenceRootKey(raw, file.Path); err != nil {
 			return false, err
 		}
@@ -65,7 +68,7 @@ type configurationLocations struct {
 	files           []ConfigFileReport
 }
 
-func readConfigurationSources(roots *workspaceConfigRoots, opts LoadOptions, apply func(settingsFile, SourceFile) (bool, error)) (configurationLocations, error) {
+func readConfigurationSources(roots *workspaceConfigRoots, opts LoadOptions, apply func(settingsFile, []ConnectionID, SourceFile) (bool, error)) (configurationLocations, error) {
 	configRoot, rootOrigin := resolveConfigRoot(opts)
 	if configRoot == "" {
 		configRoot = DefaultPersistence
@@ -117,9 +120,9 @@ func readConfigurationSources(roots *workspaceConfigRoots, opts LoadOptions, app
 			file.Enabled = false
 			continue
 		}
-		raw, err := readSettingsFile(file.Path)
+		raw, order, err := readSettingsFile(file.Path)
 		if err == nil {
-			file.Applied, err = apply(raw, file.SourceFile)
+			file.Applied, err = apply(raw, order, file.SourceFile)
 		}
 		if err != nil {
 			return configurationLocations{}, &ConfigurationFileError{Source: file.SourceFile, Err: err}

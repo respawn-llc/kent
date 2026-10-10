@@ -7,6 +7,7 @@ import (
 
 	"core/server/launch"
 	"core/server/metadata"
+	"core/server/runtime"
 	"core/server/session"
 	"core/server/workflow"
 	"core/server/workflowexecution"
@@ -22,8 +23,9 @@ import (
 // plannedCurrentNodeSession contains only private preparation. The admitted
 // queue owns it after the cutover; before that, discarding it has no effects.
 type plannedCurrentNodeSession struct {
-	creation *session.CreationPlan
-	outgoing *launch.SessionPlan
+	creation       *session.CreationPlan
+	outgoing       *launch.SessionPlan
+	finalizeTarget func(context.Context) (preparedCurrentNodeAgentSession, runtime.WorkflowAssignment, error)
 }
 
 func (s *Starter) PrepareCurrentNode(
@@ -73,15 +75,33 @@ func (s *Starter) PrepareCurrentNode(
 		return workflowexecution.CurrentNodePreparation{}, err
 	}
 	planner := launch.Planner{
-		Config: cfg, ContainerDir: filepath.Join(cfg.PersistenceRoot, "projects", input.Task.ProjectID, "sessions"),
+		Rotation: s.connectionRotation,
+		Config:   cfg, ContainerDir: filepath.Join(cfg.PersistenceRoot, "projects", input.Task.ProjectID, "sessions"),
 		StoreOptions: s.storeOptions, PersistedSessions: s.metadata,
+	}
+	selection, err := currentNodeAgentExecutionSelection(input)
+	if err != nil {
+		return workflowexecution.CurrentNodePreparation{}, err
+	}
+	if err := validateRole(cfg.Settings, selection.Assignee); err != nil {
+		return workflowexecution.CurrentNodePreparation{}, err
+	}
+	var freshOverrides *launch.PreparedRunPromptOverrides
+	if fresh && input.CurrentNode.SessionID == nil {
+		prepared, err := launch.PrepareRunPromptOverridesWithContext(cfg, workflowPromptOverrides(selection.Assignee), launch.RunPromptPreparationContext{
+			Mode: launch.ModeHeadless, Rotation: s.connectionRotation, AllocateConnection: true,
+		})
+		if err != nil {
+			return workflowexecution.CurrentNodePreparation{}, err
+		}
+		freshOverrides = &prepared
 	}
 	preparation := plannedCurrentNodeSession{}
 	var plan launch.SessionPlan
 	var meta session.Meta
 	if fresh && input.CurrentNode.SessionID == nil {
 		prepared, err := planner.PrepareSession(ctx, launch.SessionPreparationRequest{
-			Request:   launch.SessionRequest{Mode: launch.ModeHeadless, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())},
+			Request:   launch.SessionRequest{Mode: launch.ModeHeadless, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()), PreparedPromptFacingTarget: freshOverrides.PromptFacingTarget()},
 			SessionID: *id, ExecutionTarget: target, ProjectID: input.Task.ProjectID, ManagedWorktreeRoots: roots,
 		})
 		if err != nil {
@@ -133,13 +153,6 @@ func (s *Starter) PrepareCurrentNode(
 			}
 		}
 	}
-	selection, err := currentNodeAgentExecutionSelection(input)
-	if err != nil {
-		return workflowexecution.CurrentNodePreparation{}, err
-	}
-	if err := validateRole(cfg.Settings, selection.Assignee); err != nil {
-		return workflowexecution.CurrentNodePreparation{}, err
-	}
 	if selection.Origin == workflow.AssigneeOriginTransitionSelected {
 		plan, err = launch.WithRequiredRunPromptTools(plan, []toolspec.ID{toolspec.ToolAskQuestion})
 		if err != nil {
@@ -150,19 +163,6 @@ func (s *Starter) PrepareCurrentNode(
 	if policy.assignee == currentNodeSessionAssigneeEstablishTarget &&
 		(delivery != workflowruntime.TaskPromptDeliveryResume || preparation.outgoing != nil) {
 		overrides = workflowPromptOverrides(selection.Assignee)
-	}
-	overridesPlan, err := launch.PrepareRunPromptOverridesWithContext(cfg, overrides, launch.RunPromptPreparationContext{
-		Mode: launch.ModeHeadless, ModelLock: meta.Locked, ToolLock: meta.Locked,
-		OmittedTarget: &launch.PreparedBaseTarget{Settings: plan.ActiveSettings, Source: plan.Source, EnabledTools: plan.EnabledTools},
-	})
-	if err != nil {
-		return workflowexecution.CurrentNodePreparation{}, err
-	}
-	plan, _, err = planner.ApplyPreparedRunPromptOverridesFromMeta(plan, meta, overrides, overridesPlan, launch.RunPromptOverrideOptions{
-		RequiredTools: plan.RequiredTools, WorkflowThinking: workflowThinkingMutationFor(input, selection),
-	})
-	if err != nil {
-		return workflowexecution.CurrentNodePreparation{}, err
 	}
 	name, err := workflowSessionNameFromCurrentNode(input)
 	if err != nil {
@@ -176,7 +176,46 @@ func (s *Starter) PrepareCurrentNode(
 	if err != nil {
 		return workflowexecution.CurrentNodePreparation{}, err
 	}
-	plan.SessionName, plan.FirstPromptPreview, plan.WorktreeReminder = &name, preview, reminder
+	input.CurrentNode.SessionID = id
+	finalizeTarget := func(ctx context.Context) (preparedCurrentNodeAgentSession, runtime.WorkflowAssignment, error) {
+		var overridesPlan launch.PreparedRunPromptOverrides
+		if freshOverrides != nil {
+			overridesPlan = *freshOverrides
+		} else {
+			saved := meta.ConnectionID
+			if preparation.outgoing != nil {
+				saved = nil
+			}
+			var err error
+			overridesPlan, err = launch.PrepareRunPromptOverridesWithContext(cfg, overrides, launch.RunPromptPreparationContext{
+				Mode: launch.ModeHeadless, ModelLock: meta.Locked, ToolLock: meta.Locked,
+				Rotation: s.connectionRotation, AllocateConnection: preparation.outgoing != nil, ConnectionID: saved,
+				OmittedTarget: &launch.PreparedBaseTarget{Settings: plan.ActiveSettings, Source: plan.Source, EnabledTools: plan.EnabledTools},
+			})
+			if err != nil {
+				return preparedCurrentNodeAgentSession{}, runtime.WorkflowAssignment{}, err
+			}
+		}
+		targetPlan, _, err := planner.ApplyPreparedRunPromptOverridesFromMeta(plan, meta, overrides, overridesPlan, launch.RunPromptOverrideOptions{
+			RequiredTools: plan.RequiredTools, WorkflowThinking: workflowThinkingMutationFor(input, selection),
+		})
+		if err != nil {
+			return preparedCurrentNodeAgentSession{}, runtime.WorkflowAssignment{}, err
+		}
+		targetPlan.SessionName, targetPlan.FirstPromptPreview, targetPlan.WorktreeReminder = &name, preview, reminder
+		return s.finalizeCurrentNodeAgent(ctx, input, preparedCurrentNodeAgentSession{root: root, plan: targetPlan})
+	}
+	prepared := preparedCurrentNodeAgentSession{root: root, plan: plan}
+	var assignment runtime.WorkflowAssignment
+	if preparation.outgoing != nil {
+		preparation.finalizeTarget = finalizeTarget
+	} else {
+		prepared, assignment, err = finalizeTarget(ctx)
+		if err != nil {
+			return workflowexecution.CurrentNodePreparation{}, err
+		}
+		plan = prepared.plan
+	}
 	binding := &workflowstore.PlannedCurrentNodeSession{CurrentNode: input.CurrentNode.Reference, SessionID: *id}
 	if preparation.creation != nil {
 		creation := *preparation.creation
@@ -201,26 +240,6 @@ func (s *Starter) PrepareCurrentNode(
 		}
 		binding.Snapshot = &snapshot
 	}
-	prepared := preparedCurrentNodeAgentSession{root: root, plan: plan}
-	if input.CurrentNode.Scheduling == nil {
-		return workflowexecution.CurrentNodePreparation{}, errors.New("Agent preparation requires scheduling state")
-	}
-	prepared.client, err = s.newWorkflowProviderClient(ctx, plan)
-	if err != nil {
-		return workflowexecution.CurrentNodePreparation{}, err
-	}
-	prepared.mode, err = s.resolveCurrentNodeCompletionMode(ctx, input, plan)
-	if err != nil {
-		return workflowexecution.CurrentNodePreparation{}, err
-	}
-	if _, err := s.buildCurrentNodeAgentRuntimePlan(input, prepared); err != nil {
-		return workflowexecution.CurrentNodePreparation{}, err
-	}
-	input.CurrentNode.SessionID = id
-	assignment, err := s.currentNodeAgentAssignment(ctx, input, prepared)
-	if err != nil {
-		return workflowexecution.CurrentNodePreparation{}, err
-	}
 	return workflowexecution.CurrentNodePreparation{
 		Session: binding,
 		Assignment: &currentNodeAgentAssignmentSteer{
@@ -229,6 +248,29 @@ func (s *Starter) PrepareCurrentNode(
 			planned: preparation, delivery: delivery,
 		},
 	}, nil
+}
+
+func (s *Starter) finalizeCurrentNodeAgent(ctx context.Context, input workflowstore.CurrentNodeStartContext, prepared preparedCurrentNodeAgentSession) (preparedCurrentNodeAgentSession, runtime.WorkflowAssignment, error) {
+	if input.CurrentNode.Scheduling == nil {
+		return preparedCurrentNodeAgentSession{}, runtime.WorkflowAssignment{}, errors.New("Agent preparation requires scheduling state")
+	}
+	var err error
+	prepared.client, err = s.newWorkflowProviderClient(ctx, prepared.plan)
+	if err != nil {
+		return preparedCurrentNodeAgentSession{}, runtime.WorkflowAssignment{}, err
+	}
+	prepared.mode, err = s.resolveCurrentNodeCompletionMode(ctx, input, prepared.plan)
+	if err != nil {
+		return preparedCurrentNodeAgentSession{}, runtime.WorkflowAssignment{}, err
+	}
+	if _, err := s.buildCurrentNodeAgentRuntimePlan(input, prepared); err != nil {
+		return preparedCurrentNodeAgentSession{}, runtime.WorkflowAssignment{}, err
+	}
+	assignment, err := s.currentNodeAgentAssignment(ctx, input, prepared)
+	if err != nil {
+		return preparedCurrentNodeAgentSession{}, runtime.WorkflowAssignment{}, err
+	}
+	return prepared, assignment, nil
 }
 
 func currentNodeSessionExecutionTargetUpdate(root workflowstore.ExecutionRoot, id runtimeids.SessionID) metadata.SessionExecutionTargetUpdate {
@@ -253,7 +295,7 @@ func (s *Starter) prepareCurrentNodeClone(ctx context.Context, planner launch.Pl
 	return session.PrepareClone(descriptor, source, "", thinking, s.storeOptions...)
 }
 
-func (p *plannedCurrentNodeSession) materialize(ctx context.Context, starter *Starter, input workflowstore.CurrentNodeStartContext, prepared *preparedCurrentNodeAgentSession) error {
+func (p *plannedCurrentNodeSession) materialize(ctx context.Context, starter *Starter, input workflowstore.CurrentNodeStartContext, prepared *preparedCurrentNodeAgentSession, assignment *runtime.WorkflowAssignment) error {
 	if err := starter.store.ValidateCurrentNodeSessionBinding(ctx, prepared.plan.Descriptor.SessionID(), input.CurrentNode.Reference); err != nil {
 		return err
 	}
@@ -266,13 +308,22 @@ func (p *plannedCurrentNodeSession) materialize(ctx context.Context, starter *St
 		if err := starter.compactOutgoingCurrentNodeSession(ctx, input, prepared.root, *p.outgoing); err != nil {
 			return err
 		}
+		target, targetAssignment, err := p.finalizeTarget(ctx)
+		if err != nil {
+			return err
+		}
+		*prepared, *assignment = target, targetAssignment
 	}
 	return starter.withSessionStore(ctx, prepared.plan.Descriptor, func(_ context.Context, store *session.Store) error {
-		if p.outgoing != nil {
+		if p.outgoing != nil || store.Meta().ConnectionID == nil {
 			if _, err := prepared.plan.ActiveSettings.SelectedConnection(); err != nil {
 				return err
 			}
-			if err := store.SetConnectionID(*prepared.plan.ActiveSettings.Connection); err != nil {
+			id, err := prepared.plan.ActiveSettings.Connection.ConcreteID()
+			if err != nil {
+				return err
+			}
+			if err := store.SetConnectionID(*id); err != nil {
 				return err
 			}
 		}

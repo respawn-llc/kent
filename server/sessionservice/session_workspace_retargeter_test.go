@@ -161,11 +161,7 @@ func newRealSessionRetargetFixture(t *testing.T, useBlockingObserver bool, sourc
 	t.Helper()
 	ctx := context.Background()
 	persistenceRoot := t.TempDir()
-	metadataStore, err := metadata.Open(persistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
+	metadataStore := testsetup.OpenStore(t, persistenceRoot)
 	managedBase := t.TempDir()
 	sourceRoot := filepath.Join(managedBase, "source")
 	if len(sourceRoots) != 0 {

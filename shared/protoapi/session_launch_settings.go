@@ -99,8 +99,12 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 	if err != nil {
 		return nil, err
 	}
+	connection, err := connectionIDToProto(settings.Connection)
+	if err != nil {
+		return nil, err
+	}
 	message := &sessionlaunchpb.Settings{
-		Connection:                       connectionIDToProto(settings.Connection),
+		Connection:                       connection,
 		Model:                            settings.Model,
 		ThinkingLevel:                    settings.ThinkingLevel,
 		ModelVerbosity:                   modelVerbosity,
@@ -283,9 +287,13 @@ func reviewerSettingsToProto(settings config.ReviewerSettings) (*sessionlaunchpb
 	if err != nil {
 		return nil, err
 	}
+	connection, err := connectionIDToProto(settings.Connection)
+	if err != nil {
+		return nil, err
+	}
 	return &sessionlaunchpb.ReviewerSettings{
 		Frequency: settings.Frequency, Model: settings.Model, ThinkingLevel: settings.ThinkingLevel,
-		ModelVerbosity: verbosity, Connection: connectionIDToProto(settings.Connection),
+		ModelVerbosity: verbosity, Connection: connection,
 		ModelCapabilities:  modelCapabilitiesToProto(settings.ModelCapabilities),
 		ModelContextWindow: window, SystemPromptFile: settings.SystemPromptFile,
 		TimeoutSeconds: timeout, VerboseOutput: settings.VerboseOutput,
@@ -311,15 +319,19 @@ func reviewerSettingsFromProto(message *sessionlaunchpb.ReviewerSettings) (confi
 	}, nil
 }
 
-func connectionIDToProto(id *config.ConnectionID) *string {
-	if id == nil {
-		return nil
+func connectionIDToProto(selection *config.ConnectionSelection) (*string, error) {
+	if selection == nil {
+		return nil, nil
+	}
+	id, err := selection.ConcreteID()
+	if err != nil {
+		return nil, err
 	}
 	value := string(*id)
-	return &value
+	return &value, nil
 }
 
-func connectionIDFromProto(raw *string) (*config.ConnectionID, error) {
+func connectionIDFromProto(raw *string) (*config.ConnectionSelection, error) {
 	if raw == nil {
 		return nil, nil
 	}
@@ -327,7 +339,7 @@ func connectionIDFromProto(raw *string) (*config.ConnectionID, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &id, nil
+	return config.SingleConnection(id), nil
 }
 
 func modelCapabilitiesToProto(value config.ModelCapabilitiesOverride) *sessionlaunchpb.ModelCapabilitiesOverride {
@@ -449,6 +461,8 @@ func subagentRolesToProto(base config.Settings) ([]*sessionlaunchpb.NamedSubagen
 	for _, key := range keys {
 		value := values[key]
 		declaration := config.MaterializeSubagentRoleDeclaration(base, value)
+		selection := declaration.Connection
+		declaration.Connection = nil
 		settings, err := SessionSettingsToProto(declaration)
 		if err != nil {
 			return nil, fmt.Errorf("subagent %q settings: %w", key, err)
@@ -462,6 +476,7 @@ func subagentRolesToProto(base config.Settings) ([]*sessionlaunchpb.NamedSubagen
 			Role: &sessionlaunchpb.SubagentRole{
 				Settings: settings, Sources: sources, Description: value.Description,
 				AgentCallable: value.AgentCallable, WorkflowSubagent: value.WorkflowSubagent,
+				ConnectionSelection: ConnectionSelectionToProto(selection),
 			},
 		})
 	}
@@ -477,6 +492,13 @@ func subagentRolesFromProto(values []*sessionlaunchpb.NamedSubagentRole) (map[st
 		settings, err := SessionSettingsFromProto(value.Role.Settings)
 		if err != nil {
 			return nil, fmt.Errorf("subagent %q settings: %w", value.Name, err)
+		}
+		if settings.Connection != nil {
+			return nil, fmt.Errorf("subagent %q must use its configured connection selection", value.Name)
+		}
+		settings.Connection, err = ConnectionSelectionFromProto(value.Role.ConnectionSelection)
+		if err != nil {
+			return nil, fmt.Errorf("subagent %q connection selection: %w", value.Name, err)
 		}
 		sources, err := sourceFactsFromProto(value.Role.Sources)
 		if err != nil {

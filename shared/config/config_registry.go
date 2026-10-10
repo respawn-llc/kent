@@ -240,12 +240,12 @@ var configRegistry = newSettingsRegistry()
 func newSettingsRegistry() settingsRegistry {
 	settings := []registrySetting{
 		connectionsSetting{},
-		newConnectionReference("connection",
-			func(state *settingsState, value *ConnectionID) { state.Settings.Connection = value },
-			func(state settingsState) *ConnectionID { return state.Settings.Connection }),
-		newConnectionReference("reviewer.connection",
-			func(state *settingsState, value *ConnectionID) { state.Settings.Reviewer.Connection = value },
-			func(state settingsState) *ConnectionID { return state.Settings.Reviewer.Connection }),
+		newConnectionReference("connection", true,
+			func(state *settingsState, value *ConnectionSelection) { state.Settings.Connection = value },
+			func(state settingsState) *ConnectionSelection { return state.Settings.Connection }),
+		newConnectionReference("reviewer.connection", false,
+			func(state *settingsState, value *ConnectionSelection) { state.Settings.Reviewer.Connection = value },
+			func(state settingsState) *ConnectionSelection { return state.Settings.Reviewer.Connection }),
 		newStringSetting("model", defaultModel,
 			func(state *settingsState, value string) { state.Settings.Model = value },
 			func(state settingsState) string { return state.Settings.Model },

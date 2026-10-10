@@ -104,11 +104,7 @@ func newPlacementFixture(t *testing.T) (config.App, *metadata.Store, *session.St
 		t.Fatal(err)
 	}
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
-	store, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := testsetup.OpenStore(t, cfg.PersistenceRoot)
 	binding, err := store.RegisterWorkspaceBinding(t.Context(), cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatal(err)

@@ -10,7 +10,6 @@ import (
 
 	"core/server/auth"
 	"core/server/launch"
-	"core/server/metadata"
 	"core/server/session"
 	"core/shared/config"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
@@ -54,11 +53,11 @@ connection = "missing"
 				if err != nil {
 					t.Fatal(err)
 				}
-				binding, err := metadata.RegisterBinding(t.Context(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
+				app := newCoreTestApp(t, cfg, auth.EmptyState())
+				binding, err := app.MetadataStore().RegisterWorkspaceBinding(t.Context(), cfg.WorkspaceRoot)
 				if err != nil {
 					t.Fatal(err)
 				}
-				app := newCoreTestApp(t, cfg, auth.EmptyState())
 				store := createCoreSettingsSession(t, app, cfg, binding.ProjectID)
 				if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("worker")}); err != nil {
 					t.Fatal(err)
@@ -189,11 +188,11 @@ model = %q
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := metadata.RegisterBinding(t.Context(), root, workspace)
+	app := newCoreTestApp(t, cfg, auth.EmptyState())
+	binding, err := app.MetadataStore().RegisterWorkspaceBinding(t.Context(), workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := newCoreTestApp(t, cfg, auth.EmptyState())
 	store := createCoreSettingsSession(t, app, cfg, binding.ProjectID)
 	state, err := session.ChatSettingsStateFromCompleteSettings("worker", session.ChatSettings{
 		Supervisor: "edits", Thinking: "high", Fast: true, Questions: false, AutoCompaction: false,

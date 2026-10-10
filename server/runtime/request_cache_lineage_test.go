@@ -19,7 +19,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
+	"testing/synctest"
 )
 
 func TestWorkflowCacheFriendlyCompletionModesKeepRequestMetadataStableAcrossContracts(t *testing.T) {
@@ -344,8 +344,10 @@ func TestGenerateWithRetryClient_OffModeSuppressesExactNonPostfixWarning(t *test
 }
 
 func TestGenerateWithRetryClient_FailedRequestDoesNotAdvanceLineage(t *testing.T) {
-	withGenerateRetryDelays(t, []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond, time.Millisecond, time.Millisecond})
+	synctest.Test(t, testGenerateWithRetryClientFailedRequestDoesNotAdvanceLineage)
+}
 
+func testGenerateWithRetryClientFailedRequestDoesNotAdvanceLineage(t *testing.T) {
 	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: 10}}, {Usage: llm.Usage{InputTokens: 12}}}}
 	store, eng := newCacheWarningTestEngine(t, client, config.CacheWarningModeDefault)
 	if _, err := generateTestActiveStep(context.Background(), eng, "step-1", client, testPromptCacheRequest("cache-key-1", "alpha")); err != nil {

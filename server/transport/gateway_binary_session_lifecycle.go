@@ -60,7 +60,7 @@ func registerSessionLifecycleUnary[Request interface {
 			if details := binarySessionRetargetFailure(err); details != nil {
 				return details
 			}
-			return binaryAuthFailure(err)
+			return binaryAuthReadinessFailure(err)
 		})
 }
 

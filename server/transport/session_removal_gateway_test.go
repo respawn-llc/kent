@@ -201,7 +201,7 @@ func newSessionRemovalGatewayFixture(t *testing.T) sessionRemovalGatewayFixture 
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	service := sessionservice.NewGlobalSessionLifecycleService(persistenceRoot, authority, nil).WithPersistedSessionResolver(deleteGate)
+	service := sessionservice.NewGlobalSessionLifecycleService(persistenceRoot, authority, nil, deleteGate)
 	return sessionRemovalGatewayFixture{remote: newSessionRemovalGatewayRemote(t, service), authority: authority, metadata: metadataStore, session: persisted, deleteGate: deleteGate}
 }
 

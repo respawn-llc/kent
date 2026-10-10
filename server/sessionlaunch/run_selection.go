@@ -82,7 +82,7 @@ func (s *Service) prepareRunSelection(
 		return runSelection{}, err
 	}
 	if req.CallerSessionID != nil {
-		_, err := launch.ResolveSessionCaller(planner.Config.PersistenceRoot, *req.CallerSessionID)
+		_, err := launch.ResolveSessionCaller(ctx, planner.CallerSessions, *req.CallerSessionID)
 		if err != nil {
 			if errors.Is(err, session.ErrSessionNotFound) {
 				return runSelection{}, &serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialCallerMissing}

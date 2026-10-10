@@ -53,7 +53,7 @@ func registerRunPromptGatewayBinaryBinding(bindings map[string]gatewayBinaryBind
 			if details, ok := binaryServerNotReadyDetails(err); ok {
 				return gatewayBinaryFailureResult(method, details)
 			}
-			return gatewayBinaryFailureResult(method, binaryAuthFailure(err))
+			return gatewayBinaryFailureResult(method, binaryAuthReadinessFailure(err))
 		},
 		invoke: func(g *Gateway, ctx context.Context, state *connectionState, message proto.Message, emit func(proto.Message) error) (proto.Message, error) {
 			request, err := protoapi.RunPromptRequestFromProto(message.(*runpromptpb.Request))

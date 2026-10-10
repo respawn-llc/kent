@@ -5,21 +5,142 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
 
+	modelstub "core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/testsetup"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/session"
 	"core/server/workflow"
 	"core/server/workflowexecution"
+	"core/server/workflowruntime"
 	"core/server/workflowstore"
 	"core/shared/config"
+	"core/shared/textutil"
 	"core/shared/toolspec"
 )
+
+func TestCompactionRotationUsesActualDestinationCredentialsAndCompletion(t *testing.T) {
+	a, err := modelstub.StartScriptedResponsesStub(modelstub.Script{Steps: []modelstub.ScriptStep{
+		modelstub.FinalAnswer(`{"transition":"next","commentary":"done"}`),
+		modelstub.FinalAnswer("Outgoing summary."),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Stop() })
+	b, err := modelstub.StartScriptedResponsesStub(modelstub.Script{Steps: []modelstub.ScriptStep{
+		modelstub.FinalAnswer(`{"commentary":"done"}`),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = b.Stop() })
+	type observedRequest struct {
+		Member config.ConnectionID
+		Auth   string
+		Model  string
+	}
+	observed := make(chan observedRequest, 8)
+	proxy := func(member config.ConnectionID, destination string) *httptest.Server {
+		target, err := url.Parse(destination)
+		if err != nil {
+			t.Fatal(err)
+		}
+		target.Path = ""
+		upstream := httputil.NewSingleHostReverseProxy(target)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Error(err)
+				http.Error(w, "read request", http.StatusBadRequest)
+				return
+			}
+			var request struct {
+				Model string `json:"model"`
+			}
+			if err := json.Unmarshal(body, &request); err != nil {
+				t.Error(err)
+				http.Error(w, "decode request", http.StatusBadRequest)
+				return
+			}
+			observed <- observedRequest{Member: member, Auth: r.Header.Get("Authorization"), Model: request.Model}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			upstream.ServeHTTP(w, r)
+		}))
+		t.Cleanup(server.Close)
+		return server
+	}
+	endpointA, endpointB := proxy("a", a.URL()), proxy("b", b.URL())
+	f := newCurrentNodeRunnerFixture(t)
+	cfg := &f.starter.cfg
+	cfg.Settings.Model = "gpt-6-sol"
+	cfg.Settings.CompactionMode = config.CompactionModeLocal
+	cfg.Settings.Workflow.CompletionMode = config.WorkflowCompletionModeAuto
+	selection := config.ConnectionSelection{"b", "a"}
+	cfg.Settings.Connection = &selection
+	cfg.Settings.Connections = map[config.ConnectionID]config.ProviderConnection{}
+	for _, member := range []struct {
+		id        config.ConnectionID
+		endpoint  string
+		key       string
+		responses bool
+	}{
+		{"a", endpointA.URL + "/v1", "KENT_TEST_ACCOUNT_A", false},
+		{"b", endpointB.URL + "/v1", "KENT_TEST_ACCOUNT_B", true},
+	} {
+		t.Setenv(member.key, "credential-"+string(member.id))
+		cfg.Settings.Connections[member.id] = config.ProviderConnection{
+			Protocol: config.ConnectionResponses, Endpoint: textutil.Value(member.endpoint), EnvironmentVariable: textutil.Value(member.key),
+			Capabilities: config.ProviderCapabilitiesOverride{ProviderID: "openai-compatible", SupportsResponsesAPI: member.responses},
+		}
+	}
+	for _, roleName := range []string{"coder", "reviewer"} {
+		role := cfg.Settings.Subagents[roleName]
+		role.Settings.Model = "gpt-6-sol"
+		cfg.Settings.Subagents[roleName] = role
+	}
+	writeCurrentNodeConfig(t, *cfg)
+	f.starter.runtimeClientFactory = nil
+	workflowID := createCurrentNodeTwoStepWorkflow(t, f.store, "Connection rotation dispatch",
+		workflow.ContextModeCompactAndContinueSession,
+		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete.", completionMode: string(config.WorkflowCompletionModeUnstructured)},
+		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "reviewer", prompt: "Review."},
+	)
+	task := f.createTask(t, workflowID)
+	f.startTask(t, task)
+	for index, want := range []config.ConnectionID{"a", "a", "b"} {
+		select {
+		case request := <-observed:
+			if request.Member != want || request.Auth != "Bearer credential-"+string(want) || request.Model != "gpt-6-sol" {
+				t.Fatalf("request %d = %+v; want member %s with its credential/model", index, request, want)
+			}
+		case <-time.After(currentNodeRunnerWait):
+			nodes, err := f.store.ListCurrentNodes(t.Context(), task.ID)
+			for _, node := range nodes {
+				if node.Scheduling != nil {
+					t.Logf("scheduling=%+v interruption=%+v", *node.Scheduling, node.Scheduling.Interruption)
+				}
+			}
+			t.Fatalf("request %d did not reach selected member %s; nodes=%+v error=%v", index, want, nodes, err)
+		}
+	}
+	f.waitForTaskQuiescence(t, task.ID)
+	meta := f.onlyProjectSessionMeta(t)
+	if meta.ConnectionID == nil || *meta.ConnectionID != "b" || meta.Locked == nil ||
+		meta.Locked.WorkflowCompletionMode == nil || *meta.Locked.WorkflowCompletionMode != workflowruntime.CompletionModeStructuredOutput {
+		t.Fatalf("target binding/completion did not use selected B: %+v", meta)
+	}
+}
 
 func TestLazyCompactAndContinueUsesOutgoingConfiguration(t *testing.T) {
 	client := newLazyCompactionClient([]llm.CompactionResponse{workflowPostCompletionCompactionResponse("lazy-source")})
@@ -179,7 +300,7 @@ func configureCompactionThinking(t *testing.T, f *currentNodeRunnerFixture) {
 	for role, effort := range map[string]string{"coder": "low", "reviewer": "high"} {
 		settings := f.starter.cfg.Settings.Subagents[role]
 		id := config.ConnectionID(role)
-		settings.Settings.Connection = &id
+		settings.Settings.Connection = config.SingleConnection(id)
 		f.starter.cfg.Settings.Connections[id] = config.ProviderConnection{Protocol: config.ConnectionChatGPT}
 		settings.Sources["connection"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "connection"}}
 		settings.Settings.ThinkingLevel = effort

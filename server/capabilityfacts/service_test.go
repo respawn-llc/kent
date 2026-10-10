@@ -80,7 +80,7 @@ func TestServiceProjectsContextWindowsForSelectedConnection(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			id := config.ConnectionID("selected")
 			service := NewService(Options{Config: testConfig(t, config.Settings{
-				Model: "gpt-6-sol", Connection: &id,
+				Model: "gpt-6-sol", Connection: config.SingleConnection(id),
 				Connections: map[config.ConnectionID]config.ProviderConnection{id: tc.connection},
 			})})
 			facts, err := service.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{})
@@ -150,13 +150,17 @@ func TestServiceProjectsProviderVerbosityIndependentlyOfFirstPartyClassification
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			settings := testsetup.ProviderSettings(config.Settings{Model: "operator-alias"})
-			definition := settings.Connections[*settings.Connection]
+			id, err := settings.Connection.ConcreteID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			definition := settings.Connections[*id]
 			definition.Capabilities = config.ProviderCapabilitiesOverride{
 				ProviderID:                "custom-provider",
 				IsOpenAIFirstParty:        tt.isOpenAIFirstParty,
 				SupportsProviderVerbosity: tt.supportsProviderVerbosity,
 			}
-			settings.Connections[*settings.Connection] = definition
+			settings.Connections[*id] = definition
 			service := NewService(Options{Config: testConfig(t, settings)})
 
 			resp, err := service.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{})
@@ -172,11 +176,15 @@ func TestServiceProjectsProviderVerbosityIndependentlyOfFirstPartyClassification
 
 func TestServiceProjectsFastModeFromTheSelectedConnection(t *testing.T) {
 	settings := testsetup.ProviderSettings(config.Settings{Model: "gpt-6-sol"})
-	definition := settings.Connections[*settings.Connection]
+	id, err := settings.Connection.ConcreteID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := settings.Connections[*id]
 	definition.Capabilities = config.ProviderCapabilitiesOverride{
 		ProviderID: "custom-provider", SupportsResponsesAPI: true, SupportsFastMode: true,
 	}
-	settings.Connections[*settings.Connection] = definition
+	settings.Connections[*id] = definition
 	service := NewService(Options{Config: testConfig(t, settings)})
 
 	resp, err := service.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{})

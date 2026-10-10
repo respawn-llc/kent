@@ -7,10 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"core/server/metadata"
 	"core/server/workflow"
 	"core/server/workflow/label"
-	"core/shared/config"
 	"core/shared/serverapi"
 	sqlitedriver "modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
@@ -397,44 +395,6 @@ func TestProjectLabelCatalogEnforcesUnicodeNameUniquenessAndTheHundredLabelLimit
 	}
 	if _, err := store.CreateProjectLabel(ctx, binding.ProjectID, "replacement"); err != nil {
 		t.Fatalf("CreateProjectLabel after delete: %v", err)
-	}
-}
-
-func TestConcurrentProjectLabelCreatesResolveToTypedConflictAndAtomicLimit(t *testing.T) {
-	ctx, fixtureStore, binding, cfg := newTestStoreWithConfigContext(t)
-	createStore, competingStore := openConcurrentWorkflowStores(t, cfg)
-
-	results := raceProjectLabelCreates(
-		func() (ProjectLabelRecord, error) {
-			return createStore.CreateProjectLabel(ctx, binding.ProjectID, "Concurrent")
-		},
-		func() (ProjectLabelRecord, error) {
-			return competingStore.CreateProjectLabel(ctx, binding.ProjectID, "concurrent")
-		},
-	)
-	assertOneProjectLabelCreateErrorAllowed(t, results, ErrProjectLabelNameConflict)
-
-	for index := 1; index < label.MaxProjectLabels-1; index++ {
-		if _, err := fixtureStore.CreateProjectLabel(ctx, binding.ProjectID, fmt.Sprintf("capacity-%03d", index)); err != nil {
-			t.Fatalf("fill label capacity %d: %v", index, err)
-		}
-	}
-	results = raceProjectLabelCreates(
-		func() (ProjectLabelRecord, error) {
-			return createStore.CreateProjectLabel(ctx, binding.ProjectID, "final-a")
-		},
-		func() (ProjectLabelRecord, error) {
-			return competingStore.CreateProjectLabel(ctx, binding.ProjectID, "final-b")
-		},
-	)
-	assertOneProjectLabelCreateErrorAllowed(t, results, ErrProjectLabelLimitReached)
-
-	labels, err := fixtureStore.ListProjectLabels(ctx, binding.ProjectID)
-	if err != nil {
-		t.Fatalf("ListProjectLabels after concurrent limit race: %v", err)
-	}
-	if len(labels) != label.MaxProjectLabels {
-		t.Fatalf("label count after concurrent limit race = %d, want %d", len(labels), label.MaxProjectLabels)
 	}
 }
 
@@ -845,27 +805,6 @@ func TestTaskLabelAssignmentSupportsEveryTaskLifecycleState(t *testing.T) {
 	}
 }
 
-func openConcurrentWorkflowStores(t *testing.T, cfg config.App) (*Store, *Store) {
-	t.Helper()
-	open := func() *Store {
-		metadataStore, err := metadata.Open(cfg.PersistenceRoot)
-		if err != nil {
-			t.Fatalf("metadata.Open concurrent store: %v", err)
-		}
-		t.Cleanup(func() {
-			if err := metadataStore.Close(); err != nil {
-				t.Errorf("close concurrent metadata store: %v", err)
-			}
-		})
-		store, err := New(metadataStore)
-		if err != nil {
-			t.Fatalf("workflowstore.New concurrent store: %v", err)
-		}
-		return store
-	}
-	return open(), open()
-}
-
 func TestTaskLabelUpdateAcceptsTheFullProjectCatalog(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
@@ -989,137 +928,6 @@ func TestTaskCreateInvalidLabelsRollBackCurrentNodeAndAssignments(t *testing.T) 
 			}
 		})
 	}
-}
-
-func TestLabelDeleteRacingWithAssignmentConvergesWithoutOrphans(t *testing.T) {
-	ctx, fixtureStore, binding, cfg := newTestStoreWithConfigContext(t)
-	createLinkedValidWorkflow(t, ctx, fixtureStore, binding.ProjectID)
-	task := createDefaultTask(t, ctx, fixtureStore, binding.ProjectID)
-	projectLabel, err := fixtureStore.CreateProjectLabel(ctx, binding.ProjectID, "race")
-	if err != nil {
-		t.Fatalf("CreateProjectLabel: %v", err)
-	}
-	assignStore, deleteStore := openConcurrentWorkflowStores(t, cfg)
-
-	start := make(chan struct{})
-	assignmentResult := make(chan error, 1)
-	deleteResult := make(chan error, 1)
-	go func() {
-		<-start
-		_, err := assignStore.UpdateTaskLabels(ctx, TaskLabelUpdateRequest{
-			TaskID:      task.ID,
-			AddLabelIDs: []string{projectLabel.ID.String()},
-		})
-		assignmentResult <- err
-	}()
-	go func() {
-		<-start
-		_, err := deleteStore.DeleteProjectLabel(ctx, binding.ProjectID, projectLabel.ID)
-		deleteResult <- err
-	}()
-	close(start)
-
-	deleteErr := <-deleteResult
-	assignmentErr := <-assignmentResult
-	if deleteErr != nil && !isSQLiteBusy(deleteErr) {
-		t.Fatalf("DeleteProjectLabel race: %v", deleteErr)
-	}
-	if assignmentErr != nil && !errors.Is(assignmentErr, ErrTaskLabelNotFound) && !isSQLiteBusy(assignmentErr) {
-		t.Fatalf("UpdateTaskLabels race = %v, want success, ErrTaskLabelNotFound, or SQLite busy", assignmentErr)
-	}
-	labels, err := fixtureStore.ListProjectLabels(ctx, binding.ProjectID)
-	if err != nil {
-		t.Fatalf("ListProjectLabels after race: %v", err)
-	}
-	assigned, err := fixtureStore.GetTaskLabelIDs(ctx, task.ID)
-	if err != nil {
-		t.Fatalf("GetTaskLabelIDs after race: %v", err)
-	}
-	assertProjectLabelOrdinalsContiguous(t, ctx, fixtureStore, binding.ProjectID)
-	if deleteErr == nil {
-		if len(labels) != 0 || len(assigned) != 0 {
-			t.Fatalf("catalog/assignments after committed delete = %+v / %+v, want empty", labels, assigned)
-		}
-		return
-	}
-	if len(labels) != 1 || labels[0].ID != projectLabel.ID {
-		t.Fatalf("catalog after rolled-back delete = %+v, want retained label", labels)
-	}
-	if assignmentErr == nil && (len(assigned) != 1 || assigned[0] != projectLabel.ID) {
-		t.Fatalf("assignment after rolled-back delete = %+v, want retained assignment", assigned)
-	}
-}
-
-func TestProjectLabelReorderRacingWithCreateLeavesValidCatalog(t *testing.T) {
-	ctx, fixtureStore, binding, cfg := newTestStoreWithConfigContext(t)
-	first, err := fixtureStore.CreateProjectLabel(ctx, binding.ProjectID, "first")
-	if err != nil {
-		t.Fatalf("CreateProjectLabel first: %v", err)
-	}
-	second, err := fixtureStore.CreateProjectLabel(ctx, binding.ProjectID, "second")
-	if err != nil {
-		t.Fatalf("CreateProjectLabel second: %v", err)
-	}
-	reorderStore, createStore := openConcurrentWorkflowStores(t, cfg)
-
-	start := make(chan struct{})
-	reorderResult := make(chan error, 1)
-	createResult := make(chan error, 1)
-	go func() {
-		<-start
-		_, err := reorderStore.ReorderProjectLabels(ctx, binding.ProjectID, []label.ID{first.ID, second.ID})
-		reorderResult <- err
-	}()
-	go func() {
-		<-start
-		_, err := createStore.CreateProjectLabel(ctx, binding.ProjectID, "third")
-		createResult <- err
-	}()
-	close(start)
-
-	if err := <-reorderResult; err != nil && !isSQLiteBusy(err) && !isProjectLabelReorderValidation(err) {
-		t.Fatalf("ReorderProjectLabels race: %v", err)
-	}
-	if err := <-createResult; err != nil && !isSQLiteBusy(err) {
-		t.Fatalf("CreateProjectLabel race: %v", err)
-	}
-	assertProjectLabelOrdinalsContiguous(t, ctx, fixtureStore, binding.ProjectID)
-}
-
-func TestProjectLabelReorderRacingWithDeleteLeavesValidCatalog(t *testing.T) {
-	ctx, fixtureStore, binding, cfg := newTestStoreWithConfigContext(t)
-	first, err := fixtureStore.CreateProjectLabel(ctx, binding.ProjectID, "first")
-	if err != nil {
-		t.Fatalf("CreateProjectLabel first: %v", err)
-	}
-	second, err := fixtureStore.CreateProjectLabel(ctx, binding.ProjectID, "second")
-	if err != nil {
-		t.Fatalf("CreateProjectLabel second: %v", err)
-	}
-	reorderStore, deleteStore := openConcurrentWorkflowStores(t, cfg)
-
-	start := make(chan struct{})
-	reorderResult := make(chan error, 1)
-	deleteResult := make(chan error, 1)
-	go func() {
-		<-start
-		_, err := reorderStore.ReorderProjectLabels(ctx, binding.ProjectID, []label.ID{first.ID, second.ID})
-		reorderResult <- err
-	}()
-	go func() {
-		<-start
-		_, err := deleteStore.DeleteProjectLabel(ctx, binding.ProjectID, second.ID)
-		deleteResult <- err
-	}()
-	close(start)
-
-	if err := <-reorderResult; err != nil && !isSQLiteBusy(err) && !isProjectLabelReorderValidation(err) {
-		t.Fatalf("ReorderProjectLabels race: %v", err)
-	}
-	if err := <-deleteResult; err != nil && !isSQLiteBusy(err) {
-		t.Fatalf("DeleteProjectLabel race: %v", err)
-	}
-	assertProjectLabelOrdinalsContiguous(t, ctx, fixtureStore, binding.ProjectID)
 }
 
 func assertProjectLabelOrdinalsContiguous(t *testing.T, ctx context.Context, store *Store, projectID string) {

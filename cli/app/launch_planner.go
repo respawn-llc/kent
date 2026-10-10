@@ -245,7 +245,10 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	activeSettings.Debug = local.Debug
 	activeSettings.NotificationMethod = local.NotificationMethod
 	activeSettings.TUINativeProgressBar = local.TUINativeProgressBar
-	authSelection := authstatus.ProviderSelection(activeSettings)
+	authSelection, err := authstatus.ProviderSelection(activeSettings)
+	if err != nil {
+		return sessionLaunchPlan{}, err
+	}
 	sessionTitle, err := validateLaunchSessionTitle(resp.Plan.SessionName)
 	if err != nil {
 		return sessionLaunchPlan{}, err

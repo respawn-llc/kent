@@ -33,19 +33,14 @@ type SessionLifecycleService struct {
 	retargeter      sessionWorkspaceRetargeter
 	navigation      sessionNavigationTargetResolver
 	authManager     *auth.Manager
-	persisted       session.PersistedSessionResolver
-	removal         sessionRemovalMetadata
+	metadata        SessionLifecycleMetadata
 	debug           bool
 }
 
-func (s *SessionLifecycleService) WithPersistedSessionResolver(resolver session.PersistedSessionResolver) *SessionLifecycleService {
-	if s != nil {
-		s.persisted = resolver
-		if removal, ok := resolver.(sessionRemovalMetadata); ok {
-			s.removal = removal
-		}
-	}
-	return s
+type SessionLifecycleMetadata interface {
+	session.PersistedSessionResolver
+	DeleteSession(context.Context, string) error
+	launch.MetadataExecutionTargetStore
 }
 
 type sessionWorkspaceRetargeter interface {
@@ -57,11 +52,12 @@ type sessionNavigationTargetResolver interface {
 	ResolveSessionNavigationBinding(ctx context.Context, sessionID string) (*sessionlaunchpb.SessionNavigationBinding, error)
 }
 
-func NewGlobalSessionLifecycleService(persistenceRoot string, authority *sessionruntime.Authority, authManager *auth.Manager) *SessionLifecycleService {
+func NewGlobalSessionLifecycleService(persistenceRoot string, authority *sessionruntime.Authority, authManager *auth.Manager, owner SessionLifecycleMetadata) *SessionLifecycleService {
 	return &SessionLifecycleService{
 		persistenceRoot: strings.TrimSpace(persistenceRoot),
 		authority:       authority,
 		authManager:     authManager,
+		metadata:        owner,
 	}
 }
 
@@ -99,10 +95,10 @@ func (s *SessionLifecycleService) GetInitialInput(ctx context.Context, req *sess
 }
 
 func (s *SessionLifecycleService) resolvePersistedSessionMeta(ctx context.Context, sessionID string) (session.Meta, error) {
-	if s == nil || s.persisted == nil {
+	if s == nil || s.metadata == nil {
 		return session.Meta{}, errors.New("persisted Session resolver is required")
 	}
-	record, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, sessionID)
+	record, err := session.ResolvePersistedSessionRecord(ctx, s.metadata, sessionID)
 	if err != nil {
 		return session.Meta{}, err
 	}
@@ -218,12 +214,11 @@ func (s *SessionLifecycleService) resolveForkRollbackTransition(ctx context.Cont
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
 	transition.ForkUserMessageSeq = forkUserMessageSeq
-	metadataStore, err := metadata.Open(s.persistenceRoot)
-	if err != nil {
-		return nil, err
+	if s.metadata == nil {
+		return nil, errors.New("session execution-target metadata owner is required")
 	}
-	target, targetErr := metadataStore.ResolveSessionExecutionTarget(ctx, store.Meta().SessionID)
-	if err := errors.Join(targetErr, metadataStore.Close()); err != nil {
+	target, err := s.metadata.ResolveSessionExecutionTarget(ctx, store.Meta().SessionID)
+	if err != nil {
 		return nil, err
 	}
 	app, err := config.Load(store.Meta().WorkspaceRoot, target.WorkspaceRoot, config.LoadOptions{ConfigRoot: s.persistenceRoot})
@@ -288,19 +283,17 @@ func (s *SessionLifecycleService) preserveForkExecutionTarget(ctx context.Contex
 	if strings.TrimSpace(s.persistenceRoot) == "" {
 		return nil
 	}
-	metadataStore, err := metadata.Open(s.persistenceRoot)
-	if err != nil {
-		return err
+	if s.metadata == nil {
+		return errors.New("session execution-target metadata owner is required")
 	}
-	defer func() { _ = metadataStore.Close() }()
-	target, err := metadataStore.ResolveSessionExecutionTarget(ctx, trimmedParentID)
+	target, err := s.metadata.ResolveSessionExecutionTarget(ctx, trimmedParentID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, session.ErrSessionNotFound) {
 			return nil
 		}
 		return err
 	}
-	return metadataStore.UpdateSessionExecutionTarget(ctx, metadata.SessionExecutionTargetUpdateFromReadModel(trimmedChildID, target))
+	return s.metadata.UpdateSessionExecutionTarget(ctx, metadata.SessionExecutionTargetUpdateFromReadModel(trimmedChildID, target))
 }
 
 func (s *SessionLifecycleService) withStore(

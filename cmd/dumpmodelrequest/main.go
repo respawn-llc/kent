@@ -188,7 +188,11 @@ func captureSessionRequest(
 	}
 	mode := llm.OpenAIAuthMode{IsOAuth: definition.Protocol == config.ConnectionChatGPT}
 	if activeSettings.Connection != nil {
-		mode.AccountID = authState.Connections[*activeSettings.Connection].AccountID
+		id, resolveErr := activeSettings.Connection.ConcreteID()
+		if resolveErr != nil {
+			return capturedRequest{}, resolveErr
+		}
+		mode.AccountID = authState.Connections[*id].AccountID
 	}
 	executionRoot := workingDirectory
 	if workflowPrompt == nil {

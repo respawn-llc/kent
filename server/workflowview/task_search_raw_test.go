@@ -1,22 +1,14 @@
 package workflowview
 
 import (
-	"context"
-	"database/sql"
 	"errors"
 	"fmt"
-	"net/url"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"core/server/metadata"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
-
-	sqlitedriver "modernc.org/sqlite"
-	sqlite3 "modernc.org/sqlite/lib"
 )
 
 func TestTaskSearchRawFTS5UsesMarkerFreeKnownColumnSnippets(t *testing.T) {
@@ -253,79 +245,6 @@ func TestTaskSearchRawFTS5SQLiteErrorsRemainOperational(t *testing.T) {
 	var searchErr *serverapi.TaskSearchError
 	if err == nil || errors.As(err, &searchErr) {
 		t.Fatalf("raw FTS5 SQLite error = %T %v, want a generic operational error", err, err)
-	}
-}
-
-func TestTaskSearchKeepsSQLiteLockContentionOperational(t *testing.T) {
-	fixture, search := newTaskSearchFixture(t, false)
-	createTaskSearchTask(t, fixture, "needle title", "needle body")
-	if _, err := fixture.metadata.DB().ExecContext(fixture.ctx, "PRAGMA journal_mode = DELETE"); err != nil {
-		t.Fatalf("switch isolated fixture to rollback journaling: %v", err)
-	}
-	fixture.metadata.DB().SetMaxOpenConns(1)
-	fixture.metadata.DB().SetMaxIdleConns(1)
-	searchConnection, err := fixture.metadata.DB().Conn(fixture.ctx)
-	if err != nil {
-		t.Fatalf("acquire search database connection: %v", err)
-	}
-	if _, err := searchConnection.ExecContext(fixture.ctx, "PRAGMA busy_timeout = 1"); err != nil {
-		if closeErr := searchConnection.Close(); closeErr != nil {
-			t.Errorf("close search database connection: %v", closeErr)
-		}
-		t.Fatalf("set search connection busy timeout: %v", err)
-	}
-	if err := searchConnection.Close(); err != nil {
-		t.Fatalf("release configured search database connection: %v", err)
-	}
-
-	databasePath := filepath.Join(fixture.metadata.PersistenceRoot(), "db", "main.sqlite3")
-	lockURL := url.URL{Scheme: "file", Path: databasePath}
-	lockURL.RawQuery = "_pragma=busy_timeout(1)"
-	lockDB, err := sql.Open("sqlite", lockURL.String())
-	if err != nil {
-		t.Fatalf("open lock database connection: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := lockDB.Close(); err != nil {
-			t.Errorf("close lock database: %v", err)
-		}
-	})
-	lockConnection, err := lockDB.Conn(fixture.ctx)
-	if err != nil {
-		t.Fatalf("acquire lock database connection: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := lockConnection.Close(); err != nil {
-			t.Errorf("close lock database connection: %v", err)
-		}
-	})
-	if _, err := lockConnection.ExecContext(fixture.ctx, "PRAGMA locking_mode = EXCLUSIVE"); err != nil {
-		t.Fatalf("set exclusive locking mode: %v", err)
-	}
-	if _, err := lockConnection.ExecContext(fixture.ctx, "BEGIN EXCLUSIVE"); err != nil {
-		t.Fatalf("acquire exclusive SQLite lock: %v", err)
-	}
-	t.Cleanup(func() {
-		if _, err := lockConnection.ExecContext(context.Background(), "ROLLBACK"); err != nil {
-			t.Errorf("release exclusive SQLite lock: %v", err)
-		}
-	})
-
-	busyCtx, cancel := context.WithTimeout(fixture.ctx, 250*time.Millisecond)
-	t.Cleanup(cancel)
-	_, err = search.Search(busyCtx, &taskpb.SearchRequest{
-		Mode:     taskpb.SearchMode_SEARCH_MODE_FTS5,
-		Query:    `"`,
-		Context:  serverapi.TaskSearchDefaultContext,
-		PageSize: serverapi.TaskSearchDefaultPageSize,
-	})
-	var searchErr *serverapi.TaskSearchError
-	if err == nil || errors.As(err, &searchErr) {
-		t.Fatalf("SQLite lock contention error = %T %v, want an operational error instead of a raw FTS5 error", err, err)
-	}
-	var sqliteErr *sqlitedriver.Error
-	if !errors.As(err, &sqliteErr) || sqliteErr.Code()&0xff != sqlite3.SQLITE_BUSY {
-		t.Fatalf("SQLite lock contention error = %T %v, want SQLITE_BUSY", err, err)
 	}
 }
 

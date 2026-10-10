@@ -70,7 +70,7 @@ func registerSessionBinarySubscription[
 			return routeScopeParams{sessionID: request.GetSessionId()}, nil
 		},
 		subscribe,
-		func(_ Request, err error) proto.Message { return binaryAuthFailure(err) })
+		func(_ Request, err error) proto.Message { return binaryAuthReadinessFailure(err) })
 }
 
 func registerGatewayBinarySubscription[

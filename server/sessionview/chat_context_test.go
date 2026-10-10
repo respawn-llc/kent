@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
-	"core/server/metadata"
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/shared/config"
@@ -140,11 +139,7 @@ func TestReadDormantSessionChatContextUsesCurrentRoleBudgetWithLockedProvider(t 
 func TestReadDormantSessionChatContextUsesProductionPersistenceResolverWithoutEventLogMaterialization(t *testing.T) {
 	persistenceRoot := t.TempDir()
 	workspaceRoot := t.TempDir()
-	metadataStore, err := metadata.Open(persistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
+	metadataStore := testsetup.OpenStore(t, persistenceRoot)
 	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), workspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)

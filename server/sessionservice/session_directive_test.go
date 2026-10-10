@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/session"
 	"core/shared/protoapi"
@@ -17,7 +18,7 @@ import (
 
 func TestSessionTransitionMapsEveryActionToTypedLifecycleResult(t *testing.T) {
 	parentID := runtimeids.NewSessionID()
-	service := newTestSessionLifecycleService(t.TempDir(), nil)
+	service := newTestSessionLifecycleService(t.TempDir(), nil, testsetup.OpenStore(t, t.TempDir()))
 
 	tests := []struct {
 		name       string
@@ -89,7 +90,7 @@ func TestSessionTransitionRollbackLaunchesCreatedFork(t *testing.T) {
 	appendSessionMessage(t, store, "step-1", session.MessageRoleUser, "u1")
 	appendSessionMessage(t, store, "step-1", session.MessageRoleAssistant, "a1")
 
-	service := newGlobalSessionLifecycleServiceWithOptions(cfg.PersistenceRoot, nil, metadataStore.AuthoritativeSessionStoreOptions()).WithPersistedSessionResolver(metadataStore)
+	service := newTestSessionLifecycleService(cfg.PersistenceRoot, nil, metadataStore)
 	result, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -128,7 +129,7 @@ func TestSessionTransitionRollbackLaunchesCreatedFork(t *testing.T) {
 func TestSessionTransitionLogoutResultDependsOnCurrentSession(t *testing.T) {
 	manager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
 
-	service := newTestSessionLifecycleService(t.TempDir(), manager)
+	service := newTestSessionLifecycleService(t.TempDir(), manager, testsetup.OpenStore(t, t.TempDir()))
 	currentID := runtimeids.NewSessionID()
 
 	withCurrent, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{

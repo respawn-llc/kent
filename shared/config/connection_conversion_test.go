@@ -108,6 +108,42 @@ endpoint = "http://localhost:1234/v1"
 	}
 }
 
+func TestConvertGlobalConnectionsPreservesConfiguredSets(t *testing.T) {
+	anonymous, apiKey, oauth := LegacyConnectionAnonymous, LegacyConnectionAPIKey, LegacyConnectionOAuth
+	for _, auth := range []*LegacyConnectionAuth{nil, &anonymous, &apiKey, &oauth} {
+		_, workspace, path := newConfigTestFile(t)
+		source := `connection = ["qa-a", "qa-z", "qa-a", "unknown"]
+model = "local-model"
+[connections.qa-z]
+protocol = "responses"
+endpoint = "http://localhost:8000/v1"
+[connections.qa-a]
+protocol = "responses"
+endpoint = "http://localhost:8000/v1"
+[subagents.worker]
+connection = ["qa-a", "qa-z"]
+model = "local-model"
+`
+		writeConfigTestFile(t, path, source)
+		changed, err := ConvertGlobalConnections(path, auth)
+		if err != nil || changed {
+			t.Fatalf("convert configured sets with auth %v: changed=%v error=%v", auth, changed, err)
+		}
+		app := loadConfigTestApp(t, workspace, LoadOptions{})
+		members, err := app.Settings.ConnectionMembers()
+		if err != nil || !reflect.DeepEqual(members, []ConnectionID{"qa-z", "qa-a"}) {
+			t.Fatalf("loaded members = %v, %v", members, err)
+		}
+		if !reflect.DeepEqual(*app.Settings.Subagents["worker"].Settings.Connection, ConnectionSelection{"qa-a", "qa-z"}) {
+			t.Fatal("role selection changed during startup conversion")
+		}
+		got, err := os.ReadFile(path)
+		if err != nil || string(got) != source {
+			t.Fatalf("conversion modified authored configuration: %v", err)
+		}
+	}
+}
+
 func TestConvertGlobalRoleAndReviewerConnectionsPreservesAuthoredSource(t *testing.T) {
 	_, workspace, path := newConfigTestFile(t)
 	source := `# Root config retains its authored representation.
@@ -167,7 +203,7 @@ endpoint = "http://localhost:1234/v1" # named endpoint note
 	if app.Settings.Reviewer.Connection == nil {
 		t.Fatal("Supervisor connection was not converted")
 	}
-	supervisorConnection := app.Settings.Connections[*app.Settings.Reviewer.Connection]
+	supervisorConnection := app.Settings.Connections[(*app.Settings.Reviewer.Connection)[0]]
 	if supervisorConnection.Endpoint == nil || *supervisorConnection.Endpoint != "http://localhost:5678/v1" {
 		t.Fatalf("Supervisor connection = %+v", supervisorConnection)
 	}
@@ -220,7 +256,7 @@ endpoint   = "http://localhost:1234/v1" # user-authored endpoint note
 
 	app := loadConfigTestApp(t, workspace, LoadOptions{})
 	connection, err := app.Settings.SelectedConnection()
-	if err != nil || app.Settings.Connection == nil || *app.Settings.Connection != "openai-1" ||
+	if err != nil || app.Settings.Connection == nil || !reflect.DeepEqual(*app.Settings.Connection, ConnectionSelection{"openai-1"}) ||
 		connection.Protocol != ConnectionResponses || connection.Endpoint == nil ||
 		*connection.Endpoint != "http://localhost:1234/v1" || len(app.Settings.Connections) != 1 {
 		t.Fatalf("named definition was not reused: connection=%+v settings=%+v error=%v", connection, app.Settings, err)
@@ -285,7 +321,7 @@ endpoint = "http://localhost:1234/v1" # retain the base endpoint
 	if app.Settings.Reviewer.Connection == nil {
 		t.Fatal("root Supervisor connection was not converted")
 	}
-	supervisorConnection := app.Settings.Connections[*app.Settings.Reviewer.Connection]
+	supervisorConnection := app.Settings.Connections[(*app.Settings.Reviewer.Connection)[0]]
 	if supervisorConnection.Endpoint == nil || *supervisorConnection.Endpoint != "http://localhost:5678/v1" {
 		t.Fatalf("root Supervisor connection = %+v", supervisorConnection)
 	}
@@ -300,8 +336,8 @@ endpoint = "http://localhost:1234/v1" # retain the base endpoint
 	if child.Connection == nil || child.Reviewer.Connection == nil {
 		t.Fatalf("child or child Supervisor connection was not converted: %+v", child)
 	}
-	childConnection := app.Settings.Connections[*child.Connection]
-	childReviewerConnection := app.Settings.Connections[*child.Reviewer.Connection]
+	childConnection := app.Settings.Connections[(*child.Connection)[0]]
+	childReviewerConnection := app.Settings.Connections[(*child.Reviewer.Connection)[0]]
 	if childConnection.Endpoint == nil || *childConnection.Endpoint != "http://localhost:6789/v1" ||
 		childReviewerConnection.Endpoint == nil || *childReviewerConnection.Endpoint != "http://localhost:7890/v1" {
 		t.Fatalf("child connections = role:%+v Supervisor:%+v", childConnection, childReviewerConnection)
@@ -358,7 +394,7 @@ supports_responses_api = true
 
 	app := loadConfigTestApp(t, workspace, LoadOptions{})
 	connection, err := app.Settings.SelectedConnection()
-	if err != nil || *app.Settings.Connection != "openai-1" ||
+	if err != nil || !reflect.DeepEqual(*app.Settings.Connection, ConnectionSelection{"openai-1"}) ||
 		connection.Endpoint == nil || *connection.Endpoint != "http://localhost:1234/v1" ||
 		connection.Capabilities.ProviderID != "openai-compatible" || !connection.Capabilities.SupportsResponsesAPI {
 		t.Fatalf("converted connection = %+v error=%v", connection, err)
@@ -428,8 +464,8 @@ supports_responses_api = true
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(app.Settings.Connections) != 2 || *app.Settings.Connection != *equal.Connection ||
-		*distinct.Connection == *equal.Connection || *distinct.Connection != *app.Settings.Reviewer.Connection {
+	if len(app.Settings.Connections) != 2 || !reflect.DeepEqual(app.Settings.Connection, equal.Connection) ||
+		reflect.DeepEqual(distinct.Connection, equal.Connection) || !reflect.DeepEqual(distinct.Connection, app.Settings.Reviewer.Connection) {
 		t.Fatalf("connections not deduplicated: main=%v equal=%v distinct=%v supervisor=%v catalog=%+v",
 			app.Settings.Connection, equal.Connection, distinct.Connection, app.Settings.Reviewer.Connection, app.Settings.Connections)
 	}
@@ -459,7 +495,7 @@ openai_base_url = ""
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(app.Settings.Connections) != 1 || *child.Connection != *app.Settings.Connection || *app.Settings.Reviewer.Connection != *app.Settings.Connection {
+	if len(app.Settings.Connections) != 1 || !reflect.DeepEqual(child.Connection, app.Settings.Connection) || !reflect.DeepEqual(app.Settings.Reviewer.Connection, app.Settings.Connection) {
 		t.Fatal("empty inherited access settings changed the provider endpoint")
 	}
 }
@@ -593,7 +629,7 @@ openai_base_url = "http://localhost:5678/v1"
 	}
 	app := loadConfigTestApp(t, workspace, LoadOptions{})
 	connection, err := app.Settings.SelectedConnection()
-	if err != nil || connection.EnvironmentVariable == nil || *connection.EnvironmentVariable != "MY_SERVER_KEY" || *app.Settings.Connection != "api" {
+	if err != nil || connection.EnvironmentVariable == nil || *connection.EnvironmentVariable != "MY_SERVER_KEY" || !reflect.DeepEqual(*app.Settings.Connection, ConnectionSelection{"api"}) {
 		t.Fatalf("explicit reference changed: %+v %v", connection, err)
 	}
 	child, _, err := OverlaySubagentRoleSettings(app, app.Settings.Subagents["child"], true)

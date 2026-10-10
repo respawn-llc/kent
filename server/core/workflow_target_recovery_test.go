@@ -57,7 +57,8 @@ func newTaskRecoveryFixture(t *testing.T) *taskRecoveryFixture {
 	resolved.Config.Settings.Model = "gpt-6-sol"
 	resolved.Config.Settings.Reviewer.Frequency = "off"
 	resolved.Config.Settings.Workflow.CompletionMode = config.WorkflowCompletionModeStructuredOutput
-	binding, err := metadata.RegisterBinding(ctx, resolved.Config.PersistenceRoot, resolved.Config.WorkspaceRoot)
+	metadataStore := testsetup.OpenStore(t, resolved.Config.PersistenceRoot)
+	binding, err := metadataStore.RegisterWorkspaceBinding(ctx, resolved.Config.WorkspaceRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +81,7 @@ func newTaskRecoveryFixture(t *testing.T) *taskRecoveryFixture {
 	client := scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{firstStep, secondStep}})
 	app := newCoreTestAppWithOptions(t, resolved.Config, auth.EmptyState(),
 
-		Options{RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(context.Context, runtimewire.RuntimeClientRequest) (llm.Client, error) {
+		Options{MetadataStore: metadataStore, RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(context.Context, runtimewire.RuntimeClientRequest) (llm.Client, error) {
 			return client, nil
 		})})
 	if err := app.MetadataStore().SetProjectKey(ctx, binding.ProjectID, "REC"); err != nil {

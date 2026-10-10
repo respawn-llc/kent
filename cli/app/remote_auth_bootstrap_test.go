@@ -56,7 +56,7 @@ func TestRemoteAuthReadinessAllowsOptionalAuthForHeadlessClients(t *testing.T) {
 		AuthRequired: false,
 	}}
 
-	if err := ensureRemoteAuthReady(t.Context(), remote, config.Settings{Connection: &connection}, newHeadlessAuthInteractor()); err != nil {
+	if err := ensureRemoteAuthReady(t.Context(), remote, config.Settings{Connection: config.SingleConnection(connection)}, newHeadlessAuthInteractor()); err != nil {
 		t.Fatalf("ensureRemoteAuthReady: %v", err)
 	}
 	if remote.completeCalls != 0 {
@@ -72,7 +72,7 @@ func TestRemoteAuthReadinessBootstrapsAPIKeyForHeadlessClients(t *testing.T) {
 		AuthRequired: true,
 	}}
 
-	if err := ensureRemoteAuthReady(t.Context(), remote, config.Settings{Connection: &connection}, newHeadlessAuthInteractor()); err != nil {
+	if err := ensureRemoteAuthReady(t.Context(), remote, config.Settings{Connection: config.SingleConnection(connection)}, newHeadlessAuthInteractor()); err != nil {
 		t.Fatalf("ensureRemoteAuthReady: %v", err)
 	}
 	if remote.completeCalls != 1 {
@@ -93,7 +93,7 @@ func TestRemoteAuthReadinessReportsUnavailableOAuthForHeadlessClients(t *testing
 		SupportedModes: []authpb.BootstrapMode{authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE},
 	}}
 
-	err := ensureRemoteAuthReady(t.Context(), remote, config.Settings{Connection: &connection}, newHeadlessAuthInteractor())
+	err := ensureRemoteAuthReady(t.Context(), remote, config.Settings{Connection: config.SingleConnection(connection)}, newHeadlessAuthInteractor())
 	if !errors.Is(err, serverapi.ErrServerAuthRequired) {
 		t.Fatalf("ensureRemoteAuthReady error = %v, want unavailable interaction error", err)
 	}
@@ -109,7 +109,7 @@ func TestRemoteAuthReadinessRequiresInteractorForUnreadyAuth(t *testing.T) {
 		AuthRequired: false,
 	}}
 
-	err := ensureRemoteAuthReady(t.Context(), remote, config.Settings{Connection: &connection}, nil)
+	err := ensureRemoteAuthReady(t.Context(), remote, config.Settings{Connection: config.SingleConnection(connection)}, nil)
 	if !errors.Is(err, serverapi.ErrServerAuthRequired) {
 		t.Fatalf("ensureRemoteAuthReady error = %v, want interaction-required error", err)
 	}

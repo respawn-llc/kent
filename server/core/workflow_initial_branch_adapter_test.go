@@ -13,7 +13,6 @@ import (
 	"core/internal/testharness/workflowfixture"
 	"core/server/auth"
 	serverbootstrap "core/server/bootstrap"
-	"core/server/metadata"
 	"core/server/workflow"
 	"core/server/workflowstore"
 	"core/server/workflowsvc"
@@ -38,11 +37,12 @@ func TestTaskExecutionTargetInfrastructureCarriesPostCreationBranchAssertion(t *
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
-	binding, err := metadata.RegisterBinding(ctx, resolved.Config.PersistenceRoot, resolved.Config.WorkspaceRoot)
+	metadataStore := testsetup.OpenStore(t, resolved.Config.PersistenceRoot)
+	binding, err := metadataStore.RegisterWorkspaceBinding(ctx, resolved.Config.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	appCore := newCoreTestApp(t, resolved.Config, auth.EmptyState())
+	appCore := newCoreTestAppWithOptions(t, resolved.Config, auth.EmptyState(), Options{MetadataStore: metadataStore})
 	if err := appCore.bundles.Persistence.metadataStore.SetProjectKey(ctx, binding.ProjectID, "BRA"); err != nil {
 		t.Fatalf("SetProjectKey: %v", err)
 	}

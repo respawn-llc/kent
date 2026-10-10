@@ -83,7 +83,7 @@ func TestLoadRejectsPresentBlankShellPostprocessingMode(t *testing.T) {
 func TestDefaultSettingsOmitAbsentShellPostprocessHook(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	writeConfigTestFile(t, path, settingsTOMLWithRenderingOptions(configRegistry.defaultState().Settings, true, nil, nil))
-	raw, err := readSettingsFile(path)
+	raw, _, err := readSettingsFile(path)
 	if err != nil {
 		t.Fatalf("read rendered default settings: %v", err)
 	}

@@ -127,7 +127,7 @@ func binaryTaskAttentionFailure[Request proto.Message](_ Request, err error) pro
 		}
 		return &taskpb.AttentionRequestValidationDetails{Code: code, Field: validation.Field}
 	}
-	return binaryAuthFailure(err)
+	return binaryAuthReadinessFailure(err)
 }
 
 func binaryTaskDependencyMutationFailure[Request proto.Message](request Request, err error) proto.Message {

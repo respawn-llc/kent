@@ -56,6 +56,6 @@ func registerProcessUnary[Client any, Request proto.Message, Success proto.Messa
 			return invoke(client(g.deps), ctx, request)
 		},
 		func(_ *Gateway, _ *connectionState, _ Request, err error) proto.Message {
-			return binaryAuthFailure(err)
+			return binaryAuthReadinessFailure(err)
 		})
 }

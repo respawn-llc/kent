@@ -167,10 +167,10 @@ func convertConnectionScopes(document *settingsDocument, raw settingsFile, selec
 		return false, err
 	}
 	var inheritedEnvironment *string
-	if reference, present, err := lookupFileString(current, []string{"connection"}); err != nil {
+	if reference, present, err := lookupFileConnectionSelection(current, []string{"connection"}, "connection", true); err != nil {
 		return false, err
-	} else if present {
-		name, present, err := lookupFileString(current, []string{"connections", reference, "environment_variable"})
+	} else if present && len(*reference) == 1 {
+		name, present, err := lookupFileString(current, []string{"connections", string((*reference)[0]), "environment_variable"})
 		if err != nil {
 			return false, err
 		}
@@ -334,13 +334,17 @@ func convertMainConnection(raw settingsFile, selection *LegacyConnectionAuth, in
 		}
 		connection.Endpoint = &endpoint
 		if *selection == LegacyConnectionAPIKey {
-			reference, explicit, err := lookupFileString(raw, []string{"connection"})
+			reference, explicit, err := lookupFileConnectionSelection(raw, []string{"connection"}, "connection", true)
 			if err != nil {
 				return nil, err
 			}
 			connection.EnvironmentVariable = inheritedEnvironment
 			if explicit {
-				connection.EnvironmentVariable = existingConnections[ConnectionID(reference)].EnvironmentVariable
+				id, err := reference.ConcreteID()
+				if err != nil {
+					return nil, fmt.Errorf("legacy API-backed access requires a single explicit connection for credential inheritance: %w", err)
+				}
+				connection.EnvironmentVariable = existingConnections[*id].EnvironmentVariable
 			}
 			if connection.EnvironmentVariable == nil {
 				return nil, fmt.Errorf("API-backed access needs an explicit connections.<id>.environment_variable and connection reference; replace provider_override/openai_base_url manually, then restart")

@@ -46,7 +46,7 @@ var interactiveSettings = settingsRegistry{settings: []registrySetting{
 func resolveClientConfiguration(sharedRoot string, opts LoadOptions, registry settingsRegistry) (Connection, LocalPreferences, error) {
 	state := registry.defaultState()
 	sources := registry.defaultSourceMap()
-	locations, err := readConfigurationSources(&workspaceConfigRoots{Shared: sharedRoot}, opts, func(raw settingsFile, file SourceFile) (bool, error) {
+	locations, err := readConfigurationSources(&workspaceConfigRoots{Shared: sharedRoot}, opts, func(raw settingsFile, _ []ConnectionID, file SourceFile) (bool, error) {
 		for _, setting := range registry.settings {
 			if settingAppliesToFileLayer(setting, file.Layer) {
 				if err := setting.applyFile(raw, file, &state, sources); err != nil {

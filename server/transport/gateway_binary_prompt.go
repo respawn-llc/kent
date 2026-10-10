@@ -61,5 +61,5 @@ func promptAnswerBatchFailure(err error) proto.Message {
 		}
 		return details
 	}
-	return binaryAuthFailure(err)
+	return binaryAuthReadinessFailure(err)
 }

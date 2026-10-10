@@ -20,6 +20,8 @@ The private `config.local.toml` is read from the main workspace when using workt
 
 **Connection discovery is an exception** - for provider connection declarations, Kent reads global configuration to keep provider access private to that installation. See [Authentication and connections](../authentication/).
 
+The default and session-producing roles accept a connection name or an array of equivalent connection names. See [connection sets](../authentication/#share-work-across-equivalent-connections) for assignment, saved-session behavior, and the supervisor's single-name override.
+
 ## Locations
 
 ### Persistence root
