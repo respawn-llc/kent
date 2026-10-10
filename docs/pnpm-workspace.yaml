@@ -1,5 +1,8 @@
 pmOnFail: warn
 
+# The repository policy imports docs parsers from plain Node processes.
+virtualStoreType: project
+
 allowBuilds:
   esbuild: true
   sharp: true

@@ -71,9 +71,11 @@ const catalog: Extract<ChatSettingsRead, { kind: "new_chat" }> = {
     ],
   },
 };
+const openSession = vi.fn<(sessionID: string) => void | Promise<void>>();
 const navigation = {
   openTask: vi.fn<(taskID: string) => void>(),
-  openParentSession: vi.fn<(sessionID: string) => void | Promise<void>>(),
+  openParentSession: openSession,
+  openEditedSession: openSession,
 };
 function renderDestination(
   services: TestAppServices,

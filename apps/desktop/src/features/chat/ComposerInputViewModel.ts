@@ -37,7 +37,7 @@ type SubmissionCallbacks = Readonly<{
   restore(input: ComposerTextRestoration): void;
   accepted(sessionID: string, submittedText: string): void;
   failed(): void;
-  delivered?(result: CompletedInput, target: ChatMutationTarget): void;
+  delivered?(result: CompletedInput, target: ChatMutationTarget): void | Promise<void>;
 }>;
 type Request = SubmissionCallbacks &
   Readonly<{
@@ -76,8 +76,8 @@ export function createComposerInputViewModel({
     mutationKey: key,
     mutationFn: async (input: Request) =>
       dispatchComposerCommand(services.api.chat, input.target, input.command, input.intent),
-    onSuccess: (result, input) => {
-      if (observer.hasListeners()) complete(result, input, t);
+    onSuccess: async (result, input) => {
+      if (observer.hasListeners()) await complete(result, input, t);
     },
     onError: (error, input) => {
       if (observer.hasListeners()) {
@@ -97,6 +97,7 @@ export function createComposerInputViewModel({
   const submit = Atom.fn<ComposerInputActivation>()(
     (input, get) =>
       Effect.gen(function* () {
+        if (get(draft.interactionRestricted)) return;
         const ready = get(submission);
         if (input.source === "editor" && (!get(draft.read).isSuccess || ready.kind !== "ready")) return;
         const requestTarget = mutationTarget(get(target), ready);
@@ -145,13 +146,13 @@ function mutationTarget(
   return { ...target, initialSettings: submission.initialSettings };
 }
 
-function complete(result: ComposerCommandResult, input: Request, t: TFunction) {
+async function complete(result: ComposerCommandResult, input: Request, t: TFunction) {
   if ("kind" in result) return;
   const delivers =
     input.target.kind === "new_chat" ||
     (input.command.kind === "input" && input.command.activation.kind === "command");
   if (result.outcome.kind === "accepted") {
-    if (delivers) input.delivered?.(result, input.target);
+    if (delivers) await input.delivered?.(result, input.target);
     input.accepted(result.sessionID, input.submittedText);
     const diagnostic = result.outcome.diagnostic;
     if (diagnostic !== null)
@@ -165,7 +166,7 @@ function complete(result: ComposerCommandResult, input: Request, t: TFunction) {
       });
   } else {
     if (input.original !== null) input.restore({ text: input.original, direction: "append" });
-    if (delivers) input.delivered?.(result, input.target);
+    if (delivers) await input.delivered?.(result, input.target);
     showStatusToast({
       id: "chat-composer-input",
       tone: "danger",

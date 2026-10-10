@@ -20,7 +20,7 @@ export const chatEnglish = {
     failed: "Could not load transcript",
   },
   newChat: "New Chat",
-  savingDraft: "Saving draft before leaving…",
+  navigationPending: "Wait for Chat navigation to finish",
   workspace: "Choose workspace",
   workspacePending: "Wait for the first Chat action to finish before changing workspace.",
   defaultWorkspaceMissing: "The Project default workspace is unavailable.",

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAppServices } from "@/app-facade";
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { createChatDestinationViewModel, type ChatDestinationOpening } from "./ChatDestinationViewModel";
 import { useChatSettings, type ChatSettingsNavigation } from "./useChatSettings";
 import { useChatComposer } from "./useChatComposer";
@@ -21,15 +21,18 @@ export function useChatDestination({
   navigation,
   commands = [],
   onSessionDelivered,
+  openCreatedSession,
 }: Readonly<{
   opening: ChatDestinationOpening;
   navigation: ChatSettingsNavigation;
   commands?: readonly ComposerCommand[];
   onSessionDelivered?(sessionID: string): void;
+  openCreatedSession?(sessionID: string): Promise<void>;
 }>) {
   const services = useAppServices();
   const { t } = useTranslation();
   const client = useQueryClient();
+  const { push } = useStatusController();
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -37,8 +40,11 @@ export function useChatDestination({
       mounted.current = false;
     };
   }, []);
-  const [model] = useState(() => createChatDestinationViewModel({ opening, services, client, t }));
+  const [model] = useState(() => createChatDestinationViewModel({ opening, services, client, t, push }));
   const target = useAtomValue(model.target);
+  useAtomMount(model.popOutRequest);
+  const popOutRequest = useAtomValue(model.popOutRequest);
+  const popOut = useAtomSet(model.popOut);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const focusComposer = useCallback(() => editorRef.current?.focus(), []);
   const worktreeCommands = useWorktreeCommands(
@@ -46,7 +52,6 @@ export function useChatDestination({
     focusComposer,
   );
   const roots = useOwnedSidebarRoots();
-  const { push } = useStatusController();
   const openProcesses = useStableCallback(() => {
     if (target?.kind !== "session") {
       push({
@@ -80,24 +85,27 @@ export function useChatDestination({
         : { kind: "unavailable", notify: openProcesses },
   };
   const selection = useAtomValue(model.selection);
-  const adoptAction = useAtomSet(model.adopt);
+  // Delivery must await draft persistence and native opening within the input Query completion.
+  // Promise-mode is explicitly approved for this completion boundary (KENT-623).
+  const adoptAction = useAtomSet(model.adopt, { mode: "promise" });
   const selectWorkspace = useAtomSet(model.selectWorkspace);
   const workspace = useChatWorkspace(selection, selectWorkspace);
   const firstActionPending = useAtomValue(model.firstActionPending);
   const settings = useChatSettings({ model: model.settings, ...navigation });
   const catalog = useAtomValue(model.catalog.read);
   const retryCatalog = useAtomSet(model.catalog.retry);
-  const adopt = (
+  const adopt = async (
     sessionID: string,
     origin: Pick<ChatSettingsTarget, "kind">,
     rejection: ChatNotAcceptedReason | null = null,
   ) => {
     if (mounted.current)
-      adoptAction({
+      return adoptAction({
         sessionID,
         origin,
         rejection,
         ...(onSessionDelivered === undefined ? {} : { delivered: onSessionDelivered }),
+        ...(openCreatedSession === undefined ? {} : { openCreatedSession }),
       });
   };
   const composer = useChatComposer({
@@ -112,8 +120,12 @@ export function useChatDestination({
     retryCatalog: () => {
       retryCatalog(undefined);
     },
-    onDeliveredSession: (result, origin) => {
-      adopt(result.sessionID, origin, result.outcome.kind === "not_accepted" ? result.outcome.reason : null);
+    onDeliveredSession: async (result, origin) => {
+      return adopt(
+        result.sessionID,
+        origin,
+        result.outcome.kind === "not_accepted" ? result.outcome.reason : null,
+      );
     },
   });
   const goalActions = useNewChatGoalActions(model.goal);
@@ -133,7 +145,7 @@ export function useChatDestination({
             goalActions.setGoal({
               objective,
               delivered: (delivery) => {
-                adopt(delivery.target.sessionID, delivery.origin);
+                void adopt(delivery.target.sessionID, delivery.origin);
               },
             }),
         },
@@ -151,5 +163,7 @@ export function useChatDestination({
     editorRef,
     commandPresentation: worktreeCommands.presentation,
     worktreeObservation: worktreeCommands.observation,
+    popOutRequest,
+    popOut,
   } as const;
 }

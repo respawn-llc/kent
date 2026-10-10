@@ -29,7 +29,7 @@ export type ChatComposerOptions = Readonly<{
   onDeliveredSession?(
     result: Exclude<ComposerCommandResult, { kind: "local" }>,
     target: ChatMutationTarget,
-  ): void;
+  ): void | Promise<void>;
   commands?: readonly ComposerCommand[];
   catalog?: QuerySnapshot<QueryObserverResult<Awaited<ReturnType<ChatApi["getCommandCatalog"]>>>>;
   retryCatalog?(): void;
@@ -58,7 +58,7 @@ export function useChatComposer(options: ChatComposerOptions) {
   const inputActions = useComposerInputActions(model.input);
   const historyActions = useComposerHistoryActions(model.history);
   const inputPending = useAtomValue(model.input.pending);
-  const navigationPending = useAtomValue(model.draft.navigationPending);
+  const interactionRestricted = useAtomValue(model.draft.interactionRestricted);
   const text = useAtomValue(model.draft.text);
   const draftValue = useAtomValue(model.draft.value);
   const historySelection = useAtomValue(model.draft.selection);
@@ -72,10 +72,12 @@ export function useChatComposer(options: ChatComposerOptions) {
   const restoreAction = draftActions.restore;
   const restore = useCallback(
     (incoming: string, direction: "append" | "prepend") => {
+      if (interactionRestricted) return;
       restoreAction({ text: incoming, direction });
     },
-    [restoreAction],
+    [restoreAction, interactionRestricted],
   );
+  const flushDraft = useCallback(async () => draftActions.flush(undefined), [draftActions.flush]);
   const pending = useComposerPendingWork(model.pending, restoreAction);
   const observation = useMemo(
     () => ({
@@ -118,9 +120,9 @@ export function useChatComposer(options: ChatComposerOptions) {
     };
   }, [saveDraft, draft.kind, draftValue]);
   const canSubmit =
-    !navigationPending && draft.kind === "ready" && submission.kind === "ready" && text.trim().length > 0;
+    !interactionRestricted && draft.kind === "ready" && submission.kind === "ready" && text.trim().length > 0;
   function submit(intent: "send" | "queue", source: "editor" | "compact-button" = "editor") {
-    if (navigationPending) return;
+    if (interactionRestricted) return;
     inputActions.submit({
       intent,
       source,
@@ -141,11 +143,11 @@ export function useChatComposer(options: ChatComposerOptions) {
       ...(onDeliveredSession === undefined
         ? {}
         : {
-            delivered: (
+            delivered: async (
               result: Exclude<ComposerCommandResult, { kind: "local" }>,
               target: ChatMutationTarget,
             ) => {
-              if (mounted.current) onDeliveredSession(result, target);
+              if (mounted.current) return onDeliveredSession(result, target);
             },
           }),
     });
@@ -158,7 +160,8 @@ export function useChatComposer(options: ChatComposerOptions) {
     submission,
     canSubmit,
     inputPending,
-    navigationPending,
+    interactionRestricted,
+    interactionRestriction: model.draft.interactionRestricted,
     navigateHistory: historyActions.navigate,
     submit,
     compact: () => {
@@ -172,7 +175,7 @@ export function useChatComposer(options: ChatComposerOptions) {
     pending,
     observation,
     edit: (value: string) => {
-      if (navigationPending) return;
+      if (interactionRestricted) return;
       edit(value);
       setPicker({ kind: "selecting", token: null });
     },
@@ -191,7 +194,7 @@ export function useChatComposer(options: ChatComposerOptions) {
     adoptDraft: draftActions.adopt,
     beginFirstAction: draftActions.begin,
     resumeNewChat: draftActions.resume,
-    flushDraft: async () => draftActions.flush(undefined),
+    flushDraft,
     restore,
   };
 }

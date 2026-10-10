@@ -246,18 +246,22 @@ function ChatRouteContent({
     openParentSession: async (previousSessionID: string) => {
       return appNavigation.openSessionChat({ projectID, sessionID: previousSessionID });
     },
+    openEditedSession: async (editedSessionID: string) =>
+      appNavigation.openSessionChat({ projectID, sessionID: editedSessionID }),
   };
   return bookmark.sessionID === null ? (
     <NewChatDestination
       projectID={projectID}
       navigation={navigation}
       onSessionDelivered={bookmark.delivered}
+      onPopOutCreated={appNavigation.back}
     />
   ) : (
     <ChatDestination
       opening={{ kind: "session", projectID, sessionID: bookmark.sessionID }}
       navigation={navigation}
       onSessionDelivered={bookmark.delivered}
+      onPopOutCreated={appNavigation.back}
     />
   );
 }
