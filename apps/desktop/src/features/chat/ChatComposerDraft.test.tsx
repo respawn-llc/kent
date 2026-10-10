@@ -47,7 +47,7 @@ it("restores a failed name command after new typing without model delivery", asy
     response.reject(
       new ChatOperationError(
         new RpcError({
-          code: -32603,
+          code: "internal_failure",
           method: "kent.api.runtime.settings_service.set_session_name",
           message: "kent.api.runtime.settings_service.set_session_name failed with code internal_failure.",
         }),

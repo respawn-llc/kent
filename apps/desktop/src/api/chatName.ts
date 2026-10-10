@@ -3,9 +3,9 @@ import { SettingsService } from "@app/server-api-contract/gen/kent/api/runtime/r
 import { requireChatSuccess } from "./chatErrors";
 import { requireChatSessionID } from "./chatTarget";
 import type { ChatApi } from "./chatTypes";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 
-export function createChatNameApi(transport: DescriptorRpcTransport): Pick<ChatApi, "setSessionName"> {
+export function createChatNameApi(transport: RpcTransport): Pick<ChatApi, "setSessionName"> {
   return {
     async setSessionName(target, mutation) {
       const method = SettingsService.method.setSessionName;

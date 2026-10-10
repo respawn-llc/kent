@@ -762,7 +762,7 @@ func TestQuestionAnswererProjectsAcrossLiveHydrationAndPageRows(t *testing.T) {
 	}}}
 	page, err := TranscriptPageFromSegment(
 		"12345678-1234-4234-8234-123456789012",
-		"session",
+		textutil.Value("session"),
 		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{Snapshot: snapshot},
 	)

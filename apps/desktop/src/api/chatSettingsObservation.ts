@@ -11,10 +11,10 @@ import { requireChatSessionID } from "./chatTarget";
 import { streamCompletionFailure } from "./protobufRpc";
 import { subscriptionStream } from "./subscriptionStream";
 import type { ChatSettingsObservation, ChatSessionTarget } from "./chatTypes";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 
 export function chatSettingsObservation(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   target: ChatSessionTarget,
   reportOverflow: () => Promise<void>,
 ) {
