@@ -3252,6 +3252,7 @@ func TestServiceSubmitUserTurnPromptResolutionFailureDuringActiveRunReturnsWitho
 func TestServicePreSubmitCompactionDoesNotOwnDraftOrSteeringAdmission(t *testing.T) {
 	client := &blockingCompactionRuntimeControlClient{
 		runtimeControlFakeClient: runtimeControlFakeClient{
+			capabilities: runtimeControlOpenAICapabilities,
 			responses: []llm.Response{
 				{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("seed"), Phase: textutil.Value(llm.MessagePhaseFinal)}},
 				{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("delivered"), Phase: textutil.Value(llm.MessagePhaseFinal)}},

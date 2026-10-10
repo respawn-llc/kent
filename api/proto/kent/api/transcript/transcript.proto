@@ -141,6 +141,7 @@ enum NoticeReason {
   NOTICE_REASON_TOOL_OUTPUT_REPAIR = 5;
   NOTICE_REASON_PROVIDER_MODEL_MISMATCH = 6;
   NOTICE_REASON_THINKING_UPDATE = 7;
+  NOTICE_REASON_REASONING_OMISSION = 8;
 }
 
 enum NoticeSeverity {
@@ -439,6 +440,10 @@ message ProviderModelMismatch {
   string served_model = 2 [(buf.validate.field).string.min_len = 1];
 }
 
+message ReasoningOmission {
+  int32 count = 1 [(buf.validate.field).int32.gte = 1];
+}
+
 message BackgroundNoticeIdentity {
   string activity_id = 1 [
     (buf.validate.field).string.uuid = true,
@@ -484,6 +489,7 @@ message NoticeRow {
   optional string condensed_text = 14 [(buf.validate.field).string.min_len = 1];
   optional string compact_label = 15 [(buf.validate.field).string.min_len = 1];
   optional ProviderModelMismatch provider_model_mismatch = 16;
+  optional ReasoningOmission reasoning_omission = 19;
   optional string thinking_effort = 18 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -506,13 +512,14 @@ message NoticeRow {
     id: "kent.transcript.notice_reason_payload"
     message: "notice payload must match reason"
     expression:
-      "(this.reason == 1 && has(this.cache_warning) && !has(this.legacy_text) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background)) || "
-      "(this.reason == 2 && has(this.compaction) && has(this.message_type) && this.message_type == 5 && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background)) || "
-      "(this.reason == 3 && (has(this.legacy_text) || has(this.message_type)) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background)) || "
-      "(this.reason == 4 && has(this.diagnostic) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch)) || "
-      "(this.reason == 5 && has(this.tool_output_repair) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background)) || "
-      "(this.reason == 6 && has(this.provider_model_mismatch) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.diagnostic) && !has(this.background)) || "
-      "(this.reason == 7 && this.severity == 1 && !has(this.message_type) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background))"
+      "(this.reason == 1 && has(this.cache_warning) && !has(this.legacy_text) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason == 2 && has(this.compaction) && has(this.message_type) && this.message_type == 5 && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason == 3 && (has(this.legacy_text) || has(this.message_type)) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason == 4 && has(this.diagnostic) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission)) || "
+      "(this.reason == 5 && has(this.tool_output_repair) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason == 6 && has(this.provider_model_mismatch) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason == 7 && this.severity == 1 && !has(this.message_type) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason == 8 && this.severity == 2 && has(this.reasoning_omission) && !has(this.message_type) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background))"
   };
 }
 

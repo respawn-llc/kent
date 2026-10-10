@@ -136,7 +136,9 @@ func (e *Engine) compactWithContextRepairRetry(
 func (e *Engine) compactWithRetry(ctx context.Context, stepID string, client *observedModelClient, request llm.CompactionRequest) (llm.CompactionResponse, error) {
 	request = client.prepareCompaction(request)
 	observed, err := e.prepareCacheObservedRequest(
+		ctx,
 		stepID,
+		client,
 		request,
 		modelcontract.ProviderOperationPurposeCompaction,
 		cacheResponseObservationExactStep,
@@ -339,7 +341,7 @@ func (e *Engine) localCompactionSummaryFromWindow(ctx context.Context, stepID st
 			return "", toolCallRejectionCount, err
 		}
 
-		resp, err := e.generateWithRetryClient(
+		candidate, err := e.generateWithRetryClient(
 			ctx,
 			stepID,
 			e.llm,
@@ -351,6 +353,7 @@ func (e *Engine) localCompactionSummaryFromWindow(ctx context.Context, stepID st
 		if err != nil {
 			return "", toolCallRejectionCount, err
 		}
+		resp := candidate.response
 		if len(resp.ToolCalls) > 0 {
 			toolCallRejectionCount++
 			if attempt >= localCompactionToolCallRetries {

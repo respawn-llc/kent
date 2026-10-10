@@ -7,6 +7,7 @@ import (
 
 	"core/server/llm"
 	"core/server/session"
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 	"core/shared/transcript"
 )
@@ -29,7 +30,9 @@ func testCompactionReplacementContextPlacement(t *testing.T, placement llm.Compa
 		remoteCompactionReplacement(1_000, 100, 200_000),
 	}}
 	client.compactionResponses[0].OutputItems[0].Raw = json.RawMessage(`{"type":"compaction","id":"compaction-checkpoint","encrypted_content":"encrypted","provider_extension":{"retained":true}}`)
+	client.compactionResponses[0].ProviderEvidence.ProviderID = textutil.Value("openai")
 	checkpoint := llm.CloneResponseItems([]llm.ResponseItem{client.compactionResponses[0].OutputItems[0]})[0]
+	checkpoint.Attribution = &modelcontract.ReasoningAttribution{Type: textutil.Value(modelcontract.ReasoningTypeOpenAI)}
 	client.compactionResponses[0].ContextPlacement = placement
 	if placement == llm.CompactionContextAfterOutput {
 		bundle := llm.PrepareResponsesInputItems([]llm.ResponseItem{{
@@ -37,7 +40,8 @@ func testCompactionReplacementContextPlacement(t *testing.T, placement llm.Compa
 		}})
 		bundle = append(bundle, checkpoint)
 		bundle = append(bundle, llm.ResponseItem{
-			Type: llm.ResponseItemTypeReasoning, EncryptedContent: textutil.Value("opaque-reasoning"),
+			Attribution: &modelcontract.ReasoningAttribution{Type: textutil.Value(modelcontract.ReasoningTypeOpenAI)},
+			Type:        llm.ResponseItemTypeReasoning, EncryptedContent: textutil.Value("opaque-reasoning"),
 			Raw: json.RawMessage(`{"type":"reasoning","encrypted_content":"opaque-reasoning","summary":[],"extension":{"retain":true}}`),
 		})
 		client.compactionResponses[0].OutputItems = bundle
@@ -126,7 +130,8 @@ func testCompactionReplacementContextPlacement(t *testing.T, placement llm.Compa
 
 	reopenedStore := mustOpenTestSession(t, store.Dir())
 	reopenedClient := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
-		OutputItems: llm.CloneResponseItems(bundle), ContextPlacement: placement,
+		ProviderEvidence: modelcontract.ProviderUsageEvidence{ProviderID: textutil.Value("openai")},
+		OutputItems:      llm.CloneResponseItems(bundle), ContextPlacement: placement,
 	}}}
 	reopened := mustNewTestEngine(t, reopenedStore, reopenedClient, newTestToolRegistry(t), Config{
 		Model:           "gpt-6-sol",

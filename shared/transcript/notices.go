@@ -10,6 +10,7 @@ const (
 	NoticeReasonToolOutputRepair      = "tool_output_repair"
 	NoticeReasonProviderModelMismatch = "provider_model_mismatch"
 	NoticeReasonThinkingUpdate        = "thinking_update"
+	NoticeReasonReasoningOmission     = "reasoning_omission"
 
 	NoticeSeverityInfo    = "info"
 	NoticeSeverityWarning = "warning"
@@ -31,6 +32,14 @@ type ToolOutputRepairNotice struct {
 type ProviderModelMismatchNotice struct {
 	RequestedModel string `json:"requested_model"`
 	ServedModel    string `json:"served_model"`
+}
+
+type ReasoningOmissionNotice struct {
+	Count int `json:"count"`
+}
+
+func (n ReasoningOmissionNotice) Valid() bool {
+	return n.Count > 0
 }
 
 func (n ProviderModelMismatchNotice) Valid() bool {

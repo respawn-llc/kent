@@ -876,6 +876,7 @@ type storedLocalEntry struct {
 	NoticeID              *string                                 `json:"notice_id,omitempty"`
 	ToolOutputRepair      *transcript.ToolOutputRepairNotice      `json:"tool_output_repair,omitempty"`
 	ProviderModelMismatch *transcript.ProviderModelMismatchNotice `json:"provider_model_mismatch,omitempty"`
+	ReasoningOmission     *transcript.ReasoningOmissionNotice     `json:"reasoning_omission,omitempty"`
 	// AfterToolCallID keeps atomically persisted operator feedback visually
 	// attached after the tool result that caused it.
 	AfterToolCallID *string `json:"after_tool_call_id,omitempty"`

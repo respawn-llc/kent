@@ -10,6 +10,7 @@ import (
 
 	"core/server/httpcompression"
 	"core/shared/config"
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 )
 
@@ -52,6 +53,7 @@ type ProviderTransportEndpoint struct {
 type ProviderTransportVariantResolver func(endpoint ProviderTransportEndpoint, mode OpenAIAuthMode) (string, error)
 
 type ProviderVariantContract struct {
+	ReasoningType            *modelcontract.ReasoningType
 	ProviderID               string
 	BaseURL                  *string
 	ResponsesPolicy          responsesPolicy
@@ -123,6 +125,7 @@ func providerContracts() []ProviderContract {
 			ProviderVariants: []ProviderVariantContract{
 				{
 					ProviderID:         "anthropic",
+					ReasoningType:      textutil.Value(modelcontract.ReasoningTypeAnthropic),
 					RequestCompression: httpcompression.ContentCodingIdentity,
 					Capabilities: ProviderCapabilities{
 						ProviderID:                    "anthropic",
@@ -148,6 +151,7 @@ func providerContracts() []ProviderContract {
 					ProviderID:               "openai",
 					ResponsesPolicy:          openAIResponsesPolicy{},
 					TokenEstimator:           OpenAITokenEstimator{},
+					ReasoningType:            textutil.Value(modelcontract.ReasoningTypeOpenAI),
 					RequestCompression:       httpcompression.ContentCodingIdentity,
 					RemoteCompactionProtocol: remoteCompactionResponsesTriggerV2,
 					Capabilities: ProviderCapabilities{
@@ -186,6 +190,7 @@ func providerContracts() []ProviderContract {
 					ProviderID:               "chatgpt-codex",
 					ResponsesPolicy:          openAIResponsesPolicy{},
 					TokenEstimator:           OpenAITokenEstimator{},
+					ReasoningType:            textutil.Value(modelcontract.ReasoningTypeOpenAI),
 					RequestCompression:       httpcompression.ContentCodingZstd,
 					RemoteCompactionProtocol: remoteCompactionResponsesTriggerV2,
 					Capabilities: ProviderCapabilities{
@@ -225,6 +230,7 @@ func grokVariant(protocol config.ConnectionProtocol, endpoint string) ProviderVa
 	}
 	return ProviderVariantContract{
 		ProviderID: id, BaseURL: textutil.Value(endpoint),
+		ReasoningType:            textutil.Value(modelcontract.ReasoningTypeGrok),
 		ResponsesPolicy:          grokResponsesPolicy{},
 		TokenEstimator:           GrokTokenEstimator{},
 		RequestCompression:       httpcompression.ContentCodingIdentity,

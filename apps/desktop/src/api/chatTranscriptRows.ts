@@ -88,6 +88,7 @@ function notice(value: T.NoticeRow): ChatNotice {
       [T.NoticeReason.TOOL_OUTPUT_REPAIR]: "tool_output_repair",
       [T.NoticeReason.PROVIDER_MODEL_MISMATCH]: "provider_model_mismatch",
       [T.NoticeReason.THINKING_UPDATE]: "thinking_update",
+      [T.NoticeReason.REASONING_OMISSION]: "reasoning_omission",
     }),
     Severity: enumValue(value.severity, {
       [T.NoticeSeverity.INFO]: "info",
@@ -135,7 +136,10 @@ function noticeContext(value: T.NoticeRow): Pick<ChatNotice, "Worktree" | "Cache
 
 function noticeDiagnostics(
   value: T.NoticeRow,
-): Pick<ChatNotice, "ToolOutputRepair" | "ProviderModelMismatch" | "Diagnostic" | "Background"> {
+): Pick<
+  ChatNotice,
+  "ToolOutputRepair" | "ProviderModelMismatch" | "ReasoningOmission" | "Diagnostic" | "Background"
+> {
   const repairKind = value.toolOutputRepair?.kind;
   if (repairKind !== undefined && repairKind !== "fresh_resource" && repairKind !== "live_provider_rejection")
     throw new ContractError("Tool output repair kind is invalid.");
@@ -149,6 +153,8 @@ function noticeDiagnostics(
             requested_model: value.providerModelMismatch.requestedModel,
             served_model: value.providerModelMismatch.servedModel,
           },
+    ReasoningOmission:
+      value.reasoningOmission === undefined ? null : { count: value.reasoningOmission.count },
     Diagnostic: diagnostic(value.diagnostic),
     Background:
       value.background === undefined

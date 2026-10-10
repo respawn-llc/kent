@@ -44,6 +44,7 @@ type ChatEntry struct {
 	CacheWarning          *transcript.CacheWarning
 	ToolOutputRepair      *transcript.ToolOutputRepairNotice
 	ProviderModelMismatch *transcript.ProviderModelMismatchNotice
+	ReasoningOmission     *transcript.ReasoningOmissionNotice
 	ThinkingEffort        *string
 	ToolCall              *transcript.ToolCallMeta
 	CommittedProvenance   *TranscriptCommittedRowProvenance
@@ -562,7 +563,7 @@ func cloneTranscriptStreamID(streamID *uuid.UUID) *uuid.UUID {
 }
 
 func (s *chatStore) appendLocalEntryRecord(entry ChatEntry, afterToolCallID *string, provenances ...*TranscriptCommittedRowProvenance) {
-	if strings.TrimSpace(entry.Text) == "" && entry.CacheWarning == nil && entry.ToolOutputRepair == nil && entry.ProviderModelMismatch == nil && entry.ReviewerFeedback == nil && entry.ReviewerError == nil {
+	if strings.TrimSpace(entry.Text) == "" && entry.CacheWarning == nil && entry.ToolOutputRepair == nil && entry.ProviderModelMismatch == nil && entry.ReasoningOmission == nil && entry.ReviewerFeedback == nil && entry.ReviewerError == nil {
 		return
 	}
 	entry.Visibility = normalizeRuntimeEntryVisibility(entry.Visibility)
@@ -571,6 +572,7 @@ func (s *chatStore) appendLocalEntryRecord(entry ChatEntry, afterToolCallID *str
 	entry.CacheWarning = copyCacheWarning(entry.CacheWarning)
 	entry.ToolOutputRepair = textutil.Pointer(entry.ToolOutputRepair)
 	entry.ProviderModelMismatch = textutil.Pointer(entry.ProviderModelMismatch)
+	entry.ReasoningOmission = textutil.Pointer(entry.ReasoningOmission)
 	if entry.ReviewerFeedback != nil {
 		feedback := *entry.ReviewerFeedback
 		feedback.Suggestions = append([]string(nil), entry.ReviewerFeedback.Suggestions...)
@@ -839,6 +841,9 @@ func cloneChatStoreMessage(msg llm.Message) llm.Message {
 	}
 	if len(msg.ReasoningItems) > 0 {
 		cloned.ReasoningItems = append([]llm.ReasoningItem(nil), msg.ReasoningItems...)
+		for index := range cloned.ReasoningItems {
+			cloned.ReasoningItems[index].Attribution = msg.ReasoningItems[index].Attribution.Clone()
+		}
 	}
 	return cloned
 }

@@ -17,11 +17,10 @@ import (
 var ErrCustomToolNameRequired = errors.New("custom tool name is required")
 
 type responsesRequestPayloadBuilder struct {
-	policy                 responsesPolicy
-	store                  bool
-	modelVerbosity         string
-	capabilities           ProviderCapabilities
-	connectionCapabilities ProviderCapabilities
+	policy         responsesPolicy
+	store          bool
+	modelVerbosity string
+	capabilities   ProviderCapabilities
 }
 
 type responsesPayloadToolControls struct {
@@ -48,7 +47,7 @@ func (t *HTTPTransport) requestPayloadBuilder(connectionCapabilities ProviderCap
 	return responsesRequestPayloadBuilder{
 		policy: policy,
 		store:  t.Store, modelVerbosity: strings.ToLower(strings.TrimSpace(t.ModelVerbosity)),
-		capabilities: t.effectiveRequestCapabilities(connectionCapabilities), connectionCapabilities: connectionCapabilities,
+		capabilities: t.effectiveRequestCapabilities(connectionCapabilities),
 	}
 }
 
@@ -74,9 +73,6 @@ func (t *HTTPTransport) buildDispatchPayload(
 
 func (b responsesRequestPayloadBuilder) BuildResponse(request ResponsesRequest, mode OpenAIAuthMode) (responses.ResponseNewParams, error) {
 	if err := ValidateModelReasoningEffort(request.Model, request.ReasoningEffort); err != nil {
-		return responses.ResponseNewParams{}, err
-	}
-	if err := validateRetainedConnectionContext(request.Items, b.connectionCapabilities); err != nil {
 		return responses.ResponseNewParams{}, err
 	}
 	input, err := buildResponsesInput(request.Items)
@@ -113,37 +109,6 @@ func (b responsesRequestPayloadBuilder) BuildResponse(request ResponsesRequest, 
 		return responses.ResponseNewParams{}, err
 	}
 	return out, nil
-}
-
-func validateRetainedConnectionContext(items []ResponseItem, capabilities ProviderCapabilities) error {
-	for _, item := range items {
-		switch item.Type {
-		case ResponseItemTypeReasoning:
-			if capabilities.SupportsReasoningEncrypted {
-				continue
-			}
-			encrypted := item.EncryptedContent
-			if len(item.Raw) != 0 {
-				var reasoning struct {
-					EncryptedContent *string `json:"encrypted_content"`
-				}
-				if err := json.Unmarshal(item.Raw, &reasoning); err != nil {
-					return fmt.Errorf("decode retained reasoning for compatibility validation: %w", err)
-				}
-				encrypted = reasoning.EncryptedContent
-			}
-			if encrypted != nil {
-				return &RetainedContextCompatibilityError{ItemType: item.Type}
-			}
-		case ResponseItemTypeCompaction:
-			// Native compaction support describes producing checkpoints, not
-			// consuming every checkpoint format. Unknown compatibility is sent.
-			if !capabilities.SupportsResponsesAPI {
-				return &RetainedContextCompatibilityError{ItemType: item.Type}
-			}
-		}
-	}
-	return nil
 }
 
 func (b responsesRequestPayloadBuilder) prepareToolControls(request ResponsesRequest) (responsesPayloadToolControls, error) {

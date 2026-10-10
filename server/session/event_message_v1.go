@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"core/shared/modelcontract"
 	"core/shared/transcript"
 )
 
@@ -63,8 +64,9 @@ type MessageToolCallRecord struct {
 }
 
 type MessageReasoningRecord struct {
-	ID               string `json:"id"`
-	EncryptedContent string `json:"encrypted_content"`
+	Attribution      *modelcontract.ReasoningAttribution `json:"attribution,omitempty"`
+	ID               string                              `json:"id"`
+	EncryptedContent string                              `json:"encrypted_content"`
 }
 
 type MessageRecord struct {
@@ -153,6 +155,10 @@ func normalizeMessageRecord(message MessageRecord) (MessageRecord, error) {
 		message.ReasoningItems = append([]MessageReasoningRecord(nil), message.ReasoningItems...)
 		for index := range message.ReasoningItems {
 			reasoning := message.ReasoningItems[index]
+			if err := reasoning.Attribution.Validate(); err != nil {
+				return MessageRecord{}, err
+			}
+			reasoning.Attribution = reasoning.Attribution.Clone()
 			reasoning.ID = strings.TrimSpace(reasoning.ID)
 			reasoning.EncryptedContent = strings.TrimSpace(reasoning.EncryptedContent)
 			if reasoning.ID == "" {

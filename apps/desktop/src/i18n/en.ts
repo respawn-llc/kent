@@ -101,6 +101,8 @@ export const englishResources = {
         toolCall: "tool call",
         toolCalls: "tool calls",
         providerModelMismatch: "The provider served the request with {{served}} instead of {{requested}}",
+        reasoningOmission:
+          "Conversation was switched to another provider/model - reasoning was lost, degrading output quality",
         worktreeEnter: "Switched worktree to {{name}}{{cwd}}",
         worktreeEnterCwd: "Switched worktree to {{name}}: {{cwd}}",
         worktreeExit: "Switched worktree to main workspace{{cwd}}",

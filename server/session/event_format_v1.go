@@ -207,6 +207,10 @@ func newEventRecord(
 			mismatch.ServedModel = strings.TrimSpace(mismatch.ServedModel)
 			typed.ProviderModelMismatch = &mismatch
 		}
+		if typed.ReasoningOmission != nil {
+			omission := *typed.ReasoningOmission
+			typed.ReasoningOmission = &omission
+		}
 		payload = typed
 	case ReviewerFeedbackRecord:
 		typed.Suggestions = append([]string(nil), typed.Suggestions...)
@@ -373,6 +377,7 @@ type LocalEntryRecord struct {
 	AfterToolCallID       *string                                 `json:"after_tool_call_id,omitempty"`
 	ToolOutputRepair      *transcript.ToolOutputRepairNotice      `json:"tool_output_repair,omitempty"`
 	ProviderModelMismatch *transcript.ProviderModelMismatchNotice `json:"provider_model_mismatch,omitempty"`
+	ReasoningOmission     *transcript.ReasoningOmissionNotice     `json:"reasoning_omission,omitempty"`
 }
 
 type ReviewerFeedbackRecord struct {
@@ -566,7 +571,7 @@ func (r LocalEntryRecord) validate() error {
 	if strings.TrimSpace(r.Role) == "" {
 		return fmt.Errorf("role is required")
 	}
-	if r.Text == nil && r.ToolOutputRepair == nil && r.ProviderModelMismatch == nil {
+	if r.Text == nil && r.ToolOutputRepair == nil && r.ProviderModelMismatch == nil && r.ReasoningOmission == nil {
 		return fmt.Errorf("text or typed notice facts are required")
 	}
 	if r.Text != nil && strings.TrimSpace(*r.Text) == "" {
@@ -578,7 +583,11 @@ func (r LocalEntryRecord) validate() error {
 	if r.ProviderModelMismatch != nil && !r.ProviderModelMismatch.Valid() {
 		return fmt.Errorf("provider-model mismatch facts are invalid")
 	}
-	if r.ToolOutputRepair != nil && r.ProviderModelMismatch != nil {
+	if r.ReasoningOmission != nil && !r.ReasoningOmission.Valid() {
+		return fmt.Errorf("reasoning omission facts are invalid")
+	}
+	if r.ToolOutputRepair != nil && r.ProviderModelMismatch != nil ||
+		r.ReasoningOmission != nil && (r.ToolOutputRepair != nil || r.ProviderModelMismatch != nil) {
 		return fmt.Errorf("local entry cannot carry multiple typed notice facts")
 	}
 	if r.DurationMs != nil && *r.DurationMs < 0 {
