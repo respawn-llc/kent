@@ -90,7 +90,7 @@ func TestSessionTransitionRollbackLaunchesCreatedFork(t *testing.T) {
 	appendSessionMessage(t, store, "step-1", session.MessageRoleUser, "u1")
 	appendSessionMessage(t, store, "step-1", session.MessageRoleAssistant, "a1")
 
-	service := newGlobalSessionLifecycleServiceWithOptions(cfg.PersistenceRoot, nil, metadataStore)
+	service := newTestSessionLifecycleService(cfg.PersistenceRoot, nil, metadataStore)
 	result, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{

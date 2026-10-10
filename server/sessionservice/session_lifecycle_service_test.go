@@ -78,10 +78,6 @@ func userMessageSeqAt(t *testing.T, store *session.Store, n int) int64 {
 }
 
 func newTestSessionLifecycleService(root string, authManager *auth.Manager, owner *metadata.Store) *SessionLifecycleService {
-	return newGlobalSessionLifecycleServiceWithOptions(root, authManager, owner)
-}
-
-func newGlobalSessionLifecycleServiceWithOptions(root string, authManager *auth.Manager, owner *metadata.Store) *SessionLifecycleService {
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
 		PersistenceRoot: root,
 		StoreOptions:    owner.AuthoritativeSessionStoreOptions(),
@@ -537,7 +533,7 @@ func TestServiceResolveTransitionForkRollbackCreatesFork(t *testing.T) {
 	appendSessionMessage(t, store, "step-2", session.MessageRoleUser, "u2")
 	appendSessionMessage(t, store, "step-2", session.MessageRoleAssistant, "a2")
 
-	service := newGlobalSessionLifecycleServiceWithOptions(cfg.PersistenceRoot, nil, metadataStore)
+	service := newTestSessionLifecycleService(cfg.PersistenceRoot, nil, metadataStore)
 	resp, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -570,7 +566,7 @@ func TestServiceResolveTransitionForkRollbackUsesTargetToken(t *testing.T) {
 	appendSessionMessage(t, store, "step-2", session.MessageRoleUser, "u2")
 	appendSessionMessage(t, store, "step-2", session.MessageRoleAssistant, "a2")
 
-	service := newGlobalSessionLifecycleServiceWithOptions(cfg.PersistenceRoot, nil, metadataStore)
+	service := newTestSessionLifecycleService(cfg.PersistenceRoot, nil, metadataStore)
 	resp, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -621,7 +617,7 @@ func TestServiceResolveTransitionForkRollbackPreservesExecutionTarget(t *testing
 		t.Fatalf("UpdateSessionExecutionTarget: %v", err)
 	}
 
-	service := newGlobalSessionLifecycleServiceWithOptions(cfg.PersistenceRoot, nil, metadataStore)
+	service := newTestSessionLifecycleService(cfg.PersistenceRoot, nil, metadataStore)
 	resp, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(sess.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -686,7 +682,7 @@ func TestServiceResolveTransitionForkRollbackActivatesChildInPreservedWorktree(t
 		t.Fatalf("UpdateSessionExecutionTarget: %v", err)
 	}
 
-	lifecycle := newGlobalSessionLifecycleServiceWithOptions(cfg.PersistenceRoot, nil, metadataStore)
+	lifecycle := newTestSessionLifecycleService(cfg.PersistenceRoot, nil, metadataStore)
 	resolved, err := lifecycle.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(sess.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
