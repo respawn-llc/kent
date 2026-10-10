@@ -49,8 +49,24 @@
 - Sessions without a saved ID must bind from their current role/default on first resume. Kent must preserve their established model/request contract.
 - Invalid or missing replacement references must block dispatch. Expired credentials and network/provider failures must not cause automatic replacement.
 - Manual ID renaming may require re-authentication. Kent need not coordinate renaming.
-- Known incompatibility between the selected connection's protocol and retained encrypted context must fail before dispatch with an explanation and instructions to restore a compatible connection.
-- Unknown cross-account compatibility must not itself block dispatch. Kent must send unchanged history and surface provider rejection. Kent must not strip context or rewrite historical items.
+- Existing Sessions that change connections must follow [Retained Context Compatibility](#retained-context-compatibility).
+
+## Retained Context Compatibility
+
+- Kent must attribute newly retained reasoning and native compaction checkpoints to their producing Reasoning Type. Connection IDs and model names must not determine Reasoning Type.
+- When an existing Session changes connection, Kent must omit retained encrypted reasoning that has a Reasoning Type incompatible with the destination or that the destination explicitly cannot consume. This is a narrow exception to the prohibition on filtering already-sent history.
+- Omission must apply to the entire incompatible reasoning item, including its readable summary. Kent must preserve its historical Reasoning Trace and must not create substitute summary messages.
+- Kent must retain unencrypted reasoning in outgoing context when the destination can represent it. Kent must preserve other active messages and complete tool-call/result relationships unchanged.
+- Kent must preserve persisted historical entries, Session identity, and Workflow associations. Reasoning omission must not create a history replacement or require a recovery command or confirmation.
+- When Kent omits incompatible reasoning, Kent must append a transcript warning with the exact text: "Conversation was switched to another provider/model - reasoning was lost, degrading output quality". Kent must continue the original pending work automatically.
+- Kent must never omit the active native compaction checkpoint. Known incompatibility with its encrypted format must block dispatch with an explanation that the Session cannot continue with that encrypted compaction summary and instructions to restore a compatible connection.
+- Local compaction summaries must remain unaffected. Encrypted checkpoints outside the latest active context must not affect compatibility checks.
+- For retained items without attribution, Kent may infer Reasoning Type only from retained provider evidence that identifies the item's producing Agent Step and a known format. Missing or conflicting evidence must leave attribution unknown. A replacement destination or backfilled Session Contract must not establish an item's origin. Kent must not rewrite old entries to add attribution.
+- When a newly retained item's producing format is unknown, Kent must record unknown attribution and preserve it across resume. Kent must not relabel that item from an older Session Contract.
+- Unknown compatibility, including cross-account compatibility or unavailable historical attribution, must not itself block dispatch. Kent must send such context unchanged when the destination protocol permits it and surface provider rejection. A known unsupported native checkpoint must still block dispatch.
+- Kent must not automatically call a provider to recover hidden context, select substitute credentials, or retry a request rejected by the provider as incompatible.
+- Compatibility checks must use only the bounded active context. Kent must not read the complete historical transcript or copy the entire retained collection to omit reasoning.
+- Outside this reasoning-omission exception, Kent must not strip retained context or rewrite already-sent historical items.
 
 ## Terminal Setup And Login
 

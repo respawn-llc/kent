@@ -25,7 +25,7 @@ export function TranscriptNoticeRow({ row }: Readonly<{ row: ChatTranscriptCommi
         data-transcript-collapsed
       >
         <Icon className="size-4 shrink-0" />
-        <span>{policy.summary}</span>
+        <span className="min-w-0 flex-1 whitespace-normal break-words">{policy.summary}</span>
       </p>
     );
   }
@@ -141,6 +141,8 @@ function reasonNoticeText(notice: TranscriptNotice, t: Translate, expanded: bool
       return toolOutputRepairText(notice, t);
     case "provider_model_mismatch":
       return providerModelMismatchText(notice, t);
+    case "reasoning_omission":
+      return t("chatTranscript.notice.reasoningOmission");
     case "legacy_untyped_notice":
     case "runtime_diagnostic":
       return undefined;

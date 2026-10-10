@@ -453,7 +453,8 @@ func generateTestActiveStep(
 	stepID = runtimeTestStepID(stepID)
 	restore := setTestActiveStep(engine, stepID)
 	defer restore()
-	return engine.generateWithRetryClient(ctx, stepID, newObservedModelClient(client), request, nil, nil, nil)
+	candidate, err := engine.generateWithRetryClient(ctx, stepID, newObservedModelClient(client), request, nil, nil, nil)
+	return candidate.response, err
 }
 
 func runReviewerSuggestionsTestActiveStep(

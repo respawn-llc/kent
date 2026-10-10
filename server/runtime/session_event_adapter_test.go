@@ -53,6 +53,7 @@ func TestSessionMessageRecordAdapterRoundTrip(t *testing.T) {
 		ReasoningItems: []llm.ReasoningItem{{
 			ID:               "reasoning-1",
 			EncryptedContent: "encrypted-1",
+			Attribution:      &modelcontract.ReasoningAttribution{Type: textutil.Value(modelcontract.ReasoningTypeOpenAI)},
 		}},
 	}
 
