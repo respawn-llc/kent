@@ -425,7 +425,11 @@ func TestRoutePolicyAuthorizesRuntimeLiveControlsWithoutActiveProject(t *testing
 		if err != nil {
 			t.Fatal(err)
 		}
-		return executor.authorizeScopeFacts(ctx, &connectionState{}, operation.Options.ScopePolicy, operation.Name, routeScopeParams{sessionID: sessionID})
+		selector, err := runtimeids.ParseSessionSelector(sessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return executor.authorizeScopeFacts(ctx, &connectionState{}, operation.Options.ScopePolicy, operation.Name, routeScopeParams{sessionSelector: protoapi.SessionSelectorToProto(selector)})
 	}
 	if err := authorize("Steer", fixture.ownSessionID); err != nil {
 		t.Fatalf("live steer root-scoped existing session: %v", err)
@@ -439,6 +443,12 @@ func TestRoutePolicyAuthorizesRuntimeLiveControlsWithoutActiveProject(t *testing
 	}
 	if err := authorize("Stop", missing); err != nil {
 		t.Fatalf("optional live stop missing session: %v", err)
+	}
+	if err := authorize("Stop", "9007199254740991"); err != nil {
+		t.Fatalf("optional live stop missing numeric Session: %v", err)
+	}
+	if err := authorize("Wait", "9007199254740991"); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+		t.Fatalf("missing numeric Wait = %v", err)
 	}
 }
 

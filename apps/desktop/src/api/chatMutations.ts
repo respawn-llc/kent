@@ -162,7 +162,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
       const result = await transport.callDescriptorAttachedSession(
         target,
         method,
-        create(method.input, { sessionId: requestedSessionID }),
+        create(method.input, { sessionId: { value: { case: "sessionId", value: requestedSessionID } } }),
       );
       const success = requireChatSuccess(method, result);
       switch (success.status) {

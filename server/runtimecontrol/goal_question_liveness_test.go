@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/server/llm"
 	"core/server/promptcontrol"
 	"core/server/runtime"
@@ -110,7 +111,7 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 	select {
 	case <-prompts.pending:
 	case <-time.After(time.Second):
-		stopped, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: store.Meta().SessionID})
+		stopped, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
 		t.Fatalf("model asked a Question but it never reached the Session prompt owner; stop=%+v error=%v", stopped, err)
 	}
 	execution, ok := service.authority.SessionExecution(sessionID)
@@ -189,7 +190,7 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 			t.Fatal(err)
 		}
 	case goalQuestionStop:
-		stopped, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: sessionID.String()})
+		stopped, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: requestfixture.Selector(t, sessionID.String())})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -198,7 +199,7 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 		}
 	}
 	if action == goalQuestionAnswer || action == goalQuestionDecline || action == goalQuestionRejectDirectParent {
-		if _, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: sessionID.String()}); err != nil {
+		if _, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: requestfixture.Selector(t, sessionID.String())}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -215,7 +216,7 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 		t.Fatal(err)
 	}
 	nextSteeringExchange(t, client)
-	if _, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: sessionID.String()}); err != nil {
+	if _, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: requestfixture.Selector(t, sessionID.String())}); err != nil {
 		t.Fatal(err)
 	}
 }

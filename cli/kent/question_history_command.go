@@ -14,6 +14,7 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
 )
@@ -54,7 +55,7 @@ func (c questionCommand) listSubcommand(args []string, stdout io.Writer, stderr 
 		fmt.Fprintln(stderr, "Session ID is required")
 		return 2
 	}
-	sessionID, err := parseCLILiveSessionID(rawSessionID)
+	sessionID, err := runtimeids.ParseSessionID(rawSessionID)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2

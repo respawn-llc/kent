@@ -9,12 +9,14 @@ import (
 
 	"core/server/registry"
 	"core/server/runtime"
+	"core/server/session"
 	servicecontract "core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/protoapi"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -22,6 +24,26 @@ import (
 )
 
 var _ servicecontract.RuntimeLiveControlService = (*Service)(nil)
+
+func (s *Service) liveTarget(ctx context.Context, target *sharedpb.SessionSelector, caller *string) (runtimeids.SessionID, error) {
+	id, err := s.metadata.ResolveSessionTarget(ctx, target)
+	if err != nil {
+		if errors.Is(err, session.ErrSessionNotFound) {
+			err = errors.Join(serverapi.ErrRuntimeUnavailable, err)
+		}
+		return runtimeids.SessionID{}, err
+	}
+	if caller != nil {
+		source, err := runtimeids.ParseSessionID(*caller)
+		if err != nil {
+			return runtimeids.SessionID{}, err
+		}
+		if source == id {
+			return runtimeids.SessionID{}, &serverapi.SessionSelfTargetError{SessionID: id}
+		}
+	}
+	return id, nil
+}
 
 func (s *Service) withLiveExecutionRuntime(ctx context.Context, id runtimeids.SessionID, fn func(context.Context, *runtime.Engine) error) error {
 	if s == nil || s.authority == nil {
@@ -34,7 +56,7 @@ func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	sessionID, err := runtimeids.ParseSessionID(req.SessionId)
+	sessionID, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +115,10 @@ func (s *Service) LiveStop(ctx context.Context, req *runtimepb.LiveStopRequest) 
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	sessionID, err := runtimeids.ParseSessionID(req.SessionId)
+	sessionID, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
+	if errors.Is(err, session.ErrSessionNotFound) {
+		return &runtimepb.LiveStopSuccess{Status: runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_IDLE}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +157,7 @@ func (s *Service) LiveWait(ctx context.Context, req *runtimepb.LiveWaitRequest) 
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	sessionID, err := runtimeids.ParseSessionID(req.SessionId)
+	sessionID, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +230,7 @@ func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest)
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	id, err := runtimeids.ParseSessionID(req.SessionId)
+	id, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
 	if err != nil {
 		return nil, err
 	}

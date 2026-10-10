@@ -181,7 +181,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	)
 	runtimeRegistry.WithExecutionTargetResolver(metadataStore.ResolveOptionalSessionExecutionTarget)
 	runtimeRegistry.WithBackgroundProcessSnapshots(background.List)
-	runtimeControlService := runtimecontrol.NewService(runtimeAuthority).
+	runtimeControlService := runtimecontrol.NewService(runtimeAuthority, metadataStore).
 		WithRuntimeActivityResolver(runtimeRegistry).
 		WithPromptHistoryStore(metadataStore).
 		WithWorkflowTaskSessionResolver(metadataStore).

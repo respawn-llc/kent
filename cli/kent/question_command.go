@@ -803,7 +803,7 @@ func resolveQuestionCommandSelector(
 		return questionCommandSelector{}, errors.New("--project requires a non-blank project selector")
 	}
 	if sessionPresent {
-		sessionID, err := parseCLILiveSessionID(*rawSessionID)
+		sessionID, err := runtimeids.ParseSessionID(*rawSessionID)
 		if err != nil {
 			return questionCommandSelector{}, err
 		}

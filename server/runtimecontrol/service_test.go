@@ -2,6 +2,7 @@ package runtimecontrol
 
 import (
 	"context"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"encoding/json"
 	"errors"
@@ -782,7 +783,7 @@ func newRuntimeControlTestServiceWithFeeds(
 		t.Fatalf("resolve authority session store: %v", err)
 	}
 	history := newRuntimeControlPromptHistoryStore(store.Meta().SessionID)
-	service := NewService(authority).
+	service := NewService(authority, nil).
 		WithPromptHistoryStore(history).
 		WithPersistedSessionResolver(runtimeControlTestSessionPersistence)
 	return store, engine, service
@@ -1171,7 +1172,7 @@ func TestServicePendingQuestionInterruptsAndAllowsNextTurn(t *testing.T) {
 }
 
 func TestServiceInterruptWithoutEngineRequestsResynchronization(t *testing.T) {
-	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}))
+	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), nil)
 	response, err := service.Interrupt(context.Background(), &runtimepb.InterruptRequest{
 		SessionId: "018fdd67-89ab-4cde-8123-456789abcdef",
 	})
@@ -1243,7 +1244,7 @@ func TestServiceInterruptReturnsDiagnosticActivityWhenPostInterruptSnapshotFails
 func TestServiceLiveSteerRequiresActiveRun(t *testing.T) {
 	store, _, service := newRuntimeControlTestService(t, finalResponseRuntimeControlClient(), nil, runtime.Config{})
 	_, err := service.LiveSteer(context.Background(), &runtimepb.LiveSteerRequest{
-		SessionId: store.Meta().SessionID,
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 		Text:      "steer while idle",
 	})
 	if !errors.Is(err, serverapi.ErrRuntimeNoActiveRun) {
@@ -1255,9 +1256,9 @@ func TestServiceLiveSteerRequiresActiveRun(t *testing.T) {
 }
 
 func TestServiceLiveSteerUnavailableRuntimeStaysUnavailable(t *testing.T) {
-	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}))
+	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), nil)
 	_, err := service.LiveSteer(context.Background(), &runtimepb.LiveSteerRequest{
-		SessionId: "018fdd67-89ab-4cde-8123-456789abcdef",
+		SessionId: requestfixture.Selector(t, "018fdd67-89ab-4cde-8123-456789abcdef"),
 		Text:      "steer closed runtime",
 	})
 	if !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
@@ -1269,9 +1270,9 @@ func TestServiceLiveSteerUnavailableRuntimeStaysUnavailable(t *testing.T) {
 }
 
 func TestServiceLiveWaitUnavailableRuntimeStaysUnavailable(t *testing.T) {
-	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}))
+	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), nil)
 	_, err := service.LiveWait(context.Background(), &runtimepb.LiveWaitRequest{
-		SessionId: "018fdd67-89ab-4cde-8123-456789abcdef",
+		SessionId: requestfixture.Selector(t, "018fdd67-89ab-4cde-8123-456789abcdef"),
 	})
 	if !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
 		t.Fatalf("LiveWait unavailable runtime error = %v, want ErrRuntimeUnavailable", err)
@@ -1282,7 +1283,7 @@ func TestServiceLiveWaitUnavailableRuntimeStaysUnavailable(t *testing.T) {
 }
 
 func TestServiceListPendingWorkReturnsEmptyCollectionForUnavailableRuntime(t *testing.T) {
-	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}))
+	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), nil)
 	response, err := service.ListPendingWork(context.Background(), &runtimepb.ListPendingWorkRequest{
 		SessionId: "018fdd67-89ab-4cde-8123-456789abcdef",
 	})
@@ -1321,7 +1322,7 @@ func TestServiceLiveSteerRecordsHistoryAfterActiveAdmission(t *testing.T) {
 		t.Fatal("timed out waiting for active runtime")
 	}
 	steerDone := liveSteerRuntimeControlAsync(service, &runtimepb.LiveSteerRequest{
-		SessionId: store.Meta().SessionID,
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 		Text:      " steer live ",
 	})
 	var result runtimeControlLiveSteerResult
@@ -1368,7 +1369,7 @@ func TestServiceLiveSteerAgentCallerUsesOneWrappedDeveloperMessage(t *testing.T)
 	}
 	sourceText := sourceID.String()
 	steerDone := liveSteerRuntimeControlAsync(service, &runtimepb.LiveSteerRequest{
-		SessionId:       store.Meta().SessionID,
+		SessionId:       requestfixture.Selector(t, store.Meta().SessionID),
 		CallerSessionId: &sourceText,
 		Text:            "steer live",
 	})
@@ -1419,7 +1420,7 @@ func TestServiceLiveSteerReportsAdmittedPromptHistoryErrorDiagnostically(t *test
 	historyErr := errors.New("prompt history failed")
 	runtimeControlPromptHistoryStoresLoad(t, store.Meta().SessionID).SetRecordError(historyErr)
 	steerDone := liveSteerRuntimeControlAsync(service, &runtimepb.LiveSteerRequest{
-		SessionId: store.Meta().SessionID,
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 		Text:      "steer live",
 	})
 	select {
@@ -1451,7 +1452,7 @@ func TestServiceLiveSteerReportsAdmittedPromptHistoryErrorDiagnostically(t *test
 func TestServiceLiveStopIdleReturnsIdle(t *testing.T) {
 	store, _, service := newRuntimeControlTestService(t, finalResponseRuntimeControlClient(), nil, runtime.Config{})
 	resp, err := service.LiveStop(context.Background(), &runtimepb.LiveStopRequest{
-		SessionId: store.Meta().SessionID,
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 	})
 	if err != nil {
 		t.Fatalf("LiveStop idle: %v", err)
@@ -1711,7 +1712,7 @@ func TestServiceShowGoalReturnsPersistedGoalWithoutRuntime(t *testing.T) {
 		t.Fatalf("SetGoalStatus: %v", err)
 	}
 	sessionID := store.Meta().SessionID
-	service := NewService(nil).WithPersistedSessionResolver(runtimeControlTestSessionPersistence)
+	service := NewService(nil, nil).WithPersistedSessionResolver(runtimeControlTestSessionPersistence)
 
 	resp, err := service.ShowGoal(context.Background(), &runtimepb.GoalShowRequest{SessionId: sessionID})
 	if err != nil {
@@ -1732,7 +1733,7 @@ func TestServiceShowGoalReturnsPersistedGoalWithoutRuntime(t *testing.T) {
 func TestServiceShowGoalReturnsEmptyResponseForPersistedSessionWithoutGoal(t *testing.T) {
 	store, _ := newRuntimeControlTestEngine(t, nil, nil, runtime.Config{})
 	sessionID := store.Meta().SessionID
-	service := NewService(nil).WithPersistedSessionResolver(runtimeControlTestSessionPersistence)
+	service := NewService(nil, nil).WithPersistedSessionResolver(runtimeControlTestSessionPersistence)
 
 	resp, err := service.ShowGoal(context.Background(), &runtimepb.GoalShowRequest{SessionId: sessionID})
 	if err != nil {
@@ -1752,17 +1753,17 @@ func TestServiceShowGoalReturnsPersistedSessionResolutionFailures(t *testing.T) 
 	}{
 		{
 			name:    "resolver required",
-			service: NewService(nil),
+			service: NewService(nil, nil),
 		},
 		{
 			name: "resolver failure",
-			service: NewService(nil).
+			service: NewService(nil, nil).
 				WithPersistedSessionResolver(runtimeControlTestSessionPersistence),
 			wantIs: session.ErrSessionNotFound,
 		},
 		{
 			name: "metadata required",
-			service: NewService(nil).
+			service: NewService(nil, nil).
 				WithPersistedSessionResolver(missingMetadataPersistedSessionResolver{}),
 		},
 	}

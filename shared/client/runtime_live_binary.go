@@ -30,8 +30,10 @@ func (c *Remote) LiveWait(ctx context.Context, request *runtimepb.LiveWaitReques
 	if err != nil {
 		return nil, err
 	}
-	if err := validateRuntimeLiveResponseSession("runtime live wait", request.SessionId, response.SessionId); err != nil {
-		return nil, err
+	if selected, ok := request.SessionId.Value.(*sharedpb.SessionSelector_SessionId); ok {
+		if err := validateRuntimeLiveResponseSession("runtime live wait", selected.SessionId, response.SessionId); err != nil {
+			return nil, err
+		}
 	}
 	return response, nil
 }
@@ -43,8 +45,10 @@ func (c *Remote) LiveWatch(ctx context.Context, request *promptpb.LiveWatchReque
 	if err != nil {
 		return nil, err
 	}
-	if err := validateRuntimeLiveResponseSession("runtime live watch", request.SessionId, response.SessionId); err != nil {
-		return nil, err
+	if selected, ok := request.SessionId.Value.(*sharedpb.SessionSelector_SessionId); ok {
+		if err := validateRuntimeLiveResponseSession("runtime live watch", selected.SessionId, response.SessionId); err != nil {
+			return nil, err
+		}
 	}
 	return response, nil
 }

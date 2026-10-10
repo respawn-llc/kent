@@ -32,13 +32,13 @@ export type ChatError =
     }>
   | Readonly<{ kind: "auth_required" }>
   | Readonly<{ kind: "server_not_ready" }>
-  | Readonly<{ kind: "runtime_unavailable"; sessionID: string }>
+  | Readonly<{ kind: "runtime_unavailable"; sessionID: string | null }>
   | Readonly<{ kind: "internal_failure"; operation: string | null; cause: string | null }>
   | Readonly<{
       kind: "unknown";
       code: string;
       knownDetail: Readonly<
-        | { kind: "runtime_unavailable"; sessionID: string }
+        | { kind: "runtime_unavailable"; sessionID: string | null }
         | { kind: "internal_failure"; operation: string | null; cause: string | null }
       > | null;
     }>;
@@ -180,7 +180,7 @@ function standardChatErrorDetail(
     case "runtimeUnavailable":
       return {
         kind: "runtime_unavailable",
-        sessionID: detail.value.sessionId,
+        sessionID: detail.value.sessionId ?? null,
       };
     case "internalFailure":
       return {
@@ -189,6 +189,7 @@ function standardChatErrorDetail(
         cause: detail.value.cause ?? null,
       };
     case "pendingWorkNotPending":
+    case "selfTarget":
     case undefined:
       return null;
   }

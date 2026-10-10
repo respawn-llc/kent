@@ -64,6 +64,7 @@ type WorkflowSessionPreparationReader interface {
 var errWorkflowTaskSessionAutoCompactionDisable = errors.New("auto-compaction cannot be disabled for workflow task sessions")
 
 type Service struct {
+	metadata       *metadata.Store
 	authority      *sessionruntime.Authority
 	activity       RuntimeActivityResolver
 	promptStore    PromptHistoryStore
@@ -106,8 +107,8 @@ type goalClearRequest struct {
 	Actor     string
 }
 
-func NewService(authority *sessionruntime.Authority) *Service {
-	return &Service{authority: authority}
+func NewService(authority *sessionruntime.Authority, metadataStore *metadata.Store) *Service {
+	return &Service{authority: authority, metadata: metadataStore}
 }
 
 func (s *Service) WithSessionSettingsPublisher(publisher SessionSettingsPublisher) *Service {

@@ -58,7 +58,7 @@ func TestGoalSetSuccessRejectsRuntimeUnavailableDiagnostic(t *testing.T) {
 		Diagnostic: &runtimepb.GoalSetError{
 			Code: "runtime_unavailable",
 			Detail: &runtimepb.GoalSetError_RuntimeUnavailable{
-				RuntimeUnavailable: &runtimepb.RuntimeUnavailableDetails{SessionId: sessionID},
+				RuntimeUnavailable: &runtimepb.RuntimeUnavailableDetails{SessionId: &sessionID},
 			},
 		},
 	}
@@ -77,7 +77,7 @@ func TestGoalSetErrorFromErrorIncludesRuntimeUnavailableSession(t *testing.T) {
 		t.Fatalf("Goal Set error code = %q, want runtime_unavailable", got.Code)
 	}
 	detail := got.GetRuntimeUnavailable()
-	if detail == nil || detail.SessionId != sessionID.String() {
+	if detail == nil || detail.GetSessionId() != sessionID.String() {
 		t.Fatalf("runtime-unavailable details = %+v, want Session %q", detail, sessionID)
 	}
 }
