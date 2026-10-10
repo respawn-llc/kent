@@ -49,7 +49,7 @@ func binaryRuntimeControlFailure(sessionID string, err error) proto.Message {
 	case errors.Is(err, serverapi.ErrManualCompactionActive):
 		return &chatpb.ManualCompactionActiveDetails{}
 	default:
-		return binaryAuthFailure(err)
+		return binaryAuthReadinessFailure(err)
 	}
 }
 
@@ -155,7 +155,7 @@ func registerRuntimeControlUnary[Service any, Request runtimeControlRequest, Suc
 		},
 		func(_ *Gateway, _ *connectionState, request Request, err error) proto.Message {
 			if errors.Is(err, serverapi.ErrServerAuthRequired) {
-				return binaryAuthFailure(err)
+				return binaryAuthReadinessFailure(err)
 			}
 			if len(failure) == 1 && failure[0] != nil {
 				if detail := failure[0](request, err); detail != nil {

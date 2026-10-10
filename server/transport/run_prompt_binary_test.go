@@ -11,6 +11,7 @@ import (
 
 	"core/shared/apicontract"
 	remoteclient "core/shared/client"
+	"core/shared/config"
 	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
@@ -55,6 +56,48 @@ func TestRunPromptBinaryPreservesSelectionRejection(t *testing.T) {
 	var rejected *serverapi.RunSelectionRejectedError
 	if !errors.As(err, &rejected) || rejected.Reason != reason {
 		t.Fatalf("Run rejection did not survive transport: %v", err)
+	}
+}
+
+func TestRunPromptBinaryReportsUnavailableConnectionSelection(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		selection config.ConnectionSelection
+	}{
+		{name: "singleton", selection: config.ConnectionSelection{"qa-unknown"}},
+		{name: "set", selection: config.ConnectionSelection{"qa-unknown", "qa-also-unknown"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			core, _ := newGatewayTestCore(t, true, true)
+			defer core.Close()
+			settings := config.Settings{Connection: &test.selection}
+			_, selectionErr := settings.ConnectionMembers()
+			if selectionErr == nil {
+				t.Fatal("undefined selection was accepted")
+			}
+			gateway, err := NewGateway(runPromptTestDependencies{
+				GatewayDependencies: core, run: rejectedRunPrompt{err: selectionErr},
+			}, gatewayTestIdentity())
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(gateway.handleConn))
+			defer server.Close()
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			client, err := remoteclient.DialRemoteURLForProject(ctx, "ws"+server.URL[len("http"):], core.ProjectID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			_, err = client.RunPrompt(ctx, serverapi.RunPromptRequest{
+				Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+				Prompt: "report selection failure",
+			}, nil)
+			if err == nil || err.Error() != selectionErr.Error() {
+				t.Fatalf("selection failure did not survive transport: %v; want %v", err, selectionErr)
+			}
+		})
 	}
 }
 

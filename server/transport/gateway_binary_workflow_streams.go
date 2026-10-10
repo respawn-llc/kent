@@ -34,5 +34,5 @@ func registerAttentionNotificationGatewayBinaryBindings(bindings map[string]gate
 		func() *emptypb.Empty { return &emptypb.Empty{} }, nil,
 		func(g *Gateway, ctx context.Context, request *emptypb.Empty) (apicontract.AttentionNotificationSubscription, error) {
 			return g.deps.AttentionNotificationClient().SubscribeAttentionNotifications(ctx, request)
-		}, func(_ *emptypb.Empty, err error) proto.Message { return binaryAuthFailure(err) })
+		}, func(_ *emptypb.Empty, err error) proto.Message { return binaryAuthReadinessFailure(err) })
 }

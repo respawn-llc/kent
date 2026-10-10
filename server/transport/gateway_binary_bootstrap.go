@@ -36,7 +36,7 @@ func registerBootstrapGatewayBinaryBindings(bindings map[string]gatewayBinaryBin
 		registerBootstrapUnary(bindings, authService, "CompleteBootstrap", gatewayBinaryPreCoreOrdinary,
 			func() *authpb.CompleteBootstrapRequest { return &authpb.CompleteBootstrapRequest{} }, invokeBinaryAuthCompleteBootstrap, binaryAuthFailure),
 		registerBootstrapUnary(bindings, authService, "GetStatus", gatewayBinaryPreCoreOrdinary,
-			func() *authpb.GetStatusRequest { return &authpb.GetStatusRequest{} }, invokeBinaryAuthStatus, binaryAuthFailure),
+			func() *authpb.GetStatusRequest { return &authpb.GetStatusRequest{} }, invokeBinaryAuthStatus, binaryAuthReadinessFailure),
 		registerBootstrapUnary(bindings, onboardingService, "Finalize", gatewayBinaryPreCoreOrdinary,
 			func() *onboardingpb.FinalizeRequest { return &onboardingpb.FinalizeRequest{} }, invokeBinaryOnboardingFinalize, binaryOnboardingFinalizeFailure),
 		registerBootstrapUnary(bindings, capabilityService, "GetFacts", gatewayBinaryPreCoreOrdinary,
@@ -214,6 +214,10 @@ func binaryAuthFailure(err error) proto.Message {
 	if failure := protoapi.ConnectionFailureToProto(err); failure != nil {
 		return failure
 	}
+	return binaryAuthReadinessFailure(err)
+}
+
+func binaryAuthReadinessFailure(err error) proto.Message {
 	if errors.Is(err, serverapi.ErrServerAuthRequired) || errors.Is(err, auth.ErrAuthNotConfigured) {
 		return &authpb.AuthRequiredDetails{}
 	}
