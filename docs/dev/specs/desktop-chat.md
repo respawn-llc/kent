@@ -637,8 +637,9 @@
 - The ordinary status line and bottom action row must stay present beneath the picker. While a prompt is active, the composer's Stop button must become `Decline to answer` for the current prompt and use a crossed-out speech-bubble icon instead of a plain cross.
 - Questions and Approvals use one shared prompt-picker interaction and visual language. Their server-provided option kinds differ, but Desktop does not create separate form architectures.
 - The picker shows one pending prompt at a time. It has no tabs, question-title synthesis, or duplicated question previews.
-- The current question is Markdown above the answer options. When the batch has more than one prompt, a compact navigation line must appear between them with previous/next chevrons around the current question position. For a single-prompt batch, the entire navigation line must be absent.
+- The current question is Markdown above the answer options. When the original batch has more than one prompt, a compact navigation line must appear between them with previous/next chevrons around the current question position. The line must remain visible when only one unresolved prompt remains. For a batch that originally contains fewer than two prompts, the entire navigation line must be absent.
 - The navigation line shows only the current position as `Question X of Y`. It has no answered count or aggregate completion indicator.
+- The original prepared Question positions must remain stable through local answers and external resolutions. Navigation must visit the prompts that remain available. While prepared Questions are still becoming pending, the picker must show a loading state and must not submit its draft answers.
 - The navigation line must not contain a separate Decline button.
 - The picker expands upward through available Chat space. One UI-kit scroll region contains the Markdown question, navigation line, and every answer option. Large questions and large option sets scroll together in that region.
 - Answers must appear as an inline list of radio options without outlined cards. Question and answer content use the shared safe Markdown renderer.

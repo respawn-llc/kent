@@ -1,13 +1,12 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { I18nextProvider } from "react-i18next";
-import { RegistryProvider, useAtomSet } from "@effect/atom-react";
+import { useAtomSet } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
 
 import type { ApprovalAttentionItem, AttentionItem, InterruptedCurrentNodeAttentionItem } from "@/api";
 import { appI18n, initializeI18n } from "@/i18n";
 import { AttentionRow } from "./AttentionRow";
 import { createHomeViewModel } from "./HomeViewModel";
-import { createTestServices } from "@/test-support/app-services";
+import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { createTestSidebarController } from "@/test-support/sidebar";
 
 const fixture = vi.hoisted(() => ({
@@ -25,8 +24,9 @@ beforeEach(() => {
 
 function renderAttention(item: AttentionItem) {
   const openSidebar = vi.fn(createTestSidebarController().open);
+  const services = createTestServices([]);
   const model = createHomeViewModel({
-    services: createTestServices([]),
+    services,
     client: new QueryClient(),
     push: vi.fn(),
     t: appI18n.t,
@@ -48,11 +48,9 @@ function renderAttention(item: AttentionItem) {
     );
   }
   const view = render(
-    <I18nextProvider i18n={appI18n}>
-      <RegistryProvider>
-        <Row />
-      </RegistryProvider>
-    </I18nextProvider>,
+    <TestAppProviders services={services}>
+      <Row />
+    </TestAppProviders>,
   );
   return { openSidebar, view };
 }

@@ -828,6 +828,9 @@ func formatOutputDefault(raw json.RawMessage) string {
 	if err != nil {
 		return strings.TrimSpace(string(raw))
 	}
+	if text, ok := payload.String(); ok {
+		return text
+	}
 	if _, err := payload.ObjectFields(); err != nil {
 		formatted, err := payload.CompactJSON()
 		if err != nil {

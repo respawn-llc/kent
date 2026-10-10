@@ -107,6 +107,19 @@ func projectPendingPromptResourceForTest(
 	createdAt time.Time,
 ) {
 	id := resource.SessionID().String()
+	if batch := request.QuestionBatch; batch != nil {
+		prepared := false
+		for _, pending := range registry.ListPendingPrompts(id) {
+			if pending.Resource == resource && pending.Request.StepID == request.StepID && pending.Batch != nil {
+				prepared = true
+			}
+		}
+		if !prepared {
+			if err := registry.pendingPrompts.Prepare(resource, batch.StepID, batch.BatchToolCallIDs); err != nil {
+				panic(err)
+			}
+		}
+	}
 	projected := registry.withCurrentAuthorityEntry(resource, func(entry *authorityRuntimeEntry) bool {
 		snapshot, admitted := registry.pendingPrompts.Begin(id, resource, scopeID, request, createdAt)
 		if !admitted {

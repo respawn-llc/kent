@@ -36,6 +36,15 @@ func (t *defaultToolExecutor) ExecuteToolCalls(
 	workflowActive := e.currentNodeExecutionActive()
 	serialGate := newSerialToolGate()
 	nextSerialOrdinal := 0
+	var questionBatch *tools.AskQuestionBatchMetadata
+	for _, prepared := range preparedCalls {
+		if prepared.askQuestionBatch != nil {
+			batch := *prepared.askQuestionBatch
+			batch.BatchToolCallIDs = append([]string(nil), batch.BatchToolCallIDs...)
+			questionBatch = &batch
+			break
+		}
+	}
 	if collector == nil {
 		return errors.New("tool execution requires a result group collector")
 	}
@@ -83,6 +92,9 @@ func (t *defaultToolExecutor) ExecuteToolCalls(
 			break
 		}
 		started := Event{Kind: EventToolCallStarted, StepID: exactStepIDPointer(stepID), ToolCall: &transcriptCall, CommittedTranscriptChanged: true}
+		if i == 0 {
+			started.PreparedQuestionBatch = questionBatch
+		}
 		if start, ok := e.pendingToolCallStart(call.ID); ok {
 			started.CommittedEntryStart = start
 			started.CommittedEntryStartSet = true
@@ -127,12 +139,18 @@ func (t *defaultToolExecutor) ExecuteToolCalls(
 				return
 			}
 			var outcome *resultGroupReportOutcome
-			if err := e.steer(stepID, steerResultGroupReportIntent(
+			report := steerResultGroupReportIntent(
 				collector,
 				tc.ID,
 				resultGroupUnit{result: res},
 				&outcome,
-			)); err != nil {
+			)
+			if askBatch != nil {
+				id := clientui.ToolCallID(tc.ID)
+				event := Event{Kind: EventQuestionCandidateFinished, StepID: exactStepIDPointer(stepID), FinishedQuestionCandidate: &id}
+				report.items = append([]steeringItem{{event: &event}}, report.items...)
+			}
+			if err := e.steer(stepID, report); err != nil {
 				if fatal := collector.fatalSnapshot(); fatal != nil {
 					cancelExecution()
 					callErrs[idx] = fatal
@@ -463,8 +481,6 @@ func (g *serialToolGate) done(ordinal int) {
 
 func serialToolExecutionRequired(toolID toolspec.ID, workflowActive bool) bool {
 	switch toolID {
-	case toolspec.ToolAskQuestion:
-		return true
 	case toolspec.ToolPatch, toolspec.ToolEdit, toolspec.ToolViewImage:
 		return workflowActive
 	default:

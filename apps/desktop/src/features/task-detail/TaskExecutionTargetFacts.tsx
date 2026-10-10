@@ -1,11 +1,13 @@
 import { useTranslation } from "react-i18next";
 
 import type { TaskDetail, WorkflowExecutionTarget, WorkflowManagedExecutionTarget } from "@/api";
+import { usePathFormatter } from "@/app-facade";
 import { TaskDetailCopyableValue } from "./TaskDetailCopyableValue";
 import { TaskPropertyLine } from "./TaskPropertyLine";
 
 export function TaskExecutionTargetFacts({ detail }: Readonly<{ detail: TaskDetail }>) {
   const { t } = useTranslation();
+  const formatPath = usePathFormatter();
   return (
     <>
       <TaskPropertyLine
@@ -16,7 +18,7 @@ export function TaskExecutionTargetFacts({ detail }: Readonly<{ detail: TaskDeta
             clipboardValue={detail.sourceWorkspace.rootPath}
             kind={{ kind: "source_workspace_path" }}
           >
-            {detail.sourceWorkspace.rootPath}
+            {formatPath(detail.sourceWorkspace.rootPath)}
           </TaskDetailCopyableValue>
         }
       />
@@ -32,7 +34,7 @@ export function TaskExecutionTargetFacts({ detail }: Readonly<{ detail: TaskDeta
               clipboardValue={detail.worktreePath}
               kind={{ kind: "managed_worktree_path" }}
             >
-              {detail.worktreePath}
+              {formatPath(detail.worktreePath)}
             </TaskDetailCopyableValue>
           }
         />

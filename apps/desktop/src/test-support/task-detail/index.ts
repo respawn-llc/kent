@@ -47,6 +47,7 @@ export {
   taskActionFixture,
   backlogTaskFixture,
   taskStartApplied,
+  taskStartFailure,
   taskStartNeedsDependencies,
   taskStartRoute,
   taskResumeNeedsTarget,

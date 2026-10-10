@@ -10,6 +10,60 @@ import { TranscriptNoticeRow } from "./TranscriptNoticeRow";
 
 beforeAll(initializeI18n);
 
+it("collapses structured worktree summaries without touching model-visible details", async () => {
+  const user = userEvent.setup();
+  const cwd = "/Users/engineer/.kent/worktrees/project/803";
+  const detail = `Model-visible context: ${cwd}`;
+  const row = {
+    Visibility: "ongoing_collapsed",
+    Integrity: 0,
+    Kind: "notice",
+    Locator: { event_sequence: 1, row_ordinal: 1 },
+    User: null,
+    Assistant: null,
+    Tool: null,
+    ReasoningTrace: null,
+    ReviewerFeedback: null,
+    ReviewerError: null,
+    Notice: {
+      Reason: "runtime_diagnostic",
+      Severity: "info",
+      MessageType: "worktree_mode",
+      Diagnostic: { Code: "context", Detail: detail },
+      Worktree: {
+        Branch: "feature",
+        EffectiveCwd: cwd,
+        WorktreePath: cwd,
+        WorkspaceRoot: "/Users/engineer/project",
+      },
+    },
+  } satisfies ChatTranscriptCommittedRow;
+  render(
+    <TestAppProviders
+      services={createTestServices([], undefined, { homePath: "/Users/engineer", platform: "macos" })}
+    >
+      <TranscriptNoticeRow row={row} />
+    </TestAppProviders>,
+  );
+  expect(
+    screen.getByText(
+      appI18n.t("chatTranscript.notice.worktreeEnterCwd", {
+        cwd: "~/.kent/worktrees/project/803",
+        name: "feature",
+      }),
+    ),
+  ).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: appI18n.t("app.expand") }));
+  await waitFor(() => {
+    expect(screen.getByText(detail)).toBeVisible();
+  });
+  await user.click(screen.getByRole("button", { name: appI18n.t("chatTranscript.copy") }));
+  await waitFor(async () => {
+    expect(await navigator.clipboard.readText()).toBe(detail);
+  });
+  expect(row.Notice.Worktree.EffectiveCwd).toBe(cwd);
+});
+
 it.each(["runtime_diagnostic", "cache_warning"] as const)(
   "shows %s once and truncates display without truncating Copy",
   async (reason) => {

@@ -9,7 +9,26 @@ import type { PendingAsk } from "./models";
 import type { PendingPrompt } from "./promptModels";
 
 export function orderPendingPrompts(prompts: readonly PendingPrompt[]): readonly PendingPrompt[] {
-  return [...prompts].sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
+  const stepCreatedAt = new Map<string, number>();
+  for (const prompt of prompts) {
+    const createdAt = Date.parse(prompt.createdAt);
+    const previous = stepCreatedAt.get(prompt.stepID);
+    if (previous === undefined || createdAt < previous) stepCreatedAt.set(prompt.stepID, createdAt);
+  }
+  return [...prompts].sort((left, right) => {
+    if (left.stepID !== right.stepID) {
+      const chronological =
+        required(stepCreatedAt.get(left.stepID)) - required(stepCreatedAt.get(right.stepID));
+      return chronological || left.stepID.localeCompare(right.stepID);
+    }
+    const leftOrdinal = left.batch?.toolCallIDs.indexOf(left.toolCallID);
+    const rightOrdinal = right.batch?.toolCallIDs.indexOf(right.toolCallID);
+    const leftPrepared = leftOrdinal !== undefined && leftOrdinal >= 0;
+    const rightPrepared = rightOrdinal !== undefined && rightOrdinal >= 0;
+    if (leftPrepared !== rightPrepared) return leftPrepared ? -1 : 1;
+    if (leftPrepared && rightPrepared) return leftOrdinal - rightOrdinal;
+    return Date.parse(left.createdAt) - Date.parse(right.createdAt);
+  });
 }
 
 export function pendingQuestion(question: Question): PendingAsk {
@@ -21,6 +40,14 @@ export function pendingQuestion(question: Question): PendingAsk {
     suggestions: question.suggestions,
     recommendedOptionIndex: question.recommendedOptionIndex ?? null,
     createdAt: new Date(timestampMillis(required(question.createdAt))).toISOString(),
+    ...(question.batch === undefined
+      ? {}
+      : {
+          batch: {
+            toolCallIDs: question.batch.toolCallIds,
+            unmaterializedCount: question.batch.unmaterializedCount,
+          },
+        }),
   };
 }
 
@@ -36,6 +63,14 @@ export function approvalPrompt(approval: Approval): PendingPrompt {
     stepID: approval.stepId,
     question: approval.question ?? null,
     createdAt: new Date(timestampMillis(required(approval.createdAt))).toISOString(),
+    ...(approval.batch === undefined
+      ? {}
+      : {
+          batch: {
+            toolCallIDs: approval.batch.toolCallIds,
+            unmaterializedCount: approval.batch.unmaterializedCount,
+          },
+        }),
     approvalDecisions: approval.options.map((option) => approvalDecision(option.decision)),
     accessTargets: approval.accessTargets.map((target) => ({
       requestedPath: target.requestedPath,

@@ -6,6 +6,7 @@ import (
 	"runtime/debug"
 	"strconv"
 
+	"core/cli/internal/pathdisplay"
 	"core/cli/tui"
 	"core/cli/tui/transcriptrender"
 	"core/shared/clientui"
@@ -73,7 +74,12 @@ func (m *uiModel) currentQuestionRenderIdentity() (questionRenderIdentity, bool)
 	prompt := m.ask.current.prompt
 	question := transcriptPromptQuestion(prompt)
 	if targets := prompt.GetApproval().GetAccessTargets(); len(targets) > 0 {
-		question = clientui.FormatFileAccessApprovalMarkdown(protoapi.FileAccessTargetsFromProto(targets))
+		displayTargets := protoapi.FileAccessTargetsFromProto(targets)
+		for index := range displayTargets {
+			displayTargets[index].RequestedPath = pathdisplay.Home(displayTargets[index].RequestedPath)
+			displayTargets[index].ResolvedPath = pathdisplay.Home(displayTargets[index].ResolvedPath)
+		}
+		question = clientui.FormatFileAccessApprovalMarkdown(displayTargets)
 	}
 	return questionRenderIdentity{
 		questionSource:   question,

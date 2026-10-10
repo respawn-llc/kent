@@ -55,6 +55,11 @@ export function taskStartApplied(nodeIDs: readonly string[] = ["node-1"]) {
   });
 }
 
+export const taskStartFailure = create(lifecycle.StartErrorSchema, {
+  code: "internal_failure",
+  detail: { case: "internalFailure", value: { cause: "preparation failed" } },
+});
+
 export function taskStartNeedsDependencies(count: number) {
   return create(lifecycle.StartResultSchema, {
     outcome: {

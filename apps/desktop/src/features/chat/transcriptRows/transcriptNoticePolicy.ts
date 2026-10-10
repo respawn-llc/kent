@@ -43,6 +43,8 @@ export type TranscriptNoticePolicy =
 export type TranscriptNoticeProse = Readonly<{
   expanded: string;
   compact: string;
+  copyText: string;
+  sourcePath: string | null;
 }>;
 
 const markdownMessageTypes = new Set([
@@ -82,12 +84,13 @@ export function projectNotice(
   }
 
   const body = isMarkdownNotice(notice)
-    ? ({ kind: "markdown", text: noticeOriginalText(notice) } as const)
+    ? ({ kind: "markdown", text: noticeOriginalText({ ...notice, SourcePath: prose.sourcePath }) } as const)
     : ({ kind: "plain_text", text: prose.expanded } as const);
-  const copyText = body.kind === "markdown" && notice.Reason !== "compaction" ? body.text : prose.expanded;
+  const copyText =
+    body.kind === "markdown" && notice.Reason !== "compaction" ? noticeOriginalText(notice) : prose.copyText;
   return {
     kind: "disclosure",
-    summary: noticeCompactText(notice, prose.compact),
+    summary: noticeCompactText({ ...notice, SourcePath: prose.sourcePath }, prose.compact),
     icon: noticeIcon(notice),
     iconTone: noticeIconTone(notice),
     defaultExpanded: noticeDefaultExpanded(notice, row.Visibility),

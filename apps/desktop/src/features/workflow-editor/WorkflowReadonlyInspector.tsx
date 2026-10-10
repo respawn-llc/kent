@@ -8,6 +8,7 @@ import type {
   WorkflowValidation,
 } from "@/api";
 import type { WorkflowInspectorSelection } from "@/app-facade";
+import { usePathFormatter } from "@/app-facade";
 import { WorkflowEdgeRouteGraphic } from "@/shared/workflow-edge";
 import {
   DetailRow,
@@ -93,6 +94,7 @@ export function NodeDetails({
   validation,
 }: Readonly<{ definition: WorkflowDefinition; node: WorkflowNode; validation: WorkflowValidation }>) {
   const { t } = useTranslation();
+  const formatPath = usePathFormatter();
   const errors = validation.errors.filter(
     (error) => error.nodeID === node.id || error.relatedIDs.includes(node.id),
   );
@@ -113,7 +115,10 @@ export function NodeDetails({
             help={t("workflowEditor.scriptPathHelp")}
             label={t("workflowEditor.scriptPath")}
             mono
-            value={fallbackLabel(t("workflowEditor.none"), node.scriptPath ?? "")}
+            value={fallbackLabel(
+              t("workflowEditor.none"),
+              node.scriptPath == null ? "" : formatPath(node.scriptPath),
+            )}
           />
         ) : null}
       </DetailSection>
