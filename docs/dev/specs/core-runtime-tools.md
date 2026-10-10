@@ -2,7 +2,7 @@
 
 ## Authority And Client Boundaries
 
-- New Worktree entry, exit, startup, and post-compaction reminders collapse their CWD relative to home. General environment CWD and Session rebind target-directory context remain absolute. Existing conversation content is never rewritten to apply path presentation.
+- New Worktree entry, exit, startup, and post-compaction reminders must shorten their CWD relative to the formatting Working Directory when contained within it, relative to home otherwise, and use an absolute path outside both. General environment CWD and Session rebind target-directory context remain absolute. Existing conversation content is never rewritten to apply path presentation.
 - Patch presentation retains an absolute path supplied by the model exactly as its display label while resolving its canonical filesystem target separately. Image-tool clients collapse structured path labels without changing tool arguments, persisted results, or model-visible arbitrary text. Errors and diagnostics may retain absolute paths.
 
 - Kent does not virtualize or sandbox command execution. Isolation requires running Kent on a remote machine or in Docker.
@@ -380,13 +380,14 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - A manual compact request is a typed Pending Work item and follows the Session's accepted mutation order.
 - Compaction is an Agent Step selected after earlier accepted short mutations apply according to the Runtime Steering specification.
 - A manual compact request is never model-visible user text.
-- Manual-compaction policy and eligibility are revalidated when the pending request starts.
+- Kent must revalidate manual-compaction policy and eligibility when the pending request starts unless the conversation is already compacted and awaits its next model request.
 - Manual compaction has canonical presentation `/compact` followed by normalized guidance when present.
 - Repeated manual compact requests remain distinct.
 - Clients do not coalesce manual compact requests.
 - Each manual compact request receives its own typed outcome.
 - Agent Steps do not overlap, so manual, automatic, pre-submit, and handoff compaction cannot overlap another compaction Agent Step.
-- Manual compaction requires at least one Agent Step boundary since Session creation or the latest successful compaction. The active Agent Step satisfies this requirement when its boundary is reached. A rejected request starts no provider call and commits no history replacement.
+- Repeated compaction of a conversation that is already compacted and awaits its next model request must succeed without another provider call, history replacement, or preparation of the next request's context.
+- Otherwise, manual compaction must require at least one Agent Step boundary since Session creation or the latest successful compaction. The active Agent Step satisfies this requirement when its boundary is reached. A rejected request starts no provider call and commits no history replacement.
 - Disabled-policy and too-soon manual-compaction failures are typed server-owned outcomes shared by every client.
 - Human-facing text calls this operation `compact`; model-facing context calls it `handoff`. Manual compaction carries the last visible user prompt. Agent handoff may carry a future-agent message visible only in detail.
 - The main-agent prompt-cache key is always the Kent Session ID. Compaction and Session Contract changes add no cache-key suffix, namespace, or generation. Reviewer requests remain under the Session's reviewer key.

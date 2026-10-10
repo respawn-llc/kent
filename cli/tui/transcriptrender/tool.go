@@ -312,7 +312,7 @@ func viewImageDisplayText(meta toolMeta) (string, bool) {
 	if imagePath == "" {
 		return "", false
 	}
-	return viewImageDisplayPrefix + pathdisplay.Home(imagePath), true
+	return viewImageDisplayPrefix + pathdisplay.Compact(imagePath, nil), true
 }
 
 func webSearchDisplayText(meta toolMeta) (string, bool) {

@@ -234,10 +234,11 @@ func inspectContextBoundaryRecordStream(reader io.Reader, kind EventKind) error 
 					}
 				})
 			case "items":
-				itemsPresent = decoder.Next() != jx.Null
 				if decoder.Next() == jx.Null {
+					itemsPresent = false
 					return decoder.Skip()
 				}
+				itemsPresent = true
 				return decoder.Arr(func(decoder *jx.Decoder) error {
 					return decoder.Skip()
 				})

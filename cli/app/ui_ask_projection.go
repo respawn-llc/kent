@@ -76,8 +76,8 @@ func (m *uiModel) currentQuestionRenderIdentity() (questionRenderIdentity, bool)
 	if targets := prompt.GetApproval().GetAccessTargets(); len(targets) > 0 {
 		displayTargets := protoapi.FileAccessTargetsFromProto(targets)
 		for index := range displayTargets {
-			displayTargets[index].RequestedPath = pathdisplay.Home(displayTargets[index].RequestedPath)
-			displayTargets[index].ResolvedPath = pathdisplay.Home(displayTargets[index].ResolvedPath)
+			displayTargets[index].RequestedPath = pathdisplay.Compact(displayTargets[index].RequestedPath, nil)
+			displayTargets[index].ResolvedPath = pathdisplay.Compact(displayTargets[index].ResolvedPath, nil)
 		}
 		question = clientui.FormatFileAccessApprovalMarkdown(displayTargets)
 	}

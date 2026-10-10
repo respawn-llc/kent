@@ -79,7 +79,7 @@ func projectListSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 		return 1
 	}
 	for _, project := range projects {
-		_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\n", project.ProjectID, project.DisplayName, pathdisplay.Home(project.RootPath))
+		_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\n", project.ProjectID, project.DisplayName, pathdisplay.Compact(project.RootPath, nil))
 	}
 	return 0
 }

@@ -30,7 +30,7 @@ func TestProjectListPathDisplay(t *testing.T) {
 		}
 		if fields[0] == fixture.a.ProjectID {
 			found = true
-			want := "~/" + filepath.Base(root)
+			want := "./"
 			if fields[2] != want {
 				t.Fatalf("project list path = %q, want %q", fields[2], want)
 			}

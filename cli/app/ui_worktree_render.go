@@ -141,7 +141,7 @@ func renderWorktreeEntry(item worktreeui.Item, selected bool, width int, theme s
 	title := truncateQueuedMessageLine(worktreeui.DisplayName(item), max(1, width-2))
 	badges := renderWorktreeBadges(item, selected, theme)
 	line1 := worktreeOverlayComposeTitleLine(railStyle.Render(rail), title, titleStyle, badges, width, line)
-	path := metaStyle.Render(truncateQueuedMessageLine(pathdisplay.Home(strings.TrimSpace(item.CanonicalRoot)), max(1, width-2)))
+	path := metaStyle.Render(truncateQueuedMessageLine(pathdisplay.Compact(strings.TrimSpace(item.CanonicalRoot), nil), max(1, width-2)))
 	line2 := worktreeOverlayPadLine([]string{railStyle.Render(rail), line.Render(" "), path}, width, line)
 	return []string{
 		line1,
@@ -275,8 +275,8 @@ func (l uiViewLayout) renderWorktreeCreateDialog(width, height int, style uiStyl
 		if dialog.setupEvent != nil &&
 			dialog.setupEvent.GetStarted() != nil {
 			footer = append(footer,
-				style.meta.Render(truncateQueuedMessageLine("Setup script: "+pathdisplay.Home(dialog.setupEvent.GetStarted().ScriptPath), width)),
-				style.meta.Render(truncateQueuedMessageLine("Setup worktree: "+pathdisplay.Home(dialog.setupEvent.GetStarted().WorktreeRoot), width)),
+				style.meta.Render(truncateQueuedMessageLine("Setup script: "+pathdisplay.Compact(dialog.setupEvent.GetStarted().ScriptPath, nil), width)),
+				style.meta.Render(truncateQueuedMessageLine("Setup worktree: "+pathdisplay.Compact(dialog.setupEvent.GetStarted().WorktreeRoot, nil), width)),
 			)
 		}
 	}
@@ -389,7 +389,7 @@ func (l uiViewLayout) renderWorktreeDeleteDialog(width, height int, style uiStyl
 		"",
 	}
 	displayTarget := dialog.target
-	displayTarget.CanonicalRoot = pathdisplay.Home(displayTarget.CanonicalRoot)
+	displayTarget.CanonicalRoot = pathdisplay.Compact(displayTarget.CanonicalRoot, nil)
 	body := worktreeui.PreviewLines(displayTarget, dialog.selectedAction)
 	for _, line := range body {
 		lineStyle := style.chat

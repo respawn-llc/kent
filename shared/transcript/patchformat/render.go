@@ -433,7 +433,7 @@ func resolvePath(path, cwd string) Path {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		slog.Error("resolve home for patch display path", "error", err)
-		return Path{Absolute: absolute, Relative: absolute}
+		return Path{Absolute: absolute, Relative: pathutil.Compact(absolute, nil, &cwd)}
 	}
-	return Path{Absolute: absolute, Relative: pathutil.Compact(absolute, cwd, home)}
+	return Path{Absolute: absolute, Relative: pathutil.Compact(absolute, &home, &cwd)}
 }

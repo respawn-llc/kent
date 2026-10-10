@@ -180,9 +180,9 @@ func statusDisplayPath(path, workdir string) string {
 		return "<unknown>"
 	}
 	if work := filepath.ToSlash(strings.TrimSpace(workdir)); work != "" {
-		return pathdisplay.Compact(trimmed, work)
+		return pathdisplay.Compact(trimmed, &work)
 	}
-	return pathdisplay.Home(trimmed)
+	return pathdisplay.Compact(trimmed, nil)
 }
 
 func statusValueOrFallback(value, fallback string) string {

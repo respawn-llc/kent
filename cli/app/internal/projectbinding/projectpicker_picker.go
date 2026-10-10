@@ -61,9 +61,9 @@ func PreviewPath(rootPath string, homeDir string) string {
 	}
 	trimmedHome := strings.TrimSpace(homeDir)
 	if trimmedHome == "" {
-		return trimmedRoot
+		return pathutil.Compact(trimmedRoot, nil, nil)
 	}
-	return pathutil.CollapseHome(trimmedRoot, trimmedHome)
+	return pathutil.Compact(trimmedRoot, &trimmedHome, nil)
 }
 
 func MoveCursor(cursor int, delta int, itemCount int) int {

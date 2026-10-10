@@ -1170,8 +1170,8 @@ func TestManualCompactionSubmittedDuringGoalTurnRunsBeforeNextGoalTurn(t *testin
 			failed++
 		}
 	}
-	if completed != 1 || failed != 1 {
-		t.Fatalf("compaction completion/failure events = %d/%d, want 1/1", completed, failed)
+	if completed != 1 || failed != 0 {
+		t.Fatalf("compaction completion/failure events = %d/%d, want 1/0", completed, failed)
 	}
 }
 

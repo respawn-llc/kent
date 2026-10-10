@@ -799,7 +799,7 @@ func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.Entr
 	}
 	sourcePath := optionalString(row.SourcePath)
 	if sourcePath != "" {
-		sourcePath = pathdisplay.Home(sourcePath)
+		sourcePath = pathdisplay.Compact(sourcePath, nil)
 	}
 	typedCompactText := firstNonEmpty(optionalString(row.CompactLabel), optionalString(row.CondensedText), noticeLegacyText(row), cacheWarningText, sourcePath)
 	compactText := firstNonEmpty(typedCompactText, noticeReasonLabel(row.Reason))
@@ -859,7 +859,7 @@ func worktreeNoticeText(row *transcriptpb.NoticeRow, mode Mode) (string, bool) {
 		effectiveCWD = strings.TrimSpace(context.WorktreePath)
 	}
 	if effectiveCWD != "" {
-		effectiveCWD = pathdisplay.Home(effectiveCWD)
+		effectiveCWD = pathdisplay.Compact(effectiveCWD, nil)
 	}
 	if row.MessageType == nil {
 		return "", false

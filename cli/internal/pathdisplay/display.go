@@ -8,22 +8,11 @@ import (
 	"core/shared/pathutil"
 )
 
-func Home(path string) string {
-	return format(path, nil)
-}
-
-func Compact(path, cwd string) string {
-	return format(path, &cwd)
-}
-
-func format(path string, cwd *string) string {
+func Compact(path string, cwd *string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		log.Printf("resolve home directory for path display: %v", err)
-		return path
+		return pathutil.Compact(path, nil, cwd)
 	}
-	if cwd != nil {
-		return pathutil.Compact(path, *cwd, home)
-	}
-	return pathutil.CollapseHome(path, home)
+	return pathutil.Compact(path, &home, cwd)
 }

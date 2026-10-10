@@ -38,7 +38,7 @@ func TestWorktreeReminderCWDUsesHomeRelativePresentation(t *testing.T) {
 		}
 		state := testWorktreeReminderState(mode, "feature", worktree, workspace, cwd)
 		message, ok := render(state, home, prompts.WorktreePromptSwitch)
-		if !ok || message.Content == nil || *message.Content != pathutil.CollapseHome(cwd, home) {
+		if !ok || message.Content == nil || *message.Content != pathutil.Compact(cwd, &home, nil) {
 			t.Fatalf("reminder CWD was not home-relative: %+v", message)
 		}
 		if message.WorktreeContext.EffectiveCwd != cwd {

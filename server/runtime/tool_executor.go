@@ -33,9 +33,6 @@ func (t *defaultToolExecutor) ExecuteToolCalls(
 	callErrs := make([]error, len(preparedCalls))
 	wg := sync.WaitGroup{}
 	runID := activeRunIDForStep(e, stepID)
-	workflowActive := e.currentNodeExecutionActive()
-	serialGate := newSerialToolGate()
-	nextSerialOrdinal := 0
 	var questionBatch *tools.AskQuestionBatchMetadata
 	for _, prepared := range preparedCalls {
 		if prepared.askQuestionBatch != nil {
@@ -116,20 +113,11 @@ func (t *defaultToolExecutor) ExecuteToolCalls(
 			break
 		}
 		idx := i
-		serialOrdinal := -1
-		if serialToolExecutionRequired(toolID, workflowActive) {
-			serialOrdinal = nextSerialOrdinal
-			nextSerialOrdinal++
-		}
 		wg.Add(1)
-		go func(tc llm.ToolCall, toolID toolspec.ID, knownTool bool, inputErr error, serialOrdinal int, askBatch *tools.AskQuestionBatchMetadata) {
+		go func(tc llm.ToolCall, toolID toolspec.ID, knownTool bool, inputErr error, askBatch *tools.AskQuestionBatchMetadata) {
 			defer wg.Done()
 			defer e.forgetPendingToolCallStart(tc.ID)
 
-			if serialOrdinal >= 0 {
-				serialGate.wait(serialOrdinal)
-				defer serialGate.done(serialOrdinal)
-			}
 			res, completed, callErr := e.executePreparedToolCall(executionCtx, stepID, runID, tc, toolID, knownTool, inputErr, askBatch)
 			if fatal := collector.fatalSnapshot(); fatal != nil {
 				return
@@ -190,7 +178,7 @@ func (t *defaultToolExecutor) ExecuteToolCalls(
 				return
 			}
 			callErrs[idx] = callErr
-		}(executableCall, toolID, knownTool, prepared.inputErr, serialOrdinal, prepared.askQuestionBatch)
+		}(executableCall, toolID, knownTool, prepared.inputErr, prepared.askQuestionBatch)
 	}
 
 	wg.Wait()
@@ -448,44 +436,6 @@ func askQuestionMaterializable(engine *Engine) bool {
 	}
 	questions, ok := handler.(interface{ QuestionsEnabled() bool })
 	return !ok || questions.QuestionsEnabled()
-}
-
-type serialToolGate struct {
-	mu   sync.Mutex
-	cond *sync.Cond
-	next int
-}
-
-func newSerialToolGate() *serialToolGate {
-	gate := &serialToolGate{}
-	gate.cond = sync.NewCond(&gate.mu)
-	return gate
-}
-
-func (g *serialToolGate) wait(ordinal int) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	for g.next != ordinal {
-		g.cond.Wait()
-	}
-}
-
-func (g *serialToolGate) done(ordinal int) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.next == ordinal {
-		g.next++
-		g.cond.Broadcast()
-	}
-}
-
-func serialToolExecutionRequired(toolID toolspec.ID, workflowActive bool) bool {
-	switch toolID {
-	case toolspec.ToolPatch, toolspec.ToolEdit, toolspec.ToolViewImage:
-		return workflowActive
-	default:
-		return false
-	}
 }
 
 func (e *Engine) executeCompleteNodeTool(ctx context.Context, stepID string, call llm.ToolCall) (tools.Result, error) {

@@ -160,7 +160,7 @@ func writeWorktreeList(stdout io.Writer, worktrees []*worktreepb.ListEntry, show
 		}
 		selector := entry.GetProjection().GetSelector()
 		if filepath.IsAbs(selector) {
-			selector = pathdisplay.Home(selector)
+			selector = pathdisplay.Compact(selector, nil)
 		}
 		if !showCurrent {
 			fmt.Fprintf(stdout, "%s\t%s\n", selector, variant)

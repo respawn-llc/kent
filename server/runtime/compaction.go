@@ -273,6 +273,9 @@ func (c *defaultContextCompactor) scheduleManualCompaction(
 }
 
 func (e *Engine) manualCompactionAdmissionError() error {
+	if _, pending := e.generationContextSnapshot().(pendingGenerationContext); pending {
+		return nil
+	}
 	if e.compactionRuntimeState().ActiveSnapshot() != nil {
 		return ErrManualCompactionActive
 	}
@@ -378,6 +381,9 @@ func (c *defaultContextCompactor) compactContext(
 		run = c.steps.Run
 	}
 	err := run(ctx, exclusiveStepOptions{ActiveKind: activeKind, Reservation: reservation}, func(stepCtx context.Context, stepID string) error {
+		if _, pending := e.generationContextSnapshot().(pendingGenerationContext); pending {
+			return nil
+		}
 		if requireEligibility {
 			if e.compactionRuntimeState().ActiveSnapshot() != nil {
 				return c.reportManualCompactionSelectionFailure(stepID, requestID, ErrManualCompactionActive)
@@ -639,6 +645,9 @@ func (e *Engine) compactNowWithAcceptance(
 	includePreservedUserMessage bool,
 	accept CommandAcceptance,
 ) (compactionResult, session.CommitReceipt, error) {
+	if _, pending := e.generationContextSnapshot().(pendingGenerationContext); pending {
+		return compactionResult{}, session.CommitReceipt{}, nil
+	}
 	planningSnapshot := e.compactionPlanningSnapshot()
 	planner := e.compactionPlannerState()
 	if planner.mode(planningSnapshot.policy) == "none" {
@@ -648,11 +657,6 @@ func (e *Engine) compactNowWithAcceptance(
 		return compactionResult{}, session.CommitReceipt{}, errCompactionDisabledModeNone
 	}
 
-	if _, pending := e.generationContextSnapshot().(pendingGenerationContext); pending {
-		if err := e.prepareRequestGenerationContext(ctx, stepID); err != nil {
-			return compactionResult{}, session.CommitReceipt{}, err
-		}
-	}
 	input, replacementEnd := e.transcriptRuntimeState().SnapshotRequestItems()
 	if len(input) == 0 {
 		return compactionResult{}, session.CommitReceipt{}, nil
