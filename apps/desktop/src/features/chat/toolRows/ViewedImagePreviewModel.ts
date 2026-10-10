@@ -88,9 +88,9 @@ export function useViewedImagePreview(model: ReturnType<typeof createViewedImage
 const resolveOriginal = Effect.fnUntraced(function* (input: ViewedImagePreviewInput) {
   const localRead = input.services.nativeBridge.files.readImage;
   const effectiveWorkdir = input.effectiveWorkdir;
-  if (localRead !== null && effectiveWorkdir !== null) {
+  if (localRead !== null) {
     const bytes = yield* Effect.tryPromise({
-      try: async () => localRead({ path: input.path, basePath: effectiveWorkdir }),
+      try: async () => localRead({ path: input.path, basePath: effectiveWorkdir ?? undefined }),
       catch: asError,
     }).pipe(
       Effect.catch((failure) =>

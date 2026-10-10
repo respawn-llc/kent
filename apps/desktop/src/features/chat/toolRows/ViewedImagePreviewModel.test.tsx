@@ -1,11 +1,14 @@
 import { RegistryProvider } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 
-import { createTestServices } from "@/test-support/app-services";
+import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
 import { createViewedImagePreviewModel, useViewedImagePreview } from "./ViewedImagePreviewModel";
+import { ViewedImageRow } from "./ViewedImageRow";
+import type { TranscriptToolSlotItem } from "./toolSlotTypes";
+import type { ToolPresentation } from "./toolPresentation";
 
 const decode = vi.fn(async (): Promise<void> => undefined);
 const createURL = vi.fn(() => "blob:preview");
@@ -35,7 +38,7 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals());
 
-function fixture(localEnabled = true, effectiveWorkdir: string | null = "/workspace") {
+function fixture(localEnabled = true, effectiveWorkdir: string | null = "/workspace", path = "image.png") {
   const services = createTestServices([]);
   const server = vi.spyOn(services.api.chat, "getViewedImageOriginal").mockResolvedValue({
     kind: "content",
@@ -52,10 +55,10 @@ function fixture(localEnabled = true, effectiveWorkdir: string | null = "/worksp
     client,
     target: { projectID: "project", sessionID: "session" },
     effectiveWorkdir,
-    path: "image.png",
+    path,
     locator: { event_sequence: 1, row_ordinal: 0 },
   });
-  return { client, local, server, model };
+  return { client, local, server, model, services: { ...services, nativeBridge } };
 }
 
 function mount(context: ReturnType<typeof fixture>) {
@@ -80,11 +83,117 @@ it("uses a decoded local original without transferring server bytes", async () =
 
 it("uses the server original without local path context", async () => {
   const context = fixture(true, null);
+  context.local.mockRejectedValue(new Error("Relative path requires a base directory"));
   const view = mount(context);
   await waitFor(() => {
     expect(view.result.current.data).toMatchObject({ kind: "image", source: "server" });
   });
-  expect(context.local).not.toHaveBeenCalled();
+});
+
+it("uses an absolute local original without a working directory", async () => {
+  const context = fixture(true, null, "/images/image.png");
+  const view = mount(context);
+  await waitFor(() => {
+    expect(view.result.current.data).toMatchObject({ kind: "image", source: "local" });
+  });
+  expect(context.server).not.toHaveBeenCalled();
+});
+
+const imagePresentation: Extract<ToolPresentation, { kind: "view-image" }> = {
+  kind: "view-image",
+  body: [],
+  compact: "/images/image.png",
+  path: "/images/image.png",
+  outcome: "raster",
+  icon: "image",
+  iconTone: "neutral",
+  running: false,
+};
+const imageItem: TranscriptToolSlotItem = {
+  kind: "committed",
+  row: {
+    Kind: "tool",
+    Visibility: "ongoing",
+    Integrity: 0,
+    Locator: { event_sequence: 1, row_ordinal: 0 },
+    User: null,
+    Assistant: null,
+    ReasoningTrace: null,
+    Notice: null,
+    ReviewerFeedback: null,
+    ReviewerError: null,
+    Tool: {
+      ViewedImageKind: "raster",
+      ToolCallID: "image",
+      ToolName: "view_image",
+      Text: "",
+      IsError: false,
+    },
+  },
+};
+
+it("finishes an expanded acquisition when working-directory context hydrates", async () => {
+  const context = fixture(false, null);
+  const read = deferred<Awaited<ReturnType<typeof context.server>>>();
+  context.server.mockReturnValueOnce(read.promise);
+  const row = (effectiveWorkdir: string | null) => (
+    <ViewedImageRow
+      presentation={imagePresentation}
+      item={imageItem}
+      target={{ projectID: "project", sessionID: "session" }}
+      effectiveWorkdir={effectiveWorkdir}
+    />
+  );
+  const view = render(row(null), {
+    wrapper: ({ children }) => (
+      <TestAppProviders services={context.services} queryClient={context.client}>
+        {children}
+      </TestAppProviders>
+    ),
+  });
+  fireEvent.click(screen.getByRole("button"));
+  await waitFor(() => {
+    expect(context.server).toHaveBeenCalledTimes(1);
+  });
+  view.rerender(row("/workspace"));
+  await act(async () => {
+    read.resolve({ kind: "content", bytes: new Uint8Array([3]) });
+  });
+  await waitFor(() => {
+    expect(screen.getByAltText("")).toHaveAttribute("src", "blob:preview");
+  });
+});
+
+it("offers native Open for an available absolute PDF without a working directory", async () => {
+  const context = fixture();
+  const available = vi.spyOn(context.services.nativeBridge.files, "fileAvailable").mockResolvedValue(true);
+  const open = vi.spyOn(context.services.nativeBridge.files, "openDefault").mockResolvedValue();
+  const services = {
+    ...context.services,
+    nativeBridge: {
+      ...context.services.nativeBridge,
+      capabilities: {
+        ...context.services.nativeBridge.capabilities,
+        files: { ...context.services.nativeBridge.capabilities.files, stat: true, open: true },
+      },
+    },
+  };
+  render(
+    <ViewedImageRow
+      presentation={{ ...imagePresentation, path: "/images/file.pdf", outcome: "pdf" }}
+      item={imageItem}
+      target={{ projectID: "project", sessionID: "session" }}
+      effectiveWorkdir={null}
+    />,
+    { wrapper: ({ children }) => <TestAppProviders services={services}>{children}</TestAppProviders> },
+  );
+  const button = await screen.findByRole("button");
+  fireEvent.click(button);
+  await waitFor(() => {
+    expect(open).toHaveBeenCalledWith({ path: "/images/file.pdf", basePath: undefined });
+  });
+  expect(available).toHaveBeenCalledWith({ path: "/images/file.pdf", basePath: undefined });
+  expect(context.server).not.toHaveBeenCalled();
 });
 
 it("uses the server original when local acquisition fails", async () => {

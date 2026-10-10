@@ -65,13 +65,14 @@ type PreviewContext = RowContext & Pick<ViewedImagePreviewInput, "path" | "locat
 
 function PresentImagePreview(props: PreviewContext) {
   const present = useIsPresent();
-  return present ? <ImagePreview key={props.effectiveWorkdir} {...props} /> : null;
+  return present ? <ImagePreview {...props} /> : null;
 }
 
 function ImagePreview(props: PreviewContext) {
   const services = useAppServices();
   const client = useQueryClient();
   const { t } = useTranslation();
+  // An expansion owns its acquisition; later Main View hydration must not restart it.
   const [model] = useState(() => createViewedImagePreviewModel({ ...props, services, client }));
   const query = useViewedImagePreview(model);
   if (query.isPending) return <Spinner size="sm" />;
@@ -109,10 +110,7 @@ function ViewedPDFRow({
         return false;
       }
     },
-    enabled:
-      effectiveWorkdir !== null &&
-      nativeBridge.capabilities.files.stat &&
-      nativeBridge.capabilities.files.open,
+    enabled: nativeBridge.capabilities.files.stat && nativeBridge.capabilities.files.open,
     networkMode: "always",
     retry: false,
     refetchOnWindowFocus: false,
@@ -125,7 +123,7 @@ function ViewedPDFRow({
       icon={<Image className="size-4" strokeWidth={1.8} />}
       iconTone={presentation.iconTone}
       actions={
-        effectiveWorkdir !== null && nativeBridge.capabilities.files.open && availability.data === true ? (
+        nativeBridge.capabilities.files.open && availability.data === true ? (
           <Button
             variant="ghost"
             onClick={() => {
