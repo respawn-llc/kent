@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"core/cli/internal/pathdisplay"
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
@@ -22,7 +23,6 @@ import (
 )
 
 const worktreeCommandTimeout = 5 * time.Second
-const worktreeMutationTimeout = 30 * time.Second
 
 func worktreeSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -158,15 +158,19 @@ func writeWorktreeList(stdout io.Writer, worktrees []*worktreepb.ListEntry, show
 			fmt.Fprintln(stdout, err)
 			continue
 		}
+		selector := entry.GetProjection().GetSelector()
+		if filepath.IsAbs(selector) {
+			selector = pathdisplay.Compact(selector, nil)
+		}
 		if !showCurrent {
-			fmt.Fprintf(stdout, "%s\t%s\n", entry.GetProjection().GetSelector(), variant)
+			fmt.Fprintf(stdout, "%s\t%s\n", selector, variant)
 			continue
 		}
 		current := " "
 		if entry.GetProjection().GetIsCurrent() {
 			current = "*"
 		}
-		fmt.Fprintf(stdout, "%s %s\t%s\n", current, entry.GetProjection().GetSelector(), variant)
+		fmt.Fprintf(stdout, "%s %s\t%s\n", current, selector, variant)
 	}
 }
 
@@ -380,11 +384,16 @@ func worktreeDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 	deleteBranch := fs.Bool("delete-branch", false, "safely delete the local branch after removing the worktree")
 	forceDeleteBranch := fs.Bool("force-delete-branch", false, "force-delete the local branch; requires --delete-branch")
 	jsonOut := fs.Bool("json", false, "write the delete result as JSON")
+	timeout := fs.Duration("timeout", 5*time.Minute, "maximum time for worktree deletion, including connection and workspace resolution")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
 	}
 	if len(fs.Args()) != 1 {
 		fmt.Fprintln(stderr, "worktree delete requires exactly one selector")
+		return 2
+	}
+	if *timeout <= 0 {
+		fmt.Fprintln(stderr, "--timeout must be a positive duration")
 		return 2
 	}
 	policy, err := worktreeBranchCleanupPolicy(*deleteBranch, *forceDeleteBranch)
@@ -398,14 +407,14 @@ func worktreeDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		return 2
 	}
 	sessionID := resolveOptionalWorktreeCommandSession(*sessionFlag)
-	remote, binding, err := openWorktreeManagementRemote(context.Background(), selection, sessionID)
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+	remote, binding, err := openWorktreeManagementRemote(ctx, selection, sessionID)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	defer func() { _ = remote.Close() }()
-	ctx, cancel := context.WithTimeout(context.Background(), worktreeMutationTimeout)
-	defer cancel()
 	result, err := remote.DeleteWorktree(ctx, &worktreepb.DeleteRequest{
 		Scope:               worktreecontract.WorkspaceManagementScope(binding.ProjectID, binding.WorkspaceID, sessionID),
 		Selector:            strings.TrimSpace(fs.Args()[0]),

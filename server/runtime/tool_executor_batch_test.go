@@ -13,8 +13,89 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/config"
 	"core/shared/toolspec"
 )
+
+type concurrentSiblingTool struct {
+	started chan<- string
+	release <-chan struct{}
+}
+
+func (h concurrentSiblingTool) Call(ctx context.Context, call tools.Call) (tools.Result, error) {
+	h.started <- call.ID
+	select {
+	case <-h.release:
+		return tools.Result{Output: json.RawMessage(`{"ok":true}`)}, nil
+	case <-ctx.Done():
+		return tools.Result{}, ctx.Err()
+	}
+}
+
+func TestExecuteToolCallsStartsWorkflowFileToolSiblingsConcurrently(t *testing.T) {
+	for _, call := range []llm.ToolCall{
+		{ID: "patch", Name: string(toolspec.ToolPatch), Input: json.RawMessage(`{"patch":"*** Begin Patch\n*** Add File: a.txt\n+hello\n*** End Patch"}`)},
+		{ID: "edit", Name: string(toolspec.ToolEdit), Input: json.RawMessage(`{"path":"b.txt","old_string":"old","new_string":"new"}`)},
+		{ID: "image", Name: string(toolspec.ToolViewImage), Input: json.RawMessage(`{"path":"c.png"}`)},
+	} {
+		t.Run(call.Name, func(t *testing.T) {
+			assertWorkflowToolSiblingsConcurrent(t, call)
+		})
+	}
+}
+
+func assertWorkflowToolSiblingsConcurrent(t *testing.T, call llm.ToolCall) {
+	t.Helper()
+	sibling := call
+	sibling.ID += "-sibling"
+	calls := []llm.ToolCall{call, sibling}
+	started := make(chan string, len(calls))
+	release := make(chan struct{})
+	handler := concurrentSiblingTool{started: started, release: release}
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{},
+		newTestToolRegistry(t,
+			tools.HandlerRegistration{ID: toolspec.ID(call.Name), Handler: handler},
+		), Config{Model: "gpt-6-sol"})
+	publishTestWorkflowExecution(t, engine, testWorkflowConfig(
+		&fakeWorkflowController{}, config.WorkflowCompletionModeTool,
+	))
+	restoreStep := setTestActiveStep(engine, runtimeTestStepID("concurrent-file-tools"))
+	defer restoreStep()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		results, err := engine.executeToolCalls(ctx, runtimeTestStepID("concurrent-file-tools"), calls)
+		if err == nil {
+			if len(results) != len(calls) {
+				err = fmt.Errorf("received %d results, want %d", len(results), len(calls))
+			} else {
+				for index, result := range results {
+					if result.CallID != calls[index].ID || result.IsError {
+						err = fmt.Errorf("unexpected result at roster index %d: %+v", index, result)
+						break
+					}
+				}
+			}
+		}
+		done <- err
+	}()
+	defer func() {
+		close(release)
+		if err := <-done; err != nil {
+			t.Errorf("execute workflow siblings: %v", err)
+		}
+	}()
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+	for range calls {
+		select {
+		case <-started:
+		case <-timeout.C:
+			t.Fatal("workflow file tool siblings did not all start before any handler completed")
+		}
+	}
+}
 
 type toolExecutionProbe struct {
 	called   bool

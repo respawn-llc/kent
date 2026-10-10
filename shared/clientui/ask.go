@@ -14,4 +14,10 @@ type PendingAsk struct {
 	Suggestions            []string
 	RecommendedOptionIndex *int
 	CreatedAt              time.Time
+	Batch                  *QuestionBatch
+}
+
+type QuestionBatch struct {
+	ToolCallIDs         []string
+	UnmaterializedCount uint32
 }

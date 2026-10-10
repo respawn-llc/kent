@@ -74,3 +74,63 @@ func TestCompactionRefreshesFullContract(t *testing.T) {
 		})
 	}
 }
+
+func TestRepeatedManualCompactionLeavesSummaryPending(t *testing.T) {
+	for _, mode := range []string{"native", "local"} {
+		t.Run(mode, func(t *testing.T) {
+			store := mustCreateTestSession(t)
+			client := &fakeCompactionClient{
+				caps: llm.ProviderCapabilities{
+					ProviderID: "openai", SupportsResponsesAPI: true,
+					SupportsResponsesCompact: true,
+				},
+				responses: []llm.Response{
+					finalOutputItemResponse("seed"), finalOutputItemResponse("summary"),
+					finalOutputItemResponse("next"), finalOutputItemResponse("next summary"),
+				},
+				compactionResponses: []llm.CompactionResponse{{
+					Checkpoint: llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")},
+				}, {
+					Checkpoint: llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("next checkpoint")},
+				}},
+			}
+			engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+				Model: "gpt-6-astra", CompactionMode: mode,
+			})
+			if _, err := engine.SubmitUserMessage(t.Context(), "seed"); err != nil {
+				t.Fatal(err)
+			}
+			scheduleManualCompactionAndWait(t, engine)
+			calls, compactCalls := len(client.calls), len(client.compactionCalls)
+			count := engine.CompactionCount()
+			for range 2 {
+				scheduleManualCompactionAndWait(t, engine)
+			}
+			if len(client.calls) != calls || len(client.compactionCalls) != compactCalls {
+				t.Fatal("repeated compaction dispatched a provider request")
+			}
+			if store.Meta().Locked != nil {
+				t.Fatal("repeated compaction prepared the next generation contract")
+			}
+			if engine.CompactionCount() != count {
+				t.Fatal("repeated compaction replaced the saved summary")
+			}
+			reopened := mustOpenTestSession(t, store.Dir())
+			resumed := mustNewTestEngine(t, reopened, client, tools.NewRegistry(), Config{
+				Model: "gpt-6-astra", CompactionMode: mode,
+			})
+			scheduleManualCompactionAndWait(t, resumed)
+			if len(client.calls) != calls || len(client.compactionCalls) != compactCalls ||
+				resumed.CompactionCount() != count || reopened.Meta().Locked != nil {
+				t.Fatal("compaction after reopening changed the pending summary or prepared its context")
+			}
+			if _, err := resumed.SubmitUserMessage(t.Context(), "continue"); err != nil {
+				t.Fatal(err)
+			}
+			scheduleManualCompactionAndWait(t, resumed)
+			if resumed.CompactionCount() != count+1 {
+				t.Fatal("compaction after a new model turn did not produce a new summary")
+			}
+		})
+	}
+}

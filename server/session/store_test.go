@@ -262,7 +262,7 @@ func TestCompactionReplacementPersistsFreshContractBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, receipt, err := log.AppendCompactionHistoryReplacement(nil, HistoryReplacementRecord{
+	if _, receipt, err := log.AppendHistoryReplacement(nil, HistoryReplacementRecord{
 		Engine: "local", Mode: CompactionModeManual,
 	}); err != nil || !receipt.Committed {
 		t.Fatalf("commit compaction replacement: receipt=%+v error=%v", receipt, err)
@@ -273,6 +273,44 @@ func TestCompactionReplacementPersistsFreshContractBoundary(t *testing.T) {
 	opened := mustOpenSessionTestStore(t, store)
 	if locked := opened.Meta().Locked; locked != nil {
 		t.Fatalf("persisted locked contract = %+v, want absent", locked)
+	}
+}
+
+func TestGenerationPreparationPreservesCurrentContract(t *testing.T) {
+	store := newSessionTestStore(t)
+	log := mustMaterializeSessionTestEventLog(t, store)
+	count, start := 1, 0
+	summary := []ProviderHistoryItem{{
+		Type: ProviderHistoryItemTypeCompaction,
+		Raw:  []byte(`{ "type": "compaction", "encrypted_content": "checkpoint" }`),
+	}}
+	record := HistoryReplacementRecord{
+		Engine: "remote", Mode: CompactionModeWorkflowPostCompletion,
+		CompactionNumber: &count, CommittedEntryStart: &start,
+		CompactedOutput: &CompactedOutput{Summary: summary},
+	}
+	if _, receipt, err := log.AppendHistoryReplacement(nil, record); err != nil || !receipt.Committed {
+		t.Fatalf("save compaction: %+v, %v", receipt, err)
+	}
+	markSessionTestLocked(t, store, sessionTestLockedContract())
+	if err := store.AdoptOriginalThinkingEffort("medium"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetUsageState(&UsageState{InputTokens: 42}); err != nil {
+		t.Fatal(err)
+	}
+	before := store.Meta()
+	context := GenerationContextRecord{AfterSummary: []MessageRecord{{
+		Role: MessageRoleDeveloper, Content: stringPointer("operation context"),
+	}}}
+	if _, receipt, err := log.AppendRecord(nil, context); err != nil || !receipt.Committed {
+		t.Fatalf("prepare generation: %+v, %v", receipt, err)
+	}
+	after := mustOpenSessionTestStore(t, store).Meta()
+	if !reflect.DeepEqual(before.Locked, after.Locked) ||
+		!reflect.DeepEqual(before.OriginalThinkingEffort, after.OriginalThinkingEffort) ||
+		!reflect.DeepEqual(before.UsageState, after.UsageState) {
+		t.Fatal("generation preparation reset the selected contract or compacted usage")
 	}
 }
 
@@ -294,7 +332,7 @@ func TestCompactedMetadataProjectionPreservesRetainedContextWithoutMutation(t *t
 		t.Fatal("compaction projection mutated retained metadata")
 	}
 	log := mustMaterializeSessionTestEventLog(t, store)
-	if _, receipt, err := log.AppendCompactionHistoryReplacement(nil, HistoryReplacementRecord{
+	if _, receipt, err := log.AppendHistoryReplacement(nil, HistoryReplacementRecord{
 		Engine: "local", Mode: CompactionModeManual,
 	}); err != nil || !receipt.Committed {
 		t.Fatalf("commit compaction: %+v, %v", receipt, err)

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"core/cli/internal/pathdisplay"
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/clientui"
@@ -267,7 +268,7 @@ func (m *workspaceChangePromptModel) moveCursor(delta int) {
 
 func (m *workspaceChangePromptModel) promptLines() []askPromptLine {
 	return []askPromptLine{
-		{Text: fmt.Sprintf("This session started in %q but Kent's current is %q. Continue in new location?", m.selectedRoot, m.currentRoot), Kind: askPromptLineKindQuestion},
+		{Text: fmt.Sprintf("This session started in %q but Kent's current is %q. Continue in new location?", pathdisplay.Compact(m.selectedRoot, nil), pathdisplay.Compact(m.currentRoot, nil)), Kind: askPromptLineKindQuestion},
 		{Text: "", Kind: askPromptLineKindQuestion},
 		{Text: fmt.Sprintf("%d. %s", 1, "Yes"), Kind: askPromptLineKindOption, Selected: m.cursor == 0},
 		{Text: fmt.Sprintf("%d. %s", 2, "No"), Kind: askPromptLineKindOption, Selected: m.cursor == 1},

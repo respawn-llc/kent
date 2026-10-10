@@ -7,7 +7,12 @@ import { useTranslation } from "react-i18next";
 
 import type { TaskCurrentNode, TaskDetail } from "@/api";
 import { errorMessage } from "@/api";
-import { useAppServices, useTextFieldSubmitShortcut, useTextFieldSubmitShortcutPolicy } from "@/app-facade";
+import {
+  useAppServices,
+  usePathFormatter,
+  useTextFieldSubmitShortcut,
+  useTextFieldSubmitShortcutPolicy,
+} from "@/app-facade";
 import { useOpenExternalLink } from "@/app-facade";
 import { writeClipboardText } from "@/shared/native-clipboard";
 import { taskStatusTone } from "@/shared/task-status";
@@ -344,6 +349,7 @@ function TaskOpenButtons({
 }>) {
   const { t } = useTranslation();
   const { nativeBridge } = useAppServices();
+  const formatPath = usePathFormatter();
   const [openError, setOpenError] = useState("");
   const executionRoot = taskExecutionRoot(detail);
   const canOpenScript = nativeBridge.capabilities.files.open;
@@ -414,7 +420,7 @@ function TaskOpenButtons({
               }}
               variant="secondary"
             >
-              {t("task.openScript")} <span className="truncate font-mono">{script.path}</span>
+              {t("task.openScript")} <span className="truncate font-mono">{formatPath(script.path)}</span>
             </Button>
           ))
         : null}

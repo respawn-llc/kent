@@ -231,10 +231,15 @@ func (s *Starter) StartAgentCurrentNode(
 	if !ok || assignment == nil || assignment.starter != s || !assignment.reference.Equal(reference) {
 		return nil, fmt.Errorf("current node %v received incompatible assignment %T", reference, assignmentSteer)
 	}
+	resource := sessionruntime.AgentResourceSelection(sessionruntime.CurrentAgentResource{})
+	if assignment.planned.outgoing != nil {
+		resource = sessionruntime.ReplaceAgentResource{}
+	}
 	return s.startCurrentNodeAgent(
 		ctx,
 		assignment.input,
 		assignment.prepared,
+		resource,
 		taskPromptDelivery,
 		onRetire,
 		controller,
@@ -295,6 +300,7 @@ func (s *Starter) startCurrentNodeAgent(
 	ctx context.Context,
 	input workflowstore.CurrentNodeStartContext,
 	prepared preparedCurrentNodeAgentSession,
+	resource sessionruntime.AgentResourceSelection,
 	taskPromptDelivery workflowruntime.TaskPromptDelivery,
 	onRetire func(),
 	controller workflowruntime.Controller,
@@ -310,7 +316,6 @@ func (s *Starter) startCurrentNodeAgent(
 	if err := s.applyCurrentNodeSessionExecutionTarget(ctx, input, prepared.plan.Descriptor); err != nil {
 		return nil, err
 	}
-	resource := sessionruntime.AgentResourceSelection(sessionruntime.CurrentAgentResource{})
 	var replacementPlan *sessionruntime.AgentRuntimePlan
 	err = s.runtimeAuthority.WithCurrentRuntime(ctx, prepared.plan.Descriptor.SessionID(), func(_ context.Context, engine *runtime.Engine) error {
 		if engine.CompactionMode() != string(prepared.plan.ActiveSettings.CompactionMode) {

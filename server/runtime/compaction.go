@@ -273,6 +273,9 @@ func (c *defaultContextCompactor) scheduleManualCompaction(
 }
 
 func (e *Engine) manualCompactionAdmissionError() error {
+	if _, pending := e.generationContextSnapshot().(pendingGenerationContext); pending {
+		return nil
+	}
 	if e.compactionRuntimeState().ActiveSnapshot() != nil {
 		return ErrManualCompactionActive
 	}
@@ -378,6 +381,9 @@ func (c *defaultContextCompactor) compactContext(
 		run = c.steps.Run
 	}
 	err := run(ctx, exclusiveStepOptions{ActiveKind: activeKind, Reservation: reservation}, func(stepCtx context.Context, stepID string) error {
+		if _, pending := e.generationContextSnapshot().(pendingGenerationContext); pending {
+			return nil
+		}
 		if requireEligibility {
 			if e.compactionRuntimeState().ActiveSnapshot() != nil {
 				return c.reportManualCompactionSelectionFailure(stepID, requestID, ErrManualCompactionActive)
@@ -415,6 +421,8 @@ func (c *defaultContextCompactor) compactContext(
 		}
 		return err
 	})
+	// Standalone compaction does not pass through the agent-turn error reporter.
+	e.surfaceRunError(err)
 	return receipt, err
 }
 
@@ -501,6 +509,11 @@ func (e *Engine) maybeReserveEagerCompaction(activeKind ActiveKind, resultKind L
 }
 func (c *defaultContextCompactor) AutoCompactIfNeeded(ctx context.Context, stepID string, mode compactionMode, preview ...llm.ResponseItem) error {
 	e := c.engine
+	// A completed summary is awaiting its first live request, not another
+	// compaction pass over the still-unprepared generation.
+	if _, pending := e.generationContextSnapshot().(pendingGenerationContext); pending {
+		return nil
+	}
 	selectedPreview := func() ([]llm.ResponseItem, error) {
 		if len(preview) == 0 {
 			return nil, nil
@@ -529,10 +542,6 @@ func (c *defaultContextCompactor) AutoCompactIfNeeded(ctx context.Context, stepI
 		return fmt.Errorf("auto compaction failed: %w", err)
 	}
 	if err == nil && mode == compactionModeAuto {
-		projected, projectionErr := selectedPreview()
-		if projectionErr != nil {
-			return projectionErr
-		}
 		if e.shouldAutoCompactWithContext(ctx, projected...) {
 			return errors.New("auto compaction did not reduce context below threshold")
 		}
@@ -600,7 +609,7 @@ func (e *Engine) usageAtOrAboveLimit(_ context.Context, limit int, preview ...ll
 func (e *Engine) estimatedCurrentTokenUsage(preview ...llm.ResponseItem) int {
 	estimated := 0
 	if e != nil {
-		estimated = e.transcriptRuntimeState().EstimatedProviderTokens()
+		estimated = e.estimatedProviderHistoryTokens()
 	}
 	estimated += llm.EstimateItemsTokens(e.cfg.TokenEstimator, preview)
 	if e.modelRequests().TokenUsage() != nil {
@@ -636,6 +645,9 @@ func (e *Engine) compactNowWithAcceptance(
 	includePreservedUserMessage bool,
 	accept CommandAcceptance,
 ) (compactionResult, session.CommitReceipt, error) {
+	if _, pending := e.generationContextSnapshot().(pendingGenerationContext); pending {
+		return compactionResult{}, session.CommitReceipt{}, nil
+	}
 	planningSnapshot := e.compactionPlanningSnapshot()
 	planner := e.compactionPlannerState()
 	if planner.mode(planningSnapshot.policy) == "none" {
@@ -754,37 +766,24 @@ func (e *Engine) compactNowWithAcceptance(
 	}
 
 	compactionNumber := e.compactionRuntimeState().Count() + 1
-	postReplacementMeta, err := e.compactionReinjectedMetaContextProjection(ctx, mode)
-	if err != nil {
-		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
+	output := compactionOutput{
+		summary: result.items,
 	}
-	var replacementItems []llm.ResponseItem
-	if result.engine == "remote" {
-		replacementItems = append(replacementItems, llm.ItemsFromMessages([]llm.Message{{
-			Role:    llm.RoleDeveloper,
-			Content: textutil.Value(prompts.CompactionContinuationReminder),
-		}})...)
-	}
-	replacementItems = append(replacementItems, llm.ItemsFromMessages(postReplacementMeta.StablePrefix)...)
-	replacementItems = append(replacementItems, llm.CloneResponseItems(result.items)...)
-	replacementItems = append(replacementItems, llm.ItemsFromMessages(postReplacementMeta.RunningShells)...)
-	replacementItems = append(replacementItems, llm.ItemsFromMessages(postReplacementMeta.Environment)...)
 	if preservedUserMessageText != nil {
 		if preservedMessage, ok := compactionPreservedUserMessage(*preservedUserMessageText); ok {
-			replacementItems = append(replacementItems, llm.ItemsFromMessages([]llm.Message{preservedMessage})...)
+			output.preservedUserMessage = &preservedMessage
 		}
 	}
 	if mode == compactionModeHandoff {
 		if req := e.handoffRuntimeState().RequestSnapshot(); req != nil {
 			if futureMessage, ok := handoffFutureAgentMessage(req.futureAgentMessage); ok {
-				replacementItems = append(replacementItems, llm.ItemsFromMessages([]llm.Message{futureMessage})...)
+				output.futureAgentMessage = &futureMessage
 			}
 		}
 	}
 	var replacementReceipt session.CommitReceipt
 	committed, replacementErr := runCommandAcceptance(accept, func() (bool, error) {
-		var err error
-		replacementReceipt, err = persistence.replaceHistory(stepID, result.engine, mode, replacementItems)
+		replacementReceipt, err = persistence.replaceHistory(stepID, result.engine, mode, output)
 		return replacementReceipt.Committed, err
 	})
 	if accept != nil {
@@ -817,7 +816,7 @@ func (e *Engine) compactNowWithAcceptance(
 	if windowTokens <= 0 {
 		windowTokens = e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())
 	}
-	inputTokens := llm.EstimateItemsTokens(e.cfg.TokenEstimator, e.transcriptRuntimeState().SnapshotItems())
+	inputTokens := e.estimatedProviderHistoryTokens()
 	compactedUsage := llm.Usage{
 		InputTokens:  inputTokens,
 		OutputTokens: 0,

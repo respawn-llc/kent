@@ -3,6 +3,8 @@ package projectbinding
 import (
 	"path/filepath"
 	"strings"
+
+	"core/shared/pathutil"
 )
 
 type VisibleRow struct {
@@ -59,19 +61,9 @@ func PreviewPath(rootPath string, homeDir string) string {
 	}
 	trimmedHome := strings.TrimSpace(homeDir)
 	if trimmedHome == "" {
-		return trimmedRoot
+		return pathutil.Compact(trimmedRoot, nil, nil)
 	}
-	rel, err := filepath.Rel(trimmedHome, trimmedRoot)
-	if err != nil {
-		return trimmedRoot
-	}
-	if rel == "." {
-		return "~"
-	}
-	if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return filepath.Join("~", rel)
-	}
-	return trimmedRoot
+	return pathutil.Compact(trimmedRoot, &trimmedHome, nil)
 }
 
 func MoveCursor(cursor int, delta int, itemCount int) int {

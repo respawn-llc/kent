@@ -424,6 +424,7 @@ func TestRemoteCompactionFailureAndCheckpointFallback(t *testing.T) {
 			t.Fatalf("schedule compaction: %v", err)
 		}
 		waitEngineLifecycleTasks(t, engine)
+		buildActiveTurnRequestForTest(t, engine, nil, true)
 		summaries := 0
 		for _, item := range engine.transcriptRuntimeState().SnapshotItems() {
 			if item.Type == llm.ResponseItemTypeMessage &&

@@ -97,7 +97,11 @@ func assertInactiveGoalCompaction(t *testing.T, engine *Engine, name string) {
 	if err != nil || !receipt.Committed {
 		t.Fatalf("compact inactive goal context: receipt=%+v error=%v", receipt, err)
 	}
-	for _, item := range engine.transcriptRuntimeState().SnapshotItems() {
+	request, err := engine.buildActiveTurnDispatchRequest(t.Context(), stepID, nil, true)
+	if err != nil {
+		t.Fatalf("dispatch inactive goal context: %v", err)
+	}
+	for _, item := range request.Items {
 		if item.Type == llm.ResponseItemTypeMessage &&
 			item.MessageType != nil &&
 			*item.MessageType == llm.MessageTypeActiveGoalContinuation {

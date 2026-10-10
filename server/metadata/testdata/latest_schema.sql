@@ -350,7 +350,7 @@ CREATE TABLE "workflow_nodes" (
         CHECK (typeof(workflow_id) = 'blob' AND length(workflow_id) = 16),
     node_key TEXT NOT NULL CHECK (length(node_key) BETWEEN 1 AND 64),
     kind TEXT NOT NULL CHECK (kind IN ('start', 'agent', 'script', 'join', 'terminal')),
-    display_name TEXT NOT NULL CHECK (length(trim(display_name)) BETWEEN 1 AND 120),
+    display_name TEXT NOT NULL CHECK (length(trim(display_name)) BETWEEN 0 AND 120),
     subagent_role TEXT NOT NULL DEFAULT '',
     group_id TEXT REFERENCES "workflow_node_groups"(id) ON DELETE SET NULL,
     sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),

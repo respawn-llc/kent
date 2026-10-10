@@ -88,6 +88,34 @@ func TestShouldAutoCompactUsesModelVisibleEncryptedReasoningEstimate(t *testing.
 	}
 }
 
+func TestWorkflowCompactionUsageUsesSelectedProviderEstimator(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name      string
+		estimator llm.TokenEstimator
+	}{
+		{"first-party", llm.OpenAITokenEstimator{}},
+		{"compatible", llm.DefaultTokenEstimator{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := remoteCompactionReplacement(1_000, 100, 200_000)
+			response.Checkpoint.EncryptedContent = textutil.Value(strings.Repeat("e", 4_000))
+			client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{response}}
+			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
+				Model: "gpt-6-sol", TokenEstimator: test.estimator,
+			})
+			receipt, err := engine.CompactContextForWorkflowPostCompletion(t.Context())
+			if err != nil || !receipt.Committed {
+				t.Fatalf("workflow compaction: receipt=%+v error=%v", receipt, err)
+			}
+			expected := llm.EstimateItemsTokens(test.estimator, []llm.ResponseItem{response.Checkpoint})
+			if usage := engine.ContextUsage(); usage.UsedTokens != expected {
+				t.Fatalf("saved workflow context usage = %d, want %d", usage.UsedTokens, expected)
+			}
+		})
+	}
+}
+
 func TestShouldCompactBeforeUserMessageUsesEstimatedPromptGrowth(t *testing.T) {
 	t.Parallel()
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t), Config{

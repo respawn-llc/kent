@@ -37,6 +37,7 @@ func newPersistedSteeringEngine(store *session.Store) (*Engine, error) {
 		return nil, err
 	}
 	return &Engine{
+		generationContext:  freshGenerationContext{},
 		store:              store,
 		eventLog:           eventLog,
 		transcriptState:    newTranscriptRuntimeState(transcriptWorkingDir("", store.Meta().WorkspaceRoot)),

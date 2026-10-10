@@ -104,3 +104,18 @@ func TestFormatCompactsOutsideWorkspacePath(t *testing.T) {
 		t.Fatalf("expected home-relative display path, got %+v", changes.Files[0])
 	}
 }
+
+func TestFormatCompactsWorkspacePathWithoutHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	doc, err := Parse("*** Begin Patch\n*** Add File: file.go\n+package file\n*** End Patch\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	changes := Format(doc, "/workspace/project")
+	if len(changes.Files) != 1 {
+		t.Fatalf("expected one changed file, got %+v", changes.Files)
+	}
+	if got := changes.Files[0].Path.Relative; got != "./file.go" {
+		t.Fatalf("display path = %q, want ./file.go", got)
+	}
+}

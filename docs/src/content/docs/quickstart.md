@@ -94,7 +94,7 @@ Anthropic or Gemini subscriptions/models will not be supported until these compa
 - Press `Ctrl+V/D`, `Alt+V/D` to paste clipboard images or text.
 - Use `/review` to start a code review. After the review finishes, you can use `/back` to teleport to the original session.
 - `/name <new-name>` will set your session name in the picker and terminal title.
-- `/autocompaction` will toggle compaction, and `/compact` will trigger one. If autocompact is off, you can go above 100% context usage if model allows it. **Going above 100% will cost more and degrade model performance**.
+- `/autocompaction` will toggle compaction, and `/compact` will trigger one. If autocompact is off, you can go above 100% context usage if model allows it. **Going above 100% will cost more and degrade model performance**. Repeating `/compact` before the next model request succeeds without compacting the conversation again.
 - Run `/status` to get detailed info about the session.
 
 For the full command reference, see [Slash Commands](../slash-commands/).

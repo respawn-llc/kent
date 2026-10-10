@@ -44,16 +44,11 @@ func TestReplaceHistoryDoesNotMutateRuntimeStateWhenEventAppendFails(t *testing.
 	compactionStepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = replaceTestPreparedHistory(engine, compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if err == nil || receipt.Committed {
@@ -147,16 +142,11 @@ func TestHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 	compactionStepID := runtimeTestStepID("compaction")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = replaceTestPreparedHistory(engine, compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if err != nil || !receipt.Committed {
@@ -205,16 +195,11 @@ func TestReopenedSessionHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 	compactionStepID := runtimeTestStepID("compaction")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = replaceTestPreparedHistory(engine, compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if err != nil || !receipt.Committed {
@@ -322,16 +307,11 @@ func TestCommittedCompactionHistoryReplacementInvalidatesUsageAcrossImmediateReo
 	compactionStepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = replaceTestPreparedHistory(engine, compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if !receipt.Committed || !errors.Is(err, observerErr) {
@@ -373,16 +353,11 @@ func TestHistoryReplacementAppendObserverFailureUpdatesLiveActiveListForNextTurn
 	compactionStepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = replaceTestPreparedHistory(engine, compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if !receipt.Committed || !errors.Is(err, observerErr) {
@@ -576,7 +551,26 @@ func TestCompactNowReconcilesLiveUsageWhenFinalUsageObserverFails(t *testing.T) 
 	}
 
 	liveUsage := fixture.engine.ContextUsage()
-	expectedInputTokens := llm.EstimateItemsTokens(fixture.engine.cfg.TokenEstimator, fixture.engine.transcriptRuntimeState().SnapshotItems())
+	window, err := mustMaterializeTestEventLog(t, fixture.store).ReadRecentRecords(16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compactedOutput *compactionOutput
+	for _, event := range window.Records {
+		replacement, ok := mustSessionEventPayload(event).(session.HistoryReplacementRecord)
+		if !ok || replacement.CompactedOutput == nil {
+			continue
+		}
+		output, err := compactionOutputFromRecord(*replacement.CompactedOutput)
+		if err != nil {
+			t.Fatal(err)
+		}
+		compactedOutput = &output
+	}
+	if compactedOutput == nil {
+		t.Fatal("committed compacted output missing")
+	}
+	expectedInputTokens := compactedOutput.estimateTokens(fixture.engine.cfg.TokenEstimator)
 	if liveUsage.UsedTokens != expectedInputTokens {
 		t.Fatalf("live compacted usage = %+v, want estimated input tokens %d", liveUsage, expectedInputTokens)
 	}
@@ -642,9 +636,13 @@ func TestCompactNowClearsContractWhenMetadataObserverFails(t *testing.T) {
 		t.Fatalf("persisted contract after committed replacement = %+v, want absent", persisted)
 	}
 
+	if _, err := fixture.engine.buildRequest(context.Background(), "next", false); err == nil {
+		t.Fatal("context-free request prepared pending compaction")
+	}
+	buildActiveTurnRequestForTest(t, fixture.engine, nil, false)
 	request, requestErr := fixture.engine.buildRequest(context.Background(), "next", false)
 	if requestErr != nil {
-		t.Fatalf("build request after committed stale mutation: %v", requestErr)
+		t.Fatalf("inspect request after dispatch preparation: %v", requestErr)
 	}
 	if generation := fixture.engine.compactionRuntimeState().Count(); generation != 1 {
 		t.Fatalf("cache-key compaction generation = %d, want 1", generation)
@@ -802,10 +800,11 @@ func TestRealCompactionClearsPersistedCompactionSoonReminderStateAcrossReopenAnd
 	}
 }
 
-func TestRemoteCompactionTaskAwarenessErrorDoesNotReplaceHistory(t *testing.T) {
+func TestCompactionDispatchTaskAwarenessErrorRetainsPendingSummary(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	countErr := errors.New("workflow task comment count failure")
+	awareness := &failingWorkflowTaskAwarenessSource{}
 	scopeID := runtimeids.NewExecutionScopeID()
 	client := &fakeCompactionClient{
 		compactionResponses: []llm.CompactionResponse{{
@@ -822,14 +821,12 @@ func TestRemoteCompactionTaskAwarenessErrorDoesNotReplaceHistory(t *testing.T) {
 		Contract:            workflowruntime.CompletionContract{},
 		CompletionMode:      workflowruntime.CompletionModeTool,
 		Controller:          &externallyCompletedWorkflowController{},
-		TaskAwarenessSource: failingWorkflowTaskAwarenessSource{err: countErr},
+		TaskAwarenessSource: awareness,
 		Instructions:        workflowruntime.TaskInstructions{CurrentNode: mustTestCurrentNodeReference(t, "task-1", "node-1", nil)},
 	}, Config{Model: "gpt-6-sol"})
 	if err := steerTestActiveStep(engine, "seed", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {
 		t.Fatalf("persist seed message: %v", err)
 	}
-	before := engine.transcriptRuntimeState().SnapshotItems()
-
 	var receipt session.CommitReceipt
 	compactionStepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
@@ -843,11 +840,20 @@ func TestRemoteCompactionTaskAwarenessErrorDoesNotReplaceHistory(t *testing.T) {
 		)
 		return compactErr
 	})
-	if receipt.Committed || !errors.Is(err, countErr) {
-		t.Fatalf("comment-count failure compaction outcome: receipt=%+v error=%v", receipt, err)
+	if !receipt.Committed || err != nil {
+		t.Fatalf("pending compaction outcome: receipt=%+v error=%v", receipt, err)
+	}
+	awareness.err = countErr
+	before := engine.transcriptRuntimeState().SnapshotItems()
+	err = withActiveTestRun(t, engine, ActiveKindUserTurn, func(ctx context.Context, stepID string) error {
+		_, err := engine.buildActiveTurnDispatchRequest(ctx, stepID, nil, true)
+		return err
+	})
+	if !errors.Is(err, countErr) {
+		t.Fatalf("comment-count failure dispatch outcome: %v", err)
 	}
 	if after := engine.transcriptRuntimeState().SnapshotItems(); !reflect.DeepEqual(after, before) {
-		t.Fatalf("comment-count failure changed active typed items: before=%+v after=%+v", before, after)
+		t.Fatalf("comment-count failure changed pending items: before=%+v after=%+v", before, after)
 	}
 
 	window, readErr := mustMaterializeTestEventLog(t, store).ReadRecentRecords(16)
@@ -855,9 +861,13 @@ func TestRemoteCompactionTaskAwarenessErrorDoesNotReplaceHistory(t *testing.T) {
 		t.Fatalf("read bounded recent records: %v", readErr)
 	}
 	for _, record := range window.Records {
-		if _, ok := mustSessionEventPayload(record).(session.HistoryReplacementRecord); ok {
-			t.Fatalf("comment-count failure persisted history replacement: %+v", window.Records)
+		if replacement, ok := mustSessionEventPayload(record).(session.HistoryReplacementRecord); ok &&
+			replacement.CompactedOutput == nil {
+			t.Fatalf("comment-count failure persisted generation preparation: %+v", window.Records)
 		}
+	}
+	if engine.CompactionCount() != 1 || len(client.compactionCalls) != 1 {
+		t.Fatal("failed preparation repeated compaction")
 	}
 }
 
@@ -895,16 +905,11 @@ func TestCommittedHistoryReplacementPreventsStaleUsageFromLaterMetadataPersisten
 	compactionStepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = replaceTestPreparedHistory(engine, compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if !receipt.Committed || !errors.Is(err, replacementErr) {
@@ -957,16 +962,11 @@ func TestWorkflowBudgetResetFailureKeepsCommittedReplacementLive(t *testing.T) {
 	compactionStepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = replaceTestPreparedHistory(engine, compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if !receipt.Committed || !errors.Is(err, resetErr) {

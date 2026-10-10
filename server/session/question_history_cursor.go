@@ -140,9 +140,10 @@ func (c *QuestionHistoryCursor) Next(ctx context.Context) (*EventRecord, error) 
 				err,
 			)
 		}
-		if inspection.Kind == EventKindHistoryReplace {
-			if err := inspectHistoryReplacementRecordStream(
+		if IsContextBoundary(inspection.Kind) {
+			if err := inspectContextBoundaryRecordStream(
 				io.NewSectionReader(reader, recordOffset, lineEnd-recordOffset),
+				inspection.Kind,
 			); err != nil {
 				return nil, fmt.Errorf(
 					"decode Question-history replacement at byte %d: %w",

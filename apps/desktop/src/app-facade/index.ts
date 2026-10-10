@@ -43,6 +43,7 @@ export * from "./taskSearchQueries";
 export * from "./textFieldSubmitShortcut";
 export * from "./transcript-window";
 export * from "./useAppServices";
+export * from "./usePathFormatter";
 export * from "./chatPromptPresence";
 export * from "./useNativeDialogFallback";
 export * from "./useRetainedQueryData";

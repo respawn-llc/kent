@@ -548,6 +548,9 @@ func (s *defaultStepExecutor) prepareActiveTurnRequest(ctx context.Context, step
 	if err := s.prepareModelTurn(ctx, stepID, prepared.items...); err != nil {
 		return llm.Request{}, false, err
 	}
+	if err := s.engine.prepareRequestGenerationContext(ctx, stepID); err != nil {
+		return llm.Request{}, false, err
+	}
 	assembly, err := s.engine.assembleRequest(ctx, stepID, prepared.items, true, true)
 	if err != nil {
 		return llm.Request{}, false, err

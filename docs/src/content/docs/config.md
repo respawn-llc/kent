@@ -111,6 +111,8 @@ protocol = "chatgpt-codex"
 
 `agent_callable` is optional role metadata and defaults to `true`. It controls whether model-originated child delegation may target the role, including the `default` role. Humans can launch the role with `kent run` regardless of this value.
 
+These delegation settings apply when creating a new session. Agents can communicate with existing sessions through `kent run --session` or `kent run --continue` regardless of `agent_callable`, `workflow_subagent`, or `[workflow] subagents`. Session locks and agent selection validation apply.
+
 `workflow_subagent` is optional role metadata and defaults to `true`. Every role, including `default` and `fast`, is callable by a Workflow agent only when its effective `agent_callable` and `workflow_subagent` values and `[workflow] subagents = true` all permit it.
 
 ## Thinking

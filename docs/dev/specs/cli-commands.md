@@ -2,6 +2,8 @@
 
 ## General Contracts
 
+- Human-readable list output collapses filesystem-path columns using the shared path collapser. Single-item output, suggested executable commands, errors, diagnostics, and JSON output retain canonical or explicitly supplied paths.
+
 - The CLI provides complete control of Kent's supported command surfaces for operators and agents.
 - CLI command grouping is not a compatibility contract. Documented behavior, accepted data, and machine-readable output are compatibility contracts.
 - CLI output includes stable identifiers needed by later commands.
@@ -325,6 +327,7 @@
 - Run control commands reject workspace, model, provider, agent, timeout, tools, and progress flags.
 - Headless stdin is not a steering channel.
 - `kent worktree list`, `create`, and `delete` must accept `--project <project-id>` and `--workspace <workspace-id>`.
+- `kent worktree delete` must accept `--timeout <duration>` with a default of five minutes. The duration must be positive and must bound the command's connection, Workspace resolution, and deletion request.
 - With `--project` and no `--workspace`, Worktree management must use the selected Project's default Workspace independently of the caller's Project and current directory.
 - With `--workspace`, Worktree management must select that Workspace within the selected or inferred Project.
 - Without `--project`, Worktree management must infer its Project and default target Workspace from the issuing agent Session, otherwise from `--session`, otherwise from the current directory.
@@ -537,7 +540,7 @@
 - Outside an agent Session, Task complete requires `--force` plus a Session or Task selector. It does not select an idle completion authority.
 - Human `kent task complete --force` composes Workflow operations: Interrupt the selected Task's live execution, wait until that Interrupt completes, then invoke the same Manual Move owner with the selected outgoing Transition, commentary, and Parameter values.
 - Forced Task complete may begin while the selected Task is executing. It adds no completion-specific gate, fallback, or lifecycle state.
-- The plain-text `kent task complete` acknowledgement omits identifiers.
+- The plain-text `kent task complete` acknowledgement must display the named transition according to the [Node Completion label rules](workflow-orchestration.md#node-completion).
 - Task complete accepts dynamic Parameter flags, repeatable `--param name=value`, and `--json` or `--json-file` completion payload input.
 - JSON input modes print JSON responses.
 - Live agent completion uses the completion acknowledgement. Forced human completion uses the ordinary Manual Move outcome after its Interrupt phase.

@@ -2,6 +2,9 @@
 
 ## Authority, Connection, And Shared Behavior
 
+- Read-only filesystem paths projected from structured data are home-relative when inside the user's home directory. This applies to labels, tooltips, execution-target facts, approvals, and image-tool labels. Editable path fields, clipboard values, and action/link targets retain their canonical values.
+- Model-visible arbitrary text, conversation bodies, errors, and diagnostics are not path-rewritten. Patch labels preserve absolute paths supplied by the model exactly; general environment CWD and Session rebind target-directory context remain absolute.
+
 - All surface elevations use the shared global shadow styles in light and dark themes. Shadows must provide soft, low-contrast separation with diffuse edges. Individual screens use those shared styles rather than defining their own shadow treatments.
 
 - Desktop must buffer at most 1,000 pending events per discrete shell observation: notification activation, file drops, Project deletion, attention events, and navigation history. When an observation reaches this limit, production Desktop must drop each incoming overflow event, log it, and continue observing. Debug Desktop must surface a fatal UI error instead of a retryable status. The native process and browser may stay open after this error. Desktop must not replay dropped events. Overflow must not change server-owned work.
@@ -365,7 +368,7 @@
 - Side-by-side Description and Metadata islands use the same surface elevation and render their complete shadows without clipping.
 - Metadata property labels use one consistent font size, line height, weight, and foreground treatment. Value typography may still communicate value semantics such as code, status, or muted secondary information.
 - Task Description uses the shared collapsible large Markdown field.
-- Long descriptions start collapsed only when they overflow, at roughly half the available height and never fewer than about five or more than about ten rendered lines, with an expand action. Expansion lasts until that Task Detail closes, keeps the description top anchored, grows downward, and occurs automatically for editing.
+- Long descriptions use a collapsed intrinsic height of roughly half the available height, bounded by about five and ten rendered lines. Collapsed text must fill the Description island's allocated height, including extra height supplied by Metadata. The fade and expand action must stay at the bottom of that allocated viewport and appear only when the full Markdown overflows it. Expansion lasts until that Task Detail closes, keeps the description top anchored, grows downward, and occurs automatically for editing.
 - A Markdown task-list item uses one product-styled checkbox in place of its list bullet.
 - Selecting a checkbox in an editable Task description updates the local Markdown body Draft without saving it. Task Save persists the changed body.
 - From an editable Task description with a valid title and a dirty Draft, the text-field submission shortcut must submit the current Task title and body together.

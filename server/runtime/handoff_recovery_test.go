@@ -91,20 +91,15 @@ func TestHandoffReplacementStoresFutureMessageAtomically(t *testing.T) {
 			replacement = candidate
 		}
 	}
-	if replacement.Items == nil {
+	if replacement.CompactedOutput == nil {
 		t.Fatalf("handoff replacement is absent: %+v", window.Records)
 	}
 	if replacement.PendingHandoffFutureMessage != nil {
 		t.Fatalf("atomic handoff replacement persisted pending future message: %q", *replacement.PendingHandoffFutureMessage)
 	}
-	futureItems := 0
-	for _, item := range replacement.Items {
-		if item.MessageType != nil && *item.MessageType == session.MessageTypeHandoffFutureMessage {
-			futureItems++
-		}
-	}
-	if futureItems != 1 {
-		t.Fatalf("atomic handoff replacement future-agent items = %d, want 1", futureItems)
+	future := replacement.CompactedOutput.FutureAgentMessage
+	if future == nil || future.MessageType == nil || *future.MessageType != session.MessageTypeHandoffFutureMessage {
+		t.Fatal("pending compacted output omitted its future-agent message")
 	}
 	for _, record := range window.Records[replacementIndex+1:] {
 		if message, ok := mustSessionEventPayload(record).(session.MessageRecord); ok &&
@@ -121,7 +116,7 @@ func TestHandoffReplacementStoresFutureMessageAtomically(t *testing.T) {
 	if pending := reopened.handoffRuntimeState().RequestSnapshot(); pending != nil {
 		t.Fatalf("reopened atomic handoff queued a duplicate request: %+v", pending)
 	}
-	if got := countHandoffFutureMessages(reopened.transcriptRuntimeState().SnapshotItems()); got != 1 {
+	if got := countHandoffFutureMessages(buildActiveTurnRequestForTest(t, reopened, nil, true).Items); got != 1 {
 		t.Fatalf("reopened atomic handoff future-agent items = %d, want 1", got)
 	}
 }
@@ -208,16 +203,11 @@ func TestReopenedSessionAfterTriggerHandoffDoesNotRequeueWhenAnyCompactionAlread
 	stepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, stepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			stepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = replaceTestPreparedHistory(engine, stepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if err != nil || !receipt.Committed {
@@ -379,10 +369,21 @@ func TestReopenedSessionAfterTriggerHandoffUsesAtomicFutureMessageReplacement(t 
 	if pending := engine.handoffRuntimeState().RequestSnapshot(); pending != nil {
 		t.Fatalf("atomic handoff retained pending request: %+v", pending)
 	}
-	if got := countHandoffFutureMessages(engine.transcriptRuntimeState().SnapshotItems()); got != 1 {
-		t.Fatalf("atomic handoff future-agent items = %d, want 1", got)
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
 	}
-	if got := countHandoffFutureMessageRecords(t, store); got != 0 {
+	resumedClient := &fakeClient{responses: []llm.Response{finalOutputItemResponse("resumed")}}
+	restored := mustNewHandoffTestEngine(t, mustOpenTestSession(t, store.Dir()), resumedClient, Config{})
+	if _, err := restored.SubmitUserMessage(t.Context(), "resume"); err != nil {
+		t.Fatal(err)
+	}
+	if len(resumedClient.calls) != 1 {
+		t.Fatalf("resumed requests = %d, want one without repeated summarization", len(resumedClient.calls))
+	}
+	if got := countHandoffFutureMessages(resumedClient.calls[0].Items); got != 1 {
+		t.Fatalf("resumed handoff future-agent items = %d, want 1", got)
+	}
+	if got := countHandoffFutureMessageRecords(t, restored.store); got != 0 {
 		t.Fatalf("atomic handoff appended future-message records = %d, want 0", got)
 	}
 }

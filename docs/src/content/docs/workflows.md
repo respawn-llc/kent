@@ -89,6 +89,8 @@ Nodes are workflow states. Visible executable and terminal nodes become board co
 
 Keep node keys stable and machine-friendly, such as `plan`, `implement`, `review`, `needs_changes`, and `done`. Keys are used by agents, prompts, and validation, so prefer lower-case letters, numbers, and underscores over display labels with spaces.
 
+Node display labels are optional. Completion messages use the node key when its display label is empty.
+
 ### Transitions
 
 A transition is a choice an agent can make when it completes a node. A transition has a human label, a stable key, and a model-facing description that tells the source agent when to choose it.

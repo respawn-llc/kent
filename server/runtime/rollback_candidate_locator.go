@@ -26,11 +26,11 @@ func (t *rollbackCandidateLocatorTracker) ObserveMessage(seq int64, msg llm.Mess
 	return nil
 }
 
-func (t *rollbackCandidateLocatorTracker) ObserveHistoryReplacement(payload historyReplacementPayload) {
+func (t *rollbackCandidateLocatorTracker) ObserveCompaction(candidate *rollbacktarget.CandidateLocator) {
 	if t == nil {
 		return
 	}
-	t.carried = textutil.Pointer(payload.LatestRollbackCandidate)
+	t.carried = textutil.Pointer(candidate)
 }
 
 func (t rollbackCandidateLocatorTracker) Resolve(activeWindowEndByte int64) (*rollbacktarget.CandidateLocator, error) {
@@ -70,7 +70,7 @@ func rollbackCandidateLocatorFromActiveWindow(window session.EventRecordWindow) 
 			if err != nil {
 				return nil, fmt.Errorf("restore session history replacement record: %w", err)
 			}
-			tracker.ObserveHistoryReplacement(replacement)
+			tracker.ObserveCompaction(replacement.LatestRollbackCandidate)
 		}
 	}
 	return tracker.Resolve(window.EndOffset)

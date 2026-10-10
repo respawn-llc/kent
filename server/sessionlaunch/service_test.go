@@ -13,8 +13,10 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/launch"
 	"core/server/metadata"
+	"core/server/registry"
 	"core/server/session"
 	"core/server/session/sessiontest"
+	"core/server/sessionruntime"
 	"core/shared/config"
 	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
@@ -584,6 +586,48 @@ func TestPlanLaunchSessionUsesResolvedCallerWorkflowOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	blocked := cfg.Settings.Subagents["worker"]
+	blocked.AgentCallable = false
+	cfg.Settings.Subagents["worker"] = blocked
+	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
+		PersistenceRoot: persistenceRoot, StoreOptions: meta.AuthoritativeSessionStoreOptions(),
+	})
+	t.Cleanup(func() { _ = authority.Close(context.Background()) })
+	settingsOwner := ChatSettingsOwner{Authority: authority, Registry: registry.NewRuntimeRegistry()}
+	for _, callerID := range []string{workflowCallerID, ordinaryCallerID} {
+		for _, override := range []*string{nil, textutil.Value("worker")} {
+			if err := removed.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("worker")}); err != nil {
+				t.Fatal(err)
+			}
+			blockedService := NewService(launch.Planner{
+				Config: cfg, ContainerDir: containerDir, StoreOptions: meta.AuthoritativeSessionStoreOptions(),
+				PersistedSessions: meta, SessionProjects: meta, ManagedWorktreeRoots: meta,
+			}, settingsOwner)
+			plan, err := blockedService.PlanLaunchSession(ctx, PlanRequest{
+				Mode:            launch.ModeHeadless,
+				Intent:          serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, removed.Meta().SessionID)),
+				CallerSessionID: &callerID, Overrides: serverapi.RunPromptOverrides{AgentRole: override},
+			})
+			if err != nil {
+				t.Fatalf("continue blocked role, caller=%s override=%v: %v", callerID, override, err)
+			}
+			if plan.Plan.Descriptor.SessionID().String() != removed.Meta().SessionID {
+				t.Fatal("continuation selected a different Session")
+			}
+			saved, err := blockedService.SaveRunSelection(ctx, PlanRequest{
+				Mode:            launch.ModeHeadless,
+				Intent:          serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, removed.Meta().SessionID)),
+				CallerSessionID: &callerID,
+				Overrides:       serverapi.RunPromptOverrides{AgentRole: override, ThinkingLevel: "high"},
+			})
+			if err != nil {
+				t.Fatalf("save blocked role selection: %v", err)
+			}
+			if _, err := blockedService.PlanLaunchSession(ctx, saved); err != nil {
+				t.Fatalf("continue with saved blocked role selection: %v", err)
+			}
+		}
+	}
 	for _, workflowEnabled := range []bool{false, true} {
 		if err := removed.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("removed")}); err != nil {
 			t.Fatal(err)
@@ -600,9 +644,8 @@ func TestPlanLaunchSessionUsesResolvedCallerWorkflowOrigin(t *testing.T) {
 		_, err := service.PlanLaunchSession(ctx, PlanRequest{
 			Mode: launch.ModeHeadless, Intent: intent, CallerSessionID: &workflowCallerID,
 		})
-		var denied *serverapi.SubagentLaunchDeniedError
-		if !errors.As(err, &denied) || denied.Kind != serverapi.SubagentLaunchDenialNotCallable {
-			t.Fatalf("removed role, workflow enabled=%t: error=%v, want not-callable denial", workflowEnabled, err)
+		if err != nil {
+			t.Fatalf("workflow caller resuming removed role, workflow enabled=%t: %v", workflowEnabled, err)
 		}
 		if _, err := service.PlanLaunchSession(ctx, PlanRequest{
 			Mode: launch.ModeHeadless, Intent: intent, CallerSessionID: &ordinaryCallerID,

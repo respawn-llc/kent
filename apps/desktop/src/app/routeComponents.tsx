@@ -17,6 +17,7 @@ import {
   useAppNavigation,
   useChatHistoryBookmark,
   SidebarRootOwner,
+  useOwnedSidebarRoots,
   writeBrowserStorage,
   writeLastProjectRoute,
 } from "@/app-facade";
@@ -224,11 +225,23 @@ function ChatRouteOpening({
   projectID,
   sessionID,
 }: Readonly<{ projectID: string; sessionID: string | null }>) {
+  return (
+    <SidebarRootOwner>
+      <ChatRouteContent projectID={projectID} sessionID={sessionID} />
+    </SidebarRootOwner>
+  );
+}
+
+function ChatRouteContent({
+  projectID,
+  sessionID,
+}: Readonly<{ projectID: string; sessionID: string | null }>) {
   const bookmark = useChatHistoryBookmark(projectID, sessionID);
   const appNavigation = useAppNavigation();
+  const { open } = useOwnedSidebarRoots();
   const navigation = {
     openTask: (taskID: string) => {
-      void appNavigation.openTask(taskID);
+      open({ kind: "taskDetail", taskID });
     },
     openParentSession: async (previousSessionID: string) => {
       return appNavigation.openSessionChat({ projectID, sessionID: previousSessionID });
@@ -236,23 +249,19 @@ function ChatRouteOpening({
     openEditedSession: async (editedSessionID: string) =>
       appNavigation.openSessionChat({ projectID, sessionID: editedSessionID }),
   };
-  return (
-    <SidebarRootOwner>
-      {bookmark.sessionID === null ? (
-        <NewChatDestination
-          projectID={projectID}
-          navigation={navigation}
-          onSessionDelivered={bookmark.delivered}
-          onPopOutCreated={appNavigation.back}
-        />
-      ) : (
-        <ChatDestination
-          opening={{ kind: "session", projectID, sessionID: bookmark.sessionID }}
-          navigation={navigation}
-          onSessionDelivered={bookmark.delivered}
-          onPopOutCreated={appNavigation.back}
-        />
-      )}
-    </SidebarRootOwner>
+  return bookmark.sessionID === null ? (
+    <NewChatDestination
+      projectID={projectID}
+      navigation={navigation}
+      onSessionDelivered={bookmark.delivered}
+      onPopOutCreated={appNavigation.back}
+    />
+  ) : (
+    <ChatDestination
+      opening={{ kind: "session", projectID, sessionID: bookmark.sessionID }}
+      navigation={navigation}
+      onSessionDelivered={bookmark.delivered}
+      onPopOutCreated={appNavigation.back}
+    />
   );
 }

@@ -120,6 +120,9 @@ func (e *Engine) buildDispatchRequest(ctx context.Context, stepID string, extra 
 	if err != nil {
 		return llm.Request{}, err
 	}
+	if err := e.prepareRequestGenerationContext(ctx, stepID); err != nil {
+		return llm.Request{}, err
+	}
 	assembly, err := e.assembleRequest(ctx, stepID, extra, allowTools, true)
 	if err != nil {
 		return llm.Request{}, err
@@ -132,6 +135,9 @@ func (e *Engine) buildActiveTurnDispatchRequest(ctx context.Context, stepID stri
 	if err != nil {
 		return llm.Request{}, err
 	}
+	if err := e.prepareRequestGenerationContext(ctx, stepID); err != nil {
+		return llm.Request{}, err
+	}
 	assembly, err := e.assembleRequest(ctx, stepID, extra, allowTools, true)
 	if err != nil {
 		return llm.Request{}, err
@@ -140,6 +146,9 @@ func (e *Engine) buildActiveTurnDispatchRequest(ctx context.Context, stepID stri
 }
 
 func (e *Engine) assembleRequest(ctx context.Context, stepID string, extra []llm.ResponseItem, allowTools bool, refreshPrompt bool) (requestAssembly, error) {
+	if _, pending := e.generationContextSnapshot().(pendingGenerationContext); pending {
+		return requestAssembly{}, errors.New("compacted output requires generation context before request assembly")
+	}
 	locked, err := e.ensureLocked()
 	if err != nil {
 		return requestAssembly{}, err

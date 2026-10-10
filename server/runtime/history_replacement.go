@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"fmt"
 	"strings"
 
 	"core/server/llm"
@@ -8,6 +9,42 @@ import (
 	"core/shared/textutil"
 	"core/shared/transcript"
 )
+
+// Both live commits and bounded restoration install the same durable generation.
+// Preparation changes readiness, not the completed compaction's lifecycle.
+func (e *Engine) installHistoryReplacement(record session.EventRecord, replacement historyReplacementPayload) ([]ChatEntry, error) {
+	provenance, err := transcriptProvenanceFromRecord(record)
+	if err != nil {
+		return nil, err
+	}
+	entries := transcriptEntriesFromHistoryReplacement(replacement)
+	for index := range entries {
+		entries[index].StepID = record.StepID()
+	}
+	entries = assignHistoryReplacementEntryProvenance(entries, &provenance)
+	if replacement.Output != nil {
+		e.setGenerationContext(pendingGenerationContext{replacement: replacement})
+		e.transcriptRuntimeState().BeginGeneration(record.StepID(), *replacement.CommittedEntryStart, entries)
+	} else {
+		e.setGenerationContext(preparedGenerationContext{})
+		e.transcriptRuntimeState().ReplaceHistoryAtCommittedEntryStart(
+			record.StepID(), replacement.Items, replacement.CommittedEntryStart, entries,
+		)
+	}
+	e.transcriptRuntimeState().SeedLastCommittedAssistantFinalAnswerIfAbsent(replacement.LastCommittedAssistantFinalAnswer)
+	mode := session.CompactionMode(replacement.Mode)
+	if err := e.compactionRuntimeState().SetHistoryReplacementMode(&mode); err != nil {
+		return nil, fmt.Errorf("install history replacement mode: %w", err)
+	}
+	if replacement.CompactionNumber != nil {
+		e.compactionRuntimeState().SetCount(*replacement.CompactionNumber)
+	} else {
+		count := e.compactionRuntimeState().IncrementCount()
+		stepID, _ := textutil.OptionalExact(record.StepID())
+		e.persistCompletedCompactionFactsBestEffort(stepID, count)
+	}
+	return entries, nil
+}
 
 func normalizeHistoryReplacementEngine(engine string) string {
 	engine = strings.TrimSpace(engine)
@@ -18,12 +55,11 @@ func normalizeHistoryReplacementEngine(engine string) string {
 }
 
 func isCompactionEventRecordBoundary(record session.EventRecord) (bool, error) {
-	payload, err := record.Payload()
+	kind, err := record.Kind()
 	if err != nil {
 		return false, err
 	}
-	_, ok := payload.(session.HistoryReplacementRecord)
-	return ok, nil
+	return session.IsContextBoundary(kind), nil
 }
 
 func compactionBoundaryMatcher(matchErr *error) func(session.EventRecord) bool {
@@ -37,7 +73,11 @@ func compactionBoundaryMatcher(matchErr *error) func(session.EventRecord) bool {
 	}
 }
 
-func transcriptEntriesFromHistoryReplacement(items []llm.ResponseItem, compactionNumber *int) []ChatEntry {
+func transcriptEntriesFromHistoryReplacement(replacement historyReplacementPayload) []ChatEntry {
+	items, compactionNumber := replacement.Items, replacement.CompactionNumber
+	if replacement.Output != nil {
+		items = append(llm.CloneResponseItems(replacement.Output.summary), llm.ItemsFromMessages(replacement.Output.continuationMessages())...)
+	}
 	entries := make([]ChatEntry, 0, len(items)+1)
 	hasCompactionSummary := false
 	walker := newResponseItemMessageWalker(func(msg llm.Message) {

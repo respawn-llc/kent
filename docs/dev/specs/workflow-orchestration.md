@@ -18,6 +18,7 @@
 - Leaving a Node removes that current execution state. Kent does not retain completed Node execution, execution-attempt, or workflow-movement records as hidden history.
 - Task creation creates a durable Task at the Workflow's Start Node.
 - Automation must start only through explicit Task Start, which applies the Start Node's outgoing Transition and adds every selected executable Current Node.
+- Task Start must be idempotent. Concurrent Start requests must wait for the accepted Start to finish. If the Task has already left its Start Node, Start must succeed with its existing Current Nodes without preparing an Execution Target, starting execution again, or changing the Task. An unsuccessful Start must not make another Start report success.
 - Automation continues through automatic Nodes until terminal or blocked by a Question, Approval/manual gate, error, capacity, interruption, or validation.
 - Task status combines Current Nodes with current live activity. Kent does not store a second lifecycle status that can disagree with them.
 - Running and waiting require matching Exact Execution Scope evidence. Queued status requires either a queued Exact Execution Scope or Workflow Execution's live automatic-concurrency queue ownership. A current Terminal Node makes the Task done.
@@ -262,11 +263,13 @@
 - New draft Nodes, Node Groups, Transitions, and Transition Branches receive UUID v4 identifiers. Preview and Save preserve those identifiers unchanged. Product-facing keys remain stable semantic references.
 - `node_key`, `transition_id`, `edge_key`, Parameter Keys, and binding names match `^[a-z][a-z0-9_]{0,63}$`.
 - Workflow display names are labels, not references, and are trimmed non-empty strings capped at 120 chars.
+- Node display labels may be empty. They must be trimmed and capped at 120 characters.
 
 ## Node Completion
 
 - Agent Nodes complete by producing a Transition Result, not by returning ordinary natural language.
 - A Transition Result selects an outgoing Transition and supplies the Transition Parameters that its targets require.
+- If a Node's display label is empty, completion acknowledgement must use the Node Key. Otherwise, it must show the display label. A Fan-Out acknowledgement must identify its destination by the Transition Label or, if that label is empty, the Transition Key.
 - Runtime failure, unanswered questions, interruption, and validation blockers are orchestration outcomes, not model-selected terminal statuses.
 - Completion modes are `structured_output`, dynamic `complete_node` tool, `shell_command`, and `unstructured_output`. Global `[workflow].completion_mode` selects `auto`, `structured_output`, `tool`, `shell_command`, or `unstructured_output`; agent nodes can override it with the same values or inherit the global default.
 - Start, join, and terminal nodes reject non-empty completion-mode overrides.
@@ -499,7 +502,9 @@
 - Kent derives guarantee from every valid path to a reachable Terminal Node after narrowing the graph to the accepted Transition. Unselected outgoing alternatives, manual movement, later Workflow edits, Task deletion, and restart do not affect the classification. A decision cycle with an exit does not become optional merely because execution may revisit that cycle.
 - When static Session provenance cannot prove that every terminal path reaches compact-and-continue reuse, Kent treats that reuse as optional rather than eager.
 - Guarantee and eligibility follow all Context Source semantics, including direct and transitive `immediate_source`, `node:<node_key>`, `previous_target`, and `previous_target_or_new`. A source that may fall back to a new Session remains optional unless the accepted path guarantees selection of the retained Session.
-- Eager `compact_and_continue_session` and threshold-triggered Workflow Pre-Compaction share one post-completion history replacement. A later target establishes its fresh Session Contract and appends its assignment without producing a second summary for the already-compacted history. The selected Session's prompt-cache key remains its Kent Session ID.
+- Eager `compact_and_continue_session` and threshold-triggered Workflow Pre-Compaction must produce one summary. The next agent must use that summary with its selected Assignee without another compaction or a change to the completed-compaction count. The selected Session's prompt-cache key remains its Kent Session ID.
+- Kent must save the completed summary during an Approval wait. Summary display follows the [Core Runtime Compaction contract](core-runtime-tools.md#compaction).
+- Kent must prepare the saved summary with the actual next agent's context. Approval, Manual Move, fan-out, and restart must preserve summary reuse without binding it to a predicted Assignee.
 - A target skips its lazy CAC summary only when the selected Session has an unconsumed committed Workflow Pre-Compaction replacement. Otherwise CAC runs when the target starts.
 - Nodes own no agent input or output contract. Transition Branches exclusively declare the Parameters they provide to their targets.
 - Prompt placeholders validate against the prompt-owning Transition Branch's Parameters through `.Params.<parameter_key>`.
