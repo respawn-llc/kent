@@ -1,7 +1,7 @@
 import { RegistryProvider } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { StrictMode, type ReactNode } from "react";
 
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
@@ -132,10 +132,10 @@ const imageItem: TranscriptToolSlotItem = {
   },
 };
 
-it("finishes an expanded acquisition when working-directory context hydrates", async () => {
+it("finishes an expanded acquisition through Strict mount replay and context hydration", async () => {
   const context = fixture(false, null);
   const read = deferred<Awaited<ReturnType<typeof context.server>>>();
-  context.server.mockReturnValueOnce(read.promise);
+  context.server.mockReturnValue(read.promise);
   const row = (effectiveWorkdir: string | null) => (
     <ViewedImageRow
       presentation={imagePresentation}
@@ -146,14 +146,16 @@ it("finishes an expanded acquisition when working-directory context hydrates", a
   );
   const view = render(row(null), {
     wrapper: ({ children }) => (
-      <TestAppProviders services={context.services} queryClient={context.client}>
-        {children}
-      </TestAppProviders>
+      <StrictMode>
+        <TestAppProviders services={context.services} queryClient={context.client}>
+          {children}
+        </TestAppProviders>
+      </StrictMode>
     ),
   });
   fireEvent.click(screen.getByRole("button"));
   await waitFor(() => {
-    expect(context.server).toHaveBeenCalledTimes(1);
+    expect(context.server).toHaveBeenCalled();
   });
   view.rerender(row("/workspace"));
   await act(async () => {

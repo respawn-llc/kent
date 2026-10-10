@@ -75,13 +75,15 @@ export function createViewedImagePreviewModel(input: ViewedImagePreviewInput) {
 export function useViewedImagePreview(model: ReturnType<typeof createViewedImagePreviewModel>) {
   const owner = useAtomValue(model);
   // Atom finalizers are low-priority; end Query observation at the React boundary.
-  useLayoutEffect(
-    () => () => {
-      owner.observer.destroy();
-      owner.client.removeQueries({ queryKey: owner.observer.options.queryKey, exact: true });
-    },
-    [owner],
-  );
+  useLayoutEffect(() => {
+    // Strict mount replay reattaches the same observer after cleanup removes its Query.
+    owner.observer.setOptions(owner.observer.options);
+    return () => {
+      const filter = { queryKey: owner.observer.options.queryKey, exact: true };
+      void owner.client.cancelQueries(filter);
+      owner.client.removeQueries(filter);
+    };
+  }, [owner]);
   return useAtomValue(owner.result);
 }
 
