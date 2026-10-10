@@ -233,10 +233,23 @@ func (s *chatStore) replaceHistoryAtCommittedEntryStart(
 	s.installWorkingSetLocked(stepID, &compactionCheckpoint{Items: llm.CloneResponseItems(preparedItems)}, committedEntryStart, projectedEntries)
 }
 
-func (s *chatStore) beginGeneration(committedEntryStart int) {
+func (s *chatStore) beginGeneration(stepID *string, committedEntryStart int, entries []ChatEntry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.installWorkingSetLocked(nil, nil, &committedEntryStart, nil)
+	s.installWorkingSetLocked(stepID, nil, &committedEntryStart, entries)
+}
+
+// Preparation adds a base checkpoint without replacing activity already
+// committed after compaction. Its transcript rows keep their original identity.
+func (s *chatStore) prepareGeneration(items []llm.ResponseItem, entries []ChatEntry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.compact = &compactionCheckpoint{Items: llm.CloneResponseItems(llm.PrepareOpenAIInputItems(items))}
+	for _, entry := range entries {
+		s.appendProjectedEntryLocked(entry, false)
+		s.local[len(s.local)-1].AfterMessageCount = len(s.messageRecords)
+	}
+	s.providerTokenEstimateDirty = true
 }
 
 func (s *chatStore) installWorkingSetLocked(stepID *string, checkpoint *compactionCheckpoint, committedEntryStart *int, projectedEntries []ChatEntry) {

@@ -214,6 +214,15 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 			s.scan.appendEntry(entry)
 		}
 		s.lastCommittedAssistantFinalAnswer = textutil.Pointer(replacement.LastCommittedAssistantFinalAnswer)
+	case session.GenerationContextRecord:
+		s.closeTurn()
+		entries, err := generationContextEntries(record, payload)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			s.scan.appendEntry(entry)
+		}
 	}
 	return nil
 }

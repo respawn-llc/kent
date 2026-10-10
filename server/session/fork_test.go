@@ -469,7 +469,7 @@ func TestForkAtUserMessageRebasesTypedHistoryReplacementRollbackCandidate(t *tes
 	}); err != nil {
 		t.Fatalf("append compaction reminder: %v", err)
 	}
-	if _, _, err := parentLog.AppendHistoryReplacement(HistoryReplacementCompaction,
+	if _, _, err := parentLog.AppendHistoryReplacement(
 		forkStringPointer("step"),
 		HistoryReplacementRecord{
 			Engine: "local",

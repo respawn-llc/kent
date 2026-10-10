@@ -86,13 +86,13 @@ func TestCompactedOutputSurvivesReopenAndClone(t *testing.T) {
 			}
 			invalid := record
 			invalid.CompactionNumber = textutil.Value(0)
-			if _, receipt, err := log.AppendHistoryReplacement(session.HistoryReplacementCompaction, nil, invalid); err == nil || receipt.Committed {
+			if _, receipt, err := log.AppendHistoryReplacement(nil, invalid); err == nil || receipt.Committed {
 				t.Fatalf("invalid pending summary committed: receipt=%+v err=%v", receipt, err)
 			}
 			if meta := store.Meta(); meta.Locked == nil || meta.OriginalThinkingEffort == nil || meta.UsageState == nil {
 				t.Fatal("rejected summary reset outgoing context")
 			}
-			appended, receipt, err := log.AppendHistoryReplacement(session.HistoryReplacementCompaction, nil, record)
+			appended, receipt, err := log.AppendHistoryReplacement(nil, record)
 			if err != nil || !receipt.Committed {
 				t.Fatalf("append: receipt=%+v err=%v", receipt, err)
 			}

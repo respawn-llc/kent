@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"core/server/llm"
-	"core/server/session"
 	"core/server/tools"
 	"core/shared/textutil"
 	"core/shared/transcript"
@@ -25,7 +24,7 @@ func TestHistoryReplacementLocatorsSurviveReopenAsOneBoundedBatch(t *testing.T) 
 		{Role: llm.RoleUser, Content: textutil.Value("preserved")},
 		{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeEnvironment), Content: textutil.Value("environment")},
 	})
-	if err := steerTestActiveStep(engine, "compaction", steerHistoryReplacementIntent(session.HistoryReplacementCompaction, "local", compactionModeManual, 1, nil, preparedCompactionHistory{items: items})); err != nil {
+	if err := steerTestActiveStep(engine, "compaction", steerTestPreparedHistoryIntent("local", compactionModeManual, 1, nil, preparedCompactionHistory{items: items})); err != nil {
 		t.Fatalf("persist history replacement: %v", err)
 	}
 
@@ -110,7 +109,7 @@ func TestHandoffContextPayloadAgreesAcrossPageAndHydration(t *testing.T) {
 	} {
 		messages = append(messages, llm.Message{Role: llm.RoleDeveloper, MessageType: textutil.Value(kind), Content: textutil.Value("context\n\ncontent\n")})
 	}
-	if err := steerTestActiveStep(engine, "compaction", steerHistoryReplacementIntent(session.HistoryReplacementCompaction, "local", compactionModeHandoff, 4, nil, preparedCompactionHistory{items: llm.ItemsFromMessages(messages)})); err != nil {
+	if err := steerTestActiveStep(engine, "compaction", steerTestPreparedHistoryIntent("local", compactionModeHandoff, 4, nil, preparedCompactionHistory{items: llm.ItemsFromMessages(messages)})); err != nil {
 		t.Fatal(err)
 	}
 	page := TranscriptCommittedRowFactsFromSnapshot(mustEngineNewestSegmentPage(t, engine).Snapshot)
@@ -145,7 +144,7 @@ func TestHistoryReplacementLocatorsSkipFilteredToolCallEntries(t *testing.T) {
 		},
 		{Role: llm.RoleUser, Content: textutil.Value("visible user")},
 	})
-	if err := steerTestActiveStep(engine, "compaction", steerHistoryReplacementIntent(session.HistoryReplacementCompaction, "local", compactionModeManual, 1, nil, preparedCompactionHistory{items: items})); err != nil {
+	if err := steerTestActiveStep(engine, "compaction", steerTestPreparedHistoryIntent("local", compactionModeManual, 1, nil, preparedCompactionHistory{items: items})); err != nil {
 		t.Fatalf("persist history replacement: %v", err)
 	}
 

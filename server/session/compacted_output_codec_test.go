@@ -27,8 +27,6 @@ func TestCompactedOutputCodecSupportedVersions(t *testing.T) {
 				prepared := pending
 				prepared.CompactedOutput = nil
 				prepared.Items = []ProviderHistoryItem{item}
-				continuationRaw := []byte(`{ "type": "message", "role": "developer", "content": "continued context" }`)
-				prepared.Continuation = []ProviderHistoryItem{{Type: ProviderHistoryItemTypeMessage, Raw: continuationRaw}}
 				for _, history := range []HistoryReplacementRecord{pending, prepared} {
 					record, err := NewEventRecord(1, nil, history)
 					if err != nil {
@@ -57,9 +55,6 @@ func TestCompactedOutputCodecSupportedVersions(t *testing.T) {
 						items = replacement.CompactedOutput.Summary
 					}
 					assertCompactionJSONContentEqual(t, items[0].Raw, json.RawMessage(raw))
-					if replacement.Continuation != nil {
-						assertCompactionJSONContentEqual(t, replacement.Continuation[0].Raw, json.RawMessage(continuationRaw))
-					}
 					if !bytes.Equal(item.Raw, sourceRaw) {
 						t.Fatal("serialization mutated the source provider output")
 					}
@@ -104,7 +99,6 @@ func TestCompactedOutputValidation(t *testing.T) {
 		{"summary", func(record *HistoryReplacementRecord) { record.CompactedOutput.Summary = nil }},
 		{"prepared and pending", func(record *HistoryReplacementRecord) { record.Items = record.CompactedOutput.Summary }},
 		{"empty prepared and pending", func(record *HistoryReplacementRecord) { record.Items = []ProviderHistoryItem{} }},
-		{"continuation and pending", func(record *HistoryReplacementRecord) { record.Continuation = record.CompactedOutput.Summary }},
 		{"provider item", func(record *HistoryReplacementRecord) {
 			record.CompactedOutput.Summary = []ProviderHistoryItem{{Type: ProviderHistoryItemTypeCompaction}}
 		}},
@@ -177,17 +171,13 @@ func TestHistoryReplacementUnionValidationAgreesAcrossReaders(t *testing.T) {
 		{"empty prepared", `"items":[]`, true},
 		{"null output", `"compacted_output":null`, true},
 		{"pending", pending, true},
-		{"pending null segments", pending + `,"items":null,"continuation":null`, true},
+		{"pending null items", pending + `,"items":null`, true},
 		{"pending empty items", pending + `,"items":[]`, false},
-		{"pending empty continuation", pending + `,"continuation":[]`, false},
 		{"pending populated items", pending + `,"items":` + summary, false},
-		{"pending populated continuation", pending + `,"continuation":` + summary, false},
-		{"prepared with continuation", `"items":` + summary + `,"continuation":` + summary, true},
 		{"empty output", `"compacted_output":{}`, false},
 		{"empty summary", `"compacted_output":{"summary":[]}`, false},
 		{"null summary", `"compacted_output":{"summary":null}`, false},
 		{"cleared items", `"items":[],"items":null,` + pending, true},
-		{"cleared continuation", `"continuation":[],"continuation":null,` + pending, true},
 		{"cleared output", pending + `,"compacted_output":null,"items":[]`, true},
 		{"replaced summary", pending + `,"compacted_output":{"summary":[]}`, false},
 	} {

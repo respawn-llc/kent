@@ -66,12 +66,8 @@ type HistoryReplacementRecord struct {
 	LastCommittedAssistantFinalAnswer *string                          `json:"last_committed_assistant_final_answer,omitempty"`
 	LatestRollbackCandidate           *rollbacktarget.CandidateLocator `json:"latest_rollback_candidate,omitempty"`
 	Items                             []ProviderHistoryItem            `json:"items,omitempty"`
-	// Continuation is already-committed activity after compaction, retained for
-	// model input without projecting its original transcript rows a second time.
-	Continuation []ProviderHistoryItem `json:"continuation,omitempty"`
-	// CompactedOutput excludes both prepared segments. Items followed by
-	// Continuation is the complete prepared model input; CompactedOutput still
-	// needs operation context.
+	// CompactedOutput awaits fresh operation context. Items represents an
+	// already prepared historical working set.
 	CompactedOutput *CompactedOutput `json:"compacted_output,omitempty"`
 }
 
@@ -170,12 +166,8 @@ func normalizeHistoryReplacementRecord(record HistoryReplacementRecord) (History
 	if err != nil {
 		return HistoryReplacementRecord{}, err
 	}
-	record.Continuation, err = normalizeProviderHistoryItems(record.Continuation)
-	if err != nil {
-		return HistoryReplacementRecord{}, err
-	}
 	if record.CompactedOutput != nil {
-		if record.Items != nil || record.Continuation != nil {
+		if record.Items != nil {
 			return HistoryReplacementRecord{}, errors.New("history replacement cannot contain both prepared history and compacted output")
 		}
 		if record.CompactionNumber == nil || record.CommittedEntryStart == nil {

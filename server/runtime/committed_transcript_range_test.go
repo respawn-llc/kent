@@ -460,7 +460,7 @@ func TestReopenedCompactionPublishesVisibleTranscriptCoordinates(t *testing.T) {
 	}
 	if err := steerTestActiveStep(engine,
 		"compaction",
-		steerHistoryReplacementIntent(session.HistoryReplacementCompaction, "local", compactionModeAuto, 1, nil, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+		steerTestPreparedHistoryIntent("local", compactionModeAuto, 1, nil, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
 			Role:        llm.RoleUser,
 			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
 			Content:     textutil.Value("summary"),
@@ -528,7 +528,7 @@ func TestHistoryReplacementPublishesPreservedUserMessageBeforeFollowingLocalEntr
 	if !ok {
 		t.Fatal("expected typed compaction-preserved user message")
 	}
-	if err := engine.steer(runtimeTestStepID("compaction"), steerHistoryReplacementIntent(session.HistoryReplacementCompaction, "local", compactionModeManual, 1, nil, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{
+	if err := engine.steer(runtimeTestStepID("compaction"), steerTestPreparedHistoryIntent("local", compactionModeManual, 1, nil, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{
 		{
 			Role:        llm.RoleUser,
 			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),

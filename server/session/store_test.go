@@ -262,7 +262,7 @@ func TestCompactionReplacementPersistsFreshContractBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, receipt, err := log.AppendHistoryReplacement(HistoryReplacementCompaction, nil, HistoryReplacementRecord{
+	if _, receipt, err := log.AppendHistoryReplacement(nil, HistoryReplacementRecord{
 		Engine: "local", Mode: CompactionModeManual,
 	}); err != nil || !receipt.Committed {
 		t.Fatalf("commit compaction replacement: receipt=%+v error=%v", receipt, err)
@@ -289,7 +289,7 @@ func TestGenerationPreparationPreservesCurrentContract(t *testing.T) {
 		CompactionNumber: &count, CommittedEntryStart: &start,
 		CompactedOutput: &CompactedOutput{Summary: summary},
 	}
-	if _, receipt, err := log.AppendHistoryReplacement(HistoryReplacementCompaction, nil, record); err != nil || !receipt.Committed {
+	if _, receipt, err := log.AppendHistoryReplacement(nil, record); err != nil || !receipt.Committed {
 		t.Fatalf("save compaction: %+v, %v", receipt, err)
 	}
 	markSessionTestLocked(t, store, sessionTestLockedContract())
@@ -300,12 +300,10 @@ func TestGenerationPreparationPreservesCurrentContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := store.Meta()
-	if _, receipt, err := log.AppendHistoryReplacement(HistoryReplacementPreparation, nil, record); err == nil || receipt.Committed {
-		t.Fatalf("unprepared output accepted as a prepared generation: %+v, %v", receipt, err)
-	}
-	record.CompactedOutput = nil
-	record.Items = summary
-	if _, receipt, err := log.AppendHistoryReplacement(HistoryReplacementPreparation, nil, record); err != nil || !receipt.Committed {
+	context := GenerationContextRecord{AfterSummary: []MessageRecord{{
+		Role: MessageRoleDeveloper, Content: stringPointer("operation context"),
+	}}}
+	if _, receipt, err := log.AppendRecord(nil, context); err != nil || !receipt.Committed {
 		t.Fatalf("prepare generation: %+v, %v", receipt, err)
 	}
 	after := mustOpenSessionTestStore(t, store).Meta()
@@ -334,7 +332,7 @@ func TestCompactedMetadataProjectionPreservesRetainedContextWithoutMutation(t *t
 		t.Fatal("compaction projection mutated retained metadata")
 	}
 	log := mustMaterializeSessionTestEventLog(t, store)
-	if _, receipt, err := log.AppendHistoryReplacement(HistoryReplacementCompaction, nil, HistoryReplacementRecord{
+	if _, receipt, err := log.AppendHistoryReplacement(nil, HistoryReplacementRecord{
 		Engine: "local", Mode: CompactionModeManual,
 	}); err != nil || !receipt.Committed {
 		t.Fatalf("commit compaction: %+v, %v", receipt, err)

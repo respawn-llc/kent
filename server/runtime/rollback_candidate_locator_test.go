@@ -36,7 +36,7 @@ func TestLatestRollbackCandidateLocatorSurvivesCandidateFreeCompactionsAndRestar
 	for index := 0; index < 3; index++ {
 		stepID := runtimeTestStepID("compact-step")
 		if err := runTestActiveStep(eng, stepID, func() error {
-			_, err := newCompactionPersistence(eng).replaceHistory(stepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			_, err := replaceTestPreparedHistory(eng, stepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
 				Role:        llm.RoleUser,
 				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
 				Content:     textutil.Value("candidate-free summary"),

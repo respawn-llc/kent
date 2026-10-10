@@ -524,17 +524,12 @@ func sessionHistoryReplacementRecordFromRuntime(
 		}
 		record.CompactedOutput = &output
 	}
-	for _, segment := range []struct {
-		source []llm.ResponseItem
-		target *[]session.ProviderHistoryItem
-	}{{payload.Items, &record.Items}, {payload.Continuation, &record.Continuation}} {
-		for index, item := range segment.source {
-			historyItem, err := sessionProviderHistoryItemFromLLM(index, item)
-			if err != nil {
-				return session.HistoryReplacementRecord{}, err
-			}
-			*segment.target = append(*segment.target, historyItem)
+	for index, item := range payload.Items {
+		historyItem, err := sessionProviderHistoryItemFromLLM(index, item)
+		if err != nil {
+			return session.HistoryReplacementRecord{}, err
 		}
+		record.Items = append(record.Items, historyItem)
 	}
 	normalized, err := session.NewEventRecord(1, nil, record)
 	if err != nil {
@@ -570,13 +565,8 @@ func historyReplacementPayloadFromSessionRecord(
 		}
 		payload.Output = &output
 	}
-	for _, segment := range []struct {
-		source []session.ProviderHistoryItem
-		target *[]llm.ResponseItem
-	}{{record.Items, &payload.Items}, {record.Continuation, &payload.Continuation}} {
-		for _, item := range segment.source {
-			*segment.target = append(*segment.target, llmResponseItemFromSessionHistory(item))
-		}
+	for _, item := range record.Items {
+		payload.Items = append(payload.Items, llmResponseItemFromSessionHistory(item))
 	}
 	return payload, nil
 }

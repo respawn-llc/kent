@@ -489,14 +489,6 @@ func TestPersistedHistoryReplacementMatchesActualEngineLiveDelivery(t *testing.T
 			if _, err := engine.CompactContextForWorkflowPostCompletion(t.Context()); err != nil {
 				t.Fatalf("compact context: %v", err)
 			}
-			for _, event := range events {
-				if event.Kind == runtime.EventLocalEntryAdded && event.LocalEntryProjected {
-					t.Fatal("deferred summary was displayed before the target started")
-				}
-			}
-			if _, err := engine.SubmitUserMessage(t.Context(), "start the next context"); err != nil {
-				t.Fatalf("submit target user message: %v", err)
-			}
 			replacementRows := 0
 			for _, event := range events {
 				if event.Kind == runtime.EventLocalEntryAdded && event.LocalEntryProjected {
@@ -504,7 +496,11 @@ func TestPersistedHistoryReplacementMatchesActualEngineLiveDelivery(t *testing.T
 				}
 			}
 			if replacementRows == 0 {
-				t.Fatal("history replacement emitted no committed row events")
+				t.Fatal("completed compaction did not display its summary")
+			}
+			assertPersistedLiveTranscriptParity(t, store, events)
+			if _, err := engine.SubmitUserMessage(t.Context(), "start the next context"); err != nil {
+				t.Fatalf("submit target user message: %v", err)
 			}
 			assertPersistedLiveTranscriptParity(t, store, events)
 			for _, direction := range []struct {

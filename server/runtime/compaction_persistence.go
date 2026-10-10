@@ -17,9 +17,9 @@ func newCompactionPersistence(engine *Engine) compactionPersistence {
 	return compactionPersistence{engine: engine}
 }
 
-func (p compactionPersistence) replaceHistory(stepID, engine string, mode compactionMode, history compactionHistory) (session.CommitReceipt, error) {
+func (p compactionPersistence) replaceHistory(stepID, engine string, mode compactionMode, history compactionOutput) (session.CommitReceipt, error) {
 	e := p.engine
-	return e.steerWithCommitReceipt(stepID, steerHistoryReplacementIntent(session.HistoryReplacementCompaction, engine, mode, e.compactionRuntimeState().Count()+1, e.LastCommittedAssistantFinalAnswer(), history))
+	return e.steerWithCommitReceipt(stepID, steerHistoryReplacementIntent(engine, mode, e.compactionRuntimeState().Count()+1, e.LastCommittedAssistantFinalAnswer(), history))
 }
 
 func (p compactionPersistence) setActivity(

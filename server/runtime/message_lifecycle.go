@@ -176,7 +176,7 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			}
 			e.resetLocalDiagnostics()
 			manualEligible = false
-			if _, err := e.installHistoryReplacement(record, replacement, session.HistoryReplacementCompaction); err != nil {
+			if _, err := e.installHistoryReplacement(record, replacement); err != nil {
 				return err
 			}
 			rollbackLocator.ObserveCompaction(replacement.LatestRollbackCandidate)
@@ -186,6 +186,10 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			}
 			e.resetPromptCacheObservationBaselines()
 			reminderIssued = false
+		case session.GenerationContextRecord:
+			if _, err := e.installGenerationContext(record, payload); err != nil {
+				return err
+			}
 		}
 		e.compactionRuntimeState().ApplyWorkflowPostCompletionActivity(
 			workflowPostCompletionActivityForSessionRecord(payload),

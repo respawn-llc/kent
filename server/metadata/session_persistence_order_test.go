@@ -340,7 +340,7 @@ func TestEventUseReconciliationDoesNotEraseConcurrentlyPersistedCompactedUsage(t
 		t.Fatalf("materialize event log: %v", err)
 	}
 	staleRevision := mustEventLogRevision(eventLog)
-	if _, receipt, err := eventLog.AppendHistoryReplacement(session.HistoryReplacementCompaction,
+	if _, receipt, err := eventLog.AppendHistoryReplacement(
 		metadataStringPointer("step-compact"),
 		session.HistoryReplacementRecord{
 			Engine: "local",

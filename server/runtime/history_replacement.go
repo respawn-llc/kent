@@ -12,7 +12,7 @@ import (
 
 // Both live commits and bounded restoration install the same durable generation.
 // Preparation changes readiness, not the completed compaction's lifecycle.
-func (e *Engine) installHistoryReplacement(record session.EventRecord, replacement historyReplacementPayload, purpose session.HistoryReplacementPurpose) ([]ChatEntry, error) {
+func (e *Engine) installHistoryReplacement(record session.EventRecord, replacement historyReplacementPayload) ([]ChatEntry, error) {
 	provenance, err := transcriptProvenanceFromRecord(record)
 	if err != nil {
 		return nil, err
@@ -24,37 +24,25 @@ func (e *Engine) installHistoryReplacement(record session.EventRecord, replaceme
 	entries = assignHistoryReplacementEntryProvenance(entries, &provenance)
 	if replacement.Output != nil {
 		e.setGenerationContext(pendingGenerationContext{replacement: replacement})
-		e.transcriptRuntimeState().BeginGeneration(*replacement.CommittedEntryStart)
+		e.transcriptRuntimeState().BeginGeneration(record.StepID(), *replacement.CommittedEntryStart, entries)
 	} else {
 		e.setGenerationContext(preparedGenerationContext{})
-		items := append(llm.CloneResponseItems(replacement.Items), replacement.Continuation...)
 		e.transcriptRuntimeState().ReplaceHistoryAtCommittedEntryStart(
-			record.StepID(), items, replacement.CommittedEntryStart, entries,
+			record.StepID(), replacement.Items, replacement.CommittedEntryStart, entries,
 		)
 	}
 	e.transcriptRuntimeState().SeedLastCommittedAssistantFinalAnswerIfAbsent(replacement.LastCommittedAssistantFinalAnswer)
-	if purpose == session.HistoryReplacementCompaction {
-		mode := session.CompactionMode(replacement.Mode)
-		if err := e.compactionRuntimeState().SetHistoryReplacementMode(&mode); err != nil {
-			return nil, fmt.Errorf("install history replacement mode: %w", err)
-		}
-		if replacement.CompactionNumber != nil {
-			e.compactionRuntimeState().SetCount(*replacement.CompactionNumber)
-		} else {
-			count := e.compactionRuntimeState().IncrementCount()
-			stepID, _ := textutil.OptionalExact(record.StepID())
-			e.persistCompletedCompactionFactsBestEffort(stepID, count)
-		}
+	mode := session.CompactionMode(replacement.Mode)
+	if err := e.compactionRuntimeState().SetHistoryReplacementMode(&mode); err != nil {
+		return nil, fmt.Errorf("install history replacement mode: %w", err)
 	}
-	// This disjoint segment contains activity accepted after compaction, not
-	// messages preserved inside its summary. Hydrating it cannot renew CAC reuse.
-	walker := newResponseItemMessageWalker(func(message llm.Message) {
-		e.compactionRuntimeState().ApplyWorkflowPostCompletionActivity(workflowPostCompletionMessageActivity(message))
-	})
-	for _, item := range replacement.Continuation {
-		walker.Apply(item)
+	if replacement.CompactionNumber != nil {
+		e.compactionRuntimeState().SetCount(*replacement.CompactionNumber)
+	} else {
+		count := e.compactionRuntimeState().IncrementCount()
+		stepID, _ := textutil.OptionalExact(record.StepID())
+		e.persistCompletedCompactionFactsBestEffort(stepID, count)
 	}
-	walker.Flush()
 	return entries, nil
 }
 
@@ -87,6 +75,9 @@ func compactionBoundaryMatcher(matchErr *error) func(session.EventRecord) bool {
 
 func transcriptEntriesFromHistoryReplacement(replacement historyReplacementPayload) []ChatEntry {
 	items, compactionNumber := replacement.Items, replacement.CompactionNumber
+	if replacement.Output != nil {
+		items = append(llm.CloneResponseItems(replacement.Output.summary), llm.ItemsFromMessages(replacement.Output.continuationMessages())...)
+	}
 	entries := make([]ChatEntry, 0, len(items)+1)
 	hasCompactionSummary := false
 	walker := newResponseItemMessageWalker(func(msg llm.Message) {

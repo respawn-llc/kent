@@ -155,33 +155,14 @@ func replayRecordInputs(records []EventRecord) ([]EventRecordAppendInput, error)
 	return inputs, nil
 }
 
-type HistoryReplacementPurpose uint8
-
-const (
-	HistoryReplacementCompaction HistoryReplacementPurpose = iota + 1
-	HistoryReplacementPreparation
-)
-
 func (c MaterializedEventLog) AppendHistoryReplacement(
-	purpose HistoryReplacementPurpose,
 	stepID *string,
 	record HistoryReplacementRecord,
 ) (EventRecord, CommitReceipt, error) {
-	switch purpose {
-	case HistoryReplacementCompaction:
-	case HistoryReplacementPreparation:
-		if record.CompactedOutput != nil || record.CompactionNumber == nil {
-			return EventRecord{}, CommitReceipt{}, errors.New("generation preparation requires prepared history and its compaction number")
-		}
-	default:
-		return EventRecord{}, CommitReceipt{}, errors.New("history replacement purpose is required")
-	}
 	outcome, err := c.appendRecordInputsAtomic([]EventRecordAppendInput{{
 		StepID: stepID, Payload: record,
 	}}, func(meta *Meta) (bool, error) {
-		if purpose == HistoryReplacementCompaction {
-			*meta = ProjectCompactedMeta(*meta)
-		}
+		*meta = ProjectCompactedMeta(*meta)
 		return true, nil
 	})
 	if len(outcome.records) != 1 {
@@ -417,6 +398,24 @@ func projectEventPayloadForVersion(version int, payload EventRecordPayload) (Eve
 }
 
 func advanceActiveWorkflowAssignmentFromRecords(meta *Meta, records []EventRecord) error {
+	applyMessage := func(message MessageRecord) error {
+		if message.MessageType == nil {
+			return nil
+		}
+		switch *message.MessageType {
+		case MessageTypeWorkflowMode:
+			normalized, err := normalizeMessageRecord(message)
+			if err != nil {
+				return err
+			}
+			meta.ActiveWorkflowAssignment = &normalized
+			meta.ActiveWorkflowAssignmentState = &ActiveWorkflowAssignmentState{}
+		case MessageTypeWorkflowModeExit:
+			meta.ActiveWorkflowAssignment = nil
+			meta.ActiveWorkflowAssignmentState = &ActiveWorkflowAssignmentState{}
+		}
+		return nil
+	}
 	for _, record := range records {
 		payload, err := record.Payload()
 		if err != nil {
@@ -424,45 +423,36 @@ func advanceActiveWorkflowAssignmentFromRecords(meta *Meta, records []EventRecor
 		}
 		switch value := payload.(type) {
 		case MessageRecord:
-			if value.MessageType == nil {
-				continue
+			if err := applyMessage(value); err != nil {
+				return err
 			}
-			switch *value.MessageType {
-			case MessageTypeWorkflowMode:
-				meta.ActiveWorkflowAssignment = cloneMessageRecord(&value)
-				meta.ActiveWorkflowAssignmentState = &ActiveWorkflowAssignmentState{}
-			case MessageTypeWorkflowModeExit:
-				meta.ActiveWorkflowAssignment = nil
-				meta.ActiveWorkflowAssignmentState = &ActiveWorkflowAssignmentState{}
+		case GenerationContextRecord:
+			for _, messages := range [][]MessageRecord{value.BeforeSummary, value.AfterSummary} {
+				for _, message := range messages {
+					if err := applyMessage(message); err != nil {
+						return err
+					}
+				}
 			}
 		case HistoryReplacementRecord:
 			meta.ActiveWorkflowAssignment = nil
 			meta.ActiveWorkflowAssignmentState = &ActiveWorkflowAssignmentState{}
-			for _, segment := range [][]ProviderHistoryItem{value.Items, value.Continuation} {
-				for _, item := range segment {
-					if item.Type != ProviderHistoryItemTypeMessage ||
-						item.Role == nil ||
-						*item.Role != MessageRoleDeveloper ||
-						item.MessageType == nil {
-						continue
-					}
-					switch *item.MessageType {
-					case MessageTypeWorkflowMode:
-						message, err := normalizeMessageRecord(MessageRecord{
-							Role:            *item.Role,
-							MessageType:     item.MessageType,
-							SourcePath:      item.SourcePath,
-							WorktreeContext: item.WorktreeContext,
-							Content:         item.Content,
-							CompactContent:  item.CompactContent,
-						})
-						if err != nil {
-							return err
-						}
-						meta.ActiveWorkflowAssignment = &message
-					case MessageTypeWorkflowModeExit:
-						meta.ActiveWorkflowAssignment = nil
-					}
+			for _, item := range value.Items {
+				if item.Type != ProviderHistoryItemTypeMessage ||
+					item.Role == nil ||
+					*item.Role != MessageRoleDeveloper ||
+					item.MessageType == nil {
+					continue
+				}
+				if err := applyMessage(MessageRecord{
+					Role:            *item.Role,
+					MessageType:     item.MessageType,
+					SourcePath:      item.SourcePath,
+					WorktreeContext: item.WorktreeContext,
+					Content:         item.Content,
+					CompactContent:  item.CompactContent,
+				}); err != nil {
+					return err
 				}
 			}
 		}
