@@ -46,6 +46,10 @@ func openLatestMetadataTestDatabase(t testing.TB) *sql.DB {
 		_ = db.Close()
 		t.Fatalf("create latest in-memory metadata schema: %v", err)
 	}
+	if _, err := db.Exec("INSERT INTO session_short_id_sequence (singleton, next_value) VALUES (1, 1)"); err != nil {
+		_ = db.Close()
+		t.Fatalf("initialize Session short ID sequence: %v", err)
+	}
 	db.SetMaxOpenConns(metadataSQLiteConnectionPoolSize)
 	db.SetMaxIdleConns(metadataSQLiteConnectionPoolSize)
 	return db

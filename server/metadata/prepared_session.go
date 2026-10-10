@@ -157,7 +157,7 @@ func InsertPreparedSession(ctx context.Context, tx *sql.Tx, prepared PreparedSes
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	if err := q.UpsertSession(ctx, prepared.params); err != nil {
+	if err := persistSessionWithShortID(ctx, q, prepared.params); err != nil {
 		return fmt.Errorf("insert prepared Session: %w", err)
 	}
 	return nil

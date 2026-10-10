@@ -38,6 +38,13 @@ func (r *recordingPersistenceObserver) ObservePersistedStore(_ context.Context, 
 	return r.err
 }
 
+func (r *recordingPersistenceObserver) ResolvePersistedSession(_ context.Context, id string) (PersistedSessionRecord, error) {
+	if r.snapshot.Meta.SessionID != id {
+		return PersistedSessionRecord{}, ErrSessionNotFound
+	}
+	return PersistedSessionRecord{SessionDir: r.snapshot.SessionDir, Meta: cloneTestMeta(&r.snapshot.Meta), ContextFacts: r.snapshot.ContextFacts.Clone()}, nil
+}
+
 func (r *recordingPersistenceObserver) ObserveEventLogReconciliation(_ context.Context, reconciliation PersistedEventLogReconciliation) error {
 	r.reconciled = true
 	r.reconciliation = reconciliation
@@ -341,7 +348,7 @@ func TestMetadataPersistencePublishesObserver(t *testing.T) {
 
 func TestForkAtUserMessagePreservesPersistenceObserver(t *testing.T) {
 	observer := &recordingPersistenceObserver{}
-	parent, err := Create(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer))
+	parent, err := Create(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer), WithPersistedSessionResolver(observer))
 	if err != nil {
 		t.Fatalf("create parent: %v", err)
 	}
@@ -458,7 +465,7 @@ func TestEventLogMaterializationRequiresPersistenceObserverWithoutCreatingArtifa
 
 func TestPersistedSessionDirectoryContainsOnlyStableArtifacts(t *testing.T) {
 	observer := &recordingPersistenceObserver{}
-	store, err := Create(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer))
+	store, err := Create(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer), WithPersistedSessionResolver(observer))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -555,7 +562,7 @@ func TestPersistenceObserverRunsOutsideStoreLock(t *testing.T) {
 
 func TestPersistenceSnapshotsAreImmutable(t *testing.T) {
 	observer := &recordingPersistenceObserver{}
-	store, err := Create(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer))
+	store, err := Create(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer), WithPersistedSessionResolver(observer))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}

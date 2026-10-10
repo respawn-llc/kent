@@ -45,6 +45,11 @@ CREATE TABLE "session_prompt_history_entries" (
     created_at_unix_ms INTEGER NOT NULL
 );
 
+CREATE TABLE session_short_id_sequence (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    next_value INTEGER NOT NULL CHECK (next_value > 0 AND next_value <= 9007199254740992)
+);
+
 CREATE TABLE "session_workflow_node_associations" (
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     node_id TEXT NOT NULL,
@@ -82,7 +87,8 @@ CREATE TABLE "sessions" (
         CHECK (completed_compaction_count IS NULL OR completed_compaction_count >= 0),
     manual_compact_eligible INTEGER
         CHECK (manual_compact_eligible IS NULL OR manual_compact_eligible IN (0, 1)),
-    protected_input_draft TEXT
+    protected_input_draft TEXT,
+    short_id INTEGER CHECK (short_id > 0 AND short_id <= 9007199254740991)
 );
 
 CREATE TABLE "task_active_fanout_branches" (
@@ -614,6 +620,8 @@ CREATE INDEX session_workflow_node_associations_session_recency_idx
 CREATE UNIQUE INDEX sessions_artifact_relpath_idx ON sessions(artifact_relpath);
 
 CREATE INDEX sessions_project_idx ON sessions(project_id, updated_at_unix_ms DESC);
+
+CREATE UNIQUE INDEX sessions_short_id ON sessions(short_id);
 
 CREATE INDEX sessions_task_activity_idx
     ON sessions(task_id, created_at_unix_ms DESC, CAST('session_started:' || id AS TEXT) DESC)

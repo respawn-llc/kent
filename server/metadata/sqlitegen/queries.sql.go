@@ -289,6 +289,21 @@ func (q *Queries) AllocateProjectTaskSequence(ctx context.Context, arg AllocateP
 	return i, err
 }
 
+const allocateSessionShortID = `-- name: AllocateSessionShortID :one
+UPDATE session_short_id_sequence
+SET next_value = next_value + 1
+WHERE singleton = 1 AND next_value <= ?1
+RETURNING CAST(next_value - 1 AS INTEGER) AS short_id
+`
+
+func (q *Queries) AllocateSessionShortID(ctx context.Context, maxShortID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, allocateSessionShortID, maxShortID)
+	var column_1 int64
+	err := recordQueryError(ctx, row.Scan(&column_1), allocateSessionShortID, 1)
+
+	return column_1, err
+}
+
 const bindInitialTaskManagedWorktree = `-- name: BindInitialTaskManagedWorktree :execrows
 UPDATE tasks
 SET
@@ -2038,9 +2053,22 @@ func (q *Queries) GetSessionExecutionTargetByID(ctx context.Context, sessionID s
 	return i, err
 }
 
+const getSessionIDByShortID = `-- name: GetSessionIDByShortID :one
+SELECT id FROM sessions WHERE short_id = ?1
+`
+
+func (q *Queries) GetSessionIDByShortID(ctx context.Context, shortID sql.NullInt64) (string, error) {
+	row := q.db.QueryRowContext(ctx, getSessionIDByShortID, shortID)
+	var id string
+	err := recordQueryError(ctx, row.Scan(&id), getSessionIDByShortID, 1)
+
+	return id, err
+}
+
 const getSessionRecordByID = `-- name: GetSessionRecordByID :one
 SELECT
     s.id,
+    s.short_id,
     s.artifact_relpath,
     s.name,
     s.first_prompt_preview,
@@ -2068,6 +2096,7 @@ LIMIT 1
 
 type GetSessionRecordByIDRow struct {
 	ID                       string
+	ShortID                  sql.NullInt64
 	ArtifactRelpath          string
 	Name                     sql.NullString
 	FirstPromptPreview       string
@@ -2094,6 +2123,7 @@ func (q *Queries) GetSessionRecordByID(ctx context.Context, sessionID string) (G
 	var i GetSessionRecordByIDRow
 	err := recordQueryError(ctx, row.Scan(
 		&i.ID,
+		&i.ShortID,
 		&i.ArtifactRelpath,
 		&i.Name,
 		&i.FirstPromptPreview,
@@ -2116,6 +2146,18 @@ func (q *Queries) GetSessionRecordByID(ctx context.Context, sessionID string) (G
 	), getSessionRecordByID, 1)
 
 	return i, err
+}
+
+const getSessionShortID = `-- name: GetSessionShortID :one
+SELECT short_id FROM sessions WHERE id = ?1
+`
+
+func (q *Queries) GetSessionShortID(ctx context.Context, sessionID string) (sql.NullInt64, error) {
+	row := q.db.QueryRowContext(ctx, getSessionShortID, sessionID)
+	var short_id sql.NullInt64
+	err := recordQueryError(ctx, row.Scan(&short_id), getSessionShortID, 1)
+
+	return short_id, err
 }
 
 const getSessionWorkspaceRetargetStateByID = `-- name: GetSessionWorkspaceRetargetStateByID :one
@@ -9414,6 +9456,7 @@ func (q *Queries) UpsertSerialSessionWorkflowNodeAssociation(ctx context.Context
 const upsertSession = `-- name: UpsertSession :exec
 INSERT INTO sessions (
     id,
+    short_id,
     project_id,
     workspace_id,
     worktree_id,
@@ -9461,7 +9504,8 @@ INSERT INTO sessions (
     ?21,
     ?22,
     ?23,
-    ?24
+    ?24,
+    ?25
 )
 ON CONFLICT(id) DO UPDATE SET
     name = excluded.name,
@@ -9486,6 +9530,7 @@ ON CONFLICT(id) DO UPDATE SET
 
 type UpsertSessionParams struct {
 	ID                       string
+	ShortID                  sql.NullInt64
 	ProjectID                string
 	WorkspaceID              sql.NullString
 	WorktreeID               sql.NullString
@@ -9514,6 +9559,7 @@ type UpsertSessionParams struct {
 func (q *Queries) UpsertSession(ctx context.Context, arg UpsertSessionParams) error {
 	_, err := q.db.ExecContext(ctx, upsertSession,
 		arg.ID,
+		arg.ShortID,
 		arg.ProjectID,
 		arg.WorkspaceID,
 		arg.WorktreeID,
@@ -9538,7 +9584,7 @@ func (q *Queries) UpsertSession(ctx context.Context, arg UpsertSessionParams) er
 		arg.CompletedCompactionCount,
 		arg.ManualCompactEligible,
 	)
-	err = recordQueryError(ctx, err, upsertSession, 24)
+	err = recordQueryError(ctx, err, upsertSession, 25)
 
 	return err
 }

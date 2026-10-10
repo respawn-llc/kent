@@ -195,6 +195,7 @@ func TestOpenRestoresContextFactsOutsideRecoverableMeta(t *testing.T) {
 		"/workspace",
 		testSessionCategory,
 		WithPersistenceObserver(observer),
+		WithPersistedSessionResolver(observer),
 		WithSessionContextFactWriter(writer),
 	)
 	if err != nil {
@@ -241,6 +242,7 @@ func TestOpenNormalizesInvalidPersistedContextFactsWithoutWriting(t *testing.T) 
 		"/workspace",
 		testSessionCategory,
 		WithPersistenceObserver(observer),
+		WithPersistedSessionResolver(observer),
 		WithSessionContextFactWriter(writer),
 	)
 	if err != nil {

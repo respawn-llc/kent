@@ -1925,6 +1925,7 @@ WHERE id = sqlc.arg(id);
 -- name: UpsertSession :exec
 INSERT INTO sessions (
     id,
+    short_id,
     project_id,
     workspace_id,
     worktree_id,
@@ -1950,6 +1951,7 @@ INSERT INTO sessions (
     manual_compact_eligible
 ) VALUES (
     sqlc.arg(id),
+    sqlc.narg(short_id),
     sqlc.arg(project_id),
     sqlc.arg(workspace_id),
     sqlc.narg(worktree_id),
@@ -2263,6 +2265,7 @@ WHERE id = sqlc.arg(project_id);
 -- name: GetSessionRecordByID :one
 SELECT
     s.id,
+    s.short_id,
     s.artifact_relpath,
     s.name,
     s.first_prompt_preview,
@@ -2286,6 +2289,18 @@ FROM sessions s
 LEFT JOIN workspaces w ON w.id = s.workspace_id
 WHERE s.id = sqlc.arg(session_id)
 LIMIT 1;
+
+-- name: AllocateSessionShortID :one
+UPDATE session_short_id_sequence
+SET next_value = next_value + 1
+WHERE singleton = 1 AND next_value <= sqlc.arg(max_short_id)
+RETURNING CAST(next_value - 1 AS INTEGER) AS short_id;
+
+-- name: GetSessionIDByShortID :one
+SELECT id FROM sessions WHERE short_id = sqlc.arg(short_id);
+
+-- name: GetSessionShortID :one
+SELECT short_id FROM sessions WHERE id = sqlc.arg(session_id);
 
 -- name: GetSessionExecutionTargetByID :one
 SELECT
