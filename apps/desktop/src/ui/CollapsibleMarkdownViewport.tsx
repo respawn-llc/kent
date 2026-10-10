@@ -36,22 +36,26 @@ export function CollapsibleMarkdownViewport({
   const phase = useOpacityExit(collapsed && overflows);
   return (
     <div
-      className={cx("relative min-w-0 max-w-full", collapsed && "overflow-hidden")}
+      className={cx("relative h-full min-h-0 min-w-0 max-w-full", collapsed && "overflow-hidden")}
       data-slot="markdown-field-read-content-viewport"
       data-testid="markdown-field-read-content-viewport"
       ref={viewportRef}
-      style={
-        collapsed
-          ? {
-              maxHeight:
-                collapsedHeightClamp.kind === "pixels"
-                  ? `${collapsedHeightClamp.maximumPixels.toString()}px`
-                  : `clamp(${collapsedHeightClamp.minimumLines.toString()}lh,${collapsedHeightClamp.viewportPercent.toString()}dvh,${collapsedHeightClamp.maximumLines.toString()}lh)`,
-            }
-          : undefined
-      }
     >
-      <div className="min-w-0 max-w-full" ref={contentRef}>
+      <div
+        className="min-w-0 max-w-full"
+        ref={contentRef}
+        // Limit intrinsic height, while allowing text to fill a taller allocated viewport.
+        style={
+          collapsed
+            ? {
+                maxHeight:
+                  collapsedHeightClamp.kind === "pixels"
+                    ? `${collapsedHeightClamp.maximumPixels.toString()}px`
+                    : `clamp(${collapsedHeightClamp.minimumLines.toString()}lh,${collapsedHeightClamp.viewportPercent.toString()}dvh,${collapsedHeightClamp.maximumLines.toString()}lh)`,
+              }
+            : undefined
+        }
+      >
         {children}
       </div>
       <MarkdownExpandAffordance expandLabel={expandLabel} onExpand={onExpand} phase={phase} />

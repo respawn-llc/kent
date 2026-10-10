@@ -1093,7 +1093,7 @@ func eventShouldCarryContextUsage(evt Event) bool {
 
 func eventShouldCarryCommittedEntryCount(evt Event) bool {
 	switch evt.Kind {
-	case EventBackgroundUpdated:
+	case EventBackgroundUpdated, EventQuestionCandidateFinished:
 		return false
 	default:
 		return true

@@ -155,15 +155,13 @@ func TestServiceCreatesValidatesLinksAndStartsDefaultWorkflowTask(t *testing.T) 
 	if len(started.CurrentNodes) != 1 || strings.TrimSpace(started.CurrentNodes[0].NodeId) == "" {
 		t.Fatalf("start response = %+v, want one Current Node", started)
 	}
-	_, err = service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+	duplicate, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{
 		TaskId:           task.Task.Id,
 		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
 	})
-	var conflict *serverapi.WorkflowTaskStartConflictError
-	if !errors.As(err, &conflict) ||
-		conflict.TaskID != task.Task.Id ||
-		conflict.Reason != serverapi.WorkflowTaskStartConflictAlreadyStarted {
-		t.Fatalf("StartWorkflowTask error = %T %+v, want public already-started conflict", err, err)
+	if err != nil || duplicate.GetApplied() == nil ||
+		!proto.Equal(duplicate.GetApplied(), started) {
+		t.Fatalf("duplicate StartWorkflowTask = %+v, %v, want existing Current Nodes", duplicate, err)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"core/cli/internal/pathdisplay"
 	"core/shared/config"
 	"core/shared/protoapi"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
@@ -311,7 +312,7 @@ func viewImageDisplayText(meta toolMeta) (string, bool) {
 	if imagePath == "" {
 		return "", false
 	}
-	return viewImageDisplayPrefix + imagePath, true
+	return viewImageDisplayPrefix + pathdisplay.Home(imagePath), true
 }
 
 func webSearchDisplayText(meta toolMeta) (string, bool) {
@@ -504,7 +505,7 @@ func renderPatchChangesDetail(
 
 func wrapPatchFileLine(file patchformat.FileChange, width int) []Line {
 	spans := []Span{patchPathSpan(
-		safeTranscriptText(file.Path.Absolute),
+		safeTranscriptText(file.Path.Relative),
 		file.Path.Absolute,
 		StyleRoleToolPatch,
 	)}

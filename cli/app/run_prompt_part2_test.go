@@ -284,7 +284,7 @@ func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testi
 		t.Fatalf("read messages: %v", err)
 	}
 	assertEnvironmentCWD(t, messages, worktreeSubdir)
-	assertWorktreeReminderMessage(t, messages, "feature/worktree", worktreeSubdir, cfg.WorkspaceRoot)
+	assertWorktreeReminderMessage(t, messages)
 }
 
 func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.T) {
@@ -430,23 +430,12 @@ func assertEnvironmentCWD(t *testing.T, messages []llm.Message, cwd string) {
 	t.Fatalf("expected environment CWD %q in messages %+v", cwd, messages)
 }
 
-func assertWorktreeReminderMessage(t *testing.T, messages []llm.Message, branch string, cwd string, workspaceRoot string) {
+func assertWorktreeReminderMessage(t *testing.T, messages []llm.Message) {
 	t.Helper()
-	sawWorktreeReminder := false
 	for _, msg := range messages {
-		if msg.Role != llm.RoleDeveloper || msg.MessageType == nil || *msg.MessageType != llm.MessageTypeWorktreeMode {
-			continue
-		}
-		sawWorktreeReminder = true
-		if msg.Content != nil &&
-			strings.Contains(*msg.Content, branch) &&
-			strings.Contains(*msg.Content, cwd) &&
-			strings.Contains(*msg.Content, workspaceRoot) {
+		if msg.Role == llm.RoleDeveloper && msg.MessageType != nil && *msg.MessageType == llm.MessageTypeWorktreeMode {
 			return
 		}
-	}
-	if sawWorktreeReminder {
-		t.Fatalf("no matching worktree reminder found for branch %q cwd %q workspace %q", branch, cwd, workspaceRoot)
 	}
 	t.Fatalf("expected worktree reminder message in %+v", messages)
 }

@@ -2,6 +2,8 @@
 
 ## General Contracts
 
+- Human-readable list output collapses filesystem-path columns using the shared path collapser. Single-item output, suggested executable commands, errors, diagnostics, and JSON output retain canonical or explicitly supplied paths.
+
 - The CLI provides complete control of Kent's supported command surfaces for operators and agents.
 - CLI command grouping is not a compatibility contract. Documented behavior, accepted data, and machine-readable output are compatibility contracts.
 - CLI output includes stable identifiers needed by later commands.
@@ -325,6 +327,7 @@
 - Run control commands reject workspace, model, provider, agent, timeout, tools, and progress flags.
 - Headless stdin is not a steering channel.
 - `kent worktree list`, `create`, and `delete` must accept `--project <project-id>` and `--workspace <workspace-id>`.
+- `kent worktree delete` must accept `--timeout <duration>` with a default of five minutes. The duration must be positive and must bound the command's connection, Workspace resolution, and deletion request.
 - With `--project` and no `--workspace`, Worktree management must use the selected Project's default Workspace independently of the caller's Project and current directory.
 - With `--workspace`, Worktree management must select that Workspace within the selected or inferred Project.
 - Without `--project`, Worktree management must infer its Project and default target Workspace from the issuing agent Session, otherwise from `--session`, otherwise from the current directory.

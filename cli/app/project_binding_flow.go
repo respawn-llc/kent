@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"sort"
 	"strings"
@@ -281,7 +282,8 @@ func (m *projectBindingPickerModel) shouldShowGroupHeader(index int, groupRender
 
 func projectBindingHomeDir() string {
 	home, err := os.UserHomeDir()
-	if err != nil || strings.TrimSpace(home) == "" {
+	if err != nil {
+		log.Printf("resolve home directory for project path display: %v", err)
 		return ""
 	}
 	return home

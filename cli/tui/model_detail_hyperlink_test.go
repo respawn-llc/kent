@@ -48,7 +48,7 @@ func TestDetailPatchHyperlinkClosesBeforeUnselectedAndSelectedPadding(t *testing
 			lines = model.detailVisibleProjectedLines()
 		}
 		trace := pty.TraceTerminalHyperlinks(t, strings.Join(renderDetailProjectedLines(lines, model.theme), "\n"))
-		if got := trace.LinkedText("file:///worktree/dir/file.go"); got != "/worktree/dir/file.go" {
+		if got := trace.LinkedText("file:///worktree/dir/file.go"); got != row.GetTool().Presentation.PatchPresentation.GetChanges().Files[0].Path.Relative {
 			t.Fatalf("linked detail path = %q, want represented path", got)
 		}
 	}

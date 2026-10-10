@@ -1,15 +1,57 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { appI18n } from "@/i18n";
+import { RpcError } from "@/api";
+import { deferred } from "@/test-support/chat-runtime";
 import {
   backlogTaskFixture,
   taskStartRoute,
   taskStartApplied,
+  taskStartFailure,
   taskStartNeedsDependencies,
   mountTaskDetailSurface,
   taskDetailResponse,
 } from "@/test-support/task-detail";
+
+it("replaces Start with a visible loading spinner and restores the action after failure", async () => {
+  const services = mountTaskDetailSurface(backlogTaskFixture(taskDetailResponse), {
+    routes: [taskStartRoute(taskStartApplied)],
+  });
+  const request = deferred<Awaited<ReturnType<typeof services.api.startTask>>>();
+  const log = vi.spyOn(services.logger, "append");
+  vi.spyOn(services.api, "startTask").mockReturnValueOnce(request.promise);
+  const start = await screen.findByRole("button", { name: appI18n.t("task.start") });
+  await userEvent.click(start);
+  await waitFor(() => {
+    expect(start).toHaveAttribute("aria-busy", "true");
+  });
+  expect(within(start).getByText(appI18n.t("task.start"))).not.toBeVisible();
+  expect(within(start).getByTestId("spinner")).toBeVisible();
+  const failure = taskStartFailure;
+  const error = new RpcError({
+    code: failure.code,
+    method: "task.start",
+    message: "start rejected",
+    data: failure,
+  });
+  await act(async () => {
+    request.reject(error);
+  });
+  await waitFor(() => {
+    expect(start).toHaveAttribute("aria-busy", "false");
+  });
+  expect(within(start).getByTestId("spinner")).not.toBeVisible();
+  expect(within(start).getByText(appI18n.t("task.start"))).toBeVisible();
+  expect(start).toBeEnabled();
+  const diagnostic = log.mock.calls.find(([, , context]) => context?.action === "start");
+  expect(diagnostic?.[2]).toMatchObject({
+    action: "start",
+    method: error.method,
+    code: error.code,
+    details: JSON.stringify(failure),
+  });
+});
 
 it("starts the persisted Task without submitting a dirty title or description draft", async () => {
   const services = mountTaskDetailSurface(backlogTaskFixture(taskDetailResponse), {

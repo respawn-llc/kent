@@ -1,9 +1,10 @@
-import type { ApprovalDecision } from "./models";
+import type { ApprovalDecision, PromptQuestionBatch } from "./models";
 
 export type PromptIdentity = Readonly<{
   toolCallID: string;
   sessionID: string;
   stepID: string;
+  batch?: PromptQuestionBatch;
 }>;
 
 export type FileAccessTarget = Readonly<{ requestedPath: string; resolvedPath: string }>;

@@ -415,6 +415,8 @@ func (c *defaultContextCompactor) compactContext(
 		}
 		return err
 	})
+	// Standalone compaction does not pass through the agent-turn error reporter.
+	e.surfaceRunError(err)
 	return receipt, err
 }
 
