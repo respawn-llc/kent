@@ -162,6 +162,7 @@ func TestTriggerHandoffSchedulesCompactionAndAppendsFutureMessageWithPreservedUs
 	if len(client.calls) != 1 {
 		t.Fatalf("expected one local-summary model call, got %d", len(client.calls))
 	}
+	buildActiveTurnRequestForTest(t, eng, nil, true)
 	assertCompactionReplacementOrder(t, eng.transcriptRuntimeState().SnapshotItems(), true)
 
 	messages := eng.transcriptRuntimeState().SnapshotMessages()
@@ -240,6 +241,7 @@ func TestTriggerHandoffWithProviderCompactionCarriesPreservedUserMessageInOrder(
 	if len(client.compactionCalls) != 1 {
 		t.Fatalf("provider compaction calls = %d, want one", len(client.compactionCalls))
 	}
+	buildActiveTurnRequestForTest(t, eng, nil, true)
 	assertCompactionReplacementOrder(t, eng.transcriptRuntimeState().SnapshotItems(), true)
 }
 
@@ -269,6 +271,7 @@ func TestTriggerHandoffWithBlankFutureMessageAppendsNoFutureMessage(t *testing.T
 		t.Fatalf("apply pending handoff: %v", err)
 	}
 	restoreStep()
+	buildActiveTurnRequestForTest(t, eng, nil, true)
 	for _, message := range eng.transcriptRuntimeState().SnapshotMessages() {
 		if message.MessageType != nil && *message.MessageType == llm.MessageTypeHandoffFutureMessage {
 			t.Fatalf("blank future-agent message reached history: %+v", message)
@@ -674,6 +677,7 @@ func TestPendingTriggerHandoffRetriesAfterCompactionFailure(t *testing.T) {
 		t.Fatalf("retry pending handoff: %v", err)
 	}
 	restoreStep()
+	buildActiveTurnRequestForTest(t, eng, nil, true)
 	if eng.handoffRuntimeState().RequestSnapshot() != nil {
 		t.Fatalf("expected successful retry to clear pending handoff, got %+v", eng.handoffRuntimeState().RequestSnapshot())
 	}

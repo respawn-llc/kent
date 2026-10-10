@@ -125,15 +125,9 @@ func TestFreshWorkflowMetaContextRetriesCommittedObserverFailureWithoutDuplicate
 	if err := engine.ensureMetaContextForRequest(context.Background(), runtimeTestStepID("fresh")); !errors.Is(err, observerErr) {
 		t.Fatalf("first fresh meta-context error = %v, want %v", err, observerErr)
 	}
-	if engine.baseMetaInjected {
-		t.Fatal("fresh meta-context marked injected before the complete projection committed")
-	}
 
 	if err := engine.ensureMetaContextForRequest(context.Background(), runtimeTestStepID("retry")); err != nil {
 		t.Fatalf("retry fresh meta-context: %v", err)
-	}
-	if !engine.baseMetaInjected {
-		t.Fatal("fresh meta-context remained uninjected after committed retry")
 	}
 	if trigger := engine.currentNodeExecutionSnapshot().delivery.trigger(workflowTaskPromptTriggerTaskDelivery); trigger != workflowTaskPromptTriggerTaskDelivery {
 		t.Fatalf("workflow delivery trigger after retry = %v, want ordinary task delivery", trigger)
@@ -160,7 +154,7 @@ func assertFreshRequestMatchesCompactionProjection(t *testing.T, engine *Engine,
 	if err != nil {
 		t.Fatalf("build fresh request: %v", err)
 	}
-	projection, err := engine.compactionReinjectedMetaContextProjection(context.Background(), compactionModeManual)
+	projection, err := engine.generationMetaContextProjection(context.Background(), workflowTaskPromptTriggerCompaction)
 	if err != nil {
 		t.Fatalf("build compaction meta context: %v", err)
 	}

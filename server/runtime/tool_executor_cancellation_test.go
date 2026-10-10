@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"sync/atomic"
 	"testing"
 
 	"core/server/llm"
@@ -65,8 +64,8 @@ func TestExecuteToolCallsPropagatesContextCancellation(t *testing.T) {
 func TestExecuteToolCallsClosesCompletedAndInterruptedResultsInRosterOrder(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	secondStarted := make(chan struct{})
-	handler := &orderedCancellationTool{secondStarted: secondStarted}
+	started := make(chan struct{}, 3)
+	handler := &orderedCancellationTool{started: started}
 	engine := mustNewTestEngine(
 		t,
 		store,
@@ -87,6 +86,7 @@ func TestExecuteToolCallsClosesCompletedAndInterruptedResultsInRosterOrder(t *te
 	restoreStep := setTestActiveStep(engine, stepID)
 	defer restoreStep()
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan struct {
 		results []tools.Result
 		err     error
@@ -118,7 +118,9 @@ func TestExecuteToolCallsClosesCompletedAndInterruptedResultsInRosterOrder(t *te
 		}{results: results, err: err}
 	}()
 
-	<-secondStarted
+	for range 3 {
+		<-started
+	}
 	cancel()
 	outcome := <-done
 	if !errors.Is(outcome.err, context.Canceled) {
@@ -189,13 +191,12 @@ func (t cancellationAwareTool) Call(ctx context.Context, call tools.Call) (tools
 }
 
 type orderedCancellationTool struct {
-	calls         atomic.Int32
-	secondStarted chan struct{}
+	started chan<- struct{}
 }
 
 func (t *orderedCancellationTool) Call(ctx context.Context, call tools.Call) (tools.Result, error) {
-	sequence := t.calls.Add(1)
-	if sequence == 1 {
+	t.started <- struct{}{}
+	if call.ID == "completed" {
 		return tools.Result{
 			CallID:  call.ID,
 			Name:    call.Name,
@@ -203,8 +204,7 @@ func (t *orderedCancellationTool) Call(ctx context.Context, call tools.Call) (to
 			Summary: textutil.Value("complete"),
 		}, nil
 	}
-	if sequence == 2 {
-		close(t.secondStarted)
+	if call.ID == "honest-error" {
 		<-ctx.Done()
 		return tools.Result{
 			CallID:  call.ID,
@@ -213,5 +213,6 @@ func (t *orderedCancellationTool) Call(ctx context.Context, call tools.Call) (to
 			Output:  json.RawMessage(`{"error":"honest"}`),
 		}, ctx.Err()
 	}
+	<-ctx.Done()
 	return tools.Result{}, ctx.Err()
 }

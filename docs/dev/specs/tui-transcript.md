@@ -2,6 +2,9 @@
 
 ## Modes
 
+- Read-only structured filesystem-path labels use the shared path collapser, including Worktree notices, image-tool labels, and approval targets. Canonical action/link targets remain unchanged. Editable fields, model-visible arbitrary text, errors, and diagnostics are not path-rewritten.
+- Patch labels preserve the model's supplied absolute path exactly. General environment CWD and Session rebind target-directory context remain absolute.
+
 - TUI modes are `ongoing` and `detail`, toggled by `Shift+Tab` or `Ctrl+T`.
 - Ongoing is the default long-running mode.
 - Detail is a fullscreen pager-style transcript overlay where input, queues, and pickers are hidden.

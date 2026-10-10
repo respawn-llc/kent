@@ -1,6 +1,7 @@
 package transcriptrender
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -9,6 +10,20 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestAbsolutePatchDisplayRetainsSuppliedPathAndCanonicalLink(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := home + "/project/nested/../file.go"
+	canonical := filepath.Clean(path)
+	row := patchRow(canonical, path)
+	for _, mode := range []Mode{ModeOngoing, ModeDetailCollapsed, ModeDetailExpanded} {
+		text, url := patchLink(RenderCommittedRow(row, 240, "dark", mode).Lines)
+		if text != path || url != "file://"+canonical {
+			t.Fatalf("mode %v patch label/link = %q/%q", mode, text, url)
+		}
+	}
+}
 
 func TestLongPatchPathPreservesFilenameAndCounts(t *testing.T) {
 	path := strings.Repeat("long-directory/", 12) + "workflow.json"
@@ -74,7 +89,7 @@ func TestPatchHyperlinks(t *testing.T) {
 		t.Fatal("failed patch row omitted failure status")
 	}
 	assertPatchLink(t, RenderCommittedRow(patchRow("/worktree/dir/file.go", "./dir/file.go"), 80, "dark", ModeOngoing).Lines, "./dir/file.go", "file:///worktree/dir/file.go")
-	assertPatchLink(t, RenderCommittedRow(patchRow("/worktree/dir/file.go", "./dir/file.go"), 12, "dark", ModeDetailExpanded).Lines, "/worktree/dir/file.go", "file:///worktree/dir/file.go")
+	assertPatchLink(t, RenderCommittedRow(patchRow("/worktree/dir/file.go", "./dir/file.go"), 12, "dark", ModeDetailExpanded).Lines, "./dir/file.go", "file:///worktree/dir/file.go")
 	moved := patchRow("/worktree/new.go", "./new.go")
 	file := moved.GetTool().Presentation.PatchPresentation.GetChanges().Files[0]
 	file.Operations[0].Operation = &transcriptpb.PatchFileOperation_Move{

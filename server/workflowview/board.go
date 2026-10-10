@@ -519,7 +519,7 @@ func boardColumns(snapshot definitionSnapshot) ([]*taskpb.BoardColumn, error) {
 				NodeId:       node.Id,
 				Key:          node.Key,
 				Kind:         node.Kind,
-				DisplayName:  node.DisplayName,
+				DisplayName:  workflow.DisplayLabel(node.DisplayName, node.Key),
 				AssigneeRole: node.SubagentRole,
 				SortOrder:    sortOrder,
 				OutputFields: OutputFields(derived.PossibleProvisionFieldsForNode(workflow.NodeID(node.Id))),

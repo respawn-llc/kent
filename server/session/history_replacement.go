@@ -2,6 +2,10 @@ package session
 
 import "strings"
 
+func IsContextBoundary(kind EventKind) bool {
+	return kind == EventKindHistoryReplace
+}
+
 // ProjectCompactedMeta describes the new generation before compaction runs.
 // Planning can resolve its next Agent without mutating the outgoing contract.
 func ProjectCompactedMeta(meta Meta) Meta {

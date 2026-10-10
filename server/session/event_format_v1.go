@@ -68,6 +68,7 @@ const (
 	EventKindToolCompletion      EventKind = "tool_completed"
 	EventKindLocalEntry          EventKind = "local_entry"
 	EventKindHistoryReplace      EventKind = "history_replaced"
+	EventKindGenerationContext   EventKind = "generation_context"
 	EventKindConfigurationUpdate EventKind = "configuration_updated"
 	EventKindCacheRequest        EventKind = "cache_request_observed"
 	EventKindCacheResponse       EventKind = "cache_response_observed"
@@ -221,6 +222,12 @@ func newEventRecord(
 		normalized, normalizeErr := normalizeHistoryReplacementRecord(typed)
 		if normalizeErr != nil {
 			return EventRecord{}, fmt.Errorf("%s payload: %w", payload.eventKind(), normalizeErr)
+		}
+		payload = normalized
+	case GenerationContextRecord:
+		normalized, normalizeErr := normalizeGenerationContextRecord(typed)
+		if normalizeErr != nil {
+			return EventRecord{}, normalizeErr
 		}
 		payload = normalized
 	case ConfigurationUpdateRecord:
@@ -663,8 +670,6 @@ func encodeEventRecordPayloadV1(payload EventRecordPayload) ([]byte, error) {
 	switch typed := payload.(type) {
 	case ToolCompletionRecord:
 		return encodeToolCompletionRecordV1(typed)
-	case HistoryReplacementRecord:
-		return encodeHistoryReplacementRecordV1(typed)
 	default:
 		return json.Marshal(payload)
 	}
@@ -845,8 +850,6 @@ func encodeEventRecordPayloadV2(payload EventRecordPayload) ([]byte, error) {
 	switch typed := payload.(type) {
 	case ToolCompletionRecord:
 		return encodeToolCompletionRecordV2(typed)
-	case HistoryReplacementRecord:
-		return encodeHistoryReplacementRecordV1(typed)
 	default:
 		return json.Marshal(payload)
 	}
@@ -966,6 +969,12 @@ func decodeEventRecordPayloadV1(
 			return nil, fmt.Errorf("decode %s payload: %w", kind, err)
 		}
 		payload = replacement
+	case EventKindGenerationContext:
+		var record GenerationContextRecord
+		if err := decode(&record); err != nil {
+			return nil, fmt.Errorf("decode %s payload: %w", kind, err)
+		}
+		payload = record
 	case EventKindConfigurationUpdate:
 		var update ConfigurationUpdateRecord
 		if err := decode(&update); err != nil {
@@ -1002,6 +1011,7 @@ func validateEventKind(kind EventKind) error {
 		EventKindToolCompletion,
 		EventKindLocalEntry,
 		EventKindHistoryReplace,
+		EventKindGenerationContext,
 		EventKindConfigurationUpdate,
 		EventKindCacheRequest,
 		EventKindCacheResponse,

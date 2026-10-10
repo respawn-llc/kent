@@ -4,11 +4,30 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"core/internal/testharness/testsetup"
 	"core/server/workflow"
 	"core/shared/runtimeids"
 )
+
+func TestNodeDisplayLabelsMayBeEmpty(t *testing.T) {
+	for _, label := range []string{"", "   ", strings.Repeat("x", workflow.MaxDisplayNameChars+1), strings.Repeat("界", workflow.MaxDisplayNameChars), strings.Repeat("界", workflow.MaxDisplayNameChars+1)} {
+		t.Run(label, func(t *testing.T) {
+			def := validWorkflow(t)
+			updateNodeAt(&def, 1, func(identity *workflow.NodeIdentity, _ *workflow.NodeKind, _ *workflow.NodeFields) {
+				identity.DisplayName = label
+			})
+			result := validateForTask(def)
+			hasInvalidLabel := slices.ContainsFunc(result.BlockingErrors(), func(err workflow.ValidationError) bool {
+				return err.Code == workflow.CodeInvalidDisplayName
+			})
+			if hasInvalidLabel != (utf8.RuneCountInString(strings.TrimSpace(label)) > workflow.MaxDisplayNameChars) {
+				t.Fatalf("unexpected node-label validation: %+v", result)
+			}
+		})
+	}
+}
 
 func TestStartNodeRules(t *testing.T) {
 	tests := []struct {

@@ -205,10 +205,8 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 		if provenanceErr != nil {
 			return provenanceErr
 		}
-		entries := transcriptEntriesFromHistoryReplacement(
-			llm.PrepareOpenAIInputItems(replacement.Items),
-			replacement.CompactionNumber,
-		)
+		replacement.Items = llm.PrepareOpenAIInputItems(replacement.Items)
+		entries := transcriptEntriesFromHistoryReplacement(replacement)
 		for index := range entries {
 			entries[index].StepID = cloneOptionalStepID(stepID)
 		}
@@ -216,6 +214,15 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 			s.scan.appendEntry(entry)
 		}
 		s.lastCommittedAssistantFinalAnswer = textutil.Pointer(replacement.LastCommittedAssistantFinalAnswer)
+	case session.GenerationContextRecord:
+		s.closeTurn()
+		entries, err := generationContextEntries(record, payload)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			s.scan.appendEntry(entry)
+		}
 	}
 	return nil
 }

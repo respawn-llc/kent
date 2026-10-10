@@ -606,7 +606,7 @@ func (f *currentNodeRunnerFixture) appendManualCompactionReplacement(
 				return err
 			}
 			stepID := "manual-compaction"
-			_, receipt, err := log.AppendCompactionHistoryReplacement(
+			_, receipt, err := log.AppendHistoryReplacement(
 				&stepID,
 				session.HistoryReplacementRecord{
 					Engine: "local",
@@ -2169,6 +2169,9 @@ func TestCompactAndContinueSessionEstablishesTargetRoleGeneration(t *testing.T) 
 		t.Fatalf("direct continuation compactions = %d, want one", len(compactions))
 	}
 	requireLazyCompactionPreservesRequestPrefix(t, client.Requests()[0], compactions[0])
+	if client.Requests()[0].Model != "workflow-coder" || client.Requests()[1].Model != "workflow-reviewer" {
+		t.Fatalf("direct continuation models = %q -> %q, want coder -> reviewer", client.Requests()[0].Model, client.Requests()[1].Model)
+	}
 	if client.Requests()[0].ReasoningEffort != "low" || client.Requests()[1].ReasoningEffort != "high" {
 		t.Fatalf("direct continuation Thinking = %q -> %q, want low -> high", client.Requests()[0].ReasoningEffort, client.Requests()[1].ReasoningEffort)
 	}

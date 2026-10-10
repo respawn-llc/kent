@@ -682,7 +682,7 @@ func appendTestCompactionHistoryReplacement(
 	if err != nil {
 		return session.EventRecord{}, session.CommitReceipt{}, err
 	}
-	return mustMaterializeTestEventLog(t, store).AppendCompactionHistoryReplacement(
+	return mustMaterializeTestEventLog(t, store).AppendHistoryReplacement(
 		&stepID,
 		record,
 	)

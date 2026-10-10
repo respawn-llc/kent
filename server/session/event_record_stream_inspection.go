@@ -142,11 +142,15 @@ func inspectEventRecordStream(
 	return inspection, nil
 }
 
-func inspectHistoryReplacementRecordStream(reader io.Reader) error {
+func inspectContextBoundaryRecordStream(reader io.Reader, kind EventKind) error {
 	inspectionReader := &eventRecordInspectionReader{reader: reader}
 	decoder := jx.Decode(inspectionReader, int(eventLogScanChunkSize))
 	var payloadPresent bool
-	replacement := HistoryReplacementRecord{}
+	var engine CompactionEngine
+	var mode CompactionMode
+	var compactionNumber, committedEntryStart *int
+	var latestRollbackCandidate *rollbacktarget.CandidateLocator
+	var outputPresent, summaryPresent, itemsPresent bool
 	if err := inspectEventRecordObject(decoder, inspectionReader, func(
 		decoder *jx.Decoder,
 		field string,
@@ -155,14 +159,14 @@ func inspectHistoryReplacementRecordStream(reader io.Reader) error {
 			return decoder.Skip()
 		}
 		if payloadPresent {
-			return errors.New("history replacement payload must not be repeated")
+			return errors.New("context boundary payload must not be repeated")
 		}
 		payloadPresent = true
 		if decoder.Next() != jx.Object {
 			if err := decoder.Skip(); err != nil {
 				return err
 			}
-			return errors.New("history replacement payload must be a JSON object")
+			return errors.New("context boundary payload must be a JSON object")
 		}
 		return inspectEventRecordObject(decoder, inspectionReader, func(
 			decoder *jx.Decoder,
@@ -174,25 +178,25 @@ func inspectHistoryReplacementRecordStream(reader io.Reader) error {
 				if err != nil {
 					return err
 				}
-				replacement.Engine = value
+				engine = CompactionEngine(value)
 			case "mode":
 				value, err := inspectEventRecordString(decoder, inspectionReader)
 				if err != nil {
 					return err
 				}
-				replacement.Mode = CompactionMode(value)
+				mode = CompactionMode(value)
 			case "compaction_number":
 				value, err := inspectOptionalEventRecordInt(decoder)
 				if err != nil {
 					return err
 				}
-				replacement.CompactionNumber = value
+				compactionNumber = value
 			case "committed_entry_start":
 				value, err := inspectOptionalEventRecordInt(decoder)
 				if err != nil {
 					return err
 				}
-				replacement.CommittedEntryStart = value
+				committedEntryStart = value
 			case "pending_handoff_future_message",
 				"last_committed_assistant_final_answer":
 				return inspectOptionalEventRecordType(decoder, jx.String, field)
@@ -204,9 +208,40 @@ func inspectHistoryReplacementRecordStream(reader io.Reader) error {
 				if err != nil {
 					return err
 				}
-				replacement.LatestRollbackCandidate = value
+				latestRollbackCandidate = value
+			case "compacted_output":
+				if decoder.Next() == jx.Null {
+					outputPresent = false
+					summaryPresent = false
+					return decoder.Skip()
+				}
+				outputPresent = true
+				return inspectEventRecordObject(decoder, inspectionReader, func(decoder *jx.Decoder, field string) error {
+					switch field {
+					case "summary":
+						summaryPresent = false
+						if decoder.Next() == jx.Null {
+							return decoder.Skip()
+						}
+						return decoder.Arr(func(decoder *jx.Decoder) error {
+							summaryPresent = true
+							return decoder.Skip()
+						})
+					case "preserved_user_message", "future_agent_message":
+						return inspectOptionalEventRecordType(decoder, jx.Object, field)
+					default:
+						return decoder.Skip()
+					}
+				})
 			case "items":
-				return inspectOptionalEventRecordType(decoder, jx.Array, field)
+				if decoder.Next() == jx.Null {
+					itemsPresent = false
+					return decoder.Skip()
+				}
+				itemsPresent = true
+				return decoder.Arr(func(decoder *jx.Decoder) error {
+					return decoder.Skip()
+				})
 			default:
 				return decoder.Skip()
 			}
@@ -219,10 +254,24 @@ func inspectHistoryReplacementRecordStream(reader io.Reader) error {
 		return err
 	}
 	if !payloadPresent {
-		return errors.New("history replacement payload is required")
+		return errors.New("context boundary payload is required")
 	}
-	if _, err := normalizeHistoryReplacementRecord(replacement); err != nil {
+	if kind != EventKindHistoryReplace {
+		return fmt.Errorf("unsupported context boundary %q", kind)
+	}
+	if _, err := normalizeHistoryReplacementRecord(HistoryReplacementRecord{
+		Engine: string(engine), Mode: mode, CompactionNumber: compactionNumber,
+		CommittedEntryStart: committedEntryStart, LatestRollbackCandidate: latestRollbackCandidate,
+	}); err != nil {
 		return fmt.Errorf("validate history replacement payload: %w", err)
+	}
+	if outputPresent {
+		if itemsPresent {
+			return errors.New("history replacement cannot contain both prepared history and compacted output")
+		}
+		if compactionNumber == nil || committedEntryStart == nil || !summaryPresent {
+			return errors.New("compacted output requires boundary facts and a nonempty summary")
+		}
 	}
 	return nil
 }

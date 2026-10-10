@@ -289,6 +289,17 @@ func NodeDisplayName(node Node) string {
 	return node.Identity().DisplayName
 }
 
+func NodeDisplayLabel(node Node) string {
+	return DisplayLabel(NodeDisplayName(node), string(NodeKey(node)))
+}
+
+func DisplayLabel(displayName, identifier string) string {
+	if label := strings.TrimSpace(displayName); label != "" {
+		return label
+	}
+	return identifier
+}
+
 func NodeGroupID(node Node) (string, bool) {
 	if node == nil {
 		return "", false

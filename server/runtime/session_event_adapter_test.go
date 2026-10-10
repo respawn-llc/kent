@@ -967,8 +967,8 @@ func TestSessionHistoryReplacementUsesItemOrderInsteadOfProviderParserOutputInde
 		}
 	}
 	if !reflect.DeepEqual(
-		transcriptEntriesFromHistoryReplacement(restored.Items, restored.CompactionNumber),
-		transcriptEntriesFromHistoryReplacement(items, textutil.Value(1)),
+		transcriptEntriesFromHistoryReplacement(restored),
+		transcriptEntriesFromHistoryReplacement(historyReplacementPayload{Items: items, CompactionNumber: textutil.Value(1)}),
 	) {
 		t.Fatal("transcript projection changed when parser output indexes were omitted")
 	}

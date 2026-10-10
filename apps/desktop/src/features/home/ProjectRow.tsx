@@ -50,7 +50,7 @@ export function ProjectRow({
         aria-label={`${project.name} ${workspacePathLabel}`}
         className="absolute inset-0 z-0 rounded-[var(--radius-m)]"
         onClick={selectProject}
-        title={project.primaryWorkspace.rootPath}
+        title={workspacePathLabel}
         type="button"
       />
       <div className="pointer-events-none min-w-0 pr-10">

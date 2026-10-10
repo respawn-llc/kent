@@ -217,7 +217,7 @@ func (s *chatStore) replaceHistory(stepID string, items []llm.ResponseItem) {
 		textutil.OptionalExactString(stepID),
 		items,
 		nil,
-		transcriptEntriesFromHistoryReplacement(items, nil),
+		transcriptEntriesFromHistoryReplacement(historyReplacementPayload{Items: items}),
 	)
 }
 
@@ -229,6 +229,31 @@ func (s *chatStore) replaceHistoryAtCommittedEntryStart(
 ) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	preparedItems := llm.PrepareOpenAIInputItems(items)
+	s.recordReplacementToolCallStepIDsLocked(stepID, preparedItems)
+	s.installWorkingSetLocked(stepID, &compactionCheckpoint{Items: llm.CloneResponseItems(preparedItems)}, committedEntryStart, projectedEntries)
+}
+
+func (s *chatStore) beginGeneration(stepID *string, committedEntryStart int, entries []ChatEntry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.installWorkingSetLocked(stepID, nil, &committedEntryStart, entries)
+}
+
+// Preparation adds a base checkpoint without replacing activity already
+// committed after compaction. Its transcript rows keep their original identity.
+func (s *chatStore) prepareGeneration(items []llm.ResponseItem, entries []ChatEntry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.compact = &compactionCheckpoint{Items: llm.CloneResponseItems(llm.PrepareOpenAIInputItems(items))}
+	for _, entry := range entries {
+		s.appendProjectedEntryLocked(entry, false)
+		s.local[len(s.local)-1].AfterMessageCount = len(s.messageRecords)
+	}
+	s.providerTokenEstimateDirty = true
+}
+
+func (s *chatStore) installWorkingSetLocked(stepID *string, checkpoint *compactionCheckpoint, committedEntryStart *int, projectedEntries []ChatEntry) {
 	activeSegmentEntryStart := s.transcriptEntryCount
 	if committedEntryStart != nil && *committedEntryStart > s.transcriptEntryCount {
 		s.transcriptEntryCount = *committedEntryStart
@@ -236,8 +261,6 @@ func (s *chatStore) replaceHistoryAtCommittedEntryStart(
 	} else if committedEntryStart != nil {
 		activeSegmentEntryStart = *committedEntryStart
 	}
-	preparedItems := llm.PrepareOpenAIInputItems(items)
-	s.recordReplacementToolCallStepIDsLocked(stepID, preparedItems)
 	// Provider/model history switches to the compacted checkpoint while the
 	// transcript receives its typed projection at the same committed boundary.
 	projectedStart := len(s.local)
@@ -248,9 +271,7 @@ func (s *chatStore) replaceHistoryAtCommittedEntryStart(
 	}
 	s.appendProjectedHistoryReplacementEntriesLocked(projectedEntries)
 	s.local = append([]localChatEntry(nil), s.local[projectedStart:]...)
-	s.compact = &compactionCheckpoint{
-		Items: llm.CloneResponseItems(preparedItems),
-	}
+	s.compact = checkpoint
 	s.activeSegmentEntryStart = activeSegmentEntryStart
 	s.pruneAssistantStreamIDsBeforeLocked(activeSegmentEntryStart)
 	s.messageRecords = nil

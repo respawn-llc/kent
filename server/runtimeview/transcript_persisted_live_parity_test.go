@@ -417,6 +417,7 @@ func TestPersistedHistoryReplacementMatchesActualEngineLiveDelivery(t *testing.T
 			if mode == "local" {
 				steps = append(steps, scriptedllm.FinalAnswer("second compacted summary"))
 			}
+			steps = append(steps, scriptedllm.FinalAnswer("continued in the target context"))
 			checkpoint := llm.CompactionResponse{
 				Checkpoint: llm.ResponseItem{
 					Type: llm.ResponseItemTypeCompaction, ID: textutil.Value("checkpoint"),
@@ -495,7 +496,11 @@ func TestPersistedHistoryReplacementMatchesActualEngineLiveDelivery(t *testing.T
 				}
 			}
 			if replacementRows == 0 {
-				t.Fatal("history replacement emitted no committed row events")
+				t.Fatal("completed compaction did not display its summary")
+			}
+			assertPersistedLiveTranscriptParity(t, store, events)
+			if _, err := engine.SubmitUserMessage(t.Context(), "start the next context"); err != nil {
+				t.Fatalf("submit target user message: %v", err)
 			}
 			assertPersistedLiveTranscriptParity(t, store, events)
 			for _, direction := range []struct {

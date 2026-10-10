@@ -877,11 +877,19 @@ func (s *Service) startWorkflowTask(ctx context.Context, req *taskpb.StartReques
 	if err != nil {
 		return nil, err
 	}
+	if err := s.store.ValidateTaskStart(ctx, taskID); err != nil {
+		var conflict workflowstore.TaskStartConflictError
+		if !errors.As(err, &conflict) || conflict.Reason != workflowstore.TaskStartConflictAlreadyStarted {
+			return nil, workflowTaskStartError(err)
+		}
+		currentNodes, err := s.store.ListCurrentNodes(ctx, taskID)
+		if err != nil {
+			return nil, err
+		}
+		return taskStartSuccess(currentNodes), nil
+	}
 	preflight, err := workflowexecution.RunTaskMutation(ctx, s.taskMutations, taskID, func(ctx context.Context) (initiatingActionPreflight, error) {
 		if err := s.currentNodeExecution.EnsureTaskQuiescent(taskID); err != nil {
-			return initiatingActionPreflight{}, err
-		}
-		if err := s.store.ValidateTaskStart(ctx, taskID); err != nil {
 			return initiatingActionPreflight{}, err
 		}
 		if req.ProceedDespiteDependencies {
@@ -960,11 +968,15 @@ func (s *Service) startWorkflowTask(ctx context.Context, req *taskpb.StartReques
 		}
 		s.publishProjectWorkflowEvent(ctx, detail.Summary.ProjectId, workflowID, workflowcontract.EventResourceTask, workflowcontract.EventActionStarted, req.TaskId)
 	}
+	return taskStartSuccess(started.Mutation.Created), nil
+}
+
+func taskStartSuccess(currentNodes []workflow.CurrentNode) *taskpb.StartSuccess {
 	return &taskpb.StartSuccess{
 		Outcome: &taskpb.StartSuccess_Applied{
-			Applied: &taskpb.StartApplied{CurrentNodes: workflowview.ProjectCurrentNodes(started.Mutation.Created)},
+			Applied: &taskpb.StartApplied{CurrentNodes: workflowview.ProjectCurrentNodes(currentNodes)},
 		},
-	}, nil
+	}
 }
 
 func workflowTaskExecutionSelection(value *taskpb.ExecutionTargetSelection) (*workflow.ExecutionTargetSelection, error) {
@@ -1796,7 +1808,7 @@ func (s *Service) PreviewWorkflowTaskMove(ctx context.Context, req *taskpb.MoveP
 			choices = append(choices, &taskpb.MoveTransitionChoice{
 				TransitionKey:         string(choice.TransitionKey),
 				Label:                 choice.Label,
-				SourceNodeDisplayName: workflow.NodeDisplayName(choice.SourceNode),
+				SourceNodeDisplayName: workflow.NodeDisplayLabel(choice.SourceNode),
 				RequiredValues:        requiredValues,
 			})
 		}

@@ -230,11 +230,8 @@ func taskDetailLiveTargets(
 			if node.Kind != pb.NodeKind_WORKFLOW_NODE_KIND_AGENT {
 				return nil, nil, fmt.Errorf("task %q live Agent execution references %s Node %q", taskID, node.Kind, nodeID)
 			}
-			if strings.TrimSpace(node.DisplayName) == "" {
-				return nil, nil, fmt.Errorf("task %q live Agent execution Node %q has a blank display name", taskID, nodeID)
-			}
 			sessionIDs = append(sessionIDs, sessionID)
-			agents = append(agents, liveAgent{sessionID: sessionID, nodeDisplayName: node.DisplayName})
+			agents = append(agents, liveAgent{sessionID: sessionID, nodeDisplayName: workflow.DisplayLabel(node.DisplayName, node.Key)})
 		case execution.Script != nil:
 			if strings.TrimSpace(execution.Script.Path) == "" {
 				return nil, nil, fmt.Errorf("task %q live Script execution has a blank target path", taskID)

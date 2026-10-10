@@ -460,17 +460,11 @@ func TestReopenedCompactionPublishesVisibleTranscriptCoordinates(t *testing.T) {
 	}
 	if err := steerTestActiveStep(engine,
 		"compaction",
-		steerHistoryReplacementIntent(
-			"local",
-			compactionModeAuto,
-			1,
-			nil,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleUser,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		),
+		steerTestPreparedHistoryIntent("local", compactionModeAuto, 1, nil, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleUser,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})}),
 	); err != nil {
 		t.Fatalf("persist history replacement: %v", err)
 	}
@@ -534,20 +528,14 @@ func TestHistoryReplacementPublishesPreservedUserMessageBeforeFollowingLocalEntr
 	if !ok {
 		t.Fatal("expected typed compaction-preserved user message")
 	}
-	if err := engine.steer(runtimeTestStepID("compaction"), steerHistoryReplacementIntent(
-		"local",
-		compactionModeManual,
-		1,
-		nil,
-		llm.ItemsFromMessages([]llm.Message{
-			{
-				Role:        llm.RoleUser,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			},
-			carryover,
-		}),
-	),
+	if err := engine.steer(runtimeTestStepID("compaction"), steerTestPreparedHistoryIntent("local", compactionModeManual, 1, nil, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{
+		{
+			Role:        llm.RoleUser,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		},
+		carryover,
+	})}),
 	); err != nil {
 		t.Fatalf("persist manual history replacement: %v", err)
 	}

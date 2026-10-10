@@ -22,7 +22,10 @@ import (
 // context must be prepared. Individual prompt families are owned here and by
 // meta_context.go; request entry points must not append those prompts directly.
 func (e *Engine) ensureMetaContextForRequest(ctx context.Context, stepID string) error {
-	if !e.baseMetaInjected {
+	switch e.generationContextSnapshot().(type) {
+	case pendingGenerationContext:
+		return nil
+	case freshGenerationContext:
 		pendingRebind := e.store.Meta().RebindReminder != nil
 		if err := e.steerFreshMetaContext(ctx, stepID); err != nil {
 			return err
@@ -31,6 +34,9 @@ func (e *Engine) ensureMetaContextForRequest(ctx context.Context, stepID string)
 			return e.store.SetSessionRebindReminder(nil)
 		}
 		return nil
+	case preparedGenerationContext:
+	default:
+		return errors.New("generation context is uninitialized")
 	}
 	if err := e.steerHeadlessModeTransitionIfNeeded(stepID); err != nil {
 		return err
@@ -65,14 +71,14 @@ func (e *Engine) steerFreshMetaContext(ctx context.Context, stepID string) error
 		applyErr := e.withResolvedWorkflowMetaContext(ctx, workflowTaskPromptTriggerTaskDelivery, workflowMetaContextDeliveryConsume, options, func(resolved metaContextBuildOptions, _ bool) error {
 			receipt, err := steer(resolved)
 			if receipt.Committed {
-				e.baseMetaInjected = true
+				e.setGenerationContext(preparedGenerationContext{})
 				committedErr = err
 				return nil
 			}
 			if err != nil {
 				return err
 			}
-			e.baseMetaInjected = true
+			e.setGenerationContext(preparedGenerationContext{})
 			return nil
 		})
 		return errors.Join(applyErr, committedErr)
@@ -90,12 +96,12 @@ func (e *Engine) steerFreshMetaContext(ctx context.Context, stepID string) error
 	}
 	receipt, err := steer(options)
 	if receipt.Committed {
-		e.baseMetaInjected = true
+		e.setGenerationContext(preparedGenerationContext{})
 	}
 	if err != nil {
 		return err
 	}
-	e.baseMetaInjected = true
+	e.setGenerationContext(preparedGenerationContext{})
 	if e.cfg.HeadlessMode != meta.HeadlessActive {
 		return e.store.SetHeadlessActive(e.cfg.HeadlessMode)
 	}
@@ -295,6 +301,9 @@ func selectWorkflowTaskPrompt(
 		return prompts.WorkflowTaskPromptReassignment, true, nil
 	}
 	if currentAssignmentIdentity == nil {
+		if trigger == workflowTaskPromptTriggerCompaction {
+			return prompts.WorkflowTaskPromptCompactionReminder, true, nil
+		}
 		return prompts.WorkflowTaskPromptInitialAssignment, true, nil
 	}
 	sameRun := *currentAssignmentIdentity == normalizedCurrentNodeIdentity
@@ -355,14 +364,16 @@ func sameMetaContextSlot(left, right metaContextKind) bool {
 
 // steerBaseMetaContextIfNeeded injects base meta context (AGENTS.md, skills,
 // subagents, environment) exactly once, at the first request of a fresh
-// session. The guard is deterministic: it is seeded from restored-history
-// length at startup and from the replacement length after compaction (which
-// reinjects base meta into the history_replaced payload). It never scans the
-// conversation to decide whether context is "missing" — every session's active
-// list is born carrying base meta, so re-injection cannot occur.
+// session. Saved compacted output remains pending until live request dispatch.
 func (e *Engine) steerBaseMetaContextIfNeeded(stepID string) error {
-	if e.baseMetaInjected {
+	switch e.generationContextSnapshot().(type) {
+	case preparedGenerationContext:
 		return nil
+	case pendingGenerationContext:
+		return nil
+	case freshGenerationContext:
+	default:
+		return errors.New("generation context is uninitialized")
 	}
 	builder := e.activeMetaContextBuilder(e.cfg.Model, e.cfg.SkillPolicy)
 	invocationContext := config.SubagentInvocationContextOrdinary
@@ -372,7 +383,7 @@ func (e *Engine) steerBaseMetaContextIfNeeded(stepID string) error {
 	if err := e.steerBaseMetaContext(stepID, builder, invocationContext); err != nil {
 		return err
 	}
-	e.baseMetaInjected = true
+	e.setGenerationContext(preparedGenerationContext{})
 	return nil
 }
 
@@ -549,7 +560,7 @@ func roleOrUser(role *llm.Role) llm.Role {
 	return *role
 }
 
-func (e *Engine) compactionReinjectedMetaContextProjection(ctx context.Context, mode compactionMode) (metaContextProjection, error) {
+func (e *Engine) generationMetaContextProjection(ctx context.Context, trigger workflowTaskPromptTrigger) (metaContextProjection, error) {
 	meta := e.store.Meta()
 	skillPolicy, err := e.reconstructionSkillPolicy(ctx)
 	if err != nil {
@@ -557,21 +568,20 @@ func (e *Engine) compactionReinjectedMetaContextProjection(ctx context.Context, 
 	}
 	builder := e.activeMetaContextBuilder(e.currentModel(), skillPolicy)
 	opts := baseMetaContextBuildOptions(false)
-	opts.IncludeHeadless = meta.HeadlessActive
+	opts.IncludeHeadless = e.cfg.HeadlessMode
 	opts.WorktreePromptKind = prompts.WorktreePromptPostCompaction
 	opts.WorktreeReminder = session.CloneWorktreeReminderState(meta.WorktreeReminder)
-	if mode == compactionModeWorkflowPostCompletion {
+	if e.workflowPromptActive() {
+		opts.IncludeHeadless = false
 		opts.SubagentInvocationContext = config.SubagentInvocationContextWorkflow
-	} else if e.currentNodeExecutionActive() {
-		err := e.withResolvedWorkflowMetaContext(ctx, workflowTaskPromptTriggerCompaction, workflowMetaContextDeliveryObserve, opts, func(resolved metaContextBuildOptions, shouldInject bool) error {
-			if !shouldInject {
-				panic("build compaction meta context: active workflow did not select a workflow task prompt")
-			}
-			opts = resolved
-			return nil
-		})
+		resolved, shouldInject, err := e.resolveWorkflowMetaContext(ctx, trigger)
 		if err != nil {
 			return metaContextProjection{}, err
+		}
+		if shouldInject {
+			opts.SubagentInvocationContext = resolved.SubagentInvocationContext
+			opts.IncludeWorkflow = resolved.IncludeWorkflow
+			opts.WorkflowMessage = resolved.WorkflowMessage
 		}
 	} else if goal, ok := e.goalContinuation().activeGoal(); ok {
 		opts.ActiveGoal = &goal
@@ -580,9 +590,7 @@ func (e *Engine) compactionReinjectedMetaContextProjection(ctx context.Context, 
 	if err != nil {
 		return metaContextProjection{}, err
 	}
-	projection := metaResult.Projection()
-	projection.RunningShells = e.compactionRunningShellReminder()
-	return projection, nil
+	return metaResult.Projection(), nil
 }
 
 const compactionRunningShellCommandPreviewLimit = 120

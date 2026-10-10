@@ -123,7 +123,9 @@ func TestManualCompactionRevalidatesMutableConditionsAtBoundary(t *testing.T) {
 			engine.compactionRuntimeState().SetManualCompactionEligible(true)
 			release := pendingWorkTestHoldMaintenance(t, engine)
 			var terminal *CompactionStatus
+			var events []Event
 			engine.cfg.OnEvent = func(event Event) {
+				events = append(events, event)
 				if event.Kind == EventCompactionFailed && event.Compaction != nil {
 					terminal = event.Compaction
 				}
@@ -133,6 +135,7 @@ func TestManualCompactionRevalidatesMutableConditionsAtBoundary(t *testing.T) {
 			test.mutate(engine)
 			release()
 			waitEngineLifecycleTasks(t, engine)
+			assertSingleDurableCompactionFailure(t, engine, events, compactionModeManual)
 			if terminal == nil || terminal.RequestID == nil || *terminal.RequestID != requestID {
 				t.Fatalf("terminal compaction status = %+v, want request %s", terminal, requestID)
 			}

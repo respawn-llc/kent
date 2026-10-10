@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"core/shared/config"
 	"core/shared/runtimeids"
@@ -255,8 +256,8 @@ func (s *validationState) validateNodes() {
 		} else {
 			s.nodeKeys[NodeKey(node)] = NodeIDOf(node)
 		}
-		if !validDisplayName(NodeDisplayName(node)) {
-			s.addHard(CodeInvalidDisplayName, "node display name must be non-empty and at most 120 characters", ref)
+		if utf8.RuneCountInString(strings.TrimSpace(NodeDisplayName(node))) > MaxDisplayNameChars {
+			s.addHard(CodeInvalidDisplayName, "node display name must be at most 120 characters", ref)
 		}
 		switch node.Kind() {
 		case NodeKindStart, NodeKindAgent, NodeKindScript, NodeKindJoin, NodeKindTerminal:
@@ -1289,11 +1290,8 @@ func edgeMessageSubject(edge Edge) string {
 }
 
 func nodeDisplayName(node Node) string {
-	if name := strings.TrimSpace(NodeDisplayName(node)); name != "" {
-		return name
-	}
-	if key := strings.TrimSpace(string(NodeKey(node))); key != "" {
-		return key
+	if label := strings.TrimSpace(NodeDisplayLabel(node)); label != "" {
+		return label
 	}
 	if id := strings.TrimSpace(string(NodeIDOf(node))); id != "" {
 		return id

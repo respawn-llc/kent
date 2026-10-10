@@ -69,6 +69,64 @@ it.each([question(), approval()])(
   },
 );
 
+it("shows original batch navigation while the remaining questions are still arriving", async () => {
+  const view = sessionWithPrompts();
+  const toolCallIDs = ["first", "second", "third", "fourth", "fifth"];
+  const prompt = question("first", { batch: { toolCallIDs, unmaterializedCount: 4 } });
+  await waitFor(() => {
+    expect(view.handlers).toHaveLength(1);
+  });
+  act(() =>
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
+    }),
+  );
+  expect(
+    await screen.findByText(appI18n.t("chat.picker.position", { current: 1, count: 5 })),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: appI18n.t("chat.picker.previous") })).toBeDisabled();
+  expect(screen.getByRole("button", { name: appI18n.t("chat.picker.next") })).toBeDisabled();
+  const first = screen.getAllByRole("radio")[0];
+  if (first === undefined) throw new Error("Question must offer an answer.");
+  await userEvent.setup().click(first);
+  expect(view.answer).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+it("keeps navigation for a five-question batch when four questions are answered", async () => {
+  const view = sessionWithPrompts();
+  const toolCallIDs = Array.from({ length: 5 }, (_, index) => `question-${String(index + 1)}`);
+  const prompts = toolCallIDs.map((id) => question(id, { batch: { toolCallIDs, unmaterializedCount: 0 } }));
+  await waitFor(() => {
+    expect(view.handlers).toHaveLength(1);
+  });
+  act(() =>
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: { ...hydration(), PendingPrompts: prompts.map((prompt) => ({ state: "pending", prompt })) },
+    }),
+  );
+  const user = userEvent.setup();
+  for (let index = 0; index < 4; index += 1) {
+    expect(
+      await screen.findByText(appI18n.t("chat.picker.position", { current: index + 1, count: 5 })),
+    ).toBeInTheDocument();
+    const first = screen.getAllByRole("radio")[0];
+    if (first === undefined) throw new Error("Question must offer an answer.");
+    await user.click(first);
+  }
+  expect(screen.getByText(appI18n.t("chat.picker.position", { current: 5, count: 5 }))).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: appI18n.t("chat.picker.previous") })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: appI18n.t("chat.picker.next") })).toBeInTheDocument();
+  expect(view.answer).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.previous") }));
+  expect(screen.getByText(appI18n.t("chat.picker.position", { current: 4, count: 5 }))).toBeInTheDocument();
+  view.unmount();
+});
+
 it("declines the current prompt from composer actions without stopping the run and submits the completed batch", async () => {
   const view = sessionWithPrompts((services) => {
     vi.spyOn(services.api.chat, "stop").mockResolvedValue("stopped");
