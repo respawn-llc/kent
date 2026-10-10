@@ -1,4 +1,4 @@
-import { createRoute, type AnyRootRoute } from "@tanstack/react-router";
+import { createRoute, type Register, type RootRoute } from "@tanstack/react-router";
 import { z } from "zod";
 
 import { TaskDeleteWindowRoute, taskDeleteNativeDialogPath } from "@/features/board";
@@ -34,7 +34,7 @@ const taskDetailSearchSchema = z.object({
   taskID: optionalSearchString,
 });
 
-export function createNativeDialogRoutes(rootRoute: AnyRootRoute) {
+export function createNativeDialogRoutes(rootRoute: RootRoute<Register>) {
   const chatSearchSchema = z.object({
     projectID: z.string().trim().min(1),
     sessionID: z.string().trim().min(1),
@@ -46,9 +46,7 @@ export function createNativeDialogRoutes(rootRoute: AnyRootRoute) {
         validateSearch: (search: Record<string, unknown>) => {
           const parsed = chatSearchSchema.safeParse(search);
           return {
-            chat: parsed.success
-              ? { kind: "valid" as const, ...parsed.data }
-              : { kind: "invalid" as const },
+            chat: parsed.success ? { kind: "valid" as const, ...parsed.data } : { kind: "invalid" as const },
           };
         },
         component: ChatNativeRoute,
