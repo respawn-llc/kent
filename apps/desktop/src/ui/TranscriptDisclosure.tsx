@@ -1,6 +1,6 @@
 import { ChevronRight } from "lucide-react";
 import { AnimatePresence, motion, useIsPresent, useReducedMotion } from "motion/react";
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 import { cx } from "./classes";
 import { motionDurationFromCSSVar } from "./motion";
@@ -91,22 +91,7 @@ export function TranscriptDisclosure({
 
 function DisclosureBody({ bodyId, children }: Readonly<{ bodyId: string; children: ReactNode }>) {
   const present = useIsPresent();
-  const ref = useRef<HTMLDivElement>(null);
-  const [height, setHeight] = useState<number | undefined>(undefined);
   const reducedMotion = useReducedMotion();
-  useLayoutEffect(() => {
-    const body = ref.current;
-    if (body === null) return;
-    const measure = () => {
-      setHeight(body.getBoundingClientRect().height);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(body);
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
   return (
     <CollapsibleContent forceMount asChild id={bodyId}>
       <motion.div
@@ -114,13 +99,11 @@ function DisclosureBody({ bodyId, children }: Readonly<{ bodyId: string; childre
         inert={present ? undefined : true}
         className="overflow-hidden"
         initial={reducedMotion ? false : { height: 0, opacity: 0 }}
-        animate={{ height: height ?? "auto", opacity: 1 }}
+        animate={{ height: "auto", opacity: 1 }}
         exit={{ height: 0, opacity: 0 }}
         transition={{ duration: reducedMotion ? 0 : motionDurationFromCSSVar("--motion-fast", 140) / 1000 }}
       >
-        <div ref={ref} className="min-w-0 px-[var(--space-2)] pb-[var(--space-2)] text-sm">
-          {children}
-        </div>
+        <div className="min-w-0 px-[var(--space-2)] pb-[var(--space-2)] text-sm">{children}</div>
       </motion.div>
     </CollapsibleContent>
   );
