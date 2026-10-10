@@ -12,6 +12,8 @@ import (
 	"core/server/session"
 	"core/server/workflow"
 	"core/shared/config"
+	"core/shared/protoapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 )
 
@@ -33,6 +35,167 @@ func TestCompleteCurrentNodeWithoutApprovalDoesNotEmitQueryFailureDiagnostics(t 
 	}
 	if diagnostics.Len() != 0 {
 		t.Fatalf("ordinary completion diagnostics = %q, want none", diagnostics.String())
+	}
+}
+
+func assertCompletionHandoffEncodes(t *testing.T, handoff CompletionHandoff) {
+	t.Helper()
+	if _, err := protoapi.Encode(&taskpb.CompletionHandoff{
+		SourceNodeDisplayName:  handoff.SourceNodeDisplayName,
+		DestinationDisplayName: handoff.DestinationDisplayName,
+	}); err != nil {
+		t.Fatalf("committed completion cannot be acknowledged: %v", err)
+	}
+}
+
+func TestCompleteCurrentNodeUsesKeysOnlyForEmptyDisplayLabels(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		emptyKeys []string
+		approval  bool
+	}{
+		{name: "both labels", emptyKeys: []string{"plan", "review"}},
+		{name: "source label", emptyKeys: []string{"plan"}},
+		{name: "target label", emptyKeys: []string{"review"}},
+		{name: "approval", emptyKeys: []string{"plan", "review"}, approval: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, store, binding := newTestStoreContext(t)
+			workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
+			if tc.approval {
+				requireApprovalOnWorkflowEdge(t, ctx, store, workflowID, "review")
+			}
+			linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
+			task := createDefaultTask(t, ctx, store, binding.ProjectID)
+			source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
+			definition, _, err := store.GetDefinition(ctx, workflowID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected := CompletionHandoff{
+				SourceNodeDisplayName:  workflow.NodeDisplayName(nodeByKey(t, definition, "plan")),
+				DestinationDisplayName: workflow.NodeDisplayName(nodeByKey(t, definition, "review")),
+			}
+			for _, key := range tc.emptyKeys {
+				if key == "plan" {
+					expected.SourceNodeDisplayName = key
+				} else {
+					expected.DestinationDisplayName = key
+				}
+			}
+			saveWorkflowGraphFixture(t, ctx, store, workflowID, func(_ workflow.Definition, request *WorkflowGraphSaveRequest) {
+				for index := range request.Nodes {
+					for _, key := range tc.emptyKeys {
+						if string(request.Nodes[index].Key) == key {
+							request.Nodes[index].DisplayName = ""
+						}
+					}
+				}
+			})
+			completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
+				Source: source.Reference, TransitionID: "review",
+				OutputValues: map[string]string{"summary": "completed"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if completed.Handoff != expected {
+				t.Fatalf("handoff = %+v, want %+v", completed.Handoff, expected)
+			}
+			assertCompletionHandoffEncodes(t, completed.Handoff)
+			if tc.approval {
+				if completed.PendingApproval == nil {
+					t.Fatal("completion omitted its pending approval")
+				}
+				applied, err := applyPendingApproval(t, store, ctx, completed.PendingApproval.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if applied.Handoff != expected {
+					t.Fatalf("approved handoff = %+v, want %+v", applied.Handoff, expected)
+				}
+			}
+		})
+	}
+}
+
+func TestCompleteCurrentNodeFanoutAndJoinWithEmptyDisplayLabels(t *testing.T) {
+	for _, requiresApproval := range []bool{false, true} {
+		name := "automatic"
+		if requiresApproval {
+			name = "approved"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx, store, binding := newTestStoreContext(t)
+			workflowID := createFanoutJoinWorkflow(t, ctx, store)
+			if requiresApproval {
+				requireApprovalOnWorkflowEdge(t, ctx, store, workflowID, "split_a")
+			}
+			saveWorkflowGraphFixture(t, ctx, store, workflowID, func(_ workflow.Definition, request *WorkflowGraphSaveRequest) {
+				for index := range request.Nodes {
+					request.Nodes[index].DisplayName = ""
+				}
+			})
+			linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
+			task := createDefaultTask(t, ctx, store, binding.ProjectID)
+			source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
+			split, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
+				Source: source.Reference, OutputValues: map[string]string{"summary": "completed"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertCompletionHandoffEncodes(t, split.Handoff)
+			if split.Handoff.SourceNodeDisplayName != "plan" {
+				t.Fatalf("fan-out source lost its key: %+v", split.Handoff)
+			}
+			created := split.Mutation.Created
+			if requiresApproval {
+				if split.PendingApproval == nil {
+					t.Fatal("fan-out omitted its pending approval")
+				}
+				applied, err := applyPendingApproval(t, store, ctx, split.PendingApproval.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if applied.Handoff != split.Handoff {
+					t.Fatalf("approval changed handoff: %+v, want %+v", applied.Handoff, split.Handoff)
+				}
+				created = applied.Mutation.Created
+			}
+			if len(created) != 2 {
+				t.Fatalf("fan-out created %d branches", len(created))
+			}
+			for _, branch := range created {
+				key, present := branch.Reference.TransitionBranchKey()
+				if !present {
+					t.Fatal("fan-out branch has no key")
+				}
+				transition := "join_b"
+				values := map[string]string{}
+				if key == "split_a" {
+					transition = "join_a"
+					values["joined"] = "completed"
+				}
+				joined, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
+					Source: branch.Reference, TransitionID: transition, OutputValues: values,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertCompletionHandoffEncodes(t, joined.Handoff)
+				expected := CompletionHandoff{SourceNodeDisplayName: "impl_b", DestinationDisplayName: "join"}
+				if key == "split_a" {
+					expected.SourceNodeDisplayName = "impl_a"
+				}
+				if len(joined.Mutation.Created) == 1 {
+					expected = CompletionHandoff{SourceNodeDisplayName: "join", DestinationDisplayName: "synth"}
+				}
+				if joined.Handoff != expected {
+					t.Fatalf("join lost its node keys: %+v, want %+v", joined.Handoff, expected)
+				}
+			}
+		})
 	}
 }
 
@@ -130,6 +293,7 @@ func TestCompleteCurrentNodeAtomicallyReplacesAgentAndReturnsSuccessorIntent(t *
 	if completed.Handoff != (CompletionHandoff{SourceNodeDisplayName: "Plan", DestinationDisplayName: "Review"}) {
 		t.Fatalf("completion handoff = %+v, want Plan -> Review", completed.Handoff)
 	}
+	assertCompletionHandoffEncodes(t, completed.Handoff)
 	if len(completed.AutomaticIntents) != 1 || !completed.AutomaticIntents[0].CurrentNode.Equal(target) {
 		t.Fatalf("completion automatic intents = %+v, want review current node", completed.AutomaticIntents)
 	}
@@ -237,6 +401,10 @@ func TestCompleteCurrentNodeInfersOnlyOutgoingFanoutTransition(t *testing.T) {
 	if len(completed.Mutation.Created) != 2 {
 		t.Fatalf("completion mutation = %+v, want two fan-out branches", completed.Mutation)
 	}
+	if completed.Handoff.SourceNodeDisplayName == "" || completed.Handoff.DestinationDisplayName == "" {
+		t.Fatalf("committed fan-out omitted its completion acknowledgement: %+v", completed.Handoff)
+	}
+	assertCompletionHandoffEncodes(t, completed.Handoff)
 	branches := map[workflow.TransitionBranchKey]bool{}
 	for _, currentNode := range completed.Mutation.Created {
 		branchKey, present := currentNode.Reference.TransitionBranchKey()
@@ -284,6 +452,7 @@ func TestCompleteCurrentNodeFanoutPendingApprovalCarriesCommentary(t *testing.T)
 	if completed.PendingApproval == nil {
 		t.Fatal("fan-out completion did not create a pending Approval")
 	}
+	assertCompletionHandoffEncodes(t, completed.Handoff)
 	if completed.PendingApproval.Commentary != "Both branches are ready for review." {
 		t.Fatalf("pending Approval commentary = %q", completed.PendingApproval.Commentary)
 	}
@@ -321,13 +490,15 @@ func TestCompleteCurrentNodeJoinContinuationReturnsTargetNodeKind(t *testing.T) 
 	}
 
 	first, second := split.Mutation.Created[0], split.Mutation.Created[1]
-	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
+	arrived, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       first.Reference,
 		TransitionID: "join_a",
 		OutputValues: map[string]string{"joined": "branch complete"},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("CompleteCurrentNode first join arrival: %v", err)
 	}
+	assertCompletionHandoffEncodes(t, arrived.Handoff)
 	joined, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       second.Reference,
 		TransitionID: "join_b",
@@ -336,6 +507,7 @@ func TestCompleteCurrentNodeJoinContinuationReturnsTargetNodeKind(t *testing.T) 
 	if err != nil {
 		t.Fatalf("CompleteCurrentNode second join arrival: %v", err)
 	}
+	assertCompletionHandoffEncodes(t, joined.Handoff)
 	if joined.SourceSessionID == nil || *joined.SourceSessionID != *second.SessionID || joined.SessionReuseClassification != workflow.SessionReuseNone {
 		t.Fatalf(
 			"Join post-turn facts = session %v classification %q, want exact source/none",
@@ -678,6 +850,7 @@ func TestCompleteCurrentNodeCreatesFrozenPendingApprovalAndRetainsSource(t *test
 	if completed.PendingApproval == nil {
 		t.Fatal("pending approval completion omitted approval projection")
 	}
+	assertCompletionHandoffEncodes(t, completed.Handoff)
 	if completed.SourceSessionID == nil || *completed.SourceSessionID != sourceSessionID {
 		t.Fatalf("pending Approval source Session = %v, want %q", completed.SourceSessionID, sourceSessionID)
 	}

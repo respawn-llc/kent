@@ -260,11 +260,13 @@
 - New draft Nodes, Node Groups, Transitions, and Transition Branches receive UUID v4 identifiers. Preview and Save preserve those identifiers unchanged. Product-facing keys remain stable semantic references.
 - `node_key`, `transition_id`, `edge_key`, Parameter Keys, and binding names match `^[a-z][a-z0-9_]{0,63}$`.
 - Workflow display names are labels, not references, and are trimmed non-empty strings capped at 120 chars.
+- Node display labels may be empty. They must be trimmed and capped at 120 characters.
 
 ## Node Completion
 
 - Agent Nodes complete by producing a Transition Result, not by returning ordinary natural language.
 - A Transition Result selects an outgoing Transition and supplies the Transition Parameters that its targets require.
+- If a Node's display label is empty, completion acknowledgement must use the Node Key. Otherwise, it must show the display label. A Fan-Out acknowledgement must identify its destination by the Transition Label or, if that label is empty, the Transition Key.
 - Runtime failure, unanswered questions, interruption, and validation blockers are orchestration outcomes, not model-selected terminal statuses.
 - Completion modes are `structured_output`, dynamic `complete_node` tool, `shell_command`, and `unstructured_output`. Global `[workflow].completion_mode` selects `auto`, `structured_output`, `tool`, `shell_command`, or `unstructured_output`; agent nodes can override it with the same values or inherit the global default.
 - Start, join, and terminal nodes reject non-empty completion-mode overrides.

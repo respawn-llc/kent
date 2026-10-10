@@ -401,7 +401,7 @@ message WorkflowNode {
     defined_only: true
     not_in: [0]
   }];
-  string display_name = 5 [(buf.validate.field).string.min_len = 1];
+  string display_name = 5 [(buf.validate.field).string.max_len = 120];
   optional string group_id = 6 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true

@@ -1796,7 +1796,7 @@ func (s *Service) PreviewWorkflowTaskMove(ctx context.Context, req *taskpb.MoveP
 			choices = append(choices, &taskpb.MoveTransitionChoice{
 				TransitionKey:         string(choice.TransitionKey),
 				Label:                 choice.Label,
-				SourceNodeDisplayName: workflow.NodeDisplayName(choice.SourceNode),
+				SourceNodeDisplayName: workflow.NodeDisplayLabel(choice.SourceNode),
 				RequiredValues:        requiredValues,
 			})
 		}

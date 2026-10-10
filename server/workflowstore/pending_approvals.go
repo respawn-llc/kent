@@ -187,7 +187,7 @@ func pendingApprovalByID(
 }
 
 func pendingApprovalHandoff(approval workflow.PendingApproval) CompletionHandoff {
-	destination := approval.Transition.Group.DisplayName
+	destination := workflow.DisplayLabel(approval.Transition.Group.DisplayName, string(approval.Transition.Group.TransitionID))
 	if len(approval.Branches) == 1 {
 		destination = approval.Branches[0].Target.DisplayName
 	}
@@ -265,7 +265,7 @@ func newPendingApproval(
 			TransitionBranchKey: workflow.TransitionBranchKey(edge.Key),
 			Target: workflow.PendingApprovalTarget{
 				CurrentNode: targetCurrentNode,
-				DisplayName: workflow.NodeDisplayName(target),
+				DisplayName: workflow.NodeDisplayLabel(target),
 				NodeKind:    target.Kind(),
 			},
 			EffectiveEdge:           edge,

@@ -811,18 +811,3 @@ func currentNodeReferenceBranchKey(reference workflow.CurrentNodeReference) *wor
 	}
 	return &branchKey
 }
-
-func currentNodeCompletionHandoff(source workflow.Node, target workflow.Node) (CompletionHandoff, error) {
-	sourceDisplayName := strings.TrimSpace(workflow.NodeDisplayName(source))
-	if sourceDisplayName == "" {
-		return CompletionHandoff{}, fmt.Errorf("current node completion source %q has a blank display name", workflow.NodeIDOf(source))
-	}
-	targetDisplayName := strings.TrimSpace(workflow.NodeDisplayName(target))
-	if targetDisplayName == "" {
-		return CompletionHandoff{}, fmt.Errorf("current node completion target %q has a blank display name", workflow.NodeIDOf(target))
-	}
-	return CompletionHandoff{
-		SourceNodeDisplayName:  sourceDisplayName,
-		DestinationDisplayName: targetDisplayName,
-	}, nil
-}
