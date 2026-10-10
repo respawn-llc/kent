@@ -2196,8 +2196,13 @@ func (s *Store) ResolvePersistedSession(ctx context.Context, sessionID string) (
 	if err != nil {
 		return session.PersistedSessionRecord{}, err
 	}
+	shortID, err := sessionShortID(row.ShortID)
+	if err != nil {
+		return session.PersistedSessionRecord{}, err
+	}
 	return session.PersistedSessionRecord{
 		SessionDir: sessionDir,
+		ShortID:    shortID,
 		Meta:       &meta,
 		ContextFacts: session.SessionContextFacts{
 			CompletedCompactionCount: optionalContextFactInt(row.CompletedCompactionCount),
@@ -2412,7 +2417,7 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 	params.WorkspaceID = sql.NullString{String: binding.WorkspaceID, Valid: binding.WorkspaceID != ""}
 	params.WorktreeID = worktreeID
 	params.CwdRelpath = cwdRelpath
-	if err := q.UpsertSession(ctx, params); err != nil {
+	if err := persistSessionWithShortID(ctx, q, params); err != nil {
 		return fmt.Errorf("upsert session snapshot: %w", err)
 	}
 	return nil

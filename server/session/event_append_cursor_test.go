@@ -43,6 +43,7 @@ func TestAppendEventWithEndByteCursorRetainsPositionWhenObserverFailsAfterCommit
 		t.TempDir(),
 		testSessionCategory,
 		WithPersistenceObserver(observer),
+		WithPersistedSessionResolver(observer),
 	)
 	if err != nil {
 		t.Fatalf("create observed store: %v", err)

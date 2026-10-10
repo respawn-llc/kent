@@ -420,7 +420,7 @@ func TestWorkflowSnapshotReplacementPersists(t *testing.T) {
 
 func TestLockedContractMutationObserverCommitSemantics(t *testing.T) {
 	observer := &recordingPersistenceObserver{}
-	store, err := Create(t.TempDir(), "ws", t.TempDir(), testSessionCategory, WithPersistenceObserver(observer))
+	store, err := Create(t.TempDir(), "ws", t.TempDir(), testSessionCategory, WithPersistenceObserver(observer), WithPersistedSessionResolver(observer))
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
@@ -497,7 +497,7 @@ func TestAppendTypedRecordPersistsFirstPromptPreview(t *testing.T) {
 func TestSetListingMetadataPersistsNameAndFirstPromptPreview(t *testing.T) {
 	root := t.TempDir()
 	observer := &recordingPersistenceObserver{}
-	store, err := Create(root, "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer))
+	store, err := Create(root, "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer), WithPersistedSessionResolver(observer))
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
