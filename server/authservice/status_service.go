@@ -48,10 +48,11 @@ func (s *StatusService) GetStatus(ctx context.Context, req *authpb.GetStatusRequ
 		}, nil
 	}
 	definition := snapshot.connection.Definition
-	capabilities, err := llm.ResolveConnectionCapabilities(definition)
+	registration, err := llm.ResolveConnectionVariant(definition)
 	if err != nil {
 		return nil, err
 	}
+	capabilities := registration.Variant.Capabilities
 	facts := &authpb.StatusFacts{
 		ConnectionId: string(snapshot.connection.ID), Method: connectionAuthMethod(definition),
 		Provider: authstatus.ProviderFacts(capabilities.ProviderID, capabilities.IsOpenAIFirstParty, definition),

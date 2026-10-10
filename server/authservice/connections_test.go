@@ -38,7 +38,7 @@ func TestGrokConnectionCredentialIsolation(t *testing.T) {
 	for _, protocol := range []config.ConnectionProtocol{config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI, config.ConnectionGrokAPIKey} {
 		id := config.ConnectionID(protocol)
 		definition := config.ProviderConnection{Protocol: protocol, Capabilities: config.ProviderCapabilitiesOverride{
-			ProviderID: "chatgpt-codex", SupportsResponsesAPI: true,
+			ProviderID: "chatgpt-codex", SupportsResponsesAPI: true, IsOpenAIFirstParty: true,
 		}}
 		if protocol == config.ConnectionGrokAPIKey {
 			definition.EnvironmentVariable = textutil.Value("SELECTED_GROK_KEY")
@@ -84,6 +84,9 @@ func TestGrokConnectionCredentialIsolation(t *testing.T) {
 			})
 			if err != nil || authStatus.GetResolution().GetKnown() == nil || authStatus.GetSubscription().GetApplicable() {
 				t.Fatalf("unsupported Grok subscription status = %+v, %v", authStatus, err)
+			}
+			if facts := authStatus.GetResolution().GetKnown().GetProvider(); facts.GetKind() != authpb.ProviderKind_PROVIDER_KIND_CONFIGURED_PROVIDER || facts.Identifier != string(id) {
+				t.Fatalf("capability override changed authentication provider identity: %+v", facts)
 			}
 			if connection.Definition.Protocol.IsSubscription() {
 				service := NewBootstrapService(t.Context(), resolver, auth.OpenAIOAuthOptions{})
