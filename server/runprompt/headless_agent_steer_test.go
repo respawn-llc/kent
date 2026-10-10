@@ -131,6 +131,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 			ContainerDir:      containerDir,
 			StoreOptions:      storeOptions,
 			PersistedSessions: meta,
+			CallerSessions:    meta,
 			SessionProjects:   fixedSessionProjectResolver{}, ManagedWorktreeRoots: fixedSessionProjectResolver{},
 			ExecutionTargets: meta,
 		}, sessionlaunch.ChatSettingsOwner{}),

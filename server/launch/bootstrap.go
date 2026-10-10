@@ -22,17 +22,16 @@ type BootstrapPlan struct {
 	MainWorkspaceRoot *string
 }
 
-func ResolveSessionCaller(ctx context.Context, resolver session.PersistedSessionResolver, sessionID string) (subagentpolicy.Caller, error) {
+type SessionCallerResolver interface {
+	session.PersistedSessionResolver
+	SessionHasWorkflowTask(context.Context, string) (bool, error)
+}
+
+func ResolveSessionCaller(ctx context.Context, resolver SessionCallerResolver, sessionID string) (subagentpolicy.Caller, error) {
 	if _, err := session.ResolvePersistedSessionRecord(ctx, resolver, sessionID); err != nil {
 		return subagentpolicy.Caller{}, err
 	}
-	owner, ok := resolver.(interface {
-		SessionHasWorkflowTask(context.Context, string) (bool, error)
-	})
-	if !ok {
-		return subagentpolicy.Caller{}, errors.New("Session caller ownership reader is required")
-	}
-	workflow, err := owner.SessionHasWorkflowTask(ctx, sessionID)
+	workflow, err := resolver.SessionHasWorkflowTask(ctx, sessionID)
 	if err != nil {
 		return subagentpolicy.Caller{}, err
 	}

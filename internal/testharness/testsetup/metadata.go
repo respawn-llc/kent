@@ -101,13 +101,6 @@ func validateMetadataPersistenceRoot(persistenceRoot string) error {
 	return nil
 }
 
-func materializeCurrentDatabaseSeed(t testing.TB, persistenceRoot string) {
-	t.Helper()
-	if err := materializeCurrentMetadataDatabase(persistenceRoot); err != nil {
-		t.Fatalf("materialize migrated metadata database seed: %v", err)
-	}
-}
-
 func materializeCurrentMetadataDatabase(persistenceRoot string) error {
 	return databaseseed.MaterializeCurrentMetadataDatabase(persistenceRoot, metadata.Open)
 }

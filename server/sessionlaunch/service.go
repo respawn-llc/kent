@@ -288,7 +288,7 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req PlanRequest) (PlanR
 	var caller *subagentpolicy.Caller
 	if req.Mode == launch.ModeHeadless {
 		if req.CallerSessionID != nil {
-			resolved, callerErr := launch.ResolveSessionCaller(ctx, planner.PersistedSessions, *req.CallerSessionID)
+			resolved, callerErr := launch.ResolveSessionCaller(ctx, planner.CallerSessions, *req.CallerSessionID)
 			if callerErr != nil {
 				if errors.Is(callerErr, session.ErrSessionNotFound) {
 					return PlanResult{}, &serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialCallerMissing}
@@ -304,7 +304,7 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req PlanRequest) (PlanR
 			}
 		}
 		if parentAgentSessionID != nil && req.CallerSessionID == nil {
-			if _, parentErr := launch.ResolveSessionCaller(ctx, planner.PersistedSessions, parentAgentSessionID.String()); parentErr != nil {
+			if _, parentErr := launch.ResolveSessionCaller(ctx, planner.CallerSessions, parentAgentSessionID.String()); parentErr != nil {
 				return PlanResult{}, &serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialParentMissing}
 			}
 		}
@@ -398,7 +398,7 @@ func prepareExistingSelection(planner launch.Planner, req PlanRequest, meta sess
 		roleOverride = serverapi.RunPromptAgentRoleOverride{}
 	}
 	preparation := launch.RunPromptPreparationContext{Mode: req.Mode, ModelLock: meta.Locked, ToolLock: meta.Locked,
-		Rotation: planner.Rotation, ConnectionID: meta.ConnectionID}
+		Rotation: planner.Rotation, ConnectionID: meta.ConnectionID, AllocateConnection: true}
 	if !roleOverride.Present {
 		target, err := planner.SelectedSessionPromptFacingTargetFromMeta(meta, true)
 		if err != nil {

@@ -441,7 +441,7 @@ func TestDefaultAgentCallabilityRestrictsCreationNotContinuation(t *testing.T) {
 	}
 	service := NewService(launch.Planner{
 		Config: cfg, ContainerDir: containerDir, StoreOptions: db.AuthoritativeSessionStoreOptions(),
-		PersistedSessions: db, SessionProjects: db, ManagedWorktreeRoots: db,
+		PersistedSessions: db, CallerSessions: db, ExecutionTargets: db, SessionProjects: db, ManagedWorktreeRoots: db,
 	}, ChatSettingsOwner{})
 	removed, err := session.Create(containerDir, "removed", cfg.WorkspaceRoot, sessioncontract.SessionCategoryMain, db.AuthoritativeSessionStoreOptions()...)
 	if err != nil {

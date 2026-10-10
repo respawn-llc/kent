@@ -552,6 +552,7 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 		ContainerDir:      containerDir,
 		StoreOptions:      metadataStore.AuthoritativeSessionStoreOptions(),
 		PersistedSessions: metadataStore,
+		ExecutionTargets:  metadataStore,
 		SessionProjects:   metadataStore, ManagedWorktreeRoots: metadataStore,
 	}
 

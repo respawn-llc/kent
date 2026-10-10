@@ -67,8 +67,8 @@ func ResolveMainWorkspaceRoot(persistenceRoot, workspaceRoot string) (string, er
 	if err != nil {
 		return "", err
 	}
-	defer func() { _ = store.Close() }()
-	return resolveMainWorkspaceRoot(store, workspaceRoot)
+	root, resolveErr := resolveMainWorkspaceRoot(store, workspaceRoot)
+	return root, errors.Join(resolveErr, store.Close())
 }
 
 func resolveMainWorkspaceRoot(store *metadata.Store, workspaceRoot string) (string, error) {

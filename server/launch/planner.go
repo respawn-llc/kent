@@ -58,7 +58,8 @@ type Planner struct {
 	StoreOptions         []session.StoreOption
 	ReloadConfig         func() (config.App, error)
 	PersistedSessions    session.PersistedSessionResolver
-	ExecutionTargets     SessionExecutionTargetResolver
+	CallerSessions       SessionCallerResolver
+	ExecutionTargets     MetadataExecutionTargetStore
 	SessionProjects      SessionProjectResolver
 	ManagedWorktreeRoots SessionManagedWorktreeRootsResolver
 }
@@ -572,7 +573,7 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 }
 
 func (p Planner) resolvePlannedExecutionTarget(ctx context.Context, sessionID string) (*worktreepb.SessionExecutionTarget, error) {
-	resolver := p.executionTargetResolver()
+	resolver := p.ExecutionTargets
 	if resolver == nil {
 		return &worktreepb.SessionExecutionTarget{}, nil
 	}
@@ -585,10 +586,6 @@ func (p Planner) resolvePlannedExecutionTarget(ctx context.Context, sessionID st
 		return &worktreepb.SessionExecutionTarget{}, fmt.Errorf("session %q execution target is empty", sessionID)
 	}
 	return target, nil
-}
-
-func applyPersistedSubagentRoleSettings(base config.Settings, source config.SourceReport, roleName *string, savedConnection *config.ConnectionID, allowModelOverride bool, validate bool) (config.Settings, config.SourceReport, error) {
-	return applyPersistedSubagentRoleSettingsWithSelection(base, source, roleName, savedConnection, allowModelOverride, validate, nil, false)
 }
 
 func applyPersistedSubagentRoleSettingsWithSelection(base config.Settings, source config.SourceReport, roleName *string, savedConnection *config.ConnectionID, allowModelOverride bool, validate bool, rotation *ConnectionRotation, allocate bool) (config.Settings, config.SourceReport, error) {
@@ -1318,28 +1315,11 @@ func (p Planner) createSession(
 	return created, nil
 }
 
-func (p Planner) executionTargetStore() (MetadataExecutionTargetStore, error) {
-	owner := p.executionTargetResolver()
-	store, ok := owner.(MetadataExecutionTargetStore)
-	if !ok {
-		return nil, errors.New("Session execution-target mutation owner is required")
-	}
-	return store, nil
-}
-
-func (p Planner) executionTargetResolver() SessionExecutionTargetResolver {
-	if p.ExecutionTargets != nil {
-		return p.ExecutionTargets
-	}
-	resolver, _ := p.PersistedSessions.(SessionExecutionTargetResolver)
-	return resolver
-}
-
 func (p Planner) resolveParentExecutionTarget(ctx context.Context, parentSessionID string) (*worktreepb.SessionExecutionTarget, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return &worktreepb.SessionExecutionTarget{}, false, err
 	}
-	resolver := p.executionTargetResolver()
+	resolver := p.ExecutionTargets
 	if resolver == nil {
 		return &worktreepb.SessionExecutionTarget{}, false, nil
 	}
@@ -1357,11 +1337,10 @@ func (p Planner) updateChildExecutionTarget(ctx context.Context, childSessionID 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	store, err := p.executionTargetStore()
-	if err != nil {
-		return err
+	if p.ExecutionTargets == nil {
+		return errors.New("Session execution-target mutation owner is required")
 	}
-	return store.UpdateSessionExecutionTarget(ctx, metadata.SessionExecutionTargetUpdateFromReadModel(childSessionID, target))
+	return p.ExecutionTargets.UpdateSessionExecutionTarget(ctx, metadata.SessionExecutionTargetUpdateFromReadModel(childSessionID, target))
 }
 
 func EnsureSubagentSessionName(store *session.Store) error {

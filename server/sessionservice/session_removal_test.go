@@ -84,8 +84,9 @@ func newSessionRemovalServiceFixture(t *testing.T) sessionRemovalServiceFixture 
 			t.Errorf("close Session Runtime authority: %v", err)
 		}
 	})
-	service := NewGlobalSessionLifecycleService(cfg.PersistenceRoot, authority, nil).
-		WithPersistedSessionResolver(metadataStore)
+	service := NewGlobalSessionLifecycleService(cfg.PersistenceRoot, authority, nil,
+		metadataStore)
+
 	return sessionRemovalServiceFixture{service: service, authority: authority, metadata: metadataStore, session: persisted}
 }
 
@@ -103,7 +104,7 @@ func TestSessionLifecycleRemovalReportsDurableOutcomes(t *testing.T) {
 	t.Run("archive metadata not removed", func(t *testing.T) {
 		fixture := newSessionRemovalServiceFixture(t)
 		blocker := &metadata.SessionInUseError{SessionID: fixture.session.Meta().SessionID}
-		fixture.service.WithPersistedSessionResolver(sessionRemovalMetadataDelegate{
+		fixture.service = NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, nil, sessionRemovalMetadataDelegate{
 			Store: fixture.metadata,
 			delete: func(_ context.Context, _ string) error {
 				return blocker
@@ -126,7 +127,7 @@ func TestSessionLifecycleRemovalReportsDurableOutcomes(t *testing.T) {
 	t.Run("archive metadata removed cleanup failed", func(t *testing.T) {
 		fixture := newSessionRemovalServiceFixture(t)
 		eventsPath := filepath.Join(fixture.session.Dir(), "events.jsonl")
-		fixture.service.WithPersistedSessionResolver(sessionRemovalMetadataDelegate{
+		fixture.service = NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, nil, sessionRemovalMetadataDelegate{
 			Store: fixture.metadata,
 			delete: func(ctx context.Context, sessionID string) error {
 				if err := fixture.metadata.DeleteSession(ctx, sessionID); err != nil {
@@ -163,8 +164,9 @@ func TestSessionLifecycleRemovalReportsDurableOutcomes(t *testing.T) {
 func TestArchiveDestinationRejectionLeavesIdleRuntimeOpen(t *testing.T) {
 	fixture := newRealSessionRetargetFixture(t, false)
 	fixture.openRuntime(t)
-	service := NewGlobalSessionLifecycleService("", fixture.authority, nil).
-		WithPersistedSessionResolver(fixture.metadata)
+	service := NewGlobalSessionLifecycleService("", fixture.authority, nil,
+		fixture.metadata)
+
 	assertRuntimeOpen := func() {
 		t.Helper()
 		if err := fixture.authority.WithCurrentRuntime(
@@ -206,7 +208,7 @@ func TestArchiveDestinationCreatedAfterPreflightRetainsSession(t *testing.T) {
 	if _, err := os.Lstat(outputDir); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("output parent before Archive = %v, want absent", err)
 	}
-	fixture.service.WithPersistedSessionResolver(sessionRemovalMetadataDelegate{
+	fixture.service = NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, nil, sessionRemovalMetadataDelegate{
 		Store: fixture.metadata,
 		resolve: func(ctx context.Context, sessionID string) (session.PersistedSessionRecord, error) {
 			record, err := fixture.metadata.ResolvePersistedSession(ctx, sessionID)
@@ -277,18 +279,15 @@ func runDetachedArchiveGraceExpiryCase(t *testing.T, debug bool) {
 				t.Errorf("close Session Runtime authority: %v", err)
 			}
 		}()
-		service := NewGlobalSessionLifecycleService(cfg.PersistenceRoot, authority, nil).
-			WithPersistedSessionResolver(metadataStore).
-			WithDebugMode(debug)
 		resolveStarted := make(chan struct{})
-		service.WithPersistedSessionResolver(sessionRemovalMetadataDelegate{
+		service := NewGlobalSessionLifecycleService(cfg.PersistenceRoot, authority, nil, sessionRemovalMetadataDelegate{
 			Store: metadataStore,
 			resolve: func(ctx context.Context, _ string) (session.PersistedSessionRecord, error) {
 				close(resolveStarted)
 				<-ctx.Done()
 				return session.PersistedSessionRecord{}, context.Cause(ctx)
 			},
-		})
+		}).WithDebugMode(debug)
 		diagnosticErrors := make(chan error, 1)
 		previousLogger := slog.Default()
 		slog.SetDefault(slog.New(archiveExpiryErrorHandler{err: diagnosticErrors}))
@@ -375,7 +374,7 @@ func TestAuthorityCloseCancelsAndJoinsAcceptedSessionRemoval(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newSessionRemovalServiceFixture(t)
 			deleteStarted := make(chan struct{})
-			fixture.service.WithPersistedSessionResolver(sessionRemovalMetadataDelegate{
+			fixture.service = NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, nil, sessionRemovalMetadataDelegate{
 				Store: fixture.metadata,
 				delete: func(ctx context.Context, _ string) error {
 					close(deleteStarted)

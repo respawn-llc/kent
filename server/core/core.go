@@ -297,6 +297,7 @@ func (s *Core) newSessionLaunchService(projectCtx projectContext) *sessionlaunch
 		ContainerDir:      projectCtx.projectSession,
 		StoreOptions:      s.safeBundles().Persistence.metadataStore.AuthoritativeSessionStoreOptions(),
 		PersistedSessions: s.safeBundles().Persistence.metadataStore,
+		CallerSessions:    s.safeBundles().Persistence.metadataStore,
 		ExecutionTargets:  s.safeBundles().Persistence.metadataStore,
 		SessionProjects:   s.safeBundles().Persistence.metadataStore, ManagedWorktreeRoots: s.safeBundles().Persistence.metadataStore,
 		ReloadConfig: func() (config.App, error) {

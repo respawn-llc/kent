@@ -101,13 +101,3 @@ func (r *ConnectionRotation) BindSessionConnection(store *session.Store, setting
 	config.InheritReviewerSettings(settings, sources)
 	return replacement, nil
 }
-
-func projectSessionConnection(settings *config.Settings, source config.SourceReport, meta session.Meta) error {
-	selected, _, err := ResolveSessionConnection(*settings, meta.ConnectionID)
-	if err != nil {
-		return err
-	}
-	settings.Connection = config.SingleConnection(selected)
-	config.InheritReviewerSettings(settings, source.Sources)
-	return nil
-}
