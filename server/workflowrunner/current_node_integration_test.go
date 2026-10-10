@@ -3643,6 +3643,56 @@ func TestCurrentNodeFanoutContinuationClonesAndBindsEachBranchSession(t *testing
 	}
 }
 
+func TestCurrentNodeDirectStartFanoutWaitsForEveryBranchAtJoin(t *testing.T) {
+	f := newCurrentNodeRunnerFixture(t)
+	workflowID, branchNodes := createCurrentNodeDirectStartFanoutWorkflow(t, f.store)
+	task := f.createTask(t, workflowID)
+	started, err := f.commitTaskStart(context.Background(), task.ID)
+	if err != nil || len(started.Mutation.Created) != 2 {
+		t.Fatalf("direct Start result = %+v, %v; want both branches placed", started.Mutation, err)
+	}
+	branchA, branchB := branchNodes["branch_a"], branchNodes["branch_b"]
+	startedByNode := make(map[workflow.NodeID]workflow.CurrentNode, len(started.Mutation.Created))
+	for _, currentNode := range started.Mutation.Created {
+		startedByNode[currentNode.Reference.NodeID] = currentNode
+	}
+	first, firstExists := startedByNode[branchA]
+	second, secondExists := startedByNode[branchB]
+	if !firstExists || !secondExists {
+		t.Fatalf("direct Start branches = %+v, want both graph targets", started.Mutation.Created)
+	}
+	if _, err := f.commitCurrentNode(context.Background(), workflowstore.CurrentNodeCompletionRequest{
+		Source: first.Reference, TransitionID: "join_a",
+	}); err != nil {
+		t.Fatalf("complete first Start branch: %v", err)
+	}
+	waiting, err := f.store.ListCurrentNodes(context.Background(), task.ID)
+	if err != nil || len(waiting) != 1 || !waiting[0].Reference.Equal(second.Reference) {
+		t.Fatalf("Join advanced before every Start branch arrived: %+v, %v", waiting, err)
+	}
+
+	if _, err := f.commitCurrentNode(context.Background(), workflowstore.CurrentNodeCompletionRequest{
+		Source: second.Reference, TransitionID: "join_b",
+	}); err != nil {
+		t.Fatalf("complete second Start branch: %v", err)
+	}
+	definition, _, err := f.store.GetDefinition(context.Background(), workflowID)
+	if err != nil {
+		t.Fatalf("load direct Start workflow: %v", err)
+	}
+	terminalID := currentNodeKindID(t, definition, workflow.NodeKindTerminal)
+	completed, err := f.store.ListCurrentNodes(context.Background(), task.ID)
+	if err != nil || len(completed) != 1 || completed[0].Reference.NodeID != terminalID {
+		t.Fatalf("Join did not release its successor after every branch arrived: %+v, %v", completed, err)
+	}
+	if completed[0].Reference.IsBranchScoped() {
+		t.Fatalf("Join successor remained branch-scoped: %+v", completed[0].Reference)
+	}
+	if requests := f.client.Requests(); len(requests) != 0 {
+		t.Fatalf("model requests during Start placement and Join progression = %d, want none", len(requests))
+	}
+}
+
 func TestCurrentNodeFanoutCompactResumeReusesEstablishedBranchSessions(t *testing.T) {
 	f := newCurrentNodeRunnerFixture(
 		t,
@@ -4295,13 +4345,45 @@ func createCurrentNodeFanoutWorkflow(
 	requiresApproval bool,
 	contextMode workflow.ContextMode,
 ) (runtimeids.WorkflowID, map[workflow.TransitionBranchKey]workflow.NodeID) {
+	return createCurrentNodeFanoutWorkflowWithStart(
+		t,
+		store,
+		requiresApproval,
+		contextMode,
+		false,
+	)
+}
+
+func createCurrentNodeDirectStartFanoutWorkflow(
+	t *testing.T,
+	store *workflowstore.Store,
+) (runtimeids.WorkflowID, map[workflow.TransitionBranchKey]workflow.NodeID) {
+	return createCurrentNodeFanoutWorkflowWithStart(
+		t,
+		store,
+		false,
+		workflow.ContextModeNewSession,
+		true,
+	)
+}
+
+func createCurrentNodeFanoutWorkflowWithStart(
+	t *testing.T,
+	store *workflowstore.Store,
+	requiresApproval bool,
+	contextMode workflow.ContextMode,
+	directStart bool,
+) (runtimeids.WorkflowID, map[workflow.TransitionBranchKey]workflow.NodeID) {
 	t.Helper()
 	ctx := context.Background()
 	created, err := store.CreateWorkflow(ctx, workflowstore.CreateWorkflowRequest{Name: "Current Node fan-out continuation"})
 	if err != nil {
 		t.Fatalf("create workflow: %v", err)
 	}
-	sourceID := workflow.NodeID(runtimeids.NewGraphEntityID())
+	var sourceID workflow.NodeID
+	if !directStart {
+		sourceID = workflow.NodeID(runtimeids.NewGraphEntityID())
+	}
 	branchNodeIDs := map[workflow.TransitionBranchKey]workflow.NodeID{
 		"branch_a": workflow.NodeID(runtimeids.NewGraphEntityID()),
 		"branch_b": workflow.NodeID(runtimeids.NewGraphEntityID()),
@@ -4315,21 +4397,37 @@ func createCurrentNodeFanoutWorkflow(
 	workflowfixture.SaveStoreGraph(t, ctx, store, created.ID, func(definition workflow.Definition, request *workflowstore.WorkflowGraphSaveRequest) {
 		startID := workflow.NodeIDOf(nodeByKindRunnerTest(t, definition, workflow.NodeKindStart))
 		doneID := workflow.NodeIDOf(nodeByKindRunnerTest(t, definition, workflow.NodeKindTerminal))
+		if !directStart {
+			request.Nodes = append(request.Nodes,
+				workflowstore.NodeRecord{ID: sourceID, WorkflowID: created.ID, Key: "source", Kind: workflow.NodeKindAgent, DisplayName: "Source", SubagentRole: "coder"},
+			)
+		}
 		request.Nodes = append(request.Nodes,
-			workflowstore.NodeRecord{ID: sourceID, WorkflowID: created.ID, Key: "source", Kind: workflow.NodeKindAgent, DisplayName: "Source", SubagentRole: "coder"},
 			workflowstore.NodeRecord{ID: branchNodeIDs["branch_a"], WorkflowID: created.ID, Key: "branch_a", Kind: workflow.NodeKindAgent, DisplayName: "Branch A", SubagentRole: "coder"},
 			workflowstore.NodeRecord{ID: branchNodeIDs["branch_b"], WorkflowID: created.ID, Key: "branch_b", Kind: workflow.NodeKindAgent, DisplayName: "Branch B", SubagentRole: "coder"},
 			workflowstore.NodeRecord{ID: joinID, WorkflowID: created.ID, Key: "join", Kind: workflow.NodeKindJoin, DisplayName: "Join"},
 		)
 		request.TransitionGroups = append(request.TransitionGroups,
 			workflowstore.TransitionGroupRecord{ID: startGroup, WorkflowID: created.ID, SourceNodeID: startID, TransitionID: "start", DisplayName: "Start"},
-			workflowstore.TransitionGroupRecord{ID: splitGroup, WorkflowID: created.ID, SourceNodeID: sourceID, TransitionID: "split", DisplayName: "Split"},
+		)
+		if !directStart {
+			request.TransitionGroups = append(request.TransitionGroups,
+				workflowstore.TransitionGroupRecord{ID: splitGroup, WorkflowID: created.ID, SourceNodeID: sourceID, TransitionID: "split", DisplayName: "Split"},
+			)
+		} else {
+			splitGroup = startGroup
+		}
+		request.TransitionGroups = append(request.TransitionGroups,
 			workflowstore.TransitionGroupRecord{ID: branchAGroup, WorkflowID: created.ID, SourceNodeID: branchNodeIDs["branch_a"], TransitionID: "join_a", DisplayName: "Join"},
 			workflowstore.TransitionGroupRecord{ID: branchBGroup, WorkflowID: created.ID, SourceNodeID: branchNodeIDs["branch_b"], TransitionID: "join_b", DisplayName: "Join"},
 			workflowstore.TransitionGroupRecord{ID: doneGroup, WorkflowID: created.ID, SourceNodeID: joinID, TransitionID: "done", DisplayName: "Done"},
 		)
+		if !directStart {
+			request.Edges = append(request.Edges,
+				workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: startGroup, Key: "start", TargetNodeID: sourceID, AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeNewSession, PromptTemplate: "Source."},
+			)
+		}
 		request.Edges = append(request.Edges,
-			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: startGroup, Key: "start", TargetNodeID: sourceID, AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeNewSession, PromptTemplate: "Source."},
 			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: splitGroup, Key: "branch_a", TargetNodeID: branchNodeIDs["branch_a"], AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: contextMode, RequiresApproval: requiresApproval, PromptTemplate: "Branch A."},
 			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: splitGroup, Key: "branch_b", TargetNodeID: branchNodeIDs["branch_b"], AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: contextMode, RequiresApproval: requiresApproval, PromptTemplate: "Branch B."},
 			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: branchAGroup, Key: "join_a", TargetNodeID: joinID, AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeNewSession},

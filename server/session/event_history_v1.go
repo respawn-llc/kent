@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"core/shared/modelcontract"
 	"core/shared/rollbacktarget"
 )
 
@@ -30,6 +31,7 @@ type ProviderHistoryReasoningEntry struct {
 }
 
 type ProviderHistoryItem struct {
+	Attribution *modelcontract.ReasoningAttribution `json:"attribution,omitempty"`
 	// Slice position is the durable provider order. Parser output indexes are
 	// assembly-only facts and are intentionally not persisted.
 	Type                 ProviderHistoryItemType         `json:"type"`
@@ -276,6 +278,10 @@ func normalizeProviderHistoryItem(
 		{name: "configuration effort", value: &item.ConfigurationEffort},
 		{name: "linked call identity", value: &item.LinkedCallID},
 	}
+	if err := item.Attribution.Validate(); err != nil {
+		return ProviderHistoryItem{}, providerHistoryItemError(index, item.Type, ProviderHistoryItemInvalidFacts)
+	}
+	item.Attribution = item.Attribution.Clone()
 	for _, optional := range optionalTexts {
 		*optional.value, err = normalizeOptionalEventText(optional.name, *optional.value)
 		if err != nil {

@@ -12,6 +12,7 @@ import (
 	"core/server/session"
 	"core/server/tools"
 	"core/shared/config"
+	"core/shared/modelcontract"
 	"core/shared/runtimeinput"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -42,6 +43,10 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 	if matchErr != nil {
 		return matchErr
 	}
+	producingEvidence, err := restoredProducingStepEvidence(activeWindow.Records, e.SessionID())
+	if err != nil {
+		return err
+	}
 	var rollbackLocator rollbackCandidateLocatorTracker
 	manualEligible := false
 	type restoredToolGeneration struct {
@@ -70,6 +75,10 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			msg, err := llmMessageFromSessionRecord(payload)
 			if err != nil {
 				return fmt.Errorf("restore session message record: %w", err)
+			}
+			for index := range msg.ReasoningItems {
+				item := &msg.ReasoningItems[index]
+				item.Attribution = producingEvidence.infer(item.Attribution, stepIDPointer, modelcontract.ProviderOperationPurposeGeneration)
 			}
 			if err := rollbackLocator.ObserveMessage(record.Seq(), msg); err != nil {
 				return err
@@ -173,6 +182,12 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			replacement, err := historyReplacementPayloadFromSessionRecord(payload)
 			if err != nil {
 				return fmt.Errorf("restore session history replacement record: %w", err)
+			}
+			for index := range replacement.Items {
+				item := &replacement.Items[index]
+				if item.Type == llm.ResponseItemTypeCompaction {
+					item.Attribution = producingEvidence.infer(item.Attribution, stepIDPointer, modelcontract.ProviderOperationPurposeCompaction)
+				}
 			}
 			e.resetLocalDiagnostics()
 			manualEligible = false

@@ -29,3 +29,7 @@ func (*ownerlessRetirementLLMClient) ProviderCapabilities(context.Context) (llm.
 func (lifecycleRequestCaptureClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
 	return sessionRuntimeTestProviderCapabilities(), nil
 }
+
+func (*lifecycleQuestionBarrierClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
+	return sessionRuntimeTestProviderCapabilities(), nil
+}

@@ -1036,6 +1036,7 @@ func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowF
 		transcript.NoticeReasonToolOutputRepair:      transcriptpb.NoticeReason_NOTICE_REASON_TOOL_OUTPUT_REPAIR,
 		transcript.NoticeReasonProviderModelMismatch: transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH,
 		transcript.NoticeReasonThinkingUpdate:        transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE,
+		transcript.NoticeReasonReasoningOmission:     transcriptpb.NoticeReason_NOTICE_REASON_REASONING_OMISSION,
 	}
 	reason, ok := reasons[strings.TrimSpace(fact.Reason)]
 	if !ok {
@@ -1117,6 +1118,13 @@ func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowF
 		notice.ProviderModelMismatch = &transcriptpb.ProviderModelMismatch{
 			RequestedModel: fact.ProviderModelMismatch.RequestedModel, ServedModel: fact.ProviderModelMismatch.ServedModel,
 		}
+	}
+	if fact.ReasoningOmission != nil {
+		count, err := protoapi.Int32(fact.ReasoningOmission.Count, "omitted reasoning count")
+		if err != nil {
+			return nil, err
+		}
+		notice.ReasoningOmission = &transcriptpb.ReasoningOmission{Count: count}
 	}
 	diagnosticCode := strings.TrimSpace(fact.DiagnosticCode)
 	diagnosticDetail := fact.DiagnosticDetail

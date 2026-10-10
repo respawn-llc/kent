@@ -120,30 +120,31 @@ func ToolOutputMessageType(custom bool) *MessageType {
 }
 
 type ResponseItem struct {
-	Type                 ResponseItemType         `json:"type"`
-	OutputIndex          int64                    `json:"output_index,omitempty"`
-	Role                 *Role                    `json:"role,omitempty"`
-	MessageType          *MessageType             `json:"message_type,omitempty"`
-	SourcePath           *string                  `json:"source_path,omitempty"`
-	WorktreeContext      *session.WorktreeContext `json:"worktree_context,omitempty"`
-	Phase                *MessagePhase            `json:"phase,omitempty"`
-	ID                   *string                  `json:"id,omitempty"`
-	Name                 *string                  `json:"name,omitempty"`
-	CallID               *string                  `json:"call_id,omitempty"`
-	Content              *string                  `json:"content,omitempty"`
-	CompactContent       *string                  `json:"compact_content,omitempty"`
-	BackgroundActivityID *string                  `json:"background_activity_id,omitempty"`
-	BackgroundExitCode   *int                     `json:"background_exit_code,omitempty"`
-	ToolPresentation     json.RawMessage          `json:"tool_presentation,omitempty"`
-	Arguments            json.RawMessage          `json:"arguments,omitempty"`
-	CustomInput          *string                  `json:"custom_input,omitempty"`
-	Output               json.RawMessage          `json:"output,omitempty"`
-	ReasoningSummary     []ReasoningEntry         `json:"reasoning_summary,omitempty"`
-	ConfigurationEffort  *string                  `json:"configuration_effort,omitempty"`
-	EncryptedContent     *string                  `json:"encrypted_content,omitempty"`
-	Raw                  json.RawMessage          `json:"raw,omitempty"`
-	LinkedCallID         *string                  `json:"linked_call_id,omitempty"`
-	LinkKind             *ResponseItemLinkKind    `json:"link_kind,omitempty"`
+	Attribution          *modelcontract.ReasoningAttribution `json:"attribution,omitempty"`
+	Type                 ResponseItemType                    `json:"type"`
+	OutputIndex          int64                               `json:"output_index,omitempty"`
+	Role                 *Role                               `json:"role,omitempty"`
+	MessageType          *MessageType                        `json:"message_type,omitempty"`
+	SourcePath           *string                             `json:"source_path,omitempty"`
+	WorktreeContext      *session.WorktreeContext            `json:"worktree_context,omitempty"`
+	Phase                *MessagePhase                       `json:"phase,omitempty"`
+	ID                   *string                             `json:"id,omitempty"`
+	Name                 *string                             `json:"name,omitempty"`
+	CallID               *string                             `json:"call_id,omitempty"`
+	Content              *string                             `json:"content,omitempty"`
+	CompactContent       *string                             `json:"compact_content,omitempty"`
+	BackgroundActivityID *string                             `json:"background_activity_id,omitempty"`
+	BackgroundExitCode   *int                                `json:"background_exit_code,omitempty"`
+	ToolPresentation     json.RawMessage                     `json:"tool_presentation,omitempty"`
+	Arguments            json.RawMessage                     `json:"arguments,omitempty"`
+	CustomInput          *string                             `json:"custom_input,omitempty"`
+	Output               json.RawMessage                     `json:"output,omitempty"`
+	ReasoningSummary     []ReasoningEntry                    `json:"reasoning_summary,omitempty"`
+	ConfigurationEffort  *string                             `json:"configuration_effort,omitempty"`
+	EncryptedContent     *string                             `json:"encrypted_content,omitempty"`
+	Raw                  json.RawMessage                     `json:"raw,omitempty"`
+	LinkedCallID         *string                             `json:"linked_call_id,omitempty"`
+	LinkKind             *ResponseItemLinkKind               `json:"link_kind,omitempty"`
 }
 
 func CloneResponseItems(items []ResponseItem) []ResponseItem {
@@ -153,6 +154,7 @@ func CloneResponseItems(items []ResponseItem) []ResponseItem {
 	out := make([]ResponseItem, 0, len(items))
 	for _, item := range items {
 		copyItem := item
+		copyItem.Attribution = item.Attribution.Clone()
 		copyItem.Role = textutil.Pointer(item.Role)
 		copyItem.MessageType = textutil.Pointer(item.MessageType)
 		copyItem.SourcePath = textutil.Pointer(item.SourcePath)
@@ -246,6 +248,7 @@ func ItemsFromMessages(messages []Message) []ResponseItem {
 				}
 				out = append(out, ResponseItem{
 					Type:             ResponseItemTypeReasoning,
+					Attribution:      ri.Attribution.Clone(),
 					ID:               textutil.Value(id),
 					EncryptedContent: textutil.Value(encrypted),
 				})
@@ -386,6 +389,7 @@ func MessagesFromItems(items []ResponseItem) []Message {
 				lastAssistantIdx = appendAssistant()
 			}
 			out[lastAssistantIdx].ReasoningItems = append(out[lastAssistantIdx].ReasoningItems, ReasoningItem{
+				Attribution:      item.Attribution.Clone(),
 				ID:               id,
 				EncryptedContent: encrypted,
 			})
@@ -657,8 +661,9 @@ func (i ReasoningItemIdentity) Validate() error {
 }
 
 type ReasoningItem struct {
-	ID               string `json:"id"`
-	EncryptedContent string `json:"encrypted_content,omitempty"`
+	Attribution      *modelcontract.ReasoningAttribution `json:"attribution,omitempty"`
+	ID               string                              `json:"id"`
+	EncryptedContent string                              `json:"encrypted_content,omitempty"`
 }
 
 func (u Usage) Percent() int {

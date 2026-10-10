@@ -20,6 +20,7 @@ const (
 	BackgroundedShellSuffix = "· " + backgroundedShellStatus
 	reviewerFeedbackGlyph   = "§"
 	reviewerErrorGlyph      = "!"
+	reasoningOmissionText   = "Conversation was switched to another provider/model - reasoning was lost, degrading output quality"
 )
 
 func RenderCommittedRow(row *transcriptpb.CommittedRow, width int, themeName string, mode Mode) Row {
@@ -754,6 +755,12 @@ func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.Entr
 		}
 		return role, providerModelMismatchNoticeText(row.ProviderModelMismatch)
 	}
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_REASONING_OMISSION && row.ReasoningOmission != nil {
+		if !isError {
+			role = StyleRoleWarning
+		}
+		return role, reasoningOmissionText
+	}
 	if isError && row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE && row.LegacyText != nil {
 		return role, *row.LegacyText
 	}
@@ -1006,6 +1013,8 @@ func noticeReasonLabel(reason transcriptpb.NoticeReason) string {
 		return transcript.NoticeReasonToolOutputRepair
 	case transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH:
 		return transcript.NoticeReasonProviderModelMismatch
+	case transcriptpb.NoticeReason_NOTICE_REASON_REASONING_OMISSION:
+		return transcript.NoticeReasonReasoningOmission
 	default:
 		return "notice"
 	}

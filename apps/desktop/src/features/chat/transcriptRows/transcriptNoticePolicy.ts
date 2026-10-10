@@ -82,6 +82,9 @@ export function projectNotice(
   if (notice.Reason === "thinking_update") {
     return { kind: "compact", summary: prose.compact, icon: Settings };
   }
+  if (notice.Reason === "reasoning_omission") {
+    return { kind: "compact", summary: prose.expanded, icon: noticeIcon(notice) };
+  }
 
   const body = isMarkdownNotice(notice)
     ? ({ kind: "markdown", text: noticeOriginalText({ ...notice, SourcePath: prose.sourcePath }) } as const)
@@ -258,6 +261,7 @@ function noticeReasonIcon(notice: TranscriptNotice): LucideIcon | undefined {
     case "legacy_untyped_notice":
     case "runtime_diagnostic":
     case "thinking_update":
+    case "reasoning_omission":
       return undefined;
   }
 }

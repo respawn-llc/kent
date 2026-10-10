@@ -244,7 +244,7 @@ func (w *responseItemMessageWalker) Apply(item llm.ResponseItem) {
 			return
 		}
 		assistant := w.ensureAssistant()
-		assistant.ReasoningItems = append(assistant.ReasoningItems, llm.ReasoningItem{ID: id, EncryptedContent: encrypted})
+		assistant.ReasoningItems = append(assistant.ReasoningItems, llm.ReasoningItem{ID: id, EncryptedContent: encrypted, Attribution: item.Attribution.Clone()})
 	}
 }
 

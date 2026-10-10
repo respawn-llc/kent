@@ -565,6 +565,10 @@ type streamRequiredClient struct {
 	response    llm.Response
 }
 
+func (*streamRequiredClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
+	return defaultTestProviderCapabilities(), nil
+}
+
 func (c *streamRequiredClient) Generate(_ context.Context, req llm.Request, _ llm.StreamCallbacks) (llm.Response, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

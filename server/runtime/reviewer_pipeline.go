@@ -55,7 +55,9 @@ func (r *defaultReviewerPipeline) Prepare(
 		return preparedReviewerRequest{}, fmt.Errorf("build Reviewer request: %w", err)
 	}
 	observed, err := r.engine.prepareCacheObservedRequest(
+		ctx,
 		stepID,
+		reviewerClient,
 		req,
 		modelcontract.ProviderOperationPurposeReviewer,
 		cacheResponseObservationRuntime,

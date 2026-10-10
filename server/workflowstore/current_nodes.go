@@ -197,27 +197,6 @@ func newNonExecutableCurrentNodeWithPriorValues(
 	return workflow.NewCurrentNodeWithMaterializedValues(reference, nil, priorValues, nil, nil)
 }
 
-func newReadyCurrentNode(taskID workflow.TaskID, nodeID workflow.NodeID, enteredByEdgeID workflow.EdgeID, selection *workflow.AgentExecutionSelection) (workflow.CurrentNode, error) {
-	reference, err := workflow.NewCurrentNodeReference(taskID, nodeID, nil)
-	if err != nil {
-		return workflow.CurrentNode{}, err
-	}
-	currentNode, err := workflow.NewCurrentNodeWithMaterializedSource(
-		reference,
-		nil,
-		workflow.MaterializedPriorValues{},
-		nil,
-		workflow.DeferredSelfMaterializedContinuationSource(),
-		&workflow.CurrentNodeScheduling{State: workflow.CurrentNodeSchedulingReady},
-		selection,
-	)
-	if err != nil {
-		return workflow.CurrentNode{}, err
-	}
-	currentNode.EnteredByEdgeID = &enteredByEdgeID
-	return currentNode, nil
-}
-
 func (s *Store) currentNodeFromRow(row sqlitegen.ListTaskCurrentNodesRow) (workflow.CurrentNode, error) {
 	var branchKey *workflow.TransitionBranchKey
 	if row.TransitionBranchKey.Valid {

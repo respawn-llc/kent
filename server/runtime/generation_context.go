@@ -229,7 +229,11 @@ func (e *Engine) installGenerationContext(record session.EventRecord, context se
 func compactionOutputFromRecord(record session.CompactedOutput) (compactionOutput, error) {
 	output := compactionOutput{}
 	for _, item := range record.Summary {
-		output.summary = append(output.summary, llmResponseItemFromSessionHistory(item))
+		restored := llmResponseItemFromSessionHistory(item)
+		if err := llm.RestoreRetainedItemFacts(&restored); err != nil {
+			return compactionOutput{}, err
+		}
+		output.summary = append(output.summary, restored)
 	}
 	if record.PreservedUserMessage != nil {
 		message, err := llmMessageFromSessionRecord(*record.PreservedUserMessage)

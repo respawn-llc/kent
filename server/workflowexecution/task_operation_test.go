@@ -13,6 +13,7 @@ import (
 	"core/server/workflow"
 	"core/server/workflowruntime"
 	"core/server/workflowstore"
+	"core/shared/runtimeids"
 )
 
 func TestCurrentNodeControllerStartWaitsForPreparationBeforeAtomicCutover(t *testing.T) {
@@ -145,6 +146,103 @@ func TestCurrentNodeControllerStartPreparationFailureDoesNotCommitAndCanRetry(t 
 	case <-started:
 	case <-time.After(3 * time.Second):
 		t.Fatal("explicit retry did not start")
+	}
+}
+
+func TestCurrentNodeControllerStartLaterBranchPreparationFailureKeepsBacklog(t *testing.T) {
+	f := newControllerTaskStartFanoutFixture(t, 2)
+	before, err := f.store.ListCurrentNodes(t.Context(), f.task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cause := errors.New("later branch could not be prepared")
+	var prepared []workflow.CurrentNodeReference
+	var starts int
+	controller := f.controller(t, controllerTaskRunner{
+		fixture: f,
+		prepare: func(_ context.Context, input workflowstore.CurrentNodeStartContext, _ workflowruntime.TaskPromptDelivery) error {
+			prepared = append(prepared, input.CurrentNode.Reference)
+			if len(prepared) == 2 {
+				return cause
+			}
+			return nil
+		},
+		start: func(context.Context, workflow.CurrentNodeReference, workflowruntime.TaskPromptDelivery) (sessionruntime.ExecutionHandle, error) {
+			starts++
+			return nil, errors.New("execution started before Start preparation completed")
+		},
+	})
+
+	if _, err := controller.StartTask(t.Context(), f.task.ID, f.candidate); !errors.Is(err, cause) {
+		t.Fatalf("Start error = %v, want later-branch preparation failure", err)
+	}
+	after, err := f.store.ListCurrentNodes(t.Context(), f.task.ID)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("failed preparation changed Backlog: before=%+v after=%+v err=%v", before, after, err)
+	}
+	if len(prepared) != 2 {
+		t.Fatalf("prepared branch references = %v, want both branches attempted", prepared)
+	}
+	if starts != 0 {
+		t.Fatalf("branch executions started = %d, want none before successful preparation", starts)
+	}
+	target, err := f.store.GetTaskExecutionTargetContext(t.Context(), f.task.ID)
+	if err != nil || target.Task.ExecutionTarget != nil {
+		t.Fatalf("failed preparation changed the Task execution target: %+v, %v", target, err)
+	}
+}
+
+func TestCurrentNodeControllerStartBindsFreshAgentSessionsToSharedRoot(t *testing.T) {
+	f := newControllerTaskStartFanoutFixture(t, 2)
+	var roots []workflowstore.ExecutionRoot
+	controller := f.controller(t, controllerTaskRunner{
+		fixture: f,
+		prepare: func(_ context.Context, input workflowstore.CurrentNodeStartContext, _ workflowruntime.TaskPromptDelivery) error {
+			if input.ExecutionRoot == nil {
+				return errors.New("Start branch has no execution root")
+			}
+			roots = append(roots, *input.ExecutionRoot)
+			return nil
+		},
+	})
+
+	started, err := controller.StartTask(t.Context(), f.task.ID, f.candidate)
+	if err != nil {
+		t.Fatalf("Start direct fan-out: %v", err)
+	}
+	if len(started.Mutation.Created) != 2 || len(roots) != 2 {
+		t.Fatalf("Start result has %d Current Nodes and prepared %d roots, want two branches", len(started.Mutation.Created), len(roots))
+	}
+	for _, root := range roots {
+		if !reflect.DeepEqual(root, f.candidate.Root) {
+			t.Fatalf("prepared branch execution root = %+v, want shared root %+v", root, f.candidate.Root)
+		}
+	}
+
+	nodes, err := f.store.ListCurrentNodes(t.Context(), f.task.ID)
+	if err != nil || len(nodes) != 2 {
+		t.Fatalf("Current Nodes after Start = %+v, %v; want both branches", nodes, err)
+	}
+	sessionIDs := make(map[runtimeids.SessionID]bool, len(nodes))
+	for _, node := range nodes {
+		if node.SessionID == nil {
+			t.Fatalf("Agent branch %q has no prepared Session", node.Reference.NodeID)
+		}
+		if sessionIDs[*node.SessionID] {
+			t.Fatalf("Agent branches share Session %q", *node.SessionID)
+		}
+		sessionIDs[*node.SessionID] = true
+		if _, fresh := f.creations[*node.SessionID]; !fresh {
+			t.Fatalf("Agent branch Session %q was not freshly prepared", *node.SessionID)
+		}
+		owner, err := f.store.TaskIDForSession(t.Context(), *node.SessionID)
+		if err != nil || owner == nil || *owner != f.task.ID {
+			t.Fatalf("Session %q owner = %v, %v; want Task %q", *node.SessionID, owner, err, f.task.ID)
+		}
+		association, err := f.store.LatestTaskSessionForNode(t.Context(), node.Reference)
+		if err != nil || association.SessionID != *node.SessionID {
+			t.Fatalf("Agent branch Session association = %+v, %v", association, err)
+		}
 	}
 }
 

@@ -345,20 +345,10 @@ func (s *validationState) nodeGroupV1FanoutTopologyError(branchIDs map[NodeID]bo
 		}
 	}
 	if len(fanoutGroups) != 1 {
-		if s.nodeGroupBranchesHaveStartIncoming(branchIDs) {
-			return fmt.Sprintf("%s cannot directly fan out into a node group yet; insert one split agent after it, fan out from that agent into the group, then join the branches", fmt.Sprintf("Node %s", nodeDisplayName(s.startNodes[0])))
-		}
 		if message := s.nodeGroupSeparateFanoutMessage(branchIDs); message != "" {
 			return message
 		}
 		return "node group must be represented by one fan-out transition group and branch edges into its join"
-	}
-	source, exists := s.nodesByID[fanoutGroups[0].SourceNodeID]
-	if exists && source.Kind() == NodeKindStart {
-		return fmt.Sprintf("%s cannot directly fan out into a node group yet; insert one split agent after it, fan out from that agent into the group, then join the branches", fmt.Sprintf("Node %s", nodeDisplayName(source)))
-	}
-	if s.nodeGroupBranchesHaveStartIncoming(branchIDs) {
-		return fmt.Sprintf("%s cannot directly fan out into a node group yet; insert one split agent after it, fan out from that agent into the group, then join the branches", fmt.Sprintf("Node %s", nodeDisplayName(s.startNodes[0])))
 	}
 	if message := s.nodeGroupSeparateFanoutMessage(branchIDs); message != "" {
 		return message
@@ -380,26 +370,6 @@ func transitionGroupTargetsExactly(edges []Edge, branchIDs map[NodeID]bool) bool
 		targets[edge.TargetNodeID] = true
 	}
 	return nodeIDSetEqual(branchIDs, targets)
-}
-
-func (s *validationState) nodeGroupBranchesHaveStartIncoming(branchIDs map[NodeID]bool) bool {
-	if len(s.startNodes) != 1 {
-		return false
-	}
-	startID := NodeIDOf(s.startNodes[0])
-	for branchID := range branchIDs {
-		hasStartIncoming := false
-		for _, edge := range s.incomingByNode[branchID] {
-			if s.groupsByID[edge.TransitionGroupID].SourceNodeID == startID {
-				hasStartIncoming = true
-				break
-			}
-		}
-		if !hasStartIncoming {
-			return false
-		}
-	}
-	return true
 }
 
 func (s *validationState) nodeGroupSeparateFanoutMessage(branchIDs map[NodeID]bool) string {
@@ -923,21 +893,23 @@ func (s *validationState) validateStartOutgoingShape() {
 		return
 	}
 	edges := s.edgesByGroup[groups[0].ID]
-	if len(edges) != 1 {
-		s.addSemantic(CodeInvalidStartOutgoingShape, "task start transition group requires exactly one edge", ValidationError{
+	if len(edges) == 0 {
+		s.addSemantic(CodeInvalidStartOutgoingShape, "task start transition group requires at least one edge", ValidationError{
 			WorkflowID:        WorkflowIDPointer(s.def.ID),
 			NodeID:            &startID,
 			TransitionGroupID: &groups[0].ID,
 		})
 		return
 	}
-	target, exists := s.nodesByID[edges[0].TargetNodeID]
-	if !exists || !IsExecutableNode(target) {
-		s.addSemantic(CodeInvalidStartOutgoingShape, "task start edge must target an executable node", ValidationError{
-			WorkflowID: WorkflowIDPointer(s.def.ID),
-			NodeID:     &startID,
-			EdgeID:     &edges[0].ID,
-		})
+	for _, edge := range edges {
+		target, exists := s.nodesByID[edge.TargetNodeID]
+		if !exists || !IsExecutableNode(target) {
+			s.addSemantic(CodeInvalidStartOutgoingShape, "task start edge must target an executable node", ValidationError{
+				WorkflowID: WorkflowIDPointer(s.def.ID),
+				NodeID:     &startID,
+				EdgeID:     &edge.ID,
+			})
+		}
 	}
 }
 
