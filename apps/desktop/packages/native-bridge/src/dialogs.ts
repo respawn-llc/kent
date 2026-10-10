@@ -14,7 +14,7 @@ export type NativeDialogWindowOptions = Readonly<{
   maximizable?: boolean;
   resizable?: boolean;
   presentation?: "content" | "pinned";
-  titleBar?: "integrated" | "native";
+  chrome?: "app" | "dialog";
 }>;
 
 export type NativeDialogOpenResult = "created" | "reused";
@@ -43,7 +43,6 @@ export async function openNativeDialogWindow(
     return "reused";
   }
   const placement = await centeredOnCurrentWindow(options);
-  const integratedTitle = options.titleBar !== "native";
   await new Promise<void>((resolve, reject) => {
     const window = new WebviewWindow(label, {
       alwaysOnTop: options.presentation !== "content",
@@ -52,7 +51,7 @@ export async function openNativeDialogWindow(
       decorations: true,
       focus: false,
       height: placement.height,
-      hiddenTitle: integratedTitle,
+      hiddenTitle: true,
       maximizable: options.maximizable ?? false,
       ...(options.presentation === "content" ? {} : { parent: getCurrentWindow() }),
       preventOverflow: true,
@@ -60,8 +59,9 @@ export async function openNativeDialogWindow(
       shadow: true,
       skipTaskbar: true,
       title: options.title,
-      titleBarStyle: integratedTitle ? "overlay" : "visible",
-      trafficLightPosition: new LogicalPosition(20, 18),
+      titleBarStyle: "overlay",
+      trafficLightPosition:
+        options.chrome === "app" ? new LogicalPosition(12, 22) : new LogicalPosition(20, 18),
       transparent: true,
       url,
       visible: false,

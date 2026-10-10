@@ -1,16 +1,13 @@
 import { Link, useLocation } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Home, SunMoon } from "lucide-react";
-import { useCallback, type MouseEvent, type PointerEvent, type ReactNode } from "react";
+import { ChevronLeft, ChevronRight, Home } from "lucide-react";
+import { useCallback, type MouseEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { TaskSearchGlobalTrigger, TaskSearchHost, TaskSearchProvider } from "@/features/board";
-import { toggleInMemoryThemeOverride } from "./startup/appEnvironment";
 import { AttentionController } from "./AttentionController";
-import { AppUpdateChip } from "./AppUpdateChip";
-import { useDesktopUpdate, type DesktopUpdateState } from "./useDesktopUpdate";
-import { appChromeTopTreatmentForPlatform } from "./appChromeStyles";
-import { WindowChromeTitle } from "./WindowChromeTitle";
+import { useWindowChromeUtilities } from "./WindowChromeUtilities";
+import { WindowChromeFrame } from "./WindowChromeFrame";
 import { MainWindowNavigation } from "./MainWindowNavigation";
 import { SessionChatCatalogReturnProvider, useAppNavigation, useNavigationStackState } from "@/app-facade";
 import { completeProjectDeletion, useProjectDeletedEvents } from "@/app-facade";
@@ -19,7 +16,7 @@ import { SidebarProvider } from "./sidebarProvider";
 import { sidebarDestinationPolicy } from "./sidebarDestinationPolicy";
 import { useStatusController } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
-import { useCurrentWindowChromeTitle, useCurrentWindowChromeAction } from "@/app-facade";
+import { useCurrentWindowChromeAction } from "@/app-facade";
 
 export type AppChromeProps = Readonly<{
   children: ReactNode;
@@ -39,89 +36,66 @@ export function AppChrome({ children }: AppChromeProps) {
 
 function AppChromeContent({ children }: AppChromeProps) {
   const { t } = useTranslation();
-  const { debugThemeOverrideEnabled, logger, nativeBridge } = useAppServices();
+  const { nativeBridge } = useAppServices();
   const navigation = useAppNavigation();
   const stack = useNavigationStackState();
   const macOS = nativeBridge.capabilities.platform === "macos";
-  const topTreatment = appChromeTopTreatmentForPlatform(nativeBridge.capabilities.platform);
-  const title = useCurrentWindowChromeTitle();
   const action = useCurrentWindowChromeAction();
-  const update = useDesktopUpdate(nativeBridge, logger);
+  const utilities = useWindowChromeUtilities();
   return (
-    <main className="window-glass-fill grid h-screen w-screen overflow-hidden pt-[var(--native-titlebar-height)]">
+    <WindowChromeFrame
+      floatingControls={utilities.floatingUpdate}
+      controls={
+        <>
+          <AppChromeGlobalSearch macOS={macOS} position="leading" />
+          {stack.hasHistory && !macOS ? (
+            <HistoryButtons
+              backLabel={t("app.back")}
+              forwardLabel={t("app.forward")}
+              navigation={navigation}
+              placement="before-home"
+              stack={stack}
+            />
+          ) : null}
+          {utilities.inlineUpdate}
+          <Link
+            aria-label={t("app.home")}
+            className="grid h-6 w-6 place-items-center rounded-full border border-transparent text-[var(--color-on-island)]"
+            onClick={(event) => {
+              if (isPlainPrimaryClick(event)) {
+                event.preventDefault();
+                void navigation.openHome();
+              }
+            }}
+            search={{}}
+            to="/"
+          >
+            <Home aria-hidden="true" size={16} strokeWidth={1.125} />
+          </Link>
+          {stack.hasHistory && macOS ? (
+            <HistoryButtons
+              backLabel={t("app.back")}
+              forwardLabel={t("app.forward")}
+              navigation={navigation}
+              placement="after-home"
+              stack={stack}
+            />
+          ) : null}
+          <AppChromeGlobalSearch macOS={macOS} position="trailing" />
+          {action}
+          {utilities.themeToggle}
+        </>
+      }
+    >
       <TaskSearchHost />
-      <div
-        aria-hidden="true"
-        className={topTreatment.classNames.join(" ")}
-        data-effect={topTreatment.effect}
-        data-testid="app-chrome-top-treatment"
-        style={topTreatment.style}
-      />
-      <div
-        className="app-region-drag fixed inset-x-0 top-0 z-20 h-[var(--native-titlebar-height)]"
-        data-tauri-drag-region
-        onPointerDown={(event) => {
-          void startNativeWindowDrag(event, nativeBridge.window.startDragging);
-        }}
-      />
-      <div
-        className={`app-region-no-drag fixed top-[8px] z-30 flex h-6 items-center ${macOS ? "left-[var(--native-home-link-left-macos)]" : "right-[var(--space-4)]"}`}
-        data-testid="app-chrome-navigation"
-      >
-        <AppChromeGlobalSearch macOS={macOS} position="leading" />
-        {stack.hasHistory && !macOS ? (
-          <HistoryButtons
-            backLabel={t("app.back")}
-            forwardLabel={t("app.forward")}
-            navigation={navigation}
-            placement="before-home"
-            stack={stack}
-          />
-        ) : null}
-        {!macOS ? <AppUpdateChip state={update} /> : null}
-        <Link
-          aria-label={t("app.home")}
-          className="grid h-6 w-6 place-items-center rounded-full border border-transparent text-[var(--color-on-island)]"
-          onClick={(event) => {
-            if (isPlainPrimaryClick(event)) {
-              event.preventDefault();
-              void navigation.openHome();
-            }
-          }}
-          search={{}}
-          to="/"
-        >
-          <Home aria-hidden="true" size={16} strokeWidth={1.125} />
-        </Link>
-        {stack.hasHistory && macOS ? (
-          <HistoryButtons
-            backLabel={t("app.back")}
-            forwardLabel={t("app.forward")}
-            navigation={navigation}
-            placement="after-home"
-            stack={stack}
-          />
-        ) : null}
-        <AppChromeGlobalSearch macOS={macOS} position="trailing" />
-        {action}
-        {debugThemeOverrideEnabled ? <DebugThemeToggle label={t("app.toggleTheme")} /> : null}
-        {title !== null && macOS ? <WindowChromeTitle title={title} inline macOS={macOS} /> : null}
-      </div>
-      <AppChromeFloatingUpdateChip state={update} visible={macOS} />
-      {title !== null && !macOS ? <WindowChromeTitle title={title} macOS={macOS} /> : null}
       <ProjectDeletionEventHandler />
       <MainWindowNavigation />
       <AttentionController />
-      <div
-        className="app-region-no-drag relative flex min-h-0 min-w-0 w-full overflow-hidden"
-        data-testid="app-shell-content"
-      >
-        <div className="min-h-0 min-w-0 flex-1 overflow-visible" data-testid="app-main-content">
-          {children}
-        </div>
-        <SidebarHost />
+      <div className="min-h-0 min-w-0 flex-1 overflow-visible" data-testid="app-main-content">
+        {children}
       </div>
-    </main>
+      <SidebarHost />
+    </WindowChromeFrame>
   );
 }
 
@@ -134,27 +108,6 @@ function AppChromeGlobalSearch({
 }>) {
   const visible = position === "leading" ? !macOS : macOS;
   return visible ? <TaskSearchGlobalTrigger /> : null;
-}
-
-// macOS keeps the traffic lights and nav cluster on the left, so the update chip
-// gets its own fixed slot in the free top-right corner. On other platforms the
-// chip rides inside the right-aligned nav cluster (see AppChrome) to avoid
-// overlapping the window controls.
-function AppChromeFloatingUpdateChip({
-  state,
-  visible,
-}: Readonly<{ state: DesktopUpdateState; visible: boolean }>) {
-  if (!visible) {
-    return null;
-  }
-  return (
-    <div
-      className="app-region-no-drag fixed top-[8px] right-[var(--space-4)] z-30 flex h-[22px] items-center"
-      data-testid="app-chrome-update-slot"
-    >
-      <AppUpdateChip state={state} />
-    </div>
-  );
 }
 
 function ProjectDeletionEventHandler() {
@@ -208,22 +161,6 @@ function isPlainPrimaryClick(event: MouseEvent): boolean {
   return event.button === 0 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
 }
 
-function DebugThemeToggle({ label }: Readonly<{ label: string }>) {
-  return (
-    <button
-      aria-label={label}
-      className="grid h-6 w-6 place-items-center rounded-full border border-transparent bg-transparent text-[var(--color-on-island)]"
-      data-testid="app-chrome-debug-theme-toggle"
-      onClick={() => {
-        toggleInMemoryThemeOverride();
-      }}
-      type="button"
-    >
-      <SunMoon aria-hidden="true" size={16} strokeWidth={1.25} />
-    </button>
-  );
-}
-
 function HistoryButtons({
   navigation,
   stack,
@@ -259,15 +196,4 @@ function HistoryButtons({
       </button>
     </div>
   );
-}
-
-async function startNativeWindowDrag(
-  event: PointerEvent<HTMLDivElement>,
-  startDragging: () => Promise<void>,
-): Promise<void> {
-  if (event.button !== 0) {
-    return;
-  }
-  event.preventDefault();
-  await startDragging();
 }

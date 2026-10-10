@@ -17,6 +17,6 @@ export async function openNativeChat(
     maximizable: true,
     resizable: true,
     presentation: "content",
-    titleBar: bridge.capabilities.platform === "macos" ? "integrated" : "native",
+    chrome: "app",
   });
 }

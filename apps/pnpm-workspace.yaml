@@ -6,6 +6,9 @@ packages:
 # Use the installed pnpm when the manifest's reference version differs.
 pmOnFail: warn
 
+# Just also invokes Node directly; dependencies must resolve without pnpm's global-store loader.
+virtualStoreType: project
+
 overrides:
   "@tanstack/history": "1.162.2"
 

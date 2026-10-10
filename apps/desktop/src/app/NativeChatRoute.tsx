@@ -14,8 +14,8 @@ import { useTranslation } from "react-i18next";
 import { SidebarProvider } from "./sidebarProvider";
 import { sidebarDestinationPolicy } from "./sidebarDestinationPolicy";
 import { SidebarHost } from "./sidebar";
-import { appChromeTopTreatmentForPlatform } from "./appChromeStyles";
-import { WindowChromeTitle } from "./WindowChromeTitle";
+import { WindowChromeFrame } from "./WindowChromeFrame";
+import { useWindowChromeUtilities } from "./WindowChromeUtilities";
 import { useNativeChatTitle } from "./useNativeChatTitle";
 
 export function NativeChatRoute({
@@ -76,33 +76,21 @@ export function NativeChatRoute({
 }
 
 function NativeChatFrame({ children }: Readonly<{ children: ReactNode }>) {
-  const { nativeBridge } = useAppServices();
   const title = useCurrentWindowChromeTitle();
-  const macOS = nativeBridge.capabilities.platform === "macos";
-  const topTreatment = appChromeTopTreatmentForPlatform(nativeBridge.capabilities.platform);
+  const utilities = useWindowChromeUtilities();
   useNativeChatTitle(title);
   return (
-    <main
-      className={`window-glass-fill grid h-screen w-screen overflow-hidden ${macOS ? "pt-[var(--native-titlebar-height)]" : ""}`}
-    >
-      {macOS && (
+    <WindowChromeFrame
+      controls={
         <>
-          <div
-            className={topTreatment.classNames.join(" ")}
-            data-effect={topTreatment.effect}
-            style={topTreatment.style}
-          />
-          <div
-            className="app-region-drag fixed inset-x-0 top-0 z-20 h-[var(--native-titlebar-height)]"
-            data-tauri-drag-region
-          />
-          {title !== null && <WindowChromeTitle title={title} macOS contentWindow />}
+          {utilities.inlineUpdate}
+          {utilities.themeToggle}
         </>
-      )}
-      <div className="app-region-no-drag relative flex min-h-0 min-w-0 w-full overflow-hidden">
-        <div className="min-h-0 min-w-0 flex-1 overflow-visible">{children}</div>
-        <SidebarHost />
-      </div>
-    </main>
+      }
+      floatingControls={utilities.floatingUpdate}
+    >
+      <div className="min-h-0 min-w-0 flex-1 overflow-visible">{children}</div>
+      <SidebarHost />
+    </WindowChromeFrame>
   );
 }
