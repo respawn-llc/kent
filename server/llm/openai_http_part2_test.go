@@ -497,6 +497,12 @@ func TestCompactRequestUsesSelectedProtocol(t *testing.T) {
 					{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value("u1")},
 				}),
 			})
+			if protocol == config.ConnectionGrokCLIProxy {
+				if err == nil || captured != nil {
+					t.Fatalf("unsupported proxy compaction must fail without dispatch: %v, %+v", err, captured)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("compact request failed: %v", err)
 			}
@@ -680,7 +686,7 @@ func TestCompactRequestPreservesTypedCheckpointContractReasons(t *testing.T) {
 		},
 	}
 
-	for _, protocol := range []config.ConnectionProtocol{config.ConnectionChatGPT, config.ConnectionGrokCLIProxy} {
+	for _, protocol := range []config.ConnectionProtocol{config.ConnectionChatGPT, config.ConnectionGrokOAuthAPI} {
 		for _, test := range tests {
 			t.Run(string(protocol)+"/"+test.name, func(t *testing.T) {
 				var transport *HTTPTransport
@@ -709,7 +715,7 @@ func TestCompactRequestPreservesTypedCheckpointContractReasons(t *testing.T) {
 				}
 
 				result, err := transport.Compact(context.Background(), testOAuthCompactionRequest(t, "gpt-5.6-sol"))
-				if protocol == config.ConnectionGrokCLIProxy {
+				if protocol == config.ConnectionGrokOAuthAPI {
 					if err != nil || len(result.OutputItems) != test.outputCount {
 						t.Fatalf("Grok output must not use OpenAI checkpoint validation: %+v, %v", result, err)
 					}

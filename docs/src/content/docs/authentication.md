@@ -47,7 +47,11 @@ Kent's built-in catalog includes `grok-4.6` and `grok-4.7`. The subscription pro
 
 Both catalogued models offer `low`, `medium`, `high`, and `xhigh` thinking, vision, reasoning summaries, and native web search. Fast mode requests priority processing with the same model. Verbosity settings do not affect Grok requests.
 
-Native compaction uses the selected connection's `/responses/compact` endpoint and keeps the provider's complete returned context for continuation. Compaction sends the session cache key, effective priority tier, and non-tool request settings. Subscription-proxy compaction and acceptance of these extra request fields are experimental pending live verification.
+Native compaction is available on the public xAI API routes. It uses `/responses/compact` and keeps the provider's complete returned context for continuation. Compaction sends the session cache key, effective priority tier, and non-tool request settings. A failed native compaction reports the error without switching routes or retrying with local compaction.
+
+Native compaction is unavailable on the Grok CLI subscription proxy.
+
+The `/status` Auth section supports ChatGPT subscriptions only. Grok quota display is unavailable. HTTP 403 alone can indicate a permission or safety refusal. Signing in again requires separate evidence of an authentication failure.
 
 Custom thinking accepts manual values for any model. Kent rejects unsupported efforts for catalogued models when sending a request. For uncatalogued models, the provider validates the custom value. Across providers, Disable is available only for models whose supported efforts include `none`. Native web search is incompatible with manually entered `grok-4.5`.
 

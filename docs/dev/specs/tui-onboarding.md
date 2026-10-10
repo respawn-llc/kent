@@ -8,6 +8,8 @@
 - Text fields use the native terminal cursor.
 - Every asynchronous operation shows a loading state.
 - Back navigation follows the startup navigation history.
+- Setup summaries must hide verbosity for models that do not support it.
+- Skill multi-select rows must start with text-symbol checkboxes rather than numbers or literal bracket marks. Provider group headings must not be repeated as prefixes on each skill row.
 
 ## Flow Model
 

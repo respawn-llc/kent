@@ -137,7 +137,7 @@ func IsAuthenticationError(err error) bool {
 			return true
 		}
 		switch providerErr.StatusCode {
-		case 401, 403:
+		case 401:
 			return true
 		}
 	}

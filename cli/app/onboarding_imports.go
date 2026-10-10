@@ -447,7 +447,7 @@ func buildSkillSelectionScreen(state *onboardingFlowState) onboardingScreen {
 		options = append(options, onboardingOption{ID: onboardingToggleAllOptionID, Title: title})
 	}
 	for _, item := range items {
-		options = append(options, onboardingOption{ID: item.ID, Title: item.ProviderLabel + " / " + item.TargetDirName, Group: item.ProviderLabel, Warning: item.Warning})
+		options = append(options, onboardingOption{ID: item.ID, Title: item.TargetDirName, Group: item.ProviderLabel, Warning: item.Warning})
 	}
 	return onboardingScreen{ID: "skills_enabled", Kind: onboardingScreenMulti, Title: "Choose enabled skills", Body: body, Options: options, Selection: selection}
 }

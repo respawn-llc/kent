@@ -319,7 +319,8 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Grok must support image input, tool calls, and Kent's existing native Web Search for supported models. Grok Reasoning Summaries must appear unchanged as Reasoning Traces without requiring OpenAI's bold Thinking Status format.
 - Kent must ignore unsupported Grok configuration options such as verbosity.
 - Grok local context estimates must use its provider's text, image, and encrypted-content accounting without OpenAI's encrypted-envelope deduction. Provider-reported context usage must take precedence over estimates. Compaction policy must not change with estimator selection.
-- Both Grok subscription routes and Grok API-key access must support native compaction through the selected service's `/responses/compact` endpoint. Kent must report rejected compaction without automatic fallback.
+- Grok public-API OAuth and API-key access must support native compaction through the selected service's `/responses/compact` endpoint. The Grok CLI subscription proxy must not advertise or dispatch native compaction. Kent must report rejected compaction without automatic fallback.
+- When current capabilities govern, a configured native mode unsupported by the Grok CLI proxy must resolve to local compaction. A Session whose locked contract selects native compaction must receive an unsupported-compaction error without a proxy-native request. Kent must not migrate that contract or retry a rejected provider request through another compaction mode.
 
 ## Fast Mode And Context Usage
 

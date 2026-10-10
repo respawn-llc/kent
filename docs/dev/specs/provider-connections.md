@@ -36,6 +36,8 @@
 - Grok must identify Kent as the client while sending the selected service's required protocol headers. Kent must send proxy-specific authentication and version headers only to the CLI subscription proxy.
 - If Grok rejects the client's protocol version, Kent must report the update requirement without switching routes or replaying the request.
 - Grok entitlement rejection must include the provider's original readable diagnostic and identify the affected connection. Kent must distinguish subscription or credit requirements from invalid sign-in and must not claim that re-authentication will fix entitlement.
+- HTTP 403 alone must not classify a response as an authentication failure for any provider. Permission or safety refusals without authentication evidence must not direct the user to sign in again.
+- Subscription usage requests must use only ChatGPT subscription credentials. The terminal `/status` Auth section must be hidden for other authentication methods until provider-specific quota support exists.
 - If a terminal Session has saved OAuth credentials, opening it must not attempt refresh. An expired refresh token must not close the terminal, block chat or `/login`, or require deleting saved credentials.
 - If refreshing a terminal Session's saved OAuth credentials fails during a request, Kent must persist a transcript error identifying the Provider Connection, preserving readable original diagnostics, and directing the user to sign in. The error must read: "Failed to authenticate the provider connection: <readable Go error>. Run /login to authenticate connection <conn-id>, used for this session."
 - Provider authentication failure must not automatically retry or replay the failed request or select another connection.

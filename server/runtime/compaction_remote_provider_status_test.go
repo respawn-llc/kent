@@ -274,7 +274,7 @@ func TestMalformedRemoteCompactionCombinesRemoteAndLocalOverflowRepairFacts(t *t
 
 func TestRemoteCompactionInheritsEffectiveFastMode(t *testing.T) {
 	t.Run("OpenAI", testRemoteCompactionInheritsEffectiveFastMode)
-	for _, protocol := range []config.ConnectionProtocol{config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI, config.ConnectionGrokAPIKey} {
+	for _, protocol := range []config.ConnectionProtocol{config.ConnectionGrokOAuthAPI, config.ConnectionGrokAPIKey} {
 		t.Run(string(protocol), func(t *testing.T) {
 			testGrokCompactionCacheDispatch(t, protocol)
 		})

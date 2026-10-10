@@ -40,6 +40,9 @@ func TestGrokConnectionRouteIsIndependentOfCapabilities(t *testing.T) {
 				selected.Variant.BaseURL == nil || *selected.Variant.BaseURL != endpoint {
 				t.Fatalf("selected transport = %+v", selected)
 			}
+			if selected.Variant.Capabilities.SupportsResponsesCompact != (protocol != config.ConnectionGrokCLIProxy) {
+				t.Fatalf("native compaction availability disagrees with selected route: %+v", selected.Variant)
+			}
 			caps, err := ResolveConnectionCapabilities(connection)
 			if err != nil || caps.ProviderID != "chatgpt-codex" {
 				t.Fatalf("request capability override = %+v, %v", caps, err)

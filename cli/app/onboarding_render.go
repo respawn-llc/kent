@@ -196,9 +196,9 @@ func (m *onboardingModel) buildContent(width int) onboardingRenderedContent {
 			}
 			prefix := fmt.Sprintf("%d. ", index+1)
 			if m.currentScreen.Kind == onboardingScreenMulti {
-				prefix += "[ ] "
+				prefix = sharedtheme.CheckboxUncheckedGlyph + " "
 				if m.selection[option.ID] {
-					prefix = fmt.Sprintf("%d. [x] ", index+1)
+					prefix = sharedtheme.CheckboxCheckedGlyph + " "
 				}
 			}
 			style := m.styles.option
@@ -348,7 +348,9 @@ func (m *onboardingModel) renderReviewSummary(width int) []string {
 	if verbosity == "off" {
 		verbosityStyle = m.styles.valueOff
 	}
-	appendRow("Verbosity", verbosity, verbosityStyle)
+	if modelFact.GetVerbosity().GetSupported() {
+		appendRow("Verbosity", verbosity, verbosityStyle)
+	}
 	if m.state.selections.askQuestion {
 		appendRow("Questions", "on", m.styles.valueOn)
 	} else {

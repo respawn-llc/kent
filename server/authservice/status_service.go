@@ -14,6 +14,7 @@ import (
 	"core/server/httpcompression"
 	"core/server/llm"
 	"core/shared/authstatus"
+	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	"core/shared/textutil"
 
@@ -72,7 +73,7 @@ func (s *StatusService) GetStatus(ctx context.Context, req *authpb.GetStatusRequ
 	if snapshot.failure != nil {
 		resolution.PartialFailure = authStatusFailure(snapshot.failure)
 	}
-	return &authpb.Status{Resolution: resolution, Subscription: subscriptionStatus(ctx, snapshot.oauth, !req.SkipSubscriptionUsage)}, nil
+	return &authpb.Status{Resolution: resolution, Subscription: subscriptionStatus(ctx, snapshot.oauth, definition.Protocol == config.ConnectionChatGPT && !req.SkipSubscriptionUsage)}, nil
 }
 
 func subscriptionStatus(

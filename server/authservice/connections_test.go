@@ -23,6 +23,12 @@ import (
 )
 
 func TestGrokConnectionCredentialIsolation(t *testing.T) {
+	transport := http.DefaultTransport
+	http.DefaultTransport = httpclient.RoundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Error("Grok status must not query ChatGPT subscription usage")
+		return nil, errors.New("unexpected subscription usage request")
+	})
+	t.Cleanup(func() { http.DefaultTransport = transport })
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "config.toml"), nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -72,6 +78,12 @@ func TestGrokConnectionCredentialIsolation(t *testing.T) {
 			}
 			if credential == nil || credential.Header != "Bearer "+expected || credential.Mode.AccountID != "" {
 				t.Fatalf("wrong selected credential: %+v", credential)
+			}
+			authStatus, err := NewStatusService(resolver).GetStatus(t.Context(), &authpb.GetStatusRequest{
+				Provider: &authpb.ProviderSelection{ConnectionId: string(id)},
+			})
+			if err != nil || authStatus.GetResolution().GetKnown() == nil || authStatus.GetSubscription().GetApplicable() {
+				t.Fatalf("unsupported Grok subscription status = %+v, %v", authStatus, err)
 			}
 			if connection.Definition.Protocol.IsSubscription() {
 				service := NewBootstrapService(t.Context(), resolver, auth.OpenAIOAuthOptions{})

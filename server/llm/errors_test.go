@@ -14,8 +14,8 @@ func TestIsAuthenticationError(t *testing.T) {
 	if !IsAuthenticationError(&ProviderAPIError{ProviderID: "openai", StatusCode: 401, Code: UnifiedErrorCodeUnknown}) {
 		t.Fatal("expected 401 to be auth error")
 	}
-	if !IsAuthenticationError(&ProviderAPIError{ProviderID: "openai", StatusCode: 403, Code: UnifiedErrorCodeUnknown}) {
-		t.Fatal("expected 403 to be auth error")
+	if IsAuthenticationError(&ProviderAPIError{ProviderID: "openai", StatusCode: 403, Code: UnifiedErrorCodeUnknown}) {
+		t.Fatal("403 alone must not be an auth error")
 	}
 	if IsAuthenticationError(&ProviderAPIError{ProviderID: "openai", StatusCode: 429, Code: UnifiedErrorCodeUnknown}) {
 		t.Fatal("did not expect 429 to be auth error")

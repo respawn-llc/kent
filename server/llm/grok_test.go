@@ -141,6 +141,7 @@ func TestGrokFailuresKeepDiagnosticsWithoutRetryOrAuthFallback(t *testing.T) {
 		auth   bool
 	}{
 		{"expired sign-in", 401, `{"error":{"code":"invalid_token","message":"fixture expired token"}}`, "invalid_token", true},
+		{"safety refusal", 403, `{"error":"fixture safety refusal","code":"permission-denied"}`, "permission-denied", false},
 		{"subscription spending limit", 402, `{"error":"fixture credit requirement","code":"personal-team-blocked:spending-limit"}`, "personal-team-blocked:spending-limit", false},
 		{"subscription entitlement", 403, `{"error":"fixture entitlement requirement","code":"personal-team-blocked:spending-limit"}`, "personal-team-blocked:spending-limit", false},
 		{"protocol version", 426, `{"error":"fixture client update required","code":"client_version_unsupported"}`, "client_version_unsupported", false},
@@ -462,6 +463,7 @@ func TestGrokDispatchUsesSelectedRouteAndSupportedPayload(t *testing.T) {
 				for name, expected := range map[string]string{
 					"x-xai-token-auth": "xai-grok-cli", "x-grok-client-version": "1.0.46",
 					"x-grok-model-override": "grok-4.7", "x-grok-agent-id": "kent-fixture",
+					"x-grok-conv-id": "fixture", "x-grok-session-id": "fixture",
 				} {
 					if !proxy {
 						expected = ""

@@ -291,12 +291,12 @@ func (m *onboardingModel) submitCurrentScreen() (tea.Model, tea.Cmd) {
 		m.state.pendingAction = onboardingPendingActionNone
 		m.finalizing = true
 		m.finalizingLabel = "Writing default configuration..."
-		return m, m.finalizeCmd(true)
+		return m, tea.Batch(m.finalizeCmd(true), tickOnboardingSpinner(spinnerTickInterval))
 	case onboardingPendingActionWriteCustom:
 		m.state.pendingAction = onboardingPendingActionNone
 		m.finalizing = true
 		m.finalizingLabel = "Saving first-time setup..."
-		return m, m.finalizeCmd(false)
+		return m, tea.Batch(m.finalizeCmd(false), tickOnboardingSpinner(spinnerTickInterval))
 	default:
 		m.stepIndex++
 		m.syncScreen(true)

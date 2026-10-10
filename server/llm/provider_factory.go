@@ -219,16 +219,20 @@ func providerContracts() []ProviderContract {
 
 func grokVariant(protocol config.ConnectionProtocol, endpoint string) ProviderVariantContract {
 	id := string(protocol)
+	compaction := remoteCompactionStandardResponses
+	if protocol == config.ConnectionGrokCLIProxy {
+		compaction = remoteCompactionUnsupported
+	}
 	return ProviderVariantContract{
 		ProviderID: id, BaseURL: textutil.Value(endpoint),
 		ResponsesPolicy:          grokResponsesPolicy{},
 		TokenEstimator:           GrokTokenEstimator{},
 		RequestCompression:       httpcompression.ContentCodingIdentity,
-		RemoteCompactionProtocol: remoteCompactionStandardResponses,
+		RemoteCompactionProtocol: compaction,
 		Capabilities: ProviderCapabilities{
 			ProviderID: id, SupportsResponsesAPI: true, SupportsReasoningEncrypted: true,
 			SupportsPromptCacheKey: true, SupportsFastMode: true,
-			SupportsResponsesCompact: true, SupportsNativeWebSearch: true,
+			SupportsResponsesCompact: compaction != remoteCompactionUnsupported, SupportsNativeWebSearch: true,
 		},
 		NewErrorReducer: newGrokErrorReducer,
 	}

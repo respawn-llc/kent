@@ -103,12 +103,19 @@ func (grokResponsesPolicy) requestOptions(identifier string, request ResponsesRe
 	if preparation.variant.ProviderID != string(config.ConnectionGrokCLIProxy) {
 		return nil
 	}
-	return []option.RequestOption{
+	opts := []option.RequestOption{
 		option.WithHeader("x-xai-token-auth", "xai-grok-cli"),
 		option.WithHeader("x-grok-client-version", "1.0.46"),
 		option.WithHeader("x-grok-model-override", request.Model),
 		option.WithHeader("x-grok-agent-id", identifier),
 	}
+	if request.SessionID != nil {
+		opts = append(opts,
+			option.WithHeader("x-grok-conv-id", *request.SessionID),
+			option.WithHeader("x-grok-session-id", *request.SessionID),
+		)
+	}
+	return opts
 }
 
 func (openAIResponsesPolicy) configurePayload(b responsesRequestPayloadBuilder, request ResponsesRequest, mode OpenAIAuthMode, out *responses.ResponseNewParams) error {
