@@ -897,7 +897,7 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 	if err != nil {
 		t.Fatalf("read reopened selected event log revision: %v", err)
 	}
-	if got := reopenedSelected.Meta(); got.Name != selectedBefore.Name ||
+	if got := reopenedSelected.Meta(); !reflect.DeepEqual(got.Name, selectedBefore.Name) ||
 		!reflect.DeepEqual(got.PreviousSessionID, selectedBefore.PreviousSessionID) ||
 		!reflect.DeepEqual(got.ParentAgentSessionID, selectedBefore.ParentAgentSessionID) ||
 		got.Continuation == nil ||

@@ -19,7 +19,7 @@ type blockingOrderedSessionObserver struct {
 	blockNext bool
 	blocked   chan struct{}
 	release   chan struct{}
-	persisted chan string
+	persisted chan *string
 }
 
 type fixedPersistedSessionResolver struct {
@@ -90,7 +90,7 @@ func newBlockingOrderedSessionObserver(store *Store) *blockingOrderedSessionObse
 		store:     store,
 		blocked:   make(chan struct{}),
 		release:   make(chan struct{}),
-		persisted: make(chan string, 3),
+		persisted: make(chan *string, 3),
 	}
 }
 
@@ -116,7 +116,7 @@ func (o *blockingOrderedSessionObserver) ObservePersistedStore(ctx context.Conte
 	if err := o.store.ImportSessionSnapshot(ctx, snapshot); err != nil {
 		return err
 	}
-	o.persisted <- *snapshot.Meta.Name
+	o.persisted <- snapshot.Meta.Name
 	return nil
 }
 
@@ -447,7 +447,7 @@ func TestConcurrentSessionPersistencePublishesSnapshotsInMutationOrder(t *testin
 	if err := <-secondDone; err != nil {
 		t.Fatalf("second SetName: %v", err)
 	}
-	persistedNames := make([]string, 0, 2)
+	persistedNames := make([]*string, 0, 2)
 	for len(persistedNames) < 2 {
 		select {
 		case name := <-observer.persisted:
@@ -456,8 +456,9 @@ func TestConcurrentSessionPersistencePublishesSnapshotsInMutationOrder(t *testin
 			t.Fatal("persistence observations did not complete")
 		}
 	}
-	if persistedNames[0] != "first update" || persistedNames[1] != "second update" {
-		t.Fatalf("persisted names = %q, want mutation order", persistedNames)
+	if persistedNames[0] == nil || *persistedNames[0] != "first update" ||
+		persistedNames[1] == nil || *persistedNames[1] != "second update" {
+		t.Fatalf("persisted names = %v, want mutation order", persistedNames)
 	}
 
 	reopened, err := session.OpenByID(
