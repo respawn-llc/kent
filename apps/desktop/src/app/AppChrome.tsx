@@ -6,7 +6,9 @@ import { useTranslation } from "react-i18next";
 
 import { TaskSearchGlobalTrigger, TaskSearchHost, TaskSearchProvider } from "@/features/board";
 import { AttentionController } from "./AttentionController";
-import { useWindowChromeUtilities } from "./WindowChromeUtilities";
+import { WindowChromeThemeToggle } from "./WindowChromeThemeToggle";
+import { AppUpdateChip } from "./AppUpdateChip";
+import { useDesktopUpdate, type DesktopUpdateState } from "./useDesktopUpdate";
 import { WindowChromeFrame } from "./WindowChromeFrame";
 import { MainWindowNavigation } from "./MainWindowNavigation";
 import { SessionChatCatalogReturnProvider, useAppNavigation, useNavigationStackState } from "@/app-facade";
@@ -36,15 +38,15 @@ export function AppChrome({ children }: AppChromeProps) {
 
 function AppChromeContent({ children }: AppChromeProps) {
   const { t } = useTranslation();
-  const { nativeBridge } = useAppServices();
+  const { nativeBridge, logger } = useAppServices();
   const navigation = useAppNavigation();
   const stack = useNavigationStackState();
   const macOS = nativeBridge.capabilities.platform === "macos";
   const action = useCurrentWindowChromeAction();
-  const utilities = useWindowChromeUtilities();
+  const update = useDesktopUpdate(nativeBridge, logger);
   return (
     <WindowChromeFrame
-      floatingControls={utilities.floatingUpdate}
+      floatingControls={<AppChromeFloatingUpdateChip state={update} visible={macOS} />}
       controls={
         <>
           <AppChromeGlobalSearch macOS={macOS} position="leading" />
@@ -57,7 +59,7 @@ function AppChromeContent({ children }: AppChromeProps) {
               stack={stack}
             />
           ) : null}
-          {utilities.inlineUpdate}
+          {!macOS ? <AppUpdateChip state={update} /> : null}
           <Link
             aria-label={t("app.home")}
             className="grid h-6 w-6 place-items-center rounded-full border border-transparent text-[var(--color-on-island)]"
@@ -83,7 +85,7 @@ function AppChromeContent({ children }: AppChromeProps) {
           ) : null}
           <AppChromeGlobalSearch macOS={macOS} position="trailing" />
           {action}
-          {utilities.themeToggle}
+          <WindowChromeThemeToggle />
         </>
       }
     >
@@ -108,6 +110,20 @@ function AppChromeGlobalSearch({
 }>) {
   const visible = position === "leading" ? !macOS : macOS;
   return visible ? <TaskSearchGlobalTrigger /> : null;
+}
+
+function AppChromeFloatingUpdateChip({
+  state,
+  visible,
+}: Readonly<{ state: DesktopUpdateState; visible: boolean }>) {
+  return visible ? (
+    <div
+      className="app-region-no-drag fixed top-[8px] right-[var(--space-4)] z-30 flex h-[22px] items-center"
+      data-testid="app-chrome-update-slot"
+    >
+      <AppUpdateChip state={state} />
+    </div>
+  ) : null;
 }
 
 function ProjectDeletionEventHandler() {

@@ -129,7 +129,6 @@ export type NativeBridge = Readonly<{
     closeCurrent(): Promise<void>;
     isFocused(): Promise<boolean>;
     focusMain(): Promise<void>;
-    setCurrentTitle(title: string): Promise<void>;
     requestMainNavigation(destination: NativeMainNavigation): Promise<void>;
     mainNavigationRequests(
       reportOverflow: NativeOverflowReporter,
@@ -280,9 +279,6 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
       },
       isFocused: browserWindowFocus.isFocused,
       focusMain: browserWindowFocus.focusMain,
-      async setCurrentTitle(): Promise<void> {
-        return Promise.resolve();
-      },
       async requestMainNavigation(): Promise<void> {
         throw new Error("Native navigation is unavailable in this shell.");
       },
@@ -380,9 +376,6 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
       },
       isFocused: tauriWindowFocus.isFocused,
       focusMain: tauriWindowFocus.focusMain,
-      async setCurrentTitle(title: string): Promise<void> {
-        await getCurrentWindow().setTitle(title);
-      },
       async requestMainNavigation(destination: NativeMainNavigation): Promise<void> {
         await emitTo("main", mainNavigationEvent, destination);
       },

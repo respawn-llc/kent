@@ -2,21 +2,14 @@ import { useMemo, type ReactNode } from "react";
 import type { NativeMainNavigation } from "@app/native-bridge";
 import { useStableCallback } from "@/ui";
 import { ChatDestination } from "@/features/chat";
-import {
-  SidebarRootOwner,
-  useAppServices,
-  useCurrentWindowChromeTitle,
-  openNativeChat,
-  useStatusController,
-} from "@/app-facade";
+import { SidebarRootOwner, useAppServices, openNativeChat, useStatusController } from "@/app-facade";
 import { errorMessage } from "@/api";
 import { useTranslation } from "react-i18next";
 import { SidebarProvider } from "./sidebarProvider";
 import { sidebarDestinationPolicy } from "./sidebarDestinationPolicy";
 import { SidebarHost } from "./sidebar";
 import { WindowChromeFrame } from "./WindowChromeFrame";
-import { useWindowChromeUtilities } from "./WindowChromeUtilities";
-import { useNativeChatTitle } from "./useNativeChatTitle";
+import { WindowChromeThemeToggle } from "./WindowChromeThemeToggle";
 
 export function NativeChatRoute({
   projectID,
@@ -76,19 +69,8 @@ export function NativeChatRoute({
 }
 
 function NativeChatFrame({ children }: Readonly<{ children: ReactNode }>) {
-  const title = useCurrentWindowChromeTitle();
-  const utilities = useWindowChromeUtilities();
-  useNativeChatTitle(title);
   return (
-    <WindowChromeFrame
-      controls={
-        <>
-          {utilities.inlineUpdate}
-          {utilities.themeToggle}
-        </>
-      }
-      floatingControls={utilities.floatingUpdate}
-    >
+    <WindowChromeFrame controls={<WindowChromeThemeToggle />}>
       <div className="min-h-0 min-w-0 flex-1 overflow-visible">{children}</div>
       <SidebarHost />
     </WindowChromeFrame>
