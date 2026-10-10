@@ -324,13 +324,6 @@ func (state deleteTargetState) assertUnchanged(t *testing.T, env *serviceTestEnv
 	if !proto.Equal(target, state.sessionTarget) {
 		t.Fatalf("busy session target changed after rejected delete: before=%+v after=%+v", state.sessionTarget, target)
 	}
-	currentReminder := readDeleteActivityReminder(t, env, sessionID)
-	if (state.reminder == nil) != (currentReminder == nil) {
-		t.Fatalf("session Worktree reminder presence changed after rejected delete: before=%+v after=%+v", state.reminder, currentReminder)
-	}
-	if state.reminder != nil && !session.WorktreeReminderStateEqual(*state.reminder, *currentReminder) {
-		t.Fatalf("session Worktree reminder changed after rejected delete: before=%+v after=%+v", state.reminder, currentReminder)
-	}
 	topology := findWorktreeByID(t, mustListWorktrees(t, env).Worktrees, worktreeID)
 	if !reflect.DeepEqual(topology, state.topology) {
 		t.Fatalf("busy worktree topology changed after rejected delete: before=%+v after=%+v", state.topology, topology)
@@ -351,6 +344,17 @@ func (state deleteTargetState) assertUnchanged(t *testing.T, env *serviceTestEnv
 	}
 	if _, err := os.Stat(state.root); err != nil {
 		t.Fatalf("busy worktree root changed after rejected delete: %v", err)
+	}
+}
+
+func (state deleteTargetState) assertReminderUnchanged(t *testing.T, env *serviceTestEnv, sessionID string) {
+	t.Helper()
+	current := readDeleteActivityReminder(t, env, sessionID)
+	if (state.reminder == nil) != (current == nil) {
+		t.Fatalf("session Worktree reminder presence changed after rejected delete: before=%+v after=%+v", state.reminder, current)
+	}
+	if state.reminder != nil && !session.WorktreeReminderStateEqual(*state.reminder, *current) {
+		t.Fatalf("session Worktree reminder changed after rejected delete: before=%+v after=%+v", state.reminder, current)
 	}
 }
 
@@ -793,6 +797,8 @@ func TestDeleteWorktreeRejectsAcceptedPendingTransitionBeforeMovingSessions(t *t
 	assertDeleteBlockedBySession(t, result.err, blockedSessionID)
 	idleState.assertUnchanged(t, env, idleSessionID, target.WorktreeID)
 	blockedState.assertUnchanged(t, env, blockedSessionID, target.WorktreeID)
+	idleState.assertReminderUnchanged(t, env, idleSessionID)
+	blockedState.assertReminderUnchanged(t, env, blockedSessionID)
 	select {
 	case <-gate.started:
 		t.Error("delete released the accepted Worktree transition")
@@ -833,6 +839,8 @@ func TestDeleteWorktreeRejectsInProgressTransitionBeforeMovingSessions(t *testin
 	assertDeleteBlockedBySession(t, result.err, blockedSessionID)
 	idleState.assertUnchanged(t, env, idleSessionID, target.WorktreeID)
 	blockedState.assertUnchanged(t, env, blockedSessionID, target.WorktreeID)
+	idleState.assertReminderUnchanged(t, env, idleSessionID)
+	blockedState.assertReminderUnchanged(t, env, blockedSessionID)
 	select {
 	case <-gate.done:
 		t.Errorf("delete released the in-progress Worktree transition: %v", gate.err)
@@ -915,6 +923,8 @@ func TestDeleteWorktreeRejectsAcceptedQueuedInputBeforeMovingSessions(t *testing
 	}
 	idleState.assertUnchanged(t, env, idleSessionID, target.WorktreeID)
 	blockedState.assertUnchanged(t, env, blockedSessionID, target.WorktreeID)
+	idleState.assertReminderUnchanged(t, env, idleSessionID)
+	blockedState.assertReminderUnchanged(t, env, blockedSessionID)
 	select {
 	case <-client.requests:
 		t.Fatal("accepted input began provider work while maintenance remained held")
@@ -1016,6 +1026,8 @@ func TestDeleteWorktreeRejectsSelectedWorkflowBeforeProviderWork(t *testing.T) {
 	assertDeleteBlockedBySession(t, result.err, blockedSessionID)
 	idleState.assertUnchanged(t, env, idleSessionID, target.WorktreeID)
 	blockedState.assertUnchanged(t, env, blockedSessionID, target.WorktreeID)
+	idleState.assertReminderUnchanged(t, env, idleSessionID)
+	blockedState.assertReminderUnchanged(t, env, blockedSessionID)
 	select {
 	case <-client.requests:
 		t.Fatal("Workflow requested provider work before reaching its held execution boundary")
