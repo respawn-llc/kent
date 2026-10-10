@@ -108,6 +108,42 @@ endpoint = "http://localhost:1234/v1"
 	}
 }
 
+func TestConvertGlobalConnectionsPreservesConfiguredSets(t *testing.T) {
+	anonymous, apiKey, oauth := LegacyConnectionAnonymous, LegacyConnectionAPIKey, LegacyConnectionOAuth
+	for _, auth := range []*LegacyConnectionAuth{nil, &anonymous, &apiKey, &oauth} {
+		_, workspace, path := newConfigTestFile(t)
+		source := `connection = ["qa-a", "qa-z", "qa-a", "unknown"]
+model = "local-model"
+[connections.qa-z]
+protocol = "responses"
+endpoint = "http://localhost:8000/v1"
+[connections.qa-a]
+protocol = "responses"
+endpoint = "http://localhost:8000/v1"
+[subagents.worker]
+connection = ["qa-a", "qa-z"]
+model = "local-model"
+`
+		writeConfigTestFile(t, path, source)
+		changed, err := ConvertGlobalConnections(path, auth)
+		if err != nil || changed {
+			t.Fatalf("convert configured sets with auth %v: changed=%v error=%v", auth, changed, err)
+		}
+		app := loadConfigTestApp(t, workspace, LoadOptions{})
+		members, err := app.Settings.ConnectionMembers()
+		if err != nil || !reflect.DeepEqual(members, []ConnectionID{"qa-z", "qa-a"}) {
+			t.Fatalf("loaded members = %v, %v", members, err)
+		}
+		if !reflect.DeepEqual(*app.Settings.Subagents["worker"].Settings.Connection, ConnectionSelection{"qa-a", "qa-z"}) {
+			t.Fatal("role selection changed during startup conversion")
+		}
+		got, err := os.ReadFile(path)
+		if err != nil || string(got) != source {
+			t.Fatalf("conversion modified authored configuration: %v", err)
+		}
+	}
+}
+
 func TestConvertGlobalRoleAndReviewerConnectionsPreservesAuthoredSource(t *testing.T) {
 	_, workspace, path := newConfigTestFile(t)
 	source := `# Root config retains its authored representation.

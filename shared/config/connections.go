@@ -148,43 +148,47 @@ func newConnectionReference(key string, allowSet bool, apply func(*settingsState
 		key: key, apply: apply, get: get,
 		equal: func(a, b *ConnectionSelection) bool { return a == b || a != nil && b != nil && slices.Equal(*a, *b) },
 		decodeFile: func(raw settingsFile, path []string) (*ConnectionSelection, bool, error) {
-			value, present, err := lookupFileValue(raw, path)
-			if err != nil || !present {
-				return nil, present, err
-			}
-			var values []any
-			switch value := value.(type) {
-			case string:
-				values = []any{value}
-			case []any:
-				if !allowSet {
-					return nil, false, &SettingsKeyTypeError{Key: key, ExpectedType: "string"}
-				}
-				values = value
-			default:
-				return nil, false, &SettingsKeyTypeError{Key: key, ExpectedType: "string or array of strings"}
-			}
-			if len(values) == 0 {
-				return nil, false, fmt.Errorf("%s must contain at least one connection ID", key)
-			}
-			selection := ConnectionSelection{}
-			for _, value := range values {
-				text, ok := value.(string)
-				if !ok {
-					return nil, false, &SettingsKeyTypeError{Key: key, ExpectedType: "array of strings"}
-				}
-				id, err := ParseConnectionID(text)
-				if err != nil {
-					return nil, false, err
-				}
-				if !slices.Contains(selection, id) {
-					selection = append(selection, id)
-				}
-			}
-			return &selection, true, nil
+			return lookupFileConnectionSelection(raw, path, key, allowSet)
 		},
 		doc: settingDocOptions{omitInTOML: true},
 	}
+}
+
+func lookupFileConnectionSelection(raw settingsFile, path []string, key string, allowSet bool) (*ConnectionSelection, bool, error) {
+	value, present, err := lookupFileValue(raw, path)
+	if err != nil || !present {
+		return nil, present, err
+	}
+	var values []any
+	switch value := value.(type) {
+	case string:
+		values = []any{value}
+	case []any:
+		if !allowSet {
+			return nil, false, &SettingsKeyTypeError{Key: key, ExpectedType: "string"}
+		}
+		values = value
+	default:
+		return nil, false, &SettingsKeyTypeError{Key: key, ExpectedType: "string or array of strings"}
+	}
+	if len(values) == 0 {
+		return nil, false, fmt.Errorf("%s must contain at least one connection ID", key)
+	}
+	selection := ConnectionSelection{}
+	for _, value := range values {
+		text, ok := value.(string)
+		if !ok {
+			return nil, false, &SettingsKeyTypeError{Key: key, ExpectedType: "array of strings"}
+		}
+		id, err := ParseConnectionID(text)
+		if err != nil {
+			return nil, false, err
+		}
+		if !slices.Contains(selection, id) {
+			selection = append(selection, id)
+		}
+	}
+	return &selection, true, nil
 }
 
 type connectionsSetting struct{}
