@@ -8,6 +8,7 @@ import "kent/api/auth/auth.proto";
 import "kent/api/server/server.proto";
 import "kent/api/project/project.proto";
 import "kent/api/shared/foundation.proto";
+import "kent/api/shared/session_selector.proto";
 import "kent/api/shared/validation.proto";
 import "kent/api/session_launch/validation.proto";
 import "kent/api/session_launch/session_launch.proto";
@@ -301,7 +302,7 @@ message SessionResolveTransitionResult {
 }
 
 message SessionRuntimeActivateRequest {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
   Settings active_settings = 3 [(buf.validate.field).required = true];
   repeated ToolID enabled_tool_ids = 4 [(buf.validate.field).repeated.items.enum = {
     defined_only: true
@@ -469,7 +470,7 @@ message SessionDeleteSuccess {
 }
 
 message SessionNotFoundDetails {
-  string session_id = 1 [(buf.validate.field).string.(scoped_session_id) = true];
+  optional string session_id = 1 [(buf.validate.field).string.(scoped_session_id) = true];
 }
 
 message SessionInUseDetails {

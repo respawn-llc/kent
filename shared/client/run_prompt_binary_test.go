@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"buf.build/go/protovalidate"
+	"core/internal/testharness/requestfixture"
 	"core/shared/protoapi"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -50,10 +51,10 @@ func TestRunPromptRejectsMalformedExpectedProgress(t *testing.T) {
 	}
 	defer remote.Close()
 	var delivered atomic.Int32
-	result, err := remote.RunPrompt(ctx, serverapi.RunPromptRequest{
+	result, err := remote.RunPrompt(ctx, requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 		Prompt: "continue",
-	}, serverapi.RunPromptProgressFunc(func(*runpromptpb.ProgressEvent) { delivered.Add(1) }))
+	}), serverapi.RunPromptProgressFunc(func(*runpromptpb.ProgressEvent) { delivered.Add(1) }))
 	var invalid *protovalidate.ValidationError
 	if !errors.As(err, &invalid) || result != nil || delivered.Load() != 0 {
 		t.Fatalf("malformed progress: result=%v error=%v delivered=%d", result, err, delivered.Load())

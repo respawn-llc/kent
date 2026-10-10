@@ -89,7 +89,7 @@ func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionR
 	if s == nil || s.authority == nil {
 		return serverapi.SessionRuntimeAttachment{}, errors.New("session runtime authority is required")
 	}
-	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(req.SessionID))
+	sessionID, err := s.metadataStore.ResolveSessionSelector(ctx, req.SessionID)
 	if err != nil {
 		return serverapi.SessionRuntimeAttachment{}, err
 	}

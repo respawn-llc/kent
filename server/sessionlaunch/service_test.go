@@ -20,6 +20,7 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
@@ -49,7 +50,7 @@ func newSessionLaunchTestService(cfg config.App, containerDir string) *Service {
 		StoreOptions:      serviceTestPersistence.Options(),
 		PersistedSessions: serviceTestPersistence,
 		SessionProjects:   sessionLaunchProjectResolver{}, ManagedWorktreeRoots: sessionLaunchProjectResolver{},
-	}, ChatSettingsOwner{})
+	}, ChatSettingsOwner{}, nil)
 }
 
 type sessionLaunchProjectResolver struct{}
@@ -68,7 +69,7 @@ func TestServicePlanSessionProjectsTypedOptionalSessionName(t *testing.T) {
 	containerDir := filepath.Join(root, "sessions")
 	store := createLaunchTestSession(t, containerDir, "initial", workspace)
 	service := newSessionLaunchTestService(loadSessionLaunchTestConfig(t, workspace, root), containerDir)
-	intent, err := protoapi.SessionLaunchIntentToProto(
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(
 		serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, store.Meta().SessionID)),
 	)
 	if err != nil {
@@ -218,7 +219,7 @@ func TestPlanLaunchSessionReturnsNoSessionWhenOrdinaryCreationPersistenceFails(t
 		},
 		PersistedSessions: persistence,
 		SessionProjects:   sessionLaunchProjectResolver{}, ManagedWorktreeRoots: sessionLaunchProjectResolver{},
-	}, ChatSettingsOwner{})
+	}, ChatSettingsOwner{}, nil)
 
 	result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
 		Mode:   launch.ModeInteractive,
@@ -264,7 +265,8 @@ func TestPlanLaunchSessionMakesInitialChatVisibleWithoutDraft(t *testing.T) {
 		StoreOptions:      metadataStore.AuthoritativeSessionStoreOptions(),
 		PersistedSessions: metadataStore,
 		SessionProjects:   metadataStore, ManagedWorktreeRoots: metadataStore,
-	}, ChatSettingsOwner{})
+	}, ChatSettingsOwner{}, metadataStore,
+	)
 
 	result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
 		Mode:   launch.ModeInteractive,
@@ -294,6 +296,25 @@ func TestPlanLaunchSessionMakesInitialChatVisibleWithoutDraft(t *testing.T) {
 	if len(page.Sessions) != 1 ||
 		page.Sessions[0].SessionID != result.Plan.Descriptor.SessionID() {
 		t.Fatalf("visible Sessions = %+v, want created initial Chat", page.Sessions)
+	}
+	record, err := metadataStore.ResolvePersistedSession(t.Context(), result.Plan.Descriptor.SessionID().String())
+	if err != nil || record.ShortID == nil {
+		t.Fatalf("created Session projection = %+v, %v", record, err)
+	}
+	for _, raw := range []string{record.ShortID.String(), "000" + record.ShortID.String(), record.Meta.SessionID} {
+		selector, err := runtimeids.ParseSessionSelector(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resumed, err := service.PlanSession(t.Context(), &sessionlaunchpb.SessionPlanRequest{
+			Mode: sessionlaunchpb.SessionLaunchMode_SESSION_LAUNCH_MODE_INTERACTIVE,
+			Intent: &sessionlaunchpb.SessionLaunchRequestIntent{Intent: &sessionlaunchpb.SessionLaunchRequestIntent_OpenExistingSessionId{
+				OpenExistingSessionId: protoapi.SessionSelectorToProto(selector),
+			}},
+		})
+		if err != nil || resumed.Plan.SessionId != record.Meta.SessionID {
+			t.Fatalf("resume %s = %v, %v", raw, resumed, err)
+		}
 	}
 }
 
@@ -330,7 +351,7 @@ func TestPlanLaunchSessionRebasesRemovedInitialAgentToReloadedDefaultBaseline(t 
 			reloads++
 			return current, nil
 		},
-	}, ChatSettingsOwner{})
+	}, ChatSettingsOwner{}, nil)
 	fast := true
 	thinking := "high"
 
@@ -433,7 +454,7 @@ func TestPlanLaunchSessionUsesOneConfigSnapshotForNamedRole(t *testing.T) {
 			}
 			return snapshot, nil
 		},
-	}, ChatSettingsOwner{})
+	}, ChatSettingsOwner{}, nil)
 	role := "worker"
 
 	response, err := service.PlanLaunchSession(context.Background(), PlanRequest{
@@ -557,7 +578,8 @@ func TestPlanLaunchSessionUsesResolvedCallerWorkflowOrigin(t *testing.T) {
 		StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
 		PersistedSessions: meta,
 		SessionProjects:   meta, ManagedWorktreeRoots: meta,
-	}, ChatSettingsOwner{})
+	}, ChatSettingsOwner{}, meta,
+	)
 	workflowCallerID := workflowCaller.Meta().SessionID
 	workflowCallerRuntimeID := mustSessionLaunchIntentID(t, workflowCallerID)
 	ordinaryCallerID := ordinaryCaller.Meta().SessionID
@@ -602,7 +624,8 @@ func TestPlanLaunchSessionUsesResolvedCallerWorkflowOrigin(t *testing.T) {
 			blockedService := NewService(launch.Planner{
 				Config: cfg, ContainerDir: containerDir, StoreOptions: meta.AuthoritativeSessionStoreOptions(),
 				PersistedSessions: meta, SessionProjects: meta, ManagedWorktreeRoots: meta,
-			}, settingsOwner)
+			}, settingsOwner, meta,
+			)
 			plan, err := blockedService.PlanLaunchSession(ctx, PlanRequest{
 				Mode:            launch.ModeHeadless,
 				Intent:          serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, removed.Meta().SessionID)),
@@ -639,7 +662,8 @@ func TestPlanLaunchSessionUsesResolvedCallerWorkflowOrigin(t *testing.T) {
 		service := NewService(launch.Planner{
 			Config: cfg, ContainerDir: containerDir, StoreOptions: meta.AuthoritativeSessionStoreOptions(),
 			PersistedSessions: meta, SessionProjects: meta, ManagedWorktreeRoots: meta,
-		}, ChatSettingsOwner{})
+		}, ChatSettingsOwner{}, meta,
+		)
 		intent := serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, removed.Meta().SessionID))
 		_, err := service.PlanLaunchSession(ctx, PlanRequest{
 			Mode: launch.ModeHeadless, Intent: intent, CallerSessionID: &workflowCallerID,

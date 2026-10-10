@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"sync"
 	"testing"
@@ -112,7 +113,7 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SessionLaunchClientForProjectWorkspace: %v", err)
 	}
-	intent, err := protoapi.SessionLaunchIntentToProto(
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(
 		serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	)
 	if err != nil {
@@ -141,7 +142,7 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 
 	const ownerID = "chat-settings-acceptance-test"
 	activation, err := appCore.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID:             sessionID.String(),
+		SessionID:             requestfixture.SessionID(t, sessionID.String()),
 		OwnerID:               ownerID,
 		ActiveSettings:        resolved.Config.Settings,
 		QuestionsEnabled:      textutil.Value(initialQuestions),

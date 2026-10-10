@@ -9,6 +9,7 @@ import "kent/api/chat_settings/chat_settings.proto";
 import "kent/api/project/project.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
+import "kent/api/shared/session_selector.proto";
 import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/session_launch;sessionlaunchpb";
@@ -44,6 +45,23 @@ message SessionLaunchIntent {
       (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
     ];
+  }
+}
+
+message SessionCreateRequestOrigin {
+  oneof origin {
+    option (buf.validate.oneof).required = true;
+    google.protobuf.Empty independent = 1;
+    kent.api.shared.SessionSelector previous_session_id = 2;
+    kent.api.shared.SessionSelector parent_agent_session_id = 3;
+  }
+}
+
+message SessionLaunchRequestIntent {
+  oneof intent {
+    option (buf.validate.oneof).required = true;
+    SessionCreateRequestOrigin create_new = 1;
+    kent.api.shared.SessionSelector open_existing_session_id = 2;
   }
 }
 
@@ -365,7 +383,7 @@ message SessionPlanRequest {
       not_in: [0]
     }
   ];
-  SessionLaunchIntent intent = 2 [(buf.validate.field).required = true];
+  SessionLaunchRequestIntent intent = 2 [(buf.validate.field).required = true];
   optional string caller_session_id = 3 [(buf.validate.field).string.min_len = 1];
   RunPromptOverrides overrides = 4;
   kent.api.chat_settings.InitialChatSettings initial_chat_settings = 5;

@@ -59,7 +59,7 @@ func startRunPromptClientWithWorkspaceConfig(ctx context.Context, workspaceConfi
 			} else {
 				var missing *sessioncontract.SessionNotFoundError
 				if errors.As(err, &missing) {
-					err = fmt.Errorf("This subagent's session %s is no longer present. Was it deleted? %w", missing.SessionID, err)
+					err = fmt.Errorf("This subagent's session is no longer present. Was it deleted? %w", err)
 				}
 			}
 			return nil, nil, err

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"core/cli/app/internal/startupconfig"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	serverstartup "core/server/startup"
 	"core/shared/apicontract"
@@ -49,7 +50,7 @@ func TestStartupAndHeadlessUseSelectedConnectionDespiteUnavailableDefault(t *tes
 		t.Fatalf("fixture default A must be unavailable: %v, %v", statusA, err)
 	}
 	plan, err := newSessionLaunchPlanner(server).PlanSession(t.Context(), sessionLaunchRequest{
-		Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+		Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +67,7 @@ func TestStartupAndHeadlessUseSelectedConnectionDespiteUnavailableDefault(t *tes
 	}
 	resumed := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, SessionID: plan.SessionID}, interactor)
 	resumePlan, err := newSessionLaunchPlanner(resumed).PlanSession(t.Context(), sessionLaunchRequest{
-		Mode: launchModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(sessionLifecycleSessionID(t, plan.SessionID)),
+		Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.OpenExistingSessionLaunchIntent(sessionLifecycleSessionID(t, plan.SessionID))),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -135,8 +136,8 @@ func TestStartupResumeKeepsInitialEndpointAndUsesServerSessionWorkspace(t *testi
 		if err != nil {
 			t.Fatal(err)
 		}
-		if headless.SessionID == "" && intent.Kind() != serverapi.SessionLaunchIntentCreateNew {
-			t.Fatalf("inherited context changed create intent: %v", intent.Kind())
+		if headless.SessionID == "" && intent.GetCreateNew() == nil {
+			t.Fatalf("inherited context changed create intent: %v", intent)
 		}
 	}
 	for _, inherited := range []bool{false, true} {

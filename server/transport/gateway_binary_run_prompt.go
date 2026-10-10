@@ -38,7 +38,7 @@ func registerRunPromptGatewayBinaryBinding(bindings map[string]gatewayBinaryBind
 					return gatewayBinaryFailureResult(method, &runpromptpb.Error{
 						Code: "caller_session_not_found",
 						Detail: &runpromptpb.Error_CallerSessionNotFound{
-							CallerSessionNotFound: &sessionlaunchpb.SessionNotFoundDetails{SessionId: *request.CallerSessionId},
+							CallerSessionNotFound: &sessionlaunchpb.SessionNotFoundDetails{SessionId: request.CallerSessionId},
 						},
 					})
 				}
@@ -56,10 +56,7 @@ func registerRunPromptGatewayBinaryBinding(bindings map[string]gatewayBinaryBind
 			return gatewayBinaryFailureResult(method, binaryAuthFailure(err))
 		},
 		invoke: func(g *Gateway, ctx context.Context, state *connectionState, message proto.Message, emit func(proto.Message) error) (proto.Message, error) {
-			request, err := protoapi.RunPromptRequestFromProto(message.(*runpromptpb.Request))
-			if err != nil {
-				return nil, err
-			}
+			request := message.(*runpromptpb.Request)
 			runCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
 			client, err := g.runPromptClientForState(runCtx, state)

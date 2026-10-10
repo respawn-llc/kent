@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"core/shared/config"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
 )
 
@@ -28,19 +29,19 @@ func TestRunInteractiveUsesInjectedStarterAndLifecycle(t *testing.T) {
 	lifecycleCalls := 0
 
 	err := RunInteractive(ctx, Request{
-		SessionID: "selected-session",
+		SessionID: "123",
 		AgentRole: runnerStringPtr("reviewer"),
 	}, Dependencies{
 		StartSessionServer: func(context.Context) (io.Closer, error) {
 			startCalls++
 			return server, nil
 		},
-		RunSessionLifecycle: func(_ context.Context, gotServer io.Closer, intent *serverapi.SessionLaunchIntent, overrides serverapi.RunPromptOverrides) error {
+		RunSessionLifecycle: func(_ context.Context, gotServer io.Closer, intent *sessionlaunchpb.SessionLaunchRequestIntent, overrides serverapi.RunPromptOverrides) error {
 			lifecycleCalls++
 			if gotServer != server {
 				t.Fatal("lifecycle did not receive started server")
 			}
-			if intent == nil || intent.Kind() != serverapi.SessionLaunchIntentOpenExisting {
+			if intent.GetOpenExistingSessionId().GetShortId() != 123 {
 				t.Fatalf("initial intent = %+v, want open existing", intent)
 			}
 			if overrides.AgentRole == nil || *overrides.AgentRole != "reviewer" {
@@ -66,8 +67,8 @@ func TestRunInteractiveComputesForceNewForNonDefaultAgentRole(t *testing.T) {
 		StartSessionServer: func(context.Context) (io.Closer, error) {
 			return server, nil
 		},
-		RunSessionLifecycle: func(_ context.Context, _ io.Closer, intent *serverapi.SessionLaunchIntent, overrides serverapi.RunPromptOverrides) error {
-			if intent == nil || intent.Kind() != serverapi.SessionLaunchIntentCreateNew {
+		RunSessionLifecycle: func(_ context.Context, _ io.Closer, intent *sessionlaunchpb.SessionLaunchRequestIntent, overrides serverapi.RunPromptOverrides) error {
+			if intent.GetCreateNew() == nil {
 				t.Fatalf("initial intent = %+v, want create new", intent)
 			}
 			if overrides.AgentRole == nil || *overrides.AgentRole != "reviewer" {
@@ -95,7 +96,7 @@ func TestRunInteractiveClosesServerAfterLifecycleError(t *testing.T) {
 		StartSessionServer: func(context.Context) (io.Closer, error) {
 			return server, nil
 		},
-		RunSessionLifecycle: func(context.Context, io.Closer, *serverapi.SessionLaunchIntent, serverapi.RunPromptOverrides) error {
+		RunSessionLifecycle: func(context.Context, io.Closer, *sessionlaunchpb.SessionLaunchRequestIntent, serverapi.RunPromptOverrides) error {
 			return expected
 		},
 	})

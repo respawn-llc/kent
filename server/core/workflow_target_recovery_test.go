@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
@@ -264,7 +265,7 @@ func TestWorkflowRestoredOriginalAcceptsSessionMessageAfterSetupFailure(t *testi
 	}
 	cfg := f.app.Config()
 	attachment, err := f.app.SessionRuntimeClient().ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: node.SessionID.String(), OwnerID: "recovery-test",
+		SessionID: requestfixture.SessionID(t, node.SessionID.String()), OwnerID: "recovery-test",
 		ActiveSettings: cfg.Settings, Source: cfg.Source,
 		QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(false),
 	})

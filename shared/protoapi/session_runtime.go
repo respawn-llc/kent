@@ -18,7 +18,7 @@ func SessionRuntimeActivateToProto(request serverapi.SessionRuntimeActivateReque
 		return nil, err
 	}
 	result := &sessionlaunchpb.SessionRuntimeActivateRequest{
-		SessionId: request.SessionID, ActiveSettings: settings, Source: source,
+		SessionId: SessionSelectorToProto(request.SessionID), ActiveSettings: settings, Source: source,
 		QuestionsEnabled: request.QuestionsEnabled, AutoCompactionEnabled: request.AutoCompactionEnabled,
 		ThinkingOverrideExplicit: request.ThinkingOverrideExplicit,
 		AgentSelection:           SessionRuntimeAgentSelectionToProto(request.AgentSelection),
@@ -38,6 +38,10 @@ func SessionRuntimeActivateToProto(request serverapi.SessionRuntimeActivateReque
 }
 
 func SessionRuntimeActivateFromProto(request *sessionlaunchpb.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateRequest, error) {
+	selector, err := SessionSelectorFromProto(request.SessionId)
+	if err != nil {
+		return serverapi.SessionRuntimeActivateRequest{}, err
+	}
 	settings, err := SessionSettingsFromProto(request.ActiveSettings)
 	if err != nil {
 		return serverapi.SessionRuntimeActivateRequest{}, err
@@ -51,7 +55,7 @@ func SessionRuntimeActivateFromProto(request *sessionlaunchpb.SessionRuntimeActi
 		return serverapi.SessionRuntimeActivateRequest{}, err
 	}
 	result := serverapi.SessionRuntimeActivateRequest{
-		SessionID: request.SessionId, ActiveSettings: settings, Source: source,
+		SessionID: selector, ActiveSettings: settings, Source: source,
 		QuestionsEnabled: request.QuestionsEnabled, AutoCompactionEnabled: request.AutoCompactionEnabled,
 		ThinkingOverrideExplicit: request.ThinkingOverrideExplicit, AgentSelection: selection,
 	}

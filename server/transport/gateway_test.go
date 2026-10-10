@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/net/websocket"
 
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	serverbootstrap "core/server/bootstrap"
@@ -542,7 +543,7 @@ func activateGatewayController(t *testing.T, appCore *core.Core, sessionID strin
 	}
 	settings = testsetup.WriteProviderSettings(t, appCore.Config().PersistenceRoot, settings)
 	response, err := appCore.SessionRuntimeClient().ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID:             strings.TrimSpace(sessionID),
+		SessionID:             requestfixture.SessionID(t, strings.TrimSpace(sessionID)),
 		OwnerID:               "gateway-test-owner",
 		ActiveSettings:        settings,
 		QuestionsEnabled:      textutil.Value(true),
@@ -569,13 +570,17 @@ func releaseGatewayController(t *testing.T, appCore *core.Core, attachment serve
 }
 
 func gatewayRuntimeActivateRequest(appCore *core.Core, sessionID string) serverapi.SessionRuntimeActivateRequest {
+	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
+	if err != nil {
+		panic(err)
+	}
 	settings := appCore.Config().Settings
 	if strings.TrimSpace(settings.Model) == "" {
 		settings.Model = "gpt-6-sol"
 	}
 	settings = testsetup.ProviderSettings(settings)
 	return serverapi.SessionRuntimeActivateRequest{
-		SessionID:             strings.TrimSpace(sessionID),
+		SessionID:             id,
 		ActiveSettings:        settings,
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
@@ -608,7 +613,7 @@ func (c *countingSessionRuntimeClient) ActivateSessionRuntime(ctx context.Contex
 			return serverapi.SessionRuntimeAttachment{}, nil
 		}
 		value := *attachment
-		value.SessionID = req.SessionID
+		value.SessionID = req.SessionID.String()
 		return value, nil
 	}
 	return c.SessionRuntimeService.ActivateSessionRuntime(ctx, req)
@@ -1283,7 +1288,7 @@ func TestGatewayQuestionHistorySubscriptionPassesAttachedSessionPreflight(t *tes
 
 func gatewaySessionPlanRequest(t *testing.T) *sessionlaunchpb.SessionPlanRequest {
 	t.Helper()
-	intent, err := protoapi.SessionLaunchIntentToProto(
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(
 		serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	)
 	if err != nil {

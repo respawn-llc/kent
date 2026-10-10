@@ -25,7 +25,7 @@ func ActivationRequestFromSessionPlan(
 		return serverapi.SessionRuntimeActivateRequest{}, err
 	}
 	request := serverapi.SessionRuntimeActivateRequest{
-		SessionID:                plan.Descriptor.SessionID().String(),
+		SessionID:                plan.Descriptor.SessionID(),
 		OwnerID:                  ownerID,
 		ActiveSettings:           plan.ActiveSettings,
 		EnabledToolIDs:           toolspec.IDStrings(plan.EnabledTools),

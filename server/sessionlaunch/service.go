@@ -9,6 +9,7 @@ import (
 
 	"core/server/launch"
 	"core/server/llm"
+	"core/server/metadata"
 	"core/server/session"
 	"core/server/subagentpolicy"
 	servicecontract "core/shared/apicontract"
@@ -25,6 +26,7 @@ import (
 type Service struct {
 	planner       launch.Planner
 	settingsOwner ChatSettingsOwner
+	metadataStore *metadata.Store
 }
 
 type PlanResult struct {
@@ -63,8 +65,19 @@ func (r PlanRequest) Validate() error {
 	return r.Overrides.ValidateAgentRoleOverride()
 }
 
-func NewService(planner launch.Planner, settingsOwner ChatSettingsOwner) *Service {
-	return &Service{planner: planner, settingsOwner: settingsOwner}
+func NewService(planner launch.Planner, settingsOwner ChatSettingsOwner, metadataStore *metadata.Store) *Service {
+	return &Service{planner: planner, settingsOwner: settingsOwner, metadataStore: metadataStore}
+}
+
+func (s *Service) ResolveRunPromptRequest(ctx context.Context, request *runpromptpb.Request) (serverapi.RunPromptRequest, error) {
+	if err := protoapi.Validate(request); err != nil {
+		return serverapi.RunPromptRequest{}, err
+	}
+	intent, err := s.metadataStore.ResolveSessionLaunchIntent(ctx, request.Intent)
+	if err != nil {
+		return serverapi.RunPromptRequest{}, err
+	}
+	return protoapi.RunPromptRequestFromProto(request, intent)
 }
 
 func (s *Service) PrepareSessionChatSettingsOperation(
@@ -239,7 +252,7 @@ func (s *Service) PlanSession(
 	ctx context.Context,
 	req *sessionlaunchpb.SessionPlanRequest,
 ) (*sessionlaunchpb.SessionPlanSuccess, error) {
-	internal, err := sessionPlanRequestFromGenerated(req)
+	internal, err := s.sessionPlanRequestFromGenerated(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -510,7 +523,7 @@ func (s *Service) finalizeLaunchPlan(
 	}, nil
 }
 
-func sessionPlanRequestFromGenerated(request *sessionlaunchpb.SessionPlanRequest) (PlanRequest, error) {
+func (s *Service) sessionPlanRequestFromGenerated(ctx context.Context, request *sessionlaunchpb.SessionPlanRequest) (PlanRequest, error) {
 	if request == nil {
 		return PlanRequest{}, errors.New("Session plan request is required")
 	}
@@ -523,7 +536,7 @@ func sessionPlanRequestFromGenerated(request *sessionlaunchpb.SessionPlanRequest
 	default:
 		return PlanRequest{}, fmt.Errorf("generated Session launch mode %v is invalid", request.Mode)
 	}
-	intent, err := protoapi.SessionLaunchIntentFromProto(request.Intent)
+	intent, err := s.metadataStore.ResolveSessionLaunchIntent(ctx, request.Intent)
 	if err != nil {
 		return PlanRequest{}, err
 	}

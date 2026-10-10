@@ -9,9 +9,9 @@ import (
 	"core/shared/protoapi"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
-	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
+	"core/shared/textutil"
 
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
@@ -90,7 +90,7 @@ func productionGatewayBinaryBindings() (map[string]gatewayBinaryBinding, error) 
 		func() *connectionpb.AttachSessionRequest { return &connectionpb.AttachSessionRequest{} },
 		func(request *connectionpb.AttachSessionRequest) (routeScopeParams, error) {
 			return routeScopeParams{
-				sessionID:                 request.SessionId,
+				sessionSelector:           request.SessionId,
 				sessionReattachCapability: request.ReattachCapability,
 			}, nil
 		},
@@ -373,16 +373,16 @@ func invokeBinaryAttachSession(
 	state *connectionState,
 	request *connectionpb.AttachSessionRequest,
 ) (*connectionpb.AttachmentSuccess, error) {
-	_, binding, err := g.resolveSessionAttachmentTargetWithCapability(
-		ctx,
-		state,
-		request.SessionId,
-		request.ReattachCapability,
-	)
+	parsedSessionID, err := g.deps.MetadataStore().ResolveSessionTarget(ctx, request.SessionId)
 	if err != nil {
 		return nil, err
 	}
-	parsedSessionID, err := runtimeids.ParseSessionID(request.SessionId)
+	_, binding, err := g.resolveSessionAttachmentTargetWithCapability(
+		ctx,
+		state,
+		parsedSessionID.String(),
+		request.ReattachCapability,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -390,7 +390,7 @@ func invokeBinaryAttachSession(
 	if err != nil {
 		return nil, err
 	}
-	reattachCapability, err := authority.issue(request.SessionId)
+	reattachCapability, err := authority.issue(parsedSessionID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -404,7 +404,7 @@ func invokeBinaryAttachSession(
 				ProjectId:          binding.ProjectID,
 				WorkspaceId:        binding.WorkspaceID,
 				WorkspaceRoot:      binding.CanonicalRoot,
-				SessionId:          request.SessionId,
+				SessionId:          parsedSessionID.String(),
 				ReattachCapability: reattachCapability,
 			},
 		},
@@ -460,16 +460,25 @@ func binaryAttachSessionFailure(
 	request *connectionpb.AttachSessionRequest,
 	err error,
 ) proto.Message {
+	var sessionID *string
+	if request != nil && (errors.Is(err, sessioncontract.ErrSessionNotFound) || errors.Is(err, serverapi.ErrProjectNotFound) || errors.Is(err, serverapi.ErrWorkspaceNotRegistered)) {
+		id, lookupErr := g.deps.MetadataStore().ResolveSessionTarget(context.Background(), request.SessionId)
+		if lookupErr == nil {
+			sessionID = textutil.Value(id.String())
+		} else if !errors.Is(lookupErr, sessioncontract.ErrSessionNotFound) {
+			return binaryInternalFailure(errors.Join(err, lookupErr))
+		}
+	}
 	switch {
 	case errors.Is(err, sessioncontract.ErrSessionNotFound) && request != nil:
 		return &connectionpb.AttachSessionError{
 			Code: "session_not_found",
 			Detail: &connectionpb.AttachSessionError_SessionNotFound{
-				SessionNotFound: &sessionlaunchpb.SessionNotFoundDetails{SessionId: request.SessionId},
+				SessionNotFound: &sessionlaunchpb.SessionNotFoundDetails{SessionId: sessionID},
 			},
 		}
-	case errors.Is(err, serverapi.ErrProjectNotFound) && request != nil:
-		details := &connectionpb.SessionAttachmentTargetDetails{SessionId: request.SessionId}
+	case errors.Is(err, serverapi.ErrProjectNotFound) && sessionID != nil:
+		details := &connectionpb.SessionAttachmentTargetDetails{SessionId: *sessionID}
 		if projectID := connectionAttachmentProjectID(g, state); projectID != "" {
 			details.ProjectId = &projectID
 		}
@@ -479,12 +488,12 @@ func binaryAttachSessionFailure(
 				ProjectNotFound: details,
 			},
 		}
-	case errors.Is(err, serverapi.ErrWorkspaceNotRegistered) && request != nil:
+	case errors.Is(err, serverapi.ErrWorkspaceNotRegistered) && sessionID != nil:
 		return &connectionpb.AttachSessionError{
 			Code: "workspace_not_registered",
 			Detail: &connectionpb.AttachSessionError_WorkspaceNotRegistered{
 				WorkspaceNotRegistered: connectionSessionWorkspaceNotRegisteredDetails(
-					g, state, request.SessionId, err,
+					g, state, *sessionID, err,
 				),
 			},
 		}

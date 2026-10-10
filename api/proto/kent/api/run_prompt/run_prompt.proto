@@ -28,7 +28,7 @@ enum RunSelectionWarning {
 }
 
 message Request {
-  kent.api.session_launch.SessionLaunchIntent intent = 1 [(buf.validate.field).required = true];
+  kent.api.session_launch.SessionLaunchRequestIntent intent = 1 [(buf.validate.field).required = true];
   optional string caller_session_id = 2 [(buf.validate.field).string.min_len = 1];
   string prompt = 3 [
     (buf.validate.field).string.min_len = 1,

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/llm"
@@ -39,7 +40,7 @@ func TestConnectionReplacementIsHydratedAfterCoreActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: store.Meta().SessionID, OwnerID: "connection-notice",
+		SessionID: requestfixture.SessionID(t, store.Meta().SessionID), OwnerID: "connection-notice",
 		ActiveSettings: cfg.Settings, Source: cfg.Source,
 		QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true),
 	})

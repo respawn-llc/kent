@@ -802,8 +802,16 @@ func registerSessionFlagVars(fs *flag.FlagSet, flags *commonFlags) {
 }
 
 func effectiveSessionID(flags commonFlags) (string, error) {
-	sessionID := strings.TrimSpace(flags.SessionID)
-	continueID := strings.TrimSpace(flags.ContinueID)
+	sessionID, continueID := flags.SessionID, flags.ContinueID
+	for _, value := range []*string{&sessionID, &continueID} {
+		if *value != "" {
+			selector, err := runtimeids.ParseSessionSelector(*value)
+			if err != nil {
+				return "", err
+			}
+			*value = selector.String()
+		}
+	}
 	if sessionID != "" && continueID != "" && sessionID != continueID {
 		return "", fmt.Errorf("--session and --continue must match when both are provided")
 	}

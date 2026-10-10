@@ -27,7 +27,7 @@ func TestOpenSessionUsesCurrentAgentBudgetAcrossConfigChanges(t *testing.T) {
 	if err := store.MarkModelDispatchLocked(session.LockedContract{Model: cfg.Settings.Model}); err != nil {
 		t.Fatal(err)
 	}
-	intent, err := protoapi.SessionLaunchIntentToProto(serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, store.Meta().SessionID)))
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, store.Meta().SessionID)))
 	if err != nil {
 		t.Fatal(err)
 	}
