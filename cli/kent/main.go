@@ -450,8 +450,7 @@ func liveControlSubcommand(args []string) string {
 	if verb == "watch" {
 		return verb
 	}
-	sessionID, err := runtimeids.ParseSessionID(positionals[0])
-	if err != nil || !sessionID.IsCanonicalUUIDv4() {
+	if _, err := runtimeids.ParseSessionSelector(positionals[0]); err != nil {
 		return ""
 	}
 	switch verb {
@@ -516,10 +515,6 @@ func runLiveSteerSubcommand(args []string) int {
 		emitRunUsageError(runOutputModeFinalText, "message is required")
 		return 2
 	}
-	if err := rejectSelfTarget(sessionID, "kent run steer "+strings.Join(args, " ")); err != nil {
-		emitRunUsageError(runOutputModeFinalText, err.Error())
-		return 2
-	}
 	if _, err := app.LiveSteerCallerSessionID(); err != nil {
 		emitRunUsageError(runOutputModeFinalText, err.Error())
 		return 2
@@ -531,6 +526,9 @@ func runLiveSteerSubcommand(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if _, err := runLiveSteerApp(ctx, app.Options{ConfigRoot: strings.TrimSpace(*persistenceRoot)}, sessionID, message); err != nil {
+		if code, denied := emitLiveSelfTargetUsage(runOutputModeFinalText, "kent run steer "+strings.Join(args, " "), err, nil); denied {
+			return code
+		}
 		fmt.Fprintln(os.Stderr, runErrorMessage(err))
 		if errors.Is(err, serverapi.ErrRuntimeNoActiveRun) {
 			fmt.Fprintln(os.Stderr)
@@ -561,10 +559,6 @@ func runLiveStopSubcommand(args []string) int {
 		emitRunUsageError(runOutputModeFinalText, err.Error())
 		return 2
 	}
-	if err := rejectSelfTarget(sessionID, "kent run stop "+strings.Join(args, " ")); err != nil {
-		emitRunUsageError(runOutputModeFinalText, err.Error())
-		return 2
-	}
 	if err := publishPersistenceRootEnv(*persistenceRoot); err != nil {
 		emitRunUsageError(runOutputModeFinalText, err.Error())
 		return 2
@@ -573,6 +567,9 @@ func runLiveStopSubcommand(args []string) int {
 	defer stop()
 	result, err := runLiveStopApp(ctx, app.Options{ConfigRoot: strings.TrimSpace(*persistenceRoot)}, sessionID)
 	if err != nil {
+		if code, denied := emitLiveSelfTargetUsage(runOutputModeFinalText, "kent run stop "+strings.Join(args, " "), err, nil); denied {
+			return code
+		}
 		fmt.Fprintln(os.Stderr, runErrorMessage(err))
 		return 1
 	}
@@ -604,12 +601,6 @@ func runLiveWaitSubcommand(args []string) int {
 	if err != nil {
 		return runObservationUsage(outputMode, err.Error())
 	}
-	if !sessionID.IsCanonicalUUIDv4() {
-		return runObservationUsage(outputMode, "session ID must be a canonical UUIDv4")
-	}
-	if err := rejectSelfTarget(sessionID, "kent run wait "+strings.Join(args, " ")); err != nil {
-		return runObservationUsage(outputMode, err.Error())
-	}
 	if err := publishPersistenceRootEnv(*persistenceRoot); err != nil {
 		return runObservationUsage(outputMode, err.Error())
 	}
@@ -627,6 +618,9 @@ func runLiveWaitSubcommand(args []string) int {
 	continueRoot := continueCommandPersistenceRoot(*persistenceRoot)
 	continueHint := buildRunContinueHint(sessionID.String(), continueRoot)
 	if runErr != nil {
+		if code, denied := emitLiveSelfTargetUsage(outputMode, "kent run wait "+strings.Join(args, " "), runErr, closeFn); denied {
+			return code
+		}
 		if outputMode == runOutputModeJSON {
 			return emitRunWaitJSON(os.Stdout, sessionID.String(), result, runErr, ctx, closeFn)
 		} else {
@@ -652,7 +646,7 @@ func runLiveWatchSubcommand(args []string) int {
 	return runLiveWatchSubcommandWithCleanup(args, app.RunLiveWatchWithCleanup)
 }
 
-type liveWatchCleanupRunner func(context.Context, app.Options, runtimeids.SessionID) app.RunLiveWatchResult
+type liveWatchCleanupRunner func(context.Context, app.Options, runtimeids.SessionSelector) app.RunLiveWatchResult
 
 func runLiveWatchSubcommandWithCleanup(args []string, runWithCleanup liveWatchCleanupRunner) int {
 	var diagnostics bytes.Buffer
@@ -673,9 +667,6 @@ func runLiveWatchSubcommandWithCleanup(args []string, runWithCleanup liveWatchCl
 	if err != nil {
 		return runObservationUsage(outputMode, err.Error())
 	}
-	if err := rejectSelfTarget(sessionID, "kent run watch "+strings.Join(args, " ")); err != nil {
-		return runObservationUsage(outputMode, err.Error())
-	}
 	if err := publishPersistenceRootEnv(*persistenceRoot); err != nil {
 		return runObservationUsage(outputMode, err.Error())
 	}
@@ -684,13 +675,16 @@ func runLiveWatchSubcommandWithCleanup(args []string, runWithCleanup liveWatchCl
 	result := runWithCleanup(ctx, app.Options{ConfigRoot: strings.TrimSpace(*persistenceRoot)}, sessionID)
 	response := result.Response
 	if result.Error != nil {
+		if code, denied := emitLiveSelfTargetUsage(outputMode, "kent run watch "+strings.Join(args, " "), result.Error, result.Close); denied {
+			return code
+		}
 		if outputMode == runOutputModeJSON {
 			return emitObservationError(os.Stdout, observationOperationRunWatch, observationTargetSession(sessionID.String()), ctx, result.Error, nil, result.Close)
 		}
 		if result.Close != nil {
 			_ = result.Close()
 		}
-		fmt.Fprintln(os.Stderr, result.Error)
+		fmt.Fprintln(os.Stderr, runErrorMessage(result.Error))
 		if errors.Is(result.Error, context.Canceled) {
 			return 130
 		}
@@ -717,6 +711,20 @@ func runLiveFlagError(err error) int {
 	}
 	emitRunUsageError(runOutputModeFinalText, err.Error())
 	return 2
+}
+
+func emitLiveSelfTargetUsage(mode runOutputMode, command string, err error, closeFn func() error) (int, bool) {
+	var denied *serverapi.SessionSelfTargetError
+	if !errors.As(err, &denied) {
+		return 0, false
+	}
+	message := prompts.RenderLiveControlSelfTargetDeniedPrompt(command)
+	if closeFn != nil {
+		if closeErr := closeFn(); closeErr != nil {
+			message += "\n" + closeErr.Error()
+		}
+	}
+	return runObservationUsage(mode, message), true
 }
 
 func runObservationUsage(mode runOutputMode, message string) int {
@@ -748,8 +756,8 @@ func parseObservationFlags(fs *flag.FlagSet, args []string, raw *string, diagnos
 	return mode, true, 0
 }
 
-func parseCLILiveSessionID(raw string) (runtimeids.SessionID, error) {
-	return runtimeids.ParseSessionID(raw)
+func parseCLILiveSessionID(raw string) (runtimeids.SessionSelector, error) {
+	return runtimeids.ParseSessionSelector(raw)
 }
 
 func rejectSelfTarget(targetSessionID runtimeids.SessionID, commandText string) error {
@@ -768,7 +776,7 @@ func currentSessionIDForSelfTarget() (runtimeids.SessionID, bool) {
 	if !ok {
 		return runtimeids.SessionID{}, false
 	}
-	currentID, err := parseCLILiveSessionID(current)
+	currentID, err := runtimeids.ParseSessionID(current)
 	if err != nil {
 		return runtimeids.SessionID{}, false
 	}

@@ -33,7 +33,7 @@ func TestSecondClientLiveControlsActiveRun(t *testing.T) {
 			done := make(chan result, 1)
 			go func() {
 				response, err := appCore.RuntimeLiveControlClient().LiveSteer(context.Background(), &runtimepb.LiveSteerRequest{
-					SessionId: sessionID,
+					SessionId: requestfixture.Selector(t, sessionID),
 					Text:      "steer me",
 				})
 				done <- result{response: response, err: err}
@@ -208,7 +208,7 @@ func runSecondClientLiveControlsActiveRun(
 	waitDone := make(chan error, 1)
 	waitResult := make(chan *runtimepb.LiveWaitSuccess, 1)
 	go func() {
-		resp, waitErr := appCore.RuntimeLiveControlClient().LiveWait(context.Background(), &runtimepb.LiveWaitRequest{SessionId: sessionID})
+		resp, waitErr := appCore.RuntimeLiveControlClient().LiveWait(context.Background(), &runtimepb.LiveWaitRequest{SessionId: requestfixture.Selector(t, sessionID)})
 		waitResult <- resp
 		waitDone <- waitErr
 	}()

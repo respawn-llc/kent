@@ -10,6 +10,7 @@ import "kent/api/auth/auth.proto";
 import "kent/api/runtime/runtime.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
+import "kent/api/shared/session_selector.proto";
 import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/prompt;promptpb";
@@ -463,7 +464,11 @@ message RecordHistoryResult {
 }
 
 message LiveWatchRequest {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
+  optional string caller_session_id = 2 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 }
 
 message ObservationQuestion {
@@ -526,6 +531,10 @@ message LiveWatchError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.shared.SessionSelfTargetDetails self_target = 8 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "self_target"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"

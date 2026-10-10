@@ -8,6 +8,7 @@ import (
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 )
 
 func GoalSetErrorFromError(err error, sessionID runtimeids.SessionID) *runtimepb.GoalSetError {
@@ -27,7 +28,7 @@ func GoalSetErrorFromError(err error, sessionID runtimeids.SessionID) *runtimepb
 		return &runtimepb.GoalSetError{
 			Code: "runtime_unavailable",
 			Detail: &runtimepb.GoalSetError_RuntimeUnavailable{
-				RuntimeUnavailable: &runtimepb.RuntimeUnavailableDetails{SessionId: sessionID.String()},
+				RuntimeUnavailable: &runtimepb.RuntimeUnavailableDetails{SessionId: textutil.Value(sessionID.String())},
 			},
 		}
 	}

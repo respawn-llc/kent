@@ -6,11 +6,21 @@ import (
 	"core/shared/protoapi"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
+
+func Selector(t testing.TB, raw string) *sharedpb.SessionSelector {
+	t.Helper()
+	selector, err := runtimeids.ParseSessionSelector(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return protoapi.SessionSelectorToProto(selector)
+}
 
 func SessionID(t testing.TB, raw string) runtimeids.SessionID {
 	t.Helper()

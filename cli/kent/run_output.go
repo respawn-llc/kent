@@ -54,6 +54,10 @@ func parseRunOutputMode(raw string) (runOutputMode, error) {
 }
 
 func runErrorMessage(err error) string {
+	var unavailable *serverapi.RuntimeUnavailableError
+	if errors.As(err, &unavailable) && unavailable.SessionID == nil {
+		return "The Session does not exist; it may have been deleted."
+	}
 	var selection *serverapi.RunSelectionRejectedError
 	if errors.As(err, &selection) {
 		switch selection.Reason {

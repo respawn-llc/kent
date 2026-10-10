@@ -1255,7 +1255,7 @@ func TestCompletedWorkflowSessionAllowsOrdinaryInteractiveContinuation(t *testin
 	before := f.conversationState(t, task.ID, source, sessionID)
 	f.openRetainedRuntime(t, sessionID)
 
-	service := runtimecontrol.NewService(f.authority).
+	service := runtimecontrol.NewService(f.authority, nil).
 		WithPromptHistoryStore(f.metadata).
 		WithWorkflowSessionReactivator(f.controller).
 		WithWorkflowSessionPreparationReader(f.controller)
@@ -1383,7 +1383,7 @@ func TestWorkflowMovedPastSessionAllowsOrdinaryInteractiveContinuation(t *testin
 	before := f.conversationState(t, task.ID, source, sessionID)
 	f.openRetainedRuntime(t, sessionID)
 
-	service := runtimecontrol.NewService(f.authority).
+	service := runtimecontrol.NewService(f.authority, nil).
 		WithPromptHistoryStore(f.metadata).
 		WithWorkflowSessionReactivator(f.controller).
 		WithWorkflowSessionPreparationReader(f.controller)

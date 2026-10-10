@@ -3,6 +3,7 @@ package client
 import (
 	"buf.build/go/protovalidate"
 	"context"
+	"core/internal/testharness/requestfixture"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	sessionretargetpb "core/shared/protoapi/gen/kent/api/session_retarget"
@@ -281,7 +282,7 @@ func TestRemoteLiveWatchRejectsMalformedResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = remote.Close() }()
-	_, err = remote.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: "session-1"})
+	_, err = remote.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: requestfixture.Selector(t, "018fdd67-89ab-4cde-8123-456789abcdef")})
 	var validationError *protovalidate.ValidationError
 	if !errors.As(err, &validationError) {
 		t.Fatalf("LiveWatch error = %v, want generated response validation error", err)
@@ -311,7 +312,7 @@ func TestRemoteLiveWaitRejectsMalformedResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = remote.Close() }()
-	_, err = remote.LiveWait(context.Background(), &runtimepb.LiveWaitRequest{SessionId: "018fdd67-89ab-4cde-8123-456789abcdef"})
+	_, err = remote.LiveWait(context.Background(), &runtimepb.LiveWaitRequest{SessionId: requestfixture.Selector(t, "018fdd67-89ab-4cde-8123-456789abcdef")})
 	var validationError *protovalidate.ValidationError
 	if !errors.As(err, &validationError) {
 		t.Fatalf("LiveWait error = %v, want generated response validation error", err)
@@ -330,11 +331,11 @@ func TestRemoteLiveResponsesRejectMismatchedSessionIDs(t *testing.T) {
 			name:    "live watch",
 			method:  promptpb.File_kent_api_prompt_prompt_proto.Services().ByName("LiveWatchService").Methods().ByName("Watch"),
 			request: &promptpb.LiveWatchRequest{},
-			response: &promptpb.LiveWatchSuccess{SessionId: "session-b", Outcome: &promptpb.LiveWatchOutcome{
+			response: &promptpb.LiveWatchSuccess{SessionId: "018fdd67-89ab-4cde-8123-456789abcdee", Outcome: &promptpb.LiveWatchOutcome{
 				Outcome: &promptpb.LiveWatchOutcome_FinalAnswer{FinalAnswer: &promptpb.LiveWatchFinal{SessionName: proto.String("Session"), Duration: durationpb.New(time.Millisecond)}},
 			}},
 			call: func(ctx context.Context, remote *Remote) error {
-				_, err := remote.LiveWatch(ctx, &promptpb.LiveWatchRequest{SessionId: "session-a"})
+				_, err := remote.LiveWatch(ctx, &promptpb.LiveWatchRequest{SessionId: requestfixture.Selector(t, "018fdd67-89ab-4cde-8123-456789abcdef")})
 				return err
 			},
 		},
@@ -351,7 +352,7 @@ func TestRemoteLiveResponsesRejectMismatchedSessionIDs(t *testing.T) {
 				TerminalStepId: "018fdd67-89ab-4cde-8123-456789abcdef", TerminalStatus: "completed",
 			},
 			call: func(ctx context.Context, remote *Remote) error {
-				_, err := remote.LiveWait(ctx, &runtimepb.LiveWaitRequest{SessionId: "018fdd67-89ab-4cde-8123-456789abcdef"})
+				_, err := remote.LiveWait(ctx, &runtimepb.LiveWaitRequest{SessionId: requestfixture.Selector(t, "018fdd67-89ab-4cde-8123-456789abcdef")})
 				return err
 			},
 		},

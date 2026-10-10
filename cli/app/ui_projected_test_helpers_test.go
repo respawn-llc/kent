@@ -284,7 +284,7 @@ func newProjectedAuthorityRuntime(
 		}
 	})
 	reads := sessionview.NewService(persistence, activity, nil)
-	controls := runtimecontrol.NewService(authority).WithRuntimeActivityResolver(activity)
+	controls := runtimecontrol.NewService(authority, nil).WithRuntimeActivityResolver(activity)
 	runtimeClient := newUIRuntimeClientWithReads(sessionID.String(), reads, controls, nil, nil).(*sessionRuntimeClient)
 	snapshot, err := activity.RuntimeReadModelFeedSnapshot(context.Background(), sessionID.String())
 	if err != nil {
@@ -314,7 +314,7 @@ func newProjectedAuthorityRuntime(
 
 func newUnavailableRuntimeControlService() *runtimecontrol.Service {
 	activity := registry.NewRuntimeRegistry()
-	return runtimecontrol.NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{})).
+	return runtimecontrol.NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), nil).
 		WithRuntimeActivityResolver(activity)
 }
 

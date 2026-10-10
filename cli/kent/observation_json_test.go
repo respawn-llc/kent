@@ -374,7 +374,7 @@ func TestRunWaitHardCutoverAndHeadlessEscape(t *testing.T) {
 	previousWait, previousPrompt := runLiveWaitApp, runPromptApp
 	defer func() { runLiveWaitApp, runPromptApp = previousWait, previousPrompt }()
 	waitCalls, promptCalls := 0, 0
-	runLiveWaitApp = func(context.Context, app.Options, runtimeids.SessionID) (*runtimepb.LiveWaitSuccess, error) {
+	runLiveWaitApp = func(context.Context, app.Options, runtimeids.SessionSelector) (*runtimepb.LiveWaitSuccess, error) {
 		waitCalls++
 		return &runtimepb.LiveWaitSuccess{}, nil
 	}
@@ -407,7 +407,7 @@ func TestRunWaitCanonicalValidationPrecedesRemote(t *testing.T) {
 	previous := runLiveWaitApp
 	defer func() { runLiveWaitApp = previous }()
 	calls := 0
-	runLiveWaitApp = func(context.Context, app.Options, runtimeids.SessionID) (*runtimepb.LiveWaitSuccess, error) {
+	runLiveWaitApp = func(context.Context, app.Options, runtimeids.SessionSelector) (*runtimepb.LiveWaitSuccess, error) {
 		calls++
 		return &runtimepb.LiveWaitSuccess{}, nil
 	}

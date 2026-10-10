@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"core/server/session"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	processpb "core/shared/protoapi/gen/kent/api/process"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -56,6 +57,14 @@ func (e routePolicyExecutor) authorizeScopeFacts(
 	if scopeParams.sessionSelector != nil {
 		id, err := e.gateway.deps.MetadataStore().ResolveSessionTarget(ctx, scopeParams.sessionSelector)
 		if err != nil {
+			if errors.Is(err, session.ErrSessionNotFound) {
+				if scope == sharedpb.ScopePolicy_SCOPE_POLICY_RUNTIME_LIVE_SESSION_OPTIONAL {
+					return nil
+				}
+				if scope == sharedpb.ScopePolicy_SCOPE_POLICY_RUNTIME_LIVE_SESSION_REQUIRED {
+					return errors.Join(serverapi.ErrRuntimeUnavailable, err)
+				}
+			}
 			return err
 		}
 		scopeParams.sessionID = id.String()

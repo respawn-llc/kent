@@ -9,9 +9,22 @@ import (
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+func RuntimeUnavailableFromProto(details *runtimepb.RuntimeUnavailableDetails) error {
+	result := &serverapi.RuntimeUnavailableError{}
+	if details.SessionId != nil {
+		id, err := runtimeids.ParseSessionID(*details.SessionId)
+		if err != nil {
+			return err
+		}
+		result.SessionID = &id
+	}
+	return result
+}
 
 func RuntimeCommandNotAcceptedToProto(sessionID string, err *serverapi.RuntimeCommandNotAcceptedError) *runtimepb.RuntimeCommandNotAcceptedDetails {
 	details := &runtimepb.RuntimeCommandNotAcceptedDetails{}
@@ -21,7 +34,7 @@ func RuntimeCommandNotAcceptedToProto(sessionID string, err *serverapi.RuntimeCo
 		details.Cause = &runtimepb.RuntimeCommandNotAcceptedDetails_Canceled{Canceled: &emptypb.Empty{}}
 	case errors.Is(err.Cause, serverapi.ErrRuntimeUnavailable):
 		details.Cause = &runtimepb.RuntimeCommandNotAcceptedDetails_RuntimeUnavailable{
-			RuntimeUnavailable: &runtimepb.RuntimeUnavailableDetails{SessionId: sessionID},
+			RuntimeUnavailable: &runtimepb.RuntimeUnavailableDetails{SessionId: &sessionID},
 		}
 	case errors.Is(err.Cause, serverapi.ErrRuntimeNoActiveRun):
 		details.Cause = &runtimepb.RuntimeCommandNotAcceptedDetails_NoActiveRun{NoActiveRun: &emptypb.Empty{}}

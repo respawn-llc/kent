@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -21,9 +21,18 @@ type runtimeControlFailure interface {
 
 func runtimeControlGeneratedError(failure runtimeControlFailure) error {
 	if value, ok := failure.(interface {
+		GetSelfTarget() *sharedpb.SessionSelfTargetDetails
+	}); ok && value.GetSelfTarget() != nil {
+		id, err := runtimeids.ParseSessionID(value.GetSelfTarget().SessionId)
+		if err != nil {
+			return err
+		}
+		return &serverapi.SessionSelfTargetError{SessionID: id}
+	}
+	if value, ok := failure.(interface {
 		GetRuntimeUnavailable() *runtimepb.RuntimeUnavailableDetails
 	}); ok && value.GetRuntimeUnavailable() != nil {
-		return serverapi.ErrRuntimeUnavailable
+		return protoapi.RuntimeUnavailableFromProto(value.GetRuntimeUnavailable())
 	}
 	if value, ok := failure.(interface {
 		GetRuntimeCommandNotAccepted() *runtimepb.RuntimeCommandNotAcceptedDetails
@@ -174,10 +183,7 @@ func goalSetGeneratedError(failure *runtimepb.GoalSetError) error {
 	}
 	switch failure.Code {
 	case "runtime_unavailable":
-		if detail := failure.GetRuntimeUnavailable(); detail != nil && strings.TrimSpace(detail.SessionId) != "" {
-			return fmt.Errorf("%w: %s", serverapi.ErrRuntimeUnavailable, detail.SessionId)
-		}
-		return serverapi.ErrRuntimeUnavailable
+		return protoapi.RuntimeUnavailableFromProto(failure.GetRuntimeUnavailable())
 	case "internal_failure":
 		return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
 	default:
