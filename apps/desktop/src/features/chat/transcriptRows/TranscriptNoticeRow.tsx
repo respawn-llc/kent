@@ -25,7 +25,7 @@ export function TranscriptNoticeRow({ row }: Readonly<{ row: ChatTranscriptCommi
         data-transcript-collapsed
       >
         <Icon className="size-4 shrink-0" />
-        <span>{policy.summary}</span>
+        <span className="min-w-0 flex-1 whitespace-normal break-words">{policy.summary}</span>
       </p>
     );
   }
