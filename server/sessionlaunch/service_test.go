@@ -12,7 +12,6 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/server/launch"
-	"core/server/metadata"
 	"core/server/registry"
 	"core/server/session"
 	"core/server/session/sessiontest"
