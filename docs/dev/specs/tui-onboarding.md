@@ -42,6 +42,7 @@
 
 - Finalizing shows a progress state. For custom setup, imports finish before Kent writes the configuration. A failed import rolls back the imported changes and returns to the wizard with an error. Connection credential persistence and a failed final configuration write must follow the bounded failure contract in [Provider Connections](provider-connections.md).
 - The defaults path writes the default configuration.
+- Generated configuration model examples must use the configured main model. If that model cannot be determined, the example may use GPT-6 Luna.
 - For Grok connections, the default model must be Grok 4.7. Other connections must default to GPT-6.1 Sol with a 272,000-token context window.
 - When Supervisor is enabled, the Defaults option uses GPT-6 Luna on first-party OpenAI connections and the primary model on other providers.
 - Custom setup must pre-fill Supervisor with the primary model.

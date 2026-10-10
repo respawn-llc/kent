@@ -71,6 +71,9 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 	var out strings.Builder
 	out.WriteString("# Edit and restart to apply changes.\n")
 	out.WriteString("# Config reference: " + DocsURL + "/config/\n\n")
+	if settings.Connection != nil {
+		writeDefaultLines(&out, []defaultConfigLine{{Path: []string{"connection"}, Value: string(*settings.Connection)}})
+	}
 	writeRootConfigLines(&out, rootLines)
 	modelCapabilityLines := activeOptionalSectionLines(filterDefaultLines(lines, "model_capabilities"), filterDefaultLines(defaultLines, "model_capabilities"))
 	if len(modelCapabilityLines) > 0 {
@@ -116,12 +119,12 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 		out.WriteString("\n[reviewer.model_capabilities]\n")
 		writeDefaultLines(&out, reviewerModelCapabilityLines)
 	}
-	writeBuiltInSubagentSections(&out)
+	writeBuiltInSubagentSections(&out, settings.Model)
 	writeSkillTogglesSection(&out, state.Settings.SkillToggles)
 	return out.String()
 }
 
-func writeBuiltInSubagentSections(builder *strings.Builder) {
+func writeBuiltInSubagentSections(builder *strings.Builder, mainModel string) {
 	if builder == nil {
 		return
 	}
@@ -129,7 +132,7 @@ func writeBuiltInSubagentSections(builder *strings.Builder) {
 	builder.WriteString("# Inherits main settings unless overridden.\n")
 	builder.WriteString("# agent_callable = true # Set false to prevent model-originated delegation to this role.\n")
 	builder.WriteString("# description = \"\" # Role description shown to the model.\n")
-	builder.WriteString("# model = \"gpt-6-luna\"\n")
+	builder.WriteString("# model = " + strconv.Quote(mainModel) + "\n")
 	builder.WriteString("# thinking_level = \"low\"\n")
 	builder.WriteString("# priority_request_mode = true\n")
 	builder.WriteString("# model_context_window = 272000\n")

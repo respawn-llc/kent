@@ -86,6 +86,53 @@ func TestFinalizerDefaultsSelectSupervisorModelOnlyForFirstPartyOpenAI(t *testin
 	}
 }
 
+func TestFinalizerGrokSelectionsSurviveConnectionDefaults(t *testing.T) {
+	cases := []struct {
+		name     string
+		request  onboardingpb.FinalizeRequest
+		model    string
+		thinking string
+		window   int
+	}{
+		{name: "defaults", model: "grok-4.7", thinking: "high", window: 500000},
+		{name: "medium level", request: onboardingpb.FinalizeRequest{Thinking: &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_LEVEL, Level: ptr("medium")}}, model: "grok-4.7", thinking: "medium", window: 500000},
+		{name: "custom medium", request: onboardingpb.FinalizeRequest{Thinking: &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM, Value: ptr("medium")}}, model: "grok-4.7", thinking: "medium", window: 500000},
+		{name: "explicit global model", request: onboardingpb.FinalizeRequest{Model: &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-6.1-sol")}}, model: "gpt-6.1-sol", thinking: "high", window: 272000},
+		{name: "explicit global window", request: onboardingpb.FinalizeRequest{ContextWindow: &onboardingpb.ContextWindowChoice{Kind: onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_CUSTOM, Tokens: ptr(uint32(272000))}}, model: "grok-4.7", thinking: "high", window: 272000},
+	}
+	for i := range cases {
+		tc := &cases[i]
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			baseline := loadFinalizedConfig(t, root)
+			owner := newPendingConnection(t, root, "http://localhost:1234/v1")
+			_, err := owner.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_PendingSetup{
+				PendingSetup: &authpb.ConnectionDefinition{Id: "grok-1", Protocol: authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_API_KEY, EnvironmentVariable: ptr("XAI_API_KEY_QA")},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			finalizer, err := onboarding.NewFinalizer(onboarding.Options{
+				Baseline: baseline.Settings, BaselineSources: baseline.Source.Sources,
+				PersistenceRoot: root, HomeDir: t.TempDir(), Connections: owner,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := finalizer.Finalize(t.Context(), &tc.request); err != nil {
+				t.Fatal(err)
+			}
+			actual := loadFinalizedConfig(t, root)
+			if err := llm.ApplyConnectionModelDefaults(&actual.Settings, actual.Source.Sources); err != nil {
+				t.Fatal(err)
+			}
+			if actual.Settings.Model != tc.model || actual.Settings.ThinkingLevel != tc.thinking || actual.Settings.Reviewer.ThinkingLevel != tc.thinking || actual.Settings.ModelContextWindow != tc.window {
+				t.Fatalf("reloaded selection = %s/%s/%d, Supervisor %s; want %s/%s/%d inherited", actual.Settings.Model, actual.Settings.ThinkingLevel, actual.Settings.ModelContextWindow, actual.Settings.Reviewer.ThinkingLevel, tc.model, tc.thinking, tc.window)
+			}
+		})
+	}
+}
+
 func TestFinishPersistsPendingConnectionAfterObserverCancellation(t *testing.T) {
 	root := t.TempDir()
 	owner := newPendingConnection(t, root, "http://localhost:1234/v1")

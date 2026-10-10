@@ -156,6 +156,7 @@ func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings
 				return config.Settings{}, nil, err
 			}
 		}
+		preserved["model"] = true
 	}
 	if req.Theme != nil {
 		themeValue, err := onboardingTheme(*req.Theme)
@@ -168,6 +169,9 @@ func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings
 		if err := applyContextWindow(&settings, effectiveModel, req.ContextWindow); err != nil {
 			return config.Settings{}, nil, err
 		}
+		if req.ContextWindow.Kind != onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_DEFAULT {
+			preserved["model_context_window"] = true
+		}
 	}
 	if req.Thinking != nil {
 		value, err := thinkingChoiceValue(req.Thinking, effectiveModel, settings.ThinkingLevel, "thinking")
@@ -175,7 +179,7 @@ func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings
 			return config.Settings{}, nil, err
 		}
 		settings.ThinkingLevel = value
-		if req.Thinking.Kind == onboardingpb.ThinkingKind_THINKING_KIND_DISABLED {
+		if req.Thinking.Kind != onboardingpb.ThinkingKind_THINKING_KIND_DEFAULT {
 			preserved["thinking_level"] = true
 		}
 	}
