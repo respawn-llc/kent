@@ -42,9 +42,14 @@ func TestRemoteCompactionReplacementOwnsExactlyOneTranscriptSummary(t *testing.T
 		t.Fatalf("persist compaction input: %v", err)
 	}
 	scheduleManualCompactionAndWait(t, engine)
-	buildActiveTurnRequestForTest(t, engine, nil, true)
 
 	liveFacts := make([]TranscriptCommittedRowFact, 0)
+	for _, event := range events {
+		liveFacts = append(liveFacts, TranscriptCommittedRowFactsFromEvent(event)...)
+	}
+	assertSingleCompactionSummaryAndPreservedUserFact(t, liveFacts, preservedUserMessage)
+	buildActiveTurnRequestForTest(t, engine, nil, true)
+	liveFacts = nil
 	for _, event := range events {
 		liveFacts = append(liveFacts, TranscriptCommittedRowFactsFromEvent(event)...)
 	}
@@ -168,7 +173,7 @@ func TestHistoryReplacementProjectsPreservedUserContextWithoutReplayingUserTurns
 
 	if err := steerTestActiveStep(engine,
 		"compaction",
-		steerHistoryReplacementIntent(session.HistoryReplacementCompaction, "local", compactionModeAuto, 1, nil, preparedCompactionHistory{items: items}),
+		steerTestPreparedHistoryIntent("local", compactionModeAuto, 1, nil, preparedCompactionHistory{items: items}),
 	); err != nil {
 		t.Fatalf("persist history replacement: %v", err)
 	}
@@ -303,7 +308,7 @@ func TestEligibleHistoryReplacementTimestampParityAcrossPersistedAndLiveProjecti
 	if err := steerTestActiveStep(
 		engine,
 		"eligible replacement",
-		steerHistoryReplacementIntent(session.HistoryReplacementCompaction, "local", compactionModeAuto, 1, nil, preparedCompactionHistory{items: items}),
+		steerTestPreparedHistoryIntent("local", compactionModeAuto, 1, nil, preparedCompactionHistory{items: items}),
 	); err != nil {
 		t.Fatalf("persist eligible history replacement: %v", err)
 	}

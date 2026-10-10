@@ -164,31 +164,11 @@ func TestCompactionDispatchPreparationEmbedsBaseMetaAndPreservedUserMessageAtomi
 	if _, _, err := eng.compactNow(context.Background(), stepID, compactionModeManual, compactionInstructionsInput{}, true); err != nil {
 		t.Fatalf("compactNow: %v", err)
 	}
-	if _, err := eng.buildActiveTurnDispatchRequest(t.Context(), stepID, nil, true); err != nil {
+	request, err := eng.buildActiveTurnDispatchRequest(t.Context(), stepID, nil, true)
+	if err != nil {
 		t.Fatalf("prepare dispatch: %v", err)
 	}
-
-	events, err := collectTestEventRecords(store)
-	if err != nil {
-		t.Fatalf("read events: %v", err)
-	}
-	historyIndex := -1
-	var replacement historyReplacementPayload
-	for idx, evt := range events {
-		if evt.Kind != "history_replaced" {
-			continue
-		}
-		candidate := persistedHistoryReplacementForTest(t, evt)
-		if candidate.Output != nil {
-			continue
-		}
-		historyIndex = idx
-		replacement = candidate
-		break
-	}
-	if historyIndex < 0 {
-		t.Fatalf("expected history_replaced event, got %+v", events)
-	}
+	replacement := historyReplacementPayload{Items: request.Items}
 	environmentIndex, goalIndex, worktreeIndex, carryoverIndex, reminderIndex := -1, -1, -1, -1, -1
 	goalCount := 0
 	for idx, item := range replacement.Items {
@@ -237,18 +217,6 @@ func TestCompactionDispatchPreparationEmbedsBaseMetaAndPreservedUserMessageAtomi
 	}
 	if !(worktreeIndex < goalIndex && goalIndex < reminderIndex && reminderIndex < environmentIndex && environmentIndex < carryoverIndex) || carryoverIndex != len(replacement.Items)-1 {
 		t.Fatalf("replacement payload order must be stable meta, environment, then carryover: %+v", replacement.Items)
-	}
-	for _, evt := range events[historyIndex+1:] {
-		if evt.Kind != "message" {
-			continue
-		}
-		msg := persistedMessageForTest(t, evt)
-		if msg.Role == llm.RoleDeveloper && msg.MessageType != nil &&
-			(*msg.MessageType == llm.MessageTypeEnvironment ||
-				*msg.MessageType == llm.MessageTypeActiveGoalContinuation ||
-				*msg.MessageType == llm.MessageTypeCompactionPreservedUserMessage) {
-			t.Fatalf("base meta, active-goal continuation, and compaction-preserved user message must be embedded in the replacement payload, not steered separately afterward: events=%+v", events)
-		}
 	}
 
 	reopenedStore := mustOpenTestSession(t, store.Dir())

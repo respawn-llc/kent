@@ -242,7 +242,7 @@ func TestWorkflowPostCompletionCompactionRestoresBoundaryAndLazyContinuationCons
 
 	stepID = runtimeTestStepID("ordinary-replacement")
 	restoreStep := setTestActiveStep(reopened, stepID)
-	receipt, err = newCompactionPersistence(reopened).replaceHistory(stepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+	receipt, err = replaceTestPreparedHistory(reopened, stepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
 		Role:        llm.RoleDeveloper,
 		MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
 		Content:     textutil.Value("ordinary replacement"),
@@ -1021,8 +1021,9 @@ func TestWorkflowRequestAfterCompactionUsesOneCurrentAssignmentPrompt(t *testing
 			if err := test.compact(context.Background(), engine); err != nil {
 				t.Fatalf("compact workflow context: %v", err)
 			}
-			if !test.existingCurrentNode && summaries != 0 {
-				t.Fatal("saved output displayed a summary before the next Agent started")
+			waitEngineLifecycleTasks(t, engine)
+			if summaries != 1 {
+				t.Fatalf("completed compaction displayed %d summaries, want one before the next request", summaries)
 			}
 			// A completed compaction must not repeat its lifecycle effects when
 			// the next assignment prepares its request.

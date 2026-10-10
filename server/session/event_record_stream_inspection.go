@@ -150,7 +150,7 @@ func inspectContextBoundaryRecordStream(reader io.Reader, kind EventKind) error 
 	var mode CompactionMode
 	var compactionNumber, committedEntryStart *int
 	var latestRollbackCandidate *rollbacktarget.CandidateLocator
-	var outputPresent, summaryPresent, itemsPresent, continuationPresent bool
+	var outputPresent, summaryPresent, itemsPresent bool
 	if err := inspectEventRecordObject(decoder, inspectionReader, func(
 		decoder *jx.Decoder,
 		field string,
@@ -233,12 +233,8 @@ func inspectContextBoundaryRecordStream(reader io.Reader, kind EventKind) error 
 						return decoder.Skip()
 					}
 				})
-			case "items", "continuation":
-				if field == "items" {
-					itemsPresent = decoder.Next() != jx.Null
-				} else {
-					continuationPresent = decoder.Next() != jx.Null
-				}
+			case "items":
+				itemsPresent = decoder.Next() != jx.Null
 				if decoder.Next() == jx.Null {
 					return decoder.Skip()
 				}
@@ -269,7 +265,7 @@ func inspectContextBoundaryRecordStream(reader io.Reader, kind EventKind) error 
 		return fmt.Errorf("validate history replacement payload: %w", err)
 	}
 	if outputPresent {
-		if itemsPresent || continuationPresent {
+		if itemsPresent {
 			return errors.New("history replacement cannot contain both prepared history and compacted output")
 		}
 		if compactionNumber == nil || committedEntryStart == nil || !summaryPresent {

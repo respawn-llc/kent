@@ -587,8 +587,8 @@ func (s *transcriptRuntimeState) ReplaceHistoryAtCommittedEntryStart(
 	)
 }
 
-func (s *transcriptRuntimeState) BeginGeneration(committedEntryStart int) {
-	s.chatProjection().beginGeneration(committedEntryStart)
+func (s *transcriptRuntimeState) BeginGeneration(stepID *string, committedEntryStart int, entries []ChatEntry) {
+	s.chatProjection().beginGeneration(stepID, committedEntryStart, entries)
 }
 
 func (s *transcriptRuntimeState) ClearStreamingAssistantState() (*AssistantStreamMetadata, *uuid.UUID) {

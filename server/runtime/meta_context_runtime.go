@@ -301,6 +301,9 @@ func selectWorkflowTaskPrompt(
 		return prompts.WorkflowTaskPromptReassignment, true, nil
 	}
 	if currentAssignmentIdentity == nil {
+		if trigger == workflowTaskPromptTriggerCompaction {
+			return prompts.WorkflowTaskPromptCompactionReminder, true, nil
+		}
 		return prompts.WorkflowTaskPromptInitialAssignment, true, nil
 	}
 	sameRun := *currentAssignmentIdentity == normalizedCurrentNodeIdentity

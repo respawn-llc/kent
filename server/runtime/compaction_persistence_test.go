@@ -20,7 +20,7 @@ func TestReplaceHistoryPublishesProjectedTranscriptEntriesBeforeCompactionStatus
 	requestID := runtimeids.NewCompactionRequestID()
 	restoreStep := setTestActiveStep(engine, stepID)
 	defer restoreStep()
-	receipt, err := newCompactionPersistence(engine).replaceHistory(stepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{
+	receipt, err := replaceTestPreparedHistory(engine, stepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{
 		{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value("summary")},
 		{Role: llm.RoleUser, Content: textutil.Value("continued input")},
 	})})

@@ -11,7 +11,7 @@ import (
 	"core/shared/transcript"
 )
 
-func TestCompactionDispatchPreparationAtomicallyEmbedsMetaAndPreservedUserMessage(t *testing.T) {
+func TestCompactionOperationContextSurvivesReopen(t *testing.T) {
 	t.Parallel()
 	store, globalConfigDir := mustCreateBaseMetaContextTestSession(t)
 	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{
@@ -38,35 +38,10 @@ func TestCompactionDispatchPreparationAtomicallyEmbedsMetaAndPreservedUserMessag
 	}
 
 	scheduleManualCompactionAndWait(t, engine)
-	buildActiveTurnRequestForTest(t, engine, nil, true)
-
-	window, err := mustMaterializeTestEventLog(t, store).ReadRecentRecords(16)
-	if err != nil {
-		t.Fatalf("read bounded compaction records: %v", err)
-	}
-	var replacement session.HistoryReplacementRecord
-	replacementIndex := -1
-	for index, event := range window.Records {
-		record, ok := mustSessionEventPayload(event).(session.HistoryReplacementRecord)
-		if !ok {
-			continue
-		}
-		if record.CompactedOutput != nil {
-			continue
-		}
-		if replacementIndex >= 0 {
-			t.Fatalf("bounded compaction records contain multiple replacements: %+v", window.Records)
-		}
-		replacementIndex = index
-		replacement = record
-	}
-	if replacementIndex < 0 {
-		t.Fatalf("bounded compaction records contain no history replacement: %+v", window.Records)
-	}
-
-	messageTypes := make([]llm.MessageType, 0, len(replacement.Items))
-	for _, item := range replacement.Items {
-		if item.Type != session.ProviderHistoryItemTypeMessage || item.MessageType == nil {
+	request := buildActiveTurnRequestForTest(t, engine, nil, true)
+	messageTypes := make([]llm.MessageType, 0, len(request.Items))
+	for _, item := range request.Items {
+		if item.Type != llm.ResponseItemTypeMessage || item.MessageType == nil {
 			continue
 		}
 		messageTypes = append(messageTypes, llm.MessageType(*item.MessageType))
@@ -79,20 +54,8 @@ func TestCompactionDispatchPreparationAtomicallyEmbedsMetaAndPreservedUserMessag
 		llm.MessageTypeEnvironment,
 		llm.MessageTypeCompactionPreservedUserMessage,
 	})
-	persistedItems := make([]llm.ResponseItem, 0, len(replacement.Items))
-	for _, item := range replacement.Items {
-		persistedItems = append(persistedItems, llmResponseItemFromSessionHistory(item))
-	}
-	assertCompactionReplacementOrder(t, persistedItems, false)
-	assertCompactionCheckpointUnchanged(t, persistedItems, checkpoint)
-
-	for _, event := range window.Records[replacementIndex+1:] {
-		message, ok := mustSessionEventPayload(event).(session.MessageRecord)
-		if !ok || message.Role != session.MessageRoleDeveloper || message.MessageType == nil {
-			continue
-		}
-		t.Fatalf("replacement followed by typed developer meta record: %+v", event)
-	}
+	assertCompactionReplacementOrder(t, request.Items, false)
+	assertCompactionCheckpointUnchanged(t, request.Items, checkpoint)
 
 	reopenedStore := mustOpenTestSession(t, store.Dir())
 	reopened := mustNewTestEngine(t, reopenedStore, &fakeClient{}, newTestToolRegistry(t), Config{
@@ -100,9 +63,10 @@ func TestCompactionDispatchPreparationAtomicallyEmbedsMetaAndPreservedUserMessag
 		GlobalConfigDir: globalConfigDir,
 	})
 	for range 2 {
-		request := buildActiveTurnRequestForTest(t, reopened, nil, true)
-		assertCompactionReplacementOrder(t, request.Items, false)
-		assertCompactionCheckpointUnchanged(t, request.Items, checkpoint)
+		restored := buildActiveTurnRequestForTest(t, reopened, nil, true)
+		assertCompactionRequestItemsEqual(t, request.Items, restored.Items)
+		assertCompactionReplacementOrder(t, restored.Items, false)
+		assertCompactionCheckpointUnchanged(t, restored.Items, checkpoint)
 	}
 
 	page, err := TranscriptNewestSegmentPageFromEventLog(mustMaterializeTestEventLog(t, reopenedStore), "")

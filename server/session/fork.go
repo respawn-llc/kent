@@ -301,15 +301,13 @@ func streamReplay(parentLog MaterializedEventLog, version int, appendBatch func(
 			switch boundary := payload.(type) {
 			case HistoryReplacementRecord:
 				if !preserveNativeUpdates {
-					for _, segment := range []*[]ProviderHistoryItem{&boundary.Items, &boundary.Continuation} {
-						var items []ProviderHistoryItem
-						for _, item := range *segment {
-							if item.Type != ProviderHistoryItemTypeConfigurationUpdate {
-								items = append(items, item)
-							}
+					var items []ProviderHistoryItem
+					for _, item := range boundary.Items {
+						if item.Type != ProviderHistoryItemTypeConfigurationUpdate {
+							items = append(items, item)
 						}
-						*segment = items
 					}
+					boundary.Items = items
 				}
 				boundary.LatestRollbackCandidate = candidate
 				payload = boundary
@@ -590,21 +588,31 @@ func (d *replayDerivedState) apply(record EventRecord) error {
 	}
 	switch payload := payload.(type) {
 	case MessageRecord:
-		if payload.Role == MessageRoleDeveloper && payload.MessageType != nil {
-			switch *payload.MessageType {
-			case MessageTypeHeadlessMode:
-				d.headlessActive = true
-			case MessageTypeHeadlessModeExit:
-				d.headlessActive = false
+		d.applyMessage(payload)
+	case GenerationContextRecord:
+		for _, messages := range [][]MessageRecord{payload.BeforeSummary, payload.AfterSummary} {
+			for _, message := range messages {
+				d.applyMessage(message)
 			}
-		}
-		if isCompactionSoonReminderMessage(payload) {
-			d.reminderIssued = true
 		}
 	case HistoryReplacementRecord:
 		d.reminderIssued = false
 	}
 	return nil
+}
+
+func (d *replayDerivedState) applyMessage(message MessageRecord) {
+	if message.Role == MessageRoleDeveloper && message.MessageType != nil {
+		switch *message.MessageType {
+		case MessageTypeHeadlessMode:
+			d.headlessActive = true
+		case MessageTypeHeadlessModeExit:
+			d.headlessActive = false
+		}
+	}
+	if isCompactionSoonReminderMessage(message) {
+		d.reminderIssued = true
+	}
 }
 
 func isCompactionSoonReminderMessage(message MessageRecord) bool {

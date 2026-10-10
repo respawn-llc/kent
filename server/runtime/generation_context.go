@@ -38,23 +38,11 @@ func (e *Engine) setGenerationContext(generation generationContext) {
 	e.generationContext = generation
 }
 
-type compactionHistory interface {
-	compactionHistory()
-}
-
 type compactionOutput struct {
 	summary              []llm.ResponseItem
 	preservedUserMessage *llm.Message
 	futureAgentMessage   *llm.Message
 }
-
-type preparedCompactionHistory struct {
-	items        []llm.ResponseItem
-	continuation []llm.ResponseItem
-}
-
-func (compactionOutput) compactionHistory()          {}
-func (preparedCompactionHistory) compactionHistory() {}
 
 func (output compactionOutput) estimateTokens(estimator llm.TokenEstimator) int {
 	return llm.EstimateItemsTokens(estimator, output.summary) +
@@ -79,19 +67,29 @@ func (output compactionOutput) continuationMessages() []llm.Message {
 	return messages
 }
 
-func (output compactionOutput) prepare(engine session.CompactionEngine, meta metaContextProjection, runningShells []llm.Message) preparedCompactionHistory {
-	var items []llm.ResponseItem
+func prepareGenerationContext(engine session.CompactionEngine, meta metaContextProjection, runningShells []llm.Message) (session.GenerationContextRecord, error) {
+	var before []llm.Message
 	if engine == session.CompactionEngineRemote {
-		items = append(items, llm.ItemsFromMessages([]llm.Message{{
+		before = append(before, llm.Message{
 			Role: llm.RoleDeveloper, Content: textutil.Value(prompts.CompactionContinuationReminder),
-		}})...)
+		})
 	}
-	items = append(items, llm.ItemsFromMessages(meta.StablePrefix)...)
-	items = append(items, output.summary...)
-	items = append(items, llm.ItemsFromMessages(runningShells)...)
-	items = append(items, llm.ItemsFromMessages(meta.Environment)...)
-	items = append(items, llm.ItemsFromMessages(output.continuationMessages())...)
-	return preparedCompactionHistory{items: items}
+	before = append(before, meta.StablePrefix...)
+	after := append(runningShells, meta.Environment...)
+	record := session.GenerationContextRecord{}
+	for _, segment := range []struct {
+		messages []llm.Message
+		target   *[]session.MessageRecord
+	}{{before, &record.BeforeSummary}, {after, &record.AfterSummary}} {
+		for _, message := range segment.messages {
+			stored, err := sessionMessageRecordFromLLM(message)
+			if err != nil {
+				return session.GenerationContextRecord{}, err
+			}
+			*segment.target = append(*segment.target, stored)
+		}
+	}
+	return record, nil
 }
 
 // Live request operations prepare a saved generation once. Idle Session
@@ -101,9 +99,16 @@ func (e *Engine) prepareRequestGenerationContext(ctx context.Context, stepID str
 	if !ok {
 		return nil
 	}
+	if _, err := e.ensureLocked(); err != nil {
+		return err
+	}
 	if e.workflowPromptActive() {
 		var committedErr error
-		err := e.currentNodeExecutionSnapshot().delivery.apply(workflowTaskPromptTriggerTaskDelivery, func(trigger workflowTaskPromptTrigger) error {
+		trigger := workflowTaskPromptTriggerCompaction
+		if pending.replacement.Mode == string(session.CompactionModeWorkflowPostCompletion) {
+			trigger = workflowTaskPromptTriggerTaskDelivery
+		}
+		err := e.currentNodeExecutionSnapshot().delivery.apply(trigger, func(trigger workflowTaskPromptTrigger) error {
 			// A target assignment already committed after the summary keeps its
 			// original row; preparing base context must not deliver it again.
 			if workflowAssignmentIdentityFromItems(e.transcriptRuntimeState().SnapshotItems()) != nil {
@@ -123,21 +128,18 @@ func (e *Engine) prepareRequestGenerationContext(ctx context.Context, stepID str
 }
 
 func (e *Engine) commitGenerationContext(ctx context.Context, stepID string, pending pendingGenerationContext, trigger workflowTaskPromptTrigger) (session.CommitReceipt, error) {
-	output := pending.replacement.Output
 	meta, err := e.generationMetaContextProjection(ctx, trigger)
 	if err != nil {
 		return session.CommitReceipt{}, err
 	}
-	history := output.prepare(session.CompactionEngine(pending.replacement.Engine), meta, e.compactionRunningShellReminder())
-	history.continuation = e.transcriptRuntimeState().SnapshotItems()
-	receipt, err := e.steerWithCommitReceipt(stepID, steerHistoryReplacementIntent(
-		session.HistoryReplacementPreparation,
-		pending.replacement.Engine,
-		compactionMode(pending.replacement.Mode),
-		*pending.replacement.CompactionNumber,
-		pending.replacement.LastCommittedAssistantFinalAnswer,
-		history,
-	))
+	record, err := prepareGenerationContext(session.CompactionEngine(pending.replacement.Engine), meta, e.compactionRunningShellReminder())
+	if err != nil {
+		return session.CommitReceipt{}, err
+	}
+	receipt, err := e.steerWithCommitReceipt(stepID, steeringIntent{
+		priority: steeringPriorityNormal,
+		items:    []steeringItem{{generationContext: &record}},
+	})
 	if receipt.Committed && !e.workflowPromptActive() && e.store.Meta().HeadlessActive != e.cfg.HeadlessMode {
 		err = errors.Join(err, e.store.SetHeadlessActive(e.cfg.HeadlessMode))
 	}
@@ -148,6 +150,80 @@ func (e *Engine) commitGenerationContext(ctx context.Context, stepID string, pen
 		return receipt, errors.New("generation context was not committed")
 	}
 	return receipt, nil
+}
+
+func (e *Engine) commitGenerationContextRaw(stepID string, record session.GenerationContextRecord) (session.CommitReceipt, error) {
+	if _, pending := e.generationContextSnapshot().(pendingGenerationContext); !pending {
+		return session.CommitReceipt{}, errors.New("generation context requires pending compaction output")
+	}
+	appended, receipt, err := e.eventLog.AppendRecord(textutil.OptionalExactString(stepID), record)
+	if !receipt.Committed {
+		return receipt, err
+	}
+	start := e.CommittedTranscriptEntryCount()
+	entries, installErr := e.installGenerationContext(appended, record)
+	if installErr != nil {
+		return receipt, errors.Join(err, installErr)
+	}
+	return receipt, errors.Join(err, e.emitProjectedHistoryReplacementEntriesRaw(stepID, start, entries))
+}
+
+func generationContextMessages(record session.GenerationContextRecord) (before, after []llm.Message, err error) {
+	for _, segment := range []struct {
+		records []session.MessageRecord
+		target  *[]llm.Message
+	}{{record.BeforeSummary, &before}, {record.AfterSummary, &after}} {
+		for _, stored := range segment.records {
+			message, messageErr := llmMessageFromSessionRecord(stored)
+			if messageErr != nil {
+				return nil, nil, messageErr
+			}
+			*segment.target = append(*segment.target, message)
+		}
+	}
+	return before, after, nil
+}
+
+func generationContextEntries(record session.EventRecord, context session.GenerationContextRecord) ([]ChatEntry, error) {
+	before, after, err := generationContextMessages(context)
+	if err != nil {
+		return nil, err
+	}
+	var entries []ChatEntry
+	for _, message := range append(before, after...) {
+		entries = append(entries, VisibleChatEntriesFromMessage(message)...)
+	}
+	provenance, err := transcriptProvenanceFromRecord(record)
+	if err != nil {
+		return nil, err
+	}
+	for i := range entries {
+		entries[i].StepID = record.StepID()
+	}
+	return assignHistoryReplacementEntryProvenance(entries, &provenance), nil
+}
+
+func (e *Engine) installGenerationContext(record session.EventRecord, context session.GenerationContextRecord) ([]ChatEntry, error) {
+	pending, ok := e.generationContextSnapshot().(pendingGenerationContext)
+	if !ok {
+		return nil, errors.New("generation context has no pending compaction output")
+	}
+	before, after, err := generationContextMessages(context)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := generationContextEntries(record, context)
+	if err != nil {
+		return nil, err
+	}
+	output := pending.replacement.Output
+	items := llm.ItemsFromMessages(before)
+	items = append(items, output.summary...)
+	items = append(items, llm.ItemsFromMessages(after)...)
+	items = append(items, llm.ItemsFromMessages(output.continuationMessages())...)
+	e.transcriptRuntimeState().chatProjection().prepareGeneration(items, entries)
+	e.setGenerationContext(preparedGenerationContext{})
+	return entries, nil
 }
 
 func compactionOutputFromRecord(record session.CompactedOutput) (compactionOutput, error) {

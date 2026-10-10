@@ -43,6 +43,7 @@ type steeringItem struct {
 	reviewerFeedback            *steeringReviewerFeedback
 	reviewerError               *steeringReviewerError
 	historyReplace              *steeringHistoryReplacement
+	generationContext           *session.GenerationContextRecord
 	toolCompletion              *tools.Result
 	resultGroupReport           *steeringResultGroupReport
 	resultGroupFlush            *steeringResultGroupFlush
@@ -143,7 +144,6 @@ type steeringCompletedResponseResolution struct {
 
 type steeringHistoryReplacement struct {
 	payload historyReplacementPayload
-	purpose session.HistoryReplacementPurpose
 }
 
 type steeringResultGroupReport struct {
@@ -284,27 +284,18 @@ func steerReviewerErrorIntent(detail string) steeringIntent {
 	return steeringIntent{priority: steeringPriorityNormal, items: []steeringItem{{reviewerError: &steeringReviewerError{detail: detail}}}}
 }
 
-func steerHistoryReplacementIntent(purpose session.HistoryReplacementPurpose, engine string, mode compactionMode, compactionNumber int, lastCommittedAssistantFinalAnswer *string, history compactionHistory) steeringIntent {
+func steerHistoryReplacementIntent(engine string, mode compactionMode, compactionNumber int, lastCommittedAssistantFinalAnswer *string, output compactionOutput) steeringIntent {
 	payload := historyReplacementPayload{
 		Engine:                            normalizeHistoryReplacementEngine(engine),
 		Mode:                              string(mode),
 		CompactionNumber:                  textutil.Value(compactionNumber),
 		LastCommittedAssistantFinalAnswer: textutil.Pointer(lastCommittedAssistantFinalAnswer),
-	}
-	switch history := history.(type) {
-	case preparedCompactionHistory:
-		payload.Items = llm.CloneResponseItems(llm.PrepareOpenAIInputItems(history.items))
-		payload.Continuation = llm.CloneResponseItems(llm.PrepareOpenAIInputItems(history.continuation))
-	case compactionOutput:
-		payload.Output = &history
-	default:
-		panic("unknown compaction history")
+		Output:                            &output,
 	}
 	return steeringIntent{
 		priority: steeringPriorityNormal,
 		items: []steeringItem{{historyReplace: &steeringHistoryReplacement{
 			payload: payload,
-			purpose: purpose,
 		}}},
 	}
 }
@@ -1017,6 +1008,15 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 		item.recordCommitReceipt(receipt)
 		return err
 	}
+	if item.generationContext != nil {
+		stepID, err := provenance.requireExactStepID()
+		if err != nil {
+			return err
+		}
+		receipt, err := e.commitGenerationContextRaw(stepID, *item.generationContext)
+		item.recordCommitReceipt(receipt)
+		return err
+	}
 	if item.toolCompletion != nil {
 		stepID, exactErr := provenance.requireExactStepID()
 		if exactErr != nil {
@@ -1216,14 +1216,6 @@ func (item steeringItem) recordCommitReceipt(receipt session.CommitReceipt) {
 }
 
 func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryReplacement) (session.CommitReceipt, error) {
-	if replacement.purpose == session.HistoryReplacementPreparation {
-		pending, ok := e.generationContextSnapshot().(pendingGenerationContext)
-		if !ok || replacement.payload.Output != nil ||
-			replacement.payload.CompactionNumber == nil ||
-			*replacement.payload.CompactionNumber != *pending.replacement.CompactionNumber {
-			return session.CommitReceipt{}, errors.New("generation preparation requires the current pending compaction")
-		}
-	}
 	projectedStart := e.CommittedTranscriptEntryCount()
 	replacement.payload.CommittedEntryStart = &projectedStart
 	replacement.payload.LatestRollbackCandidate = e.transcriptRuntimeState().LatestRollbackCandidate()
@@ -1232,17 +1224,14 @@ func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryRep
 		return session.CommitReceipt{}, fmt.Errorf("adapt history replacement record: %w", adaptErr)
 	}
 	appended, receipt, appendErr := e.eventLog.AppendHistoryReplacement(
-		replacement.purpose,
 		textutil.OptionalExactString(stepID),
 		record,
 	)
 	if appendErr != nil && !receipt.Committed {
 		return receipt, appendErr
 	}
-	if replacement.purpose == session.HistoryReplacementCompaction {
-		e.invalidateCompactedRuntime()
-	}
-	entries, installErr := e.installHistoryReplacement(appended, replacement.payload, replacement.purpose)
+	e.invalidateCompactedRuntime()
+	entries, installErr := e.installHistoryReplacement(appended, replacement.payload)
 	if installErr != nil {
 		return receipt, errors.Join(appendErr, installErr)
 	}
@@ -1251,10 +1240,7 @@ func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryRep
 		projectedStart,
 		entries,
 	)
-	var finishErr error
-	if replacement.purpose == session.HistoryReplacementCompaction {
-		finishErr = e.finishCompactionCommit(stepID)
-	}
+	finishErr := e.finishCompactionCommit(stepID)
 	return receipt, errors.Join(
 		appendErr,
 		emitErr,

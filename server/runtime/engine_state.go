@@ -890,7 +890,6 @@ type historyReplacementPayload struct {
 	LastCommittedAssistantFinalAnswer *string                          `json:"last_committed_assistant_final_answer,omitempty"`
 	LatestRollbackCandidate           *rollbacktarget.CandidateLocator `json:"latest_rollback_candidate,omitempty"`
 	Items                             []llm.ResponseItem               `json:"items"`
-	Continuation                      []llm.ResponseItem               `json:"continuation,omitempty"`
 	Output                            *compactionOutput                `json:"-"`
 }
 
