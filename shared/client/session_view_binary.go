@@ -7,6 +7,15 @@ import (
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
+func (c *Remote) GetViewedImageOriginal(ctx context.Context, request *sessionpb.ViewedImageOriginalRequest) (*sessionpb.ViewedImageOriginalSuccess, error) {
+	return callGeneratedBinary(c, ctx,
+		bootstrapMethod(sessionpb.File_kent_api_session_session_proto, "ReadService", "GetViewedImageOriginal"),
+		request, &sessionpb.ViewedImageOriginalResult{},
+		func(failure *sessionpb.ViewedImageOriginalError) error {
+			return generatedOperationFailure(failure.Code)
+		})
+}
+
 func (c *Remote) GetPromptHistory(ctx context.Context, request *sessionpb.PromptHistoryRequest) (*sessionpb.PromptHistorySuccess, error) {
 	return callGeneratedBinary(c, ctx,
 		bootstrapMethod(sessionpb.File_kent_api_session_session_proto, "ReadService", "GetPromptHistory"),

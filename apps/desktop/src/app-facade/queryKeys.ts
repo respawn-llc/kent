@@ -92,6 +92,10 @@ export const queryKeys = {
   allPendingAsks: ["pending-asks"],
   allProcesses: ["processes"],
   chatMainView: (sessionID: string) => ["chat", sessionID, "main-view"] as const,
+  viewedImage: (sessionID: string, locator: Readonly<{ event_sequence: number; row_ordinal: number }>) =>
+    ["chat", sessionID, "viewed-image", locator.event_sequence, locator.row_ordinal] as const,
+  viewedPDF: (sessionID: string, target: Readonly<{ path: string; basePath: string }>) =>
+    ["chat", sessionID, "viewed-pdf", target.basePath, target.path] as const,
   boardWorkflowRoot: (projectID: string, workflowID: string | undefined) => ["board", projectID, workflowID],
   projectBoardsRoot: (projectID: string) => ["board", projectID],
   board: (projectID: string, workflowID: string | undefined, filter: BoardFilterInput) => [

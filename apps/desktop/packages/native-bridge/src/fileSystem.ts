@@ -26,9 +26,11 @@ export type NativeDirectoryBridge = Readonly<{
 }>;
 
 export type NativeFileBridge = Readonly<{
+  readImage: ((target: NativeFileTarget) => Promise<Uint8Array>) | null;
   selectFile(options: NativeFilePickerOptions): Promise<NativeFileSelection>;
   fileAvailable(target: NativeFileTarget): Promise<boolean>;
   openFile(target: NativeFileTarget): Promise<void>;
+  openDefault(target: NativeFileTarget): Promise<void>;
 }>;
 
 export function createBrowserDirectoryBridge(): NativeDirectoryBridge {
@@ -41,6 +43,7 @@ export function createBrowserDirectoryBridge(): NativeDirectoryBridge {
 
 export function createBrowserFileBridge(): NativeFileBridge {
   return {
+    readImage: null,
     async selectFile(): Promise<NativeFileSelection> {
       throw new Error("File selection is unavailable in this shell.");
     },
@@ -48,6 +51,9 @@ export function createBrowserFileBridge(): NativeFileBridge {
       return false;
     },
     async openFile(): Promise<void> {
+      throw new Error("File opening is unavailable in this shell.");
+    },
+    async openDefault(): Promise<void> {
       throw new Error("File opening is unavailable in this shell.");
     },
   };
@@ -64,6 +70,13 @@ export function createTauriDirectoryBridge(): NativeDirectoryBridge {
 
 export function createTauriFileBridge(): NativeFileBridge {
   return {
+    async readImage(target): Promise<Uint8Array> {
+      const content = await invoke<ArrayBuffer>("read_image_original", {
+        basePath: target.basePath,
+        path: target.path,
+      });
+      return new Uint8Array(content);
+    },
     async selectFile(options: NativeFilePickerOptions): Promise<NativeFileSelection> {
       const path = await invoke<string | null>("select_file", { title: options.title });
       return path === null ? null : { path };
@@ -77,6 +90,12 @@ export function createTauriFileBridge(): NativeFileBridge {
     async openFile(target: NativeFileTarget): Promise<void> {
       await invoke("open_file_path", {
         basePath: target.basePath ?? "",
+        path: target.path,
+      });
+    },
+    async openDefault(target: NativeFileTarget): Promise<void> {
+      await invoke("open_file_default", {
+        basePath: target.basePath,
         path: target.path,
       });
     },

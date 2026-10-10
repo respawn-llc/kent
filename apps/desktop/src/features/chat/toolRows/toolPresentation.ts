@@ -64,7 +64,8 @@ export type ToolPresentation =
       kind: "view-image";
       body: readonly ToolTextSection[];
       compact: string;
-      copyPayload?: string | undefined;
+      path: string;
+      outcome: "running" | "failed" | "raster" | "pdf";
       icon: "image";
       iconTone: TranscriptDisclosureIconTone;
       running: boolean;
@@ -235,7 +236,7 @@ function resolveNonPatchTool(
     case "web-search":
       return resolveWebSearch(context, strings);
     case "view-image":
-      return resolveViewImage(context, strings) ?? resolveGeneric(context);
+      return resolveViewImage(context, strings) ?? { ...resolveGeneric(context), copyPayload: undefined };
     case "shell-input":
       return resolveShellInput(context);
     case "shell-command":
@@ -328,16 +329,27 @@ function resolveViewImage(
   if (context.meta?.RenderHint?.Kind !== "plain") return undefined;
   const imagePath = meaningful(context.meta.RenderHint.Path);
   if (imagePath === undefined) return undefined;
+  if (context.committed?.IsError === false && context.committed.ViewedImageKind === null) return undefined;
   const imageInput = strings.viewedImage(imagePath);
+  const outcome = viewImageOutcome(context);
   return {
     kind: "view-image",
     body: textSections(imageInput, context.output),
     compact: imageInput,
-    copyPayload: buildToolCopyPayload("input-output", imageInput, context.committed?.Text),
+    path: imagePath,
+    outcome,
     icon: "image",
     iconTone: toolIconTone(context.item, context.meta),
     running: context.item.kind === "live",
   };
+}
+
+function viewImageOutcome(
+  context: ResolutionContext,
+): Extract<ToolPresentation, { kind: "view-image" }>["outcome"] {
+  if (context.item.kind === "live") return "running";
+  if (context.item.row.Tool.IsError) return "failed";
+  return context.item.row.Tool.ViewedImageKind === "pdf" ? "pdf" : "raster";
 }
 
 function resolveShellInput(

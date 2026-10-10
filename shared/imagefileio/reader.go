@@ -16,9 +16,19 @@ import (
 const workerCommand = "__kent_internal_read_image_file"
 const readTimeout = 10 * time.Second
 const workerWaitDelay = time.Second
+// Keep source failures distinct from Go's panic exit status.
+const acquisitionFailureExitCode = 66
 const MaxReadBytes int64 = 10 << 20
 
 var errReadTimeout = errors.New("image file open or read timed out")
+
+// AcquisitionError reports an unusable source, distinct from reader execution failures.
+type AcquisitionError struct {
+	Cause error
+}
+
+func (e *AcquisitionError) Error() string { return e.Cause.Error() }
+func (e *AcquisitionError) Unwrap() error { return e.Cause }
 
 type workerRequest struct {
 	Path  string `json:"path"`
@@ -61,10 +71,15 @@ func readWithTimeout(ctx context.Context, path string, limit int64, timeout time
 		return nil, fmt.Errorf("image file read canceled: %w", ctxErr)
 	}
 	if errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
-		return nil, fmt.Errorf("%w after %s", errReadTimeout, timeout)
+		return nil, &AcquisitionError{Cause: fmt.Errorf("%w after %s", errReadTimeout, timeout)}
 	}
+	failure := fmt.Errorf("image file reader failed: %w", runErr)
 	if message := strings.TrimSpace(stderr.String()); message != "" {
-		return nil, errors.New(message)
+		failure = fmt.Errorf("%w: %s", failure, message)
 	}
-	return nil, fmt.Errorf("image file reader failed: %w", runErr)
+	var exitError *exec.ExitError
+	if errors.As(runErr, &exitError) && exitError.ExitCode() == acquisitionFailureExitCode {
+		return nil, &AcquisitionError{Cause: failure}
+	}
+	return nil, failure
 }

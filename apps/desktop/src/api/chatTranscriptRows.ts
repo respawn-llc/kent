@@ -256,6 +256,13 @@ function assistantRow(value: T.AssistantRow): NonNullable<ChatCommittedRow["Assi
 
 function toolRow(value: T.ToolRow): NonNullable<ChatCommittedRow["Tool"]> {
   return {
+    ViewedImageKind:
+      value.viewedImageKind === undefined
+        ? null
+        : enumValue(value.viewedImageKind, {
+            [T.ViewedImageKind.RASTER]: "raster",
+            [T.ViewedImageKind.PDF]: "pdf",
+          }),
     StepID: value.stepId ?? null,
     ToolCallID: value.toolCallId ?? null,
     ToolName: value.toolName ?? null,

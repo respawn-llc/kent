@@ -9,6 +9,13 @@ import (
 
 const MessageTypeAgentSteer = "agent_steer"
 
+type ViewedImageKind uint8
+
+const (
+	ViewedImageRaster ViewedImageKind = iota + 1
+	ViewedImagePDF
+)
+
 type ToolPresentationKind string
 
 const (

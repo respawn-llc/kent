@@ -205,6 +205,10 @@ export type ChatApi = Readonly<{
   ): Promise<readonly Readonly<{ name: string; preview: string }>[]>;
   getDraft(target: ChatSessionTarget): Promise<Readonly<{ input: string; protectedInput: string | null }>>;
   getPromptHistory(target: ChatSessionTarget): Promise<readonly string[]>;
+  getViewedImageOriginal(
+    target: ChatSessionTarget,
+    path: string,
+  ): Promise<Readonly<{ kind: "content"; bytes: Uint8Array }> | Readonly<{ kind: "unavailable" }>>;
   persistDraft(target: ChatSessionTarget, input: string, protectedInput?: string | null): Promise<void>;
   listPendingPrompts(target: ChatSessionTarget): Promise<readonly PendingPrompt[]>;
   answerPromptBatch(input: PromptAnswerBatchInput): Promise<PromptAnswerBatchResponse>;

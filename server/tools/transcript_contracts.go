@@ -368,7 +368,7 @@ func formatEditToolResult(result Result) string {
 }
 
 func formatViewImageToolResult(result Result) string {
-	if summary, ok := formatViewImageOutput(result.Output); ok {
+	if summary, _, ok := InterpretViewImageOutput(result.Output); ok {
 		return summary
 	}
 	return formatGenericToolResult(result)
@@ -863,24 +863,30 @@ func formatOutputDefault(raw json.RawMessage) string {
 	return string(formatted)
 }
 
-func formatViewImageOutput(raw json.RawMessage) (string, bool) {
+// InterpretViewImageOutput derives display text and source kind from canonical content.
+func InterpretViewImageOutput(raw json.RawMessage) (string, *transcript.ViewedImageKind, bool) {
 	var items []struct {
 		Type     string `json:"type"`
 		Filename string `json:"filename"`
 	}
 	if err := json.Unmarshal(raw, &items); err != nil {
-		return "", false
+		return "", nil, false
 	}
 	if len(items) == 0 {
-		return "", false
+		return "", nil, false
 	}
 
 	labels := make([]string, 0, len(items))
+	var kind *transcript.ViewedImageKind
 	for _, item := range items {
 		switch strings.ToLower(strings.TrimSpace(item.Type)) {
 		case "input_image":
+			value := transcript.ViewedImageRaster
+			kind = &value
 			labels = append(labels, "attached image")
 		case "input_file":
+			value := transcript.ViewedImagePDF
+			kind = &value
 			filename := strings.TrimSpace(item.Filename)
 			if filename == "" {
 				labels = append(labels, "attached PDF")
@@ -892,9 +898,9 @@ func formatViewImageOutput(raw json.RawMessage) (string, bool) {
 		}
 	}
 	if len(labels) == 0 {
-		return "", false
+		return "", nil, false
 	}
-	return strings.Join(labels, "\n"), true
+	return strings.Join(labels, "\n"), kind, true
 }
 
 func formatRawJSON(raw json.RawMessage) string {

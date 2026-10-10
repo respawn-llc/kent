@@ -906,16 +906,17 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact) (*transcript
 			return nil, err
 		}
 		row.Row = &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
-			StepId:         textutil.Pointer(fact.StepID),
-			ToolCallId:     textutil.OptionalTrimmedString(fact.Tool.ToolCallID),
-			ToolName:       textutil.OptionalTrimmedString(fact.Tool.ToolName),
-			Text:           fact.Tool.Text,
-			IsError:        fact.Tool.IsError,
-			ResultSummary:  optionalNonBlankString(fact.Tool.ResultSummary),
-			CondensedText:  optionalNonBlankString(fact.Tool.CondensedText),
-			Presentation:   presentation,
-			QuestionAnswer: answer,
-			WebSearch:      webSearch,
+			ViewedImageKind: viewedImageKindToProto(fact.Tool.ViewedImageKind),
+			StepId:          textutil.Pointer(fact.StepID),
+			ToolCallId:      textutil.OptionalTrimmedString(fact.Tool.ToolCallID),
+			ToolName:        textutil.OptionalTrimmedString(fact.Tool.ToolName),
+			Text:            fact.Tool.Text,
+			IsError:         fact.Tool.IsError,
+			ResultSummary:   optionalNonBlankString(fact.Tool.ResultSummary),
+			CondensedText:   optionalNonBlankString(fact.Tool.CondensedText),
+			Presentation:    presentation,
+			QuestionAnswer:  answer,
+			WebSearch:       webSearch,
 		}}
 	case runtime.TranscriptCommittedRowFactReasoningTrace:
 		if fact.ReasoningTrace == nil || fact.StepID == nil {
@@ -971,6 +972,14 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact) (*transcript
 		return nil, fmt.Errorf("runtime transcript row fact has unknown kind %q", fact.Kind)
 	}
 	return row, nil
+}
+
+func viewedImageKindToProto(kind *transcript.ViewedImageKind) *transcriptpb.ViewedImageKind {
+	if kind == nil {
+		return nil
+	}
+	value := transcriptpb.ViewedImageKind(*kind)
+	return &value
 }
 
 func transcriptQuestionAnswerFromRuntime(answer *tools.AskQuestionAnswer) (*promptpb.QuestionAnswer, error) {

@@ -108,8 +108,10 @@ function ChatDestinationShell({
         sessionName={sessionName}
         state={state}
         content={(_, bottomInset) =>
-          target === null ? null : (
+          target === null || executionTarget === null ? null : (
             <ChatTranscriptContent
+              target={target}
+              effectiveWorkdir={executionTarget.effectiveWorkdir}
               bottomInset={bottomInset}
               openingVisible={openingVisible}
               edit={{

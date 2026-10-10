@@ -95,6 +95,7 @@ function questionRow(
     User: null,
     Assistant: null,
     Tool: {
+      ViewedImageKind: null,
       StepID: null,
       ToolCallID: "question-call",
       ToolName: "ask_question",
