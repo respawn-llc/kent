@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"sync"
 
 	"core/shared/apicontract"
@@ -130,20 +131,27 @@ func (s *Service) SubscribeChatSettings(ctx context.Context, sessionID runtimeid
 	return s.settingsOwner.Changes.Subscribe(sessionID)
 }
 
-func (s *Service) PublishSessionSettings(ctx context.Context, sessionID runtimeids.SessionID) error {
+func (s *Service) PublishSessionSettings(ctx context.Context, sessionID runtimeids.SessionID) {
+	var err error
+	defer func() {
+		if err != nil {
+			slog.ErrorContext(ctx, "Session settings publication failed after commit", "session_id", sessionID.String(), "error", err)
+		}
+	}()
 	if s.settingsOwner.Changes == nil {
-		return errors.New("Session settings broadcaster is required")
+		err = errors.New("Session settings broadcaster is required")
+		return
 	}
 	projected, err := s.SessionChatSettings(ctx, sessionID)
 	if err != nil {
-		return err
+		return
 	}
 	record, err := s.planner.PersistedSessions.ResolvePersistedSession(ctx, sessionID.String())
 	if err != nil {
-		return err
+		return
 	}
 	settings := projected.GetSession()
-	return s.settingsOwner.Changes.Publish(&chatsettingspb.SettingsSnapshot{
+	err = s.settingsOwner.Changes.Publish(&chatsettingspb.SettingsSnapshot{
 		SessionName: record.Meta.Name,
 		Settings:    settings.Settings,
 		Session:     settings.Session,

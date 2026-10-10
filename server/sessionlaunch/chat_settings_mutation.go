@@ -93,9 +93,7 @@ func (s *Service) applyChatSettings(
 	})
 	if committed || (err == nil && result.GetApplied() != nil) {
 		responseCtx := context.WithoutCancel(ctx)
-		if publishErr := s.PublishSessionSettings(responseCtx, sessionID); publishErr != nil {
-			slog.ErrorContext(responseCtx, "Session settings publication failed after settings commit", "session_id", sessionID.String(), "error", publishErr)
-		}
+		s.PublishSessionSettings(responseCtx, sessionID)
 	}
 	if err != nil {
 		return nil, err

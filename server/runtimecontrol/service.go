@@ -35,7 +35,7 @@ type sessionSettingPublisher interface {
 }
 
 type SessionSettingsPublisher interface {
-	PublishSessionSettings(context.Context, string) error
+	PublishSessionSettings(context.Context, string)
 }
 
 type PromptHistoryStore interface {
@@ -350,9 +350,7 @@ func (s *Service) SetSessionName(ctx context.Context, req *runtimepb.SetSessionN
 	}
 	if s.settings != nil {
 		responseCtx := context.WithoutCancel(ctx)
-		if publishErr := s.settings.PublishSessionSettings(responseCtx, req.SessionId); publishErr != nil {
-			slog.ErrorContext(responseCtx, "Session settings publication failed after name commit", "session_id", req.SessionId, "error", publishErr)
-		}
+		s.settings.PublishSessionSettings(responseCtx, req.SessionId)
 	}
 	if publisher, ok := s.activity.(sessionSettingPublisher); ok && live {
 		publishErr := publisher.PublishSessionSettingFeedback(req.SessionId, &transcriptpb.SessionSettingFeedback{

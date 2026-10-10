@@ -2473,7 +2473,7 @@ func (s *Store) serializeSessionSnapshot(snapshot session.PersistedStoreSnapshot
 	return sqlitegen.UpsertSessionParams{
 		ID:                       snapshot.Meta.SessionID,
 		ArtifactRelpath:          relpath,
-		Name:                     nullableString(snapshot.Meta.Name),
+		Name:                     NullableString(snapshot.Meta.Name),
 		FirstPromptPreview:       snapshot.Meta.FirstPromptPreview,
 		InputDraft:               snapshot.Meta.InputDraft,
 		ProtectedInputDraft:      protectedInputDraft,

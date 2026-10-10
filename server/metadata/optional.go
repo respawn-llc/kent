@@ -2,7 +2,8 @@ package metadata
 
 import "database/sql"
 
-func nullableString(value *string) sql.NullString {
+// NullableString preserves optional string presence at the SQLite boundary.
+func NullableString(value *string) sql.NullString {
 	if value == nil {
 		return sql.NullString{}
 	}

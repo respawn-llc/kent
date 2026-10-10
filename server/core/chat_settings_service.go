@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"strings"
 
@@ -32,16 +33,21 @@ func (s chatSettingsService) SubscribeChatSettings(ctx context.Context, req *cha
 	return service.SubscribeChatSettings(ctx, id)
 }
 
-func (s chatSettingsService) PublishSessionSettings(ctx context.Context, sessionID string) error {
+func (s chatSettingsService) PublishSessionSettings(ctx context.Context, sessionID string) {
 	id, err := runtimeids.ParseSessionID(sessionID)
+	defer func() {
+		if err != nil {
+			slog.ErrorContext(ctx, "Session settings publication target resolution failed", "session_id", sessionID, "error", err)
+		}
+	}()
 	if err != nil {
-		return err
+		return
 	}
 	service, err := s.sessionSettingsService(ctx, sessionID)
 	if err != nil {
-		return err
+		return
 	}
-	return service.PublishSessionSettings(ctx, id)
+	service.PublishSessionSettings(ctx, id)
 }
 
 func (s chatSettingsService) ReadChatSettings(
