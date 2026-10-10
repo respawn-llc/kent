@@ -741,7 +741,7 @@ func TestPlanLaunchSessionUsesResolvedCallerWorkflowOrigin(t *testing.T) {
 			}
 			blockedService := NewService(launch.Planner{
 				Config: cfg, ContainerDir: containerDir, StoreOptions: meta.AuthoritativeSessionStoreOptions(),
-				PersistedSessions: meta, SessionProjects: meta, ManagedWorktreeRoots: meta,
+				PersistedSessions: meta, CallerSessions: meta, ExecutionTargets: meta, SessionProjects: meta, ManagedWorktreeRoots: meta,
 			}, settingsOwner)
 			plan, err := blockedService.PlanLaunchSession(ctx, PlanRequest{
 				Mode:            launch.ModeHeadless,
