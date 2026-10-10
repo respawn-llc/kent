@@ -43,8 +43,6 @@ export function PromptPickerView({
   const disabled = isPending || draft.status === "declined";
   const materializing = batch.some((item) => (item.batch?.unmaterializedCount ?? 0) > 0);
   const navigationDisabled = batch.length < 2;
-  const navigationTooltipKey = pickerNavigationTooltip(navigationDisabled, materializing);
-  const navigationTooltipProps = navigationTooltipKey === null ? {} : { tooltip: t(navigationTooltipKey) };
   const options = pickerOptions(prompt, t);
   const selected = options.find((option) => sameSelection(option.selection, draft.selection));
   const act = (action: PickerAction) => {
@@ -68,7 +66,6 @@ export function PromptPickerView({
               <IconTooltipButton
                 label={t("chat.picker.previous")}
                 disabled={navigationDisabled}
-                {...navigationTooltipProps}
                 onClick={() => {
                   act({ kind: "navigate", direction: -1 });
                 }}
@@ -86,7 +83,6 @@ export function PromptPickerView({
               <IconTooltipButton
                 label={t("chat.picker.next")}
                 disabled={navigationDisabled}
-                {...navigationTooltipProps}
                 onClick={() => {
                   act({ kind: "navigate", direction: 1 });
                 }}
@@ -140,11 +136,6 @@ export function PromptPickerView({
       />
     </div>
   );
-}
-
-function pickerNavigationTooltip(disabled: boolean, materializing: boolean) {
-  if (!disabled) return null;
-  return materializing ? "chat.picker.waitingQuestions" : "chat.picker.noOtherQuestions";
 }
 
 function PromptQuestion({ prompt }: Readonly<{ prompt: PendingPrompt }>) {

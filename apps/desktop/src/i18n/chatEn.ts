@@ -5,8 +5,6 @@ const chatPickerEnglish = {
   position: "Question {{current}} of {{count}}",
   previous: "Previous question",
   next: "Next question",
-  waitingQuestions: "Waiting for the remaining questions",
-  noOtherQuestions: "No other pending questions",
   declineShortcut: "Decline to answer (Ctrl+D)",
   decline: "Decline to answer",
   sending: "Sending answers…",
