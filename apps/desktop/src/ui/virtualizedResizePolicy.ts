@@ -5,14 +5,12 @@ export function resolveVirtualizedResizePolicy(
   endAnchored: boolean,
 ): Virtualizer<HTMLDivElement, Element>["shouldAdjustScrollPositionOnItemSizeChange"] {
   if (nonAdjustingItemKey === undefined && !endAnchored) return undefined;
-  return (item, _delta, instance) =>
+  return (item, delta, instance) =>
     nonAdjustingItemKey !== item.key &&
-    // A first measurement can grow a message across the viewport's top.
-    // Only rows entirely above it should move the reader's position.
+    // A shrinking first measurement may put the entire row above the fold
+    // even though its estimate crossed it. Compensate that newly exposed
+    // space, but do not shift a row that still spans the viewport's top.
     (!endAnchored ||
       (instance.scrollOffset !== null &&
-        item.end <= instance.scrollOffset + instance.scrollAdjustments &&
-        // Preserve the virtualizer's backward-scroll protection for later
-        // measurements, while still correcting newly encountered estimates.
-        (!instance.itemSizeCache.has(item.key) || instance.scrollDirection !== "backward")));
+        item.end + delta <= instance.scrollOffset + instance.scrollAdjustments));
 }

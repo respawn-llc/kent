@@ -7,6 +7,15 @@ import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer
 import { StaticMarkdown, StreamingMarkdown } from "@/ui";
 import { TranscriptWindowView } from "./TranscriptWindowView";
 
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+});
+
+afterEach(() => {
+  vi.runOnlyPendingTimers();
+  vi.useRealTimers();
+});
+
 it.each(["older", "newer"] as const)(
   "continues through equal-sized %s pages without another edge gesture",
   (direction) => {
@@ -466,7 +475,7 @@ it("keeps viewport compensation and measured content geometry in the same resize
   }
 });
 
-it("does not counter-scroll while previously mounted messages settle during upward scrolling", async () => {
+it("compensates above-viewport remeasurement while scrolling upward", async () => {
   const geometry = installVirtualizedScrollGeometry(600);
   const { view } = streamingView(Array.from({ length: 100 }, (_, index) => row(index + 1)));
   try {
@@ -487,39 +496,41 @@ it("does not counter-scroll while previously mounted messages settle during upwa
     act(() => {
       geometry.resize(preceding, 200);
     });
-    expect(list.scrollTop).toBe(before);
+    expect(list.scrollTop).toBe(before + 140);
   } finally {
     view.unmount();
     geometry.restore();
   }
 });
 
-it.each([20, 200])(
-  "does not drag the viewport when a message at its top is first measured at %ipx",
-  async (height) => {
-    const geometry = installVirtualizedScrollGeometry(600);
-    const { view } = streamingView(Array.from({ length: 100 }, (_, index) => row(index + 1)));
-    try {
-      await act(async () => {
-        await new Promise((resolve) => requestAnimationFrame(resolve));
-      });
-      const list = screen.getByRole("list");
-      list.scrollTop = 2010;
-      fireEvent.scroll(list);
-      const text = row(51).User?.Text;
-      if (text === undefined) throw new Error("Expected a user message fixture.");
-      const message = screen.getAllByRole("listitem").find((item) => within(item).queryByText(text) !== null);
-      if (message === undefined) throw new Error("Expected a visible message row.");
-      act(() => {
-        geometry.resize(message, height);
-      });
-      expect(list.scrollTop).toBe(2010);
-    } finally {
-      view.unmount();
-      geometry.restore();
-    }
-  },
-);
+it.each([
+  { height: 20, offset: 2010, expected: 2010 },
+  { height: 200, offset: 2010, expected: 2010 },
+  { height: 20, offset: 2030, expected: 2010 },
+  { height: 200, offset: 2050, expected: 2050 },
+])("anchors first measurement of $height px at offset $offset", async ({ height, offset, expected }) => {
+  const geometry = installVirtualizedScrollGeometry(600);
+  const { view } = streamingView(Array.from({ length: 100 }, (_, index) => row(index + 1)));
+  try {
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    const list = screen.getByRole("list");
+    list.scrollTop = offset;
+    fireEvent.scroll(list);
+    const text = row(51).User?.Text;
+    if (text === undefined) throw new Error("Expected a user message fixture.");
+    const message = screen.getAllByRole("listitem").find((item) => within(item).queryByText(text) !== null);
+    if (message === undefined) throw new Error("Expected a visible message row.");
+    act(() => {
+      geometry.resize(message, height);
+    });
+    expect(list.scrollTop).toBe(expected);
+  } finally {
+    view.unmount();
+    geometry.restore();
+  }
+});
 
 it("opens at the bottom and keeps the latest content clear as composer padding grows", async () => {
   const geometry = installVirtualizedScrollGeometry(600);

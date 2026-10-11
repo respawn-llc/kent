@@ -3,6 +3,15 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer";
 import { VirtualizedInfiniteList } from "./VirtualizedInfiniteList";
 
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+});
+
+afterEach(() => {
+  vi.runOnlyPendingTimers();
+  vi.useRealTimers();
+});
+
 it("retains an offscreen row without treating it as a visible pagination edge", () => {
   const geometry = installVirtualizedScrollGeometry(600);
   const rowHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (

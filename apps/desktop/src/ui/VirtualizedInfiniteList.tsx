@@ -41,7 +41,6 @@ import {
   resolveVirtualizedContainerClassName,
   resolveVirtualizedInnerClassName,
   resolveVirtualizedInnerStyle,
-  resolveVirtualizedBlockGap,
   renderVirtualizedRowsContent,
   renderVirtualizedRow,
   type VirtualizedInfiniteListLayout,
@@ -236,14 +235,13 @@ function VirtualizedInfiniteListContent<TItem>({
     return indexes;
   }, [getItemKey, itemStartIndex, items, retainedItemKeys]);
   const { applyScrollRequest, options: endOptions } = useVirtualizedEndAnchoring(endAnchoring);
-  const blockPositioning = endAnchoring !== undefined && !horizontal;
   const virtualizer = useVirtualizer({
     count,
     getScrollElement: () => scrollRef.current,
     estimateSize,
     paddingEnd,
     paddingStart,
-    useFlushSync: blockPositioning,
+    useFlushSync: endAnchoring !== undefined && !horizontal,
     getItemKey: (index) =>
       virtualizedRowKey({
         getItemKey,
@@ -371,8 +369,7 @@ function VirtualizedInfiniteListContent<TItem>({
       renderItem,
       virtualIndex,
     });
-  const firstVirtualItem = virtualItems.at(0);
-  const renderedRows = virtualItems.map((virtualItem, index): ReactNode =>
+  const renderedRows = virtualItems.map((virtualItem): ReactNode =>
     renderVirtualizedInfiniteListRow({
       getItemKey,
       getItemWrapperProps,
@@ -386,7 +383,6 @@ function VirtualizedInfiniteListContent<TItem>({
       rowSpacing,
       stickyItemKeys,
       virtualItem,
-      blockGap: resolveVirtualizedBlockGap(blockPositioning, virtualItem, virtualItems[index - 1]),
     }),
   );
   const hasHorizontalBoundary = resolveHorizontalBoundary(horizontal, layout, nextBoundary);
@@ -407,8 +403,6 @@ function VirtualizedInfiniteListContent<TItem>({
         style={resolveVirtualizedInnerStyle(horizontal, virtualizer.getTotalSize())}
       >
         {renderVirtualizedRowsContent({
-          blockPositioning,
-          firstVirtualItem,
           renderedRows,
           hasItems: items.length > 0,
           empty,
