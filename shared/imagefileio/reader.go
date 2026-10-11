@@ -16,6 +16,7 @@ import (
 const workerCommand = "__kent_internal_read_image_file"
 const readTimeout = 10 * time.Second
 const workerWaitDelay = time.Second
+
 // Keep source failures distinct from Go's panic exit status.
 const acquisitionFailureExitCode = 66
 const MaxReadBytes int64 = 10 << 20
