@@ -20,7 +20,7 @@ import (
 const subagentSessionSuffix = "subagent"
 
 type RunPromptResult struct {
-	SessionID   string
+	Identity    *runtimeids.SessionIdentity
 	SessionName *string
 	Result      string
 	Duration    time.Duration
@@ -58,8 +58,12 @@ func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Op
 	if warningErr != nil {
 		return RunPromptResult{}, errors.Join(err, warningErr)
 	}
+	identity, identityErr := protoapi.SessionIdentityFromProto(response.SessionId, response.ShortId)
+	if identityErr != nil {
+		return RunPromptResult{}, errors.Join(err, identityErr)
+	}
 	result := RunPromptResult{
-		SessionID:   response.SessionId,
+		Identity:    &identity,
 		SessionName: response.SessionName,
 		Result:      response.Result,
 		Duration:    response.Duration.AsDuration(),

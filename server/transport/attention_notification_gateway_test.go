@@ -9,7 +9,6 @@ import (
 	testharness "core/internal/testharness/testsetup"
 	"core/server/attentionnotify"
 	"core/server/core"
-	"core/server/metadata"
 	"core/server/registry"
 	askquestion "core/server/tools"
 	"core/shared/apicontract"
@@ -180,12 +179,7 @@ func newGatewayAttentionTestServer(t *testing.T) (*core.Core, *registry.RuntimeR
 	t.Helper()
 	appCore, _ := newGatewayTestCore(t, true, true)
 	broker := attentionnotify.NewBroker()
-	store, err := metadata.Open(appCore.Config().PersistenceRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	prompts := registry.NewRuntimeRegistry(store).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	prompts := registry.NewRuntimeRegistry(appCore.MetadataStore()).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	gateway, err := NewGateway(
 		&gatewayAttentionDependencies{Core: appCore, attention: prompts},
 		gatewayTestIdentity(),

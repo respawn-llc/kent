@@ -25,6 +25,12 @@ import (
 
 var _ servicecontract.RuntimeLiveControlService = (*Service)(nil)
 
+func retainLiveTargetFailure(identity runtimeids.SessionIdentity, err *error) {
+	if *err != nil {
+		*err = &serverapi.SessionTargetError{Identity: identity, Cause: *err}
+	}
+}
+
 func (s *Service) liveTarget(ctx context.Context, target *sharedpb.SessionSelector, caller *string) (runtimeids.SessionID, error) {
 	id, err := s.metadata.ResolveSessionTarget(ctx, target)
 	if err != nil {
@@ -52,7 +58,7 @@ func (s *Service) withLiveExecutionRuntime(ctx context.Context, id runtimeids.Se
 	return s.authority.WithLiveExecutionRuntime(ctx, id, fn)
 }
 
-func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest) (*runtimepb.LiveSteerSuccess, error) {
+func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest) (resp *runtimepb.LiveSteerSuccess, err error) {
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
@@ -60,6 +66,11 @@ func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest
 	if err != nil {
 		return nil, err
 	}
+	identity, err := s.metadata.SessionIdentity(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer retainLiveTargetFailure(identity, &err)
 	callerSessionID := req.CallerSessionId
 	text := strings.TrimSpace(req.Text)
 	queueText := text
@@ -79,7 +90,6 @@ func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest
 		}
 		queueText = *agentSteer.Message().Content
 	}
-	var resp *runtimepb.LiveSteerSuccess
 	err = s.withLiveExecutionRuntime(ctx, sessionID, func(callbackCtx context.Context, engine *runtime.Engine) error {
 		var item runtime.QueuedUserMessage
 		var accepted bool
@@ -157,7 +167,7 @@ func (s *Service) captureLiveRun(ctx context.Context, id runtimeids.SessionID) (
 	return handle, name, err
 }
 
-func (s *Service) LiveWait(ctx context.Context, req *runtimepb.LiveWaitRequest) (*runtimepb.LiveWaitSuccess, error) {
+func (s *Service) LiveWait(ctx context.Context, req *runtimepb.LiveWaitRequest) (resp *runtimepb.LiveWaitSuccess, err error) {
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
@@ -165,14 +175,14 @@ func (s *Service) LiveWait(ctx context.Context, req *runtimepb.LiveWaitRequest) 
 	if err != nil {
 		return nil, err
 	}
-	var resp *runtimepb.LiveWaitSuccess
-	waitHandle, sessionName, err := s.captureLiveRun(ctx, sessionID)
-	if err != nil {
-		return resp, err
-	}
 	identity, err := s.metadata.SessionIdentity(ctx, sessionID)
 	if err != nil {
 		return nil, err
+	}
+	defer retainLiveTargetFailure(identity, &err)
+	waitHandle, sessionName, err := s.captureLiveRun(ctx, sessionID)
+	if err != nil {
+		return resp, err
 	}
 	result, err := waitHandle.Wait()
 	if errors.Is(err, runtime.ErrLiveRunNoFinalAnswer) {
@@ -253,6 +263,7 @@ func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest)
 	if err != nil {
 		return nil, err
 	}
+	defer retainLiveTargetFailure(identity, &err)
 	defer func() {
 		if response != nil {
 			response.ShortId = protoapi.SessionShortIDToProto(identity.ShortID)

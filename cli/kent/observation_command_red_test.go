@@ -144,11 +144,13 @@ func TestTaskObservationRendersDiscriminatorAndTaskTargetForOneQuestion(t *testi
 
 func TestTaskObservationUsesSessionTargetsForParallelQuestions(t *testing.T) {
 	firstSession, secondSession := "session-1", "session-2"
+	firstShort, secondShort := int64(123), int64(124)
 	response := &taskpb.ObserveSuccess{
 		TaskId: "task-1", TaskShortId: "T-1",
 		Outcomes: []*taskpb.ObserveOutcome{
 			{Outcome: &taskpb.ObserveOutcome_Question{Question: &taskpb.ObserveQuestion{
 				SessionId: &firstSession,
+				ShortId:   &firstShort,
 				Question: observationQuestionForTest(t, serverapi.ObservationQuestion{Ask: &clientui.PendingAsk{
 					ToolCallID: "ask-1", SessionID: taskObservationSessionID(t, firstSession),
 					StepID: questionCommandStepID(), Question: "One?", CreatedAt: time.UnixMilli(1),
@@ -156,6 +158,7 @@ func TestTaskObservationUsesSessionTargetsForParallelQuestions(t *testing.T) {
 			}}},
 			{Outcome: &taskpb.ObserveOutcome_Question{Question: &taskpb.ObserveQuestion{
 				SessionId: &secondSession,
+				ShortId:   &secondShort,
 				Question: observationQuestionForTest(t, serverapi.ObservationQuestion{Ask: &clientui.PendingAsk{
 					ToolCallID: "ask-2", SessionID: taskObservationSessionID(t, secondSession),
 					StepID: questionCommandStepID(), Question: "Two?", CreatedAt: time.UnixMilli(1),
@@ -168,8 +171,8 @@ func TestTaskObservationUsesSessionTargetsForParallelQuestions(t *testing.T) {
 		t.Fatalf("writeTaskObservation exit code = %d", code)
 	}
 	text := output.String()
-	firstHint := commandString([]string{config.Command, "question", "answer", "--session", firstSession})
-	secondHint := commandString([]string{config.Command, "question", "answer", "--session", secondSession})
+	firstHint := commandString([]string{config.Command, "question", "answer", "--session", "123"})
+	secondHint := commandString([]string{config.Command, "question", "answer", "--session", "124"})
 	if !strings.Contains(text, firstHint) || !strings.Contains(text, secondHint) {
 		t.Fatalf("parallel task observation output = %q", text)
 	}

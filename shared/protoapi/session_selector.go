@@ -1,11 +1,44 @@
 package protoapi
 
 import (
+	"errors"
 	"fmt"
 
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
+	"core/shared/serverapi"
 )
+
+func SessionTargetErrorIdentity(err error) (*sharedpb.SessionIdentity, error) {
+	var target *serverapi.SessionTargetError
+	if !errors.As(err, &target) {
+		return nil, errors.New("Session operation failure omitted its resolved identity")
+	}
+	return &sharedpb.SessionIdentity{SessionId: target.Identity.ID.String(), ShortId: SessionShortIDToProto(target.Identity.ShortID)}, nil
+}
+
+func SessionTargetErrorFromProto(value *sharedpb.SessionIdentity, cause error) error {
+	if err := Validate(value); err != nil {
+		return err
+	}
+	identity, err := SessionIdentityFromProto(value.SessionId, value.ShortId)
+	if err != nil {
+		return err
+	}
+	return &serverapi.SessionTargetError{Identity: identity, Cause: cause}
+}
+
+func SessionIdentityFromProto(id string, short *int64) (runtimeids.SessionIdentity, error) {
+	sessionID, err := runtimeids.ParseSessionID(id)
+	if err != nil {
+		return runtimeids.SessionIdentity{}, err
+	}
+	shortID, err := SessionShortIDFromProto(short)
+	if err != nil {
+		return runtimeids.SessionIdentity{}, err
+	}
+	return runtimeids.SessionIdentity{ID: sessionID, ShortID: shortID}, nil
+}
 
 func SessionShortIDToProto(value *runtimeids.SessionShortID) *int64 {
 	if value == nil {

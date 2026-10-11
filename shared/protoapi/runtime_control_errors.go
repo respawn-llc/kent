@@ -16,6 +16,11 @@ import (
 
 func RuntimeUnavailableFromProto(details *runtimepb.RuntimeUnavailableDetails) error {
 	result := &serverapi.RuntimeUnavailableError{}
+	shortID, err := SessionShortIDFromProto(details.ShortId)
+	if err != nil {
+		return err
+	}
+	result.ShortID = shortID
 	if details.SessionId != nil {
 		id, err := runtimeids.ParseSessionID(*details.SessionId)
 		if err != nil {

@@ -230,6 +230,12 @@ message MainView {
 
 message RuntimeUnavailableDetails {
   optional string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  optional int64 short_id = 2 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
+  option (buf.validate.message).cel = {
+    id: "kent.runtime.unavailable_short_identity"
+    message: "Session number requires its UUID identity"
+    expression: "!has(this.short_id) || has(this.session_id)"
+  };
 }
 
 message RuntimeCommandNotAcceptedDetails {
@@ -1108,7 +1114,7 @@ message LiveSteerError {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "runtime_unavailable"
     }];
-    google.protobuf.Empty no_active_run = 3 [(kent.api.shared.kent_result_field) = {
+    kent.api.shared.SessionIdentity no_active_run = 3 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "no_active_run"
     }];
@@ -1174,11 +1180,11 @@ message LiveWaitError {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "runtime_unavailable"
     }];
-    google.protobuf.Empty no_active_run = 3 [(kent.api.shared.kent_result_field) = {
+    kent.api.shared.SessionIdentity no_active_run = 3 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "no_active_run"
     }];
-    google.protobuf.Empty no_final_answer = 4 [(kent.api.shared.kent_result_field) = {
+    kent.api.shared.SessionIdentity no_final_answer = 4 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "no_final_answer"
     }];
