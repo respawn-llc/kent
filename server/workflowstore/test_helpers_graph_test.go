@@ -143,6 +143,19 @@ func newTestStore(t *testing.T) (*Store, metadata.Binding) {
 	return store, binding
 }
 
+func noneManualMoveExecutionTargetCandidate(binding metadata.Binding) *ExecutionTargetCandidate {
+	return &ExecutionTargetCandidate{
+		Snapshot: ExecutionTargetSnapshot{
+			Mode:       workflow.ExecutionTargetModeNone,
+			Provenance: ExecutionTargetProvenanceResolved,
+		},
+		Root: ExecutionRoot{
+			SourceWorkspaceID:   binding.WorkspaceID,
+			SourceWorkspaceRoot: binding.CanonicalRoot,
+		},
+	}
+}
+
 func newTestStoreContext(t *testing.T) (context.Context, *Store, metadata.Binding) {
 	t.Helper()
 	store, binding := newTestStore(t)

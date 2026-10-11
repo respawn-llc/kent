@@ -45,7 +45,6 @@ type Request struct {
 	Source                config.SourceReport
 	CacheKeys             CacheKeys
 	AuthStatus            apicontract.AuthStatusService
-	AuthSelection         *authpb.ProviderSelection
 	SessionName           *string
 	SessionID             string
 	AgentRole             *string
@@ -87,6 +86,7 @@ type Snapshot struct {
 }
 
 type AuthInfo struct {
+	Connection  *authpb.ConnectionFacts
 	Summary     string
 	Details     []string
 	Visible     bool

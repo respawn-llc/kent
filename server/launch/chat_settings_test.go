@@ -23,6 +23,32 @@ func TestSupportedChatThinkingValuesUsesKnownModelContract(t *testing.T) {
 	}
 }
 
+func TestChatAgentCatalogDistinguishesConnectionSets(t *testing.T) {
+	app := loadLaunchConfig(t, t.TempDir(),
+		`connection = ["a", "b"]`,
+		`[connections.a]`,
+		`protocol = "chatgpt-codex"`,
+		`[connections.b]`,
+		`protocol = "chatgpt-codex"`,
+		`[connections.c]`,
+		`protocol = "chatgpt-codex"`,
+		`[subagents.distinct]`,
+		`connection = ["a", "c"]`,
+		`[subagents.equivalent]`,
+		`connection = ["b", "a"]`,
+	)
+	catalog, err := PrepareChatAgentCatalog(app, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := catalog.Lookup("distinct"); !present {
+		t.Fatal("Agent with a distinct effective set was omitted")
+	}
+	if _, present := catalog.Lookup("equivalent"); present {
+		t.Fatal("equivalent Agent was not omitted")
+	}
+}
+
 func TestSessionAgentChoicesPreserveOnlyKnownRoleFacts(t *testing.T) {
 	for _, scenario := range []struct {
 		name        string

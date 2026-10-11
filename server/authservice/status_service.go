@@ -13,6 +13,7 @@ import (
 	"core/server/auth"
 	"core/server/httpcompression"
 	"core/server/llm"
+	"core/server/session"
 	"core/shared/authstatus"
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
@@ -26,10 +27,11 @@ const usageBaseURL = "https://chatgpt.com/backend-api"
 
 type StatusService struct {
 	connections *ConnectionResolver
+	sessions    session.PersistedSessionResolver
 }
 
-func NewStatusService(connections *ConnectionResolver) *StatusService {
-	return &StatusService{connections: connections}
+func NewStatusService(connections *ConnectionResolver, sessions session.PersistedSessionResolver) *StatusService {
+	return &StatusService{connections: connections, sessions: sessions}
 }
 
 func (s *StatusService) GetStatus(ctx context.Context, req *authpb.GetStatusRequest) (*authpb.Status, error) {
@@ -40,12 +42,22 @@ func (s *StatusService) GetStatus(ctx context.Context, req *authpb.GetStatusRequ
 	if req.Provider != nil {
 		target = &req.Provider.ConnectionId
 	}
+	if req.SessionId != nil {
+		if req.Provider != nil {
+			return nil, errors.New("connection status cannot select both a Provider Connection and a Session")
+		}
+		record, err := session.ResolvePersistedSessionRecord(ctx, s.sessions, *req.SessionId)
+		if err != nil {
+			return unavailableStatus(err), nil
+		}
+		if record.Meta.ConnectionID == nil {
+			return unavailableStatus(errors.New("Session has no saved Provider Connection")), nil
+		}
+		target = textutil.Value(string(*record.Meta.ConnectionID))
+	}
 	snapshot, err := s.connections.snapshot(ctx, target)
 	if err != nil {
-		return &authpb.Status{
-			Resolution:   &authpb.StatusResolution{Resolution: &authpb.StatusResolution_Unavailable{Unavailable: authStatusFailure(err)}},
-			Subscription: &authpb.SubscriptionFacts{},
-		}, nil
+		return unavailableStatus(err), nil
 	}
 	definition := snapshot.connection.Definition
 	registration, err := llm.ResolveConnectionVariant(definition)
@@ -54,8 +66,14 @@ func (s *StatusService) GetStatus(ctx context.Context, req *authpb.GetStatusRequ
 	}
 	capabilities := registration.Variant.Capabilities
 	facts := &authpb.StatusFacts{
-		ConnectionId: string(snapshot.connection.ID), Method: connectionAuthMethod(definition),
+		ConnectionId: string(snapshot.connection.ID), Method: authstatus.ConnectionAuthMethod(definition),
 		Provider: authstatus.ProviderFacts(capabilities.ProviderID, capabilities.IsOpenAIFirstParty, definition),
+	}
+	if req.SessionId != nil {
+		facts.SessionConnection, err = authstatus.SessionConnection(snapshot.settings, &snapshot.connection.ID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	switch facts.Method {
 	case authpb.AuthMethod_AUTH_METHOD_OAUTH:
@@ -75,6 +93,13 @@ func (s *StatusService) GetStatus(ctx context.Context, req *authpb.GetStatusRequ
 		resolution.PartialFailure = authStatusFailure(snapshot.failure)
 	}
 	return &authpb.Status{Resolution: resolution, Subscription: subscriptionStatus(ctx, snapshot.oauth, definition.Protocol == config.ConnectionChatGPT && !req.SkipSubscriptionUsage)}, nil
+}
+
+func unavailableStatus(err error) *authpb.Status {
+	return &authpb.Status{
+		Resolution:   &authpb.StatusResolution{Resolution: &authpb.StatusResolution_Unavailable{Unavailable: authStatusFailure(err)}},
+		Subscription: &authpb.SubscriptionFacts{},
+	}
 }
 
 func subscriptionStatus(

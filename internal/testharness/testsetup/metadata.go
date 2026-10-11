@@ -26,10 +26,11 @@ var metadataPersistenceRootLocks = struct {
 
 func OpenStore(t testing.TB, persistenceRoot string) *metadata.Store {
 	t.Helper()
-	materializeCurrentDatabaseSeed(t, persistenceRoot)
-	store, err := metadata.Open(persistenceRoot)
+	db := databaseseed.OpenCurrentMetadataDatabase(t)
+	store, err := metadata.NewStore(persistenceRoot, db)
 	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
+		_ = db.Close()
+		t.Fatalf("metadata.NewStore: %v", err)
 	}
 	t.Cleanup(func() {
 		if err := store.Close(); err != nil {
@@ -98,13 +99,6 @@ func validateMetadataPersistenceRoot(persistenceRoot string) error {
 		return fmt.Errorf("close metadata database: %w", err)
 	}
 	return nil
-}
-
-func materializeCurrentDatabaseSeed(t testing.TB, persistenceRoot string) {
-	t.Helper()
-	if err := materializeCurrentMetadataDatabase(persistenceRoot); err != nil {
-		t.Fatalf("materialize migrated metadata database seed: %v", err)
-	}
 }
 
 func materializeCurrentMetadataDatabase(persistenceRoot string) error {

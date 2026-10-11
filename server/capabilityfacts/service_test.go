@@ -27,7 +27,7 @@ func TestGrokCatalogContextUsesActualConnection(t *testing.T) {
 				definition.EnvironmentVariable = ptr("GROK_KEY")
 			}
 			service := NewService(Options{Config: testConfig(t, config.Settings{
-				Model: "grok-4.7", Connection: &id, Connections: map[config.ConnectionID]config.ProviderConnection{id: definition},
+				Model: "grok-4.7", Connection: config.SingleConnection(id), Connections: map[config.ConnectionID]config.ProviderConnection{id: definition},
 			})})
 			facts, err := service.GetFacts(t.Context(), &capabilitypb.GetFactsRequest{})
 			if err != nil {
@@ -60,7 +60,7 @@ func TestGrokDefaultsFollowConnectionAndPreserveAuthoredSelections(t *testing.T)
 	for _, explicit := range []bool{false, true} {
 		id := config.ConnectionID("grok")
 		app := testConfig(t, config.DefaultOnboardingSettings())
-		app.Settings.Connection = &id
+		app.Settings.Connection = config.SingleConnection(id)
 		app.Settings.Connections = map[config.ConnectionID]config.ProviderConnection{id: {Protocol: config.ConnectionGrokCLIProxy}}
 		app.Source.Sources = map[string]config.Origin{}
 		for _, key := range []string{"model", "thinking_level", "model_context_window", "context_compaction_threshold_tokens", "reviewer.model", "reviewer.thinking_level"} {
@@ -152,7 +152,7 @@ func TestServiceProjectsContextWindowsForSelectedConnection(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			id := config.ConnectionID("selected")
 			service := NewService(Options{Config: testConfig(t, config.Settings{
-				Model: "gpt-6-sol", Connection: &id,
+				Model: "gpt-6-sol", Connection: config.SingleConnection(id),
 				Connections: map[config.ConnectionID]config.ProviderConnection{id: tc.connection},
 			})})
 			facts, err := service.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{})
@@ -222,13 +222,17 @@ func TestServiceProjectsProviderVerbosityIndependentlyOfFirstPartyClassification
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			settings := testsetup.ProviderSettings(config.Settings{Model: "operator-alias"})
-			definition := settings.Connections[*settings.Connection]
+			id, err := settings.Connection.ConcreteID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			definition := settings.Connections[*id]
 			definition.Capabilities = config.ProviderCapabilitiesOverride{
 				ProviderID:                "custom-provider",
 				IsOpenAIFirstParty:        tt.isOpenAIFirstParty,
 				SupportsProviderVerbosity: tt.supportsProviderVerbosity,
 			}
-			settings.Connections[*settings.Connection] = definition
+			settings.Connections[*id] = definition
 			service := NewService(Options{Config: testConfig(t, settings)})
 
 			resp, err := service.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{})
@@ -244,11 +248,15 @@ func TestServiceProjectsProviderVerbosityIndependentlyOfFirstPartyClassification
 
 func TestServiceProjectsFastModeFromTheSelectedConnection(t *testing.T) {
 	settings := testsetup.ProviderSettings(config.Settings{Model: "gpt-6-sol"})
-	definition := settings.Connections[*settings.Connection]
+	id, err := settings.Connection.ConcreteID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := settings.Connections[*id]
 	definition.Capabilities = config.ProviderCapabilitiesOverride{
 		ProviderID: "custom-provider", SupportsResponsesAPI: true, SupportsFastMode: true,
 	}
-	settings.Connections[*settings.Connection] = definition
+	settings.Connections[*id] = definition
 	service := NewService(Options{Config: testConfig(t, settings)})
 
 	resp, err := service.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{})

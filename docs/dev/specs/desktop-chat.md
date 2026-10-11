@@ -276,7 +276,7 @@
 - When Edit starts, Chat must capture the parent draft and replace the parent Chat content with the existing loading state until child creation succeeds or fails. The parent Chat must not accept interaction while this operation is pending.
 - The server creates one durable main child Session whose copied history ends immediately before the selected user message. The selected message and all later parent history are absent from the child, and the parent Session remains unchanged.
 - Copied history preserves each source event's committed time. Source history without committed time remains without it, and copied compaction replacement history retains its compaction time. Only messages newly committed in the child receive a new committed time.
-- The child inherits the TUI fork contract: execution context, locked contract, continuation context, worktree-reminder state, previous-Session lineage, and parent-agent ancestry. Goal inheritance follows the Rollback Picker contract.
+- The child must follow the [user-fork contract](core-runtime-tools.md#sessions-location-and-transcript-bounds): a fresh interactive Session detached from any Task or Workflow, with fresh settings and snapshots while preserving execution location, Worktree reminder, previous-Session provenance, complete Goal, and current desired Thinking selection. Historical Workflow instructions may remain in the copied history.
 - The server names the child `<parent name or Session ID> → edit u<N>`. Desktop adds no naming field.
 - After creation, main-window Chat must navigate through the navigation stack to the child Session at latest and focus its ordinary composer. Native Chat must open or focus the child's own native Chat window and leave the original native window on the parent Session. The child draft must contain the selected original user-message text followed by one blank line and the parent's existing composer draft, preserving both texts verbatim. When the parent draft is empty, Chat must omit the separator. The parent draft must remain unchanged. Editing and submission then use the normal child-Session composer flow.
 - Desktop must persist the captured child draft before navigating to the child. A draft-save failure must leave the parent open with its draft unchanged and show ordinary failure feedback; it must not roll back the created child. The server's ordinary fork transition remains unchanged.
@@ -284,6 +284,8 @@
 - `To parent chat` follows the child's previous-Session lineage and opens the parent at latest. Parent-agent lineage remains omitted from ordinary Chat.
 
 ## Session Settings And Drafts
+
+- The Settings popover must show the conditional Session Connection row defined in [Provider Connections](provider-connections.md) as small, lean, single-line text after the divider and before the Session ID.
 
 - The settings trigger is one action chip inside the composer with a small leading gear icon followed by `<role>: <model> <thinking> ⚡`, with the secondary-tone zap icon omitted in normal mode. Role and separators use the normal action-chip font; model and Thinking use secondary-opacity monospace. When Thinking is unsupported, its value is omitted. Hover or focus reveals the complete summary. Separate setting chips are not part of ordinary Chat.
 - The Settings chip is left-aligned in the composer's bottom controls row as its first visible chip. The future attachment action remains hidden.

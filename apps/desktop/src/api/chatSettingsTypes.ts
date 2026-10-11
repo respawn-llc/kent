@@ -73,6 +73,7 @@ export type ChatSettings = ChatSettingsControls &
     cachingLocked: boolean;
   }>;
 export type ChatSettingsSessionFacts = Readonly<{
+  connection?: Readonly<{ id: string; mode: "subscription" | "api_key" | "no_auth" }>;
   sessionID: string;
   previousSessionID: string | null;
   task: Readonly<{ taskID: string; shortID: string }> | null;

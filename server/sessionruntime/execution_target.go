@@ -56,13 +56,19 @@ func (a *Authority) SyncExecutionTarget(ctx context.Context, sessionID string, t
 			if normalizedReminder == nil {
 				return false, nil
 			}
-			return false, store.SetWorktreeReminderState(normalizedReminder)
+			previous := store.Meta().WorktreeReminder
+			if err := store.SetWorktreeReminderState(normalizedReminder); err != nil {
+				return false, err
+			}
+			return false, runtime.SteerPersistedWorktreeTransition(store, previous)
 		}
 		retire := false
 		err := engine.RunWhenIdleBeforeQueuedUserWork(runCtx, runtime.ActiveKindRuntimeMaintenance, func() error {
-			var syncErr error
-			retire, syncErr = syncResourceExecutionTarget(resource, engine, normalizedTarget, normalizedReminder)
-			return syncErr
+			return engine.ApplyWorktreeTransitionTerminal(runCtx, func(context.Context) error {
+				var syncErr error
+				retire, syncErr = syncResourceExecutionTarget(resource, engine, normalizedTarget, normalizedReminder)
+				return syncErr
+			})
 		})
 		return retire, err
 	})
@@ -100,7 +106,14 @@ func (a *Authority) RunWorktreeTransition(
 			runErr := fn(
 				runCtx,
 				// Dormant maintenance already holds Session admission for this callback.
-				func(apply func(context.Context) error) error { return apply(runCtx) },
+				func(apply func(context.Context) error) error {
+					previous := store.Meta().WorktreeReminder
+					err := apply(runCtx)
+					if worktreeTransitionIsIndeterminate(err) {
+						return err
+					}
+					return errors.Join(err, runtime.SteerPersistedWorktreeTransition(store, previous))
+				},
 				func(syncCtx context.Context, target *worktreepb.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
 					if err := context.Cause(syncCtx); err != nil {
 						return err
@@ -571,8 +584,7 @@ func resourceSessionHasWorkflowContract(resource *agentResource) bool {
 	if resource == nil || resource.store == nil {
 		return false
 	}
-	locked := resource.store.Meta().Locked
-	return locked != nil && locked.WorkflowCompletionMode != nil
+	return resource.store.Meta().WorkflowSnapshot != nil
 }
 
 func runtimeBackgroundShellEvent(resource *agentResource, event shelltool.Event) runtime.BackgroundShellEvent {

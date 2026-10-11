@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"time"
 
-	"core/server/metadata"
 	"core/server/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
@@ -16,11 +15,6 @@ import (
 const detachedArchiveGracePeriod = 5 * time.Minute
 
 var ErrDetachedArchiveGraceExpired = errors.New("detached Session archive grace period expired")
-
-type sessionRemovalMetadata interface {
-	session.PersistedSessionResolver
-	DeleteSession(context.Context, string) error
-}
 
 type SessionRemovalCleanupError struct {
 	RemainingPath string
@@ -69,7 +63,7 @@ func (s *SessionLifecycleService) Archive(
 	if s == nil || s.authority == nil {
 		return errors.New("session runtime authority is required")
 	}
-	if s.removal == nil {
+	if s.metadata == nil {
 		return errors.New("Session removal metadata is required")
 	}
 	id, err := runtimeids.ParseSessionID(sessionID)
@@ -95,7 +89,7 @@ func (s *SessionLifecycleService) Delete(invocationCtx context.Context, sessionI
 	if s == nil || s.authority == nil {
 		return errors.New("session runtime authority is required")
 	}
-	if s.removal == nil {
+	if s.metadata == nil {
 		return errors.New("Session removal metadata is required")
 	}
 	id, err := runtimeids.ParseSessionID(sessionID)
@@ -174,7 +168,7 @@ func (s *SessionLifecycleService) runAcceptedArchive(
 			func(runCtx context.Context) error {
 				record, err := session.ResolvePersistedSessionRecord(
 					runCtx,
-					s.removal,
+					s.metadata,
 					sessionID.String(),
 				)
 				if err != nil {
@@ -262,7 +256,7 @@ func (s *SessionLifecycleService) removeSessionUnderAdmission(
 	ctx context.Context,
 	sessionID runtimeids.SessionID,
 ) error {
-	record, err := session.ResolvePersistedSessionRecord(ctx, s.removal, sessionID.String())
+	record, err := session.ResolvePersistedSessionRecord(ctx, s.metadata, sessionID.String())
 	if err != nil {
 		return err
 	}
@@ -270,7 +264,7 @@ func (s *SessionLifecycleService) removeSessionUnderAdmission(
 	if err != nil {
 		return err
 	}
-	if err := s.removal.DeleteSession(ctx, sessionID.String()); err != nil {
+	if err := s.metadata.DeleteSession(ctx, sessionID.String()); err != nil {
 		return err
 	}
 	if err := session.RemovePreflightedSessionArtifacts(schedule); err != nil {
@@ -285,5 +279,3 @@ func (s *SessionLifecycleService) removeSessionUnderAdmission(
 	}
 	return nil
 }
-
-var _ sessionRemovalMetadata = (*metadata.Store)(nil)

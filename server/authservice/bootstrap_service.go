@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"core/server/auth"
+	"core/shared/authstatus"
 	"core/shared/config"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
@@ -36,7 +37,7 @@ func (s *BootstrapService) GetBootstrapStatus(ctx context.Context, req *authpb.G
 	if err != nil {
 		return nil, err
 	}
-	method := connectionAuthMethod(snapshot.connection.Definition)
+	method := authstatus.ConnectionAuthMethod(snapshot.connection.Definition)
 	status := &authpb.BootstrapStatus{
 		ConnectionId: string(snapshot.connection.ID), Method: method,
 		AuthReady: snapshot.failure == nil, AuthRequired: method != authpb.AuthMethod_AUTH_METHOD_NONE,
@@ -126,7 +127,7 @@ func (s *BootstrapService) CompleteBootstrap(_ context.Context, req *authpb.Comp
 	if err != nil {
 		return nil, err
 	}
-	method := connectionAuthMethod(snapshot.connection.Definition)
+	method := authstatus.ConnectionAuthMethod(snapshot.connection.Definition)
 	if method == authpb.AuthMethod_AUTH_METHOD_OAUTH && (snapshot.oauth == nil || req.Force) {
 		if s.connections.manager == nil {
 			return nil, auth.ErrAuthNotConfigured
@@ -195,14 +196,4 @@ func (s *BootstrapService) CompleteBootstrap(_ context.Context, req *authpb.Comp
 		result.Email = textutil.OptionalTrimmedString(snapshot.oauth.Email)
 	}
 	return result, nil
-}
-
-func connectionAuthMethod(connection config.ProviderConnection) authpb.AuthMethod {
-	if connection.Protocol.IsSubscription() {
-		return authpb.AuthMethod_AUTH_METHOD_OAUTH
-	}
-	if connection.EnvironmentVariable != nil {
-		return authpb.AuthMethod_AUTH_METHOD_API_KEY
-	}
-	return authpb.AuthMethod_AUTH_METHOD_NONE
 }

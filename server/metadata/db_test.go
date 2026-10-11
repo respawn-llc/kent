@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"core/server/metadata/sqlitegen"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -285,8 +287,8 @@ func requireMetadataSQLitePragmas(t testing.TB, queryer sqlitePragmaQueryer) {
 	if err := queryer.QueryRowContext(t.Context(), "PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
 		t.Fatalf("PRAGMA busy_timeout: %v", err)
 	}
-	if busyTimeout != metadataSQLiteBusyTimeoutMilliseconds {
-		t.Fatalf("busy_timeout = %d, want %d", busyTimeout, metadataSQLiteBusyTimeoutMilliseconds)
+	if busyTimeout != sqlitegen.BusyTimeoutMilliseconds {
+		t.Fatalf("busy_timeout = %d, want %d", busyTimeout, sqlitegen.BusyTimeoutMilliseconds)
 	}
 }
 

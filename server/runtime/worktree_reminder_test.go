@@ -13,7 +13,6 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
-	"core/shared/pathutil"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -21,7 +20,8 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestWorktreeReminderCWDUsesHomeRelativePresentation(t *testing.T) {
+func TestWorktreeReminderCWDIsIndependentOfServerWorkingDirectory(t *testing.T) {
+	t.Chdir(string(filepath.Separator))
 	home := t.TempDir()
 	worktree := filepath.Join(home, ".kent", "worktrees", "kent", "803")
 	workspace := filepath.Join(home, "Dev", "kent")
@@ -38,8 +38,8 @@ func TestWorktreeReminderCWDUsesHomeRelativePresentation(t *testing.T) {
 		}
 		state := testWorktreeReminderState(mode, "feature", worktree, workspace, cwd)
 		message, ok := render(state, home, prompts.WorktreePromptSwitch)
-		if !ok || message.Content == nil || *message.Content != pathutil.Compact(cwd, &home, nil) {
-			t.Fatalf("reminder CWD was not home-relative: %+v", message)
+		if !ok || message.Content == nil || !filepath.IsAbs(*message.Content) || filepath.Clean(*message.Content) != cwd {
+			t.Fatalf("reminder did not identify the absolute working directory: %+v", message)
 		}
 		if message.WorktreeContext.EffectiveCwd != cwd {
 			t.Fatal("presentation changed the canonical working directory")
@@ -310,6 +310,7 @@ func TestManualCompactionReinjectsWorktreeReminderExactlyOnce(t *testing.T) {
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("compacted summary")},
 			Usage:     llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 		},
+		finalOutputItemResponse("after compaction"),
 	}}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
 		Model:          "gpt-6-sol",
@@ -336,13 +337,13 @@ func TestManualCompactionReinjectsWorktreeReminderExactlyOnce(t *testing.T) {
 		t.Fatal("timed out waiting for compaction")
 	}
 
-	if err := runExclusiveStepWhenIdle(t.Context(), eng.stepLifecycle, ActiveKindUserTurn, nil, func(ctx context.Context, stepID string) error {
-		_, err := eng.buildActiveTurnDispatchRequest(ctx, stepID, nil, true)
-		return err
-	}); err != nil {
-		t.Fatalf("build post-compaction request: %v", err)
+	if _, err := eng.SubmitUserMessage(t.Context(), "continue after compaction"); err != nil {
+		t.Fatalf("submit post-compaction request: %v", err)
 	}
-	compactedMessages := eng.transcriptRuntimeState().SnapshotMessages()
+	if len(client.calls) != 3 {
+		t.Fatalf("provider calls = %d, want initial turn, summary, and continuation", len(client.calls))
+	}
+	compactedMessages := requestMessages(client.calls[2])
 	if got := worktreeReminderMessageCount(compactedMessages); got != 1 {
 		t.Fatalf("worktree reminders after compaction = %d, want 1 messages=%+v", got, compactedMessages)
 	}
@@ -377,6 +378,119 @@ func TestManualCompactionReinjectsWorktreeReminderExactlyOnce(t *testing.T) {
 		t.Fatalf("worktree reminders in resumed post-compaction request = %d, want 1 messages=%+v", got, resumedMessages)
 	}
 	assertLatestWorktreeContext(t, resumedMessages, target)
+}
+
+func TestWorktreeSwitchAfterManualCompactionUsesSwitchTemplate(t *testing.T) {
+	previousSwitch, previousCompaction := prompts.WorktreeModePrompt, prompts.WorktreePostCompactionPrompt
+	prompts.WorktreeModePrompt, prompts.WorktreePostCompactionPrompt = "{{branch}}", "{{cwd}}"
+	t.Cleanup(func() {
+		prompts.WorktreeModePrompt, prompts.WorktreePostCompactionPrompt = previousSwitch, previousCompaction
+	})
+	store := mustCreateTestSession(t)
+	initial := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter, "feature/before-compaction",
+		"/tmp/worktree-before-compaction", "/tmp/workspace", "/tmp/worktree-before-compaction",
+	))
+	client := &fakeCompactionClient{responses: []llm.Response{
+		finalOutputItemResponse("initial turn"),
+		finalOutputItemResponse("compacted summary"),
+		finalOutputItemResponse("new target turn"),
+	}}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+		Model: "gpt-6-sol", CompactionMode: "local",
+	})
+	if _, err := engine.SubmitUserMessage(t.Context(), "start"); err != nil {
+		t.Fatal(err)
+	}
+	assertLatestWorktreeContext(t, requestMessages(client.calls[0]), initial)
+	if err := engine.CompactContext(t.Context(), ""); err != nil {
+		t.Fatal(err)
+	}
+	waitEngineLifecycleTasks(t, engine)
+	if engine.CompactionCount() != 1 {
+		t.Fatal("manual compaction did not complete before switching worktrees")
+	}
+	target := testWorktreeReminderState(
+		session.WorktreeReminderModeEnter, "feature/after-compaction",
+		"/tmp/worktree-after-compaction", "/tmp/workspace", "/tmp/worktree-after-compaction",
+	)
+	if err := engine.RunExecutionTargetTransition(t.Context(), nil, func() error {
+		return engine.ApplyWorktreeTransitionTerminal(t.Context(), func(context.Context) error {
+			return engine.SetWorktreeReminderState(&target)
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	target = *store.Meta().WorktreeReminder
+	if _, err := engine.SubmitUserMessage(t.Context(), "continue in the new worktree"); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.calls) != 3 {
+		t.Fatalf("provider calls = %d, want initial turn, summary, and target turn", len(client.calls))
+	}
+	messages := requestMessages(client.calls[2])
+	if got := worktreeReminderMessageCount(messages); got != 1 {
+		t.Fatalf("target worktree reminders = %d, want one", got)
+	}
+	assertLatestWorktreeContext(t, messages, target)
+	for _, message := range messages {
+		if message.WorktreeContext != nil &&
+			(message.Content == nil || target.Branch == nil || *message.Content != *target.Branch) {
+			content, _ := textutil.OptionalValue(message.Content)
+			t.Fatalf("post-compaction target change rendered %q, want switch-template branch %q", content, *target.Branch)
+		}
+	}
+}
+
+func TestResumePreparesCompactedWorktreeContextOnce(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"local", "native"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			store := mustCreateTestSession(t)
+			target := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+				session.WorktreeReminderModeEnter, "feature/resume-compaction",
+				"/tmp/resume-worktree", "/tmp/workspace", "/tmp/resume-worktree",
+			))
+			client := &fakeCompactionClient{
+				responses: []llm.Response{finalOutputItemResponse("summary")},
+				compactionResponses: []llm.CompactionResponse{
+					remoteCompactionReplacement(1_000, 100, 200_000),
+				},
+			}
+			engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+				Model: "gpt-6-sol", CompactionMode: mode,
+			})
+			if err := steerTestActiveStep(engine, "seed", steerMessagesWithPersistenceIntent(
+				steeringPriorityNormal, steeringMessageEventNone, true,
+				[]llm.Message{{Role: llm.RoleUser, Content: new("seed")}},
+			)); err != nil {
+				t.Fatal(err)
+			}
+			if err := engine.CompactContext(t.Context(), ""); err != nil {
+				t.Fatal(err)
+			}
+			waitEngineLifecycleTasks(t, engine)
+			if engine.CompactionCount() != 1 {
+				t.Fatal("compaction did not complete before resume")
+			}
+			if err := engine.Close(); err != nil {
+				t.Fatal(err)
+			}
+			resumedClient := &fakeClient{responses: []llm.Response{finalOutputItemResponse("done")}}
+			resumed := mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), resumedClient, tools.NewRegistry(), Config{
+				Model: "gpt-6-sol", CompactionMode: mode,
+			})
+			if _, err := resumed.SubmitUserMessage(t.Context(), "continue"); err != nil {
+				t.Fatal(err)
+			}
+			messages := requestMessages(resumedClient.calls[0])
+			if count := worktreeReminderMessageCount(messages); count != 1 {
+				t.Fatalf("resumed generation worktree contexts = %d, want one", count)
+			}
+			assertLatestWorktreeContext(t, messages, target)
+		})
+	}
 }
 
 func worktreeReminderMessageCount(messages []llm.Message) int {

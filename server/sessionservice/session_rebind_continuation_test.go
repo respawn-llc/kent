@@ -151,7 +151,7 @@ func TestCrossProjectSelfRebindContinuesWithoutAnotherUserMessage(t *testing.T) 
 
 func TestHumanRebindPreservesExecutionAndQueuedInputAfterCallerDisconnects(t *testing.T) {
 	fixture := newRealSessionRetargetFixture(t, false)
-	service := NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, nil).
+	service := NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, nil, fixture.metadata).
 		WithWorkspaceRetargeter(fixture.retargeter(fixture.metadata, retargetProcessSource{}))
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()

@@ -1,4 +1,10 @@
 export const chatSettingsEnglish = {
+  sessionConnection: "Session Connection: {{id}} ({{mode}})",
+  connectionModes: {
+    subscription: "Subscription",
+    api_key: "API Key",
+    no_auth: "No Auth",
+  },
   toParentChat: "To parent chat",
   copied: "Copied to clipboard",
   copyFailed: "Could not copy Session ID",

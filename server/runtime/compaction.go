@@ -766,6 +766,12 @@ func (e *Engine) compactNowWithAcceptance(
 	output := compactionOutput{
 		summary: result.items,
 	}
+	if mode != compactionModeWorkflowPostCompletion && !e.WorkflowTerminalState().Completed {
+		if execution, active := e.currentNodeExecutionConfig(); active {
+			node := execution.Instructions.CurrentNode
+			output.continuingCurrentNode = &node
+		}
+	}
 	if preservedUserMessageText != nil {
 		if preservedMessage, ok := compactionPreservedUserMessage(*preservedUserMessageText); ok {
 			output.preservedUserMessage = &preservedMessage

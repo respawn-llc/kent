@@ -214,11 +214,19 @@ A workflow executable node that runs a local executable on the Kent server inste
 
 ### Session Contract
 
-The model, provider, generation settings, enabled tools, and native web-search mode that a Session uses for one contract generation. These values stay fixed until a product operation creates a new contract generation. `compact_and_continue_session` establishes a fresh target-node generation when that target starts, including when the selected history was compacted eagerly after an earlier assignment completed. Ordinary compaction can refresh system and reviewer instructions within the existing contract generation. Developer context remains part of the transcript.
+The generation-scoped snapshot of the model, provider, generation settings, enabled tools, native web-search mode, and system/reviewer prompts used by a Session. Committed compaction expires this snapshot; the next model request establishes a fresh generation. `compact_and_continue_session` establishes a fresh target-node generation when that target starts, including when the selected history was compacted eagerly after an earlier assignment completed. Developer context remains part of the transcript.
 
 The context window, automatic-compaction threshold, and Compaction Mode are activation policy, not Session Contract fields. A Session preserves its provider-capability facts across runs for continuity. These facts and the activation policy do not independently invalidate prompt caches or rotate cache lineage.
 
 Thinking effort is Session-owned state outside the Session Contract, as defined in [Model Requests And Cache Continuity](core-runtime-tools.md#model-requests-and-cache-continuity).
+
+### Snapshot Policy
+
+A rule determining when a typed group of captured Session properties becomes eligible for refresh. Eligibility does not authorize changing established provider input; the owning product operation determines the permitted application boundary.
+
+### Workflow Snapshot
+
+The Session-owned snapshot of effective Workflow completion mode. Its refresh boundaries are defined in [Node Completion](workflow-orchestration.md#node-completion).
 
 ### Runtime Parameter Contract
 

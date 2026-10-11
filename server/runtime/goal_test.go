@@ -763,19 +763,10 @@ func TestGoalLoopStopsAfterPauseOrClearDuringActiveTurn(t *testing.T) {
 			}
 			client.waitStarted(t, 1)
 
-			mutationDone := make(chan error, 1)
-			go func() {
-				mutationDone <- tt.mutate(engine)
-			}()
-			client.releaseCall(1)
-			select {
-			case err := <-mutationDone:
-				if err != nil {
-					t.Fatalf("mutate goal: %v", err)
-				}
-			case <-time.After(runtimeTestSynchronizationTimeout):
-				t.Fatal("timed out applying Goal mutation at the protected Step boundary")
+			if err := tt.mutate(engine); err != nil {
+				t.Fatalf("mutate goal: %v", err)
 			}
+			client.releaseCall(1)
 			waitGoalLoopRunning(t, engine, false)
 			waitActiveLiveRunGroup(t, engine, false)
 			if got := client.callCount(); got != 1 {

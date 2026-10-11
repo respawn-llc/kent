@@ -500,7 +500,10 @@ func (d *startupGatewayDependencies) ConnectionManagementClient() apicontract.Co
 	return d.authSupport.Connections
 }
 func (d *startupGatewayDependencies) AuthStatusClient() apicontract.AuthStatusService {
-	return authservice.NewStatusService(authservice.NewConnectionResolver(d.snapshotConfig().PersistenceRoot, d.authSupport.AuthManager, d.authSupport.Environment))
+	if c := d.activeCore(); c != nil {
+		return c.AuthStatusClient()
+	}
+	return authservice.NewStatusService(authservice.NewConnectionResolver(d.snapshotConfig().PersistenceRoot, d.authSupport.AuthManager, d.authSupport.Environment), nil)
 }
 func (d *startupGatewayDependencies) CapabilityFactsClient() apicontract.CapabilityFactsService {
 	snapshot := d.snapshot.Load()

@@ -45,7 +45,7 @@ func TestHeadlessDefaultSelectionSurvivesRuntimeActivation(t *testing.T) {
 		authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
 
 		client := NewInProcessRunPromptClient(HeadlessBootstrap{
-			SessionLaunch:    newTestHeadlessSessionLaunch(cfg, containerDir, authManager, persistence),
+			SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 			RuntimeAuthority: newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...),
 		})
 		_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{

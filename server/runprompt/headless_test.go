@@ -84,6 +84,7 @@ func (s failingPromptHistoryStore) RecordPromptHistoryEntry(context.Context, met
 }
 
 type fixedSessionExecutionTargetResolver struct {
+	*metadata.Store
 	target *worktreepb.SessionExecutionTarget
 }
 
@@ -260,6 +261,7 @@ func TestInProcessRunPromptClientRejectsInvalidRequestsBeforeLaunch(t *testing.T
 }
 
 func newTestHeadlessSessionLaunch(
+	t *testing.T,
 	cfg config.App,
 	containerDir string,
 	authManager *auth.Manager,
@@ -275,7 +277,7 @@ func newTestHeadlessSessionLaunch(
 		StoreOptions:      persistence.Options(),
 		PersistedSessions: persistence,
 		SessionProjects:   fixedSessionProjectResolver{}, ManagedWorktreeRoots: fixedSessionProjectResolver{},
-		ExecutionTargets: fixedSessionExecutionTargetResolver{target: &worktreepb.SessionExecutionTarget{
+		ExecutionTargets: fixedSessionExecutionTargetResolver{Store: testsetup.OpenStore(t, cfg.PersistenceRoot), target: &worktreepb.SessionExecutionTarget{
 			WorkspaceRoot:    cfg.WorkspaceRoot,
 			CwdRelpath:       ".",
 			EffectiveWorkdir: cfg.WorkspaceRoot,
@@ -401,7 +403,7 @@ func newSelectedRunPromptFixture(t *testing.T, providerURL string, history promp
 		store:     store,
 		authority: authority,
 		client: NewInProcessRunPromptClient(HeadlessBootstrap{
-			SessionLaunch:    newTestHeadlessSessionLaunch(cfg, containerDir, authManager, persistence),
+			SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 			RuntimeAuthority: authority,
 			PromptHistory:    history,
 		}),
@@ -414,11 +416,7 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 	root := t.TempDir()
 	workspace := t.TempDir()
 	sibling := t.TempDir()
-	meta, err := metadata.Open(root)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
+	meta := testsetup.OpenStore(t, root)
 	binding, err := meta.RegisterWorkspaceBinding(ctx, workspace)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
@@ -477,6 +475,8 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 			ContainerDir:      containerDir,
 			StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
 			PersistedSessions: meta,
+			CallerSessions:    meta,
+			ExecutionTargets:  meta,
 			SessionProjects:   meta, ManagedWorktreeRoots: meta,
 		}, sessionlaunch.ChatSettingsOwner{}),
 		RuntimeAuthority: authority,
@@ -510,11 +510,7 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 			t.Fatalf("MkdirAll(%q): %v", dir, err)
 		}
 	}
-	meta, err := metadata.Open(root)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
+	meta := testsetup.OpenStore(t, root)
 	binding, err := meta.RegisterWorkspaceBinding(ctx, workspace)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
@@ -636,6 +632,8 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 			ContainerDir:      containerDir,
 			StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
 			PersistedSessions: meta,
+			CallerSessions:    meta,
+			ExecutionTargets:  meta,
 			SessionProjects:   meta, ManagedWorktreeRoots: meta,
 		}, sessionlaunch.ChatSettingsOwner{}),
 		RuntimeAuthority:       authority,
@@ -713,11 +711,7 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 	ctx := context.Background()
 	root := t.TempDir()
 	workspace := t.TempDir()
-	meta, err := metadata.Open(root)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
+	meta := testsetup.OpenStore(t, root)
 	binding, err := meta.RegisterWorkspaceBinding(ctx, workspace)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
@@ -819,6 +813,8 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 		ContainerDir:      containerDir,
 		StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
 		PersistedSessions: meta,
+		CallerSessions:    meta,
+		ExecutionTargets:  meta,
 		SessionProjects:   meta, ManagedWorktreeRoots: meta,
 	}, sessionlaunch.ChatSettingsOwner{})
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
@@ -941,11 +937,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	workspace := t.TempDir()
-	meta, err := metadata.Open(root)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
+	meta := testsetup.OpenStore(t, root)
 	binding, err := meta.RegisterWorkspaceBinding(ctx, workspace)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
@@ -1023,6 +1015,8 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 			ContainerDir:      containerDir,
 			StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
 			PersistedSessions: meta,
+			CallerSessions:    meta,
+			ExecutionTargets:  meta,
 			SessionProjects:   meta, ManagedWorktreeRoots: meta,
 		}, sessionlaunch.ChatSettingsOwner{}),
 		RuntimeAuthority: authority,
@@ -1180,7 +1174,7 @@ func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 	history := &recordingPromptHistoryStore{}
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
-		SessionLaunch:    newTestHeadlessSessionLaunch(cfg, containerDir, authManager, persistence),
+		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
 		PromptHistory:    history,
 	})
@@ -1636,7 +1630,7 @@ func TestInProcessRunPromptClientUsesActiveShellPostprocessorWithSuppliedBackgro
 	}
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, background, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
-		SessionLaunch:    newTestHeadlessSessionLaunch(cfg, containerDir, authManager, persistence),
+		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
 	})
 
@@ -1799,7 +1793,7 @@ func TestInProcessRunPromptClientRejectsSelectedSessionWithGoal(t *testing.T) {
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
-		SessionLaunch:    newTestHeadlessSessionLaunch(cfg, containerDir, authManager, persistence),
+		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
 	})
 
@@ -1853,7 +1847,7 @@ func TestInProcessRunPromptClientUnregistersRuntimeAfterCompletion(t *testing.T)
 	}
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
-		SessionLaunch:    newTestHeadlessSessionLaunch(cfg, containerDir, authManager, persistence),
+		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
 	})
 
@@ -1933,7 +1927,7 @@ func TestHeadlessRunPromptOverridesRespectLockedModelContract(t *testing.T) {
 	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolPatch: true}
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
-		SessionLaunch:    newTestHeadlessSessionLaunch(cfg, containerDir, authManager, persistence),
+		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
 	})
 

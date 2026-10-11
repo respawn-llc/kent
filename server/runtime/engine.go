@@ -1078,7 +1078,11 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 		if err != nil {
 			return session.LockedContract{}, err
 		}
-		lock.WorkflowCompletionMode = &mode
+		if e.store.Meta().WorkflowSnapshot == nil {
+			if err := e.store.SetWorkflowSnapshot(session.WorkflowSnapshot{CompletionMode: mode}); err != nil {
+				return session.LockedContract{}, err
+			}
+		}
 	}
 	if hasProviderContract {
 		lock.ProviderContract = llm.LockedProviderCapabilitiesFromContract(providerContract)
@@ -1174,8 +1178,16 @@ func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, cli
 	if err != nil {
 		return successfulRequestCandidate{}, err
 	}
+	resp, err := e.generateObservedWithRetry(ctx, stepID, client, observed, onDelta, onReasoningDelta, onAttemptReset)
+	if err != nil {
+		return successfulRequestCandidate{}, err
+	}
+	return newSuccessfulRequestCandidate(e.cfg.TokenEstimator, observed.request, resp), nil
+}
+
+func (e *Engine) generateObservedWithRetry(ctx context.Context, stepID string, client *observedModelClient, observed cacheObservedRequest, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
 	publishedProviderDiagnostics := make(map[llm.CodexTurnStateDiagnosticCategory]struct{}, 2)
-	resp, err := generateWithRetryClient(
+	return generateWithRetryClient(
 		ctx,
 		client,
 		observed,
@@ -1183,13 +1195,9 @@ func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, cli
 		onReasoningDelta,
 		onAttemptReset,
 		func() {
-			e.publishProviderTurnStateDiagnostics(stepID, req.CodexDispatch, publishedProviderDiagnostics)
+			e.publishProviderTurnStateDiagnostics(stepID, observed.request.CodexDispatch, publishedProviderDiagnostics)
 		},
 	)
-	if err != nil {
-		return successfulRequestCandidate{}, err
-	}
-	return newSuccessfulRequestCandidate(e.cfg.TokenEstimator, observed.request, resp), nil
 }
 
 func generateWithRetryClient(

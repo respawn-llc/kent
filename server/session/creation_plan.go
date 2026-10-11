@@ -54,11 +54,12 @@ func PrepareClone(descriptor SessionDescriptor, source PersistedSessionRecord, n
 	plan, err := PrepareCreation(CreationRequest{
 		Descriptor: descriptor, Source: CreationContextSourceFromMeta(*source.Meta),
 		SourceKind:     SessionCreationSourcePreviousSession,
-		ContextOptions: ChildContextOptions{LockedContract: InheritFullContract, InheritContinuation: true},
+		ContextOptions: ChildContextOptions{},
 	}, options...)
 	if err != nil {
 		return CreationPlan{}, err
 	}
+	plan.snapshot.Meta.ParentAgentSessionID = textutil.Pointer(source.Meta.ParentAgentSessionID)
 	plan.snapshot.Meta.Name, err = sessioncontract.NormalizeSessionName(name)
 	if err != nil {
 		return CreationPlan{}, err

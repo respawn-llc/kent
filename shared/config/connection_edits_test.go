@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -95,7 +96,7 @@ endpoint = "http://localhost:5678/v1" # second endpoint
 	}
 
 	app := loadConfigTestApp(t, workspace, LoadOptions{})
-	if app.Settings.Connection == nil || *app.Settings.Connection != "second" {
+	if app.Settings.Connection == nil || !reflect.DeepEqual(*app.Settings.Connection, ConnectionSelection{"second"}) {
 		t.Fatalf("loaded default connection = %v", app.Settings.Connection)
 	}
 }
@@ -126,7 +127,7 @@ endpoint = "http://localhost:5678/v1"
 	}
 
 	app := loadConfigTestApp(t, workspace, LoadOptions{})
-	if app.Settings.Connection == nil || *app.Settings.Connection != "second" {
+	if app.Settings.Connection == nil || !reflect.DeepEqual(*app.Settings.Connection, ConnectionSelection{"second"}) {
 		t.Fatalf("loaded default connection = %v", app.Settings.Connection)
 	}
 }
@@ -212,7 +213,7 @@ model = 'gpt-4o' # retain this authored setting
 	}
 
 	app := loadConfigTestApp(t, workspace, LoadOptions{})
-	if app.Settings.Connection == nil || *app.Settings.Connection != "first" {
+	if app.Settings.Connection == nil || !reflect.DeepEqual(*app.Settings.Connection, ConnectionSelection{"first"}) {
 		t.Fatalf("first added connection was not selected: %v", app.Settings.Connection)
 	}
 	connection, err := app.Settings.SelectedConnection()
@@ -260,7 +261,7 @@ model = 'gpt-4o'
 	}
 
 	app := loadConfigTestApp(t, workspace, LoadOptions{})
-	if app.Settings.Connection == nil || *app.Settings.Connection != "work" {
+	if app.Settings.Connection == nil || !reflect.DeepEqual(*app.Settings.Connection, ConnectionSelection{"work"}) {
 		t.Fatalf("adding a named definition changed the default: %v", app.Settings.Connection)
 	}
 	existing := app.Settings.Connections["work"]
@@ -310,7 +311,7 @@ model = 'gpt-4o'
 	}
 
 	app := loadConfigTestApp(t, workspace, LoadOptions{})
-	if app.Settings.Connection == nil || *app.Settings.Connection != "work" {
+	if app.Settings.Connection == nil || !reflect.DeepEqual(*app.Settings.Connection, ConnectionSelection{"work"}) {
 		t.Fatalf("adding a named definition changed the default: %v", app.Settings.Connection)
 	}
 	existing := app.Settings.Connections["work"]

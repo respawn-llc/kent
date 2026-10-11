@@ -3,6 +3,8 @@ package session
 import (
 	"errors"
 	"fmt"
+
+	"core/server/workflow"
 )
 
 type CompactionEngine string
@@ -24,13 +26,29 @@ func validateCompactionEngine(engine CompactionEngine) error {
 // CompactedOutput retains the immutable result of compaction until an operation
 // supplies its generation context. It is not yet a prepared provider history.
 type CompactedOutput struct {
-	Summary              []ProviderHistoryItem `json:"summary"`
-	PreservedUserMessage *MessageRecord        `json:"preserved_user_message,omitempty"`
-	FutureAgentMessage   *MessageRecord        `json:"future_agent_message,omitempty"`
+	Summary               []ProviderHistoryItem  `json:"summary"`
+	ContinuingCurrentNode *CompactionCurrentNode `json:"continuing_current_node,omitempty"`
+	PreservedUserMessage  *MessageRecord         `json:"preserved_user_message,omitempty"`
+	FutureAgentMessage    *MessageRecord         `json:"future_agent_message,omitempty"`
+}
+
+type CompactionCurrentNode struct {
+	TaskID              workflow.TaskID               `json:"task_id"`
+	NodeID              workflow.NodeID               `json:"node_id"`
+	TransitionBranchKey *workflow.TransitionBranchKey `json:"transition_branch_key,omitempty"`
+}
+
+func (node CompactionCurrentNode) Reference() (workflow.CurrentNodeReference, error) {
+	return workflow.NewCurrentNodeReference(node.TaskID, node.NodeID, node.TransitionBranchKey)
 }
 
 func normalizeCompactedOutput(record CompactedOutput) (CompactedOutput, error) {
 	var err error
+	if record.ContinuingCurrentNode != nil {
+		if _, err := record.ContinuingCurrentNode.Reference(); err != nil {
+			return CompactedOutput{}, fmt.Errorf("continuing Current Node: %w", err)
+		}
+	}
 	if len(record.Summary) == 0 {
 		return CompactedOutput{}, errors.New("compacted output summary is required")
 	}

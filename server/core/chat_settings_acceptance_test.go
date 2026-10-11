@@ -10,7 +10,6 @@ import (
 	"core/server/auth"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/llm"
-	"core/server/metadata"
 	"core/server/runtimewire"
 	brand "core/shared/config"
 	"core/shared/protoapi"
@@ -80,7 +79,8 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
-	binding, err := metadata.RegisterBinding(t.Context(), resolved.Config.PersistenceRoot, workspace)
+	metadataStore := testsetup.OpenStore(t, resolved.Config.PersistenceRoot)
+	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), workspace)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
@@ -96,6 +96,7 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 	t.Cleanup(func() { _ = background.Close() })
 	model := newChatSettingsBoundaryLLMClient()
 	appCore, err := NewWithContextOptions(t.Context(), resolved.Config, authSupport, background, Options{
+		MetadataStore: metadataStore,
 		RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(
 			context.Context,
 			runtimewire.RuntimeClientRequest,

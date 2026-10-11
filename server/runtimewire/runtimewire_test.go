@@ -1544,12 +1544,12 @@ func TestRuntimeWiringVisionDefaults(t *testing.T) {
 			active := runtimeWireShellSettings(config.ShellPostprocessingModeBuiltin, nil)
 			active.Model = "gpt-unknown-future"
 			active = testsetup.ProviderSettings(active)
-			definition := active.Connections[*active.Connection]
+			definition := active.Connections[(*active.Connection)[0]]
 			definition.Capabilities = config.ProviderCapabilitiesOverride{
 				ProviderID: test.providerID, SupportsResponsesAPI: true,
 				IsOpenAIFirstParty: caps.IsOpenAIFirstParty,
 			}
-			active.Connections[*active.Connection] = definition
+			active.Connections[(*active.Connection)[0]] = definition
 			sources := map[string]config.Origin{}
 			if test.override != nil {
 				active.ModelCapabilities.SupportsVisionInputs = *test.override
@@ -1798,7 +1798,7 @@ func (f *runtimewireCaptureClient) Generate(ctx context.Context, req llm.Request
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, req)
 	if len(f.responses) == 0 {
-		return llm.Response{}, errors.New("no fake response configured")
+		return llm.Response{}, scriptedllm.ErrScriptExhausted
 	}
 	resp := f.responses[0]
 	f.responses = f.responses[1:]
@@ -1823,7 +1823,7 @@ func (f *busyToggleFakeClient) Generate(ctx context.Context, _ llm.Request, _ ll
 	defer f.mu.Unlock()
 	f.calls++
 	if len(f.responses) == 0 {
-		return llm.Response{}, errors.New("no fake response configured")
+		return llm.Response{}, scriptedllm.ErrScriptExhausted
 	}
 	resp := f.responses[0]
 	f.responses = f.responses[1:]

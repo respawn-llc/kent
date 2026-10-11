@@ -34,18 +34,16 @@ func appendSessionTestRecord(
 
 func sessionTestLockedContract() LockedContract {
 	toolPreambles := true
-	workflowCompletionMode := sessioncontract.WorkflowCompletionModeTool
 	return LockedContract{
-		Model:                  "gpt-6-sol",
-		SystemPrompt:           "prompt",
-		HasSystemPrompt:        true,
-		ReviewerPrompt:         "reviewer",
-		HasReviewerPrompt:      true,
-		EnabledTools:           []string{"shell"},
-		HasEnabledTools:        true,
-		WebSearchMode:          "native",
-		ToolPreambles:          &toolPreambles,
-		WorkflowCompletionMode: &workflowCompletionMode,
+		Model:             "gpt-6-sol",
+		SystemPrompt:      "prompt",
+		HasSystemPrompt:   true,
+		ReviewerPrompt:    "reviewer",
+		HasReviewerPrompt: true,
+		EnabledTools:      []string{"shell"},
+		HasEnabledTools:   true,
+		WebSearchMode:     "native",
+		ToolPreambles:     &toolPreambles,
 	}
 }
 
@@ -257,9 +255,6 @@ func TestLockedContractPersistenceIncludesPromptAndRequestSnapshots(t *testing.T
 	if !locked.HasEnabledTools || len(locked.EnabledTools) != 0 || locked.WebSearchMode != "native" {
 		t.Fatalf("locked request shape = %+v, want explicit zero tools and native web search", locked)
 	}
-	if locked.WorkflowCompletionMode == nil || *locked.WorkflowCompletionMode != sessioncontract.WorkflowCompletionModeTool {
-		t.Fatalf("locked workflow completion mode = %v, want tool", locked.WorkflowCompletionMode)
-	}
 }
 
 func TestCompactionReplacementPersistsFreshContractBoundary(t *testing.T) {
@@ -329,7 +324,7 @@ func TestCompactedMetadataProjectionPreservesRetainedContextWithoutMutation(t *t
 		t.Fatal(err)
 	}
 	before := store.Meta()
-	projected := ProjectCompactedMeta(before)
+	projected := ProjectSnapshotBoundary(before, SnapshotBoundaryCompaction)
 	if projected.Locked != nil || projected.OriginalThinkingEffort != nil || projected.UsageState != nil {
 		t.Fatal("compaction projection retained the previous generation contract")
 	}
@@ -375,13 +370,13 @@ func TestLockedPromptSnapshotsPopulateIndependently(t *testing.T) {
 	}
 }
 
-func TestLockedRequestShapeBackfillPersistsTogether(t *testing.T) {
+func TestLockedRequestShapeBackfillPreservesDispatchedTools(t *testing.T) {
 	parent := newSessionTestStore(t)
-	if err := parent.MarkModelDispatchLocked(LockedContract{Model: "gpt-6-sol", SystemPrompt: "prompt", HasSystemPrompt: true}); err != nil {
+	if err := parent.MarkModelDispatchLocked(LockedContract{Model: "gpt-6-sol", EnabledTools: []string{"patch"}}); err != nil {
 		t.Fatalf("mark model dispatch locked: %v", err)
 	}
 	store := newSessionTestLazyStore(t)
-	if err := InitializeCreationContext(store, parent, SessionCreationSourcePreviousSession, ChildContextOptions{LockedContract: InheritContractWithoutTools}); err != nil {
+	if err := InitializeCreationContext(store, parent, SessionCreationSourcePreviousSession, ChildContextOptions{LockedContract: InheritFullContract}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.EnsureDurable(); err != nil {
@@ -395,35 +390,31 @@ func TestLockedRequestShapeBackfillPersistsTogether(t *testing.T) {
 	if err != nil {
 		t.Fatalf("backfill request shape: %v", err)
 	}
-	if !result.Committed || result.Locked == nil || !result.Locked.HasEnabledTools || strings.Join(result.Locked.EnabledTools, ",") != "shell,patch" || result.Locked.WebSearchMode != "native" {
+	if !result.Committed || result.Locked == nil || !result.Locked.HasEnabledTools || strings.Join(result.Locked.EnabledTools, ",") != "patch" || result.Locked.WebSearchMode != "native" {
 		t.Fatalf("request shape result = %+v", result)
 	}
 	opened := mustOpenSessionTestStore(t, store)
-	if locked := opened.Meta().Locked; locked == nil || !locked.HasEnabledTools || locked.WebSearchMode != "native" || len(locked.EnabledTools) != 2 {
+	if locked := opened.Meta().Locked; locked == nil || !locked.HasEnabledTools || locked.WebSearchMode != "native" || len(locked.EnabledTools) != 1 {
 		t.Fatalf("persisted request shape = %+v", locked)
 	}
 }
 
-func TestLockedWorkflowCompletionModeBackfillPersists(t *testing.T) {
+func TestWorkflowSnapshotReplacementPersists(t *testing.T) {
 	store := newSessionTestStore(t)
 	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-6-sol", SystemPrompt: "prompt", HasSystemPrompt: true}); err != nil {
 		t.Fatalf("mark model dispatch locked: %v", err)
 	}
-	result, err := store.BackfillLockedWorkflowCompletionMode(sessioncontract.WorkflowCompletionModeShellCommand)
-	if err != nil {
-		t.Fatalf("backfill workflow completion mode: %v", err)
-	}
-	if !result.Committed ||
-		result.Locked == nil ||
-		result.Locked.WorkflowCompletionMode == nil ||
-		*result.Locked.WorkflowCompletionMode != sessioncontract.WorkflowCompletionModeShellCommand {
-		t.Fatalf("workflow completion mode result = %+v", result)
+	for _, mode := range []sessioncontract.WorkflowCompletionMode{
+		sessioncontract.WorkflowCompletionModeTool, sessioncontract.WorkflowCompletionModeShellCommand,
+	} {
+		if err := store.SetWorkflowSnapshot(WorkflowSnapshot{CompletionMode: mode}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	opened := mustOpenSessionTestStore(t, store)
-	if locked := opened.Meta().Locked; locked == nil ||
-		locked.WorkflowCompletionMode == nil ||
-		*locked.WorkflowCompletionMode != sessioncontract.WorkflowCompletionModeShellCommand {
-		t.Fatalf("persisted workflow completion mode = %+v", locked)
+	if snapshot := opened.Meta().WorkflowSnapshot; snapshot == nil ||
+		snapshot.CompletionMode != sessioncontract.WorkflowCompletionModeShellCommand {
+		t.Fatalf("persisted workflow snapshot = %+v", snapshot)
 	}
 }
 
@@ -814,11 +805,8 @@ func TestForkAtUserMessageCopiesPrefixBeforeSelectedMessage(t *testing.T) {
 	if meta.FirstPromptPreview != "u1" {
 		t.Fatalf("expected fork preview to persist first user message, got %q", meta.FirstPromptPreview)
 	}
-	if meta.Locked == nil || meta.Locked.SystemPrompt != "parent prompt snapshot" || !meta.Locked.HasSystemPrompt {
-		t.Fatalf("fork locked system prompt = %+v, want replay fork to preserve parent prompt snapshot", meta.Locked)
-	}
-	if meta.Locked.ReviewerPrompt != "parent reviewer prompt snapshot" || !meta.Locked.HasReviewerPrompt {
-		t.Fatalf("fork locked reviewer prompt = %+v, want replay fork to preserve parent reviewer prompt snapshot", meta.Locked)
+	if meta.Locked != nil {
+		t.Fatalf("interactive fork retained generation snapshot: %+v", meta.Locked)
 	}
 }
 

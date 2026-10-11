@@ -208,7 +208,7 @@ func TestCommittedClonePreservesSourceContextAndDoesNotReplayTwice(t *testing.T)
 		meta := child.Meta()
 		if meta.LastSequence != parent.Meta().LastSequence ||
 			meta.PreviousSessionID == nil || meta.PreviousSessionID.String() != parent.Meta().SessionID ||
-			meta.Continuation == nil || meta.Continuation.AgentRole == nil || *meta.Continuation.AgentRole != "researcher" {
+			meta.Continuation != nil || meta.Locked != nil || meta.WorkflowSnapshot != nil || meta.ConnectionID != nil {
 			t.Fatalf("clone lost context or duplicated history: %+v", meta)
 		}
 		if _, err := child.MaterializeEventLog(); err != nil {
