@@ -9,6 +9,7 @@ import (
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"database/sql"
@@ -20,7 +21,7 @@ import (
 
 type observationJSONTarget interface{ observationTarget() }
 type observationJSONRunTarget struct {
-	SessionID string `json:"session_id"`
+	SessionID *string `json:"session_id,omitempty"`
 }
 type observationJSONTaskTarget struct {
 	TaskID string `json:"task_id"`
@@ -124,7 +125,25 @@ func writeObservationUsage(w io.Writer, message string) int {
 	}, 2)
 }
 func observationTargetSession(id string) observationJSONTarget {
-	return observationJSONRunTarget{SessionID: id}
+	return observationJSONRunTarget{SessionID: &id}
+}
+
+func observationSessionErrorTarget(selector string, err error) observationJSONTarget {
+	var target *serverapi.SessionTargetError
+	if errors.As(err, &target) {
+		return observationTargetSession(target.Identity.ID.String())
+	}
+	var unavailable *serverapi.RuntimeUnavailableError
+	if errors.As(err, &unavailable) && unavailable.SessionID != nil {
+		return observationTargetSession(unavailable.SessionID.String())
+	}
+	parsed, parseErr := runtimeids.ParseSessionSelector(selector)
+	if parseErr == nil {
+		if id, ok := parsed.(runtimeids.SessionID); ok {
+			return observationTargetSession(id.String())
+		}
+	}
+	return observationJSONRunTarget{}
 }
 func observationTargetTask(id string) observationJSONTarget {
 	return observationJSONTaskTarget{TaskID: id}
@@ -159,21 +178,21 @@ func projectObservationQuestion(question serverapi.ObservationQuestion, answerSe
 	return observationJSONQuestion{
 		observationJSONKind: observationJSONKind{Kind: "question"}, QuestionID: id, Text: text, Suggestions: suggestions,
 		AccessTargets: accessTargets, RecommendedOptionIndex: recommendation,
-		AnswerTarget: observationJSONAnswerTarget{SessionID: answerSessionID}, NodeKey: nodeKey,
+		AnswerTarget: observationJSONAnswerTarget{SessionID: &answerSessionID}, NodeKey: nodeKey,
 	}, nil
 }
-func projectRunWatchJSON(targetSessionID string, response *promptpb.LiveWatchSuccess) (observationJSONEnvelope, int, error) {
-	target := observationTargetSession(targetSessionID)
+func projectRunWatchJSON(response *promptpb.LiveWatchSuccess) (observationJSONEnvelope, int, error) {
 	if err := protoapi.Validate(response); err != nil {
 		return observationJSONEnvelope{}, 1, err
 	}
+	target := observationTargetSession(response.SessionId)
 	switch selected := response.Outcome.Outcome.(type) {
 	case *promptpb.LiveWatchOutcome_Question:
 		question, err := protoapi.ObservationQuestionFromProto(selected.Question)
 		if err != nil {
 			return observationJSONEnvelope{}, 1, err
 		}
-		outcome, err := projectObservationQuestion(question, targetSessionID, nil)
+		outcome, err := projectObservationQuestion(question, response.SessionId, nil)
 		if err != nil {
 			return observationJSONEnvelope{}, 1, err
 		}
@@ -209,17 +228,17 @@ func projectRunWatchJSON(targetSessionID string, response *promptpb.LiveWatchSuc
 func projectRunWaitJSON(targetSessionID string, result *runtimepb.LiveWaitSuccess, err error, caller context.Context) (observationJSONEnvelope, int) {
 	if errors.Is(err, serverapi.ErrRuntimeNoFinalAnswer) {
 		return observationJSONEnvelope{
-			Status: "success", Target: observationTargetSession(targetSessionID),
+			Status: "success", Target: observationSessionErrorTarget(targetSessionID, err),
 			Outcomes: []observationJSONOutcome{observationJSONFinalAnswer{
 				observationJSONKind: observationJSONKind{Kind: "final_answer"},
 			}},
 		}, 0
 	}
 	if err != nil {
-		return projectObservationError(observationOperationRunWait, observationTargetSession(targetSessionID), caller, err)
+		return projectObservationError(observationOperationRunWait, observationSessionErrorTarget(targetSessionID, err), caller, err)
 	}
 	return observationJSONEnvelope{
-		Status: "success", Target: observationTargetSession(targetSessionID),
+		Status: "success", Target: observationTargetSession(result.SessionId),
 		Outcomes: []observationJSONOutcome{observationJSONFinalAnswer{
 			observationJSONKind: observationJSONKind{Kind: "final_answer"},
 			Result:              textutil.Value(result.GetAssistantFinalAnswer().GetResult()), SessionName: result.SessionName,

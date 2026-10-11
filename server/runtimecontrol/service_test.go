@@ -1262,7 +1262,7 @@ func TestServiceLiveSteerRequiresActiveRun(t *testing.T) {
 }
 
 func TestServiceLiveSteerUnavailableRuntimeStaysUnavailable(t *testing.T) {
-	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), nil)
+	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), testsetup.OpenStore(t, t.TempDir()))
 	_, err := service.LiveSteer(context.Background(), &runtimepb.LiveSteerRequest{
 		SessionId: requestfixture.Selector(t, "018fdd67-89ab-4cde-8123-456789abcdef"),
 		Text:      "steer closed runtime",
@@ -1276,7 +1276,7 @@ func TestServiceLiveSteerUnavailableRuntimeStaysUnavailable(t *testing.T) {
 }
 
 func TestServiceLiveWaitUnavailableRuntimeStaysUnavailable(t *testing.T) {
-	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), nil)
+	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), testsetup.OpenStore(t, t.TempDir()))
 	_, err := service.LiveWait(context.Background(), &runtimepb.LiveWaitRequest{
 		SessionId: requestfixture.Selector(t, "018fdd67-89ab-4cde-8123-456789abcdef"),
 	})

@@ -19,6 +19,7 @@ import (
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/imagefileio"
+	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -382,16 +383,21 @@ func runSubcommand(args []string) int {
 		progress = progressRenderer
 	}
 	result, runErr := runPromptApp(ctx, opts, prompt, timeout, progress)
-	continueID := strings.TrimSpace(result.SessionID)
 	continueRoot := continueCommandPersistenceRoot(flags.PersistenceRoot)
-	continueCmd := prompts.ContinueRunCommandWithRoot(continueID, continueRoot)
-	continueHint := buildRunContinueHint(continueID, continueRoot)
+	var continueID, continueCmd *string
+	continueHint := ""
+	if result.Identity != nil {
+		id := result.Identity.ID.String()
+		command := prompts.ContinueRunCommandWithRoot(id, continueRoot)
+		continueID, continueCmd = &id, &command
+		continueHint = buildRunContinueHint(result.Identity.String(), continueRoot)
+	}
 	if runErr != nil {
 		code := runErrorCode(runErr)
 		if outputMode == runOutputModeJSON {
 			emitRunJSON(runJSONResult{
 				Status:      "error",
-				SessionID:   result.SessionID,
+				SessionID:   continueID,
 				SessionName: result.SessionName,
 				ContinueID:  continueID,
 				ContinueCmd: continueCmd,
@@ -416,7 +422,7 @@ func runSubcommand(args []string) int {
 		emitRunJSON(runJSONResult{
 			Status:      "ok",
 			Result:      result.Result,
-			SessionID:   result.SessionID,
+			SessionID:   continueID,
 			SessionName: result.SessionName,
 			ContinueID:  continueID,
 			ContinueCmd: continueCmd,
@@ -532,7 +538,7 @@ func runLiveSteerSubcommand(args []string) int {
 		fmt.Fprintln(os.Stderr, runErrorMessage(err))
 		if errors.Is(err, serverapi.ErrRuntimeNoActiveRun) {
 			fmt.Fprintln(os.Stderr)
-			fmt.Fprintf(os.Stderr, "To continue this session instead, execute `%s`.\n", buildRunSteerContinueCommand(sessionID.String(), continueCommandPersistenceRoot(*persistenceRoot), message))
+			fmt.Fprintf(os.Stderr, "To continue this session instead, execute `%s`.\n", buildRunSteerContinueCommand(liveErrorSelector(sessionID, err), continueCommandPersistenceRoot(*persistenceRoot), message))
 		}
 		return 1
 	}
@@ -616,7 +622,7 @@ func runLiveWaitSubcommand(args []string) int {
 		result, runErr = runLiveWaitApp(ctx, app.Options{ConfigRoot: strings.TrimSpace(*persistenceRoot)}, sessionID)
 	}
 	continueRoot := continueCommandPersistenceRoot(*persistenceRoot)
-	continueHint := buildRunContinueHint(sessionID.String(), continueRoot)
+	continueHint := buildRunContinueHint(liveErrorSelector(sessionID, runErr), continueRoot)
 	if runErr != nil {
 		if code, denied := emitLiveSelfTargetUsage(outputMode, "kent run wait "+strings.Join(args, " "), runErr, closeFn); denied {
 			return code
@@ -638,6 +644,12 @@ func runLiveWaitSubcommand(args []string) int {
 	if outputMode == runOutputModeJSON {
 		return emitRunWaitJSON(os.Stdout, sessionID.String(), result, nil, ctx, closeFn)
 	}
+	identity, err := protoapi.SessionIdentityFromProto(result.SessionId, result.ShortId)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	continueHint = buildRunContinueHint(identity.String(), continueRoot)
 	emitRunFinalText(os.Stdout, nil, result.GetAssistantFinalAnswer().GetResult(), continueHint)
 	return 0
 }
@@ -679,7 +691,7 @@ func runLiveWatchSubcommandWithCleanup(args []string, runWithCleanup liveWatchCl
 			return code
 		}
 		if outputMode == runOutputModeJSON {
-			return emitObservationError(os.Stdout, observationOperationRunWatch, observationTargetSession(sessionID.String()), ctx, result.Error, nil, result.Close)
+			return emitObservationError(os.Stdout, observationOperationRunWatch, observationSessionErrorTarget(sessionID.String(), result.Error), ctx, result.Error, nil, result.Close)
 		}
 		if result.Close != nil {
 			_ = result.Close()
@@ -691,9 +703,9 @@ func runLiveWatchSubcommandWithCleanup(args []string, runWithCleanup liveWatchCl
 		return 1
 	}
 	if outputMode == runOutputModeJSON {
-		envelope, exitCode, projectionErr := projectRunWatchJSON(sessionID.String(), response)
+		envelope, exitCode, projectionErr := projectRunWatchJSON(response)
 		if projectionErr != nil {
-			return emitObservationError(os.Stdout, observationOperationRunWatch, observationTargetSession(sessionID.String()), ctx, &client.InvalidResponseError{
+			return emitObservationError(os.Stdout, observationOperationRunWatch, observationSessionErrorTarget(sessionID.String(), projectionErr), ctx, &client.InvalidResponseError{
 				Operation: "runtime live watch", Cause: projectionErr,
 			}, nil, result.Close)
 		}
@@ -702,7 +714,12 @@ func runLiveWatchSubcommandWithCleanup(args []string, runWithCleanup liveWatchCl
 	if result.Close != nil {
 		_ = result.Close()
 	}
-	return writeRunWatchResponse(os.Stdout, os.Stderr, response, buildRunContinueHint(response.SessionId, continueCommandPersistenceRoot(*persistenceRoot)))
+	identity, err := protoapi.SessionIdentityFromProto(response.SessionId, response.ShortId)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	return writeRunWatchResponse(os.Stdout, os.Stderr, response, buildRunContinueHint(identity.String(), continueCommandPersistenceRoot(*persistenceRoot)))
 }
 
 func runLiveFlagError(err error) int {

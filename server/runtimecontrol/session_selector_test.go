@@ -101,3 +101,16 @@ func TestLiveStopMissingNumericTargetIsIdle(t *testing.T) {
 		t.Fatalf("missing numeric Stop = %+v, %v", response, err)
 	}
 }
+
+func TestLiveWaitFailureRetainsResolvedSessionIdentity(t *testing.T) {
+	sess, service := newNumberedRuntimeControlFixture(t)
+	for _, selector := range []runtimeids.SessionSelector{sess.Identity().ID, *sess.Identity().ShortID} {
+		_, err := service.LiveWait(t.Context(), &runtimepb.LiveWaitRequest{SessionId: protoapi.SessionSelectorToProto(selector)})
+		var failure *serverapi.SessionTargetError
+		if !errors.Is(err, serverapi.ErrRuntimeUnavailable) || !errors.As(err, &failure) ||
+			failure.Identity.ID != sess.Identity().ID || failure.Identity.ShortID == nil ||
+			*failure.Identity.ShortID != *sess.Identity().ShortID {
+			t.Fatalf("resolved failure identity = %v, %v", failure, err)
+		}
+	}
+}

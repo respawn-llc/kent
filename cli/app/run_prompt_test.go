@@ -43,9 +43,11 @@ func (s staticRunPromptService) RunPrompt(
 }
 
 func TestRunPromptCarriesTypedSelectionWarningsIntoCLIWarnings(t *testing.T) {
+	shortID := int64(123)
 	result, err := runPrompt(t.Context(), staticRunPromptService{
 		response: &runpromptpb.Success{
 			SessionId: "session-id",
+			ShortId:   &shortID,
 			Duration:  durationpb.New(time.Millisecond),
 			SelectionWarnings: []runpromptpb.RunSelectionWarning{
 				runpromptpb.RunSelectionWarning_RUN_SELECTION_WARNING_AGENT_IGNORED_TO_PRESERVE_CACHE,
@@ -55,6 +57,10 @@ func TestRunPromptCarriesTypedSelectionWarningsIntoCLIWarnings(t *testing.T) {
 	}, Options{}, "", "prompt", 0, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if result.Identity == nil || result.Identity.ID.String() != "session-id" ||
+		result.Identity.ShortID == nil || result.Identity.ShortID.Int64() != shortID {
+		t.Fatalf("Run identity = %v", result.Identity)
 	}
 	if len(result.Warnings) != 2 || strings.TrimSpace(result.Warnings[0]) == "" || strings.TrimSpace(result.Warnings[1]) == "" {
 		t.Fatalf("selection warning count/content = %q", result.Warnings)
@@ -120,7 +126,7 @@ func TestRunPromptFromWorktreeUsesKentSessionWorkspaceContext(t *testing.T) {
 	if result.Result != "worktree reply" {
 		t.Fatalf("result = %q, want worktree reply", result.Result)
 	}
-	if result.SessionID == parent.Meta().SessionID {
+	if result.Identity.ID.String() == parent.Meta().SessionID {
 		t.Fatal("expected worktree run to create a child run instead of continuing parent session")
 	}
 	if hits.Load() != 1 {

@@ -553,7 +553,7 @@ message LiveWatchError {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "runtime_unavailable"
     }];
-    google.protobuf.Empty no_active_run = 4 [(kent.api.shared.kent_result_field) = {
+    kent.api.shared.SessionIdentity no_active_run = 4 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "no_active_run"
     }];

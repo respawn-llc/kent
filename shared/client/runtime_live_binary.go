@@ -56,9 +56,17 @@ func (c *Remote) LiveWatch(ctx context.Context, request *promptpb.LiveWatchReque
 func runtimeLiveGeneratedError[Failure runtimeControlFailure](failure Failure) error {
 	switch failure.GetCode() {
 	case "no_active_run":
-		return serverapi.ErrRuntimeNoActiveRun
+		if details, ok := any(failure).(interface {
+			GetNoActiveRun() *sharedpb.SessionIdentity
+		}); ok {
+			return protoapi.SessionTargetErrorFromProto(details.GetNoActiveRun(), serverapi.ErrRuntimeNoActiveRun)
+		}
 	case "no_final_answer":
-		return serverapi.ErrRuntimeNoFinalAnswer
+		if details, ok := any(failure).(interface {
+			GetNoFinalAnswer() *sharedpb.SessionIdentity
+		}); ok {
+			return protoapi.SessionTargetErrorFromProto(details.GetNoFinalAnswer(), serverapi.ErrRuntimeNoFinalAnswer)
+		}
 	case "stream_failed":
 		if stream, ok := any(failure).(interface {
 			GetStreamFailed() *sharedpb.InternalFailureDetails

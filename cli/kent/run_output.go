@@ -12,17 +12,30 @@ import (
 	"core/shared/llmerrors"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/protocol"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 )
 
+func liveErrorSelector(request runtimeids.SessionSelector, err error) string {
+	var target *serverapi.SessionTargetError
+	if errors.As(err, &target) {
+		return target.Identity.String()
+	}
+	var unavailable *serverapi.RuntimeUnavailableError
+	if errors.As(err, &unavailable) && unavailable.SessionID != nil {
+		return (runtimeids.SessionIdentity{ID: *unavailable.SessionID, ShortID: unavailable.ShortID}).String()
+	}
+	return request.String()
+}
+
 type runJSONResult struct {
 	Status      string        `json:"status"`
 	Result      string        `json:"result,omitempty"`
-	SessionID   string        `json:"session_id,omitempty"`
+	SessionID   *string       `json:"session_id,omitempty"`
 	SessionName *string       `json:"session_name,omitempty"`
-	ContinueID  string        `json:"continue_id,omitempty"`
-	ContinueCmd string        `json:"continue_command,omitempty"`
+	ContinueID  *string       `json:"continue_id,omitempty"`
+	ContinueCmd *string       `json:"continue_command,omitempty"`
 	Warnings    []string      `json:"warnings,omitempty"`
 	DurationMS  int64         `json:"duration_ms"`
 	Error       *runJSONError `json:"error,omitempty"`
