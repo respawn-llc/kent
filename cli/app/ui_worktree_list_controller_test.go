@@ -259,7 +259,7 @@ func TestWorktreeSlashDeleteResolvesSelectorsWithServer(t *testing.T) {
 			if len(client.selectorRequests) != 1 {
 				t.Fatalf("selector requests = %+v, want one authoritative resolution", client.selectorRequests)
 			}
-			if got := client.selectorRequests[0]; got.SessionId != "session-1" || got.Selector != selector {
+			if got := client.selectorRequests[0]; got.SessionId.GetSessionId() != "session-1" || got.Selector != selector {
 				t.Fatalf("selector request = %+v, want session-scoped selector %q", got, selector)
 			}
 			if updated.worktrees.phase != uiWorktreeOverlayPhaseDeleteConfirm {

@@ -26,6 +26,7 @@ import (
 	"core/server/transport"
 	"core/shared/client"
 	"core/shared/config"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/sessioncontract"
@@ -475,6 +476,11 @@ func TestWorktreeCommandSessionlessCreateFromDirectory(t *testing.T) {
 
 func TestWorktreeCommandCreateEnterHint(t *testing.T) {
 	f := newWorktreeCommandFixture(t)
+	record, err := f.core.MetadataStore().ResolvePersistedSession(t.Context(), f.sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := record.ShortID.String()
 	for _, agent := range []bool{true, false} {
 		t.Run(fmt.Sprint(agent), func(t *testing.T) {
 			if agent {
@@ -482,13 +488,13 @@ func TestWorktreeCommandCreateEnterHint(t *testing.T) {
 			}
 			var out, stderr bytes.Buffer
 			root := filepath.Join(f.core.Config().Settings.Worktrees.BaseDir, fmt.Sprintf("worktree %t with ' quotes", agent))
-			args := []string{"create", "--project", f.b.ProjectID, "--session", f.sessionID, fmt.Sprintf("hint-%t", agent), root}
+			args := []string{"create", "--project", f.b.ProjectID, "--session", "000" + selector, fmt.Sprintf("hint-%t", agent), root}
 			if code := worktreeSubcommand(args, &out, &stderr); code != 0 {
 				t.Fatalf("create exit %d: %s", code, &stderr)
 			}
 			enter := []string{config.Command, "worktree", "enter"}
 			if !agent {
-				enter = append(enter, "--session", f.sessionID)
+				enter = append(enter, "--session", selector)
 			}
 			canonical, err := config.CanonicalWorkspaceRoot(root)
 			if err != nil {
@@ -639,7 +645,7 @@ func TestWorktreeCommandRejectedManagementLeavesStateUnchanged(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 	preview, err := remote.PreviewWorktreeDelete(context.Background(), &worktreepb.DeletePreviewRequest{
-		Scope:    worktreecontract.WorkspaceManagementScope(f.b.ProjectID, f.b.WorkspaceID, &f.sessionID),
+		Scope:    worktreecontract.WorkspaceManagementScope(f.b.ProjectID, f.b.WorkspaceID, &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: f.sessionID}}),
 		Selector: facts.Kent.WorktreeID,
 	})
 	if err != nil {

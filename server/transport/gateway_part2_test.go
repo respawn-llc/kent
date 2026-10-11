@@ -32,6 +32,7 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -601,7 +602,7 @@ func TestGatewayRemoteResolveWorktreeCreateTarget(t *testing.T) {
 	defer func() { _ = remote.Close() }()
 
 	resp, err := remote.ResolveWorktreeCreateTarget(context.Background(), &worktreepb.CreateTargetResolveRequest{
-		Scope:  worktreecontract.SessionManagementScope(store.Meta().SessionID),
+		Scope:  worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}),
 		Target: "HEAD",
 	})
 	if err != nil {

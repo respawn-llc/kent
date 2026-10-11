@@ -72,7 +72,7 @@ func TestGatewaySessionAttachEstablishesProjectForUnboundServer(t *testing.T) {
 	defer func() { _ = remote.Close() }()
 	status, err := remote.GetWorktreeStatus(
 		context.Background(),
-		&worktreepb.StatusRequest{SessionId: store.Meta().SessionID},
+		&worktreepb.StatusRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}},
 	)
 	if err != nil {
 		t.Fatalf("GetWorktreeStatus: %v", err)

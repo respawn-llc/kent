@@ -15,8 +15,11 @@ import (
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
+	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
 	"core/shared/worktreecontract"
@@ -69,7 +72,7 @@ func worktreeStatusSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 	return withWorktreeCommandRemote(stderr, sessionID, func(remote apicontract.WorktreeService) int {
 		ctx, cancel := context.WithTimeout(context.Background(), worktreeCommandTimeout)
 		defer cancel()
-		status, err := remote.GetWorktreeStatus(ctx, &worktreepb.StatusRequest{SessionId: sessionID})
+		status, err := remote.GetWorktreeStatus(ctx, &worktreepb.StatusRequest{SessionId: protoapi.SessionSelectorToProto(sessionID)})
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -109,12 +112,16 @@ func worktreeListSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	sessionID := resolveOptionalWorktreeCommandSession(*sessionFlag)
+	sessionID, err := resolveOptionalWorktreeCommandSession(*sessionFlag)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 	if sessionID != nil && selection.project == nil && selection.workspace == nil {
-		return withWorktreeCommandRemote(stderr, *sessionID, func(remote apicontract.WorktreeService) int {
+		return withWorktreeCommandRemote(stderr, sessionID, func(remote apicontract.WorktreeService) int {
 			ctx, cancel := context.WithTimeout(context.Background(), worktreeCommandTimeout)
 			defer cancel()
-			response, err := remote.ListWorktrees(ctx, &worktreepb.ListRequest{SessionId: *sessionID})
+			response, err := remote.ListWorktrees(ctx, &worktreepb.ListRequest{SessionId: protoapi.SessionSelectorToProto(sessionID)})
 			if err != nil {
 				fmt.Fprintln(stderr, err)
 				return 1
@@ -176,7 +183,7 @@ func writeWorktreeList(stdout io.Writer, worktrees []*worktreepb.ListEntry, show
 
 func worktreeCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet(config.Command+" worktree create", stderr, worktreeCreateUsage)
-	sessionFlag := fs.String("session", "", "caller session and default management workspace")
+	sessionFlag := fs.String("session", "", "Session context and default management workspace")
 	projectFlag := fs.String("project", "", "project whose worktrees to manage")
 	workspaceFlag := fs.String("workspace", "", "workspace within the selected project")
 	baseRef := fs.String("base", "HEAD", "base ref for a new branch")
@@ -201,14 +208,22 @@ func worktreeCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	sessionID := resolveOptionalWorktreeCommandSession(*sessionFlag)
+	sessionID, err := resolveOptionalWorktreeCommandSession(*sessionFlag)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 	remote, binding, err := openWorktreeManagementRemote(context.Background(), selection, sessionID)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	defer func() { _ = remote.Close() }()
-	scope := worktreecontract.WorkspaceManagementScope(binding.ProjectID, binding.WorkspaceID, sessionID)
+	var sessionContext *sharedpb.SessionSelector
+	if sessionID != nil {
+		sessionContext = protoapi.SessionSelectorToProto(sessionID)
+	}
+	scope := worktreecontract.WorkspaceManagementScope(binding.ProjectID, binding.WorkspaceID, sessionContext)
 	target := strings.TrimSpace(positionals[0])
 	rootPath := ""
 	if len(positionals) == 2 {
@@ -269,7 +284,7 @@ func worktreeCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 	}
 	enter := []string{config.Command, "worktree", "enter"}
 	if _, agent := sessionenv.LookupSessionID(os.LookupEnv); !agent {
-		enter = append(enter, "--session", *sessionID)
+		enter = append(enter, "--session", sessionID.String())
 	}
 	enter = append(enter, registered.GetGit().GetCanonicalRoot())
 	fmt.Fprintf(stdout, "Enter with: %s\n", commandString(enter))
@@ -315,7 +330,7 @@ func worktreeEnterSubcommand(args []string, stdout io.Writer, stderr io.Writer) 
 	return runScheduledWorktreeCommand(stdout, stderr, sessionID, *jsonOut, "enter", func(ctx context.Context, remote apicontract.WorktreeService) (*worktreepb.ScheduledAcknowledgement, error) {
 		return remote.EnterWorktree(ctx, &worktreepb.EnterRequest{
 			OperationId:     operationID.String(),
-			SessionId:       sessionID,
+			SessionId:       protoapi.SessionSelectorToProto(sessionID),
 			Selector:        selector,
 			TargetWorkspace: targetWorkspace,
 			Origin:          transitionOrigin,
@@ -362,23 +377,27 @@ func worktreeLeaveSubcommand(args []string, stdout io.Writer, stderr io.Writer) 
 		fmt.Fprintln(stderr, "worktree leave does not accept positional arguments")
 		return 2
 	}
-	sessionID := resolveOptionalWorktreeCommandSession(*sessionFlag)
+	sessionID, err := resolveOptionalWorktreeCommandSession(*sessionFlag)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 	if sessionID == nil {
 		fmt.Fprintln(stderr, "This command makes no sense outside agent shells. Try supplying --session if you want to move an agent out of its worktree forcibly")
 		return 2
 	}
 	operationID := worktreecontract.NewOperationID()
-	return runScheduledWorktreeCommand(stdout, stderr, *sessionID, *jsonOut, "leave", func(ctx context.Context, remote apicontract.WorktreeService) (*worktreepb.ScheduledAcknowledgement, error) {
+	return runScheduledWorktreeCommand(stdout, stderr, sessionID, *jsonOut, "leave", func(ctx context.Context, remote apicontract.WorktreeService) (*worktreepb.ScheduledAcknowledgement, error) {
 		return remote.LeaveWorktree(ctx, &worktreepb.LeaveRequest{
 			OperationId: operationID.String(),
-			SessionId:   *sessionID,
+			SessionId:   protoapi.SessionSelectorToProto(sessionID),
 		})
 	})
 }
 
 func worktreeDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet(config.Command+" worktree delete", stderr, worktreeDeleteUsage)
-	sessionFlag := fs.String("session", "", "caller session and default management workspace")
+	sessionFlag := fs.String("session", "", "Session context and default management workspace")
 	projectFlag := fs.String("project", "", "project whose worktrees to manage")
 	workspaceFlag := fs.String("workspace", "", "workspace within the selected project")
 	force := fs.Bool("force", false, "authorize forced Git worktree folder removal when dirty or indeterminate")
@@ -407,7 +426,11 @@ func worktreeDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	sessionID := resolveOptionalWorktreeCommandSession(*sessionFlag)
+	sessionID, err := resolveOptionalWorktreeCommandSession(*sessionFlag)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	remote, binding, err := openWorktreeManagementRemote(ctx, selection, sessionID)
@@ -416,8 +439,12 @@ func worktreeDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		return 1
 	}
 	defer func() { _ = remote.Close() }()
+	var sessionContext *sharedpb.SessionSelector
+	if sessionID != nil {
+		sessionContext = protoapi.SessionSelectorToProto(sessionID)
+	}
 	result, err := remote.DeleteWorktree(ctx, &worktreepb.DeleteRequest{
-		Scope:               worktreecontract.WorkspaceManagementScope(binding.ProjectID, binding.WorkspaceID, sessionID),
+		Scope:               worktreecontract.WorkspaceManagementScope(binding.ProjectID, binding.WorkspaceID, sessionContext),
 		Selector:            strings.TrimSpace(fs.Args()[0]),
 		ForceFolderRemoval:  *force,
 		BranchCleanupPolicy: policy,
@@ -484,7 +511,7 @@ func worktreeBranchCleanupPolicy(deleteBranch bool, forceDeleteBranch bool) (wor
 func runScheduledWorktreeCommand(
 	stdout io.Writer,
 	stderr io.Writer,
-	sessionID string,
+	sessionID runtimeids.SessionSelector,
 	jsonOut bool,
 	action string,
 	call func(context.Context, apicontract.WorktreeService) (*worktreepb.ScheduledAcknowledgement, error),
@@ -537,7 +564,7 @@ func worktreeStatusProblemKindJSON(kind worktreepb.StatusProblemKind) (string, e
 	}
 }
 
-func withWorktreeCommandRemote(stderr io.Writer, sessionID string, fn func(apicontract.WorktreeService) int) int {
+func withWorktreeCommandRemote(stderr io.Writer, sessionID runtimeids.SessionSelector, fn func(apicontract.WorktreeService) int) int {
 	remote, err := openWorktreeCommandRemote(context.Background(), sessionID)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -547,24 +574,28 @@ func withWorktreeCommandRemote(stderr io.Writer, sessionID string, fn func(apico
 	return fn(remote)
 }
 
-func resolveWorktreeCommandSession(sessionFlag string) (string, error) {
-	if sessionID := resolveOptionalWorktreeCommandSession(sessionFlag); sessionID != nil {
-		return *sessionID, nil
+func resolveWorktreeCommandSession(sessionFlag string) (runtimeids.SessionSelector, error) {
+	sessionID, err := resolveOptionalWorktreeCommandSession(sessionFlag)
+	if err != nil {
+		return nil, err
 	}
-	return "", errors.New("worktree command requires --session outside Kent shell commands")
+	if sessionID != nil {
+		return sessionID, nil
+	}
+	return nil, errors.New("worktree command requires --session outside Kent shell commands")
 }
 
-func resolveOptionalWorktreeCommandSession(sessionFlag string) *string {
+func resolveOptionalWorktreeCommandSession(sessionFlag string) (runtimeids.SessionSelector, error) {
 	if sessionID, ok := sessionenv.LookupSessionID(os.LookupEnv); ok {
-		return &sessionID
+		return runtimeids.ParseSessionSelector(sessionID)
 	}
-	if trimmed := strings.TrimSpace(sessionFlag); trimmed != "" {
-		return &trimmed
+	if sessionFlag != "" {
+		return runtimeids.ParseSessionSelector(sessionFlag)
 	}
-	return nil
+	return nil, nil
 }
 
-func openWorktreeCommandRemote(ctx context.Context, sessionID string) (*client.Remote, error) {
+func openWorktreeCommandRemote(ctx context.Context, sessionID runtimeids.SessionSelector) (*client.Remote, error) {
 	configRoot, err := nearestCommandConfigRoot()
 	if err != nil {
 		return nil, err
@@ -575,7 +606,7 @@ func openWorktreeCommandRemote(ctx context.Context, sessionID string) (*client.R
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, worktreeCommandTimeout)
 	defer cancel()
-	remote, err := client.DialConfiguredRemoteForSession(dialCtx, cfg, sessionID)
+	remote, err := client.DialConfiguredRemoteForSession(dialCtx, cfg, sessionID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -612,7 +643,7 @@ func worktreeManagementSelection(fs *flag.FlagSet, project, workspace string) (w
 	return selection, nil
 }
 
-func openWorktreeManagementRemote(ctx context.Context, selection worktreeSelection, sessionID *string) (*client.Remote, serverapi.ProjectBinding, error) {
+func openWorktreeManagementRemote(ctx context.Context, selection worktreeSelection, sessionID runtimeids.SessionSelector) (*client.Remote, serverapi.ProjectBinding, error) {
 	configRoot, err := nearestCommandConfigRoot()
 	if err != nil {
 		return nil, serverapi.ProjectBinding{}, err
@@ -640,7 +671,7 @@ func openWorktreeManagementRemote(ctx context.Context, selection worktreeSelecti
 			binding.WorkspaceID = response.Workspaces[0].WorkspaceId
 		}
 	} else if sessionID != nil {
-		sessionRemote, err := openWorktreeCommandRemote(ctx, *sessionID)
+		sessionRemote, err := openWorktreeCommandRemote(ctx, sessionID)
 		if err != nil {
 			return nil, serverapi.ProjectBinding{}, err
 		}

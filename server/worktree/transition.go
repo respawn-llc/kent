@@ -32,13 +32,17 @@ type transitionAuthority = sessionruntime.WorktreeTransitionAuthority
 type transitionTargetSync = sessionruntime.WorktreeTransitionTargetSync
 
 func (s *Service) EnterWorktree(ctx context.Context, req *worktreepb.EnterRequest) (*worktreepb.ScheduledAcknowledgement, error) {
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
 	operationID, err := clientui.ParseWorktreeTransitionID(req.OperationId)
 	if err != nil {
 		return nil, err
 	}
 	request := worktreeTransitionRequest{
 		operationID: operationID,
-		sessionID:   strings.TrimSpace(req.SessionId),
+		sessionID:   id.String(),
 		kind:        clientui.WorktreeTransitionEnter,
 		selector:    runtimeinput.NormalizePendingWorkArgument(req.Selector),
 	}
@@ -186,13 +190,17 @@ func (s *Service) resolveCrossWorkspaceEnter(
 }
 
 func (s *Service) LeaveWorktree(ctx context.Context, req *worktreepb.LeaveRequest) (*worktreepb.ScheduledAcknowledgement, error) {
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
 	operationID, err := clientui.ParseWorktreeTransitionID(req.OperationId)
 	if err != nil {
 		return nil, err
 	}
 	request := worktreeTransitionRequest{
 		operationID: operationID,
-		sessionID:   strings.TrimSpace(req.SessionId),
+		sessionID:   id.String(),
 		kind:        clientui.WorktreeTransitionLeave,
 	}
 	return s.runWorktreeTransition(ctx, request, runtimeinput.PendingWorkWorktreeTransition{

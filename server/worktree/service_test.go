@@ -8,6 +8,7 @@ import (
 	shelltool "core/server/tools/shell"
 	"core/shared/clientui"
 	"core/shared/config"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/worktreecontract"
 	"errors"
@@ -40,7 +41,7 @@ func createWorktreeRequestForTest(
 ) *worktreepb.CreateRequest {
 	return &worktreepb.CreateRequest{
 		SetupOperationId: setupOperationID.String(),
-		Scope:            worktreecontract.SessionManagementScope(sessionID),
+		Scope:            worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}}),
 		Spec: &worktreepb.CreateSpec{
 			BaseRef:      nonblankPointer(baseRef),
 			CreateBranch: createBranch,
@@ -718,7 +719,7 @@ func TestResolveWorktreeCreateTargetClassifiesBranchDetachedRefAndNewBranch(t *t
 	env := newServiceTestEnv(t)
 	runGit(t, env.workspaceRoot, "branch", "feature/existing-ref")
 
-	existing, err := env.service.ResolveWorktreeCreateTarget(env.ctx, &worktreepb.CreateTargetResolveRequest{Scope: worktreecontract.SessionManagementScope(env.session.Meta().SessionID), Target: "feature/existing-ref"})
+	existing, err := env.service.ResolveWorktreeCreateTarget(env.ctx, &worktreepb.CreateTargetResolveRequest{Scope: worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}}), Target: "feature/existing-ref"})
 	if err != nil {
 		t.Fatalf("ResolveWorktreeCreateTarget existing: %v", err)
 	}
@@ -726,7 +727,7 @@ func TestResolveWorktreeCreateTargetClassifiesBranchDetachedRefAndNewBranch(t *t
 		t.Fatalf("existing kind = %q, want existing_branch", existing.Resolution.Kind)
 	}
 
-	detached, err := env.service.ResolveWorktreeCreateTarget(env.ctx, &worktreepb.CreateTargetResolveRequest{Scope: worktreecontract.SessionManagementScope(env.session.Meta().SessionID), Target: "HEAD"})
+	detached, err := env.service.ResolveWorktreeCreateTarget(env.ctx, &worktreepb.CreateTargetResolveRequest{Scope: worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}}), Target: "HEAD"})
 	if err != nil {
 		t.Fatalf("ResolveWorktreeCreateTarget detached: %v", err)
 	}
@@ -734,7 +735,7 @@ func TestResolveWorktreeCreateTargetClassifiesBranchDetachedRefAndNewBranch(t *t
 		t.Fatalf("detached kind = %q, want detached_ref", detached.Resolution.Kind)
 	}
 
-	newBranch, err := env.service.ResolveWorktreeCreateTarget(env.ctx, &worktreepb.CreateTargetResolveRequest{Scope: worktreecontract.SessionManagementScope(env.session.Meta().SessionID), Target: "feature/new-branch"})
+	newBranch, err := env.service.ResolveWorktreeCreateTarget(env.ctx, &worktreepb.CreateTargetResolveRequest{Scope: worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}}), Target: "feature/new-branch"})
 	if err != nil {
 		t.Fatalf("ResolveWorktreeCreateTarget new branch: %v", err)
 	}
@@ -826,7 +827,7 @@ func TestListWorktreesReportsMissingCurrentWorktreeWithoutRetargeting(t *testing
 	updateServiceTestSessionTarget(t, env, otherSession.Meta().SessionID, env.binding.WorkspaceID, created.WorktreeID, ".")
 	runGit(t, env.workspaceRoot, "worktree", "remove", "--force", created.CanonicalRoot)
 
-	resp, err := env.service.ListWorktrees(env.ctx, &worktreepb.ListRequest{SessionId: env.session.Meta().SessionID})
+	resp, err := env.service.ListWorktrees(env.ctx, &worktreepb.ListRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}}})
 	if err != nil {
 		t.Fatalf("ListWorktrees: %v", err)
 	}
