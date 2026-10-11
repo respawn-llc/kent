@@ -185,15 +185,11 @@ func TestCloneSessionStreamsLargeHistoryAcrossChunks(t *testing.T) {
 	if !child.Meta().HeadlessActive {
 		t.Fatal("expected cloned child to inherit headless-active state derived from replay")
 	}
-	if snapshot := child.Meta().WorkflowSnapshot; snapshot == nil ||
-		snapshot.CompletionMode != sessioncontract.WorkflowCompletionModeTool {
-		t.Fatalf("cloned workflow snapshot = %+v, want inherited tool mode", snapshot)
+	if child.Meta().WorkflowSnapshot != nil || child.Meta().Locked != nil {
+		t.Fatalf("new clone retained source snapshots: %+v", child.Meta())
 	}
-	childMeta := child.Meta()
-	childMeta.WorkflowSnapshot.CompletionMode = sessioncontract.WorkflowCompletionModeShellCommand
-	if child.Meta().WorkflowSnapshot.CompletionMode != sessioncontract.WorkflowCompletionModeTool ||
-		parent.Meta().WorkflowSnapshot.CompletionMode != sessioncontract.WorkflowCompletionModeTool {
-		t.Fatal("clone metadata aliases workflow snapshot")
+	if parent.Meta().WorkflowSnapshot.CompletionMode != sessioncontract.WorkflowCompletionModeTool {
+		t.Fatal("cloning changed the source workflow snapshot")
 	}
 }
 

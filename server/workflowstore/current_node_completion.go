@@ -452,6 +452,7 @@ func materializeTransitionTargetCurrentNode(
 			ContextMode:           edge.ContextMode,
 			ContextSource:         edge.ContextSource,
 			TargetSessionResolved: true,
+			FanoutBranch:          request.TransitionBranchKey != nil,
 		})
 		if err != nil {
 			return transitionTargetMaterialization{}, err

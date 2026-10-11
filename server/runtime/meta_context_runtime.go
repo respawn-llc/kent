@@ -297,7 +297,7 @@ func selectWorkflowTaskPrompt(
 	}
 	if trigger == workflowTaskPromptTriggerResumeDelivery {
 		if currentAssignmentIdentity == nil {
-			return prompts.WorkflowTaskPromptInitialAssignment, true, nil
+			return prompts.WorkflowTaskPromptCompactionReminder, true, nil
 		}
 		if *currentAssignmentIdentity == normalizedCurrentNodeIdentity {
 			return prompts.WorkflowTaskPromptInitialAssignment, false, nil

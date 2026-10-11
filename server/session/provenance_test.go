@@ -108,8 +108,8 @@ func TestForkDetachesOwnershipWhileClonePreservesParentAgentAncestry(t *testing.
 			}
 		} else {
 			assertOptionalProvenanceID(t, name+" parent agent", meta.ParentAgentSessionID, mustProvenanceSessionID(t, parentAgent.Meta().SessionID))
-			if meta.WorkflowSnapshot == nil || meta.Continuation == nil || meta.ConnectionID == nil || meta.Locked == nil {
-				t.Fatalf("workflow clone lost execution context: %+v", meta)
+			if meta.WorkflowSnapshot != nil || meta.Continuation != nil || meta.ConnectionID != nil || meta.Locked != nil {
+				t.Fatalf("workflow clone retained source execution settings: %+v", meta)
 			}
 		}
 	}

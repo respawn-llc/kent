@@ -87,7 +87,7 @@ func (s *Starter) PrepareCurrentNode(
 		return workflowexecution.CurrentNodePreparation{}, err
 	}
 	var freshOverrides *launch.PreparedRunPromptOverrides
-	if fresh && input.CurrentNode.SessionID == nil {
+	if fresh {
 		prepared, err := launch.PrepareRunPromptOverridesWithContext(cfg, workflowPromptOverrides(selection.Assignee), launch.RunPromptPreparationContext{
 			Mode: launch.ModeHeadless, Rotation: s.connectionRotation, AllocateConnection: true,
 		})
@@ -99,6 +99,7 @@ func (s *Starter) PrepareCurrentNode(
 	preparation := plannedCurrentNodeSession{}
 	var plan launch.SessionPlan
 	var meta session.Meta
+	var cloneSourceMeta *session.Meta
 	if fresh && input.CurrentNode.SessionID == nil {
 		prepared, err := planner.PrepareSession(ctx, launch.SessionPreparationRequest{
 			Request:   launch.SessionRequest{Mode: launch.ModeHeadless, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()), PreparedPromptFacingTarget: freshOverrides.PromptFacingTarget()},
@@ -116,6 +117,7 @@ func (s *Starter) PrepareCurrentNode(
 		}
 		meta = *record.Meta
 		if fresh {
+			cloneSourceMeta = record.Meta
 			creation, err := s.prepareCurrentNodeClone(ctx, planner, record, *id)
 			if err != nil {
 				return workflowexecution.CurrentNodePreparation{}, err
@@ -142,6 +144,17 @@ func (s *Starter) PrepareCurrentNode(
 		}
 		if needsCompaction {
 			outgoing := plan
+			if clone {
+				outgoingMeta := *cloneSourceMeta
+				outgoingMeta.SessionID = id.String()
+				outgoing, err = planner.PlanPreparedSession(ctx, launch.SessionRequest{
+					Mode: launch.ModeHeadless, Intent: serverapi.OpenExistingSessionLaunchIntent(*id),
+					SkipContinuationAgentRoleValidation: true,
+				}, outgoingMeta, execution)
+				if err != nil {
+					return workflowexecution.CurrentNodePreparation{}, err
+				}
+			}
 			preparation.outgoing = &outgoing
 			meta = session.ProjectSnapshotBoundary(meta, session.SnapshotBoundaryWorkflowContextReset)
 			plan, err = planner.PlanPreparedSession(ctx, launch.SessionRequest{

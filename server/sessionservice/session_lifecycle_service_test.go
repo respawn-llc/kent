@@ -644,7 +644,7 @@ func TestServiceResolveTransitionForkRollbackUsesTargetToken(t *testing.T) {
 	}
 }
 
-func TestServiceForkAllocatesFreshConnectionWhileWorkflowCloneRetainsBinding(t *testing.T) {
+func TestServiceForkAndCloneLeaveSourceBindingUnchanged(t *testing.T) {
 	cfg, metadataStore, _, source := createAuthoritativeSessionLifecycleSession(t, t.TempDir())
 	cfg.Settings.Model = "gpt-6-astra"
 	selection := config.ConnectionSelection{"a", "b"}
@@ -744,9 +744,9 @@ func TestServiceForkAllocatesFreshConnectionWhileWorkflowCloneRetainsBinding(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cloned.Meta().ConnectionID == nil || *cloned.Meta().ConnectionID != "a" ||
-		cloned.Meta().WorkflowSnapshot == nil || cloned.Meta().OriginalThinkingEffort == nil || !cloneThinking.PreserveNativeUpdates {
-		t.Fatalf("workflow clone lost source contract/binding: %+v", cloned.Meta())
+	if cloned.Meta().ConnectionID != nil || cloned.Meta().WorkflowSnapshot != nil ||
+		cloned.Meta().Locked != nil || cloned.Meta().OriginalThinkingEffort == nil || !cloneThinking.PreserveNativeUpdates {
+		t.Fatalf("new clone retained source execution settings or lost native history: %+v", cloned.Meta())
 	}
 	if source.Meta().ConnectionID == nil || *source.Meta().ConnectionID != "a" || source.Meta().OriginalThinkingEffort == nil {
 		t.Fatal("fork altered source binding or Thinking history")

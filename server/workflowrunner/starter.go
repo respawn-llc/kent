@@ -647,24 +647,24 @@ type currentNodeSessionPolicy struct {
 
 func resolveCurrentNodeSessionPolicy(input workflowstore.CurrentNodeStartContext) (currentNodeSessionPolicy, error) {
 	source := workflow.CanonicalContextSource(input.EnteringEdge.ContextSource)
-	targetOwned := false
 	switch source.Kind {
 	case workflow.ContextSourceImmediateSource, workflow.ContextSourceSelectedNode:
 	case workflow.ContextSourcePreviousTarget, workflow.ContextSourcePreviousTargetOrNew:
-		targetOwned = true
 	default:
 		return currentNodeSessionPolicy{}, fmt.Errorf("current node session policy does not support context source %q", source.Kind)
 	}
-	assignee, err := workflow.ResolveAssigneeSessionPolicy(workflow.AssigneeSessionPolicyRequest{
+	request := workflow.AssigneeSessionPolicyRequest{
 		ContextMode:           input.ContextMode,
 		ContextSource:         source,
 		TargetSessionResolved: input.CurrentNode.SessionID != nil,
-	})
+		FanoutBranch:          input.IsFanoutBranch,
+	}
+	assignee, err := workflow.ResolveAssigneeSessionPolicy(request)
 	if err != nil {
 		return currentNodeSessionPolicy{}, err
 	}
 	return currentNodeSessionPolicy{
-		cloneRetainedSession: input.IsFanoutBranch && !targetOwned && input.ContextMode != workflow.ContextModeNewSession,
+		cloneRetainedSession: request.CopiesSourceSession(),
 		assignee:             assignee,
 	}, nil
 }

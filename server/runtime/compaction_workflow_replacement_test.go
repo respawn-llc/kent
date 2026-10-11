@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"core/prompts"
 	"core/server/llm"
 	"core/server/session"
 	"core/server/session/sessiontest"
@@ -915,7 +916,15 @@ func TestRemoteCompactionRefreshesWorkflowTaskAwareness(t *testing.T) {
 }
 
 func TestWorkflowRequestAfterCompactionUsesOneCurrentAssignmentPrompt(t *testing.T) {
-	t.Parallel()
+	initial, reassignment, continuing := prompts.WorkflowTaskInstructionsPrompt,
+		prompts.WorkflowTaskReassignmentPrompt, prompts.WorkflowTaskCompactionReminderPrompt
+	prompts.WorkflowTaskInstructionsPrompt = "{{.TaskShortId}}"
+	prompts.WorkflowTaskReassignmentPrompt = "{{.TaskShortId}}"
+	prompts.WorkflowTaskCompactionReminderPrompt = "{{.TransitionPrompt}}"
+	t.Cleanup(func() {
+		prompts.WorkflowTaskInstructionsPrompt, prompts.WorkflowTaskReassignmentPrompt,
+			prompts.WorkflowTaskCompactionReminderPrompt = initial, reassignment, continuing
+	})
 	tests := []struct {
 		name                string
 		existingCurrentNode bool
@@ -981,7 +990,10 @@ func TestWorkflowRequestAfterCompactionUsesOneCurrentAssignmentPrompt(t *testing
 					},
 					CompletionMode: workflowruntime.CompletionModeTool,
 					Controller:     controller,
-					Instructions:   workflowruntime.TaskInstructions{CurrentNode: mustTestCurrentNodeReference(t, "task", "node", &currentBranchKey)},
+					Instructions: workflowruntime.TaskInstructions{
+						CurrentNode: mustTestCurrentNodeReference(t, "task", "node", &currentBranchKey),
+						TaskShortID: "KENT-42", TransitionPrompt: "Continue the current assignment.",
+					},
 				},
 				Config{Model: "gpt-6-sol", OnEvent: func(event Event) {
 					if event.Kind == EventCompactionCompleted {
@@ -1018,6 +1030,11 @@ func TestWorkflowRequestAfterCompactionUsesOneCurrentAssignmentPrompt(t *testing
 				t.Fatalf("persist compaction input: %v", err)
 			}
 
+			if test.existingCurrentNode {
+				if err := engine.steerWorkflowModeIfNeeded(t.Context(), "assignment"); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err := test.compact(context.Background(), engine); err != nil {
 				t.Fatalf("compact workflow context: %v", err)
 			}
@@ -1051,6 +1068,13 @@ func TestWorkflowRequestAfterCompactionUsesOneCurrentAssignmentPrompt(t *testing
 					t.Fatalf("workflow request mode item = %+v, want source identity %q", item, currentNodeIdentity)
 				}
 				workflowModes++
+				want := "KENT-42"
+				if test.existingCurrentNode {
+					want = "Continue the current assignment."
+				}
+				if item.Content == nil || *item.Content != want {
+					t.Fatalf("compacted assignment content = %v, want domain value %q", item.Content, want)
+				}
 			}
 			if workflowModes != 1 {
 				t.Fatalf("post-compaction workflow-mode-items = %d, want one", workflowModes)
@@ -1059,8 +1083,76 @@ func TestWorkflowRequestAfterCompactionUsesOneCurrentAssignmentPrompt(t *testing
 	}
 }
 
+func TestWorkflowResumeDoesNotTreatDormantManualSummaryAsInProgressAssignment(t *testing.T) {
+	initial, reassignment, continuing := prompts.WorkflowTaskInstructionsPrompt,
+		prompts.WorkflowTaskReassignmentPrompt, prompts.WorkflowTaskCompactionReminderPrompt
+	prompts.WorkflowTaskInstructionsPrompt = "{{.TaskShortId}}"
+	prompts.WorkflowTaskReassignmentPrompt = "{{.TaskShortId}}"
+	prompts.WorkflowTaskCompactionReminderPrompt = "{{.TransitionPrompt}}"
+	t.Cleanup(func() {
+		prompts.WorkflowTaskInstructionsPrompt, prompts.WorkflowTaskReassignmentPrompt,
+			prompts.WorkflowTaskCompactionReminderPrompt = initial, reassignment, continuing
+	})
+	store := mustCreateTestSession(t)
+	source := mustNewTestEngine(t, store, &fakeCompactionClient{
+		compactionResponses: []llm.CompactionResponse{remoteCompactionReplacement(1_000, 100, 200_000)},
+	}, tools.NewRegistry(), Config{Model: "gpt-6-sol", CompactionMode: "native"})
+	if err := steerTestActiveStep(source, "source", steerMessagesWithPersistenceIntent(
+		steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{
+			{Role: llm.RoleDeveloper, MessageType: new(llm.MessageTypeWorkflowMode),
+				SourcePath: new("completed-source-assignment"), Content: new("completed source")},
+			{Role: llm.RoleUser, Content: new("source input")},
+			{Role: llm.RoleAssistant, Phase: new(llm.MessagePhaseFinal), Content: new("source completed")},
+		},
+	)); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.CompactContext(t.Context(), ""); err != nil {
+		t.Fatal(err)
+	}
+	waitEngineLifecycleTasks(t, source)
+	if err := source.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reference := mustTestCurrentNodeReference(t, "task", "target", nil)
+	instructions := workflowruntime.TaskInstructions{
+		CurrentNode: reference, TaskShortID: "KENT-42", TransitionPrompt: "Perform the target task.",
+	}
+	client := &fakeClient{responses: []llm.Response{commentaryResponse("", llm.ToolCall{
+		ID: "complete", Name: string(toolspec.ToolCompleteNode),
+		Input: mustJSON(map[string]any{"transition": "done"}),
+	})}}
+	target := mustNewWorkflowTestEngine(t, mustOpenTestSession(t, store.Dir()), client,
+		&workflowruntime.CurrentNodeExecutionConfig{
+			ScopeID: runtimeids.NewExecutionScopeID(), TaskPromptDelivery: workflowruntime.TaskPromptDeliveryResume,
+			Instructions: instructions, Controller: &fakeWorkflowController{}, CompletionMode: workflowruntime.CompletionModeTool,
+			Contract: workflowruntime.CompletionContract{Transitions: []workflowruntime.CompletionTransition{{ID: "done"}}},
+		}, Config{Model: "gpt-6-sol", CompactionMode: "native"})
+	if _, err := target.SubmitWorkflowContinuationTurn(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	assignments := workflowPromptMessages(requestMessages(client.calls[0]))
+	if len(assignments) != 1 || assignments[0].SourcePath == nil ||
+		*assignments[0].SourcePath != workflowruntime.CurrentNodePromptIdentity(reference) {
+		t.Fatalf("target assignments = %+v, want one exact target", assignments)
+	}
+	if assignments[0].Content == nil || *assignments[0].Content != instructions.TaskShortID {
+		content, _ := textutil.OptionalValue(assignments[0].Content)
+		t.Fatalf("target received continuing-template value %q, want fresh-assignment task identity %q",
+			content, instructions.TaskShortID)
+	}
+}
+
 func TestWorkflowHandoffRequestDeliversOneAssignmentAndWorktreeContext(t *testing.T) {
-	t.Parallel()
+	initial, reassignment, continuing := prompts.WorkflowTaskInstructionsPrompt,
+		prompts.WorkflowTaskReassignmentPrompt, prompts.WorkflowTaskCompactionReminderPrompt
+	prompts.WorkflowTaskInstructionsPrompt = "{{.TaskShortId}}"
+	prompts.WorkflowTaskReassignmentPrompt = "{{.TaskShortId}}"
+	prompts.WorkflowTaskCompactionReminderPrompt = "{{.TransitionPrompt}}"
+	t.Cleanup(func() {
+		prompts.WorkflowTaskInstructionsPrompt, prompts.WorkflowTaskReassignmentPrompt,
+			prompts.WorkflowTaskCompactionReminderPrompt = initial, reassignment, continuing
+	})
 	store := mustCreateTestSession(t)
 	target := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
 		session.WorktreeReminderModeEnter, "feature/workflow-handoff",
@@ -1081,7 +1173,9 @@ func TestWorkflowHandoffRequestDeliversOneAssignmentAndWorktreeContext(t *testin
 		Contract: workflowruntime.CompletionContract{
 			Transitions: []workflowruntime.CompletionTransition{{ID: "done"}},
 		},
-		Instructions: workflowruntime.TaskInstructions{CurrentNode: reference},
+		Instructions: workflowruntime.TaskInstructions{
+			CurrentNode: reference, TaskShortID: "KENT-42", TransitionPrompt: "Continue the active assignment.",
+		},
 	}, Config{Model: "gpt-6-sol", CompactionMode: "local"})
 	if err := steerTestActiveStep(engine, "seed", steerMessagesWithPersistenceIntent(
 		steeringPriorityNormal, steeringMessageEventNone, true,
@@ -1101,6 +1195,9 @@ func TestWorkflowHandoffRequestDeliversOneAssignmentAndWorktreeContext(t *testin
 	if len(assignments) != 1 || assignments[0].SourcePath == nil ||
 		*assignments[0].SourcePath != workflowruntime.CurrentNodePromptIdentity(reference) {
 		t.Fatalf("handoff request assignment = %+v, want one exact active assignment", assignments)
+	}
+	if assignments[0].Content == nil || *assignments[0].Content != "Continue the active assignment." {
+		t.Fatalf("handoff assignment content = %v, want continuing domain value", assignments[0].Content)
 	}
 	if count := worktreeReminderMessageCount(messages); count != 1 {
 		t.Fatalf("handoff request worktree contexts = %d, want one", count)
