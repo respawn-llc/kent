@@ -481,14 +481,20 @@ func TestWorktreeCommandCreateEnterHint(t *testing.T) {
 		t.Fatal(err)
 	}
 	selector := record.ShortID.String()
-	for _, agent := range []bool{true, false} {
-		t.Run(fmt.Sprint(agent), func(t *testing.T) {
+	for index, agent := range []bool{true, false, false} {
+		t.Run(fmt.Sprint(index), func(t *testing.T) {
+			if index == 2 {
+				if _, err := f.core.MetadataStore().DB().ExecContext(t.Context(), "UPDATE sessions SET short_id = NULL WHERE id = ?", f.sessionID); err != nil {
+					t.Fatal(err)
+				}
+				selector = f.sessionID
+			}
 			if agent {
 				t.Setenv("KENT_SESSION_ID", f.sessionID)
 			}
 			var out, stderr bytes.Buffer
-			root := filepath.Join(f.core.Config().Settings.Worktrees.BaseDir, fmt.Sprintf("worktree %t with ' quotes", agent))
-			args := []string{"create", "--project", f.b.ProjectID, "--session", "000" + selector, fmt.Sprintf("hint-%t", agent), root}
+			root := filepath.Join(f.core.Config().Settings.Worktrees.BaseDir, fmt.Sprintf("worktree %d with ' quotes", index))
+			args := []string{"create", "--project", f.b.ProjectID, "--session", f.sessionID, fmt.Sprintf("hint-%d", index), root}
 			if code := worktreeSubcommand(args, &out, &stderr); code != 0 {
 				t.Fatalf("create exit %d: %s", code, &stderr)
 			}
