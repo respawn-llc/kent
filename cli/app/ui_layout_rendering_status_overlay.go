@@ -61,8 +61,8 @@ func statusSkillsPresentation(snapshot uiStatusSnapshot, loading bool) statusSki
 
 func statusOverlaySessionLines(snapshot uiStatusSnapshot) []statusOverlayLine {
 	lines := make([]statusOverlayLine, 0, 3)
-	if sessionName := strings.TrimSpace(snapshot.SessionName); sessionName != "" {
-		lines = append(lines, statusOverlayLine{Text: sessionName, Style: statusOverlayLineStyleBold})
+	if snapshot.SessionName != nil {
+		lines = append(lines, statusOverlayLine{Text: *snapshot.SessionName, Style: statusOverlayLineStyleBold})
 	}
 	lines = append(lines, statusOverlayLine{Text: "Session ID: " + statusValueOrFallback(snapshot.SessionID, "session unknown"), Style: statusOverlayLineStyleNormal})
 	for _, provenanceSummary := range statusSessionProvenanceSummaries(snapshot) {

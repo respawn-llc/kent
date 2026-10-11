@@ -185,6 +185,15 @@ func transcriptToolStartsFromRuntime(starts []runtime.TranscriptLiveToolStart) (
 }
 
 func TranscriptMessagesFromRuntimeEventChecked(evt runtime.Event) ([]*transcriptpb.Event, error) {
+	if evt.Kind == runtime.EventQuestionCandidateFinished {
+		if evt.StepID == nil || evt.FinishedQuestionCandidate == nil {
+			return nil, errors.New("finished Question candidate has no Step or tool call identity")
+		}
+		if _, err := runtimeids.ParseStepID(*evt.StepID); err != nil {
+			return nil, err
+		}
+		return nil, evt.FinishedQuestionCandidate.Validate()
+	}
 	for index, fact := range runtime.TranscriptCommittedRowFactsFromEvent(evt) {
 		if err := fact.Locator.Validate(); err != nil {
 			return nil, fmt.Errorf("runtime committed row fact %d from event %q lacks valid provenance: %w", index, evt.Kind, err)
@@ -577,7 +586,7 @@ func TranscriptSessionIdentityFromRuntime(
 	}
 	return &transcriptpb.SessionIdentity{
 		SessionId:             sessionID.String(),
-		SessionName:           textutil.OptionalTrimmedString(engine.SessionName()),
+		SessionName:           engine.SessionName(),
 		ConversationFreshness: ConversationFreshnessFromSession(freshness),
 	}, nil
 }
@@ -906,17 +915,18 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact) (*transcript
 			return nil, err
 		}
 		row.Row = &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
-			ViewedImageKind: viewedImageKindToProto(fact.Tool.ViewedImageKind),
-			StepId:          textutil.Pointer(fact.StepID),
-			ToolCallId:      textutil.OptionalTrimmedString(fact.Tool.ToolCallID),
-			ToolName:        textutil.OptionalTrimmedString(fact.Tool.ToolName),
-			Text:            fact.Tool.Text,
-			IsError:         fact.Tool.IsError,
-			ResultSummary:   optionalNonBlankString(fact.Tool.ResultSummary),
-			CondensedText:   optionalNonBlankString(fact.Tool.CondensedText),
-			Presentation:    presentation,
-			QuestionAnswer:  answer,
-			WebSearch:       webSearch,
+			ViewedImageKind:     viewedImageKindToProto(fact.Tool.ViewedImageKind),
+			StepId:              textutil.Pointer(fact.StepID),
+			ToolCallId:          textutil.OptionalTrimmedString(fact.Tool.ToolCallID),
+			ToolName:            textutil.OptionalTrimmedString(fact.Tool.ToolName),
+			Text:                fact.Tool.Text,
+			IsError:             fact.Tool.IsError,
+			ResultSummary:       optionalNonBlankString(fact.Tool.ResultSummary),
+			CondensedText:       optionalNonBlankString(fact.Tool.CondensedText),
+			Presentation:        presentation,
+			QuestionAnswer:      answer,
+			WebSearch:           webSearch,
+			AnsweredBySessionId: protoapi.OptionalSessionIDToProto(fact.Tool.AnsweredBySessionID),
 		}}
 	case runtime.TranscriptCommittedRowFactReasoningTrace:
 		if fact.ReasoningTrace == nil || fact.StepID == nil {
@@ -1035,6 +1045,7 @@ func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowF
 		transcript.NoticeReasonToolOutputRepair:      transcriptpb.NoticeReason_NOTICE_REASON_TOOL_OUTPUT_REPAIR,
 		transcript.NoticeReasonProviderModelMismatch: transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH,
 		transcript.NoticeReasonThinkingUpdate:        transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE,
+		transcript.NoticeReasonReasoningOmission:     transcriptpb.NoticeReason_NOTICE_REASON_REASONING_OMISSION,
 	}
 	reason, ok := reasons[strings.TrimSpace(fact.Reason)]
 	if !ok {
@@ -1116,6 +1127,13 @@ func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowF
 		notice.ProviderModelMismatch = &transcriptpb.ProviderModelMismatch{
 			RequestedModel: fact.ProviderModelMismatch.RequestedModel, ServedModel: fact.ProviderModelMismatch.ServedModel,
 		}
+	}
+	if fact.ReasoningOmission != nil {
+		count, err := protoapi.Int32(fact.ReasoningOmission.Count, "omitted reasoning count")
+		if err != nil {
+			return nil, err
+		}
+		notice.ReasoningOmission = &transcriptpb.ReasoningOmission{Count: count}
 	}
 	diagnosticCode := strings.TrimSpace(fact.DiagnosticCode)
 	diagnosticDetail := fact.DiagnosticDetail

@@ -250,6 +250,32 @@ func TestExecutionPromptStoreResolvePromptBatchDoesNotWaitForPreparedSuccessor(t
 	})
 }
 
+func TestExecutionPromptStoreResolvesModelQuestionsInOriginalCallOrder(t *testing.T) {
+	stepID := promptBatchStepID(t)
+	store, feed := newPromptBatchStore(t)
+	ids := []string{"first", "second", "third"}
+	entries := make([]*executionPromptEntry, len(ids))
+	commands := make([]PromptAnswerCommand, len(ids))
+	for index, id := range ids {
+		entry := promptBatchQuestion(id, stepID, time.Unix(int64(len(ids)-index), 0))
+		entry.snapshot.Request.Origin = tools.AskQuestionOriginModelTool
+		entry.snapshot.Request.RunID = "run-1"
+		entry.snapshot.Request.QuestionBatch = &tools.AskQuestionBatchMetadata{
+			Origin: tools.AskQuestionOriginModelTool, RunID: "run-1", StepID: stepID.String(),
+			ToolCallID: id, BatchToolCallIDs: ids, CandidateOrdinal: index, PreparedPromptCount: len(ids),
+		}
+		entries[index] = entry
+		commands[len(ids)-index-1] = promptDeclined(id)
+	}
+	installPromptBatchEntries(&store, entries...)
+	if _, err := store.ResolvePromptBatch(context.Background(), stepID, commands); err != nil {
+		t.Fatalf("ResolvePromptBatch: %v", err)
+	}
+	if got := feed.resolvedIDs(); !equalPromptBatchStrings(got, ids) {
+		t.Fatalf("resolved order = %v, want original model call order %v", got, ids)
+	}
+}
+
 func TestAuthorityResolvePromptBatchDelegatesApprovalToExactAction(t *testing.T) {
 	h := newApprovalActionHarness(t, approvalActionHarnessOptions{})
 	requireApprovalActionOutcome(t, h.resolve(context.Background(), approvalActionAnswer(tools.AskQuestionApprovalDecisionAllowOnce, nil)), PromptAnswerOutcomeResolved)

@@ -12,7 +12,7 @@ import {
 import type { ChatSettingsRead, InitialChatSettings } from "@/api";
 import { createTestServices, TestAppProviders, type TestAppServices } from "@/test-support/app-services";
 import { deferred, mainViewRead, target as sessionTarget, transcriptPage } from "@/test-support/chat-runtime";
-import { worktreeBrowserFixtureRoute } from "@/test-support/api";
+import { worktreeBrowserFixtureRoute, sessionSettingsSubscriptionRoute } from "@/test-support/api";
 import {
   ChatPromptPresenceProvider,
   SidebarRootContext,
@@ -71,9 +71,11 @@ const catalog: Extract<ChatSettingsRead, { kind: "new_chat" }> = {
     ],
   },
 };
+const openSession = vi.fn<(sessionID: string) => void | Promise<void>>();
 const navigation = {
   openTask: vi.fn<(taskID: string) => void>(),
-  openParentSession: vi.fn<(sessionID: string) => void | Promise<void>>(),
+  openParentSession: openSession,
+  openEditedSession: openSession,
 };
 function renderDestination(
   services: TestAppServices,
@@ -114,7 +116,7 @@ function sessionWithPrompts(
   selected: ChatDestinationOpening = { kind: "session", ...sessionTarget },
   contextualContent?: ReactNode,
 ) {
-  const services = createTestServices([worktreeBrowserFixtureRoute()]);
+  const services = createTestServices([worktreeBrowserFixtureRoute(), sessionSettingsSubscriptionRoute()]);
   const choice = catalog.catalog.choices[0];
   if (choice === undefined) throw new Error("Missing settings choice");
   const settings = vi.spyOn(services.api.chat, "getSettings").mockResolvedValue({

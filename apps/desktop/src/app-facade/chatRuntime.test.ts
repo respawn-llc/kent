@@ -713,7 +713,7 @@ describe("mounted Chat Runtime owner", () => {
       kind: "runtime_read_model_update",
       payload: runtimeUnavailablePayload(),
     });
-    initial.onComplete({ code: 0, message: "", reason: null });
+    initial.onComplete({ code: null, message: null, reason: null });
 
     expect(fixture.handlers).toHaveLength(2);
     expect(owner.snapshot.observation.kind).toBe("observing");

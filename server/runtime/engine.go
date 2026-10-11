@@ -73,6 +73,7 @@ func normalizeCacheWarningMode(mode config.CacheWarningMode) (config.CacheWarnin
 
 type Config struct {
 	Model                           string
+	TokenEstimator                  llm.TokenEstimator
 	Debug                           bool
 	Temperature                     float64
 	MaxTokens                       int
@@ -199,12 +200,7 @@ type Engine struct {
 	stepFlow       stepExecutor
 	toolFlow       toolExecutor
 
-	// baseMetaInjected guards the single per-conversation injection of base meta
-	// context (AGENTS.md, skills, subagents, environment). It is set when a
-	// resumed transcript already carries that context, and after the one-time
-	// boot injection. It is process-local: the persisted transcript itself is the
-	// source of truth across restarts.
-	baseMetaInjected bool
+	generationContext generationContext
 }
 
 type handoffRequest struct {
@@ -229,6 +225,9 @@ func New(
 		return nil, ErrModelRequired
 	}
 	cfg.Model = strings.TrimSpace(cfg.Model)
+	if cfg.TokenEstimator == nil {
+		cfg.TokenEstimator = llm.DefaultTokenEstimator{}
+	}
 	if cfg.Temperature == 0 {
 		cfg.Temperature = 1
 	}
@@ -270,6 +269,7 @@ func New(
 	cfg.Reviewer.Client = nil
 	cfg.Reviewer.ClientFactory = nil
 	eng := &Engine{
+		generationContext:           freshGenerationContext{},
 		store:                       store,
 		eventLog:                    eventLog,
 		llm:                         newObservedModelClient(client),
@@ -291,6 +291,7 @@ func New(
 		currentNodeExecution:        newCurrentNodeExecutionState(),
 		compactionPlanner:           newCompactionPlanner(),
 	}
+	eng.transcriptState.chatProjection().bindTokenEstimator(cfg.TokenEstimator)
 	eng.compactionRuntimeState().SetContextFacts(store.ContextFacts())
 	providerCapabilities, err := eng.providerCapabilities(context.Background())
 	if err != nil {
@@ -420,16 +421,35 @@ func (e *Engine) BeginRetirement() bool {
 	if e.lifecycleClosed || e.closed.Load() {
 		return true
 	}
-	if e.stepLifecycle.IsBusy() ||
-		e.HasQueuedUserWork() ||
-		e.HasScheduledQueuedUserWork() ||
-		e.CurrentNodeExecutionConfigured() ||
-		e.ReviewerActive() ||
-		!e.runtimeFIFO.beginCloseIfIdle() {
+	if e.hasRetirementBlockers() || !e.runtimeFIFO.beginCloseIfIdle() {
 		return false
 	}
 	e.closed.Store(true)
 	return true
+}
+
+// HasRetirementBlockers reports current Runtime activity that would prevent
+// BeginRetirement. BeginRetirement remains authoritative and rechecks while
+// closing admission.
+func (e *Engine) HasRetirementBlockers() bool {
+	if e == nil {
+		return false
+	}
+	e.ensureOrchestrationCollaborators()
+	e.lifecycleMu.Lock()
+	defer e.lifecycleMu.Unlock()
+	if e.lifecycleClosed || e.closed.Load() {
+		return false
+	}
+	return e.hasRetirementBlockers() || e.runtimeFIFO.Pending()
+}
+
+func (e *Engine) hasRetirementBlockers() bool {
+	return e.stepLifecycle.IsBusy() ||
+		e.HasQueuedUserWork() ||
+		e.HasScheduledQueuedUserWork() ||
+		e.CurrentNodeExecutionConfigured() ||
+		e.ReviewerActive()
 }
 
 func (e *Engine) closeAdmissionAfterRuntimeAbort() {
@@ -1119,9 +1139,9 @@ func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID
 				onReasoningDelta(delta)
 			}
 		}
-		resp, err := e.generateWithRetryClient(ctx, stepID, e.llm, req, wrappedDelta, wrappedReasoningDelta, onAttemptReset)
+		candidate, err := e.generateWithRetryClient(ctx, stepID, e.llm, req, wrappedDelta, wrappedReasoningDelta, onAttemptReset)
 		if err == nil {
-			return newSuccessfulRequestCandidate(req, resp), nil
+			return candidate, nil
 		}
 		if !llm.HasHTTPStatus(err, 400) {
 			return successfulRequestCandidate{}, err
@@ -1142,15 +1162,17 @@ func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID
 	}
 }
 
-func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
+func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (successfulRequestCandidate, error) {
 	observed, err := e.prepareCacheObservedRequest(
+		ctx,
 		stepID,
+		client,
 		req,
 		modelcontract.ProviderOperationPurposeGeneration,
 		cacheResponseObservationExactStep,
 	)
 	if err != nil {
-		return llm.Response{}, err
+		return successfulRequestCandidate{}, err
 	}
 	publishedProviderDiagnostics := make(map[llm.CodexTurnStateDiagnosticCategory]struct{}, 2)
 	resp, err := generateWithRetryClient(
@@ -1165,9 +1187,9 @@ func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, cli
 		},
 	)
 	if err != nil {
-		return llm.Response{}, err
+		return successfulRequestCandidate{}, err
 	}
-	return resp, nil
+	return newSuccessfulRequestCandidate(e.cfg.TokenEstimator, observed.request, resp), nil
 }
 
 func generateWithRetryClient(

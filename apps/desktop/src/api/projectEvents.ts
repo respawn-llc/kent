@@ -1,18 +1,23 @@
+import type { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import type * as Stream from "effect/Stream";
 import { subscriptionStream } from "./subscriptionStream";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 import { subscribeWorkflowProject, type WorkflowProjectEvent } from "./workflowProjectEvents";
 
 export type ProjectObservation =
   | Readonly<{ kind: "open" }>
   | Readonly<{ kind: "event"; event: WorkflowProjectEvent }>
-  | Readonly<{ kind: "complete"; code: number; message: string }>
+  | Readonly<{
+      kind: "complete";
+      code: StreamFailureCode | null;
+      message: string | null;
+    }>
   | Readonly<{ kind: "error"; error: Error }>;
 
 export type ProjectOverflowReporter = (projectID: string, observation: ProjectObservation) => Promise<void>;
 
 export function projectEvents(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   projectID: string,
   reportOverflow: ProjectOverflowReporter,
 ): Stream.Stream<ProjectObservation> {

@@ -111,8 +111,7 @@ func (c MaterializedEventLog) PendingRecoveryStepHasTerminalAssistant(
 			matchErr = err
 			return true
 		}
-		_, boundary := payload.(HistoryReplacementRecord)
-		return boundary
+		return IsContextBoundary(payload.eventKind())
 	})
 	if err != nil {
 		return false, err

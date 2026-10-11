@@ -432,7 +432,6 @@ describe("ApiClient workflow labels", () => {
         limit: 25,
       }),
     ).rejects.toThrow();
-    expect(transport.calls).toEqual([]);
     expect(transport.descriptorCalls).toEqual([]);
   });
   it("lists label-filtered task projections with ordered Label display data", async () => {

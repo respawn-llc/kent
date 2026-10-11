@@ -167,7 +167,7 @@ func TestTranscriptSessionStatusDoesNotAdvertiseUnavailableFastMode(t *testing.T
 func TestMainViewFromRuntimeBundlesStatusAndSession(t *testing.T) {
 	dir := t.TempDir()
 	store, parentSessionID := newRuntimeViewParentAgentChild(t, dir, projectionWorkspaceID, dir)
-	if err := store.SetName("Session Name"); err != nil {
+	if err := store.SetName(textutil.Value("Session Name")); err != nil {
 		t.Fatalf("set name: %v", err)
 	}
 	role := "worker"

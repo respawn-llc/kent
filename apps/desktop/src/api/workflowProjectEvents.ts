@@ -8,12 +8,13 @@ import {
 import {
   StreamCompletionSchema,
   type StreamCompletion,
+  type StreamFailureCode,
 } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { timestampMillis } from "./clientTime";
 import { required } from "./chatWire";
 import { requireUnarySuccess, streamCompletionFailure } from "./protobufRpc";
 import { workflowEventAction, workflowEventResource } from "./workflowProtoValues";
-import type { DescriptorRpcTransport, DescriptorSubscriptionHandler } from "./transport";
+import type { RpcTransport, DescriptorSubscriptionHandler } from "./transport";
 
 export type WorkflowProjectEventResource = ReturnType<typeof workflowEventResource.decode>;
 export type WorkflowProjectEventAction = ReturnType<typeof workflowEventAction.decode>;
@@ -31,12 +32,12 @@ export type WorkflowProjectEvent = Readonly<{
 export type WorkflowProjectEventHandler = Readonly<{
   onOpen?(): void;
   onEvent(event: WorkflowProjectEvent): void;
-  onComplete(code: number, message: string): void;
+  onComplete(code: StreamFailureCode | null, message: string | null): void;
   onError(error: Error): void;
 }>;
 
 export function subscribeWorkflow(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   workflowId: string,
   handler: WorkflowProjectEventHandler,
 ) {
@@ -54,7 +55,7 @@ export function subscribeWorkflow(
 }
 
 export function subscribeWorkflowProject(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   projectId: string,
   handler: WorkflowProjectEventHandler,
 ) {
@@ -78,7 +79,7 @@ function workflowEventHandler(
     ...(handler.onOpen === undefined ? {} : { onOpen: handler.onOpen }),
     onError: handler.onError,
     onComplete(completion) {
-      handler.onComplete(completion.code ?? 0, completion.message ?? "");
+      handler.onComplete(completion.code ?? null, completion.message ?? null);
       return streamCompletionFailure(completion);
     },
     onEvent(event) {

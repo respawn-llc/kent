@@ -3,7 +3,7 @@ import { AnimatePresence } from "motion/react";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage, type ChatSessionTarget } from "@/api";
-import { useAppServices, useOpenExternalLink } from "@/app-facade";
+import { useAppServices, useOpenExternalLink, usePathFormatter } from "@/app-facade";
 import { writeClipboardText } from "@/shared/native-clipboard";
 import {
   cx,
@@ -36,6 +36,7 @@ export function TranscriptToolSlot({
   effectiveWorkdir: string | null;
 }>) {
   const { t } = useTranslation();
+  const formatPath = usePathFormatter();
   const presentation = resolveToolPresentation(item, {
     backgrounded: t("chat.toolRows.backgrounded"),
     editFailed: t("chat.toolRows.editFailed"),
@@ -44,6 +45,7 @@ export function TranscriptToolSlot({
     patchFailed: t("chat.toolRows.patchFailed"),
     searchedWeb: (query) => t("chat.toolRows.searchedWeb", { query }),
     viewedImage: (path) => t("chat.toolRows.viewedImage", { path }),
+    formatPath,
   });
   switch (presentation.kind) {
     case "generic":

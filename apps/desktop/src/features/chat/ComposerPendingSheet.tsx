@@ -79,6 +79,8 @@ function PendingRow({
       </span>
       <IconTooltipButton
         label={t("chatComposer.discard")}
+        disabled={loading || pending.interactionRestricted}
+        tooltip={pending.interactionRestricted ? t("chat.navigationPending") : t("chatComposer.discard")}
         onClick={() => {
           pending.discard(item.id);
         }}

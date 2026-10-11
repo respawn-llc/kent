@@ -16,6 +16,8 @@ kent worktree delete <selector>
 
 Place worktree creation options before `<branch-or-ref>`. A literal destination whose name begins with `-` must use `./<name>` or an absolute path, even after `--`.
 
+Worktree deletion waits up to five minutes by default. Use `kent worktree delete --timeout 10m <selector>` to choose a positive duration for connection, workspace resolution, and the deletion request. After a timeout, inspect the worktree before retrying. Removal may already have started.
+
 ## Configuration
 
 Use a setup script to prepare new worktrees with local data such as `.env` files, encryption credentials, Gradle wrappers, installed dependencies, local skills, docs, or config.

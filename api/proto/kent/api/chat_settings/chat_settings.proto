@@ -3,6 +3,7 @@ syntax = "proto3";
 package kent.api.chat_settings;
 
 import "buf/validate/validate.proto";
+import "google/protobuf/empty.proto";
 import "kent/api/auth/auth.proto";
 import "kent/api/chat_context/chat_context.proto";
 import "kent/api/server/server.proto";
@@ -497,6 +498,30 @@ message MutationSuccess {
   kent.api.chat_context.Context context = 4 [(buf.validate.field).required = true];
 }
 
+message SubscribeRequest {
+  string session_id = 1 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
+}
+
+message SettingsSnapshot {
+  optional string session_name = 1 [
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true,
+    (buf.validate.field).string.(kent.api.shared.trimmed) = true
+  ];
+  Settings settings = 2 [(buf.validate.field).required = true];
+  SessionFacts session = 3 [(buf.validate.field).required = true];
+}
+
+message SubscribeResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    google.protobuf.Empty success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    ReadError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
+}
+
 message MutationResponse {
   oneof outcome {
     option (buf.validate.oneof).required = true;
@@ -511,6 +536,40 @@ message MutationResponse {
 }
 
 service ChatSettingsService {
+  rpc Subscribe(SubscribeRequest) returns (SubscribeResult) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_SUBSCRIPTION
+      authentication_stage: AUTHENTICATION_STAGE_SERVER
+      scope_policy: SCOPE_POLICY_ATTACHED_SESSION
+      direction: DIRECTION_CLIENT_TO_SERVER
+      event: {
+        package: "kent.api.chat_settings"
+        service: "ChatSettingsService"
+        method: "Event"
+      }
+      completion: {
+        package: "kent.api.chat_settings"
+        service: "ChatSettingsService"
+        method: "Complete"
+      }
+    };
+  }
+  rpc Event(SettingsSnapshot) returns (google.protobuf.Empty) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_NOTIFICATION
+      authentication_stage: AUTHENTICATION_STAGE_NONE
+      scope_policy: SCOPE_POLICY_NOTIFICATION
+      direction: DIRECTION_SERVER_TO_CLIENT
+    };
+  }
+  rpc Complete(kent.api.shared.StreamCompletion) returns (google.protobuf.Empty) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_NOTIFICATION
+      authentication_stage: AUTHENTICATION_STAGE_NONE
+      scope_policy: SCOPE_POLICY_NOTIFICATION
+      direction: DIRECTION_SERVER_TO_CLIENT
+    };
+  }
   rpc Read(ReadRequest) returns (ReadResult) {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY

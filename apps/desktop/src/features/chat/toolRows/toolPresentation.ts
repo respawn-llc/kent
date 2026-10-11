@@ -111,6 +111,7 @@ export type ToolPresentationStrings = Readonly<{
   patchFailed: string;
   searchedWeb(query: string): string;
   viewedImage(path: string): string;
+  formatPath(path: string): string;
 }>;
 
 const chatToolIdentities = new Map<string, ChatToolIdentity>([
@@ -330,12 +331,12 @@ function resolveViewImage(
   const imagePath = meaningful(context.meta.RenderHint.Path);
   if (imagePath === undefined) return undefined;
   if (context.committed?.IsError === false && context.committed.ViewedImageKind === null) return undefined;
-  const imageInput = strings.viewedImage(imagePath);
   const outcome = viewImageOutcome(context);
+  const displayInput = strings.viewedImage(strings.formatPath(imagePath));
   return {
     kind: "view-image",
-    body: textSections(imageInput, context.output),
-    compact: imageInput,
+    body: textSections(displayInput, context.output),
+    compact: displayInput,
     path: imagePath,
     outcome,
     icon: "image",

@@ -32,7 +32,7 @@ func (s compactionOverflowRepairStats) Add(other compactionOverflowRepairStats) 
 	}
 }
 
-func collapseCompactionOverflowToolPayloadsAfterSavings(items []llm.ResponseItem, targetSavedTokens int, existingSavedTokens int) ([]llm.ResponseItem, compactionOverflowRepairStats) {
+func collapseCompactionOverflowToolPayloadsAfterSavings(estimator llm.TokenEstimator, items []llm.ResponseItem, targetSavedTokens int, existingSavedTokens int) ([]llm.ResponseItem, compactionOverflowRepairStats) {
 	out := llm.CloneResponseItems(items)
 	if targetSavedTokens <= 0 || len(out) == 0 {
 		return out, compactionOverflowRepairStats{}
@@ -54,11 +54,13 @@ func collapseCompactionOverflowToolPayloadsAfterSavings(items []llm.ResponseItem
 			if !isCompactionOverflowRepairShellOutputTool(compactionOverflowRepairToolID(item, callTools)) || isCollapsedCompactionOverflowShellOutput(item.Output) {
 				continue
 			}
-			replacement, saved := collapsedCompactionOverflowShellOutput(item.Output)
+			replacement := llm.CloneResponseItems([]llm.ResponseItem{item})[0]
+			applyCompactionOverflowShellOutputCollapse(&replacement, compactionOverflowCollapsedJSON)
+			saved := estimator.EstimateItem(item) - estimator.EstimateItem(replacement)
 			if saved <= 0 {
 				continue
 			}
-			applyCompactionOverflowShellOutputCollapse(&out[idx], replacement)
+			out[idx] = replacement
 			stats.ShellOutputsCollapsed++
 			stats.EstimatedSavedTokens += saved
 			currentSavedTokens += saved
@@ -69,11 +71,13 @@ func collapseCompactionOverflowToolPayloadsAfterSavings(items []llm.ResponseItem
 				item.CustomInput == nil {
 				continue
 			}
-			replacement, saved := collapsedCompactionOverflowPatchInput(*item.CustomInput)
+			replacement := llm.CloneResponseItems([]llm.ResponseItem{item})[0]
+			applyCompactionOverflowPatchInputCollapse(&replacement, compactionOverflowCollapsedText)
+			saved := estimator.EstimateItem(item) - estimator.EstimateItem(replacement)
 			if saved <= 0 {
 				continue
 			}
-			applyCompactionOverflowPatchInputCollapse(&out[idx], replacement)
+			out[idx] = replacement
 			stats.PatchInputsCollapsed++
 			stats.EstimatedSavedTokens += saved
 			currentSavedTokens += saved
@@ -155,35 +159,7 @@ func isCompactionOverflowRepairShellOutputTool(toolID toolspec.ID) bool {
 	return toolspec.IsShellTool(toolID)
 }
 
-func collapsedCompactionOverflowShellOutput(output json.RawMessage) (json.RawMessage, int) {
-	before := estimateTokensFromBytes(len(output))
-	if outputTokens, ok := estimateStructuredOutputTokens(output); ok {
-		before = outputTokens
-	}
-	replacement, err := json.Marshal(compactionOverflowCollapsedText)
-	if err != nil {
-		replacement = compactionOverflowCollapsedJSON
-	}
-	after := estimateTokensFromBytes(len(replacement))
-	saved := before - after
-	if saved <= 0 {
-		return nil, 0
-	}
-	return replacement, saved
-}
-
 func isCollapsedCompactionOverflowShellOutput(output json.RawMessage) bool {
 	var payload string
 	return json.Unmarshal(output, &payload) == nil && payload == compactionOverflowCollapsedText
-}
-
-func collapsedCompactionOverflowPatchInput(input string) (string, int) {
-	before := estimateTokensFromBytes(len(input))
-	replacement := compactionOverflowCollapsedText
-	after := estimateTokensFromBytes(len(replacement))
-	saved := before - after
-	if saved <= 0 {
-		return "", 0
-	}
-	return replacement, saved
 }

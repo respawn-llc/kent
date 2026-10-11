@@ -18,7 +18,7 @@ const subagentSessionSuffix = "subagent"
 
 type RunPromptResult struct {
 	SessionID   string
-	SessionName string
+	SessionName *string
 	Result      string
 	Duration    time.Duration
 	Warnings    []string

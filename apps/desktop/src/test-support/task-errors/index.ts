@@ -15,34 +15,37 @@ export function retainedSetupError(
   recoveryDisposition: "retry_existing" | "fresh_replacement" = "retry_existing",
 ) {
   const root = "/worktrees/task-1";
-  return new WorktreeError(new RpcError({ code: -32039, message: "setup failed", method: "test.move" }), {
-    kind: "setup_retained",
-    details: create(SetupRetainedDetailsSchema, {
-      recoveryDisposition:
-        recoveryDisposition === "retry_existing"
-          ? SetupRecoveryDisposition.RETRY_EXISTING
-          : SetupRecoveryDisposition.FRESH_REPLACEMENT,
-      scriptPath: "/repo/setup.sh",
-      diagnostic: "setup failed twice",
-      worktree: {
-        git: {
-          canonicalRoot: root,
-          headObject: "abc",
-          detached: false,
-          bare: false,
-          isMainWorktree: false,
-          pathAvailable: true,
+  return new WorktreeError(
+    new RpcError({ code: "worktree_setup_retained", message: "setup failed", method: "test.move" }),
+    {
+      kind: "setup_retained",
+      details: create(SetupRetainedDetailsSchema, {
+        recoveryDisposition:
+          recoveryDisposition === "retry_existing"
+            ? SetupRecoveryDisposition.RETRY_EXISTING
+            : SetupRecoveryDisposition.FRESH_REPLACEMENT,
+        scriptPath: "/repo/setup.sh",
+        diagnostic: "setup failed twice",
+        worktree: {
+          git: {
+            canonicalRoot: root,
+            headObject: "abc",
+            detached: false,
+            bare: false,
+            isMainWorktree: false,
+            pathAvailable: true,
+          },
+          kent: {
+            worktreeId: "worktree-1",
+            canonicalRoot: root,
+            displayName: "KENT-453",
+            managed: true,
+            createdBranch: true,
+          },
         },
-        kent: {
-          worktreeId: "worktree-1",
-          canonicalRoot: root,
-          displayName: "KENT-453",
-          managed: true,
-          createdBranch: true,
-        },
-      },
-    }),
-  });
+      }),
+    },
+  );
 }
 
 export async function taskMoveBranchCollision(): Promise<never> {

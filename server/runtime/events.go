@@ -4,6 +4,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -32,6 +33,7 @@ const (
 	EventModelResponse              EventKind = "model_response_received"
 	EventUserMessageFlushed         EventKind = "user_message_flushed"
 	EventToolCallStarted            EventKind = "tool_call_started"
+	EventQuestionCandidateFinished  EventKind = "question_candidate_finished"
 	EventToolCallCompleted          EventKind = "tool_call_completed"
 	EventToolCallAborted            EventKind = "tool_call_aborted"
 	EventRuntimeActivityChanged     EventKind = "runtime_activity_changed"
@@ -136,6 +138,8 @@ type Event struct {
 	Message                      llm.Message
 	ModelResponse                *ModelResponseTrace
 	ToolCall                     *llm.ToolCall
+	PreparedQuestionBatch        *tools.AskQuestionBatchMetadata
+	FinishedQuestionCandidate    *clientui.ToolCallID
 	ToolResult                   *tools.Result
 	ToolAbortReason              string
 	Compaction                   *CompactionStatus

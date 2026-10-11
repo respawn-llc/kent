@@ -1412,7 +1412,7 @@ func newSessionRuntimeFixture(t *testing.T) sessionRuntimeFixture {
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)
 	}
-	if err := store.SetName("session-a"); err != nil {
+	if err := store.SetName(new("session-a")); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
 	authority := NewAuthority(AuthorityOptions{

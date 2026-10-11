@@ -2,6 +2,8 @@
 
 ## General Contracts
 
+- Human-readable list output collapses filesystem-path columns using the shared path collapser. Single-item output, suggested executable commands, errors, diagnostics, and JSON output retain canonical or explicitly supplied paths.
+
 - The CLI provides complete control of Kent's supported command surfaces for operators and agents.
 - CLI command grouping is not a compatibility contract. Documented behavior, accepted data, and machine-readable output are compatibility contracts.
 - CLI output includes stable identifiers needed by later commands.
@@ -194,6 +196,7 @@
 - The server must supply typed Approval decisions in authoritative option order. The terminal must resolve their display labels locally.
 - The show command writes `No questions pending` and succeeds when no ordinary Question or access request is pending.
 - `kent question answer` requires `--option <one-based-number>`, non-blank `--commentary <text>`, or both.
+- When an agent invokes the answer command, it must send the invoking agent's Session identity separately from the selected target Session. Server validation and the direct-parent Question-answer restriction are defined in [Questions And Approvals](core-runtime-tools.md#questions-and-approvals).
 - An ordinary Question supports numbered options and freeform answers.
 - A live internal access request requires `--option`; Kent maps that option through the authoritative ordered option object and submits the typed decision with optional `--commentary` through the shared server-owned Approval action.
 - Commentary alone never implies an access decision.
@@ -214,6 +217,7 @@
 - The command has no Question-count limit.
 - Human output streams each Question as it is read. Exactly one blank line separates output blocks.
 - Each v2 human Question block contains the normalized presented Question body, `Answer: <answer>`, optional `Commentary: <commentary>`, and `At: YYYY-MM-DD HH:MM:SS` in the machine's local time.
+- For an agent answer, the human Question block must include `Answered by agent <session-id>` after Answer and before optional Commentary. Human answers and older answers without recorded agent identity must omit this line.
 - A selected-option Answer starts with its one-based option number and the full normalized presented Suggestion text. Optional Commentary contains only the separately authored freeform commentary.
 - A freeform-only response appears as Answer without an option number or Commentary line.
 - Presented multiline Question, Answer, and Commentary text remains verbatim. Existing Question normalization may remove leading and trailing whitespace from Question bodies and Suggestions. Labels do not indent or escape continuation lines.
@@ -226,6 +230,7 @@
 - On interruption, human mode keeps already emitted Questions, writes `Interrupted` to standard error, and exits with status 130.
 - JSON output is one object containing `history_omitted` and `questions`. It omits human performance warnings.
 - Each JSON Question contains `question`, `answer`, `selected_option_number`, `commentary`, and `at`. A present `at` is the answer commit time in the standard JSON representation of an RFC 3339 UTC timestamp, including fractional seconds when present.
+- Each JSON Question must also contain `answered_by_session_id`. It must contain the full answering agent Session ID for an agent answer and `null` for a human answer or an older answer without recorded agent identity.
 - A freeform-only JSON Question has `null` selected-option number and Commentary. An option answer without Commentary has `null` Commentary.
 - An event-log v1 JSON Question uses the persisted flattened completion output verbatim as `answer` and has `null` selected-option number, Commentary, and `at`.
 - No answered Questions is a successful JSON result with an empty `questions` array.
@@ -322,6 +327,7 @@
 - Run control commands reject workspace, model, provider, agent, timeout, tools, and progress flags.
 - Headless stdin is not a steering channel.
 - `kent worktree list`, `create`, and `delete` must accept `--project <project-id>` and `--workspace <workspace-id>`.
+- `kent worktree delete` must accept `--timeout <duration>` with a default of five minutes. The duration must be positive and must bound the command's connection, Workspace resolution, and deletion request.
 - With `--project` and no `--workspace`, Worktree management must use the selected Project's default Workspace independently of the caller's Project and current directory.
 - With `--workspace`, Worktree management must select that Workspace within the selected or inferred Project.
 - Without `--project`, Worktree management must infer its Project and default target Workspace from the issuing agent Session, otherwise from `--session`, otherwise from the current directory.
@@ -534,7 +540,7 @@
 - Outside an agent Session, Task complete requires `--force` plus a Session or Task selector. It does not select an idle completion authority.
 - Human `kent task complete --force` composes Workflow operations: Interrupt the selected Task's live execution, wait until that Interrupt completes, then invoke the same Manual Move owner with the selected outgoing Transition, commentary, and Parameter values.
 - Forced Task complete may begin while the selected Task is executing. It adds no completion-specific gate, fallback, or lifecycle state.
-- The plain-text `kent task complete` acknowledgement omits identifiers.
+- The plain-text `kent task complete` acknowledgement must display the named transition according to the [Node Completion label rules](workflow-orchestration.md#node-completion).
 - Task complete accepts dynamic Parameter flags, repeatable `--param name=value`, and `--json` or `--json-file` completion payload input.
 - JSON input modes print JSON responses.
 - Live agent completion uses the completion acknowledgement. Forced human completion uses the ordinary Manual Move outcome after its Interrupt phase.

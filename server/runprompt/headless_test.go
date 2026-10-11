@@ -861,7 +861,7 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 	if err != nil {
 		t.Fatalf("session.Create selected: %v", err)
 	}
-	if err := selected.SetName("selected session"); err != nil {
+	if err := selected.SetName(textutil.Value("selected session")); err != nil {
 		t.Fatalf("SetName selected: %v", err)
 	}
 	if err := selected.SetContinuationContext(session.ContinuationContext{AgentRole: &role}); err != nil {
@@ -876,14 +876,14 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 	if err != nil {
 		t.Fatalf("read selected event log revision: %v", err)
 	}
-	beforeSelectedDenial := snapshotHeadlessLaunchArtifacts(t, ctx, meta, binding.ProjectID, binding.WorkspaceID, containerDir, root, worktreeRoot)
-	_, err = client.RunPrompt(ctx, serverapi.RunPromptRequest{
+	beforeSelectedPlan := snapshotHeadlessLaunchArtifacts(t, ctx, meta, binding.ProjectID, binding.WorkspaceID, containerDir, root, worktreeRoot)
+	_, err = sessionLauncher.PlanLaunchSession(ctx, sessionlaunch.PlanRequest{
+		Mode:            launch.ModeHeadless,
 		Intent:          serverapi.OpenExistingSessionLaunchIntent(mustRunPromptSessionID(t, selectedBefore.SessionID)),
 		CallerSessionID: &parentID,
-		Prompt:          "continue selected",
-	}, nil)
-	if !errors.As(err, &denied) || denied.Kind != serverapi.SubagentLaunchDenialNotCallable {
-		t.Fatalf("selected RunPrompt error = %T %v, want workflow policy denial", err, err)
+	})
+	if err != nil {
+		t.Fatalf("continue selected PlanLaunchSession: %v", err)
 	}
 	reopenedSelected, err := session.OpenByID(root, selectedBefore.SessionID, meta.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
@@ -897,7 +897,7 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 	if err != nil {
 		t.Fatalf("read reopened selected event log revision: %v", err)
 	}
-	if got := reopenedSelected.Meta(); got.Name != selectedBefore.Name ||
+	if got := reopenedSelected.Meta(); !reflect.DeepEqual(got.Name, selectedBefore.Name) ||
 		!reflect.DeepEqual(got.PreviousSessionID, selectedBefore.PreviousSessionID) ||
 		!reflect.DeepEqual(got.ParentAgentSessionID, selectedBefore.ParentAgentSessionID) ||
 		got.Continuation == nil ||
@@ -905,11 +905,11 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 		*got.Continuation.AgentRole != role ||
 		got.ModelRequestCount != selectedBefore.ModelRequestCount ||
 		reopenedRevision != selectedRevisionBefore {
-		t.Fatalf("selected session changed on denied launch: before=%+v after=%+v", selectedBefore, got)
+		t.Fatalf("selected session changed during continuation planning: before=%+v after=%+v", selectedBefore, got)
 	}
-	afterSelectedDenial := snapshotHeadlessLaunchArtifacts(t, ctx, meta, binding.ProjectID, binding.WorkspaceID, containerDir, root, worktreeRoot)
-	if !reflect.DeepEqual(afterSelectedDenial, beforeSelectedDenial) {
-		t.Fatalf("denied selected-session launch changed artifacts: before=%+v after=%+v", beforeSelectedDenial, afterSelectedDenial)
+	afterSelectedPlan := snapshotHeadlessLaunchArtifacts(t, ctx, meta, binding.ProjectID, binding.WorkspaceID, containerDir, root, worktreeRoot)
+	if !reflect.DeepEqual(afterSelectedPlan, beforeSelectedPlan) {
+		t.Fatalf("selected-session planning changed artifacts: before=%+v after=%+v", beforeSelectedPlan, afterSelectedPlan)
 	}
 	substitutedCaller := selectedBefore.SessionID
 	substitutedCallerID := mustRunPromptSessionID(t, substitutedCaller)

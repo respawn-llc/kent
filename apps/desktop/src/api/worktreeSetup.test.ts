@@ -1,3 +1,4 @@
+import { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { FakeRpcTransport } from "@/test-support/api";
 import { create } from "@app/server-api-contract";
@@ -192,7 +193,7 @@ describe("worktree setup API", () => {
         transport.completeDescriptor(
           SetupService.method.subscribe,
           SetupService.method.complete,
-          create(SetupCompletionSchema, { code: 409, diagnostic: "conflict" }),
+          create(SetupCompletionSchema, { code: StreamFailureCode.INTERNAL_FAILURE, diagnostic: "conflict" }),
         );
         transport.failDescriptor(SetupService.method.subscribe, new Error("subscription failed"));
       },

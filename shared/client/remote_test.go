@@ -6,7 +6,6 @@ import (
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	sessionretargetpb "core/shared/protoapi/gen/kent/api/session_retarget"
-	"encoding/json"
 	"errors"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -41,7 +40,7 @@ import (
 )
 
 func TestProtocolErrorReconstructsModelStreamStalled(t *testing.T) {
-	err := protocolError(&protocol.ResponseError{Code: protocol.ErrCodeModelStreamStalled, Message: "model generation failed after retries: model stream stalled"})
+	err := streamFailureError(sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_MODEL_STREAM_STALLED, "model generation failed after retries: model stream stalled")
 	if !errors.Is(err, llmerrors.ErrModelStreamStalled) {
 		t.Fatalf("reconstructed error = %v, want errors.Is ErrModelStreamStalled", err)
 	}
@@ -332,7 +331,7 @@ func TestRemoteLiveResponsesRejectMismatchedSessionIDs(t *testing.T) {
 			method:  promptpb.File_kent_api_prompt_prompt_proto.Services().ByName("LiveWatchService").Methods().ByName("Watch"),
 			request: &promptpb.LiveWatchRequest{},
 			response: &promptpb.LiveWatchSuccess{SessionId: "session-b", Outcome: &promptpb.LiveWatchOutcome{
-				Outcome: &promptpb.LiveWatchOutcome_FinalAnswer{FinalAnswer: &promptpb.LiveWatchFinal{SessionName: "Session", Duration: durationpb.New(time.Millisecond)}},
+				Outcome: &promptpb.LiveWatchOutcome_FinalAnswer{FinalAnswer: &promptpb.LiveWatchFinal{SessionName: proto.String("Session"), Duration: durationpb.New(time.Millisecond)}},
 			}},
 			call: func(ctx context.Context, remote *Remote) error {
 				_, err := remote.LiveWatch(ctx, &promptpb.LiveWatchRequest{SessionId: "session-a"})
@@ -344,7 +343,7 @@ func TestRemoteLiveResponsesRejectMismatchedSessionIDs(t *testing.T) {
 			method:  runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("LiveService").Methods().ByName("Wait"),
 			request: &runtimepb.LiveWaitRequest{},
 			response: &runtimepb.LiveWaitSuccess{
-				SessionId: "018fdd67-89ab-4cde-8123-456789abcdee", SessionName: "Session",
+				SessionId: "018fdd67-89ab-4cde-8123-456789abcdee", SessionName: proto.String("Session"),
 				Result:         &runtimepb.LiveWaitSuccess_AssistantFinalAnswer{AssistantFinalAnswer: &runtimepb.LiveWaitAssistantFinalAnswer{Result: "done"}},
 				Duration:       durationpb.New(time.Millisecond),
 				LiveRunGroupId: "018fdd67-89ab-4cde-8123-456789abcdef",
@@ -444,7 +443,7 @@ func newRemoteTestServer(t *testing.T, handle func(*websocket.Conn)) *httptest.S
 	return server
 }
 
-func acceptRemoteHandshake(t *testing.T, ws *websocket.Conn) protocol.Request {
+func acceptRemoteHandshake(t *testing.T, ws *websocket.Conn) {
 	t.Helper()
 	var encoded []byte
 	if err := websocket.Message.Receive(ws, &encoded); err != nil {
@@ -501,7 +500,6 @@ func acceptRemoteHandshake(t *testing.T, ws *websocket.Conn) protocol.Request {
 	if err := websocket.Message.Send(ws, response); err != nil {
 		t.Fatalf("send handshake response: %v", err)
 	}
-	return protocol.Request{}
 }
 
 func receiveRemoteGeneratedCall(
@@ -688,7 +686,7 @@ func TestRemoteQuestionHistorySubscriptionAttachesAndDecodesTerminalStream(t *te
 		}}})
 		sendRemoteGeneratedNotification(t, ws, eventMethod, &sessionpb.QuestionHistoryEvent{Event: &sessionpb.QuestionHistoryEvent_Completed{Completed: &sessionpb.QuestionHistoryCompleted{HistoryOmitted: true}}})
 		sendRemoteGeneratedNotification(t, ws, bootstrapMethod(sessionpb.File_kent_api_session_session_proto, "QuestionHistoryService", "Complete"),
-			&sharedpb.StreamCompletion{Code: proto.Int32(protocol.ErrCodeStreamFailed), Message: proto.String("terminal failure")})
+			&sharedpb.StreamCompletion{Code: sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_STREAM_FAILED.Enum(), Message: proto.String("terminal failure")})
 	})
 
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
@@ -733,7 +731,7 @@ func TestRemoteSessionTranscriptSubscriptionPreservesTypedCloseReason(t *testing
 		call := receiveRemoteGeneratedCall(t, ws, "StreamService", "Subscribe", &transcriptpb.SubscribeRequest{})
 		sendRemoteGeneratedResult(t, ws, call, &transcriptpb.SubscribeResult{Outcome: &transcriptpb.SubscribeResult_Success{Success: &emptypb.Empty{}}})
 		complete := &sharedpb.StreamCompletion{
-			Code:                  proto.Int32(protocol.ErrCodeStreamGap),
+			Code:                  sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_STREAM_GAP.Enum(),
 			Message:               proto.String(serverapi.ErrStreamGap.Error()),
 			TranscriptCloseReason: sharedpb.TranscriptCloseReason_TRANSCRIPT_CLOSE_REASON_SUBSCRIBER_OVERFLOW.Enum(),
 		}
@@ -1195,25 +1193,22 @@ func TestProtocolErrorMapsSentinelCodes(t *testing.T) {
 		want   error
 	}{
 		{name: "prompt not found", decode: func() error {
-			return protocolError(&protocol.ResponseError{Code: protocol.ErrCodePromptNotFound, Message: "prompt not found"})
+			return streamFailureError(sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_PROMPT_NOT_FOUND, "prompt not found")
 		}, want: serverapi.ErrPromptNotFound},
 		{name: "prompt resolved", decode: func() error {
-			return protocolError(&protocol.ResponseError{Code: protocol.ErrCodePromptResolved, Message: "prompt resolved"})
+			return streamFailureError(sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_PROMPT_RESOLVED, "prompt resolved")
 		}, want: serverapi.ErrPromptAlreadyResolved},
 		{name: "prompt unsupported", decode: func() error {
-			return protocolError(&protocol.ResponseError{Code: protocol.ErrCodePromptUnsupported, Message: "prompt unsupported"})
+			return streamFailureError(sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_PROMPT_UNSUPPORTED, "prompt unsupported")
 		}, want: serverapi.ErrPromptUnsupported},
-		{name: "method not found", decode: func() error {
-			return protocolError(&protocol.ResponseError{Code: protocol.ErrCodeMethodNotFound, Message: "method not found"})
-		}, want: serverapi.ErrMethodNotFound},
 		{name: "workflow task not found", decode: func() error {
-			return protocolError(&protocol.ResponseError{Code: protocol.ErrCodeWorkflowTaskNotFound, Message: "workflow task not found"})
+			return streamFailureError(sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_TASK_NOT_FOUND, "workflow task not found")
 		}, want: serverapi.ErrWorkflowTaskNotFound},
 		{name: "workflow completion ambiguous", decode: func() error {
-			return protocolError(&protocol.ResponseError{Code: protocol.ErrCodeWorkflowTaskCompleteAmbiguous, Message: "workflow completion ambiguous"})
+			return streamFailureError(sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_TASK_COMPLETE_AMBIGUOUS, "workflow completion ambiguous")
 		}, want: serverapi.ErrWorkflowTaskCompleteSelectorAmbiguous},
 		{name: "workflow completion target missing", decode: func() error {
-			return protocolError(&protocol.ResponseError{Code: protocol.ErrCodeWorkflowTaskCompleteNotFound, Message: "workflow completion target missing"})
+			return streamFailureError(sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_TASK_COMPLETE_NOT_FOUND, "workflow completion target missing")
 		}, want: serverapi.ErrWorkflowTaskCompleteTargetNotFound},
 		{
 			name: "auth required",
@@ -1233,7 +1228,7 @@ func TestProtocolErrorMapsSentinelCodes(t *testing.T) {
 			want: serverapi.ErrServerAuthRequired,
 		},
 		{name: "runtime unavailable", decode: func() error {
-			return protocolError(&protocol.ResponseError{Code: protocol.ErrCodeRuntimeUnavailable, Message: "runtime unavailable"})
+			return streamFailureError(sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_RUNTIME_UNAVAILABLE, "runtime unavailable")
 		}, want: serverapi.ErrRuntimeUnavailable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1511,7 +1506,7 @@ func remoteTestWorkflowIDPointer(value string) *runtimeids.WorkflowID {
 }
 
 func TestProtocolErrorMapsEquivalentRuntimeSentinel(t *testing.T) {
-	err := protocolError(&protocol.ResponseError{Code: protocol.ErrCodeRuntimeNoActiveRun, Message: serverapi.ErrRuntimeNoActiveRun.Error()})
+	err := streamFailureError(sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_RUNTIME_NO_ACTIVE_RUN, serverapi.ErrRuntimeNoActiveRun.Error())
 	if !errors.Is(err, serverapi.ErrRuntimeNoActiveRun) {
 		t.Fatalf("expected runtime no-active, got %v", err)
 	}
@@ -1667,7 +1662,7 @@ func TestBinaryErrorDecodesRuntimeCommandNotAcceptedCauses(t *testing.T) {
 }
 
 func TestProtocolErrorMapsRequestCanceledCodeToClearMessage(t *testing.T) {
-	err := protocolError(&protocol.ResponseError{Code: protocol.ErrCodeRequestCanceled, Message: "context canceled"})
+	err := streamFailureError(sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_REQUEST_CANCELED, "context canceled")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
@@ -1677,20 +1672,11 @@ func TestProtocolErrorMapsRequestCanceledCodeToClearMessage(t *testing.T) {
 }
 
 func TestProtocolErrorMapsEmptyRequestCanceledCodeToClearMessage(t *testing.T) {
-	err := protocolError(&protocol.ResponseError{Code: protocol.ErrCodeRequestCanceled})
+	err := streamFailureError(sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_REQUEST_CANCELED, "")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 	if !errors.Is(err, errRequestCanceledByClient) {
 		t.Fatalf("expected normalized request-canceled error, got %v", err)
 	}
-}
-
-func mustJSON(t *testing.T, value any) json.RawMessage {
-	t.Helper()
-	data, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	return data
 }

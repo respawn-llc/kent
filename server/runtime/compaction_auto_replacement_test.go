@@ -36,6 +36,7 @@ func TestAutoCompactionRecomputesUsageFromReplacementHistory(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("auto compact: %v", err)
 	}
+	request := buildActiveTurnRequestForTest(t, engine, nil, true)
 	usage := engine.ContextUsage()
 	activeGoalContinuations := 0
 	preservedUserMessages := 0
@@ -67,10 +68,6 @@ func TestAutoCompactionRecomputesUsageFromReplacementHistory(t *testing.T) {
 		)
 	}
 	assertCompactionReplacementOrder(t, engine.transcriptRuntimeState().SnapshotItems(), false)
-	request, err := engine.buildRequest(context.Background(), "", true)
-	if err != nil {
-		t.Fatalf("build request after automatic compaction: %v", err)
-	}
 	if got, want := request.PromptCacheKey, engine.SessionID(); got != want {
 		t.Fatalf("automatic compaction prompt cache key = %q, want stable Session ID %q", got, want)
 	}
@@ -116,6 +113,7 @@ func TestAutoCompactionLocalCarriesPreservedUserMessageInOrder(t *testing.T) {
 	if len(client.calls) != 1 {
 		t.Fatalf("local Generate calls = %d, want one", len(client.calls))
 	}
+	buildActiveTurnRequestForTest(t, engine, nil, true)
 	assertCompactionReplacementOrder(t, engine.transcriptRuntimeState().SnapshotItems(), false)
 }
 

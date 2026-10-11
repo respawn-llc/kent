@@ -141,6 +141,7 @@ enum NoticeReason {
   NOTICE_REASON_TOOL_OUTPUT_REPAIR = 5;
   NOTICE_REASON_PROVIDER_MODEL_MISMATCH = 6;
   NOTICE_REASON_THINKING_UPDATE = 7;
+  NOTICE_REASON_REASONING_OMISSION = 8;
 }
 
 enum NoticeSeverity {
@@ -289,7 +290,15 @@ message ToolRow {
   optional ToolPresentation presentation = 8;
   optional kent.api.prompt.QuestionAnswer question_answer = 9;
   optional WebSearchDetail web_search = 10;
-  optional ViewedImageKind viewed_image_kind = 11 [(buf.validate.field).enum = {defined_only: true not_in: [0]}];
+  optional string answered_by_session_id = 11 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).cel = {
+      id: "kent.transcript.tool_row_answerer_nonblank"
+      message: "answered-by Session ID must be non-blank"
+      expression: "this.trim() != ''"
+    }
+  ];
+  optional ViewedImageKind viewed_image_kind = 12 [(buf.validate.field).enum = {defined_only: true not_in: [0]}];
   option (buf.validate.message).cel = {
     id: "kent.transcript.ask_result"
     message: "errored Ask Question results require nonblank failure text"
@@ -438,6 +447,10 @@ message ProviderModelMismatch {
   string served_model = 2 [(buf.validate.field).string.min_len = 1];
 }
 
+message ReasoningOmission {
+  int32 count = 1 [(buf.validate.field).int32.gte = 1];
+}
+
 message BackgroundNoticeIdentity {
   string activity_id = 1 [
     (buf.validate.field).string.uuid = true,
@@ -483,6 +496,7 @@ message NoticeRow {
   optional string condensed_text = 14 [(buf.validate.field).string.min_len = 1];
   optional string compact_label = 15 [(buf.validate.field).string.min_len = 1];
   optional ProviderModelMismatch provider_model_mismatch = 16;
+  optional ReasoningOmission reasoning_omission = 19;
   optional string thinking_effort = 18 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -505,13 +519,14 @@ message NoticeRow {
     id: "kent.transcript.notice_reason_payload"
     message: "notice payload must match reason"
     expression:
-      "(this.reason == 1 && has(this.cache_warning) && !has(this.legacy_text) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background)) || "
-      "(this.reason == 2 && has(this.compaction) && has(this.message_type) && this.message_type == 5 && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background)) || "
-      "(this.reason == 3 && (has(this.legacy_text) || has(this.message_type)) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background)) || "
-      "(this.reason == 4 && has(this.diagnostic) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch)) || "
-      "(this.reason == 5 && has(this.tool_output_repair) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background)) || "
-      "(this.reason == 6 && has(this.provider_model_mismatch) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.diagnostic) && !has(this.background)) || "
-      "(this.reason == 7 && this.severity == 1 && !has(this.message_type) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background))"
+      "(this.reason == 1 && has(this.cache_warning) && !has(this.legacy_text) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason == 2 && has(this.compaction) && has(this.message_type) && this.message_type == 5 && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason == 3 && (has(this.legacy_text) || has(this.message_type)) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason == 4 && has(this.diagnostic) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission)) || "
+      "(this.reason == 5 && has(this.tool_output_repair) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason == 6 && has(this.provider_model_mismatch) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason == 7 && this.severity == 1 && !has(this.message_type) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason == 8 && this.severity == 2 && has(this.reasoning_omission) && !has(this.message_type) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background))"
   };
 }
 
@@ -1074,6 +1089,13 @@ enum SessionSettingKind {
   SESSION_SETTING_KIND_AUTO_COMPACTION = 6;
 }
 
+message SessionNameValue {
+  optional string name = 1 [
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true,
+    (buf.validate.field).string.(kent.api.shared.trimmed) = true
+  ];
+}
+
 message SessionSettingFeedback {
   SessionSettingKind kind = 1 [(buf.validate.field).enum = {
     defined_only: true
@@ -1082,7 +1104,7 @@ message SessionSettingFeedback {
   bool changed = 2;
   oneof value {
     option (buf.validate.oneof).required = true;
-    string session_name = 3;
+    SessionNameValue session_name = 3;
     string thinking = 4 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
     bool fast_mode = 5;
     string supervisor = 6 [(buf.validate.field).string = {
@@ -1099,7 +1121,7 @@ message SessionSettingFeedback {
     id: "kent.transcript.session_setting_feedback_value"
     message: "Session setting feedback kind and resulting value must agree"
     expression:
-      "(this.kind == 1 && has(this.session_name) && this.session_name == this.session_name.trim()) || "
+      "(this.kind == 1 && has(this.session_name)) || "
       "(this.kind == 2 && has(this.thinking) && this.thinking == this.thinking.trim()) || "
       "(this.kind == 3 && has(this.fast_mode)) || "
       "(this.kind == 4 && has(this.supervisor)) || "

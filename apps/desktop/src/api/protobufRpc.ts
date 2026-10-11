@@ -7,7 +7,6 @@ import {
 } from "@app/server-api-contract";
 
 import { ContractError, RpcError, TransportError } from "./errors";
-import { rpcErrorCodes } from "./rpcErrorCodes";
 import type { StreamCompletion } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 
 export function streamCompletionFailure(value: StreamCompletion): TransportError | undefined {
@@ -56,36 +55,9 @@ export function protobufRpcError(method: DescMethod, failure: RpcFailure): RpcEr
     throw new ContractError(`${operation} returned a malformed error outcome.`);
   }
   return new RpcError({
-    code: rpcErrorCode(failure.code),
+    code: failure.code,
     message: `${operation} failed with code ${failure.code}.`,
     method: operation,
     data: failure,
   });
-}
-
-function rpcErrorCode(code: string): number {
-  switch (code) {
-    case "workspace_not_registered":
-      return rpcErrorCodes.workspaceNotRegistered;
-    case "project_not_found":
-      return rpcErrorCodes.projectNotFound;
-    case "task_not_found":
-      return rpcErrorCodes.workflowTaskNotFound;
-    case "project_unavailable":
-      return rpcErrorCodes.projectUnavailable;
-    case "auth_required":
-      return rpcErrorCodes.authRequired;
-    case "server_not_ready":
-      return rpcErrorCodes.serverNotReady;
-    case "workspace_path_identity":
-      return rpcErrorCodes.workspacePathIdentity;
-    case "workspace_detach_conflict":
-      return rpcErrorCodes.workspaceDetachConflict;
-    case "workspace_mutation_failed":
-      return rpcErrorCodes.workspaceMutationFailed;
-    case "pending_work_not_pending":
-      return rpcErrorCodes.pendingWorkNotPending;
-    default:
-      return rpcErrorCodes.internal;
-  }
 }

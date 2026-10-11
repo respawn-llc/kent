@@ -253,7 +253,7 @@ func TestExplicitDefaultSelectionPersistsLaunchMode(t *testing.T) {
 	}
 }
 
-func TestDefaultAgentLaunchAndContinuationEnforceCallability(t *testing.T) {
+func TestDefaultAgentCallabilityRestrictsCreationNotContinuation(t *testing.T) {
 	cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
 	cfg.Settings.Subagents[config.DefaultSubagentRole] = config.SubagentRole{
 
@@ -298,6 +298,12 @@ func TestDefaultAgentLaunchAndContinuationEnforceCallability(t *testing.T) {
 				CallerSessionID: textutil.Value(caller.Meta().SessionID),
 				Overrides:       serverapi.RunPromptOverrides{AgentRole: role},
 			})
+			if intent.Kind() == serverapi.SessionLaunchIntentOpenExisting {
+				if err != nil {
+					t.Fatalf("continue role=%v: %v", role, err)
+				}
+				continue
+			}
 			var denial *serverapi.SubagentLaunchDeniedError
 			if !errors.As(err, &denial) || denial.Kind != serverapi.SubagentLaunchDenialNotCallable {
 				t.Fatalf("intent=%s role=%v: error=%v, want not-callable denial", intent.Kind(), role, err)

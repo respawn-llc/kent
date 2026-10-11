@@ -22,7 +22,6 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http/httptest"
@@ -270,9 +269,6 @@ func TestGatewayReturnsCompleteDormantMainViewWithActiveGoal(t *testing.T) {
 	if generated.GetSuccess().GetMainView().GetActivity().GetReviewer() != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE ||
 		generated.GetSuccess().GetMainView().GetStatus().GetGoal().GetGoal().GetObjective() != "ship the dormant projection" {
 		t.Fatalf("generated dormant Main View lost current facts: %v", generated)
-	}
-	if failure := callGatewayExpectError(t, conn, "retired-session-json", "session.getMainView", map[string]string{"session_id": sessionID.String()}); failure.Code != protocol.ErrCodeMethodNotFound {
-		t.Fatalf("retired Session JSON operation = %v", failure)
 	}
 	response, err := remote.GetSessionMainView(t.Context(), &sessionpb.MainViewRequest{
 		SessionId: sessionID.String(),
@@ -644,40 +640,6 @@ func callGatewayAuthStatus(
 	return result.GetSuccess()
 }
 
-func callGateway(t *testing.T, conn *websocket.Conn, id string, method string, params any, out any) {
-	t.Helper()
-	if err := websocket.JSON.Send(conn, protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: id, Method: method, Params: mustJSON(t, params)}); err != nil {
-		t.Fatalf("send %s: %v", method, err)
-	}
-	var resp protocol.Response
-	if err := websocket.JSON.Receive(conn, &resp); err != nil {
-		t.Fatalf("receive %s: %v", method, err)
-	}
-	if resp.Error != nil {
-		t.Fatalf("%s error: %+v", method, resp.Error)
-	}
-	if out != nil && len(resp.Result) > 0 {
-		if err := json.Unmarshal(resp.Result, out); err != nil {
-			t.Fatalf("decode %s: %v", method, err)
-		}
-	}
-}
-
-func callGatewayExpectError(t *testing.T, conn *websocket.Conn, id string, method string, params any) *protocol.ResponseError {
-	t.Helper()
-	if err := websocket.JSON.Send(conn, protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: id, Method: method, Params: mustJSON(t, params)}); err != nil {
-		t.Fatalf("send %s: %v", method, err)
-	}
-	var resp protocol.Response
-	if err := websocket.JSON.Receive(conn, &resp); err != nil {
-		t.Fatalf("receive %s: %v", method, err)
-	}
-	if resp.Error == nil {
-		t.Fatalf("%s unexpectedly succeeded", method)
-	}
-	return resp.Error
-}
-
 func TestGatewayWorkflowProjectLabelsRoundTrip(t *testing.T) {
 	appCore, server := newGatewayTestServer(t)
 	defer func() { _ = appCore.Close() }()
@@ -751,29 +713,4 @@ func TestGatewayWorkflowProjectLabelsRoundTrip(t *testing.T) {
 	if invalidDelete.GetError().GetInvalidMutation().GetField() != "label_id" {
 		t.Fatalf("invalid deletion error = %v", &invalidDelete)
 	}
-}
-
-func receiveGatewayNotification(t *testing.T, conn *websocket.Conn, method string, label string, out any) {
-	t.Helper()
-	var notif protocol.Request
-	if err := websocket.JSON.Receive(conn, &notif); err != nil {
-		t.Fatalf("receive %s: %v", label, err)
-	}
-	if notif.Method != method {
-		t.Fatalf("%s method = %q", label, notif.Method)
-	}
-	if out != nil {
-		if err := json.Unmarshal(notif.Params, out); err != nil {
-			t.Fatalf("decode %s params: %v", label, err)
-		}
-	}
-}
-
-func mustJSON(t *testing.T, value any) json.RawMessage {
-	t.Helper()
-	data, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("marshal params: %v", err)
-	}
-	return data
 }

@@ -31,7 +31,7 @@ func runCompletionNoticeTest(t *testing.T, execID string, command string, pollID
 		t.Fatalf("unexpected exec_command error: %s", string(result.Output))
 	}
 
-	pollResult := callWriteStdin(t, NewWriteStdinTool(16_000, 200_000, manager), pollID, map[string]any{
+	pollResult := callWriteStdin(t, NewWriteStdinTool(16_000, 200_000, manager, nil), pollID, map[string]any{
 		"session_id":    1000,
 		"yield_time_ms": pollYieldMS,
 	})

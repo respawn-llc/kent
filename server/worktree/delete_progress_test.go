@@ -10,8 +10,12 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/server/metadata"
+	"core/server/runtimecontrol"
 	"core/server/session"
+	"core/server/sessionruntime"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/serverapi"
 	"core/shared/worktreecontract"
 )
 
@@ -27,6 +31,145 @@ func (p *deleteProgressPublisher) PublishSessionIdentity(id string) error {
 		action()
 	}
 	return p.runtimePublisher.PublishSessionIdentity(id)
+}
+
+func TestDeleteWorktreeRetainsAcceptedWorkAfterEarlierSessionMoveAndRetries(t *testing.T) {
+	env := newServiceTestEnv(t)
+	target := mustCreateWorktree(t, env, "feature/delete-accepted-work-progress")
+	for range 51 {
+		sess := createServiceTestSession(t, env.store, env.cfg, env.binding)
+		updateServiceTestSessionTarget(t, env, sess.Meta().SessionID, env.binding.WorkspaceID, target.WorktreeID, ".")
+	}
+	firstPage, err := env.store.ListSessionsTargetingWorktreePage(env.ctx, target.WorktreeID, nil)
+	if err != nil {
+		t.Fatalf("ListSessionsTargetingWorktreePage: %v", err)
+	}
+	if len(firstPage.Sessions) != 50 || firstPage.Next == nil {
+		t.Fatalf("first targeting page = %+v, want 50 Sessions and another page", firstPage)
+	}
+	laterPage, err := env.store.ListSessionsTargetingWorktreePage(env.ctx, target.WorktreeID, firstPage.Next)
+	if err != nil {
+		t.Fatalf("ListSessionsTargetingWorktreePage later page: %v", err)
+	}
+	if len(laterPage.Sessions) != 1 || laterPage.Next != nil {
+		t.Fatalf("later targeting page = %+v, want one Session", laterPage)
+	}
+	firstMovedID := firstPage.Sessions[0].SessionID
+	blockedSessionID := laterPage.Sessions[0].SessionID
+	blockedState := captureDeleteTargetState(t, env, blockedSessionID, target)
+	client := newDeleteActivityGatedLLMClient()
+	attachment, engine := openDeleteActivityRuntime(t, env, target, blockedSessionID, "delete-accepted-work-progress", client)
+	t.Cleanup(func() {
+		client.unblock()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := engine.WaitForScheduledQueuedUserWork(ctx); err != nil {
+			t.Errorf("finish accepted user work: %v", err)
+		}
+		if _, err := attachment.Release(ctx, sessionruntime.RuntimeReleaseClose); err != nil &&
+			!errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+			t.Errorf("release accepted-work Runtime: %v", err)
+		}
+	})
+
+	var acceptedTurn *runtimepb.SubmitUserTurnSuccess
+	env.service.publisher = &deleteProgressPublisher{
+		runtimePublisher: env.publisher,
+		afterMove: func() {
+			movedTarget, resolveErr := env.store.ResolveSessionExecutionTarget(env.ctx, firstMovedID)
+			if resolveErr != nil {
+				t.Fatalf("ResolveSessionExecutionTarget first moved Session: %v", resolveErr)
+			}
+			if movedTarget.Worktree != nil || movedTarget.EffectiveWorkdir != env.workspaceRoot {
+				t.Fatalf("first Session was not moved before accepting later work: %+v", movedTarget)
+			}
+			var submitErr error
+			acceptedTurn, submitErr = runtimecontrol.NewService(env.authority).SubmitUserTurn(env.ctx, &runtimepb.SubmitUserTurnRequest{
+				SessionId: blockedSessionID,
+				Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "accepted after the first Session moved"}},
+			})
+			if submitErr != nil {
+				t.Fatalf("accept user turn on later Session: %v", submitErr)
+			}
+			if acceptedTurn.GetQueued() == nil || !acceptedTurn.GetQueued().Steered {
+				t.Fatalf("accepted user turn result = %+v, want accepted queued input", acceptedTurn)
+			}
+			select {
+			case <-client.started:
+			case <-time.After(3 * time.Second):
+				t.Fatal("accepted user turn did not start provider work")
+			}
+		},
+	}
+
+	_, deleteErr := env.service.DeleteWorktree(env.ctx, worktreeDeleteRequest(env, target.WorktreeID))
+	var partial *worktreecontract.DeletePartialError
+	if !errors.As(deleteErr, &partial) || partial.RetargetedSessions != 50 {
+		t.Fatalf("partial deletion = %v, want 50 completed Session moves", deleteErr)
+	}
+	if !errors.Is(deleteErr, worktreecontract.ErrWorktreeBlocked) {
+		t.Fatalf("partial deletion stop reason = %v, want accepted work blocker", deleteErr)
+	}
+	var blocked *worktreecontract.BlockedError
+	if !errors.As(deleteErr, &blocked) {
+		t.Fatalf("partial deletion cause = %v, want structured blocker details", deleteErr)
+	}
+	blockers := blocked.Details.GetActiveSessions()
+	if blockers == nil || len(blockers.Sessions) != 1 || blockers.Sessions[0].SessionId != blockedSessionID {
+		t.Fatalf("partial deletion blockers = %v, want Session %q", blockers, blockedSessionID)
+	}
+	if acceptedTurn == nil {
+		t.Fatal("user turn was not accepted after the first Session moved")
+	}
+	if !engine.HasActiveLiveRunGroup() {
+		t.Fatal("accepted user work stopped before deletion reported its blocker")
+	}
+	blockedState.assertUnchanged(t, env, blockedSessionID, target.WorktreeID)
+	firstMovedTarget, err := env.store.ResolveSessionExecutionTarget(env.ctx, firstMovedID)
+	if err != nil {
+		t.Fatalf("ResolveSessionExecutionTarget first moved Session after partial delete: %v", err)
+	}
+	if firstMovedTarget.Worktree != nil || firstMovedTarget.EffectiveWorkdir != env.workspaceRoot {
+		t.Fatalf("completed Session move was reverted: %+v", firstMovedTarget)
+	}
+	firstMovedReminder := readDeleteActivityReminder(t, env, firstMovedID)
+	if firstMovedReminder == nil || firstMovedReminder.Mode != session.WorktreeReminderModeExit ||
+		firstMovedReminder.WorktreePath != target.CanonicalRoot {
+		t.Fatalf("completed Session move reminder = %+v", firstMovedReminder)
+	}
+	remaining, err := env.store.ListSessionsTargetingWorktreePage(env.ctx, target.WorktreeID, nil)
+	if err != nil || len(remaining.Sessions) != 1 || remaining.Next != nil ||
+		remaining.Sessions[0].SessionID != blockedSessionID {
+		t.Fatalf("targeting Sessions after partial delete = %+v, %v; want only blocked Session", remaining, err)
+	}
+	if _, err := os.Stat(target.CanonicalRoot); err != nil {
+		t.Fatalf("Worktree root changed after partial delete: %v", err)
+	}
+
+	client.unblock()
+	waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := engine.WaitForScheduledQueuedUserWork(waitCtx); err != nil {
+		t.Fatalf("finish accepted user turn before retry: %v", err)
+	}
+	if _, err := env.service.DeleteWorktree(env.ctx, worktreeDeleteRequest(env, target.WorktreeID)); err != nil {
+		t.Fatalf("retry Worktree deletion: %v", err)
+	}
+	firstMovedTarget, err = env.store.ResolveSessionExecutionTarget(env.ctx, firstMovedID)
+	if err != nil || firstMovedTarget.Worktree != nil || firstMovedTarget.EffectiveWorkdir != env.workspaceRoot {
+		t.Fatalf("first moved Session target after retry = %+v, %v", firstMovedTarget, err)
+	}
+	reminderAfterRetry := readDeleteActivityReminder(t, env, firstMovedID)
+	if reminderAfterRetry == nil || !session.WorktreeReminderStateEqual(*firstMovedReminder, *reminderAfterRetry) {
+		t.Fatalf("retry changed the earlier exit reminder: before=%+v after=%+v", firstMovedReminder, reminderAfterRetry)
+	}
+	finalRemaining, err := env.store.ListSessionsTargetingWorktreePage(env.ctx, target.WorktreeID, nil)
+	if err != nil || len(finalRemaining.Sessions) != 0 {
+		t.Fatalf("targeting Sessions after retry = %+v, %v; want none", finalRemaining, err)
+	}
+	if _, err := os.Stat(target.CanonicalRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Worktree root remains after retry: %v", err)
+	}
 }
 
 func TestDeleteWorktreeRejectsLaterSessionStartWithoutUndoingCompletedMoves(t *testing.T) {

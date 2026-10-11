@@ -9,6 +9,8 @@ import (
 
 	"core/server/session"
 	"core/shared/config"
+	"core/shared/modelcontract"
+	"core/shared/textutil"
 )
 
 type ModelKnowledgeCutoff struct {
@@ -85,6 +87,14 @@ func LookupProviderCapabilityContract(providerID string) (ProviderCapabilities, 
 		return ProviderCapabilities{}, false
 	}
 	return registration.Variant.Capabilities, true
+}
+
+func LookupProviderReasoningType(providerID string) *modelcontract.ReasoningType {
+	registration, ok := lookupProviderVariantContract(providerID)
+	if !ok {
+		return nil
+	}
+	return textutil.Pointer(registration.Variant.ReasoningType)
 }
 
 func resolveProviderTransportVariant(provider Provider, endpoint ProviderTransportEndpoint, mode OpenAIAuthMode) (ProviderVariantContract, error) {

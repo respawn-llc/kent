@@ -95,9 +95,8 @@ const (
 )
 
 type metaContextProjection struct {
-	StablePrefix  []llm.Message
-	RunningShells []llm.Message
-	Environment   []llm.Message
+	StablePrefix []llm.Message
+	Environment  []llm.Message
 }
 
 func (r metaContextBuildResult) Projection() metaContextProjection {
@@ -386,10 +385,10 @@ func (b metaContextBuilder) discoverAgents(home string, permissive bool) ([]llm.
 			Role:           llm.RoleDeveloper,
 			MessageType:    textutil.Value(llm.MessageTypeAgentsMD),
 			SourcePath:     textutil.Value(path),
-			CompactContent: textutil.Value(pathutil.Compact(path, b.environmentCWD, home) + " content"),
+			CompactContent: textutil.Value(pathutil.Compact(path, &home, &b.environmentCWD) + " content"),
 			Content: textutil.Value(fmt.Sprintf(
 				"# Authoritative instructions, rules, and important context from the %s file:\n\n%s",
-				pathutil.Compact(path, b.environmentCWD, home), data,
+				pathutil.Compact(path, &home, &b.environmentCWD), data,
 			)),
 		})
 	}
@@ -665,9 +664,9 @@ func workflowInstructionTransitions(in []workflowruntime.TransitionInstruction) 
 }
 
 func worktreeModeMetaMessage(state session.WorktreeReminderState, home string, kind prompts.WorktreePromptKind) (llm.Message, bool) {
-	content := prompts.RenderWorktreeModePrompt(kind, worktreeBranchPromptValue(state.Branch), state.EffectiveCwd,
-		pathutil.Compact(state.WorktreePath, state.EffectiveCwd, home),
-		pathutil.Compact(state.WorkspaceRoot, state.EffectiveCwd, home))
+	content := prompts.RenderWorktreeModePrompt(kind, worktreeBranchPromptValue(state.Branch), pathutil.Compact(state.EffectiveCwd, &home, nil),
+		pathutil.Compact(state.WorktreePath, &home, &state.EffectiveCwd),
+		pathutil.Compact(state.WorkspaceRoot, &home, &state.EffectiveCwd))
 	if strings.TrimSpace(content) == "" {
 		return llm.Message{}, false
 	}
@@ -680,9 +679,9 @@ func worktreeModeMetaMessage(state session.WorktreeReminderState, home string, k
 }
 
 func worktreeModeExitMetaMessage(state session.WorktreeReminderState, home string, kind prompts.WorktreePromptKind) (llm.Message, bool) {
-	content := prompts.RenderWorktreeModeExitPrompt(kind, worktreeBranchPromptValue(state.Branch), state.EffectiveCwd,
-		pathutil.Compact(state.WorktreePath, state.EffectiveCwd, home),
-		pathutil.Compact(state.WorkspaceRoot, state.EffectiveCwd, home))
+	content := prompts.RenderWorktreeModeExitPrompt(kind, worktreeBranchPromptValue(state.Branch), pathutil.Compact(state.EffectiveCwd, &home, nil),
+		pathutil.Compact(state.WorktreePath, &home, &state.EffectiveCwd),
+		pathutil.Compact(state.WorkspaceRoot, &home, &state.EffectiveCwd))
 	if strings.TrimSpace(content) == "" {
 		return llm.Message{}, false
 	}

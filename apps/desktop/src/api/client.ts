@@ -93,7 +93,7 @@ import type {
 import type { BoardFilter } from "./workflowBoardFilters";
 import { ContractError } from "./errors";
 import { requireUnarySuccess } from "./protobufRpc";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 import type { WorkflowProjectEventHandler } from "./workflowProjectEvents";
 import type { TaskSearchInput, TaskSearchResponse } from "./taskSearch";
 import { subscribeWorkflow } from "./workflowProjectEvents";
@@ -104,10 +104,10 @@ import * as workflowLabels from "./clientWorkflowLabels";
 export const guiTaskCommentAuthor = "user";
 
 export class ApiClient implements ApiService {
-  readonly #transport: DescriptorRpcTransport;
+  readonly #transport: RpcTransport;
 
   constructor(
-    transport: DescriptorRpcTransport,
+    transport: RpcTransport,
     private readonly reportProjectOverflow: ProjectOverflowReporter,
   ) {
     this.#transport = transport;

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 )
 
@@ -13,8 +14,9 @@ type AskQuestionResolution interface {
 }
 
 type AskQuestionAnswer struct {
-	SelectedOptionNumber *int    `json:"selected_option_number,omitempty"`
-	Freeform             *string `json:"freeform,omitempty"`
+	SelectedOptionNumber *int                  `json:"selected_option_number,omitempty"`
+	Freeform             *string               `json:"freeform,omitempty"`
+	AnsweredBySessionID  *runtimeids.SessionID `json:"-"`
 }
 
 func (AskQuestionAnswer) askQuestionResolution() {}
@@ -86,16 +88,18 @@ func validateOfferedApproval(req AskQuestionRequest, decision AskQuestionApprova
 }
 
 type questionResolutionText struct {
-	selected *int
-	freeform *string
+	selected   *int
+	freeform   *string
+	answeredBy *runtimeids.SessionID
 }
 
 func resolutionQuestionText(resolution AskQuestionResolution) (questionResolutionText, error) {
 	switch answer := resolution.(type) {
 	case AskQuestionAnswer:
 		return questionResolutionText{
-			selected: answer.SelectedOptionNumber,
-			freeform: normalizedResolutionText(answer.Freeform),
+			selected:   answer.SelectedOptionNumber,
+			freeform:   normalizedResolutionText(answer.Freeform),
+			answeredBy: answer.AnsweredBySessionID,
 		}, nil
 	default:
 		return questionResolutionText{}, fmt.Errorf("Question resolution type %T is invalid", resolution)
@@ -115,13 +119,14 @@ func buildResolutionToolOutputSummary(resolution AskQuestionResolution) (string,
 	if err != nil {
 		return "", err
 	}
+	answerer := questionAnswererLabel(answer.answeredBy)
 	if answer.selected != nil {
-		return selectedOptionToolOutputSummary(*answer.selected, answer.freeform), nil
+		return selectedOptionToolOutputSummary(*answer.selected, answer.freeform, answerer), nil
 	}
 	if answer.freeform == nil {
 		return "", ErrAskQuestionNonApprovalRequiresAnswer
 	}
-	return "User answered: " + *answer.freeform, nil
+	return answerer + " answered: " + *answer.freeform, nil
 }
 
 func buildResolutionCondensedToolOutputText(
@@ -147,5 +152,12 @@ func buildResolutionCondensedToolOutputText(
 	if answer.freeform == nil {
 		return base, nil
 	}
-	return base + "\nUser also said:\n" + *answer.freeform, nil
+	return base + "\n" + questionAnswererLabel(answer.answeredBy) + " also said:\n" + *answer.freeform, nil
+}
+
+func questionAnswererLabel(answeredBy *runtimeids.SessionID) string {
+	if answeredBy == nil {
+		return "User"
+	}
+	return "Agent " + answeredBy.String()
 }

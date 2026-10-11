@@ -89,6 +89,7 @@ func TestManualCompactionPreservesLastVisibleUserMessage(t *testing.T) {
 
 	completeManualEligibilityAgentStep(t, eng)
 	scheduleManualCompactionAndWait(t, eng)
+	buildActiveTurnRequestForTest(t, eng, nil, true)
 
 	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	if len(messages) == 0 {
@@ -154,6 +155,7 @@ func TestManualLocalCompactionRebuildsCanonicalContextOrder(t *testing.T) {
 
 	completeManualEligibilityAgentStep(t, eng)
 	scheduleManualCompactionAndWait(t, eng)
+	buildActiveTurnRequestForTest(t, eng, nil, true)
 
 	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	if len(messages) < 6 {
@@ -186,7 +188,7 @@ func TestHandoffCompactionPlacesAtomicHeadlessContextBeforeFutureMessage(t *test
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("condensed summary")},
 		Usage:     llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
 	}}}
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol", CompactionMode: "local"})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol", CompactionMode: "local", HeadlessMode: true})
 	if _, err := eng.SetGoal(t.Context(), "survive handoff compaction", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
@@ -205,6 +207,7 @@ func TestHandoffCompactionPlacesAtomicHeadlessContextBeforeFutureMessage(t *test
 	}); err != nil {
 		t.Fatalf("apply pending handoff: %v", err)
 	}
+	buildActiveTurnRequestForTest(t, eng, nil, true)
 
 	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	futureIdx := -1
@@ -263,6 +266,7 @@ func TestManualLocalCompactionOmitsCarryoverWithoutNewUserMessageSincePreviousCo
 
 	scheduleManualCompactionAndWait(t, eng)
 
+	buildActiveTurnRequestForTest(t, eng, nil, true)
 	for _, message := range eng.transcriptRuntimeState().SnapshotMessages() {
 		if message.MessageType != nil && *message.MessageType == llm.MessageTypeCompactionPreservedUserMessage {
 			t.Fatalf("did not expect compaction-preserved user message message when no user message followed prior compaction, got %+v", eng.transcriptRuntimeState().SnapshotMessages())
@@ -295,6 +299,7 @@ func TestReopenedManualCompactionKeepsCarryoverAsSingleDetailTranscriptEntry(t *
 		t.Fatalf("reopen store: %v", err)
 	}
 	restored := mustNewExecTestEngine(t, reopenedStore, &fakeClient{}, Config{CompactionMode: "local"})
+	buildActiveTurnRequestForTest(t, restored, nil, true)
 
 	messages := restored.transcriptRuntimeState().SnapshotMessages()
 	carryoverMessages := 0

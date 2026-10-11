@@ -36,6 +36,7 @@ type ChatEntry struct {
 	ViewedImageKind       *transcript.ViewedImageKind
 	ToolCallID            string
 	QuestionAnswer        *tools.AskQuestionAnswer
+	AnsweredBySessionID   *runtimeids.SessionID
 	WebSearch             *transcript.WebSearchDetail
 	NoticeID              string
 	BackgroundActivityID  string
@@ -44,6 +45,7 @@ type ChatEntry struct {
 	CacheWarning          *transcript.CacheWarning
 	ToolOutputRepair      *transcript.ToolOutputRepairNotice
 	ProviderModelMismatch *transcript.ProviderModelMismatchNotice
+	ReasoningOmission     *transcript.ReasoningOmissionNotice
 	ThinkingEffort        *string
 	ToolCall              *transcript.ToolCallMeta
 	CommittedProvenance   *TranscriptCommittedRowProvenance
@@ -81,15 +83,16 @@ type TranscriptWindowSnapshot struct {
 }
 
 type storedToolCompletion struct {
-	CallID         string                   `json:"call_id"`
-	Name           string                   `json:"name"`
-	IsError        bool                     `json:"is_error"`
-	Output         json.RawMessage          `json:"output"`
-	Summary        *string                  `json:"summary,omitempty"`
-	CondensedText  *string                  `json:"condensed_text,omitempty"`
-	Presentation   *transcript.ToolCallMeta `json:"presentation,omitempty"`
-	ProviderItems  []llm.ResponseItem       `json:"provider_items,omitempty"`
-	QuestionAnswer *tools.AskQuestionAnswer `json:"question_answer,omitempty"`
+	CallID              string                   `json:"call_id"`
+	Name                string                   `json:"name"`
+	IsError             bool                     `json:"is_error"`
+	Output              json.RawMessage          `json:"output"`
+	Summary             *string                  `json:"summary,omitempty"`
+	CondensedText       *string                  `json:"condensed_text,omitempty"`
+	Presentation        *transcript.ToolCallMeta `json:"presentation,omitempty"`
+	ProviderItems       []llm.ResponseItem       `json:"provider_items,omitempty"`
+	QuestionAnswer      *tools.AskQuestionAnswer `json:"question_answer,omitempty"`
+	AnsweredBySessionID *runtimeids.SessionID    `json:"answered_by_session_id,omitempty"`
 }
 
 type chatStore struct {
@@ -116,6 +119,7 @@ type chatStore struct {
 
 	providerTokenEstimate      int
 	providerTokenEstimateDirty bool
+	tokenEstimator             llm.TokenEstimator
 }
 
 type chatMessageRecord struct {
@@ -168,6 +172,7 @@ func newChatStoreWithCWD(cwd string) *chatStore {
 		synthesizedToolResults:      make(map[string]struct{}, 16),
 		cwd:                         strings.TrimSpace(cwd),
 		providerTokenEstimateDirty:  true,
+		tokenEstimator:              llm.DefaultTokenEstimator{},
 	}
 }
 
@@ -213,7 +218,7 @@ func (s *chatStore) replaceHistory(stepID string, items []llm.ResponseItem) {
 		textutil.OptionalExactString(stepID),
 		items,
 		nil,
-		transcriptEntriesFromHistoryReplacement(items, nil),
+		transcriptEntriesFromHistoryReplacement(historyReplacementPayload{Items: items}),
 	)
 }
 
@@ -225,6 +230,31 @@ func (s *chatStore) replaceHistoryAtCommittedEntryStart(
 ) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	preparedItems := llm.PrepareOpenAIInputItems(items)
+	s.recordReplacementToolCallStepIDsLocked(stepID, preparedItems)
+	s.installWorkingSetLocked(stepID, &compactionCheckpoint{Items: llm.CloneResponseItems(preparedItems)}, committedEntryStart, projectedEntries)
+}
+
+func (s *chatStore) beginGeneration(stepID *string, committedEntryStart int, entries []ChatEntry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.installWorkingSetLocked(stepID, nil, &committedEntryStart, entries)
+}
+
+// Preparation adds a base checkpoint without replacing activity already
+// committed after compaction. Its transcript rows keep their original identity.
+func (s *chatStore) prepareGeneration(items []llm.ResponseItem, entries []ChatEntry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.compact = &compactionCheckpoint{Items: llm.CloneResponseItems(llm.PrepareOpenAIInputItems(items))}
+	for _, entry := range entries {
+		s.appendProjectedEntryLocked(entry, false)
+		s.local[len(s.local)-1].AfterMessageCount = len(s.messageRecords)
+	}
+	s.providerTokenEstimateDirty = true
+}
+
+func (s *chatStore) installWorkingSetLocked(stepID *string, checkpoint *compactionCheckpoint, committedEntryStart *int, projectedEntries []ChatEntry) {
 	activeSegmentEntryStart := s.transcriptEntryCount
 	if committedEntryStart != nil && *committedEntryStart > s.transcriptEntryCount {
 		s.transcriptEntryCount = *committedEntryStart
@@ -232,8 +262,6 @@ func (s *chatStore) replaceHistoryAtCommittedEntryStart(
 	} else if committedEntryStart != nil {
 		activeSegmentEntryStart = *committedEntryStart
 	}
-	preparedItems := llm.PrepareOpenAIInputItems(items)
-	s.recordReplacementToolCallStepIDsLocked(stepID, preparedItems)
 	// Provider/model history switches to the compacted checkpoint while the
 	// transcript receives its typed projection at the same committed boundary.
 	projectedStart := len(s.local)
@@ -244,9 +272,7 @@ func (s *chatStore) replaceHistoryAtCommittedEntryStart(
 	}
 	s.appendProjectedHistoryReplacementEntriesLocked(projectedEntries)
 	s.local = append([]localChatEntry(nil), s.local[projectedStart:]...)
-	s.compact = &compactionCheckpoint{
-		Items: llm.CloneResponseItems(preparedItems),
-	}
+	s.compact = checkpoint
 	s.activeSegmentEntryStart = activeSegmentEntryStart
 	s.pruneAssistantStreamIDsBeforeLocked(activeSegmentEntryStart)
 	s.messageRecords = nil
@@ -305,13 +331,20 @@ func (s *chatStore) estimatedProviderTokens() int {
 		return s.providerTokenEstimate
 	}
 	items, _ := s.snapshotProviderItemsLocked()
-	total := estimateItemsTokens(items)
+	total := llm.EstimateItemsTokens(s.tokenEstimator, items)
 	if total < 0 {
 		total = 0
 	}
 	s.providerTokenEstimate = total
 	s.providerTokenEstimateDirty = false
 	return total
+}
+
+func (s *chatStore) bindTokenEstimator(estimator llm.TokenEstimator) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tokenEstimator = estimator
+	s.providerTokenEstimateDirty = true
 }
 
 func (s *chatStore) snapshotItems() []llm.ResponseItem {
@@ -370,14 +403,15 @@ func (s *chatStore) restoreToolCompletionRecord(record session.ToolCompletionRec
 		return fmt.Errorf("restore session tool completion record: %w", err)
 	}
 	s.recordToolCompletionWithProviderItems(tools.Result{
-		CallID:         completion.CallID,
-		Name:           toolspec.ID(completion.Name),
-		IsError:        completion.IsError,
-		Output:         completion.Output,
-		Summary:        completion.Summary,
-		CondensedText:  completion.CondensedText,
-		Presentation:   completion.Presentation,
-		QuestionAnswer: completion.QuestionAnswer,
+		CallID:              completion.CallID,
+		Name:                toolspec.ID(completion.Name),
+		IsError:             completion.IsError,
+		Output:              completion.Output,
+		Summary:             completion.Summary,
+		CondensedText:       completion.CondensedText,
+		Presentation:        completion.Presentation,
+		QuestionAnswer:      completion.QuestionAnswer,
+		AnsweredBySessionID: completion.AnsweredBySessionID,
 	}, completion.ProviderItems, provenances...)
 	return nil
 }
@@ -551,7 +585,7 @@ func cloneTranscriptStreamID(streamID *uuid.UUID) *uuid.UUID {
 }
 
 func (s *chatStore) appendLocalEntryRecord(entry ChatEntry, afterToolCallID *string, provenances ...*TranscriptCommittedRowProvenance) {
-	if strings.TrimSpace(entry.Text) == "" && entry.CacheWarning == nil && entry.ToolOutputRepair == nil && entry.ProviderModelMismatch == nil && entry.ReviewerFeedback == nil && entry.ReviewerError == nil {
+	if strings.TrimSpace(entry.Text) == "" && entry.CacheWarning == nil && entry.ToolOutputRepair == nil && entry.ProviderModelMismatch == nil && entry.ReasoningOmission == nil && entry.ReviewerFeedback == nil && entry.ReviewerError == nil {
 		return
 	}
 	entry.Visibility = normalizeRuntimeEntryVisibility(entry.Visibility)
@@ -560,6 +594,7 @@ func (s *chatStore) appendLocalEntryRecord(entry ChatEntry, afterToolCallID *str
 	entry.CacheWarning = copyCacheWarning(entry.CacheWarning)
 	entry.ToolOutputRepair = textutil.Pointer(entry.ToolOutputRepair)
 	entry.ProviderModelMismatch = textutil.Pointer(entry.ProviderModelMismatch)
+	entry.ReasoningOmission = textutil.Pointer(entry.ReasoningOmission)
 	if entry.ReviewerFeedback != nil {
 		feedback := *entry.ReviewerFeedback
 		feedback.Suggestions = append([]string(nil), entry.ReviewerFeedback.Suggestions...)
@@ -828,6 +863,9 @@ func cloneChatStoreMessage(msg llm.Message) llm.Message {
 	}
 	if len(msg.ReasoningItems) > 0 {
 		cloned.ReasoningItems = append([]llm.ReasoningItem(nil), msg.ReasoningItems...)
+		for index := range cloned.ReasoningItems {
+			cloned.ReasoningItems[index].Attribution = msg.ReasoningItems[index].Attribution.Clone()
+		}
 	}
 	return cloned
 }

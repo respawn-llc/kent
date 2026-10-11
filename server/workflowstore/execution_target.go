@@ -425,21 +425,14 @@ func executionTargetLockParams(task sqlitegen.TaskRecord, candidate ExecutionTar
 	return sqlitegen.LockTaskExecutionTargetParams{
 		ManagedWorktreeID:           managedWorktreeID,
 		ExecutionTargetMode:         nullableString(string(snapshot.Mode)),
-		ExecutionTargetRequestedRef: nullableStringPointer(snapshot.RequestedRef),
-		ExecutionTargetResolvedRef:  nullableStringPointer(snapshot.ResolvedRef),
-		ExecutionTargetCommitOid:    nullableStringPointer(snapshot.CommitOID),
+		ExecutionTargetRequestedRef: metadata.NullableString(snapshot.RequestedRef),
+		ExecutionTargetResolvedRef:  metadata.NullableString(snapshot.ResolvedRef),
+		ExecutionTargetCommitOid:    metadata.NullableString(snapshot.CommitOID),
 		ExecutionTargetProvenance:   nullableString(string(snapshot.Provenance)),
 		UpdatedAtUnixMs:             updatedAtUnixMs,
 		TaskID:                      task.ID,
 		ExpectedManagedWorktreeID:   task.ManagedWorktreeID,
 	}
-}
-
-func nullableStringPointer(value *string) sql.NullString {
-	if value == nil {
-		return sql.NullString{}
-	}
-	return nullableString(*value)
 }
 
 func taskSourceWorkspaceForExecution(ctx context.Context, q *sqlitegen.Queries, task sqlitegen.TaskRecord) (sqlitegen.Workspace, error) {

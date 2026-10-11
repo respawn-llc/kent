@@ -937,8 +937,7 @@ func serveHandshakeWithRoot(ctx context.Context, conn rpcwire.Conn, rootID strin
 			}
 			continue
 		}
-		req := event.Frame.Request()
-		reportHandlerError(handlerErrs, "unexpected method %q", req.Method)
+		reportHandlerError(handlerErrs, "unexpected application frame kind %d", event.Frame.Kind)
 		return
 	}
 }

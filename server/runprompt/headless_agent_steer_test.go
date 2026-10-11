@@ -120,6 +120,14 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, provider.URL))
 	cfg.Settings.EnabledTools = map[toolspec.ID]bool{}
 	cfg.Settings.MaxSubagentDepth = 2
+	if agent && !create {
+		cfg.Settings.Subagents[config.DefaultSubagentRole] = config.SubagentRole{
+			AgentCallable: false,
+			Sources: map[string]config.Origin{"agent_callable": {
+				Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"},
+			}},
+		}
+	}
 	cfg.Settings.Shell.PostprocessingMode = config.ShellPostprocessingModeBuiltin
 	history := &recordingPromptHistoryStore{}
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, storeOptions...)

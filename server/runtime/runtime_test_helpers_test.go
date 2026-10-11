@@ -453,7 +453,8 @@ func generateTestActiveStep(
 	stepID = runtimeTestStepID(stepID)
 	restore := setTestActiveStep(engine, stepID)
 	defer restore()
-	return engine.generateWithRetryClient(ctx, stepID, newObservedModelClient(client), request, nil, nil, nil)
+	candidate, err := engine.generateWithRetryClient(ctx, stepID, newObservedModelClient(client), request, nil, nil, nil)
+	return candidate.response, err
 }
 
 func runReviewerSuggestionsTestActiveStep(
@@ -681,7 +682,7 @@ func appendTestCompactionHistoryReplacement(
 	if err != nil {
 		return session.EventRecord{}, session.CommitReceipt{}, err
 	}
-	return mustMaterializeTestEventLog(t, store).AppendCompactionHistoryReplacement(
+	return mustMaterializeTestEventLog(t, store).AppendHistoryReplacement(
 		&stepID,
 		record,
 	)

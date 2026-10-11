@@ -1,4 +1,4 @@
-import { createRoute, type AnyRootRoute } from "@tanstack/react-router";
+import { createRoute, type Register, type RootRoute } from "@tanstack/react-router";
 import { z } from "zod";
 
 import { TaskDeleteWindowRoute, taskDeleteNativeDialogPath } from "@/features/board";
@@ -7,7 +7,9 @@ import { ProjectDeleteWindowRoute } from "@/features/project-edit";
 import { TaskDetailWindowRoute } from "@/features/task-detail";
 import { InvalidNativeDialogRoute } from "./InvalidNativeDialogRoute";
 import { taskDetailNativeDialogPath } from "./sidebarPopOut";
-import { useWindowChromeTitle } from "@/app-facade";
+import { useWindowChromeTitle, nativeChatRoutePath } from "@/app-facade";
+import { desktopChatEnabled } from "@/shared/feature-flags";
+import { NativeChatRoute } from "./NativeChatRoute";
 
 export const projectDeleteNativeDialogPath = "/native-dialog/project-delete";
 export { taskDeleteNativeDialogPath };
@@ -32,7 +34,31 @@ const taskDetailSearchSchema = z.object({
   taskID: optionalSearchString,
 });
 
-export function createNativeDialogRoutes(rootRoute: AnyRootRoute) {
+export function createNativeDialogRoutes(rootRoute: RootRoute<Register>) {
+  const chatSearchSchema = z.object({
+    projectID: z.string().trim().min(1),
+    sessionID: z.string().trim().min(1),
+  });
+  const chatRoute = desktopChatEnabled
+    ? createRoute({
+        getParentRoute: () => rootRoute,
+        path: nativeChatRoutePath,
+        validateSearch: (search: Record<string, unknown>) => {
+          const parsed = chatSearchSchema.safeParse(search);
+          return {
+            chat: parsed.success ? { kind: "valid" as const, ...parsed.data } : { kind: "invalid" as const },
+          };
+        },
+        component: ChatNativeRoute,
+      })
+    : undefined;
+
+  function ChatNativeRoute() {
+    if (chatRoute === undefined) return <InvalidNativeDialogRoute />;
+    const { chat } = chatRoute.useSearch();
+    if (chat.kind === "invalid") return <InvalidNativeDialogRoute />;
+    return <NativeChatRoute key={chat.sessionID} projectID={chat.projectID} sessionID={chat.sessionID} />;
+  }
   const projectCreateRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/native-dialog/project-create",
@@ -95,5 +121,11 @@ export function createNativeDialogRoutes(rootRoute: AnyRootRoute) {
     return <TaskDetailWindowRoute taskID={taskID} />;
   }
 
-  return [projectCreateRoute, projectDeleteRoute, taskDeleteWindowRoute, taskDetailWindowRoute] as const;
+  return [
+    projectCreateRoute,
+    projectDeleteRoute,
+    taskDeleteWindowRoute,
+    taskDetailWindowRoute,
+    ...(chatRoute === undefined ? [] : [chatRoute]),
+  ] as const;
 }

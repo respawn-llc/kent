@@ -1229,18 +1229,18 @@ message SetupStartResult {
 }
 
 message SetupCompletion {
-  // Legacy StreamCompleteParams.message becomes a client-neutral diagnostic.
-  // transcript_close_reason is excluded because Worktree setup is not a
-  // transcript stream and its completion path never produces that fact.
-  optional int32 code = 1;
+  optional kent.api.shared.StreamFailureCode code = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
   optional string diagnostic = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 
   option (buf.validate.message).cel = {
     id: "kent.worktree.setup_completion"
-    message: "setup completion code and diagnostic must be present together and code must be non-zero"
+    message: "setup completion code and diagnostic must be present together"
     expression:
       "(!has(this.code) && !has(this.diagnostic)) || "
-      "(has(this.code) && this.code != 0 && has(this.diagnostic))"
+      "(has(this.code) && has(this.diagnostic))"
   };
 }
 

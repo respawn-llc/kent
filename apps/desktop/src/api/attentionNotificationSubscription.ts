@@ -14,13 +14,10 @@ import { interruptionDiagnosticJSON } from "./clientAttention";
 import { timestampMillis } from "./clientTime";
 import { ContractError } from "./errors";
 import { requireUnarySuccess, streamCompletionFailure } from "./protobufRpc";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 import { subscriptionStream } from "./subscriptionStream";
 
-export function attentionNotifications(
-  transport: DescriptorRpcTransport,
-  reportOverflow: () => Promise<void>,
-) {
+export function attentionNotifications(transport: RpcTransport, reportOverflow: () => Promise<void>) {
   const method = pb.AttentionNotificationService.method.subscribe;
   return subscriptionStream<AttentionNotificationLifecycle>(
     (emit) =>
@@ -40,7 +37,7 @@ export function attentionNotifications(
             emit({ kind: "error", error });
           },
           onComplete(completion) {
-            emit({ kind: "complete", code: completion.code ?? 0, message: completion.message ?? "" });
+            emit({ kind: "complete", code: completion.code ?? null, message: completion.message ?? null });
             return streamCompletionFailure(completion);
           },
           onEvent(event) {

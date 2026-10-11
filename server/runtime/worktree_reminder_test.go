@@ -13,12 +13,39 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/pathutil"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 
 	"github.com/google/uuid"
 )
+
+func TestWorktreeReminderCWDUsesHomeRelativePresentation(t *testing.T) {
+	home := t.TempDir()
+	worktree := filepath.Join(home, ".kent", "worktrees", "kent", "803")
+	workspace := filepath.Join(home, "Dev", "kent")
+	previousEnter, previousExit := prompts.WorktreeModePrompt, prompts.WorktreeModeExitPrompt
+	prompts.WorktreeModePrompt, prompts.WorktreeModeExitPrompt = "{{cwd}}", "{{cwd}}"
+	t.Cleanup(func() {
+		prompts.WorktreeModePrompt, prompts.WorktreeModeExitPrompt = previousEnter, previousExit
+	})
+	for _, mode := range []session.WorktreeReminderMode{session.WorktreeReminderModeEnter, session.WorktreeReminderModeExit} {
+		cwd := worktree
+		render := worktreeModeMetaMessage
+		if mode == session.WorktreeReminderModeExit {
+			cwd, render = workspace, worktreeModeExitMetaMessage
+		}
+		state := testWorktreeReminderState(mode, "feature", worktree, workspace, cwd)
+		message, ok := render(state, home, prompts.WorktreePromptSwitch)
+		if !ok || message.Content == nil || *message.Content != pathutil.Compact(cwd, &home, nil) {
+			t.Fatalf("reminder CWD was not home-relative: %+v", message)
+		}
+		if message.WorktreeContext.EffectiveCwd != cwd {
+			t.Fatal("presentation changed the canonical working directory")
+		}
+	}
+}
 
 func TestPersistedWorktreeContextRejectsDuplicateSourcePath(t *testing.T) {
 	t.Parallel()
@@ -309,6 +336,12 @@ func TestManualCompactionReinjectsWorktreeReminderExactlyOnce(t *testing.T) {
 		t.Fatal("timed out waiting for compaction")
 	}
 
+	if err := runExclusiveStepWhenIdle(t.Context(), eng.stepLifecycle, ActiveKindUserTurn, nil, func(ctx context.Context, stepID string) error {
+		_, err := eng.buildActiveTurnDispatchRequest(ctx, stepID, nil, true)
+		return err
+	}); err != nil {
+		t.Fatalf("build post-compaction request: %v", err)
+	}
 	compactedMessages := eng.transcriptRuntimeState().SnapshotMessages()
 	if got := worktreeReminderMessageCount(compactedMessages); got != 1 {
 		t.Fatalf("worktree reminders after compaction = %d, want 1 messages=%+v", got, compactedMessages)

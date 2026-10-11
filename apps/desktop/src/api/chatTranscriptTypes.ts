@@ -112,6 +112,7 @@ export type ChatNotice = Readonly<{
     | "runtime_diagnostic"
     | "tool_output_repair"
     | "provider_model_mismatch"
+    | "reasoning_omission"
     | "thinking_update";
   Severity: "info" | "warning" | "error";
   MessageType?: string | null;
@@ -134,6 +135,7 @@ export type ChatNotice = Readonly<{
   Compaction?: Readonly<{ Count?: number | null; Detail?: string | null }> | null;
   ToolOutputRepair?: Readonly<{ kind: "fresh_resource" | "live_provider_rejection"; count: number }> | null;
   ProviderModelMismatch?: Readonly<{ requested_model: string; served_model: string }> | null;
+  ReasoningOmission?: Readonly<{ count: number }> | null;
   Diagnostic?: ChatDiagnostic | null;
   Background?: Readonly<{ ActivityID: string; ProcessID: string; ExitCode?: number | null }> | null;
   CondensedText?: string | null;
@@ -170,6 +172,7 @@ export type ChatCommittedRow = Readonly<{
     CondensedText?: string | null;
     Presentation?: ChatToolPresentation | null;
     QuestionAnswer?: Readonly<{ SelectedOptionNumber?: number | null; Freeform?: string | null }> | null;
+    AnsweredBySessionID: string | null;
     WebSearch?: ChatWebSearchDetail | null;
   }> | null;
   ReasoningTrace: Readonly<{

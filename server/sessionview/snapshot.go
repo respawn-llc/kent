@@ -144,7 +144,7 @@ func (s dormantSessionSnapshot) MainView(ctx context.Context) (*runtimepb.MainVi
 		Status:  status,
 		Session: &runtimepb.SessionView{
 			SessionId:             meta.SessionID,
-			SessionName:           textutil.OptionalExactString(meta.Name),
+			SessionName:           textutil.Pointer(meta.Name),
 			AgentRole:             session.ContinuationAgentRole(meta),
 			ConversationFreshness: freshness,
 			ExecutionTarget:       s.projection.target,

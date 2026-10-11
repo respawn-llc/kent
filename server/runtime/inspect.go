@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 
 	"core/server/llm"
 	"github.com/google/uuid"
@@ -19,8 +20,12 @@ import (
 // that preparation requires a model-backed compaction, inspection returns the
 // preparation error rather than emitting a stale post-preparation payload.
 // allowTools mirrors the production tool-exposure behavior; pass false to
-// produce a tool-less payload.
+// produce a tool-less payload. A saved compaction summary awaiting its first
+// live request cannot be inspected as a prepared request.
 func PrepareInspectionRequest(ctx context.Context, eng *Engine, allowTools bool) (llm.Request, error) {
+	if _, pending := eng.generationContextSnapshot().(pendingGenerationContext); pending {
+		return llm.Request{}, errors.New("compacted output awaits its first live request; inspection cannot prepare generation context")
+	}
 	eng.ensureOrchestrationCollaborators()
 	stepID := uuid.NewString()
 	if err := eng.ensureMetaContextForRequest(ctx, stepID); err != nil {

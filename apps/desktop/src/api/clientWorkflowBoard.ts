@@ -8,11 +8,11 @@ import { boardNodeCardsPage, workflowBoard } from "./clientTaskProjection";
 import { requireUnarySuccess } from "./protobufRpc";
 import { throwWorkflowLabelFailure } from "./workflowLabelFailure";
 import { taskSortField, taskSortDirection } from "./workflowProtoValues";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 import type { BoardFilter } from "./workflowBoardFilters";
 
 export async function getBoard(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   projectID: string,
   workflowID: string | undefined,
   filter: BoardFilter,
@@ -32,7 +32,7 @@ export async function getBoard(
 }
 
 export async function listBoardNodeCards(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   input: BoardNodeCardsInput,
 ): Promise<BoardNodeCardsPage> {
   const method = BoardReadService.method.listNodeCards;

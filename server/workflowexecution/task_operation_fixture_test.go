@@ -29,12 +29,41 @@ type controllerTaskFixture struct {
 	mutations *TaskMutationCoordinator
 }
 
+type controllerTaskGraph int
+
+const (
+	controllerTaskGraphCoordinator controllerTaskGraph = iota
+	controllerTaskGraphStartFanout
+)
+
 func newControllerTaskFixture(t *testing.T, branches int) controllerTaskFixture {
 	t.Helper()
 	return controllerTaskFixtureInStore(t, testsetup.OpenStore(t, t.TempDir()), t.TempDir(), branches)
 }
 
+func newControllerTaskStartFanoutFixture(t *testing.T, branches int) controllerTaskFixture {
+	t.Helper()
+	return controllerTaskFixtureInStoreWithGraph(
+		t,
+		testsetup.OpenStore(t, t.TempDir()),
+		t.TempDir(),
+		branches,
+		controllerTaskGraphStartFanout,
+	)
+}
+
 func controllerTaskFixtureInStore(t *testing.T, meta *metadata.Store, workspace string, branches int) controllerTaskFixture {
+	t.Helper()
+	return controllerTaskFixtureInStoreWithGraph(t, meta, workspace, branches, controllerTaskGraphCoordinator)
+}
+
+func controllerTaskFixtureInStoreWithGraph(
+	t *testing.T,
+	meta *metadata.Store,
+	workspace string,
+	branches int,
+	graph controllerTaskGraph,
+) controllerTaskFixture {
 	t.Helper()
 	ctx := context.Background()
 	binding, err := meta.RegisterWorkspaceBinding(ctx, workspace)
@@ -89,14 +118,18 @@ func controllerTaskFixtureInStore(t *testing.T, meta *metadata.Store, workspace 
 		req.Edges = append(req.Edges, workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: record.ID, TransitionGroupID: group, Key: workflow.ModelKey(key), TargetNodeID: target,
 			AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeNewSession, PromptTemplate: prompt})
 	}
-	seed := addAgent("seed")
-	addEdge(addGroup(start, "start"), seed, "start")
-	split := addGroup(seed, "split")
+	startGroup := addGroup(start, "start")
+	source, transition := start, startGroup
+	if graph == controllerTaskGraphCoordinator {
+		source = addAgent("seed")
+		addEdge(startGroup, source, "start")
+		transition = addGroup(source, "split")
+	}
 	ids := make([]workflow.NodeID, branches)
 	for index := range ids {
 		key := fmt.Sprintf("branch_%d", index)
 		ids[index] = addAgent(key)
-		addEdge(split, ids[index], key)
+		addEdge(transition, ids[index], key)
 		addEdge(addGroup(ids[index], key+"_done"), join, key+"_done")
 	}
 	if branches > 1 {

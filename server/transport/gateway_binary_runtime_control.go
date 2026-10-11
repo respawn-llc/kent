@@ -17,6 +17,14 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
+func runtimePendingWorkClient(deps GatewayDependencies) apicontract.RuntimePendingWorkService {
+	client, ok := deps.RuntimeControlClient().(apicontract.RuntimePendingWorkService)
+	if !ok {
+		panic("Runtime Pending Work service is unavailable")
+	}
+	return client
+}
+
 func binaryRuntimeControlFailure(sessionID string, err error) proto.Message {
 	var rejected *serverapi.RuntimeCommandNotAcceptedError
 	var notPending *serverapi.PendingWorkNotPendingError

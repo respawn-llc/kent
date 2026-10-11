@@ -50,6 +50,7 @@ type ExecCommandTool struct {
 }
 
 type ExecCommandToolConfig struct {
+	EstimateText         func(string) int
 	Postprocessor        *postprocess.Runner
 	ExecutionCorrelation *runtimeids.ExecutionCorrelation
 }
@@ -67,7 +68,7 @@ func NewExecCommandToolWithConfig(workspaceRoot string, outputLimit int, context
 		defaultShell:         defaultShell,
 		defaultLogin:         true,
 		outputLimit:          outputLimit,
-		oversizedOutputGuard: newOversizedOutputGuard(contextWindowTokens),
+		oversizedOutputGuard: newOversizedOutputGuard(contextWindowTokens, config.EstimateText),
 		background:           background,
 		ownerSessionID:       strings.TrimSpace(ownerSessionID),
 		postprocessor:        config.Postprocessor,

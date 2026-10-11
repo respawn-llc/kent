@@ -19,7 +19,7 @@ func TestChatContextRouteScopeUsesSessionTarget(t *testing.T) {
 	if err := executor.authorizeScopeFacts(
 		context.Background(),
 		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		routeScopePolicy(operation.Options.ScopePolicy),
+		operation.Options.ScopePolicy,
 		operation.Name,
 		routeScopeParams{sessionID: fixture.ownSessionID},
 	); err != nil {
@@ -28,7 +28,7 @@ func TestChatContextRouteScopeUsesSessionTarget(t *testing.T) {
 	if err := executor.authorizeScopeFacts(
 		context.Background(),
 		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		routeScopePolicy(operation.Options.ScopePolicy),
+		operation.Options.ScopePolicy,
 		operation.Name,
 		routeScopeParams{sessionID: fixture.foreignSessionID},
 	); err == nil {

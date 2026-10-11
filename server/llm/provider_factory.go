@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"core/server/httpcompression"
+	"core/shared/modelcontract"
+	"core/shared/textutil"
 )
 
 var ErrUnsupportedProvider = errors.New("unsupported llm provider")
@@ -49,7 +51,9 @@ type ProviderTransportEndpoint struct {
 type ProviderTransportVariantResolver func(endpoint ProviderTransportEndpoint, mode OpenAIAuthMode) (string, error)
 
 type ProviderVariantContract struct {
+	ReasoningType            *modelcontract.ReasoningType
 	ProviderID               string
+	TokenEstimator           TokenEstimator
 	RequestCompression       httpcompression.RequestContentCoding
 	Capabilities             ProviderCapabilities
 	RemoteCompactionProtocol remoteCompactionProtocol
@@ -103,6 +107,7 @@ func providerContracts() []ProviderContract {
 			ProviderVariants: []ProviderVariantContract{
 				{
 					ProviderID:         "anthropic",
+					ReasoningType:      textutil.Value(modelcontract.ReasoningTypeAnthropic),
 					RequestCompression: httpcompression.ContentCodingIdentity,
 					Capabilities: ProviderCapabilities{
 						ProviderID:                    "anthropic",
@@ -126,6 +131,8 @@ func providerContracts() []ProviderContract {
 			ProviderVariants: []ProviderVariantContract{
 				{
 					ProviderID:               "openai",
+					TokenEstimator:           OpenAITokenEstimator{},
+					ReasoningType:            textutil.Value(modelcontract.ReasoningTypeOpenAI),
 					RequestCompression:       httpcompression.ContentCodingIdentity,
 					RemoteCompactionProtocol: remoteCompactionResponsesTriggerV2,
 					Capabilities: ProviderCapabilities{
@@ -161,6 +168,8 @@ func providerContracts() []ProviderContract {
 				},
 				{
 					ProviderID:               "chatgpt-codex",
+					TokenEstimator:           OpenAITokenEstimator{},
+					ReasoningType:            textutil.Value(modelcontract.ReasoningTypeOpenAI),
 					RequestCompression:       httpcompression.ContentCodingZstd,
 					RemoteCompactionProtocol: remoteCompactionResponsesTriggerV2,
 					Capabilities: ProviderCapabilities{

@@ -1,3 +1,4 @@
+import { StreamFailureCode } from "@/test-support/api";
 import { expect, it, vi } from "vitest";
 
 import type {
@@ -59,14 +60,14 @@ it("reopens one physical subscription after terminal Runtime unavailable and nor
   observation.start();
   expect(handlers).toHaveLength(1);
   handlers[0]?.onEvent(unavailableActivity());
-  handlers[0]?.onComplete({ code: 0, message: "", reason: null });
+  handlers[0]?.onComplete({ code: null, message: null, reason: null });
 
   expect(events).toHaveLength(1);
   expect(handlers).toHaveLength(2);
   expect(completions).toEqual([]);
   expect(errors).toEqual([]);
 
-  handlers[0]?.onComplete({ code: 0, message: "", reason: null });
+  handlers[0]?.onComplete({ code: null, message: null, reason: null });
   expect(handlers).toHaveLength(2);
 
   observation.close();
@@ -95,7 +96,7 @@ it("ends a sequence gap locally and opens one observation on explicit Retry", ()
   expect(integrityFailures).toHaveBeenCalledOnce();
   expect(observation.state.kind).toBe("error");
   handlers[0]?.onEvent(unavailableActivity());
-  handlers[0]?.onComplete({ code: 0, message: "", reason: null });
+  handlers[0]?.onComplete({ code: null, message: null, reason: null });
   expect(handlers).toHaveLength(1);
   expect(errors).toHaveLength(1);
   expect(integrityFailures).toHaveBeenCalledOnce();
@@ -218,7 +219,7 @@ it("admits sequence-1 reattachment after normal Runtime stop", () => {
   handlers[0]?.onOpen?.();
   handlers[0]?.onEvent(hydrationMessage());
   handlers[0]?.onEvent(unavailableActivity());
-  handlers[0]?.onComplete({ code: 0, message: "", reason: null });
+  handlers[0]?.onComplete({ code: null, message: null, reason: null });
   handlers[1]?.onOpen?.();
   handlers[1]?.onEvent(hydrationMessage());
 
@@ -254,13 +255,17 @@ it.each([
   {
     name: "abnormal completion",
     trigger: (handler: ChatTranscriptHandler) => {
-      handler.onComplete({ code: 0, message: "", reason: null });
+      handler.onComplete({ code: null, message: null, reason: null });
     },
   },
   {
     name: "buffered stream failure",
     trigger: (handler: ChatTranscriptHandler) => {
-      handler.onComplete({ code: 17, message: "overflow", reason: "subscriber_overflow" });
+      handler.onComplete({
+        code: StreamFailureCode.STREAM_GAP,
+        message: "overflow",
+        reason: "subscriber_overflow",
+      });
     },
   },
 ])("ends the observation for $name", (testCase) => {

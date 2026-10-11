@@ -9,6 +9,7 @@ import (
 	"core/shared/serverapi"
 
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"google.golang.org/protobuf/proto"
@@ -202,7 +203,7 @@ func (c *remoteControlConn) callBinary(
 			return response.err
 		}
 		if response.binary == nil {
-			return fmt.Errorf("operation %s received a JSON response", operation.Name)
+			return fmt.Errorf("operation %s received no result", operation.Name)
 		}
 		return decodeBinaryResponse(operation, id, response.binary, result)
 	case <-ctx.Done():
@@ -236,7 +237,11 @@ func callBinaryRPC(
 			return err
 		}
 		if received.Kind != rpcwire.FrameBinary {
-			return fmt.Errorf("operation %s received a JSON response", operation.Name)
+			// Handshake rejection ends setup; established calls reject only the frame.
+			if _, establishing := request.(*connectionpb.HandshakeRequest); establishing {
+				return fmt.Errorf("handshake received a nonbinary frame")
+			}
+			continue
 		}
 		response, correlation, err := decodeBinaryEnvelope(received.Payload)
 		if err != nil {

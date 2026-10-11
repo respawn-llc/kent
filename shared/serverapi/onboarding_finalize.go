@@ -2,11 +2,7 @@ package serverapi
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"strings"
-
-	"core/shared/protocol"
 
 	"github.com/google/uuid"
 )
@@ -113,12 +109,6 @@ type OnboardingCanceledDetails struct {
 	Phase OnboardingCancelPhase `json:"phase"`
 }
 
-type ServerNotReadyEnvelope struct {
-	Type    string               `json:"type"`
-	Reason  ServerNotReadyReason `json:"reason"`
-	Details any                  `json:"details,omitempty"`
-}
-
 type ServerNotReadyDetails struct {
 	OnboardingCompleted bool    `json:"onboarding_completed,omitempty"`
 	SettingsPath        *string `json:"settings_path,omitempty"`
@@ -211,19 +201,6 @@ func (e *ServerNotReadyError) Is(target error) bool {
 	return ok && e != nil && e.Reason == reasonTarget.reason
 }
 
-func (e *ServerNotReadyError) RPCErrorCode() int { return protocol.ErrCodeServerNotReady }
-func (e *ServerNotReadyError) RPCErrorData() json.RawMessage {
-	return marshalRPCErrorData(ServerNotReadyEnvelope{Type: "server_not_ready", Reason: e.Reason, Details: e.Details})
-}
-
-func marshalRPCErrorData(value any) json.RawMessage {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return nil
-	}
-	return data
-}
-
 func NewOnboardingFinalizeError(code OnboardingFinalizeErrorCode, details any, cause error) *OnboardingFinalizeError {
 	return &OnboardingFinalizeError{Code: code, Details: details, cause: cause}
 }
@@ -234,34 +211,4 @@ func NewOnboardingCanceledError(phase OnboardingCancelPhase) *OnboardingFinalize
 
 func NewServerNotReadyError(reason ServerNotReadyReason, details any, cause error) *ServerNotReadyError {
 	return &ServerNotReadyError{Reason: reason, Details: details, cause: cause}
-}
-
-func DecodeServerNotReadyError(data json.RawMessage, message string) error {
-	var envelope struct {
-		Type    string               `json:"type"`
-		Reason  ServerNotReadyReason `json:"reason"`
-		Details json.RawMessage      `json:"details,omitempty"`
-	}
-	if err := json.Unmarshal(data, &envelope); err != nil || envelope.Type != "server_not_ready" || envelope.Reason == "" {
-		return errors.New(strings.TrimSpace(message))
-	}
-	return &ServerNotReadyError{Reason: envelope.Reason, Details: decodeJSONDetails[ServerNotReadyDetails](envelope.Details)}
-}
-
-func decodeJSONDetails[T any](data json.RawMessage) any {
-	if len(data) == 0 {
-		return nil
-	}
-	var value *T
-	if err := json.Unmarshal(data, &value); err != nil {
-		var fallback map[string]any
-		if fallbackErr := json.Unmarshal(data, &fallback); fallbackErr == nil {
-			return fallback
-		}
-		return nil
-	}
-	if value == nil {
-		return nil
-	}
-	return *value
 }

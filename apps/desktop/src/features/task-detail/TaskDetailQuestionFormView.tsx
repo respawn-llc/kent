@@ -2,7 +2,7 @@ import { type ReactNode, type RefCallback, useCallback, useEffect, useId, useRef
 import { useTranslation } from "react-i18next";
 
 import { type ApprovalDecision, type FileAccessTarget, type QuestionAttentionItem } from "@/api";
-import { useTextFieldSubmitShortcut } from "@/app-facade";
+import { usePathFormatter, useTextFieldSubmitShortcut } from "@/app-facade";
 import {
   Button,
   RadioGroup,
@@ -281,6 +281,7 @@ function QuestionFormFrame({
 }>) {
   const { t } = useTranslation();
   const hasAccessTargets = accessTargets !== undefined && accessTargets.length > 0;
+  const formatPath = usePathFormatter();
   const formShortcut = useTextFieldSubmitShortcut({
     available: canSubmit,
     kind: "form",
@@ -294,7 +295,9 @@ function QuestionFormFrame({
         if (canSubmit) onSubmit();
       }}
     >
-      {accessTargets === undefined ? null : <PromptAccessTargets targets={accessTargets} />}
+      {accessTargets === undefined ? null : (
+        <PromptAccessTargets targets={accessTargets} formatPath={formatPath} />
+      )}
       {!hasAccessTargets && question !== undefined && question.length > 0 ? (
         <div className="min-w-0 text-[var(--color-on-island)]">
           <StaticMarkdown value={question} />

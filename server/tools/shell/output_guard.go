@@ -12,16 +12,20 @@ const oversizedOutputMessageTemplate = "Command was executed but the output you 
 
 type oversizedOutputGuard struct {
 	contextWindowTokens int
+	estimateText        func(string) int
 }
 
 func (g oversizedOutputGuard) shouldGuard(requestedOutputTokens *int, modelVisibleOutput string) bool {
 	return requestedOutputTokens != nil &&
 		*requestedOutputTokens > g.contextWindowTokens/2 &&
-		textutil.ApproxTextTokenCount(modelVisibleOutput) > g.contextWindowTokens/2
+		g.estimateText(modelVisibleOutput) > g.contextWindowTokens/2
 }
 
-func newOversizedOutputGuard(contextWindowTokens int) oversizedOutputGuard {
-	return oversizedOutputGuard{contextWindowTokens: contextWindowTokens}
+func newOversizedOutputGuard(contextWindowTokens int, estimateText func(string) int) oversizedOutputGuard {
+	if estimateText == nil {
+		estimateText = textutil.ApproxTextTokenCount
+	}
+	return oversizedOutputGuard{contextWindowTokens: contextWindowTokens, estimateText: estimateText}
 }
 
 func (g oversizedOutputGuard) FailedResult(

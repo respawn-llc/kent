@@ -16,6 +16,10 @@ type countingFailingStreamClient struct {
 	err   error
 }
 
+func (*countingFailingStreamClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
+	return defaultTestProviderCapabilities(), nil
+}
+
 func (c *countingFailingStreamClient) Generate(context.Context, llm.Request, llm.StreamCallbacks) (llm.Response, error) {
 	c.calls.Add(1)
 	return llm.Response{}, c.err
@@ -110,7 +114,7 @@ func TestRequiredRetryClearsIncompleteAssistantReasoningAndTools(t *testing.T) {
 		func(_ llm.ReasoningSummaryDelta) { sequence = append(sequence, EventReasoningDelta) },
 		func() { sequence = append(sequence, EventAssistantDeltaReset, EventReasoningDeltaReset) },
 	)
-	if err != nil || len(resp.ToolCalls) != 0 || len(sequence) != 6 || sequence[0] != EventAssistantDelta || sequence[1] != EventReasoningDelta || sequence[2] != EventAssistantDeltaReset || sequence[3] != EventReasoningDeltaReset || sequence[4] != EventAssistantDelta || sequence[5] != EventReasoningDelta {
+	if err != nil || len(resp.response.ToolCalls) != 0 || len(sequence) != 6 || sequence[0] != EventAssistantDelta || sequence[1] != EventReasoningDelta || sequence[2] != EventAssistantDeltaReset || sequence[3] != EventReasoningDeltaReset || sequence[4] != EventAssistantDelta || sequence[5] != EventReasoningDelta {
 		t.Fatalf("required retry = response:%+v error:%v sequence:%v", resp, err, sequence)
 	}
 }

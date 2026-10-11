@@ -105,8 +105,6 @@ describe("ApiClient task search", () => {
         },
       ],
     });
-    expect(transport.calls).toEqual([]);
-    expect(transport.dedicatedCalls).toEqual([]);
     expect(transport.descriptorCalls).toEqual([
       {
         descriptor: method,

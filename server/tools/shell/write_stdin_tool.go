@@ -38,13 +38,13 @@ type WriteStdinTool struct {
 	background           *Manager
 }
 
-func NewWriteStdinTool(outputLimit int, contextWindowTokens int, background *Manager) *WriteStdinTool {
+func NewWriteStdinTool(outputLimit int, contextWindowTokens int, background *Manager, estimateText func(string) int) *WriteStdinTool {
 	if outputLimit <= 0 {
 		outputLimit = defaultLimit
 	}
 	return &WriteStdinTool{
 		outputLimit:          outputLimit,
-		oversizedOutputGuard: newOversizedOutputGuard(contextWindowTokens),
+		oversizedOutputGuard: newOversizedOutputGuard(contextWindowTokens, estimateText),
 		background:           background,
 	}
 }

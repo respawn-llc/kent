@@ -2,12 +2,10 @@ import { chatToolRowsEnglish } from "./chatToolRowsEn";
 import { chatWorktreeEnglish } from "./chatWorktreeEn";
 
 const chatPickerEnglish = {
-  position: "Question {{current}} of {{count}}",
+  position: "{{current}} of {{count}}",
   previous: "Previous question",
   next: "Next question",
-  declineShortcut: "Decline to answer (Ctrl+D)",
-  decline: "Decline to answer",
-  sending: "Sending answers…",
+  decline: "Decline to answer (Ctrl+D)",
   declined: "This prompt has already been declined.",
   sendingFailed: "Sending failed",
   sendingFailedBody: "Your answers are still here. Review them and submit again.",
@@ -22,7 +20,7 @@ export const chatEnglish = {
     failed: "Could not load transcript",
   },
   newChat: "New Chat",
-  savingDraft: "Saving draft before leaving…",
+  navigationPending: "Wait for Chat navigation to finish",
   workspace: "Choose workspace",
   workspacePending: "Wait for the first Chat action to finish before changing workspace.",
   defaultWorkspaceMissing: "The Project default workspace is unavailable.",

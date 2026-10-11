@@ -68,7 +68,11 @@ export function shareSegment(
     if (source === undefined || source === row) return row;
     const previous = authoritativePayload(source);
     if (replaceEqualDeep(previous, authoritativePayload(row)) !== previous) {
-      throw new ContractError("Recurrent transcript locator carries an incompatible committed payload.");
+      const error = new ContractError(
+        "Recurrent transcript locator carries an incompatible committed payload.",
+      );
+      error.cause = { locator: row.Locator, resident: source, incoming: row };
+      throw error;
     }
     return source;
   });

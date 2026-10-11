@@ -388,7 +388,7 @@ const eventProjections: {
           [T.SessionSettingKind.AUTO_COMPACTION]: "auto_compaction",
         }),
         Changed: value.changed,
-        SessionName: field.case === "sessionName" ? field.value : null,
+        SessionName: field.case === "sessionName" ? (field.value.name ?? null) : null,
         Thinking: field.case === "thinking" ? field.value : null,
         FastMode: field.case === "fastMode" ? field.value : null,
         Supervisor: field.case === "supervisor" ? field.value : null,

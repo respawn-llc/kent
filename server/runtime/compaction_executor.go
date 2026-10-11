@@ -119,7 +119,7 @@ func (e *Engine) compactWithContextRepairRetry(
 		}
 
 		targetSavedTokens := compactionOverflowRepairTargetTokens(contextWindowTokens, attempt+1)
-		nextInput, repaired := collapseCompactionOverflowToolPayloadsAfterSavings(currentInput, targetSavedTokens, repairStats.EstimatedSavedTokens)
+		nextInput, repaired := collapseCompactionOverflowToolPayloadsAfterSavings(e.cfg.TokenEstimator, currentInput, targetSavedTokens, repairStats.EstimatedSavedTokens)
 		if !repaired.Collapsed() {
 			// Only known tool payloads are safe to collapse here. Ordinary
 			// conversation history must not be trimmed or request-shaped at
@@ -135,7 +135,9 @@ func (e *Engine) compactWithContextRepairRetry(
 
 func (e *Engine) compactWithRetry(ctx context.Context, stepID string, client *observedModelClient, request llm.CompactionRequest) (llm.CompactionResponse, error) {
 	observed, err := e.prepareCacheObservedRequest(
+		ctx,
 		stepID,
+		client,
 		request,
 		modelcontract.ProviderOperationPurposeCompaction,
 		cacheResponseObservationExactStep,
@@ -244,7 +246,7 @@ func (e *Engine) compactLocal(ctx context.Context, stepID string, input []llm.Re
 		Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value(strings.TrimSpace(summary)),
 	}})
 
-	usageInputTokens := estimateItemsTokens(replacement)
+	usageInputTokens := llm.EstimateItemsTokens(e.cfg.TokenEstimator, replacement)
 	return compactionResult{
 		engine:                      "local",
 		items:                       replacement,
@@ -312,7 +314,7 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, stepID st
 			return "", repairStats, toolCallRejectionCount, err
 		}
 		targetSavedTokens := compactionOverflowRepairTargetTokens(contextWindowTokens, repairAttempt+1)
-		nextWindow, repaired := collapseCompactionOverflowToolPayloadsAfterSavings(window, targetSavedTokens, repairStats.EstimatedSavedTokens)
+		nextWindow, repaired := collapseCompactionOverflowToolPayloadsAfterSavings(e.cfg.TokenEstimator, window, targetSavedTokens, repairStats.EstimatedSavedTokens)
 		if !repaired.Collapsed() {
 			// Only known tool payloads are safe to collapse here. Ordinary
 			// conversation history must not be trimmed or request-shaped at
@@ -338,7 +340,7 @@ func (e *Engine) localCompactionSummaryFromWindow(ctx context.Context, stepID st
 			return "", toolCallRejectionCount, err
 		}
 
-		resp, err := e.generateWithRetryClient(
+		candidate, err := e.generateWithRetryClient(
 			ctx,
 			stepID,
 			e.llm,
@@ -350,6 +352,7 @@ func (e *Engine) localCompactionSummaryFromWindow(ctx context.Context, stepID st
 		if err != nil {
 			return "", toolCallRejectionCount, err
 		}
+		resp := candidate.response
 		if len(resp.ToolCalls) > 0 {
 			toolCallRejectionCount++
 			if attempt >= localCompactionToolCallRetries {

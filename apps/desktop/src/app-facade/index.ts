@@ -14,6 +14,7 @@ export { infiniteQueryReadActions, queryReadActions, queryAction, useQueryAction
 export { useProjectObservation, ProjectObservationFailure } from "./useProjectObservation";
 export * from "./formatters";
 export * from "./nativeHooks";
+export { nativeChatRoutePath, openNativeChat } from "./nativeChat";
 export * from "./navigation";
 export * from "./navigationTransitions";
 export * from "./projectDeletionEvents";
@@ -42,6 +43,7 @@ export * from "./taskSearchQueries";
 export * from "./textFieldSubmitShortcut";
 export * from "./transcript-window";
 export * from "./useAppServices";
+export * from "./usePathFormatter";
 export * from "./chatPromptPresence";
 export * from "./useNativeDialogFallback";
 export * from "./useRetainedQueryData";

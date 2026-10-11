@@ -22,7 +22,7 @@ import {
 import { protobufRpcError, requireUnarySuccess } from "./protobufRpc";
 import { throwWorkflowLabelFailure } from "./workflowLabelFailure";
 import { throwTaskDependencyFailure } from "./taskDependencyFailure";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 import { canonicalTaskLabelFilter } from "./workflowLabels";
 import { taskListPage, projectTaskGroupCounts } from "./clientTaskProjection";
 import {
@@ -64,7 +64,7 @@ export function taskLabelFilterPayload(filter: TaskLabelFilter): LabelFilter {
 }
 
 export async function listProjectLabels(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   projectID: string,
 ): Promise<ProjectLabelCatalog> {
   const method = ProjectLabelService.method.list;
@@ -74,7 +74,7 @@ export async function listProjectLabels(
 }
 
 export async function createProjectLabel(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   projectID: string,
   name: string,
 ): Promise<ProjectLabel> {
@@ -85,7 +85,7 @@ export async function createProjectLabel(
 }
 
 export async function reorderProjectLabels(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   projectID: string,
   labelIDs: readonly string[],
 ): Promise<ProjectLabelCatalog> {
@@ -99,7 +99,7 @@ export async function reorderProjectLabels(
 }
 
 export async function renameProjectLabel(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   projectID: string,
   labelID: string,
   name: string,
@@ -116,7 +116,7 @@ export async function renameProjectLabel(
 }
 
 export async function deleteProjectLabel(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   projectID: string,
   labelID: string,
 ): Promise<string> {
@@ -131,10 +131,7 @@ export async function deleteProjectLabel(
   return success.labelId;
 }
 
-export async function getTaskLabels(
-  transport: DescriptorRpcTransport,
-  taskID: string,
-): Promise<TaskLabelAssignment> {
+export async function getTaskLabels(transport: RpcTransport, taskID: string): Promise<TaskLabelAssignment> {
   const method = TaskLabelReadService.method.get;
   const result = await transport.callDescriptor(method, create(method.input, { taskId: taskID }));
   throwWorkflowLabelFailure(method, result.outcome);
@@ -142,7 +139,7 @@ export async function getTaskLabels(
 }
 
 export async function updateTaskLabels(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   taskID: string,
   addLabelIDs: readonly string[],
   removeLabelIDs: readonly string[],
@@ -177,7 +174,7 @@ function taskLabelAssignment(value: AssignedLabelIds | undefined, taskID: string
 }
 
 export async function createTask(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   input: TaskMutationInput,
 ): Promise<CreatedTaskSummary> {
   const method = TaskLifecycleService.method.create;
@@ -215,10 +212,7 @@ export async function createTask(
   return { id: task.id, shortID: task.shortId, title: task.title, workflowID: task.workflowId };
 }
 
-export async function listTasks(
-  transport: DescriptorRpcTransport,
-  input: TaskListInput,
-): Promise<TaskListPage> {
+export async function listTasks(transport: RpcTransport, input: TaskListInput): Promise<TaskListPage> {
   const method = TaskReadService.method.list;
   const result = await transport.callDescriptor(
     method,
@@ -243,7 +237,7 @@ export async function listTasks(
 }
 
 export async function getProjectTaskGroupCounts(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   input: ProjectTaskGroupCountsInput,
 ): Promise<ProjectTaskGroupCounts> {
   const method = TaskReadService.method.getProjectGroupCounts;

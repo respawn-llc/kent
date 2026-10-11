@@ -442,93 +442,63 @@ func requireNoGatewayHandlerError(t *testing.T, errs <-chan error) {
 	}
 }
 
-func TestProtocolErrorMapsRuntimeUnavailable(t *testing.T) {
-	code, _ := protocolError(serverapi.ErrRuntimeUnavailable)
-	if code != protocol.ErrCodeRuntimeUnavailable {
-		t.Fatalf("protocol error code = %d, want %d", code, protocol.ErrCodeRuntimeUnavailable)
+func TestStreamFailureMapsRuntimeUnavailable(t *testing.T) {
+	code, _ := streamFailure(serverapi.ErrRuntimeUnavailable)
+	if code != sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_RUNTIME_UNAVAILABLE {
+		t.Fatalf("protocol error code = %d, want %d", code, sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_RUNTIME_UNAVAILABLE)
 	}
 }
 
-func TestProtocolErrorMapsWorkflowTaskNotFound(t *testing.T) {
-	code, _ := protocolError(serverapi.ErrWorkflowTaskNotFound)
-	if code != protocol.ErrCodeWorkflowTaskNotFound {
-		t.Fatalf("protocol error code = %d, want %d", code, protocol.ErrCodeWorkflowTaskNotFound)
+func TestStreamFailureMapsWorkflowTaskNotFound(t *testing.T) {
+	code, _ := streamFailure(serverapi.ErrWorkflowTaskNotFound)
+	if code != sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_TASK_NOT_FOUND {
+		t.Fatalf("protocol error code = %d, want %d", code, sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_TASK_NOT_FOUND)
 	}
 }
 
-func TestProtocolErrorMapsModelStreamStalled(t *testing.T) {
-	code, _ := protocolError(fmt.Errorf("model generation failed after retries: %w", llmerrors.ErrModelStreamStalled))
-	if code != protocol.ErrCodeModelStreamStalled {
-		t.Fatalf("protocol error code = %d, want %d", code, protocol.ErrCodeModelStreamStalled)
+func TestStreamFailureMapsModelStreamStalled(t *testing.T) {
+	code, _ := streamFailure(fmt.Errorf("model generation failed after retries: %w", llmerrors.ErrModelStreamStalled))
+	if code != sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_MODEL_STREAM_STALLED {
+		t.Fatalf("protocol error code = %d, want %d", code, sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_MODEL_STREAM_STALLED)
 	}
 }
 
-func TestProtocolErrorMapsContextCanceled(t *testing.T) {
-	code, message := protocolError(context.Canceled)
-	if code != protocol.ErrCodeRequestCanceled {
-		t.Fatalf("protocol error code = %d, want %d", code, protocol.ErrCodeRequestCanceled)
+func TestStreamFailureMapsContextCanceled(t *testing.T) {
+	code, message := streamFailure(context.Canceled)
+	if code != sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_REQUEST_CANCELED {
+		t.Fatalf("protocol error code = %d, want %d", code, sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_REQUEST_CANCELED)
 	}
 	if message != canceledByClientMessage {
 		t.Fatalf("protocol error message = %q, want %q", message, canceledByClientMessage)
 	}
 }
 
-func TestProtocolErrorMapsStreamFailureAsStreamFailure(t *testing.T) {
+func TestStreamFailureMapsStreamFailureAsStreamFailure(t *testing.T) {
 	source := serverapi.ErrStreamFailed
-	code, message := protocolError(source)
-	if code != protocol.ErrCodeStreamFailed {
-		t.Fatalf("protocol error code = %d, want %d", code, protocol.ErrCodeStreamFailed)
+	code, message := streamFailure(source)
+	if code != sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_STREAM_FAILED {
+		t.Fatalf("protocol error code = %d, want %d", code, sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_STREAM_FAILED)
 	}
 	if message != source.Error() {
 		t.Fatalf("protocol error message = %q, want %q", message, source.Error())
 	}
 }
 
-func TestResponseForErrorSurfacesIrreconcilableRecoveryEvidence(t *testing.T) {
-	detail := &session.IrreconcilableRecoveryDetail{
-		SessionID:             "session-1",
-		Operation:             "recover_append_transaction",
-		RecoveryPath:          "/sessions/session-1/append-recovery.json",
-		EventsPath:            "/sessions/session-1/events.jsonl",
-		CurrentMetadataSHA256: "current",
-		PreMetadataSHA256:     "pre",
-		PostMetadataSHA256:    "post",
-		Phase:                 "committed",
-		Conflict:              session.IrreconcilableRecoveryConflictCommittedSuffix,
-		Suffix: &session.IrreconcilableRecoverySuffixIdentity{
-			StartOffset:   101,
-			EndOffset:     202,
-			EventCount:    2,
-			FirstSequence: 7,
-			LastSequence:  8,
-			SHA256:        "suffix",
-		},
-	}
-
-	response := responseForError("recovery-conflict", detail)
-	if response.Error == nil {
-		t.Fatal("recovery-conflict response did not include an error")
-	}
-	if response.Error.Message != detail.Error() {
-		t.Fatalf("recovery-conflict message = %q, want projected detail %q", response.Error.Message, detail.Error())
-	}
-}
-
-func TestStreamCompleteParamsMapsTerminalErrors(t *testing.T) {
+func TestStreamCompletionMapsTerminalErrors(t *testing.T) {
 	for _, err := range []error{nil, io.EOF, context.Canceled, context.DeadlineExceeded} {
-		params := streamCompleteParams(err)
-		if params.Code != 0 || params.Message != "" {
-			t.Fatalf("streamCompleteParams(%v) = %+v, want empty completion", err, params)
+		params := binaryStreamCompletion(err).(*sharedpb.StreamCompletion)
+		if params.Code != nil || params.Message != nil {
+			t.Fatalf("completion(%v) = %+v, want empty completion", err, params)
 		}
 	}
-	params := streamCompleteParams(serverapi.ErrStreamFailed)
-	if params.Code != protocol.ErrCodeStreamFailed || params.Message != serverapi.ErrStreamFailed.Error() {
-		t.Fatalf("streamCompleteParams(stream failed) = %+v, want stream-failed code/message", params)
+	params := binaryStreamCompletion(serverapi.ErrStreamFailed).(*sharedpb.StreamCompletion)
+	if params.GetCode() != sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_STREAM_FAILED {
+		t.Fatalf("completion(stream failed) = %+v, want stream-failed code", params)
 	}
 	transcriptErr := serverapi.NewTranscriptStreamError(serverapi.TranscriptCloseReasonSubscriberOverflow, serverapi.ErrStreamGap)
-	params = streamCompleteParams(transcriptErr)
-	if params.Code != protocol.ErrCodeStreamGap || params.TranscriptCloseReason != string(serverapi.TranscriptCloseReasonSubscriberOverflow) {
-		t.Fatalf("streamCompleteParams(transcript overflow) = %+v, want stream gap plus typed transcript reason", params)
+	params = binaryStreamCompletion(transcriptErr).(*sharedpb.StreamCompletion)
+	if params.GetCode() != sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_STREAM_GAP || params.GetTranscriptCloseReason() != sharedpb.TranscriptCloseReason_TRANSCRIPT_CLOSE_REASON_SUBSCRIBER_OVERFLOW {
+		t.Fatalf("completion(transcript overflow) = %+v, want stream gap plus typed transcript reason", params)
 	}
 }
 

@@ -973,7 +973,7 @@ func TestSessionWorkspaceRetargeterSharedRootRemainsPersistable(t *testing.T) {
 				t.Fatalf("NewOpenSessionDescriptor: %v", err)
 			}
 			if err := fixture.authority.WithSessionStore(context.Background(), descriptor, func(_ context.Context, store *session.Store) error {
-				if err := store.SetName("persisted after shared-root rebind"); err != nil {
+				if err := store.SetName(textutil.Value("persisted after shared-root rebind")); err != nil {
 					return err
 				}
 				appendSessionMessage(t, store, "step-after-rebind", session.MessageRoleUser, "after rebind")
@@ -998,7 +998,7 @@ func TestSessionWorkspaceRetargeterSharedRootRemainsPersistable(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read reopened event-log revision: %v", err)
 			}
-			if reopened.Meta().Name != "persisted after shared-root rebind" || revision != 1 {
+			if reopened.Meta().Name == nil || *reopened.Meta().Name != "persisted after shared-root rebind" || revision != 1 {
 				t.Fatalf("reopened metadata=%+v event-log revision=%d", reopened.Meta(), revision)
 			}
 			belongs, err := fixture.metadata.SessionBelongsToProject(context.Background(), fixture.child.Meta().SessionID, wantProjectID)
@@ -1066,7 +1066,7 @@ func TestSessionWorkspaceRetargeterStaleObserverCannotRestorePreviousTarget(t *t
 	fixture.observer.Arm()
 	persistDone := make(chan error, 1)
 	go func() {
-		persistDone <- store.SetName("captured before rebind")
+		persistDone <- store.SetName(textutil.Value("captured before rebind"))
 	}()
 	select {
 	case <-fixture.observer.started:
@@ -1110,8 +1110,8 @@ func TestSessionWorkspaceRetargeterStaleObserverCannotRestorePreviousTarget(t *t
 	if reopened.Meta().WorkspaceContainer != retargeted.result.Binding.WorkspaceName {
 		t.Fatalf("workspace container = %q, want %q", reopened.Meta().WorkspaceContainer, retargeted.result.Binding.WorkspaceName)
 	}
-	if reopened.Meta().Name != "captured before rebind" {
-		t.Fatalf("session name = %q, want pre-rebind metadata mutation", reopened.Meta().Name)
+	if reopened.Meta().Name == nil || *reopened.Meta().Name != "captured before rebind" {
+		t.Fatalf("session name = %v, want pre-rebind metadata mutation", reopened.Meta().Name)
 	}
 	target, err := fixture.metadata.ResolveSessionExecutionTarget(context.Background(), store.Meta().SessionID)
 	if err != nil {

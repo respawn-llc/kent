@@ -6,7 +6,6 @@ import type { MockInstance } from "vitest";
 
 import {
   RpcError,
-  rpcErrorCodes,
   type ProjectEdit,
   type WorkspaceCatalogPage,
   type WorkspaceCatalogRow,
@@ -288,7 +287,7 @@ it("preserves edited drafts across a recoverable metadata failure and explicit R
 it("treats a missing Project from the catalog as Back", async () => {
   listWorkspaces.mockRejectedValue(
     new RpcError({
-      code: rpcErrorCodes.projectNotFound,
+      code: "project_not_found",
       message: "gone",
       method: "project.workspace.list",
     }),

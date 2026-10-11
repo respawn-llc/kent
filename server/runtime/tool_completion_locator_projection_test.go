@@ -6,6 +6,7 @@ import (
 
 	"core/server/llm"
 	"core/server/tools"
+	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -102,6 +103,94 @@ func TestToolCompletionLocatorOwnerSurvivesRoleToolMaterializationAndReopen(t *t
 		if got := findToolFact(t, reopenedFacts, callID).Locator; got != liveLocators[callID] {
 			t.Fatalf("reopened tool %s locator = %+v, live locator = %+v", callID, got, liveLocators[callID])
 		}
+	}
+}
+
+func TestQuestionAnswererSurvivesV1HydrationAndTranscriptPages(t *testing.T) {
+	t.Parallel()
+	answerer, err := runtimeids.ParseSessionID("bf18c402-c6d0-4f32-8e0d-01e34cbfc273")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := mustCreateTestSession(t)
+	var events []Event
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
+		Model:   "gpt-6-sol",
+		OnEvent: func(event Event) { events = append(events, event) },
+	})
+	restoreStep := setTestActiveStep(engine, "step-question")
+	defer restoreStep()
+	const callID = "call-question"
+	call := llm.ToolCall{
+		ID:    callID,
+		Name:  string(toolspec.ToolAskQuestion),
+		Input: json.RawMessage(`{"question":"Choose","suggestions":["option"]}`),
+	}
+	if err := engine.steer(
+		runtimeTestStepID("step-question"),
+		steerMessagesWithPersistenceIntent(
+			steeringPriorityNormal,
+			steeringMessageEventNone,
+			true,
+			[]llm.Message{{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{call}}},
+		),
+	); err != nil {
+		t.Fatalf("append Question tool call: %v", err)
+	}
+	result := tools.Result{
+		CallID:              callID,
+		Name:                toolspec.ToolAskQuestion,
+		Output:              json.RawMessage(`"Agent answered"`),
+		AnsweredBySessionID: &answerer,
+	}
+	before := len(events)
+	if err := engine.steer(runtimeTestStepID("step-question"), steerToolCompletionIntent(result)); err != nil {
+		t.Fatalf("persist Question completion: %v", err)
+	}
+	var liveFacts []TranscriptCommittedRowFact
+	for _, event := range events[before:] {
+		liveFacts = append(liveFacts, TranscriptCommittedRowFactsFromEvent(event)...)
+	}
+	assertQuestionAnswererToolFact(t, findToolFact(t, liveFacts, callID), answerer)
+
+	assertQuestionAnswererToolFact(
+		t,
+		findToolFact(t, TranscriptCommittedRowFactsFromSnapshot(mustEngineNewestSegmentPage(t, engine).Snapshot), callID),
+		answerer,
+	)
+	assertQuestionAnswererToolFact(
+		t,
+		findToolFact(t, hydrationSnapshot(t, engine).CommittedRows, callID),
+		answerer,
+	)
+
+	if err := engine.Close(); err != nil {
+		t.Fatalf("close engine: %v", err)
+	}
+	reopened := mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
+	assertQuestionAnswererToolFact(
+		t,
+		findToolFact(t, TranscriptCommittedRowFactsFromSnapshot(mustEngineNewestSegmentPage(t, reopened).Snapshot), callID),
+		answerer,
+	)
+	assertQuestionAnswererToolFact(
+		t,
+		findToolFact(t, hydrationSnapshot(t, reopened).CommittedRows, callID),
+		answerer,
+	)
+}
+
+func assertQuestionAnswererToolFact(
+	t *testing.T,
+	fact TranscriptCommittedRowFact,
+	answerer runtimeids.SessionID,
+) {
+	t.Helper()
+	if fact.Tool == nil ||
+		fact.Tool.AnsweredBySessionID == nil ||
+		*fact.Tool.AnsweredBySessionID != answerer ||
+		fact.Tool.QuestionAnswer != nil {
+		t.Fatalf("Question ToolRow fact = %#v, want answerer %s and no structured answer", fact.Tool, answerer)
 	}
 }
 

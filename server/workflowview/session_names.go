@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 )
 
@@ -46,15 +47,9 @@ func resolveSessionNames(
 		if _, exists := names[row.ID]; exists {
 			return nil, fmt.Errorf("session name lookup returned duplicate session %q", row.ID)
 		}
-		var name *string
-		switch {
-		case row.Name == "":
-			// TODO(KENT-220): Delete the exact-empty compatibility branch after Session names migrate to null.
-		case strings.TrimSpace(row.Name) == "":
+		name := metadata.OptionalString(row.Name)
+		if name != nil && strings.TrimSpace(*name) == "" {
 			return nil, fmt.Errorf("session name lookup returned a blank name for session %q", row.ID)
-		default:
-			value := row.Name
-			name = &value
 		}
 		names[row.ID] = name
 	}

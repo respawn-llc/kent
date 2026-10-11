@@ -16,6 +16,7 @@ export type PickerDraft = Readonly<{
 export type PickerState = Readonly<{
   current: string | null;
   drafts: ReadonlyMap<string, PickerDraft>;
+  batchToolCallIDs: readonly string[];
 }>;
 
 export type PickerAction =
@@ -29,7 +30,7 @@ export type PickerTransition = Readonly<{
 }>;
 
 export function emptyPickerState(): PickerState {
-  return { current: null, drafts: new Map() };
+  return { current: null, drafts: new Map(), batchToolCallIDs: [] };
 }
 
 export function pickerBatch(prompts: readonly PendingPrompt[]): readonly PendingPrompt[] {
@@ -43,6 +44,17 @@ export function transitionPicker(
   action: PickerAction,
 ): PickerTransition {
   const batch = pickerBatch(prompts);
+  const first = batch[0];
+  if (first === undefined) return { state: emptyPickerState(), effect: "none" };
+  const pendingIDs = new Set(batch.map((prompt) => prompt.toolCallID));
+  const sameBatch = previous.batchToolCallIDs.some((id) => pendingIDs.has(id));
+  const batchToolCallIDs = [
+    ...new Set([
+      ...(first.batch?.toolCallIDs ?? []),
+      ...(sameBatch ? previous.batchToolCallIDs : []),
+      ...pendingIDs,
+    ]),
+  ];
   const drafts = new Map(
     batch.map((prompt) => [
       prompt.toolCallID,
@@ -50,7 +62,7 @@ export function transitionPicker(
     ]),
   );
   const current = currentAfterSync(previous, drafts);
-  const state = { current, drafts };
+  const state = { current, drafts, batchToolCallIDs };
   if (current === null || action.kind === "sync") return { state, effect: "none" };
   const index = batch.findIndex((prompt) => prompt.toolCallID === current);
   if (action.kind === "navigate") {
@@ -64,18 +76,18 @@ export function transitionPicker(
   }
   const draft = drafts.get(current);
   if (draft === undefined) throw new Error("Visible prompt has no draft.");
-  return editDraft({ current, drafts }, batch, action, draft);
+  return editDraft({ current, drafts, batchToolCallIDs }, batch, action, draft);
 }
 
 function editDraft(
-  state: Readonly<{ current: string; drafts: Map<string, PickerDraft> }>,
+  state: Readonly<{ current: string; drafts: Map<string, PickerDraft>; batchToolCallIDs: readonly string[] }>,
   batch: readonly PendingPrompt[],
   action: Exclude<PickerAction, { kind: "navigate" }>,
   draft: PickerDraft,
 ): PickerTransition {
   const { current, drafts } = state;
   const index = batch.findIndex((prompt) => prompt.toolCallID === current);
-  if (action.kind === "confirm" && [...drafts.values()].every(isPickerDraftComplete)) {
+  if (action.kind === "confirm" && [...drafts.values()].every(isPickerDraftComplete) && batchReady(batch)) {
     return { state, effect: "submit" };
   }
   if (draft.status === "declined") return { state, effect: "none" };
@@ -130,7 +142,11 @@ function advance(state: PickerState, batch: readonly PendingPrompt[], index: num
       return { state: { ...state, current: next.toolCallID }, effect: "none" };
     }
   }
-  return { state, effect: "submit" };
+  return { state, effect: batchReady(batch) ? "submit" : "none" };
+}
+
+function batchReady(batch: readonly PendingPrompt[]): boolean {
+  return batch.every((prompt) => prompt.batch === undefined || prompt.batch.unmaterializedCount === 0);
 }
 
 function selectDraft(

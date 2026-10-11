@@ -21,17 +21,19 @@ import { context, createChatSettingsApi } from "./chatSettings";
 import { createChatGoalApi } from "./chatGoal";
 import { createChatCommandApi } from "./chatCommands";
 import { createChatDraftApi } from "./chatDrafts";
+import { createChatNameApi } from "./chatName";
+import { chatSettingsObservation } from "./chatSettingsObservation";
 import { listPendingPrompts } from "./clientPendingPrompts";
 import { answerPromptBatch } from "./clientPromptAnswers";
 import { ContractError, RpcError, TransportError } from "./errors";
 import { mainView } from "./chatReadModel";
 import { transcriptMessage, transcriptPage } from "./chatTranscript";
 import { enumValue, required } from "./chatWire";
-import { requireSessionAttachment } from "./jsonRpcSocket";
+import { requireSessionAttachment } from "./rpcSocket";
 import { InvalidTranscriptEventError } from "./subscriptionErrors";
 import { isValidChatSessionID, requireChatSessionID } from "./chatTarget";
 import type { ChatApi, ChatTranscriptMessage } from "./chatTypes";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 export type {
   ChatApi,
   ChatAcceptedDiagnostic,
@@ -54,6 +56,9 @@ export type {
   ChatRuntimeRelease,
   ChatRuntimeStatus,
   ChatSessionTarget,
+  ChatSessionNameMutation,
+  ChatSettingsSnapshot,
+  ChatSettingsObservation,
   ChatSettings,
   ChatSettingsTarget,
   ChatTranscriptCompletion,
@@ -80,8 +85,9 @@ export type {
   ChatGoalStatus,
 } from "./chatGoal";
 
-export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
+export function createChatApi(transport: RpcTransport): ChatApi {
   return {
+    subscribeSettings: (target, reportOverflow) => chatSettingsObservation(transport, target, reportOverflow),
     listPendingPrompts: async (target) =>
       listPendingPrompts(transport, {
         projectID: target.projectID,
@@ -90,6 +96,7 @@ export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
     answerPromptBatch: async (input) => answerPromptBatch(transport, input),
     ...createChatMutationApi(transport),
     ...createChatDraftApi(transport),
+    ...createChatNameApi(transport),
     ...createChatSettingsApi(transport),
     ...createChatGoalApi(transport),
     ...createChatCommandApi(transport),
@@ -228,8 +235,8 @@ export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
           },
           onComplete(value) {
             handler.onComplete({
-              code: value.code ?? 0,
-              message: value.message ?? "",
+              code: value.code ?? null,
+              message: value.message ?? null,
               reason:
                 value.transcriptCloseReason === undefined
                   ? null

@@ -315,7 +315,7 @@ func InitializeChatDraft(store *Store, state ChatDraftState) error {
 	if store.meta.PreviousSessionID != nil || store.meta.ParentAgentSessionID != nil {
 		return errors.New("Chat draft initialization requires an independent Session")
 	}
-	if store.meta.Name != "" ||
+	if store.meta.Name != nil ||
 		store.meta.FirstPromptPreview != "" ||
 		store.meta.InputDraft != "" ||
 		store.meta.Continuation != nil ||

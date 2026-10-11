@@ -198,7 +198,7 @@ type Meta struct {
 	ConnectionID                    *config.ConnectionID             `json:"connection_id"`
 	SessionID                       string                           `json:"session_id"`
 	Category                        *sessioncontract.SessionCategory `json:"category,omitempty"`
-	Name                            string                           `json:"name,omitempty"`
+	Name                            *string                          `json:"name,omitempty"`
 	FirstPromptPreview              string                           `json:"first_prompt_preview,omitempty"`
 	InputDraft                      string                           `json:"input_draft,omitempty"`
 	ProtectedInputDraft             *string                          `json:"protected_input_draft,omitempty"`
@@ -236,7 +236,7 @@ type ActiveWorkflowAssignmentState struct{}
 // change before a Workflow assignment commits.
 type PromptFacingMetadataSnapshot struct {
 	ConnectionID                  *config.ConnectionID
-	Name                          string
+	Name                          *string
 	FirstPromptPreview            string
 	Continuation                  *ContinuationContext
 	ChatSettings                  *ChatSettingsOverrides

@@ -68,7 +68,7 @@ func TestExecCommandCarriesExecutionCorrelationThroughSnapshotAndTerminalEvent(t
 	if err != nil {
 		t.Fatalf("background process ID: %v", err)
 	}
-	stdinTool := NewWriteStdinTool(16_000, 200_000, manager)
+	stdinTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
 	completed := callWriteStdin(t, stdinTool, "correlated-release", map[string]any{
 		"session_id":    processID,
 		"chars":         "release\n",
@@ -143,7 +143,7 @@ func TestBackgroundProcessKeepsCapturedHookAcrossLaterStartsPollingAndCompletion
 	runnerB := replacementRunner(t, "RUNTIME_B")
 	toolA := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "owner-a", runnerA)
 	toolB := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "owner-b", runnerB)
-	pollTool := NewWriteStdinTool(16_000, 200_000, manager)
+	pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
 
 	startA := callExecCommand(t, toolA, "a-background", map[string]any{
 		"cmd":           "printf early; sleep 0.2; printf late",
@@ -230,7 +230,7 @@ func TestRawBypassesCapturedPolicyInForegroundBackgroundAndPolling(t *testing.T)
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
 	tool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "raw-owner", replacementRunner(t, "RUNTIME"))
-	pollTool := NewWriteStdinTool(16_000, 200_000, manager)
+	pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
 
 	foreground := callExecCommand(t, tool, "raw-foreground", map[string]any{
 		"cmd":           "printf '\\033[31mforeground\\033[0m'",
@@ -290,7 +290,7 @@ func TestSharedManagerKeepsGlobalLifecycleAcrossCapturedPolicies(t *testing.T) {
 	manager := newShellTestManager(t, 50*time.Millisecond)
 	toolA := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "owner-a", replacementRunner(t, "RUNTIME_A"))
 	toolB := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "owner-b", replacementRunner(t, "RUNTIME_B"))
-	pollTool := NewWriteStdinTool(16_000, 200_000, manager)
+	pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
 	events := make(chan Event, 4)
 	manager.SetEventHandler(func(event Event) bool {
 		if event.Type != EventCompleted && event.Type != EventKilled {

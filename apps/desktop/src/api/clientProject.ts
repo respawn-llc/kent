@@ -28,7 +28,7 @@ import {
 import { requireCatalogProject } from "./clientCatalog";
 import { timestampMillis } from "./clientTime";
 import { requireUnarySuccess } from "./protobufRpc";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 import { CatalogContractError, ContractError } from "./errors";
 
 const listWorkspacesOperation = operationName(ProjectCatalogService.method.listWorkspaces);
@@ -36,7 +36,7 @@ const getWorkspaceOperation = operationName(ProjectCatalogService.method.getWork
 const getEditOperation = operationName(ProjectCatalogService.method.getEdit);
 
 export async function listWorkspaces(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   projectID: string,
   offset: number,
 ): Promise<WorkspaceCatalogPage> {
@@ -81,7 +81,7 @@ export async function listWorkspaces(
 }
 
 export async function getProjectWorkspace(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   projectID: string,
   selector: Readonly<{ workspaceID: string } | { workspaceRoot: string }>,
 ): Promise<ProjectWorkspaceResult> {
@@ -110,10 +110,7 @@ export async function getProjectWorkspace(
   );
 }
 
-export async function getProjectEdit(
-  transport: DescriptorRpcTransport,
-  projectID: string,
-): Promise<ProjectEdit> {
+export async function getProjectEdit(transport: RpcTransport, projectID: string): Promise<ProjectEdit> {
   const method = ProjectCatalogService.method.getEdit;
   const success = requireUnarySuccess(
     method,
@@ -127,7 +124,7 @@ export async function getProjectEdit(
   };
 }
 
-export async function planWorkspace(transport: DescriptorRpcTransport, path: string): Promise<BindingPlan> {
+export async function planWorkspace(transport: RpcTransport, path: string): Promise<BindingPlan> {
   const method = ProjectCatalogService.method.planWorkspaceBinding;
   const success = requireUnarySuccess(
     method,
@@ -144,7 +141,7 @@ export async function planWorkspace(transport: DescriptorRpcTransport, path: str
 }
 
 export async function listProjectHome(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   pageToken: string | null,
 ): Promise<ProjectPage> {
   const method = ProjectCatalogService.method.listHome;
@@ -169,7 +166,7 @@ export async function listProjectHome(
 }
 
 export async function createProject(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   displayName: string,
   projectKey: string,
   workspaceRoot: string,
@@ -193,7 +190,7 @@ export async function createProject(
 }
 
 export async function attachWorkspace(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   projectID: string,
   workspaceRoot: string,
 ): Promise<ProjectWorkspaceAttachResponse> {
@@ -212,7 +209,7 @@ export async function attachWorkspace(
 }
 
 export async function updateProject(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   projectID: string,
   displayName: string,
   projectKey = "",
@@ -236,7 +233,7 @@ export async function updateProject(
 }
 
 export async function setDefaultWorkspace(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   projectID: string,
   workspaceID: string,
 ): Promise<ProjectMutationResponse> {
@@ -258,7 +255,7 @@ export async function setDefaultWorkspace(
 }
 
 export async function unlinkWorkspace(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   projectID: string,
   workspaceID: string,
 ): Promise<WorkspaceUnlinkResponse> {
@@ -286,7 +283,7 @@ export async function unlinkWorkspace(
 }
 
 export async function deleteProject(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   projectID: string,
 ): Promise<ProjectDeleteResponse> {
   const method = ProjectCatalogService.method.delete;

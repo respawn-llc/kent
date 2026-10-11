@@ -3,9 +3,9 @@ package transport
 import (
 	"context"
 
-	"core/shared/apicontract"
 	"core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/chat_settings"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -23,7 +23,7 @@ func registerChatSettingsGatewayBinaryBindings(bindings map[string]gatewayBinary
 			var err error
 			if target := request.GetNewChat(); target != nil {
 				err = newRoutePolicyExecutor(g).authorizeScopeFacts(ctx, state,
-					apicontract.ScopeProjectWorkspaceBinding, readOperation.Name,
+					sharedpb.ScopePolicy_SCOPE_POLICY_PROJECT_WORKSPACE_BINDING, readOperation.Name,
 					routeScopeParams{projectID: target.ProjectId, workspaceID: target.WorkspaceId})
 			} else {
 				err = g.requireSessionInActiveProject(ctx, state, request.GetSession().SessionId)

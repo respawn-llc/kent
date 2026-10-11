@@ -184,6 +184,11 @@ export type BindingPlan = Readonly<{
   binding: ProjectBinding | null;
 }>;
 
+export type PromptQuestionBatch = Readonly<{
+  toolCallIDs: readonly string[];
+  unmaterializedCount: number;
+}>;
+
 export type PendingAsk = Readonly<{
   toolCallID: string;
   sessionID: string;
@@ -192,6 +197,7 @@ export type PendingAsk = Readonly<{
   suggestions: readonly string[];
   recommendedOptionIndex: number | null;
   createdAt: string;
+  batch?: PromptQuestionBatch;
 }>;
 
 export type ApprovalDecision = "allow_once" | "allow_session" | "deny";

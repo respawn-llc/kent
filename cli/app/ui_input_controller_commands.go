@@ -10,6 +10,7 @@ import (
 
 	"core/cli/app/commands"
 	"core/shared/clientui"
+	"core/shared/protoapi"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 
@@ -122,7 +123,7 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 		m.exitAction = UIActionLogout
 		return m, sequenceCmds(prefixCmd, tea.Quit)
 	case commands.ActionSetName:
-		next, cmd := c.handleSessionNameCommand(commandResult.SessionName)
+		next, cmd := c.handleSessionNameCommand(commandResult.Args)
 		return next, sequenceCmds(prefixCmd, cmd)
 	case commands.ActionSetThinking:
 		next, cmd := c.handleThinkingLevelCommand(commandResult.ThinkingLevel)
@@ -197,10 +198,15 @@ func (c uiInputController) handleCopyCommand() (tea.Model, tea.Cmd) {
 func (c uiInputController) handleSessionNameCommand(sessionName string) (tea.Model, tea.Cmd) {
 	m := c.model
 	sessionName = strings.TrimSpace(sessionName)
+	mutation := sessionNameCommandMutation(sessionName)
 	if m.hasRuntimeClient() {
-		return m, m.runtimeControlCommand(runtimeControlSetSessionName, sessionName, false, "")
+		return m, m.runtimeControlCommand(runtimeControlSetSessionName, mutation)
 	}
-	m.sessionName = sessionName
+	name, err := protoapi.SessionNameFromMutation(mutation)
+	if err != nil {
+		return m, m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
+	}
+	m.sessionName = name
 	return m, tea.SetWindowTitle(sessionTitle(m.sessionName))
 }
 

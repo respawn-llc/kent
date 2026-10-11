@@ -140,7 +140,7 @@ it("admits one pending Edit even when activated twice in the same turn", async (
 it.each([
   new ChatOperationError(
     new RpcError({
-      code: -32603,
+      code: "internal_failure",
       message: "Store unavailable",
       method: "session.resolve_transition",
     }),

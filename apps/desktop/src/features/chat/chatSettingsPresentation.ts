@@ -83,6 +83,7 @@ const operationFailureLabels = {
   opening: { internal: "chat.openingFailed", unknown: "chat.openingFailed" },
   settings: { internal: "chatSettings.errors.internalFailure", unknown: "chatSettings.errors.unknown" },
   edit: { internal: "chatTranscript.editFailed", unknown: "chatTranscript.editUnknownFailure" },
+  input: { internal: "chatComposer.rejections.internal_failure", unknown: "chatComposer.submitFailed" },
 } as const;
 
 export function chatOperationFailureMessage(

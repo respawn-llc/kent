@@ -297,26 +297,51 @@ func (a *Authority) ClearWorktreeReminder(ctx context.Context, sessionID string)
 }
 
 func (a *Authority) HasBlockingRuntimeActivity(ctx context.Context, sessionID string) (bool, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := context.Cause(ctx); err != nil {
-		return false, err
-	}
-	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
+	resource, err := a.activityResource(ctx, sessionID)
 	if err != nil {
 		return false, err
 	}
-	if a == nil {
-		return false, nil
-	}
-	a.mu.Lock()
-	resource := a.resources[id]
-	a.mu.Unlock()
 	if resource == nil {
 		return false, nil
 	}
 	return hasBlockingRuntimeActivity(resource), nil
+}
+
+// HasBlockingWorktreeDeleteActivity includes Runtime state that would prevent
+// idle retirement, such as a queued Worktree transition reservation. Retirement
+// still revalidates under its admission gate before a Session is retargeted.
+func (a *Authority) HasBlockingWorktreeDeleteActivity(ctx context.Context, sessionID string) (bool, error) {
+	resource, err := a.activityResource(ctx, sessionID)
+	if err != nil {
+		return false, err
+	}
+	if resource == nil || hasBlockingRuntimeActivity(resource) {
+		return resource != nil, nil
+	}
+	resource.mu.Lock()
+	engine := resource.engine
+	resource.mu.Unlock()
+	return engine != nil && engine.HasRetirementBlockers(), nil
+}
+
+func (a *Authority) activityResource(ctx context.Context, sessionID string) (*agentResource, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
+	}
+	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
+	if err != nil {
+		return nil, err
+	}
+	if a == nil {
+		return nil, nil
+	}
+	a.mu.Lock()
+	resource := a.resources[id]
+	a.mu.Unlock()
+	return resource, nil
 }
 
 func hasBlockingRuntimeActivity(resource *agentResource) bool {

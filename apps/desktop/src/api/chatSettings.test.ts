@@ -248,7 +248,6 @@ describe("Chat Settings descriptor adapter", () => {
         },
       });
       expect(transport.descriptorCalls).toHaveLength(1);
-      expect(transport.attachedProjectCalls).toHaveLength(0);
     },
   );
 

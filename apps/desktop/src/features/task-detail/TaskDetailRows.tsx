@@ -1,10 +1,18 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
+import { TaskDetailChatOpeningContext } from "./TaskDetailChatOpening";
+import * as Atom from "effect/reactivity/Atom";
+import { useAtomValue } from "@effect/atom-react";
 import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { TaskCurrentNode, TaskDetail } from "@/api";
 import { errorMessage } from "@/api";
-import { useAppServices, useTextFieldSubmitShortcut, useTextFieldSubmitShortcutPolicy } from "@/app-facade";
+import {
+  useAppServices,
+  usePathFormatter,
+  useTextFieldSubmitShortcut,
+  useTextFieldSubmitShortcutPolicy,
+} from "@/app-facade";
 import { useOpenExternalLink } from "@/app-facade";
 import { writeClipboardText } from "@/shared/native-clipboard";
 import { taskStatusTone } from "@/shared/task-status";
@@ -35,6 +43,31 @@ export type TaskDraft = Readonly<{
   body: string;
 }>;
 export type SaveTaskDraft = (draft?: TaskDraft, onSaved?: () => void) => void;
+
+const idleChatOpening = Atom.make(false);
+
+function TaskSessionChatButton({
+  sessionID,
+  label,
+  name,
+  onClick,
+}: Readonly<{ sessionID: string; label: string; name: string; onClick(): void }>) {
+  const { t } = useTranslation();
+  const opening = useContext(TaskDetailChatOpeningContext);
+  const pending = useAtomValue(opening?.pending(sessionID) ?? idleChatOpening);
+  return (
+    <Button
+      aria-label={label}
+      disabled={pending}
+      onClick={onClick}
+      title={pending ? t("states.loading") : label}
+      variant="secondary"
+    >
+      {pending && <Spinner size="sm" />}
+      {t("task.openChat", { name })}
+    </Button>
+  );
+}
 
 export function TaskHeaderIsland({
   canSaveDraft,
@@ -316,6 +349,7 @@ function TaskOpenButtons({
 }>) {
   const { t } = useTranslation();
   const { nativeBridge } = useAppServices();
+  const formatPath = usePathFormatter();
   const [openError, setOpenError] = useState("");
   const executionRoot = taskExecutionRoot(detail);
   const canOpenScript = nativeBridge.capabilities.files.open;
@@ -342,8 +376,10 @@ function TaskOpenButtons({
         return (
           <span className="contents" key={session.sessionID}>
             {openSessionChat === undefined ? null : (
-              <Button
-                aria-label={chatLabel}
+              <TaskSessionChatButton
+                sessionID={session.sessionID}
+                label={chatLabel}
+                name={ellipsizeActionTarget(target)}
                 onClick={() => {
                   setOpenError("");
                   void openSessionChat({ projectID: detail.projectID, sessionID: session.sessionID }).catch(
@@ -352,11 +388,7 @@ function TaskOpenButtons({
                     },
                   );
                 }}
-                title={chatLabel}
-                variant="secondary"
-              >
-                {t("task.openChat", { name: ellipsizeActionTarget(target) })}
-              </Button>
+              />
             )}
             {openSessionChat === undefined ? (
               <Button
@@ -388,7 +420,7 @@ function TaskOpenButtons({
               }}
               variant="secondary"
             >
-              {t("task.openScript")} <span className="truncate font-mono">{script.path}</span>
+              {t("task.openScript")} <span className="truncate font-mono">{formatPath(script.path)}</span>
             </Button>
           ))
         : null}

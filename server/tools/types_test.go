@@ -8,12 +8,31 @@ import (
 	patchformat "core/shared/transcript/patchformat"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
 
 type stubHandler struct {
 	id toolspec.ID
+}
+
+func TestShellResultPresentationDecodesJSONStrings(t *testing.T) {
+	for _, toolID := range []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWriteStdin} {
+		for _, isError := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/error=%t", toolID, isError), func(t *testing.T) {
+				text := "comment_id\tcomment-123\ntask_id\ttask-456\nliteral \\n and \"quotes\""
+				raw, err := json.Marshal(text)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := FormatToolResultByName(string(toolID), raw, isError)
+				if got != text {
+					t.Fatalf("shell presentation = %q, want %q", got, text)
+				}
+			})
+		}
+	}
 }
 
 func (s stubHandler) Call(_ context.Context, c Call) (Result, error) {

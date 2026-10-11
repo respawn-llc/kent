@@ -289,7 +289,6 @@ func worktreeSetupCompletion(err error) *worktreepb.SetupCompletion {
 	if err == nil || errors.Is(err, io.EOF) {
 		return &worktreepb.SetupCompletion{}
 	}
-	rawCode, diagnostic := protocolError(err)
-	code := int32(rawCode)
-	return &worktreepb.SetupCompletion{Code: &code, Diagnostic: &diagnostic}
+	code, diagnostic := streamFailure(err)
+	return &worktreepb.SetupCompletion{Code: code.Enum(), Diagnostic: &diagnostic}
 }

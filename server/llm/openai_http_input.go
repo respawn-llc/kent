@@ -232,6 +232,29 @@ type openAICompactionRaw struct {
 	EncryptedContent string `json:"encrypted_content"`
 }
 
+// RestoreRetainedItemFacts exposes encrypted-content presence at ingestion or
+// restoration without changing the preserved provider payload.
+func RestoreRetainedItemFacts(item *ResponseItem) error {
+	if len(item.Raw) == 0 || item.EncryptedContent != nil {
+		return nil
+	}
+	switch item.Type {
+	case ResponseItemTypeReasoning:
+		var raw openAIReasoningRaw
+		if err := json.Unmarshal(item.Raw, &raw); err != nil {
+			return fmt.Errorf("decode retained reasoning: %w", err)
+		}
+		item.EncryptedContent = textutil.OptionalTrimmedString(raw.EncryptedContent)
+	case ResponseItemTypeCompaction:
+		var raw openAICompactionRaw
+		if err := json.Unmarshal(item.Raw, &raw); err != nil {
+			return fmt.Errorf("decode retained checkpoint: %w", err)
+		}
+		item.EncryptedContent = textutil.OptionalTrimmedString(raw.EncryptedContent)
+	}
+	return nil
+}
+
 func openAIInputRawForResponseItem(item ResponseItem) (json.RawMessage, bool) {
 	switch item.Type {
 	case ResponseItemTypeConfigurationUpdate:

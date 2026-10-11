@@ -298,8 +298,8 @@ func normalizedRecommendedOptionIndex(index int, suggestionCount int) int {
 	return index
 }
 
-func selectedOptionToolOutputSummary(optionNumber int, freeform *string) string {
-	base := fmt.Sprintf("User chose option #%d.", optionNumber)
+func selectedOptionToolOutputSummary(optionNumber int, freeform *string, answerer string) string {
+	base := fmt.Sprintf("%s chose option #%d.", answerer, optionNumber)
 	if freeform == nil {
 		return base
 	}
@@ -390,8 +390,11 @@ func (t *AskQuestionTool) Call(ctx context.Context, c Call) (Result, error) {
 		CondensedText: textutil.OptionalExactString(condensed),
 	}
 	if answer, ok := resolution.(AskQuestionAnswer); ok {
-		answerCopy := answer
-		result.QuestionAnswer = &answerCopy
+		result.QuestionAnswer = &AskQuestionAnswer{
+			SelectedOptionNumber: answer.SelectedOptionNumber,
+			Freeform:             answer.Freeform,
+		}
+		result.AnsweredBySessionID = answer.AnsweredBySessionID
 	}
 	return result, nil
 }

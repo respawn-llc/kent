@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"core/shared/jsoncontract"
+	"core/shared/runtimeids"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 	"encoding/json"
@@ -37,16 +38,17 @@ type AskQuestionBatchMetadata struct {
 }
 
 type Result struct {
-	CallID         string                   `json:"call_id"`
-	Name           toolspec.ID              `json:"name"`
-	Output         json.RawMessage          `json:"output"`
-	IsError        bool                     `json:"is_error"`
-	Terminal       bool                     `json:"terminal,omitempty"`
-	Summary        *string                  `json:"summary,omitempty"`
-	CondensedText  *string                  `json:"condensed_text,omitempty"`
-	ModelWarnings  []ModelWarning           `json:"-"`
-	Presentation   *transcript.ToolCallMeta `json:"presentation,omitempty"`
-	QuestionAnswer *AskQuestionAnswer       `json:"question_answer,omitempty"`
+	CallID              string                   `json:"call_id"`
+	Name                toolspec.ID              `json:"name"`
+	Output              json.RawMessage          `json:"output"`
+	IsError             bool                     `json:"is_error"`
+	Terminal            bool                     `json:"terminal,omitempty"`
+	Summary             *string                  `json:"summary,omitempty"`
+	CondensedText       *string                  `json:"condensed_text,omitempty"`
+	ModelWarnings       []ModelWarning           `json:"-"`
+	Presentation        *transcript.ToolCallMeta `json:"presentation,omitempty"`
+	QuestionAnswer      *AskQuestionAnswer       `json:"question_answer,omitempty"`
+	AnsweredBySessionID *runtimeids.SessionID    `json:"-"`
 	// PresentationDelta is transient handler output. Runtime consumes it before
 	// persistence and materializes Presentation from authoritative call input.
 	PresentationDelta *transcript.ToolResultPresentationDelta `json:"-"`

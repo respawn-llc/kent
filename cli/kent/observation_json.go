@@ -183,7 +183,7 @@ func projectRunWatchJSON(targetSessionID string, response *promptpb.LiveWatchSuc
 			observationJSONFinalAnswer{
 				observationJSONKind: observationJSONKind{Kind: "final_answer"},
 				Result:              selected.FinalAnswer.Result,
-				SessionName:         textutil.Value(selected.FinalAnswer.SessionName),
+				SessionName:         selected.FinalAnswer.SessionName,
 				DurationMS:          textutil.Value(selected.FinalAnswer.Duration.AsDuration().Milliseconds()),
 			},
 		}}, 0, nil
@@ -222,7 +222,7 @@ func projectRunWaitJSON(targetSessionID string, result *runtimepb.LiveWaitSucces
 		Status: "success", Target: observationTargetSession(targetSessionID),
 		Outcomes: []observationJSONOutcome{observationJSONFinalAnswer{
 			observationJSONKind: observationJSONKind{Kind: "final_answer"},
-			Result:              textutil.Value(result.GetAssistantFinalAnswer().GetResult()), SessionName: textutil.Value(result.SessionName),
+			Result:              textutil.Value(result.GetAssistantFinalAnswer().GetResult()), SessionName: result.SessionName,
 			DurationMS: textutil.Value(result.Duration.AsDuration().Milliseconds()),
 		}},
 	}, 0

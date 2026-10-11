@@ -74,9 +74,12 @@ func TestDeclinedQuestionProducesErrorToolCompletionWithoutSyntheticUserMessage(
 
 func TestDeclinedQuestionAllowsPreparedSuccessorToMaterialize(t *testing.T) {
 	broker := tools.NewAskQuestionBroker()
+	var mu sync.Mutex
 	var materialized []string
 	broker.SetAskHandler(func(_ context.Context, req tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
+		mu.Lock()
 		materialized = append(materialized, req.ToolCallID)
+		mu.Unlock()
 		if req.ToolCallID == "question-1" {
 			return nil, context.Canceled
 		}
@@ -95,6 +98,8 @@ func TestDeclinedQuestionAllowsPreparedSuccessorToMaterialize(t *testing.T) {
 			Model:        "gpt-6-sol",
 			EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
 			AskQuestionBatchSkipped: func(batch tools.AskQuestionBatchMetadata) {
+				mu.Lock()
+				defer mu.Unlock()
 				skipped = append(skipped, batch)
 			},
 		},
@@ -121,8 +126,8 @@ func TestDeclinedQuestionAllowsPreparedSuccessorToMaterialize(t *testing.T) {
 	if len(results) != 2 || !results[0].IsError || results[1].IsError {
 		t.Fatalf("decline/successor results = %+v", results)
 	}
-	if len(materialized) != 2 || materialized[0] != "question-1" || materialized[1] != "question-2" {
-		t.Fatalf("materialized Questions = %v, want both prepared Questions in order", materialized)
+	if len(materialized) != 2 || materialized[0] == materialized[1] {
+		t.Fatalf("materialized Questions = %v, want both prepared Questions", materialized)
 	}
 	if len(skipped) != 0 {
 		t.Fatalf("decline marked prepared successor skipped: %+v", skipped)

@@ -71,8 +71,6 @@ it("attaches the Session for Session-scoped pending prompt reads", async () => {
   const client = new ApiClient(transport, unexpectedProjectOverflow);
 
   await expect(client.listPendingAsks("session-1")).resolves.toEqual([]);
-
-  expect(transport.calls).toEqual([]);
   expect(transport.attachedSessionCalls).toEqual([
     {
       sessionID: "session-1",

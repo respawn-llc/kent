@@ -309,7 +309,7 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req PlanRequest) (PlanR
 		}
 	}
 	if selectedSessionID != nil {
-		return s.planExistingSession(ctx, planner, req, *selectedSessionID, caller)
+		return s.planExistingSession(ctx, planner, req, *selectedSessionID)
 	}
 	roleOverride, err := req.Overrides.AgentRoleOverride()
 	if err != nil {
@@ -335,7 +335,7 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req PlanRequest) (PlanR
 	return s.finalizeLaunchPlan(ctx, plan, warnings, nil, err)
 }
 
-func (s *Service) planExistingSession(ctx context.Context, planner launch.Planner, req PlanRequest, sessionID runtimeids.SessionID, caller *subagentpolicy.Caller) (PlanResult, error) {
+func (s *Service) planExistingSession(ctx context.Context, planner launch.Planner, req PlanRequest, sessionID runtimeids.SessionID) (PlanResult, error) {
 	record, err := session.ResolvePersistedSessionRecord(ctx, planner.PersistedSessions, sessionID.String())
 	if err != nil {
 		return PlanResult{}, err
@@ -343,9 +343,6 @@ func (s *Service) planExistingSession(ctx context.Context, planner launch.Planne
 	meta := *record.Meta
 	if req.preparedSelection != nil {
 		prepared := *req.preparedSelection
-		if err := authorizePersistedHeadlessRole(planner, req, caller, meta); err != nil {
-			return PlanResult{}, err
-		}
 		plan, warnings, err := planner.PlanPersistedSessionWithPreparedOverrides(ctx, launch.SessionRequest{
 			Mode: req.Mode, Intent: req.Intent,
 			PreparedPromptFacingTarget: prepared.PromptFacingTarget(),
@@ -357,7 +354,7 @@ func (s *Service) planExistingSession(ctx context.Context, planner launch.Planne
 	if err != nil {
 		return PlanResult{}, err
 	}
-	preparedOverrides, roleOverride, err := prepareExistingSelection(planner, req, meta, roleOverride, caller)
+	preparedOverrides, roleOverride, err := prepareExistingSelection(planner, req, meta, roleOverride)
 	if err != nil {
 		return PlanResult{}, err
 	}
@@ -383,17 +380,10 @@ func (s *Service) planExistingSession(ctx context.Context, planner launch.Planne
 	return s.finalizeLaunchPlan(ctx, plan, warnings, req.selectionWarnings, err)
 }
 
-func prepareExistingSelection(planner launch.Planner, req PlanRequest, meta session.Meta, roleOverride serverapi.RunPromptAgentRoleOverride, caller *subagentpolicy.Caller) (launch.PreparedRunPromptOverrides, serverapi.RunPromptAgentRoleOverride, error) {
+func prepareExistingSelection(planner launch.Planner, req PlanRequest, meta session.Meta, roleOverride serverapi.RunPromptAgentRoleOverride) (launch.PreparedRunPromptOverrides, serverapi.RunPromptAgentRoleOverride, error) {
 	if req.Mode != launch.ModeHeadless && meta.Locked != nil && roleOverride.Present {
 		req.Overrides.AgentRole = nil
 		roleOverride = serverapi.RunPromptAgentRoleOverride{}
-	}
-	if roleOverride.Present {
-		if err := subagentpolicy.Authorize(planner.Config.Settings, caller, subagentpolicy.TargetFromOverride(roleOverride)); err != nil {
-			return launch.PreparedRunPromptOverrides{}, roleOverride, err
-		}
-	} else if err := authorizePersistedHeadlessRole(planner, req, caller, meta); err != nil {
-		return launch.PreparedRunPromptOverrides{}, roleOverride, err
 	}
 	preparation := launch.RunPromptPreparationContext{Mode: req.Mode, ModelLock: meta.Locked, ToolLock: meta.Locked}
 	if !roleOverride.Present {
@@ -405,36 +395,6 @@ func prepareExistingSelection(planner launch.Planner, req PlanRequest, meta sess
 	}
 	preparedOverrides, err := launch.PrepareRunPromptOverridesWithContext(planner.Config, req.Overrides, preparation)
 	return preparedOverrides, roleOverride, err
-}
-
-func authorizePersistedHeadlessRole(
-	planner launch.Planner,
-	req PlanRequest,
-	caller *subagentpolicy.Caller,
-	meta session.Meta,
-) error {
-	if req.Mode != launch.ModeHeadless {
-		return nil
-	}
-	if caller == nil {
-		return nil
-	}
-	if meta.Continuation == nil || meta.Continuation.AgentRole == nil {
-		return subagentpolicy.Authorize(planner.Config.Settings, caller, subagentpolicy.Target{Kind: subagentpolicy.TargetOmittedBase})
-	}
-	persistedRole := strings.TrimSpace(*meta.Continuation.AgentRole)
-	lookup := config.LookupSubagentRole(planner.Config.Settings, persistedRole)
-	if lookup.Status != config.SubagentRoleLookupPresent {
-		if meta.Locked == nil {
-			return subagentpolicy.Authorize(planner.Config.Settings, caller, subagentpolicy.Target{Kind: subagentpolicy.TargetOmittedBase})
-		}
-		return nil
-	}
-	persistedOverride, err := (serverapi.RunPromptOverrides{AgentRole: &persistedRole}).AgentRoleOverride()
-	if err != nil {
-		return err
-	}
-	return subagentpolicy.Authorize(planner.Config.Settings, caller, subagentpolicy.TargetFromOverride(persistedOverride))
 }
 
 func applyPreparedAgentChatSettings(

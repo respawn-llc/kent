@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -242,11 +243,35 @@ func (e *Engine) observePromptCacheRequest(stepID string, prepared preparedCache
 }
 
 func (e *Engine) prepareCacheObservedRequest(
+	ctx context.Context,
 	stepID string,
+	client *observedModelClient,
 	request llm.Request,
 	purpose modelcontract.ProviderOperationPurpose,
 	responseMode cacheResponseObservationMode,
 ) (cacheObservedRequest, error) {
+	destination, err := client.capabilities(ctx)
+	if err != nil {
+		return cacheObservedRequest{}, err
+	}
+	var omitted int
+	request.Items, omitted, err = prepareRetainedContext(request.Items, destination)
+	if err != nil {
+		return cacheObservedRequest{}, err
+	}
+	if omitted > 0 {
+		receipt, err := e.steerWithCommitReceipt(stepID, steerLocalEntryIntent(storedLocalEntry{
+			Visibility:        transcript.EntryVisibilityOngoing,
+			Role:              string(transcript.EntryRoleWarning),
+			ReasoningOmission: &transcript.ReasoningOmissionNotice{Count: omitted},
+		}))
+		if err != nil {
+			return cacheObservedRequest{}, err
+		}
+		if !receipt.Committed {
+			return cacheObservedRequest{}, errors.New("reasoning omission warning persistence returned without a durable commit")
+		}
+	}
 	prepared, err := e.modelRequests().RequestCache().Prepare(request)
 	if err != nil {
 		return cacheObservedRequest{}, err

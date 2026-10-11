@@ -166,8 +166,8 @@
 - A graph-changing save is blocked when it would remove a Node or Transition Branch required by a Task's Current Nodes, live execution, unresolved parallel work, or pending approval.
 - A Task is active for these rules when it has a non-terminal Current Node, pending Approval, unresolved parallel branch, or Exact Execution Scope.
 - Start deletion is unavailable. Start is hidden from add and kind-change controls; an existing Start may be renamed where safe, but its kind remains fixed. A blocked graph delete reports feedback.
-- A Start Node's outgoing transitions may be edited in a Draft, but execution validation requires exactly one Start transition with one branch to an executable Node.
-- Start cannot be the source of a Fan-Out Transition into a Node Group. Parallel work begins from a later agent Node and rejoins through the group's Join.
+- A Start Node's outgoing Transitions may be edited in a Draft. Execution validation must enforce the [Task Start contract](workflow-orchestration.md#nodes-transitions-and-validation).
+- Start may source a Fan-Out Transition into a Node Group. When adding a branch to a Start-backed Node Group, the editor must use the same automatic connection inference and ambiguous-wiring warning behavior as for other Node Groups.
 - A terminal Node may be deleted only when at least one other terminal Node remains; otherwise deletion is blocked with feedback.
 - A saved Node Group must have enough branch Nodes and exactly one owned Join to remain execution-shaped; otherwise Save is blocked.
 - Destructive impact is evaluated at Save, not while making a Draft edit.

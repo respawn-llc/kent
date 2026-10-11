@@ -248,12 +248,20 @@ message RuntimeCommandNotAcceptedDetails {
   }
 }
 
+message SessionNameMutation {
+  oneof action {
+    option (buf.validate.oneof).required = true;
+    string set = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+    google.protobuf.Empty clear = 2;
+  }
+}
+
 message SetSessionNameRequest {
   string session_id = 1 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).string.(kent.api.shared.nonblank) = true
   ];
-  string name = 2;
+  SessionNameMutation mutation = 2 [(buf.validate.field).required = true];
 }
 
 message ShouldCompactRequest {
@@ -485,7 +493,7 @@ message LiveWaitSuccess {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
-  string session_name = 2 [
+  optional string session_name = 2 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
       id: "kent.runtime.live_wait_session_name_nonblank"

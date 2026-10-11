@@ -5,7 +5,7 @@ import {
   deleteNodeIDsInternal,
   refreshNodeGroupMembership,
   removeEdgesInternal,
-  transitionIDsForSource,
+  transitionIDsForWorkflow,
   transitionGroupDifference,
 } from "./workflowEditorGraphMutationHelpers";
 import {
@@ -411,7 +411,7 @@ function rehomeExtractedBranchFanoutEdge(
     id: rehomedTransitionGroupID,
     name: node.name,
     sourceNodeID: fanoutGroup.sourceNodeID,
-    transitionID: uniqueWorkflowModelKey(node.key, transitionIDsForSource(draft, fanoutGroup.sourceNodeID)),
+    transitionID: uniqueWorkflowModelKey(node.key, transitionIDsForWorkflow(draft)),
     workflowID: draft.workflow.id,
   };
   return {

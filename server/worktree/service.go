@@ -1649,7 +1649,7 @@ func (s *Service) DeleteTaskWorktree(ctx context.Context, req DeleteTaskWorktree
 	if _, err := deletionSelector(entry); err != nil {
 		return DeleteTaskWorktreeResponse{}, err
 	}
-	if err := s.checkDeleteTargetActivity(ctx, &record, &record.CanonicalRoot); err != nil {
+	if err := s.checkDeleteTargetActivity(ctx, &record, &record.CanonicalRoot, s.authority.HasBlockingRuntimeActivity); err != nil {
 		return DeleteTaskWorktreeResponse{}, err
 	}
 	var target syncedWorktree
@@ -1814,10 +1814,14 @@ func (s *Service) ListWorktrees(ctx context.Context, req *worktreepb.ListRequest
 	if err != nil {
 		return nil, err
 	}
+	var branchSuggestion *string
+	if record.Meta.Name != nil {
+		branchSuggestion = worktreecontract.SanitizeBranchSuggestion(*record.Meta.Name)
+	}
 	return &worktreepb.ListSuccess{
 		Target:           workspaceCtx.target,
 		Worktrees:        worktrees,
-		BranchSuggestion: worktreecontract.SanitizeBranchSuggestion(record.Meta.Name),
+		BranchSuggestion: branchSuggestion,
 	}, nil
 }
 

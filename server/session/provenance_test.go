@@ -79,7 +79,7 @@ func TestForkAndCloneRecordPreviousSessionAndPreserveParentAgentAncestry(t *test
 	if err != nil {
 		t.Fatalf("ForkAtUserMessage: %v", err)
 	}
-	cloned, err := CloneSession(sourceLog, "cloned", testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+	cloned, err := CloneSession(sourceLog, new("cloned"), testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("CloneSession: %v", err)
 	}

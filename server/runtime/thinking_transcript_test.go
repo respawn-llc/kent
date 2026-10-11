@@ -82,6 +82,17 @@ func TestWorkflowThinkingTranscriptAfterCompaction(t *testing.T) {
 			if _, err := steer.Wait(t.Context()); err != nil {
 				t.Fatal(err)
 			}
+			targetIdentity := workflowruntime.CurrentNodePromptIdentity(target.Instructions.CurrentNode)
+			var originalAssignment *TranscriptCommittedRowFact
+			for _, fact := range TranscriptCommittedRowFactsFromSnapshot(mustEngineNewestSegmentPage(t, engine).Snapshot) {
+				if fact.Notice != nil && fact.Notice.MessageType == llm.MessageTypeWorkflowMode &&
+					fact.Notice.SourcePath == targetIdentity {
+					originalAssignment = &fact
+				}
+			}
+			if originalAssignment == nil {
+				t.Fatal("target assignment was not committed")
+			}
 			if len(delivered) != 0 {
 				t.Fatal("desired selection created a row before request preparation")
 			}
@@ -118,19 +129,45 @@ func TestWorkflowThinkingTranscriptAfterCompaction(t *testing.T) {
 			}
 			page := mustEngineNewestSegmentPage(t, engine)
 			facts := TranscriptCommittedRowFactsFromSnapshot(page.Snapshot)
+			for page.HasMoreAbove {
+				page = mustEngineSegmentPage(t, engine, page.OlderCursor)
+				facts = append(TranscriptCommittedRowFactsFromSnapshot(page.Snapshot), facts...)
+			}
+			var targetResponse *TranscriptCommittedRowFact
+			for _, fact := range facts {
+				if fact.Kind == TranscriptCommittedRowFactAssistant &&
+					fact.Locator.EventSequence > originalAssignment.Locator.EventSequence {
+					targetResponse = &fact
+					break
+				}
+			}
+			if targetResponse == nil {
+				t.Fatal("target response missing from paginated transcript")
+			}
 			found := false
-			for i, fact := range facts {
+			assignments := 0
+			for _, fact := range facts {
+				if fact.Notice != nil && fact.Notice.MessageType == llm.MessageTypeWorkflowMode &&
+					fact.Notice.SourcePath == targetIdentity {
+					assignments++
+					if !reflect.DeepEqual(fact, *originalAssignment) {
+						t.Fatal("generation preparation changed the original assignment row")
+					}
+				}
 				if fact.Notice != nil && fact.Notice.ThinkingEffort != nil {
 					found = true
-					if !reflect.DeepEqual(fact, delivered[0]) || i == 0 || i+1 >= len(facts) ||
-						facts[i-1].Notice == nil || facts[i-1].Notice.MessageType != llm.MessageTypeWorkflowMode ||
-						facts[i+1].Kind != TranscriptCommittedRowFactAssistant {
+					if !reflect.DeepEqual(fact, delivered[0]) ||
+						originalAssignment.Locator.EventSequence >= fact.Locator.EventSequence ||
+						fact.Locator.EventSequence >= targetResponse.Locator.EventSequence {
 						t.Fatalf("high update is not between assignment and response, or differs from live delivery: %+v", facts)
 					}
 				}
 			}
 			if !found {
 				t.Fatal("high update missing from paginated transcript")
+			}
+			if assignments != 1 {
+				t.Fatalf("target assignment was projected %d times, want once", assignments)
 			}
 		})
 	}

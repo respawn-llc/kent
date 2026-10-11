@@ -9,7 +9,7 @@ import {
 import { requireWorktreeSuccess } from "./clientWorktree";
 import { ContractError, TransportError } from "./errors";
 import type { SetupOperationID } from "./setupOperationID";
-import type { DescriptorRpcTransport, RpcSubscription } from "./transport";
+import type { RpcTransport, RpcSubscription } from "./transport";
 
 export type WorktreeSetupEventHandler = Readonly<{
   onOpen?(): void;
@@ -19,7 +19,7 @@ export type WorktreeSetupEventHandler = Readonly<{
 }>;
 
 export function subscribeWorktreeSetup(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   setupOperationID: SetupOperationID,
   handler: WorktreeSetupEventHandler,
 ): RpcSubscription {

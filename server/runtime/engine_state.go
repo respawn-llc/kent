@@ -355,14 +355,6 @@ func (e *Engine) applyStreamingStateMutationForStep(stepID string, mutate func(*
 	return e.steerOrderedRaw(provenance, steerEventIntent(Event{Kind: EventStreamingErrorUpdated}))
 }
 
-func (e *Engine) SetSessionName(ctx context.Context, name string) (bool, error) {
-	result, err := awaitEngineRuntimeOperation(ctx, e, func(context.Context) (bool, error) {
-		mutation, mutationErr := e.store.MutateName(name)
-		return mutation.Changed, mutationErr
-	})
-	return result, err
-}
-
 func (e *Engine) SetThinkingLevel(ctx context.Context, level string) error {
 	normalized := strings.TrimSpace(level)
 	if normalized == "" {
@@ -758,8 +750,8 @@ func (e *Engine) reviewerRequestConfigSnapshot() reviewerRequestConfig {
 	}
 }
 
-func (e *Engine) SessionName() string {
-	return strings.TrimSpace(e.store.Meta().Name)
+func (e *Engine) SessionName() *string {
+	return e.store.Meta().Name
 }
 
 func (e *Engine) SessionID() string {
@@ -876,6 +868,7 @@ type storedLocalEntry struct {
 	NoticeID              *string                                 `json:"notice_id,omitempty"`
 	ToolOutputRepair      *transcript.ToolOutputRepairNotice      `json:"tool_output_repair,omitempty"`
 	ProviderModelMismatch *transcript.ProviderModelMismatchNotice `json:"provider_model_mismatch,omitempty"`
+	ReasoningOmission     *transcript.ReasoningOmissionNotice     `json:"reasoning_omission,omitempty"`
 	// AfterToolCallID keeps atomically persisted operator feedback visually
 	// attached after the tool result that caused it.
 	AfterToolCallID *string `json:"after_tool_call_id,omitempty"`
@@ -890,12 +883,13 @@ type historyReplacementPayload struct {
 	LastCommittedAssistantFinalAnswer *string                          `json:"last_committed_assistant_final_answer,omitempty"`
 	LatestRollbackCandidate           *rollbacktarget.CandidateLocator `json:"latest_rollback_candidate,omitempty"`
 	Items                             []llm.ResponseItem               `json:"items"`
+	Output                            *compactionOutput                `json:"-"`
 }
 
 func (e *Engine) setLastUsage(usage llm.Usage) {
 	baselineEstimate := 0
 	if e != nil {
-		baselineEstimate = e.transcriptRuntimeState().EstimatedProviderTokens()
+		baselineEstimate = e.estimatedProviderHistoryTokens()
 	}
 	normalizedUsage, totalInputTokens, totalCachedInputTokens := e.usageTrackingState().Next(usage)
 	e.applyUsageTrackingState(normalizedUsage, baselineEstimate, totalInputTokens, totalCachedInputTokens)
@@ -904,7 +898,7 @@ func (e *Engine) setLastUsage(usage llm.Usage) {
 func (e *Engine) recordLastUsage(usage llm.Usage) (session.CommitReceipt, error) {
 	baselineEstimate := 0
 	if e != nil {
-		baselineEstimate = e.transcriptRuntimeState().EstimatedProviderTokens()
+		baselineEstimate = e.estimatedProviderHistoryTokens()
 	}
 	return e.recordLastUsageWithBaseline(usage, baselineEstimate)
 }
@@ -992,6 +986,9 @@ func (e *Engine) transcriptRuntimeState() *transcriptRuntimeState {
 	defer e.mu.Unlock()
 	if e.transcriptState == nil {
 		e.transcriptState = newTranscriptRuntimeState(transcriptWorkingDir(e.cfg.TranscriptWorkingDir, e.store.Meta().WorkspaceRoot))
+		if e.cfg.TokenEstimator != nil {
+			e.transcriptState.chatProjection().bindTokenEstimator(e.cfg.TokenEstimator)
+		}
 	}
 	return e.transcriptState
 }
@@ -1089,7 +1086,7 @@ func eventShouldCarryContextUsage(evt Event) bool {
 
 func eventShouldCarryCommittedEntryCount(evt Event) bool {
 	switch evt.Kind {
-	case EventBackgroundUpdated:
+	case EventBackgroundUpdated, EventQuestionCandidateFinished:
 		return false
 	default:
 		return true

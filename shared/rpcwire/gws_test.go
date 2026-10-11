@@ -3,14 +3,11 @@ package rpcwire
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
-
-	"core/shared/protocol"
 )
 
 func TestWebSocketTransportRoundTrip(t *testing.T) {
@@ -18,7 +15,6 @@ func TestWebSocketTransportRoundTrip(t *testing.T) {
 	serverErr := make(chan error, 1)
 	server := httptest.NewServer(transport.Handler(func(ctx context.Context, conn Conn) {
 		for _, want := range []Frame{
-			{Kind: FrameText, Payload: []byte("hello")},
 			{Kind: FrameBinary, Payload: []byte{0, 1, 2, 255}},
 		} {
 			select {
@@ -63,7 +59,6 @@ func TestWebSocketTransportRoundTrip(t *testing.T) {
 	defer func() { _ = conn.Close() }()
 
 	for _, want := range []Frame{
-		{Kind: FrameText, Payload: []byte("hello")},
 		{Kind: FrameBinary, Payload: []byte{0, 1, 2, 255}},
 	} {
 		if err := conn.Send(ctx, want); err != nil {
@@ -104,11 +99,7 @@ func TestWebSocketTransportSecureRoundTrip(t *testing.T) {
 				serverErr <- event.Err
 				return
 			}
-			request := event.Frame.Request()
-			response := protocol.NewSuccessResponse(request.ID, struct {
-				Status string `json:"status"`
-			}{Status: "secure"})
-			serverErr <- conn.Send(ctx, FrameFromResponse(response))
+			serverErr <- conn.Send(ctx, event.Frame)
 		case <-ctx.Done():
 			serverErr <- ctx.Err()
 		}
@@ -134,8 +125,8 @@ func TestWebSocketTransportSecureRoundTrip(t *testing.T) {
 	}
 	defer func() { _ = conn.Close() }()
 
-	request := protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: "req-tls-1", Method: "test.ping"}
-	if err := conn.Send(ctx, FrameFromRequest(request)); err != nil {
+	request := Frame{Kind: FrameBinary, Payload: []byte{0, 1, 2, 255}}
+	if err := conn.Send(ctx, request); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 
@@ -147,18 +138,8 @@ func TestWebSocketTransportSecureRoundTrip(t *testing.T) {
 		if event.Err != nil {
 			t.Fatalf("Events error: %v", event.Err)
 		}
-		response := event.Frame.Response()
-		if response.ID != request.ID {
-			t.Fatalf("Response ID = %q, want %q", response.ID, request.ID)
-		}
-		var payload struct {
-			Status string `json:"status"`
-		}
-		if err := json.Unmarshal(response.Result, &payload); err != nil {
-			t.Fatalf("Unmarshal response: %v", err)
-		}
-		if payload.Status != "secure" {
-			t.Fatalf("Response payload = %#v, want status secure", payload)
+		if event.Frame.Kind != FrameBinary || !bytes.Equal(event.Frame.Payload, request.Payload) {
+			t.Fatalf("response = %#v, want %#v", event.Frame, request)
 		}
 	case <-ctx.Done():
 		t.Fatalf("Timed out waiting for response: %v", ctx.Err())

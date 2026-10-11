@@ -192,15 +192,16 @@ func (e *Engine) prepareStoredToolCompletion(
 		return storedToolCompletion{}, "", false, err
 	}
 	payload := storedToolCompletion{
-		CallID:         r.CallID,
-		Name:           string(r.Name),
-		IsError:        r.IsError,
-		Output:         append(json.RawMessage(nil), r.Output...),
-		Summary:        r.Summary,
-		CondensedText:  r.CondensedText,
-		Presentation:   r.Presentation,
-		ProviderItems:  e.providerItemsForToolCompletion(r),
-		QuestionAnswer: cloneAskQuestionAnswer(r.QuestionAnswer),
+		CallID:              r.CallID,
+		Name:                string(r.Name),
+		IsError:             r.IsError,
+		Output:              append(json.RawMessage(nil), r.Output...),
+		Summary:             r.Summary,
+		CondensedText:       r.CondensedText,
+		Presentation:        r.Presentation,
+		ProviderItems:       e.providerItemsForToolCompletion(r),
+		QuestionAnswer:      cloneAskQuestionAnswer(r.QuestionAnswer),
+		AnsweredBySessionID: cloneOptionalRuntimeSessionID(r.AnsweredBySessionID),
 	}
 	return payload, backgroundSessionID, hasBackgroundSession, nil
 }
@@ -354,7 +355,7 @@ func normalizeStoredLocalEntry(entry storedLocalEntry) (storedLocalEntry, error)
 	if entry.Role == "" {
 		return storedLocalEntry{}, errors.New("role is required")
 	}
-	if entry.Text == "" && entry.ToolOutputRepair == nil && entry.ProviderModelMismatch == nil {
+	if entry.Text == "" && entry.ToolOutputRepair == nil && entry.ProviderModelMismatch == nil && entry.ReasoningOmission == nil {
 		return storedLocalEntry{}, errors.New("text or typed notice facts are required")
 	}
 	if entry.ToolOutputRepair != nil && !entry.ToolOutputRepair.Valid() {
@@ -363,7 +364,11 @@ func normalizeStoredLocalEntry(entry storedLocalEntry) (storedLocalEntry, error)
 	if entry.ProviderModelMismatch != nil && !entry.ProviderModelMismatch.Valid() {
 		return storedLocalEntry{}, errors.New("provider-model mismatch facts are invalid")
 	}
-	if entry.ToolOutputRepair != nil && entry.ProviderModelMismatch != nil {
+	if entry.ReasoningOmission != nil && !entry.ReasoningOmission.Valid() {
+		return storedLocalEntry{}, errors.New("reasoning omission facts are invalid")
+	}
+	if entry.ToolOutputRepair != nil && entry.ProviderModelMismatch != nil ||
+		entry.ReasoningOmission != nil && (entry.ToolOutputRepair != nil || entry.ProviderModelMismatch != nil) {
 		return storedLocalEntry{}, errors.New("local entry cannot carry multiple typed notice facts")
 	}
 	return entry, nil
@@ -381,6 +386,7 @@ func localEntryChatEntry(entry storedLocalEntry) *ChatEntry {
 		NoticeID:              noticeID,
 		ToolOutputRepair:      textutil.Pointer(entry.ToolOutputRepair),
 		ProviderModelMismatch: textutil.Pointer(entry.ProviderModelMismatch),
+		ReasoningOmission:     textutil.Pointer(entry.ReasoningOmission),
 	}
 }
 

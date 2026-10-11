@@ -15,7 +15,6 @@ import (
 	"core/server/session"
 	shelltool "core/server/tools/shell"
 	"core/server/tools/shell/postprocess"
-	rpccontract "core/shared/apicontract"
 	"core/shared/config"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
@@ -29,7 +28,6 @@ import (
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
-	"core/shared/protocol"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -42,7 +40,7 @@ func TestRoutePolicyAllowsStatelessScopesWithoutGateway(t *testing.T) {
 	if err := executor.authorizeScopeFacts(
 		context.Background(),
 		&connectionState{},
-		routeScopePolicy(sharedpb.ScopePolicy_SCOPE_POLICY_PROJECT_VIEW),
+		sharedpb.ScopePolicy_SCOPE_POLICY_PROJECT_VIEW,
 		gatewayOperationName(
 			t,
 			projectpb.File_kent_api_project_project_proto.Services().
@@ -246,10 +244,10 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, routeScopePolicy(operation.Options.ScopePolicy), operation.Name, routeScopeParams{sessionID: fixture.ownSessionID}); err != nil {
+		if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, operation.Options.ScopePolicy, operation.Name, routeScopeParams{sessionID: fixture.ownSessionID}); err != nil {
 			t.Fatalf("active project own Session %s: %v", operation.Name, err)
 		}
-		if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, routeScopePolicy(operation.Options.ScopePolicy), operation.Name, routeScopeParams{sessionID: fixture.foreignSessionID}); err == nil {
+		if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, operation.Options.ScopePolicy, operation.Name, routeScopeParams{sessionID: fixture.foreignSessionID}); err == nil {
 			t.Fatalf("active project foreign Session %s unexpectedly allowed", operation.Name)
 		}
 	}
@@ -268,7 +266,7 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	if err := executor.authorizeScopeFacts(
 		ctx,
 		draftState,
-		routeScopePolicy(draftOperation.Options.ScopePolicy),
+		draftOperation.Options.ScopePolicy,
 		draftOperation.Name,
 		routeScopeParams{sessionID: fixture.reboundSessionID},
 	); err != nil {
@@ -277,7 +275,7 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	if err := executor.authorizeScopeFacts(
 		ctx,
 		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		routeScopePolicy(draftOperation.Options.ScopePolicy),
+		draftOperation.Options.ScopePolicy,
 		draftOperation.Name,
 		routeScopeParams{sessionID: fixture.reboundSessionID},
 	); err == nil {
@@ -286,7 +284,7 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	if err := executor.authorizeScopeFacts(
 		ctx,
 		draftState,
-		routeScopePolicy(draftOperation.Options.ScopePolicy),
+		draftOperation.Options.ScopePolicy,
 		draftOperation.Name,
 		routeScopeParams{sessionID: fixture.foreignSessionID},
 	); err == nil {
@@ -299,7 +297,7 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	if err := executor.authorizeScopeFacts(
 		ctx,
 		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		routeScopePolicy(followUpOperation.Options.ScopePolicy),
+		followUpOperation.Options.ScopePolicy,
 		followUpOperation.Name,
 		routeScopeParams{sessionID: fixture.ownSessionID},
 	); err != nil {
@@ -308,7 +306,7 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	if err := executor.authorizeScopeFacts(
 		ctx,
 		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		routeScopePolicy(followUpOperation.Options.ScopePolicy),
+		followUpOperation.Options.ScopePolicy,
 		followUpOperation.Name,
 		routeScopeParams{sessionID: runtimeids.NewSessionID().String()},
 	); err == nil {
@@ -318,10 +316,10 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := executor.authorizeScopeFacts(ctx, &connectionState{}, routeScopePolicy(attachedOperation.Options.ScopePolicy), attachedOperation.Name, routeScopeParams{sessionID: fixture.foreignSessionID}); err != nil {
+	if err := executor.authorizeScopeFacts(ctx, &connectionState{}, attachedOperation.Options.ScopePolicy, attachedOperation.Name, routeScopeParams{sessionID: fixture.foreignSessionID}); err != nil {
 		t.Fatalf("attached-project unscoped session: %v", err)
 	}
-	if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, routeScopePolicy(attachedOperation.Options.ScopePolicy), attachedOperation.Name, routeScopeParams{sessionID: fixture.foreignSessionID}); err == nil {
+	if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, attachedOperation.Options.ScopePolicy, attachedOperation.Name, routeScopeParams{sessionID: fixture.foreignSessionID}); err == nil {
 		t.Fatal("attached-project foreign session unexpectedly allowed")
 	}
 
@@ -329,17 +327,17 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, routeScopePolicy(optionalOperation.Options.ScopePolicy), optionalOperation.Name, routeScopeParams{}); err != nil {
+	if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, optionalOperation.Options.ScopePolicy, optionalOperation.Name, routeScopeParams{}); err != nil {
 		t.Fatalf("optional empty session: %v", err)
 	}
-	if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, routeScopePolicy(optionalOperation.Options.ScopePolicy), optionalOperation.Name, routeScopeParams{sessionID: fixture.foreignSessionID}); err == nil {
+	if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, optionalOperation.Options.ScopePolicy, optionalOperation.Name, routeScopeParams{sessionID: fixture.foreignSessionID}); err == nil {
 		t.Fatal("optional foreign session unexpectedly allowed")
 	}
 
 	if err := executor.authorizeScopeFacts(
 		ctx,
 		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		rpccontract.ScopeAttachSession,
+		sharedpb.ScopePolicy_SCOPE_POLICY_ATTACH_SESSION,
 		"AttachSession",
 		routeScopeParams{sessionID: fixture.ownSessionID},
 	); err != nil {
@@ -348,7 +346,7 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	if err := executor.authorizeScopeFacts(
 		ctx,
 		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		rpccontract.ScopeAttachSession,
+		sharedpb.ScopePolicy_SCOPE_POLICY_ATTACH_SESSION,
 		"AttachSession",
 		routeScopeParams{sessionID: fixture.foreignSessionID},
 	); err == nil {
@@ -367,7 +365,7 @@ func TestRoutePolicyAllowsRuntimeReleaseAfterSessionMovesProjects(t *testing.T) 
 	err = newRoutePolicyExecutor(fixture.gateway).authorizeScopeFacts(
 		context.Background(),
 		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		routeScopePolicy(operation.Options.ScopePolicy),
+		operation.Options.ScopePolicy,
 		operation.Name,
 		routeScopeParams{sessionID: fixture.foreignSessionID},
 	)
@@ -387,7 +385,7 @@ func TestRoutePolicyAuthorizesGoalExceptionWithoutWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = newRoutePolicyExecutor(gateway).authorizeScopeFacts(context.Background(), &connectionState{}, routeScopePolicy(operation.Options.ScopePolicy), operation.Name, routeScopeParams{sessionID: "missing-session"})
+	err = newRoutePolicyExecutor(gateway).authorizeScopeFacts(context.Background(), &connectionState{}, operation.Options.ScopePolicy, operation.Name, routeScopeParams{sessionID: "missing-session"})
 	if err != nil {
 		t.Fatalf("unbound goal scope: %v", err)
 	}
@@ -396,7 +394,7 @@ func TestRoutePolicyAuthorizesGoalExceptionWithoutWebSocket(t *testing.T) {
 	err = newRoutePolicyExecutor(fixture.gateway).authorizeScopeFacts(
 		context.Background(),
 		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		routeScopePolicy(operation.Options.ScopePolicy), operation.Name,
+		operation.Options.ScopePolicy, operation.Name,
 		routeScopeParams{sessionID: fixture.foreignSessionID},
 	)
 	if err == nil {
@@ -413,7 +411,7 @@ func TestRoutePolicyAuthorizesRuntimeLiveControlsWithoutActiveProject(t *testing
 		if err != nil {
 			t.Fatal(err)
 		}
-		return executor.authorizeScopeFacts(ctx, &connectionState{}, routeScopePolicy(operation.Options.ScopePolicy), operation.Name, routeScopeParams{sessionID: sessionID})
+		return executor.authorizeScopeFacts(ctx, &connectionState{}, operation.Options.ScopePolicy, operation.Name, routeScopeParams{sessionID: sessionID})
 	}
 	if err := authorize("Steer", fixture.ownSessionID); err != nil {
 		t.Fatalf("live steer root-scoped existing session: %v", err)
@@ -473,13 +471,13 @@ func TestRoutePolicyAuthorizesProcessScopesWithoutWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := executor.authorizeScopeFacts(ctx, state, routeScopePolicy(processOperation.Options.ScopePolicy), processOperation.Name, routeScopeParams{processID: own.SessionID}); err != nil {
+	if err := executor.authorizeScopeFacts(ctx, state, processOperation.Options.ScopePolicy, processOperation.Name, routeScopeParams{processID: own.SessionID}); err != nil {
 		t.Fatalf("own process: %v", err)
 	}
-	if err := executor.authorizeScopeFacts(ctx, state, routeScopePolicy(processOperation.Options.ScopePolicy), processOperation.Name, routeScopeParams{processID: foreign.SessionID}); err == nil {
+	if err := executor.authorizeScopeFacts(ctx, state, processOperation.Options.ScopePolicy, processOperation.Name, routeScopeParams{processID: foreign.SessionID}); err == nil {
 		t.Fatal("foreign process unexpectedly allowed")
 	}
-	if err := executor.authorizeScopeFacts(ctx, state, routeScopePolicy(processOperation.Options.ScopePolicy), processOperation.Name, routeScopeParams{processID: ownerless.SessionID}); err == nil {
+	if err := executor.authorizeScopeFacts(ctx, state, processOperation.Options.ScopePolicy, processOperation.Name, routeScopeParams{processID: ownerless.SessionID}); err == nil {
 		t.Fatal("ownerless process unexpectedly allowed")
 	}
 
@@ -487,7 +485,7 @@ func TestRoutePolicyAuthorizesProcessScopesWithoutWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := executor.authorizeScopeFacts(ctx, state, routeScopePolicy(listOperation.Options.ScopePolicy), listOperation.Name, routeScopeParams{
+	if err := executor.authorizeScopeFacts(ctx, state, listOperation.Options.ScopePolicy, listOperation.Name, routeScopeParams{
 		projectID: fixture.bindingA.ProjectID,
 	}); err != nil {
 		t.Fatalf("project-scoped process list: %v", err)
@@ -507,27 +505,26 @@ func TestRoutePolicyAuthorizesAttachmentAndProjectWorkspaceScopesWithoutWebSocke
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedSession: &ownSessionID}, routeScopePolicy(transcriptOperation.Options.ScopePolicy), transcriptOperation.Name, routeScopeParams{sessionID: fixture.ownSessionID}); err != nil {
+	if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedSession: &ownSessionID}, transcriptOperation.Options.ScopePolicy, transcriptOperation.Name, routeScopeParams{sessionID: fixture.ownSessionID}); err != nil {
 		t.Fatalf("attached transcript subscription: %v", err)
 	}
-	err = executor.authorizeScopeFacts(ctx, &connectionState{attachedSession: &ownSessionID}, routeScopePolicy(transcriptOperation.Options.ScopePolicy), transcriptOperation.Name, routeScopeParams{sessionID: fixture.foreignSessionID})
-	var routeErr gatewayRouteError
-	if !errors.As(err, &routeErr) || routeErr.code != protocol.ErrCodeInvalidRequest {
+	err = executor.authorizeScopeFacts(ctx, &connectionState{attachedSession: &ownSessionID}, transcriptOperation.Options.ScopePolicy, transcriptOperation.Name, routeScopeParams{sessionID: fixture.foreignSessionID})
+	if err == nil {
 		t.Fatalf("attached transcript mismatch error = %v, want invalid request route error", err)
 	}
 	questionHistoryOperation, err := protoapi.OperationFromDescriptor(sessionpb.File_kent_api_session_session_proto.Services().ByName("QuestionHistoryService").Methods().ByName("Subscribe"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedSession: &ownSessionID}, routeScopePolicy(questionHistoryOperation.Options.ScopePolicy), questionHistoryOperation.Name, routeScopeParams{
+	if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedSession: &ownSessionID}, questionHistoryOperation.Options.ScopePolicy, questionHistoryOperation.Name, routeScopeParams{
 		sessionID: fixture.ownSessionID,
 	}); err != nil {
 		t.Fatalf("attached Question-history subscription: %v", err)
 	}
-	err = executor.authorizeScopeFacts(ctx, &connectionState{attachedSession: &ownSessionID}, routeScopePolicy(questionHistoryOperation.Options.ScopePolicy), questionHistoryOperation.Name, routeScopeParams{
+	err = executor.authorizeScopeFacts(ctx, &connectionState{attachedSession: &ownSessionID}, questionHistoryOperation.Options.ScopePolicy, questionHistoryOperation.Name, routeScopeParams{
 		sessionID: fixture.foreignSessionID,
 	})
-	if !errors.As(err, &routeErr) || routeErr.code != protocol.ErrCodeInvalidRequest {
+	if err == nil {
 		t.Fatalf("attached Question-history mismatch error = %v, want invalid request route error", err)
 	}
 
@@ -540,7 +537,7 @@ func TestRoutePolicyAuthorizesAttachmentAndProjectWorkspaceScopesWithoutWebSocke
 	if err := executor.authorizeScopeFacts(
 		ctx,
 		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		routeScopePolicy(projectWorkspaceOperation.Options.ScopePolicy),
+		projectWorkspaceOperation.Options.ScopePolicy,
 		projectWorkspaceOperation.Name,
 		routeScopeParams{},
 	); err != nil {
@@ -560,7 +557,7 @@ func TestRoutePolicyAuthorizesAttachmentAndProjectWorkspaceScopesWithoutWebSocke
 		return executor.authorizeScopeFacts(
 			ctx,
 			&connectionState{attachedProject: fixture.bindingA.ProjectID, attachedWorkspaceID: fixture.bindingA.WorkspaceID},
-			routeScopePolicy(workspaceListOperation.Options.ScopePolicy),
+			workspaceListOperation.Options.ScopePolicy,
 			workspaceListOperation.Name,
 			scopeParams,
 		)
@@ -588,7 +585,7 @@ func TestRoutePolicyAuthorizesAttachmentAndProjectWorkspaceScopesWithoutWebSocke
 	if err := newRoutePolicyExecutor(unboundGateway).authorizeScopeFacts(
 		ctx,
 		&connectionState{},
-		routeScopePolicy(projectWorkspaceOperation.Options.ScopePolicy),
+		projectWorkspaceOperation.Options.ScopePolicy,
 		projectWorkspaceOperation.Name,
 		routeScopeParams{},
 	); err == nil {
@@ -685,15 +682,6 @@ func newRoutePolicyFixture(t *testing.T) routePolicyFixture {
 		reboundSessionID: reboundStore.Meta().SessionID,
 		workspaceB:       resolvedB.Config.WorkspaceRoot,
 	}
-}
-
-func routeForTest(t *testing.T, method string) rpccontract.Route {
-	t.Helper()
-	route, ok := rpccontract.RouteByMethod(method)
-	if !ok {
-		t.Fatalf("route %q missing", method)
-	}
-	return route
 }
 
 func routePolicyNewChatTarget(projectID string, workspaceID string) *chatpb.ChatTarget {

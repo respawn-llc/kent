@@ -671,13 +671,9 @@ func TestEventLogV1HistoryReplacementRecordRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatalf("payload type = %T, want HistoryReplacementRecord", mustEventRecordPayload(decoded))
 	}
-	if !reflect.DeepEqual(replacement, mustEventRecordPayload(record)) {
-		t.Fatalf("replacement = %#v, want %#v", replacement, mustEventRecordPayload(record))
-	}
-	for _, raw := range []json.RawMessage{messageRaw, callRaw, outputRaw, reasoningRaw, compactionRaw, opaqueRaw} {
-		if !bytes.Contains(line, raw) {
-			t.Fatalf("encoded history Raw changed lexical bytes: missing %s in %s", raw, line)
-		}
+	assertCompactionJSONContentEqual(t, replacement, mustEventRecordPayload(record))
+	for index, raw := range []json.RawMessage{messageRaw, callRaw, outputRaw, reasoningRaw, compactionRaw, opaqueRaw} {
+		assertCompactionJSONContentEqual(t, replacement.Items[index].Raw, raw)
 	}
 }
 

@@ -3,6 +3,45 @@ import { question, approval } from "@/test-support/chat-prompts";
 import { emptyPickerState, transitionPicker } from "./promptPickerState";
 
 describe("Chat prompt drafts", () => {
+  it("keeps a prepared question in draft until the rest of its batch materializes", () => {
+    const toolCallIDs = ["first", "second"];
+    const first = question("first", { batch: { toolCallIDs, unmaterializedCount: 1 } });
+    let state = transitionPicker(emptyPickerState(), [first], { kind: "sync" }).state;
+    const answered = transitionPicker(state, [first], {
+      kind: "activate",
+      selection: { kind: "suggested", number: 1 },
+    });
+    expect(answered.state.drafts.get("first")?.status).toBe("answered");
+    expect(answered.effect).toBe("none");
+    expect(answered.state.batchToolCallIDs).toEqual(toolCallIDs);
+    const readyFirst = question("first", { batch: { toolCallIDs, unmaterializedCount: 0 } });
+    const second = question("second", { batch: { toolCallIDs, unmaterializedCount: 0 } });
+    state = transitionPicker(answered.state, [readyFirst, second], { kind: "sync" }).state;
+    state = transitionPicker(state, [readyFirst, second], { kind: "confirm" }).state;
+    expect(state.current).toBe("second");
+    const completed = transitionPicker(state, [readyFirst, second], {
+      kind: "activate",
+      selection: { kind: "suggested", number: 2 },
+    });
+    expect(completed.effect).toBe("submit");
+  });
+
+  it("retains original question positions after external resolutions without waiting for them", () => {
+    const toolCallIDs = ["first", "second", "third"];
+    const batch = { toolCallIDs, unmaterializedCount: 0 };
+    const prompts = toolCallIDs.map((id) => question(id, { batch }));
+    const initial = transitionPicker(emptyPickerState(), prompts, { kind: "sync" }).state;
+    const third = question("third", { batch });
+    const remaining = transitionPicker(initial, [third], { kind: "sync" }).state;
+    expect(remaining.batchToolCallIDs).toEqual(toolCallIDs);
+    const completed = transitionPicker(remaining, [third], {
+      kind: "activate",
+      selection: { kind: "suggested", number: 1 },
+    });
+    expect(completed.effect).toBe("submit");
+    expect([...completed.state.drafts.keys()]).toEqual(["third"]);
+  });
+
   it("requires a fresh pair of matching option clicks after typing, including the recommendation", () => {
     const prompts = [question("first", { recommendedOptionIndex: 1 })];
     let state = transitionPicker(emptyPickerState(), prompts, { kind: "sync" }).state;

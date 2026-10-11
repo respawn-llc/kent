@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"core/cli/internal/pathdisplay"
 	"core/shared/clientui"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
@@ -19,6 +20,7 @@ const (
 	BackgroundedShellSuffix = "· " + backgroundedShellStatus
 	reviewerFeedbackGlyph   = "§"
 	reviewerErrorGlyph      = "!"
+	reasoningOmissionText   = "Conversation was switched to another provider/model - reasoning was lost, degrading output quality"
 )
 
 func RenderCommittedRow(row *transcriptpb.CommittedRow, width int, themeName string, mode Mode) Row {
@@ -753,6 +755,12 @@ func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.Entr
 		}
 		return role, providerModelMismatchNoticeText(row.ProviderModelMismatch)
 	}
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_REASONING_OMISSION && row.ReasoningOmission != nil {
+		if !isError {
+			role = StyleRoleWarning
+		}
+		return role, reasoningOmissionText
+	}
 	if isError && row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE && row.LegacyText != nil {
 		return role, *row.LegacyText
 	}
@@ -789,11 +797,15 @@ func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.Entr
 			panic(fmt.Sprintf("render error notice with unsupported reason %q", row.Reason))
 		}
 	}
-	typedCompactText := firstNonEmpty(optionalString(row.CompactLabel), optionalString(row.CondensedText), noticeLegacyText(row), cacheWarningText, optionalString(row.SourcePath))
+	sourcePath := optionalString(row.SourcePath)
+	if sourcePath != "" {
+		sourcePath = pathdisplay.Compact(sourcePath, nil)
+	}
+	typedCompactText := firstNonEmpty(optionalString(row.CompactLabel), optionalString(row.CondensedText), noticeLegacyText(row), cacheWarningText, sourcePath)
 	compactText := firstNonEmpty(typedCompactText, noticeReasonLabel(row.Reason))
 	text := compactText
 	if mode == ModeDetailExpanded {
-		text = firstNonBlankPreservingWhitespace(noticeLegacyText(row), optionalString(row.CondensedText), optionalString(row.CompactLabel), cacheWarningText, optionalString(row.SourcePath))
+		text = firstNonBlankPreservingWhitespace(noticeLegacyText(row), optionalString(row.CondensedText), optionalString(row.CompactLabel), cacheWarningText, sourcePath)
 		if strings.TrimSpace(text) == "" {
 			text = noticeReasonLabel(row.Reason)
 		}
@@ -845,6 +857,9 @@ func worktreeNoticeText(row *transcriptpb.NoticeRow, mode Mode) (string, bool) {
 	effectiveCWD := strings.TrimSpace(context.EffectiveCwd)
 	if effectiveCWD == "" {
 		effectiveCWD = strings.TrimSpace(context.WorktreePath)
+	}
+	if effectiveCWD != "" {
+		effectiveCWD = pathdisplay.Compact(effectiveCWD, nil)
 	}
 	if row.MessageType == nil {
 		return "", false
@@ -998,6 +1013,8 @@ func noticeReasonLabel(reason transcriptpb.NoticeReason) string {
 		return transcript.NoticeReasonToolOutputRepair
 	case transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH:
 		return transcript.NoticeReasonProviderModelMismatch
+	case transcriptpb.NoticeReason_NOTICE_REASON_REASONING_OMISSION:
+		return transcript.NoticeReasonReasoningOmission
 	default:
 		return "notice"
 	}

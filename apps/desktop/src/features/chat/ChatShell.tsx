@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useWindowChromeTitle, type SessionChatTarget } from "@/app-facade";
@@ -22,6 +22,7 @@ export type ChatShellProps<Target = SelectedSession> = Readonly<{
   selectedSession: Target;
   sessionName: string | null;
   state: ChatShellState;
+  chromeAction?: ReactElement | null;
 }>;
 export type ChatComposerLayout = Readonly<{
   availableHeight: number | null;
@@ -33,9 +34,10 @@ export function ChatShell<Target>({
   selectedSession,
   sessionName,
   state,
+  chromeAction,
 }: ChatShellProps<Target>) {
   const { t } = useTranslation();
-  useWindowChromeTitle(sessionName);
+  useWindowChromeTitle(sessionName, true, chromeAction);
   const container = useRef<HTMLDivElement>(null);
   const [availableHeight, setAvailableHeight] = useState<number | null>(null);
   const [composerHeight, setComposerHeight] = useState<number | null>(null);

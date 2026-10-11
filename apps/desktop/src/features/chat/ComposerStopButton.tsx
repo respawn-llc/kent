@@ -1,6 +1,6 @@
 import { useAtomSet } from "@effect/atom-react";
 import { useTranslation } from "react-i18next";
-import { IconTooltipButton } from "@/ui";
+import { Button, IconTooltipButton } from "@/ui";
 import { ComposerIcon } from "./ComposerIcon";
 import { useComposerSurface } from "./ChatComposerSurface";
 import type { useChatPromptPicker } from "./useChatPromptPicker";
@@ -34,26 +34,24 @@ function PromptDeclineButton({
   const dispatch = useAtomSet(picker.dispatch);
   const declined =
     picker.state.current !== null && picker.state.drafts.get(picker.state.current)?.status === "declined";
+  if (picker.request.isPending) {
+    return (
+      <Button disabled variant="ghost" size="icon-sm" aria-label={t("chat.picker.decline")}>
+        <ComposerIcon kind="loading" className="text-[var(--color-error)]" />
+      </Button>
+    );
+  }
   return (
     <IconTooltipButton
       label={t("chat.picker.decline")}
-      tooltip={
-        picker.request.isPending
-          ? t("chat.picker.sending")
-          : declined
-            ? t("chat.picker.declined")
-            : t("chat.picker.declineShortcut")
-      }
-      disabled={picker.request.isPending || declined}
+      tooltip={declined ? t("chat.picker.declined") : t("chat.picker.decline")}
+      disabled={declined}
       onClick={() => {
         dispatch({ action: { kind: "decline" } });
       }}
       size="icon-sm"
     >
-      <ComposerIcon
-        kind={picker.request.isPending ? "loading" : "decline"}
-        className="text-[var(--color-error)]"
-      />
+      <ComposerIcon kind="decline" className="text-[var(--color-error)]" />
     </IconTooltipButton>
   );
 }

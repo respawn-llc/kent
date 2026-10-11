@@ -240,7 +240,7 @@ func TestCompletedWriteStdinGuardConsumesPendingBackgroundNotice(t *testing.T) {
 	}}, delay: 300 * time.Millisecond}
 	registry := newTestToolRegistry(t,
 		tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: shelltool.NewExecCommandToolWithPostprocessor(store.Meta().WorkspaceRoot, 16_000, 40, manager, store.Meta().SessionID, postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))},
-		tools.HandlerRegistration{ID: toolspec.ToolWriteStdin, Handler: shelltool.NewWriteStdinTool(16_000, 40, manager)},
+		tools.HandlerRegistration{ID: toolspec.ToolWriteStdin, Handler: shelltool.NewWriteStdinTool(16_000, 40, manager, nil)},
 	)
 	eng := mustNewTestEngine(t, store, client, registry, Config{Model: "gpt-6-sol"})
 	forwardBackgroundEvents(t, manager, eng, store.Meta().SessionID)
@@ -537,7 +537,7 @@ func TestParallelToolCompletionsStayPendingUntilResultGroupClose(t *testing.T) {
 	}
 }
 
-func TestAskQuestionToolCallsExecuteSequentiallyInDeclaredOrder(t *testing.T) {
+func TestAskQuestionToolCallsMaterializeConcurrentlyAndReturnDeclaredOrder(t *testing.T) {
 	store := mustCreateTestSession(t)
 	sequencer := &serialPairProbeTool{
 		firstID:       "call-ask-1",
@@ -577,15 +577,10 @@ func TestAskQuestionToolCallsExecuteSequentiallyInDeclaredOrder(t *testing.T) {
 	}
 	select {
 	case <-sequencer.secondStarted:
-		t.Fatal("second ask_question call started before first completed")
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("second ask_question call did not materialize before first was answered")
 	}
 	close(sequencer.releaseFirst)
-	select {
-	case <-sequencer.secondStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for second ask_question call to start")
-	}
 	select {
 	case result := <-done:
 		if result.err != nil {
@@ -599,7 +594,7 @@ func TestAskQuestionToolCallsExecuteSequentiallyInDeclaredOrder(t *testing.T) {
 	}
 }
 
-func TestWorkflowPromptCapableToolCallsSerializeWithAskQuestion(t *testing.T) {
+func TestWorkflowPromptCapableToolCallsDoNotBlockAskQuestion(t *testing.T) {
 	store := mustCreateTestSession(t)
 	sequencer := &serialPairProbeTool{
 		firstID:       "call-patch",
@@ -638,15 +633,10 @@ func TestWorkflowPromptCapableToolCallsSerializeWithAskQuestion(t *testing.T) {
 	}
 	select {
 	case <-sequencer.secondStarted:
-		t.Fatal("ask_question started before earlier workflow prompt-capable tool completed")
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("ask_question did not materialize while workflow prompt-capable tool was pending")
 	}
 	close(sequencer.releaseFirst)
-	select {
-	case <-sequencer.secondStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for ask_question to start")
-	}
 	select {
 	case err := <-done:
 		if err != nil {

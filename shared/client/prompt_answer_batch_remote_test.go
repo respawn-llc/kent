@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
+	"core/shared/serverapi"
 	"golang.org/x/net/websocket"
 	"google.golang.org/protobuf/proto"
 )
@@ -89,6 +91,47 @@ func TestRemoteAnswerPromptBatchValidatesExactResponseIdentitySet(t *testing.T) 
 				t.Fatalf("validated response: %v", err)
 			}
 		})
+	}
+}
+
+func TestRemoteAnswerPromptBatchDecodesParentQuestionRejection(t *testing.T) {
+	answeringSessionID := runtimeids.NewSessionID()
+	questionSessionID := runtimeids.NewSessionID()
+	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
+		acceptRemoteHandshake(t, ws)
+		call := receiveRemoteGeneratedCall(t, ws, "AnswerService", "AnswerBatch", &promptpb.AnswerBatchRequest{})
+		method := bootstrapMethod(promptpb.File_kent_api_prompt_prompt_proto, "AnswerService", "AnswerBatch")
+		frame, err := remoteDescriptorResultFrame(method, call.Correlation, &promptpb.AnswerBatchResult{
+			Outcome: &promptpb.AnswerBatchResult_Error{Error: &promptpb.AnswerBatchError{
+				Code: "parent_question_answer_rejected",
+				Detail: &promptpb.AnswerBatchError_ParentQuestionAnswerRejected{
+					ParentQuestionAnswerRejected: &promptpb.ParentQuestionAnswerRejectedDetails{
+						AnsweringSessionId: answeringSessionID.String(),
+						QuestionSessionId:  questionSessionID.String(),
+					},
+				},
+			}},
+		}, proto.Marshal)
+		if err != nil {
+			t.Errorf("encode prompt answer batch rejection: %v", err)
+			return
+		}
+		if err := websocket.Message.Send(ws, frame.Payload); err != nil {
+			t.Errorf("send prompt answer batch rejection: %v", err)
+		}
+	})
+	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatalf("DialRemoteURL: %v", err)
+	}
+	defer func() { _ = remote.Close() }()
+
+	_, err = remote.AnswerPromptBatch(context.Background(), remotePromptAnswerBatchRequest(t))
+	var rejected *serverapi.ParentQuestionAnswerRejectedError
+	if !errors.As(err, &rejected) ||
+		rejected.AnsweringSessionID != answeringSessionID ||
+		rejected.QuestionSessionID != questionSessionID {
+		t.Fatalf("AnswerPromptBatch error = %T %+v, want typed caller and target identities", err, err)
 	}
 }
 

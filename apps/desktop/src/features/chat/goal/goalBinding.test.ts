@@ -74,7 +74,7 @@ describe("New Chat Goal binding", () => {
       outcome: {
         kind: "rejected",
         error: new ChatOperationError(
-          new RpcError({ code: 500, message: "Goal Set failed", method: "runtime.goal.set" }),
+          new RpcError({ code: "internal_failure", message: "Goal Set failed", method: "runtime.goal.set" }),
           { kind: "runtime_unavailable", sessionID },
         ),
       },

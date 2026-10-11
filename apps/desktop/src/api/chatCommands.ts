@@ -4,9 +4,9 @@ import { requireProjectAttachment } from "./chatAttachment";
 import { requireChatSuccess } from "./chatErrors";
 import { requireChatProjectTarget, requireChatSessionID } from "./chatTarget";
 import type { ChatApi } from "./chatTypes";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 
-export function createChatCommandApi(transport: DescriptorRpcTransport): Pick<ChatApi, "getCommandCatalog"> {
+export function createChatCommandApi(transport: RpcTransport): Pick<ChatApi, "getCommandCatalog"> {
   return {
     async getCommandCatalog(target) {
       const method = PromptCommandService.method.getCatalog;

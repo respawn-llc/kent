@@ -40,8 +40,8 @@ func TestSkillsContextMessageIncludesCodexPromptAndSkillEntries(t *testing.T) {
 	}
 
 	for _, required := range []string{
-		pathutil.Compact(homeSkillPath, workspace, home),
-		pathutil.Compact(workspaceSkillPath, workspace, home),
+		pathutil.Compact(homeSkillPath, &home, &workspace),
+		pathutil.Compact(workspaceSkillPath, &home, &workspace),
 	} {
 		if !strings.Contains(content, required) {
 			t.Fatalf("expected skills context to include %q, got %q", required, content)
@@ -98,7 +98,7 @@ func TestSkillsContextMessageLoadsSymlinkedSkillDirectory(t *testing.T) {
 	if !found {
 		t.Fatal("expected symlinked skill to be discovered")
 	}
-	want := pathutil.Compact(targetSkillPath, workspace, home)
+	want := pathutil.Compact(targetSkillPath, &home, &workspace)
 	if !strings.Contains(content, want) {
 		t.Fatalf("expected symlinked skill entry %q, got %q", want, content)
 	}
@@ -132,7 +132,7 @@ func TestSkillsContextMessageLoadsSkillFromSymlinkedGlobalSkillsRoot(t *testing.
 	if !found {
 		t.Fatal("expected skill from symlinked global skills root to be discovered")
 	}
-	want := pathutil.Compact(targetSkillPath, workspace, home)
+	want := pathutil.Compact(targetSkillPath, &home, &workspace)
 	if !strings.Contains(content, want) {
 		t.Fatalf("expected symlinked global skill entry %q, got %q", want, content)
 	}
@@ -156,7 +156,7 @@ func TestSkillsContextMessageSkipsBrokenSymlinkedSkillDirectory(t *testing.T) {
 	if !found {
 		t.Fatal("expected valid skill to remain discoverable")
 	}
-	if !strings.Contains(content, pathutil.Compact(validSkillPath, workspace, home)) {
+	if !strings.Contains(content, pathutil.Compact(validSkillPath, &home, &workspace)) {
 		t.Fatalf("expected valid skill entry to remain, got %q", content)
 	}
 	if strings.Contains(content, "broken-skill") {
@@ -289,9 +289,9 @@ func TestGeneratedSkillsAreInjectedAfterUserSkills(t *testing.T) {
 		t.Fatal("expected skills context")
 	}
 	expected := []string{
-		pathutil.Compact(homeSkillPath, workspace, home),
-		pathutil.Compact(workspaceSkillPath, workspace, home),
-		pathutil.Compact(generatedSkillPath, workspace, home),
+		pathutil.Compact(homeSkillPath, &home, &workspace),
+		pathutil.Compact(workspaceSkillPath, &home, &workspace),
+		pathutil.Compact(generatedSkillPath, &home, &workspace),
 	}
 	previous := -1
 	for _, text := range expected {
@@ -321,8 +321,8 @@ func TestUserSkillDuplicateNameBehaviorIsUnchanged(t *testing.T) {
 	if !found {
 		t.Fatal("expected skills context")
 	}
-	homeEntry := pathutil.Compact(homeSkillPath, workspace, home)
-	workspaceEntry := pathutil.Compact(workspaceSkillPath, workspace, home)
+	homeEntry := pathutil.Compact(homeSkillPath, &home, &workspace)
+	workspaceEntry := pathutil.Compact(workspaceSkillPath, &home, &workspace)
 	homeIdx := strings.Index(content, homeEntry)
 	workspaceIdx := strings.Index(content, workspaceEntry)
 	if homeIdx < 0 || workspaceIdx < 0 {
@@ -348,7 +348,7 @@ func TestGeneratedSkillIsShadowedByUserSkillName(t *testing.T) {
 	if !found {
 		t.Fatal("expected skills context")
 	}
-	if !strings.Contains(content, pathutil.Compact(userSkillPath, workspace, home)) {
+	if !strings.Contains(content, pathutil.Compact(userSkillPath, &home, &workspace)) {
 		t.Fatalf("expected user skill to remain, got %q", content)
 	}
 	if strings.Contains(content, "generated") {

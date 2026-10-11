@@ -186,7 +186,7 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		WithUITerminalFocusState(request.wiring.terminalFocus),
 	}
 	if request.sessionTitle != nil {
-		uiOptions = append(uiOptions, WithUISessionName(*request.sessionTitle))
+		uiOptions = append(uiOptions, WithUISessionName(request.sessionTitle))
 	}
 	rawModel := NewProjectedUIModel(runtimeClient, uiOptions...)
 	model, ok := rawModel.(*uiModel)

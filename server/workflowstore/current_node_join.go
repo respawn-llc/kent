@@ -130,16 +130,11 @@ func planCurrentNodeJoinArrival(
 	if materializedTarget.LegacyFallback != nil {
 		checkLegacyContinuationSourceBeforeMutation(policy, *materializedTarget.LegacyFallback)
 	}
-	handoff, err := currentNodeCompletionHandoff(resolution.Join, target.Node)
-	if err != nil {
-		return CurrentNodeCompletionResult{}, err
-	}
 	result := CurrentNodeCompletionResult{
 		Mutation: workflow.CurrentNodeMutationResult{
 			Removed: []workflow.CurrentNodeReference{source.Reference},
 			Created: []workflow.CurrentNode{targetCurrentNode},
 		},
-		Handoff: handoff,
 	}
 	if materializedTarget.LegacyFallback != nil {
 		result.legacyFallbacks = []legacyContinuationSourceFallbackDetail{*materializedTarget.LegacyFallback}

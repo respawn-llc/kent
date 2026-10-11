@@ -90,7 +90,7 @@ func TestRuntimeLiveWaitResponsePreservesFinalAnswerUnion(t *testing.T) {
 
 func validLiveWaitResponse() *runtimepb.LiveWaitSuccess {
 	return &runtimepb.LiveWaitSuccess{
-		SessionId: validLiveSessionID, SessionName: "Session",
+		SessionId: validLiveSessionID, SessionName: new("Session"),
 		Result:   &runtimepb.LiveWaitSuccess_AssistantFinalAnswer{AssistantFinalAnswer: &runtimepb.LiveWaitAssistantFinalAnswer{Result: "final"}},
 		Duration: durationpb.New(42 * time.Millisecond), LiveRunGroupId: validLiveQueueItemID,
 		TerminalRunId: validLiveQueueItemID, TerminalStepId: validLiveQueueItemID, TerminalStatus: "completed",

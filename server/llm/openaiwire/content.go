@@ -17,6 +17,26 @@ type InputContent struct {
 }
 
 func InputContentItems(raw json.RawMessage) ([]InputContent, bool) {
+	items, ok := DecodeInputContentItems(raw)
+	if !ok {
+		return nil, false
+	}
+	for index := range items {
+		item := &items[index]
+		if item.Type == "input_image" {
+			switch item.Detail {
+			case "low", "high", "auto":
+			default:
+				item.Detail = ""
+			}
+		}
+	}
+	return items, true
+}
+
+// DecodeInputContentItems interprets structured content without wire-only detail
+// normalization, so local estimation retains the supplied image parameters.
+func DecodeInputContentItems(raw json.RawMessage) ([]InputContent, bool) {
 	if len(raw) == 0 {
 		return nil, false
 	}
@@ -35,11 +55,6 @@ func InputContentItems(raw json.RawMessage) ([]InputContent, bool) {
 				return nil, false
 			}
 			item.Detail = strings.ToLower(strings.TrimSpace(item.Detail))
-			switch item.Detail {
-			case "low", "high", "auto":
-			default:
-				item.Detail = ""
-			}
 		case "input_file":
 			item.FileID = strings.TrimSpace(item.FileID)
 			item.FileData = strings.TrimSpace(item.FileData)

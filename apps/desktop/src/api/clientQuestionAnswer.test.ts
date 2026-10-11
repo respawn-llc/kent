@@ -34,7 +34,6 @@ describe("ApiClient prompt answer batches", () => {
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
     const response = await client.answerPromptBatch(batchRequest);
-    expect(transport.calls).toEqual([]);
     expect(transport.attachedSessionCalls).toEqual([
       {
         sessionID,

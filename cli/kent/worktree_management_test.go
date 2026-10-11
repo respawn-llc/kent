@@ -699,11 +699,43 @@ func TestWorktreeCommandRejectedManagementLeavesStateUnchanged(t *testing.T) {
 	}
 	out.Reset()
 	stderr.Reset()
-	if code := worktreeSubcommand([]string{"delete", "--project", f.b.ProjectID, "--force", facts.Kent.WorktreeID}, &out, &stderr); code != 0 {
+	if code := worktreeSubcommand([]string{"delete", "--timeout", "2m", "--project", f.b.ProjectID, "--force", facts.Kent.WorktreeID}, &out, &stderr); code != 0 {
 		t.Fatalf("authorized dirty deletion exit %d: %s", code, &stderr)
 	}
 	if _, err := os.Stat(facts.Git.CanonicalRoot); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("authorized delete did not remove root: %v", err)
+	}
+}
+
+func TestWorktreeDeleteTimeoutRejectsInvalidDuration(t *testing.T) {
+	for _, timeout := range []string{"invalid", "0s", "-1s"} {
+		t.Run(timeout, func(t *testing.T) {
+			var out, stderr bytes.Buffer
+			if code := worktreeSubcommand([]string{"delete", "--timeout", timeout, "unused"}, &out, &stderr); code != 2 {
+				t.Fatalf("invalid timeout exit = %d, want 2", code)
+			}
+		})
+	}
+}
+
+func TestWorktreeDeleteExpiredTimeoutPreservesWorktree(t *testing.T) {
+	f := newWorktreeCommandFixture(t)
+	var out, stderr bytes.Buffer
+	if code := worktreeSubcommand([]string{"create", "--project", f.b.ProjectID, "--json", "timeout-test"}, &out, &stderr); code != 0 {
+		t.Fatalf("create exit %d: %s", code, &stderr)
+	}
+	var created worktreeCreateJSONOutput
+	if err := json.Unmarshal(out.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	facts := created.Worktree.Topology.Registered
+	out.Reset()
+	stderr.Reset()
+	if code := worktreeSubcommand([]string{"delete", "--timeout", "1ns", "--project", f.b.ProjectID, facts.Kent.WorktreeID}, &out, &stderr); code != 1 {
+		t.Fatalf("expired timeout exit = %d, want 1: %s", code, &stderr)
+	}
+	if _, err := os.Stat(facts.Git.CanonicalRoot); err != nil {
+		t.Fatalf("expired deletion changed worktree: %v", err)
 	}
 }
 

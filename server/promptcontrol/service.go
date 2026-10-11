@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"core/server/session"
 	"core/server/sessionruntime"
 	askquestion "core/server/tools"
 	servicecontract "core/shared/apicontract"
@@ -32,11 +33,15 @@ type PendingPromptResponder interface {
 }
 
 type PromptControlService struct {
-	prompts PendingPromptResponder
+	prompts          PendingPromptResponder
+	persistedSession session.PersistedSessionResolver
 }
 
-func NewPromptControlService(prompts PendingPromptResponder) *PromptControlService {
-	return &PromptControlService{prompts: prompts}
+func NewPromptControlService(
+	prompts PendingPromptResponder,
+	persistedSession session.PersistedSessionResolver,
+) *PromptControlService {
+	return &PromptControlService{prompts: prompts, persistedSession: persistedSession}
 }
 
 func (s *PromptControlService) AnswerPromptBatch(
@@ -57,6 +62,26 @@ func (s *PromptControlService) AnswerPromptBatch(
 	if err != nil {
 		return nil, err
 	}
+	var invokingSessionID *runtimeids.SessionID
+	if req.InvokingSessionId != nil {
+		id, err := runtimeids.ParseSessionID(*req.InvokingSessionId)
+		if err != nil {
+			return nil, err
+		}
+		caller, err := session.ResolvePersistedSessionRecord(ctx, s.persistedSession, id.String())
+		if err != nil {
+			return nil, err
+		}
+		if hasQuestionAnswerEntry(req.Entries) &&
+			caller.Meta.ParentAgentSessionID != nil &&
+			*caller.Meta.ParentAgentSessionID == sessionID {
+			return nil, &serverapi.ParentQuestionAnswerRejectedError{
+				AnsweringSessionID: id,
+				QuestionSessionID:  sessionID,
+			}
+		}
+		invokingSessionID = &id
+	}
 	commands := make([]sessionruntime.PromptAnswerCommand, 0, len(req.Entries))
 	for _, entry := range req.Entries {
 		command := sessionruntime.PromptAnswerCommand{ToolCallID: clientui.ToolCallID(entry.ToolCallId)}
@@ -71,6 +96,7 @@ func (s *PromptControlService) AnswerPromptBatch(
 				Answer: askquestion.AskQuestionAnswer{
 					SelectedOptionNumber: selected,
 					Freeform:             answer.QuestionAnswer.Freeform,
+					AnsweredBySessionID:  invokingSessionID,
 				},
 			}
 		case *promptpb.AnswerBatchEntry_ApprovalAnswer:
@@ -119,6 +145,15 @@ func (s *PromptControlService) AnswerPromptBatch(
 		return nil, fmt.Errorf("validate prompt answer batch response: %w", err)
 	}
 	return response, nil
+}
+
+func hasQuestionAnswerEntry(entries []*promptpb.AnswerBatchEntry) bool {
+	for _, entry := range entries {
+		if entry.GetQuestionAnswer() != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *PromptControlService) SubscribeFollowUp(

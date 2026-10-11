@@ -33,14 +33,14 @@ import {
   pendingWorkRestorationSchema,
   pendingWorkSchema,
 } from "./pendingWork";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 
 type ChatMutationApi = Pick<
   ChatApi,
   "steer" | "queue" | "compact" | "stop" | "forkEdit" | "listPendingWork" | "removePendingWork"
 >;
 
-export function createChatMutationApi(transport: DescriptorRpcTransport): ChatMutationApi {
+export function createChatMutationApi(transport: RpcTransport): ChatMutationApi {
   const mutateInput = async (
     method: typeof ChatService.method.steer | typeof ChatService.method.queue,
     target: ChatMutationTarget,

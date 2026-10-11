@@ -92,6 +92,7 @@
 - A missing outcome, empty error code, or known code with missing or incorrect detail is malformed.
 - A client must surface an unknown nonempty error code as a generic error while preserving available unknown fields.
 - Subscription-start failure occurs before acknowledgement and remains distinct from later events and terminal completion.
+- Subscription terminal failures must use generated Protobuf error codes, including Worktree setup completion. Clients must preserve the owning operation's terminal outcome and typed failure facts.
 - Client-visible wording is client-owned and derived from stable codes and typed details.
 - The shared `internal_failure` code represents otherwise-unclassified operational failures.
 - Onboarding rollback errors use one typed primary failure plus structured rollback facts containing operation and cause.
