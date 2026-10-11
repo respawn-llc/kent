@@ -279,12 +279,17 @@ func worktreeCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		return 1
 	}
 	fmt.Fprintln(stdout, registered.GetGit().GetCanonicalRoot())
-	if sessionID == nil {
+	if response.Session == nil {
 		return 0
 	}
 	enter := []string{config.Command, "worktree", "enter"}
 	if _, agent := sessionenv.LookupSessionID(os.LookupEnv); !agent {
-		enter = append(enter, "--session", sessionID.String())
+		identity, err := protoapi.SessionIdentityFromProto(response.Session.SessionId, response.Session.ShortId)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		enter = append(enter, "--session", identity.String())
 	}
 	enter = append(enter, registered.GetGit().GetCanonicalRoot())
 	fmt.Fprintf(stdout, "Enter with: %s\n", commandString(enter))

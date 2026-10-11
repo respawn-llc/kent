@@ -7,6 +7,7 @@ import (
 	"core/cli/tui"
 	"core/cli/tui/transcriptrender"
 	"core/shared/clientui"
+	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	sharedtheme "core/shared/theme"
@@ -172,7 +173,7 @@ func sessionPickerTitle(item clientui.SessionSummary) string {
 	if title, present := textutil.OptionalTrimmed(item.Name); present {
 		return title
 	}
-	return item.SessionID.String()
+	return (runtimeids.SessionIdentity{ID: item.SessionID, ShortID: item.ShortID}).String()
 }
 
 func (m *sessionPickerModel) hasPreview(tab *sessionPickerTab, index int) bool {
