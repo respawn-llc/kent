@@ -394,7 +394,9 @@ func (t *AskQuestionTool) Call(ctx context.Context, c Call) (Result, error) {
 			SelectedOptionNumber: answer.SelectedOptionNumber,
 			Freeform:             answer.Freeform,
 		}
-		result.AnsweredBySessionID = answer.AnsweredBySessionID
+		if answer.Answerer != nil {
+			result.AnsweredBySessionID = &answer.Answerer.ID
+		}
 	}
 	return result, nil
 }

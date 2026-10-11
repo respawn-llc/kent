@@ -14,8 +14,8 @@ type AgentSteer struct {
 	message llm.Message
 }
 
-func NewAgentSteer(sourceSessionID runtimeids.SessionID, text string) (AgentSteer, error) {
-	if sourceSessionID.IsZero() {
+func NewAgentSteer(source runtimeids.SessionIdentity, text string) (AgentSteer, error) {
+	if source.ID.IsZero() {
 		return AgentSteer{}, errors.New("source session ID is required")
 	}
 	if strings.TrimSpace(text) == "" {
@@ -24,7 +24,7 @@ func NewAgentSteer(sourceSessionID runtimeids.SessionID, text string) (AgentStee
 	content := fmt.Sprintf(
 		"Agent from another session said:\n> %s\n\nYou can use `kent run steer %s \"message\"` to respond.",
 		text,
-		sourceSessionID.String(),
+		source.String(),
 	)
 	messageType := llm.MessageTypeAgentSteer
 	return AgentSteer{message: llm.Message{

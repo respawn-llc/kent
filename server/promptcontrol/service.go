@@ -65,7 +65,7 @@ func (s *PromptControlService) AnswerPromptBatch(
 	if err != nil {
 		return nil, err
 	}
-	var invokingSessionID *runtimeids.SessionID
+	var answerer *runtimeids.SessionIdentity
 	if req.InvokingSessionId != nil {
 		id, err := runtimeids.ParseSessionID(*req.InvokingSessionId)
 		if err != nil {
@@ -83,7 +83,7 @@ func (s *PromptControlService) AnswerPromptBatch(
 				QuestionSessionID:  sessionID,
 			}
 		}
-		invokingSessionID = &id
+		answerer = &runtimeids.SessionIdentity{ID: id, ShortID: caller.ShortID}
 	}
 	commands := make([]sessionruntime.PromptAnswerCommand, 0, len(req.Entries))
 	for _, entry := range req.Entries {
@@ -99,7 +99,7 @@ func (s *PromptControlService) AnswerPromptBatch(
 				Answer: askquestion.AskQuestionAnswer{
 					SelectedOptionNumber: selected,
 					Freeform:             answer.QuestionAnswer.Freeform,
-					AnsweredBySessionID:  invokingSessionID,
+					Answerer:             answerer,
 				},
 			}
 		case *promptpb.AnswerBatchEntry_ApprovalAnswer:

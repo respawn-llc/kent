@@ -168,7 +168,7 @@ func (s *Starter) PrepareCurrentNode(
 	if err != nil {
 		return workflowexecution.CurrentNodePreparation{}, err
 	}
-	preview, err := renderCurrentNodePrompt(input.TransitionPrompt, input)
+	preview, err := renderCurrentNodePrompt(ctx, s.metadata, input.TransitionPrompt, input)
 	if err != nil {
 		return workflowexecution.CurrentNodePreparation{}, err
 	}

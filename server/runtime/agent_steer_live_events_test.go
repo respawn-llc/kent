@@ -17,7 +17,7 @@ func TestAgentSteerLiveEventsProjectTheCommittedMessage(t *testing.T) {
 				events = append(events, event)
 			},
 		})
-		steer, err := NewAgentSteer(runtimeids.NewSessionID(), "direct")
+		steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "direct")
 		if err != nil {
 			t.Fatalf("NewAgentSteer: %v", err)
 		}
@@ -35,7 +35,7 @@ func TestAgentSteerLiveEventsProjectTheCommittedMessage(t *testing.T) {
 				events = append(events, event)
 			},
 		})
-		steer, err := NewAgentSteer(runtimeids.NewSessionID(), "queued")
+		steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "queued")
 		if err != nil {
 			t.Fatalf("NewAgentSteer: %v", err)
 		}

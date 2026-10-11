@@ -9,7 +9,7 @@ import (
 
 func TestNewAgentSteerBuildsTypedDeveloperMessage(t *testing.T) {
 	sourceID := runtimeids.NewSessionID()
-	steer, err := NewAgentSteer(sourceID, "inspect the migration\nthen report back")
+	steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "inspect the migration\nthen report back")
 	if err != nil {
 		t.Fatalf("NewAgentSteer: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestNewAgentSteerRejectsMissingSourceOrText(t *testing.T) {
 		{name: "missing text", source: sourceID, text: " \t "},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := NewAgentSteer(tc.source, tc.text); err == nil {
+			if _, err := NewAgentSteer(runtimeids.SessionIdentity{ID: tc.source}, tc.text); err == nil {
 				t.Fatal("NewAgentSteer unexpectedly succeeded")
 			}
 		})

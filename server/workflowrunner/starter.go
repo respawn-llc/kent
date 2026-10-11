@@ -337,6 +337,7 @@ func (s *Starter) startCurrentNodeAgent(
 		replacementPlan = &runtimePlan
 	}
 	runtimeConfig, err := BuildCurrentNodeRuntimeConfig(
+		ctx, s.metadata,
 		input,
 		runtimeids.NewExecutionScopeID(),
 		taskPromptDelivery,
@@ -381,7 +382,7 @@ func (s *Starter) currentNodeAgentAssignment(
 	input workflowstore.CurrentNodeStartContext,
 	prepared preparedCurrentNodeAgentSession,
 ) (runtime.WorkflowAssignment, error) {
-	instructions, err := BuildCurrentSessionTaskInstructions(input)
+	instructions, err := BuildCurrentSessionTaskInstructions(ctx, s.metadata, input)
 	if err != nil {
 		return runtime.WorkflowAssignment{}, err
 	}
@@ -727,16 +728,12 @@ func workflowSessionNameFromCurrentNode(input workflowstore.CurrentNodeStartCont
 	return fmt.Sprintf("%s: %s -> %s", taskID, input.AcceptedTransitionPath.SourceNodeDisplayName, input.AcceptedTransitionPath.TargetNodeDisplayName), nil
 }
 
-func renderCurrentNodePrompt(text string, input workflowstore.CurrentNodeStartContext) (string, error) {
-	source := ""
-	if input.SourceSessionID != nil {
-		source = input.SourceSessionID.String()
+func renderCurrentNodePrompt(ctx context.Context, store *metadata.Store, text string, input workflowstore.CurrentNodeStartContext) (string, error) {
+	prepared, err := workflowPromptInputFromContext(ctx, store, input)
+	if err != nil {
+		return "", err
 	}
-	promptSession := ""
-	if input.PromptSessionID != nil {
-		promptSession = input.PromptSessionID.String()
-	}
-	return renderWorkflowPrompt(text, workflowPromptInput{Task: input.Task, Workflow: input.Workflow, Node: input.Node, CurrentNode: input.CurrentNode.Reference, ContextMode: input.ContextMode, SourceSessionID: source, PromptSessionID: promptSession, PriorSessionIDs: input.PriorSessionIDs, TransitionOptions: input.TransitionOptions, TransitionIDs: input.TransitionIDs, TransitionPrompt: text, ParameterValues: input.ParameterValues, PriorValues: input.CurrentNode.PriorValues})
+	return renderWorkflowPrompt(text, prepared)
 }
 
 func (s *Starter) resolveCurrentNodeCompletionMode(ctx context.Context, input workflowstore.CurrentNodeStartContext, plan launch.SessionPlan) (workflowruntime.CompletionMode, error) {
@@ -872,16 +869,40 @@ func toolIDEnabled(enabled []toolspec.ID, want toolspec.ID) bool {
 	return false
 }
 
-func BuildCurrentSessionTaskInstructions(input workflowstore.CurrentNodeStartContext) (workflowruntime.TaskInstructions, error) {
-	source := ""
-	if input.SourceSessionID != nil {
-		source = input.SourceSessionID.String()
+func BuildCurrentSessionTaskInstructions(ctx context.Context, store *metadata.Store, input workflowstore.CurrentNodeStartContext) (workflowruntime.TaskInstructions, error) {
+	prepared, err := workflowPromptInputFromContext(ctx, store, input)
+	if err != nil {
+		return workflowruntime.TaskInstructions{}, err
 	}
-	promptSession := ""
-	if input.PromptSessionID != nil {
-		promptSession = input.PromptSessionID.String()
+	return buildWorkflowTaskInstructions(prepared)
+}
+
+func workflowPromptInputFromContext(ctx context.Context, store *metadata.Store, input workflowstore.CurrentNodeStartContext) (workflowPromptInput, error) {
+	ids := make([]runtimeids.SessionID, 0, len(input.PriorSessionIDs)+2)
+	references := []*runtimeids.SessionID{input.SourceSessionID, input.PromptSessionID}
+	for _, id := range input.PriorSessionIDs {
+		references = append(references, id)
 	}
-	return buildWorkflowTaskInstructions(workflowPromptInput{Task: input.Task, Workflow: input.Workflow, Node: input.Node, CurrentNode: input.CurrentNode.Reference, ContextMode: input.ContextMode, SourceSessionID: source, PromptSessionID: promptSession, PriorSessionIDs: input.PriorSessionIDs, TransitionOptions: input.TransitionOptions, TransitionIDs: input.TransitionIDs, TransitionPrompt: input.TransitionPrompt, ParameterValues: input.ParameterValues, PriorValues: input.CurrentNode.PriorValues})
+	for _, id := range references {
+		if id != nil {
+			ids = append(ids, *id)
+		}
+	}
+	identities, err := store.SessionIdentities(ctx, ids)
+	if err != nil {
+		return workflowPromptInput{}, err
+	}
+	selector := func(id *runtimeids.SessionID) string {
+		if id == nil {
+			return ""
+		}
+		return identities[*id].String()
+	}
+	prior := make(map[workflow.ModelKey]string, len(input.PriorSessionIDs))
+	for key, id := range input.PriorSessionIDs {
+		prior[key] = selector(id)
+	}
+	return workflowPromptInput{Task: input.Task, Workflow: input.Workflow, Node: input.Node, CurrentNode: input.CurrentNode.Reference, ContextMode: input.ContextMode, SourceSessionID: selector(input.SourceSessionID), PromptSessionID: selector(input.PromptSessionID), PriorSessionIDs: prior, TransitionOptions: input.TransitionOptions, TransitionIDs: input.TransitionIDs, TransitionPrompt: input.TransitionPrompt, ParameterValues: input.ParameterValues, PriorValues: input.CurrentNode.PriorValues}, nil
 }
 
 type workflowPromptInput struct {
@@ -892,7 +913,7 @@ type workflowPromptInput struct {
 	ContextMode       workflow.ContextMode
 	SourceSessionID   string
 	PromptSessionID   string
-	PriorSessionIDs   map[workflow.ModelKey]*runtimeids.SessionID
+	PriorSessionIDs   map[workflow.ModelKey]string
 	TransitionOptions []workflowstore.TransitionOption
 	TransitionIDs     []string
 	TransitionPrompt  string
@@ -994,7 +1015,7 @@ func renderWorkflowPrompt(text string, input workflowPromptInput) (string, error
 func promptParameterData(
 	current map[string]string,
 	prior map[workflow.ModelKey]map[string]string,
-	priorSessionIDs map[workflow.ModelKey]*runtimeids.SessionID,
+	priorSessionIDs map[workflow.ModelKey]string,
 ) map[string]promptParameterNamespace {
 	out := map[string]promptParameterNamespace{workflow.RuntimePromptParameterCommentary: {currentParameterValueKey: ""}}
 	for transition, values := range prior {
@@ -1012,10 +1033,7 @@ func promptParameterData(
 		if namespace == nil {
 			namespace = promptParameterNamespace{}
 		}
-		namespace[workflow.RuntimePromptParameterSessionID] = ""
-		if sessionID != nil {
-			namespace[workflow.RuntimePromptParameterSessionID] = sessionID.String()
-		}
+		namespace[workflow.RuntimePromptParameterSessionID] = sessionID
 		out[string(transition)] = namespace
 	}
 	for key, value := range current {

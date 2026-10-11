@@ -1,15 +1,34 @@
 package workflowrunner
 
 import (
+	"path/filepath"
 	"testing"
 
 	"core/internal/testharness/testsetup"
 
+	"core/server/metadata"
+	"core/server/session"
 	"core/server/workflow"
 	"core/server/workflowruntime"
 	"core/server/workflowstore"
 	"core/shared/runtimeids"
+	"core/shared/sessioncontract"
 )
+
+func workflowPromptIdentityFixture(t *testing.T) (*metadata.Store, runtimeids.SessionIdentity) {
+	t.Helper()
+	root, workspace := t.TempDir(), t.TempDir()
+	store := testsetup.OpenStore(t, root)
+	binding, err := store.RegisterWorkspaceBinding(t.Context(), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := session.Create(filepath.Join(root, "projects", binding.ProjectID, "sessions"), binding.WorkspaceName, workspace, sessioncontract.SessionCategoryMain, store.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store, sess.Identity()
+}
 
 func TestCurrentSessionReconstructionPreservesBranchScopedPromptIdentity(t *testing.T) {
 	implementation := workflow.TransitionBranchKey("implementation")
@@ -23,12 +42,13 @@ func TestCurrentSessionReconstructionPreservesBranchScopedPromptIdentity(t *test
 		if err != nil {
 			t.Fatalf("NewCurrentNodeReference %s: %v", name, err)
 		}
-		instructions, err := BuildCurrentSessionTaskInstructions(workflowstore.CurrentNodeStartContext{
+		instructions, err := BuildCurrentSessionTaskInstructions(t.Context(), testsetup.OpenStore(t, t.TempDir()), workflowstore.CurrentNodeStartContext{
 			Task:        workflowstore.TaskRecord{ID: "task-1"},
 			Workflow:    workflowstore.WorkflowRecord{ID: testsetup.WorkflowID(t, "workflowrunner-inspection")},
 			Node:        workflowstore.NodeRecord{ID: "node-1"},
 			CurrentNode: workflow.CurrentNode{Reference: reference},
 		})
+
 		if err != nil {
 			t.Fatalf("reconstruct %s Current Node instructions: %v", name, err)
 		}
@@ -40,38 +60,40 @@ func TestCurrentSessionReconstructionPreservesBranchScopedPromptIdentity(t *test
 }
 
 func TestBuildCurrentSessionTaskInstructionsRendersEnteringSourceSessionID(t *testing.T) {
-	sourceSessionID := runtimeids.NewSessionID()
+	store, source := workflowPromptIdentityFixture(t)
+	sourceSessionID := source.ID
 	targetSessionID := runtimeids.NewSessionID()
 	selectedContextSessionID := runtimeids.NewSessionID()
-	instructions, err := BuildCurrentSessionTaskInstructions(workflowstore.CurrentNodeStartContext{
+	instructions, err := BuildCurrentSessionTaskInstructions(t.Context(), store, workflowstore.CurrentNodeStartContext{
 		Task:             workflowstore.TaskRecord{ID: "task-1"},
 		Workflow:         workflowstore.WorkflowRecord{ID: testsetup.WorkflowID(t, "workflowrunner-session-placeholder")},
 		Node:             workflowstore.NodeRecord{ID: "node-review"},
 		CurrentNode:      workflow.CurrentNode{Reference: mustCurrentNodeReference(t, "task-1", "node-review", nil), SessionID: &targetSessionID},
 		SourceSessionID:  &selectedContextSessionID,
 		PromptSessionID:  &sourceSessionID,
-		TransitionPrompt: "Source session: {{.SessionId}}",
+		TransitionPrompt: "{{.SessionId}}",
 	})
 	if err != nil {
 		t.Fatalf("BuildCurrentSessionTaskInstructions: %v", err)
 	}
-	if instructions.TransitionPrompt != "Source session: "+sourceSessionID.String() {
+	if instructions.TransitionPrompt != source.String() {
 		t.Fatalf("rendered transition prompt = %q, want entering source Session ID %q", instructions.TransitionPrompt, sourceSessionID)
 	}
 }
 
 func TestBuildCurrentSessionTaskInstructionsRendersMissingSourceSessionIDAsEmpty(t *testing.T) {
-	instructions, err := BuildCurrentSessionTaskInstructions(workflowstore.CurrentNodeStartContext{
+	instructions, err := BuildCurrentSessionTaskInstructions(t.Context(), testsetup.OpenStore(t, t.TempDir()), workflowstore.CurrentNodeStartContext{
 		Task:             workflowstore.TaskRecord{ID: "task-1"},
 		Workflow:         workflowstore.WorkflowRecord{ID: testsetup.WorkflowID(t, "workflowrunner-missing-session-placeholder")},
 		Node:             workflowstore.NodeRecord{ID: "node-review"},
 		CurrentNode:      workflow.CurrentNode{Reference: mustCurrentNodeReference(t, "task-1", "node-review", nil)},
-		TransitionPrompt: "Source session: {{.SessionId}}",
+		TransitionPrompt: "{{.SessionId}}",
 	})
+
 	if err != nil {
 		t.Fatalf("BuildCurrentSessionTaskInstructions: %v", err)
 	}
-	if instructions.TransitionPrompt != "Source session: " {
+	if instructions.TransitionPrompt != "" {
 		t.Fatalf("rendered transition prompt = %q, want empty missing source Session ID", instructions.TransitionPrompt)
 	}
 }
@@ -85,18 +107,19 @@ func TestRenderCurrentNodePromptRendersSourceSessionID(t *testing.T) {
 		CurrentNode:     workflow.CurrentNode{Reference: mustCurrentNodeReference(t, "task-1", "node-review", nil)},
 		PromptSessionID: &sourceSessionID,
 	}
-	prompt, err := renderCurrentNodePrompt("Preview source session: {{.SessionId}}", input)
+	prompt, err := renderCurrentNodePrompt(t.Context(), testsetup.OpenStore(t, t.TempDir()), "{{.SessionId}}", input)
 	if err != nil {
 		t.Fatalf("renderCurrentNodePrompt: %v", err)
 	}
-	if prompt != "Preview source session: "+sourceSessionID.String() {
+	if prompt != sourceSessionID.String() {
 		t.Fatalf("rendered preview prompt = %q, want source Session ID %q", prompt, sourceSessionID)
 	}
 }
 
 func TestBuildCurrentSessionTaskInstructionsRendersPriorSessionID(t *testing.T) {
-	priorSessionID := runtimeids.NewSessionID()
-	instructions, err := BuildCurrentSessionTaskInstructions(workflowstore.CurrentNodeStartContext{
+	store, prior := workflowPromptIdentityFixture(t)
+	priorSessionID := prior.ID
+	instructions, err := BuildCurrentSessionTaskInstructions(t.Context(), store, workflowstore.CurrentNodeStartContext{
 		Task:        workflowstore.TaskRecord{ID: "task-1"},
 		Workflow:    workflowstore.WorkflowRecord{ID: testsetup.WorkflowID(t, "workflowrunner-prior-session-placeholder")},
 		Node:        workflowstore.NodeRecord{ID: "node-audit"},
@@ -104,18 +127,19 @@ func TestBuildCurrentSessionTaskInstructionsRendersPriorSessionID(t *testing.T) 
 		PriorSessionIDs: map[workflow.ModelKey]*runtimeids.SessionID{
 			"review": &priorSessionID,
 		},
-		TransitionPrompt: "Prior session: {{.Params.review.session_id}}",
+		TransitionPrompt: "{{.Params.review.session_id}}",
 	})
+
 	if err != nil {
 		t.Fatalf("BuildCurrentSessionTaskInstructions: %v", err)
 	}
-	if instructions.TransitionPrompt != "Prior session: "+priorSessionID.String() {
+	if instructions.TransitionPrompt != prior.String() {
 		t.Fatalf("rendered transition prompt = %q, want prior Session ID %q", instructions.TransitionPrompt, priorSessionID)
 	}
 }
 
 func TestBuildCurrentSessionTaskInstructionsRendersMissingPriorSessionIDAsEmpty(t *testing.T) {
-	instructions, err := BuildCurrentSessionTaskInstructions(workflowstore.CurrentNodeStartContext{
+	instructions, err := BuildCurrentSessionTaskInstructions(t.Context(), testsetup.OpenStore(t, t.TempDir()), workflowstore.CurrentNodeStartContext{
 		Task:        workflowstore.TaskRecord{ID: "task-1"},
 		Workflow:    workflowstore.WorkflowRecord{ID: testsetup.WorkflowID(t, "workflowrunner-missing-prior-session-placeholder")},
 		Node:        workflowstore.NodeRecord{ID: "node-audit"},
@@ -123,12 +147,13 @@ func TestBuildCurrentSessionTaskInstructionsRendersMissingPriorSessionIDAsEmpty(
 		PriorSessionIDs: map[workflow.ModelKey]*runtimeids.SessionID{
 			"review": nil,
 		},
-		TransitionPrompt: "Prior session: {{.Params.review.session_id}}",
+		TransitionPrompt: "{{.Params.review.session_id}}",
 	})
+
 	if err != nil {
 		t.Fatalf("BuildCurrentSessionTaskInstructions: %v", err)
 	}
-	if instructions.TransitionPrompt != "Prior session: " {
+	if instructions.TransitionPrompt != "" {
 		t.Fatalf("rendered transition prompt = %q, want empty missing prior Session ID", instructions.TransitionPrompt)
 	}
 }
@@ -155,6 +180,7 @@ func TestCurrentNodeRuntimeConfigWiresAuthorityScopeAndNaturalNodeIdentity(t *te
 		dependencies: &taskDependencyCountProbe{},
 	}
 	runtimeConfig, err := BuildCurrentNodeRuntimeConfig(
+		t.Context(), testsetup.OpenStore(t, t.TempDir()),
 		workflowstore.CurrentNodeStartContext{
 			Task:        workflowstore.TaskRecord{ID: "task-1"},
 			Workflow:    workflowstore.WorkflowRecord{ID: testsetup.WorkflowID(t, "workflowrunner-inspection")},

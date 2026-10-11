@@ -123,7 +123,7 @@ func TestServiceAnswerPromptBatchTranslatesMixedEntries(t *testing.T) {
 		*question.Answer.SelectedOptionNumber != 2 ||
 		question.Answer.Freeform == nil ||
 		*question.Answer.Freeform != "question commentary" ||
-		question.Answer.AnsweredBySessionID != nil {
+		question.Answer.Answerer != nil {
 		t.Fatalf("question command = %+v", responder.batchCommands[0])
 	}
 	approval, ok := responder.batchCommands[1].Payload.(sessionruntime.PromptApprovalAnswerCommand)
@@ -165,8 +165,13 @@ func TestServiceAnswerPromptBatchAttributesUnrelatedAgent(t *testing.T) {
 		t.Fatalf("resolved target = %s", responder.batchSession)
 	}
 	answer, ok := responder.batchCommands[0].Payload.(sessionruntime.PromptQuestionAnswerCommand)
-	if !ok || answer.Answer.AnsweredBySessionID == nil ||
-		answer.Answer.AnsweredBySessionID.String() != caller.Meta().SessionID {
+	callerRecord, err := persistedSessions.ResolvePersistedSession(t.Context(), caller.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || answer.Answer.Answerer == nil ||
+		answer.Answer.Answerer.ID.String() != caller.Meta().SessionID ||
+		answer.Answer.Answerer.ShortID == nil || callerRecord.ShortID == nil || *answer.Answer.Answerer.ShortID != *callerRecord.ShortID {
 		t.Fatalf("Question answer actor = %+v, want invoking Session %q", answer, caller.Meta().SessionID)
 	}
 }

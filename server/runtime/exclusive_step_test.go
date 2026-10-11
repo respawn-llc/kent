@@ -222,7 +222,7 @@ func TestSubmitUserMessageEagerCompactsAfterSuccessfulFinal(t *testing.T) {
 func TestSubmitAgentSteerEagerCompactsAfterSuccessfulFinal(t *testing.T) {
 	t.Parallel()
 	sourceID := runtimeids.NewSessionID()
-	steer, err := NewAgentSteer(sourceID, "continue")
+	steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "continue")
 	if err != nil {
 		t.Fatalf("new agent steer: %v", err)
 	}
