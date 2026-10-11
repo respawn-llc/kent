@@ -36,6 +36,47 @@ func TestSlashCommandEnterIgnoresWhitespaceImmediatelyAfterSlash(t *testing.T) {
 	}
 }
 
+func TestStandaloneNullKeyboardRuneDoesNotBlockSlashCommand(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		alt  bool
+	}{
+		{name: "without alt"},
+		{name: "with alt", alt: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newProjectedStaticUIModel()
+			m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'\x00'}, Alt: tc.alt})
+			inputAfterNull := testMainInput(m)
+			m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/logout")})
+
+			next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			updated := next.(*uiModel)
+			if inputAfterNull != "" {
+				t.Errorf("composer input after standalone NUL = %q, want empty", inputAfterNull)
+			}
+			if updated.exitAction != UIActionLogout {
+				t.Errorf("slash command action = %q, want %q", updated.exitAction, UIActionLogout)
+			}
+			if updated.isBusy() {
+				t.Error("standalone NUL caused the slash command to submit as a prompt")
+			}
+			if cmd == nil {
+				t.Error("expected the slash command to produce its existing action")
+			}
+		})
+	}
+}
+
+func TestPastedStandaloneNullRuneRemainsComposerText(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'\x00'}, Paste: true})
+
+	if got, want := testMainInput(m), "\x00"; got != want {
+		t.Fatalf("composer input after pasted NUL = %q, want %q", got, want)
+	}
+}
+
 func TestSlashCommandPickerHighlightTracksSelectionAfterViewportScroll(t *testing.T) {
 	withTrueColor(t)
 	m := newSlashPickerScrollTestModel()
