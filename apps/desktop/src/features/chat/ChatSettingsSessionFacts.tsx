@@ -86,7 +86,7 @@ export function ChatSettingsSessionFacts({
               </SettingsRow>
             </div>
           </TooltipTrigger>
-          <TooltipContent className="font-mono">{sessionID}</TooltipContent>
+          <TooltipContent>{t("chatSettings.clickToCopy")}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
     </div>

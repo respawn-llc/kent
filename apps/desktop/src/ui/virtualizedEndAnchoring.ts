@@ -22,10 +22,12 @@ type ListOptions = VirtualizerOptions<HTMLDivElement, Element>;
 
 export function useVirtualizedEndAnchoring(mode: VirtualizedEndAnchoring | undefined) {
   const end = useRef<boolean | null>(null);
+  const pendingRequest = useRef<VirtualizedEndAnchoring["scrollRequest"]>(null);
   const resizeRequest = useRef<symbol | null>(null);
   const publish = useStableCallback((instance: ListVirtualizer) => {
     if (mode === undefined) return;
     end.current = instance.isAtEnd();
+    if (end.current) pendingRequest.current = null;
     mode.onEndChange(end.current);
   });
   const canFollow = useStableCallback(() => mode?.followEnabled === true && end.current === true);
@@ -59,13 +61,18 @@ export function useVirtualizedEndAnchoring(mode: VirtualizedEndAnchoring | undef
   const applyScrollRequest = useStableCallback((instance: ListVirtualizer) => {
     if (mode?.scrollRequest == null) return;
     resizeRequest.current = null;
+    // An instant bottom request remains a bottom target while opening hydration
+    // changes membership, rather than an index in the previous short window.
+    pendingRequest.current = mode.scrollRequest.behavior === "auto" ? mode.scrollRequest : null;
     instance.scrollToEnd({ behavior: prefersReducedMotion() ? "auto" : mode.scrollRequest.behavior });
   });
   const onChange = useStableCallback((instance: ListVirtualizer) => {
     if (mode === undefined) return;
     const resize = resizeRequest.current;
     resizeRequest.current = null;
-    if (resize !== null) instance.scrollToEnd();
+    if (pendingRequest.current !== null) {
+      instance.scrollToEnd({ behavior: prefersReducedMotion() ? "auto" : pendingRequest.current.behavior });
+    } else if (resize !== null) instance.scrollToEnd();
     publish(instance);
   });
   return {

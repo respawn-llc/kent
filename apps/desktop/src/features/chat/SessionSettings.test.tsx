@@ -122,6 +122,39 @@ function SessionSettingsChipHost() {
   return feature.kind === "ready-session" ? feature.settingsChip : null;
 }
 
+it("requires confirmation before switching a cached Session Agent", async () => {
+  const services = createTestServices([]);
+  const agent = settings.agentChoices[0];
+  if (agent === undefined) throw new Error("Missing Agent fixture.");
+  vi.spyOn(services.api.chat, "getSettings").mockResolvedValue({
+    ...initialRead,
+    settings: { ...settings, cachingLocked: true, agentChoices: [agent, { ...agent, role: "reviewer" }] },
+  });
+  const pending = deferred<ChatSettingsMutationResponse>();
+  const mutate = vi.spyOn(services.api.chat, "mutateSettings").mockReturnValue(pending.promise);
+  const user = userEvent.setup();
+  render(
+    <TestAppProviders services={services}>
+      <SessionSettingsChipHost />
+    </TestAppProviders>,
+  );
+  await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await user.click(screen.getByText("default"));
+  await user.click(await screen.findByText("reviewer"));
+  expect(mutate).not.toHaveBeenCalled();
+  const dialog = await screen.findByRole("dialog", { name: appI18n.t("chatSettings.switchAgent") });
+  await user.click(within(dialog).getByRole("button", { name: appI18n.t("chatSettings.switchAgent") }));
+  expect(mutate).toHaveBeenCalledExactlyOnceWith(target, { kind: "agent", role: "reviewer" });
+  expect(within(dialog).getByRole("button", { name: appI18n.t("chatSettings.switchAgent") })).toBeDisabled();
+  await act(async () => {
+    pending.resolve(response());
+    await pending.promise;
+  });
+  await waitFor(() => {
+    expect(dialog).not.toBeInTheDocument();
+  });
+});
+
 it("shares eager Auto-compaction changes and rollback between Context and Settings", async () => {
   const services = createTestServices([]);
   const read = vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(initialRead);
@@ -275,7 +308,7 @@ it("sends repeated Supervisor segment activations while an earlier request is pe
   });
 });
 
-it("keeps server-editable single-value Thinking available for explicit activation", async () => {
+it("omits Thinking when the Agent offers only one level", async () => {
   const services = createTestServices([]);
   const singleValueThinking: ChatSettings = {
     ...settings,
@@ -301,14 +334,10 @@ it("keeps server-editable single-value Thinking available for explicit activatio
     </TestAppProviders>,
   );
   await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
-  const control = within(screen.getByRole("dialog")).getByRole("slider");
-  expect(control).toBeEnabled();
-  Object.defineProperties(control, {
-    setPointerCapture: { value: vi.fn() },
-    releasePointerCapture: { value: vi.fn() },
-  });
-  await user.click(control);
-  expect(mutate).toHaveBeenCalledExactlyOnceWith(target, { kind: "thinking", value: "medium" });
+  const popover = screen.getByRole("dialog");
+  expect(within(popover).queryByRole("slider")).not.toBeInTheDocument();
+  expect(within(popover).queryByText(appI18n.t("chatSettings.thinking"))).not.toBeInTheDocument();
+  expect(mutate).not.toHaveBeenCalled();
 });
 
 it("surfaces typed Chat operation diagnostics for an ordinary mutation failure", async () => {
@@ -356,6 +385,47 @@ it("loads ordinary Session Settings through the same feature boundary", async ()
     session: initialRead.session,
   });
   expect(getSettings).toHaveBeenCalledExactlyOnceWith(target);
+});
+
+it("keeps the current Agent until the server completes the switch and exposes request loading", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(initialRead);
+  const pending = deferred<ChatSettingsMutationResponse>();
+  const mutate = vi.spyOn(services.api.chat, "mutateSettings").mockReturnValue(pending.promise);
+  const { result } = renderHook(() => useChatSettings({ ...connected, target, onContextChange: vi.fn() }), {
+    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
+      <TestAppProviders services={services}>{children}</TestAppProviders>
+    ),
+  });
+  await waitFor(() => {
+    expect(result.current.kind).toBe("ready-session");
+  });
+  act(() => {
+    if (result.current.kind !== "ready-session") throw new Error("Expected Session.");
+    void result.current.activate({ kind: "agent", role: "reviewer" });
+  });
+  await waitFor(() => {
+    expect(result.current).toMatchObject({ agentPending: true });
+  });
+  expect(result.current).toMatchObject({ settings: { selectedAgent: settings.selectedAgent } });
+  await act(async () => {
+    if (result.current.kind !== "ready-session") throw new Error("Expected Session.");
+    await expect(result.current.activate({ kind: "fast", enabled: true })).rejects.toBeInstanceOf(Error);
+    await expect(result.current.activate({ kind: "agent", role: "reviewer" })).rejects.toBeInstanceOf(Error);
+  });
+  expect(result.current).toMatchObject({ agentPending: true });
+  expect(mutate).toHaveBeenCalledOnce();
+  const switched = response({ ...settings, selectedAgent: { ...settings.selectedAgent, role: "reviewer" } });
+  await act(async () => {
+    pending.resolve(switched);
+    await pending.promise;
+  });
+  await waitFor(() => {
+    expect(result.current).toMatchObject({
+      agentPending: false,
+      settings: { selectedAgent: switched.settings.selectedAgent },
+    });
+  });
 });
 
 it("applies overlapping successes in delivery order and reports each mutation Context", async () => {
@@ -547,8 +617,8 @@ it("drops old Session completions after target replacement and installs the newl
     settings: {
       ...settings,
       agentLocked: true,
-      cachingLocked: true,
-      agentEditability: { kind: "caching_lock" },
+      workflowLocked: true,
+      agentEditability: { kind: "workflow_lock" },
       supervisor: { ...settings.supervisor, value: "all" },
     },
     session: { sessionID: newSessionID, previousSessionID: sessionID, task: null },

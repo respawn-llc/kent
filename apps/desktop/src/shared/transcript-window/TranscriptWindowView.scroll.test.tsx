@@ -1,11 +1,178 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { StrictMode } from "react";
 
-import { TranscriptWindow } from "@/app-facade";
+import { ChatTranscriptHost, TranscriptWindow } from "@/app-facade";
 import { hydration, page, row, visit } from "@/test-support/transcript-window";
 import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer";
 import { StaticMarkdown, StreamingMarkdown } from "@/ui";
 import { TranscriptWindowView } from "./TranscriptWindowView";
+
+it("opens and remounts a compacted live transcript at the bottom despite underestimated rows", async () => {
+  const geometry = installVirtualizedScrollGeometry(600);
+  const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.getAttribute("role") === "list" ? 600 : 400;
+  });
+  const host = new ChatTranscriptHost(
+    {
+      getTranscriptPage: vi.fn().mockResolvedValue(
+        page(
+          Array.from({ length: 100 }, (_, index) => row(index + 301)),
+          300,
+        ),
+      ),
+    },
+    { projectID: "project", sessionID: "123e4567-e89b-42d3-a456-426614174000" },
+    { onContractFailure: vi.fn(), onOpeningFailure: vi.fn(), onScratchRehydration: vi.fn() },
+  );
+  await act(async () => {
+    // The independent newest-page read can complete before subscription hydration.
+    host.open();
+  });
+  const content = () => (
+    <TranscriptWindowView
+      snapshot={host.snapshot}
+      presentationUpdate={host.presentationUpdate}
+      estimateSize={() => 40}
+      loadingLabel="Loading"
+      retryLabel="Retry"
+      boundaryErrorMessage={(error) => error.message}
+      onInput={vi.fn()}
+      slots={{
+        user: (item) => <div>{item.value.Text}</div>,
+        assistant: () => <div>Live response</div>,
+        tool: () => null,
+        notice: () => null,
+        reasoning: () => null,
+        thinkingStatus: () => null,
+      }}
+    />
+  );
+  let view = render(content());
+  try {
+    for (let mount = 0; mount < 2; mount++) {
+      if (mount !== 0) view = render(content());
+      host.hydration("initial", {
+        ...hydration(
+          Array.from({ length: 300 }, (_, index) => row(index + 101)),
+          3,
+        ),
+        ActiveAssistant: { StepID: "step", StreamID: "stream", Phase: "commentary", Text: "Live response" },
+      });
+      view.rerender(content());
+      for (let frame = 0; frame < 5; frame++) {
+        await act(async () => {
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+        });
+      }
+      const list = screen.getByRole("list");
+      expect(list.scrollTop).toBe(list.scrollHeight - list.clientHeight);
+      list.scrollTop = 500;
+      fireEvent.scroll(list);
+      view.unmount();
+    }
+  } finally {
+    view.unmount();
+    host.dispose();
+    height.mockRestore();
+    geometry.restore();
+  }
+});
+
+it.each(["following", "reading", "historical-end"])(
+  "preserves %s through live compaction hydration",
+  async (position) => {
+    const geometry = installVirtualizedScrollGeometry(600);
+    const host = new ChatTranscriptHost(
+      {
+        getTranscriptPage: vi
+          .fn()
+          .mockResolvedValueOnce(
+            page(
+              Array.from({ length: 100 }, (_, index) => row(index + 101)),
+              100,
+              300,
+            ),
+          )
+          .mockResolvedValueOnce(
+            page(
+              Array.from({ length: 100 }, (_, index) => row(index + 1)),
+              null,
+              100,
+            ),
+          ),
+      },
+      { projectID: "project", sessionID: "123e4567-e89b-42d3-a456-426614174000" },
+      { onContractFailure: vi.fn(), onOpeningFailure: vi.fn(), onScratchRehydration: vi.fn() },
+    );
+    host.hydration("initial", hydration(Array.from({ length: 100 }, (_, index) => row(index + 301))));
+    const content = () => (
+      <TranscriptWindowView
+        snapshot={host.snapshot}
+        presentationUpdate={host.presentationUpdate}
+        estimateSize={() => 40}
+        loadingLabel="Loading"
+        retryLabel="Retry"
+        boundaryErrorMessage={(error) => error.message}
+        onInput={vi.fn()}
+        slots={{
+          user: (item) => <div>{item.value.Text}</div>,
+          assistant: () => null,
+          tool: () => null,
+          notice: () => null,
+          reasoning: () => null,
+          thinkingStatus: () => null,
+        }}
+      />
+    );
+    const view = render(content());
+    try {
+      await act(async () => {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      });
+      const list = screen.getByRole("list");
+      if (position === "historical-end") {
+        for (let index = 0; index < 2; index++) {
+          await act(async () => {
+            host.dispatch({ kind: "edge-visit", direction: "older", older: true, newer: false });
+          });
+          view.rerender(content());
+        }
+        expect(host.snapshot.newer.cursor).not.toBeNull();
+        list.scrollTop = list.scrollHeight - list.clientHeight;
+        fireEvent.scroll(list);
+      } else if (position === "reading") {
+        list.scrollTop = 500;
+        fireEvent.scroll(list);
+      }
+      const before = list.scrollTop;
+      const start = position === "historical-end" ? 101 : 301;
+      host.hydration(
+        "scratch",
+        hydration(
+          Array.from({ length: 120 }, (_, index) => row(index + start)),
+          1,
+        ),
+      );
+      view.rerender(content());
+      await act(async () => {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      });
+      if (position === "historical-end") {
+        expect(list.scrollTop).toBeLessThan(list.scrollHeight - list.clientHeight);
+      } else {
+        expect(list.scrollTop).toBe(
+          position === "following" ? list.scrollHeight - list.clientHeight : before,
+        );
+      }
+    } finally {
+      view.unmount();
+      host.dispose();
+      geometry.restore();
+    }
+  },
+);
 
 function streamingView(history: readonly ReturnType<typeof row>[]) {
   const window = new TranscriptWindow();
@@ -213,11 +380,13 @@ it("keeps viewport compensation and measured content geometry in the same resize
     const preceding = screen.getAllByRole("listitem")[0];
     if (preceding === undefined) throw new Error("Expected a measured preceding row.");
     const before = list.scrollHeight;
+    const offsetBefore = list.scrollTop;
     act(() => {
       geometry.resize(preceding, 140);
       // ResizeObserver delivery precedes paint. Scroll compensation and the
       // rendered content extent must agree before delivery returns.
       expect(list.scrollHeight).toBe(before + 100);
+      expect(list.scrollTop).toBe(offsetBefore + 100);
     });
     list.scrollTop = list.scrollHeight - list.clientHeight;
     fireEvent.scroll(list);
@@ -233,6 +402,33 @@ it("keeps viewport compensation and measured content geometry in the same resize
     geometry.restore();
   }
 });
+
+it.each([20, 200])(
+  "does not drag the viewport when a message at its top is first measured at %ipx",
+  async (height) => {
+    const geometry = installVirtualizedScrollGeometry(600);
+    const { view } = streamingView(Array.from({ length: 100 }, (_, index) => row(index + 1)));
+    try {
+      await act(async () => {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      });
+      const list = screen.getByRole("list");
+      list.scrollTop = 2010;
+      fireEvent.scroll(list);
+      const text = row(51).User?.Text;
+      if (text === undefined) throw new Error("Expected a user message fixture.");
+      const message = screen.getAllByRole("listitem").find((item) => within(item).queryByText(text) !== null);
+      if (message === undefined) throw new Error("Expected a visible message row.");
+      act(() => {
+        geometry.resize(message, height);
+      });
+      expect(list.scrollTop).toBe(2010);
+    } finally {
+      view.unmount();
+      geometry.restore();
+    }
+  },
+);
 
 it("opens at the bottom and keeps the latest content clear as composer padding grows", async () => {
   const geometry = installVirtualizedScrollGeometry(600);

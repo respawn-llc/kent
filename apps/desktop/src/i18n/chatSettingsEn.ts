@@ -1,6 +1,12 @@
 export const chatSettingsEnglish = {
+  switchAgent: "Switch agent",
+  stopAndSwitchAgent: "Stop and switch agent",
+  cancelSwitch: "Cancel",
+  switchAgentWarning:
+    "Switch to {{agent}}? Any current run will stop. The new Agent replaces the model, prompts, tools, and settings. Cached input may be reprocessed. History stays intact; the chat remains idle until you send another message.",
   toParentChat: "To parent chat",
   copied: "Copied to clipboard",
+  clickToCopy: "Click to copy",
   copyFailed: "Could not copy Session ID",
   errors: {
     sessionNotFound: "This Session no longer exists.",
@@ -17,7 +23,6 @@ export const chatSettingsEnglish = {
     unknown: "Kent could not change Chat settings ({{code}}).",
   },
   open: "Chat settings",
-  agentName: "Agent: {{name}}",
   supervisor: "Supervisor",
   supervisorEdits: "Edits",
   supervisorAlways: "On",
@@ -27,7 +32,6 @@ export const chatSettingsEnglish = {
   autoCompaction: "Auto-compaction",
   commitThinking: "Save Thinking",
   workflowLock: "Locked by workflow",
-  cachingLock: "Locked by caching policy",
   required: "Required by workflow",
   policyDisabled: "Disabled by Session policy",
   thinking: "Thinking",

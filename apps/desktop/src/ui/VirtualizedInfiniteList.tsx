@@ -19,7 +19,7 @@ import {
   useVirtualizedLoadMore,
 } from "./virtualizedInfiniteListLoadMore";
 import { pinnedVirtualRangeExtractor, virtualizedVisibleIndexes } from "./virtualizedPinnedRange";
-import { shouldAdjustScrollForVirtualizedResize } from "./virtualizedResizePolicy";
+import { resolveVirtualizedResizePolicy } from "./virtualizedResizePolicy";
 import {
   requireVirtualizedPixelOffsetRequest,
   type VirtualizedPixelOffsetRequest,
@@ -259,11 +259,10 @@ function VirtualizedInfiniteListContent<TItem>({
   useLayoutEffect(() => {
     applyScrollRequest(virtualizer);
   }, [endAnchoring?.scrollRequest, applyScrollRequest, virtualizer]);
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
-    nonAdjustingResizeItemKey === undefined
-      ? undefined
-      : (item: VirtualItem) =>
-          shouldAdjustScrollForVirtualizedResize(nonAdjustingResizeItemKey, String(item.key));
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = resolveVirtualizedResizePolicy(
+    nonAdjustingResizeItemKey,
+    endAnchoring !== undefined,
+  );
   const virtualItems = virtualizer.getVirtualItems();
   const visibleIndexes = virtualizedVisibleIndexes(virtualizer);
 
@@ -401,6 +400,7 @@ function VirtualizedInfiniteListContent<TItem>({
       onScroll={onScroll}
       ref={setScrollElement}
       role={role}
+      style={endAnchoring === undefined ? undefined : { overflowAnchor: "none" }}
     >
       <div
         className={resolveVirtualizedInnerClassName(horizontal, hasHorizontalBoundary)}

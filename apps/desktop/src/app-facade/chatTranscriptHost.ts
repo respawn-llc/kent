@@ -31,7 +31,7 @@ export type ChatTranscriptAdmission =
 type TranscriptPageApi = Pick<ChatApi, "getTranscriptPage">;
 export type ChatTailOutcome =
   Readonly<{ kind: "tail-ready" | "destination-ended" }> | Readonly<{ kind: "failed"; error: Error }>;
-export type ChatTranscriptPresentationUpdate = Readonly<{ kind: "content" | "membership" }>;
+export type ChatTranscriptPresentationUpdate = Readonly<{ kind: "content" | "membership" | "replacement" }>;
 
 export async function executeChatTranscriptPage(
   api: TranscriptPageApi,
@@ -147,7 +147,7 @@ export class ChatTranscriptHost {
     const result = this.#window.dispatch({ kind: `${kind}-hydration`, hydration });
     return this.#apply(
       result,
-      result.effects.some((effect) => effect.kind === "hydration-replaced") ? "membership" : "content",
+      result.effects.some((effect) => effect.kind === "hydration-replaced") ? "replacement" : "content",
     );
   }
 

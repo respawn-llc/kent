@@ -76,7 +76,13 @@ export function TranscriptWindowView({
   const newerAvailable = snapshot.newer.cursor !== null;
   const following = atEnd && !newerAvailable;
   const nativeRequest = useTranscriptEndRequest(
-    { opening: snapshot.opening.kind, update: presentationUpdate, explicit: scrollRequest, bottomInset },
+    {
+      opening: snapshot.opening.kind,
+      update: presentationUpdate,
+      explicit: scrollRequest,
+      bottomInset,
+      newerAvailable,
+    },
     following,
   );
   const visit = useCallback(
@@ -168,6 +174,7 @@ type TranscriptEndInput = Readonly<{
   update: ChatTranscriptPresentationUpdate | undefined;
   explicit: symbol | null | undefined;
   bottomInset: number;
+  newerAvailable: boolean;
 }>;
 
 function transcriptViewItems(snapshot: TranscriptWindowSnapshot, failed: boolean): readonly ViewItem[] {
@@ -191,12 +198,13 @@ function useTranscriptEndRequest(
     previous.update === input.update &&
     previous.explicit === input.explicit &&
     previous.opening === input.opening &&
-    previous.bottomInset === input.bottomInset
+    previous.bottomInset === input.bottomInset &&
+    previous.newerAvailable === input.newerAvailable
   ) {
     return request;
   }
   setPrevious(input);
-  const behavior = transcriptEndBehavior(previous, input, following);
+  const behavior = transcriptEndBehavior(previous, input, following && !previous.newerAvailable);
   if (behavior !== null) setRequest({ behavior });
   return request;
 }
@@ -209,9 +217,13 @@ function transcriptEndBehavior(
   if (previous.opening !== "ready" && current.opening === "ready") return "auto";
   if (following && previous.bottomInset !== current.bottomInset) return "auto";
   if (current.explicit != null && previous.explicit !== current.explicit) return "smooth";
-  if (!following) return null;
-  if (previous.update !== current.update && current.update?.kind === "content") return "smooth";
-  return null;
+  if (!following || previous.update === current.update || current.update === undefined) return null;
+  const behavior: Record<ChatTranscriptPresentationUpdate["kind"], "auto" | "smooth" | null> = {
+    replacement: "auto",
+    content: "smooth",
+    membership: null,
+  };
+  return behavior[current.update.kind];
 }
 
 function transcriptBoundary(

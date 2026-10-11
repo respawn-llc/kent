@@ -180,8 +180,11 @@ func ProjectChatSettingsState(meta Meta, target ChatSettingsState) (Meta, bool, 
 		return currentMeta, false, nil
 	}
 	agentChanged := !textutil.EqualOptional(current.AgentRole, next.AgentRole)
-	if currentMeta.Locked != nil && (agentChanged || !textutil.EqualOptional(currentMeta.ConnectionID, next.ConnectionID)) {
+	if currentMeta.Locked != nil && !agentChanged && !textutil.EqualOptional(currentMeta.ConnectionID, next.ConnectionID) {
 		return Meta{}, false, ErrChatAgentLocked
+	}
+	if agentChanged {
+		currentMeta.Locked = nil
 	}
 	currentMeta.ChatSettings = cloneChatSettingsOverrides(next.Settings)
 	currentMeta.ConnectionID = textutil.Pointer(next.ConnectionID)
@@ -219,6 +222,7 @@ func (s *Store) CommitChatSettingsState(target ChatSettingsState) (ChatSettingsC
 	s.meta.ChatSettings = projected.ChatSettings
 	s.meta.ConnectionID = projected.ConnectionID
 	s.meta.Continuation = projected.Continuation
+	s.meta.Locked = projected.Locked
 	s.meta.UpdatedAt = storeTimestamp(s.options)
 
 	receipt, err := s.persistMetadataMutationWithCommitReceiptLocked(checkpoint)

@@ -32,6 +32,10 @@ type PreparedChatAgentCatalogEntry struct {
 	comparison     preparedChatAgentComparison
 }
 
+func (e PreparedChatAgentCatalogEntry) ProviderCapabilities() llm.ProviderCapabilities {
+	return e.comparison.ProviderCapabilities
+}
+
 type PreparedChatAgentCatalog struct {
 	entries []PreparedChatAgentCatalogEntry
 }

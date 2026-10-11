@@ -37,6 +37,17 @@ func (s *Service) MutateChatSettings(ctx context.Context, sessionID runtimeids.S
 			return input, rejectedChatSettingsOperation(input.ChatSettingsMutationContext, rejected.Reason), nil
 		}
 		projected, err := ProjectResolvedChatSettingsOperation(resolved)
+		if err == nil && projected.Rejection == nil && !textutil.EqualOptional(projected.State.AgentRole, input.Raw.AgentRole) {
+			entry, found := input.Catalog.Lookup(projected.State.AgentSelector())
+			if !found {
+				return input, projected, errors.New("selected Agent is missing from the prepared catalog")
+			}
+			log, logErr := store.MaterializeEventLog()
+			if logErr != nil {
+				return input, projected, logErr
+			}
+			err = runtime.ValidateSessionProviderChange(log, entry.ProviderCapabilities())
+		}
 		return input, projected, err
 	})
 }
@@ -53,7 +64,7 @@ func (s *Service) applyChatSettings(
 	result := &chatsettingspb.MutationResult{Outcome: &chatsettingspb.MutationResult_Applied{Applied: &chatsettingspb.MutationApplied{}}}
 	var changed bool
 	var committed bool
-	err := s.settingsOwner.Authority.WithSessionChatSettings(ctx, sessionID.String(), func(
+	apply := func(
 		runCtx context.Context,
 		sessionStore *session.Store,
 		engine *runtime.Engine,
@@ -89,8 +100,33 @@ func (s *Service) applyChatSettings(
 				return false, err
 			}
 		}
-		return !sameAgent && changed, nil
-	})
+		return !sameAgent && committed, nil
+	}
+	var err error
+	if _, agentChange := operation.Operation.(*chatsettingspb.MutationOperation_AgentRole); agentChange {
+		err = s.settingsOwner.Authority.WithSessionAgentChange(ctx, sessionID,
+			func(ctx context.Context, store *session.Store, engine *runtime.Engine) (bool, error) {
+				input, projected, err := prepare(ctx, store)
+				if err != nil {
+					return false, err
+				}
+				if projected.Rejection != nil {
+					result.Outcome = &chatsettingspb.MutationResult_Rejected{Rejected: projected.Rejection}
+					return false, nil
+				}
+				if textutil.EqualOptional(projected.State.AgentRole, input.Raw.AgentRole) {
+					return apply(ctx, store, engine)
+				}
+				return true, nil
+			},
+			func(ctx context.Context, store *session.Store, engine *runtime.Engine) (bool, error) {
+				return apply(ctx, store, engine)
+			})
+	} else {
+		err = s.settingsOwner.Authority.WithSessionChatSettings(ctx, sessionID.String(), func(runCtx context.Context, store *session.Store, engine *runtime.Engine) (bool, error) {
+			return apply(runCtx, store, engine)
+		})
+	}
 	if committed || (err == nil && result.GetApplied() != nil) {
 		responseCtx := context.WithoutCancel(ctx)
 		s.PublishSessionSettings(responseCtx, sessionID)

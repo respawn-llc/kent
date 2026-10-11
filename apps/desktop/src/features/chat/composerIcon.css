@@ -14,3 +14,8 @@
   width: var(--space-5);
   height: var(--space-5);
 }
+
+.chat-composer-icon--fast {
+  width: 1em;
+  height: 1em;
+}
