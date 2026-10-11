@@ -41,6 +41,9 @@ func UnavailableAuthStage(err error) AuthStageResult {
 }
 
 func authInfoFromFacts(facts *authpb.StatusFacts, failure *authpb.StatusFailure) AuthInfo {
+	if facts == nil {
+		return AuthInfo{}
+	}
 	provider := authProviderStatusLabel(facts.GetProvider())
 	details := make([]string, 0, 4)
 	if facts.GetProvider().GetKind() == authpb.ProviderKind_PROVIDER_KIND_OPENAI_COMPATIBLE {
@@ -49,18 +52,19 @@ func authInfoFromFacts(facts *authpb.StatusFacts, failure *authpb.StatusFailure)
 		}
 	}
 	info := AuthInfo{
-		Visible:  facts.GetProvider().GetKind() == authpb.ProviderKind_PROVIDER_KIND_OPENAI && facts.GetMethod() == authpb.AuthMethod_AUTH_METHOD_OAUTH,
-		Method:   facts.GetMethod(),
-		Provider: provider,
+		Connection: facts.GetSessionConnection(),
+		Visible:    facts != nil,
+		Method:     facts.GetMethod(),
+		Provider:   provider,
 	}
 	switch facts.GetMethod() {
 	case authpb.AuthMethod_AUTH_METHOD_OAUTH:
-		info.Summary = "Subscription"
+		info.Summary = ConnectionModeLabel(facts.GetMethod())
 		if facts.GetOauth() != nil && facts.GetOauth().Email != nil {
 			info.Summary = facts.GetOauth().GetEmail()
 		}
 	case authpb.AuthMethod_AUTH_METHOD_API_KEY:
-		info.Summary = "API Key"
+		info.Summary = ConnectionModeLabel(facts.GetMethod())
 		if facts.GetApiKey() != nil {
 			info.Summary += " (" + facts.GetApiKey().EnvironmentVariable + ")"
 		}
@@ -68,13 +72,26 @@ func authInfoFromFacts(facts *authpb.StatusFacts, failure *authpb.StatusFailure)
 			details = append(details, authProviderDetailLabel(facts.GetProvider()))
 		}
 	default:
-		info.Summary = "No Auth"
+		info.Summary = ConnectionModeLabel(facts.GetMethod())
 	}
 	if failure != nil {
 		details = append(details, strings.TrimSpace(failure.GetCause()))
 	}
 	info.Details = details
 	return info
+}
+
+func ConnectionModeLabel(method authpb.AuthMethod) string {
+	switch method {
+	case authpb.AuthMethod_AUTH_METHOD_OAUTH:
+		return "Subscription"
+	case authpb.AuthMethod_AUTH_METHOD_API_KEY:
+		return "API Key"
+	case authpb.AuthMethod_AUTH_METHOD_NONE:
+		return "No Auth"
+	default:
+		panic(fmt.Sprintf("invalid Connection Auth method: %v", method))
+	}
 }
 
 func subscriptionInfoFromFacts(facts *authpb.SubscriptionFacts) SubscriptionInfo {

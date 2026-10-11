@@ -249,7 +249,7 @@ func (s *BootstrapService) commitOAuth(target *authpb.ConnectionTarget, snapshot
 			return err
 		}
 	case *authpb.ConnectionTarget_ConnectionId:
-		current, err := s.connections.resolveTarget(&value.ConnectionId)
+		current, _, err := s.connections.resolveTarget(&value.ConnectionId)
 		if err != nil {
 			return err
 		}

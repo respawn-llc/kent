@@ -58,8 +58,13 @@ func TestChatAgentMutationAllocatesActualMemberAndPreservesUnchangedBinding(t *t
 		if _, err := service.NewChatSettings(t.Context()); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := service.SessionChatSettings(t.Context(), id); err != nil {
+		read, err := service.SessionChatSettings(t.Context(), id)
+		if err != nil {
 			t.Fatal(err)
+		}
+		connection := read.GetSession().Session.Connection
+		if connection == nil || connection.ConnectionId != "a" {
+			t.Fatalf("saved Connection differs from preview first member: %+v", connection)
 		}
 	}
 	for _, operation := range []*chatsettingspb.MutationOperation{

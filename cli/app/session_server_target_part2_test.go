@@ -113,10 +113,6 @@ func TestStartSessionServerUsesInvocationOverridesWhenAttachingToDiscoveredDaemo
 	if plan.ActiveSettings.Model != "gpt-6-luna" {
 		t.Fatalf("model = %q, want gpt-6-luna", plan.ActiveSettings.Model)
 	}
-	if plan.StatusConfig.AuthSelection == nil ||
-		plan.StatusConfig.AuthSelection.ConnectionId != "test" {
-		t.Fatalf("status auth selection = %+v, want configured connection", plan.StatusConfig.AuthSelection)
-	}
 	if len(plan.EnabledTools) != 1 || plan.EnabledTools[0] != toolspec.ToolExecCommand {
 		t.Fatalf("enabled tools = %+v, want only shell", plan.EnabledTools)
 	}

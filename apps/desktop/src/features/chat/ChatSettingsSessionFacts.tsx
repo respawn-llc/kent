@@ -20,7 +20,7 @@ export function ChatSettingsSessionFacts({
 }>) {
   const { t } = useTranslation();
   const { nativeBridge } = useAppServices();
-  const { sessionID, previousSessionID, task } = facts;
+  const { sessionID, previousSessionID, task, connection } = facts;
   async function copySessionID() {
     try {
       await writeClipboardText(sessionID, nativeBridge);
@@ -67,6 +67,16 @@ export function ChatSettingsSessionFacts({
         >
           <span className="min-w-0 flex-1 truncate font-mono">{task.shortID}</span>
           <ChevronRight className="shrink-0 text-[var(--color-muted)]" size={14} />
+        </SettingsRow>
+      )}
+      {connection === undefined ? null : (
+        <SettingsRow reason={undefined}>
+          <span className="min-w-0 flex-1 truncate text-xs text-[var(--color-muted)]">
+            {t("chatSettings.sessionConnection", {
+              id: connection.id,
+              mode: t(`chatSettings.connectionModes.${connection.mode}`),
+            })}
+          </span>
         </SettingsRow>
       )}
       <TooltipProvider>

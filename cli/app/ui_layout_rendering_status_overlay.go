@@ -1,6 +1,7 @@
 package app
 
 import (
+	"core/cli/app/internal/status"
 	sharedtheme "core/shared/theme"
 	"fmt"
 	"strings"
@@ -158,6 +159,9 @@ func (l uiViewLayout) statusOverlayContentLines(width int) []string {
 	showAccountSection := authSummary != "" || subscriptionSummary != "" || hasSubscriptionRows || l.statusSectionLoading(uiStatusSectionAuth)
 	if showAccountSection {
 		appendSectionTitle("Auth")
+		if connection := snapshot.Auth.Connection; connection != nil {
+			appendWrapped(fmt.Sprintf("Session Connection: %s (%s)", connection.ConnectionId, status.ConnectionModeLabel(connection.Method)), lipgloss.Style{})
+		}
 		if authSummary != "" {
 			appendWrapped(authSummary, boldStyle)
 		} else if subscriptionSummary == "" && !hasSubscriptionRows && l.statusSectionLoading(uiStatusSectionAuth) {

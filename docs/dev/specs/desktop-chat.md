@@ -285,6 +285,8 @@
 
 ## Session Settings And Drafts
 
+- The Settings popover must show the conditional Session Connection row defined in [Provider Connections](provider-connections.md) as small, lean, single-line text after the divider and before the Session ID.
+
 - The settings trigger is one action chip inside the composer with a small leading gear icon followed by `<role>: <model> <thinking> ⚡`, with the secondary-tone zap icon omitted in normal mode. Role and separators use the normal action-chip font; model and Thinking use secondary-opacity monospace. When Thinking is unsupported, its value is omitted. Hover or focus reveals the complete summary. Separate setting chips are not part of ordinary Chat.
 - The Settings chip is left-aligned in the composer's bottom controls row as its first visible chip. The future attachment action remains hidden.
 - The Settings chip opens the established chip-anchored non-modal popover and uses its standard placement and collision behavior. The popover may overlay the editor.

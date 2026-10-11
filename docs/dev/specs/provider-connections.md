@@ -35,6 +35,8 @@
 
 ## Authentication
 
+- When more than one Provider Connection is configured, Session connection displays must show the Session's saved connection ID and authentication mode as `Session Connection: <id> (<mode>)`. The mode must be `Subscription`, `API Key`, or `No Auth`. With one configured connection, this row must be hidden. Reading this information must not allocate a connection or advance rotation.
+
 - Kent must offer OpenAI Subscription and API Key, Grok Subscription and API Key, and Generic Responses-compatible api key and No auth setup choices.
 - The two Responses-compatible choices must share one connection model with an optional environment-variable reference. Absence must select auth-less access. A configured reference whose value is missing or empty must fail with an actionable error, not select anonymous access.
 - OpenAI and Grok API-key setup must use their official endpoints without an endpoint field and must request an environment-variable name. Generic API-key setup must request an endpoint and environment-variable name. Auth-less setup must require an endpoint.

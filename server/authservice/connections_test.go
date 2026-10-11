@@ -82,7 +82,7 @@ func TestGrokConnectionCredentialIsolation(t *testing.T) {
 			if credential == nil || credential.Header != "Bearer "+expected || credential.Mode.AccountID != "" {
 				t.Fatalf("wrong selected credential: %+v", credential)
 			}
-			authStatus, err := NewStatusService(resolver).GetStatus(t.Context(), &authpb.GetStatusRequest{
+			authStatus, err := NewStatusService(resolver, nil).GetStatus(t.Context(), &authpb.GetStatusRequest{
 				Provider: &authpb.ProviderSelection{ConnectionId: string(id)},
 			})
 			if err != nil || authStatus.GetResolution().GetKnown() == nil || authStatus.GetSubscription().GetApplicable() {

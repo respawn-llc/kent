@@ -12,6 +12,7 @@ import (
 	"core/server/session"
 	"core/server/subagentpolicy"
 	servicecontract "core/shared/apicontract"
+	"core/shared/authstatus"
 	"core/shared/config"
 	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
@@ -197,6 +198,10 @@ func (s *Service) SessionChatSettings(
 	}
 	facts := &chatsettingspb.SessionFacts{
 		SessionId: sessionID.String(),
+	}
+	facts.Connection, err = authstatus.SessionConnection(input.Configuration.Settings, record.Meta.ConnectionID)
+	if err != nil {
+		return nil, err
 	}
 	if record.Meta.PreviousSessionID != nil {
 		facts.PreviousSessionId = textutil.Value(record.Meta.PreviousSessionID.String())
