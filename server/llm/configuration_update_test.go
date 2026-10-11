@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"core/shared/config"
@@ -44,7 +45,7 @@ func TestNativeThinkingSupport(t *testing.T) {
 					t.Fatalf("connection=%s override=%v model=%s: support=%v, want %v", connection.name, override, model, got, want)
 				}
 			}
-			if caps != prepared {
+			if !reflect.DeepEqual(caps, prepared) {
 				t.Fatalf("prepared connection contract changed: %+v, want %+v", caps, prepared)
 			}
 			if override && (caps.ProviderID != "openai" || !caps.IsOpenAIFirstParty) {
