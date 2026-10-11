@@ -694,8 +694,8 @@ func TestAskQuestionToolCarriesAnswererSeparatelyFromAnswerContent(t *testing.T)
 	broker := NewAskQuestionBroker()
 	broker.SetAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
 		return AskQuestionAnswer{
-			Freeform:            &answerText,
-			AnsweredBySessionID: &answerer,
+			Freeform: &answerText,
+			Answerer: &runtimeids.SessionIdentity{ID: answerer},
 		}, nil
 	})
 
@@ -704,7 +704,7 @@ func TestAskQuestionToolCarriesAnswererSeparatelyFromAnswerContent(t *testing.T)
 		t.Fatalf("result answerer = %v, want %s", result.AnsweredBySessionID, answerer)
 	}
 	if result.QuestionAnswer == nil ||
-		result.QuestionAnswer.AnsweredBySessionID != nil ||
+		result.QuestionAnswer.Answerer != nil ||
 		result.QuestionAnswer.Freeform == nil ||
 		*result.QuestionAnswer.Freeform != answerText {
 		t.Fatalf("structured Question answer = %+v, want answer content without a duplicate actor", result.QuestionAnswer)

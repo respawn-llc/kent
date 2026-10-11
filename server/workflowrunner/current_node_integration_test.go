@@ -996,6 +996,7 @@ func (f *currentNodeRunnerFixture) runHeadlessOrdinaryContinuation(
 	f.cfg.Settings.Connections[(*f.cfg.Settings.Connection)[0]] = definition
 	f.cfg.Settings = testsetup.WriteProviderSettings(t, f.cfg.PersistenceRoot, f.cfg.Settings)
 	headless := runprompt.NewInProcessRunPromptClient(runprompt.HeadlessBootstrap{
+		Metadata: f.metadata,
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:            f.cfg,
 			ContainerDir:      filepath.Join(f.cfg.PersistenceRoot, "projects", f.projectID, "sessions"),

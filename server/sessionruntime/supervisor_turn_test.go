@@ -255,7 +255,7 @@ func supervisorRequestHasMessage(request llm.Request, kind llm.MessageType) bool
 
 func (h *supervisorTurnHarness) queueOrdinarySteer(t *testing.T) <-chan error {
 	t.Helper()
-	steer, err := runtime.NewAgentSteer(runtimeids.NewSessionID(), "Also verify the result.")
+	steer, err := runtime.NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "Also verify the result.")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -84,7 +84,7 @@ func TestQueuedAgentSteerStartsNewMismatchWarningStep(t *testing.T) {
 		done <- err
 	}()
 	<-started
-	steer, err := NewAgentSteer(runtimeids.NewSessionID(), "new instructions")
+	steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "new instructions")
 	if err != nil {
 		t.Fatalf("NewAgentSteer: %v", err)
 	}

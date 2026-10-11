@@ -62,21 +62,25 @@ func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest
 	}
 	callerSessionID := req.CallerSessionId
 	text := strings.TrimSpace(req.Text)
+	queueText := text
+	var agentSteer runtime.AgentSteer
+	if callerSessionID != nil {
+		callerID, parseErr := runtimeids.ParseSessionID(*callerSessionID)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		source, err := s.metadata.SessionIdentity(ctx, callerID)
+		if err != nil {
+			return nil, err
+		}
+		agentSteer, err = runtime.NewAgentSteer(source, text)
+		if err != nil {
+			return nil, err
+		}
+		queueText = *agentSteer.Message().Content
+	}
 	var resp *runtimepb.LiveSteerSuccess
 	err = s.withLiveExecutionRuntime(ctx, sessionID, func(callbackCtx context.Context, engine *runtime.Engine) error {
-		queueText := text
-		var agentSteer runtime.AgentSteer
-		if callerSessionID != nil {
-			callerID, parseErr := runtimeids.ParseSessionID(*callerSessionID)
-			if parseErr != nil {
-				return parseErr
-			}
-			agentSteer, err = runtime.NewAgentSteer(callerID, text)
-			if err != nil {
-				return err
-			}
-			queueText = *agentSteer.Message().Content
-		}
 		var item runtime.QueuedUserMessage
 		var accepted bool
 		if callerSessionID != nil {

@@ -65,13 +65,13 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	}
 
 	var callerID *string
-	var callerRuntimeID *runtimeids.SessionID
+	var callerIdentity *runtimeids.SessionIdentity
 	if agent {
 		caller := createSession(sessioncontract.SessionCategoryMain)
 		id := caller.Meta().SessionID
 		callerID = &id
-		parsedID := mustRunPromptSessionID(t, id)
-		callerRuntimeID = &parsedID
+		identity := caller.Identity()
+		callerIdentity = &identity
 	}
 	var targetID string
 	if !create {
@@ -83,7 +83,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	wantContent := prompt
 	wantRole := session.MessageRoleUser
 	if agent {
-		steer, err := runtime.NewAgentSteer(*callerRuntimeID, prompt)
+		steer, err := runtime.NewAgentSteer(*callerIdentity, prompt)
 		if err != nil {
 			t.Fatalf("NewAgentSteer: %v", err)
 		}
@@ -127,6 +127,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	history := &recordingPromptHistoryStore{}
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, storeOptions...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
+		Metadata: meta,
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:            cfg,
 			ContainerDir:      containerDir,
@@ -144,7 +145,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	if create {
 		if agent {
 			intent = serverapi.CreateNewSessionLaunchIntent(
-				serverapi.ParentAgentSessionCreateOrigin(*callerRuntimeID),
+				serverapi.ParentAgentSessionCreateOrigin(callerIdentity.ID),
 			)
 		} else {
 			intent = serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())

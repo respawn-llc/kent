@@ -643,6 +643,7 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 		),
 		RuntimeAuthority:       authority,
 		PromptHistory:          meta,
+		Metadata:               meta,
 		ManagedWorktreeBaseDir: managedBase,
 	})
 	parentID := parent.Meta().SessionID
@@ -825,6 +826,7 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 	)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    sessionLauncher,
+		Metadata:         meta,
 		RuntimeAuthority: authority,
 	})
 	before := snapshotHeadlessLaunchArtifacts(t, ctx, meta, binding.ProjectID, binding.WorkspaceID, containerDir, root, worktreeRoot)
@@ -1028,6 +1030,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 		),
 		RuntimeAuthority: authority,
 		PromptHistory:    meta,
+		Metadata:         meta,
 	})
 
 	worker := "worker"

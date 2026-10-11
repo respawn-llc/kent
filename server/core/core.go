@@ -321,6 +321,7 @@ func (s *Core) runPromptClientForProjectContext(projectCtx projectContext) apico
 		return cached
 	}
 	client := runprompt.NewInProcessRunPromptClient(runprompt.HeadlessBootstrap{
+		Metadata:               s.safeBundles().Persistence.metadataStore,
 		SessionLaunch:          s.sessionLaunchServiceForProjectContext(projectCtx),
 		PromptHistory:          s.safeBundles().Persistence.metadataStore,
 		RuntimeAuthority:       s.safeBundles().Runtime.runtimeAuthority,
