@@ -4,11 +4,11 @@ inputs:
   - directory: api/proto
 plugins:
   - local:
-      - pnpm
-      - --pm-on-fail=ignore
-      - --dir
+      - bun
+      - run
+      - --bun
+      - --cwd
       - apps
-      - exec
       - protoc-gen-es
     out: apps/desktop/packages/server-api-contract/src/gen
     include_imports: true

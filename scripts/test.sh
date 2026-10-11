@@ -230,7 +230,7 @@ run_server() {
 
 run_desktop() {
 	just --quiet _gen-typescript
-	run_suite desktop pnpm --dir apps/desktop exec vitest --config tooling/vite.config.ts run "${tool_args[@]}"
+	run_suite desktop bun run --cwd apps/desktop vitest --config tooling/vite.config.ts run "${tool_args[@]}"
 }
 
 run_tui() {

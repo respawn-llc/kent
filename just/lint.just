@@ -23,21 +23,20 @@ server mode="":
 desktop mode="":
     #!/usr/bin/env bash
     set -euo pipefail
-    just _node
-    node apps/scripts/check-dependency-policy.mjs
-    node apps/scripts/check-typescript-policy.mjs
-    node --test apps/scripts/check-eslint-architecture.test.mjs
+    bun apps/scripts/check-dependency-policy.mjs
+    bun apps/scripts/check-typescript-policy.mjs
+    bun test apps/scripts/check-eslint-architecture.test.mjs
     if [ "{{mode}}" = "--dry-run" ]; then
         [ -d apps/desktop/packages/server-api-contract/src/gen ] || {
             echo "Generated TypeScript sources are required. Run 'just gen' first." >&2
             exit 2
         }
-        pnpm --dir apps exec prettier --check .
-        pnpm --dir apps/desktop exec eslint .
+        bun run --bun --cwd apps prettier --check .
+        bun run --bun --cwd apps/desktop eslint .
     elif [ -z "{{mode}}" ]; then
         just _gen-typescript
-        pnpm --dir apps exec prettier --write .
-        pnpm --dir apps/desktop exec eslint . --fix
+        bun run --bun --cwd apps prettier --write .
+        bun run --bun --cwd apps/desktop eslint . --fix
     else
         echo "Usage: just lint desktop [--dry-run]" >&2
         exit 2
@@ -76,16 +75,15 @@ rust mode="":
 docs mode="":
     #!/usr/bin/env bash
     set -euo pipefail
-    just _node
     if [ "{{mode}}" = "--dry-run" ]; then
-        pnpm --dir docs exec prettier --check .
+        bun run --bun --cwd docs prettier --check .
     elif [ -z "{{mode}}" ]; then
-        pnpm --dir docs exec prettier --write .
+        bun run --bun --cwd docs prettier --write .
     else
         echo "Usage: just lint docs [--dry-run]" >&2
         exit 2
     fi
-    pnpm --dir docs exec astro check
+    bun run --bun --cwd docs astro check
 
 [private]
 _desktop-native:
@@ -93,4 +91,4 @@ _desktop-native:
 
 [private]
 _effect-policy *paths:
-    node apps/scripts/check-effect-policy.mjs {{paths}}
+    bun apps/scripts/check-effect-policy.mjs {{paths}}

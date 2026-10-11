@@ -1,11 +1,15 @@
 {
   "name": "kent-docs",
   "private": true,
+  "trustedDependencies": [
+    "esbuild",
+    "sharp"
+  ],
   "type": "module",
   "version": "0.0.1",
-  "packageManager": "pnpm@12.10.1",
+  "packageManager": "bun@1.4.2",
   "scripts": {
-    "build": "astro build && node ./scripts/emit-deployment-files.mjs"
+    "build": "bun run --bun astro build && bun ./scripts/emit-deployment-files.mjs"
   },
   "dependencies": {
     "@astrojs/markdown-satteri": "^0.3.5",
@@ -31,5 +35,8 @@
     "prettier": "^3.9.6",
     "prettier-plugin-astro": "^0.14.1",
     "typescript": "^6.0.3"
+  },
+  "patchedDependencies": {
+    "starlight-llms-txt@0.11.0": "patches/starlight-llms-txt@0.11.0.patch"
   }
 }

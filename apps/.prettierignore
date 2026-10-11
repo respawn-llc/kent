@@ -4,4 +4,4 @@ node_modules
 **/target
 desktop/packages/server-api-contract/src/gen
 desktop/src-tauri/gen
-pnpm-lock.yaml
+bun.lock

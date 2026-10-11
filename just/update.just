@@ -1,5 +1,4 @@
 set working-directory := ".."
 
-deps:
-    just _node
-    bash scripts/update-deps.sh
+deps *args:
+    bash scripts/update-deps.sh {{ args }}
