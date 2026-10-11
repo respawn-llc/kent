@@ -41,6 +41,9 @@
 - Model file-edit tools refuse writes in `<persistence-root>/.generated` without requesting approval. The refusal explains that generated files are overwritten and that a skill must be shadowed from an active user skill path using the same normalized name, ID, and directory structure. This restriction does not apply to command execution or file reads.
 - Generated-file protection can identify paths by exact path, glob pattern, or regular-expression pattern. Regular-expression matching in this protection policy is an explicit exception to the repository's general ban on regex parsing and replacement.
 - If generated content is edited, deleted, renamed, linked, or invalid, Kent moves the generated tree to `<persistence-root>/recovered/<UTC timestamp>/.generated` and recreates it. A non-empty recovered directory causes each new session to show a user-only warning to clean recovered files and not edit `.generated`.
+- Integrity checking must cover the whole `.generated` directory, including its generated README. Unauthorized additional files and directories must cause recovery. Recognized OS metadata files and permission changes must not cause recovery.
+- A Kent upgrade must replace valid, unchanged generated content with the newly shipped content without causing recovery or a new warning.
+- Generated-folder recovery notices follow the [full-warning wrapping policy](ongoing-scrollback-buffer.md#grouping-and-separators).
 - Generated skills are always seeded; `[skills]` settings only control their model visibility. Empty files, invalid frontmatter, duplicate names, symlinks, and non-regular generated entries are rejected.
 
 ## Core Tools And Runtime Integration

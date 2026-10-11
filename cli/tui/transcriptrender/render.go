@@ -131,7 +131,8 @@ func renderCommittedRow(
 		if thinkingUpdate {
 			options.forceFull = true
 		}
-		if row.GetNotice() != nil && row.GetNotice().Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR {
+		if notice := row.GetNotice(); notice != nil && (notice.Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR ||
+			notice.Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_WARNING) {
 			options.forceFull = true
 		}
 		if row.GetNotice() != nil && row.GetNotice().Reason == transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH {
