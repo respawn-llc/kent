@@ -15,7 +15,8 @@ import (
 )
 
 type attentionSubscription struct {
-	native *attentionnotify.Subscription
+	native   *attentionnotify.Subscription
+	registry *RuntimeRegistry
 }
 
 func (s *attentionSubscription) Close() error { return s.native.Close() }
@@ -46,6 +47,18 @@ func (s *attentionSubscription) Next(ctx context.Context) (*taskpb.AttentionNoti
 		notification, err := attentionNotification(event.Pending)
 		if err != nil {
 			return nil, err
+		}
+		if event.Pending.Target.SessionID != "" {
+			shortID, err := s.registry.attentionSessionShortID(ctx, event.Pending.Target.SessionID)
+			if err != nil {
+				return nil, err
+			}
+			switch target := notification.Target.Target.(type) {
+			case *taskpb.AttentionNotificationTarget_SessionPrompt:
+				target.SessionPrompt.ShortId = shortID
+			case *taskpb.AttentionNotificationTarget_WorkflowTask:
+				target.WorkflowTask.SessionShortId = shortID
+			}
 		}
 		result.Type = taskpb.AttentionNotificationEventType_ATTENTION_NOTIFICATION_EVENT_PENDING
 		result.Payload = &taskpb.AttentionNotificationEvent_Pending{Pending: notification}

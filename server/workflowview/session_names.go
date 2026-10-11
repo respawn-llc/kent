@@ -12,11 +12,16 @@ import (
 
 type sessionNameLookup func(context.Context, []string) ([]sqlitegen.ListSessionNamesByIDsRow, error)
 
-func resolveSessionNames(
+type sessionPresentation struct {
+	Name    *string
+	ShortID *int64
+}
+
+func resolveSessionPresentations(
 	ctx context.Context,
 	lookup sessionNameLookup,
 	sessionIDs []string,
-) (map[string]*string, error) {
+) (map[string]sessionPresentation, error) {
 	if lookup == nil {
 		return nil, errors.New("session name lookup is required")
 	}
@@ -33,13 +38,13 @@ func resolveSessionNames(
 		uniqueIDs = append(uniqueIDs, sessionID)
 	}
 	if len(uniqueIDs) == 0 {
-		return map[string]*string{}, nil
+		return map[string]sessionPresentation{}, nil
 	}
 	rows, err := lookup(ctx, uniqueIDs)
 	if err != nil {
 		return nil, err
 	}
-	names := make(map[string]*string, len(rows))
+	names := make(map[string]sessionPresentation, len(rows))
 	for _, row := range rows {
 		if strings.TrimSpace(row.ID) == "" {
 			return nil, errors.New("session name lookup returned a blank session id")
@@ -51,7 +56,7 @@ func resolveSessionNames(
 		if name != nil && strings.TrimSpace(*name) == "" {
 			return nil, fmt.Errorf("session name lookup returned a blank name for session %q", row.ID)
 		}
-		names[row.ID] = name
+		names[row.ID] = sessionPresentation{Name: name, ShortID: metadata.OptionalInt64(row.ShortID)}
 	}
 	for _, sessionID := range uniqueIDs {
 		if _, exists := names[sessionID]; !exists {

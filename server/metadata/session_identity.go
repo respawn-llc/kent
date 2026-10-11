@@ -16,16 +16,39 @@ import (
 // SessionIdentity projects retained references without assigning numbers to old
 // Sessions or retaining aliases for deleted Sessions.
 func (s *Store) SessionIdentity(ctx context.Context, id runtimeids.SessionID) (runtimeids.SessionIdentity, error) {
-	identity := runtimeids.SessionIdentity{ID: id}
-	value, err := s.queries.GetSessionShortID(sqlitegen.WithExpectedNoRows(ctx), id.String())
-	if errors.Is(err, sql.ErrNoRows) {
-		return identity, nil
-	}
+	identities, err := s.SessionIdentities(ctx, []runtimeids.SessionID{id})
 	if err != nil {
 		return runtimeids.SessionIdentity{}, err
 	}
-	identity.ShortID, err = sessionShortID(value)
-	return identity, err
+	return identities[id], nil
+}
+
+func (s *Store) SessionIdentities(ctx context.Context, ids []runtimeids.SessionID) (map[runtimeids.SessionID]runtimeids.SessionIdentity, error) {
+	identities := make(map[runtimeids.SessionID]runtimeids.SessionIdentity, len(ids))
+	raw := make([]string, 0, len(ids))
+	for _, id := range ids {
+		identities[id] = runtimeids.SessionIdentity{ID: id}
+		raw = append(raw, id.String())
+	}
+	if len(raw) == 0 {
+		return identities, nil
+	}
+	rows, err := s.queries.ListSessionShortIDsByIDs(ctx, raw)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		id, err := runtimeids.ParseSessionID(row.ID)
+		if err != nil {
+			return nil, err
+		}
+		shortID, err := sessionShortID(row.ShortID)
+		if err != nil {
+			return nil, err
+		}
+		identities[id] = runtimeids.SessionIdentity{ID: id, ShortID: shortID}
+	}
+	return identities, nil
 }
 
 func (s *Store) ResolveSessionTarget(ctx context.Context, target *sharedpb.SessionSelector) (runtimeids.SessionID, error) {

@@ -19,6 +19,7 @@ import (
 )
 
 type TaskDetail struct {
+	metadata     *metadata.Store
 	queries      *sqlitegen.Queries
 	projection   *TaskStatusProjection
 	dependencies *TaskDependencies
@@ -35,6 +36,7 @@ func NewTaskDetail(metadataStore *metadata.Store, projection *TaskStatusProjecti
 		return nil, errors.New("task dependencies read model is required")
 	}
 	return &TaskDetail{
+		metadata:     metadataStore,
 		queries:      metadataStore.Queries(),
 		projection:   projection,
 		dependencies: dependencies,
@@ -172,6 +174,10 @@ func (d *TaskDetail) task(ctx context.Context, task sqlitegen.TaskRecord) (*task
 	if task.SourceUrl != "" {
 		sourceURL = &task.SourceUrl
 	}
+	currentNodes, err := ProjectCurrentNodes(ctx, d.metadata, projected.CurrentNodes)
+	if err != nil {
+		return nil, err
+	}
 	detail := &taskpb.TaskDetail{
 		Summary: taskSummary(task, projected.Status, projected.Done),
 		Project: project,
@@ -185,7 +191,7 @@ func (d *TaskDetail) task(ctx context.Context, task sqlitegen.TaskRecord) (*task
 		SourceWorkspace:      sourceWorkspace,
 		ExecutionTarget:      executionTarget,
 		WorktreePath:         worktreePath,
-		CurrentNodes:         ProjectCurrentNodes(projected.CurrentNodes),
+		CurrentNodes:         currentNodes,
 		LiveSessions:         liveSessions,
 		CurrentScripts:       currentScripts,
 		RetainedSessionCount: retainedCount,
@@ -244,7 +250,7 @@ func taskDetailLiveTargets(
 			return nil, nil, fmt.Errorf("task %q live workflow execution has no target", taskID)
 		}
 	}
-	names, err := resolveSessionNames(ctx, nameLookup, sessionIDs)
+	names, err := resolveSessionPresentations(ctx, nameLookup, sessionIDs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("task %q live Sessions: %w", taskID, err)
 	}
@@ -252,7 +258,8 @@ func taskDetailLiveTargets(
 	for _, agent := range agents {
 		liveSessions = append(liveSessions, &taskpb.LiveSession{
 			SessionId:       agent.sessionID,
-			SessionName:     names[agent.sessionID],
+			SessionName:     names[agent.sessionID].Name,
+			ShortId:         names[agent.sessionID].ShortID,
 			NodeDisplayName: agent.nodeDisplayName,
 		})
 	}

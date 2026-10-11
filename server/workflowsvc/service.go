@@ -888,7 +888,7 @@ func (s *Service) startWorkflowTask(ctx context.Context, req *taskpb.StartReques
 		if err != nil {
 			return nil, err
 		}
-		return taskStartSuccess(currentNodes), nil
+		return s.taskStartSuccess(ctx, currentNodes)
 	}
 	preflight, err := workflowexecution.RunTaskMutation(ctx, s.taskMutations, taskID, func(ctx context.Context) (initiatingActionPreflight, error) {
 		if err := s.currentNodeExecution.EnsureTaskQuiescent(taskID); err != nil {
@@ -970,15 +970,19 @@ func (s *Service) startWorkflowTask(ctx context.Context, req *taskpb.StartReques
 		}
 		s.publishProjectWorkflowEvent(ctx, detail.Summary.ProjectId, workflowID, workflowcontract.EventResourceTask, workflowcontract.EventActionStarted, req.TaskId)
 	}
-	return taskStartSuccess(started.Mutation.Created), nil
+	return s.taskStartSuccess(ctx, started.Mutation.Created)
 }
 
-func taskStartSuccess(currentNodes []workflow.CurrentNode) *taskpb.StartSuccess {
+func (s *Service) taskStartSuccess(ctx context.Context, currentNodes []workflow.CurrentNode) (*taskpb.StartSuccess, error) {
+	nodes, err := workflowview.ProjectCurrentNodes(ctx, s.metadata, currentNodes)
+	if err != nil {
+		return nil, err
+	}
 	return &taskpb.StartSuccess{
 		Outcome: &taskpb.StartSuccess_Applied{
-			Applied: &taskpb.StartApplied{CurrentNodes: workflowview.ProjectCurrentNodes(currentNodes)},
+			Applied: &taskpb.StartApplied{CurrentNodes: nodes},
 		},
-	}
+	}, nil
 }
 
 func workflowTaskExecutionSelection(value *taskpb.ExecutionTargetSelection) (*workflow.ExecutionTargetSelection, error) {
@@ -1577,9 +1581,13 @@ func (s *Service) resumeWorkflowTaskAuthorized(
 				req.TaskId,
 			)
 		}
+		nodes, err := workflowview.ProjectCurrentNodes(ctx, s.metadata, promoted)
+		if err != nil {
+			return nil, err
+		}
 		return &taskpb.ResumeSuccess{
 			Outcome: &taskpb.ResumeSuccess_Applied{
-				Applied: &taskpb.ResumeApplied{CurrentNodes: workflowview.ProjectCurrentNodes(promoted)},
+				Applied: &taskpb.ResumeApplied{CurrentNodes: nodes},
 			},
 		}, nil
 	}
@@ -1589,9 +1597,13 @@ func (s *Service) resumeWorkflowTaskAuthorized(
 	}
 	switch preflight.Outcome {
 	case workflowexecution.TaskResumePreflightNoOp:
+		nodes, err := workflowview.ProjectCurrentNodes(ctx, s.metadata, preflight.CurrentNodes)
+		if err != nil {
+			return nil, err
+		}
 		return &taskpb.ResumeSuccess{
 			Outcome: &taskpb.ResumeSuccess_NoOp{
-				NoOp: &taskpb.ResumeApplied{CurrentNodes: workflowview.ProjectCurrentNodes(preflight.CurrentNodes)},
+				NoOp: &taskpb.ResumeApplied{CurrentNodes: nodes},
 			},
 		}, nil
 	case workflowexecution.TaskResumePreflightResumable:
@@ -1666,9 +1678,13 @@ func (s *Service) resumeWorkflowTaskAuthorized(
 		return nil, err
 	}
 	if resumeResult.Outcome == workflowexecution.TaskResumeNoOp {
+		nodes, err := workflowview.ProjectCurrentNodes(ctx, s.metadata, resumeResult.CurrentNodes)
+		if err != nil {
+			return nil, err
+		}
 		return &taskpb.ResumeSuccess{
 			Outcome: &taskpb.ResumeSuccess_NoOp{
-				NoOp: &taskpb.ResumeApplied{CurrentNodes: workflowview.ProjectCurrentNodes(resumeResult.CurrentNodes)},
+				NoOp: &taskpb.ResumeApplied{CurrentNodes: nodes},
 			},
 		}, nil
 	}
@@ -1683,9 +1699,13 @@ func (s *Service) resumeWorkflowTaskAuthorized(
 		}
 		s.publishProjectWorkflowEvent(ctx, detail.Summary.ProjectId, workflowID, workflowcontract.EventResourceTask, workflowcontract.EventActionResumed, req.TaskId)
 	}
+	nodes, err := workflowview.ProjectCurrentNodes(ctx, s.metadata, resumed)
+	if err != nil {
+		return nil, err
+	}
 	return &taskpb.ResumeSuccess{
 		Outcome: &taskpb.ResumeSuccess_Applied{
-			Applied: &taskpb.ResumeApplied{CurrentNodes: workflowview.ProjectCurrentNodes(resumed)},
+			Applied: &taskpb.ResumeApplied{CurrentNodes: nodes},
 		},
 	}, nil
 }
@@ -1736,10 +1756,14 @@ func (s *Service) approveWorkflowTask(ctx context.Context, req *taskpb.ApproveRe
 		}
 		s.publishProjectWorkflowEvent(ctx, detail.Summary.ProjectId, workflowID, workflowcontract.EventResourceTask, workflowcontract.EventActionApproved, taskID, req.ApprovalId)
 	}
+	nodes, err := workflowview.ProjectCurrentNodes(ctx, s.metadata, approved.Mutation.Created)
+	if err != nil {
+		return nil, err
+	}
 	return &taskpb.ApproveSuccess{
 		Outcome: &taskpb.ApproveSuccess_Applied{Applied: &taskpb.ApproveApplied{
 			TaskId:       taskID,
-			CurrentNodes: workflowview.ProjectCurrentNodes(approved.Mutation.Created),
+			CurrentNodes: nodes,
 		}},
 	}, nil
 }
@@ -1775,9 +1799,13 @@ func (s *Service) PreviewWorkflowTaskMove(ctx context.Context, req *taskpb.MoveP
 		return nil, err
 	}
 	if preview.Outcome == workflowstore.ManualMovePreviewOutcomeNoOp {
+		nodes, err := workflowview.ProjectCurrentNodes(ctx, s.metadata, preview.CurrentNodes)
+		if err != nil {
+			return nil, err
+		}
 		return &taskpb.MovePreviewSuccess{
 			Outcome: &taskpb.MovePreviewSuccess_NoOp{
-				NoOp: &taskpb.MovePreviewNoOp{CurrentNodes: workflowview.ProjectCurrentNodes(preview.CurrentNodes)},
+				NoOp: &taskpb.MovePreviewNoOp{CurrentNodes: nodes},
 			},
 		}, nil
 	}
@@ -1851,9 +1879,13 @@ func (s *Service) moveWorkflowTask(ctx context.Context, req *taskpb.MoveRequest)
 		return nil, operationCannotCreateInitialWorktreeError(*req.BranchName)
 	}
 	if prepared.IsNoOp() {
+		nodes, err := workflowview.ProjectCurrentNodes(ctx, s.metadata, prepared.CurrentNodes())
+		if err != nil {
+			return nil, err
+		}
 		return &taskpb.MoveSuccess{
 			Outcome: &taskpb.MoveSuccess_NoOp{
-				NoOp: &taskpb.MoveNoOp{CurrentNodes: workflowview.ProjectCurrentNodes(prepared.CurrentNodes())},
+				NoOp: &taskpb.MoveNoOp{CurrentNodes: nodes},
 			},
 		}, nil
 	}
@@ -1916,9 +1948,13 @@ func (s *Service) moveWorkflowTask(ctx context.Context, req *taskpb.MoveRequest)
 		if targetPreflight.pendingBranchReplaced {
 			return nil, workflowexecution.ErrManualMoveLifecycleConflict
 		}
+		nodes, err := workflowview.ProjectCurrentNodes(ctx, s.metadata, noOpBeforeInterrupt.currentNodes)
+		if err != nil {
+			return nil, err
+		}
 		return &taskpb.MoveSuccess{
 			Outcome: &taskpb.MoveSuccess_NoOp{NoOp: &taskpb.MoveNoOp{
-				CurrentNodes:             workflowview.ProjectCurrentNodes(noOpBeforeInterrupt.currentNodes),
+				CurrentNodes:             nodes,
 				RetainedPreviousWorktree: coordinated.retainedPreviousWorktree,
 			}},
 		}, nil
@@ -1950,9 +1986,13 @@ func (s *Service) moveWorkflowTask(ctx context.Context, req *taskpb.MoveRequest)
 		if targetPreflight.pendingBranchReplaced {
 			return nil, workflowexecution.ErrManualMoveLifecycleConflict
 		}
+		nodes, err := workflowview.ProjectCurrentNodes(ctx, s.metadata, moved.CurrentNodes)
+		if err != nil {
+			return nil, err
+		}
 		return &taskpb.MoveSuccess{
 			Outcome: &taskpb.MoveSuccess_NoOp{NoOp: &taskpb.MoveNoOp{
-				CurrentNodes:             workflowview.ProjectCurrentNodes(moved.CurrentNodes),
+				CurrentNodes:             nodes,
 				RetainedPreviousWorktree: coordinated.retainedPreviousWorktree,
 			}},
 		}, nil
@@ -1965,9 +2005,13 @@ func (s *Service) moveWorkflowTask(ctx context.Context, req *taskpb.MoveRequest)
 		}
 		s.publishProjectWorkflowEvent(ctx, detail.Summary.ProjectId, workflowID, workflowcontract.EventResourceTask, workflowcontract.EventActionMoved, req.TaskId)
 	}
+	nodes, err := workflowview.ProjectCurrentNodes(ctx, s.metadata, moved.Mutation.Created)
+	if err != nil {
+		return nil, err
+	}
 	return &taskpb.MoveSuccess{
 		Outcome: &taskpb.MoveSuccess_Applied{Applied: &taskpb.MoveApplied{
-			CurrentNodes:             workflowview.ProjectCurrentNodes(moved.Mutation.Created),
+			CurrentNodes:             nodes,
 			RetainedPreviousWorktree: coordinated.retainedPreviousWorktree,
 		}},
 	}, nil
@@ -2070,9 +2114,13 @@ func (s *Service) completeWorkflowTask(ctx context.Context, req *taskpb.Complete
 			}
 			taskID = completed.Mutation.Removed[0].TaskID
 		}
+		nodes, err := workflowview.ProjectCurrentNodes(ctx, s.metadata, completed.Mutation.Created)
+		if err != nil {
+			return nil, err
+		}
 		completion := &taskpb.AgentCompletion{
 			TaskId:       string(taskID),
-			CurrentNodes: workflowview.ProjectCurrentNodes(completed.Mutation.Created),
+			CurrentNodes: nodes,
 			Handoff: &taskpb.CompletionHandoff{
 				SourceNodeDisplayName:  completed.Handoff.SourceNodeDisplayName,
 				DestinationDisplayName: completed.Handoff.DestinationDisplayName,

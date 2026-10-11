@@ -2760,8 +2760,10 @@ SELECT
     durable_attention.session_id,
     durable_attention.interruption_reason,
     durable_attention.interruption_detail_json,
-    durable_attention.occurred_at_unix_ms
+    durable_attention.occurred_at_unix_ms,
+    session.short_id AS session_short_id
 FROM durable_attention
+LEFT JOIN sessions session ON session.id = durable_attention.session_id
 LEFT JOIN task_pending_approvals approval
   ON durable_attention.kind = 'approval'
  AND approval.id = durable_attention.approval_id
@@ -2810,7 +2812,12 @@ FROM task_comments
 WHERE id IN (sqlc.slice('ids'));
 
 -- name: ListSessionNamesByIDs :many
-SELECT id, name
+SELECT id, name, short_id
+FROM sessions
+WHERE id IN (sqlc.slice('ids'));
+
+-- name: ListSessionShortIDsByIDs :many
+SELECT id, short_id
 FROM sessions
 WHERE id IN (sqlc.slice('ids'));
 
