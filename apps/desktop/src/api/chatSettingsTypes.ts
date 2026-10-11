@@ -74,6 +74,7 @@ export type ChatSettings = ChatSettingsControls &
   }>;
 export type ChatSettingsSessionFacts = Readonly<{
   sessionID: string;
+  shortID: bigint | null;
   previousSessionID: string | null;
   task: Readonly<{ taskID: string; shortID: string }> | null;
 }>;

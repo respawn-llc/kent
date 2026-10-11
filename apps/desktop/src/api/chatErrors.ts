@@ -148,8 +148,16 @@ type PromptCommandWireDetail = Extract<
   }
 >;
 
+type UnmappedChatWireDetail = Extract<
+  ChatWireError["detail"],
+  { case: "selfTarget" | "pendingWorkNotPending" | undefined }
+>;
+
 function chatErrorDetailFromWire(failure: ChatWireError): KnownChatError | null {
   const detail = failure.detail;
+  if (detail.case === undefined || detail.case === "selfTarget" || detail.case === "pendingWorkNotPending") {
+    return null;
+  }
   if (detail.case === "catalogRead" || detail.case === "commandNotFound" || detail.case === "commandRead") {
     return promptCommandErrorDetail(detail);
   }
@@ -157,7 +165,7 @@ function chatErrorDetailFromWire(failure: ChatWireError): KnownChatError | null 
 }
 
 function standardChatErrorDetail(
-  detail: Exclude<ChatWireError["detail"], PromptCommandWireDetail>,
+  detail: Exclude<ChatWireError["detail"], PromptCommandWireDetail | UnmappedChatWireDetail>,
 ): KnownChatError | null {
   switch (detail.case) {
     case "sessionNotFound":
@@ -188,10 +196,6 @@ function standardChatErrorDetail(
         operation: detail.value.operation ?? null,
         cause: detail.value.cause ?? null,
       };
-    case "pendingWorkNotPending":
-    case "selfTarget":
-    case undefined:
-      return null;
   }
 }
 

@@ -167,6 +167,7 @@ describe("Chat Settings descriptor adapter", () => {
                   settings: settings(),
                   session: {
                     sessionId: sessionID,
+                    shortId: 73n,
                     previousSessionId: parentID,
                     taskId: taskID,
                     taskShortId: "KENT-416",
@@ -190,10 +191,15 @@ describe("Chat Settings descriptor adapter", () => {
         questions: { capable: true, enabled: true },
         autoCompaction: { policy: "optional", stored: true, effective: true },
       },
-      session: { sessionID, previousSessionID: parentID, task: { taskID, shortID: "KENT-416" } },
+      session: {
+        sessionID,
+        shortID: 73n,
+        previousSessionID: parentID,
+        task: { taskID, shortID: "KENT-416" },
+      },
     });
     expect(transport.descriptorCalls[0]?.request).toMatchObject({
-      target: { case: "session", value: { sessionId: sessionID } },
+      target: { case: "session", value: { sessionId: { value: { case: "sessionId", value: sessionID } } } },
     });
   });
 
@@ -232,7 +238,7 @@ describe("Chat Settings descriptor adapter", () => {
         operation,
       );
       expect(transport.descriptorCalls[0]?.request).toMatchObject({
-        session: { sessionId: sessionID },
+        session: { sessionId: { value: { case: "sessionId", value: sessionID } } },
         operation: { operation: wire },
       });
       expect(result).toMatchObject({

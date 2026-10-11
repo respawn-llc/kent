@@ -262,7 +262,9 @@ export function createChatGoalApi(
             target: create(ChatTargetSchema, {
               target: {
                 case: "session",
-                value: create(ExistingSessionRequestTargetSchema, { sessionId: { value: { case: "sessionId", value: sessionID } } }),
+                value: create(ExistingSessionRequestTargetSchema, {
+                  sessionId: { value: { case: "sessionId", value: sessionID } },
+                }),
               },
             }),
             objective,

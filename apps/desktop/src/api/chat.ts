@@ -105,7 +105,9 @@ export function createChatApi(transport: RpcTransport): ChatApi {
       const result = await transport.callDescriptorAttachedSession(
         target,
         method,
-        create(method.input, { sessionId: { value: { case: "sessionId", value: requireChatSessionID(target) } } }),
+        create(method.input, {
+          sessionId: { value: { case: "sessionId", value: requireChatSessionID(target) } },
+        }),
       );
       return requireUnarySuccess(method, result).prompts;
     },
@@ -143,7 +145,12 @@ export function createChatApi(transport: RpcTransport): ChatApi {
         target,
         method,
         create(method.input, {
-          target: { target: { case: "session", value: { sessionId: { value: { case: "sessionId", value: sessionId } } } } },
+          target: {
+            target: {
+              case: "session",
+              value: { sessionId: { value: { case: "sessionId", value: sessionId } } },
+            },
+          },
         }),
       );
       return context(required(requireUnarySuccess(method, result).context));

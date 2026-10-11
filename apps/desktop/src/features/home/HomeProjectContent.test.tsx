@@ -86,6 +86,7 @@ const fixture = vi.hoisted(
       id: string;
       category: "main" | "subagent";
       name: string | null;
+      shortID: bigint | null;
       firstPromptPreview: string | null;
       updatedAt: number;
     }[];
@@ -220,6 +221,7 @@ it.each([
       category,
       firstPromptPreview: "Review the change",
       id: `${category}-session`,
+      shortID: null,
       name: sessionName,
       updatedAt: 1,
     },
@@ -243,12 +245,13 @@ it("uses the Session ID as an unnamed row title and shows its supplied preview o
     category: "main" as const,
     firstPromptPreview: "A supplied preview",
     id: "unnamed-session",
+    shortID: 73n,
     name: null,
     updatedAt: 1,
   };
   fixture.sessions = [session];
   render(<HomeProjectContent projectID="project-1" sessionsVisible sidebarMode="shift" />);
   fireEvent.click(screen.getByRole("tab", { name: appI18n.t("home.prototype.sessions") }));
-  expect(await screen.findByRole("button", { name: session.id })).toBeVisible();
+  expect(await screen.findByRole("button", { name: "73" })).toBeVisible();
   expect(screen.getAllByText(session.firstPromptPreview)).toHaveLength(1);
 });

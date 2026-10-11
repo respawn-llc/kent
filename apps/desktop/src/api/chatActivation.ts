@@ -18,7 +18,9 @@ export async function activateRuntime(
     planMethod,
     create(planMethod.input, {
       mode: SessionLaunchMode.INTERACTIVE,
-      intent: { intent: { case: "openExistingSessionId", value: { value: { case: "sessionId", value: sessionID } } } },
+      intent: {
+        intent: { case: "openExistingSessionId", value: { value: { case: "sessionId", value: sessionID } } },
+      },
     }),
   );
   const plan = requireUnarySuccess(planMethod, result).plan;

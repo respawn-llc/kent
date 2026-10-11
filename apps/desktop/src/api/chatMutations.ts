@@ -52,7 +52,12 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
             target,
             method,
             create(method.input, {
-              target: { target: { case: "session", value: { sessionId: { value: { case: "sessionId", value: requireChatSessionID(target) } } } } },
+              target: {
+                target: {
+                  case: "session",
+                  value: { sessionId: { value: { case: "sessionId", value: requireChatSessionID(target) } } },
+                },
+              },
               activation: chatActivation(activation),
             }),
           )
@@ -110,7 +115,14 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
               target,
               method,
               create(method.input, {
-                target: { target: { case: "session", value: { sessionId: { value: { case: "sessionId", value: requireChatSessionID(target) } } } } },
+                target: {
+                  target: {
+                    case: "session",
+                    value: {
+                      sessionId: { value: { case: "sessionId", value: requireChatSessionID(target) } },
+                    },
+                  },
+                },
                 invocation,
               }),
             )
@@ -243,15 +255,14 @@ function mutationTarget(
   target: Extract<ChatMutationTarget, { kind: "new_chat" }>,
   workspaceID: string,
 ): {
-  target:
-    | {
-        case: "newChat";
-        value: {
-          projectId: string;
-          workspaceId: string;
-          initialSettings: ReturnType<typeof initialChatSettingsToWire>;
-        };
-      };
+  target: {
+    case: "newChat";
+    value: {
+      projectId: string;
+      workspaceId: string;
+      initialSettings: ReturnType<typeof initialChatSettingsToWire>;
+    };
+  };
 } {
   requireChatProjectTarget(target);
   return {

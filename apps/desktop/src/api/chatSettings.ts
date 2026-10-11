@@ -72,7 +72,12 @@ export function createChatSettingsApi(
           ? await transport.callDescriptorAttachedSession(
               target,
               method,
-              create(method.input, { target: { case: "session", value: { sessionId: { value: { case: "sessionId", value: target.sessionID } } } } }),
+              create(method.input, {
+                target: {
+                  case: "session",
+                  value: { sessionId: { value: { case: "sessionId", value: target.sessionID } } },
+                },
+              }),
             )
           : await transport
               .callDescriptorAttachedProject({
@@ -209,6 +214,7 @@ export function sessionFacts(value: SessionFacts, sessionID: string): ChatSettin
   }
   return {
     sessionID: value.sessionId,
+    shortID: value.shortId ?? null,
     previousSessionID: value.previousSessionId ?? null,
     task: value.taskId === undefined ? null : { taskID: value.taskId, shortID: required(value.taskShortId) },
   };
