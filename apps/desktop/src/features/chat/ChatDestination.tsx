@@ -159,6 +159,8 @@ function ChatDestinationShell({
         content={(_, bottomInset) =>
           target === null ? null : (
             <ChatTranscriptContent
+              target={target}
+              effectiveWorkdir={executionTarget?.effectiveWorkdir ?? null}
               bottomInset={bottomInset}
               openingVisible={openingVisible}
               edit={{

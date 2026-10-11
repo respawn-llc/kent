@@ -251,6 +251,22 @@
 - Tools, diagnostics, context, and notices use flat transcript rows rather than message islands. Transcript content opens no duplicate detail surfaces; its full content is available through expansion.
 - Contextual destinations adapt between shifted and overlay presentation. Processes and Goal are the defined Chat destinations. Session settings use a non-modal popover from the composer Settings chip, not a contextual destination.
 
+## Viewed Images
+
+- Successful raster-image View Image Tool rows must load a preview only when expanded. While acquiring the image, they must show a shimmer skeleton preview and smoothly crossfade from that skeleton to the loaded image.
+- Where the client can read local files, Desktop must first try the original at its absolute path. A matching local path is sufficient for this fast path, including for a remote Session. Desktop may display a local original that differs from the image the model received because of conversion or later file edits.
+- If the local source is absent, unreadable, or undecodable, or the client cannot read local files, Desktop must retrieve the original on the server. Desktop must not retrieve the stored processed model image for a preview.
+- Original-file reads must use a 10 MiB limit. Oversized originals must be treated as unusable sources.
+- If no source supplies a usable image, Desktop must show `File no longer present` inside the expanded row rather than a broken image.
+- If a server request fails, Desktop must show the failure inline in the expanded row instead of replacing Chat with an Error state. Collapsing and re-expanding the row must retry loading.
+- Desktop must preserve the image's aspect ratio and fit it within the available transcript width. Desktop must enlarge images whose longer dimension is below 150 display pixels to that size, subject to the available width.
+- Image data and preview resources must remain scoped to an expanded, mounted row. Collapse or unmount must release them. Re-expansion must load again without a cross-row image cache. Late completion must not update another row.
+- PDF View Image Tool rows must remain non-expandable, retain their path, and load no preview content. Desktop must show Open only when the PDF exists on the client's filesystem at its path. Desktop must not describe PDFs as unavailable images.
+- PDF Open must open the document in the system's default PDF application on macOS, Linux, and Windows.
+- Failed View Image calls must retain their diagnostic text and error indication without an image preview or image-content request.
+- View Image Tool rows must never show Copy.
+- Viewed-image previews are Tool results, not transcript attachments.
+
 ## Edit And Fork
 
 - Desktop replaces the TUI rollback picker with the Edit action in an eligible committed user-message footer. It adds no global rollback picker, double-Escape shortcut, separate Fork action, or confirmation dialog.

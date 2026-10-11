@@ -23,6 +23,10 @@ func runWorkerCommand(args []string, stdin io.Reader, stdout io.Writer, stderr i
 	}
 	if err := runWorker(stdin, stdout); err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
+		var acquisitionError *AcquisitionError
+		if errors.As(err, &acquisitionError) {
+			return true, acquisitionFailureExitCode
+		}
 		return true, 1
 	}
 	return true, 0
@@ -44,12 +48,12 @@ func runWorker(stdin io.Reader, stdout io.Writer) error {
 
 	file, err := openReadOnlyRegularFile(request.Path)
 	if err != nil {
-		return err
+		return &AcquisitionError{Cause: err}
 	}
 	defer func() { _ = file.Close() }()
 	data, err := readLimited(file, request.Limit)
 	if err != nil {
-		return err
+		return &AcquisitionError{Cause: err}
 	}
 	if _, err := stdout.Write(data); err != nil {
 		return fmt.Errorf("write image file data: %w", err)

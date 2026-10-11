@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, expect, it } from "vitest";
 
@@ -9,7 +9,7 @@ import type { TranscriptToolSlotItem } from "./toolSlotTypes";
 
 beforeAll(initializeI18n);
 
-it("collapses the structured image label but copies the original absolute path", async () => {
+it("formats the image label without changing its source or offering Copy", async () => {
   const user = userEvent.setup();
   const path = "/Users/engineer/project/image.png";
   const item = {
@@ -44,16 +44,17 @@ it("collapses the structured image label but copies the original absolute path",
     <TestAppProviders
       services={createTestServices([], undefined, { homePath: "/Users/engineer", platform: "macos" })}
     >
-      <TranscriptToolSlot item={item} />
+      <TranscriptToolSlot
+        item={item}
+        target={{ projectID: "project", sessionID: "session" }}
+        effectiveWorkdir={null}
+      />
     </TestAppProviders>,
   );
   expect(
     screen.getByText(appI18n.t("chat.toolRows.viewedImage", { path: "~/project/image.png" })),
   ).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: appI18n.t("chat.toolRows.expand") }));
-  await user.click(screen.getByRole("button", { name: appI18n.t("chat.toolRows.copy") }));
-  await waitFor(async () => {
-    expect(await navigator.clipboard.readText()).toBe(appI18n.t("chat.toolRows.viewedImage", { path }));
-  });
+  expect(screen.queryByRole("button", { name: appI18n.t("chat.toolRows.copy") })).not.toBeInTheDocument();
   expect(item.tool.Presentation.RenderHint.Path).toBe(path);
 });

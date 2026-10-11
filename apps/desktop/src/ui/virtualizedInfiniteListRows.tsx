@@ -178,7 +178,7 @@ export function renderVirtualizedInfiniteListRow<TItem>({
   rowSpacing,
   stickyItemKeys,
   virtualItem,
-  directPositioning,
+  blockGap,
 }: Readonly<{
   getItemKey: (item: TItem) => string;
   getItemWrapperProps: ((item: TItem, itemIndex: number) => HTMLAttributes<HTMLDivElement>) | undefined;
@@ -192,7 +192,7 @@ export function renderVirtualizedInfiniteListRow<TItem>({
   rowSpacing: "default" | "compact" | "tight";
   stickyItemKeys: ReadonlySet<string> | undefined;
   virtualItem: VirtualItem;
-  directPositioning: boolean;
+  blockGap: number | undefined;
 }>): ReactNode {
   const virtualIndex = virtualItem.index;
   const { item, itemKey, wrapperProps } = resolveVirtualizedRowItem({
@@ -214,6 +214,7 @@ export function renderVirtualizedInfiniteListRow<TItem>({
       {...wrapperProps}
       className={cx(
         virtualizedRowPositionClassName({
+          blockGap,
           orientation,
           sticky,
         }),
@@ -231,7 +232,7 @@ export function renderVirtualizedInfiniteListRow<TItem>({
       ref={measureElement}
       role={itemRole}
       style={resolveVirtualizedRowStyle({
-        directPositioning,
+        blockGap,
         orientation,
         paddingStart,
         sticky,
@@ -305,19 +306,58 @@ export function resolveVirtualizedInnerClassName(
 export function resolveVirtualizedInnerStyle(
   horizontal: boolean,
   totalSize: number,
-  directPositioning: boolean,
-): Readonly<{ height?: string; width?: string }> | undefined {
-  if (directPositioning) return undefined;
+): Readonly<{ height?: string; width?: string }> {
   return horizontal ? { width: `${totalSize.toString()}px` } : { height: `${totalSize.toString()}px` };
 }
 
+export function resolveVirtualizedBlockGap(
+  blockPositioning: boolean,
+  item: VirtualItem,
+  previous: VirtualItem | undefined,
+): number | undefined {
+  if (!blockPositioning) return undefined;
+  return previous === undefined ? 0 : item.start - previous.end;
+}
+
+export function renderVirtualizedRowsContent({
+  blockPositioning,
+  firstVirtualItem,
+  renderedRows,
+  hasItems,
+  empty,
+  loadingLabel,
+}: Readonly<{
+  blockPositioning: boolean;
+  firstVirtualItem: VirtualItem | undefined;
+  renderedRows: readonly ReactNode[];
+  hasItems: boolean;
+  empty: ReactNode;
+  loadingLabel: string;
+}>): ReactNode {
+  if (renderedRows.length === 0)
+    return hasItems ? renderVirtualizedPlaceholder({ loading: true, loadingLabel }) : empty;
+  const blockStart = blockPositioning ? firstVirtualItem?.start : undefined;
+  if (blockStart === undefined) return renderedRows;
+  return (
+    <div
+      className="absolute top-0 left-0 flow-root w-full"
+      style={{ transform: `translateY(${blockStart.toString()}px)` }}
+    >
+      {renderedRows}
+    </div>
+  );
+}
+
 function virtualizedRowPositionClassName({
+  blockGap,
   orientation,
   sticky,
 }: Readonly<{
+  blockGap: number | undefined;
   orientation: "vertical" | "horizontal";
   sticky: boolean;
 }>): string | undefined {
+  if (blockGap !== undefined) return "relative w-full";
   if (sticky) {
     return orientation === "horizontal" ? "sticky z-[1] w-max" : "sticky top-0 z-[1] w-full";
   }
@@ -349,21 +389,21 @@ function resolveVirtualizedRowGeometry({
 }
 
 function resolveVirtualizedRowStyle({
-  directPositioning,
+  blockGap,
   orientation,
   paddingStart,
   sticky,
   virtualItem,
   wrapperStyle,
 }: Readonly<{
-  directPositioning: boolean;
+  blockGap: number | undefined;
   orientation: "vertical" | "horizontal";
   paddingStart: number;
   sticky: boolean;
   virtualItem: VirtualItem;
   wrapperStyle: CSSProperties | undefined;
 }>): CSSProperties | undefined {
-  if (directPositioning) return wrapperStyle;
+  if (blockGap !== undefined) return { ...wrapperStyle, marginTop: blockGap };
   if (sticky) {
     return {
       ...wrapperStyle,

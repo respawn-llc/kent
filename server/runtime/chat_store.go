@@ -33,6 +33,7 @@ type ChatEntry struct {
 	WorktreeContext       *session.WorktreeContext
 	CompactLabel          string
 	ToolResultSummary     string
+	ViewedImageKind       *transcript.ViewedImageKind
 	ToolCallID            string
 	QuestionAnswer        *tools.AskQuestionAnswer
 	AnsweredBySessionID   *runtimeids.SessionID

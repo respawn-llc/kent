@@ -44,6 +44,7 @@ function committedPromotions(): readonly TranscriptCommittedItem["row"][] {
       User: null,
       Assistant: null,
       Tool: {
+        ViewedImageKind: null,
         StepID: "step",
         ToolCallID: "tool-call",
         ToolName: "shell",

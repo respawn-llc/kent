@@ -162,6 +162,7 @@ export type ChatCommittedRow = Readonly<{
     committed_at_unix_ms?: number | null;
   }> | null;
   Tool: Readonly<{
+    ViewedImageKind: "raster" | "pdf" | null;
     StepID?: string | null;
     ToolCallID: string | null;
     ToolName: string | null;

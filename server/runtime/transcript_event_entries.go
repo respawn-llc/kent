@@ -196,6 +196,7 @@ func toolResultChatEntry(result tools.Result) ChatEntry {
 		Role:                role,
 		Text:                content.text,
 		WebSearch:           content.webSearch,
+		ViewedImageKind:     content.viewedImageKind,
 		CondensedText:       condensedText,
 		ToolCallID:          strings.TrimSpace(result.CallID),
 		ToolResultSummary:   summary,
@@ -206,12 +207,18 @@ func toolResultChatEntry(result tools.Result) ChatEntry {
 }
 
 type toolResultContent struct {
-	text      string
-	isError   bool
-	webSearch *transcript.WebSearchDetail
+	text            string
+	isError         bool
+	webSearch       *transcript.WebSearchDetail
+	viewedImageKind *transcript.ViewedImageKind
 }
 
 func projectToolResultContent(result tools.Result) toolResultContent {
+	if result.Name == toolspec.ToolViewImage && !result.IsError {
+		if text, kind, ok := tools.InterpretViewImageOutput(result.Output); ok {
+			return toolResultContent{text: text, viewedImageKind: kind}
+		}
+	}
 	if result.Name != toolspec.ToolWebSearch {
 		return toolResultContent{
 			text:    tools.FormatToolResultByName(string(result.Name), result.Output, result.IsError),

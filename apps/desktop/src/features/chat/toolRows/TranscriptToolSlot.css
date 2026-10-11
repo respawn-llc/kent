@@ -4,6 +4,18 @@
   min-inline-size: 0;
 }
 
+.transcript-viewed-image {
+  display: block;
+  max-inline-size: 100%;
+  block-size: 100%;
+  object-fit: contain;
+  object-position: left top;
+}
+
+.transcript-tool-static-row--actions {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
 .transcript-tool-plain-text {
   min-inline-size: 0;
   max-inline-size: 100%;

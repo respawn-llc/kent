@@ -59,6 +59,7 @@ type TranscriptAssistantRowFact struct {
 }
 
 type TranscriptToolRowFact struct {
+	ViewedImageKind     *transcript.ViewedImageKind
 	ToolCallID          string
 	ToolName            string
 	Text                string
@@ -67,8 +68,8 @@ type TranscriptToolRowFact struct {
 	CondensedText       string
 	Presentation        *transcript.ToolCallMeta
 	QuestionAnswer      *tools.AskQuestionAnswer
-	AnsweredBySessionID *runtimeids.SessionID
 	WebSearch           *transcript.WebSearchDetail
+	AnsweredBySessionID *runtimeids.SessionID
 }
 
 type TranscriptReasoningTraceRowFact struct {
@@ -540,8 +541,9 @@ func transcriptCommittedRowFactFromChatEntryUnlocated(entry ChatEntry) (Transcri
 				CondensedText:       strings.TrimSpace(firstNonBlankTranscriptValue(entry.CondensedText, entry.CompactLabel)),
 				Presentation:        cloneTranscriptToolCallMeta(entry.ToolCall),
 				QuestionAnswer:      cloneAskQuestionAnswer(entry.QuestionAnswer),
-				AnsweredBySessionID: cloneOptionalRuntimeSessionID(entry.AnsweredBySessionID),
 				WebSearch:           entry.WebSearch,
+				ViewedImageKind:     entry.ViewedImageKind,
+				AnsweredBySessionID: cloneOptionalRuntimeSessionID(entry.AnsweredBySessionID),
 			},
 		}, true
 	default:
@@ -864,6 +866,7 @@ func transcriptToolRowFactFromResult(result tools.Result) TranscriptCommittedRow
 		Text:                content.text,
 		IsError:             content.isError,
 		WebSearch:           content.webSearch,
+		ViewedImageKind:     content.viewedImageKind,
 		ResultSummary:       resultSummary,
 		CondensedText:       condensedText,
 		Presentation:        cloneTranscriptToolCallMeta(result.Presentation),

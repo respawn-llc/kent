@@ -256,6 +256,12 @@ message AssistantRow {
   optional string condensed_text = 6 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
+enum ViewedImageKind {
+  VIEWED_IMAGE_KIND_UNSPECIFIED = 0;
+  VIEWED_IMAGE_KIND_RASTER = 1;
+  VIEWED_IMAGE_KIND_PDF = 2;
+}
+
 message ToolRow {
   optional string step_id = 1 [
     (buf.validate.field).string.uuid = true,
@@ -292,6 +298,7 @@ message ToolRow {
       expression: "this.trim() != ''"
     }
   ];
+  optional ViewedImageKind viewed_image_kind = 12 [(buf.validate.field).enum = {defined_only: true not_in: [0]}];
   option (buf.validate.message).cel = {
     id: "kent.transcript.ask_result"
     message: "errored Ask Question results require nonblank failure text"

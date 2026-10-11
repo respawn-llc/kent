@@ -36,12 +36,13 @@ import {
 } from "./virtualizedLeadingAnchor";
 import {
   renderVirtualizedInfiniteListRow,
-  renderVirtualizedPlaceholder,
   resolveVirtualizedInfiniteListLayout,
   resolveHorizontalBoundary,
   resolveVirtualizedContainerClassName,
   resolveVirtualizedInnerClassName,
   resolveVirtualizedInnerStyle,
+  resolveVirtualizedBlockGap,
+  renderVirtualizedRowsContent,
   renderVirtualizedRow,
   type VirtualizedInfiniteListLayout,
   virtualizedScrollOffsetProperty,
@@ -235,15 +236,14 @@ function VirtualizedInfiniteListContent<TItem>({
     return indexes;
   }, [getItemKey, itemStartIndex, items, retainedItemKeys]);
   const { applyScrollRequest, options: endOptions } = useVirtualizedEndAnchoring(endAnchoring);
-  const directPositioning = endAnchoring !== undefined;
+  const blockPositioning = endAnchoring !== undefined && !horizontal;
   const virtualizer = useVirtualizer({
     count,
     getScrollElement: () => scrollRef.current,
     estimateSize,
     paddingEnd,
     paddingStart,
-    useFlushSync: false,
-    directDomUpdates: directPositioning,
+    useFlushSync: blockPositioning,
     getItemKey: (index) =>
       virtualizedRowKey({
         getItemKey,
@@ -372,7 +372,8 @@ function VirtualizedInfiniteListContent<TItem>({
       renderItem,
       virtualIndex,
     });
-  const renderedRows = virtualItems.map((virtualItem): ReactNode =>
+  const firstVirtualItem = virtualItems.at(0);
+  const renderedRows = virtualItems.map((virtualItem, index): ReactNode =>
     renderVirtualizedInfiniteListRow({
       getItemKey,
       getItemWrapperProps,
@@ -386,7 +387,7 @@ function VirtualizedInfiniteListContent<TItem>({
       rowSpacing,
       stickyItemKeys,
       virtualItem,
-      directPositioning,
+      blockGap: resolveVirtualizedBlockGap(blockPositioning, virtualItem, virtualItems[index - 1]),
     }),
   );
   const hasHorizontalBoundary = resolveHorizontalBoundary(horizontal, layout, nextBoundary);
@@ -402,15 +403,17 @@ function VirtualizedInfiniteListContent<TItem>({
       role={role}
     >
       <div
-        ref={virtualizer.containerRef}
         className={resolveVirtualizedInnerClassName(horizontal, hasHorizontalBoundary)}
-        style={resolveVirtualizedInnerStyle(horizontal, virtualizer.getTotalSize(), directPositioning)}
+        style={resolveVirtualizedInnerStyle(horizontal, virtualizer.getTotalSize())}
       >
-        {virtualItems.length > 0
-          ? renderedRows
-          : items.length > 0
-            ? renderVirtualizedPlaceholder({ loading: true, loadingLabel })
-            : empty}
+        {renderVirtualizedRowsContent({
+          blockPositioning,
+          firstVirtualItem,
+          renderedRows,
+          hasItems: items.length > 0,
+          empty,
+          loadingLabel,
+        })}
       </div>
       {footer}
     </div>
