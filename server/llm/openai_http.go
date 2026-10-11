@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -76,18 +74,12 @@ func NewHTTPTransport(auth DispatchAuthProvider, registration ProviderVariantReg
 	if registration.Provider == "" || registration.Variant.ResponsesPolicy == nil || registration.Variant.BaseURL == nil || *registration.Variant.BaseURL == "" {
 		return nil, fmt.Errorf("%w: resolved Responses registration and endpoint are required", ErrInvalidRequest)
 	}
-	window := 200000
-	if raw := strings.TrimSpace(os.Getenv("KENT_CONTEXT_WINDOW")); raw != "" {
-		if value, err := strconv.Atoi(raw); err == nil && value > 0 {
-			window = value
-		}
-	}
 	return &HTTPTransport{
 		Client:              NewHTTPClient(120 * time.Second),
 		Auth:                auth,
 		registration:        registration,
 		ProviderIdentifier:  config.Command,
-		ContextWindowTokens: window,
+		ContextWindowTokens: config.DefaultOnboardingSettings().ModelContextWindow,
 		modelContextWindows: make(map[string]int),
 	}, nil
 }
@@ -334,14 +326,10 @@ func (t *HTTPTransport) Compact(ctx context.Context, request ResponsesRequest) (
 		return ResponsesCompactionResponse{}, err
 	}
 	windowTokens := t.resolveContextWindowFallback(ctx, request.Model)
-	switch preparation.variant.RemoteCompactionProtocol {
-	case remoteCompactionStandardResponses:
-		return t.compactStandardResponses(ctx, request, preparation, windowTokens)
-	case remoteCompactionResponsesTriggerV2:
-		return t.compactResponsesTriggerV2(ctx, request, preparation.authHeader, preparation.mode, preparation.variant, preparation.providerCaps, windowTokens, preparation.projection)
-	default:
+	if !preparation.variant.Capabilities.SupportsResponsesCompact {
 		return ResponsesCompactionResponse{}, fmt.Errorf("provider %s does not support remote compaction", preparation.providerCaps.ProviderID)
 	}
+	return preparation.variant.ResponsesPolicy.compact(ctx, t, request, preparation, windowTokens)
 }
 
 func (t *HTTPTransport) identifyProviderError(err error) {

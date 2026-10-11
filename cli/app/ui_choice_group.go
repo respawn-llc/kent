@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -9,8 +10,10 @@ import (
 type uiChoiceGroupKind uint8
 
 const (
-	uiChoiceGroupKindRadio uiChoiceGroupKind = iota
+	uiChoiceGroupKindNumbered uiChoiceGroupKind = iota
+	uiChoiceGroupKindRadio
 	uiChoiceGroupKindButton
+	uiChoiceGroupKindBullet
 )
 
 type uiChoiceOption struct {
@@ -44,16 +47,7 @@ func renderUIChoiceGroupLineStyled(width int, kind uiChoiceGroupKind, options []
 		if selected {
 			style = selectedStyle
 		}
-		switch kind {
-		case uiChoiceGroupKindButton:
-			b.WriteString(style.Render("[ " + label + " ]"))
-		default:
-			marker := "( )"
-			if selected {
-				marker = "(●)"
-			}
-			b.WriteString(style.Render(marker + " " + label))
-		}
+		b.WriteString(style.Render(uiChoiceOptionLabel(kind, label, index, selected)))
 		used++
 	}
 	line := b.String()
@@ -67,7 +61,7 @@ func renderUIChoiceGroupLineStyled(width int, kind uiChoiceGroupKind, options []
 func uiChoiceGroupWidth(kind uiChoiceGroupKind, options []uiChoiceOption, separator string) int {
 	width := 0
 	used := 0
-	for _, option := range options {
+	for index, option := range options {
 		label := strings.TrimSpace(option.Label)
 		if label == "" {
 			continue
@@ -75,13 +69,25 @@ func uiChoiceGroupWidth(kind uiChoiceGroupKind, options []uiChoiceOption, separa
 		if used > 0 {
 			width += lipgloss.Width(separator)
 		}
-		switch kind {
-		case uiChoiceGroupKindButton:
-			width += lipgloss.Width("[ " + label + " ]")
-		default:
-			width += lipgloss.Width("(●) " + label)
-		}
+		width += lipgloss.Width(uiChoiceOptionLabel(kind, label, index, true))
 		used++
 	}
 	return width
+}
+
+func uiChoiceOptionLabel(kind uiChoiceGroupKind, label string, index int, selected bool) string {
+	switch kind {
+	case uiChoiceGroupKindNumbered:
+		return fmt.Sprintf("%d. %s", index+1, label)
+	case uiChoiceGroupKindBullet:
+		return "• " + label
+	case uiChoiceGroupKindButton:
+		return "[ " + label + " ]"
+	default:
+		marker := "( )"
+		if selected {
+			marker = "(●)"
+		}
+		return marker + " " + label
+	}
 }

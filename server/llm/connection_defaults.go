@@ -13,23 +13,24 @@ func ApplyConnectionModelDefaults(settings *config.Settings, sources map[string]
 	if err != nil {
 		return err
 	}
-	if selected.Provider != ProviderGrok {
+	if selected.Variant.DefaultModel == nil {
 		return nil
 	}
+	defaults, _ := LookupModelCapabilityContract(*selected.Variant.DefaultModel)
 	if sources["model"].Kind == config.SourceDefault {
-		settings.Model = "grok-4.7"
+		settings.Model = defaults.Model
 	}
 	if sources["thinking_level"].Kind == config.SourceDefault {
-		settings.ThinkingLevel = "high"
+		settings.ThinkingLevel = *defaults.DefaultReasoningEffort
 	}
-	metadata, err := ModelContextForSettings(*settings, settings.Model)
-	if err != nil {
-		return err
-	}
-	if metadata != nil && sources["model_context_window"].Kind == config.SourceDefault {
-		settings.ModelContextWindow = metadata.ContextWindowTokens
+	if sources["model_context_window"].Kind == config.SourceDefault {
+		derived := *settings
+		if err := ApplyDerivedModelContextBudget(&derived, settings.Model, settings.ModelContextWindow, settings.ContextCompactionThresholdTokens); err != nil {
+			return err
+		}
+		settings.ModelContextWindow = derived.ModelContextWindow
 		if sources["context_compaction_threshold_tokens"].Kind == config.SourceDefault {
-			settings.ContextCompactionThresholdTokens = settings.ModelContextWindow * 95 / 100
+			settings.ContextCompactionThresholdTokens = derived.ContextCompactionThresholdTokens
 		}
 	}
 	config.InheritReviewerSettings(settings, sources)

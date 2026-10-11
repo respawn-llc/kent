@@ -119,12 +119,12 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 		out.WriteString("\n[reviewer.model_capabilities]\n")
 		writeDefaultLines(&out, reviewerModelCapabilityLines)
 	}
-	writeBuiltInSubagentSections(&out, settings.Model)
+	writeBuiltInSubagentSections(&out, settings.Model, settings.ModelContextWindow)
 	writeSkillTogglesSection(&out, state.Settings.SkillToggles)
 	return out.String()
 }
 
-func writeBuiltInSubagentSections(builder *strings.Builder, mainModel string) {
+func writeBuiltInSubagentSections(builder *strings.Builder, mainModel string, contextWindow int) {
 	if builder == nil {
 		return
 	}
@@ -135,7 +135,7 @@ func writeBuiltInSubagentSections(builder *strings.Builder, mainModel string) {
 	builder.WriteString("# model = " + strconv.Quote(mainModel) + "\n")
 	builder.WriteString("# thinking_level = \"low\"\n")
 	builder.WriteString("# priority_request_mode = true\n")
-	builder.WriteString("# model_context_window = 272000\n")
+	builder.WriteString("# model_context_window = " + strconv.Itoa(contextWindow) + "\n")
 }
 
 func DefaultModel() string {

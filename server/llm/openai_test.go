@@ -9,10 +9,6 @@ import (
 
 type streamingOnlyTransport struct{}
 
-func (streamingOnlyTransport) PrepareCompaction(request CompactionRequest) CompactionRequest {
-	return request
-}
-
 func (streamingOnlyTransport) Compact(context.Context, ResponsesRequest) (ResponsesCompactionResponse, error) {
 	return ResponsesCompactionResponse{}, nil
 }

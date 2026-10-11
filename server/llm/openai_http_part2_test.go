@@ -493,6 +493,7 @@ func TestCompactRequestUsesSelectedProtocol(t *testing.T) {
 				Temperature:             0.4,
 				MaxTokens:               128,
 				ToolChoiceMode:          ToolChoiceModeAutomatic,
+				Tools:                   []Tool{{Name: "exec_command", Schema: mustTestFunctionSchema(t, struct{}{})}},
 				Items: PrepareResponsesInputItems([]ResponseItem{
 					{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value("u1")},
 				}),
@@ -535,7 +536,7 @@ func TestCompactRequestUsesSelectedProtocol(t *testing.T) {
 			if standard {
 				if captured["prompt_cache_key"] != "session-cache-key" || captured["service_tier"] != "priority" ||
 					captured["instructions"] != "system instructions" || captured["max_output_tokens"] != float64(128) ||
-					captured["temperature"] != 0.4 || captured["tools"] != nil || captured["context_management"] != nil {
+					captured["temperature"] != 0.4 || captured["context_management"] != nil {
 					t.Fatalf("standard compaction controls changed: %+v", captured)
 				}
 				if _, present := captured["stream"]; present {
@@ -545,6 +546,10 @@ func TestCompactRequestUsesSelectedProtocol(t *testing.T) {
 				t.Fatalf("stream = %#v, want true", captured["stream"])
 			}
 			input, ok := captured["input"].([]any)
+			tools, okTools := captured["tools"].([]any)
+			if !okTools || len(tools) != 1 || captured["instructions"] != "system instructions" || captured["tool_choice"] != "auto" {
+				t.Fatalf("compaction changed cache-snapshotted instructions/tools: %+v", captured)
+			}
 			expectedInputs := 2
 			if standard {
 				expectedInputs = 1

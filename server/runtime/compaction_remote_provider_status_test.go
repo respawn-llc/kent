@@ -296,7 +296,7 @@ func (c *capturingCompactionClient) Compact(ctx context.Context, request llm.Com
 func testGrokCompactionCacheDispatch(t *testing.T, protocol config.ConnectionProtocol) {
 	var wire struct {
 		Input        []json.RawMessage `json:"input"`
-		Tools        json.RawMessage   `json:"tools"`
+		Tools        []json.RawMessage `json:"tools"`
 		CacheKey     string            `json:"prompt_cache_key"`
 		Tier         string            `json:"service_tier"`
 		Instructions string            `json:"instructions"`
@@ -347,7 +347,7 @@ func testGrokCompactionCacheDispatch(t *testing.T, protocol config.ConnectionPro
 		t.Fatal(err)
 	}
 	scheduleManualCompactionAndWait(t, engine)
-	if len(client.request.Tools) != 0 || len(wire.Tools) != 0 || wire.CacheKey != engine.SessionID() ||
+	if len(client.request.Tools) != 1 || len(wire.Tools) != 1 || wire.CacheKey != engine.SessionID() ||
 		wire.Tier != "priority" || wire.Instructions != client.request.SystemPrompt || wire.Instructions == "" ||
 		len(wire.Input) != len(client.request.Items) {
 		t.Fatalf("observed/dispatch request mismatch: observed tools=%d wire tools=%s key=%q tier=%q observed items=%d wire items=%d",
@@ -364,9 +364,6 @@ func testGrokCompactionCacheDispatch(t *testing.T, protocol config.ConnectionPro
 		if !reflect.DeepEqual(observed, dispatched) {
 			t.Fatalf("wire input %d differs from observed item", index)
 		}
-	}
-	if client.request.Items[0].Role == nil || *client.request.Items[0].Role != llm.RoleSystem {
-		t.Fatal("compaction input omitted system prompt")
 	}
 	expected, err := summarizePromptCacheRequest(client.request)
 	if err != nil {

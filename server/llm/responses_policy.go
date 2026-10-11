@@ -1,22 +1,19 @@
 package llm
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"slices"
-	"strings"
-
-	"core/shared/config"
 
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
-	"github.com/openai/openai-go/v3/shared"
 )
 
 // The registry selects protocol differences; the Responses engine owns ordered
 // input serialization, streaming, cancellation, and tool-call reconciliation.
 type responsesPolicy interface {
+	compact(context.Context, *HTTPTransport, ResponsesRequest, responsesDispatchPreparation, int) (ResponsesCompactionResponse, error)
 	usage(responses.ResponseUsage, int) (Usage, error)
 	configurePayload(responsesRequestPayloadBuilder, ResponsesRequest, OpenAIAuthMode, *responses.ResponseNewParams) error
 	requestOptions(string, ResponsesRequest, responsesDispatchPreparation) []option.RequestOption
@@ -26,7 +23,6 @@ type responsesPolicy interface {
 }
 
 type openAIResponsesPolicy struct{}
-type grokResponsesPolicy struct{}
 
 func (openAIResponsesPolicy) usage(raw responses.ResponseUsage, window int) (Usage, error) {
 	usage := usageFromSDK(raw, window)
@@ -36,23 +32,8 @@ func (openAIResponsesPolicy) usage(raw responses.ResponseUsage, window int) (Usa
 	return usage, nil
 }
 
-func (grokResponsesPolicy) usage(raw responses.ResponseUsage, window int) (Usage, error) {
-	usage := usageFromSDK(raw, window)
-	field, present := raw.JSON.ExtraFields["context_details"]
-	if !present {
-		return usage, nil
-	}
-	var context struct {
-		Input  *int `json:"input_tokens"`
-		Output *int `json:"output_tokens"`
-	}
-	if err := json.Unmarshal([]byte(field.Raw()), &context); err != nil {
-		return Usage{}, fmt.Errorf("decode Grok context usage: %w", err)
-	}
-	if context.Input != nil && context.Output != nil {
-		usage.ContextUsage = &ContextUsage{Tokens: *context.Input + *context.Output, MeasurementPoint: ContextMeasurementCompletedResponse}
-	}
-	return usage, nil
+func (openAIResponsesPolicy) compact(ctx context.Context, transport *HTTPTransport, request ResponsesRequest, preparation responsesDispatchPreparation, windowTokens int) (ResponsesCompactionResponse, error) {
+	return transport.compactResponsesTriggerV2(ctx, request, preparation.authHeader, preparation.mode, preparation.variant, preparation.providerCaps, windowTokens, preparation.projection)
 }
 
 func (openAIResponsesPolicy) reasoningDelta(entry ReasoningEntry) ReasoningSummaryDelta {
@@ -63,23 +44,8 @@ func (openAIResponsesPolicy) reasoningEntries(entries []ReasoningEntry) []Reason
 	return normalizeReasoningEntries(entries)
 }
 
-func (grokResponsesPolicy) reasoningDelta(entry ReasoningEntry) ReasoningSummaryDelta {
-	return ReasoningSummaryDelta{
-		SourceCoordinate: CloneReasoningSourceCoordinate(entry.SourceCoordinate),
-		ItemIdentity:     CloneReasoningItemIdentity(entry.ItemIdentity), Role: reasoningRoleSummary, Text: entry.Text,
-	}
-}
-
-func (grokResponsesPolicy) reasoningEntries(entries []ReasoningEntry) []ReasoningEntry {
-	return entries
-}
-
 func (openAIResponsesPolicy) prepareDispatch(sessionID, model string, dispatch *CodexDispatchContext, tier *responses.ResponseNewParamsServiceTier, variant ProviderVariantContract) (*codexDispatchProjection, error) {
 	return validateOpenAIDispatch(sessionID, model, dispatch, variant.ProviderID == "chatgpt-codex", tier)
-}
-
-func (grokResponsesPolicy) prepareDispatch(string, string, *CodexDispatchContext, *responses.ResponseNewParamsServiceTier, ProviderVariantContract) (*codexDispatchProjection, error) {
-	return nil, nil
 }
 
 func (openAIResponsesPolicy) requestOptions(identifier string, request ResponsesRequest, preparation responsesDispatchPreparation) []option.RequestOption {
@@ -95,25 +61,6 @@ func (openAIResponsesPolicy) requestOptions(identifier string, request Responses
 		if turnState, present := request.CodexDispatch.turnStateForRetry(); present {
 			opts = append(opts, option.WithHeader(codexTurnStateHeader, turnState))
 		}
-	}
-	return opts
-}
-
-func (grokResponsesPolicy) requestOptions(identifier string, request ResponsesRequest, preparation responsesDispatchPreparation) []option.RequestOption {
-	if preparation.variant.ProviderID != string(config.ConnectionGrokCLIProxy) {
-		return nil
-	}
-	opts := []option.RequestOption{
-		option.WithHeader("x-xai-token-auth", "xai-grok-cli"),
-		option.WithHeader("x-grok-client-version", "1.0.46"),
-		option.WithHeader("x-grok-model-override", request.Model),
-		option.WithHeader("x-grok-agent-id", identifier),
-	}
-	if request.SessionID != nil {
-		opts = append(opts,
-			option.WithHeader("x-grok-conv-id", *request.SessionID),
-			option.WithHeader("x-grok-session-id", *request.SessionID),
-		)
 	}
 	return opts
 }
@@ -134,14 +81,6 @@ func (openAIResponsesPolicy) configurePayload(b responsesRequestPayloadBuilder, 
 		applySamplingControls(request, out)
 	}
 	return applyResponseTextConfig(request, configuredTextVerbosity(request.Model, b.modelVerbosity, b.capabilities), out)
-}
-
-func (grokResponsesPolicy) configurePayload(_ responsesRequestPayloadBuilder, request ResponsesRequest, _ OpenAIAuthMode, out *responses.ResponseNewParams) error {
-	effort := strings.TrimSpace(request.ReasoningEffort)
-	out.Reasoning = shared.ReasoningParam{Effort: shared.ReasoningEffort(effort), Summary: shared.ReasoningSummaryConcise}
-	out.Include = []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent}
-	applySamplingControls(request, out)
-	return applyResponseTextConfig(request, "", out)
 }
 
 func ValidateModelReasoningEffort(model, effort string) error {

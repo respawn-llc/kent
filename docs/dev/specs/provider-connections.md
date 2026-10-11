@@ -21,9 +21,12 @@
 - Kent must offer OpenAI Subscription and API Key, Grok Subscription and API Key, and Generic Responses-compatible api key and No auth setup choices.
 - The two Responses-compatible choices must share one connection model with an optional environment-variable reference. Absence must select auth-less access. A configured reference whose value is missing or empty must fail with an actionable error, not select anonymous access.
 - OpenAI and Grok API-key setup must use their official endpoints without an endpoint field and must request an environment-variable name. Generic API-key setup must request an endpoint and environment-variable name. Auth-less setup must require an endpoint.
-- Grok Subscription setup must select the Grok Build CLI subscription proxy.
+- Grok subscription setup must recommend public API OAuth and offer the CLI subscription proxy as experimental.
 - Global connection configuration must allow explicit `protocol` values `grok-cli-proxy` and `grok-oauth-api`. The first must select the official Grok Build subscription proxy. The second must select the official public xAI API with subscription OAuth.
-- The terminal must not offer a separate public-API OAuth setup choice. Users must explicitly edit global connection configuration to select it.
+- The terminal provider picker must offer “Grok Subscription via the API (recommended)”, “Grok Subscription via the CLI proxy (experimental)”, and “Grok API key” in that order within the Grok group.
+- The respective hints must be “Official integration path for Kent, but no free plan access”, “Emulate the official CLI. May be removed or break due to compatibility.”, and “Regular API Key billing”.
+- Provider picker options must use bullets instead of numbers. Each hint must be faint and indented beneath its title. Other onboarding single-choice pages must keep their existing presentation.
+- Setup must save the selected protocol. Different subscription routes must form distinct Provider Connections even when they use the same account.
 - Manual changes between the two Grok subscription protocols must apply when the runtime opens or resumes. Such changes must not reroute an in-flight request.
 - Grok API-key access must use the official public xAI API and the connection's referenced server environment variable.
 - Grok must not automatically switch between subscription routes or fall back to API-key access.

@@ -28,6 +28,7 @@ const (
 	connectionTemplateAnonymous          connectionTemplate = "anonymous"
 	connectionTemplateOpenAIAPI          connectionTemplate = "openai_api"
 	connectionTemplateGrokSubscription   connectionTemplate = "grok_subscription"
+	connectionTemplateGrokCLIProxy       connectionTemplate = "grok_cli_proxy"
 	connectionTemplateGrokAPI            connectionTemplate = "grok_api"
 )
 
@@ -61,7 +62,9 @@ func newConnectionForm(catalog *authpb.ConnectionCatalog) (*connectionForm, erro
 
 func connectionTemplateFor(definition config.ProviderConnection) connectionTemplate {
 	switch definition.Protocol {
-	case config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI:
+	case config.ConnectionGrokCLIProxy:
+		return connectionTemplateGrokCLIProxy
+	case config.ConnectionGrokOAuthAPI:
 		return connectionTemplateGrokSubscription
 	case config.ConnectionGrokAPIKey:
 		return connectionTemplateGrokAPI
@@ -87,6 +90,8 @@ func (f *connectionForm) selectTemplate(template connectionTemplate) {
 	case connectionTemplateSubscription, connectionTemplateSubscriptionDevice:
 		f.definition = config.ProviderConnection{Protocol: config.ConnectionChatGPT}
 	case connectionTemplateGrokSubscription:
+		f.definition = config.ProviderConnection{Protocol: config.ConnectionGrokOAuthAPI}
+	case connectionTemplateGrokCLIProxy:
 		f.definition = config.ProviderConnection{Protocol: config.ConnectionGrokCLIProxy}
 	case connectionTemplateGrokAPI:
 		f.definition = config.ProviderConnection{Protocol: config.ConnectionGrokAPIKey}
@@ -106,19 +111,20 @@ func (f *connectionForm) steps() []onboardingStepDefinition {
 	}
 	return []onboardingStepDefinition{
 		{id: connectionStepTemplate, build: func(*onboardingFlowState) onboardingScreen {
-			return onboardingScreen{ID: connectionStepTemplate, Kind: onboardingScreenChoice, Title: "Choose the inference provider to add",
+			return onboardingScreen{ID: connectionStepTemplate, Kind: onboardingScreenChoice, ChoiceKind: uiChoiceGroupKindBullet, Title: "Choose the inference provider to add",
 				DefaultOptionID: string(f.template), Options: []onboardingOption{
 					{ID: string(connectionTemplateSubscription), Group: "OpenAI", Title: "Subscription — browser"},
 					{ID: string(connectionTemplateSubscriptionDevice), Group: "OpenAI", Title: "Subscription — device code"},
 					{ID: string(connectionTemplateOpenAIAPI), Group: "OpenAI", Title: "API Key"},
-					{ID: string(connectionTemplateGrokSubscription), Group: "Grok", Title: "Subscription"},
-					{ID: string(connectionTemplateGrokAPI), Group: "Grok", Title: "API Key"},
+					{ID: string(connectionTemplateGrokSubscription), Group: "Grok", Title: "Grok Subscription via the API (recommended)", Description: "Official integration path for Kent, but no free plan access"},
+					{ID: string(connectionTemplateGrokCLIProxy), Group: "Grok", Title: "Grok Subscription via the CLI proxy (experimental)", Description: "Emulate the official CLI. May be removed or break due to compatibility."},
+					{ID: string(connectionTemplateGrokAPI), Group: "Grok", Title: "Grok API key", Description: "Regular API Key billing"},
 					{ID: string(connectionTemplateAPI), Group: "Generic", Title: "Responses-compatible API key"},
 					{ID: string(connectionTemplateAnonymous), Group: "Generic", Title: "No auth"},
 				}}
 		}, apply: func(_ *onboardingFlowState, value string) error {
 			switch template := connectionTemplate(value); template {
-			case connectionTemplateSubscription, connectionTemplateSubscriptionDevice, connectionTemplateOpenAIAPI, connectionTemplateGrokSubscription, connectionTemplateGrokAPI, connectionTemplateAPI, connectionTemplateAnonymous:
+			case connectionTemplateSubscription, connectionTemplateSubscriptionDevice, connectionTemplateOpenAIAPI, connectionTemplateGrokSubscription, connectionTemplateGrokCLIProxy, connectionTemplateGrokAPI, connectionTemplateAPI, connectionTemplateAnonymous:
 				f.selectTemplate(template)
 				return nil
 			default:
@@ -176,7 +182,7 @@ func (f *connectionForm) authenticationMethod() *authMethodChoice {
 	switch f.template {
 	case connectionTemplateSubscription:
 		choice = authMethodChoiceBrowserAuto
-	case connectionTemplateSubscriptionDevice, connectionTemplateGrokSubscription:
+	case connectionTemplateSubscriptionDevice, connectionTemplateGrokSubscription, connectionTemplateGrokCLIProxy:
 		choice = authMethodChoiceDevice
 	default:
 		return nil

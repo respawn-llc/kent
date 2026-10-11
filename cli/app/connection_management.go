@@ -95,7 +95,7 @@ func (s *remoteAppServer) manageConnectionSelection(ctx context.Context, catalog
 			return decodeErr
 		}
 		switch connectionTemplateFor(definition) {
-		case connectionTemplateSubscription, connectionTemplateGrokSubscription:
+		case connectionTemplateSubscription, connectionTemplateGrokSubscription, connectionTemplateGrokCLIProxy:
 			err = signInConnection(ctx, s.remote, selectedTheme, protoapi.ExistingConnectionTarget(id), true, nil)
 		case connectionTemplateAPI, connectionTemplateOpenAIAPI, connectionTemplateGrokAPI:
 			err = editConnectionReference(ctx, s.remote, selectedTheme, id, definition)

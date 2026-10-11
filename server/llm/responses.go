@@ -78,7 +78,6 @@ type ResponsesCompactionResponse struct {
 }
 
 type ResponsesTransport interface {
-	PrepareCompaction(request CompactionRequest) CompactionRequest
 	Generate(ctx context.Context, request ResponsesRequest, callbacks StreamCallbacks) (ResponsesResponse, error)
 	Compact(ctx context.Context, request ResponsesRequest) (ResponsesCompactionResponse, error)
 }
@@ -159,10 +158,6 @@ func resolveAssistantContent(role Role, phase MessagePhase, content *string) *st
 		return nil
 	}
 	return textutil.Pointer(content)
-}
-
-func (c *ResponsesClient) PrepareCompaction(request CompactionRequest) CompactionRequest {
-	return c.transport.PrepareCompaction(request)
 }
 
 func (c *ResponsesClient) Compact(ctx context.Context, request CompactionRequest) (CompactionResponse, error) {

@@ -34,6 +34,7 @@ type onboardingScreen struct {
 	Helper          string
 	ThemePreview    bool
 	Options         []onboardingOption
+	ChoiceKind      uiChoiceGroupKind
 	DefaultOptionID string
 	InputValue      string
 	Placeholder     string

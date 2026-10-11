@@ -115,7 +115,7 @@ func (b responsesRequestPayloadBuilder) prepareToolControls(request ResponsesReq
 	if err := ValidateToolChoiceSupport(b.capabilities, request.ToolChoiceMode); err != nil {
 		return responsesPayloadToolControls{}, err
 	}
-	tools, err := b.buildTools(request.Tools, request.EnableNativeWebSearch && SupportsNativeWebSearchModel(request.Model, b.capabilities))
+	tools, err := b.buildTools(request.Tools, request.EnableNativeWebSearch)
 	if err != nil {
 		return responsesPayloadToolControls{}, err
 	}

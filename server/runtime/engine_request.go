@@ -368,7 +368,7 @@ func (e *Engine) enableNativeWebSearch(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("resolve provider capabilities for native web search: %w", err)
 	}
-	return llm.SupportsNativeWebSearchModel(e.currentModel(), caps), nil
+	return caps.SupportsNativeWebSearch, nil
 }
 
 func (e *Engine) currentNodeExecutionActive() bool {

@@ -53,24 +53,16 @@ type ProviderTransportEndpoint struct {
 type ProviderTransportVariantResolver func(endpoint ProviderTransportEndpoint, mode OpenAIAuthMode) (string, error)
 
 type ProviderVariantContract struct {
-	ReasoningType            *modelcontract.ReasoningType
-	ProviderID               string
-	BaseURL                  *string
-	ResponsesPolicy          responsesPolicy
-	TokenEstimator           TokenEstimator
-	RequestCompression       httpcompression.RequestContentCoding
-	Capabilities             ProviderCapabilities
-	RemoteCompactionProtocol remoteCompactionProtocol
-	NewErrorReducer          ProviderErrorReducerFactory
+	DefaultModel       *string
+	ReasoningType      *modelcontract.ReasoningType
+	ProviderID         string
+	BaseURL            *string
+	ResponsesPolicy    responsesPolicy
+	TokenEstimator     TokenEstimator
+	RequestCompression httpcompression.RequestContentCoding
+	Capabilities       ProviderCapabilities
+	NewErrorReducer    ProviderErrorReducerFactory
 }
-
-type remoteCompactionProtocol uint8
-
-const (
-	remoteCompactionUnsupported remoteCompactionProtocol = iota
-	remoteCompactionResponsesTriggerV2
-	remoteCompactionStandardResponses
-)
 
 type ProviderContract struct {
 	Provider                Provider
@@ -107,9 +99,9 @@ func providerContracts() []ProviderContract {
 			Provider:  ProviderGrok,
 			NewClient: newResponsesProviderClient,
 			ProviderVariants: []ProviderVariantContract{
-				grokVariant(config.ConnectionGrokCLIProxy, "https://cli-chat-proxy.grok.com/v1"),
-				grokVariant(config.ConnectionGrokOAuthAPI, "https://api.x.ai/v1"),
-				grokVariant(config.ConnectionGrokAPIKey, "https://api.x.ai/v1"),
+				grokVariant(config.ConnectionGrokCLIProxy, "https://cli-chat-proxy.grok.com/v1", grokCLIResponsesPolicy{}, false),
+				grokVariant(config.ConnectionGrokOAuthAPI, "https://api.x.ai/v1", grokResponsesPolicy{}, true),
+				grokVariant(config.ConnectionGrokAPIKey, "https://api.x.ai/v1", grokResponsesPolicy{}, true),
 			},
 			ModelContracts: []ModelCapabilityContract{
 				grokModelContract("grok-4.6", time.February, nil),
@@ -148,12 +140,11 @@ func providerContracts() []ProviderContract {
 			NewClient:               newResponsesProviderClient,
 			ProviderVariants: []ProviderVariantContract{
 				{
-					ProviderID:               "openai",
-					ResponsesPolicy:          openAIResponsesPolicy{},
-					TokenEstimator:           OpenAITokenEstimator{},
-					ReasoningType:            textutil.Value(modelcontract.ReasoningTypeOpenAI),
-					RequestCompression:       httpcompression.ContentCodingIdentity,
-					RemoteCompactionProtocol: remoteCompactionResponsesTriggerV2,
+					ProviderID:         "openai",
+					ResponsesPolicy:    openAIResponsesPolicy{},
+					TokenEstimator:     OpenAITokenEstimator{},
+					ReasoningType:      textutil.Value(modelcontract.ReasoningTypeOpenAI),
+					RequestCompression: httpcompression.ContentCodingIdentity,
 					Capabilities: ProviderCapabilities{
 						ProviderID:                    "openai",
 						SupportsNativeThinkingUpdates: true,
@@ -187,12 +178,11 @@ func providerContracts() []ProviderContract {
 					NewErrorReducer: newOpenAICompatibleErrorReducer,
 				},
 				{
-					ProviderID:               "chatgpt-codex",
-					ResponsesPolicy:          openAIResponsesPolicy{},
-					TokenEstimator:           OpenAITokenEstimator{},
-					ReasoningType:            textutil.Value(modelcontract.ReasoningTypeOpenAI),
-					RequestCompression:       httpcompression.ContentCodingZstd,
-					RemoteCompactionProtocol: remoteCompactionResponsesTriggerV2,
+					ProviderID:         "chatgpt-codex",
+					ResponsesPolicy:    openAIResponsesPolicy{},
+					TokenEstimator:     OpenAITokenEstimator{},
+					ReasoningType:      textutil.Value(modelcontract.ReasoningTypeOpenAI),
+					RequestCompression: httpcompression.ContentCodingZstd,
 					Capabilities: ProviderCapabilities{
 						ProviderID:                    "chatgpt-codex",
 						SupportsNativeThinkingUpdates: true,
@@ -222,23 +212,19 @@ func providerContracts() []ProviderContract {
 	}
 }
 
-func grokVariant(protocol config.ConnectionProtocol, endpoint string) ProviderVariantContract {
+func grokVariant(protocol config.ConnectionProtocol, endpoint string, policy responsesPolicy, nativeCompaction bool) ProviderVariantContract {
 	id := string(protocol)
-	compaction := remoteCompactionStandardResponses
-	if protocol == config.ConnectionGrokCLIProxy {
-		compaction = remoteCompactionUnsupported
-	}
 	return ProviderVariantContract{
 		ProviderID: id, BaseURL: textutil.Value(endpoint),
-		ReasoningType:            textutil.Value(modelcontract.ReasoningTypeGrok),
-		ResponsesPolicy:          grokResponsesPolicy{},
-		TokenEstimator:           GrokTokenEstimator{},
-		RequestCompression:       httpcompression.ContentCodingIdentity,
-		RemoteCompactionProtocol: compaction,
+		DefaultModel:       textutil.Value("grok-4.7"),
+		ReasoningType:      textutil.Value(modelcontract.ReasoningTypeGrok),
+		ResponsesPolicy:    policy,
+		TokenEstimator:     GrokTokenEstimator{},
+		RequestCompression: httpcompression.ContentCodingIdentity,
 		Capabilities: ProviderCapabilities{
 			ProviderID: id, SupportsResponsesAPI: true, SupportsReasoningEncrypted: true,
 			SupportsPromptCacheKey: true, SupportsFastMode: true,
-			SupportsResponsesCompact: compaction != remoteCompactionUnsupported, SupportsNativeWebSearch: true,
+			SupportsResponsesCompact: nativeCompaction, SupportsNativeWebSearch: true,
 		},
 		NewErrorReducer: newGrokErrorReducer,
 	}
@@ -247,6 +233,7 @@ func grokVariant(protocol config.ConnectionProtocol, endpoint string) ProviderVa
 func grokModelContract(model string, cutoff time.Month, proxyContext *ModelMetadata) ModelCapabilityContract {
 	return ModelCapabilityContract{
 		Model: model, ContextWindowTokens: 500_000,
+		DefaultReasoningEffort:  textutil.Value("high"),
 		VariantContexts:         map[string]*ModelMetadata{string(config.ConnectionGrokCLIProxy): proxyContext},
 		KnowledgeCutoff:         &ModelKnowledgeCutoff{Month: cutoff, Year: 2026},
 		SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh"},
@@ -330,6 +317,14 @@ func mustBuildProviderRegistry(contracts []ProviderContract) providerRegistry {
 		}
 	}
 
+	for id, registration := range registry.providerVariantsByID {
+		if model := registration.Variant.DefaultModel; model != nil {
+			catalog, exists := registry.modelContractsByName[*model]
+			if !exists || catalog.Provider != registration.Provider || catalog.Contract.DefaultReasoningEffort == nil {
+				panic(fmt.Sprintf("provider variant %q requires a catalogued default model and reasoning effort", id))
+			}
+		}
+	}
 	return registry
 }
 

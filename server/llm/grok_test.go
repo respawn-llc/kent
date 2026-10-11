@@ -255,11 +255,7 @@ func TestGrokManualModelNativeSearchCompatibility(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 					t.Fatal(err)
 				}
-				wantCount := 1
-				if model == "grok-4.5" {
-					wantCount = 0
-				}
-				if len(body.Tools) != wantCount {
+				if len(body.Tools) != 1 {
 					t.Errorf("native tools = %+v", body.Tools)
 				}
 				w.Header().Set("Content-Type", "text/event-stream")

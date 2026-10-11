@@ -486,7 +486,3 @@ func (c *completedDispatchClient) Compact(ctx context.Context, request llm.Compa
 	c.completed = true
 	return response, err
 }
-
-func (c *completedDispatchClient) PrepareCompaction(request llm.CompactionRequest) llm.CompactionRequest {
-	return c.Client.(llm.CompactionClient).PrepareCompaction(request)
-}

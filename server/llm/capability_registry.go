@@ -24,6 +24,7 @@ type ModelKnowledgeCutoff struct {
 
 type ModelCapabilityContract struct {
 	Model                         string
+	DefaultReasoningEffort        *string
 	ContextWindowTokens           int
 	LargeContextWindowTokens      *int
 	VariantContexts               map[string]*ModelMetadata

@@ -1347,25 +1347,38 @@ func TestApplyRunPromptOverridesKeepsExplicitToolSourcesWhenOnlyModelOverrides(t
 }
 
 func TestApplyRunPromptOverridesFastRoleWarnsWhenHeuristicDoesNothing(t *testing.T) {
-	workspace := t.TempDir()
-	loaded := loadLaunchConfig(t, workspace,
-		"model = \"gpt-6-sol\"",
-		"connection = \"custom\"",
-		"[connections.custom]",
-		"protocol = \"responses\"",
-		"endpoint = \"https://example.test/v1\"",
-	)
-	plan := newLoadedConfigPlan(t, workspace, loaded)
+	for _, protocol := range []string{"responses", "grok-cli-proxy", "grok-oauth-api", "grok-api-key"} {
+		t.Run(protocol, func(t *testing.T) {
+			workspace := t.TempDir()
+			lines := []string{
+				"model = \"gpt-6-sol\"",
+				"connection = \"custom\"",
+				"[connections.custom]",
+				"protocol = \"" + protocol + "\"",
+			}
+			if protocol == "responses" {
+				lines = append(lines, "endpoint = \"https://example.test/v1\"")
+			} else {
+				lines[0] = "model = \"grok-4.7\""
+				if protocol == "grok-api-key" {
+					lines = append(lines, "environment_variable = \"XAI_API_KEY\"")
+				}
+				lines = append(lines, "[connections.custom.provider_capabilities]", "provider_id = \"openai\"", "supports_responses_api = true")
+			}
+			loaded := loadLaunchConfig(t, workspace, lines...)
+			plan := newLoadedConfigPlan(t, workspace, loaded)
 
-	updated, warnings, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(config.BuiltInSubagentRoleFast)})
-	if err != nil {
-		t.Fatalf("ApplyRunPromptOverrides: %v", err)
-	}
-	if updated.ActiveSettings.Model != loaded.Settings.Model {
-		t.Fatalf("model = %q, want %q", updated.ActiveSettings.Model, loaded.Settings.Model)
-	}
-	if len(warnings) != 1 || warnings[0] != fastRoleSameAsMainWarning {
-		t.Fatalf("unexpected warnings: %+v", warnings)
+			updated, warnings, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(config.BuiltInSubagentRoleFast)})
+			if err != nil {
+				t.Fatalf("ApplyRunPromptOverrides: %v", err)
+			}
+			if updated.ActiveSettings.Model != loaded.Settings.Model {
+				t.Fatalf("model = %q, want %q", updated.ActiveSettings.Model, loaded.Settings.Model)
+			}
+			if protocol == "responses" && (len(warnings) != 1 || warnings[0] != fastRoleSameAsMainWarning) {
+				t.Fatalf("unexpected warnings: %+v", warnings)
+			}
+		})
 	}
 }
 

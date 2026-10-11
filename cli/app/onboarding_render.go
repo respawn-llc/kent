@@ -194,7 +194,7 @@ func (m *onboardingModel) buildContent(width int) onboardingRenderedContent {
 			if index == m.cursor {
 				cursorRow = len(lines)
 			}
-			prefix := fmt.Sprintf("%d. ", index+1)
+			prefix := uiChoiceOptionLabel(m.currentScreen.ChoiceKind, "", index, index == m.cursor)
 			if m.currentScreen.Kind == onboardingScreenMulti {
 				prefix = sharedtheme.CheckboxUncheckedGlyph + " "
 				if m.selection[option.ID] {
@@ -206,7 +206,7 @@ func (m *onboardingModel) buildContent(width int) onboardingRenderedContent {
 				style = m.styles.optionSelected
 			}
 			optionLine := style.Render(prefix + option.Title)
-			if option.ID == m.currentScreen.DefaultOptionID {
+			if option.ID == m.currentScreen.DefaultOptionID && m.currentScreen.ChoiceKind != uiChoiceGroupKindBullet {
 				optionLine += m.styles.description.Render("  • recommended")
 			}
 			if warning := strings.TrimSpace(option.Warning); warning != "" {
@@ -216,8 +216,9 @@ func (m *onboardingModel) buildContent(width int) onboardingRenderedContent {
 				lines = append(lines, line)
 			}
 			if desc := strings.TrimSpace(option.Description); desc != "" {
-				for _, line := range wrapANSIText(m.styles.description.Render("  "+desc), width) {
-					lines = append(lines, line)
+				indent := strings.Repeat(" ", lipgloss.Width(prefix))
+				for _, line := range wrapANSIText(m.styles.description.Render(desc), max(1, width-lipgloss.Width(prefix))) {
+					lines = append(lines, indent+line)
 				}
 			}
 		}

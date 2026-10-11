@@ -28,8 +28,6 @@ type authCallbackPageResult struct {
 	Err           error
 }
 
-// Browser sign-in uses the same framed input, layout, cursor and navigation
-// presentation as the rest of onboarding.
 type authCallbackPageModel struct {
 	*onboardingModel
 	ctx          context.Context

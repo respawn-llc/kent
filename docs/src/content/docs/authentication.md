@@ -47,15 +47,15 @@ Kent's built-in catalog includes `grok-4.6` and `grok-4.7`. The subscription pro
 
 Both catalogued models offer `low`, `medium`, `high`, and `xhigh` thinking, vision, reasoning summaries, and native web search. Fast mode requests priority processing with the same model. Verbosity settings do not affect Grok requests.
 
-Native compaction is available on the public xAI API routes. It uses `/responses/compact` and keeps the provider's complete returned context for continuation. Compaction sends the session cache key, effective priority tier, and non-tool request settings. A failed native compaction reports the error without switching routes or retrying with local compaction.
+Native compaction is available on the public xAI API routes. It uses `/responses/compact` and keeps the provider's complete returned context for continuation. Compaction sends the session cache key, effective priority tier, original tools, and system prompt. A failed native compaction reports the error without switching routes or retrying with local compaction.
 
 Native compaction is unavailable on the Grok CLI subscription proxy.
 
 The `/status` Auth section supports ChatGPT subscriptions only. Grok quota display is unavailable. HTTP 403 alone can indicate a permission or safety refusal. Signing in again requires separate evidence of an authentication failure.
 
-Custom thinking accepts manual values for any model. Kent rejects unsupported efforts for catalogued models when sending a request. For uncatalogued models, the provider validates the custom value. Across providers, Disable is available only for models whose supported efforts include `none`. Native web search is incompatible with manually entered `grok-4.5`.
+Custom thinking accepts manual values for any model. Kent rejects unsupported efforts for catalogued models when sending a request. For uncatalogued models, the provider validates the custom value. Across providers, Disable is available only for models whose supported efforts include `none`.
 
-Subscription setup creates `grok-cli-proxy`. Public API OAuth is an experimental, configuration-only alternative: set the connection's `protocol` to `grok-oauth-api`, then reopen or resume the session. Requests already running keep their original route. Switching routes requires an explicit configuration edit. Public API OAuth inference is not live-verified.
+Grok setup recommends subscription access through the public API (`grok-oauth-api`), which requires a paid plan. The CLI proxy (`grok-cli-proxy`) is an experimental alternative that can break or be removed as compatibility changes. Both routes are available in the provider picker and create separate named connections, even for the same account. The API-key choice (`grok-api-key`) uses regular API-key billing. Requests already running keep their original route.
 
 Expired or invalid sign-in requires `/login`. A subscription or spending-limit rejection requires resolving the account's entitlement or credits with xAI, rather than signing in again. A protocol-version rejection requires updating Kent.
 
@@ -75,7 +75,7 @@ endpoint = "https://api.openai.com/v1"
 environment_variable = "MY_PROVIDER_KEY"
 
 [connections.grok]
-protocol = "grok-cli-proxy"
+protocol = "grok-oauth-api"
 
 [connections.xai]
 protocol = "grok-api-key"

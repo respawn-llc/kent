@@ -618,11 +618,15 @@ func applyPersistedSubagentRoleSettings(base config.Settings, source config.Sour
 }
 
 func persistedRoleProviderID(settings config.Settings) (string, error) {
-	capabilities, err := llm.ResolveRuntimeProviderCapabilities(settings)
+	connection, err := settings.SelectedConnection()
 	if err != nil {
 		return "", err
 	}
-	return capabilities.ProviderID, nil
+	selected, err := llm.ResolveConnectionVariant(connection)
+	if err != nil {
+		return "", err
+	}
+	return selected.Variant.ProviderID, nil
 }
 
 // ApplyRunPromptOverridesWithStore applies overrides through an already-admitted
@@ -886,14 +890,14 @@ func prepareAgent(app config.App, overrides serverapi.RunPromptOverrides, prepar
 	if err != nil {
 		return agentPreparation{}, err
 	}
-	capabilities, err := llm.ResolveRuntimeProviderCapabilities(providerSettings)
+	selectedProviderID, err := persistedRoleProviderID(providerSettings)
 	var reference *config.ConnectionReferenceError
 	if err != nil && !errors.As(err, &reference) {
 		return agentPreparation{}, err
 	}
 	var providerID *string
 	if reference == nil {
-		providerID = &capabilities.ProviderID
+		providerID = &selectedProviderID
 	}
 	roleSettings, err := prepareSubagentSettingsFromRole(
 		EffectiveSettings(app.Settings, preparation.ModelLock), app.Source,
@@ -923,6 +927,10 @@ func prepareAgent(app config.App, overrides serverapi.RunPromptOverrides, prepar
 	}
 	prepared.NamedTarget = &target
 	if !preparation.SkipProviderReadinessValidation {
+		capabilities, err := llm.ResolveRuntimeProviderCapabilities(providerSettings)
+		if err != nil {
+			return agentPreparation{}, err
+		}
 		prepared.ProviderCapabilities = &capabilities
 	}
 	return prepared, nil
