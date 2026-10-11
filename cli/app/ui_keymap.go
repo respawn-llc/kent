@@ -38,6 +38,11 @@ func normalizeKeyMsg(msg tea.Msg) (tea.KeyMsg, bool) {
 func normalizeKeyMsgWithSource(msg tea.Msg) (tea.KeyMsg, bool, string) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		if keyMsg.Type == tea.KeyRunes {
+			if !keyMsg.Paste && len(keyMsg.Runes) == 1 && keyMsg.Runes[0] == '\x00' {
+				keyMsg.Type = tea.KeyNull
+				keyMsg.Runes = nil
+				return keyMsg, true, "keymsg"
+			}
 			if len(keyMsg.Runes) == 1 && keyMsg.Runes[0] == '\x1b' {
 				keyMsg.Type = tea.KeyEsc
 				keyMsg.Runes = nil
