@@ -46,7 +46,7 @@ func TestSupervisorFeedbackProcessesAfterSpeculativeCompactionSuccess(t *testing
 }
 
 func TestSupervisorFeedbackProcessesAfterSpeculativeCompactionFailure(t *testing.T) {
-	testSupervisorFeedbackAfterSpeculativeCompaction(t, llm.ErrInvalidRequest)
+	testSupervisorFeedbackAfterSpeculativeCompaction(t, &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 503, Code: llm.UnifiedErrorCodeUnknown})
 }
 
 func testSupervisorFeedbackAfterSpeculativeCompaction(t *testing.T, compactionErr error) {

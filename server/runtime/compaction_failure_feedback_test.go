@@ -60,7 +60,7 @@ func TestFailedManualCompactionPersistsOneErrorAndPublishesFailureStatus(t *test
 }
 
 func TestFailedEagerCompactionPersistsOneErrorWithoutFailingSuccessfulTurn(t *testing.T) {
-	client := &fakeCompactionClient{responses: []llm.Response{{
+	client := &fakeCompactionClient{errors: []error{nil, &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 503, Code: llm.UnifiedErrorCodeUnknown}}, responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done")},
 		Usage: llm.Usage{
 			InputTokens: textutil.Value(390_000), WindowTokens: 400_000,

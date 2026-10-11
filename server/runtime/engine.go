@@ -1165,6 +1165,10 @@ func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID
 }
 
 func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (successfulRequestCandidate, error) {
+	return e.generateWithRetryPolicy(ctx, stepID, client, req, modelRequestRetriesAllowed, onDelta, onReasoningDelta, onAttemptReset)
+}
+
+func (e *Engine) generateWithRetryPolicy(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, retryPolicy modelRequestRetryPolicy, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (successfulRequestCandidate, error) {
 	observed, err := e.prepareCacheObservedRequest(
 		ctx,
 		stepID,
@@ -1176,19 +1180,20 @@ func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, cli
 	if err != nil {
 		return successfulRequestCandidate{}, err
 	}
-	resp, err := e.generateObservedWithRetry(ctx, stepID, client, observed, onDelta, onReasoningDelta, onAttemptReset)
+	resp, err := e.generateObservedWithRetry(ctx, stepID, client, observed, retryPolicy, onDelta, onReasoningDelta, onAttemptReset)
 	if err != nil {
 		return successfulRequestCandidate{}, err
 	}
 	return newSuccessfulRequestCandidate(e.cfg.TokenEstimator, observed.request, resp), nil
 }
 
-func (e *Engine) generateObservedWithRetry(ctx context.Context, stepID string, client *observedModelClient, observed cacheObservedRequest, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
+func (e *Engine) generateObservedWithRetry(ctx context.Context, stepID string, client *observedModelClient, observed cacheObservedRequest, retryPolicy modelRequestRetryPolicy, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
 	publishedProviderDiagnostics := make(map[llm.CodexTurnStateDiagnosticCategory]struct{}, 2)
 	return generateWithRetryClient(
 		ctx,
 		client,
 		observed,
+		retryPolicy,
 		onDelta,
 		onReasoningDelta,
 		onAttemptReset,
@@ -1202,6 +1207,7 @@ func generateWithRetryClient(
 	ctx context.Context,
 	client *observedModelClient,
 	observed cacheObservedRequest,
+	retryPolicy modelRequestRetryPolicy,
 	onDelta func(llm.AssistantDelta),
 	onReasoningDelta func(llm.ReasoningSummaryDelta),
 	onAttemptReset func(),
@@ -1283,11 +1289,14 @@ func generateWithRetryClient(
 		}
 		resetAttempt()
 		lastErr = attemptErr
-		delays := generateRetryDelays
+		delays := retryPolicy.delays(generateRetryDelays)
 		if errors.Is(attemptErr, llm.ErrModelStreamStalled) {
-			delays = idleStallRetryDelays
+			delays = retryPolicy.delays(idleStallRetryDelays)
 		}
 		if i >= len(delays) {
+			if retryPolicy == modelRequestSingleAttempt {
+				return llm.Response{}, attemptErr
+			}
 			break
 		}
 		if err := rpcwire.WaitForRetry(ctx, delays[i]); err != nil {

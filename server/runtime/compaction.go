@@ -376,7 +376,7 @@ func (c *defaultContextCompactor) compactContext(
 			}
 			return err
 		}
-		_, compactReceipt, err := e.compactNowWithAcceptance(stepCtx, stepID, activeKind, requestID, mode, instructions, includePreservedUserMessage, accept)
+		_, compactReceipt, err := e.compactNowWithAcceptance(stepCtx, stepID, activeKind, requestID, mode, instructions, includePreservedUserMessage, accept, modelRequestRetriesAllowed)
 		receipt = compactReceipt
 		if err == nil || receipt.Committed {
 			e.handoffRuntimeState().ClearRequest()
@@ -457,7 +457,7 @@ func (e *Engine) maybeReserveEagerCompaction(activeKind ActiveKind, resultKind L
 			if !planner.autoCompactionAvailable(planningSnapshot) || !planner.eagerCompactionEligible(planningSnapshot) {
 				return nil
 			}
-			_, receipt, compactErr := e.compactNow(stepCtx, stepID, compactionModeAuto, compactionInstructionsInput{}, false)
+			_, receipt, compactErr := e.compactNowWithAcceptance(stepCtx, stepID, ActiveKindCompaction, nil, compactionModeAuto, compactionInstructionsInput{}, false, nil, modelRequestSingleAttempt)
 			if compactErr == nil || receipt.Committed {
 				e.handoffRuntimeState().ClearRequest()
 			}
@@ -558,7 +558,7 @@ func (e *Engine) currentTokenUsage() int {
 }
 
 func (e *Engine) compactNow(ctx context.Context, stepID string, mode compactionMode, instructionsInput compactionInstructionsInput, includePreservedUserMessage bool) (compactionResult, session.CommitReceipt, error) {
-	return e.compactNowWithAcceptance(ctx, stepID, ActiveKindCompaction, nil, mode, instructionsInput, includePreservedUserMessage, nil)
+	return e.compactNowWithAcceptance(ctx, stepID, ActiveKindCompaction, nil, mode, instructionsInput, includePreservedUserMessage, nil, modelRequestRetriesAllowed)
 }
 
 func (e *Engine) compactNowWithAcceptance(
@@ -570,6 +570,7 @@ func (e *Engine) compactNowWithAcceptance(
 	instructionsInput compactionInstructionsInput,
 	includePreservedUserMessage bool,
 	accept CommandAcceptance,
+	retryPolicy modelRequestRetryPolicy,
 ) (compactionResult, session.CommitReceipt, error) {
 	if _, pending := e.generationContextSnapshot().(pendingGenerationContext); pending {
 		return compactionResult{}, session.CommitReceipt{}, nil
@@ -647,7 +648,7 @@ func (e *Engine) compactNowWithAcceptance(
 	}
 	if enginePlan.engineKind == compactionEngineRemote {
 		var remoteInput []llm.ResponseItem
-		result, remoteInput, err = e.compactRemote(ctx, stepID, input, providerID, instructions, dispatchFactory)
+		result, remoteInput, err = e.compactRemote(ctx, stepID, input, providerID, instructions, dispatchFactory, retryPolicy)
 		var checkpointErr *llm.CompactionCheckpointContractError
 		if err != nil && errors.As(err, &checkpointErr) {
 			if e.cfg.Debug {
@@ -669,22 +670,24 @@ func (e *Engine) compactNowWithAcceptance(
 			}
 			slog.LogAttrs(ctx, slog.LevelError, "remote compaction returned a malformed checkpoint", attrs...)
 
-			localFactory, factoryErr := e.activeDispatchRequestFactory(stepID, nil)
-			if factoryErr != nil {
-				err = errors.Join(err, factoryErr)
-			} else {
-				localResult, localErr := e.compactLocal(ctx, stepID, remoteInput, providerID, instructions, localFactory)
-				localResult.overflowRepair = result.overflowRepair.Add(localResult.overflowRepair)
-				result = localResult
-				if localErr != nil {
-					err = errors.Join(err, localErr)
+			if retryPolicy == modelRequestRetriesAllowed {
+				localFactory, factoryErr := e.activeDispatchRequestFactory(stepID, nil)
+				if factoryErr != nil {
+					err = errors.Join(err, factoryErr)
 				} else {
-					err = nil
+					localResult, localErr := e.compactLocal(ctx, stepID, remoteInput, providerID, instructions, localFactory, retryPolicy)
+					localResult.overflowRepair = result.overflowRepair.Add(localResult.overflowRepair)
+					result = localResult
+					if localErr != nil {
+						err = errors.Join(err, localErr)
+					} else {
+						err = nil
+					}
 				}
 			}
 		}
 	} else {
-		result, err = e.compactLocal(ctx, stepID, input, providerID, instructions, dispatchFactory)
+		result, err = e.compactLocal(ctx, stepID, input, providerID, instructions, dispatchFactory, retryPolicy)
 	}
 	if err != nil {
 		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
