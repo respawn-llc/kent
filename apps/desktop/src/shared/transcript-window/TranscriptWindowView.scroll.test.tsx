@@ -403,6 +403,34 @@ it("keeps viewport compensation and measured content geometry in the same resize
   }
 });
 
+it("does not counter-scroll while previously mounted messages settle during upward scrolling", async () => {
+  const geometry = installVirtualizedScrollGeometry(600);
+  const { view } = streamingView(Array.from({ length: 100 }, (_, index) => row(index + 1)));
+  try {
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    const list = screen.getByRole("list");
+    list.scrollTop = 2010;
+    fireEvent.scroll(list);
+    const preceding = screen.getAllByRole("listitem")[0];
+    if (preceding === undefined) throw new Error("Expected an overscan message.");
+    act(() => {
+      geometry.resize(preceding, 60);
+    });
+    list.scrollTop = 1970;
+    fireEvent.scroll(list);
+    const before = list.scrollTop;
+    act(() => {
+      geometry.resize(preceding, 200);
+    });
+    expect(list.scrollTop).toBe(before);
+  } finally {
+    view.unmount();
+    geometry.restore();
+  }
+});
+
 it.each([20, 200])(
   "does not drag the viewport when a message at its top is first measured at %ipx",
   async (height) => {

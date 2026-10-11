@@ -10,5 +10,9 @@ export function resolveVirtualizedResizePolicy(
     // A first measurement can grow a message across the viewport's top.
     // Only rows entirely above it should move the reader's position.
     (!endAnchored ||
-      (instance.scrollOffset !== null && item.end <= instance.scrollOffset + instance.scrollAdjustments));
+      (instance.scrollOffset !== null &&
+        item.end <= instance.scrollOffset + instance.scrollAdjustments &&
+        // Preserve the virtualizer's backward-scroll protection for later
+        // measurements, while still correcting newly encountered estimates.
+        (!instance.itemSizeCache.has(item.key) || instance.scrollDirection !== "backward")));
 }
