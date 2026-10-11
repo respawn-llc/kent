@@ -18,11 +18,13 @@ export function createPromptPickerViewModel({
   client,
   api,
   onError,
+  interactionRestricted,
 }: Readonly<{
   owner: ChatRuntimeOwner;
   client: QueryClient;
   api: Pick<ChatApi, "answerPromptBatch">;
   onError(error: unknown): void;
+  interactionRestricted?: Atom.Atom<boolean>;
 }>) {
   const runtime = Atom.make((get) => {
     get.addFinalizer(
@@ -78,6 +80,8 @@ export function createPromptPickerViewModel({
     (input, get) =>
       Effect.gen(function* () {
         if (owner.snapshot.disposed) return;
+        if (interactionRestricted !== undefined && get(interactionRestricted) && input.action.kind !== "sync")
+          return;
         if (
           observer.getCurrentResult().isPending &&
           input.action.kind !== "navigate" &&

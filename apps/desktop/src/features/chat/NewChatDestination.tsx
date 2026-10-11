@@ -1,20 +1,23 @@
 import { ChatDestination } from "./ChatDestination";
-import type { ChatSettingsNavigation } from "./useChatSettings";
+import type { ChatDestinationNavigation } from "./useChatSettings";
 
 export function NewChatDestination({
   projectID,
   navigation,
   onSessionDelivered,
+  onPopOutCreated,
 }: Readonly<{
   projectID: string;
-  navigation: ChatSettingsNavigation;
+  navigation: ChatDestinationNavigation;
   onSessionDelivered(sessionID: string): void;
+  onPopOutCreated?: ((projectID: string) => Promise<void>) | undefined;
 }>) {
   return (
     <ChatDestination
       opening={{ kind: "new_chat", projectID, workspace: null }}
       navigation={navigation}
       onSessionDelivered={onSessionDelivered}
+      {...(onPopOutCreated === undefined ? {} : { onPopOutCreated })}
     />
   );
 }

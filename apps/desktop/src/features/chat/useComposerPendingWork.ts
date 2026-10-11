@@ -15,6 +15,7 @@ export function useComposerPendingWork(
   useAtomMount(model.stopping);
   useAtomMount(model.discarding);
   const stopPending = useAtomValue(model.stopPending);
+  const interactionRestricted = useAtomValue(model.interactionRestricted);
   const refreshAction = useAtomSet(model.refresh);
   const hydrate = useAtomSet(model.hydrate);
   const stopAction = useAtomSet(model.stop);
@@ -51,6 +52,7 @@ export function useComposerPendingWork(
       discardAction({ item, restore, refresh });
     },
     discardPending: model.discardPending,
+    interactionRestricted,
     stop: () => {
       stopAction({
         onSuccess: () => {

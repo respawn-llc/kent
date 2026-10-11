@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "version": "0.0.1",
-  "packageManager": "pnpm@11.11.0",
+  "packageManager": "pnpm@12.10.1",
   "scripts": {
     "build": "astro build && node ./scripts/emit-deployment-files.mjs"
   },
