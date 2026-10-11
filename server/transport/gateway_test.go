@@ -636,6 +636,41 @@ func (d *gatewayRuntimeClientOverride) SessionRuntimeClient() apicontract.Sessio
 	return d.runtimeClient
 }
 
+type closedAuthoritySessionRuntimeClient struct {
+	apicontract.SessionRuntimeService
+}
+
+func (closedAuthoritySessionRuntimeClient) ActivateSessionRuntime(
+	context.Context,
+	serverapi.SessionRuntimeActivateRequest,
+) (serverapi.SessionRuntimeAttachment, error) {
+	return serverapi.SessionRuntimeAttachment{}, sessionruntime.ErrAuthorityClosed
+}
+
+func TestGatewayActivationTransportsClosedAuthorityAsRuntimeUnavailable(t *testing.T) {
+	appCore, _ := newGatewayTestCore(t, true, true)
+	defer func() { _ = appCore.Close() }()
+	store := createGatewayAuthoritativeSession(t, appCore)
+
+	runtimeClient := closedAuthoritySessionRuntimeClient{SessionRuntimeService: appCore.SessionRuntimeClient()}
+	gateway, err := NewGateway(&gatewayRuntimeClientOverride{Core: appCore, runtimeClient: runtimeClient}, gatewayTestIdentity())
+	if err != nil {
+		t.Fatalf("NewGateway: %v", err)
+	}
+	server := httptest.NewServer(gateway.Handler())
+	defer server.Close()
+	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatalf("DialRemoteURL: %v", err)
+	}
+	defer func() { _ = remote.Close() }()
+
+	_, err = remote.ActivateSessionRuntime(t.Context(), gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
+	if !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+		t.Fatalf("activation error = %v, want runtime unavailable", err)
+	}
+}
+
 func TestGatewayConnectionCloseDetachesOwnedRuntime(t *testing.T) {
 	appCore, _ := newGatewayTestCore(t, true, true)
 	counter := &countingSessionRuntimeClient{
