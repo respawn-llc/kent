@@ -71,6 +71,7 @@
 ## Retained Context Compatibility
 
 - Kent must attribute newly retained reasoning and native compaction checkpoints to their producing Reasoning Type. Connection IDs and model names must not determine Reasoning Type.
+- The selected Provider Connection's transport must determine the destination Reasoning Type. Capability overrides and saved Session Contracts must not change that type.
 - When an existing Session changes connection, Kent must omit retained encrypted reasoning that has a Reasoning Type incompatible with the destination or that the destination explicitly cannot consume. This is a narrow exception to the prohibition on filtering already-sent history.
 - Omission must apply to the entire incompatible reasoning item, including its readable summary. Kent must preserve its historical Reasoning Trace and must not create substitute summary messages.
 - Kent must retain unencrypted reasoning in outgoing context when the destination can represent it. Kent must preserve other active messages and complete tool-call/result relationships unchanged.

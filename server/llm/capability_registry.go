@@ -86,7 +86,7 @@ func LookupProviderCapabilityContract(providerID string) (ProviderCapabilities, 
 	if !ok {
 		return ProviderCapabilities{}, false
 	}
-	return registration.Variant.Capabilities, true
+	return registration.Variant.capabilitiesWithOverride(nil), true
 }
 
 func LookupProviderReasoningType(providerID string) *modelcontract.ReasoningType {

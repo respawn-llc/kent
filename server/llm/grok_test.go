@@ -13,6 +13,7 @@ import (
 	"core/internal/testharness/httpclient"
 	"core/shared/config"
 	"core/shared/llmerrors"
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 )
 
@@ -481,6 +482,10 @@ func TestGrokDispatchUsesSelectedRouteAndSupportedPayload(t *testing.T) {
 			})
 			if err != nil {
 				t.Fatal(err)
+			}
+			caps, err := provider.(ProviderCapabilitiesClient).ProviderCapabilities(t.Context())
+			if err != nil || caps.ReasoningType == nil || *caps.ReasoningType != modelcontract.ReasoningTypeGrok {
+				t.Fatalf("overridden transport lost Grok reasoning type: %+v, %v", caps, err)
 			}
 			request := Request{
 				Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic,

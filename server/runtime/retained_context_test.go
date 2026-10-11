@@ -87,6 +87,8 @@ func TestRetainedReasoningDispatchCompatibility(t *testing.T) {
 		{"recorded-unknown", &modelcontract.ReasoningAttribution{}, textutil.Value("opaque"), "openai", true, true},
 		{"unknown-destination", &modelcontract.ReasoningAttribution{Type: textutil.Value(modelcontract.ReasoningTypeOpenAI)}, textutil.Value("opaque"), "openai-compatible", true, true},
 		{"unsupported", &modelcontract.ReasoningAttribution{Type: textutil.Value(modelcontract.ReasoningTypeOpenAI)}, textutil.Value("opaque"), "openai", false, false},
+		{"grok-overridden-identity", &modelcontract.ReasoningAttribution{Type: textutil.Value(modelcontract.ReasoningTypeGrok)}, textutil.Value("opaque"), "grok-api-key", true, true},
+		{"grok-foreign-overridden-identity", &modelcontract.ReasoningAttribution{Type: textutil.Value(modelcontract.ReasoningTypeOpenAI)}, textutil.Value("opaque"), "grok-oauth-api", true, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := mustCreateTestSession(t)
@@ -95,8 +97,11 @@ func TestRetainedReasoningDispatchCompatibility(t *testing.T) {
 				EncryptedContent: test.encrypted, ReasoningSummary: []llm.ReasoningEntry{{Text: "readable trace"}},
 			}})[0]
 			persistRetainedItems(t, store, []llm.ResponseItem{item})
-			caps := defaultTestProviderCapabilities()
-			caps.ProviderID, caps.SupportsReasoningEncrypted = test.destination, test.supported
+			caps, err := llm.InferProviderCapabilities(test.destination)
+			if err != nil {
+				t.Fatal(err)
+			}
+			caps.ProviderID, caps.SupportsReasoningEncrypted = "openai", test.supported
 			client := &fakeClient{caps: caps, responses: []llm.Response{finalTextResponse("continued")}}
 			engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{})
 			if _, err := engine.SubmitUserMessage(context.Background(), "continue"); err != nil {
@@ -132,6 +137,8 @@ func TestActiveCheckpointIsBlockedRatherThanOmitted(t *testing.T) {
 		{"unknown-source", nil, "openai", true, false},
 		{"recorded-unknown", &modelcontract.ReasoningAttribution{}, "openai", true, false},
 		{"unknown-consumer", &modelcontract.ReasoningAttribution{Type: textutil.Value(modelcontract.ReasoningTypeOpenAI)}, "openai-compatible", true, false},
+		{"grok-matching-overridden-identity", &modelcontract.ReasoningAttribution{Type: textutil.Value(modelcontract.ReasoningTypeGrok)}, "grok-cli-proxy", true, false},
+		{"grok-foreign-overridden-identity", &modelcontract.ReasoningAttribution{Type: textutil.Value(modelcontract.ReasoningTypeOpenAI)}, "grok-api-key", true, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := mustCreateTestSession(t)
@@ -141,7 +148,8 @@ func TestActiveCheckpointIsBlockedRatherThanOmitted(t *testing.T) {
 			}})[0]
 			persistRetainedItems(t, store, []llm.ResponseItem{checkpoint})
 			caps := defaultTestProviderCapabilities()
-			caps.ProviderID, caps.SupportsResponsesAPI, caps.SupportsResponsesCompact = test.provider, test.responses, false
+			caps.ProviderID, caps.SupportsResponsesAPI, caps.SupportsResponsesCompact = "openai", test.responses, false
+			caps.ReasoningType = llm.LookupProviderReasoningType(test.provider)
 			client := &fakeClient{caps: caps, responses: []llm.Response{finalTextResponse("continued")}}
 			engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{})
 			_, err := engine.SubmitUserMessage(context.Background(), "continue")

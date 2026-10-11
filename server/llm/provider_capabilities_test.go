@@ -10,6 +10,7 @@ import (
 	"core/server/httpcompression"
 	"core/server/session"
 	"core/shared/config"
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 )
 
@@ -46,6 +47,18 @@ func TestGrokConnectionRouteIsIndependentOfCapabilities(t *testing.T) {
 			caps, err := ResolveConnectionCapabilities(connection)
 			if err != nil || caps.ProviderID != "chatgpt-codex" {
 				t.Fatalf("request capability override = %+v, %v", caps, err)
+			}
+			id := config.ConnectionID("grok")
+			settings := config.Settings{Connection: &id, Connections: map[config.ConnectionID]config.ProviderConnection{id: connection}}
+			locked := &session.LockedContract{ProviderContract: LockedProviderCapabilitiesFromContract(caps)}
+			resumed, err := ResolveEffectiveProviderCapabilities(locked, settings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, actual := range []ProviderCapabilities{caps, resumed} {
+				if actual.ReasoningType == nil || *actual.ReasoningType != modelcontract.ReasoningTypeGrok {
+					t.Fatalf("capability identity changed transport reasoning type: %+v", actual)
+				}
 			}
 		})
 	}

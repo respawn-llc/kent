@@ -22,6 +22,7 @@ func ResolveEffectiveProviderCapabilities(locked *session.LockedContract, settin
 		effective = contract
 		effective.SupportsNativeThinkingUpdates = actual.SupportsNativeThinkingUpdates
 		effective.SupportsFastMode = actual.SupportsFastMode
+		effective.ReasoningType = actual.ReasoningType
 	}
 	return effective, nil
 }
@@ -39,13 +40,20 @@ func ResolveConnectionCapabilities(connection config.ProviderConnection) (Provid
 	if err != nil {
 		return ProviderCapabilities{}, err
 	}
-	variant := selected.Variant
-	caps := variant.Capabilities
 	if override, ok := ProviderCapabilitiesFromOverride(connection.Capabilities); ok {
-		caps = override
-		caps.SupportsNativeThinkingUpdates = variant.Capabilities.SupportsNativeThinkingUpdates
+		return selected.Variant.capabilitiesWithOverride(&override), nil
 	}
-	return caps, nil
+	return selected.Variant.capabilitiesWithOverride(nil), nil
+}
+
+func (variant ProviderVariantContract) capabilitiesWithOverride(override *ProviderCapabilities) ProviderCapabilities {
+	caps := variant.Capabilities
+	if override != nil {
+		caps = *override
+	}
+	caps.SupportsNativeThinkingUpdates = variant.Capabilities.SupportsNativeThinkingUpdates
+	caps.ReasoningType = textutil.Pointer(variant.ReasoningType)
+	return caps
 }
 
 func ResolveConnectionTokenEstimator(connection config.ProviderConnection) (TokenEstimator, error) {

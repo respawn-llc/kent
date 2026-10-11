@@ -5,7 +5,7 @@ import "core/server/llm"
 // The dispatch snapshot owns this slice. Payloads and the retained chat-store
 // source remain unchanged, so switching back can reuse compatible reasoning.
 func prepareRetainedContext(items []llm.ResponseItem, destination llm.ProviderCapabilities) ([]llm.ResponseItem, int, error) {
-	destinationType := llm.LookupProviderReasoningType(destination.ProviderID)
+	destinationType := destination.ReasoningType
 	knownMismatch := func(item llm.ResponseItem) bool {
 		return destinationType != nil && item.Attribution != nil && item.Attribution.Type != nil && *item.Attribution.Type != *destinationType
 	}

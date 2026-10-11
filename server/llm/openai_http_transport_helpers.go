@@ -78,12 +78,7 @@ func (t *HTTPTransport) resolveContextWindowFallback(ctx context.Context, model 
 }
 
 func (t *HTTPTransport) providerCapabilitiesForVariant(variant ProviderVariantContract) ProviderCapabilities {
-	if t.ProviderCapabilitiesOverride != nil {
-		caps := *t.ProviderCapabilitiesOverride
-		caps.SupportsNativeThinkingUpdates = variant.Capabilities.SupportsNativeThinkingUpdates
-		return caps
-	}
-	return variant.Capabilities
+	return variant.capabilitiesWithOverride(t.ProviderCapabilitiesOverride)
 }
 
 func (t *HTTPTransport) cacheModelContextWindow(model string, tokens int) {

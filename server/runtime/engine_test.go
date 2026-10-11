@@ -71,6 +71,7 @@ func (f *fakeClient) ProviderCapabilities(context.Context) (llm.ProviderCapabili
 	}
 	return llm.ProviderCapabilities{
 		ProviderID:                    "openai",
+		ReasoningType:                 llm.LookupProviderReasoningType("openai"),
 		SupportsResponsesAPI:          true,
 		SupportsResponsesCompact:      true,
 		SupportsPromptCacheKey:        true,
