@@ -18,6 +18,7 @@ import (
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 )
 
@@ -84,7 +85,7 @@ func awaitChatCommandModel(t *testing.T, models <-chan chatCommandModel) chatCom
 }
 
 func chatCommandTarget(id string) *chatpb.ChatTarget {
-	return &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{Session: &chatpb.ExistingSessionTarget{SessionId: id}}}
+	return &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{Session: &chatpb.ExistingSessionRequestTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id}}}}}
 }
 
 func chatCommandActivation(identity, token string) *chatpb.Activation {

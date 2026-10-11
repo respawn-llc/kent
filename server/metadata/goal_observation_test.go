@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/server/session"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/serverapi"
@@ -35,7 +36,7 @@ func TestGoalObservationHydratesDormantSessionAndPublishesLaterPersistence(t *te
 		t.Fatalf("session.Create: %v", err)
 	}
 	subscription, err := metadataStore.SubscribeGoalObservation(t.Context(), &runtimepb.GoalObserveRequest{
-		SessionId: sessionStore.Meta().SessionID,
+		SessionId: requestfixture.Selector(t, sessionStore.Meta().SessionID),
 	})
 	if err != nil {
 		t.Fatalf("SubscribeGoalObservation: %v", err)
@@ -107,7 +108,7 @@ func TestGoalObservationPublishesAvailabilityOnlyContractChanges(t *testing.T) {
 		t.Fatalf("session.Create: %v", err)
 	}
 	subscription, err := metadataStore.SubscribeGoalObservation(t.Context(), &runtimepb.GoalObserveRequest{
-		SessionId: sessionStore.Meta().SessionID,
+		SessionId: requestfixture.Selector(t, sessionStore.Meta().SessionID),
 	})
 	if err != nil {
 		t.Fatalf("SubscribeGoalObservation: %v", err)

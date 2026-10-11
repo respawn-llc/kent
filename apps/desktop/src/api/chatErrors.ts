@@ -23,7 +23,7 @@ import { protobufRpcError } from "./protobufRpc";
 export type ChatError =
   | Readonly<{ kind: "prompt_catalog_read"; command: string | null }>
   | Readonly<{ kind: "prompt_command_not_found" | "prompt_command_read"; command: string }>
-  | Readonly<{ kind: "session_not_found"; sessionID: string }>
+  | Readonly<{ kind: "session_not_found"; sessionID: string | null }>
   | Readonly<{ kind: "workspace_not_registered" }>
   | Readonly<{
       kind: "agent_preparation";
@@ -163,7 +163,7 @@ function standardChatErrorDetail(
     case "sessionNotFound":
       return {
         kind: "session_not_found",
-        sessionID: detail.value.sessionId,
+        sessionID: detail.value.sessionId ?? null,
       };
     case "workspaceNotRegistered":
       return { kind: "workspace_not_registered" };

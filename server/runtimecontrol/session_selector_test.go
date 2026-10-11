@@ -16,7 +16,8 @@ import (
 	"core/shared/sessioncontract"
 )
 
-func TestLiveControlsRejectResolvedSelfTargets(t *testing.T) {
+func newNumberedRuntimeControlFixture(t *testing.T) (*session.Store, *Service) {
+	t.Helper()
 	root, workspace := t.TempDir(), t.TempDir()
 	store, err := metadata.Open(root)
 	if err != nil {
@@ -31,8 +32,13 @@ func TestLiveControlsRejectResolvedSelfTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), store).WithPersistedSessionResolver(store)
+	return sess, service
+}
+
+func TestLiveControlsRejectResolvedSelfTargets(t *testing.T) {
+	sess, service := newNumberedRuntimeControlFixture(t)
 	caller := sess.Meta().SessionID
-	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), store)
 	for _, raw := range []string{caller, "000" + sess.Identity().String()} {
 		selector, err := runtimeids.ParseSessionSelector(raw)
 		if err != nil {
@@ -61,6 +67,20 @@ func TestLiveControlsRejectResolvedSelfTargets(t *testing.T) {
 			if err := operation(); !errors.As(err, &self) || self.SessionID.String() != caller {
 				t.Fatalf("self target %s = %v", raw, err)
 			}
+		}
+	}
+}
+
+func TestGoalSelectorsReadSamePersistedGoal(t *testing.T) {
+	sess, service := newNumberedRuntimeControlFixture(t)
+	goal, _, err := sess.SetGoal("finish the task", session.GoalActorUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []runtimeids.SessionSelector{sess.Identity().ID, *sess.Identity().ShortID} {
+		result, err := service.ShowGoal(t.Context(), &runtimepb.GoalShowRequest{SessionId: protoapi.SessionSelectorToProto(target)})
+		if err != nil || result.Goal == nil || result.Goal.Id != goal.ID {
+			t.Fatalf("goal for %s: %+v, %v", target, result, err)
 		}
 	}
 }

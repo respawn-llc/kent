@@ -52,7 +52,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
             target,
             method,
             create(method.input, {
-              target: { target: { case: "session", value: { sessionId: requireChatSessionID(target) } } },
+              target: { target: { case: "session", value: { sessionId: { value: { case: "sessionId", value: requireChatSessionID(target) } } } } },
               activation: chatActivation(activation),
             }),
           )
@@ -110,7 +110,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
               target,
               method,
               create(method.input, {
-                target: { target: { case: "session", value: { sessionId: requireChatSessionID(target) } } },
+                target: { target: { case: "session", value: { sessionId: { value: { case: "sessionId", value: requireChatSessionID(target) } } } } },
                 invocation,
               }),
             )
@@ -244,7 +244,6 @@ function mutationTarget(
   workspaceID: string,
 ): {
   target:
-    | { case: "session"; value: { sessionId: string } }
     | {
         case: "newChat";
         value: {

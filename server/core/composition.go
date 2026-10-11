@@ -425,6 +425,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		},
 		sourceSessionLaunch,
 		runtimeRegistry,
+		metadataStore,
 	)
 	chatRuntimes := chatmutation.NewRuntimePlanner(
 		runtimeAuthority,

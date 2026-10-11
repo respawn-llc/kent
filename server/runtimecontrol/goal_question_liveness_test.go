@@ -84,7 +84,7 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 		if _, err := engine.SetGoalStatus(t.Context(), session.GoalStatusPaused, session.GoalActorUser); err != nil {
 			t.Fatal(err)
 		}
-		_, err = service.ResumeGoal(t.Context(), &runtimepb.GoalMutationRequest{SessionId: sessionID.String(), Actor: "user"})
+		_, err = service.ResumeGoal(t.Context(), &runtimepb.GoalMutationRequest{SessionId: requestfixture.Selector(t, sessionID.String()), Actor: "user"})
 	} else {
 		_, err = runtimeControlSetGoal(
 			t.Context(),

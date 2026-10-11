@@ -7,6 +7,7 @@ import (
 	pb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
+	"core/shared/textutil"
 )
 
 func TestChatSettingsErrorFromProtoPreservesSessionNotFound(t *testing.T) {
@@ -14,7 +15,7 @@ func TestChatSettingsErrorFromProtoPreservesSessionNotFound(t *testing.T) {
 	err := ChatSettingsErrorFromProto(&pb.ReadError{
 		Code: "session_not_found",
 		Detail: &pb.ReadError_SessionNotFound{
-			SessionNotFound: &pb.SessionNotFoundDetails{SessionId: sessionID.String()},
+			SessionNotFound: &pb.SessionNotFoundDetails{SessionId: textutil.Value(sessionID.String())},
 		},
 	})
 	if !errors.Is(err, sessioncontract.ErrSessionNotFound) {
