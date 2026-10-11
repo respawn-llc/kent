@@ -164,6 +164,7 @@ func (s *Service) taskQuestion(
 			return nil, false, nil
 		}
 		ask := &promptpb.Question{
+			ShortId:                prompt.ShortId,
 			ToolCallId:             prompt.ToolCallId,
 			SessionId:              prompt.SessionId,
 			StepId:                 prompt.StepId,
@@ -205,6 +206,7 @@ func (s *Service) taskQuestion(
 		if err != nil {
 			return nil, false, err
 		}
+		question.GetApproval().ShortId = prompt.ShortId
 	default:
 		return nil, false, nil
 	}

@@ -210,6 +210,7 @@ func (s *Service) SessionChatSettings(
 	}
 	facts := &chatsettingspb.SessionFacts{
 		SessionId: sessionID.String(),
+		ShortId:   protoapi.SessionShortIDToProto(record.ShortID),
 	}
 	if record.Meta.PreviousSessionID != nil {
 		facts.PreviousSessionId = textutil.Value(record.Meta.PreviousSessionID.String())

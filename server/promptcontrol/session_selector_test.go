@@ -3,12 +3,32 @@ package promptcontrol
 import (
 	"errors"
 	"testing"
+	"time"
 
+	"core/server/registry"
+	"core/server/tools"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
+
+func TestPendingQuestionProjectsAssignedSessionNumber(t *testing.T) {
+	store, target, _ := promptControlAgentSessions(t)
+	identity := target.Identity()
+	view := NewAskViewService(&stubAskPendingPromptSource{items: []registry.PendingPromptSnapshot{{
+		Request:   tools.AskQuestionRequest{ToolCallID: "ask", StepID: promptViewStepID, Question: "continue?"},
+		CreatedAt: time.Now(),
+	}}}, store)
+	result, err := view.ListPendingAsksBySession(t.Context(), &promptpb.ListPendingRequest{SessionId: protoapi.SessionSelectorToProto(*identity.ShortID)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Questions) != 1 || result.Questions[0].SessionId != identity.ID.String() ||
+		result.Questions[0].ShortId == nil || *result.Questions[0].ShortId != identity.ShortID.Int64() {
+		t.Fatalf("pending Question identity = %v, want %v", result, identity)
+	}
+}
 
 func TestQuestionSelectorRejectsCanonicalSelf(t *testing.T) {
 	store, target, _ := promptControlAgentSessions(t)

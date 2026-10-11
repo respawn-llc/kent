@@ -907,7 +907,7 @@ func TestExecutionPromptProjectionRetainsExactAuthorityGeneration(t *testing.T) 
 
 func TestResourceDrainingResolvesPendingPromptBeforeClosingStreams(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry(newAttentionTestMetadata(t)).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	registry := NewRuntimeRegistry(testharness.OpenStore(t, t.TempDir())).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := newRegistryTestRuntime(t, nil)
 	ref := registryTestResourceRef(engine.SessionID())
 	registerResource(t, registry, ref, engine)

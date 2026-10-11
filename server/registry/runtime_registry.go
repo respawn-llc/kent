@@ -448,7 +448,11 @@ func (r *RuntimeRegistry) publishRuntimeEvent(entry *authorityRuntimeEntry, evt 
 		return r.publishCurrentRuntimeActivity(entry.ref.SessionID().String())
 	}
 	if !transcriptEventRequiresVisibleSubscriber(evt) || entry.sessionFeed.HasSubscribers() {
-		messages, err := runtimeview.TranscriptMessagesFromRuntimeEventChecked(evt)
+		identities, err := r.metadata.SessionIdentities(context.Background(), runtimeview.TranscriptReferencedSessions(runtime.TranscriptCommittedRowFactsFromEvent(evt)))
+		if err != nil {
+			return err
+		}
+		messages, err := runtimeview.TranscriptMessagesFromRuntimeEventChecked(evt, identities)
 		if err != nil {
 			contractErr := entry.sessionFeed.CloseContractViolation(fmt.Errorf("project runtime transcript event: %w", err))
 			return contractErr

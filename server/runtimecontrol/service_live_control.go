@@ -193,7 +193,8 @@ func (s *Service) LiveWait(ctx context.Context, req *runtimepb.LiveWaitRequest) 
 	return resp, err
 }
 
-func (s *Service) pendingWatchQuestion(sessionID runtimeids.SessionID) (*serverapi.ObservationQuestion, error) {
+func (s *Service) pendingWatchQuestion(identity runtimeids.SessionIdentity) (*serverapi.ObservationQuestion, error) {
+	sessionID := identity.ID
 	if s.pendingPrompts == nil {
 		return nil, nil
 	}
@@ -205,12 +206,14 @@ func (s *Service) pendingWatchQuestion(sessionID runtimeids.SessionID) (*servera
 			if err != nil {
 				return nil, err
 			}
+			approval.ShortID = identity.ShortID
 			approvals = append(approvals, approval)
 		} else {
 			ask, err := registry.PendingAskFromSnapshot(sessionID, snapshot)
 			if err != nil {
 				return nil, err
 			}
+			ask.ShortID = identity.ShortID
 			asks = append(asks, ask)
 		}
 	}
@@ -262,7 +265,7 @@ func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest)
 	defer func() { _ = sub.Close() }()
 	handle, name, captureErr := s.captureLiveRun(watchCtx, id)
 	if errors.Is(captureErr, serverapi.ErrRuntimeNoActiveRun) {
-		question, err := s.pendingWatchQuestion(id)
+		question, err := s.pendingWatchQuestion(identity)
 		if err != nil {
 			return nil, err
 		}
@@ -274,7 +277,7 @@ func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest)
 	if captureErr != nil {
 		return nil, captureErr
 	}
-	if question, err := s.pendingWatchQuestion(id); err != nil {
+	if question, err := s.pendingWatchQuestion(identity); err != nil {
 		return nil, err
 	} else if question != nil {
 		return liveWatchQuestionResult(id, question)
@@ -298,7 +301,7 @@ func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest)
 				}
 				return
 			}
-			question, err := s.pendingWatchQuestion(id)
+			question, err := s.pendingWatchQuestion(identity)
 			if err != nil {
 				if watchCtx.Err() == nil {
 					attentionErrCh <- liveWatchAttentionStreamError(err)

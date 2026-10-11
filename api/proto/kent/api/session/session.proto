@@ -166,6 +166,7 @@ message QuestionHistoryStarted {
 }
 
 message QuestionHistoryQuestion {
+  optional int64 answered_by_session_short_id = 7 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string question = 1 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {

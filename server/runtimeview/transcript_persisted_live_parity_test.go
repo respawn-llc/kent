@@ -82,7 +82,7 @@ func assertPersistedLiveTranscriptParity(t *testing.T, store *session.Store, eve
 	page, hydration := mustProjectNewestPersistedTranscript(t, store, eventLog)
 	liveRows := make(map[transcript.CommittedRowLocator]*transcriptpb.CommittedRow)
 	for _, event := range events {
-		messages, err := TranscriptMessagesFromRuntimeEventChecked(event)
+		messages, err := TranscriptMessagesFromRuntimeEventChecked(event, nil)
 		if err != nil {
 			t.Fatalf("project actual live event %q: %v", event.Kind, err)
 		}
@@ -340,7 +340,7 @@ func TestPersistedTranscriptParityAtIntermediateToolCommits(t *testing.T) {
 					t.Errorf("tool outcome %q: failed=%t, expected known=%t failed=%t", result.CallID, result.IsError, exists, isError)
 				}
 			}
-			messages, err := TranscriptMessagesFromRuntimeEventChecked(event)
+			messages, err := TranscriptMessagesFromRuntimeEventChecked(event, nil)
 			if err != nil {
 				t.Errorf("project intermediate event %q: %v", event.Kind, err)
 				return
@@ -465,7 +465,7 @@ func TestPersistedHistoryReplacementMatchesActualEngineLiveDelivery(t *testing.T
 			if err != nil {
 				t.Fatalf("read pre-compaction segment: %v", err)
 			}
-			beforeWire, err := TranscriptTailSegmentFromSegment(before)
+			beforeWire, err := TranscriptTailSegmentFromSegment(before, nil)
 			if err != nil {
 				t.Fatalf("project pre-compaction segment: %v", err)
 			}
@@ -474,7 +474,7 @@ func TestPersistedHistoryReplacementMatchesActualEngineLiveDelivery(t *testing.T
 			}
 			var beforeLive []*transcriptpb.CommittedRow
 			for _, event := range events {
-				messages, err := TranscriptMessagesFromRuntimeEventChecked(event)
+				messages, err := TranscriptMessagesFromRuntimeEventChecked(event, nil)
 				if err != nil {
 					t.Fatalf("project pre-compaction live event: %v", err)
 				}
@@ -519,7 +519,7 @@ func TestPersistedHistoryReplacementMatchesActualEngineLiveDelivery(t *testing.T
 					if err != nil {
 						t.Fatalf("read recurrent segment: %v", err)
 					}
-					wire, err := TranscriptTailSegmentFromSegment(recurrent)
+					wire, err := TranscriptTailSegmentFromSegment(recurrent, nil)
 					if err != nil {
 						t.Fatalf("project recurrent segment: %v", err)
 					}
@@ -547,14 +547,15 @@ func mustProjectNewestPersistedTranscript(
 		store.Meta().SessionID,
 		nil,
 		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
-		segment,
-	)
+		segment, nil)
+
 	if err != nil {
 		t.Fatalf("project persisted page: %v", err)
 	}
 	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
 		CommittedRows: runtime.TranscriptCommittedRowFactsFromSnapshot(segment.Snapshot),
-	})
+	}, nil)
+
 	return page, hydration
 }
 
@@ -618,7 +619,7 @@ func TestPersistedUserRollbackTargetMatchesLiveDelivery(t *testing.T) {
 	}
 	for _, fixture := range liveEvents {
 		t.Run(fixture.name, func(t *testing.T) {
-			liveMessages, err := TranscriptMessagesFromRuntimeEventChecked(fixture.event)
+			liveMessages, err := TranscriptMessagesFromRuntimeEventChecked(fixture.event, nil)
 			if err != nil {
 				t.Fatalf("project live event: %v", err)
 			}
@@ -673,7 +674,8 @@ func TestPersistedDeveloperNoticeDiagnosticCodeMatchesLiveDelivery(t *testing.T)
 			Content:     textutil.Value(text),
 		},
 		CommittedProvenance: provenance,
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project live developer message: %v", err)
 	}

@@ -184,7 +184,7 @@ func transcriptToolStartsFromRuntime(starts []runtime.TranscriptLiveToolStart) (
 	return out, nil
 }
 
-func TranscriptMessagesFromRuntimeEventChecked(evt runtime.Event) ([]*transcriptpb.Event, error) {
+func TranscriptMessagesFromRuntimeEventChecked(evt runtime.Event, identities map[runtimeids.SessionID]runtimeids.SessionIdentity) ([]*transcriptpb.Event, error) {
 	if evt.Kind == runtime.EventQuestionCandidateFinished {
 		if evt.StepID == nil || evt.FinishedQuestionCandidate == nil {
 			return nil, errors.New("finished Question candidate has no Step or tool call identity")
@@ -199,7 +199,7 @@ func TranscriptMessagesFromRuntimeEventChecked(evt runtime.Event) ([]*transcript
 			return nil, fmt.Errorf("runtime committed row fact %d from event %q lacks valid provenance: %w", index, evt.Kind, err)
 		}
 	}
-	messages, err := transcriptMessagesFromRuntimeEvent(evt)
+	messages, err := transcriptMessagesFromRuntimeEvent(evt, identities)
 	if err != nil {
 		return nil, fmt.Errorf("runtime transcript event %q: %w", evt.Kind, err)
 	}
@@ -216,7 +216,7 @@ func TranscriptMessagesFromRuntimeEventChecked(evt runtime.Event) ([]*transcript
 	return messages, nil
 }
 
-func transcriptMessagesFromRuntimeEvent(evt runtime.Event) ([]*transcriptpb.Event, error) {
+func transcriptMessagesFromRuntimeEvent(evt runtime.Event, identities map[runtimeids.SessionID]runtimeids.SessionIdentity) ([]*transcriptpb.Event, error) {
 	switch evt.Kind {
 	case runtime.EventAssistantDelta:
 		if evt.AssistantDelta == "" {
@@ -334,14 +334,14 @@ func transcriptMessagesFromRuntimeEvent(evt runtime.Event) ([]*transcriptpb.Even
 		if err != nil {
 			return nil, err
 		}
-		rows, err := transcriptCommittedRowMessages(evt)
+		rows, err := transcriptCommittedRowMessages(evt, identities)
 		return append(append(messages, flushed...), rows...), err
 	default:
 		messages, err := transcriptFeedStateMessages(evt)
 		if err != nil {
 			return nil, err
 		}
-		rows, err := transcriptCommittedRowMessages(evt)
+		rows, err := transcriptCommittedRowMessages(evt, identities)
 		return append(messages, rows...), err
 	}
 }
@@ -591,7 +591,7 @@ func TranscriptSessionIdentityFromRuntime(
 	}, nil
 }
 
-func transcriptCommittedRowMessages(evt runtime.Event) ([]*transcriptpb.Event, error) {
+func transcriptCommittedRowMessages(evt runtime.Event, identities map[runtimeids.SessionID]runtimeids.SessionIdentity) ([]*transcriptpb.Event, error) {
 	rowFacts := runtime.TranscriptCommittedRowFactsFromEvent(evt)
 	if len(rowFacts) == 0 {
 		return nil, nil
@@ -601,7 +601,7 @@ func transcriptCommittedRowMessages(evt runtime.Event) ([]*transcriptpb.Event, e
 		if err := fact.Locator.Validate(); err != nil {
 			return nil, fmt.Errorf("runtime committed row lacks valid provenance: event_kind=%q fact=%+v error=%v", evt.Kind, fact, err)
 		}
-		row, err := transcriptRowFromFact(fact)
+		row, err := transcriptRowFromFact(fact, identities)
 		if err != nil {
 			return nil, err
 		}
@@ -610,7 +610,7 @@ func transcriptCommittedRowMessages(evt runtime.Event) ([]*transcriptpb.Event, e
 	return out, nil
 }
 
-func transcriptRowsFromFactsChecked(facts []runtime.TranscriptCommittedRowFact) ([]*transcriptpb.CommittedRow, error) {
+func transcriptRowsFromFactsChecked(facts []runtime.TranscriptCommittedRowFact, identities map[runtimeids.SessionID]runtimeids.SessionIdentity) ([]*transcriptpb.CommittedRow, error) {
 	if len(facts) == 0 {
 		return []*transcriptpb.CommittedRow{}, nil
 	}
@@ -626,7 +626,7 @@ func transcriptRowsFromFactsChecked(facts []runtime.TranscriptCommittedRowFact) 
 				err,
 			)
 		}
-		row, err := transcriptRowFromFact(fact)
+		row, err := transcriptRowFromFact(fact, identities)
 		if err != nil {
 			return nil, err
 		}
@@ -840,7 +840,7 @@ func transcriptOperationalDiagnosticMessages(evt runtime.Event) ([]*transcriptpb
 	return []*transcriptpb.Event{{Payload: &transcriptpb.Event_OperationalDiagnostic{OperationalDiagnostic: diagnostic}}}, nil
 }
 
-func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact) (*transcriptpb.CommittedRow, error) {
+func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities map[runtimeids.SessionID]runtimeids.SessionIdentity) (*transcriptpb.CommittedRow, error) {
 	visibility, err := transcriptVisibility(fact.Visibility)
 	if err != nil {
 		return nil, err
@@ -914,19 +914,24 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact) (*transcript
 		if err != nil {
 			return nil, err
 		}
+		var answererShortID *int64
+		if fact.Tool.AnsweredBySessionID != nil {
+			answererShortID = protoapi.SessionShortIDToProto(identities[*fact.Tool.AnsweredBySessionID].ShortID)
+		}
 		row.Row = &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
-			ViewedImageKind:     viewedImageKindToProto(fact.Tool.ViewedImageKind),
-			StepId:              textutil.Pointer(fact.StepID),
-			ToolCallId:          textutil.OptionalTrimmedString(fact.Tool.ToolCallID),
-			ToolName:            textutil.OptionalTrimmedString(fact.Tool.ToolName),
-			Text:                fact.Tool.Text,
-			IsError:             fact.Tool.IsError,
-			ResultSummary:       optionalNonBlankString(fact.Tool.ResultSummary),
-			CondensedText:       optionalNonBlankString(fact.Tool.CondensedText),
-			Presentation:        presentation,
-			QuestionAnswer:      answer,
-			WebSearch:           webSearch,
-			AnsweredBySessionId: protoapi.OptionalSessionIDToProto(fact.Tool.AnsweredBySessionID),
+			ViewedImageKind:          viewedImageKindToProto(fact.Tool.ViewedImageKind),
+			AnsweredBySessionShortId: answererShortID,
+			StepId:                   textutil.Pointer(fact.StepID),
+			ToolCallId:               textutil.OptionalTrimmedString(fact.Tool.ToolCallID),
+			ToolName:                 textutil.OptionalTrimmedString(fact.Tool.ToolName),
+			Text:                     fact.Tool.Text,
+			IsError:                  fact.Tool.IsError,
+			ResultSummary:            optionalNonBlankString(fact.Tool.ResultSummary),
+			CondensedText:            optionalNonBlankString(fact.Tool.CondensedText),
+			Presentation:             presentation,
+			QuestionAnswer:           answer,
+			AnsweredBySessionId:      protoapi.OptionalSessionIDToProto(fact.Tool.AnsweredBySessionID),
+			WebSearch:                webSearch,
 		}}
 	case runtime.TranscriptCommittedRowFactReasoningTrace:
 		if fact.ReasoningTrace == nil || fact.StepID == nil {

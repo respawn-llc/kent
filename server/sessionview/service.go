@@ -132,7 +132,7 @@ func (s *Service) SubscribeQuestionHistory(
 	if err != nil {
 		return nil, err
 	}
-	return &questionHistorySubscription{cursor: cursor}, nil
+	return &questionHistorySubscription{cursor: cursor, metadata: s.metadata}, nil
 }
 
 func (s *Service) WithChatContextWorkspaceResolver(resolver chatContextWorkspaceResolver) *Service {
@@ -289,7 +289,7 @@ func (s *Service) GetSessionTranscriptPage(ctx context.Context, req *transcriptp
 	if err != nil {
 		return nil, err
 	}
-	page, err := (dormantSessionSnapshot{view: view, cacheWarningMode: s.cacheWarningMode}).TranscriptPage(ctx, req)
+	page, err := (dormantSessionSnapshot{view: view, cacheWarningMode: s.cacheWarningMode, metadata: s.metadata}).TranscriptPage(ctx, req)
 	if err != nil {
 		return nil, err
 	}
