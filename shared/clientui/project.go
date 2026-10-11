@@ -28,6 +28,7 @@ type ProjectSummary struct {
 
 type SessionSummary struct {
 	SessionID          runtimeids.SessionID            `json:"session_id"`
+	ShortID            *runtimeids.SessionShortID      `json:"short_id,omitempty"`
 	Category           sessioncontract.SessionCategory `json:"category"`
 	Name               *string                         `json:"name,omitempty"`
 	FirstPromptPreview *string                         `json:"first_prompt_preview,omitempty"`

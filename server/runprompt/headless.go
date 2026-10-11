@@ -17,6 +17,7 @@ import (
 	askquestion "core/server/tools"
 	"core/shared/apicontract"
 	"core/shared/clientui"
+	"core/shared/protoapi"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -101,9 +102,10 @@ func (l *headlessPromptLauncher) prepareHeadlessPrompt(ctx context.Context, req 
 			runtimePlan.CloseWithFailure(true)
 			return nil, fmt.Errorf("new headless session id %q is not a UUIDv4", runtimePlan.sessionID)
 		}
-		sessionStarted = &runpromptpb.SessionStarted{SessionId: sessionID.String()}
+		sessionStarted = &runpromptpb.SessionStarted{SessionId: sessionID.String(), ShortId: protoapi.SessionShortIDToProto(result.Identity.ShortID)}
 	}
 	return &headlessPromptRuntime{
+		identity:          result.Identity,
 		plan:              runtimePlan,
 		warnings:          result.Warnings,
 		selectionWarnings: result.RunSelectionWarnings,
@@ -300,6 +302,7 @@ func preservePresentAssistantContent(current string, message llm.Message) string
 }
 
 type headlessPromptRuntime struct {
+	identity          runtimeids.SessionIdentity
 	plan              *headlessRuntimePlan
 	warnings          []string
 	selectionWarnings []runpromptpb.RunSelectionWarning
@@ -322,6 +325,7 @@ func (r *headlessPromptRuntime) submitUserMessage(ctx context.Context, prompt st
 		err = errors.Join(err, r.plan.handle.Stop(context.Background()))
 	}
 	return &runpromptpb.Success{
+		ShortId:     protoapi.SessionShortIDToProto(r.identity.ShortID),
 		SessionId:   r.plan.sessionID,
 		SessionName: r.plan.name,
 		Result:      r.plan.content,

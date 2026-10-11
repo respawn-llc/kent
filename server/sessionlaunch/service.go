@@ -31,6 +31,7 @@ type Service struct {
 }
 
 type PlanResult struct {
+	Identity             runtimeids.SessionIdentity
 	Plan                 launch.SessionPlan
 	Warnings             []string
 	RunSelectionWarnings []runpromptpb.RunSelectionWarning
@@ -520,7 +521,12 @@ func (s *Service) finalizeLaunchPlan(
 		return PlanResult{}, err
 	}
 	plan = launch.ApplyContextPolicy(plan, capabilities)
+	record, err := s.planner.PersistedSessions.ResolvePersistedSession(ctx, plan.Descriptor.SessionID().String())
+	if err != nil {
+		return PlanResult{}, err
+	}
 	return PlanResult{
+		Identity:             runtimeids.SessionIdentity{ID: plan.Descriptor.SessionID(), ShortID: record.ShortID},
 		Plan:                 plan,
 		Warnings:             warnings,
 		RunSelectionWarnings: append([]runpromptpb.RunSelectionWarning(nil), selectionWarnings...),
@@ -586,6 +592,7 @@ func sessionPlanSuccessFromResult(result PlanResult) (*sessionlaunchpb.SessionPl
 		enabledToolIDs = append(enabledToolIDs, generated)
 	}
 	plan := &sessionlaunchpb.SessionPlan{
+		ShortId:                  protoapi.SessionShortIDToProto(result.Identity.ShortID),
 		SessionId:                result.Plan.Descriptor.SessionID().String(),
 		ActiveSettings:           settings,
 		EnabledToolIds:           enabledToolIDs,

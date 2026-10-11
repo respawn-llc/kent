@@ -784,7 +784,12 @@ func newRuntimeControlTestServiceWithFeeds(
 		t.Fatalf("resolve authority session store: %v", err)
 	}
 	history := newRuntimeControlPromptHistoryStore(store.Meta().SessionID)
-	service := NewService(authority, nil).
+	metadataStore, err := metadata.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = metadataStore.Close() })
+	service := NewService(authority, metadataStore).
 		WithPromptHistoryStore(history).
 		WithPersistedSessionResolver(runtimeControlTestSessionPersistence)
 	return store, engine, service

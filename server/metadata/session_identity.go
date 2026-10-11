@@ -13,6 +13,21 @@ import (
 	"core/shared/runtimeids"
 )
 
+// SessionIdentity projects retained references without assigning numbers to old
+// Sessions or retaining aliases for deleted Sessions.
+func (s *Store) SessionIdentity(ctx context.Context, id runtimeids.SessionID) (runtimeids.SessionIdentity, error) {
+	identity := runtimeids.SessionIdentity{ID: id}
+	value, err := s.queries.GetSessionShortID(sqlitegen.WithExpectedNoRows(ctx), id.String())
+	if errors.Is(err, sql.ErrNoRows) {
+		return identity, nil
+	}
+	if err != nil {
+		return runtimeids.SessionIdentity{}, err
+	}
+	identity.ShortID, err = sessionShortID(value)
+	return identity, err
+}
+
 func (s *Store) ResolveSessionTarget(ctx context.Context, target *sharedpb.SessionSelector) (runtimeids.SessionID, error) {
 	selector, err := protoapi.SessionSelectorFromProto(target)
 	if err != nil {

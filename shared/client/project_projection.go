@@ -54,6 +54,10 @@ func ProjectBindingFromProto(binding *projectpb.ProjectBinding) (serverapi.Proje
 }
 
 func SessionSummaryFromProto(session *projectpb.SessionSummary) (clientui.SessionSummary, error) {
+	shortID, err := protoapi.SessionShortIDFromProto(session.ShortId)
+	if err != nil {
+		return clientui.SessionSummary{}, err
+	}
 	sessionID, err := runtimeids.ParseSessionID(session.SessionId)
 	if err != nil {
 		return clientui.SessionSummary{}, err
@@ -64,6 +68,7 @@ func SessionSummaryFromProto(session *projectpb.SessionSummary) (clientui.Sessio
 	}
 	return clientui.SessionSummary{
 		SessionID:          sessionID,
+		ShortID:            shortID,
 		Category:           category,
 		Name:               textutil.Pointer(session.Name),
 		FirstPromptPreview: textutil.Pointer(session.FirstPromptPreview),

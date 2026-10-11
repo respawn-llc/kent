@@ -2034,6 +2034,10 @@ func (s *Store) ListSessionPage(
 			Category:  rowCategory,
 			UpdatedAt: timeFromStoredTimestamp(row.UpdatedAtUnixMs),
 		}
+		summary.ShortID, err = sessionShortID(row.ShortID)
+		if err != nil {
+			return SessionPage{}, err
+		}
 		summary.Name = OptionalString(row.Name)
 		if row.FirstPromptPreview != "" {
 			summary.FirstPromptPreview = textutil.Value(row.FirstPromptPreview)

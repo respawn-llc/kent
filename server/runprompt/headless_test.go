@@ -1050,6 +1050,9 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 			return
 		}
 		sessionStarted++
+		if progress.GetSessionStarted().ShortId == nil {
+			t.Error("new Session start omitted its assigned number")
+		}
 		if progress.GetSessionStarted() == nil {
 			t.Errorf("session_started published before the new runtime became active: %+v", progress)
 			return
@@ -1077,6 +1080,9 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 		t.Fatalf("OpenByID child: %v", err)
 	}
 	childMeta := child.Meta()
+	if response.ShortId == nil || child.Identity().ShortID == nil || *response.ShortId != child.Identity().ShortID.Int64() {
+		t.Fatalf("completion identity = %v, want %v", response.ShortId, child.Identity())
+	}
 	parentSessionID := mustRunPromptSessionID(t, parentID)
 	if childMeta.ParentAgentSessionID == nil || *childMeta.ParentAgentSessionID != parentSessionID {
 		t.Fatalf("parent-agent id = %v, want %q", childMeta.ParentAgentSessionID, parentID)

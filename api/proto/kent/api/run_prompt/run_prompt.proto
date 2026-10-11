@@ -43,6 +43,7 @@ message Request {
 }
 
 message Success {
+  optional int64 short_id = 7 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [(buf.validate.field).string.min_len = 1];
   optional string session_name = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   google.protobuf.Duration duration = 3 [(buf.validate.field).required = true];
@@ -95,6 +96,7 @@ message Result {
 }
 
 message SessionStarted {
+  optional int64 short_id = 2 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
