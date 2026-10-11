@@ -124,12 +124,19 @@ func (s *SessionLifecycleService) RetargetSessionWorkspace(ctx context.Context, 
 	if s == nil || s.retargeter == nil {
 		return nil, errSessionWorkspaceRetargeterRequired
 	}
+	if s.removal == nil {
+		return nil, errors.New("Session metadata is required")
+	}
+	sessionID, err := s.removal.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
 	retargetRequest := metadata.SessionWorkspaceRetargetRequest{
-		SessionID:     req.SessionId,
+		SessionID:     sessionID.String(),
 		WorkspaceRoot: req.WorkspaceRoot,
 		ProjectID:     req.ProjectId,
 	}
-	if req.Origin != nil {
+	if req.Origin != nil && req.Origin.SessionId == sessionID.String() {
 		acknowledgement, err := s.retargeter.ScheduleWorkspaceRetarget(
 			ctx,
 			retargetRequest,

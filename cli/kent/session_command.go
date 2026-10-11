@@ -10,10 +10,12 @@ import (
 	"strings"
 	"syscall"
 
+	"core/cli/app"
 	"core/shared/client"
 	"core/shared/config"
+	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
-	"core/shared/sessionenv"
+	"core/shared/runtimeids"
 )
 
 const selfSessionRemovalMessage = "You're trying to delete your own session, which is effectively a suicide. Don't do it, you still have things worth living for! Seek help immediately via ask_question, or exclude your session if this is accidental"
@@ -36,9 +38,9 @@ type sessionRemovalResult struct {
 }
 
 type sessionRemovalError struct {
-	Code      string `json:"code"`
-	Message   string `json:"message"`
-	SessionID string `json:"session_id"`
+	Code      string  `json:"code"`
+	Message   string  `json:"message"`
+	SessionID *string `json:"session_id,omitempty"`
 }
 
 type sessionRemovalJSONEnvelope struct {
@@ -74,21 +76,15 @@ func (c sessionCommand) archive(args []string, stdout io.Writer, stderr io.Write
 		fmt.Fprintln(stderr, "session archive requires <session-id>")
 		return 2
 	}
-	sessionID := strings.TrimSpace(positionals[0])
-	if sessionID == "" {
-		fmt.Fprintln(stderr, "Session ID must not be blank")
+	selector, err := runtimeids.ParseSessionSelector(positionals[0])
+	if err != nil {
+		fmt.Fprintln(stderr, err)
 		return 2
 	}
+	sessionID := selector.String()
 	if strings.TrimSpace(*outputPath) == "" {
 		fmt.Fprintln(stderr, "session archive requires --output <path>")
 		return 2
-	}
-	if sessionCommandTargetsSelf(sessionID) {
-		return writeSessionRemovalOutcome(stdout, stderr, nil, sessionRemovalFailure(
-			sessionID,
-			"self_session_forbidden",
-			selfSessionRemovalMessage,
-		), *jsonOut)
 	}
 	remote, err := c.dial()
 	if err != nil {
@@ -126,18 +122,12 @@ func (c sessionCommand) delete(args []string, stdout io.Writer, stderr io.Writer
 		fmt.Fprintln(stderr, "session delete requires <session-id>")
 		return 2
 	}
-	sessionID := strings.TrimSpace(positionals[0])
-	if sessionID == "" {
-		fmt.Fprintln(stderr, "Session ID must not be blank")
+	selector, err := runtimeids.ParseSessionSelector(positionals[0])
+	if err != nil {
+		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	if sessionCommandTargetsSelf(sessionID) {
-		return writeSessionRemovalOutcome(stdout, stderr, nil, sessionRemovalFailure(
-			sessionID,
-			"self_session_forbidden",
-			selfSessionRemovalMessage,
-		), *jsonOut)
-	}
+	sessionID := selector.String()
 	if !*confirmed {
 		return writeSessionRemovalOutcome(stdout, stderr, nil, sessionRemovalFailure(
 			sessionID,
@@ -186,20 +176,24 @@ func openSessionCommandRemote(ctx context.Context) (sessionCommandRemote, error)
 	return remote, err
 }
 
-func sessionCommandTargetsSelf(sessionID string) bool {
-	current, ok := sessionenv.LookupSessionID(os.LookupEnv)
-	return ok && current == sessionID
-}
-
 func runSessionArchiveUseCase(
 	ctx context.Context,
 	remote sessionCommandRemote,
 	sessionID string,
 	outputPath string,
 ) (*sessionRemovalResult, error) {
+	selector, err := runtimeids.ParseSessionSelector(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	caller, err := app.LiveSteerCallerSessionID()
+	if err != nil {
+		return nil, err
+	}
 	response, err := remote.ArchiveSession(ctx, &sessionlaunchpb.SessionArchiveRequest{
-		SessionId:  sessionID,
-		OutputPath: outputPath,
+		SessionId:       protoapi.SessionSelectorToProto(selector),
+		CallerSessionId: caller,
+		OutputPath:      outputPath,
 	})
 	if err != nil {
 		return nil, err
@@ -215,8 +209,17 @@ func runSessionDeleteUseCase(
 	remote sessionCommandRemote,
 	sessionID string,
 ) (*sessionRemovalResult, error) {
+	selector, err := runtimeids.ParseSessionSelector(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	caller, err := app.LiveSteerCallerSessionID()
+	if err != nil {
+		return nil, err
+	}
 	response, err := remote.DeleteSession(ctx, &sessionlaunchpb.SessionDeleteRequest{
-		SessionId: sessionID,
+		SessionId:       protoapi.SessionSelectorToProto(selector),
+		CallerSessionId: caller,
 	})
 	if err != nil {
 		return nil, err
@@ -230,6 +233,9 @@ func sessionArchiveFailure(sessionID string, err error) *sessionRemovalError {
 		return sessionRemovalFailure(sessionID, "request_failed", err.Error())
 	}
 	failure := wire.Failure
+	if self := failure.GetSelfTarget(); self != nil {
+		return sessionRemovalFailure(self.SessionId, "self_session_forbidden", selfSessionRemovalMessage)
+	}
 	if expected := expectedSessionRemovalFailure(
 		sessionID,
 		failure.Code,
@@ -265,6 +271,9 @@ func sessionDeleteFailure(sessionID string, err error) *sessionRemovalError {
 		return sessionRemovalFailure(sessionID, "request_failed", err.Error())
 	}
 	failure := wire.Failure
+	if self := failure.GetSelfTarget(); self != nil {
+		return sessionRemovalFailure(self.SessionId, "self_session_forbidden", selfSessionRemovalMessage)
+	}
 	if expected := expectedSessionRemovalFailure(
 		sessionID,
 		failure.Code,
@@ -285,16 +294,18 @@ func expectedSessionRemovalFailure(
 	switch code {
 	case "session_not_found":
 		if notFound != nil {
-			return sessionRemovalFailure(
+			failure := sessionRemovalFailure(
 				sessionID,
 				"session_not_found",
-				fmt.Sprintf("Session %s was not found.", sessionID),
+				fmt.Sprintf("Session %s was not found; it might have been deleted.", sessionID),
 			)
+			failure.SessionID = notFound.SessionId
+			return failure
 		}
 	case "session_in_use":
 		if inUse != nil {
 			return sessionRemovalFailure(
-				sessionID,
+				inUse.SessionId,
 				"session_in_use",
 				fmt.Sprintf("Session %s is in use and cannot be removed.", sessionID),
 			)
@@ -319,10 +330,17 @@ func sessionRemovalFailure(
 	code string,
 	message string,
 ) *sessionRemovalError {
+	var identity *string
+	if selector, err := runtimeids.ParseSessionSelector(sessionID); err == nil {
+		if id, ok := selector.(runtimeids.SessionID); ok {
+			value := id.String()
+			identity = &value
+		}
+	}
 	return &sessionRemovalError{
 		Code:      code,
 		Message:   message,
-		SessionID: sessionID,
+		SessionID: identity,
 	}
 }
 

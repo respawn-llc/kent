@@ -338,9 +338,10 @@ func TestServiceRetargetSessionWorkspaceDelegatesAndMapsBinding(t *testing.T) {
 		},
 		WorkspaceBindingCreated: true,
 	}}
-	service := NewGlobalSessionLifecycleService(t.TempDir(), nil, nil).WithWorkspaceRetargeter(retargeter)
+	fixture := newSessionRemovalServiceFixture(t)
+	service := fixture.service.WithWorkspaceRetargeter(retargeter)
 	resp, err := service.RetargetSessionWorkspace(context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
-		SessionId:     "session-1",
+		SessionId:     requestfixture.Selector(t, "33333333-3333-4333-8333-333333333333"),
 		WorkspaceRoot: retargeter.result.Binding.CanonicalRoot,
 		ProjectId:     &projectID,
 	})
@@ -360,13 +361,15 @@ func TestServiceRetargetSessionWorkspaceDelegatesAndMapsBinding(t *testing.T) {
 
 func TestServiceRetargetSessionWorkspacePreservesRuntimeOrigin(t *testing.T) {
 	retargeter := &sessionLifecycleRetargeterStub{}
-	service := NewGlobalSessionLifecycleService(t.TempDir(), nil, nil).WithWorkspaceRetargeter(retargeter)
+	fixture := newSessionRemovalServiceFixture(t)
+	service := fixture.service.WithWorkspaceRetargeter(retargeter)
 	origin := &sessionlaunchpb.RuntimeStepOrigin{
-		RunId:  "11111111-1111-4111-8111-111111111111",
-		StepId: "22222222-2222-4222-8222-222222222222",
+		SessionId: "33333333-3333-4333-8333-333333333333",
+		RunId:     "11111111-1111-4111-8111-111111111111",
+		StepId:    "22222222-2222-4222-8222-222222222222",
 	}
 	response, err := service.RetargetSessionWorkspace(t.Context(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
-		SessionId:     "session-1",
+		SessionId:     requestfixture.Selector(t, "33333333-3333-4333-8333-333333333333"),
 		WorkspaceRoot: t.TempDir(),
 		Origin:        origin,
 	})
@@ -381,7 +384,7 @@ func TestServiceRetargetSessionWorkspacePreservesRuntimeOrigin(t *testing.T) {
 func TestServiceRetargetSessionWorkspaceRequiresRetargeter(t *testing.T) {
 	service := NewGlobalSessionLifecycleService(t.TempDir(), nil, nil)
 	_, err := service.RetargetSessionWorkspace(context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
-		SessionId:     "session-1",
+		SessionId:     requestfixture.Selector(t, "33333333-3333-4333-8333-333333333333"),
 		WorkspaceRoot: t.TempDir(),
 	})
 	if !errors.Is(err, errSessionWorkspaceRetargeterRequired) {

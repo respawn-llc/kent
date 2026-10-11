@@ -298,7 +298,7 @@ func worktreeEnterSubcommand(args []string, stdout io.Writer, stderr io.Writer) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	origin, err := sessionRetargetRuntimeOrigin(sessionID)
+	origin, err := sessionRetargetRuntimeOrigin()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -306,8 +306,9 @@ func worktreeEnterSubcommand(args []string, stdout io.Writer, stderr io.Writer) 
 	var transitionOrigin *worktreepb.TransitionRuntimeStepOrigin
 	if origin != nil {
 		transitionOrigin = &worktreepb.TransitionRuntimeStepOrigin{
-			RunId:  origin.RunId,
-			StepId: origin.StepId,
+			SessionId: origin.SessionId,
+			RunId:     origin.RunId,
+			StepId:    origin.StepId,
 		}
 	}
 	operationID := worktreecontract.NewOperationID()

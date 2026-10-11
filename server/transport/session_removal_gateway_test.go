@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/server/core"
 	"core/server/metadata"
 	"core/server/session"
@@ -64,11 +65,11 @@ func TestSessionRemovalGatewayCancellationRetainsAcceptedWorkAndAdmission(t *tes
 		afterCancellation func(*client.Remote, string) error
 	}{
 		{name: "archive", request: func(ctx context.Context, remote *client.Remote, sessionID, outputPath string) error {
-			_, err := remote.ArchiveSession(ctx, &sessionlaunchpb.SessionArchiveRequest{SessionId: sessionID, OutputPath: outputPath})
+			_, err := remote.ArchiveSession(ctx, &sessionlaunchpb.SessionArchiveRequest{SessionId: requestfixture.Selector(t, sessionID), OutputPath: outputPath})
 			return err
 		}, afterCancellation: func(_ *client.Remote, outputPath string) error { _, err := os.Stat(outputPath); return err }},
 		{name: "delete", request: func(ctx context.Context, remote *client.Remote, sessionID, _ string) error {
-			_, err := remote.DeleteSession(ctx, &sessionlaunchpb.SessionDeleteRequest{SessionId: sessionID})
+			_, err := remote.DeleteSession(ctx, &sessionlaunchpb.SessionDeleteRequest{SessionId: requestfixture.Selector(t, sessionID)})
 			return err
 		}, afterCancellation: func(remote *client.Remote, _ string) error { return remote.Close() }},
 	}
@@ -138,7 +139,7 @@ func TestSessionRemovalFailureDetailsKeepOnlyExpectedOperatorErrors(t *testing.T
 	inUse := &metadata.SessionInUseError{SessionID: sessionID}
 
 	archiveFailure := sessionRemovalFailureDetails(
-		&sessionlaunchpb.SessionArchiveRequest{SessionId: sessionID},
+		&sessionlaunchpb.SessionArchiveRequest{SessionId: requestfixture.Selector(t, sessionID)},
 		inUse,
 	)
 	internal, ok := archiveFailure.(*sharedpb.InternalFailureDetails)
@@ -147,7 +148,7 @@ func TestSessionRemovalFailureDetailsKeepOnlyExpectedOperatorErrors(t *testing.T
 	}
 
 	deleteFailure := sessionRemovalFailureDetails(
-		&sessionlaunchpb.SessionDeleteRequest{SessionId: sessionID},
+		&sessionlaunchpb.SessionDeleteRequest{SessionId: requestfixture.Selector(t, sessionID)},
 		inUse,
 	)
 	if _, ok := deleteFailure.(*sessionlaunchpb.SessionInUseDetails); !ok {
@@ -159,7 +160,7 @@ func TestSessionRemovalFailureDetailsKeepOnlyExpectedOperatorErrors(t *testing.T
 		Err:  errors.New("write failed"),
 	}
 	archiveFailure = sessionRemovalFailureDetails(
-		&sessionlaunchpb.SessionArchiveRequest{SessionId: sessionID},
+		&sessionlaunchpb.SessionArchiveRequest{SessionId: requestfixture.Selector(t, sessionID)},
 		pathFailure,
 	)
 	internal, ok = archiveFailure.(*sharedpb.InternalFailureDetails)

@@ -103,6 +103,7 @@ message SessionPersistInputDraftResult {
 }
 
 message RuntimeStepOrigin {
+  string session_id = 3 [(buf.validate.field).string.(scoped_session_id) = true];
   string run_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -114,9 +115,7 @@ message RuntimeStepOrigin {
 }
 
 message SessionRetargetWorkspaceRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.(scoped_session_id) = true
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
   string workspace_root = 2 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -441,9 +440,8 @@ message SessionRuntimeReleaseResult {
 }
 
 message SessionArchiveRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.(scoped_session_id) = true
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
+  optional string caller_session_id = 3 [(buf.validate.field).string.(scoped_session_id) = true];
   string output_path = 2 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -455,9 +453,8 @@ message SessionArchiveRequest {
 }
 
 message SessionDeleteRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.(scoped_session_id) = true
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
+  optional string caller_session_id = 2 [(buf.validate.field).string.(scoped_session_id) = true];
 }
 
 message SessionArchiveSuccess {
@@ -501,6 +498,10 @@ message SessionArchiveError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.shared.SessionSelfTargetDetails self_target = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "self_target"
+    }];
     SessionNotFoundDetails session_not_found = 2 [
       (kent.api.shared.kent_result_field) = {
         role: RESULT_FIELD_ROLE_ERROR_DETAIL
@@ -540,6 +541,10 @@ message SessionDeleteError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.shared.SessionSelfTargetDetails self_target = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "self_target"
+    }];
     SessionNotFoundDetails session_not_found = 2 [
       (kent.api.shared.kent_result_field) = {
         role: RESULT_FIELD_ROLE_ERROR_DETAIL

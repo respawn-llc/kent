@@ -902,6 +902,10 @@ message TransitionWorkspace {
 }
 
 message TransitionRuntimeStepOrigin {
+  string session_id = 3 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
   string run_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
