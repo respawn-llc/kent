@@ -260,8 +260,8 @@ func TestRuntimeMainViewRefreshCommitsOnlyWhenReducerHandlesCandidate(t *testing
 	if got.Session.GetSessionName() != "captured unary metadata" || got.Session.ExecutionTarget.GetWorkspaceId() != "workspace-1" {
 		t.Fatalf("unary session metadata was not projected: %+v", got.Session)
 	}
-	if m.reviewerMode != "edits" || !m.reviewerEnabled || m.sessionName != "captured unary metadata" {
-		t.Fatalf("UI metadata was not projected: reviewer=%q enabled=%t session=%q", m.reviewerMode, m.reviewerEnabled, m.sessionName)
+	if m.reviewerMode != "edits" || !m.reviewerEnabled || m.sessionName == nil || *m.sessionName != "captured unary metadata" {
+		t.Fatalf("UI metadata was not projected: reviewer=%q enabled=%t session=%v", m.reviewerMode, m.reviewerEnabled, m.sessionName)
 	}
 }
 

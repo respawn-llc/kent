@@ -145,7 +145,7 @@ func TestPreparedSessionSharesCallerTransaction(t *testing.T) {
 	}
 	established := creation.Snapshot()
 	established.Meta.LastSequence = 7
-	established.Meta.Name = "established"
+	established.Meta.Name = metadataStringPointer("established")
 	if err := store.ImportSessionSnapshot(t.Context(), established); err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestPreparedSessionSharesCallerTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	record, err := store.ResolvePersistedSession(t.Context(), id.String())
-	if err != nil || record.Meta.LastSequence != established.Meta.LastSequence || record.Meta.Name != established.Meta.Name {
+	if err != nil || record.Meta.LastSequence != established.Meta.LastSequence || record.Meta.Name == nil || *record.Meta.Name != *established.Meta.Name {
 		t.Fatalf("failed duplicate insertion changed existing Session: %+v, %v", record, err)
 	}
 }

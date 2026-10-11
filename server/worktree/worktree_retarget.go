@@ -95,7 +95,7 @@ func (s *Service) retargetDeleteSessionPage(ctx context.Context, workspace metad
 		if !retired {
 			return retargeted, &worktreecontract.BlockedError{Details: &worktreepb.BlockedDetails{
 				ActiveSessions: &worktreepb.ActiveSessionBlockers{Sessions: []*worktreepb.BlockingSession{{
-					SessionId: target.SessionID, Name: nonblankPointer(target.SessionName),
+					SessionId: target.SessionID, Name: target.SessionName,
 				}}},
 			}}
 		}

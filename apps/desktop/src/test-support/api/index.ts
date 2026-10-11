@@ -1,3 +1,8 @@
+export {
+  sessionSettingsSubscriptionRoute,
+  hasSessionSettingsSubscription,
+  emitSessionSettingsSnapshot,
+} from "./sessionSettingsFixtures";
 import {
   create,
   decode,

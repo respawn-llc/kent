@@ -201,9 +201,9 @@ func WithUIInitialInput(text string) UIOption {
 	}
 }
 
-func WithUISessionName(name string) UIOption {
+func WithUISessionName(name *string) UIOption {
 	return func(m *uiModel) {
-		m.sessionName = strings.TrimSpace(name)
+		m.sessionName = name
 	}
 }
 

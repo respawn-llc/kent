@@ -163,7 +163,7 @@ func TestCloneSessionStreamsLargeHistoryAcrossChunks(t *testing.T) {
 	}
 
 	parentRecords := collectForkRecords(t, parentLog)
-	child, err := CloneSession(parentLog, "clone", testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+	child, err := CloneSession(parentLog, new("clone"), testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("clone session: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestCloneSessionDoesNotInheritGoal(t *testing.T) {
 		t.Fatalf("append source message: %v", err)
 	}
 
-	child, err := CloneSession(parentLog, "clone", testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+	child, err := CloneSession(parentLog, new("clone"), testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("CloneSession: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestStreamedForkAndCloneRequireAndPersistCategory(t *testing.T) {
 		t.Fatalf("fork category = %v, want main", got)
 	}
 
-	cloned, err := CloneSession(parentLog, "workflow clone", sessioncontract.SessionCategorySubagent, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+	cloned, err := CloneSession(parentLog, new("workflow clone"), sessioncontract.SessionCategorySubagent, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("clone session: %v", err)
 	}
@@ -351,7 +351,7 @@ func TestCloneSessionFlushesAtCountAndByteBudgets(t *testing.T) {
 			}
 			persistence.startChildCapture(parent.Meta().SessionID)
 
-			child, err := CloneSession(parentLog, "clone", testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+			child, err := CloneSession(parentLog, new("clone"), testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 			if err != nil {
 				t.Fatalf("clone session: %v", err)
 			}
@@ -628,7 +628,7 @@ func TestCloneSessionDerivesLatestHeadlessAndReminderState(t *testing.T) {
 		t.Fatalf("append state fixtures: receipt=%+v err=%v", receipt, err)
 	}
 
-	child, err := CloneSession(parentLog, "clone", testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+	child, err := CloneSession(parentLog, new("clone"), testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("clone session: %v", err)
 	}
@@ -670,7 +670,7 @@ func assertOnlyForkParentSessionDir(t *testing.T, root string, parent *Store) {
 
 func TestCloneSessionWithoutEventsPersistsEmptyChild(t *testing.T) {
 	parent := newSessionTestStore(t)
-	child, err := CloneSession(materializedForkEventLog(t, parent), "clone", testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+	child, err := CloneSession(materializedForkEventLog(t, parent), new("clone"), testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("clone empty session: %v", err)
 	}

@@ -331,7 +331,7 @@ func TestRemoteLiveResponsesRejectMismatchedSessionIDs(t *testing.T) {
 			method:  promptpb.File_kent_api_prompt_prompt_proto.Services().ByName("LiveWatchService").Methods().ByName("Watch"),
 			request: &promptpb.LiveWatchRequest{},
 			response: &promptpb.LiveWatchSuccess{SessionId: "session-b", Outcome: &promptpb.LiveWatchOutcome{
-				Outcome: &promptpb.LiveWatchOutcome_FinalAnswer{FinalAnswer: &promptpb.LiveWatchFinal{SessionName: "Session", Duration: durationpb.New(time.Millisecond)}},
+				Outcome: &promptpb.LiveWatchOutcome_FinalAnswer{FinalAnswer: &promptpb.LiveWatchFinal{SessionName: proto.String("Session"), Duration: durationpb.New(time.Millisecond)}},
 			}},
 			call: func(ctx context.Context, remote *Remote) error {
 				_, err := remote.LiveWatch(ctx, &promptpb.LiveWatchRequest{SessionId: "session-a"})
@@ -343,7 +343,7 @@ func TestRemoteLiveResponsesRejectMismatchedSessionIDs(t *testing.T) {
 			method:  runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("LiveService").Methods().ByName("Wait"),
 			request: &runtimepb.LiveWaitRequest{},
 			response: &runtimepb.LiveWaitSuccess{
-				SessionId: "018fdd67-89ab-4cde-8123-456789abcdee", SessionName: "Session",
+				SessionId: "018fdd67-89ab-4cde-8123-456789abcdee", SessionName: proto.String("Session"),
 				Result:         &runtimepb.LiveWaitSuccess_AssistantFinalAnswer{AssistantFinalAnswer: &runtimepb.LiveWaitAssistantFinalAnswer{Result: "done"}},
 				Duration:       durationpb.New(time.Millisecond),
 				LiveRunGroupId: "018fdd67-89ab-4cde-8123-456789abcdef",

@@ -88,6 +88,7 @@ type RuntimeBundle struct {
 }
 
 type SessionBundle struct {
+	settingsChanges     *sessionlaunch.SettingsBroadcaster
 	mu                  sync.Mutex
 	runPromptMu         sync.Mutex
 	sessionLaunchMap    map[string]apicontract.SessionLaunchService
@@ -184,6 +185,7 @@ type bundleCompositionInput struct {
 	serverStatusService     *serverstatus.ServerStatusService
 	sessionRuntimeAPI       *sessionruntime.API
 	sessionViewService      *sessionview.Service
+	settingsChanges         *sessionlaunch.SettingsBroadcaster
 	sessionLifecycleService *sessionservice.SessionLifecycleService
 	updateStatusService     *serverstatus.UpdateStatusService
 	workflowService         *workflowsvc.Service
@@ -200,6 +202,7 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 		Capability: in.capabilityFactsService,
 		Chat:       &ChatBundle{operations: in.chatOperationOwner},
 		cleanup: []lifecycleResource{
+			{name: "Session settings observation", close: in.settingsChanges.Close},
 			{name: "persistence root lock", close: in.rootLease.Close},
 			{name: "metadata store", close: in.metadataStore.Close},
 			{name: "background manager", close: in.background.Close},
@@ -246,7 +249,7 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 		Projects:    newProjectBundle(in.cfg, in.workspaceConfigResolver, in.projectViews),
 		Prompts:     newPromptBundle(in.askService, in.approvalService, in.promptControlService, in.attentionService),
 		Runtime:     newRuntimeBundle(in.background, in.runtimeRegistry, in.runtimeAuthority, in.runtimeControlService, in.sessionRuntimeAPI),
-		Sessions:    newSessionBundle(in.sessionViewService, in.sessionLifecycleService, in.metadataStore),
+		Sessions:    newSessionBundle(in.sessionViewService, in.sessionLifecycleService, in.settingsChanges),
 		Workflows:   newWorkflowBundle(in.workflowService, in.workflowController),
 		Worktrees:   &WorktreeBundle{worktrees: in.worktreeService},
 	}
@@ -304,8 +307,9 @@ func newWorkflowBundle(workflowService *workflowsvc.Service, controller *workflo
 	return &WorkflowBundle{workflows: workflowService, controller: controller}
 }
 
-func newSessionBundle(sessionViewService *sessionview.Service, sessionLifecycleService *sessionservice.SessionLifecycleService, metadataStore *metadata.Store) *SessionBundle {
+func newSessionBundle(sessionViewService *sessionview.Service, sessionLifecycleService *sessionservice.SessionLifecycleService, settingsChanges *sessionlaunch.SettingsBroadcaster) *SessionBundle {
 	return &SessionBundle{
+		settingsChanges:     settingsChanges,
 		sessionLaunchMap:    make(map[string]apicontract.SessionLaunchService),
 		sessionServices:     make(map[string]*sessionlaunch.Service),
 		runPromptMap:        make(map[string]apicontract.RunPromptService),

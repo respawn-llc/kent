@@ -1,17 +1,12 @@
 package app
 
-import (
-	"strings"
-
-	brand "core/shared/config"
-)
+import brand "core/shared/config"
 
 const defaultSessionTitle = brand.Command
 
-func sessionTitle(name string) string {
-	trimmed := strings.TrimSpace(name)
-	if trimmed == "" {
+func sessionTitle(name *string) string {
+	if name == nil {
 		return defaultSessionTitle
 	}
-	return trimmed
+	return *name
 }

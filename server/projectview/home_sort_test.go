@@ -74,7 +74,7 @@ func TestMetadataServiceSortsProjectHomeByLatestTaskActivityOrEdit(t *testing.T)
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)
 	}
-	if err := sess.SetName("Recent chat"); err != nil {
+	if err := sess.SetName(new("Recent chat")); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
 	sessionActivityUnixMs := taskActivityUnixMs + 2

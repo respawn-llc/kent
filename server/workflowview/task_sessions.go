@@ -208,7 +208,7 @@ func taskSessionStatusRank(status taskpb.SessionStatus) int {
 
 func taskSessionProjectionFromFields(
 	sessionID string,
-	sessionName string,
+	sessionName sql.NullString,
 	nodeName sql.NullString,
 	continuationJSON string,
 	createdAtUnixMs int64,
@@ -221,7 +221,7 @@ func taskSessionProjectionFromFields(
 	return taskSessionProjection{
 		item: &taskpb.SessionItem{
 			SessionId:   sessionID,
-			SessionName: optionalTaskSessionString(sessionName),
+			SessionName: metadata.OptionalString(sessionName),
 			NodeName:    metadata.OptionalString(nodeName),
 			AgentRole:   agentRole,
 			Status:      status,
@@ -243,12 +243,4 @@ func taskSessionAgentRole(continuationJSON string) (string, error) {
 		return workflow.DefaultAgentRole, nil
 	}
 	return *normalized.AgentRole, nil
-}
-
-func optionalTaskSessionString(value string) *string {
-	if value == "" {
-		return nil
-	}
-	copied := value
-	return &copied
 }

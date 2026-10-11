@@ -134,7 +134,7 @@ func ForkAtUserMessage(parentLog MaterializedEventLog, userMessageSeq int64, for
 // CloneSession creates a child session that replays the parent's entire
 // conversation history. Workflow fan-out copies retain the outgoing contract for
 // a permitted lazy compaction, or reuse the source's committed summary.
-func CloneSession(parentLog MaterializedEventLog, forkName string, category sessioncontract.SessionCategory, thinking ForkThinking) (*Store, error) {
+func CloneSession(parentLog MaterializedEventLog, forkName *string, category sessioncontract.SessionCategory, thinking ForkThinking) (*Store, error) {
 	parent, err := materializedForkParent(parentLog)
 	if err != nil {
 		return nil, err
@@ -189,8 +189,12 @@ func streamChildFromParent(
 		return nil, 0, err
 	}
 
+	name, err := sessioncontract.NormalizeSessionName(&forkName)
+	if err != nil {
+		return nil, 0, err
+	}
 	child.mu.Lock()
-	child.meta.Name = strings.TrimSpace(forkName)
+	child.meta.Name = name
 	child.meta.ChatSettings = &ChatSettingsOverrides{Thinking: textutil.Value(thinking.Desired)}
 	if thinking.PreserveNativeUpdates {
 		child.meta.OriginalThinkingEffort = textutil.Pointer(parentMeta.OriginalThinkingEffort)

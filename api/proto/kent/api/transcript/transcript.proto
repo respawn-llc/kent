@@ -1082,6 +1082,13 @@ enum SessionSettingKind {
   SESSION_SETTING_KIND_AUTO_COMPACTION = 6;
 }
 
+message SessionNameValue {
+  optional string name = 1 [
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true,
+    (buf.validate.field).string.(kent.api.shared.trimmed) = true
+  ];
+}
+
 message SessionSettingFeedback {
   SessionSettingKind kind = 1 [(buf.validate.field).enum = {
     defined_only: true
@@ -1090,7 +1097,7 @@ message SessionSettingFeedback {
   bool changed = 2;
   oneof value {
     option (buf.validate.oneof).required = true;
-    string session_name = 3;
+    SessionNameValue session_name = 3;
     string thinking = 4 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
     bool fast_mode = 5;
     string supervisor = 6 [(buf.validate.field).string = {
@@ -1107,7 +1114,7 @@ message SessionSettingFeedback {
     id: "kent.transcript.session_setting_feedback_value"
     message: "Session setting feedback kind and resulting value must agree"
     expression:
-      "(this.kind == 1 && has(this.session_name) && this.session_name == this.session_name.trim()) || "
+      "(this.kind == 1 && has(this.session_name)) || "
       "(this.kind == 2 && has(this.thinking) && this.thinking == this.thinking.trim()) || "
       "(this.kind == 3 && has(this.fast_mode)) || "
       "(this.kind == 4 && has(this.supervisor)) || "

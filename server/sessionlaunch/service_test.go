@@ -79,7 +79,7 @@ func TestServicePlanSessionProjectsTypedOptionalSessionName(t *testing.T) {
 		Intent: intent,
 	}
 
-	if err := store.SetName(""); err != nil {
+	if err := store.SetName(nil); err != nil {
 		t.Fatalf("clear session name: %v", err)
 	}
 	absent, err := service.PlanSession(t.Context(), request)
@@ -91,7 +91,7 @@ func TestServicePlanSessionProjectsTypedOptionalSessionName(t *testing.T) {
 	}
 
 	title := "Incident triage"
-	if err := store.SetName(title); err != nil {
+	if err := store.SetName(&title); err != nil {
 		t.Fatalf("set session name: %v", err)
 	}
 	present, err := service.PlanSession(t.Context(), request)

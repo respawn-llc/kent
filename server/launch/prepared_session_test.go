@@ -36,7 +36,7 @@ func TestPrepareSessionDoesNotPublishIdentityOrArtifacts(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(container, id.String())); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("preparation published artifacts: %v", err)
 	}
-	if prepared.Creation.Snapshot().Meta.Name == "" {
+	if prepared.Creation.Snapshot().Meta.Name == nil {
 		t.Fatal("preparation omitted headless listing metadata")
 	}
 }

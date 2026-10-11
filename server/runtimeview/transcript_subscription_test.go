@@ -762,7 +762,7 @@ func TestQuestionAnswererProjectsAcrossLiveHydrationAndPageRows(t *testing.T) {
 	}}}
 	page, err := TranscriptPageFromSegment(
 		"12345678-1234-4234-8234-123456789012",
-		"session",
+		textutil.Value("session"),
 		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{Snapshot: snapshot},
 	)
@@ -859,7 +859,7 @@ func TestTranscriptReasoningDurationProjectsHydrationAndBoundedPage(t *testing.T
 
 	page, err := TranscriptPageFromSegment(
 		"58e121b5-30f7-4d0f-a1fa-fb3e6695e39c",
-		"name",
+		textutil.Value("name"),
 		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{
 			StepID:     runtimeStepIDPointer(transcriptProjectionStepID),
@@ -1031,7 +1031,7 @@ func TestWebSearchLiveAndReopenedPage(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			page, err := TranscriptPageFromSegment(projectionWorkspaceID, "search", runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, segment)
+			page, err := TranscriptPageFromSegment(projectionWorkspaceID, textutil.Value("search"), runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, segment)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1070,7 +1070,7 @@ func TestTranscriptPagePreservesRollbackTargetIdentity(t *testing.T) {
 	}
 	page, err := TranscriptPageFromSegment(
 		"58e121b5-30f7-4d0f-a1fa-fb3e6695e39c",
-		"name",
+		textutil.Value("name"),
 		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{
 			LatestRollbackCandidate: locator,
@@ -1127,7 +1127,7 @@ func TestTranscriptProjectionCanonicalizesBlankPersistedAssistantPhase(t *testin
 func TestTranscriptPageProjectsReviewerAndBackgroundMetadata(t *testing.T) {
 	exitCode := 9
 	activityID := uuid.New()
-	page, err := TranscriptPageFromSegment("58e121b5-30f7-4d0f-a1fa-fb3e6695e39c", "name", runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, runtime.TranscriptSegmentPage{
+	page, err := TranscriptPageFromSegment("58e121b5-30f7-4d0f-a1fa-fb3e6695e39c", textutil.Value("name"), runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, runtime.TranscriptSegmentPage{
 		Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{
 			{Role: "reviewer_status", Text: "review complete", CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 6}},
 			{

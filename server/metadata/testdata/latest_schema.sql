@@ -59,7 +59,7 @@ CREATE TABLE "sessions" (
     workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
     worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL,
     artifact_relpath TEXT NOT NULL,
-    name TEXT NOT NULL DEFAULT '',
+    name TEXT,
     first_prompt_preview TEXT NOT NULL DEFAULT '',
     input_draft TEXT NOT NULL DEFAULT '',
     category TEXT CHECK (category IS NULL OR category IN ('main', 'subagent')),
@@ -72,12 +72,18 @@ CREATE TABLE "sessions" (
     continuation_json TEXT NOT NULL DEFAULT '{}',
     locked_json TEXT NOT NULL DEFAULT '{}',
     usage_state_json TEXT NOT NULL DEFAULT '{}',
-    metadata_json TEXT NOT NULL DEFAULT '{}'
-, previous_session_id TEXT
-    CHECK (previous_session_id IS NULL OR length(trim(previous_session_id)) > 0), parent_agent_session_id TEXT
-    CHECK (parent_agent_session_id IS NULL OR length(trim(parent_agent_session_id)) > 0), task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL, completed_compaction_count INTEGER
-CHECK (completed_compaction_count IS NULL OR completed_compaction_count >= 0), manual_compact_eligible INTEGER
-CHECK (manual_compact_eligible IS NULL OR manual_compact_eligible IN (0, 1)), protected_input_draft TEXT);
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    previous_session_id TEXT
+        CHECK (previous_session_id IS NULL OR length(trim(previous_session_id)) > 0),
+    parent_agent_session_id TEXT
+        CHECK (parent_agent_session_id IS NULL OR length(trim(parent_agent_session_id)) > 0),
+    task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+    completed_compaction_count INTEGER
+        CHECK (completed_compaction_count IS NULL OR completed_compaction_count >= 0),
+    manual_compact_eligible INTEGER
+        CHECK (manual_compact_eligible IS NULL OR manual_compact_eligible IN (0, 1)),
+    protected_input_draft TEXT
+);
 
 CREATE TABLE "task_active_fanout_branches" (
     task_id TEXT NOT NULL REFERENCES task_active_fanouts(task_id) ON DELETE CASCADE,
@@ -614,14 +620,14 @@ CREATE INDEX sessions_task_activity_idx
     WHERE task_id IS NOT NULL;
 
 CREATE INDEX sessions_visible_category_recency_idx
-ON sessions(project_id, COALESCE(category, 'main'), updated_at_unix_ms DESC, id DESC)
-WHERE launch_visible <> 0;
+    ON sessions(project_id, COALESCE(category, 'main'), updated_at_unix_ms DESC, id DESC)
+    WHERE launch_visible <> 0;
 
 CREATE INDEX sessions_workspace_idx ON sessions(workspace_id, updated_at_unix_ms DESC);
 
 CREATE INDEX sessions_worktree_updated_idx
-ON sessions(worktree_id, updated_at_unix_ms DESC)
-WHERE worktree_id IS NOT NULL;
+    ON sessions(worktree_id, updated_at_unix_ms DESC)
+    WHERE worktree_id IS NOT NULL;
 
 CREATE INDEX task_comments_task_activity_idx
     ON task_comments(task_id, updated_at_unix_ms DESC, CAST('comment:' || id AS TEXT) DESC);
@@ -827,10 +833,8 @@ BEFORE INSERT ON sessions
 FOR EACH ROW
 WHEN NEW.task_id IS NOT NULL
 AND NOT EXISTS (
-    SELECT 1
-    FROM task_records task
-    WHERE task.id = NEW.task_id
-      AND task.project_id = NEW.project_id
+    SELECT 1 FROM task_records task
+    WHERE task.id = NEW.task_id AND task.project_id = NEW.project_id
 )
 BEGIN
     SELECT RAISE(ABORT, 'session task owner must belong to session project');
@@ -841,10 +845,8 @@ BEFORE UPDATE OF task_id, project_id ON sessions
 FOR EACH ROW
 WHEN NEW.task_id IS NOT NULL
 AND NOT EXISTS (
-    SELECT 1
-    FROM task_records task
-    WHERE task.id = NEW.task_id
-      AND task.project_id = NEW.project_id
+    SELECT 1 FROM task_records task
+    WHERE task.id = NEW.task_id AND task.project_id = NEW.project_id
 )
 BEGIN
     SELECT RAISE(ABORT, 'session task owner must belong to session project');
@@ -854,12 +856,10 @@ CREATE TRIGGER sessions_workspace_project_insert
 BEFORE INSERT ON sessions
 FOR EACH ROW
 WHEN NEW.workspace_id IS NOT NULL
- AND NOT EXISTS (
-    SELECT 1
-    FROM workspaces w
-    WHERE w.id = NEW.workspace_id
-      AND w.project_id = NEW.project_id
- )
+AND NOT EXISTS (
+    SELECT 1 FROM workspaces w
+    WHERE w.id = NEW.workspace_id AND w.project_id = NEW.project_id
+)
 BEGIN
     SELECT RAISE(ABORT, 'session workspace must belong to project');
 END;
@@ -868,12 +868,10 @@ CREATE TRIGGER sessions_workspace_project_update
 BEFORE UPDATE OF project_id, workspace_id ON sessions
 FOR EACH ROW
 WHEN NEW.workspace_id IS NOT NULL
- AND NOT EXISTS (
-    SELECT 1
-    FROM workspaces w
-    WHERE w.id = NEW.workspace_id
-      AND w.project_id = NEW.project_id
- )
+AND NOT EXISTS (
+    SELECT 1 FROM workspaces w
+    WHERE w.id = NEW.workspace_id AND w.project_id = NEW.project_id
+)
 BEGIN
     SELECT RAISE(ABORT, 'session workspace must belong to project');
 END;
@@ -882,15 +880,13 @@ CREATE TRIGGER sessions_worktree_workspace_insert
 BEFORE INSERT ON sessions
 FOR EACH ROW
 WHEN NEW.worktree_id IS NOT NULL
- AND (
+AND (
     NEW.workspace_id IS NULL
     OR NOT EXISTS (
-        SELECT 1
-        FROM worktrees wt
-        WHERE wt.id = NEW.worktree_id
-          AND wt.workspace_id = NEW.workspace_id
+        SELECT 1 FROM worktrees wt
+        WHERE wt.id = NEW.worktree_id AND wt.workspace_id = NEW.workspace_id
     )
- )
+)
 BEGIN
     SELECT RAISE(ABORT, 'session worktree must belong to session workspace');
 END;
@@ -899,15 +895,13 @@ CREATE TRIGGER sessions_worktree_workspace_update
 BEFORE UPDATE OF workspace_id, worktree_id ON sessions
 FOR EACH ROW
 WHEN NEW.worktree_id IS NOT NULL
- AND (
+AND (
     NEW.workspace_id IS NULL
     OR NOT EXISTS (
-        SELECT 1
-        FROM worktrees wt
-        WHERE wt.id = NEW.worktree_id
-          AND wt.workspace_id = NEW.workspace_id
+        SELECT 1 FROM worktrees wt
+        WHERE wt.id = NEW.worktree_id AND wt.workspace_id = NEW.workspace_id
     )
- )
+)
 BEGIN
     SELECT RAISE(ABORT, 'session worktree must belong to session workspace');
 END;

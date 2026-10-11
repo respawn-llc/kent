@@ -391,13 +391,17 @@ func notificationMarkdownPreview(
 func (h *bellHooks) formatMessage(message string) string {
 	title := defaultSessionTitle
 	if h != nil && h.title != nil {
-		title = sessionTitle(h.title())
+		title = h.title()
 	}
 	return formatTerminalNotificationMessage(title, message)
 }
 
 func formatTerminalNotificationMessage(title, message string) string {
-	composed := terminalNotificationSingleLine(sessionTitle(title) + ": " + message)
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = defaultSessionTitle
+	}
+	composed := terminalNotificationSingleLine(title + ": " + message)
 	runes := []rune(composed)
 	if len(runes) <= terminalNotificationPreviewLimit {
 		return composed

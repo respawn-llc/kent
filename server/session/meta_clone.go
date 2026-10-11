@@ -1,9 +1,13 @@
 package session
 
-import "core/shared/config"
+import (
+	"core/shared/config"
+	"core/shared/textutil"
+)
 
 func cloneMeta(in Meta) Meta {
 	out := in
+	out.Name = textutil.Pointer(in.Name)
 	if in.ConnectionID != nil {
 		id := *in.ConnectionID
 		out.ConnectionID = &id

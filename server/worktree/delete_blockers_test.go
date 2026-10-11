@@ -9,6 +9,7 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/session"
 	"core/server/sessionruntime"
+	"core/shared/textutil"
 	"core/shared/worktreecontract"
 )
 
@@ -71,7 +72,7 @@ func TestDeleteWorktreeFindsActiveSessionAfterIdlePage(t *testing.T) {
 	}
 	id := active.Meta().SessionID
 	holdWorktreeSessionExecution(t, env, target, id)
-	if err := active.SetListingMetadata("renamed active session", ""); err != nil {
+	if err := active.SetListingMetadata(textutil.Value("renamed active session"), ""); err != nil {
 		t.Fatal(err)
 	}
 	next, err := env.store.ListSessionsTargetingWorktreePage(env.ctx, target.WorktreeID, firstPage.Next)
@@ -88,7 +89,7 @@ func TestDeleteWorktreeFindsActiveSessionAfterIdlePage(t *testing.T) {
 	if details == nil || len(details.Sessions) != 1 || details.HasMore {
 		t.Fatalf("unexpected blockers: %v", details)
 	}
-	if details.Sessions[0].SessionId != id || details.Sessions[0].GetName() != active.Meta().Name {
+	if details.Sessions[0].SessionId != id || !textutil.EqualOptional(details.Sessions[0].Name, active.Meta().Name) {
 		t.Fatalf("blocking Session identity lost: %v", details.Sessions[0])
 	}
 	state.assertUnchanged(t, env, id, target.WorktreeID)
@@ -101,12 +102,12 @@ func TestDeleteWorktreeBoundsActiveSessionDetails(t *testing.T) {
 	for range 51 {
 		sess := createServiceTestSession(t, env.store, env.cfg, env.binding)
 		id := sess.Meta().SessionID
-		if err := sess.SetListingMetadata("session "+id, ""); err != nil {
+		if err := sess.SetListingMetadata(textutil.Value("session "+id), ""); err != nil {
 			t.Fatal(err)
 		}
 		updateServiceTestSessionTarget(t, env, id, env.binding.WorkspaceID, target.WorktreeID, ".")
 		holdWorktreeSessionExecution(t, env, target, id)
-		identities[id] = sess.Meta().Name
+		identities[id] = *sess.Meta().Name
 	}
 	_, err := env.service.DeleteWorktree(env.ctx, worktreeDeleteRequest(env, target.WorktreeID))
 	var blocked *worktreecontract.BlockedError

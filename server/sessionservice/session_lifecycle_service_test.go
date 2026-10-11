@@ -182,7 +182,7 @@ func createAuthoritativeSessionLifecycleSession(t *testing.T, workspaceRoot stri
 		_ = store.Close()
 		t.Fatalf("session.Create: %v", err)
 	}
-	if err := sess.SetName("incident triage"); err != nil {
+	if err := sess.SetName(textutil.Value("incident triage")); err != nil {
 		_ = store.Close()
 		t.Fatalf("SetName: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestServiceGetInitialInputOverrideReturnsOnlyExactTransitionInput(t *testin
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			root, _, store := createPersistedSession(t)
-			if err := store.SetName("parent session"); err != nil {
+			if err := store.SetName(textutil.Value("parent session")); err != nil {
 				t.Fatalf("persist parent session: %v", err)
 			}
 			service := newTestSessionLifecycleService(root, nil)
@@ -269,7 +269,7 @@ func TestServiceGetInitialInputAllowsEmptySessionID(t *testing.T) {
 
 func TestServicePersistInputDraftWritesBySessionID(t *testing.T) {
 	root, _, store := createPersistedSession(t)
-	if err := store.SetName("session name"); err != nil {
+	if err := store.SetName(textutil.Value("session name")); err != nil {
 		t.Fatalf("set session name: %v", err)
 	}
 
@@ -390,7 +390,7 @@ func TestServiceRetargetSessionWorkspaceRequiresRetargeter(t *testing.T) {
 
 func TestServicePersistInputDraftPersistsAndDedupes(t *testing.T) {
 	root, _, store := createPersistedSession(t)
-	if err := store.SetName("session name"); err != nil {
+	if err := store.SetName(textutil.Value("session name")); err != nil {
 		t.Fatalf("set session name: %v", err)
 	}
 	service := newTestSessionLifecycleService(root, nil)
@@ -820,7 +820,7 @@ func TestServicePersistInputDraftResolvesSessionAcrossProjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create foreign session store: %v", err)
 	}
-	if err := store.SetName("foreign session"); err != nil {
+	if err := store.SetName(textutil.Value("foreign session")); err != nil {
 		t.Fatalf("persist foreign session meta: %v", err)
 	}
 

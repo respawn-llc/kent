@@ -355,14 +355,6 @@ func (e *Engine) applyStreamingStateMutationForStep(stepID string, mutate func(*
 	return e.steerOrderedRaw(provenance, steerEventIntent(Event{Kind: EventStreamingErrorUpdated}))
 }
 
-func (e *Engine) SetSessionName(ctx context.Context, name string) (bool, error) {
-	result, err := awaitEngineRuntimeOperation(ctx, e, func(context.Context) (bool, error) {
-		mutation, mutationErr := e.store.MutateName(name)
-		return mutation.Changed, mutationErr
-	})
-	return result, err
-}
-
 func (e *Engine) SetThinkingLevel(ctx context.Context, level string) error {
 	normalized := strings.TrimSpace(level)
 	if normalized == "" {
@@ -758,8 +750,8 @@ func (e *Engine) reviewerRequestConfigSnapshot() reviewerRequestConfig {
 	}
 }
 
-func (e *Engine) SessionName() string {
-	return strings.TrimSpace(e.store.Meta().Name)
+func (e *Engine) SessionName() *string {
+	return e.store.Meta().Name
 }
 
 func (e *Engine) SessionID() string {

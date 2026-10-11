@@ -586,7 +586,7 @@ func TranscriptSessionIdentityFromRuntime(
 	}
 	return &transcriptpb.SessionIdentity{
 		SessionId:             sessionID.String(),
-		SessionName:           textutil.OptionalTrimmedString(engine.SessionName()),
+		SessionName:           engine.SessionName(),
 		ConversationFreshness: ConversationFreshnessFromSession(freshness),
 	}, nil
 }

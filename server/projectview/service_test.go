@@ -34,7 +34,7 @@ func TestServiceDeletesProjectMetadataAndSessionArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	if err := created.SetName("delete-me"); err != nil {
+	if err := created.SetName(new("delete-me")); err != nil {
 		t.Fatalf("persist session: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(created.Dir(), "events.jsonl"), []byte("{}\n"), 0o644); err != nil {
@@ -126,7 +126,7 @@ func TestServiceDeleteProjectBlocksActiveSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	if err := created.SetName("active"); err != nil {
+	if err := created.SetName(new("active")); err != nil {
 		t.Fatalf("persist session: %v", err)
 	}
 	svc := newProjectViewMetadataService(t, store)
@@ -938,7 +938,7 @@ func createProjectViewSession(t testing.TB, store *metadata.Store, cfg config.Ap
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	if err := created.SetName(name); err != nil {
+	if err := created.SetName(new(name)); err != nil {
 		t.Fatalf("persist session: %v", err)
 	}
 	return created

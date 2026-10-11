@@ -925,7 +925,7 @@ func TestCommittedHistoryReplacementPreventsStaleUsageFromLaterMetadataPersisten
 	if !usageReceipt.Committed || !errors.Is(recordErr, usageErr) {
 		t.Fatalf("committed compacted-usage outcome: receipt=%+v error=%v", usageReceipt, recordErr)
 	}
-	if err := store.SetName("metadata"); err != nil {
+	if err := store.SetName(textutil.Value("metadata")); err != nil {
 		t.Fatalf("persist later metadata: %v", err)
 	}
 

@@ -7,7 +7,6 @@ import (
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"core/shared/textutil"
 )
 
 func MainViewFromRuntimeActivity(
@@ -155,7 +154,7 @@ func SessionViewFromRuntime(engine *runtime.Engine) (*runtimepb.SessionView, err
 	}
 	return &runtimepb.SessionView{
 		SessionId:             engine.SessionID(),
-		SessionName:           textutil.OptionalExactString(engine.SessionName()),
+		SessionName:           engine.SessionName(),
 		AgentRole:             engine.ContinuationAgentRole(),
 		ConversationFreshness: ConversationFreshnessFromSession(freshness),
 	}, nil

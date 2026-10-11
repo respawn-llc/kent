@@ -117,7 +117,7 @@ func TestCompactedOutputSurvivesReopenAndClone(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertPendingCompactedOutput(t, reopenedLog, want)
-			child, err := session.CloneSession(reopenedLog, "copy", sessioncontract.SessionCategoryMain,
+			child, err := session.CloneSession(reopenedLog, textutil.Value("copy"), sessioncontract.SessionCategoryMain,
 				session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 			if err != nil {
 				t.Fatal(err)
