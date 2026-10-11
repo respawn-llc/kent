@@ -687,6 +687,7 @@ message ObserveDone {
 }
 
 message ObserveQuestion {
+  optional int64 short_id = 5 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   optional string session_id = 1 [(buf.validate.field).string.min_len = 1];
   optional string script_path = 2 [(buf.validate.field).string.min_len = 1];
   optional string node_key = 3 [(buf.validate.field).string.min_len = 1];
@@ -694,6 +695,7 @@ message ObserveQuestion {
 }
 
 message ObserveFailure {
+  optional int64 short_id = 5 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   optional string session_id = 1 [(buf.validate.field).string.min_len = 1];
   optional string script_path = 2 [(buf.validate.field).string.min_len = 1];
   optional string node_key = 3 [(buf.validate.field).string.min_len = 1];

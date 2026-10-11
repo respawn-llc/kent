@@ -98,6 +98,17 @@ func (s *Service) observeWorkflowTask(ctx context.Context, req *taskpb.ObserveRe
 		if err != nil {
 			return nil, false, err
 		}
+		failure := outcome.GetExecutionError()
+		if failure == nil {
+			failure = outcome.GetInterrupted()
+		}
+		if failure != nil && failure.SessionId != nil {
+			identity, err := s.metadata.SessionIdentity(ctx, *currentNode.SessionID)
+			if err != nil {
+				return nil, false, err
+			}
+			failure.ShortId = protoapi.SessionShortIDToProto(identity.ShortID)
+		}
 		if req.Mode == taskpb.ObservationMode_OBSERVATION_MODE_WATCH ||
 			outcome.GetExecutionError() != nil ||
 			outcome.GetInterrupted() != nil {
@@ -200,6 +211,7 @@ func (s *Service) taskQuestion(
 	outcomeSessionID := prompt.SessionId
 	return &taskpb.ObserveOutcome{
 		Outcome: &taskpb.ObserveOutcome_Question{Question: &taskpb.ObserveQuestion{
+			ShortId:   prompt.ShortId,
 			SessionId: &outcomeSessionID,
 			NodeKey:   nodeKey(detail.CurrentNode, keys),
 			Question:  question,

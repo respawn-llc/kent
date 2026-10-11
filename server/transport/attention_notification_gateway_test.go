@@ -9,6 +9,7 @@ import (
 	testharness "core/internal/testharness/testsetup"
 	"core/server/attentionnotify"
 	"core/server/core"
+	"core/server/metadata"
 	"core/server/registry"
 	askquestion "core/server/tools"
 	"core/shared/apicontract"
@@ -88,6 +89,10 @@ func TestGatewayRemoteAttentionDesktopRouteIsRootGlobalAndKeepsQuestionsLiveOnly
 	beginGatewayPendingPrompt(t, broker, sessionTwo.Meta().SessionID, gatewayTaskBatchAskRequest("ask-b", "project-b", "task-b", sessionTwo.Meta().SessionID))
 	first := nextGatewayAttentionEvent(t, desktop)
 	second := nextGatewayAttentionEvent(t, desktop)
+	if first.GetPending().GetTarget().GetWorkflowTask().GetSessionShortId() != sessionOne.Identity().ShortID.Int64() ||
+		second.GetPending().GetTarget().GetWorkflowTask().GetSessionShortId() != sessionTwo.Identity().ShortID.Int64() {
+		t.Fatalf("desktop Session identity projections = %v, %v", first, second)
+	}
 	if first.GetPending().GetTarget().GetWorkflowTask().GetProjectId() != "project-a" || second.GetPending().GetTarget().GetWorkflowTask().GetProjectId() != "project-b" {
 		t.Fatalf("desktop cross-project events = %+v then %+v", first, second)
 	}
@@ -157,6 +162,9 @@ func TestGatewayRemoteSessionAttentionReceivesAuthorizedGenericPrompt(t *testing
 	if pending.GetPending() == nil || pending.GetPending().SessionId != sessionStore.Meta().SessionID {
 		t.Fatalf("session prompt pending = %+v", pending)
 	}
+	if pending.GetPending().ShortId == nil || *pending.GetPending().ShortId != sessionStore.Identity().ShortID.Int64() {
+		t.Fatalf("Session attention number = %v, want %v", pending.GetPending().ShortId, sessionStore.Identity())
+	}
 }
 
 type gatewayAttentionDependencies struct {
@@ -172,7 +180,12 @@ func newGatewayAttentionTestServer(t *testing.T) (*core.Core, *registry.RuntimeR
 	t.Helper()
 	appCore, _ := newGatewayTestCore(t, true, true)
 	broker := attentionnotify.NewBroker()
-	prompts := registry.NewRuntimeRegistry(nil).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	store, err := metadata.Open(appCore.Config().PersistenceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	prompts := registry.NewRuntimeRegistry(store).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	gateway, err := NewGateway(
 		&gatewayAttentionDependencies{Core: appCore, attention: prompts},
 		gatewayTestIdentity(),

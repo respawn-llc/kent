@@ -75,6 +75,12 @@ func (s observationPendingPromptSourceStub) ListPendingPrompts(string) []registr
 }
 
 func TestObserveWorkflowTaskWaitReturnsInterruptedOutcome(t *testing.T) {
+	_, _, binding, metadataStore := newWorkflowServiceTestContextWithMetadata(t)
+	sessionID := createPersistedWorkflowServiceSession(t, metadataStore, binding)
+	record, err := metadataStore.ResolvePersistedSession(t.Context(), sessionID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
 	taskID := "task-1"
 	projectID := "project-1"
 	workflowID := runtimeids.NewWorkflowID()
@@ -82,7 +88,7 @@ func TestObserveWorkflowTaskWaitReturnsInterruptedOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("current node reference: %v", err)
 	}
-	service := &Service{readModels: ReadModels{
+	service := &Service{metadata: metadataStore, readModels: ReadModels{
 		Definitions: observationDefinitionStub{},
 		TaskDetail: observationTaskDetailStub{
 			detail: &taskpb.TaskDetail{Summary: &taskpb.TaskSummary{
@@ -90,6 +96,7 @@ func TestObserveWorkflowTaskWaitReturnsInterruptedOutcome(t *testing.T) {
 			}, Status: &taskpb.TaskStatus{Kind: taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED, NativeState: taskpb.TaskNativeState_TASK_NATIVE_STATE_INTERRUPTED}},
 			nodes: []workflow.CurrentNode{{
 				Reference: currentNode,
+				SessionID: &sessionID,
 				Scheduling: &workflow.CurrentNodeScheduling{
 					State: workflow.CurrentNodeSchedulingInterrupted,
 					Interruption: &workflow.CurrentNodeInterruption{
@@ -112,6 +119,11 @@ func TestObserveWorkflowTaskWaitReturnsInterruptedOutcome(t *testing.T) {
 	}
 	if response.Outcomes[0].GetInterrupted() == nil {
 		t.Fatalf("outcome = %v, want interruption", response.Outcomes[0])
+	}
+	failure := response.Outcomes[0].GetInterrupted()
+	if failure.GetSessionId() != sessionID.String() || record.ShortID == nil ||
+		failure.ShortId == nil || *failure.ShortId != record.ShortID.Int64() {
+		t.Fatalf("observed Session identity = %v, want %s/%v", failure, sessionID, record.ShortID)
 	}
 }
 
