@@ -9,6 +9,7 @@ import (
 type PendingAsk struct {
 	ToolCallID             ToolCallID
 	SessionID              runtimeids.SessionID
+	ShortID                *runtimeids.SessionShortID
 	StepID                 runtimeids.StepID
 	Question               string
 	Suggestions            []string

@@ -5,17 +5,92 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"path/filepath"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/session"
 	"core/server/session/sessiontest"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/transcript"
 )
+
+func TestQuestionHistoryProjectsRetainedAnswererIdentities(t *testing.T) {
+	for _, state := range []string{"numbered", "unnumbered", "deleted"} {
+		t.Run(state, func(t *testing.T) {
+			root, workspace := t.TempDir(), t.TempDir()
+			metadataStore := testsetup.OpenStore(t, root)
+			binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), workspace)
+			if err != nil {
+				t.Fatal(err)
+			}
+			answerer, err := session.Create(filepath.Join(root, "projects", binding.ProjectID, "sessions"), binding.WorkspaceName, workspace, sessioncontract.SessionCategoryMain, metadataStore.AuthoritativeSessionStoreOptions()...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			identity := answerer.Identity()
+			if state == "unnumbered" {
+				if _, err := metadataStore.DB().ExecContext(t.Context(), `UPDATE sessions SET short_id = NULL WHERE id = ?`, identity.ID.String()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			store := newSessionViewStore(t, t.TempDir(), "ws", t.TempDir())
+			completion := questionCompletion(t, "question", nil, &session.QuestionAnswerRecord{Freeform: sessionViewStringPointer("answer")})
+			completion.AnsweredBySessionID = &identity.ID
+			stepID := "22222222-2222-4222-8222-222222222222"
+			appendSessionViewRecord(t, store, stepID, session.MessageRecord{
+				Role: session.MessageRoleAssistant,
+				ToolCalls: []session.MessageToolCallRecord{{
+					CallID: completion.CallID, Name: completion.Name, Kind: session.ToolCallKindFunction,
+					Input: json.RawMessage(`{"question":"question"}`),
+				}},
+			})
+			appendSessionViewRecord(t, store, stepID, completion)
+			if state == "deleted" {
+				if err := metadataStore.DeleteFailedSessionCreationRecordByID(t.Context(), identity.ID.String()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			service := NewService(newTestSessionResolver(store), nil, nil, metadataStore)
+			target := &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}
+			sub, err := service.SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{SessionId: target, MaxHandoffs: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sub.Close()
+			_ = nextQuestionHistoryEvent(t, sub)
+			question := nextQuestionHistoryEvent(t, sub).GetQuestion()
+			if question.GetAnsweredBySessionId() != identity.ID.String() {
+				t.Fatalf("recorded answerer changed: %v", question)
+			}
+			if state == "numbered" {
+				if question.AnsweredBySessionShortId == nil || *question.AnsweredBySessionShortId != identity.ShortID.Int64() {
+					t.Fatalf("answerer number = %v, want %v", question.AnsweredBySessionShortId, identity)
+				}
+			} else if question.AnsweredBySessionShortId != nil {
+				t.Fatalf("historical reference gained a number: %v", question)
+			}
+			page, err := service.GetSessionTranscriptPage(t.Context(), &transcriptpb.PageRequest{SessionId: target})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(page.Transcript.Entries) != 1 {
+				t.Fatalf("transcript entries = %v", page.Transcript.Entries)
+			}
+			tool := page.Transcript.Entries[0].GetTool()
+			if tool.GetAnsweredBySessionId() != identity.ID.String() ||
+				!textutil.EqualOptional(tool.AnsweredBySessionShortId, question.AnsweredBySessionShortId) {
+				t.Fatalf("history/transcript answerer projections disagree: %v, %v", question, tool)
+			}
+		})
+	}
+}
 
 func TestQuestionHistorySubscriptionProjectsNewestAnsweredQuestions(t *testing.T) {
 	store := newSessionViewStore(t, t.TempDir(), "ws", t.TempDir())
@@ -40,7 +115,7 @@ func TestQuestionHistorySubscriptionProjectsNewestAnsweredQuestions(t *testing.T
 		&session.QuestionAnswerRecord{Freeform: sessionViewStringPointer("freeform")},
 	))
 
-	sub, err := NewService(newTestSessionResolver(store), nil, nil, nil).
+	sub, err := NewService(newTestSessionResolver(store), nil, nil, testsetup.OpenStore(t, t.TempDir())).
 		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
 			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}, MaxHandoffs: 2,
 		})
@@ -109,7 +184,7 @@ func TestQuestionHistorySubscriptionProjectsAgentAndUnattributedAnswers(t *testi
 		&session.QuestionAnswerRecord{Freeform: sessionViewStringPointer("older answer")},
 	))
 
-	sub, err := NewService(newTestSessionResolver(store), nil, nil, nil).
+	sub, err := NewService(newTestSessionResolver(store), nil, nil, testsetup.OpenStore(t, t.TempDir())).
 		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
 			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}, MaxHandoffs: 1,
 		})
@@ -172,7 +247,7 @@ func TestQuestionHistoryV1ProjectsPersistedAnswererAfterReload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen Session: %v", err)
 	}
-	sub, err := NewService(newTestSessionResolver(reopened), nil, nil, nil).
+	sub, err := NewService(newTestSessionResolver(reopened), nil, nil, testsetup.OpenStore(t, t.TempDir())).
 		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
 			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: reopened.Meta().SessionID}}, MaxHandoffs: 1,
 		})
@@ -199,7 +274,7 @@ func TestQuestionHistorySubscriptionOmissionEmptyAndCancellation(t *testing.T) {
 	if _, err := store.MaterializeEventLog(); err != nil {
 		t.Fatalf("materialize event log: %v", err)
 	}
-	sub, err := NewService(newTestSessionResolver(store), nil, nil, nil).
+	sub, err := NewService(newTestSessionResolver(store), nil, nil, testsetup.OpenStore(t, t.TempDir())).
 		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
 			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}, MaxHandoffs: 1,
 		})
@@ -215,7 +290,7 @@ func TestQuestionHistorySubscriptionOmissionEmptyAndCancellation(t *testing.T) {
 		t.Fatalf("close empty subscription: %v", err)
 	}
 
-	sub, err = NewService(newTestSessionResolver(store), nil, nil, nil).
+	sub, err = NewService(newTestSessionResolver(store), nil, nil, testsetup.OpenStore(t, t.TempDir())).
 		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
 			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}, MaxHandoffs: 1,
 		})
@@ -300,7 +375,7 @@ func TestQuestionHistorySubscriptionChecksCancellationWhileSkippingRecords(t *te
 			Freeform: sessionViewStringPointer("ignored"),
 		},
 	})
-	sub, err := NewService(newTestSessionResolver(store), nil, nil, nil).
+	sub, err := NewService(newTestSessionResolver(store), nil, nil, testsetup.OpenStore(t, t.TempDir())).
 		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
 			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}, MaxHandoffs: 1,
 		})
@@ -355,7 +430,7 @@ func TestQuestionHistorySubscriptionPullsThroughLargeSingleWindow(t *testing.T) 
 		t.Fatalf("append large single-window fixture: receipt=%+v error=%v", receipt, err)
 	}
 
-	sub, err := NewService(newTestSessionResolver(store), nil, nil, nil).
+	sub, err := NewService(newTestSessionResolver(store), nil, nil, testsetup.OpenStore(t, t.TempDir())).
 		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
 			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}, MaxHandoffs: 1,
 		})

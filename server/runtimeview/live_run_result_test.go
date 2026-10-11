@@ -77,7 +77,8 @@ func TestTranscriptProjectsLiveRunResultWithoutRuntimeIDs(t *testing.T) {
 			messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 				Kind:          runtime.EventLiveRunFinished,
 				LiveRunResult: &test.result,
-			})
+			}, nil)
+
 			if err != nil {
 				t.Fatalf("project live run result: %v", err)
 			}
@@ -105,7 +106,8 @@ func TestTranscriptProjectsMissingAssistantFinalTextAsNoFinalResult(t *testing.T
 			StartedAt:  startedAt,
 			FinishedAt: finishedAt,
 		},
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project missing assistant final text: %v", err)
 	}

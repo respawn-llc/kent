@@ -36,6 +36,10 @@ func (s *ApprovalViewService) ListPendingApprovalsBySession(ctx context.Context,
 		return nil, fmt.Errorf("pending approval session identity: %w", err)
 	}
 	items := s.prompts.ListPendingPrompts(sessionID.String())
+	identity, err := s.metadata.SessionIdentity(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
 	approvals := make([]*promptpb.Approval, 0, len(items))
 	for _, item := range items {
 		if !item.Request.Approval {
@@ -45,6 +49,7 @@ func (s *ApprovalViewService) ListPendingApprovalsBySession(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
+		approval.ShortId = protoapi.SessionShortIDToProto(identity.ShortID)
 		approvals = append(approvals, approval)
 	}
 	return &promptpb.ListApprovalsSuccess{Approvals: approvals}, nil

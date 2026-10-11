@@ -36,6 +36,7 @@ enum FollowUpKind {
 }
 
 message Question {
+  optional int64 short_id = 9 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string tool_call_id = 1 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -101,6 +102,7 @@ message FileAccessTarget {
 }
 
 message Approval {
+  optional int64 short_id = 9 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string tool_call_id = 1 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {

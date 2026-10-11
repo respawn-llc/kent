@@ -267,6 +267,7 @@ message Settings {
 
 message SessionFacts {
   kent.api.auth.ConnectionFacts connection = 5;
+  optional int64 short_id = 6 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true

@@ -212,6 +212,7 @@ func (s *Service) SessionChatSettings(
 	}
 	facts := &chatsettingspb.SessionFacts{
 		SessionId: sessionID.String(),
+		ShortId:   protoapi.SessionShortIDToProto(record.ShortID),
 	}
 	facts.Connection, err = authstatus.SessionConnection(input.Configuration.Settings, record.Meta.ConnectionID)
 	if err != nil {

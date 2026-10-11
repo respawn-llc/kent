@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"core/server/goalview"
+	"core/server/metadata"
 	"core/server/runtime"
 	"core/server/runtimeview"
 	"core/server/session"
@@ -78,6 +79,7 @@ func (s *Service) resolveMainView(ctx context.Context, sessionID string) (*runti
 }
 
 type dormantSessionSnapshot struct {
+	metadata         *metadata.Store
 	view             *session.PersistedSessionView
 	cacheWarningMode config.CacheWarningMode
 	projection       dormantChatProjection
@@ -166,7 +168,7 @@ func (s dormantSessionSnapshot) TranscriptPage(ctx context.Context, req *transcr
 		if err != nil {
 			return nil, err
 		}
-		page, err := s.transcriptPage(segment)
+		page, err := s.transcriptPage(ctx, segment)
 		if err != nil {
 			return nil, err
 		}
@@ -196,7 +198,7 @@ func (s dormantSessionSnapshot) TranscriptPage(ctx context.Context, req *transcr
 		return nil, err
 	}
 	segment.LatestRollbackCandidate = newest.LatestRollbackCandidate
-	page, err := s.transcriptPage(segment)
+	page, err := s.transcriptPage(ctx, segment)
 	if err != nil {
 		return nil, err
 	}
@@ -224,12 +226,17 @@ func (s dormantSessionSnapshot) cacheWarningModeOrDefault() config.CacheWarningM
 	return normalizeServiceCacheWarningMode(s.cacheWarningMode)
 }
 
-func (s dormantSessionSnapshot) transcriptPage(segment runtime.TranscriptSegmentPage) (*transcriptpb.Page, error) {
+func (s dormantSessionSnapshot) transcriptPage(ctx context.Context, segment runtime.TranscriptSegmentPage) (*transcriptpb.Page, error) {
 	meta := s.view.Meta()
+	identities, err := s.metadata.SessionIdentities(ctx, runtimeview.TranscriptReferencedSessions(runtime.TranscriptCommittedRowFactsFromSnapshot(segment.Snapshot)))
+	if err != nil {
+		return nil, err
+	}
 	return runtimeview.TranscriptPageFromSegment(
 		meta.SessionID,
 		meta.Name,
 		runtimeview.ConversationFreshnessFromSession(s.view.ConversationFreshness()),
 		segment,
+		identities,
 	)
 }

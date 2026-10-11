@@ -442,6 +442,14 @@ func TestPlanLaunchSessionMakesInitialChatVisibleWithoutDraft(t *testing.T) {
 	if err != nil || record.ShortID == nil {
 		t.Fatalf("created Session projection = %+v, %v", record, err)
 	}
+	settings, err := service.SessionChatSettings(t.Context(), result.Plan.Descriptor.SessionID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := settings.GetSession().Session
+	if facts.SessionId != record.Meta.SessionID || facts.ShortId == nil || *facts.ShortId != record.ShortID.Int64() {
+		t.Fatalf("Chat facts identity = %v, want %v", facts, record.ShortID)
+	}
 	for _, raw := range []string{record.ShortID.String(), "000" + record.ShortID.String(), record.Meta.SessionID} {
 		selector, err := runtimeids.ParseSessionSelector(raw)
 		if err != nil {

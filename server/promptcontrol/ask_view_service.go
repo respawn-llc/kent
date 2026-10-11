@@ -32,6 +32,10 @@ func (s *AskViewService) ListPendingAsksBySession(ctx context.Context, req *prom
 		return nil, fmt.Errorf("pending ask session identity: %w", err)
 	}
 	items := s.prompts.ListPendingPrompts(sessionID.String())
+	identity, err := s.metadata.SessionIdentity(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
 	asks := make([]*promptpb.Question, 0, len(items))
 	for _, item := range items {
 		if item.Request.Approval {
@@ -41,6 +45,7 @@ func (s *AskViewService) ListPendingAsksBySession(ctx context.Context, req *prom
 		if err != nil {
 			return nil, err
 		}
+		ask.ShortId = protoapi.SessionShortIDToProto(identity.ShortID)
 		asks = append(asks, ask)
 	}
 	return &promptpb.ListQuestionsSuccess{Questions: asks}, nil

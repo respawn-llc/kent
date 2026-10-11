@@ -18,7 +18,11 @@ func (r *RuntimeRegistry) composeTranscriptHydration(
 	snapshot runtime.TranscriptHydrationSnapshot,
 	tailPage runtime.TranscriptSegmentPage,
 ) (*transcriptpb.Hydration, error) {
-	tailSegment, err := runtimeview.TranscriptTailSegmentFromSegment(tailPage)
+	identities, err := r.metadata.SessionIdentities(ctx, runtimeview.TranscriptReferencedSessions(runtime.TranscriptCommittedRowFactsFromSnapshot(tailPage.Snapshot)))
+	if err != nil {
+		return nil, err
+	}
+	tailSegment, err := runtimeview.TranscriptTailSegmentFromSegment(tailPage, identities)
 	if err != nil {
 		return nil, transcriptHydrationProjectionError{
 			cause: fmt.Errorf("project transcript hydration tail segment: %w", err),

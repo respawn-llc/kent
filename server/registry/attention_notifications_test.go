@@ -9,7 +9,6 @@ import (
 
 	testharness "core/internal/testharness/testsetup"
 	"core/server/attentionnotify"
-	"core/server/metadata"
 	"core/server/runtime"
 	askquestion "core/server/tools"
 	"core/shared/clientui"
@@ -21,19 +20,9 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-func newAttentionTestMetadata(t *testing.T) *metadata.Store {
-	t.Helper()
-	store, err := metadata.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	return store
-}
-
 func TestRuntimeRegistryDeliversGenericPromptAttentionToDesktopRootStream(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry(newAttentionTestMetadata(t)).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	registry := NewRuntimeRegistry(testharness.OpenStore(t, t.TempDir())).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
@@ -77,7 +66,7 @@ func TestRuntimeRegistryDeliversGenericPromptAttentionToDesktopRootStream(t *tes
 
 func TestRuntimeRegistryPublishesGenericApprovalToSessionAttention(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry(newAttentionTestMetadata(t)).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	registry := NewRuntimeRegistry(testharness.OpenStore(t, t.TempDir())).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
@@ -121,7 +110,7 @@ func TestRuntimeRegistryPublishesGenericApprovalToSessionAttention(t *testing.T)
 
 func TestRuntimeRegistryPublishesTaskQuestionBatchWithoutGenericResolve(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry(newAttentionTestMetadata(t)).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	registry := NewRuntimeRegistry(testharness.OpenStore(t, t.TempDir())).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
@@ -159,7 +148,7 @@ func TestRuntimeRegistryPublishesTaskQuestionBatchWithoutGenericResolve(t *testi
 
 func TestRuntimeRegistryPublishesTaskApprovalPromptAsDurablyClearedQuestionAttention(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry(newAttentionTestMetadata(t)).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	registry := NewRuntimeRegistry(testharness.OpenStore(t, t.TempDir())).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
@@ -226,7 +215,7 @@ func (p *recordingWorkflowEventPublisher) PublishWorkflowEvent(_ context.Context
 
 func TestRuntimeRegistrySkippedFirstTaskQuestionPreparesBatchBeforeMaterialization(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry(newAttentionTestMetadata(t)).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	registry := NewRuntimeRegistry(testharness.OpenStore(t, t.TempDir())).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
@@ -260,7 +249,7 @@ func TestRuntimeRegistrySkippedFirstTaskQuestionPreparesBatchBeforeMaterializati
 
 func TestRuntimeRegistrySessionAttentionDoesNotReplayPendingPrompts(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry(newAttentionTestMetadata(t)).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	registry := NewRuntimeRegistry(testharness.OpenStore(t, t.TempDir())).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
@@ -280,7 +269,7 @@ func TestRuntimeRegistrySessionAttentionDoesNotReplayPendingPrompts(t *testing.T
 
 func TestRuntimeRegistrySessionAttentionOnlyReceivesNewTaskQuestionBatchEvents(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry(newAttentionTestMetadata(t)).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	registry := NewRuntimeRegistry(testharness.OpenStore(t, t.TempDir())).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })

@@ -52,6 +52,7 @@ func FormatFileAccessApprovalMarkdown(targets []FileAccessTarget) string {
 }
 
 type PendingApproval struct {
+	ShortID       *runtimeids.SessionShortID
 	ToolCallID    ToolCallID
 	SessionID     runtimeids.SessionID
 	StepID        runtimeids.StepID
