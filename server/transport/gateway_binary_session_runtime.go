@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"core/server/sessionruntime"
 	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
@@ -37,6 +38,9 @@ func registerSessionRuntimeGatewayBinaryBindings(bindings map[string]gatewayBina
 				return &sessionlaunchpb.SessionRuntimeActivateSuccess{Attachment: protoapi.SessionRuntimeAttachmentToProto(attachment)}, nil
 			},
 			func(_ *Gateway, _ *connectionState, request *sessionlaunchpb.SessionRuntimeActivateRequest, err error) proto.Message {
+				if errors.Is(err, sessionruntime.ErrAuthorityClosed) {
+					err = errors.Join(serverapi.ErrRuntimeUnavailable, err)
+				}
 				return binaryRuntimeLifetimeFailure(request.GetSessionId(), err)
 			}),
 		registerGatewayBinaryUnary(bindings, service, "Release", gatewayBinaryCoreActiveOrdinary,
