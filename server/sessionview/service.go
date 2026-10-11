@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"core/server/chatcontext"
@@ -249,6 +250,29 @@ func normalizeServiceCacheWarningMode(mode config.CacheWarningMode) config.Cache
 	default:
 		return config.CacheWarningModeDefault
 	}
+}
+
+func (s *Service) GetSessionIdentityLocation(ctx context.Context, req *sessionpb.IdentityLocationRequest) (*sessionpb.IdentityLocationSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
+	}
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	record, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, id.String())
+	if err != nil {
+		return nil, err
+	}
+	logPath := session.RunLogPath(record.SessionDir)
+	if !filepath.IsAbs(logPath) {
+		return nil, errors.New("Session log path must be absolute")
+	}
+	return &sessionpb.IdentityLocationSuccess{
+		SessionId: id.String(),
+		ShortId:   protoapi.SessionShortIDToProto(record.ShortID),
+		LogPath:   logPath,
+	}, nil
 }
 
 func (s *Service) GetSessionMainView(ctx context.Context, req *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {

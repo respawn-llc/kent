@@ -841,7 +841,24 @@ func sessionIDSubcommand(args []string, stdout io.Writer, stderr io.Writer) int 
 		fmt.Fprintf(stderr, "%s is not set; this command only works inside "+config.Product+" shell commands\n", sessionenv.SessionIDEnv)
 		return 1
 	}
-	_, _ = fmt.Fprintln(stdout, sessionID)
+	id, err := runtimeids.ParseSessionID(sessionID)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), bindingCommandRPCTimeout)
+	defer cancel()
+	remote, err := openConfiguredSessionRemote(ctx, id.String())
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	err = writeSessionIdentity(ctx, remote, id, stdout)
+	err = errors.Join(err, remote.Close())
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	return 0
 }
 

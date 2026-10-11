@@ -25,6 +25,15 @@ func (c *Remote) GetPromptHistory(ctx context.Context, request *sessionpb.Prompt
 		})
 }
 
+func (c *Remote) GetSessionIdentityLocation(ctx context.Context, request *sessionpb.IdentityLocationRequest) (*sessionpb.IdentityLocationSuccess, error) {
+	return callGeneratedBinary(c, ctx,
+		bootstrapMethod(sessionpb.File_kent_api_session_session_proto, "ReadService", "GetIdentityLocation"),
+		request, &sessionpb.IdentityLocationResult{},
+		func(failure *sessionpb.IdentityLocationError) error {
+			return generatedOperationFailure(failure.Code)
+		})
+}
+
 func (c *Remote) GetSessionMainView(ctx context.Context, request *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
 	return callGeneratedBinary(c, ctx,
 		bootstrapMethod(sessionpb.File_kent_api_session_session_proto, "ReadService", "GetMainView"),

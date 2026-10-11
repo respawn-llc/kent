@@ -853,6 +853,10 @@ func (c questionCommand) withRemote(
 }
 
 func openQuestionCommandRemote(ctx context.Context, sessionID string) (questionCommandRemote, error) {
+	return openConfiguredSessionRemote(ctx, sessionID)
+}
+
+func openConfiguredSessionRemote(ctx context.Context, sessionID string) (*client.Remote, error) {
 	configRoot, err := nearestCommandConfigRoot()
 	if err != nil {
 		return nil, err
