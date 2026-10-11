@@ -442,7 +442,7 @@ func TestRemoteInteractiveRuntimeAnswersPromptsFromAnyAttachedClientAcrossWorksp
 
 	askAnswer := "answer from client B"
 	if _, err := runtimeClientsB.PromptControl.AnswerPromptBatch(context.Background(), &promptpb.AnswerBatchRequest{
-		SessionId: transcriptPromptSessionID(askPrompt),
+		SessionId: requestfixture.Selector(t, transcriptPromptSessionID(askPrompt)),
 		StepId:    transcriptPromptStepID(askPrompt),
 		Entries: []*promptpb.AnswerBatchEntry{{
 			ToolCallId: transcriptPromptToolCallID(askPrompt),
@@ -459,7 +459,7 @@ func TestRemoteInteractiveRuntimeAnswersPromptsFromAnyAttachedClientAcrossWorksp
 
 	commentary := "approved by client B"
 	if _, err := runtimeClientsB.PromptControl.AnswerPromptBatch(context.Background(), &promptpb.AnswerBatchRequest{
-		SessionId: transcriptPromptSessionID(approvalPrompt),
+		SessionId: requestfixture.Selector(t, transcriptPromptSessionID(approvalPrompt)),
 		StepId:    transcriptPromptStepID(approvalPrompt),
 		Entries: []*promptpb.AnswerBatchEntry{{
 			ToolCallId: transcriptPromptToolCallID(approvalPrompt),

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/server/registry"
 	askquestion "core/server/tools"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
@@ -25,9 +26,9 @@ func TestServiceListsPendingAsksBySession(t *testing.T) {
 	svc := NewAskViewService(&stubAskPendingPromptSource{items: []registry.PendingPromptSnapshot{
 		{Request: askquestion.AskQuestionRequest{ToolCallID: "ask-1", StepID: promptViewStepID, Question: "one?", Suggestions: []string{"a", "b"}, RecommendedOptionIndex: 2}, CreatedAt: now},
 		{Request: askquestion.AskQuestionRequest{ToolCallID: "approval-1", StepID: promptViewStepID, Question: "allow?", Approval: true}, CreatedAt: now.Add(time.Second)},
-	}})
+	}}, nil)
 
-	resp, err := svc.ListPendingAsksBySession(context.Background(), &promptpb.ListPendingRequest{SessionId: "session-1"})
+	resp, err := svc.ListPendingAsksBySession(context.Background(), &promptpb.ListPendingRequest{SessionId: requestfixture.Selector(t, "33333333-3333-4333-8333-333333333333")})
 	if err != nil {
 		t.Fatalf("ListPendingAsksBySession: %v", err)
 	}
@@ -35,7 +36,7 @@ func TestServiceListsPendingAsksBySession(t *testing.T) {
 		t.Fatalf("expected one pending ask, got %+v", resp)
 	}
 	if resp.Questions[0].ToolCallId != "ask-1" ||
-		resp.Questions[0].SessionId != "session-1" ||
+		resp.Questions[0].SessionId != "33333333-3333-4333-8333-333333333333" ||
 		resp.Questions[0].StepId != promptViewStepID ||
 		resp.Questions[0].RecommendedOptionIndex == nil ||
 		*resp.Questions[0].RecommendedOptionIndex != 2 {
@@ -49,8 +50,8 @@ func TestAskViewServiceRejectsMalformedPendingToolCallIdentity(t *testing.T) {
 		"step":   {ToolCallID: "ask-1", StepID: "step-1", Question: "one?"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			svc := NewAskViewService(&stubAskPendingPromptSource{items: []registry.PendingPromptSnapshot{{Request: request}}})
-			if _, err := svc.ListPendingAsksBySession(context.Background(), &promptpb.ListPendingRequest{SessionId: "session-1"}); err == nil {
+			svc := NewAskViewService(&stubAskPendingPromptSource{items: []registry.PendingPromptSnapshot{{Request: request}}}, nil)
+			if _, err := svc.ListPendingAsksBySession(context.Background(), &promptpb.ListPendingRequest{SessionId: requestfixture.Selector(t, "33333333-3333-4333-8333-333333333333")}); err == nil {
 				t.Fatal("accepted malformed pending prompt identity")
 			}
 		})
@@ -66,11 +67,11 @@ func TestServiceEncodesAbsentPendingAskRecommendationAsNil(t *testing.T) {
 			Question:    "one?",
 			Suggestions: []string{"a"},
 		},
-	}}})
+	}}}, nil)
 
 	resp, err := svc.ListPendingAsksBySession(
 		context.Background(),
-		&promptpb.ListPendingRequest{SessionId: "session-1"},
+		&promptpb.ListPendingRequest{SessionId: requestfixture.Selector(t, "33333333-3333-4333-8333-333333333333")},
 	)
 	if err != nil {
 		t.Fatalf("ListPendingAsksBySession: %v", err)
@@ -89,18 +90,18 @@ func TestServiceRejectsInvalidPendingAskRecommendation(t *testing.T) {
 			Suggestions:            []string{"a"},
 			RecommendedOptionIndex: 2,
 		},
-	}}})
+	}}}, nil)
 
 	if _, err := svc.ListPendingAsksBySession(
 		context.Background(),
-		&promptpb.ListPendingRequest{SessionId: "session-1"},
+		&promptpb.ListPendingRequest{SessionId: requestfixture.Selector(t, "33333333-3333-4333-8333-333333333333")},
 	); err == nil {
 		t.Fatal("accepted pending ask recommendation outside suggestions")
 	}
 }
 
 func TestAskViewServiceRequiresSessionID(t *testing.T) {
-	if _, err := NewAskViewService(&stubAskPendingPromptSource{}).ListPendingAsksBySession(context.Background(), &promptpb.ListPendingRequest{}); err == nil {
+	if _, err := NewAskViewService(&stubAskPendingPromptSource{}, nil).ListPendingAsksBySession(context.Background(), &promptpb.ListPendingRequest{}); err == nil {
 		t.Fatal("expected validation error")
 	}
 }

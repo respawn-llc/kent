@@ -26,9 +26,12 @@ func (c *Remote) SubscribeChatSettings(ctx context.Context, request *chatsetting
 }
 
 func subscribeSessionBinary[
+	Target interface {
+		string | *sharedpb.SessionSelector
+	},
 	Request interface {
 		proto.Message
-		GetSessionId() string
+		GetSessionId() Target
 	},
 	Success any, Failure comparableProtoMessage,
 	Result generatedUnaryResult[Success, Failure], Event proto.Message,
@@ -36,7 +39,18 @@ func subscribeSessionBinary[
 	c *Remote, ctx context.Context, method protoreflect.MethodDescriptor, request Request,
 	result Result, decodeFailure func(Failure) error, newEvent func() Event,
 ) (*remoteSubscription[Event], error) {
-	attachment, err := c.subscriptionAttachment(request.GetSessionId())
+	var target string
+	switch value := any(request.GetSessionId()).(type) {
+	case string:
+		target = value
+	case *sharedpb.SessionSelector:
+		selector, err := protoapi.SessionSelectorFromProto(value)
+		if err != nil {
+			return nil, err
+		}
+		target = selector.String()
+	}
+	attachment, err := c.subscriptionAttachment(target)
 	if err != nil {
 		return nil, err
 	}

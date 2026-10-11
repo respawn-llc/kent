@@ -160,8 +160,8 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		return nil, fmt.Errorf("projects bundle: metadata service: %w", err)
 	}
 	capabilityFactsService := capabilityfacts.NewService(capabilityfacts.Options{Config: cfg})
-	askService := promptcontrol.NewAskViewService(runtimeRegistry)
-	approvalService := promptcontrol.NewApprovalViewService(runtimeRegistry)
+	askService := promptcontrol.NewAskViewService(runtimeRegistry, metadataStore)
+	approvalService := promptcontrol.NewApprovalViewService(runtimeRegistry, metadataStore)
 	processService := processview.NewProcessViewService(background, metadataStore)
 	background.SetBackgroundListChangeHandler(processService.BackgroundListChanged)
 	sessionRuntimeAPI := sessionruntime.NewAPI(metadataStore, runtimeAuthority, sessionruntime.APIOptions{
@@ -185,6 +185,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	projectService.WithRuntimeAuthority(runtimeAuthority)
 	promptControlService := promptcontrol.NewPromptControlService(
 		authorityPromptResponder{authority: runtimeAuthority},
+		metadataStore,
 		metadataStore,
 	)
 	runtimeRegistry.WithExecutionTargetResolver(metadataStore.ResolveOptionalSessionExecutionTarget)

@@ -4,12 +4,13 @@ import (
 	"testing"
 
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"google.golang.org/protobuf/proto"
 )
 
 func validPromptAnswerBatchRequest() *promptpb.AnswerBatchRequest {
 	return &promptpb.AnswerBatchRequest{
-		SessionId: "11111111-1111-4111-8111-111111111111",
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "11111111-1111-4111-8111-111111111111"}},
 		StepId:    "22222222-2222-4222-8222-222222222222",
 		Entries: []*promptpb.AnswerBatchEntry{
 			{ToolCallId: "question-1", Answer: &promptpb.AnswerBatchEntry_QuestionAnswer{
@@ -22,7 +23,7 @@ func validPromptAnswerBatchRequest() *promptpb.AnswerBatchRequest {
 
 func TestPromptAnswerBatchRequestRejectsMalformedEntriesBeforeDelegation(t *testing.T) {
 	for name, mutate := range map[string]func(*promptpb.AnswerBatchRequest){
-		"missing session":         func(r *promptpb.AnswerBatchRequest) { r.SessionId = "" },
+		"missing session":         func(r *promptpb.AnswerBatchRequest) { r.SessionId = nil },
 		"missing step":            func(r *promptpb.AnswerBatchRequest) { r.StepId = "" },
 		"empty entries":           func(r *promptpb.AnswerBatchRequest) { r.Entries = nil },
 		"duplicate prompt":        func(r *promptpb.AnswerBatchRequest) { r.Entries[1].ToolCallId = r.Entries[0].ToolCallId },

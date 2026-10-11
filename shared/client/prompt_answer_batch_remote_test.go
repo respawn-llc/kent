@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"core/internal/testharness/requestfixture"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/rpcwire"
@@ -264,7 +265,7 @@ func remotePromptAnswerBatchRequest(t *testing.T) *promptpb.AnswerBatchRequest {
 	}
 	selected := int32(1)
 	return &promptpb.AnswerBatchRequest{
-		SessionId: sessionID.String(),
+		SessionId: requestfixture.Selector(t, sessionID.String()),
 		StepId:    stepID.String(),
 		Entries: []*promptpb.AnswerBatchEntry{
 			{

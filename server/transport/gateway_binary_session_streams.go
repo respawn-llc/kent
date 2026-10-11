@@ -64,9 +64,10 @@ func registerSessionStreamsGatewayBinaryBindings(bindings map[string]gatewayBina
 }
 
 func registerSessionBinarySubscription[
+	Target runtimeControlTarget,
 	Request interface {
 		proto.Message
-		GetSessionId() string
+		GetSessionId() Target
 	},
 	Event proto.Message, Sub gatewaySubscription[Event],
 ](
@@ -75,7 +76,7 @@ func registerSessionBinarySubscription[
 ) error {
 	return registerGatewayBinarySubscription(bindings, service, methodName, newRequest,
 		func(request Request) (routeScopeParams, error) {
-			return routeScopeParams{sessionID: request.GetSessionId()}, nil
+			return runtimeControlScope(request.GetSessionId()), nil
 		},
 		subscribe,
 		func(_ Request, err error) proto.Message { return binaryAuthReadinessFailure(err) })

@@ -3,9 +3,7 @@ package client
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
-	"strings"
 	"sync"
 
 	rpccontract "core/shared/apicontract"
@@ -54,11 +52,8 @@ func (c *Remote) subscriptionAttachment(sessionID string) (*remoteAttachmentInte
 	c.mu.Lock()
 	attachmentIntent := c.attachIntent
 	c.mu.Unlock()
-	attachedSessionID, attachedToSession := attachmentIntent.sessionID()
+	_, attachedToSession := attachmentIntent.sessionID()
 	if attachedToSession {
-		if attachedSessionID != strings.TrimSpace(sessionID) {
-			return nil, fmt.Errorf("remote is attached to session %q, cannot subscribe to session %q", attachedSessionID, strings.TrimSpace(sessionID))
-		}
 		return nil, nil
 	}
 	return newRemoteSessionAttachmentIntent(sessionID)

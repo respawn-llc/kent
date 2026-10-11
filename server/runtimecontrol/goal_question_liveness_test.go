@@ -132,9 +132,9 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 		if action == goalQuestionAnswer || action == goalQuestionRejectDirectParent {
 			entry.Answer = &promptpb.AnswerBatchEntry_QuestionAnswer{QuestionAnswer: &promptpb.QuestionAnswer{Freeform: textutil.Value("proceed")}}
 		}
-		control := promptcontrol.NewPromptControlService(service.authority, nil)
+		control := promptcontrol.NewPromptControlService(service.authority, nil, nil)
 		request := &promptpb.AnswerBatchRequest{
-			SessionId: sessionID.String(), StepId: stepID.String(), Entries: []*promptpb.AnswerBatchEntry{entry},
+			SessionId: requestfixture.Selector(t, sessionID.String()), StepId: stepID.String(), Entries: []*promptpb.AnswerBatchEntry{entry},
 		}
 		if action == goalQuestionRejectDirectParent {
 			caller, err := session.NewLazy(
@@ -161,7 +161,7 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 			request.InvokingSessionId = textutil.Value(caller.Meta().SessionID)
 			control = promptcontrol.NewPromptControlService(
 				service.authority,
-				runtimeControlTestSessionPersistence,
+				runtimeControlTestSessionPersistence, nil,
 			)
 			if _, err := control.AnswerPromptBatch(t.Context(), request); err == nil {
 				t.Fatal("direct child answered its parent's pending Question")
@@ -174,7 +174,7 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 				}
 			}
 			request.InvokingSessionId = nil
-			control = promptcontrol.NewPromptControlService(service.authority, nil)
+			control = promptcontrol.NewPromptControlService(service.authority, nil, nil)
 		}
 		response, err := control.AnswerPromptBatch(t.Context(), request)
 		if err != nil {

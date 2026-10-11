@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/shared/apicontract"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
@@ -39,7 +40,7 @@ func TestPromptFollowUpSubscriptionInstallsBeforeSubscribeResponse(t *testing.T)
 	}
 	serveGeneratedStream(t, fixture.gateway, conn, &connectionState{attachedProject: fixture.bindingA.ProjectID},
 		promptpb.File_kent_api_prompt_prompt_proto.Services().ByName("FollowUpService").Methods().ByName("Watch"),
-		&promptpb.FollowUpWatchRequest{SessionId: fixture.ownSessionID, StepId: stepID.String(), ToolCallId: "prompt-1"},
+		&promptpb.FollowUpWatchRequest{SessionId: requestfixture.Selector(t, fixture.ownSessionID), StepId: stepID.String(), ToolCallId: "prompt-1"},
 	)
 	if conn.sent != 2 {
 		t.Fatalf("frames = %d, want SubscribeResponse and completion", conn.sent)
