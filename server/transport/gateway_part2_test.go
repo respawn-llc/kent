@@ -429,6 +429,9 @@ func TestGatewayAttachMissingNumericSessionOmitsUnknownUUID(t *testing.T) {
 	if !errors.Is(err, sessioncontract.ErrSessionNotFound) {
 		t.Fatalf("missing numeric attachment = %v", err)
 	}
+	if closeErr := fixture.appCore.MetadataStore().Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
 	failure, ok := binaryAttachSessionFailure(fixture.gateway, state, request, err).(*connectionpb.AttachSessionError)
 	if !ok || failure.GetSessionNotFound() == nil || failure.GetSessionNotFound().SessionId != nil {
 		t.Fatalf("missing numeric failure invented an identity: %v", failure)

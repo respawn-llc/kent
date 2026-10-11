@@ -522,6 +522,25 @@ func TestActivateSessionRuntimeRejectsPathLikeSessionID(t *testing.T) {
 	}
 }
 
+func TestActivateSessionRuntimeRetainsTargetWhenProjectionFails(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	id, err := runtimeids.ParseSessionID(fixture.store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.metadata.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = fixture.api.ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
+		SessionID: id, OwnerID: "test",
+		QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true),
+	})
+	var target *serverapi.SessionTargetError
+	if err == nil || !errors.As(err, &target) || target.SessionID() == nil || *target.SessionID() != id || target.Projection() != nil {
+		t.Fatalf("activation projection failure lost canonical target: %v", err)
+	}
+}
+
 func TestActivateSessionRuntimeRejectsMissingOwnerID(t *testing.T) {
 	svc := &API{}
 	_, err := svc.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
