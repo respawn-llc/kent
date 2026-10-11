@@ -20,7 +20,10 @@ func TestFailedAutoCompactionPersistsOneErrorAndPublishesFailureStatus(t *testin
 		ToolCalls: []llm.ToolCall{{
 			ID: "call_1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`),
 		}},
-		Usage: llm.Usage{InputTokens: textutil.Value(390_000), WindowTokens: 400_000},
+		Usage: llm.Usage{
+			InputTokens: textutil.Value(390_000), WindowTokens: 400_000,
+			ContextUsage: &llm.ContextUsage{Tokens: 390_000, MeasurementPoint: llm.ContextMeasurementInput},
+		},
 	}}}
 	var events []Event
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t, tools.HandlerRegistration{
@@ -60,7 +63,10 @@ func TestFailedManualCompactionPersistsOneErrorAndPublishesFailureStatus(t *test
 func TestFailedEagerCompactionPersistsOneErrorWithoutFailingSuccessfulTurn(t *testing.T) {
 	client := &fakeCompactionClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done")},
-		Usage:     llm.Usage{InputTokens: textutil.Value(390_000), WindowTokens: 400_000},
+		Usage: llm.Usage{
+			InputTokens: textutil.Value(390_000), WindowTokens: 400_000,
+			ContextUsage: &llm.ContextUsage{Tokens: 390_000, MeasurementPoint: llm.ContextMeasurementInput},
+		},
 	}}}
 	var eventsMu sync.Mutex
 	var events []Event
