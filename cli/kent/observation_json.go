@@ -131,7 +131,9 @@ func observationTargetSession(id string) observationJSONTarget {
 func observationSessionErrorTarget(selector string, err error) observationJSONTarget {
 	var target *serverapi.SessionTargetError
 	if errors.As(err, &target) {
-		return observationTargetSession(target.Identity.ID.String())
+		if id := target.SessionID(); id != nil {
+			return observationTargetSession(id.String())
+		}
 	}
 	var unavailable *serverapi.RuntimeUnavailableError
 	if errors.As(err, &unavailable) && unavailable.SessionID != nil {

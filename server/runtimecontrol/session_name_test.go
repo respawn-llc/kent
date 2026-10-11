@@ -49,7 +49,7 @@ func TestSetSessionNamePersistsWithoutStartingDormantRuntime(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	service := NewService(authority)
+	service := NewService(authority, nil)
 	request := &runtimepb.SetSessionNameRequest{
 		SessionId: id.String(),
 		Mutation: &runtimepb.SessionNameMutation{

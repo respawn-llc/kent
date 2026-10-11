@@ -11,6 +11,7 @@ import (
 	processpb "core/shared/protoapi/gen/kent/api/process"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
 
@@ -62,13 +63,47 @@ func (e routePolicyExecutor) authorizeScopeFacts(
 					return nil
 				}
 				if scope == sharedpb.ScopePolicy_SCOPE_POLICY_RUNTIME_LIVE_SESSION_REQUIRED {
-					return errors.Join(serverapi.ErrRuntimeUnavailable, err)
+					return serverapi.WithSessionTarget(serverapi.UnresolvedSessionTarget{}, errors.Join(serverapi.ErrRuntimeUnavailable, err))
 				}
 			}
-			return err
+			return serverapi.WithSessionTarget(serverapi.UnresolvedSessionTarget{}, err)
 		}
 		scopeParams.sessionID = id.String()
 	}
+	if scopeParams.sessionID != "" {
+		id, err := runtimeids.ParseSessionID(scopeParams.sessionID)
+		if err != nil {
+			return err
+		}
+		return e.gateway.authorizeResolvedSession(ctx, id, func() error {
+			return e.authorizeResolvedScope(ctx, state, scope, method, scopeParams)
+		})
+	}
+	return e.authorizeResolvedScope(ctx, state, scope, method, scopeParams)
+}
+
+func (g *Gateway) authorizeResolvedSession(ctx context.Context, id runtimeids.SessionID, authorize func() error) (err error) {
+	var target serverapi.SessionTarget = serverapi.CanonicalSessionTarget{ID: id}
+	defer func() { err = serverapi.WithSessionTarget(target, err) }()
+	store := g.deps.MetadataStore()
+	if store == nil {
+		return errors.New("metadata store is required")
+	}
+	identity, err := store.SessionIdentity(ctx, id)
+	if err != nil {
+		return err
+	}
+	target = serverapi.ProjectedSessionTarget{Identity: identity}
+	return authorize()
+}
+
+func (e routePolicyExecutor) authorizeResolvedScope(
+	ctx context.Context,
+	state *connectionState,
+	scope sharedpb.ScopePolicy,
+	method string,
+	scopeParams routeScopeParams,
+) error {
 	switch scope {
 	case sharedpb.ScopePolicy_SCOPE_POLICY_NONE, sharedpb.ScopePolicy_SCOPE_POLICY_PROJECT_VIEW, sharedpb.ScopePolicy_SCOPE_POLICY_ATTACH_PROJECT, sharedpb.ScopePolicy_SCOPE_POLICY_NOTIFICATION:
 		return nil
@@ -122,9 +157,11 @@ func (e routePolicyExecutor) authorizeScopeFacts(
 		case *worktreepb.ManagementScope_SessionId:
 			id, err := e.gateway.deps.MetadataStore().ResolveSessionTarget(ctx, selected.SessionId)
 			if err != nil {
-				return err
+				return serverapi.WithSessionTarget(serverapi.UnresolvedSessionTarget{}, err)
 			}
-			return e.gateway.requireSessionInActiveProject(ctx, state, id.String())
+			return e.gateway.authorizeResolvedSession(ctx, id, func() error {
+				return e.gateway.requireSessionInActiveProject(ctx, state, id.String())
+			})
 		case *worktreepb.ManagementScope_Workspace:
 			target := selected.Workspace.GetTarget()
 			return e.gateway.requireProjectWorkspaceBinding(ctx, state, target.GetProjectId(), target.GetWorkspaceId())
@@ -201,13 +238,15 @@ func (g *Gateway) requireChatTargetAccess(ctx context.Context, state *connection
 		}
 		sessionID, err := metadataStore.ResolveSessionTarget(ctx, selected.Session.SessionId)
 		if err != nil {
+			return serverapi.WithSessionTarget(serverapi.UnresolvedSessionTarget{}, err)
+		}
+		return g.authorizeResolvedSession(ctx, sessionID, func() error {
+			if strings.TrimSpace(state.attachedProject) != "" {
+				return g.requireSessionInActiveProject(ctx, state, sessionID.String())
+			}
+			_, err := metadataStore.ResolvePersistedSession(ctx, sessionID.String())
 			return err
-		}
-		if strings.TrimSpace(state.attachedProject) != "" {
-			return g.requireSessionInActiveProject(ctx, state, sessionID.String())
-		}
-		_, err = metadataStore.ResolvePersistedSession(ctx, sessionID.String())
-		return err
+		})
 	case *chatpb.ChatTarget_NewChat:
 		return g.requireProjectWorkspaceBinding(
 			ctx,

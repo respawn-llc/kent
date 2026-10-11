@@ -161,10 +161,9 @@ func goalSetTargetError(target ResolvedTarget, err error) error {
 	if err == nil {
 		return nil
 	}
-	return &serverapi.SessionTargetError{
+	return serverapi.WithSessionTarget(serverapi.ProjectedSessionTarget{
 		Identity: runtimeids.SessionIdentity{ID: target.SessionID, ShortID: target.ShortID},
-		Cause:    err,
-	}
+	}, err)
 }
 
 type goalSetInvocation struct {

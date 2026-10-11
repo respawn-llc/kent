@@ -186,14 +186,23 @@ func OnboardingFinalizeErrorFromProto(message *onboardingpb.FinalizeError) error
 	return typed
 }
 
+func InternalFailureToProto(err error) *sharedpb.InternalFailureDetails {
+	cause := err.Error()
+	return &sharedpb.InternalFailureDetails{Cause: &cause, SessionTarget: SessionTargetErrorContext(err)}
+}
+
 func InternalFailureFromProto(details *sharedpb.InternalFailureDetails) error {
 	if err := Validate(details); err != nil {
 		return err
 	}
+	cause := errors.New("server operation failed")
 	if details.Cause != nil {
-		return errors.New(*details.Cause)
+		cause = errors.New(*details.Cause)
 	}
-	return errors.New("server operation failed")
+	if details.SessionTarget != nil {
+		return SessionTargetContextErrorFromProto(details.SessionTarget, cause)
+	}
+	return cause
 }
 
 func invalidRequestDetailsToProto(details serverapi.OnboardingInvalidRequestDetails) *onboardingpb.InvalidRequestDetails {

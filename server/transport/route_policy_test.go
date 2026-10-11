@@ -361,6 +361,60 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	}
 }
 
+func TestRoutePolicyFailuresRetainEstablishedSessionFacts(t *testing.T) {
+	fixture := newRoutePolicyFixture(t)
+	store := fixture.appCore.MetadataStore()
+	record, err := store.ResolvePersistedSession(t.Context(), fixture.foreignSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := runtimeids.ParseSessionID(fixture.foreignSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, selector := range []runtimeids.SessionSelector{id, *record.ShortID} {
+		err := newRoutePolicyExecutor(fixture.gateway).authorizeScopeFacts(t.Context(),
+			&connectionState{attachedProject: fixture.bindingA.ProjectID},
+			sharedpb.ScopePolicy_SCOPE_POLICY_SESSION_ACTIVE_PROJECT, "read",
+			routeScopeParams{sessionSelector: protoapi.SessionSelectorToProto(selector)})
+		var target *serverapi.SessionTargetError
+		if !errors.Is(err, errSessionOutsideActiveProject) || !errors.As(err, &target) ||
+			target.Projection() == nil || target.Projection().ID != id ||
+			target.Projection().ShortID == nil || *target.Projection().ShortID != *record.ShortID {
+			t.Fatalf("authorization lost established identity: %v", err)
+		}
+	}
+	missing, err := runtimeids.NewSessionShortID(runtimeids.MaxSessionShortID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unresolved := newRoutePolicyExecutor(fixture.gateway).authorizeScopeFacts(t.Context(),
+		&connectionState{attachedProject: fixture.bindingA.ProjectID},
+		sharedpb.ScopePolicy_SCOPE_POLICY_SESSION_ACTIVE_PROJECT, "read",
+		routeScopeParams{sessionSelector: protoapi.SessionSelectorToProto(missing)})
+	var target *serverapi.SessionTargetError
+	if !errors.Is(unresolved, session.ErrSessionNotFound) || !errors.As(unresolved, &target) || target.SessionID() != nil {
+		t.Fatalf("missing target context: %v", unresolved)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	failedProjection := newRoutePolicyExecutor(fixture.gateway).authorizeScopeFacts(t.Context(),
+		&connectionState{attachedProject: fixture.bindingA.ProjectID},
+		sharedpb.ScopePolicy_SCOPE_POLICY_SESSION_ACTIVE_PROJECT, "read",
+		routeScopeParams{sessionSelector: protoapi.SessionSelectorToProto(id)})
+	if failedProjection == nil || errors.Is(failedProjection, session.ErrSessionNotFound) ||
+		!errors.As(failedProjection, &target) || target.SessionID() == nil ||
+		*target.SessionID() != id || target.Projection() != nil {
+		t.Fatalf("failed projection lost known UUID or became unnumbered: %v", failedProjection)
+	}
+	decoded := protoapi.InternalFailureFromProto(binaryInternalFailure(failedProjection))
+	if !errors.As(decoded, &target) || target.SessionID() == nil ||
+		*target.SessionID() != id || target.Projection() != nil {
+		t.Fatalf("failure conversion lost canonical-only target: %v", decoded)
+	}
+}
+
 func TestRoutePolicyAllowsRuntimeReleaseAfterSessionMovesProjects(t *testing.T) {
 	fixture := newRoutePolicyFixture(t)
 	operation, err := protoapi.OperationFromDescriptor(sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionRuntimeService").Methods().ByName("Release"))

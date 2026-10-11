@@ -48,8 +48,11 @@ func binaryRuntimeControlFailure(sessionID string, err error) proto.Message {
 	case errors.Is(err, serverapi.ErrRuntimeUnavailable):
 		var target *serverapi.SessionTargetError
 		if errors.As(err, &target) {
-			id := target.Identity.ID.String()
-			return &runtimepb.RuntimeUnavailableDetails{SessionId: &id, ShortId: protoapi.SessionShortIDToProto(target.Identity.ShortID)}
+			details := &runtimepb.RuntimeUnavailableDetails{SessionId: protoapi.OptionalSessionIDToProto(target.SessionID())}
+			if identity := target.Projection(); identity != nil {
+				details.ShortId = protoapi.SessionShortIDToProto(identity.ShortID)
+			}
+			return details
 		}
 		return &runtimepb.RuntimeUnavailableDetails{SessionId: &sessionID}
 	case errors.Is(err, serverapi.ErrManualCompactionTooSoon):
@@ -194,7 +197,9 @@ func registerRuntimeControlUnary[Service any, Target runtimeControlTarget, Reque
 			scope := runtimeControlScope(request.GetSessionId())
 			var target *serverapi.SessionTargetError
 			if errors.As(err, &target) {
-				scope.sessionID = target.Identity.ID.String()
+				if id := target.SessionID(); id != nil {
+					scope.sessionID = id.String()
+				}
 			} else if scope.sessionSelector != nil {
 				id, lookupErr := g.deps.MetadataStore().ResolveSessionTarget(context.Background(), scope.sessionSelector)
 				if lookupErr != nil {

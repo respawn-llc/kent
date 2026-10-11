@@ -20,7 +20,12 @@ import (
 func liveErrorSelector(request runtimeids.SessionSelector, err error) string {
 	var target *serverapi.SessionTargetError
 	if errors.As(err, &target) {
-		return target.Identity.String()
+		if identity := target.Projection(); identity != nil {
+			return identity.String()
+		}
+		if id := target.SessionID(); id != nil {
+			return id.String()
+		}
 	}
 	var unavailable *serverapi.RuntimeUnavailableError
 	if errors.As(err, &unavailable) && unavailable.SessionID != nil {
