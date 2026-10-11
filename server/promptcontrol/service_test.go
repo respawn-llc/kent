@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/metadata"
 	"core/server/session"
@@ -72,13 +73,13 @@ func (*stubPromptFollowUpSubscription) Close() error { return nil }
 
 func newPromptControlTestService() (*PromptControlService, *stubPromptResponder) {
 	responder := &stubPromptResponder{}
-	return NewPromptControlService(responder, nil), responder
+	return NewPromptControlService(responder, nil, nil), responder
 }
 
 func TestServiceSubscribeFollowUpInstallsWatcherBeforeReturning(t *testing.T) {
 	service, responder := newPromptControlTestService()
 	request := &promptpb.FollowUpWatchRequest{
-		SessionId:  runtimeids.NewSessionID().String(),
+		SessionId:  requestfixture.Selector(t, runtimeids.NewSessionID().String()),
 		StepId:     promptControlStepID(t).String(),
 		ToolCallId: "prompt-1",
 	}
@@ -90,7 +91,7 @@ func TestServiceSubscribeFollowUpInstallsWatcherBeforeReturning(t *testing.T) {
 		t.Fatalf("SubscribeFollowUp: %v", err)
 	}
 	if got != subscription || responder.followUpCalls != 1 ||
-		responder.followUpSession.String() != request.SessionId ||
+		responder.followUpSession.String() != request.SessionId.GetSessionId() ||
 		responder.followUpStep.String() != request.StepId ||
 		string(responder.followUpToolCall) != request.ToolCallId {
 		t.Fatalf("follow-up installation = subscription %p responder %+v", got, responder)
@@ -110,7 +111,7 @@ func TestServiceAnswerPromptBatchTranslatesMixedEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AnswerPromptBatch: %v", err)
 	}
-	if responder.batchCalls != 1 || responder.batchSession.String() != request.SessionId || responder.batchStep.String() != request.StepId {
+	if responder.batchCalls != 1 || responder.batchSession.String() != request.SessionId.GetSessionId() || responder.batchStep.String() != request.StepId {
 		t.Fatalf("batch delegation = calls %d session %s step %s", responder.batchCalls, responder.batchSession, responder.batchStep)
 	}
 	if len(responder.batchCommands) != 3 {
@@ -143,14 +144,14 @@ func TestServiceAnswerPromptBatchTranslatesMixedEntries(t *testing.T) {
 func TestServiceAnswerPromptBatchAttributesUnrelatedAgent(t *testing.T) {
 	persistedSessions, target, caller := promptControlAgentSessions(t)
 	_, responder := newPromptControlTestService()
-	service := NewPromptControlService(responder, persistedSessions)
+	service := NewPromptControlService(responder, persistedSessions, persistedSessions)
 	responder.batchResults = []sessionruntime.PromptAnswerResult{
 		{ToolCallID: "question-1", Outcome: sessionruntime.PromptAnswerOutcomeResolved},
 		{ToolCallID: "approval-1", Outcome: sessionruntime.PromptAnswerOutcomeResolved},
 		{ToolCallID: "declined-1", Outcome: sessionruntime.PromptAnswerOutcomeSkipped},
 	}
 	request := promptAnswerBatchRequest(t)
-	request.SessionId = target.Meta().SessionID
+	request.SessionId = protoapi.SessionSelectorToProto(*target.Identity().ShortID)
 	callerSessionID := caller.Meta().SessionID
 	request.InvokingSessionId = &callerSessionID
 
@@ -159,6 +160,9 @@ func TestServiceAnswerPromptBatchAttributesUnrelatedAgent(t *testing.T) {
 	}
 	if len(responder.batchCommands) == 0 {
 		t.Fatal("AnswerPromptBatch did not deliver the Question answer")
+	}
+	if responder.batchSession.String() != target.Meta().SessionID {
+		t.Fatalf("resolved target = %s", responder.batchSession)
 	}
 	answer, ok := responder.batchCommands[0].Payload.(sessionruntime.PromptQuestionAnswerCommand)
 	if !ok || answer.Answer.AnsweredBySessionID == nil ||
@@ -235,7 +239,7 @@ func promptAnswerBatchRequest(t *testing.T) *promptpb.AnswerBatchRequest {
 	questionCommentary := "question commentary"
 	approvalCommentary := "approval commentary"
 	return &promptpb.AnswerBatchRequest{
-		SessionId: sessionID.String(),
+		SessionId: requestfixture.Selector(t, sessionID.String()),
 		StepId:    stepID.String(),
 		Entries: []*promptpb.AnswerBatchEntry{
 			{

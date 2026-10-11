@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"core/internal/testharness/requestfixture"
 	"core/server/registry"
 	askquestion "core/server/tools"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
@@ -23,8 +24,8 @@ func TestApprovalViewServiceRejectsMalformedPendingToolCallIdentity(t *testing.T
 		"step":   {ToolCallID: "approval-1", StepID: "step-1", Question: "allow?", Approval: true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			svc := NewApprovalViewService(&stubApprovalPendingPromptSource{items: []registry.PendingPromptSnapshot{{Request: request}}})
-			if _, err := svc.ListPendingApprovalsBySession(context.Background(), &promptpb.ListPendingRequest{SessionId: "session-1"}); err == nil {
+			svc := NewApprovalViewService(&stubApprovalPendingPromptSource{items: []registry.PendingPromptSnapshot{{Request: request}}}, nil)
+			if _, err := svc.ListPendingApprovalsBySession(context.Background(), &promptpb.ListPendingRequest{SessionId: requestfixture.Selector(t, "33333333-3333-4333-8333-333333333333")}); err == nil {
 				t.Fatal("accepted malformed pending prompt identity")
 			}
 		})
@@ -32,7 +33,7 @@ func TestApprovalViewServiceRejectsMalformedPendingToolCallIdentity(t *testing.T
 }
 
 func TestApprovalViewServiceRequiresSessionID(t *testing.T) {
-	if _, err := NewApprovalViewService(&stubApprovalPendingPromptSource{}).ListPendingApprovalsBySession(context.Background(), &promptpb.ListPendingRequest{}); err == nil {
+	if _, err := NewApprovalViewService(&stubApprovalPendingPromptSource{}, nil).ListPendingApprovalsBySession(context.Background(), &promptpb.ListPendingRequest{}); err == nil {
 		t.Fatal("expected validation error")
 	}
 }

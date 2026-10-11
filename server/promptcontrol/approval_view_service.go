@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	"core/server/metadata"
 	"core/server/registry"
 	servicecontract "core/shared/apicontract"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
-	"core/shared/runtimeids"
 )
 
 type PendingPromptSource interface {
@@ -16,21 +16,22 @@ type PendingPromptSource interface {
 }
 
 type ApprovalViewService struct {
-	prompts PendingPromptSource
+	prompts  PendingPromptSource
+	metadata *metadata.Store
 }
 
-func NewApprovalViewService(prompts PendingPromptSource) *ApprovalViewService {
-	return &ApprovalViewService{prompts: prompts}
+func NewApprovalViewService(prompts PendingPromptSource, store *metadata.Store) *ApprovalViewService {
+	return &ApprovalViewService{prompts: prompts, metadata: store}
 }
 
-func (s *ApprovalViewService) ListPendingApprovalsBySession(_ context.Context, req *promptpb.ListPendingRequest) (*promptpb.ListApprovalsSuccess, error) {
+func (s *ApprovalViewService) ListPendingApprovalsBySession(ctx context.Context, req *promptpb.ListPendingRequest) (*promptpb.ListApprovalsSuccess, error) {
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
 	if s == nil || s.prompts == nil {
 		return nil, fmt.Errorf("pending prompt source is required")
 	}
-	sessionID, err := runtimeids.ParseSessionID(req.SessionId)
+	sessionID, err := promptTarget(ctx, s.metadata, req.SessionId, req.CallerSessionId)
 	if err != nil {
 		return nil, fmt.Errorf("pending approval session identity: %w", err)
 	}

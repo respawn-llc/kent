@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"core/server/metadata"
 	"core/server/session"
 	"core/server/sessionruntime"
 	askquestion "core/server/tools"
@@ -35,13 +36,15 @@ type PendingPromptResponder interface {
 type PromptControlService struct {
 	prompts          PendingPromptResponder
 	persistedSession session.PersistedSessionResolver
+	metadata         *metadata.Store
 }
 
 func NewPromptControlService(
 	prompts PendingPromptResponder,
 	persistedSession session.PersistedSessionResolver,
+	store *metadata.Store,
 ) *PromptControlService {
-	return &PromptControlService{prompts: prompts, persistedSession: persistedSession}
+	return &PromptControlService{prompts: prompts, persistedSession: persistedSession, metadata: store}
 }
 
 func (s *PromptControlService) AnswerPromptBatch(
@@ -54,7 +57,7 @@ func (s *PromptControlService) AnswerPromptBatch(
 	if s == nil || s.prompts == nil {
 		return nil, errors.New("prompt responder is required")
 	}
-	sessionID, err := runtimeids.ParseSessionID(req.SessionId)
+	sessionID, err := promptTarget(ctx, s.metadata, req.SessionId, req.InvokingSessionId)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +169,7 @@ func (s *PromptControlService) SubscribeFollowUp(
 	if s == nil || s.prompts == nil {
 		return nil, errors.New("prompt responder is required")
 	}
-	sessionID, err := runtimeids.ParseSessionID(req.SessionId)
+	sessionID, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
 	if err != nil {
 		return nil, err
 	}

@@ -204,7 +204,7 @@ describe("RpcWebSocketTransport", () => {
     const answer = transport.callDescriptorAttachedSession(
       { sessionID: "session-1", projectID: "project-1" },
       method,
-      create(method.input, { sessionId: "session-1" }),
+      create(method.input, { sessionId: { value: { case: "sessionId", value: "session-1" } } }),
     );
     const socket = sockets[0] ?? failTest("attached Session socket missing");
 
@@ -227,7 +227,7 @@ describe("RpcWebSocketTransport", () => {
     const answer = transport.callDescriptorAttachedSession(
       { sessionID: "session-1" },
       method,
-      create(method.input, { sessionId: "session-1" }),
+      create(method.input, { sessionId: { value: { case: "sessionId", value: "session-1" } } }),
     );
     const socket = sockets[0] ?? failTest("attached Session socket missing");
 
