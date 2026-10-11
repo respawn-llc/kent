@@ -230,13 +230,7 @@ message MainView {
 }
 
 message RuntimeUnavailableDetails {
-  optional string session_id = 1 [(buf.validate.field).string.min_len = 1];
-  optional int64 short_id = 2 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
-  option (buf.validate.message).cel = {
-    id: "kent.runtime.unavailable_short_identity"
-    message: "Session number requires its UUID identity"
-    expression: "!has(this.short_id) || has(this.session_id)"
-  };
+  optional kent.api.shared.SessionTargetContext session_target = 3;
 }
 
 message RuntimeCommandNotAcceptedDetails {

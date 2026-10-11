@@ -60,7 +60,7 @@ func TestGoalSetSuccessRejectsRuntimeUnavailableDiagnostic(t *testing.T) {
 		Diagnostic: &runtimepb.GoalSetError{
 			Code: "runtime_unavailable",
 			Detail: &runtimepb.GoalSetError_RuntimeUnavailable{
-				RuntimeUnavailable: &runtimepb.RuntimeUnavailableDetails{SessionId: &sessionID},
+				RuntimeUnavailable: &runtimepb.RuntimeUnavailableDetails{},
 			},
 		},
 	}
@@ -79,7 +79,8 @@ func TestGoalSetErrorFromErrorIncludesRuntimeUnavailableSession(t *testing.T) {
 		t.Fatalf("Goal Set error code = %q, want runtime_unavailable", got.Code)
 	}
 	detail := got.GetRuntimeUnavailable()
-	if detail == nil || detail.GetSessionId() != sessionID.String() {
+	var target *serverapi.SessionTargetError
+	if detail == nil || !errors.As(RuntimeUnavailableFromProto(detail), &target) || target.SessionID() == nil || *target.SessionID() != sessionID {
 		t.Fatalf("runtime-unavailable details = %+v, want Session %q", detail, sessionID)
 	}
 }
@@ -110,22 +111,12 @@ func TestGoalSetCapturedTargetPreservesFailureIdentity(t *testing.T) {
 		if details == nil {
 			t.Fatalf("original failure classification changed: %v", encoded)
 		}
-		if test.id == nil {
-			if details.SessionId != nil {
-				t.Fatal("unknown target acquired UUID")
-			}
-		} else if details.GetSessionId() != test.id.String() {
-			t.Fatalf("lost captured UUID: %v", details)
-		}
-		if test.shortID == nil {
-			if details.ShortId != nil {
-				t.Fatal("target acquired unrecorded number")
-			}
-		} else if details.ShortId == nil || *details.ShortId != test.shortID.Int64() {
-			t.Fatalf("lost captured number: %v", details)
-		}
 		if !errors.Is(RuntimeUnavailableFromProto(details), cause) {
 			t.Fatal("conversion replaced original failure category")
+		}
+		var unavailable *serverapi.SessionTargetError
+		if !errors.As(RuntimeUnavailableFromProto(details), &unavailable) || !reflect.DeepEqual(unavailable.Target, test.target) {
+			t.Fatal("runtime unavailable conversion lost captured target stage")
 		}
 		var roundTrip *serverapi.SessionTargetError
 		if !errors.As(InternalFailureFromProto(InternalFailureToProto(captured)), &roundTrip) {

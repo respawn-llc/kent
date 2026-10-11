@@ -117,7 +117,7 @@ func sessionRemovalFailureDetails(request proto.Message, err error) proto.Messag
 	}
 	var self *serverapi.SessionSelfTargetError
 	if errors.As(err, &self) {
-		return &sharedpb.SessionSelfTargetDetails{SessionId: self.SessionID.String()}
+		return protoapi.SessionSelfTargetToProto(err, self)
 	}
 	_, deleteRequest := request.(*sessionlaunchpb.SessionDeleteRequest)
 	if errors.Is(err, session.ErrSessionNotFound) {

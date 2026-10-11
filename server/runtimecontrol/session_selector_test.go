@@ -64,7 +64,10 @@ func TestLiveControlsRejectResolvedSelfTargets(t *testing.T) {
 			},
 		} {
 			var self *serverapi.SessionSelfTargetError
-			if err := operation(); !errors.As(err, &self) || self.SessionID.String() != caller {
+			var captured *serverapi.SessionTargetError
+			if err := operation(); !errors.As(err, &self) || self.SessionID.String() != caller ||
+				!errors.As(err, &captured) || captured.Projection() == nil ||
+				captured.Projection().String() != sess.Identity().String() {
 				t.Fatalf("self target %s = %v", raw, err)
 			}
 		}
@@ -112,5 +115,17 @@ func TestLiveWaitFailureRetainsResolvedSessionIdentity(t *testing.T) {
 			*failure.Projection().ShortID != *sess.Identity().ShortID {
 			t.Fatalf("resolved failure identity = %v, %v", failure, err)
 		}
+	}
+}
+
+func TestLiveWaitProjectionFailureRetainsCanonicalTarget(t *testing.T) {
+	sess, service := newNumberedRuntimeControlFixture(t)
+	if err := service.metadata.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err := service.LiveWait(t.Context(), &runtimepb.LiveWaitRequest{SessionId: protoapi.SessionSelectorToProto(sess.Identity().ID)})
+	var failure *serverapi.SessionTargetError
+	if !errors.As(err, &failure) || failure.SessionID() == nil || *failure.SessionID() != sess.Identity().ID || failure.Projection() != nil {
+		t.Fatalf("projection failure lost known target: %v", err)
 	}
 }

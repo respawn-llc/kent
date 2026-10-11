@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"core/server/session"
 	"core/shared/apicontract"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
@@ -27,16 +26,16 @@ func runtimePendingWorkClient(deps GatewayDependencies) apicontract.RuntimePendi
 	return client
 }
 
-func binaryRuntimeControlFailure(sessionID string, err error) proto.Message {
+func binaryRuntimeControlFailure(err error) proto.Message {
 	var rejected *serverapi.RuntimeCommandNotAcceptedError
 	var notPending *serverapi.PendingWorkNotPendingError
 	var commandErr *serverapi.PromptCommandError
 	var self *serverapi.SessionSelfTargetError
 	switch {
 	case errors.As(err, &self):
-		return &sharedpb.SessionSelfTargetDetails{SessionId: self.SessionID.String()}
+		return protoapi.SessionSelfTargetToProto(err, self)
 	case errors.As(err, &rejected):
-		return protoapi.RuntimeCommandNotAcceptedToProto(sessionID, rejected)
+		return protoapi.RuntimeCommandNotAcceptedToProto(protoapi.SessionTargetErrorContext(err), rejected)
 	case errors.As(err, &notPending):
 		return &runtimepb.PendingWorkNotPendingDetails{ItemId: notPending.ItemID.String()}
 	case errors.As(err, &commandErr):
@@ -46,15 +45,7 @@ func binaryRuntimeControlFailure(sessionID string, err error) proto.Message {
 		}
 		return detail
 	case errors.Is(err, serverapi.ErrRuntimeUnavailable):
-		var target *serverapi.SessionTargetError
-		if errors.As(err, &target) {
-			details := &runtimepb.RuntimeUnavailableDetails{SessionId: protoapi.OptionalSessionIDToProto(target.SessionID())}
-			if identity := target.Projection(); identity != nil {
-				details.ShortId = protoapi.SessionShortIDToProto(identity.ShortID)
-			}
-			return details
-		}
-		return &runtimepb.RuntimeUnavailableDetails{SessionId: &sessionID}
+		return &runtimepb.RuntimeUnavailableDetails{SessionTarget: protoapi.SessionTargetErrorContext(err)}
 	case errors.Is(err, serverapi.ErrManualCompactionTooSoon):
 		return &chatpb.ManualCompactionTooSoonDetails{}
 	case errors.Is(err, serverapi.ErrManualCompactionDisabled):
@@ -187,29 +178,13 @@ func registerRuntimeControlUnary[Service any, Target runtimeControlTarget, Reque
 			}
 			var self *serverapi.SessionSelfTargetError
 			if errors.As(err, &self) {
-				return &sharedpb.SessionSelfTargetDetails{SessionId: self.SessionID.String()}
+				return protoapi.SessionSelfTargetToProto(err, self)
 			}
 			if len(failure) == 1 && failure[0] != nil {
 				if detail := failure[0](request, err); detail != nil {
 					return detail
 				}
 			}
-			scope := runtimeControlScope(request.GetSessionId())
-			var target *serverapi.SessionTargetError
-			if errors.As(err, &target) {
-				if id := target.SessionID(); id != nil {
-					scope.sessionID = id.String()
-				}
-			} else if scope.sessionSelector != nil {
-				id, lookupErr := g.deps.MetadataStore().ResolveSessionTarget(context.Background(), scope.sessionSelector)
-				if lookupErr != nil {
-					if errors.Is(lookupErr, session.ErrSessionNotFound) && errors.Is(err, serverapi.ErrRuntimeUnavailable) {
-						return &runtimepb.RuntimeUnavailableDetails{}
-					}
-					return binaryInternalFailure(errors.Join(err, lookupErr))
-				}
-				scope.sessionID = id.String()
-			}
-			return binaryRuntimeControlFailure(scope.sessionID, err)
+			return binaryRuntimeControlFailure(err)
 		})
 }

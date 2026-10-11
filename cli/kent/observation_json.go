@@ -135,10 +135,6 @@ func observationSessionErrorTarget(selector string, err error) observationJSONTa
 			return observationTargetSession(id.String())
 		}
 	}
-	var unavailable *serverapi.RuntimeUnavailableError
-	if errors.As(err, &unavailable) && unavailable.SessionID != nil {
-		return observationTargetSession(unavailable.SessionID.String())
-	}
 	parsed, parseErr := runtimeids.ParseSessionSelector(selector)
 	if parseErr == nil {
 		if id, ok := parsed.(runtimeids.SessionID); ok {

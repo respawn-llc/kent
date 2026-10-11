@@ -43,8 +43,5 @@ message SessionSelector {
 }
 
 message SessionSelfTargetDetails {
-  string session_id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
+  SessionTargetContext session_target = 2 [(buf.validate.field).required = true];
 }

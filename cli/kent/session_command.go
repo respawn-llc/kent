@@ -15,7 +15,9 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
+	"core/shared/serverapi"
 )
 
 const selfSessionRemovalMessage = "You're trying to delete your own session, which is effectively a suicide. Don't do it, you still have things worth living for! Seek help immediately via ask_question, or exclude your session if this is accidental"
@@ -227,6 +229,15 @@ func runSessionDeleteUseCase(
 	return &sessionRemovalResult{SessionID: response.SessionId}, nil
 }
 
+func sessionRemovalSelfTargetFailure(sessionID string, details *sharedpb.SessionSelfTargetDetails) *sessionRemovalError {
+	err := protoapi.SessionSelfTargetFromProto(details)
+	var self *serverapi.SessionSelfTargetError
+	if !errors.As(err, &self) {
+		return sessionRemovalFailure(sessionID, "request_failed", err.Error())
+	}
+	return sessionRemovalFailure(self.SessionID.String(), "self_session_forbidden", selfSessionRemovalMessage)
+}
+
 func sessionArchiveFailure(sessionID string, err error) *sessionRemovalError {
 	var wire *client.SessionArchiveFailureError
 	if !errors.As(err, &wire) || wire == nil || wire.Failure == nil {
@@ -234,7 +245,7 @@ func sessionArchiveFailure(sessionID string, err error) *sessionRemovalError {
 	}
 	failure := wire.Failure
 	if self := failure.GetSelfTarget(); self != nil {
-		return sessionRemovalFailure(self.SessionId, "self_session_forbidden", selfSessionRemovalMessage)
+		return sessionRemovalSelfTargetFailure(sessionID, self)
 	}
 	if expected := expectedSessionRemovalFailure(
 		sessionID,
@@ -272,7 +283,7 @@ func sessionDeleteFailure(sessionID string, err error) *sessionRemovalError {
 	}
 	failure := wire.Failure
 	if self := failure.GetSelfTarget(); self != nil {
-		return sessionRemovalFailure(self.SessionId, "self_session_forbidden", selfSessionRemovalMessage)
+		return sessionRemovalSelfTargetFailure(sessionID, self)
 	}
 	if expected := expectedSessionRemovalFailure(
 		sessionID,

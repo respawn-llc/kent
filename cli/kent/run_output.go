@@ -27,10 +27,6 @@ func liveErrorSelector(request runtimeids.SessionSelector, err error) string {
 			return id.String()
 		}
 	}
-	var unavailable *serverapi.RuntimeUnavailableError
-	if errors.As(err, &unavailable) && unavailable.SessionID != nil {
-		return (runtimeids.SessionIdentity{ID: *unavailable.SessionID, ShortID: unavailable.ShortID}).String()
-	}
 	return request.String()
 }
 
@@ -72,8 +68,8 @@ func parseRunOutputMode(raw string) (runOutputMode, error) {
 }
 
 func runErrorMessage(err error) string {
-	var unavailable *serverapi.RuntimeUnavailableError
-	if errors.As(err, &unavailable) && unavailable.SessionID == nil {
+	var target *serverapi.SessionTargetError
+	if errors.Is(err, serverapi.ErrRuntimeUnavailable) && errors.As(err, &target) && target.SessionID() == nil {
 		return "The Session does not exist; it may have been deleted."
 	}
 	var selection *serverapi.RunSelectionRejectedError

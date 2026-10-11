@@ -122,7 +122,7 @@ func TestSessionRemovalCommandConfirmationAndServerSelfGuard(t *testing.T) {
 			command := sessionCommand{
 				openRemote: func(context.Context) (sessionCommandRemote, error) {
 					dials++
-					detail := &sharedpb.SessionSelfTargetDetails{SessionId: ownSessionID}
+					detail := &sharedpb.SessionSelfTargetDetails{SessionTarget: &sharedpb.SessionTargetContext{Stage: &sharedpb.SessionTargetContext_CanonicalSessionId{CanonicalSessionId: ownSessionID}}}
 					return &sessionCommandTestRemote{
 						archiveErr: &client.SessionArchiveFailureError{Failure: &sessionlaunchpb.SessionArchiveError{Code: "self_target", Detail: &sessionlaunchpb.SessionArchiveError_SelfTarget{SelfTarget: detail}}},
 						deleteErr:  &client.SessionDeleteFailureError{Failure: &sessionlaunchpb.SessionDeleteError{Code: "self_target", Detail: &sessionlaunchpb.SessionDeleteError_SelfTarget{SelfTarget: detail}}},

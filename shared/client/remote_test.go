@@ -1644,7 +1644,7 @@ func TestBinaryErrorDecodesRuntimeCommandNotAcceptedCauses(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			source := serverapi.NewRuntimeCommandNotAcceptedError(test.cause)
-			details := protoapi.RuntimeCommandNotAcceptedToProto("session-1", source)
+			details := protoapi.RuntimeCommandNotAcceptedToProto(nil, source)
 			wire, err := protoapi.Encode(details)
 			if err != nil {
 				t.Fatal(err)
