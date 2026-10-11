@@ -102,7 +102,7 @@ func TestBindSessionPromotesPreparedHandoffWithoutDialing(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = current.Close() })
 	subscription, err := current.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{
-		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "session-1"}},
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "33333333-3333-4333-8333-333333333333"}},
 	})
 	if err != nil {
 		t.Fatalf("SubscribeSessionTranscript: %v", err)
@@ -110,7 +110,7 @@ func TestBindSessionPromotesPreparedHandoffWithoutDialing(t *testing.T) {
 	t.Cleanup(func() { _ = subscription.Close() })
 
 	var dialed atomic.Bool
-	bound, err := bindSession(context.Background(), current, "session-1", "root", func(context.Context, string) (*client.Remote, error) {
+	bound, err := bindSession(context.Background(), current, "33333333-3333-4333-8333-333333333333", "root", func(context.Context, string) (*client.Remote, error) {
 		dialed.Store(true)
 		return nil, errors.New("Session dialer must not run when a prepared handoff exists")
 	})

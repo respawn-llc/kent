@@ -289,11 +289,17 @@ func TestNewProvidesRegistrationSafeClientsForUnregisteredWorkspace(t *testing.T
 	if appCore.RunPromptClient() == nil {
 		t.Fatal("expected run prompt client stub")
 	}
-	_, err = appCore.SessionLaunchClient().PlanSession(context.Background(), &sessionlaunchpb.SessionPlanRequest{})
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = appCore.SessionLaunchClient().PlanSession(context.Background(), &sessionlaunchpb.SessionPlanRequest{Intent: intent})
 	if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
 		t.Fatalf("PlanSession error = %v, want ErrWorkspaceNotRegistered", err)
 	}
-	_, err = appCore.RunPromptClient().RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{}), nil)
+	_, err = appCore.RunPromptClient().RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+	}), nil)
 	if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
 		t.Fatalf("RunPrompt error = %v, want ErrWorkspaceNotRegistered", err)
 	}

@@ -157,12 +157,6 @@ func TestChatResultClassification(t *testing.T) {
 }
 
 func TestBinaryChatFailureMapsAgentPreparationCategories(t *testing.T) {
-	sessionID := runtimeids.NewSessionID()
-	request := &chatpb.SteerRequest{
-		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
-			Session: &chatpb.ExistingSessionRequestTarget{SessionId: requestfixture.Selector(t, sessionID.String())},
-		}},
-	}
 	for _, test := range []struct {
 		category serverapi.ChatSettingsAgentPreparationCategory
 		want     chatsettingspb.AgentPreparationCategory
@@ -184,10 +178,8 @@ func TestBinaryChatFailureMapsAgentPreparationCategories(t *testing.T) {
 		},
 	} {
 		t.Run(string(test.category), func(t *testing.T) {
-			detail := binaryChatFailure(
+			detail := binaryChatDomainFailure(
 				nil,
-				nil,
-				request,
 				&serverapi.ChatSettingsAgentPreparationError{
 					Agent:    "reviewer",
 					Category: test.category,

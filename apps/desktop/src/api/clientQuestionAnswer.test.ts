@@ -41,7 +41,7 @@ describe("ApiClient prompt answer batches", () => {
       },
     ]);
     expect(transport.descriptorCalls[0]?.request).toMatchObject({
-      sessionId: sessionID,
+      sessionId: { value: { case: "sessionId", value: sessionID } },
       stepId: stepID,
       entries: [
         {

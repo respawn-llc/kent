@@ -8,6 +8,7 @@ func TestSessionPageQueryUsesNormalizedCategoryRecencyIndexWithOffset(t *testing
 	if _, err := db.Exec(`
 CREATE TABLE sessions (
 	id TEXT PRIMARY KEY,
+	short_id INTEGER,
 	project_id TEXT NOT NULL,
 	name TEXT,
 	first_prompt_preview TEXT,

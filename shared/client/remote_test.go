@@ -619,7 +619,7 @@ func TestRemoteGetsLatestCommittedAssistantFinalAnswer(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	resp, err := remote.GetLatestCommittedAssistantFinalAnswer(context.Background(), &transcriptpb.LatestFinalAnswerRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "session-1"}}})
+	resp, err := remote.GetLatestCommittedAssistantFinalAnswer(context.Background(), &transcriptpb.LatestFinalAnswerRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "33333333-3333-4333-8333-333333333333"}}})
 	if err != nil {
 		t.Fatalf("GetLatestCommittedAssistantFinalAnswer: %v", err)
 	}

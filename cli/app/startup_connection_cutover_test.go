@@ -142,9 +142,9 @@ func TestStartupResumeKeepsInitialEndpointAndUsesServerSessionWorkspace(t *testi
 		}
 	}
 	for _, inherited := range []bool{false, true} {
-		missing := Options{WorkspaceRoot: initialWorkspace, SessionID: "missing"}
+		missing := Options{WorkspaceRoot: initialWorkspace, SessionID: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"}
 		if inherited {
-			missing.SessionID, missing.WorkspaceContextSessionID = "", "missing"
+			missing.SessionID, missing.WorkspaceContextSessionID = "", "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 		}
 		_, _, err := startRunPromptClient(t.Context(), missing)
 		if !errors.Is(err, sessioncontract.ErrSessionNotFound) ||

@@ -18,7 +18,7 @@ func TestSessionAttachmentReportsMissingSessionThroughRPC(t *testing.T) {
 	}
 	server := httptest.NewServer(gateway.Handler())
 	defer server.Close()
-	remote, err := client.DialRemoteURLForSession(t.Context(), "ws"+strings.TrimPrefix(server.URL, "http")+"/rpc", "missing-session")
+	remote, err := client.DialRemoteURLForSession(t.Context(), "ws"+strings.TrimPrefix(server.URL, "http")+"/rpc", "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee")
 	if remote != nil {
 		_ = remote.Close()
 	}

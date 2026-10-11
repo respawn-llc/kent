@@ -590,6 +590,7 @@ func TestPlanLaunchSessionUsesOneConfigSnapshotForNamedRole(t *testing.T) {
 		ContainerDir:    t.TempDir(),
 		StoreOptions:    serviceTestPersistence.Options(),
 		SessionProjects: sessionLaunchProjectResolver{}, ManagedWorktreeRoots: sessionLaunchProjectResolver{},
+		PersistedSessions: serviceTestPersistence,
 		ReloadConfig: func() (config.App, error) {
 			reloads++
 			if reloads != 1 {
