@@ -16,10 +16,14 @@ func ResolveForkThinking(app config.App, meta session.Meta, skipContinuationAgen
 	return resolveForkThinking(current.Settings)
 }
 
-// ResolveInteractiveForkThinking copies only the current desired Thinking into
-// a fresh interactive target. Source model locks, role and provider binding do
-// not decide whether that target can retain native Thinking updates.
-func ResolveInteractiveForkThinking(app config.App, meta session.Meta) (session.ForkThinking, error) {
+type InteractiveForkTarget struct {
+	ConnectionID config.ConnectionID
+	Thinking     session.ForkThinking
+}
+
+// PrepareInteractiveFork allocates the child's fresh binding before projecting
+// copied Thinking updates. The source contract does not select that binding.
+func PrepareInteractiveFork(app config.App, meta session.Meta, rotation *ConnectionRotation) (InteractiveForkTarget, error) {
 	var thinking *string
 	if meta.ChatSettings != nil {
 		thinking = meta.ChatSettings.Thinking
@@ -27,17 +31,25 @@ func ResolveInteractiveForkThinking(app config.App, meta session.Meta) (session.
 	if thinking == nil {
 		current, err := ResolveReadOnlySessionContextSettings(app, meta, true)
 		if err != nil {
-			return session.ForkThinking{}, err
+			return InteractiveForkTarget{}, err
 		}
 		thinking = &current.Settings.ThinkingLevel
 	}
-	target, err := ResolveReadOnlySessionContextSettings(app, session.Meta{
+	settings, _, _, err := resolveSessionContextSettings(app, session.Meta{
 		ChatSettings: &session.ChatSettingsOverrides{Thinking: thinking},
-	}, false)
+	}, false, rotation, true)
 	if err != nil {
-		return session.ForkThinking{}, err
+		return InteractiveForkTarget{}, err
 	}
-	return resolveForkThinking(target.Settings)
+	targetThinking, err := resolveForkThinking(settings)
+	if err != nil {
+		return InteractiveForkTarget{}, err
+	}
+	connection, err := settings.Connection.ConcreteID()
+	if err != nil {
+		return InteractiveForkTarget{}, err
+	}
+	return InteractiveForkTarget{ConnectionID: *connection, Thinking: targetThinking}, nil
 }
 
 func resolveForkThinking(settings config.Settings) (session.ForkThinking, error) {

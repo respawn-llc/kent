@@ -35,7 +35,11 @@ func (r *ConnectionResolver) Resolve(settings config.Settings) (ResolvedConnecti
 	if err != nil {
 		return ResolvedConnection{}, err
 	}
-	id := *settings.Connection
+	selected, err := settings.Connection.ConcreteID()
+	if err != nil {
+		return ResolvedConnection{}, err
+	}
+	id := *selected
 	return ResolvedConnection{ID: id, Definition: definition, Auth: connectionAuth{owner: r, id: id}}, nil
 }
 
@@ -49,7 +53,7 @@ func (r *ConnectionResolver) resolveTarget(raw *string) (ResolvedConnection, err
 		if err != nil {
 			return ResolvedConnection{}, err
 		}
-		app.Settings.Connection = &id
+		app.Settings.Connection = config.SingleConnection(id)
 	}
 	return r.Resolve(app.Settings)
 }

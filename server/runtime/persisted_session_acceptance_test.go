@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"core/internal/testharness/runtimewirefixture"
+	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
 	"core/server/session"
@@ -118,7 +119,7 @@ func (c *persistedBoundaryClient) Generate(
 		}
 		return finalTextResponse("done"), nil
 	}
-	return llm.Response{}, errors.New("unexpected provider request after terminal response")
+	return llm.Response{}, scriptedllm.ErrScriptExhausted
 }
 
 func TestPersistedSessionPatchObserverFailureRecoversWithoutEffectReplay(t *testing.T) {

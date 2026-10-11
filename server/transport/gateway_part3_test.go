@@ -131,7 +131,11 @@ func newGatewayTestCore(t *testing.T, bindWorkspace bool, ready bool) (*core.Cor
 	authSupport := newGatewayTestAuthSupport(t, resolved.Config.PersistenceRoot, ready)
 	resolved.Config.Settings = testsetup.ProviderSettings(resolved.Config.Settings)
 	if !ready {
-		resolved.Config.Settings.Connections[*resolved.Config.Settings.Connection] = config.ProviderConnection{
+		id, err := resolved.Config.Settings.Connection.ConcreteID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		resolved.Config.Settings.Connections[*id] = config.ProviderConnection{
 			Protocol: config.ConnectionChatGPT,
 		}
 	}

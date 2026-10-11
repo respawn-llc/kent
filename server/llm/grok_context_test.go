@@ -19,7 +19,7 @@ func TestGrokDerivedContextUsesSelectedVariant(t *testing.T) {
 		t.Run(string(tc.protocol)+"/"+tc.model, func(t *testing.T) {
 			id := config.ConnectionID("grok")
 			settings := config.Settings{
-				Connection:  &id,
+				Connection:  config.SingleConnection(id),
 				Connections: map[config.ConnectionID]config.ProviderConnection{id: {Protocol: tc.protocol}},
 			}
 			if err := ApplyDerivedModelContextBudget(&settings, tc.model, 100_000, 95_000); err != nil {

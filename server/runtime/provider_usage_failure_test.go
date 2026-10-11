@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"core/server/llm"
 	"core/server/session"
@@ -16,7 +16,10 @@ import (
 
 func TestProviderUsageExcludesFailedTransportAndRetainsSuccessfulRetry(t *testing.T) {
 	t.Parallel()
-	withGenerateRetryDelays(t, []time.Duration{0})
+	synctest.Test(t, testProviderUsageExcludesFailedTransportAndRetainsSuccessfulRetry)
+}
+
+func testProviderUsageExcludesFailedTransportAndRetainsSuccessfulRetry(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{
 		errors:    []error{errors.New("temporary provider failure")},

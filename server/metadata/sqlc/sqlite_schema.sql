@@ -3,3 +3,8 @@ CREATE TABLE sqlite_schema (
     name TEXT NOT NULL,
     sql TEXT
 );
+
+CREATE TABLE pragma_table_list (
+    name TEXT NOT NULL,
+    type TEXT NOT NULL
+);

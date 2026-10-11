@@ -11,7 +11,6 @@ import (
 	modelstub "core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
-	"core/server/metadata"
 	"core/server/session"
 	"core/shared/config"
 	"core/shared/protoapi"
@@ -56,28 +55,32 @@ func TestConnectionDispatchPreservesEstablishedGenerationContract(t *testing.T) 
 			keyName := "CONTRACT_TEST_KEY"
 			t.Setenv(keyName, "contract-key")
 			settings := testsetup.WithResponsesProvider(config.DefaultOnboardingSettings(), endpoint.URL)
-			definition := settings.Connections[*settings.Connection]
+			selected, err := settings.Connection.ConcreteID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			definition := settings.Connections[*selected]
 			definition.EnvironmentVariable = &keyName
-			settings.Connections[*settings.Connection] = definition
-			selected := *settings.Connection
+			settings.Connections[*selected] = definition
 			if bound {
 				other := config.ConnectionID("other")
 				settings.Connections[other] = config.ProviderConnection{
 					Protocol: config.ConnectionResponses, Endpoint: textutil.Value("http://127.0.0.1:1/v1"),
 				}
-				settings.Connection = &other
+				settings.Connection = config.SingleConnection(other)
 			}
 			settings.Model, settings.ModelVerbosity = "operator-alias", config.ModelVerbosityHigh
 			settings.Reviewer.Frequency = "off"
 			cfg := testsetup.ProgrammaticConfig(t, settings)
-			binding, err := metadata.RegisterBinding(t.Context(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
+			meta := testsetup.OpenStore(t, cfg.PersistenceRoot)
+			binding, err := meta.RegisterWorkspaceBinding(t.Context(), cfg.WorkspaceRoot)
 			if err != nil {
 				t.Fatal(err)
 			}
-			app := newCoreTestApp(t, cfg, auth.EmptyState())
+			app := newCoreTestAppWithOptions(t, cfg, auth.EmptyState(), Options{MetadataStore: meta})
 			store := createCoreSettingsSession(t, app, cfg, binding.ProjectID)
 			if bound {
-				if err := store.SetConnectionID(selected); err != nil {
+				if err := store.SetConnectionID(*selected); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -122,7 +125,7 @@ func TestConnectionDispatchPreservesEstablishedGenerationContract(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			if record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != selected {
+			if record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != *selected {
 				t.Fatalf("dispatch binding = %v", record.Meta.ConnectionID)
 			}
 		})

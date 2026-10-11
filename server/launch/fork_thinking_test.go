@@ -25,7 +25,7 @@ func TestResolveForkThinkingUsesCurrentSelectionAndTargetSupport(t *testing.T) {
 			settings := config.DefaultOnboardingSettings()
 			settings.Model = test.model
 			id := config.ConnectionID("test")
-			settings.Connection = &id
+			settings.Connection = config.SingleConnection(id)
 			definition := config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://api.openai.com/v1")}
 			if test.endpoint != "" {
 				definition.Endpoint = &test.endpoint
@@ -52,7 +52,7 @@ func TestResolveForkThinkingUsesCurrentSelectionAndTargetSupport(t *testing.T) {
 	}
 }
 
-func TestResolveInteractiveForkThinkingUsesFreshTargetAndCurrentDesiredSelection(t *testing.T) {
+func TestPrepareInteractiveForkUsesFreshTargetAndCurrentDesiredSelection(t *testing.T) {
 	for _, test := range []struct {
 		name        string
 		targetModel string
@@ -66,7 +66,7 @@ func TestResolveInteractiveForkThinkingUsesFreshTargetAndCurrentDesiredSelection
 			settings := config.DefaultOnboardingSettings()
 			settings.Model = test.targetModel
 			id := config.ConnectionID("interactive")
-			settings.Connection = &id
+			settings.Connection = config.SingleConnection(id)
 			settings.Connections = map[config.ConnectionID]config.ProviderConnection{
 				id: {Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://api.openai.com/v1")},
 			}
@@ -77,22 +77,53 @@ func TestResolveInteractiveForkThinkingUsesFreshTargetAndCurrentDesiredSelection
 				WorkflowSnapshot: &session.WorkflowSnapshot{},
 				ChatSettings:     &session.ChatSettingsOverrides{Thinking: new("low")},
 			}
-			got, err := ResolveInteractiveForkThinking(config.App{Settings: settings}, meta)
+			target, err := PrepareInteractiveFork(config.App{Settings: settings}, meta, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
+			got := target.Thinking
 			if got.Desired != "low" || got.PreserveNativeUpdates != test.native {
 				t.Fatalf("interactive fork Thinking = %+v, want low / native %v", got, test.native)
 			}
 			meta.ChatSettings = nil
 			meta.ConnectionID = &id
-			got, err = ResolveInteractiveForkThinking(config.App{Settings: settings}, meta)
+			target, err = PrepareInteractiveFork(config.App{Settings: settings}, meta, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
+			got = target.Thinking
 			if got.Desired != settings.ThinkingLevel || got.PreserveNativeUpdates != test.native {
 				t.Fatalf("unpersisted desired Thinking = %+v, want %s / native %v", got, settings.ThinkingLevel, test.native)
 			}
 		})
+	}
+}
+
+func TestPrepareInteractiveForkUsesAllocatedConnectionInsteadOfFirstMember(t *testing.T) {
+	settings := config.DefaultOnboardingSettings()
+	settings.Model = "gpt-6-astra"
+	selection := config.ConnectionSelection{"official", "custom"}
+	settings.Connection = &selection
+	settings.ConnectionOrder = []config.ConnectionID{"official", "custom"}
+	settings.Connections = map[config.ConnectionID]config.ProviderConnection{
+		"official": {Protocol: config.ConnectionResponses, Endpoint: new("https://api.openai.com/v1")},
+		"custom":   {Protocol: config.ConnectionResponses, Endpoint: new("https://example.test/v1")},
+	}
+	source := session.Meta{
+		ConnectionID: new(config.ConnectionID("official")),
+		ChatSettings: &session.ChatSettingsOverrides{Thinking: new("low")},
+	}
+	rotation := new(ConnectionRotation)
+	for _, expected := range []struct {
+		id     config.ConnectionID
+		native bool
+	}{{"official", true}, {"custom", false}, {"official", true}} {
+		target, err := PrepareInteractiveFork(config.App{Settings: settings}, source, rotation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if target.ConnectionID != expected.id || target.Thinking.Desired != "low" || target.Thinking.PreserveNativeUpdates != expected.native {
+			t.Fatalf("fresh fork target = %+v, want %s / low / native %v", target, expected.id, expected.native)
+		}
 	}
 }

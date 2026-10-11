@@ -11,6 +11,7 @@ import (
 
 	"core/server/auth"
 	"core/server/chatcontext"
+	"core/server/metadata"
 	"core/shared/config"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
@@ -35,10 +36,7 @@ func (s *BootstrapService) GetConnections(_ context.Context, req *authpb.GetConn
 		return nil, err
 	}
 	result := &authpb.ConnectionCatalog{}
-	if app.Settings.Connection != nil {
-		id := string(*app.Settings.Connection)
-		result.DefaultConnectionId = &id
-	}
+	result.DefaultSelection = protoapi.ConnectionSelectionToProto(app.Settings.Connection)
 	for _, id := range slices.Sorted(maps.Keys(app.Settings.Connections)) {
 		result.Connections = append(result.Connections, protoapi.ConnectionToProto(id, app.Settings.Connections[id]))
 	}
@@ -46,14 +44,18 @@ func (s *BootstrapService) GetConnections(_ context.Context, req *authpb.GetConn
 		result.PendingSetup = protoapi.ConnectionToProto(pending.id, pending.definition)
 	}
 	if req.WorkspaceRoot != nil {
-		workspace, err := chatcontext.NewFixedRootWorkspaceResolver(s.connections.root, "", config.LoadOptions{}).Resolve(*req.WorkspaceRoot)
+		store, err := metadata.Open(s.connections.root)
+		if err != nil {
+			return nil, err
+		}
+		workspace, resolveErr := chatcontext.NewFixedRootWorkspaceResolver(store, "", config.LoadOptions{}).Resolve(*req.WorkspaceRoot)
+		err = errors.Join(resolveErr, store.Close())
 		if err != nil {
 			return nil, err
 		}
 		source := workspace.Source.Sources["connection"]
 		if source.File != nil && source.File.Layer != config.FileGlobal && workspace.Settings.Connection != nil {
-			id := string(*workspace.Settings.Connection)
-			result.WorkspaceConnectionId = &id
+			result.WorkspaceSelection = protoapi.ConnectionSelectionToProto(workspace.Settings.Connection)
 		}
 	}
 	return result, nil
@@ -129,7 +131,7 @@ func (s *BootstrapService) PendingSettings(settings config.Settings) (config.Set
 }
 
 func (p *pendingConnection) settings(settings config.Settings) config.Settings {
-	settings.Connection = &p.id
+	settings.Connection = config.SingleConnection(p.id)
 	settings.Connections = map[config.ConnectionID]config.ProviderConnection{p.id: p.definition}
 	return settings
 }

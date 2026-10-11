@@ -4362,6 +4362,7 @@ SELECT
 FROM sqlite_schema
 WHERE sql IS NOT NULL
   AND name != 'sqlite_sequence'
+  AND name NOT IN (SELECT name FROM pragma_table_list WHERE type = 'shadow')
 ORDER BY
     CASE type
         WHEN 'table' THEN 0

@@ -2,32 +2,20 @@ package metadata
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"database/sql"
-	_ "embed"
-	"fmt"
-	"sync/atomic"
 	"testing"
 
-	"core/server/metadata/sqlitegen"
+	"core/internal/testharness/databaseseed"
 )
 
-var metadataTestDatabaseSequence atomic.Uint64
-
-//go:embed testdata/latest_schema.sql
-var latestMetadataTestSchema []byte
+var latestMetadataTestSchema = []byte(databaseseed.CurrentMetadataSchema)
 
 func openInMemoryMetadataTestStore(t *testing.T, persistenceRoot string) *Store {
 	t.Helper()
 	db := openLatestMetadataTestDatabase(t)
-	store := &Store{
-		persistenceRoot:  persistenceRoot,
-		db:               db,
-		queries:          sqlitegen.New(db),
-		goalObservations: newGoalObservationBroker(),
-	}
-	if err := store.BackfillProjectKeys(context.Background()); err != nil {
+	store, err := NewStore(persistenceRoot, db)
+	if err != nil {
 		_ = db.Close()
 		t.Fatalf("backfill in-memory metadata project keys: %v", err)
 	}
@@ -41,45 +29,13 @@ func openInMemoryMetadataTestStore(t *testing.T, persistenceRoot string) *Store 
 
 func openLatestMetadataTestDatabase(t testing.TB) *sql.DB {
 	t.Helper()
-	db := openEmptyMetadataTestDatabase(t)
-	if _, err := db.Exec(string(executableLatestMetadataTestSchema())); err != nil {
-		_ = db.Close()
-		t.Fatalf("create latest in-memory metadata schema: %v", err)
-	}
-	db.SetMaxOpenConns(metadataSQLiteConnectionPoolSize)
-	db.SetMaxIdleConns(metadataSQLiteConnectionPoolSize)
+	db := databaseseed.OpenCurrentMetadataDatabase(t)
 	return db
-}
-
-func executableLatestMetadataTestSchema() []byte {
-	lines := bytes.Split(latestMetadataTestSchema, []byte{'\n'})
-	executable := make([][]byte, 0, len(lines))
-	for _, line := range lines {
-		if bytes.HasPrefix(line, []byte("CREATE TABLE 'task_search_fts_")) ||
-			bytes.HasPrefix(line, []byte("CREATE TABLE 'task_search_short_id_fts_")) {
-			continue
-		}
-		executable = append(executable, line)
-	}
-	return bytes.Join(executable, []byte{'\n'})
 }
 
 func openEmptyMetadataTestDatabase(t testing.TB) *sql.DB {
 	t.Helper()
-	if err := registerMetadataSQLiteCollations(); err != nil {
-		t.Fatalf("register metadata SQLite extensions: %v", err)
-	}
-	dsn := fmt.Sprintf(
-		"file:kent-metadata-test-%d?mode=memory&cache=shared&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(%d)",
-		metadataTestDatabaseSequence.Add(1),
-		metadataSQLiteBusyTimeoutMilliseconds,
-	)
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		t.Fatalf("open in-memory metadata database: %v", err)
-	}
-	db.SetMaxOpenConns(1)
-	return db
+	return databaseseed.OpenEmptyMetadataDatabase(t)
 }
 
 func TestAllMetadataMigrationsMatchLatestInMemorySchema(t *testing.T) {
@@ -92,7 +48,7 @@ func TestAllMetadataMigrationsMatchLatestInMemorySchema(t *testing.T) {
 	migratedSchema := metadataTestSchema(t, migrated)
 	if !bytes.Equal(migratedSchema, latestMetadataTestSchema) {
 		t.Fatalf(
-			"full migration schema does not match testdata/latest_schema.sql; regenerate it with ./scripts/dump-metadata-schema.sh\nwant_sha256=%x\ngot_sha256=%x",
+			"full migration schema does not match the shared schema fixture; regenerate with just dump metadata-schema\nwant_sha256=%x\ngot_sha256=%x",
 			sha256Bytes(latestMetadataTestSchema),
 			sha256Bytes(migratedSchema),
 		)
@@ -124,6 +80,7 @@ SELECT type, name, CAST(sql AS TEXT)
 FROM sqlite_schema
 WHERE sql IS NOT NULL
   AND name != 'sqlite_sequence'
+  AND name NOT IN (SELECT name FROM pragma_table_list WHERE type = 'shadow')
 ORDER BY
   CASE type
     WHEN 'table' THEN 0

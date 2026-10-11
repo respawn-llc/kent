@@ -4,17 +4,19 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+
+	"core/server/metadata/sqlitegen"
 )
 
 func TestLatestMetadataFixtureConfiguresEightConnectionSQLitePool(t *testing.T) {
 	db := openLatestMetadataTestDatabase(t)
 	t.Cleanup(func() { _ = db.Close() })
 
-	if got := db.Stats().MaxOpenConnections; got != metadataSQLiteConnectionPoolSize {
-		t.Fatalf("max open connections = %d, want %d", got, metadataSQLiteConnectionPoolSize)
+	if got := db.Stats().MaxOpenConnections; got != sqlitegen.ConnectionPoolSize {
+		t.Fatalf("max open connections = %d, want %d", got, sqlitegen.ConnectionPoolSize)
 	}
-	connections := make([]*sql.Conn, 0, metadataSQLiteConnectionPoolSize)
-	for range metadataSQLiteConnectionPoolSize {
+	connections := make([]*sql.Conn, 0, sqlitegen.ConnectionPoolSize)
+	for range sqlitegen.ConnectionPoolSize {
 		connection, err := db.Conn(t.Context())
 		if err != nil {
 			t.Fatalf("acquire pooled connection: %v", err)
@@ -42,7 +44,7 @@ func requireInMemoryMetadataSQLitePragmas(t testing.TB, queryer metadataSQLitePr
 		{pragma: "foreign_keys", want: int64(1)},
 		{pragma: "journal_mode", want: "memory"},
 		{pragma: "synchronous", want: int64(1)},
-		{pragma: "busy_timeout", want: int64(metadataSQLiteBusyTimeoutMilliseconds)},
+		{pragma: "busy_timeout", want: int64(sqlitegen.BusyTimeoutMilliseconds)},
 	} {
 		switch want := test.want.(type) {
 		case int64:
