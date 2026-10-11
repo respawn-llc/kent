@@ -80,11 +80,6 @@ func (c *Remote) AppendCommittedEntry(ctx context.Context, request *transcriptpb
 	return err
 }
 
-func (c *Remote) ShouldCompactBeforeUserMessage(ctx context.Context, request *runtimepb.ShouldCompactRequest) (*runtimepb.ShouldCompactSuccess, error) {
-	return callGeneratedBinary(c, ctx, bootstrapMethod(runtimepb.File_kent_api_runtime_runtime_proto, "TurnService", "ShouldCompactBeforeUserMessage"), request, &runtimepb.ShouldCompactResult{},
-		func(failure *runtimepb.ShouldCompactError) error { return runtimeControlGeneratedError(failure) })
-}
-
 func (c *Remote) SubmitUserTurn(ctx context.Context, request *runtimepb.SubmitUserTurnRequest) (*runtimepb.SubmitUserTurnSuccess, error) {
 	return callGeneratedBinary(c, ctx, bootstrapMethod(runtimepb.File_kent_api_runtime_runtime_proto, "TurnService", "SubmitUserTurn"), request, &runtimepb.SubmitUserTurnResult{},
 		func(failure *runtimepb.SubmitUserTurnError) error { return runtimeControlGeneratedError(failure) })

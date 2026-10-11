@@ -111,12 +111,6 @@ func (e *Engine) CompactContextForRequestWithAcceptance(
 	return e.compactionFlow.CompactContextWithAcceptance(ctx, requestID, args, nil, accept)
 }
 
-func (e *Engine) CompactContextForPreSubmit(ctx context.Context, text string) error {
-	e.ensureOrchestrationCollaborators()
-	_, err := e.compactionFlow.CompactContextForPreSubmitWithAcceptance(ctx, text, nil, nil)
-	return err
-}
-
 func (e *Engine) CompactContextForWorkflowContinuation(ctx context.Context) error {
 	e.ensureOrchestrationCollaborators()
 	if !e.WorkflowContinuationCompactionRequired() {
@@ -157,16 +151,6 @@ func (e *Engine) WorkflowPreCompactionTokenLimit() (int, error) {
 		return 0, errors.New("workflow pre-compaction token limit must be positive")
 	}
 	return e.cfg.WorkflowPreCompactionTokenLimit, nil
-}
-
-func (e *Engine) CompactContextForPreSubmitWithActiveHook(ctx context.Context, text string, onActive func()) (session.CommitReceipt, error) {
-	e.ensureOrchestrationCollaborators()
-	return e.compactionFlow.CompactContextForPreSubmitWithAcceptance(ctx, text, onActive, nil)
-}
-
-func (e *Engine) CompactContextForPreSubmitWithAcceptance(ctx context.Context, text string, onActive func(), accept CommandAcceptance) (session.CommitReceipt, error) {
-	e.ensureOrchestrationCollaborators()
-	return e.compactionFlow.CompactContextForPreSubmitWithAcceptance(ctx, text, onActive, accept)
 }
 
 func (e *Engine) TriggerHandoff(ctx context.Context, stepID string, activeCall llm.ToolCall, summarizerPrompt string, futureAgentMessage string) (string, bool, error) {
@@ -257,7 +241,6 @@ func (c *defaultContextCompactor) scheduleManualCompaction(
 				onActive,
 				nil,
 				true,
-				nil,
 			)
 			var selectionFailure *manualCompactionSelectionFailure
 			if runErr != nil &&
@@ -305,7 +288,6 @@ func (c *defaultContextCompactor) CompactContextForWorkflowPostCompletion(ctx co
 		nil,
 		nil,
 		false,
-		nil,
 	)
 }
 
@@ -318,11 +300,7 @@ func (c *defaultContextCompactor) compactManualContext(ctx context.Context, inst
 		return session.CommitReceipt{}, err
 	}
 	defer c.steps.ReleaseReservation(reservation)
-	return c.compactContext(ctx, ActiveKindCompaction, compactionModeManual, nil, instructions, true, reservation, onActive, accept, requireEligibility, nil)
-}
-
-func (c *defaultContextCompactor) CompactContextForPreSubmitWithAcceptance(ctx context.Context, text string, onActive func(), accept CommandAcceptance) (session.CommitReceipt, error) {
-	return c.compactContext(ctx, ActiveKindPreSubmitCompaction, compactionModeManual, nil, compactionInstructionsInput{}, false, nil, onActive, accept, false, &text)
+	return c.compactContext(ctx, ActiveKindCompaction, compactionModeManual, nil, instructions, true, reservation, onActive, accept, requireEligibility)
 }
 
 func isAgentStepKind(kind ActiveKind) bool {
@@ -368,19 +346,12 @@ func (c *defaultContextCompactor) compactContext(
 	onActive func(),
 	accept CommandAcceptance,
 	requireEligibility bool,
-	preSubmitText *string,
 ) (session.CommitReceipt, error) {
 	e := c.engine
 	e.pauseQueuedUserAutoDrain()
 	defer e.resumeQueuedUserAutoDrain()
 	var receipt session.CommitReceipt
-	run := c.steps.RunNext
-	if activeKind == ActiveKindPreSubmitCompaction {
-		// A pre-submit check must yield to an existing turn so Send can Steer it.
-		// Waiting for that turn to finish would prevent the input reaching its boundaries.
-		run = c.steps.Run
-	}
-	err := run(ctx, exclusiveStepOptions{ActiveKind: activeKind, Reservation: reservation}, func(stepCtx context.Context, stepID string) error {
+	err := c.steps.RunNext(ctx, exclusiveStepOptions{ActiveKind: activeKind, Reservation: reservation}, func(stepCtx context.Context, stepID string) error {
 		if _, pending := e.generationContextSnapshot().(pendingGenerationContext); pending {
 			return nil
 		}
@@ -394,15 +365,6 @@ func (c *defaultContextCompactor) compactContext(
 			}
 			if !e.compactionRuntimeState().ManualCompactionEligible() {
 				return c.reportManualCompactionSelectionFailure(stepID, requestID, ErrManualCompactionTooSoon)
-			}
-		}
-		if preSubmitText != nil {
-			eligible, err := c.ShouldCompactBeforeUserMessage(stepCtx, *preSubmitText)
-			if err != nil {
-				return err
-			}
-			if !eligible {
-				return nil
 			}
 		}
 		if onActive != nil {
@@ -560,35 +522,6 @@ func (e *Engine) shouldAutoCompactWithContext(ctx context.Context, preview ...ll
 		return false
 	}
 	return e.usageAtOrAboveLimit(ctx, limit, preview...)
-}
-
-func (e *Engine) ShouldCompactBeforeUserMessage(ctx context.Context, text string) (bool, error) {
-	e.ensureOrchestrationCollaborators()
-	return e.compactionFlow.ShouldCompactBeforeUserMessage(ctx, text)
-}
-
-func (c *defaultContextCompactor) ShouldCompactBeforeUserMessage(ctx context.Context, text string) (bool, error) {
-	e := c.engine
-	if strings.TrimSpace(text) == "" {
-		return false, nil
-	}
-	planningSnapshot := e.compactionPlanningSnapshot()
-	planner := e.compactionPlannerState()
-	if !planner.autoCompactionAvailable(planningSnapshot) {
-		return false, nil
-	}
-	limit := planner.autoCompactTokenLimit(planningSnapshot)
-	if limit <= 0 {
-		return false, nil
-	}
-	reservedOutput := planner.reservedOutputTokens(planningSnapshot)
-	preSubmitLimit := planner.preSubmitTokenLimit(planningSnapshot)
-	estimatedCurrentTotal := e.currentTokenUsage() + reservedOutput
-	if preSubmitLimit > 0 && estimatedCurrentTotal >= preSubmitLimit {
-		return true, nil
-	}
-	promptEstimate := llm.EstimateItemsTokens(e.cfg.TokenEstimator, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value(text)}}))
-	return estimatedCurrentTotal+promptEstimate >= limit, nil
 }
 
 func (e *Engine) currentModel() string {
@@ -938,7 +871,7 @@ func (e *Engine) compactionPlanningSnapshot() compactionPlanningSnapshot {
 	}
 	snapshot := compactionPlanningSnapshot{
 		autoCompactionEnabled:         autoEnabled,
-		preSubmitCompactionLeadTokens: e.cfg.PreSubmitCompactionLeadTokens,
+		preSubmitCompactionLeadTokens: textutil.Pointer(e.cfg.PreSubmitCompactionLeadTokens),
 		policy:                        e.contextPolicy,
 		maxOutputTokens:               e.cfg.MaxTokens,
 	}

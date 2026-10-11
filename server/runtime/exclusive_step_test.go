@@ -119,9 +119,10 @@ func TestExclusiveStepLifecycleEagerCompactsAfterSuccessfulFinalAtConsumedThresh
 		},
 	}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-		Model:                 "gpt-6-sol",
-		ContextWindowTokens:   2_000,
-		AutoCompactTokenLimit: 1_900,
+		Model:                         "gpt-6-sol",
+		ContextWindowTokens:           2_000,
+		AutoCompactTokenLimit:         1_900,
+		PreSubmitCompactionLeadTokens: textutil.Value(350),
 	})
 	lifecycle := &defaultExclusiveStepLifecycle{engine: engine}
 
@@ -132,7 +133,7 @@ func TestExclusiveStepLifecycleEagerCompactsAfterSuccessfulFinalAtConsumedThresh
 			if err := engine.steer(runtimeTestStepID(stepID), steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {
 				return err
 			}
-			engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(1_760), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 1_760, MeasurementPoint: llm.ContextMeasurementInput}})
+			engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(1_650), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 1_650, MeasurementPoint: llm.ContextMeasurementInput}})
 			engine.recordLiveRunAssistantFinalAnswer(stepID, llm.Message{
 				Role:    llm.RoleAssistant,
 				Phase:   textutil.Value(llm.MessagePhaseFinal),
@@ -862,7 +863,6 @@ func TestExclusiveStepLifecycleInterruptCancelsStoppableWork(t *testing.T) {
 		{name: "closing_user_turn", kind: ActiveKindUserTurn, closing: true},
 		{name: string(ActiveKindBackground), kind: ActiveKindBackground, wantMatch: true},
 		{name: string(ActiveKindCompaction), kind: ActiveKindCompaction, wantMatch: true},
-		{name: string(ActiveKindPreSubmitCompaction), kind: ActiveKindPreSubmitCompaction, wantMatch: true},
 		{name: string(ActiveKindUserShell), kind: ActiveKindUserShell, wantMatch: true},
 		{name: string(ActiveKindRuntimeMaintenance), kind: ActiveKindRuntimeMaintenance},
 	} {

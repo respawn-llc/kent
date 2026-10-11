@@ -63,9 +63,13 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 	if err != nil {
 		return nil, err
 	}
-	preSubmitLead, err := Int32(settings.PreSubmitCompactionLeadTokens, "pre-submit compaction lead")
-	if err != nil {
-		return nil, err
+	var preSubmitLead *int32
+	if settings.PreSubmitCompactionLeadTokens != nil {
+		value, err := Int32(*settings.PreSubmitCompactionLeadTokens, "pre-submit compaction lead")
+		if err != nil {
+			return nil, err
+		}
+		preSubmitLead = &value
 	}
 	minimumExec, err := Int32(settings.MinimumExecToBgSeconds, "minimum exec-to-background seconds")
 	if err != nil {
@@ -239,7 +243,6 @@ func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Setting
 		AllowNonCwdEdits:                 message.AllowNonCwdEdits,
 		ModelContextWindow:               int(message.ModelContextWindow),
 		ContextCompactionThresholdTokens: int(message.ContextCompactionThresholdTokens),
-		PreSubmitCompactionLeadTokens:    int(message.PreSubmitCompactionLeadTokens),
 		MinimumExecToBgSeconds:           int(message.MinimumExecToBgSeconds),
 		CompactionMode:                   compactionMode,
 		EnabledTools:                     enabledTools,
@@ -270,6 +273,10 @@ func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Setting
 	if message.Workflow.PreCompactionTokens != nil {
 		value := int(*message.Workflow.PreCompactionTokens)
 		settings.Workflow.PreCompactionTokens = &value
+	}
+	if message.PreSubmitCompactionLeadTokens != nil {
+		value := int(*message.PreSubmitCompactionLeadTokens)
+		settings.PreSubmitCompactionLeadTokens = &value
 	}
 	return settings, nil
 }

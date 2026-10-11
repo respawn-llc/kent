@@ -147,7 +147,6 @@ func applyBuiltInRoleHeuristics(settings *config.Settings, roleName string, prov
 			settings.ContextCompactionThresholdTokens = meta.ContextWindowTokens * 95 / 100
 		}
 	}
-	settings.PreSubmitCompactionLeadTokens = config.DefaultPreSubmitRunwayTokens
 }
 
 func applyDerivedModelContextBudgetOverrides(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool) error {
@@ -175,14 +174,12 @@ func applyDerivedModelContextBudgetOverrides(settings *config.Settings, explicit
 	if _, ok := explicitSources["context_compaction_threshold_tokens"]; !ok && settings.ModelContextWindow > 0 {
 		settings.ContextCompactionThresholdTokens = settings.ModelContextWindow * 95 / 100
 	}
-	if _, ok := explicitSources["pre_submit_compaction_lead_tokens"]; !ok {
-		settings.PreSubmitCompactionLeadTokens = config.DefaultPreSubmitRunwayTokens
-	}
 	return nil
 }
 
 func cloneSettings(in config.Settings) config.Settings {
 	out := in
+	out.PreSubmitCompactionLeadTokens = textutil.Pointer(in.PreSubmitCompactionLeadTokens)
 	out.Shell.PostprocessHook = textutil.Pointer(in.Shell.PostprocessHook)
 	out.SystemPromptFile = textutil.Pointer(in.SystemPromptFile)
 	out.Reviewer.SystemPromptFile = textutil.Pointer(in.Reviewer.SystemPromptFile)

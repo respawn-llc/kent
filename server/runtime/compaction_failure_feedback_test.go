@@ -3,7 +3,6 @@ package runtime
 import (
 	"encoding/json"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 
@@ -141,12 +140,6 @@ func TestFailedStandaloneCompactionPersistsOneErrorAndPublishesFailureStatus(t *
 		mode compactionMode
 		run  func(*Engine) error
 	}{
-		{
-			name: "pre-submit", mode: compactionModeManual,
-			run: func(engine *Engine) error {
-				return engine.CompactContextForPreSubmit(t.Context(), strings.Repeat("next ", 400_000))
-			},
-		},
 		{
 			name: "workflow", mode: compactionModeWorkflowPostCompletion,
 			run: func(engine *Engine) error {

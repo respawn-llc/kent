@@ -91,7 +91,7 @@ type Config struct {
 	RefreshToolRegistry             func([]toolspec.ID) error
 	AutoCompactTokenLimit           int
 	WorkflowPreCompactionTokenLimit int
-	PreSubmitCompactionLeadTokens   int
+	PreSubmitCompactionLeadTokens   *int
 	ContextWindowTokens             int
 	EffectiveContextWindowPercent   int
 	LocalCompactionCarryoverLimit   int
@@ -234,9 +234,7 @@ func New(
 	if cfg.MaxTokens < 0 {
 		cfg.MaxTokens = 0
 	}
-	if cfg.PreSubmitCompactionLeadTokens <= 0 {
-		cfg.PreSubmitCompactionLeadTokens = config.DefaultPreSubmitRunwayTokens
-	}
+	cfg.PreSubmitCompactionLeadTokens = textutil.Pointer(cfg.PreSubmitCompactionLeadTokens)
 	if cfg.LocalCompactionCarryoverLimit <= 0 {
 		cfg.LocalCompactionCarryoverLimit = 20_000
 	}
@@ -740,7 +738,7 @@ func (e *Engine) waitingForLiveRunStepStart() bool {
 
 func activeKindUsesLiveRun(kind ActiveKind) bool {
 	switch kind {
-	case ActiveKindCompaction, ActiveKindPreSubmitCompaction, ActiveKindRuntimeMaintenance:
+	case ActiveKindCompaction, ActiveKindRuntimeMaintenance:
 		return false
 	default:
 		return true

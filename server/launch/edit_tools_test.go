@@ -9,6 +9,7 @@ import (
 	"core/server/session"
 	"core/shared/config"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 	"core/shared/toolspec"
 )
 
@@ -196,7 +197,7 @@ func validLaunchSettings(model string) config.Settings {
 		CacheWarningMode:                 "default",
 		ModelContextWindow:               272000,
 		ContextCompactionThresholdTokens: 258400,
-		PreSubmitCompactionLeadTokens:    35000,
+		PreSubmitCompactionLeadTokens:    textutil.Value(35000),
 		PreventSleep:                     config.SleepPreventionModeNever,
 		EnabledTools: map[toolspec.ID]bool{
 			toolspec.ToolPatch: true,

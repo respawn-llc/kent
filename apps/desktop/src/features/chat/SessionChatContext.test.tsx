@@ -93,7 +93,7 @@ it("presents admitted usage and policy updates from the ordinary observation", a
         Version: { Epoch: "epoch-1", Generation: 1, Sequence: 3 },
         Activity: {
           ...initial.RuntimeReadModelUpdate.Activity,
-          ActiveStep: { RunID: "run", StepID: "compact", ActiveKind: "pre_submit_compaction" },
+          ActiveStep: { RunID: "run", StepID: "compact", ActiveKind: "compaction" },
         },
       },
     });

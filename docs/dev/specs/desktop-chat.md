@@ -92,7 +92,7 @@
 - Thinking Status, Context, Goal, and Pending Work are the only live-control areas defined here. Session name stays in application chrome. Transient status-line notices and errors use notifications rather than feature-specific status surfaces.
 - While authoritative runtime activity is running or Reviewer invocation is active, Thinking Status appears at the live end of the transcript immediately before the composer. Reviewer invocation must remain visible when the main Agent is idle. Thinking Status uses the same visual language as an assistant message but is transient runtime presentation, not a transcript row or durable history.
 - Thinking Status must scroll with the live transcript tail. It must not remain pinned above the composer while the operator reads older messages.
-- Thinking Status contains an animated activity spinner followed by one status line. Main-agent user-turn, Workflow-turn, and Goal-loop work shows the latest authoritative Thinking Status text, or `Working…` before the server supplies one for the current Agent Step. Reviewer work shows `Reviewing…`. Compaction and pre-submit compaction show `Compacting…`. User shell, background, and runtime-maintenance work show `Running…`.
+- Thinking Status contains an animated activity spinner followed by one status line. Main-agent user-turn, Workflow-turn, and Goal-loop work shows the latest authoritative Thinking Status text, or `Working…` before the server supplies one for the current Agent Step. Reviewer work shows `Reviewing…`. Compaction shows `Compacting…`. User shell, background, and runtime-maintenance work show `Running…`.
 - The Thinking Status spinner follows the TUI's semantic activity tones: Reviewer uses Success, compaction uses Secondary, and every other running kind uses Primary.
 - A reasoning update without a new Thinking Status value retains the latest value for that Agent Step. Desktop never derives Thinking Status from Reasoning Trace text.
 - The server supplies one logical Thinking Status line. It may wrap to at most two visual lines, and the spinner aligns with the first line rather than the visual center of the wrapped block.
@@ -443,7 +443,7 @@
 - Successful user-requested compaction is silent while the Desktop window is focused.
 - When the Desktop window is unfocused, successful user-requested compaction sends a system notification only after its following Pending Work drain is idle. Activation focuses Desktop and opens the owning Session at its latest content.
 - Desktop must send at most one completion notification for the Session when that drain becomes idle, even if multiple user-requested compactions succeeded during it.
-- Automatic, pre-submit, and handoff compaction do not send this completion notification.
+- Automatic and handoff compaction do not send this completion notification.
 - When Session policy disables compaction, the Auto-compaction switch must use the existing Settings disabled-policy explanation, and its `Compact` action must be unavailable.
 - In that policy state, `/compact` remains a known command and surfaces the server's typed disabled-policy failure instead of becoming an ordinary user message.
 - Context and compaction lifecycle create no transcript status rows.

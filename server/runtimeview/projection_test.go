@@ -297,7 +297,7 @@ func TestStatusFromRuntimeUsesResponseUsage(t *testing.T) {
 		Model:                         "gpt-6-sol",
 		ContextWindowTokens:           400_000,
 		AutoCompactTokenLimit:         10_000,
-		PreSubmitCompactionLeadTokens: 100,
+		PreSubmitCompactionLeadTokens: textutil.Value(100),
 	})
 	if _, err := eng.SubmitUserMessage(context.Background(), "prompt"); err != nil {
 		t.Fatalf("submit user message: %v", err)

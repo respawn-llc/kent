@@ -2,6 +2,7 @@ package config
 
 import (
 	"core/internal/testharness/testenv"
+	"core/shared/textutil"
 	"core/shared/toolspec"
 	"errors"
 	"os"
@@ -670,8 +671,8 @@ func TestLoadUsesDefaultsWithoutCreatingConfigOnFirstUse(t *testing.T) {
 	if cfg.Settings.ContextCompactionThresholdTokens != defaultCompactionThreshold {
 		t.Fatalf("default compaction threshold mismatch: %d", cfg.Settings.ContextCompactionThresholdTokens)
 	}
-	if cfg.Settings.PreSubmitCompactionLeadTokens != 35_000 {
-		t.Fatalf("default pre-submit runway mismatch: %d", cfg.Settings.PreSubmitCompactionLeadTokens)
+	if got := SpeculativeCompactionTriggerTokens(200_000, cfg.Settings.PreSubmitCompactionLeadTokens); got != 176_000 {
+		t.Fatalf("default speculative trigger = %d, want 176000", got)
 	}
 	if cfg.Settings.MinimumExecToBgSeconds != defaultMinimumExecToBgSec {
 		t.Fatalf("default minimum_exec_to_bg_seconds mismatch: %d", cfg.Settings.MinimumExecToBgSeconds)
@@ -1549,25 +1550,43 @@ func TestLoadCreatesWorktreeBaseDir(t *testing.T) {
 }
 
 func TestSettingsTOMLRoundTripsCapabilityOverrides(t *testing.T) {
-	settings := configRegistry.defaultState().Settings
-	settings.ModelCapabilities.SupportsReasoningEffort = true
-	toml := settingsTOMLWithRenderingOptions(settings, true, nil, nil)
+	for _, test := range []struct {
+		name                     string
+		lead                     *int
+		triggerAfterWindowChange int
+	}{
+		{name: "absent lead", triggerAfterWindowChange: 352_000},
+		{name: "explicit lead", lead: textutil.Value(35_000), triggerAfterWindowChange: 365_000},
+		{name: "explicit lead equal to computed default", lead: textutil.Value(24_000), triggerAfterWindowChange: 376_000},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			settings := configRegistry.defaultState().Settings
+			settings.ModelCapabilities.SupportsReasoningEffort = true
+			settings.ModelContextWindow = 200_000
+			settings.ContextCompactionThresholdTokens = 190_000
+			settings.PreSubmitCompactionLeadTokens = test.lead
+			toml := settingsTOMLWithRenderingOptions(settings, true, nil, nil)
 
-	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(path, []byte(toml), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	raw, _, err := readSettingsFile(path)
-	if err != nil {
-		t.Fatalf("read settings file: %v", err)
-	}
-	state := configRegistry.defaultState()
-	sources := configRegistry.defaultSourceMap()
-	if err := configRegistry.applyFile(raw, path, FileGlobal, &state, sources); err != nil {
-		t.Fatalf("apply file: %v", err)
-	}
-	if !state.Settings.ModelCapabilities.SupportsReasoningEffort {
-		t.Fatal("expected model capability override to round-trip")
+			path := filepath.Join(t.TempDir(), "config.toml")
+			if err := os.WriteFile(path, []byte(toml), 0o644); err != nil {
+				t.Fatalf("write config: %v", err)
+			}
+			raw, _, err := readSettingsFile(path)
+			if err != nil {
+				t.Fatalf("read settings file: %v", err)
+			}
+			state := configRegistry.defaultState()
+			sources := configRegistry.defaultSourceMap()
+			if err := configRegistry.applyFile(raw, path, FileGlobal, &state, sources); err != nil {
+				t.Fatalf("apply file: %v", err)
+			}
+			if !state.Settings.ModelCapabilities.SupportsReasoningEffort {
+				t.Fatal("expected model capability override to round-trip")
+			}
+			if got := SpeculativeCompactionTriggerTokens(400_000, state.Settings.PreSubmitCompactionLeadTokens); got != test.triggerAfterWindowChange {
+				t.Fatalf("rendered/reloaded trigger after changing window = %d, want %d", got, test.triggerAfterWindowChange)
+			}
+		})
 	}
 }
 

@@ -448,10 +448,24 @@ func TestLoadRejectsCompactionThresholdBelowHalfWindow(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsPreSubmitLeadBandBelowHalfWindow(t *testing.T) {
-	if err := loadConfigTestFileError(t, "model_context_window = 300000\ncontext_compaction_threshold_tokens = 200000\npre_submit_compaction_lead_tokens = 100000\n", LoadOptions{}); err == nil {
+func TestLoadAcceptsSpeculativeTriggerAtHalfWindow(t *testing.T) {
+	if err := loadConfigTestFileError(t, "model_context_window = 300000\ncontext_compaction_threshold_tokens = 200000\npre_submit_compaction_lead_tokens = 150000\n", LoadOptions{}); err != nil {
+		t.Fatalf("half-window speculative trigger: %v", err)
+	}
+}
+
+func TestLoadRejectsSpeculativeTriggerBelowHalfWindow(t *testing.T) {
+	if err := loadConfigTestFileError(t, "model_context_window = 300000\ncontext_compaction_threshold_tokens = 200000\npre_submit_compaction_lead_tokens = 150001\n", LoadOptions{}); err == nil {
 		t.Fatal("expected pre-submit effective threshold validation error")
-	} else if !errors.Is(err, errPreSubmitThresholdBelowMinimum) {
+	} else if !errors.Is(err, errSpeculativeTriggerBelowMinimum) {
 		t.Fatalf("expected pre-submit effective threshold validation detail, got %v", err)
+	}
+}
+
+func TestLoadRejectsNonpositiveSpeculativeLead(t *testing.T) {
+	for _, content := range []string{"pre_submit_compaction_lead_tokens = 0\n", "pre_submit_compaction_lead_tokens = -1\n"} {
+		if err := loadConfigTestFileError(t, content, LoadOptions{}); err == nil {
+			t.Fatal("nonpositive explicit lead was accepted")
+		}
 	}
 }
