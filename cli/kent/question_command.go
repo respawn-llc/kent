@@ -64,6 +64,7 @@ type questionCommandSelector struct {
 
 type taskQuestionSessionCandidate struct {
 	SessionID   runtimeids.SessionID
+	ShortID     *runtimeids.SessionShortID
 	SessionName *string
 	Questions   []questionCommandPendingQuestion
 }
@@ -71,6 +72,7 @@ type taskQuestionSessionCandidate struct {
 type questionCommandPendingQuestion struct {
 	ToolCallID             clientui.ToolCallID
 	SessionID              runtimeids.SessionID
+	ShortID                *runtimeids.SessionShortID
 	StepID                 runtimeids.StepID
 	Kind                   taskpb.AttentionQuestionKind
 	Question               string
@@ -396,7 +398,7 @@ func answerQuestionThroughBatch(
 			fmt.Fprintf(
 				stderr,
 				"You are a sub-agent trying to answer a question from your parent session %s. This question is likely intended for someone else. Do not answer questions you are not authorized to answer.\n",
-				rejected.QuestionSessionID,
+				(runtimeids.SessionIdentity{ID: question.SessionID, ShortID: question.ShortID}).String(),
 			)
 		} else {
 			return questionOperationFailure(stderr, config.Command+" question answer", err)
@@ -686,6 +688,10 @@ func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessio
 		if err != nil {
 			return nil, err
 		}
+		shortID, err := protoapi.SessionShortIDFromProto(prompt.ShortId)
+		if err != nil {
+			return nil, err
+		}
 		stepID, err := runtimeids.ParseStepID(prompt.StepId)
 		if err != nil {
 			return nil, err
@@ -697,6 +703,7 @@ func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessio
 		question := questionCommandPendingQuestion{
 			ToolCallID: clientui.ToolCallID(prompt.ToolCallId),
 			SessionID:  sessionID,
+			ShortID:    shortID,
 			StepID:     stepID,
 		}
 		if ordinary := prompt.GetOrdinary(); ordinary != nil {
@@ -723,6 +730,7 @@ func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessio
 			candidateBySession[sessionID] = index
 			candidates = append(candidates, taskQuestionSessionCandidate{
 				SessionID:   sessionID,
+				ShortID:     shortID,
 				SessionName: sessionName,
 			})
 		} else if !textutil.EqualOptional(candidates[index].SessionName, sessionName) {
@@ -774,7 +782,7 @@ func writeTaskQuestionAmbiguity(
 		if candidate.SessionName != nil {
 			name = *candidate.SessionName
 		}
-		fmt.Fprintf(stderr, "- %s (%s)\n", name, candidate.SessionID)
+		fmt.Fprintf(stderr, "- %s (%s)\n", name, (runtimeids.SessionIdentity{ID: candidate.SessionID, ShortID: candidate.ShortID}).String())
 	}
 }
 
@@ -885,6 +893,7 @@ func pendingSessionQuestion(ask clientui.PendingAsk) (questionCommandPendingQues
 	return questionCommandPendingQuestion{
 		ToolCallID:             ask.ToolCallID,
 		SessionID:              ask.SessionID,
+		ShortID:                ask.ShortID,
 		StepID:                 ask.StepID,
 		Kind:                   taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY,
 		Question:               ask.Question,
@@ -905,6 +914,7 @@ func pendingSessionApproval(
 	return questionCommandPendingQuestion{
 		ToolCallID: approval.ToolCallID,
 		SessionID:  approval.SessionID,
+		ShortID:    approval.ShortID,
 		StepID:     approval.StepID,
 		Kind:       taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL,
 		Question:   approval.Question,

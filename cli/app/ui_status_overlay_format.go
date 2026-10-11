@@ -2,6 +2,7 @@ package app
 
 import (
 	"core/cli/internal/pathdisplay"
+	"core/shared/runtimeids"
 	sharedtheme "core/shared/theme"
 	"fmt"
 	"path/filepath"
@@ -143,7 +144,7 @@ func statusVisibleAuthSummary(auth uiStatusAuthInfo, subscription uiStatusSubscr
 func statusSessionProvenanceSummaries(snapshot uiStatusSnapshot) []string {
 	summaries := make([]string, 0, 2)
 	if snapshot.PreviousSessionID != nil {
-		previousID := snapshot.PreviousSessionID.String()
+		previousID := (runtimeids.SessionIdentity{ID: *snapshot.PreviousSessionID, ShortID: snapshot.PreviousSessionShortID}).String()
 		if snapshot.PreviousSessionName != nil {
 			summaries = append(summaries, fmt.Sprintf("Previous session: %s <%s>", *snapshot.PreviousSessionName, previousID))
 		} else {
@@ -151,7 +152,7 @@ func statusSessionProvenanceSummaries(snapshot uiStatusSnapshot) []string {
 		}
 	}
 	if snapshot.ParentAgentSessionID != nil {
-		parentAgentID := snapshot.ParentAgentSessionID.String()
+		parentAgentID := (runtimeids.SessionIdentity{ID: *snapshot.ParentAgentSessionID, ShortID: snapshot.ParentAgentSessionShortID}).String()
 		if snapshot.ParentAgentSessionName != nil {
 			summaries = append(summaries, fmt.Sprintf("Parent agent session: %s <%s>", *snapshot.ParentAgentSessionName, parentAgentID))
 		} else {

@@ -143,7 +143,7 @@ func (s *Service) settleGoalSet(
 	return goalSetSuccess(
 		target.SessionID,
 		invocation.mutation,
-		errors.Join(invocation.diagnostic, releaseErr),
+		goalSetTargetError(target, errors.Join(invocation.diagnostic, releaseErr)),
 	), nil
 }
 
@@ -154,7 +154,17 @@ func settleGoalSetError(
 	if target.SessionID.IsZero() {
 		return nil, err
 	}
-	return goalSetSuccessRejected(target.SessionID, err), nil
+	return goalSetSuccessRejected(target.SessionID, goalSetTargetError(target, err)), nil
+}
+
+func goalSetTargetError(target ResolvedTarget, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &serverapi.SessionTargetError{
+		Identity: runtimeids.SessionIdentity{ID: target.SessionID, ShortID: target.ShortID},
+		Cause:    err,
+	}
 }
 
 type goalSetInvocation struct {

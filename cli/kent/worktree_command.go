@@ -488,7 +488,12 @@ func writeWorktreeDeleteError(stderr io.Writer, err error) {
 		if session.Name != nil {
 			name = *session.Name
 		}
-		fmt.Fprintf(stderr, "- %s (%s)\n", name, session.SessionId)
+		identity, err := protoapi.SessionIdentityFromProto(session.SessionId, session.ShortId)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return
+		}
+		fmt.Fprintf(stderr, "- %s (%s)\n", name, identity.String())
 	}
 	if details.HasMore {
 		fmt.Fprintln(stderr, "More Sessions are using this worktree; only the first 50 are shown.")

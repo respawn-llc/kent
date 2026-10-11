@@ -59,6 +59,7 @@ type WorktreeRecord struct {
 
 type WorktreeSessionBlocker struct {
 	SessionID   string
+	ShortID     *runtimeids.SessionShortID
 	SessionName *string
 	UpdatedAt   time.Time
 }
@@ -719,7 +720,11 @@ func (s *Store) ListSessionsTargetingWorktreePage(ctx context.Context, worktreeI
 	}
 	page := WorktreeSessionPage{Sessions: make([]WorktreeSessionBlocker, 0, len(rows))}
 	for _, row := range rows {
-		page.Sessions = append(page.Sessions, WorktreeSessionBlocker{SessionID: row.ID, SessionName: OptionalString(row.Name), UpdatedAt: timeFromStoredTimestamp(row.UpdatedAtUnixMs)})
+		shortID, err := sessionShortID(row.ShortID)
+		if err != nil {
+			return WorktreeSessionPage{}, err
+		}
+		page.Sessions = append(page.Sessions, WorktreeSessionBlocker{SessionID: row.ID, ShortID: shortID, SessionName: OptionalString(row.Name), UpdatedAt: timeFromStoredTimestamp(row.UpdatedAtUnixMs)})
 	}
 	if len(rows) == pageSize {
 		last := page.Sessions[len(page.Sessions)-1]

@@ -409,6 +409,7 @@ message CreateFailureDetails {
 message BlockingSession {
   string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   optional string name = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional int64 short_id = 3 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
 }
 
 message ActiveSessionBlockers {

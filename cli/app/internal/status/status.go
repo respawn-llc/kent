@@ -62,28 +62,31 @@ type Request struct {
 }
 
 type Snapshot struct {
-	CollectedAt            time.Time
-	Workdir                string
-	SessionName            *string
-	SessionID              string
-	AgentRole              *string
-	PreviousSessionID      *runtimeids.SessionID
-	PreviousSessionName    *string
-	ParentAgentSessionID   *runtimeids.SessionID
-	ParentAgentSessionName *string
-	Git                    GitInfo
-	Auth                   AuthInfo
-	Context                ContextInfo
-	Model                  ModelInfo
-	Config                 ConfigInfo
-	Subscription           SubscriptionInfo
-	SkillPolicy            config.SkillPolicy
-	Skills                 []SkillInspection
-	SkillTokenCounts       map[string]int
-	AgentsPaths            []string
-	AgentTokenCounts       map[string]int
-	CompactionCount        int
-	CollectorWarning       string
+	CollectedAt               time.Time
+	Workdir                   string
+	SessionName               *string
+	SessionID                 string
+	SessionIdentity           *runtimeids.SessionIdentity
+	AgentRole                 *string
+	PreviousSessionID         *runtimeids.SessionID
+	PreviousSessionShortID    *runtimeids.SessionShortID
+	PreviousSessionName       *string
+	ParentAgentSessionID      *runtimeids.SessionID
+	ParentAgentSessionShortID *runtimeids.SessionShortID
+	ParentAgentSessionName    *string
+	Git                       GitInfo
+	Auth                      AuthInfo
+	Context                   ContextInfo
+	Model                     ModelInfo
+	Config                    ConfigInfo
+	Subscription              SubscriptionInfo
+	SkillPolicy               config.SkillPolicy
+	Skills                    []SkillInspection
+	SkillTokenCounts          map[string]int
+	AgentsPaths               []string
+	AgentTokenCounts          map[string]int
+	CompactionCount           int
+	CollectorWarning          string
 }
 
 type AuthInfo struct {

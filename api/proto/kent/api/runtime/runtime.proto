@@ -219,6 +219,7 @@ message SessionView {
     not_in: [0]
   }];
   kent.api.worktree.SessionExecutionTarget execution_target = 5 [(buf.validate.field).required = true];
+  optional int64 short_id = 6 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
 }
 
 message MainView {

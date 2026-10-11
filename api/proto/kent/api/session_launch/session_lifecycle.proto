@@ -472,6 +472,7 @@ message SessionNotFoundDetails {
 
 message SessionInUseDetails {
   string session_id = 1 [(buf.validate.field).string.(scoped_session_id) = true];
+  optional int64 short_id = 2 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
 }
 
 enum InvalidArchiveOutputPathReason {

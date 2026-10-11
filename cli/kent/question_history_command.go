@@ -176,8 +176,12 @@ func writeQuestionHistoryHumanItem(stdout io.Writer, question *sessionpb.Questio
 	} else if _, err := fmt.Fprintf(stdout, "Answer: %s\n", question.Answer); err != nil {
 		return err
 	}
-	if question.AnsweredBySessionId != nil {
-		if _, err := fmt.Fprintf(stdout, "Answered by agent %s\n", *question.AnsweredBySessionId); err != nil {
+	answerer, err := optionalSessionDisplayID(question.AnsweredBySessionId, question.AnsweredBySessionShortId)
+	if err != nil {
+		return err
+	}
+	if answerer != nil {
+		if _, err := fmt.Fprintf(stdout, "Answered by agent %s\n", *answerer); err != nil {
 			return err
 		}
 	}
