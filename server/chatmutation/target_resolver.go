@@ -107,7 +107,13 @@ func (r *TargetResolver) SelectPlacement(ctx context.Context, target ResolvedTar
 func (r *TargetResolver) Resolve(
 	ctx context.Context,
 	request TargetResolutionRequest,
-) (ResolvedTarget, error) {
+) (resolved ResolvedTarget, err error) {
+	var captured serverapi.SessionTarget
+	defer func() {
+		if captured != nil {
+			err = serverapi.WithSessionTarget(captured, err)
+		}
+	}()
 	if err := protoapi.Validate(request.Target); err != nil {
 		return ResolvedTarget{}, fmt.Errorf("Chat target: %w", err)
 	}
@@ -115,10 +121,12 @@ func (r *TargetResolver) Resolve(
 		return ResolvedTarget{}, errors.New("Chat target resolver is required")
 	}
 	if sessionTarget := request.Target.GetSession(); sessionTarget != nil {
+		captured = serverapi.UnresolvedSessionTarget{}
 		sessionID, err := r.metadata.ResolveSessionTarget(ctx, sessionTarget.SessionId)
 		if err != nil {
 			return ResolvedTarget{}, err
 		}
+		captured = serverapi.CanonicalSessionTarget{ID: sessionID}
 		record, err := session.ResolvePersistedSessionRecord(
 			ctx,
 			r.persistedSessions,
@@ -166,6 +174,7 @@ func (r *TargetResolver) Resolve(
 	if err != nil {
 		return ResolvedTarget{}, fmt.Errorf("ordinary Session creation result: %w", err)
 	}
+	captured = serverapi.CanonicalSessionTarget{ID: sessionID}
 	shortID, err := protoapi.SessionShortIDFromProto(response.Plan.ShortId)
 	if err != nil {
 		return ResolvedTarget{}, err

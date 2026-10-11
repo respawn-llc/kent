@@ -16,7 +16,16 @@ func ChatSettingsErrorFromProto(value *pb.ReadError) error {
 	case *pb.ReadError_WorkspaceNotRegistered:
 		return serverapi.ErrWorkspaceNotRegistered
 	case *pb.ReadError_SessionNotFound:
-		return &sessioncontract.SessionNotFoundError{SessionID: detail.SessionNotFound.SessionId}
+		cause := &sessioncontract.SessionNotFoundError{}
+		if detail.SessionNotFound.SessionTarget == nil {
+			return cause
+		}
+		captured := SessionTargetContextErrorFromProto(detail.SessionNotFound.SessionTarget, cause)
+		var target *serverapi.SessionTargetError
+		if errors.As(captured, &target) {
+			cause.SessionID = OptionalSessionIDToProto(target.SessionID())
+		}
+		return captured
 	case *pb.ReadError_ChatSettingsAgentPreparation:
 		return &serverapi.ChatSettingsAgentPreparationError{
 			Agent: detail.ChatSettingsAgentPreparation.Agent,

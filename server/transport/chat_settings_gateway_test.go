@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"errors"
 	"net/http/httptest"
 	"testing"
 
@@ -9,7 +10,22 @@ import (
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
+	"core/shared/serverapi"
+	"core/shared/sessioncontract"
 )
+
+func settingsFailureSessionID(t *testing.T, details *settingspb.SessionNotFoundDetails) *runtimeids.SessionID {
+	t.Helper()
+	if details == nil {
+		t.Fatal("missing Session-not-found details")
+	}
+	err := protoapi.SessionTargetContextErrorFromProto(details.SessionTarget, sessioncontract.ErrSessionNotFound)
+	var target *serverapi.SessionTargetError
+	if !errors.As(err, &target) {
+		t.Fatalf("invalid captured target: %v", err)
+	}
+	return target.SessionID()
+}
 
 func TestGatewayDescriptorNewChatSettingsCatalog(t *testing.T) {
 	fixture := newRoutePolicyFixture(t)
@@ -60,8 +76,9 @@ func TestGatewayDescriptorSettingsMissingSessionFailure(t *testing.T) {
 			Target: &settingspb.ReadRequest_Session{Session: &settingspb.SessionTarget{SessionId: target}},
 		}, result)
 		details := result.GetError().GetSessionNotFound()
-		if details == nil || (target.GetShortId() != 0 && details.SessionId != nil) ||
-			(target.GetShortId() == 0 && details.GetSessionId() != id) {
+		known := settingsFailureSessionID(t, details)
+		if (target.GetShortId() != 0 && known != nil) ||
+			(target.GetShortId() == 0 && (known == nil || known.String() != id)) {
 			t.Fatalf("missing Session failure = %v", result)
 		}
 	}
@@ -79,7 +96,7 @@ func TestGatewayDescriptorSettingsChecksSessionWithoutProviderCredentials(t *tes
 	read := &settingspb.ReadResult{}
 	callGatewayDescriptor(t, conn, "unauthenticated-read", service.Methods().ByName("Read"),
 		&settingspb.ReadRequest{Target: &settingspb.ReadRequest_Session{Session: session}}, read)
-	if read.GetError().GetSessionNotFound().GetSessionId() != session.SessionId.GetSessionId() {
+	if id := settingsFailureSessionID(t, read.GetError().GetSessionNotFound()); id == nil || id.String() != session.SessionId.GetSessionId() {
 		t.Fatalf("read Session failure = %v", read)
 	}
 	mutation := &settingspb.MutationResponse{}
@@ -87,7 +104,7 @@ func TestGatewayDescriptorSettingsChecksSessionWithoutProviderCredentials(t *tes
 		&settingspb.MutationRequest{
 			Session: session, Operation: &settingspb.MutationOperation{Operation: &settingspb.MutationOperation_QuestionsEnabled{QuestionsEnabled: false}},
 		}, mutation)
-	if mutation.GetError().GetSessionNotFound().GetSessionId() != session.SessionId.GetSessionId() {
+	if id := settingsFailureSessionID(t, mutation.GetError().GetSessionNotFound()); id == nil || id.String() != session.SessionId.GetSessionId() {
 		t.Fatalf("mutation Session failure = %v", mutation)
 	}
 }

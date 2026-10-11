@@ -73,7 +73,7 @@ func TestGoalSetSuccessRejectsRuntimeUnavailableDiagnostic(t *testing.T) {
 func TestGoalSetErrorFromErrorIncludesRuntimeUnavailableSession(t *testing.T) {
 	sessionID := runtimeids.NewSessionID()
 
-	got := GoalSetErrorFromError(serverapi.ErrRuntimeUnavailable, &sessionID)
+	got := GoalSetErrorFromError(serverapi.WithSessionTarget(serverapi.CanonicalSessionTarget{ID: sessionID}, serverapi.ErrRuntimeUnavailable))
 
 	if got.Code != "runtime_unavailable" {
 		t.Fatalf("Goal Set error code = %q, want runtime_unavailable", got.Code)
@@ -106,7 +106,7 @@ func TestGoalSetCapturedTargetPreservesFailureIdentity(t *testing.T) {
 		if !errors.Is(captured, cause) {
 			t.Fatal("capturing target replaced original cause")
 		}
-		encoded := GoalSetErrorFromError(captured, nil)
+		encoded := GoalSetErrorFromError(captured)
 		details := encoded.GetRuntimeUnavailable()
 		if details == nil {
 			t.Fatalf("original failure classification changed: %v", encoded)

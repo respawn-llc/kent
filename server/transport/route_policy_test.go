@@ -116,7 +116,7 @@ func TestChatResultClassification(t *testing.T) {
 				Error: &chatpb.ChatOperationError{
 					Code: "session_not_found",
 					Detail: &chatpb.ChatOperationError_SessionNotFound{
-						SessionNotFound: &chatsettingspb.SessionNotFoundDetails{SessionId: &sessionID},
+						SessionNotFound: &chatsettingspb.SessionNotFoundDetails{SessionTarget: &sharedpb.SessionTargetContext{Stage: &sharedpb.SessionTargetContext_CanonicalSessionId{CanonicalSessionId: sessionID}}},
 					},
 				},
 			}},
@@ -179,7 +179,6 @@ func TestBinaryChatFailureMapsAgentPreparationCategories(t *testing.T) {
 	} {
 		t.Run(string(test.category), func(t *testing.T) {
 			detail := binaryChatDomainFailure(
-				nil,
 				&serverapi.ChatSettingsAgentPreparationError{
 					Agent:    "reviewer",
 					Category: test.category,

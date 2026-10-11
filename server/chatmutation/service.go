@@ -223,7 +223,7 @@ func goalSetSuccess(
 		Outcome: &runtimepb.GoalSetSuccess_Mutation{Mutation: mutation},
 	}
 	if diagnostic != nil {
-		success.Diagnostic = protoapi.GoalSetErrorFromError(diagnostic, &sessionID)
+		success.Diagnostic = protoapi.GoalSetErrorFromError(diagnostic)
 	}
 	return success
 }
@@ -297,7 +297,7 @@ func goalSetSuccessRejected(
 	return &runtimepb.GoalSetSuccess{
 		Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
 		Outcome: &runtimepb.GoalSetSuccess_Rejected{
-			Rejected: protoapi.GoalSetErrorFromError(err, &sessionID),
+			Rejected: protoapi.GoalSetErrorFromError(err),
 		},
 	}
 }

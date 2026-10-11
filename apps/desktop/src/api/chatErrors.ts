@@ -2,6 +2,7 @@ import type { DescMethod, Message, MessageShape } from "@app/server-api-contract
 import type { ChatOperationError as WireChatOperationError } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import { AgentPreparationCategory } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
 import type { ReadError } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
+import type { SessionTargetContext } from "@app/server-api-contract/gen/kent/api/shared/session_selector_pb";
 import type { GetCatalogError } from "@app/server-api-contract/gen/kent/api/prompt_command/prompt_command_pb";
 import { GoalService } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import type {
@@ -164,6 +165,18 @@ function chatErrorDetailFromWire(failure: ChatWireError): KnownChatError | null 
   return standardChatErrorDetail(detail);
 }
 
+function capturedSessionID(context: SessionTargetContext | undefined): string | null {
+  const target = context?.stage;
+  switch (target?.case) {
+    case "canonicalSessionId":
+      return target.value;
+    case "projected":
+      return target.value.sessionId;
+    default:
+      return null;
+  }
+}
+
 function standardChatErrorDetail(
   detail: Exclude<ChatWireError["detail"], PromptCommandWireDetail | UnmappedChatWireDetail>,
 ): KnownChatError | null {
@@ -171,7 +184,7 @@ function standardChatErrorDetail(
     case "sessionNotFound":
       return {
         kind: "session_not_found",
-        sessionID: detail.value.sessionId ?? null,
+        sessionID: capturedSessionID(detail.value.sessionTarget),
       };
     case "workspaceNotRegistered":
       return { kind: "workspace_not_registered" };
@@ -185,18 +198,11 @@ function standardChatErrorDetail(
       return { kind: "auth_required" };
     case "serverNotReady":
       return { kind: "server_not_ready" };
-    case "runtimeUnavailable": {
-      const target = detail.value.sessionTarget?.stage;
+    case "runtimeUnavailable":
       return {
         kind: "runtime_unavailable",
-        sessionID:
-          target?.case === "canonicalSessionId"
-            ? target.value
-            : target?.case === "projected"
-              ? target.value.sessionId
-              : null,
+        sessionID: capturedSessionID(detail.value.sessionTarget),
       };
-    }
     case "internalFailure":
       return {
         kind: "internal_failure",

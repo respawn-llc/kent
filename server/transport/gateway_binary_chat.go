@@ -89,28 +89,15 @@ func chatTargetScope[Request protoapi.ChatTargetRequest](request Request) (route
 }
 
 func binaryChatFailure[Request protoapi.ChatTargetRequest](
-	g *Gateway,
+	_ *Gateway,
 	_ *connectionState,
-	request Request,
+	_ Request,
 	err error,
 ) proto.Message {
-	var sessionID *string
-	target, targetErr := protoapi.ChatTargetFromRequest(request)
-	if targetErr == nil && target.GetSession() != nil {
-		id, lookupErr := g.deps.MetadataStore().ResolveSessionTarget(context.Background(), target.GetSession().SessionId)
-		if lookupErr != nil {
-			if errors.Is(lookupErr, session.ErrSessionNotFound) {
-				return binaryChatDomainFailure(nil, err)
-			}
-			return binaryInternalFailure(errors.Join(err, lookupErr))
-		}
-		value := id.String()
-		sessionID = &value
-	}
-	return binaryChatDomainFailure(sessionID, err)
+	return binaryChatDomainFailure(err)
 }
 
-func binaryChatDomainFailure(sessionID *string, err error) proto.Message {
+func binaryChatDomainFailure(err error) proto.Message {
 	var agentPreparationErr *serverapi.ChatSettingsAgentPreparationError
 	switch {
 	case errors.Is(err, serverapi.ErrServerAuthRequired):
@@ -132,7 +119,7 @@ func binaryChatDomainFailure(sessionID *string, err error) proto.Message {
 		}
 	case errors.Is(err, session.ErrSessionNotFound),
 		errors.Is(err, errSessionOutsideActiveProject):
-		return &chatsettingspb.SessionNotFoundDetails{SessionId: sessionID}
+		return &chatsettingspb.SessionNotFoundDetails{SessionTarget: protoapi.SessionTargetErrorContext(err)}
 	}
 	return binaryInternalFailure(err)
 }
