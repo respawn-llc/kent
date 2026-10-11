@@ -202,9 +202,11 @@ describe("RpcWebSocketTransport", () => {
     const transport = createRpcTransport("ws://127.0.0.1:53082/rpc");
     const method = QuestionService.method.listPending;
     const answer = transport.callDescriptorAttachedSession(
-      { sessionID: "session-1", projectID: "project-1" },
+      { sessionID: "33333333-3333-4333-8333-333333333333", projectID: "project-1" },
       method,
-      create(method.input, { sessionId: { value: { case: "sessionId", value: "session-1" } } }),
+      create(method.input, {
+        sessionId: { value: { case: "sessionId", value: "33333333-3333-4333-8333-333333333333" } },
+      }),
     );
     const socket = sockets[0] ?? failTest("attached Session socket missing");
 
@@ -225,9 +227,11 @@ describe("RpcWebSocketTransport", () => {
     const transport = createRpcTransport("ws://127.0.0.1:53082/rpc");
     const method = QuestionService.method.listPending;
     const answer = transport.callDescriptorAttachedSession(
-      { sessionID: "session-1" },
+      { sessionID: "33333333-3333-4333-8333-333333333333" },
       method,
-      create(method.input, { sessionId: { value: { case: "sessionId", value: "session-1" } } }),
+      create(method.input, {
+        sessionId: { value: { case: "sessionId", value: "33333333-3333-4333-8333-333333333333" } },
+      }),
     );
     const socket = sockets[0] ?? failTest("attached Session socket missing");
 
@@ -847,7 +851,7 @@ function ack(socket: MockWebSocket, sentIndex: number): void {
                 projectId: "project-1",
                 workspaceId: "workspace-1",
                 workspaceRoot: "/workspace",
-                sessionId: "session-1",
+                sessionId: "33333333-3333-4333-8333-333333333333",
                 reattachCapability: "reattach-capability-1",
               },
             },

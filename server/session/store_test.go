@@ -717,6 +717,7 @@ func TestAppendTypedBatchReportsCommittedObserverFailure(t *testing.T) {
 		t.TempDir(),
 		testSessionCategory,
 		WithPersistenceObserver(observer),
+		WithPersistedSessionResolver(observer),
 	)
 	if err != nil {
 		t.Fatalf("create observed store: %v", err)

@@ -27,9 +27,18 @@ func TestLiveControlErrorsRetainNumericTargetIdentityOverGateway(t *testing.T) {
 	for _, selector := range []runtimeids.SessionSelector{identity.ID, *identity.ShortID} {
 		target := protoapi.SessionSelectorToProto(selector)
 		for _, operation := range []func() error{
-			func() error { _, err := remote.LiveWait(t.Context(), &runtimepb.LiveWaitRequest{SessionId: target}); return err },
-			func() error { _, err := remote.LiveSteer(t.Context(), &runtimepb.LiveSteerRequest{SessionId: target, Text: "continue"}); return err },
-			func() error { _, err := remote.LiveWatch(t.Context(), &promptpb.LiveWatchRequest{SessionId: target}); return err },
+			func() error {
+				_, err := remote.LiveWait(t.Context(), &runtimepb.LiveWaitRequest{SessionId: target})
+				return err
+			},
+			func() error {
+				_, err := remote.LiveSteer(t.Context(), &runtimepb.LiveSteerRequest{SessionId: target, Text: "continue"})
+				return err
+			},
+			func() error {
+				_, err := remote.LiveWatch(t.Context(), &promptpb.LiveWatchRequest{SessionId: target})
+				return err
+			},
 		} {
 			var failure *serverapi.SessionTargetError
 			err := operation()
