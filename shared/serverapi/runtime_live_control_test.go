@@ -8,6 +8,7 @@ import (
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -28,9 +29,9 @@ func TestRuntimeLiveSteerRequestValidateUsesUUIDV4Boundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, invalid := range []*runtimepb.LiveSteerRequest{
-		{SessionId: "session-1", Text: "text"},
-		{SessionId: "018f3f8c-5b1a-7b72-8cb9-01af2c01a7e8", Text: "text"},
-		{SessionId: validLiveSessionID, Text: " \t "},
+		{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "session-1"}}, Text: "text"},
+		{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "018f3f8c-5b1a-7b72-8cb9-01af2c01a7e8"}}, Text: "text"},
+		{SessionId: requestfixture.Selector(t, validLiveSessionID), Text: " \t "},
 	} {
 		if err := protoapi.Validate(invalid); err == nil {
 			t.Fatalf("accepted invalid request: %+v", invalid)
