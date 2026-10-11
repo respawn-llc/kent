@@ -12,6 +12,7 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
+	"core/server/launch"
 	"core/server/metadata"
 	"core/server/session"
 	"core/server/session/sessiontest"
@@ -535,6 +536,24 @@ func TestServiceResolveTransitionOpenSessionRejectsNonProvenanceTargetBeforeReso
 func TestServiceResolveTransitionForkRollbackCreatesFork(t *testing.T) {
 	cfg, metadataStore, _, store := createAuthoritativeSessionLifecycleSession(t, t.TempDir())
 	containerDir := filepath.Dir(store.Dir())
+	if err := store.SetWorkflowSnapshot(session.WorkflowSnapshot{CompletionMode: sessioncontract.WorkflowCompletionModeTool}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkModelDispatchLocked(session.LockedContract{Model: "workflow-model"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: new("workflow-agent")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetConnectionID(config.ConnectionID("deleted-workflow-connection")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetThinkingOverride(new("low")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.SetGoal("finish the investigation", session.GoalActorUser); err != nil {
+		t.Fatal(err)
+	}
 	appendSessionMessage(t, store, "step-1", session.MessageRoleUser, "u1")
 	appendSessionMessage(t, store, "step-1", session.MessageRoleAssistant, "a1")
 	appendSessionMessage(t, store, "step-2", session.MessageRoleUser, "u2")
@@ -561,8 +580,34 @@ func TestServiceResolveTransitionForkRollbackCreatesFork(t *testing.T) {
 	if prompt == nil || prompt.Text != "edited prompt" {
 		t.Fatalf("initial prompt = %+v, want edited prompt", prompt)
 	}
-	if _, err := session.Open(filepath.Join(containerDir, forkID.String()), metadataStore.AuthoritativeSessionStoreOptions()...); err != nil {
+	forked, err := session.Open(filepath.Join(containerDir, forkID.String()), metadataStore.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
 		t.Fatalf("open forked session store: %v", err)
+	}
+	meta := forked.Meta()
+	if meta.Locked != nil || meta.WorkflowSnapshot != nil || meta.Continuation != nil || meta.ConnectionID != nil || meta.ParentAgentSessionID != nil {
+		t.Fatalf("interactive fork retained source execution settings: %+v", meta)
+	}
+	if meta.Category == nil || *meta.Category != sessioncontract.SessionCategoryMain ||
+		meta.PreviousSessionID == nil || meta.PreviousSessionID.String() != store.Meta().SessionID {
+		t.Fatalf("interactive fork identity/provenance = %+v", meta)
+	}
+	if meta.Goal == nil || meta.Goal.Objective != store.Meta().Goal.Objective {
+		t.Fatalf("fork lost source Goal: %+v", meta.Goal)
+	}
+	taskID, err := metadataStore.WorkflowTaskIDForSession(t.Context(), forkID.String())
+	if err != nil || taskID != nil {
+		t.Fatalf("interactive fork Task owner = %v, %v", taskID, err)
+	}
+	settings, err := launch.ResolveReadOnlySessionContextSettings(cfg, meta, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Settings.Model != cfg.Settings.Model || settings.Settings.ThinkingLevel != "low" {
+		t.Fatalf("fork did not select fresh interactive model/current Thinking: %s/%s", settings.Settings.Model, settings.Settings.ThinkingLevel)
+	}
+	if store.Meta().Locked == nil || store.Meta().WorkflowSnapshot == nil || store.Meta().Continuation == nil || store.Meta().ConnectionID == nil {
+		t.Fatal("fork changed source settings")
 	}
 }
 

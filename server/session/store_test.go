@@ -370,13 +370,13 @@ func TestLockedPromptSnapshotsPopulateIndependently(t *testing.T) {
 	}
 }
 
-func TestLockedRequestShapeBackfillPersistsTogether(t *testing.T) {
+func TestLockedRequestShapeBackfillPreservesDispatchedTools(t *testing.T) {
 	parent := newSessionTestStore(t)
-	if err := parent.MarkModelDispatchLocked(LockedContract{Model: "gpt-6-sol", SystemPrompt: "prompt", HasSystemPrompt: true}); err != nil {
+	if err := parent.MarkModelDispatchLocked(LockedContract{Model: "gpt-6-sol", EnabledTools: []string{"patch"}}); err != nil {
 		t.Fatalf("mark model dispatch locked: %v", err)
 	}
 	store := newSessionTestLazyStore(t)
-	if err := InitializeCreationContext(store, parent, SessionCreationSourcePreviousSession, ChildContextOptions{LockedContract: InheritContractWithoutTools}); err != nil {
+	if err := InitializeCreationContext(store, parent, SessionCreationSourcePreviousSession, ChildContextOptions{LockedContract: InheritFullContract}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.EnsureDurable(); err != nil {
@@ -390,11 +390,11 @@ func TestLockedRequestShapeBackfillPersistsTogether(t *testing.T) {
 	if err != nil {
 		t.Fatalf("backfill request shape: %v", err)
 	}
-	if !result.Committed || result.Locked == nil || !result.Locked.HasEnabledTools || strings.Join(result.Locked.EnabledTools, ",") != "shell,patch" || result.Locked.WebSearchMode != "native" {
+	if !result.Committed || result.Locked == nil || !result.Locked.HasEnabledTools || strings.Join(result.Locked.EnabledTools, ",") != "patch" || result.Locked.WebSearchMode != "native" {
 		t.Fatalf("request shape result = %+v", result)
 	}
 	opened := mustOpenSessionTestStore(t, store)
-	if locked := opened.Meta().Locked; locked == nil || !locked.HasEnabledTools || locked.WebSearchMode != "native" || len(locked.EnabledTools) != 2 {
+	if locked := opened.Meta().Locked; locked == nil || !locked.HasEnabledTools || locked.WebSearchMode != "native" || len(locked.EnabledTools) != 1 {
 		t.Fatalf("persisted request shape = %+v", locked)
 	}
 }
@@ -805,11 +805,8 @@ func TestForkAtUserMessageCopiesPrefixBeforeSelectedMessage(t *testing.T) {
 	if meta.FirstPromptPreview != "u1" {
 		t.Fatalf("expected fork preview to persist first user message, got %q", meta.FirstPromptPreview)
 	}
-	if meta.Locked == nil || meta.Locked.SystemPrompt != "parent prompt snapshot" || !meta.Locked.HasSystemPrompt {
-		t.Fatalf("fork locked system prompt = %+v, want replay fork to preserve parent prompt snapshot", meta.Locked)
-	}
-	if meta.Locked.ReviewerPrompt != "parent reviewer prompt snapshot" || !meta.Locked.HasReviewerPrompt {
-		t.Fatalf("fork locked reviewer prompt = %+v, want replay fork to preserve parent reviewer prompt snapshot", meta.Locked)
+	if meta.Locked != nil {
+		t.Fatalf("interactive fork retained generation snapshot: %+v", meta.Locked)
 	}
 }
 

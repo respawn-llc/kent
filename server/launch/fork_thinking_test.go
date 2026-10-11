@@ -51,3 +51,48 @@ func TestResolveForkThinkingUsesCurrentSelectionAndTargetSupport(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveInteractiveForkThinkingUsesFreshTargetAndCurrentDesiredSelection(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		targetModel string
+		sourceModel string
+		native      bool
+	}{
+		{name: "fresh target supports updates", targetModel: "gpt-6-astra", sourceModel: "gpt-5.6-sol", native: true},
+		{name: "fresh target does not support updates", targetModel: "gpt-5.6-sol", sourceModel: "gpt-6-astra"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			settings := config.DefaultOnboardingSettings()
+			settings.Model = test.targetModel
+			id := config.ConnectionID("interactive")
+			settings.Connection = &id
+			settings.Connections = map[config.ConnectionID]config.ProviderConnection{
+				id: {Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://api.openai.com/v1")},
+			}
+			meta := session.Meta{
+				Locked:           &session.LockedContract{Model: test.sourceModel},
+				Continuation:     &session.ContinuationContext{AgentRole: new("workflow-agent")},
+				ConnectionID:     new(config.ConnectionID("deleted-workflow-connection")),
+				WorkflowSnapshot: &session.WorkflowSnapshot{},
+				ChatSettings:     &session.ChatSettingsOverrides{Thinking: new("low")},
+			}
+			got, err := ResolveInteractiveForkThinking(config.App{Settings: settings}, meta)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Desired != "low" || got.PreserveNativeUpdates != test.native {
+				t.Fatalf("interactive fork Thinking = %+v, want low / native %v", got, test.native)
+			}
+			meta.ChatSettings = nil
+			meta.ConnectionID = &id
+			got, err = ResolveInteractiveForkThinking(config.App{Settings: settings}, meta)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Desired != settings.ThinkingLevel || got.PreserveNativeUpdates != test.native {
+				t.Fatalf("unpersisted desired Thinking = %+v, want %s / native %v", got, settings.ThinkingLevel, test.native)
+			}
+		})
+	}
+}

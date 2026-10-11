@@ -120,14 +120,13 @@ func (b *forkReplayBatch) validateDrained() error {
 // conversation up to (but excluding) the visible user message persisted at
 // userMessageSeq. It returns the forked store and the 1-based ordinal of that
 // user message among the parent's visible user messages (for naming/display).
+// User-driven forks select a fresh interactive contract, not a continuation.
 func ForkAtUserMessage(parentLog MaterializedEventLog, userMessageSeq int64, forkName string, category sessioncontract.SessionCategory, thinking ForkThinking) (*Store, int, error) {
 	if userMessageSeq <= 0 {
 		return nil, 0, fmt.Errorf("user message seq must be >= 1")
 	}
 	return streamChildFromParent(parentLog, forkName, category, ChildContextOptions{
-		LockedContract:      InheritContractWithoutTools,
-		InheritContinuation: true,
-		InheritGoal:         true,
+		InheritGoal: true,
 	}, userMessageSeq, thinking)
 }
 
@@ -436,14 +435,12 @@ type LockedContractInheritance uint8
 const (
 	InheritNoContract LockedContractInheritance = iota
 	InheritFullContract
-	InheritContractWithoutTools
 )
 
 type ChildContextOptions struct {
 	LockedContract LockedContractInheritance
-	// InheritContinuation preserves parent continuation settings for
-	// interactive children. Headless subagent launches leave this false so
-	// parent role/base URL state cannot override the selected subagent config.
+	// InheritContinuation preserves workflow context, delegation ancestry,
+	// role, and provider binding for continuation children, not user-driven forks.
 	InheritContinuation bool
 	// InheritGoal preserves the parent's current goal for user-facing
 	// Edit/Fork children. Complete-history workflow clones leave this false.
@@ -516,12 +513,8 @@ func InitializeCreationContext(child *Store, source CreationContextSource, kind 
 		return nil
 	}
 	switch opts.LockedContract {
-	case InheritFullContract, InheritContractWithoutTools:
+	case InheritFullContract:
 		child.meta.Locked = cloneLockedContract(sourceMeta.Locked)
-		if opts.LockedContract == InheritContractWithoutTools && child.meta.Locked != nil {
-			child.meta.Locked.EnabledTools = nil
-			child.meta.Locked.HasEnabledTools = false
-		}
 	case InheritNoContract:
 		child.meta.Locked = nil
 	default:
@@ -530,7 +523,11 @@ func InitializeCreationContext(child *Store, source CreationContextSource, kind 
 		return errors.New("invalid locked contract inheritance policy")
 	}
 	child.meta.WorkspaceRoot = sourceMeta.WorkspaceRoot
-	child.meta.WorkflowSnapshot = cloneWorkflowSnapshot(sourceMeta.WorkflowSnapshot)
+	if opts.InheritContinuation || kind == SessionCreationSourceParentAgent {
+		child.meta.WorkflowSnapshot = cloneWorkflowSnapshot(sourceMeta.WorkflowSnapshot)
+	} else {
+		child.meta.WorkflowSnapshot = nil
+	}
 	child.meta.WorkspaceContainer = sourceMeta.WorkspaceContainer
 	child.meta.WorktreeReminder = CloneWorktreeReminderState(sourceMeta.WorktreeReminder)
 	child.meta.UsageState = nil
@@ -548,7 +545,7 @@ func InitializeCreationContext(child *Store, source CreationContextSource, kind 
 	switch kind {
 	case SessionCreationSourcePreviousSession:
 		child.meta.PreviousSessionID = &sourceID
-		if sourceMeta.ParentAgentSessionID != nil {
+		if opts.InheritContinuation && sourceMeta.ParentAgentSessionID != nil {
 			parentAgentSessionID := *sourceMeta.ParentAgentSessionID
 			child.meta.ParentAgentSessionID = &parentAgentSessionID
 		}

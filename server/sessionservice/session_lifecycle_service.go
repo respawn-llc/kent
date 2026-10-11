@@ -230,7 +230,7 @@ func (s *SessionLifecycleService) resolveForkRollbackTransition(ctx context.Cont
 	if err != nil {
 		return nil, err
 	}
-	thinking, err := launch.ResolveForkThinking(app, store.Meta(), false)
+	thinking, err := launch.ResolveInteractiveForkThinking(app, store.Meta())
 	if err != nil {
 		return nil, err
 	}

@@ -221,6 +221,9 @@ func TestLaunchRetainsFirstExplicitToolListAcrossReopening(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if forkPlan.ModelContractLocked {
+		t.Fatal("interactive fork started with its source's generation snapshot")
+	}
 	forkActivation, err := ActivationRequestFromSessionPlan(forkPlan, "fork-tools-test")
 	if err != nil {
 		t.Fatal(err)
@@ -244,11 +247,10 @@ func TestLaunchRetainsFirstExplicitToolListAcrossReopening(t *testing.T) {
 		t.Fatal(err)
 	}
 	childLock := childRecord.Meta.Locked
-	if last.Model != parentMeta.Locked.Model || childLock.SystemPrompt != parentMeta.Locked.SystemPrompt ||
-		!reflect.DeepEqual(childLock.ProviderContract, parentMeta.Locked.ProviderContract) || childLock.WebSearchMode != parentMeta.Locked.WebSearchMode {
-		t.Fatalf("rollback contract changed: model %s/%s, prompt equal=%t, provider equal=%t, web %s/%s", last.Model, parentMeta.Locked.Model,
-			childLock.SystemPrompt == parentMeta.Locked.SystemPrompt, reflect.DeepEqual(childLock.ProviderContract, parentMeta.Locked.ProviderContract),
-			childLock.WebSearchMode, parentMeta.Locked.WebSearchMode)
+	if last.Model != planner.Config.Settings.Model || childLock.Model != planner.Config.Settings.Model ||
+		childLock.WebSearchMode != planner.Config.Settings.WebSearch {
+		t.Fatalf("rollback did not adopt fresh interactive settings: model %s/%s, web %s/%s",
+			last.Model, planner.Config.Settings.Model, childLock.WebSearchMode, planner.Config.Settings.WebSearch)
 	}
 	parentRecord, err := fixture.metadata.ResolvePersistedSession(t.Context(), id.String())
 	if err != nil {

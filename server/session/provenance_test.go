@@ -3,7 +3,9 @@ package session
 import (
 	"testing"
 
+	"core/shared/config"
 	"core/shared/runtimeids"
+	"core/shared/sessioncontract"
 )
 
 func TestInitializeCreationContextSetsTypedProvenanceAtomically(t *testing.T) {
@@ -39,7 +41,7 @@ func TestInitializeCreationContextSetsTypedProvenanceAtomically(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			child := newSessionTestLazyStoreAt(t, root)
-			if err := InitializeCreationContext(child, test.source, test.kind, ChildContextOptions{}); err != nil {
+			if err := InitializeCreationContext(child, test.source, test.kind, ChildContextOptions{InheritContinuation: true}); err != nil {
 				t.Fatalf("InitializeCreationContext: %v", err)
 			}
 			meta := child.Meta()
@@ -59,13 +61,23 @@ func TestInitializeCreationContextSetsTypedProvenanceAtomically(t *testing.T) {
 	}
 }
 
-func TestForkAndCloneRecordPreviousSessionAndPreserveParentAgentAncestry(t *testing.T) {
+func TestForkDetachesOwnershipWhileClonePreservesParentAgentAncestry(t *testing.T) {
 	root := t.TempDir()
 	parentAgent := newSessionTestStoreAt(t, root)
 	source := newSessionTestLazyStoreAt(t, root)
 	if err := InitializeCreationContext(source, parentAgent, SessionCreationSourceParentAgent, ChildContextOptions{}); err != nil {
 		t.Fatalf("initialize source ancestry: %v", err)
 	}
+	if err := source.SetWorkflowSnapshot(WorkflowSnapshot{CompletionMode: sessioncontract.WorkflowCompletionModeTool}); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.SetContinuationContext(ContinuationContext{AgentRole: new("workflow-agent")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.SetConnectionID(config.ConnectionID("workflow-connection")); err != nil {
+		t.Fatal(err)
+	}
+	markSessionTestLocked(t, source, sessionTestLockedContract())
 	if err := source.EnsureDurable(); err != nil {
 		t.Fatalf("persist source ancestry: %v", err)
 	}
@@ -86,7 +98,23 @@ func TestForkAndCloneRecordPreviousSessionAndPreserveParentAgentAncestry(t *test
 	for name, derived := range map[string]*Store{"forked": forked, "cloned": cloned} {
 		meta := derived.Meta()
 		assertOptionalProvenanceID(t, name+" previous", meta.PreviousSessionID, mustProvenanceSessionID(t, source.Meta().SessionID))
-		assertOptionalProvenanceID(t, name+" parent agent", meta.ParentAgentSessionID, mustProvenanceSessionID(t, parentAgent.Meta().SessionID))
+		if meta.SessionID == source.Meta().SessionID {
+			t.Fatal("child reused source identity")
+		}
+		if name == "forked" {
+			assertOptionalProvenanceID(t, name+" parent agent", meta.ParentAgentSessionID, nil)
+			if meta.WorkflowSnapshot != nil || meta.Continuation != nil || meta.ConnectionID != nil {
+				t.Fatalf("interactive fork retained workflow execution context: %+v", meta)
+			}
+		} else {
+			assertOptionalProvenanceID(t, name+" parent agent", meta.ParentAgentSessionID, mustProvenanceSessionID(t, parentAgent.Meta().SessionID))
+			if meta.WorkflowSnapshot == nil || meta.Continuation == nil || meta.ConnectionID == nil || meta.Locked == nil {
+				t.Fatalf("workflow clone lost execution context: %+v", meta)
+			}
+		}
+	}
+	if source.Meta().WorkflowSnapshot == nil || source.Meta().Continuation == nil || source.Meta().ConnectionID == nil || source.Meta().ParentAgentSessionID == nil {
+		t.Fatal("fork changed source execution context")
 	}
 }
 
