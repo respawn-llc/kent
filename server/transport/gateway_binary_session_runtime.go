@@ -37,18 +37,11 @@ func registerSessionRuntimeGatewayBinaryBindings(bindings map[string]gatewayBina
 				state.recordOwnedRuntime(attachment)
 				return &sessionlaunchpb.SessionRuntimeActivateSuccess{Attachment: protoapi.SessionRuntimeAttachmentToProto(attachment)}, nil
 			},
-			func(g *Gateway, _ *connectionState, request *sessionlaunchpb.SessionRuntimeActivateRequest, err error) proto.Message {
+			func(_ *Gateway, _ *connectionState, _ *sessionlaunchpb.SessionRuntimeActivateRequest, err error) proto.Message {
 				if errors.Is(err, sessionruntime.ErrAuthorityClosed) {
 					err = errors.Join(serverapi.ErrRuntimeUnavailable, err)
 				}
-				if !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
-					return binaryAuthFailure(err)
-				}
-				id, lookupErr := g.deps.MetadataStore().ResolveSessionTarget(context.Background(), request.GetSessionId())
-				if lookupErr != nil {
-					return binaryAuthFailure(errors.Join(err, lookupErr))
-				}
-				return binaryRuntimeLifetimeFailure(id.String(), err)
+				return binaryRuntimeLifetimeFailure(err)
 			}),
 		registerGatewayBinaryUnary(bindings, service, "Release", gatewayBinaryCoreActiveOrdinary,
 			func() *sessionlaunchpb.SessionRuntimeReleaseRequest {
@@ -69,15 +62,15 @@ func registerSessionRuntimeGatewayBinaryBindings(bindings map[string]gatewayBina
 				}
 				return response, err
 			},
-			func(_ *Gateway, _ *connectionState, request *sessionlaunchpb.SessionRuntimeReleaseRequest, err error) proto.Message {
-				return binaryRuntimeLifetimeFailure(request.GetAttachment().GetSessionId(), err)
+			func(_ *Gateway, _ *connectionState, _ *sessionlaunchpb.SessionRuntimeReleaseRequest, err error) proto.Message {
+				return binaryRuntimeLifetimeFailure(err)
 			}),
 	)
 }
 
-func binaryRuntimeLifetimeFailure(sessionID string, err error) proto.Message {
+func binaryRuntimeLifetimeFailure(err error) proto.Message {
 	if errors.Is(err, serverapi.ErrRuntimeUnavailable) {
-		return &sessionlaunchpb.SessionRuntimeUnavailableDetails{SessionId: sessionID}
+		return &sessionlaunchpb.SessionRuntimeUnavailableDetails{SessionTarget: protoapi.SessionTargetErrorContext(err)}
 	}
 	return binaryAuthReadinessFailure(err)
 }

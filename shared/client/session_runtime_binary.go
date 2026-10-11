@@ -40,7 +40,10 @@ func sessionRuntimeError[Failure interface {
 	GetCode() string
 	GetRuntimeUnavailable() *sessionlaunchpb.SessionRuntimeUnavailableDetails
 }](failure Failure) error {
-	if failure.GetRuntimeUnavailable() != nil {
+	if unavailable := failure.GetRuntimeUnavailable(); unavailable != nil {
+		if unavailable.SessionTarget != nil {
+			return protoapi.SessionTargetContextErrorFromProto(unavailable.SessionTarget, serverapi.ErrRuntimeUnavailable)
+		}
 		return serverapi.ErrRuntimeUnavailable
 	}
 	return generatedOperationFailure(failure.GetCode())
