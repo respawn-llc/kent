@@ -30,8 +30,9 @@
 ## Sessions
 
 - A Project's session browser has `Sessions` and `Subagents` categories. `Sessions` contains server-visible main Sessions and `Subagents` contains server-visible subagent Sessions; Workflow and headless launch modes do not create additional browser categories. Each category uses server-authoritative Infinite Scroll. Changing category requests that category alone, and Desktop never materializes a complete category.
-- Sessions are recency ordered. Plain full-width list items must show the Session name or, when absent, the full Session ID as the title. The server-provided first-prompt preview must appear once beneath the title, capped at two lines, and be omitted when absent. Recency appears beneath it. There is no search or additional status filter.
-- A Session ID title truncates only when required by the available row width and is not shortened by default.
+- Sessions are recency ordered. Plain full-width list items must show the Session name or, when absent, its Session selector as the title. The server-provided first-prompt preview must appear once beneath the title, capped at two lines, and be omitted when absent. Recency appears beneath it. There is no search or additional status filter.
+- Displayed and copied Session identifiers must use the assigned Session Short ID or, for an unnumbered Session, its full UUID, following the [CLI Session presentation rules](cli-commands.md#session-selectors-and-presentation).
+- A Session identifier title truncates only when required by the available row width.
 - Session discovery uses zero-based, non-negative offset pagination. An omitted offset starts at zero. An omitted limit defaults to 100, and a supplied limit is between 1 and 100.
 - A response includes the next offset only when older Sessions remain. Clients derive the preceding page offset from the offset and limit they requested.
 - Each request reads its category independently from the latest completed server-owned projection. Session recency changes between requests may cause later results to repeat or skip Sessions, and Kent does not reconcile them.
