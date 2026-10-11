@@ -48,8 +48,12 @@ func (e *Engine) ensureMetaContextForRequest(ctx context.Context, stepID string)
 }
 
 func (e *Engine) materializePendingExecutionTargetReminders(stepID string) error {
-	if err := e.materializePendingWorktreeReminder(stepID); err != nil {
-		return err
+	// A pending generation owns its worktree context. Incremental transitions
+	// resume after that context is committed, preserving one delivery boundary.
+	if _, pending := e.generationContextSnapshot().(pendingGenerationContext); !pending {
+		if err := e.materializePendingWorktreeReminder(stepID); err != nil {
+			return err
+		}
 	}
 	return e.materializePendingSessionRebindReminder(stepID)
 }

@@ -1059,6 +1059,55 @@ func TestWorkflowRequestAfterCompactionUsesOneCurrentAssignmentPrompt(t *testing
 	}
 }
 
+func TestWorkflowHandoffRequestDeliversOneAssignmentAndWorktreeContext(t *testing.T) {
+	t.Parallel()
+	store := mustCreateTestSession(t)
+	target := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter, "feature/workflow-handoff",
+		"/tmp/workflow-handoff", "/tmp/workspace", "/tmp/workflow-handoff",
+	))
+	reference := mustTestCurrentNodeReference(t, "task", "node", nil)
+	client := &fakeCompactionClient{responses: []llm.Response{
+		finalOutputItemResponse("handoff summary"),
+		commentaryResponse("", llm.ToolCall{
+			ID: "complete", Name: string(toolspec.ToolCompleteNode),
+			Input: mustJSON(map[string]any{"transition": "done"}),
+		}),
+	}}
+	engine := mustNewWorkflowTestEngine(t, store, client, &workflowruntime.CurrentNodeExecutionConfig{
+		ScopeID:        runtimeids.NewExecutionScopeID(),
+		CompletionMode: workflowruntime.CompletionModeTool,
+		Controller:     &fakeWorkflowController{},
+		Contract: workflowruntime.CompletionContract{
+			Transitions: []workflowruntime.CompletionTransition{{ID: "done"}},
+		},
+		Instructions: workflowruntime.TaskInstructions{CurrentNode: reference},
+	}, Config{Model: "gpt-6-sol", CompactionMode: "local"})
+	if err := steerTestActiveStep(engine, "seed", steerMessagesWithPersistenceIntent(
+		steeringPriorityNormal, steeringMessageEventNone, true,
+		[]llm.Message{{Role: llm.RoleUser, Content: new("seed")}},
+	)); err != nil {
+		t.Fatal(err)
+	}
+	engine.handoffRuntimeState().QueueRequest("preserve the active workflow", "continue")
+	if _, err := engine.SubmitWorkflowTurn(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.calls) != 2 {
+		t.Fatalf("provider calls = %d, want handoff summary and workflow continuation", len(client.calls))
+	}
+	messages := requestMessages(client.calls[1])
+	assignments := workflowPromptMessages(messages)
+	if len(assignments) != 1 || assignments[0].SourcePath == nil ||
+		*assignments[0].SourcePath != workflowruntime.CurrentNodePromptIdentity(reference) {
+		t.Fatalf("handoff request assignment = %+v, want one exact active assignment", assignments)
+	}
+	if count := worktreeReminderMessageCount(messages); count != 1 {
+		t.Fatalf("handoff request worktree contexts = %d, want one", count)
+	}
+	assertLatestWorktreeContext(t, messages, target)
+}
+
 func TestWorkflowCompactionResetsProtocolViolationBudget(t *testing.T) {
 	t.Parallel()
 	controller := &workflowProtocolBudgetController{}
