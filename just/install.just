@@ -5,7 +5,6 @@ desktop:
 
 [private]
 _desktop:
-    just _node
     bash scripts/build-desktop.sh --skip-install --install
 
 [private]
@@ -15,25 +14,22 @@ _apps-dependencies:
 # The repository-wide Effect policy reads embedded sources with the docs parsers.
 [private]
 _apps-dependencies-implementation: _docs-dependencies
-    just _node
-    pnpm --dir apps install --frozen-lockfile
+    bun install --cwd apps --frozen-lockfile
     just install _effect-compiler
 
 # Resolve intentional manifest changes under the workspace dependency policy.
 apps-lock: _docs-dependencies
-    just _node
-    node apps/scripts/check-dependency-policy.mjs
-    pnpm --dir apps install --no-frozen-lockfile
+    bun apps/scripts/check-dependency-policy.mjs
+    bun install --cwd apps
     just install _effect-compiler
 
 # Resolve intentional docs manifest changes without upgrading locked dependencies.
 docs-lock:
-    just _node
-    pnpm --dir docs install --no-frozen-lockfile
+    bun install --cwd docs
 
 [private]
 _effect-compiler:
-    pnpm --dir apps/desktop exec effect-tsgo patch --typescript --typescript-package typescript7
+    bun run --bun --cwd apps/desktop effect-tsgo patch --typescript --typescript-package typescript7
 
 [private]
 _docs-dependencies:
@@ -41,8 +37,7 @@ _docs-dependencies:
 
 [private]
 _docs-dependencies-implementation:
-    just _node
-    pnpm --dir docs install --frozen-lockfile
+    bun install --cwd docs --frozen-lockfile
 
 [private]
 _go-dependencies:

@@ -2,16 +2,20 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["minimumReleaseAgeMinutes", "directDependencyAllowlist"],
+  "required": [
+    "minimumReleaseAgeSeconds",
+    "minimumReleaseAgeExcludes",
+    "directDependencyAllowlist"
+  ],
   "properties": {
     "$schema": {
       "type": "string"
     },
-    "minimumReleaseAgeMinutes": {
+    "minimumReleaseAgeSeconds": {
       "type": "integer",
-      "minimum": 10080
+      "minimum": 604800
     },
-    "minimumReleaseAgeExclude": {
+    "minimumReleaseAgeExcludes": {
       "$ref": "#/$defs/dependencyNames"
     },
     "directDependencyAllowlist": {

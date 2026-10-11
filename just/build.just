@@ -22,7 +22,6 @@ desktop *args:
 
 [private]
 _desktop *args:
-    just _node
     bash scripts/build-desktop.sh --skip-install {{args}}
 
 docs *args:
@@ -30,9 +29,8 @@ docs *args:
 
 [private]
 _docs *args:
-    just _node
-    pnpm --dir docs exec astro build {{args}}
-    node docs/scripts/emit-deployment-files.mjs
+    bun run --bun --cwd docs astro build {{args}}
+    bun docs/scripts/emit-deployment-files.mjs
 
 [private]
 _go *args:
@@ -49,17 +47,16 @@ _desktop-web:
 
 [private]
 _desktop-web-implementation:
-    just _node
     just _gen-typescript
     just build _desktop-compiler
-    pnpm --dir apps/desktop exec vite --config tooling/vite.config.ts build
-    node apps/scripts/check-desktop-font-assets.mjs
+    bun run --bun --cwd apps/desktop vite --config tooling/vite.config.ts build
+    bun apps/scripts/check-desktop-font-assets.mjs
 
 [private]
 _desktop-compiler:
     just install _effect-compiler
     just _lint _effect-policy
-    node apps/desktop/node_modules/typescript7/bin/tsc -b apps/desktop/tsconfig.json --pretty false
+    bun apps/desktop/node_modules/typescript7/bin/tsc -b apps/desktop/tsconfig.json --pretty false
 
 [private]
 _desktop-smoke-macos bundle_dir:
@@ -92,6 +89,5 @@ _desktop-ci-debug key:
 
 [private]
 _desktop-ci-debug-implementation key:
-    just _node
-    pnpm --dir apps/desktop exec tauri signer generate -f -w {{key}} -p ""
+    bun run --bun --cwd apps/desktop tauri signer generate -f -w {{key}} -p ""
     TAURI_SIGNING_PRIVATE_KEY="$(cat {{key}})" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" bash scripts/build-desktop.sh --skip-install -- --debug

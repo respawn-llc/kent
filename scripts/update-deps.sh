@@ -12,8 +12,8 @@ Usage: scripts/update-deps.sh [--dry-run] [--skip-apps] [--skip-go] [--skip-docs
 
 Updates repository dependencies for the currently supported package managers:
   - root Go module (`go.mod` / `go.sum`)
-  - desktop pnpm workspace (`apps/package.json` / `apps/pnpm-lock.yaml`)
-  - docs pnpm workspace (`docs/package.json` / `docs/pnpm-lock.yaml`)
+  - desktop Bun workspace (`apps/package.json` / `apps/bun.lock`)
+  - docs Bun workspace (`docs/package.json` / `docs/bun.lock`)
   - Rust Cargo workspaces (`Cargo.toml` / `Cargo.lock`)
 
 GitHub Actions version pins are intentionally excluded from this script. Run this
@@ -21,9 +21,9 @@ script on the same 7-day dependency update cadence as the other ecosystems.
 
 Options:
   --dry-run    Print planned update commands without executing them.
-  --skip-apps  Skip desktop pnpm dependency updates.
+  --skip-apps  Skip desktop Bun dependency updates.
   --skip-go    Skip Go module dependency updates.
-  --skip-docs  Skip docs pnpm dependency updates.
+  --skip-docs  Skip docs Bun dependency updates.
   --skip-rust  Skip Rust Cargo dependency updates.
 USAGE
 }
@@ -113,12 +113,14 @@ update_apps_deps() {
 	if [[ ! -f "$repo_root/apps/package.json" ]]; then
 		return
 	fi
-	require_cmd pnpm
-	echo "==> Updating desktop pnpm dependencies"
-	run_cmd pnpm --dir "$repo_root/apps" --recursive --include-workspace-root up --latest
+	require_cmd bun
+	echo "==> Updating desktop Bun dependencies"
+	# Keep version-specific patches on their declared package versions until they
+	# are recreated intentionally for a newer release.
+	run_cmd bun update --cwd "$repo_root/apps" --recursive --latest '!streamdown'
 	# The lint parser supports TypeScript 6 only. Desktop build/typecheck scripts
 	# invoke the stable TypeScript 7 alias explicitly.
-	run_cmd pnpm --dir "$repo_root/apps" --filter @app/desktop --filter @app/native-bridge add --save-dev "typescript@^6.0.3"
+	run_cmd bun add --cwd "$repo_root/apps" --filter @app/desktop --filter @app/native-bridge --dev "typescript@^6.0.3"
 	updated_any="true"
 }
 
@@ -129,9 +131,9 @@ update_docs_deps() {
 	if [[ ! -f "$repo_root/docs/package.json" ]]; then
 		return
 	fi
-	require_cmd pnpm
-	echo "==> Updating docs pnpm dependencies"
-	run_cmd pnpm --dir "$repo_root/docs" up --latest
+	require_cmd bun
+	echo "==> Updating docs Bun dependencies"
+	run_cmd bun update --cwd "$repo_root/docs" --latest '!starlight-llms-txt'
 	updated_any="true"
 }
 

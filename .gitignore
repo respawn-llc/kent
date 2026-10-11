@@ -29,7 +29,6 @@ $RECYCLE.BIN/
 # JavaScript/TypeScript
 node_modules/
 **/node_modules/
-**/.pnpm-store/
 **/.turbo/
 **/.vite/
 **/dist/
