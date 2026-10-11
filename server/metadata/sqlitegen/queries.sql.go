@@ -2163,6 +2163,7 @@ func (q *Queries) GetSessionShortID(ctx context.Context, sessionID string) (sql.
 const getSessionWorkspaceRetargetStateByID = `-- name: GetSessionWorkspaceRetargetStateByID :one
 SELECT
     s.id AS session_id,
+    s.short_id,
     s.project_id,
     p.display_name AS project_display_name,
     p.project_key,
@@ -2175,6 +2176,7 @@ LIMIT 1
 
 type GetSessionWorkspaceRetargetStateByIDRow struct {
 	SessionID          string
+	ShortID            sql.NullInt64
 	ProjectID          string
 	ProjectDisplayName string
 	ProjectKey         string
@@ -2186,6 +2188,7 @@ func (q *Queries) GetSessionWorkspaceRetargetStateByID(ctx context.Context, sess
 	var i GetSessionWorkspaceRetargetStateByIDRow
 	err := recordQueryError(ctx, row.Scan(
 		&i.SessionID,
+		&i.ShortID,
 		&i.ProjectID,
 		&i.ProjectDisplayName,
 		&i.ProjectKey,

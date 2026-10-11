@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"core/shared/runtimeids"
 )
 
 var ErrSessionRetarget = errors.New("session workspace retarget failed")
@@ -27,6 +29,7 @@ type ProjectReference struct {
 type SessionRetargetError struct {
 	Reason            SessionRetargetErrorReason `json:"reason"`
 	SessionID         string                     `json:"session_id"`
+	ShortID           *runtimeids.SessionShortID `json:"-"`
 	SourceProject     ProjectReference           `json:"source_project"`
 	TargetRoot        string                     `json:"target_root"`
 	CandidateProjects []ProjectReference         `json:"candidate_projects,omitempty"`

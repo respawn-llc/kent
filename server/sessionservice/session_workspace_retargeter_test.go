@@ -2,6 +2,7 @@ package sessionservice
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/config"
+	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -38,6 +40,10 @@ func TestSessionWorkspaceRetargeterRejectsInvalidDestinationBeforeScheduling(t *
 	for _, scheduled := range []bool{false, true} {
 		t.Run(fmt.Sprint(scheduled), func(t *testing.T) {
 			f := newRealSessionRetargetFixture(t, false)
+			identity, err := f.metadata.SessionIdentity(t.Context(), f.childID)
+			if err != nil || identity.ShortID == nil {
+				t.Fatalf("numbered fixture: %v", err)
+			}
 			client := &selfRetargetRuntimeClient{}
 			engine := f.openRuntimeWithClient(t, client)
 			workflowID := uuid.New()
@@ -68,7 +74,8 @@ func TestSessionWorkspaceRetargeterRejectsInvalidDestinationBeforeScheduling(t *
 					_, err = retargeter.RetargetWorkspace(t.Context(), req)
 				}
 				var failure *serverapi.SessionRetargetError
-				if !errors.As(err, &failure) || failure.Reason != serverapi.SessionRetargetWorkflowOwned {
+				if !errors.As(err, &failure) || failure.Reason != serverapi.SessionRetargetWorkflowOwned ||
+					failure.ShortID == nil || *failure.ShortID != *identity.ShortID {
 					t.Errorf("invalid destination acknowledged: %v", err)
 				}
 				return nil
@@ -899,6 +906,10 @@ func TestSessionWorkspaceRetargeterTreatsCommittedIdentityPublicationFailureAsNo
 
 func TestSessionWorkspaceRetargeterRejectsBackgroundProcessWithoutMovingArtifact(t *testing.T) {
 	fixture := newRealSessionRetargetFixture(t, false)
+	identity, err := fixture.metadata.SessionIdentity(t.Context(), fixture.childID)
+	if err != nil || identity.ShortID == nil {
+		t.Fatalf("numbered fixture: %v", err)
+	}
 	targetProjectID := fixture.targetProject.ProjectID
 	req := metadata.SessionWorkspaceRetargetRequest{
 		SessionID:     fixture.child.Meta().SessionID,
@@ -919,11 +930,68 @@ func TestSessionWorkspaceRetargeterRejectsBackgroundProcessWithoutMovingArtifact
 		if owner != "" && (!errors.As(retargetErr, &typed) || typed.Reason != serverapi.SessionRetargetBackgroundProcess) {
 			t.Fatalf("RetargetWorkspace error = %v, want background-process error", retargetErr)
 		}
+		if owner != "" && (typed.ShortID == nil || *typed.ShortID != *identity.ShortID) {
+			t.Fatalf("retarget failure lost Session number: %v", typed)
+		}
+		if owner != "" {
+			wire, err := protoapi.SessionRetargetErrorToProto(typed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded *serverapi.SessionRetargetError
+			if !errors.As(protoapi.SessionRetargetErrorFromProto(wire), &decoded) ||
+				decoded.SessionID != req.SessionID || decoded.Reason != typed.Reason ||
+				decoded.ShortID == nil || *decoded.ShortID != *typed.ShortID {
+				t.Fatal("retarget failure conversion lost identity or reason")
+			}
+		}
 		if info, statErr := os.Stat(plan.SourceSessionDir); statErr != nil || !info.IsDir() {
 			t.Fatalf("source artifact changed: %v, %v", info, statErr)
 		}
 		if _, statErr := os.Stat(plan.TargetSessionDir); !errors.Is(statErr, os.ErrNotExist) {
 			t.Fatalf("target artifact exists: %v", statErr)
+		}
+	}
+}
+
+func TestSessionRetargetSelectorFailureIdentity(t *testing.T) {
+	f := newRealSessionRetargetFixture(t, false)
+	identity, err := f.metadata.SessionIdentity(t.Context(), f.childID)
+	if err != nil || identity.ShortID == nil {
+		t.Fatalf("numbered fixture: %v", err)
+	}
+	service := NewGlobalSessionLifecycleService(t.TempDir(), f.authority, nil).
+		WithPersistedSessionResolver(f.metadata).
+		WithWorkspaceRetargeter(f.retargeter(f.metadata, retargetProcessSource{{ID: "blocking", OwnerSessionID: f.childID.String(), Running: true}}))
+	for _, numbered := range []bool{true, false} {
+		selectors := []runtimeids.SessionSelector{identity.ID}
+		if numbered {
+			selectors = append(selectors, *identity.ShortID)
+		} else if _, err := f.metadata.DB().ExecContext(t.Context(), "UPDATE sessions SET short_id = NULL WHERE id = ?", identity.ID.String()); err != nil {
+			t.Fatal(err)
+		}
+		for _, selector := range selectors {
+			_, err := service.RetargetSessionWorkspace(t.Context(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
+				SessionId: protoapi.SessionSelectorToProto(selector), WorkspaceRoot: f.targetWorkspaceRoot, ProjectId: &f.targetProject.ProjectID,
+			})
+			var failure *serverapi.SessionRetargetError
+			if !errors.As(err, &failure) || failure.SessionID != identity.ID.String() ||
+				failure.Reason != serverapi.SessionRetargetBackgroundProcess || (failure.ShortID != nil) != numbered {
+				t.Fatalf("retarget target %s: %v", selector, err)
+			}
+			if numbered && *failure.ShortID != *identity.ShortID {
+				t.Fatal("retarget selected a different number")
+			}
+			encoded, err := json.Marshal(failure)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var technical struct {
+				SessionID string `json:"session_id"`
+			}
+			if err := json.Unmarshal(encoded, &technical); err != nil || technical.SessionID != identity.ID.String() {
+				t.Fatalf("retarget JSON lost canonical identity: %s, %v", encoded, err)
+			}
 		}
 	}
 }
