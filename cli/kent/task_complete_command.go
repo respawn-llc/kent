@@ -209,7 +209,7 @@ func parseTaskCompleteArgs(
 				return taskCompleteArgs{}, false, 2
 			}
 			index = next
-			parsed.SessionID = strings.TrimSpace(value)
+			parsed.SessionID = value
 		case "task":
 			value, next, err := taskCompleteStringFlagValue(args, index, inlineValue, hasInlineValue, name)
 			if err != nil {
