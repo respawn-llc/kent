@@ -191,14 +191,18 @@ func (g *Gateway) requireGoalSessionAccess(ctx context.Context, state *connectio
 func (g *Gateway) requireChatTargetAccess(ctx context.Context, state *connectionState, target *chatpb.ChatTarget) error {
 	switch selected := target.GetTarget().(type) {
 	case *chatpb.ChatTarget_Session:
-		if strings.TrimSpace(state.attachedProject) != "" {
-			return g.requireSessionInActiveProject(ctx, state, selected.Session.SessionId)
-		}
 		metadataStore := g.deps.MetadataStore()
 		if metadataStore == nil {
 			return errors.New("metadata store is required")
 		}
-		_, err := metadataStore.ResolvePersistedSession(ctx, selected.Session.SessionId)
+		sessionID, err := metadataStore.ResolveSessionTarget(ctx, selected.Session.SessionId)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(state.attachedProject) != "" {
+			return g.requireSessionInActiveProject(ctx, state, sessionID.String())
+		}
+		_, err = metadataStore.ResolvePersistedSession(ctx, sessionID.String())
 		return err
 	case *chatpb.ChatTarget_NewChat:
 		return g.requireProjectWorkspaceBinding(

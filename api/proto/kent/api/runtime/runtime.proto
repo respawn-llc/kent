@@ -696,17 +696,11 @@ message Goal {
 }
 
 message GoalShowRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
 }
 
 message GoalMutationRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
   string actor = 2 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -775,10 +769,7 @@ message GoalSetRequest {
 }
 
 message GoalClearRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
   string actor = 2 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -816,10 +807,7 @@ message GoalMutationSuccess {
 }
 
 message GoalObserveRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
 }
 
 message GoalProjection {

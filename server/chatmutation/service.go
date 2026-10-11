@@ -173,7 +173,7 @@ func (s *Service) invokeGoal(
 	resolvedRequest := &runtimepb.GoalSetRequest{
 		Target: &chatpb.ChatTarget{
 			Target: &chatpb.ChatTarget_Session{
-				Session: &chatpb.ExistingSessionTarget{SessionId: target.SessionID.String()},
+				Session: &chatpb.ExistingSessionRequestTarget{SessionId: protoapi.SessionSelectorToProto(target.SessionID)},
 			},
 		},
 		Objective:       strings.TrimSpace(request.Objective),
@@ -214,7 +214,7 @@ func goalSetSuccess(
 		Outcome: &runtimepb.GoalSetSuccess_Mutation{Mutation: mutation},
 	}
 	if diagnostic != nil {
-		success.Diagnostic = protoapi.GoalSetErrorFromError(diagnostic, sessionID)
+		success.Diagnostic = protoapi.GoalSetErrorFromError(diagnostic, &sessionID)
 	}
 	return success
 }
@@ -288,7 +288,7 @@ func goalSetSuccessRejected(
 	return &runtimepb.GoalSetSuccess{
 		Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
 		Outcome: &runtimepb.GoalSetSuccess_Rejected{
-			Rejected: protoapi.GoalSetErrorFromError(err, sessionID),
+			Rejected: protoapi.GoalSetErrorFromError(err, &sessionID),
 		},
 	}
 }

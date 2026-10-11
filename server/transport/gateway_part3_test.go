@@ -325,7 +325,7 @@ func TestGatewayGoalObservationHydratesDormantSessionAndPublishesMutation(t *tes
 	}
 	defer func() { _ = remote.Close() }()
 	subscription, err := remote.SubscribeGoalObservation(t.Context(), &runtimepb.GoalObserveRequest{
-		SessionId: store.Meta().SessionID,
+		SessionId: requestfixture.Selector(t, store.Identity().String()),
 	})
 	if err != nil {
 		t.Fatalf("SubscribeGoalObservation: %v", err)

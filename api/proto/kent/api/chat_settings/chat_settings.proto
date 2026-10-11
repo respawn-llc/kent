@@ -353,7 +353,7 @@ message NewChatAgentChoice {
 }
 
 message SessionNotFoundDetails {
-  string session_id = 1 [
+  optional string session_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];

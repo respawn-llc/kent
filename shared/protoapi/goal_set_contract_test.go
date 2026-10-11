@@ -71,7 +71,7 @@ func TestGoalSetSuccessRejectsRuntimeUnavailableDiagnostic(t *testing.T) {
 func TestGoalSetErrorFromErrorIncludesRuntimeUnavailableSession(t *testing.T) {
 	sessionID := runtimeids.NewSessionID()
 
-	got := GoalSetErrorFromError(serverapi.ErrRuntimeUnavailable, sessionID)
+	got := GoalSetErrorFromError(serverapi.ErrRuntimeUnavailable, &sessionID)
 
 	if got.Code != "runtime_unavailable" {
 		t.Fatalf("Goal Set error code = %q, want runtime_unavailable", got.Code)

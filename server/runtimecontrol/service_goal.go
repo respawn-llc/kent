@@ -24,8 +24,11 @@ func (s *Service) ShowGoal(ctx context.Context, req *runtimepb.GoalShowRequest) 
 	if s == nil || s.persisted == nil {
 		return nil, errors.New("persisted session resolver is required")
 	}
-	sessionID := strings.TrimSpace(req.SessionId)
-	record, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, sessionID)
+	sessionID, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	record, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, sessionID.String())
 	if err != nil {
 		return nil, fmt.Errorf("resolve persisted session %q: %w", sessionID, err)
 	}
@@ -57,7 +60,7 @@ func (s *Service) SetResolvedGoal(
 	if target == nil {
 		return serverapi.ResolvedGoalSetCommit{}, errors.New("resolved Goal Set requires an exact Session target")
 	}
-	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(target.SessionId))
+	sessionID, err := s.metadata.ResolveSessionTarget(ctx, target.SessionId)
 	if err != nil {
 		return serverapi.ResolvedGoalSetCommit{}, err
 	}
@@ -102,7 +105,7 @@ func (s *Service) setGoalStatus(
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(req.SessionId))
+	sessionID, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +126,7 @@ func (s *Service) ClearGoal(ctx context.Context, req *runtimepb.GoalClearRequest
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(req.SessionId))
+	sessionID, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
 	if err != nil {
 		return nil, err
 	}

@@ -1550,10 +1550,14 @@ func runtimeControlSetGoalWithPolicy(
 	runID *string,
 	stepID *string,
 ) (*runtimepb.GoalMutationSuccess, error) {
+	selector, err := runtimeids.ParseSessionSelector(sessionID)
+	if err != nil {
+		return nil, err
+	}
 	commit, err := service.SetResolvedGoal(ctx, &runtimepb.GoalSetRequest{
 		Target: &chatpb.ChatTarget{
 			Target: &chatpb.ChatTarget_Session{
-				Session: &chatpb.ExistingSessionTarget{SessionId: sessionID},
+				Session: &chatpb.ExistingSessionRequestTarget{SessionId: protoapi.SessionSelectorToProto(selector)},
 			},
 		},
 		Objective:       objective,
@@ -1592,7 +1596,7 @@ func TestServiceGoalMutationsSetShowComplete(t *testing.T) {
 		setResp.Goal.Status != runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE {
 		t.Fatalf("set goal response = %+v", setResp)
 	}
-	showResp, err := service.ShowGoal(context.Background(), &runtimepb.GoalShowRequest{SessionId: store.Meta().SessionID})
+	showResp, err := service.ShowGoal(context.Background(), &runtimepb.GoalShowRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
 	if err != nil {
 		t.Fatalf("ShowGoal: %v", err)
 	}
@@ -1600,7 +1604,7 @@ func TestServiceGoalMutationsSetShowComplete(t *testing.T) {
 		t.Fatalf("show goal response = %+v, want id %q", showResp.Goal, setResp.Goal.Id)
 	}
 	completeResp, err := service.CompleteGoal(context.Background(), &runtimepb.GoalMutationRequest{
-		SessionId: store.Meta().SessionID,
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 		Actor:     "agent",
 	})
 	if err != nil {
@@ -1715,7 +1719,7 @@ func TestServiceShowGoalReturnsPersistedGoalWithoutRuntime(t *testing.T) {
 	sessionID := store.Meta().SessionID
 	service := NewService(nil, nil).WithPersistedSessionResolver(runtimeControlTestSessionPersistence)
 
-	resp, err := service.ShowGoal(context.Background(), &runtimepb.GoalShowRequest{SessionId: sessionID})
+	resp, err := service.ShowGoal(context.Background(), &runtimepb.GoalShowRequest{SessionId: requestfixture.Selector(t, sessionID)})
 	if err != nil {
 		t.Fatalf("ShowGoal: %v", err)
 	}
@@ -1736,7 +1740,7 @@ func TestServiceShowGoalReturnsEmptyResponseForPersistedSessionWithoutGoal(t *te
 	sessionID := store.Meta().SessionID
 	service := NewService(nil, nil).WithPersistedSessionResolver(runtimeControlTestSessionPersistence)
 
-	resp, err := service.ShowGoal(context.Background(), &runtimepb.GoalShowRequest{SessionId: sessionID})
+	resp, err := service.ShowGoal(context.Background(), &runtimepb.GoalShowRequest{SessionId: requestfixture.Selector(t, sessionID)})
 	if err != nil {
 		t.Fatalf("ShowGoal: %v", err)
 	}
@@ -1771,7 +1775,7 @@ func TestServiceShowGoalReturnsPersistedSessionResolutionFailures(t *testing.T) 
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, err := tt.service.ShowGoal(context.Background(), &runtimepb.GoalShowRequest{SessionId: sessionID})
+			resp, err := tt.service.ShowGoal(context.Background(), &runtimepb.GoalShowRequest{SessionId: requestfixture.Selector(t, sessionID)})
 			if err == nil {
 				t.Fatal("ShowGoal error = nil, want failure")
 			}
@@ -1847,7 +1851,7 @@ func TestServiceSetGoalPersistsBeforeReminderBoundary(t *testing.T) {
 		accepted.Goal.Status != runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE {
 		t.Fatalf("SetGoal accepted response = %+v, want active pending goal", accepted)
 	}
-	beforeDrain, err := service.ShowGoal(context.Background(), &runtimepb.GoalShowRequest{SessionId: store.Meta().SessionID})
+	beforeDrain, err := service.ShowGoal(context.Background(), &runtimepb.GoalShowRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
 	if err != nil {
 		t.Fatalf("ShowGoal before drain: %v", err)
 	}
@@ -1867,7 +1871,7 @@ func TestServiceSetGoalPersistsBeforeReminderBoundary(t *testing.T) {
 		t.Fatal("Goal reminder missing after Step boundary")
 	}
 
-	afterDrain, err := service.ShowGoal(context.Background(), &runtimepb.GoalShowRequest{SessionId: store.Meta().SessionID})
+	afterDrain, err := service.ShowGoal(context.Background(), &runtimepb.GoalShowRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
 	if err != nil {
 		t.Fatalf("ShowGoal after drain: %v", err)
 	}
@@ -1908,7 +1912,7 @@ func TestServiceGoalStatusAndClearPersistBeforeReminderBoundary(t *testing.T) {
 			before := runtimeControlGoalDeveloperMessages(t, store)
 			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 			defer cancel()
-			request := &runtimepb.GoalMutationRequest{SessionId: store.Meta().SessionID, Actor: "user"}
+			request := &runtimepb.GoalMutationRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID), Actor: "user"}
 			var response *runtimepb.GoalMutationSuccess
 			var err error
 			var want runtimepb.GoalStatus
@@ -2002,7 +2006,7 @@ func TestServiceExactAgentGoalPersistsAndTransitionsWithinSameStep(t *testing.T)
 	if err := protoapi.Validate(response); err != nil {
 		t.Fatalf("exact-agent SetGoal returned invalid persisted identity: %v", err)
 	}
-	shown, err := service.ShowGoal(t.Context(), &runtimepb.GoalShowRequest{SessionId: store.Meta().SessionID})
+	shown, err := service.ShowGoal(t.Context(), &runtimepb.GoalShowRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2010,7 +2014,7 @@ func TestServiceExactAgentGoalPersistsAndTransitionsWithinSameStep(t *testing.T)
 		t.Fatalf("set response = %+v, persisted = %+v", response, shown.Goal)
 	}
 	complete, err := service.CompleteGoal(t.Context(), &runtimepb.GoalMutationRequest{
-		SessionId: store.Meta().SessionID, Actor: "agent", RunId: &active.RunID, StepId: &active.StepID,
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID), Actor: "agent", RunId: &active.RunID, StepId: &active.StepID,
 	})
 	if err != nil {
 		t.Fatalf("complete same-step goal: %v", err)
@@ -2041,14 +2045,14 @@ func TestServiceExactAgentGoalPersistsAndTransitionsWithinSameStep(t *testing.T)
 		t.Fatalf("replacement goal = %+v, prior = %+v", replacement, response)
 	}
 	for _, stale := range []*runtimepb.GoalMutationRequest{
-		{SessionId: store.Meta().SessionID, Actor: "agent", RunId: textutil.OptionalExactString("ef3970ae-98f5-4939-bd4b-549151b4af63"), StepId: &active.StepID},
-		{SessionId: store.Meta().SessionID, Actor: "agent", RunId: &active.RunID, StepId: textutil.OptionalExactString("2b424eef-6003-4c99-a2ae-7315e1508c39")},
+		{SessionId: requestfixture.Selector(t, store.Meta().SessionID), Actor: "agent", RunId: textutil.OptionalExactString("ef3970ae-98f5-4939-bd4b-549151b4af63"), StepId: &active.StepID},
+		{SessionId: requestfixture.Selector(t, store.Meta().SessionID), Actor: "agent", RunId: &active.RunID, StepId: textutil.OptionalExactString("2b424eef-6003-4c99-a2ae-7315e1508c39")},
 	} {
 		if _, err := service.CompleteGoal(t.Context(), stale); !errors.Is(err, runtime.ErrAgentGoalStepInactive) {
 			t.Fatalf("stale exact Goal mutation = %v, want inactive Step", err)
 		}
 	}
-	shown, err = service.ShowGoal(t.Context(), &runtimepb.GoalShowRequest{SessionId: store.Meta().SessionID})
+	shown, err = service.ShowGoal(t.Context(), &runtimepb.GoalShowRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2073,7 +2077,7 @@ func TestServiceExactAgentGoalPersistsAndTransitionsWithinSameStep(t *testing.T)
 		t.Fatalf("goal notices after boundary = %d, want set, complete, set", len(messages))
 	}
 	if _, err := service.CompleteGoal(t.Context(), &runtimepb.GoalMutationRequest{
-		SessionId: store.Meta().SessionID, Actor: "agent", RunId: &active.RunID, StepId: &active.StepID,
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID), Actor: "agent", RunId: &active.RunID, StepId: &active.StepID,
 	}); !errors.Is(err, runtime.ErrAgentGoalStepInactive) {
 		t.Fatalf("retired exact Goal mutation = %v, want inactive Step", err)
 	}
@@ -2116,7 +2120,7 @@ func TestServiceCommittedGoalStartsLoopAfterCallerDisconnects(t *testing.T) {
 			},
 			mutate: func(ctx context.Context, service *Service, sessionID string) error {
 				_, err := service.ResumeGoal(ctx, &runtimepb.GoalMutationRequest{
-					SessionId: sessionID,
+					SessionId: requestfixture.Selector(t, sessionID),
 					Actor:     string(session.GoalActorUser),
 				})
 				return err
@@ -2167,7 +2171,7 @@ func TestServiceCommittedGoalStartsLoopAfterCallerDisconnects(t *testing.T) {
 				t.Fatal("Goal mutation waited for the blocked provider")
 			}
 			cancel()
-			response, showErr := service.ShowGoal(t.Context(), &runtimepb.GoalShowRequest{SessionId: store.Meta().SessionID})
+			response, showErr := service.ShowGoal(t.Context(), &runtimepb.GoalShowRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
 			if showErr != nil {
 				t.Fatalf("ShowGoal after caller cancellation: %v", showErr)
 			}
@@ -2334,7 +2338,7 @@ func TestServiceWorkflowAgentStepGoalCompleteDoesNotBypassStepQueue(t *testing.T
 	}
 
 	_, err := service.CompleteGoal(context.Background(), &runtimepb.GoalMutationRequest{
-		SessionId: sessionID,
+		SessionId: requestfixture.Selector(t, sessionID),
 		Actor:     string(session.GoalActorAgent),
 		StepId:    textutil.OptionalExactString("step-from-shell"),
 	})
@@ -2356,20 +2360,20 @@ func TestServiceWorkflowRuntimeAllowsGoalStatusTransitions(t *testing.T) {
 	if _, err := runtimeControlSetGoal(context.Background(), service, sessionID, "workflow goal", "user", nil, nil); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
-	if _, err := service.PauseGoal(context.Background(), &runtimepb.GoalMutationRequest{SessionId: sessionID, Actor: "user"}); err != nil {
+	if _, err := service.PauseGoal(context.Background(), &runtimepb.GoalMutationRequest{SessionId: requestfixture.Selector(t, sessionID), Actor: "user"}); err != nil {
 		t.Fatalf("PauseGoal: %v", err)
 	}
 	if goal := engine.Goal(); goal == nil || goal.Status != session.GoalStatusPaused {
 		t.Fatalf("goal after pause = %+v, want paused", goal)
 	}
 	engine.SetQuestionsEnabled(false)
-	if _, err := service.ResumeGoal(context.Background(), &runtimepb.GoalMutationRequest{SessionId: sessionID, Actor: "user"}); err != nil {
+	if _, err := service.ResumeGoal(context.Background(), &runtimepb.GoalMutationRequest{SessionId: requestfixture.Selector(t, sessionID), Actor: "user"}); err != nil {
 		t.Fatalf("ResumeGoal: %v", err)
 	}
 	if goal := engine.Goal(); goal == nil || goal.Status != session.GoalStatusActive {
 		t.Fatalf("goal after resume = %+v, want active", goal)
 	}
-	if _, err := service.CompleteGoal(context.Background(), &runtimepb.GoalMutationRequest{SessionId: sessionID, Actor: "user"}); err != nil {
+	if _, err := service.CompleteGoal(context.Background(), &runtimepb.GoalMutationRequest{SessionId: requestfixture.Selector(t, sessionID), Actor: "user"}); err != nil {
 		t.Fatalf("CompleteGoal: %v", err)
 	}
 	if goal := engine.Goal(); goal == nil || goal.Status != session.GoalStatusComplete {
@@ -2380,7 +2384,7 @@ func TestServiceWorkflowRuntimeAllowsGoalStatusTransitions(t *testing.T) {
 func TestServiceDurableWorkflowSessionAllowsGoalControl(t *testing.T) {
 	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	service = service.WithWorkflowTaskSessionResolver(staticRuntimeControlWorkflowTaskResolver{workflow: true})
-	if _, err := service.ShowGoal(context.Background(), &runtimepb.GoalShowRequest{SessionId: store.Meta().SessionID}); err != nil {
+	if _, err := service.ShowGoal(context.Background(), &runtimepb.GoalShowRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)}); err != nil {
 		t.Fatalf("ShowGoal for workflow task session = %v, want allowed", err)
 	}
 }
@@ -2432,7 +2436,7 @@ func TestServiceResumeGoalPreflightFailureDoesNotMutateOrEmit(t *testing.T) {
 		t.Fatalf("pause goal: %v", err)
 	}
 	_, err := service.ResumeGoal(context.Background(), &runtimepb.GoalMutationRequest{
-		SessionId: store.Meta().SessionID,
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 		Actor:     "user",
 	})
 	if !errors.Is(err, runtime.ErrGoalRequiresAskQuestion) {
@@ -2464,14 +2468,14 @@ func TestServiceCompleteGoalAlreadyCompleteDoesNotDuplicateAudit(t *testing.T) {
 	if _, err := engine.SetGoal(t.Context(), "ship goal mode", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
-	if _, err := service.CompleteGoal(context.Background(), &runtimepb.GoalMutationRequest{SessionId: store.Meta().SessionID, Actor: "agent"}); err != nil {
+	if _, err := service.CompleteGoal(context.Background(), &runtimepb.GoalMutationRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID), Actor: "agent"}); err != nil {
 		t.Fatalf("CompleteGoal first: %v", err)
 	}
-	before, err := service.ShowGoal(t.Context(), &runtimepb.GoalShowRequest{SessionId: store.Meta().SessionID})
+	before, err := service.ShowGoal(t.Context(), &runtimepb.GoalShowRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
 	if err != nil {
 		t.Fatalf("ReadEvents before: %v", err)
 	}
-	after, err := service.CompleteGoal(context.Background(), &runtimepb.GoalMutationRequest{SessionId: store.Meta().SessionID, Actor: "agent"})
+	after, err := service.CompleteGoal(context.Background(), &runtimepb.GoalMutationRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID), Actor: "agent"})
 	if err != nil {
 		t.Fatalf("CompleteGoal second: %v", err)
 	}
@@ -2510,7 +2514,7 @@ func TestServiceResumeActiveRunningGoalIsNoOp(t *testing.T) {
 	resumeDone := make(chan resumeResult, 1)
 	go func() {
 		response, resumeErr := service.ResumeGoal(context.Background(), &runtimepb.GoalMutationRequest{
-			SessionId: store.Meta().SessionID,
+			SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 			Actor:     "user",
 		})
 		resumeDone <- resumeResult{response: response, err: resumeErr}
@@ -2562,7 +2566,7 @@ func TestServiceResumeOwnerlessActiveGoalRestartsLoopWithReminder(t *testing.T) 
 		t.Fatalf("SetGoal: %v", err)
 	}
 	resp, err := service.ResumeGoal(context.Background(), &runtimepb.GoalMutationRequest{
-		SessionId: store.Meta().SessionID,
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 		Actor:     "user",
 	})
 	if err != nil {
@@ -2618,7 +2622,7 @@ func TestServiceResumeGoalDuringInterruptSchedulesRestartWithReminder(t *testing
 	resumeDone := make(chan resumeResult, 1)
 	go func() {
 		response, resumeErr := service.ResumeGoal(context.Background(), &runtimepb.GoalMutationRequest{
-			SessionId: store.Meta().SessionID,
+			SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 			Actor:     "user",
 		})
 		resumeDone <- resumeResult{response: response, err: resumeErr}

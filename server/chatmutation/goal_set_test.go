@@ -8,6 +8,7 @@ import (
 
 	"core/server/promptcommands"
 	"core/server/sessionruntime"
+	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
@@ -49,7 +50,7 @@ func TestServiceSetGoalNewChatDeliversResolvedSessionAndPreservesCapturedInputs(
 	if resolver.request.InitialDraft == nil || *resolver.request.InitialDraft != draft {
 		t.Fatalf("target resolver draft = %v, want %q", resolver.request.InitialDraft, draft)
 	}
-	if got := invoker.request.GetTarget().GetSession().GetSessionId(); got != sessionID.String() {
+	if got := invoker.request.GetTarget().GetSession().GetSessionId().GetSessionId(); got != sessionID.String() {
 		t.Fatalf("resolved invocation Session = %q, want %q", got, sessionID)
 	}
 	if invoker.request.GetExecutionPolicy() != runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE {
@@ -168,7 +169,7 @@ func newExactGoalSetRequest(
 	return &runtimepb.GoalSetRequest{
 		Target: &chatpb.ChatTarget{
 			Target: &chatpb.ChatTarget_Session{
-				Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
+				Session: &chatpb.ExistingSessionRequestTarget{SessionId: protoapi.SessionSelectorToProto(sessionID)},
 			},
 		},
 		Objective:       "ship the feature",

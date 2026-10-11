@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"errors"
 	"path/filepath"
@@ -62,7 +63,7 @@ func TestChatTargetSemanticUnion(t *testing.T) {
 		{
 			name: "existing Session",
 			target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
-				Session: &chatpb.ExistingSessionTarget{SessionId: sessionID},
+				Session: &chatpb.ExistingSessionRequestTarget{SessionId: requestfixture.Selector(t, sessionID)},
 			}},
 		},
 		{
@@ -115,7 +116,7 @@ func TestChatResultClassification(t *testing.T) {
 				Error: &chatpb.ChatOperationError{
 					Code: "session_not_found",
 					Detail: &chatpb.ChatOperationError_SessionNotFound{
-						SessionNotFound: &chatsettingspb.SessionNotFoundDetails{SessionId: sessionID},
+						SessionNotFound: &chatsettingspb.SessionNotFoundDetails{SessionId: &sessionID},
 					},
 				},
 			}},
@@ -159,7 +160,7 @@ func TestBinaryChatFailureMapsAgentPreparationCategories(t *testing.T) {
 	sessionID := runtimeids.NewSessionID()
 	request := &chatpb.SteerRequest{
 		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
-			Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
+			Session: &chatpb.ExistingSessionRequestTarget{SessionId: requestfixture.Selector(t, sessionID.String())},
 		}},
 	}
 	for _, test := range []struct {

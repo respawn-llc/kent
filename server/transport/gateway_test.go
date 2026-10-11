@@ -229,20 +229,20 @@ func TestGatewayAuthorizesChatTargetModes(t *testing.T) {
 		{
 			name: "projectless existing Session outside startup Project",
 			target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
-				Session: &chatpb.ExistingSessionTarget{SessionId: fixture.foreignSessionID},
+				Session: &chatpb.ExistingSessionRequestTarget{SessionId: requestfixture.Selector(t, fixture.foreignSessionID)},
 			}},
 		},
 		{
 			name: "attached Project existing Session",
 			target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
-				Session: &chatpb.ExistingSessionTarget{SessionId: fixture.ownSessionID},
+				Session: &chatpb.ExistingSessionRequestTarget{SessionId: requestfixture.Selector(t, fixture.ownSessionID)},
 			}},
 			attached: true,
 		},
 		{
 			name: "attached Project rejects foreign Session",
 			target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
-				Session: &chatpb.ExistingSessionTarget{SessionId: fixture.foreignSessionID},
+				Session: &chatpb.ExistingSessionRequestTarget{SessionId: requestfixture.Selector(t, fixture.foreignSessionID)},
 			}},
 			attached: true,
 			wantCode: "session_not_found",
@@ -353,7 +353,7 @@ func TestGatewayDisconnectStopsDeliveryWithoutCancelingChatOperation(t *testing.
 	}
 	payload, err := protoapi.Marshal(&chatpb.SteerRequest{
 		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
-			Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
+			Session: &chatpb.ExistingSessionRequestTarget{SessionId: requestfixture.Selector(t, sessionID.String())},
 		}},
 		Activation: &chatpb.Activation{
 			Input: &chatpb.Activation_Text{Text: "continue"},
@@ -1518,13 +1518,13 @@ func assertForeignGoalAccessRejected(t *testing.T, conn *websocket.Conn, session
 		params proto.Message
 		result proto.Message
 	}{
-		{method: "Show", params: &runtimepb.GoalShowRequest{SessionId: sessionID}, result: &runtimepb.GoalShowResult{}},
+		{method: "Show", params: &runtimepb.GoalShowRequest{SessionId: requestfixture.Selector(t, sessionID)}, result: &runtimepb.GoalShowResult{}},
 		{
 			method: "Set",
 			params: &runtimepb.GoalSetRequest{
 				Target: &chatpb.ChatTarget{
 					Target: &chatpb.ChatTarget_Session{
-						Session: &chatpb.ExistingSessionTarget{SessionId: sessionID},
+						Session: &chatpb.ExistingSessionRequestTarget{SessionId: requestfixture.Selector(t, sessionID)},
 					},
 				},
 				Objective:       "ship",
@@ -1533,10 +1533,10 @@ func assertForeignGoalAccessRejected(t *testing.T, conn *websocket.Conn, session
 			},
 			result: &runtimepb.GoalSetResult{},
 		},
-		{method: "Pause", params: &runtimepb.GoalMutationRequest{SessionId: sessionID, Actor: "user"}, result: &runtimepb.GoalPauseResult{}},
-		{method: "Resume", params: &runtimepb.GoalMutationRequest{SessionId: sessionID, Actor: "user"}, result: &runtimepb.GoalResumeResult{}},
-		{method: "Complete", params: &runtimepb.GoalMutationRequest{SessionId: sessionID, Actor: "user"}, result: &runtimepb.GoalCompleteResult{}},
-		{method: "Clear", params: &runtimepb.GoalClearRequest{SessionId: sessionID, Actor: "user"}, result: &runtimepb.GoalClearResult{}},
+		{method: "Pause", params: &runtimepb.GoalMutationRequest{SessionId: requestfixture.Selector(t, sessionID), Actor: "user"}, result: &runtimepb.GoalPauseResult{}},
+		{method: "Resume", params: &runtimepb.GoalMutationRequest{SessionId: requestfixture.Selector(t, sessionID), Actor: "user"}, result: &runtimepb.GoalResumeResult{}},
+		{method: "Complete", params: &runtimepb.GoalMutationRequest{SessionId: requestfixture.Selector(t, sessionID), Actor: "user"}, result: &runtimepb.GoalCompleteResult{}},
+		{method: "Clear", params: &runtimepb.GoalClearRequest{SessionId: requestfixture.Selector(t, sessionID), Actor: "user"}, result: &runtimepb.GoalClearResult{}},
 	} {
 		method := runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("GoalService").Methods().ByName(tc.method)
 		callGatewayDescriptor(t, conn, "foreign-goal-"+string(tc.method), method, tc.params, tc.result)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"core/server/launch"
+	"core/server/metadata"
 	"core/server/promptcommands"
 	"core/server/runtimecontrol"
 	"core/server/session"
@@ -41,6 +42,7 @@ type ResolvedTarget struct {
 }
 
 type TargetResolver struct {
+	metadata          *metadata.Store
 	persistedSessions session.PersistedSessionResolver
 	sessionLaunch     SessionLaunchServiceResolver
 	sourceLaunch      SessionRuntimePlannerResolver
@@ -52,8 +54,10 @@ func NewTargetResolver(
 	sessionLaunch SessionLaunchServiceResolver,
 	sourceLaunch SessionRuntimePlannerResolver,
 	activity runtimecontrol.RuntimeActivityResolver,
+	store *metadata.Store,
 ) *TargetResolver {
 	return &TargetResolver{
+		metadata:          store,
 		persistedSessions: persistedSessions,
 		sessionLaunch:     sessionLaunch,
 		sourceLaunch:      sourceLaunch,
@@ -110,7 +114,7 @@ func (r *TargetResolver) Resolve(
 		return ResolvedTarget{}, errors.New("Chat target resolver is required")
 	}
 	if sessionTarget := request.Target.GetSession(); sessionTarget != nil {
-		sessionID, err := runtimeids.ParseSessionID(sessionTarget.SessionId)
+		sessionID, err := r.metadata.ResolveSessionTarget(ctx, sessionTarget.SessionId)
 		if err != nil {
 			return ResolvedTarget{}, err
 		}

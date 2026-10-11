@@ -12,6 +12,8 @@ import (
 	"core/server/session"
 	"core/server/sessionlaunch"
 	"core/shared/config"
+	"core/shared/protoapi"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
@@ -19,6 +21,22 @@ import (
 
 type placementActivity struct {
 	state runtimepb.ActivityState
+}
+
+func TestChatTargetSelectorsResolveSameSession(t *testing.T) {
+	_, store, source, _ := newPlacementFixture(t)
+	resolver := NewTargetResolver(store, nil, nil, nil, store)
+	identity := source.Identity()
+	for _, selector := range []runtimeids.SessionSelector{identity.ID, *identity.ShortID} {
+		resolved, err := resolver.Resolve(t.Context(), TargetResolutionRequest{Target: &chatpb.ChatTarget{
+			Target: &chatpb.ChatTarget_Session{Session: &chatpb.ExistingSessionRequestTarget{
+				SessionId: protoapi.SessionSelectorToProto(selector),
+			}},
+		}})
+		if err != nil || resolved.SessionID != identity.ID || resolved.Created {
+			t.Fatalf("target %s: %+v, %v", selector, resolved, err)
+		}
+	}
 }
 
 func (a placementActivity) RuntimeReadModelFeedSnapshot(context.Context, string) (*runtimepb.ReadModelUpdate, error) {
@@ -29,7 +47,7 @@ func TestFreshPlacementRetainsIdleFreshSession(t *testing.T) {
 	_, store, source, planner := newPlacementFixture(t)
 	resolver := NewTargetResolver(store, nil, func(context.Context, runtimeids.SessionID) (PersistedSessionPlanner, error) {
 		return planner, nil
-	}, placementActivity{state: runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE})
+	}, placementActivity{state: runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE}, nil)
 	id, err := runtimeids.ParseSessionID(source.Meta().SessionID)
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +83,7 @@ func TestFreshPlacementCreatesDurablePreviousSessionChild(t *testing.T) {
 			}
 			resolver := NewTargetResolver(store, nil, func(context.Context, runtimeids.SessionID) (PersistedSessionPlanner, error) {
 				return planner, nil
-			}, placementActivity{state: state})
+			}, placementActivity{state: state}, nil)
 			id, err := runtimeids.ParseSessionID(source.Meta().SessionID)
 			if err != nil {
 				t.Fatal(err)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"core/shared/clientui"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
@@ -153,7 +154,7 @@ func (c *reconnectRetryRuntimeControlClient) ShowGoal(context.Context, *runtimep
 
 func (c *reconnectRetryRuntimeControlClient) SetGoal(_ context.Context, request *runtimepb.GoalSetRequest) (*runtimepb.GoalSetSuccess, error) {
 	return &runtimepb.GoalSetSuccess{
-		Session: request.GetTarget().GetSession(),
+		Session: &chatpb.ExistingSessionTarget{SessionId: request.GetTarget().GetSession().GetSessionId().GetSessionId()},
 		Outcome: &runtimepb.GoalSetSuccess_Mutation{Mutation: c.setGoalResp},
 	}, nil
 }
