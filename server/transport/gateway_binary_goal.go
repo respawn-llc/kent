@@ -58,7 +58,7 @@ func binaryGoalSetFailure(
 			if lookupErr != nil {
 				return protoapi.GoalSetErrorFromError(lookupErr, sessionID)
 			}
-			err = &serverapi.SessionTargetError{Identity: identity, Cause: err}
+			err = serverapi.WithSessionTarget(serverapi.ProjectedSessionTarget{Identity: identity}, err)
 		}
 	}
 	return protoapi.GoalSetErrorFromError(err, sessionID)

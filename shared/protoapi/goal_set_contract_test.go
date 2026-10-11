@@ -1,6 +1,8 @@
 package protoapi
 
 import (
+	"errors"
+	"reflect"
 	"testing"
 
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
@@ -79,5 +81,59 @@ func TestGoalSetErrorFromErrorIncludesRuntimeUnavailableSession(t *testing.T) {
 	detail := got.GetRuntimeUnavailable()
 	if detail == nil || detail.GetSessionId() != sessionID.String() {
 		t.Fatalf("runtime-unavailable details = %+v, want Session %q", detail, sessionID)
+	}
+}
+
+func TestGoalSetCapturedTargetPreservesFailureIdentity(t *testing.T) {
+	id := runtimeids.NewSessionID()
+	shortID, err := runtimeids.NewSessionShortID(73)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		target  serverapi.SessionTarget
+		id      *runtimeids.SessionID
+		shortID *runtimeids.SessionShortID
+	}{
+		{target: serverapi.UnresolvedSessionTarget{}},
+		{target: serverapi.CanonicalSessionTarget{ID: id}, id: &id},
+		{target: serverapi.ProjectedSessionTarget{Identity: runtimeids.SessionIdentity{ID: id}}, id: &id},
+		{target: serverapi.ProjectedSessionTarget{Identity: runtimeids.SessionIdentity{ID: id, ShortID: &shortID}}, id: &id, shortID: &shortID},
+	} {
+		cause := serverapi.ErrRuntimeUnavailable
+		captured := serverapi.WithSessionTarget(test.target, cause)
+		if !errors.Is(captured, cause) {
+			t.Fatal("capturing target replaced original cause")
+		}
+		encoded := GoalSetErrorFromError(captured, nil)
+		details := encoded.GetRuntimeUnavailable()
+		if details == nil {
+			t.Fatalf("original failure classification changed: %v", encoded)
+		}
+		if test.id == nil {
+			if details.SessionId != nil {
+				t.Fatal("unknown target acquired UUID")
+			}
+		} else if details.GetSessionId() != test.id.String() {
+			t.Fatalf("lost captured UUID: %v", details)
+		}
+		if test.shortID == nil {
+			if details.ShortId != nil {
+				t.Fatal("target acquired unrecorded number")
+			}
+		} else if details.ShortId == nil || *details.ShortId != test.shortID.Int64() {
+			t.Fatalf("lost captured number: %v", details)
+		}
+		if !errors.Is(RuntimeUnavailableFromProto(details), cause) {
+			t.Fatal("conversion replaced original failure category")
+		}
+		var roundTrip *serverapi.SessionTargetError
+		if !errors.As(InternalFailureFromProto(InternalFailureToProto(captured)), &roundTrip) {
+			t.Fatal("internal failure conversion lost target context")
+		}
+		original := captured.(*serverapi.SessionTargetError)
+		if !reflect.DeepEqual(roundTrip.Target, original.Target) {
+			t.Fatalf("failure conversion changed captured facts: %v -> %v", original.Target, roundTrip.Target)
+		}
 	}
 }

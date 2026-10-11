@@ -43,7 +43,7 @@ func TestLiveControlErrorsRetainNumericTargetIdentityOverGateway(t *testing.T) {
 			var failure *serverapi.SessionTargetError
 			err := operation()
 			if !errors.Is(err, serverapi.ErrRuntimeNoActiveRun) || !errors.As(err, &failure) ||
-				failure.Identity.ID != identity.ID || failure.Identity.ShortID == nil || *failure.Identity.ShortID != *identity.ShortID {
+				failure.Projection() == nil || failure.Projection().ID != identity.ID || failure.Projection().ShortID == nil || *failure.Projection().ShortID != *identity.ShortID {
 				t.Fatalf("live target %s failure = %v, identity = %v", selector, err, failure)
 			}
 		}

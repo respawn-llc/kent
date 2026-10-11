@@ -351,8 +351,8 @@ func TestRunWaitJSONRetainsResolvedNumericIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	envelope, code := projectRunWaitJSON("00123", nil, &serverapi.SessionTargetError{
-		Identity: runtimeids.SessionIdentity{ID: id, ShortID: &short},
-		Cause:    serverapi.ErrRuntimeNoActiveRun,
+		Target: serverapi.ProjectedSessionTarget{Identity: runtimeids.SessionIdentity{ID: id, ShortID: &short}},
+		Cause:  serverapi.ErrRuntimeNoActiveRun,
 	}, context.Background())
 	target, ok := envelope.Target.(observationJSONRunTarget)
 	if code != 1 || !ok || target.SessionID == nil || *target.SessionID != id.String() {

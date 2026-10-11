@@ -563,8 +563,7 @@ func binaryWorkspaceNotRegisteredDetails(g *Gateway, state *connectionState, err
 }
 
 func binaryInternalFailure(err error) *sharedpb.InternalFailureDetails {
-	cause := err.Error()
-	return &sharedpb.InternalFailureDetails{Cause: &cause}
+	return protoapi.InternalFailureToProto(err)
 }
 
 func (g *Gateway) resolveBinaryRequest(

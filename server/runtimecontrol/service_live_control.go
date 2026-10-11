@@ -27,7 +27,7 @@ var _ servicecontract.RuntimeLiveControlService = (*Service)(nil)
 
 func retainLiveTargetFailure(identity runtimeids.SessionIdentity, err *error) {
 	if *err != nil {
-		*err = &serverapi.SessionTargetError{Identity: identity, Cause: *err}
+		*err = serverapi.WithSessionTarget(serverapi.ProjectedSessionTarget{Identity: identity}, *err)
 	}
 }
 

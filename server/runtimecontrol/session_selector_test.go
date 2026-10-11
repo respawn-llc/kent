@@ -108,8 +108,8 @@ func TestLiveWaitFailureRetainsResolvedSessionIdentity(t *testing.T) {
 		_, err := service.LiveWait(t.Context(), &runtimepb.LiveWaitRequest{SessionId: protoapi.SessionSelectorToProto(selector)})
 		var failure *serverapi.SessionTargetError
 		if !errors.Is(err, serverapi.ErrRuntimeUnavailable) || !errors.As(err, &failure) ||
-			failure.Identity.ID != sess.Identity().ID || failure.Identity.ShortID == nil ||
-			*failure.Identity.ShortID != *sess.Identity().ShortID {
+			failure.Projection() == nil || failure.Projection().ID != sess.Identity().ID || failure.Projection().ShortID == nil ||
+			*failure.Projection().ShortID != *sess.Identity().ShortID {
 			t.Fatalf("resolved failure identity = %v, %v", failure, err)
 		}
 	}

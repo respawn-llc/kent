@@ -7,14 +7,59 @@ import (
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+
+	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+func SessionTargetErrorContext(err error) *sharedpb.SessionTargetContext {
+	var failure *serverapi.SessionTargetError
+	if !errors.As(err, &failure) {
+		return nil
+	}
+	switch target := failure.Target.(type) {
+	case serverapi.UnresolvedSessionTarget:
+		return &sharedpb.SessionTargetContext{Stage: &sharedpb.SessionTargetContext_Unresolved{Unresolved: &emptypb.Empty{}}}
+	case serverapi.CanonicalSessionTarget:
+		return &sharedpb.SessionTargetContext{Stage: &sharedpb.SessionTargetContext_CanonicalSessionId{CanonicalSessionId: target.ID.String()}}
+	case serverapi.ProjectedSessionTarget:
+		return &sharedpb.SessionTargetContext{Stage: &sharedpb.SessionTargetContext_Projected{Projected: &sharedpb.SessionIdentity{
+			SessionId: target.Identity.ID.String(), ShortId: SessionShortIDToProto(target.Identity.ShortID),
+		}}}
+	default:
+		panic("Session failure requires target context")
+	}
+}
+
+func SessionTargetContextErrorFromProto(value *sharedpb.SessionTargetContext, cause error) error {
+	if err := Validate(value); err != nil {
+		return err
+	}
+	switch stage := value.Stage.(type) {
+	case *sharedpb.SessionTargetContext_Unresolved:
+		return serverapi.WithSessionTarget(serverapi.UnresolvedSessionTarget{}, cause)
+	case *sharedpb.SessionTargetContext_CanonicalSessionId:
+		id, err := runtimeids.ParseSessionID(stage.CanonicalSessionId)
+		if err != nil {
+			return err
+		}
+		return serverapi.WithSessionTarget(serverapi.CanonicalSessionTarget{ID: id}, cause)
+	case *sharedpb.SessionTargetContext_Projected:
+		return SessionTargetErrorFromProto(stage.Projected, cause)
+	default:
+		return errors.New("Session target context is required")
+	}
+}
 
 func SessionTargetErrorIdentity(err error) (*sharedpb.SessionIdentity, error) {
 	var target *serverapi.SessionTargetError
 	if !errors.As(err, &target) {
 		return nil, errors.New("Session operation failure omitted its resolved identity")
 	}
-	return &sharedpb.SessionIdentity{SessionId: target.Identity.ID.String(), ShortId: SessionShortIDToProto(target.Identity.ShortID)}, nil
+	identity := target.Projection()
+	if identity == nil {
+		return nil, errors.New("Session operation failure omitted its display projection")
+	}
+	return &sharedpb.SessionIdentity{SessionId: identity.ID.String(), ShortId: SessionShortIDToProto(identity.ShortID)}, nil
 }
 
 func SessionTargetErrorFromProto(value *sharedpb.SessionIdentity, cause error) error {
@@ -25,7 +70,7 @@ func SessionTargetErrorFromProto(value *sharedpb.SessionIdentity, cause error) e
 	if err != nil {
 		return err
 	}
-	return &serverapi.SessionTargetError{Identity: identity, Cause: cause}
+	return serverapi.WithSessionTarget(serverapi.ProjectedSessionTarget{Identity: identity}, cause)
 }
 
 func SessionIdentityFromProto(id string, short *int64) (runtimeids.SessionIdentity, error) {
