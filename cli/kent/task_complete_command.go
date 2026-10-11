@@ -135,8 +135,12 @@ func (a taskCompleteArgs) request(
 	agentContext bool,
 ) (*taskpb.CompleteRequest, error) {
 	req := &taskpb.CompleteRequest{Commentary: &a.Commentary}
-	if value := strings.TrimSpace(a.SessionID); value != "" {
-		req.SessionId = &value
+	if a.SessionID != "" {
+		selector, err := runtimeids.ParseSessionSelector(a.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		req.SessionId = protoapi.SessionSelectorToProto(selector)
 	}
 	if value := strings.TrimSpace(a.TransitionID); value != "" {
 		req.TransitionId = &value

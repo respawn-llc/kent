@@ -351,7 +351,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		return nil, fmt.Errorf("workflow bundle: Task Sessions: %w", err)
 	}
 	projectService.WithWorkflowExecution(workflowTaskMutations, workflowController, workflowStore)
-	workflowService, err := workflowsvc.New(workflowStore, workflowsvc.ReadModels{
+	workflowService, err := workflowsvc.New(workflowStore, metadataStore, workflowsvc.ReadModels{
 		Definitions:      workflowDefinitions,
 		Board:            workflowBoard,
 		TaskList:         workflowTaskList,

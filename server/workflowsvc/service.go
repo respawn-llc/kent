@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"core/server/metadata"
 	"core/server/sessionruntime"
 	"core/server/workflow"
 	"core/server/workflowexecution"
@@ -32,6 +33,7 @@ import (
 )
 
 type Service struct {
+	metadata             *metadata.Store
 	store                *workflowstore.Store
 	readModels           ReadModels
 	roleResolver         workflow.RoleResolver
@@ -206,7 +208,7 @@ func WithWorkflowTaskSetupEventPublisher(publisher workflowTaskSetupEventPublish
 	}
 }
 
-func New(store *workflowstore.Store, readModels ReadModels, roleResolver workflow.RoleResolver, taskMutations *workflowexecution.TaskMutationCoordinator, opts ...Option) (*Service, error) {
+func New(store *workflowstore.Store, metadataStore *metadata.Store, readModels ReadModels, roleResolver workflow.RoleResolver, taskMutations *workflowexecution.TaskMutationCoordinator, opts ...Option) (*Service, error) {
 	if store == nil {
 		return nil, errors.New("workflow store is required")
 	}
@@ -218,7 +220,7 @@ func New(store *workflowstore.Store, readModels ReadModels, roleResolver workflo
 	}
 	events := newWorkflowProjectEventBroker()
 	store.SetWorkflowEventPublisher(events)
-	service := &Service{store: store, readModels: readModels, roleResolver: roleResolver, events: events, taskMutations: taskMutations}
+	service := &Service{store: store, metadata: metadataStore, readModels: readModels, roleResolver: roleResolver, events: events, taskMutations: taskMutations}
 	for _, opt := range opts {
 		opt(service)
 	}
@@ -1510,16 +1512,16 @@ func (s *Service) InterruptWorkflowTask(ctx context.Context, req *taskpb.Interru
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	if err := s.authorizeWorkflowTaskMutation(ctx, workflow.TaskID(req.TaskId), req.InvokingSessionId); err != nil {
-		return nil, err
-	}
 	selector := workflowexecution.InterruptSelector{TaskID: workflow.TaskID(req.TaskId)}
 	if req.SessionId != nil {
-		sessionID, err := runtimeids.ParseSessionID(*req.SessionId)
+		sessionID, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
 		if err != nil {
 			return nil, err
 		}
 		selector.SessionID = &sessionID
+	}
+	if err := s.authorizeWorkflowTaskMutation(ctx, workflow.TaskID(req.TaskId), req.InvokingSessionId); err != nil {
+		return nil, err
 	}
 	if s.currentNodeExecution == nil {
 		return nil, workflowexecution.ErrNoInterruptibleExecution
@@ -2138,7 +2140,7 @@ func (s *Service) resolveForcedCompletionMove(
 	if req.TaskId != nil {
 		taskID = workflow.TaskID(*req.TaskId)
 	} else {
-		sessionID, err := runtimeids.ParseSessionID(req.GetSessionId())
+		sessionID, err := s.metadata.ResolveSessionTarget(ctx, req.GetSessionId())
 		if err != nil {
 			return "", nil, nil, err
 		}
