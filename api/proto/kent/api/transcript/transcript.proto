@@ -264,7 +264,7 @@ enum ViewedImageKind {
 }
 
 message ToolRow {
-  optional int64 answered_by_session_short_id = 12 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
+  optional int64 answered_by_session_short_id = 13 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   optional string step_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true

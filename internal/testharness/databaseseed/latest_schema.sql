@@ -87,9 +87,9 @@ CREATE TABLE "sessions" (
         CHECK (completed_compaction_count IS NULL OR completed_compaction_count >= 0),
     manual_compact_eligible INTEGER
         CHECK (manual_compact_eligible IS NULL OR manual_compact_eligible IN (0, 1)),
-    protected_input_draft TEXT,
-    short_id INTEGER CHECK (short_id > 0 AND short_id <= 9007199254740991)
-);
+    protected_input_draft TEXT
+, short_id INTEGER
+    CHECK (short_id > 0 AND short_id <= 9007199254740991));
 
 CREATE TABLE "task_active_fanout_branches" (
     task_id TEXT NOT NULL REFERENCES task_active_fanouts(task_id) ON DELETE CASCADE,

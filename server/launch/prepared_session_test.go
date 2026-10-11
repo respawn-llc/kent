@@ -88,16 +88,16 @@ func TestHeadlessNameUsesCommittedNumberAndPreservesAuthoredName(t *testing.T) {
 	if err := EnsureSubagentSessionName(store); err != nil {
 		t.Fatal(err)
 	}
-	if store.Meta().Name != store.Identity().String()+" "+SubagentSessionSuffix || store.Identity().ShortID == nil {
-		t.Fatalf("generated name did not use committed number: %q", store.Meta().Name)
+	if store.Meta().Name == nil || *store.Meta().Name != store.Identity().String()+" "+SubagentSessionSuffix || store.Identity().ShortID == nil {
+		t.Fatalf("generated name did not use committed number: %v", store.Meta().Name)
 	}
-	if err := store.SetName("authored name"); err != nil {
+	if err := store.SetName(textutil.Value("authored name")); err != nil {
 		t.Fatal(err)
 	}
 	if err := EnsureSubagentSessionName(store); err != nil {
 		t.Fatal(err)
 	}
-	if store.Meta().Name != "authored name" {
+	if store.Meta().Name == nil || *store.Meta().Name != "authored name" {
 		t.Fatal("existing name was replaced")
 	}
 }
