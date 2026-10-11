@@ -1983,7 +1983,7 @@ func TestBackgroundTerminalEventFromPredecessorGenerationRoutesToCurrentRuntime(
 	}
 	successor := openLifecycleRuntime(t, authority, sessionID, "successor", &plan)
 
-	event := runtimewirefixture.BackgroundCompletionEvent("1000", sessionID.String(), t.TempDir())
+	event := runtimewirefixture.BackgroundCompletionEvent(t.Context(), "1000", sessionID.String(), t.TempDir())
 	event.NoticeSuppressed = true
 	route := func(event shelltool.Event, generation runtimeids.ResourceGeneration) {
 		correlation, err := runtimeids.NewExecutionCorrelation(runtimeids.NewExecutionScopeID(), generation)
@@ -2030,7 +2030,7 @@ func TestIdleSessionStartsBackgroundContinuation(t *testing.T) {
 	plan := authorityTestRuntimePlan(t, fixture, &client)
 	attachment := openLifecycleRuntime(t, fixture.authority, sessionID, "owner", &plan)
 
-	event := runtimewirefixture.BackgroundCompletionEvent("1000", sessionID.String(), t.TempDir())
+	event := runtimewirefixture.BackgroundCompletionEvent(t.Context(), "1000", sessionID.String(), t.TempDir())
 	correlation, err := runtimeids.NewExecutionCorrelation(
 		runtimeids.NewExecutionScopeID(),
 		attachment.Resource().Generation(),
@@ -2087,7 +2087,7 @@ func TestBackgroundCompletionAfterFinalStepStartsContinuationAfterExecutionRetir
 		t.Fatal("initial execution did not finish its final Agent Step")
 	}
 
-	event := runtimewirefixture.BackgroundCompletionEvent("1000", sessionID.String(), t.TempDir())
+	event := runtimewirefixture.BackgroundCompletionEvent(t.Context(), "1000", sessionID.String(), t.TempDir())
 	correlation, err := runtimeids.NewExecutionCorrelation(
 		runtimeids.NewExecutionScopeID(),
 		attachment.Resource().Generation(),
@@ -2135,7 +2135,7 @@ func TestCompletedWorkflowSessionDoesNotStartBackgroundContinuation(t *testing.T
 	})
 	attachment := openLifecycleRuntime(t, fixture.authority, sessionID, "owner", &plan)
 
-	event := runtimewirefixture.BackgroundCompletionEvent("1000", sessionID.String(), t.TempDir())
+	event := runtimewirefixture.BackgroundCompletionEvent(t.Context(), "1000", sessionID.String(), t.TempDir())
 	correlation, err := runtimeids.NewExecutionCorrelation(
 		runtimeids.NewExecutionScopeID(),
 		attachment.Resource().Generation(),

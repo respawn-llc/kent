@@ -379,6 +379,13 @@ func TestCompactionDispatchCapturesShellsStartedAndFinishedDuringIdleInterval(t 
 	if err := manager.Kill(remaining.SessionID); err != nil {
 		t.Fatalf("finish shell during idle interval: %v", err)
 	}
+	terminated, err := manager.WriteStdin(t.Context(), shelltool.WriteRequest{
+		SessionID: remaining.SessionID,
+		YieldTime: runtimeTestSynchronizationTimeout,
+	})
+	if err != nil || terminated.Running {
+		t.Fatalf("wait for shell completion during idle interval: result=%+v error=%v", terminated, err)
+	}
 	startedLater, err := manager.Start(t.Context(), shelltool.ExecRequest{
 		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-c", "read line"},
