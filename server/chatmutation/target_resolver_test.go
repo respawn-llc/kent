@@ -3,6 +3,7 @@ package chatmutation
 import (
 	"context"
 	"core/internal/testharness/testsetup"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -16,6 +17,7 @@ import (
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
+	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 )
 
@@ -36,6 +38,21 @@ func TestChatTargetSelectorsResolveSameSession(t *testing.T) {
 		if err != nil || resolved.SessionID != identity.ID || resolved.Created {
 			t.Fatalf("target %s: %+v, %v", selector, resolved, err)
 		}
+	}
+}
+
+func TestChatTargetProjectionFailureRetainsKnownIdentity(t *testing.T) {
+	_, store, source, _ := newPlacementFixture(t)
+	resolver := NewTargetResolver(store, nil, nil, nil, store)
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err := resolver.Resolve(t.Context(), TargetResolutionRequest{Target: &chatpb.ChatTarget{
+		Target: &chatpb.ChatTarget_Session{Session: &chatpb.ExistingSessionRequestTarget{SessionId: protoapi.SessionSelectorToProto(source.Identity().ID)}},
+	}})
+	var failure *serverapi.SessionTargetError
+	if !errors.As(err, &failure) || failure.SessionID() == nil || *failure.SessionID() != source.Identity().ID || failure.Projection() != nil {
+		t.Fatalf("lost canonical target on projection failure: %v", err)
 	}
 }
 

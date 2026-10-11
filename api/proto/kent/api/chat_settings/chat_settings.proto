@@ -351,10 +351,7 @@ message NewChatAgentChoice {
 }
 
 message SessionNotFoundDetails {
-  optional string session_id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
+  optional kent.api.shared.SessionTargetContext session_target = 2;
 }
 
 message WorkspaceNotRegisteredDetails {}
