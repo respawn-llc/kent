@@ -56,7 +56,7 @@ func registerPromptUnary[Client any, Request interface {
 func promptAnswerBatchFailure(err error) proto.Message {
 	var self *serverapi.SessionSelfTargetError
 	if errors.As(err, &self) {
-		return &sharedpb.SessionSelfTargetDetails{SessionId: self.SessionID.String()}
+		return protoapi.SessionSelfTargetToProto(err, self)
 	}
 	var rejected *serverapi.ParentQuestionAnswerRejectedError
 	if errors.As(err, &rejected) {

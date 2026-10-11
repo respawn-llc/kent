@@ -66,11 +66,3 @@ type SessionSelfTargetError struct {
 }
 
 func (*SessionSelfTargetError) Error() string { return "invoking Session cannot target itself" }
-
-type RuntimeUnavailableError struct {
-	SessionID *runtimeids.SessionID
-	ShortID   *runtimeids.SessionShortID
-}
-
-func (*RuntimeUnavailableError) Error() string { return ErrRuntimeUnavailable.Error() }
-func (*RuntimeUnavailableError) Unwrap() error { return ErrRuntimeUnavailable }

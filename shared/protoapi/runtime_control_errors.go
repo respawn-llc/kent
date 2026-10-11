@@ -9,29 +9,34 @@ import (
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
-	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func RuntimeUnavailableFromProto(details *runtimepb.RuntimeUnavailableDetails) error {
-	result := &serverapi.RuntimeUnavailableError{}
-	shortID, err := SessionShortIDFromProto(details.ShortId)
-	if err != nil {
-		return err
+	if details.SessionTarget == nil {
+		return serverapi.ErrRuntimeUnavailable
 	}
-	result.ShortID = shortID
-	if details.SessionId != nil {
-		id, err := runtimeids.ParseSessionID(*details.SessionId)
-		if err != nil {
-			return err
-		}
-		result.SessionID = &id
-	}
-	return result
+	return SessionTargetContextErrorFromProto(details.SessionTarget, serverapi.ErrRuntimeUnavailable)
 }
 
-func RuntimeCommandNotAcceptedToProto(sessionID string, err *serverapi.RuntimeCommandNotAcceptedError) *runtimepb.RuntimeCommandNotAcceptedDetails {
+func SessionSelfTargetToProto(err error, self *serverapi.SessionSelfTargetError) *sharedpb.SessionSelfTargetDetails {
+	captured := serverapi.WithSessionTarget(serverapi.CanonicalSessionTarget{ID: self.SessionID}, err)
+	return &sharedpb.SessionSelfTargetDetails{SessionTarget: SessionTargetErrorContext(captured)}
+}
+
+func SessionSelfTargetFromProto(details *sharedpb.SessionSelfTargetDetails) error {
+	self := &serverapi.SessionSelfTargetError{}
+	captured := SessionTargetContextErrorFromProto(details.SessionTarget, self)
+	var target *serverapi.SessionTargetError
+	if !errors.As(captured, &target) || target.SessionID() == nil {
+		return errors.New("self-target rejection requires a canonical Session identity")
+	}
+	self.SessionID = *target.SessionID()
+	return captured
+}
+
+func RuntimeCommandNotAcceptedToProto(target *sharedpb.SessionTargetContext, err *serverapi.RuntimeCommandNotAcceptedError) *runtimepb.RuntimeCommandNotAcceptedDetails {
 	details := &runtimepb.RuntimeCommandNotAcceptedDetails{}
 	var commandErr *serverapi.PromptCommandError
 	switch {
@@ -39,7 +44,7 @@ func RuntimeCommandNotAcceptedToProto(sessionID string, err *serverapi.RuntimeCo
 		details.Cause = &runtimepb.RuntimeCommandNotAcceptedDetails_Canceled{Canceled: &emptypb.Empty{}}
 	case errors.Is(err.Cause, serverapi.ErrRuntimeUnavailable):
 		details.Cause = &runtimepb.RuntimeCommandNotAcceptedDetails_RuntimeUnavailable{
-			RuntimeUnavailable: &runtimepb.RuntimeUnavailableDetails{SessionId: &sessionID},
+			RuntimeUnavailable: &runtimepb.RuntimeUnavailableDetails{SessionTarget: target},
 		}
 	case errors.Is(err.Cause, serverapi.ErrRuntimeNoActiveRun):
 		details.Cause = &runtimepb.RuntimeCommandNotAcceptedDetails_NoActiveRun{NoActiveRun: &emptypb.Empty{}}
@@ -84,7 +89,7 @@ func RuntimeCommandNotAcceptedFromProto(details *runtimepb.RuntimeCommandNotAcce
 	case *runtimepb.RuntimeCommandNotAcceptedDetails_Canceled:
 		cause = context.Canceled
 	case *runtimepb.RuntimeCommandNotAcceptedDetails_RuntimeUnavailable:
-		cause = serverapi.ErrRuntimeUnavailable
+		cause = RuntimeUnavailableFromProto(selected.RuntimeUnavailable)
 	case *runtimepb.RuntimeCommandNotAcceptedDetails_NoActiveRun:
 		cause = serverapi.ErrRuntimeNoActiveRun
 	case *runtimepb.RuntimeCommandNotAcceptedDetails_InternalFailure:

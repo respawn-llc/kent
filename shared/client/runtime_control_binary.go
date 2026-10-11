@@ -23,11 +23,7 @@ func runtimeControlGeneratedError(failure runtimeControlFailure) error {
 	if value, ok := failure.(interface {
 		GetSelfTarget() *sharedpb.SessionSelfTargetDetails
 	}); ok && value.GetSelfTarget() != nil {
-		id, err := runtimeids.ParseSessionID(value.GetSelfTarget().SessionId)
-		if err != nil {
-			return err
-		}
-		return &serverapi.SessionSelfTargetError{SessionID: id}
+		return protoapi.SessionSelfTargetFromProto(value.GetSelfTarget())
 	}
 	if value, ok := failure.(interface {
 		GetRuntimeUnavailable() *runtimepb.RuntimeUnavailableDetails

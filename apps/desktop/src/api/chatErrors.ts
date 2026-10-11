@@ -185,11 +185,18 @@ function standardChatErrorDetail(
       return { kind: "auth_required" };
     case "serverNotReady":
       return { kind: "server_not_ready" };
-    case "runtimeUnavailable":
+    case "runtimeUnavailable": {
+      const target = detail.value.sessionTarget?.stage;
       return {
         kind: "runtime_unavailable",
-        sessionID: detail.value.sessionId ?? null,
+        sessionID:
+          target?.case === "canonicalSessionId"
+            ? target.value
+            : target?.case === "projected"
+              ? target.value.sessionId
+              : null,
       };
+    }
     case "internalFailure":
       return {
         kind: "internal_failure",

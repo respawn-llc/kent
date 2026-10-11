@@ -325,7 +325,7 @@ func TestRunWaitJSONSeparatesFinalAndCleanupWarnings(t *testing.T) {
 }
 
 func TestRunWaitJSONOmitsUnresolvedNumericIdentity(t *testing.T) {
-	envelope, code := projectRunWaitJSON("123", nil, &serverapi.RuntimeUnavailableError{}, context.Background())
+	envelope, code := projectRunWaitJSON("123", nil, serverapi.WithSessionTarget(serverapi.UnresolvedSessionTarget{}, serverapi.ErrRuntimeUnavailable), context.Background())
 	if code != 1 {
 		t.Fatalf("missing Session exit = %d", code)
 	}

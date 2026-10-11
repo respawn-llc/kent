@@ -31,24 +31,32 @@ func retainLiveTargetFailure(identity runtimeids.SessionIdentity, err *error) {
 	}
 }
 
-func (s *Service) liveTarget(ctx context.Context, target *sharedpb.SessionSelector, caller *string) (runtimeids.SessionID, error) {
+func (s *Service) liveTarget(ctx context.Context, target *sharedpb.SessionSelector, caller *string) (identity runtimeids.SessionIdentity, err error) {
+	var captured serverapi.SessionTarget = serverapi.UnresolvedSessionTarget{}
+	defer func() { err = serverapi.WithSessionTarget(captured, err) }()
 	id, err := s.metadata.ResolveSessionTarget(ctx, target)
 	if err != nil {
 		if errors.Is(err, session.ErrSessionNotFound) {
 			err = errors.Join(serverapi.ErrRuntimeUnavailable, err)
 		}
-		return runtimeids.SessionID{}, err
+		return identity, err
 	}
+	captured = serverapi.CanonicalSessionTarget{ID: id}
+	identity, err = s.metadata.SessionIdentity(ctx, id)
+	if err != nil {
+		return identity, err
+	}
+	captured = serverapi.ProjectedSessionTarget{Identity: identity}
 	if caller != nil {
 		source, err := runtimeids.ParseSessionID(*caller)
 		if err != nil {
-			return runtimeids.SessionID{}, err
+			return identity, err
 		}
 		if source == id {
-			return runtimeids.SessionID{}, &serverapi.SessionSelfTargetError{SessionID: id}
+			return identity, &serverapi.SessionSelfTargetError{SessionID: id}
 		}
 	}
-	return id, nil
+	return identity, nil
 }
 
 func (s *Service) withLiveExecutionRuntime(ctx context.Context, id runtimeids.SessionID, fn func(context.Context, *runtime.Engine) error) error {
@@ -62,15 +70,12 @@ func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	sessionID, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
-	if err != nil {
-		return nil, err
-	}
-	identity, err := s.metadata.SessionIdentity(ctx, sessionID)
+	identity, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
 	if err != nil {
 		return nil, err
 	}
 	defer retainLiveTargetFailure(identity, &err)
+	sessionID := identity.ID
 	callerSessionID := req.CallerSessionId
 	text := strings.TrimSpace(req.Text)
 	queueText := text
@@ -125,22 +130,23 @@ func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest
 	return resp, err
 }
 
-func (s *Service) LiveStop(ctx context.Context, req *runtimepb.LiveStopRequest) (*runtimepb.LiveStopSuccess, error) {
+func (s *Service) LiveStop(ctx context.Context, req *runtimepb.LiveStopRequest) (response *runtimepb.LiveStopSuccess, err error) {
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	sessionID, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
+	identity, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
 	if errors.Is(err, session.ErrSessionNotFound) {
 		return &runtimepb.LiveStopSuccess{Status: runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_IDLE}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	defer retainLiveTargetFailure(identity, &err)
 	if s == nil || s.authority == nil {
 		return nil, errors.New("session runtime authority is required")
 	}
 	resp := &runtimepb.LiveStopSuccess{Status: runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_IDLE}
-	stopped, err := s.authority.InterruptSession(ctx, sessionID)
+	stopped, err := s.authority.InterruptSession(ctx, identity.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -171,15 +177,12 @@ func (s *Service) LiveWait(ctx context.Context, req *runtimepb.LiveWaitRequest) 
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	sessionID, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
-	if err != nil {
-		return nil, err
-	}
-	identity, err := s.metadata.SessionIdentity(ctx, sessionID)
+	identity, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
 	if err != nil {
 		return nil, err
 	}
 	defer retainLiveTargetFailure(identity, &err)
+	sessionID := identity.ID
 	waitHandle, sessionName, err := s.captureLiveRun(ctx, sessionID)
 	if err != nil {
 		return resp, err
@@ -252,18 +255,15 @@ func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest)
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	id, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
-	if err != nil {
-		return nil, err
-	}
-	if s.attention == nil {
-		return nil, errors.New("attention notification service is required")
-	}
-	identity, err := s.metadata.SessionIdentity(ctx, id)
+	identity, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
 	if err != nil {
 		return nil, err
 	}
 	defer retainLiveTargetFailure(identity, &err)
+	id := identity.ID
+	if s.attention == nil {
+		return nil, errors.New("attention notification service is required")
+	}
 	defer func() {
 		if response != nil {
 			response.ShortId = protoapi.SessionShortIDToProto(identity.ShortID)

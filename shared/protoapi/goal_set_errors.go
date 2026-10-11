@@ -15,19 +15,10 @@ func GoalSetErrorFromError(err error, sessionID *runtimeids.SessionID) *runtimep
 		err = errors.New("Goal Set failed")
 	}
 	if errors.Is(err, serverapi.ErrRuntimeUnavailable) {
-		var identity *string
 		if sessionID != nil {
-			value := sessionID.String()
-			identity = &value
+			err = serverapi.WithSessionTarget(serverapi.CanonicalSessionTarget{ID: *sessionID}, err)
 		}
-		details := &runtimepb.RuntimeUnavailableDetails{SessionId: identity}
-		var target *serverapi.SessionTargetError
-		if errors.As(err, &target) {
-			details.SessionId = OptionalSessionIDToProto(target.SessionID())
-			if identity := target.Projection(); identity != nil {
-				details.ShortId = SessionShortIDToProto(identity.ShortID)
-			}
-		}
+		details := &runtimepb.RuntimeUnavailableDetails{SessionTarget: SessionTargetErrorContext(err)}
 		return &runtimepb.GoalSetError{
 			Code: "runtime_unavailable",
 			Detail: &runtimepb.GoalSetError_RuntimeUnavailable{

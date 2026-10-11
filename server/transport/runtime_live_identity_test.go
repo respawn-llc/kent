@@ -26,6 +26,13 @@ func TestLiveControlErrorsRetainNumericTargetIdentityOverGateway(t *testing.T) {
 	defer remote.Close()
 	for _, selector := range []runtimeids.SessionSelector{identity.ID, *identity.ShortID} {
 		target := protoapi.SessionSelectorToProto(selector)
+		caller := identity.ID.String()
+		_, selfErr := remote.LiveWait(t.Context(), &runtimepb.LiveWaitRequest{SessionId: target, CallerSessionId: &caller})
+		var self *serverapi.SessionSelfTargetError
+		var selfTarget *serverapi.SessionTargetError
+		if !errors.As(selfErr, &self) || !errors.As(selfErr, &selfTarget) || selfTarget.Projection() == nil || selfTarget.Projection().String() != identity.String() {
+			t.Fatalf("self failure lost target or reason: %v", selfErr)
+		}
 		for _, operation := range []func() error{
 			func() error {
 				_, err := remote.LiveWait(t.Context(), &runtimepb.LiveWaitRequest{SessionId: target})
