@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"core/shared/textutil"
 )
 
 func rewriteOAuthIssuerClient(server *httptest.Server) *http.Client {
@@ -50,6 +52,22 @@ func writeOAuthTokenResponse(t testing.TB, w http.ResponseWriter, accessToken st
 		"expires_in":    expiresIn,
 	}); err != nil {
 		t.Fatalf("write token response: %v", err)
+	}
+}
+
+func TestOpenAIRefreshPreservesAbsentExpiry(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "new-token"})
+	}))
+	defer server.Close()
+	updated, err := RefreshOpenAIAuthToken(t.Context(), OpenAIOAuthOptions{Issuer: server.URL, HTTPClient: server.Client()}, OAuthMethod{
+		AccessToken: "old-token", RefreshToken: "refresh",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Expiry != nil {
+		t.Fatalf("provider omitted expiry, got %v", updated.Expiry)
 	}
 }
 
@@ -128,7 +146,7 @@ func TestDefaultOAuthHTTPClientNegotiatesAndDecodesCompressedResponse(t *testing
 	}
 }
 
-func TestRunOpenAIDeviceCodeFlow(t *testing.T) {
+func TestOpenAIDeviceCodeFlow(t *testing.T) {
 	var pollCalls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -164,14 +182,16 @@ func TestRunOpenAIDeviceCodeFlow(t *testing.T) {
 	}))
 	defer server.Close()
 
-	var shown DeviceCode
-	method, err := RunOpenAIDeviceCodeFlow(context.Background(), OpenAIOAuthOptions{
+	options := OpenAIOAuthOptions{
 		ClientID:    "client-1",
 		HTTPClient:  rewriteOAuthIssuerClient(server),
 		PollTimeout: 10 * time.Second,
-	}, func(code DeviceCode) {
-		shown = code
-	})
+	}
+	shown, err := BeginOpenAIDeviceFlow(t.Context(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	method, err := CompleteOpenAIDeviceFlow(t.Context(), options, shown)
 	if err != nil {
 		t.Fatalf("device code flow failed: %v", err)
 	}
@@ -184,7 +204,7 @@ func TestRunOpenAIDeviceCodeFlow(t *testing.T) {
 	if method.AccountID != "" {
 		t.Fatalf("expected empty account id for opaque test tokens, got %q", method.AccountID)
 	}
-	if !method.Expiry.After(time.Now().UTC()) {
+	if method.Expiry == nil || !method.Expiry.After(time.Now().UTC()) {
 		t.Fatalf("expected future expiry, got %s", method.Expiry)
 	}
 }
@@ -195,7 +215,7 @@ func TestRequestOpenAIDeviceCodeUnsupported(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := requestOpenAIDeviceCode(context.Background(), OpenAIOAuthOptions{
+	_, err := BeginOpenAIDeviceFlow(context.Background(), OpenAIOAuthOptions{
 		ClientID:   "client-1",
 		HTTPClient: rewriteOAuthIssuerClient(server),
 	})
@@ -204,8 +224,12 @@ func TestRequestOpenAIDeviceCodeUnsupported(t *testing.T) {
 	}
 }
 
-func TestCompleteOpenAIDeviceAuthorizationGrantNormalizesIssuerBeforeRedirectURI(t *testing.T) {
+func TestCompleteOpenAIDeviceFlowNormalizesIssuerBeforeRedirectURI(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/accounts/deviceauth/token" {
+			_, _ = io.WriteString(w, `{"authorization_code":"auth-code-1","code_verifier":"verifier-1"}`)
+			return
+		}
 		if r.URL.Path != "/oauth/token" {
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -220,12 +244,12 @@ func TestCompleteOpenAIDeviceAuthorizationGrantNormalizesIssuerBeforeRedirectURI
 	}))
 	defer server.Close()
 
-	method, err := CompleteOpenAIDeviceAuthorizationGrant(context.Background(), OpenAIOAuthOptions{
+	method, err := CompleteOpenAIDeviceFlow(context.Background(), OpenAIOAuthOptions{
 		ClientID:   "client-1",
 		HTTPClient: rewriteOAuthIssuerClient(server),
-	}, "auth-code-1", "verifier-1")
+	}, DeviceCode{Code: "device-1", UserCode: "user-1", PollInterval: time.Second})
 	if err != nil {
-		t.Fatalf("CompleteOpenAIDeviceAuthorizationGrant: %v", err)
+		t.Fatalf("CompleteOpenAIDeviceFlow: %v", err)
 	}
 	if err := method.Validate(); err != nil {
 		t.Fatalf("invalid credential returned: %v", err)
@@ -257,7 +281,7 @@ func TestRefreshOpenAIAuthToken(t *testing.T) {
 	}, OAuthMethod{
 		AccessToken:  "old-access",
 		RefreshToken: "old-refresh",
-		Expiry:       time.Now().Add(-time.Minute),
+		Expiry:       textutil.Value(time.Now().Add(-time.Minute)),
 	})
 	if err != nil {
 		t.Fatalf("refresh failed: %v", err)

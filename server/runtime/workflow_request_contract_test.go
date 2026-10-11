@@ -495,6 +495,7 @@ func TestRequestToolsRespectLockedVisionCapability(t *testing.T) {
 				}),
 				Config{
 					Model:             test.model,
+					ThinkingLevel:     "medium",
 					ModelCapabilities: test.capabilities,
 					EnabledTools:      []toolspec.ID{toolspec.ToolViewImage},
 				},

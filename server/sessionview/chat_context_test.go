@@ -14,6 +14,7 @@ import (
 	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
+	"core/shared/textutil"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -38,7 +39,7 @@ func TestReadDormantSessionChatContextUsesExactExecutionRootAndBoundedFacts(t *t
 	workspaceRoot := t.TempDir()
 	executionRoot := t.TempDir()
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workspaceRoot)
-	if _, err := store.SetUsageState(&session.UsageState{InputTokens: 125_000}); err != nil {
+	if _, err := store.SetUsageState(&session.UsageState{InputTokens: textutil.Value(125_000), ReportedContextTokens: textutil.Value(125_000)}); err != nil {
 		t.Fatalf("SetUsageState: %v", err)
 	}
 	if err := store.SetSessionContextFacts(3, true); err != nil {
@@ -159,7 +160,7 @@ func TestReadDormantSessionChatContextUsesProductionPersistenceResolverWithoutEv
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)
 	}
-	if _, err := store.SetUsageState(&session.UsageState{InputTokens: 42_000}); err != nil {
+	if _, err := store.SetUsageState(&session.UsageState{InputTokens: textutil.Value(42_000), ReportedContextTokens: textutil.Value(42_000)}); err != nil {
 		t.Fatalf("SetUsageState: %v", err)
 	}
 	if err := store.SetSessionContextFacts(2, true); err != nil {

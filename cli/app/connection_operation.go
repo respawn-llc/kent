@@ -54,8 +54,12 @@ func (m *connectionOperationModel[T]) Init() tea.Cmd {
 }
 
 func (m *connectionOperationModel[T]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if key, ok := msg.(tea.KeyMsg); ok && (key.Type == tea.KeyEsc || key.Type == tea.KeyCtrlC) {
-		m.outcome = &connectionOperationDone[T]{err: ErrAuthCanceledByUser}
+	if key, ok := msg.(tea.KeyMsg); ok && (key.Type == tea.KeyEsc || key.Type == tea.KeyCtrlC || key.Type == tea.KeyShiftTab) {
+		err := ErrAuthBack
+		if key.Type == tea.KeyCtrlC {
+			err = ErrAuthCanceledByUser
+		}
+		m.outcome = &connectionOperationDone[T]{err: err}
 		return m, tea.Quit
 	}
 	if done, ok := msg.(connectionOperationDone[T]); ok {
@@ -67,10 +71,14 @@ func (m *connectionOperationModel[T]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func runConnectionOperation[T any](ctx context.Context, selectedTheme string, operation func() (T, error)) (T, error) {
+	return runConnectionOperationScreen(ctx, selectedTheme, onboardingScreen{Kind: onboardingScreenLoading}, operation)
+}
+
+func runConnectionOperationScreen[T any](ctx context.Context, selectedTheme string, presentation onboardingScreen, operation func() (T, error)) (T, error) {
 	screen := &onboardingModel{
 		width: defaultPickerWidth, height: defaultPickerHeight,
 		styles:        newOnboardingStyles(selectedTheme),
-		currentScreen: onboardingScreen{Kind: onboardingScreenLoading},
+		currentScreen: presentation,
 	}
 	screen.spinnerClock.Start(uiAnimationNow())
 	model := &connectionOperationModel[T]{onboardingModel: screen, operation: operation}

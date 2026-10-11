@@ -88,10 +88,9 @@ func (c *observedModelClient) compactObserved(ctx context.Context, request cache
 	if err != nil {
 		return llm.CompactionResponse{}, err
 	}
-	if err := llm.RestoreRetainedItemFacts(&response.Checkpoint); err != nil {
+	if err := stampProducedItems(response.OutputItems, response.ProviderEvidence.ProviderID); err != nil {
 		return llm.CompactionResponse{}, err
 	}
-	response.Checkpoint.Attribution = producedReasoningAttribution(response.ProviderEvidence.ProviderID, response.Checkpoint.EncryptedContent != nil)
 	return response, nil
 }
 

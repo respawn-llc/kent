@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"core/shared/config"
-	"core/shared/theme"
 )
 
 type onboardingStepID string
@@ -56,15 +55,15 @@ func newOnboardingWorkflow(state *onboardingFlowState) onboardingWorkflow {
 		onboardingStepDefinition{
 			id: onboardingStepTheme,
 			build: func(state *onboardingFlowState) onboardingScreen {
-				defaultOption := theme.Resolve(state.selections.themeValue())
 				return onboardingScreen{
 					ID:              "theme",
 					Kind:            onboardingScreenChoice,
-					Title:           "Choose a theme",
-					Body:            "Pick the theme Kent should use. The preview updates as you move. If you keep the detected default, Kent stays on auto.",
+					Title:           "Welcome to Kent.",
+					Body:            "Pick the theme Kent should use.",
 					ThemePreview:    true,
-					DefaultOptionID: defaultOption,
+					DefaultOptionID: state.selections.themeValue(),
 					Options: []onboardingOption{
+						{ID: "auto", Title: "Auto"},
 						{ID: "dark", Title: "Dark"},
 						{ID: "light", Title: "Light"},
 					},
@@ -123,12 +122,11 @@ func newOnboardingWorkflow(state *onboardingFlowState) onboardingWorkflow {
 			},
 			build: func(state *onboardingFlowState) onboardingScreen {
 				levels := modelThinkingLevels(state, state.selections.model.value)
-				options := []onboardingOption{{ID: "disable", Title: "Disable", Description: thinkingLevelEstimate("disable")}}
-				for _, level := range levels {
-					options = append(options, onboardingOption{ID: level, Title: titleCaseThinking(level)})
-				}
-				options = append(options, onboardingOption{ID: "custom", Title: "Enter a custom value"})
+				options := thinkingOptions(levels)
 				defaultOption := state.selections.thinkingValue()
+				if defaultOption == "none" {
+					defaultOption = "disable"
+				}
 				if state.selections.pendingPrimaryThinking.pending() || state.selections.thinking.kind == onboardingThinkingCustom {
 					defaultOption = "custom"
 				} else if state.selections.thinking.kind == onboardingThinkingDisabled {
@@ -221,12 +219,11 @@ func newOnboardingWorkflow(state *onboardingFlowState) onboardingWorkflow {
 			},
 			build: func(state *onboardingFlowState) onboardingScreen {
 				levels := modelThinkingLevels(state, state.selections.reviewerModelValue())
-				options := []onboardingOption{{ID: "disable", Title: "Disable", Description: thinkingLevelEstimate("disable")}}
-				for _, level := range levels {
-					options = append(options, onboardingOption{ID: level, Title: titleCaseThinking(level)})
-				}
-				options = append(options, onboardingOption{ID: "custom", Title: "Enter a custom value"})
+				options := thinkingOptions(levels)
 				defaultOption := state.selections.reviewerThinkingValue()
+				if defaultOption == "none" {
+					defaultOption = "disable"
+				}
 				if state.selections.pendingReviewerThinking.pending() ||
 					(state.selections.supervisor.thinking.kind == onboardingReviewerThinkingOverridden &&
 						state.selections.supervisor.thinking.override.kind == onboardingThinkingCustom) {

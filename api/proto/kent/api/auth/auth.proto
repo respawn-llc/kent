@@ -18,9 +18,10 @@ enum BootstrapMode {
   BOOTSTRAP_MODE_API_KEY = 5;
 }
 
-message BootstrapOAuthConfig {
-  optional string issuer = 1 [(buf.validate.field).string.min_len = 1];
-  optional string client_id = 2 [(buf.validate.field).string.min_len = 1];
+message BootstrapCallbackTransport {
+  string bind_address = 1 [(buf.validate.field).string.min_len = 1];
+  string redirect_host = 2 [(buf.validate.field).string.min_len = 1];
+  string callback_path = 3 [(buf.validate.field).string.min_len = 1];
 }
 
 message BootstrapStatus {
@@ -37,13 +38,63 @@ message BootstrapStatus {
       }
     }
   ];
-  BootstrapOAuthConfig oauth = 7;
+  BootstrapCallbackTransport callback_transport = 7;
   AuthMethod method = 8 [(buf.validate.field).enum.defined_only = true];
   string connection_id = 9 [(buf.validate.field).string.min_len = 1];
 }
 
 message GetBootstrapStatusRequest {
   ConnectionTarget target = 1 [(buf.validate.field).required = true];
+}
+
+message StartBootstrapRequest {
+  ConnectionTarget target = 1 [(buf.validate.field).required = true];
+  BootstrapMode mode = 2 [(buf.validate.field).enum = {defined_only: true, in: [2, 3, 4]}];
+  optional string redirect_uri = 3 [(buf.validate.field).string.min_len = 1];
+}
+
+message BrowserBootstrapContinuation {
+  string redirect_uri = 1 [(buf.validate.field).string.min_len = 1];
+  string state = 2 [(buf.validate.field).string.min_len = 1];
+  string code_verifier = 3 [(buf.validate.field).string.min_len = 1];
+}
+
+message DeviceBootstrapContinuation {
+  string code = 1 [(buf.validate.field).string.min_len = 1];
+  string user_code = 2 [(buf.validate.field).string.min_len = 1];
+  int64 poll_interval_seconds = 3 [(buf.validate.field).int64.gt = 0];
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+message BootstrapContinuation {
+  ConnectionProtocol protocol = 1 [(buf.validate.field).enum = {defined_only: true, in: [2, 3, 4]}];
+  oneof grant {
+    option (buf.validate.oneof).required = true;
+    BrowserBootstrapContinuation browser = 2;
+    DeviceBootstrapContinuation device = 3;
+  }
+}
+
+message BootstrapDeviceInstructions {
+  string verification_url = 1 [(buf.validate.field).string.min_len = 1];
+  string user_code = 2 [(buf.validate.field).string.min_len = 1];
+}
+
+message BootstrapStart {
+  BootstrapContinuation continuation = 1 [(buf.validate.field).required = true];
+  oneof instructions {
+    option (buf.validate.oneof).required = true;
+    string authorization_url = 2 [(buf.validate.field).string.min_len = 1];
+    BootstrapDeviceInstructions device = 3;
+  }
+}
+
+message StartBootstrapResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    BootstrapStart success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    CompleteBootstrapError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
 }
 
 message CompleteBootstrapRequest {
@@ -55,12 +106,8 @@ message CompleteBootstrapRequest {
   ];
   bool force = 2;
   optional string callback_input = 4 [(buf.validate.field).string.min_len = 1];
-  optional string redirect_uri = 5 [(buf.validate.field).string.min_len = 1];
-  optional string oauth_state = 6 [(buf.validate.field).string.min_len = 1];
-  optional string oauth_code_verifier = 7 [(buf.validate.field).string.min_len = 1];
-  optional string device_authorization_code = 8 [(buf.validate.field).string.min_len = 1];
-  optional string device_code_verifier = 9 [(buf.validate.field).string.min_len = 1];
   ConnectionTarget target = 10 [(buf.validate.field).required = true];
+  BootstrapContinuation continuation = 11;
 
   option (buf.validate.message).cel = {
     id: "kent.auth.bootstrap.mode_payload"
@@ -69,20 +116,15 @@ message CompleteBootstrapRequest {
       "this.mode == 1 ? true : "
       "this.mode == 5 ? true : "
       "(this.mode == 2 || this.mode == 3) ? "
-      "(has(this.callback_input) && has(this.redirect_uri) && has(this.oauth_state) && has(this.oauth_code_verifier)) : "
+      "(has(this.callback_input) && has(this.continuation) && has(this.continuation.browser)) : "
       "this.mode == 4 ? "
-      "(has(this.device_authorization_code) && has(this.device_code_verifier)) : false"
+      "(has(this.continuation) && has(this.continuation.device)) : false"
   };
   option (buf.validate.message).cel = {
     id: "kent.auth.bootstrap.credentials_nonblank"
     message: "present bootstrap credentials must be non-blank"
     expression:
-      "(!has(this.callback_input) || this.callback_input.trim() != '') && "
-      "(!has(this.redirect_uri) || this.redirect_uri.trim() != '') && "
-      "(!has(this.oauth_state) || this.oauth_state.trim() != '') && "
-      "(!has(this.oauth_code_verifier) || this.oauth_code_verifier.trim() != '') && "
-      "(!has(this.device_authorization_code) || this.device_authorization_code.trim() != '') && "
-      "(!has(this.device_code_verifier) || this.device_code_verifier.trim() != '')"
+      "(!has(this.callback_input) || this.callback_input.trim() != '')"
   };
 }
 
@@ -384,6 +426,9 @@ enum ConnectionProtocol {
   CONNECTION_PROTOCOL_UNSPECIFIED = 0;
   CONNECTION_PROTOCOL_RESPONSES = 1;
   CONNECTION_PROTOCOL_CHATGPT = 2;
+  CONNECTION_PROTOCOL_GROK_CLI_PROXY = 3;
+  CONNECTION_PROTOCOL_GROK_OAUTH_API = 4;
+  CONNECTION_PROTOCOL_GROK_API_KEY = 5;
 }
 
 enum ConnectionFailureReason {
@@ -432,8 +477,8 @@ message ConnectionDefinition {
 
   option (buf.validate.message).cel = {
     id: "kent.auth.connection.protocol_fields"
-    message: "Responses requires an endpoint; ChatGPT uses subscription sign-in without endpoint or environment reference"
-    expression: "this.protocol == 1 ? has(this.endpoint) : this.protocol == 2 ? (!has(this.endpoint) && !has(this.environment_variable)) : false"
+    message: "Connection fields must match the selected protocol"
+    expression: "this.protocol == 1 ? has(this.endpoint) : this.protocol in [2, 3, 4] ? (!has(this.endpoint) && !has(this.environment_variable)) : this.protocol == 5 ? (!has(this.endpoint) && has(this.environment_variable)) : false"
   };
   option (buf.validate.message).cel = {
     id: "kent.auth.connection.nonblank"
@@ -523,6 +568,16 @@ service AuthService {
     };
   }
   rpc GetBootstrapStatus(GetBootstrapStatusRequest) returns (GetBootstrapStatusResult) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_UNARY
+      authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER
+      scope_policy: SCOPE_POLICY_NONE
+      direction: DIRECTION_CLIENT_TO_SERVER
+      unary_connection: UNARY_CONNECTION_MULTIPLEXED
+    };
+  }
+
+  rpc StartBootstrap(StartBootstrapRequest) returns (StartBootstrapResult) {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
       authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER

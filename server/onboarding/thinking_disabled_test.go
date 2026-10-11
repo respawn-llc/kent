@@ -27,7 +27,7 @@ func TestDisabledThinkingPersistsProviderEffort(t *testing.T) {
 
 func TestOmittedSupervisorDefaultPreservesExplicitThinkingChoice(t *testing.T) {
 	root := t.TempDir()
-	model := "gpt-6.1-sol"
+	model := "gpt-6-sol"
 	_, err := newTestFinalizer(t, root, t.TempDir()).Finalize(t.Context(), &onboardingpb.FinalizeRequest{
 		Model:    &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: &model},
 		Thinking: &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_DISABLED},
@@ -38,8 +38,8 @@ func TestOmittedSupervisorDefaultPreservesExplicitThinkingChoice(t *testing.T) {
 
 	app := loadFinalizedConfig(t, root)
 	settings := app.Settings
-	if settings.Model != model || settings.ThinkingLevel != "" || settings.Reviewer.Model != "gpt-6-luna" {
-		t.Fatalf("finalized model/thinking/Supervisor = %q/%q/%q, want %q/empty/gpt-6-luna",
+	if settings.Model != model || settings.ThinkingLevel != "none" || settings.Reviewer.Model != "gpt-6-luna" {
+		t.Fatalf("finalized model/thinking/Supervisor = %q/%q/%q, want %q/none/gpt-6-luna",
 			settings.Model, settings.ThinkingLevel, settings.Reviewer.Model, model)
 	}
 	thinkingOrigin, ok := app.Source.Sources["thinking_level"]

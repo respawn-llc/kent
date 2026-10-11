@@ -84,7 +84,7 @@ func collapseCompactionOverflowToolPayloadsAfterSavings(estimator llm.TokenEstim
 		}
 	}
 	if stats.Collapsed() {
-		out = llm.PrepareOpenAIInputItems(out)
+		out = llm.PrepareResponsesInputItems(out)
 	}
 	return out, stats
 }

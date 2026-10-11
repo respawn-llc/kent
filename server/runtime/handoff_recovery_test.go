@@ -26,7 +26,7 @@ func TestReopenedSessionAfterSuccessfulTriggerHandoffRequeuesPendingHandoff(t *t
 	resumedClient := &fakeClient{responses: []llm.Response{
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("summary")},
-			Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
+			Usage:     llm.Usage{InputTokens: textutil.Value(200), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 200, MeasurementPoint: llm.ContextMeasurementInput}},
 		},
 		{
 			Assistant: llm.Message{
@@ -34,7 +34,7 @@ func TestReopenedSessionAfterSuccessfulTriggerHandoffRequeuesPendingHandoff(t *t
 				Phase:   textutil.Value(llm.MessagePhaseFinal),
 				Content: textutil.Value("resumed"),
 			},
-			Usage: llm.Usage{InputTokens: 300, WindowTokens: 2_000},
+			Usage: llm.Usage{InputTokens: textutil.Value(300), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 300, MeasurementPoint: llm.ContextMeasurementInput}},
 		},
 	}}
 	restored := mustNewHandoffTestEngine(t, mustOpenTestSession(t, store.Dir()), resumedClient, Config{})
@@ -62,7 +62,7 @@ func TestHandoffReplacementStoresFutureMessageAtomically(t *testing.T) {
 
 	summaryClient := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("summary")},
-		Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
+		Usage:     llm.Usage{InputTokens: textutil.Value(200), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 200, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}
 	restored := mustNewHandoffTestEngine(t, mustOpenTestSession(t, store.Dir()), summaryClient, Config{})
 	var applied bool
@@ -285,7 +285,7 @@ func TestManualCompactionClearsQueuedTriggerHandoff(t *testing.T) {
 	client := &fakeClient{responses: []llm.Response{
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("summary")},
-			Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
+			Usage:     llm.Usage{InputTokens: textutil.Value(200), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 200, MeasurementPoint: llm.ContextMeasurementInput}},
 		},
 		{
 			Assistant: llm.Message{
@@ -293,7 +293,7 @@ func TestManualCompactionClearsQueuedTriggerHandoff(t *testing.T) {
 				Phase:   textutil.Value(llm.MessagePhaseFinal),
 				Content: textutil.Value("complete"),
 			},
-			Usage: llm.Usage{InputTokens: 300, WindowTokens: 2_000},
+			Usage: llm.Usage{InputTokens: textutil.Value(300), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 300, MeasurementPoint: llm.ContextMeasurementInput}},
 		},
 	}}
 	engine := mustNewHandoffTestEngine(t, store, client, Config{})
@@ -350,7 +350,7 @@ func TestReopenedSessionAfterTriggerHandoffUsesAtomicFutureMessageReplacement(t 
 	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("summary")},
-		Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
+		Usage:     llm.Usage{InputTokens: textutil.Value(200), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 200, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}
 	engine := mustNewHandoffTestEngine(t, store, client, Config{})
 	persistSuccessfulTriggerHandoff(t, engine, "future-message-atomic-handoff-call")
@@ -423,7 +423,7 @@ func TestReopenedSessionAfterTriggerHandoffUsesStableRequestSessionAndOmitsLinge
 	sessionID := store.Meta().SessionID
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("summary")},
-		Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
+		Usage:     llm.Usage{InputTokens: textutil.Value(200), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 200, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}
 	engine := mustNewHandoffTestEngine(t, store, client, Config{})
 	if err := steerTestActiveStep(engine, "seed", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {
@@ -452,7 +452,7 @@ func TestReopenedSessionAfterTriggerHandoffUsesStableRequestSessionAndOmitsLinge
 			Phase:   textutil.Value(llm.MessagePhaseFinal),
 			Content: textutil.Value("complete"),
 		},
-		Usage: llm.Usage{InputTokens: 300, WindowTokens: 2_000},
+		Usage: llm.Usage{InputTokens: textutil.Value(300), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 300, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}
 	restored := mustNewHandoffTestEngine(t, mustOpenTestSession(t, store.Dir()), resumedClient, Config{})
 	if restored.SessionID() != sessionID {

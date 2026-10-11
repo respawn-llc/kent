@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"core/shared/config"
@@ -31,7 +32,8 @@ func TestNativeThinkingSupport(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			transport := NewHTTPTransport(missingAuth{})
+			transport := newTestHTTPTransport(t, missingAuth{}, testConnectionRegistration(t, definition))
+
 			transport.ProviderCapabilitiesOverride = &prepared
 			caps, err := transport.ProviderCapabilities(context.Background())
 			if err != nil {
@@ -43,7 +45,7 @@ func TestNativeThinkingSupport(t *testing.T) {
 					t.Fatalf("connection=%s override=%v model=%s: support=%v, want %v", connection.name, override, model, got, want)
 				}
 			}
-			if caps != prepared {
+			if !reflect.DeepEqual(caps, prepared) {
 				t.Fatalf("prepared connection contract changed: %+v, want %+v", caps, prepared)
 			}
 			if override && (caps.ProviderID != "openai" || !caps.IsOpenAIFirstParty) {
@@ -55,7 +57,7 @@ func TestNativeThinkingSupport(t *testing.T) {
 
 func TestConfigurationUpdatePreparedHTTPInput(t *testing.T) {
 	prior := ItemsFromMessages([]Message{{Role: RoleUser, Content: textutil.Value("first")}})
-	items := PrepareOpenAIInputItems(append(CloneResponseItems(prior), ResponseItem{
+	items := PrepareResponsesInputItems(append(CloneResponseItems(prior), ResponseItem{
 		Type: ResponseItemTypeConfigurationUpdate, ConfigurationEffort: textutil.Value("low"),
 	}))
 	input, err := buildResponsesInput(items)

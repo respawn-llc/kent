@@ -95,7 +95,7 @@ func (s *BootstrapService) ConfigureConnection(_ context.Context, req *authpb.Co
 		if err != nil {
 			return nil, err
 		}
-		if definition.Protocol == config.ConnectionChatGPT {
+		if definition.Protocol.IsSubscription() {
 			return nil, serverapi.NewConnectionFailure(authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_SIGN_IN_REQUIRED, &id)
 		}
 		if err := config.AddProviderConnection(path, id, definition); err != nil {
@@ -144,7 +144,7 @@ func (s *BootstrapService) FinishSetup(path string, baseline config.Settings, pr
 		return "", serverapi.NewConnectionFailure(authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_SELECTION_REQUIRED, nil)
 	}
 	credential := pending.credential.Load()
-	if pending.definition.Protocol == config.ConnectionChatGPT && credential == nil {
+	if pending.definition.Protocol.IsSubscription() && credential == nil {
 		s.writeMu.Unlock()
 		return "", auth.ErrAuthNotConfigured
 	}
@@ -200,7 +200,7 @@ func (s *BootstrapService) targetSnapshot(ctx context.Context, target *authpb.Co
 			return connectionSnapshot{}, serverapi.NewConnectionFailure(authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_SELECTION_REQUIRED, nil)
 		}
 		snapshot := connectionSnapshot{connection: ResolvedConnection{ID: pending.id, Definition: pending.definition}, pending: pending, oauth: pending.credential.Load()}
-		if pending.definition.Protocol == config.ConnectionChatGPT && snapshot.oauth == nil {
+		if pending.definition.Protocol.IsSubscription() && snapshot.oauth == nil {
 			snapshot.failure = auth.ErrAuthNotConfigured
 		}
 		return snapshot, nil
@@ -251,7 +251,7 @@ func (s *BootstrapService) commitOAuth(target *authpb.ConnectionTarget, snapshot
 		if err != nil {
 			return err
 		}
-		if current.Definition.Protocol != config.ConnectionChatGPT {
+		if !current.Definition.Protocol.IsSubscription() {
 			return serverapi.NewConnectionFailure(authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_NOT_SUBSCRIPTION, &current.ID)
 		}
 	default:

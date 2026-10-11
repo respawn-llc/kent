@@ -115,12 +115,19 @@ func TestPendingOAuthSurvivesObserverLossButNotExplicitDiscard(t *testing.T) {
 				t.Fatal(err)
 			}
 			target := &authpb.ConnectionTarget{Target: &authpb.ConnectionTarget_PendingSetup{PendingSetup: &emptypb.Empty{}}}
+			start, err := service.StartBootstrap(t.Context(), &authpb.StartBootstrapRequest{
+				Target: target, Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE,
+				RedirectUri: textutil.Value("http://localhost:1455/auth/callback"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
 			observer, disconnect := context.WithCancel(t.Context())
 			result := make(chan error, 1)
 			go func() {
 				_, err := service.CompleteBootstrap(observer, &authpb.CompleteBootstrapRequest{
-					Target: target, Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE,
-					DeviceAuthorizationCode: textutil.Value("grant"), DeviceCodeVerifier: textutil.Value("verifier"),
+					Target: target, Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE,
+					CallbackInput: textutil.Value("grant"), Continuation: start.Continuation,
 				})
 				result <- err
 			}()

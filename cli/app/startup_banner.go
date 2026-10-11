@@ -25,11 +25,3 @@ func renderStartupBanner(raw string) string {
 	}
 	return "\n" + strings.Join(out, "\n")
 }
-
-func startupBannerLineCount(raw string) int {
-	rendered := renderStartupBanner(raw)
-	if rendered == "" {
-		return 0
-	}
-	return renderedLineCount(rendered)
-}

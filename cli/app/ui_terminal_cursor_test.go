@@ -262,6 +262,25 @@ func TestTerminalCursorWriterDoesNotRepositionAfterStop(t *testing.T) {
 	}
 }
 
+func TestTerminalCursorWriterDoesNotRepositionAfterAltScreenExit(t *testing.T) {
+	state := newUITerminalCursorState()
+	state.Set(uiTerminalCursorPlacement{Visible: true, CursorRow: 4, CursorCol: 6, AnchorRow: 9, AltScreen: true})
+	var out bytes.Buffer
+	writer := newUITerminalCursorWriter(&out, state)
+	if _, err := writer.Write([]byte("frame")); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	for _, control := range []string{xansi.ResetModeAltScreenSaveCursor, xansi.ShowCursor} {
+		if _, err := writer.Write([]byte(control)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, want := out.String(), xansi.ResetModeAltScreenSaveCursor+xansi.ShowCursor; got != want {
+		t.Fatalf("terminal cleanup repositioned the restored cursor: %q", got)
+	}
+}
+
 func TestUITerminalCursorPlacementTracksWrappedInputAcrossWidthChanges(t *testing.T) {
 	tests := []struct {
 		name        string

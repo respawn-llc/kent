@@ -1,6 +1,9 @@
 package launch
 
 import (
+	"maps"
+
+	"core/server/llm"
 	"core/server/session"
 	"core/shared/config"
 	"core/shared/textutil"
@@ -38,8 +41,9 @@ func BindSessionConnection(store *session.Store, settings *config.Settings, sour
 			return nil, err
 		}
 	}
-	settings.Connection = &selected
-	config.InheritReviewerSettings(settings, sources)
+	if err := projectSessionConnection(settings, config.SourceReport{Sources: sources}, store.Meta()); err != nil {
+		return nil, err
+	}
 	return replacement, nil
 }
 
@@ -49,6 +53,16 @@ func projectSessionConnection(settings *config.Settings, source config.SourceRep
 		return err
 	}
 	settings.Connection = textutil.Value(selected)
+	defaultSources := maps.Clone(source.Sources)
+	if meta.Locked != nil {
+		if defaultSources == nil {
+			defaultSources = map[string]config.Origin{}
+		}
+		defaultSources["model"] = config.Origin{Kind: config.SourceSession, Property: config.PropertyAddress{Key: "model"}}
+	}
+	if err := llm.ApplyConnectionModelDefaults(settings, defaultSources); err != nil {
+		return err
+	}
 	config.InheritReviewerSettings(settings, source.Sources)
 	return nil
 }

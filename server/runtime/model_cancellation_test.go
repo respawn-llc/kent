@@ -28,7 +28,7 @@ func TestGenerateWithRetryPropagatesContextCancellation(t *testing.T) {
 			ctx,
 			"step",
 			engine.llm,
-			llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-6-sol"},
+			llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"},
 			nil,
 			nil,
 			nil,

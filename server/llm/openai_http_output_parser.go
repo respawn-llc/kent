@@ -304,8 +304,7 @@ func (reasoningOutputItemParser) Parse(item responses.ResponseOutputItemUnion, _
 	summaries := make([]ReasoningEntry, 0, len(reasoningItem.Summary))
 	reasoning := make([]ReasoningEntry, 0, len(reasoningItem.Summary))
 	for summaryIndex, summary := range reasoningItem.Summary {
-		text := strings.TrimSpace(summary.Text)
-		if text == "" {
+		if strings.TrimSpace(summary.Text) == "" {
 			continue
 		}
 		index := int64(summaryIndex)
@@ -317,7 +316,7 @@ func (reasoningOutputItemParser) Parse(item responses.ResponseOutputItemUnion, _
 		}
 		entry := ReasoningEntry{
 			Role: textutil.Value(reasoningRoleSummary),
-			Text: text,
+			Text: summary.Text,
 			SourceCoordinate: &ReasoningSourceCoordinate{
 				PartIndex: textutil.Pointer(&index),
 			},

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"core/shared/config"
 	"core/shared/textutil"
 )
 
@@ -23,7 +24,7 @@ func TestGenerateRetainsProviderUsageEvidence(t *testing.T) {
 		SupportsNativeWebSearch: true,
 		IsOpenAIFirstParty:      true,
 	}
-	response, err := transport.Generate(context.Background(), OpenAIRequest{
+	response, err := transport.Generate(context.Background(), ResponsesRequest{
 		Model:                 "gpt-requested",
 		FastMode:              true,
 		EnableNativeWebSearch: true,
@@ -35,8 +36,8 @@ func TestGenerateRetainsProviderUsageEvidence(t *testing.T) {
 	}
 
 	evidence := response.ProviderEvidence
-	if evidence.ProviderID == nil || *evidence.ProviderID != "openai" {
-		t.Fatalf("provider ID = %v, want openai", evidence.ProviderID)
+	if evidence.ProviderID == nil || *evidence.ProviderID != "openai-compatible" {
+		t.Fatalf("provider ID = %v, want actual transport openai-compatible", evidence.ProviderID)
 	}
 	if evidence.RequestedModel != "gpt-requested" {
 		t.Fatalf("requested model = %q, want gpt-requested", evidence.RequestedModel)
@@ -77,8 +78,8 @@ func TestProviderUsageEvidencePreservesNullAndZeroUsage(t *testing.T) {
 			`{"type":"response.completed","response":{"model":"gpt-6-sol","output":[]}}`,
 			`[DONE]`,
 		)
-		response, err := transport.Generate(context.Background(), OpenAIRequest{
-			Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic,
+		response, err := transport.Generate(context.Background(), ResponsesRequest{
+			Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 		}, StreamCallbacks{})
 		if err != nil {
 			t.Fatalf("Generate failed: %v", err)
@@ -93,8 +94,8 @@ func TestProviderUsageEvidencePreservesNullAndZeroUsage(t *testing.T) {
 			`{"type":"response.completed","response":{"model":"gpt-6-sol","usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0},"output":[]}}`,
 			`[DONE]`,
 		)
-		response, err := transport.Generate(context.Background(), OpenAIRequest{
-			Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic,
+		response, err := transport.Generate(context.Background(), ResponsesRequest{
+			Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 		}, StreamCallbacks{})
 		if err != nil {
 			t.Fatalf("Generate failed: %v", err)
@@ -117,8 +118,8 @@ func TestGenerateRejectsMalformedHostedToolEvidence(t *testing.T) {
 		`{"type":"response.completed","response":{"model":"gpt-6-sol","output":[{"type":"web_search_call","id":"web_1","status":"completed","action":{"type":1}}]}}`,
 		`[DONE]`,
 	)
-	_, err := transport.Generate(context.Background(), OpenAIRequest{
-		Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic,
+	_, err := transport.Generate(context.Background(), ResponsesRequest{
+		Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, StreamCallbacks{})
 	if err == nil {
 		t.Fatal("Generate succeeded with malformed hosted-tool evidence")
@@ -139,9 +140,10 @@ func TestCompactRetainsProviderUsageEvidence(t *testing.T) {
 		))
 	}))
 	t.Cleanup(server.Close)
-	transport := NewHTTPTransport(staticAuthHeader{})
+	transport := newTestHTTPTransport(t, staticAuthHeader{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
 	transport.Client = newRewritingHTTPClient(t, server)
-	response, err := transport.Compact(context.Background(), OpenAIRequest{
+	response, err := transport.Compact(context.Background(), ResponsesRequest{
 		Model:          "gpt-requested",
 		SessionID:      textutil.Value("test-session"),
 		ToolChoiceMode: ToolChoiceModeAutomatic,

@@ -11,10 +11,12 @@ import (
 	"core/shared/llmerrors"
 	"core/shared/modelcontract"
 	"core/shared/textutil"
+	"github.com/openai/openai-go/v3/packages/ssestream"
 	"github.com/openai/openai-go/v3/responses"
 )
 
 type responseStreamAccumulator struct {
+	policy                   responsesPolicy
 	callbacks                StreamCallbacks
 	windowTokens             int
 	assistantText            strings.Builder
@@ -37,8 +39,9 @@ type responseStreamProviderContract struct {
 	Message string
 }
 
-func newResponseStreamAccumulator(callbacks StreamCallbacks, windowTokens int) *responseStreamAccumulator {
+func newResponseStreamAccumulator(callbacks StreamCallbacks, windowTokens int, policy responsesPolicy) *responseStreamAccumulator {
 	return &responseStreamAccumulator{
+		policy:            policy,
 		callbacks:         callbacks,
 		windowTokens:      windowTokens,
 		assistantMessages: newAssistantMessageAccumulator(),
@@ -203,7 +206,7 @@ func responseCompletedEventHasValidPayload(evt responses.ResponseCompletedEvent)
 	return output != nil
 }
 
-func (a *responseStreamAccumulator) Err(providerID string, responseStatus *openAIResponseStatus) error {
+func (a *responseStreamAccumulator) Err(providerID string, responseStatus *responsesStatus) error {
 	if a == nil || a.responseError == nil {
 		return nil
 	}
@@ -220,19 +223,9 @@ func (a *responseStreamAccumulator) Err(providerID string, responseStatus *openA
 	if a.responseError.ProviderContract != nil {
 		return llmerrors.NewProviderContractError(providerID, responseStatus.Code, errors.New(a.responseError.ProviderContract.Message))
 	}
-	if err, ok := mapOpenAIStreamErrorPayload(providerID, []byte(a.responseError.Raw), nil, responseStatus.Code); ok {
-		return err
-	}
-	message := strings.TrimSpace(a.responseError.Raw)
-	if message == "" {
-		message = "unrecognized stream error"
-	}
-	return &ProviderAPIError{
-		ProviderID: providerID,
-		StatusCode: responseStatus.Code,
-		Code:       UnifiedErrorCodeUnknown,
-		Message:    message,
-		Raw:        message,
+	return &ssestream.StreamError{
+		Message: a.responseError.Raw,
+		Event:   ssestream.Event{Data: []byte(a.responseError.Raw)},
 	}
 }
 
@@ -244,12 +237,7 @@ func (a *responseStreamAccumulator) emitReasoningSummaryDelta(coordinate reasoni
 	if entry == nil {
 		return
 	}
-	a.callbacks.OnReasoningSummaryDelta(reasoningSummaryDeltaFromText(
-		entry.SourceCoordinate,
-		entry.ItemIdentity,
-		reasoningRoleSummary,
-		entry.Text,
-	))
+	a.callbacks.OnReasoningSummaryDelta(a.policy.reasoningDelta(*entry))
 }
 
 func (a *responseStreamAccumulator) recordReasoningProviderError(err error) {
@@ -272,7 +260,7 @@ func (a *responseStreamAccumulator) recordReasoningAccumulatorError() {
 	}
 }
 
-func (a *responseStreamAccumulator) Response() (OpenAIResponse, error) {
+func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	usage := Usage{WindowTokens: a.windowTokens}
 	streamText, streamPhase, streamProviderPhase, streamOutputIndex, streamDeltaText, hasResolvedStream := a.assistantMessages.Resolve()
 	rawDeltaText := a.assistantText.String()
@@ -298,23 +286,25 @@ func (a *responseStreamAccumulator) Response() (OpenAIResponse, error) {
 	finalOutputItems := mergePassthroughOutputItems(buildOutputItemsFromStream(finalText, finalTextPresent, finalPhase, finalCalls, finalReasoning, finalReasoningItems), a.passthrough.Items())
 
 	if a.completed == nil {
-		return OpenAIResponse{
+		return ResponsesResponse{
 			AssistantText:  finalText,
 			ProviderPhase:  finalProviderPhase,
 			ToolCalls:      finalCalls,
-			Reasoning:      normalizeReasoningEntries(finalReasoning),
+			Reasoning:      a.policy.reasoningEntries(finalReasoning),
 			ReasoningItems: finalReasoningItems,
 			OutputItems:    finalOutputItems,
 			Usage:          usage,
 		}, nil
 	}
 
-	if a.completed.Usage.InputTokens > 0 || a.completed.Usage.OutputTokens > 0 {
-		usage = usageFromSDK(a.completed.Usage, a.windowTokens)
+	var err error
+	usage, err = a.policy.usage(a.completed.Usage, a.windowTokens)
+	if err != nil {
+		return ResponsesResponse{}, err
 	}
 	parsedItems, parsedText, parsedPhase, parsedProviderPhase, parsedCalls, parsedReasoning, parsedReasoningItems, err := parseOutputItems(a.completed.Output)
 	if err != nil {
-		return OpenAIResponse{}, err
+		return ResponsesResponse{}, err
 	}
 	parsedTextValue := ""
 	if parsedText != nil {
@@ -345,7 +335,7 @@ func (a *responseStreamAccumulator) Response() (OpenAIResponse, error) {
 		(parsedText == nil || !completedAssistantTextReconcilesStream(streamDeltaText, parsedTextValue))
 	if responseItemsContainAssistantMessage(parsedItems) && !reconciled &&
 		(optionalStringsDiffer(finalText, parsedText) || streamDeltaConflict) {
-		return OpenAIResponse{}, fmt.Errorf(
+		return ResponsesResponse{}, fmt.Errorf(
 			"completed assistant content conflicts with streamed assistant content: streamed bytes=%d completed bytes=%d",
 			lenOptionalString(finalText),
 			lenOptionalString(parsedText),
@@ -359,9 +349,9 @@ func (a *responseStreamAccumulator) Response() (OpenAIResponse, error) {
 	finalCalls = a.toolCalls.ToToolCalls()
 	mergedReasoning, mergeErr := mergeReasoningEntries(parsedReasoning, finalReasoning)
 	if mergeErr != nil {
-		return OpenAIResponse{}, mergeErr
+		return ResponsesResponse{}, mergeErr
 	}
-	finalReasoning = normalizeReasoningEntries(mergedReasoning)
+	finalReasoning = a.policy.reasoningEntries(mergedReasoning)
 	finalReasoningItems = mergeReasoningItems(parsedReasoningItems, finalReasoningItems)
 	if len(parsedItems) > 0 {
 		finalOutputItems = mergePassthroughOutputItems(repairAssistantOutputItems(parsedItems, finalText, finalTextPresent, finalPhase, streamOutputIndex, hasResolvedStream), a.passthrough.Items())
@@ -369,10 +359,10 @@ func (a *responseStreamAccumulator) Response() (OpenAIResponse, error) {
 
 	providerEvidence, evidenceErr := providerUsageEvidenceFromResponse(*a.completed, finalOutputItems)
 	if evidenceErr != nil {
-		return OpenAIResponse{}, evidenceErr
+		return ResponsesResponse{}, evidenceErr
 	}
 
-	return OpenAIResponse{
+	return ResponsesResponse{
 		AssistantText:    finalText,
 		ProviderPhase:    finalProviderPhase,
 		ServedModel:      textutil.Pointer(a.standardServedModel),
@@ -936,11 +926,10 @@ func buildOutputItemsFromStream(text *string, textPresent bool, phase MessagePha
 	}
 	summaries := make([]ReasoningEntry, 0, len(reasoning))
 	for _, entry := range reasoning {
-		text := strings.TrimSpace(entry.Text)
-		if text == "" {
+		if strings.TrimSpace(entry.Text) == "" {
 			continue
 		}
-		summaries = append(summaries, ReasoningEntry{Role: entry.Role, Text: text})
+		summaries = append(summaries, ReasoningEntry{Role: entry.Role, Text: entry.Text})
 	}
 	for _, item := range reasoningItems {
 		id := strings.TrimSpace(item.ID)

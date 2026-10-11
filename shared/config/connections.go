@@ -17,6 +17,9 @@ type ConnectionReplacement struct {
 const (
 	ConnectionResponses            ConnectionProtocol = "responses"
 	ConnectionChatGPT              ConnectionProtocol = "chatgpt-codex"
+	ConnectionGrokCLIProxy         ConnectionProtocol = "grok-cli-proxy"
+	ConnectionGrokOAuthAPI         ConnectionProtocol = "grok-oauth-api"
+	ConnectionGrokAPIKey           ConnectionProtocol = "grok-api-key"
 	DefaultOpenAIResponsesEndpoint                    = "https://api.openai.com/v1"
 )
 
@@ -25,6 +28,15 @@ type ProviderConnection struct {
 	Endpoint            *string
 	EnvironmentVariable *string
 	Capabilities        ProviderCapabilitiesOverride
+}
+
+func (p ConnectionProtocol) IsSubscription() bool {
+	switch p {
+	case ConnectionChatGPT, ConnectionGrokCLIProxy, ConnectionGrokOAuthAPI:
+		return true
+	default:
+		return false
+	}
 }
 
 type ConnectionReferenceError struct {
@@ -54,9 +66,16 @@ func (s Settings) SelectedConnection() (ProviderConnection, error) {
 
 func (c ProviderConnection) Validate() error {
 	switch c.Protocol {
-	case ConnectionChatGPT:
+	case ConnectionChatGPT, ConnectionGrokCLIProxy, ConnectionGrokOAuthAPI:
 		if c.Endpoint != nil || c.EnvironmentVariable != nil {
-			return fmt.Errorf("ChatGPT connections use subscription sign-in, without an endpoint or environment variable")
+			return fmt.Errorf("%s connections use subscription sign-in, without an endpoint or environment variable", c.Protocol)
+		}
+	case ConnectionGrokAPIKey:
+		if c.Endpoint != nil {
+			return fmt.Errorf("Grok API-key connections use the official endpoint")
+		}
+		if c.EnvironmentVariable == nil || strings.TrimSpace(*c.EnvironmentVariable) == "" {
+			return fmt.Errorf("Grok API-key connections require an environment-variable name")
 		}
 	case ConnectionResponses:
 		if c.Endpoint == nil {
@@ -70,7 +89,7 @@ func (c ProviderConnection) Validate() error {
 			return fmt.Errorf("environment_variable cannot be empty; omit it for auth-less access")
 		}
 	default:
-		return fmt.Errorf("connection protocol must be responses or chatgpt-codex")
+		return fmt.Errorf("unsupported connection protocol %q", c.Protocol)
 	}
 	return nil
 }

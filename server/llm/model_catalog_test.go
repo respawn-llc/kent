@@ -77,8 +77,8 @@ func TestLookupModelMetadataForGPT56SolContextWindow(t *testing.T) {
 	if meta.ContextWindowTokens != 372_000 {
 		t.Fatalf("unexpected default context window: %d", meta.ContextWindowTokens)
 	}
-	if meta.LargeContextWindowTokens != 372_000 {
-		t.Fatalf("unexpected large context window: %d", meta.LargeContextWindowTokens)
+	if meta.LargeContextWindowTokens == nil || *meta.LargeContextWindowTokens != 372_000 {
+		t.Fatalf("unexpected large context window: %v", meta.LargeContextWindowTokens)
 	}
 }
 

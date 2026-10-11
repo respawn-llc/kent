@@ -39,6 +39,10 @@ func cloneMeta(in Meta) Meta {
 	out.RebindReminder = CloneSessionRebindReminder(in.RebindReminder)
 	if in.UsageState != nil {
 		usage := *in.UsageState
+		usage.InputTokens = textutil.Pointer(usage.InputTokens)
+		usage.OutputTokens = textutil.Pointer(usage.OutputTokens)
+		usage.CachedInputTokens = textutil.Pointer(usage.CachedInputTokens)
+		usage.ReportedContextTokens = textutil.Pointer(usage.ReportedContextTokens)
 		out.UsageState = &usage
 	}
 	if in.Goal != nil {

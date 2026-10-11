@@ -240,6 +240,15 @@ func (c *Remote) ConfigureConnection(ctx context.Context, req *authpb.ConfigureC
 		})
 }
 
+func (c *Remote) StartBootstrap(ctx context.Context, req *authpb.StartBootstrapRequest) (*authpb.BootstrapStart, error) {
+	return callGeneratedBinary(c, ctx,
+		bootstrapMethod(authpb.File_kent_api_auth_auth_proto, "AuthService", "StartBootstrap"),
+		req, &authpb.StartBootstrapResult{},
+		func(failure *authpb.CompleteBootstrapError) error {
+			return authGeneratedError(failure.Code, failure.GetInternalFailure(), failure.GetConnectionFailure())
+		})
+}
+
 func (c *Remote) CompleteBootstrap(ctx context.Context, req *authpb.CompleteBootstrapRequest) (*authpb.BootstrapCompletion, error) {
 	resp, err := callGeneratedBinary(c, ctx,
 		bootstrapMethod(authpb.File_kent_api_auth_auth_proto, "AuthService", "CompleteBootstrap"),

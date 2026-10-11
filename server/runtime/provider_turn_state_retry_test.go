@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"core/server/llm"
+	"core/shared/config"
 	"core/shared/textutil"
 )
 
@@ -50,11 +51,11 @@ func TestGenerateWithRetryReplaysExactProviderTurnState(t *testing.T) {
 		t.Fatalf("NewCodexDispatchContext: %v", err)
 	}
 	transport := newProviderTurnStateTransport(t, server)
-	client := llm.NewOpenAIClient(transport)
+	client := llm.NewResponsesClient(transport)
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	_, err = engine.generateWithRetryClient(context.Background(), runtimeTestStepID("provider-turn-state"), newObservedModelClient(client), llm.Request{
 		Model: "gpt-6-sol", SessionID: textutil.Value("session-1"), CodexDispatch: dispatch,
-		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
+		ToolChoiceMode: llm.ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("generateWithRetryClient: %v", err)
@@ -82,7 +83,7 @@ func TestGenerationMissingOutputRebuildDoesNotReplayProviderTurnState(t *testing
 	}))
 	t.Cleanup(server.Close)
 	transport := newProviderTurnStateTransport(t, server)
-	client := llm.NewOpenAIClient(transport)
+	client := llm.NewResponsesClient(transport)
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	steerDanglingToolCall(t, engine, "seed", llm.ToolCall{ID: "missing", Name: "exec_command", Input: []byte(`{}`)})
 	err := engine.stepLifecycle.Run(t.Context(), exclusiveStepOptions{ActiveKind: ActiveKindUserTurn}, func(ctx context.Context, stepID string) error {
@@ -117,9 +118,14 @@ func newProviderTurnStateTransport(t *testing.T, server *httptest.Server) *llm.H
 	if err != nil {
 		t.Fatalf("parse test server URL: %v", err)
 	}
-	transport := llm.NewHTTPTransport(providerTurnStateOAuthAuth{})
-	transport.BaseURL = "https://chatgpt.com/backend-api/codex"
-	transport.BaseURLExplicit = true
+	registration, err := llm.ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionChatGPT})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := llm.NewHTTPTransport(providerTurnStateOAuthAuth{}, registration)
+	if err != nil {
+		t.Fatal(err)
+	}
 	transport.Client = &http.Client{
 		Transport: httpclient.NewURLRewriteTransport(target, server.Client().Transport, ""),
 	}

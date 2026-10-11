@@ -66,18 +66,25 @@ func producedReasoningAttribution(providerID *string, encrypted bool) *modelcont
 }
 
 func stampProducedReasoning(response *llm.Response, providerID *string) error {
-	for index := range response.OutputItems {
-		item := &response.OutputItems[index]
+	if err := stampProducedItems(response.OutputItems, providerID); err != nil {
+		return err
+	}
+	for _, items := range [][]llm.ReasoningItem{response.ReasoningItems, response.Assistant.ReasoningItems} {
+		for index := range items {
+			items[index].Attribution = producedReasoningAttribution(providerID, items[index].EncryptedContent != "")
+		}
+	}
+	return nil
+}
+
+func stampProducedItems(items []llm.ResponseItem, providerID *string) error {
+	for index := range items {
+		item := &items[index]
 		if item.Type == llm.ResponseItemTypeReasoning || item.Type == llm.ResponseItemTypeCompaction {
 			if err := llm.RestoreRetainedItemFacts(item); err != nil {
 				return err
 			}
 			item.Attribution = producedReasoningAttribution(providerID, item.EncryptedContent != nil)
-		}
-	}
-	for _, items := range [][]llm.ReasoningItem{response.ReasoningItems, response.Assistant.ReasoningItems} {
-		for index := range items {
-			items[index].Attribution = producedReasoningAttribution(providerID, items[index].EncryptedContent != "")
 		}
 	}
 	return nil

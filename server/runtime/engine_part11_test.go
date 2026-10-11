@@ -156,7 +156,7 @@ func TestModelResponseEventCarriesContextUsage(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
-		Usage:     llm.Usage{InputTokens: 420},
+		Usage:     llm.Usage{InputTokens: textutil.Value(420), ContextUsage: &llm.ContextUsage{Tokens: 420, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}
 	var usage *ContextUsage
 	autoCompactionEnabled := false
@@ -362,7 +362,7 @@ func TestContextUsageUsesLastUsageWhenAvailable(t *testing.T) {
 	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol", ContextWindowTokens: 400_000})
-	eng.setLastUsage(llm.Usage{InputTokens: 1234, OutputTokens: 66, WindowTokens: 399_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(1234), OutputTokens: textutil.Value(66), WindowTokens: 399_000, ContextUsage: &llm.ContextUsage{Tokens: 1234, MeasurementPoint: llm.ContextMeasurementInput}})
 
 	usage := eng.ContextUsage()
 	if usage.UsedTokens != 1234 {
@@ -397,9 +397,9 @@ func TestContextUsageTracksWeightedCacheHitPercentageFromModelUsage(t *testing.T
 		t.Fatalf("expected cache hit percentage to be unavailable before model usage, got %+v", usage)
 	}
 
-	eng.setLastUsage(llm.Usage{InputTokens: 100, CachedInputTokens: textutil.Value(40)})
-	eng.setLastUsage(llm.Usage{InputTokens: 300, CachedInputTokens: textutil.Value(60)})
-	eng.setLastUsage(llm.Usage{InputTokens: 999})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(100), CachedInputTokens: textutil.Value(40), ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(300), CachedInputTokens: textutil.Value(60), ContextUsage: &llm.ContextUsage{Tokens: 300, MeasurementPoint: llm.ContextMeasurementInput}})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(999), ContextUsage: &llm.ContextUsage{Tokens: 999, MeasurementPoint: llm.ContextMeasurementInput}})
 
 	usage := eng.ContextUsage()
 	if !usage.HasCacheHitPercentage {
@@ -413,7 +413,7 @@ func TestContextUsageTracksWeightedCacheHitPercentageFromModelUsage(t *testing.T
 func TestContextUsageUsesEstimatedTokensWhenLastUsageIsStale(t *testing.T) {
 	t.Parallel()
 	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{ContextWindowTokens: 410_000})
-	eng.setLastUsage(llm.Usage{InputTokens: 100, OutputTokens: 0, WindowTokens: 410_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(100), OutputTokens: textutil.Value(0), WindowTokens: 410_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value(strings.Repeat("x", 1600))}})); err != nil {
 		t.Fatalf("append message: %v", err)
 	}
@@ -437,7 +437,7 @@ func TestContextUsageAddsOnlyPostCheckpointEstimateDelta(t *testing.T) {
 		t.Fatalf("append seed message: %v", err)
 	}
 	checkpointEstimate := llm.EstimateItemsTokens(eng.cfg.TokenEstimator, eng.transcriptRuntimeState().SnapshotItems())
-	eng.setLastUsage(llm.Usage{InputTokens: 900, OutputTokens: 120, WindowTokens: 410_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(900), OutputTokens: textutil.Value(120), WindowTokens: 410_000, ContextUsage: &llm.ContextUsage{Tokens: 900, MeasurementPoint: llm.ContextMeasurementInput}})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value(strings.Repeat("delta-", 40))}})); err != nil {
 		t.Fatalf("append delta message: %v", err)
 	}
@@ -480,7 +480,7 @@ func TestContextUsageDoesNotInflateInlineImagePayloadByBase64Length(t *testing.T
 	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol", ContextWindowTokens: 410_000})
-	eng.setLastUsage(llm.Usage{InputTokens: 100, OutputTokens: 0, WindowTokens: 410_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(100), OutputTokens: textutil.Value(0), WindowTokens: 410_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{
 		Role:       llm.RoleTool,
 		ToolCallID: textutil.Value("call-1"),

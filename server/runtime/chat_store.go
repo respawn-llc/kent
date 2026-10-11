@@ -230,7 +230,7 @@ func (s *chatStore) replaceHistoryAtCommittedEntryStart(
 ) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	preparedItems := llm.PrepareOpenAIInputItems(items)
+	preparedItems := llm.PrepareResponsesInputItems(items)
 	s.recordReplacementToolCallStepIDsLocked(stepID, preparedItems)
 	s.installWorkingSetLocked(stepID, &compactionCheckpoint{Items: llm.CloneResponseItems(preparedItems)}, committedEntryStart, projectedEntries)
 }
@@ -246,7 +246,7 @@ func (s *chatStore) beginGeneration(stepID *string, committedEntryStart int, ent
 func (s *chatStore) prepareGeneration(items []llm.ResponseItem, entries []ChatEntry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.compact = &compactionCheckpoint{Items: llm.CloneResponseItems(llm.PrepareOpenAIInputItems(items))}
+	s.compact = &compactionCheckpoint{Items: llm.CloneResponseItems(llm.PrepareResponsesInputItems(items))}
 	for _, entry := range entries {
 		s.appendProjectedEntryLocked(entry, false)
 		s.local[len(s.local)-1].AfterMessageCount = len(s.messageRecords)
@@ -755,7 +755,7 @@ func (s *chatStore) snapshotProviderItemsLocked() ([]llm.ResponseItem, *int) {
 		if completionName == "" {
 			completionName = itemName
 		}
-		pendingOutputs = append(pendingOutputs, llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+		pendingOutputs = append(pendingOutputs, llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 			Type:   llm.ToolOutputItemType(item.Type == llm.ResponseItemTypeCustomToolCall),
 			CallID: textutil.Value(callID),
 			Name:   textutil.OptionalExactString(completionName),

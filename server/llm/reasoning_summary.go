@@ -10,7 +10,7 @@ func normalizeReasoningEntries(entries []ReasoningEntry) []ReasoningEntry {
 	out := make([]ReasoningEntry, 0, len(entries))
 	for _, entry := range entries {
 		role, present := textutil.OptionalTrimmed(entry.Role)
-		trace, _ := partitionReasoningStatus(entry.Text)
+		trace, _ := partitionReasoningStatus(strings.TrimSpace(entry.Text))
 		summary := normalizeReasoningSummaryLines(strings.Split(strings.ReplaceAll(trace, "\r\n", "\n"), "\n"))
 		if !present || summary == "" {
 			continue

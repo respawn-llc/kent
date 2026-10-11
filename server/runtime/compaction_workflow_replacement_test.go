@@ -140,7 +140,7 @@ func TestWorkflowPostCompletionCompactionDefersGenerationContextUntilNextRequest
 	if err := engine.Close(); err != nil {
 		t.Fatal(err)
 	}
-	target := mustNewTestEngine(t, mustOpenTestSession(t, engine.store.Dir()), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6.1-sol"})
+	target := mustNewTestEngine(t, mustOpenTestSession(t, engine.store.Dir()), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6.1-sol", ThinkingLevel: "medium"})
 	if err := target.ensureMetaContextForRequest(context.Background(), runtimeTestStepID("target")); err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestWorkflowPostCompletionCompactionDefersGenerationContextUntilNextRequest
 	if err := target.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened := mustNewTestEngine(t, mustOpenTestSession(t, target.store.Dir()), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6.1-sol"})
+	reopened := mustNewTestEngine(t, mustOpenTestSession(t, target.store.Dir()), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6.1-sol", ThinkingLevel: "medium"})
 	if err := reopened.ensureMetaContextForRequest(context.Background(), runtimeTestStepID("resume")); err != nil {
 		t.Fatal(err)
 	}
@@ -819,7 +819,7 @@ func TestWorkflowCompactionContextRetryPreservesSummaryAndTargetContext(t *testi
 	observerErr := errors.New("target context persistence failed")
 	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6.1-sol"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6.1-sol", ThinkingLevel: "medium"})
 	commitWorkflowPostCompletionTestSummary(t, engine)
 	gate.FailNext(observerErr)
 	err := withActiveTestRun(t, engine, ActiveKindUserTurn, func(ctx context.Context, stepID string) error {

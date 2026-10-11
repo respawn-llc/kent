@@ -2,11 +2,13 @@ package modelcontract
 
 type ModelMetadata struct {
 	ContextWindowTokens      int
-	LargeContextWindowTokens int
+	LargeContextWindowTokens *int
 }
 
 type ProviderCapabilities struct {
-	ProviderID                    string
+	ProviderID string
+	// ReasoningType is a live transport fact, not a configurable or locked capability.
+	ReasoningType                 *ReasoningType
 	SupportsResponsesAPI          bool
 	SupportsFastMode              bool
 	SupportsNativeThinkingUpdates bool

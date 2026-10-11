@@ -32,7 +32,7 @@ func TestAssistantMessageAfterCacheWarningOwnsOnlyAssistantRange(t *testing.T) {
 	stepID := runtimeTestStepID("step")
 	restoreStep := setTestActiveStep(engine, stepID)
 	defer restoreStep()
-	if err := engine.observeProviderResponse(stepID, llm.Request{Model: "gpt-6-sol"}, modelcontract.ProviderOperationPurposeGeneration, preparedCacheRequestObservation{
+	if err := engine.observeProviderResponse(stepID, llm.Request{Model: "gpt-6-sol", ReasoningEffort: "high"}, modelcontract.ProviderOperationPurposeGeneration, preparedCacheRequestObservation{
 		request: persistedCacheRequestObserved{
 			DigestVersion: requestCacheDigestVersion,
 			CacheKey:      "cache-key",

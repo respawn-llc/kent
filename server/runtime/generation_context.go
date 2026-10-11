@@ -254,7 +254,7 @@ func compactionOutputFromRecord(record session.CompactedOutput) (compactionOutpu
 
 func compactedOutputRecord(output compactionOutput) (session.CompactedOutput, error) {
 	record := session.CompactedOutput{}
-	for index, item := range llm.PrepareOpenAIInputItems(output.summary) {
+	for index, item := range llm.PrepareResponsesInputItems(output.summary) {
 		stored, err := sessionProviderHistoryItemFromLLM(index, item)
 		if err != nil {
 			return session.CompactedOutput{}, err

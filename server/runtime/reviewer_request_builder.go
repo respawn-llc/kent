@@ -31,6 +31,10 @@ func (e *Engine) buildReviewerRequest(ctx context.Context, reviewerClient *obser
 		return llm.Request{}, err
 	}
 	reviewerCfg := e.reviewerRequestConfigSnapshot()
+	effort := llm.ProviderThinkingEffort(reviewerCfg.Model, reviewerCfg.ThinkingLevel)
+	if err := llm.ValidateModelReasoningEffort(reviewerCfg.Model, effort); err != nil {
+		return llm.Request{}, err
+	}
 	reviewerItems, err := buildReviewerRequestItemsWithBuilder(e.transcriptRuntimeState().SnapshotItems(), newActiveMetaContextBuilder(e.store.Meta(), e.transcriptWorkingDir(), e.cfg.Model, e.ThinkingLevel(), e.cfg.GlobalConfigDir, e.cfg.SkillPolicy, e.reviewerMetaTimestamp()), e.cfg.HeadlessMode)
 	if err != nil {
 		return llm.Request{}, err
@@ -44,7 +48,7 @@ func (e *Engine) buildReviewerRequest(ctx context.Context, reviewerClient *obser
 		Temperature:             1,
 		MaxTokens:               0,
 		FastMode:                e.FastModeEnabled(),
-		ReasoningEffort:         llm.ProviderThinkingEffort(reviewerCfg.Model, reviewerCfg.ThinkingLevel),
+		ReasoningEffort:         effort,
 		SupportsReasoningEffort: reviewerCfg.ModelCapabilities.SupportsReasoningEffort,
 		SystemPrompt:            systemPrompt,
 		Items:                   reviewerItems,

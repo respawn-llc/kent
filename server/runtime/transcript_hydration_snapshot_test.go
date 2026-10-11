@@ -6,6 +6,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/textutil"
 )
 
 func newTranscriptHydrationSnapshotTestEngine(t *testing.T, client llm.Client) *Engine {
@@ -77,7 +78,7 @@ func TestTranscriptHydrationSnapshotProjectsAndResetsRuntimeOwners(t *testing.T)
 	); err != nil {
 		t.Fatalf("steer active owner events: %v", err)
 	}
-	engine.setLastUsage(llm.Usage{InputTokens: 123, WindowTokens: 1000})
+	engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(123), WindowTokens: 1000, ContextUsage: &llm.ContextUsage{Tokens: 123, MeasurementPoint: llm.ContextMeasurementInput}})
 	if _, err := engine.SetGoal(t.Context(), "ship the owner snapshot", session.GoalActorUser); err != nil {
 		t.Fatalf("set goal: %v", err)
 	}

@@ -31,7 +31,7 @@ func TestCompactionRefreshesFullContract(t *testing.T) {
 				},
 				responses: []llm.Response{finalOutputItemResponse("seed"), finalOutputItemResponse("next")},
 				compactionResponses: []llm.CompactionResponse{{
-					Checkpoint: llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")},
+					OutputItems: []llm.ResponseItem{llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")}},
 				}},
 			}
 			if mode == "local" {
@@ -89,13 +89,13 @@ func TestRepeatedManualCompactionLeavesSummaryPending(t *testing.T) {
 					finalOutputItemResponse("next"), finalOutputItemResponse("next summary"),
 				},
 				compactionResponses: []llm.CompactionResponse{{
-					Checkpoint: llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")},
+					OutputItems: []llm.ResponseItem{{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")}},
 				}, {
-					Checkpoint: llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("next checkpoint")},
+					OutputItems: []llm.ResponseItem{{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("next checkpoint")}},
 				}},
 			}
 			engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-				Model: "gpt-6-astra", CompactionMode: mode,
+				Model: "gpt-6-astra", ThinkingLevel: "medium", CompactionMode: mode,
 			})
 			if _, err := engine.SubmitUserMessage(t.Context(), "seed"); err != nil {
 				t.Fatal(err)
@@ -117,7 +117,7 @@ func TestRepeatedManualCompactionLeavesSummaryPending(t *testing.T) {
 			}
 			reopened := mustOpenTestSession(t, store.Dir())
 			resumed := mustNewTestEngine(t, reopened, client, tools.NewRegistry(), Config{
-				Model: "gpt-6-astra", CompactionMode: mode,
+				Model: "gpt-6-astra", ThinkingLevel: "medium", CompactionMode: mode,
 			})
 			scheduleManualCompactionAndWait(t, resumed)
 			if len(client.calls) != calls || len(client.compactionCalls) != compactCalls ||

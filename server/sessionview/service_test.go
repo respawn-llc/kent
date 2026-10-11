@@ -229,7 +229,7 @@ func TestServiceGetSessionMainViewProjectsCompleteDormantStateWithoutGoal(t *tes
 	workspaceRoot := t.TempDir()
 	executionRoot := t.TempDir()
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workspaceRoot)
-	if _, err := store.SetUsageState(&session.UsageState{InputTokens: 25_000}); err != nil {
+	if _, err := store.SetUsageState(&session.UsageState{InputTokens: textutil.Value(25_000), ReportedContextTokens: textutil.Value(25_000)}); err != nil {
 		t.Fatalf("SetUsageState: %v", err)
 	}
 	if err := store.SetSessionContextFacts(2, true); err != nil {

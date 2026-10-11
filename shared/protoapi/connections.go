@@ -9,9 +9,18 @@ import (
 )
 
 func ConnectionToProto(id config.ConnectionID, definition config.ProviderConnection) *authpb.ConnectionDefinition {
-	protocol := authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES
-	if definition.Protocol == config.ConnectionChatGPT {
+	var protocol authpb.ConnectionProtocol
+	switch definition.Protocol {
+	case config.ConnectionResponses:
+		protocol = authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES
+	case config.ConnectionChatGPT:
 		protocol = authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT
+	case config.ConnectionGrokCLIProxy:
+		protocol = authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_CLI_PROXY
+	case config.ConnectionGrokOAuthAPI:
+		protocol = authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_OAUTH_API
+	case config.ConnectionGrokAPIKey:
+		protocol = authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_API_KEY
 	}
 	result := &authpb.ConnectionDefinition{Id: string(id), Protocol: protocol, Endpoint: definition.Endpoint, EnvironmentVariable: definition.EnvironmentVariable}
 	if definition.Capabilities != (config.ProviderCapabilitiesOverride{}) {
@@ -34,6 +43,12 @@ func ConnectionFromProto(value *authpb.ConnectionDefinition) (config.ConnectionI
 		definition.Protocol = config.ConnectionResponses
 	case authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT:
 		definition.Protocol = config.ConnectionChatGPT
+	case authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_CLI_PROXY:
+		definition.Protocol = config.ConnectionGrokCLIProxy
+	case authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_OAUTH_API:
+		definition.Protocol = config.ConnectionGrokOAuthAPI
+	case authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_API_KEY:
+		definition.Protocol = config.ConnectionGrokAPIKey
 	default:
 		return "", config.ProviderConnection{}, fmt.Errorf("unsupported connection protocol %v", value.Protocol)
 	}

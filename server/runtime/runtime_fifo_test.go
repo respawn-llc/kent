@@ -1339,10 +1339,10 @@ func TestManualCompactionReleasesRuntimeFIFOAfterScheduling(t *testing.T) {
 	client := &heldRuntimeCompactionClient{
 		fakeCompactionClient: &fakeCompactionClient{
 			compactionResponses: []llm.CompactionResponse{{
-				Checkpoint: llm.ResponseItem{
+				OutputItems: []llm.ResponseItem{llm.ResponseItem{
 					Type:             llm.ResponseItemTypeCompaction,
 					EncryptedContent: textutil.Value("checkpoint"),
-				},
+				}},
 				Usage: llm.Usage{WindowTokens: 200000},
 			}},
 		},
@@ -1385,10 +1385,10 @@ func TestSteersAcceptedDuringCompactionFullyDrainIntoTheFollowingAgentStep(t *te
 	client := &heldRuntimeCompactionClient{
 		fakeCompactionClient: &fakeCompactionClient{
 			compactionResponses: []llm.CompactionResponse{{
-				Checkpoint: llm.ResponseItem{
+				OutputItems: []llm.ResponseItem{llm.ResponseItem{
 					Type:             llm.ResponseItemTypeCompaction,
 					EncryptedContent: textutil.Value("checkpoint"),
-				},
+				}},
 				Usage: llm.Usage{WindowTokens: 200000},
 			}},
 			responses: []llm.Response{finalTextResponse("done")},

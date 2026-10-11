@@ -2702,10 +2702,10 @@ func TestServiceAdmitManualCompactionAcceptsEligibleIdleRuntime(t *testing.T) {
 			Usage: llm.Usage{WindowTokens: 200000},
 		}},
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				EncryptedContent: textutil.Value("checkpoint"),
-			},
+			}},
 			Usage: llm.Usage{WindowTokens: 200000},
 		}},
 	}
@@ -3255,7 +3255,7 @@ func TestServicePreSubmitCompactionDoesNotOwnDraftOrSteeringAdmission(t *testing
 				{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("delivered"), Phase: textutil.Value(llm.MessagePhaseFinal)}},
 			},
 			compactionResponses: []llm.CompactionResponse{
-				{Checkpoint: llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")}},
+				{OutputItems: []llm.ResponseItem{llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")}}},
 			},
 		},
 		started: make(chan struct{}), release: make(chan struct{}),
@@ -3266,7 +3266,10 @@ func TestServicePreSubmitCompactionDoesNotOwnDraftOrSteeringAdmission(t *testing
 	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{
 		Model: "gpt-6-sol", ProviderCapabilitiesOverride: &runtimeControlOpenAICapabilities,
 	})
-	client.responses[0].Usage.InputTokens = int(engine.LiveChatContextSnapshot().Policy.AutomaticThresholdTokens) - config.DefaultPreSubmitRunwayTokens + 1
+	client.responses[0].Usage.InputTokens = textutil.Value(int(engine.LiveChatContextSnapshot().Policy.AutomaticThresholdTokens) - config.DefaultPreSubmitRunwayTokens + 1)
+	client.responses[0].Usage.ContextUsage = &llm.ContextUsage{
+		Tokens: *client.responses[0].Usage.InputTokens, MeasurementPoint: llm.ContextMeasurementInput,
+	}
 	if _, err := engine.SubmitUserMessage(t.Context(), "seed"); err != nil {
 		t.Fatal(err)
 	}
@@ -3331,10 +3334,10 @@ func TestServiceInterruptCompactionAllowsNextTurnWithoutRestart(t *testing.T) {
 				},
 			},
 			compactionResponses: []llm.CompactionResponse{{
-				Checkpoint: llm.ResponseItem{
+				OutputItems: []llm.ResponseItem{llm.ResponseItem{
 					Type:             llm.ResponseItemTypeCompaction,
 					EncryptedContent: textutil.Value("checkpoint"),
-				},
+				}},
 				Usage: llm.Usage{WindowTokens: 200000},
 			}},
 		},

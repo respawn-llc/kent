@@ -284,6 +284,9 @@ func resolvePromptFacingSnapshotPlan(app config.App, store *session.Store, skipC
 	meta := store.Meta()
 	baseActive := EffectiveSettings(app.Settings, meta.Locked)
 	baseSource := app.Source
+	if err := projectSessionConnection(&baseActive, baseSource, meta); err != nil {
+		return SessionPlan{}, err
+	}
 	active, source, chatSettings, err := resolveReadOnlySessionContextSettings(app, meta, skipContinuationAgentRoleValidation)
 	if err != nil {
 		return SessionPlan{}, err
@@ -450,6 +453,11 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 	}
 	baseActive := EffectiveSettings(p.Config.Settings, meta.Locked)
 	baseSource := p.Config.Source
+	if meta.ConnectionID != nil || baseActive.Connection != nil {
+		if err := projectSessionConnection(&baseActive, baseSource, meta); err != nil {
+			return SessionPlan{}, err
+		}
+	}
 	var continuationAgentRole *string
 	if meta.Continuation != nil {
 		continuationAgentRole = cloneContinuationRole(meta.Continuation.AgentRole)
@@ -467,7 +475,7 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 			return SessionPlan{}, err
 		}
 	}
-	if meta.ConnectionID != nil {
+	if meta.ConnectionID != nil || active.Connection != nil {
 		if err := projectSessionConnection(&active, source, meta); err != nil {
 			return SessionPlan{}, err
 		}
@@ -592,11 +600,15 @@ func applyPersistedSubagentRoleSettings(base config.Settings, source config.Sour
 }
 
 func persistedRoleProviderID(settings config.Settings) (string, error) {
-	capabilities, err := llm.ResolveRuntimeProviderCapabilities(settings)
+	connection, err := settings.SelectedConnection()
 	if err != nil {
 		return "", err
 	}
-	return capabilities.ProviderID, nil
+	selected, err := llm.ResolveConnectionVariant(connection)
+	if err != nil {
+		return "", err
+	}
+	return selected.Variant.ProviderID, nil
 }
 
 // ApplyRunPromptOverridesWithStore applies overrides through an already-admitted
@@ -725,7 +737,7 @@ func baseConfigForPlan(plan SessionPlan) config.App {
 	}
 }
 
-type modelContextBudgetApplier func(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool)
+type modelContextBudgetApplier func(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool) error
 
 // PrepareRunPromptOverrides resolves every config-backed part of a RunPrompt
 // target from one loaded application snapshot. It intentionally performs no
@@ -810,7 +822,10 @@ func prepareAgent(app config.App, overrides serverapi.RunPromptOverrides, prepar
 		} else {
 			resolved := EffectiveSettings(app.Settings, preparation.ModelLock)
 			source := cloneSourceReport(app.Source)
-			config.InheritReviewerSettings(&resolved, source.Sources)
+			var unavailable *config.ConnectionReferenceError
+			if err := projectSessionConnection(&resolved, source, session.Meta{Locked: preparation.ModelLock}); err != nil && !errors.As(err, &unavailable) {
+				return agentPreparation{}, err
+			}
 			capabilities, err := llm.ResolveRuntimeProviderCapabilities(resolved)
 			if err != nil {
 				var reference *config.ConnectionReferenceError
@@ -857,14 +872,14 @@ func prepareAgent(app config.App, overrides serverapi.RunPromptOverrides, prepar
 	if err != nil {
 		return agentPreparation{}, err
 	}
-	capabilities, err := llm.ResolveRuntimeProviderCapabilities(providerSettings)
+	selectedProviderID, err := persistedRoleProviderID(providerSettings)
 	var reference *config.ConnectionReferenceError
 	if err != nil && !errors.As(err, &reference) {
 		return agentPreparation{}, err
 	}
 	var providerID *string
 	if reference == nil {
-		providerID = &capabilities.ProviderID
+		providerID = &selectedProviderID
 	}
 	roleSettings, err := prepareSubagentSettingsFromRole(
 		EffectiveSettings(app.Settings, preparation.ModelLock), app.Source,
@@ -894,6 +909,10 @@ func prepareAgent(app config.App, overrides serverapi.RunPromptOverrides, prepar
 	}
 	prepared.NamedTarget = &target
 	if !preparation.SkipProviderReadinessValidation {
+		capabilities, err := llm.ResolveRuntimeProviderCapabilities(providerSettings)
+		if err != nil {
+			return agentPreparation{}, err
+		}
 		prepared.ProviderCapabilities = &capabilities
 	}
 	return prepared, nil
@@ -963,7 +982,9 @@ func applyPreparedConfigOverrides(settings config.Settings, source config.Source
 				explicitSources[key] = value
 			}
 		}
-		applyBudget(&settings, explicitSources, originalModel, true)
+		if err := applyBudget(&settings, explicitSources, originalModel, true); err != nil {
+			return config.Settings{}, config.SourceReport{}, nil, err
+		}
 	}
 	if toolLock == nil && (strings.TrimSpace(overrides.Tools) != "" || strings.TrimSpace(overrides.Model) != "") {
 		var err error

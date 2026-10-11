@@ -184,8 +184,11 @@ func (s *Service) resolveDormantChatProjection(ctx context.Context, snapshot ses
 	}
 	policy := chatcontext.ResolvePolicy(current.Settings, capabilities, snapshot.Meta.Locked)
 	usedTokens := int64(0)
-	if snapshot.Meta.UsageState != nil {
-		usedTokens = int64(snapshot.Meta.UsageState.InputTokens)
+	if state := snapshot.Meta.UsageState; state != nil {
+		usedTokens = int64(state.EstimatedProviderTokens)
+		if state.ReportedContextTokens != nil {
+			usedTokens = int64(*state.ReportedContextTokens)
+		}
 	}
 	completedCount := int64(0)
 	if snapshot.Facts.CompletedCompactionCount != nil {

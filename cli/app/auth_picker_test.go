@@ -4,17 +4,23 @@ import (
 	"errors"
 	"testing"
 
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestAuthMethodPickerSelectsSecondOption(t *testing.T) {
-	m := newAuthMethodPickerModel("dark", startupPickerNotice{})
+	m, result, err := newAuthMethodPickerModel(authInteraction{Theme: "dark", Modes: []authpb.BootstrapMode{
+		authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL, authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	m = next.(*startupPickerModel)
+	m = next.(*onboardingModel)
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = next.(*startupPickerModel)
-	if m.result.ChoiceID != string(authMethodChoiceDevice) {
-		t.Fatalf("choice=%q want %q", m.result.ChoiceID, authMethodChoiceDevice)
+	m = next.(*onboardingModel)
+	if result.Choice != authMethodChoiceDevice {
+		t.Fatalf("choice=%q want %q", result.Choice, authMethodChoiceDevice)
 	}
 }
 
@@ -31,10 +37,13 @@ func TestStartupPickerEnterDoesNothingWhenThereAreNoItems(t *testing.T) {
 }
 
 func TestAuthMethodPickerCancel(t *testing.T) {
-	m := newAuthMethodPickerModel("dark", startupPickerNotice{})
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
-	m = next.(*startupPickerModel)
-	if !m.result.Canceled {
+	m, _, err := newAuthMethodPickerModel(authInteraction{Theme: "dark"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(*onboardingModel)
+	if !m.canceled {
 		t.Fatal("expected canceled result")
 	}
 }

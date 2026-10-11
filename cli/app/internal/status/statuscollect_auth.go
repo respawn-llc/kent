@@ -49,7 +49,7 @@ func authInfoFromFacts(facts *authpb.StatusFacts, failure *authpb.StatusFailure)
 		}
 	}
 	info := AuthInfo{
-		Visible:  true,
+		Visible:  facts.GetProvider().GetKind() == authpb.ProviderKind_PROVIDER_KIND_OPENAI && facts.GetMethod() == authpb.AuthMethod_AUTH_METHOD_OAUTH,
 		Method:   facts.GetMethod(),
 		Provider: provider,
 	}

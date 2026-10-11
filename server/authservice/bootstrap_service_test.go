@@ -70,9 +70,16 @@ func TestConnectionOAuthSignInReauthenticationAndFailure(t *testing.T) {
 			return server.Client().Transport.RoundTrip(copy)
 		})},
 	})
+	start, err := service.StartBootstrap(t.Context(), &authpb.StartBootstrapRequest{
+		Target: protoapi.ExistingConnectionTarget("work"), Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE,
+		RedirectUri: textutil.Value("http://localhost:1455/auth/callback"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	request := &authpb.CompleteBootstrapRequest{
-		Target: protoapi.ExistingConnectionTarget("work"), Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE,
-		DeviceAuthorizationCode: textutil.Value("grant"), DeviceCodeVerifier: textutil.Value("verifier"),
+		Target: protoapi.ExistingConnectionTarget("work"), Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE,
+		CallbackInput: textutil.Value("grant"), Continuation: start.Continuation,
 	}
 	for attempt := 1; attempt <= 3; attempt++ {
 		request.Force = attempt > 1

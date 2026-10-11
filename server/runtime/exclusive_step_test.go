@@ -132,7 +132,7 @@ func TestExclusiveStepLifecycleEagerCompactsAfterSuccessfulFinalAtConsumedThresh
 			if err := engine.steer(runtimeTestStepID(stepID), steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {
 				return err
 			}
-			engine.setLastUsage(llm.Usage{InputTokens: 1_760, WindowTokens: 2_000})
+			engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(1_760), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 1_760, MeasurementPoint: llm.ContextMeasurementInput}})
 			engine.recordLiveRunAssistantFinalAnswer(stepID, llm.Message{
 				Role:    llm.RoleAssistant,
 				Phase:   textutil.Value(llm.MessagePhaseFinal),
@@ -171,7 +171,7 @@ func TestExclusiveStepLifecycleEagerCompactsEligibleAgentKinds(t *testing.T) {
 					if err := engine.steer(runtimeTestStepID(stepID), steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleDeveloper, Content: textutil.Value("input")}})); err != nil {
 						return err
 					}
-					engine.setLastUsage(llm.Usage{InputTokens: 1_760, WindowTokens: 2_000})
+					engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(1_760), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 1_760, MeasurementPoint: llm.ContextMeasurementInput}})
 					engine.recordLiveRunAssistantFinalAnswer(stepID, llm.Message{
 						Role:    llm.RoleAssistant,
 						Phase:   textutil.Value(llm.MessagePhaseFinal),
@@ -199,7 +199,7 @@ func TestSubmitUserMessageEagerCompactsAfterSuccessfulFinal(t *testing.T) {
 				Phase:   textutil.Value(llm.MessagePhaseFinal),
 				Content: textutil.Value("final"),
 			},
-			Usage: llm.Usage{InputTokens: 8_800, WindowTokens: 10_000},
+			Usage: llm.Usage{InputTokens: textutil.Value(8_800), WindowTokens: 10_000, ContextUsage: &llm.ContextUsage{Tokens: 8_800, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 		compactionResponses: []llm.CompactionResponse{
 			remoteCompactionReplacement(100, 10, 10_000),
@@ -233,7 +233,7 @@ func TestSubmitAgentSteerEagerCompactsAfterSuccessfulFinal(t *testing.T) {
 				Phase:   textutil.Value(llm.MessagePhaseFinal),
 				Content: textutil.Value("final"),
 			},
-			Usage: llm.Usage{InputTokens: 8_800, WindowTokens: 10_000},
+			Usage: llm.Usage{InputTokens: textutil.Value(8_800), WindowTokens: 10_000, ContextUsage: &llm.ContextUsage{Tokens: 8_800, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 		compactionResponses: []llm.CompactionResponse{
 			remoteCompactionReplacement(100, 10, 10_000),
@@ -281,7 +281,7 @@ func TestExclusiveStepLifecycleEagerCompactionExcludesIneligibleResults(t *testi
 				context.Background(),
 				exclusiveStepOptions{EmitRunState: true, ActiveKind: test.kind},
 				func(_ context.Context, stepID string) error {
-					engine.setLastUsage(llm.Usage{InputTokens: 1_760, WindowTokens: 2_000})
+					engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(1_760), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 1_760, MeasurementPoint: llm.ContextMeasurementInput}})
 					engine.recordLiveRunAssistantFinalAnswer(stepID, llm.Message{
 						Role:    llm.RoleAssistant,
 						Phase:   textutil.Value(llm.MessagePhaseFinal),
@@ -317,7 +317,7 @@ func TestExclusiveStepLifecycleEagerCompactionExcludesWorkflowBackgroundContinua
 		context.Background(),
 		exclusiveStepOptions{EmitRunState: true, ActiveKind: ActiveKindUserTurn},
 		func(_ context.Context, stepID string) error {
-			engine.setLastUsage(llm.Usage{InputTokens: 1_760, WindowTokens: 2_000})
+			engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(1_760), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 1_760, MeasurementPoint: llm.ContextMeasurementInput}})
 			engine.recordLiveRunAssistantFinalAnswer(stepID, llm.Message{
 				Role:    llm.RoleAssistant,
 				Phase:   textutil.Value(llm.MessagePhaseFinal),
@@ -373,7 +373,7 @@ func TestExclusiveStepLifecycleEagerCompactionExcludesNoFinalAndInterruptedSteps
 				context.Background(),
 				exclusiveStepOptions{EmitRunState: true, ActiveKind: ActiveKindUserTurn},
 				func(_ context.Context, stepID string) error {
-					engine.setLastUsage(llm.Usage{InputTokens: 1_760, WindowTokens: 2_000})
+					engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(1_760), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 1_760, MeasurementPoint: llm.ContextMeasurementInput}})
 					if test.final.Role != "" {
 						engine.recordLiveRunAssistantFinalAnswer(stepID, test.final)
 					}
@@ -408,7 +408,7 @@ func TestExclusiveStepLifecycleEagerCompactionDoesNotReserveAfterTerminalCleanup
 		context.Background(),
 		exclusiveStepOptions{EmitRunState: true, ActiveKind: ActiveKindUserTurn},
 		func(_ context.Context, stepID string) error {
-			engine.setLastUsage(llm.Usage{InputTokens: 1_760, WindowTokens: 2_000})
+			engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(1_760), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 1_760, MeasurementPoint: llm.ContextMeasurementInput}})
 			engine.recordLiveRunAssistantFinalAnswer(stepID, llm.Message{
 				Role:    llm.RoleAssistant,
 				Phase:   textutil.Value(llm.MessagePhaseFinal),
@@ -442,7 +442,7 @@ func TestExclusiveStepLifecycleFailedEagerCompactionDoesNotRetry(t *testing.T) {
 			if err := engine.steer(runtimeTestStepID(stepID), steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {
 				return err
 			}
-			engine.setLastUsage(llm.Usage{InputTokens: 1_760, WindowTokens: 2_000})
+			engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(1_760), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 1_760, MeasurementPoint: llm.ContextMeasurementInput}})
 			engine.recordLiveRunAssistantFinalAnswer(stepID, llm.Message{
 				Role:    llm.RoleAssistant,
 				Phase:   textutil.Value(llm.MessagePhaseFinal),

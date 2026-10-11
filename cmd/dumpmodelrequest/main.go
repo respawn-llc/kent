@@ -179,10 +179,14 @@ func captureSessionRequest(
 	if err != nil {
 		return capturedRequest{}, fmt.Errorf("resolve provider capabilities: %w", err)
 	}
-	if err := validateOpenAIResponsesInspectionProvider(caps); err != nil {
+	if err := validateResponsesInspectionProvider(caps); err != nil {
 		return capturedRequest{}, err
 	}
 	definition, err := activeSettings.SelectedConnection()
+	if err != nil {
+		return capturedRequest{}, err
+	}
+	registration, err := llm.ResolveConnectionVariant(definition)
 	if err != nil {
 		return capturedRequest{}, err
 	}
@@ -274,11 +278,12 @@ func captureSessionRequest(
 		return capturedRequest{}, fmt.Errorf("prepare request: %w", err)
 	}
 
-	openAIReq := llm.RequestAsOpenAI(req)
+	responsesReq := llm.RequestAsResponses(req)
 	storeFlag := activeSettings.Store
 	modelVerbosity := string(activeSettings.ModelVerbosity)
-	wireBytes, err := llm.MarshalOpenAIWirePayload(
-		openAIReq,
+	wireBytes, err := llm.MarshalResponsesWirePayload(
+		registration,
+		responsesReq,
 		storeFlag,
 		modelVerbosity,
 		mode,
@@ -355,9 +360,9 @@ func resolveInspectionProviderCapabilities(active config.Settings, locked *sessi
 	return resolved, false, nil
 }
 
-func validateOpenAIResponsesInspectionProvider(caps llm.ProviderCapabilities) error {
+func validateResponsesInspectionProvider(caps llm.ProviderCapabilities) error {
 	if !caps.SupportsResponsesAPI {
-		return fmt.Errorf("provider %q does not support OpenAI Responses payload inspection", caps.ProviderID)
+		return fmt.Errorf("provider %q does not support Responses payload inspection", caps.ProviderID)
 	}
 	return nil
 }

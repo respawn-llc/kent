@@ -35,13 +35,9 @@ type OpenAIOAuthOptions struct {
 type DeviceCode struct {
 	VerificationURL string
 	UserCode        string
-	DeviceAuthID    string
+	Code            string
 	PollInterval    time.Duration
-}
-
-type DeviceAuthorizationGrant struct {
-	AuthorizationCode string
-	CodeVerifier      string
+	ExpiresAt       *time.Time
 }
 
 type deviceUserCodeResponse struct {
@@ -59,7 +55,7 @@ type deviceTokenPollResponse struct {
 type oauthTokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
-	ExpiresIn    int    `json:"expires_in"`
+	ExpiresIn    *int   `json:"expires_in"`
 	IDToken      string `json:"id_token"`
 }
 
@@ -90,62 +86,17 @@ func normalizeOpenAIOAuthOptions(opts OpenAIOAuthOptions) OpenAIOAuthOptions {
 	return opts
 }
 
-func RunOpenAIDeviceCodeFlow(ctx context.Context, opts OpenAIOAuthOptions, onCode func(DeviceCode)) (OAuthMethod, error) {
+func CompleteOpenAIDeviceFlow(ctx context.Context, opts OpenAIOAuthOptions, code DeviceCode) (OAuthMethod, error) {
 	opts = normalizeOpenAIOAuthOptions(opts)
-
-	code, err := requestOpenAIDeviceCode(ctx, opts)
-	if err != nil {
-		return OAuthMethod{}, err
-	}
-	if onCode != nil {
-		onCode(code)
-	}
-
 	poll, err := pollOpenAIDeviceAuthToken(ctx, opts, code)
 	if err != nil {
 		return OAuthMethod{}, err
 	}
-
-	method, err := exchangeOpenAIAuthorizationCode(ctx, opts, poll.AuthorizationCode, poll.CodeVerifier, issuerRedirectURI(opts))
-	if err != nil {
-		return OAuthMethod{}, err
-	}
-	return method, nil
+	return exchangeOpenAIAuthorizationCode(ctx, opts, poll.AuthorizationCode, poll.CodeVerifier, issuerRedirectURI(opts))
 }
 
-func CollectOpenAIDeviceAuthorizationGrant(ctx context.Context, opts OpenAIOAuthOptions, onCode func(DeviceCode)) (DeviceAuthorizationGrant, error) {
+func BeginOpenAIDeviceFlow(ctx context.Context, opts OpenAIOAuthOptions) (DeviceCode, error) {
 	opts = normalizeOpenAIOAuthOptions(opts)
-	code, err := requestOpenAIDeviceCode(ctx, opts)
-	if err != nil {
-		return DeviceAuthorizationGrant{}, err
-	}
-	if onCode != nil {
-		onCode(code)
-	}
-	poll, err := pollOpenAIDeviceAuthToken(ctx, opts, code)
-	if err != nil {
-		return DeviceAuthorizationGrant{}, err
-	}
-	return DeviceAuthorizationGrant{
-		AuthorizationCode: poll.AuthorizationCode,
-		CodeVerifier:      poll.CodeVerifier,
-	}, nil
-}
-
-func CompleteOpenAIDeviceAuthorizationGrant(ctx context.Context, opts OpenAIOAuthOptions, authorizationCode string, codeVerifier string) (OAuthMethod, error) {
-	opts = normalizeOpenAIOAuthOptions(opts)
-	authorizationCode = strings.TrimSpace(authorizationCode)
-	codeVerifier = strings.TrimSpace(codeVerifier)
-	if authorizationCode == "" {
-		return OAuthMethod{}, errors.New("device authorization code is required")
-	}
-	if codeVerifier == "" {
-		return OAuthMethod{}, errors.New("device code verifier is required")
-	}
-	return exchangeOpenAIAuthorizationCode(ctx, opts, authorizationCode, codeVerifier, issuerRedirectURI(opts))
-}
-
-func requestOpenAIDeviceCode(ctx context.Context, opts OpenAIOAuthOptions) (DeviceCode, error) {
 	issuer := strings.TrimSuffix(opts.Issuer, "/")
 	endpoint := issuer + "/api/accounts/deviceauth/usercode"
 	body, _ := json.Marshal(map[string]string{"client_id": opts.ClientID})
@@ -194,7 +145,7 @@ func requestOpenAIDeviceCode(ctx context.Context, opts OpenAIOAuthOptions) (Devi
 	return DeviceCode{
 		VerificationURL: issuer + "/codex/device",
 		UserCode:        parsed.UserCode,
-		DeviceAuthID:    parsed.DeviceAuthID,
+		Code:            parsed.DeviceAuthID,
 		PollInterval:    time.Duration(intervalSeconds) * time.Second,
 	}, nil
 }
@@ -210,7 +161,7 @@ func pollOpenAIDeviceAuthToken(ctx context.Context, opts OpenAIOAuthOptions, cod
 		}
 
 		payload, _ := json.Marshal(map[string]string{
-			"device_auth_id": code.DeviceAuthID,
+			"device_auth_id": code.Code,
 			"user_code":      code.UserCode,
 		})
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
@@ -307,9 +258,9 @@ func exchangeOpenAIAuthorizationCode(ctx context.Context, opts OpenAIOAuthOption
 		return OAuthMethod{}, errors.New("token exchange response missing access token")
 	}
 
-	expiresAt := time.Now().UTC().Add(time.Hour)
-	if parsed.ExpiresIn > 0 {
-		expiresAt = time.Now().UTC().Add(time.Duration(parsed.ExpiresIn) * time.Second)
+	expiresAt, err := oauthExpiry(parsed.ExpiresIn)
+	if err != nil {
+		return OAuthMethod{}, err
 	}
 
 	return OAuthMethod{
@@ -381,12 +332,30 @@ func RefreshOpenAIAuthToken(ctx context.Context, opts OpenAIOAuthOptions, method
 	if email := extractEmail(parsed); strings.TrimSpace(email) != "" {
 		updated.Email = email
 	}
-	if parsed.ExpiresIn > 0 {
-		updated.Expiry = time.Now().UTC().Add(time.Duration(parsed.ExpiresIn) * time.Second)
-	} else {
-		updated.Expiry = time.Now().UTC().Add(time.Hour)
+	updated.Expiry, err = oauthExpiry(parsed.ExpiresIn)
+	if err != nil {
+		return OAuthMethod{}, fmt.Errorf("%w: %w", ErrOAuthRefreshFailed, err)
 	}
 	return updated, nil
+}
+
+func oauthExpiry(seconds *int) (*time.Time, error) {
+	if seconds == nil {
+		return nil, nil
+	}
+	duration, err := oauthDuration(*seconds)
+	if err != nil {
+		return nil, err
+	}
+	expiry := time.Now().UTC().Add(duration)
+	return &expiry, nil
+}
+
+func oauthDuration(seconds int) (time.Duration, error) {
+	if seconds < 0 || int64(seconds) > math.MaxInt64/int64(time.Second) {
+		return 0, errors.New("OAuth duration must be a nonnegative number of seconds")
+	}
+	return time.Duration(seconds) * time.Second, nil
 }
 
 func NewOpenAIOAuthRefresher(opts OpenAIOAuthOptions, now func() time.Time, refreshBefore time.Duration) *OAuthRefresher {

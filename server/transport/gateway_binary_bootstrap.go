@@ -33,6 +33,8 @@ func registerBootstrapGatewayBinaryBindings(bindings map[string]gatewayBinaryBin
 			func() *authpb.ConfigureConnectionRequest { return &authpb.ConfigureConnectionRequest{} }, invokeBinaryConfigureConnection, binaryAuthFailure),
 		registerBootstrapUnary(bindings, authService, "GetBootstrapStatus", gatewayBinaryPreCoreOrdinary,
 			func() *authpb.GetBootstrapStatusRequest { return &authpb.GetBootstrapStatusRequest{} }, invokeBinaryAuthBootstrapStatus, binaryAuthFailure),
+		registerBootstrapUnary(bindings, authService, "StartBootstrap", gatewayBinaryPreCoreOrdinary,
+			func() *authpb.StartBootstrapRequest { return &authpb.StartBootstrapRequest{} }, invokeBinaryAuthStartBootstrap, binaryAuthFailure),
 		registerBootstrapUnary(bindings, authService, "CompleteBootstrap", gatewayBinaryPreCoreOrdinary,
 			func() *authpb.CompleteBootstrapRequest { return &authpb.CompleteBootstrapRequest{} }, invokeBinaryAuthCompleteBootstrap, binaryAuthFailure),
 		registerBootstrapUnary(bindings, authService, "GetStatus", gatewayBinaryPreCoreOrdinary,
@@ -122,6 +124,14 @@ func invokeBinaryAuthBootstrapStatus(
 		return nil, serverapi.ErrServerAuthRequired
 	}
 	return client.GetBootstrapStatus(ctx, message)
+}
+
+func invokeBinaryAuthStartBootstrap(g *Gateway, ctx context.Context, _ *connectionState, message *authpb.StartBootstrapRequest) (*authpb.BootstrapStart, error) {
+	client := g.deps.AuthBootstrapClient()
+	if client == nil {
+		return nil, serverapi.ErrServerAuthRequired
+	}
+	return client.StartBootstrap(ctx, message)
 }
 
 func invokeBinaryAuthCompleteBootstrap(

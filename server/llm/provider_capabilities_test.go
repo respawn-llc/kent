@@ -10,7 +10,59 @@ import (
 	"core/server/httpcompression"
 	"core/server/session"
 	"core/shared/config"
+	"core/shared/modelcontract"
+	"core/shared/textutil"
 )
+
+func TestGrokConnectionRouteIsIndependentOfCapabilities(t *testing.T) {
+	for protocol, endpoint := range map[config.ConnectionProtocol]string{
+		"grok-cli-proxy": "https://cli-chat-proxy.grok.com/v1",
+		"grok-oauth-api": "https://api.x.ai/v1",
+		"grok-api-key":   "https://api.x.ai/v1",
+	} {
+		t.Run(string(protocol), func(t *testing.T) {
+			connection := config.ProviderConnection{
+				Protocol: protocol,
+				Capabilities: config.ProviderCapabilitiesOverride{
+					ProviderID: "chatgpt-codex", SupportsResponsesAPI: true,
+				},
+			}
+			if protocol == "grok-api-key" {
+				connection.EnvironmentVariable = openaiTestOptionalString("GROK_KEY")
+			}
+			if err := connection.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			selected, err := ResolveConnectionVariant(connection)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if selected.Provider != ProviderGrok || selected.Variant.ProviderID != string(protocol) ||
+				selected.Variant.BaseURL == nil || *selected.Variant.BaseURL != endpoint {
+				t.Fatalf("selected transport = %+v", selected)
+			}
+			if selected.Variant.Capabilities.SupportsResponsesCompact != (protocol != config.ConnectionGrokCLIProxy) {
+				t.Fatalf("native compaction availability disagrees with selected route: %+v", selected.Variant)
+			}
+			caps, err := ResolveConnectionCapabilities(connection)
+			if err != nil || caps.ProviderID != "chatgpt-codex" {
+				t.Fatalf("request capability override = %+v, %v", caps, err)
+			}
+			id := config.ConnectionID("grok")
+			settings := config.Settings{Connection: &id, Connections: map[config.ConnectionID]config.ProviderConnection{id: connection}}
+			locked := &session.LockedContract{ProviderContract: LockedProviderCapabilitiesFromContract(caps)}
+			resumed, err := ResolveEffectiveProviderCapabilities(locked, settings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, actual := range []ProviderCapabilities{caps, resumed} {
+				if actual.ReasoningType == nil || *actual.ReasoningType != modelcontract.ReasoningTypeGrok {
+					t.Fatalf("capability identity changed transport reasoning type: %+v", actual)
+				}
+			}
+		})
+	}
+}
 
 func TestConnectionCapabilitiesPreserveLockedRequestContract(t *testing.T) {
 	id := config.ConnectionID("local")
@@ -146,21 +198,6 @@ func TestInferProviderCapabilities_UsesRegistryContracts(t *testing.T) {
 	}
 }
 
-func TestRemoteCompactionProtocolsAreProviderOwned(t *testing.T) {
-	openAI, ok := lookupProviderVariantContract("openai")
-	if !ok || openAI.Variant.RemoteCompactionProtocol != remoteCompactionResponsesTriggerV2 {
-		t.Fatalf("openai compaction protocol = %v, want Responses-trigger V2", openAI.Variant.RemoteCompactionProtocol)
-	}
-	codex, ok := lookupProviderVariantContract("chatgpt-codex")
-	if !ok || codex.Variant.RemoteCompactionProtocol != remoteCompactionResponsesTriggerV2 {
-		t.Fatalf("chatgpt-codex compaction protocol = %v, want Responses-trigger V2", codex.Variant.RemoteCompactionProtocol)
-	}
-	compatible, ok := lookupProviderVariantContract("openai-compatible")
-	if !ok || compatible.Variant.RemoteCompactionProtocol != remoteCompactionUnsupported {
-		t.Fatalf("openai-compatible compaction protocol = %v, want unsupported", compatible.Variant.RemoteCompactionProtocol)
-	}
-}
-
 func TestProviderVariantRequestCompressionDefaults(t *testing.T) {
 	tests := []struct {
 		providerID string
@@ -193,9 +230,7 @@ func TestInferProviderCapabilities_UnknownProviderFailsExplicitly(t *testing.T) 
 }
 
 func TestHTTPTransportPreservesConfiguredCapabilitiesOverrideAcrossEndpointVariant(t *testing.T) {
-	transport := NewHTTPTransport(oauthStaticAuth{})
-	transport.BaseURL = "https://proxy.example/v1"
-	transport.BaseURLExplicit = true
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://proxy.example/v1")}))
 	transport.ProviderCapabilitiesOverride = &ProviderCapabilities{
 		ProviderID:                    "chatgpt-codex",
 		SupportsResponsesAPI:          true,

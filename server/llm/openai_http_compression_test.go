@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"core/server/httpcompression"
+	"core/shared/config"
 	"core/shared/textutil"
 	"github.com/klauspost/compress/zstd"
 )
@@ -46,16 +47,17 @@ func TestGenerateChatGPTCodexCompressesLargeResponsesBodyWithZstd(t *testing.T) 
 	}))
 	defer server.Close()
 
-	transport := NewHTTPTransport(oauthStaticAuth{})
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
+
 	transport.Client = httpcompression.NewClient(newRewritingHTTPClient(t, server))
 	sessionID, dispatch := compressionDispatch(t, CodexRequestKindTurn)
 
-	response, err := transport.Generate(context.Background(), OpenAIRequest{
+	response, err := transport.Generate(context.Background(), ResponsesRequest{
 		Model:          "gpt-5.6-sol",
 		SessionID:      sessionID,
 		CodexDispatch:  dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		SystemPrompt:   strings.Repeat("large request content ", 100),
+		SystemPrompt:   strings.Repeat("large request content ", 100), ReasoningEffort: "high",
 	}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
@@ -81,7 +83,7 @@ func TestGenerateChatGPTCodexCompressesLargeResponsesBodyWithZstd(t *testing.T) 
 	if payload["model"] != "gpt-5.6-sol" {
 		t.Fatalf("model = %#v, want gpt-5.6-sol", payload["model"])
 	}
-	if response.Usage.InputTokens != 1 || response.Usage.OutputTokens != 1 {
+	if response.Usage.InputTokens == nil || response.Usage.OutputTokens == nil || *response.Usage.InputTokens != 1 || *response.Usage.OutputTokens != 1 {
 		t.Fatalf("response usage = %+v, want input/output tokens 1/1", response.Usage)
 	}
 }
@@ -94,18 +96,17 @@ func TestGenerateOpenAIAPIKeyLeavesLargeResponsesBodyUncompressed(t *testing.T) 
 	}))
 	defer server.Close()
 
-	transport := NewHTTPTransport(staticAuth{})
-	transport.BaseURL = server.URL
-	transport.BaseURLExplicit = true
-	transport.Client = server.Client()
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
+	transport.Client = newRewritingHTTPClient(t, server)
 	sessionID, dispatch := compressionDispatch(t, CodexRequestKindTurn)
 
-	if _, err := transport.Generate(context.Background(), OpenAIRequest{
+	if _, err := transport.Generate(context.Background(), ResponsesRequest{
 		Model:          "gpt-6-sol",
 		SessionID:      sessionID,
 		CodexDispatch:  dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		SystemPrompt:   strings.Repeat("large request content ", 100),
+		SystemPrompt:   strings.Repeat("large request content ", 100), ReasoningEffort: "high",
 	}, StreamCallbacks{}); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -122,17 +123,16 @@ func TestGenerateExplicitLocalOAuthCompatibleEndpointLeavesResponsesBodyUncompre
 	}))
 	defer server.Close()
 
-	transport := NewHTTPTransport(oauthStaticAuth{})
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("http://127.0.0.1:11434/v1")}))
+
 	transport.Client = newRewritingHTTPClient(t, server)
-	transport.BaseURL = "http://127.0.0.1:11434/v1"
-	transport.BaseURLExplicit = true
 	sessionID, dispatch := compressionDispatch(t, CodexRequestKindTurn)
-	if _, err := transport.Generate(context.Background(), OpenAIRequest{
+	if _, err := transport.Generate(context.Background(), ResponsesRequest{
 		Model:          "gpt-5.6-sol",
 		SessionID:      sessionID,
 		CodexDispatch:  dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		SystemPrompt:   strings.Repeat("large request content ", 100),
+		SystemPrompt:   strings.Repeat("large request content ", 100), ReasoningEffort: "high",
 	}, StreamCallbacks{}); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -152,17 +152,16 @@ func TestGenerateChatGPTCodexCompressesResponsesBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transport := NewHTTPTransport(oauthStaticAuth{})
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
+
 	transport.Client = newRewritingHTTPClient(t, server)
-	transport.BaseURL = server.URL
-	transport.BaseURLExplicit = false
 	sessionID, dispatch := compressionDispatch(t, CodexRequestKindTurn)
-	_, err := transport.Generate(context.Background(), OpenAIRequest{
+	_, err := transport.Generate(context.Background(), ResponsesRequest{
 		Model:          "gpt-5.6-sol",
 		SessionID:      sessionID,
 		CodexDispatch:  dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		SystemPrompt:   strings.Repeat("large request content ", 100),
+		SystemPrompt:   strings.Repeat("large request content ", 100), ReasoningEffort: "high",
 	}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
@@ -186,15 +185,16 @@ func TestCompactChatGPTCodexCompressesResponsesBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transport := NewHTTPTransport(oauthStaticAuth{})
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
+
 	transport.Client = newRewritingHTTPClient(t, server)
 	sessionID, dispatch := compressionDispatch(t, CodexRequestKindCompaction)
-	response, err := transport.Compact(context.Background(), OpenAIRequest{
+	response, err := transport.Compact(context.Background(), ResponsesRequest{
 		Model:          "gpt-5.6-sol",
 		SessionID:      sessionID,
 		CodexDispatch:  dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		Items:          PrepareOpenAIInputItems([]ResponseItem{{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value(strings.Repeat("history ", 200))}}),
+		Items:          PrepareResponsesInputItems([]ResponseItem{{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value(strings.Repeat("history ", 200))}}), ReasoningEffort: "high",
 	})
 	if err != nil {
 		t.Fatalf("Compact: %v", err)
@@ -202,8 +202,8 @@ func TestCompactChatGPTCodexCompressesResponsesBody(t *testing.T) {
 	if requestEncoding != "zstd" {
 		t.Fatalf("Content-Encoding = %q, want zstd", requestEncoding)
 	}
-	if len(requestBody) == 0 || response.Checkpoint.Type != ResponseItemTypeCompaction {
-		t.Fatalf("compact request/response = body=%d checkpoint=%+v", len(requestBody), response.Checkpoint)
+	if len(requestBody) == 0 || response.OutputItems[0].Type != ResponseItemTypeCompaction {
+		t.Fatalf("compact request/response = body=%d checkpoint=%+v", len(requestBody), response.OutputItems[0])
 	}
 }
 
@@ -226,15 +226,16 @@ func TestGenerateLogicalRetrySendsCompressedSemanticEquivalents(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transport := NewHTTPTransport(oauthStaticAuth{})
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
+
 	transport.Client = newRewritingHTTPClient(t, server)
 	sessionID, dispatch := compressionDispatch(t, CodexRequestKindTurn)
-	request := OpenAIRequest{
+	request := ResponsesRequest{
 		Model:          "gpt-5.6-sol",
 		SessionID:      sessionID,
 		CodexDispatch:  dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		SystemPrompt:   strings.Repeat("large request content ", 100),
+		SystemPrompt:   strings.Repeat("large request content ", 100), ReasoningEffort: "high",
 	}
 	if _, err := transport.Generate(context.Background(), request, StreamCallbacks{}); err == nil {
 		t.Fatal("first Generate unexpectedly succeeded")

@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	sharedauth "core/shared/auth"
+
 	_ "embed"
 )
 
@@ -58,52 +60,63 @@ func BeginOpenAIBrowserFlow(opts OpenAIOAuthOptions, redirectURI string) (Browse
 		redirectURI = defaultManualBrowserRedirectURI
 	}
 
-	state, err := randomBase64URL(24)
+	session, values, err := newPKCEBrowserSession(redirectURI)
 	if err != nil {
-		return BrowserAuthSession{}, fmt.Errorf("generate oauth state: %w", err)
+		return BrowserAuthSession{}, err
 	}
-	codeVerifier, err := randomBase64URL(48)
-	if err != nil {
-		return BrowserAuthSession{}, fmt.Errorf("generate oauth code verifier: %w", err)
-	}
-
-	h := sha256.Sum256([]byte(codeVerifier))
-	challenge := base64.RawURLEncoding.EncodeToString(h[:])
-
 	issuer := strings.TrimSuffix(opts.Issuer, "/")
 	endpoint := issuer + "/oauth/authorize"
-	values := url.Values{}
-	values.Set("response_type", "code")
 	values.Set("client_id", opts.ClientID)
-	values.Set("redirect_uri", redirectURI)
 	values.Set("scope", "openid profile email offline_access")
-	values.Set("code_challenge", challenge)
-	values.Set("code_challenge_method", "S256")
 	values.Set("id_token_add_organizations", "true")
 	values.Set("codex_cli_simplified_flow", "true")
 	values.Set("originator", defaultOAuthOriginator)
-	values.Set("state", state)
 
+	session.AuthorizeURL = endpoint + "?" + values.Encode()
+	return session, nil
+}
+
+func newPKCEBrowserSession(redirectURI string) (BrowserAuthSession, url.Values, error) {
+	state, err := randomBase64URL(24)
+	if err != nil {
+		return BrowserAuthSession{}, nil, fmt.Errorf("generate oauth state: %w", err)
+	}
+	codeVerifier, err := randomBase64URL(48)
+	if err != nil {
+		return BrowserAuthSession{}, nil, fmt.Errorf("generate oauth code verifier: %w", err)
+	}
+	h := sha256.Sum256([]byte(codeVerifier))
+	values := url.Values{
+		"response_type": {"code"}, "redirect_uri": {redirectURI}, "state": {state},
+		"code_challenge": {base64.RawURLEncoding.EncodeToString(h[:])}, "code_challenge_method": {"S256"},
+	}
 	return BrowserAuthSession{
-		AuthorizeURL: endpoint + "?" + values.Encode(),
 		RedirectURI:  redirectURI,
 		State:        state,
 		CodeVerifier: codeVerifier,
-	}, nil
+	}, values, nil
 }
 
 func CompleteOpenAIBrowserFlow(ctx context.Context, opts OpenAIOAuthOptions, session BrowserAuthSession, callbackInput string) (OAuthMethod, error) {
-	parsed, err := ParseOAuthCallbackInput(callbackInput)
+	parsed, err := validateBrowserCallback(session, callbackInput)
 	if err != nil {
 		return OAuthMethod{}, err
 	}
+	return exchangeOpenAIAuthorizationCode(ctx, opts, parsed.Code, session.CodeVerifier, session.RedirectURI)
+}
+
+func validateBrowserCallback(session BrowserAuthSession, callbackInput string) (BrowserCallback, error) {
+	parsed, err := ParseOAuthCallbackInput(callbackInput)
+	if err != nil {
+		return BrowserCallback{}, err
+	}
 	if strings.TrimSpace(session.State) != "" && strings.TrimSpace(parsed.State) != "" && parsed.State != session.State {
-		return OAuthMethod{}, errors.New("oauth state mismatch")
+		return BrowserCallback{}, errors.New("oauth state mismatch")
 	}
 	if strings.TrimSpace(parsed.Code) == "" {
-		return OAuthMethod{}, errors.New("oauth callback is missing code")
+		return BrowserCallback{}, errors.New("oauth callback is missing code")
 	}
-	return exchangeOpenAIAuthorizationCode(ctx, opts, parsed.Code, session.CodeVerifier, session.RedirectURI)
+	return parsed, nil
 }
 
 func ParseOAuthCallbackInput(input string) (BrowserCallback, error) {
@@ -132,18 +145,21 @@ func ParseOAuthCallbackInput(input string) (BrowserCallback, error) {
 	return BrowserCallback{Code: input}, nil
 }
 
-func StartOAuthCallbackListener() (*OAuthCallbackListener, error) {
+func StartOAuthCallbackListener(transport sharedauth.CallbackTransport) (*OAuthCallbackListener, error) {
+	if transport.BindAddress == "" || transport.RedirectHost == "" || transport.CallbackPath == "" {
+		return nil, errors.New("OAuth callback transport is required")
+	}
 	var (
 		ln              net.Listener
 		err             error
 		cancelAttempted bool
 	)
 	for attempts := 0; attempts < oauthListenerRetryMax; attempts++ {
-		ln, err = net.Listen("tcp", oauthBindAddress)
+		ln, err = net.Listen("tcp", transport.BindAddress)
 		if err == nil {
 			break
 		}
-		if isAddrInUse(err) {
+		if transport.BindAddress == oauthBindAddress && isAddrInUse(err) {
 			if !cancelAttempted {
 				_ = sendOAuthCancelRequest()
 				cancelAttempted = true
@@ -153,10 +169,10 @@ func StartOAuthCallbackListener() (*OAuthCallbackListener, error) {
 				continue
 			}
 		}
-		return nil, fmt.Errorf("listen oauth callback on %s: %w", oauthBindAddress, err)
+		return nil, fmt.Errorf("listen oauth callback on %s: %w", transport.BindAddress, err)
 	}
 	if ln == nil {
-		return nil, fmt.Errorf("listen oauth callback on %s: exhausted retries", oauthBindAddress)
+		return nil, fmt.Errorf("listen oauth callback on %s: exhausted retries", transport.BindAddress)
 	}
 	resultCh := make(chan BrowserCallback, 1)
 	errCh := make(chan error, 1)
@@ -166,7 +182,7 @@ func StartOAuthCallbackListener() (*OAuthCallbackListener, error) {
 			_, _ = w.Write([]byte("OAuth callback listener canceled"))
 			return
 		}
-		if r.URL.Path != oauthCallbackPath {
+		if r.URL.Path != transport.CallbackPath {
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte("Not found"))
 			return
@@ -198,13 +214,19 @@ func StartOAuthCallbackListener() (*OAuthCallbackListener, error) {
 		default:
 		}
 	})}
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
+	redirectURI := (&url.URL{Scheme: "http", Host: net.JoinHostPort(transport.RedirectHost, port), Path: transport.CallbackPath}).String()
 	go func() {
 		if serveErr := srv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			errCh <- serveErr
 		}
 	}()
 	return &OAuthCallbackListener{
-		redirectURI: defaultManualBrowserRedirectURI,
+		redirectURI: redirectURI,
 		resultCh:    resultCh,
 		errCh:       errCh,
 		server:      srv,

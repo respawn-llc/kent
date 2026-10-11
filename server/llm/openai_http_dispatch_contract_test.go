@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"core/internal/testharness/httpclient"
+	"core/shared/config"
 	"core/shared/textutil"
 	"encoding/json"
 	"errors"
@@ -33,11 +34,11 @@ func (a *countingOAuthAuth) ResolveDispatchAuth(context.Context) (*DispatchAuth,
 func TestOpenAIDispatchRejectsInvalidSessionBeforeAuth(t *testing.T) {
 	methods := map[string]func(*HTTPTransport, *string) error{
 		"generate": func(transport *HTTPTransport, sessionID *string) error {
-			_, err := transport.Generate(context.Background(), OpenAIRequest{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: sessionID}, StreamCallbacks{})
+			_, err := transport.Generate(context.Background(), ResponsesRequest{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: sessionID, ReasoningEffort: "high"}, StreamCallbacks{})
 			return err
 		},
 		"compact": func(transport *HTTPTransport, sessionID *string) error {
-			_, err := transport.Compact(context.Background(), OpenAIRequest{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: sessionID})
+			_, err := transport.Compact(context.Background(), ResponsesRequest{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: sessionID, ReasoningEffort: "high"})
 			return err
 		},
 	}
@@ -48,15 +49,14 @@ func TestOpenAIDispatchRejectsInvalidSessionBeforeAuth(t *testing.T) {
 	authModes := map[string]func() (*HTTPTransport, func() int32){
 		"api key": func() (*HTTPTransport, func() int32) {
 			auth := &countingAuth{}
-			return NewHTTPTransport(auth), auth.calls.Load
+			return newTestHTTPTransport(t, auth, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)})), auth.calls.Load
 		},
 		"OAuth": func() (*HTTPTransport, func() int32) {
 			auth := &countingOAuthAuth{}
-			return NewHTTPTransport(auth), auth.calls.Load
+			return newTestHTTPTransport(t, auth, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT})), auth.calls.Load
 		},
 		"anonymous explicit base": func() (*HTTPTransport, func() int32) {
-			transport := NewHTTPTransport(nil)
-			transport.BaseURL, transport.BaseURLExplicit = "https://compatible.example/v1", true
+			transport := newTestHTTPTransport(t, nil, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://compatible.example/v1")}))
 			return transport, func() int32 { return 0 }
 		},
 	}
@@ -110,16 +110,15 @@ func TestOAuthGenerateSendsCanonicalCodexIdentityAuthAndRoutingTiers(t *testing.
 	if err != nil {
 		t.Fatalf("dispatch context: %v", err)
 	}
-	transport := NewHTTPTransport(oauthStaticAuth{})
-	transport.BaseURL = "https://chatgpt.com/backend-api/codex"
-	transport.BaseURLExplicit = true
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
+
 	transport.Client = newRewritingHTTPClient(t, server)
 
-	request := OpenAIRequest{
+	request := ResponsesRequest{
 		Model:          "gpt-5.6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		SessionID:      textutil.Value("session-1"),
-		CodexDispatch:  dispatch,
+		CodexDispatch:  dispatch, ReasoningEffort: "high",
 	}
 	_, err = transport.Generate(context.Background(), request, StreamCallbacks{})
 	if err != nil {
@@ -176,15 +175,13 @@ func TestOAuthExplicitCompatibleEndpointSendsCommonIdentityWithoutCodexMetadata(
 	}))
 	t.Cleanup(server.Close)
 
-	transport := NewHTTPTransport(oauthStaticAuth{})
-	transport.BaseURL = server.URL
-	transport.BaseURLExplicit = true
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(server.URL)}))
 	transport.Client = server.Client()
 
-	if _, err := transport.Generate(context.Background(), OpenAIRequest{
+	if _, err := transport.Generate(context.Background(), ResponsesRequest{
 		Model:          "gpt-5.6-sol",
 		SessionID:      textutil.Value("session-1"),
-		ToolChoiceMode: ToolChoiceModeAutomatic,
+		ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, StreamCallbacks{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -232,11 +229,11 @@ func requireCodexTurnMetadata(t *testing.T, body map[string]any) map[string]any 
 func TestOAuthDispatchRejectsUnrepresentableRoutingModelBeforeProviderHTTP(t *testing.T) {
 	methods := map[string]func(*HTTPTransport, string, *CodexDispatchContext) error{
 		"generate": func(transport *HTTPTransport, model string, dispatch *CodexDispatchContext) error {
-			_, err := transport.Generate(context.Background(), OpenAIRequest{Model: model, ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: textutil.Value("session-1"), CodexDispatch: dispatch}, StreamCallbacks{})
+			_, err := transport.Generate(context.Background(), ResponsesRequest{Model: model, ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: textutil.Value("session-1"), CodexDispatch: dispatch}, StreamCallbacks{})
 			return err
 		},
 		"compact": func(transport *HTTPTransport, model string, dispatch *CodexDispatchContext) error {
-			_, err := transport.Compact(context.Background(), OpenAIRequest{Model: model, ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: textutil.Value("session-1"), CodexDispatch: dispatch})
+			_, err := transport.Compact(context.Background(), ResponsesRequest{Model: model, ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: textutil.Value("session-1"), CodexDispatch: dispatch})
 			return err
 		},
 	}
@@ -256,7 +253,8 @@ func TestOAuthDispatchRejectsUnrepresentableRoutingModelBeforeProviderHTTP(t *te
 					t.Fatalf("dispatch context: %v", err)
 				}
 				networkCalls := atomic.Int32{}
-				transport := NewHTTPTransport(oauthStaticAuth{})
+				transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
+
 				transport.ContextWindowTokens = 0
 				transport.Client = &http.Client{Transport: httpclient.RoundTripFunc(func(*http.Request) (*http.Response, error) {
 					networkCalls.Add(1)
@@ -278,18 +276,19 @@ func TestOAuthDispatchRejectsUnrepresentableRoutingModelBeforeProviderHTTP(t *te
 func TestOAuthDispatchRejectsMissingContextBeforeContextWindowHTTP(t *testing.T) {
 	methods := map[string]func(*HTTPTransport) error{
 		"generate": func(transport *HTTPTransport) error {
-			_, err := transport.Generate(context.Background(), OpenAIRequest{Model: "unknown-model", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: textutil.Value("session-1")}, StreamCallbacks{})
+			_, err := transport.Generate(context.Background(), ResponsesRequest{Model: "unknown-model", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: textutil.Value("session-1")}, StreamCallbacks{})
 			return err
 		},
 		"compact": func(transport *HTTPTransport) error {
-			_, err := transport.Compact(context.Background(), OpenAIRequest{Model: "unknown-model", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: textutil.Value("session-1")})
+			_, err := transport.Compact(context.Background(), ResponsesRequest{Model: "unknown-model", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: textutil.Value("session-1")})
 			return err
 		},
 	}
 	for name, dispatch := range methods {
 		t.Run(name, func(t *testing.T) {
 			networkCalls := atomic.Int32{}
-			transport := NewHTTPTransport(oauthStaticAuth{})
+			transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
+
 			transport.ContextWindowTokens = 0
 			transport.Client = &http.Client{Transport: httpclient.RoundTripFunc(func(*http.Request) (*http.Response, error) {
 				networkCalls.Add(1)

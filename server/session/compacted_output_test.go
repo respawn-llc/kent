@@ -47,7 +47,7 @@ func TestCompactedOutputSurvivesReopenAndClone(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := store.SetUsageState(&session.UsageState{InputTokens: 42}); err != nil {
+			if _, err := store.SetUsageState(&session.UsageState{InputTokens: textutil.Value(42)}); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.MarkModelDispatchLocked(session.LockedContract{Model: "outgoing-model"}); err != nil {

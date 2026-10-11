@@ -309,9 +309,26 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - When a new fork targets a model or provider that does not support native Thinking updates, Kent must exclude those updates from the child's initial input rather than fail because of them. Kent must preserve the parent history and the order of the remaining child input. This exception must not change input already dispatched by the child.
 - A fork must inherit the parent's current desired Thinking selection subject to the target model's existing settings rules. Its next Agent Step must reconcile that selection with the copied history.
 
+## Grok Model Behavior
+
+- Kent's built-in Grok catalog must include `grok-4.6` and `grok-4.7` for public API access. Kent must not include Grok 4.5 in its built-in catalog or defaults or claim CLI subscription-proxy availability for 4.6. Unknown manual model entry must follow the existing provider-dispatch rules.
+- Kent must treat manually entered Grok 4.5 as an uncatalogued model.
+- Public API-key and public OAuth connections must use a 500,000-token default context window for these models without a separate larger-window choice.
+- On CLI subscription-proxy connections, Grok 4.7 must use a 256,000-token default context window and offer a 500,000-token larger window.
+- The catalog must report Grok 4.7's knowledge cutoff as May 2026 and Grok 4.6's as February 2026.
+- Grok 4.6 and 4.7 must support low, medium, high, and xhigh Thinking effort. Grok Thinking must default to high.
+- Across providers, Kent must offer disabled Thinking only when the model's supported efforts include `none`. Kent must always offer custom Thinking entry. At backend request time, Kent must reject efforts outside a catalogued model's supported list. For uncatalogued models, Kent must send custom efforts unchanged for provider validation.
+- Grok must apply between-request Thinking changes through the next request's effort setting. Grok must not use cache-preserving Thinking configuration-update appends or apply Thinking changes during generation.
+- Grok must support image input, tool calls, and Kent's existing native Web Search for supported models. Grok Reasoning Summaries must appear unchanged as Reasoning Traces without requiring OpenAI's bold Thinking Status format.
+- Kent must ignore unsupported Grok configuration options such as verbosity.
+- Grok local context estimates must use its provider's text, image, and encrypted-content accounting without OpenAI's encrypted-envelope deduction. Provider-reported context usage must take precedence over estimates. Compaction policy must not change with estimator selection.
+- Grok public-API OAuth and API-key access must support native compaction through the selected service's `/responses/compact` endpoint. The Grok CLI subscription proxy must not advertise or dispatch native compaction. Kent must report rejected compaction without automatic fallback.
+- When current capabilities govern, a configured native mode unsupported by the Grok CLI proxy must resolve to local compaction. A Session whose locked contract selects native compaction must receive an unsupported-compaction error without a proxy-native request. Kent must not migrate that contract or retry a rejected provider request through another compaction mode.
+
 ## Fast Mode And Context Usage
 
 - Fast Mode is a persisted Session Chat setting available when current capability metadata for the selected Provider Connection declares support for Kent's priority service behavior. Built-in OpenAI and ChatGPT/Codex connections declare support by default; all other connections default to unsupported unless their current metadata explicitly declares support.
+- Grok connections must support Fast Mode through `service_tier=priority`. Fast Mode must not change the selected Grok model.
 - Fast Mode availability is resolved from current Provider Connection metadata without refreshing authentication or making provider network requests. Locked Session provider facts do not determine availability, and availability is not a Session Contract fact or prompt-cache identity input.
 - Changing Fast Mode during an Agent Step persists and publishes immediately, affects the next provider or compaction request, and never changes the request already running.
 - A Fast Mode change creates no transcript row.
@@ -323,6 +340,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Reviewer and compaction requests inherit the Session's effective Fast Mode when their provider supports it.
 - Context usage uses current provider-reported usage when available and Kent's established current-context estimate otherwise.
 - Kent's current-context estimate must use the local estimation behavior owned by the currently resolved [Provider Connection](provider-connections.md#ownership-and-selection). Provider-specific estimates must not change compaction policy or the precedence of provider-reported usage.
+- Kent must distinguish provider-reported context occupancy from billable token categories. Missing provider counts and context occupancy must be nullable. Reported zero context occupancy must take precedence over estimates.
 - Compaction selection compares current usage with the configured thresholds.
 - Kent does not predict future token growth from earlier turns or maintain a separate adaptive compaction policy.
 
@@ -332,6 +350,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Kent must retain the operation's provider, model, time, reported token categories, and available billing-relevant details, including hosted-tool usage, so external consumers can look up prices independently.
 - Kent must preserve historical usage across Session resume and compaction independently of current context usage.
 - Missing usage information must be nullable and must not mean zero consumption.
+- Existing saved usage projections must interpret zero usage values as absent during the data cutover. Newly recorded provider-reported zero usage must be explicit and must not be interpreted as absent.
 - Recording subsequent operations must not fabricate missing historical usage. Retained observations must not certify complete Session billing history.
 - When Session history is copied, retained usage must preserve its original Session and operation identity. Copying history must not represent another provider operation.
 - Usage retention must not calculate monetary costs or fetch or maintain model prices.
@@ -350,7 +369,9 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Workflow Sessions assigned to a managed Worktree must include that Worktree's context in their first model request. Worktree context must use distinct wording for conversation startup, post-compaction continuation, and an execution-target switch. Post-compaction wording must describe the inherited execution context without implying that compaction moved files.
 - Fresh main and Reviewer requests append Environment after that stable prefix.
 - Post-compaction hydration must place compacted or handoff output before Environment and manual user carryover after Environment, except for the provider-native continuation ordering below.
-- Successful provider-native compaction must place its continuation reminder as the first ordinary developer message after the system prompt, before other developer context, the unchanged encrypted checkpoint, and Environment. The reminder must belong to the saved generation and use the ordinary developer-notice contract. Local compaction uses its summary wrapper without that native reminder.
+- Successful OpenAI V2 compaction must validate and retain one encrypted checkpoint. It must place its continuation reminder as the first ordinary developer message after the system prompt, before other developer context, the unchanged checkpoint, and Environment.
+- Successful Grok native compaction must keep the complete returned output array, including every item, its order, and opaque provider content, contiguous and unchanged through saved output, hydration, resume, subsequent generation, and re-compaction. Grok must use the same generation-context layout as other providers, with the continuation reminder and stable context before the output array and Environment after it.
+- Each native continuation reminder must belong to the saved generation and use the ordinary developer-notice contract. Local compaction must use its summary wrapper without that native reminder.
 - Compaction continuation guidance preserves the original user objective, subsequent corrections, decisions, constraints, and remaining work, and directs reuse of completed work and verification unless new evidence makes them stale.
 - A single editable Markdown document must own compaction continuation guidance. Native compaction inserts that guidance directly; the local handoff-summary wrapper includes it through a template.
 - After successful compaction, Kent must defer base meta context and running-shell capture until the first live model request using the saved summary starts. This behavior must apply to local, dynamic, provider-native, Workflow, and handoff compaction. An idle interval, Session reopening, or offline inspection must not prepare or persist that context early.
@@ -392,7 +413,11 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Human-facing text calls this operation `compact`; model-facing context calls it `handoff`. Manual compaction carries the last visible user prompt. Agent handoff may carry a future-agent message visible only in detail.
 - The main-agent prompt-cache key is always the Kent Session ID. Compaction and Session Contract changes add no cache-key suffix, namespace, or generation. Reviewer requests remain under the Session's reviewer key.
 - Every production model dispatch must record the exact dispatched cache lineage before sending and the provider-reported cache reuse after a successful response. Generation, Reviewer, local compaction, and provider-native compaction provide no unobserved dispatch path.
-- Native and local compaction requests must preserve the maximal unchanged prefix of the preceding model request. Provider-native compaction uses the ordinary Session Contract, system prompt, tools, and active history before its compaction trigger. Repeated local compaction retains the complete current active history, including the prior compaction replacement.
+- Native and local compaction requests must preserve retained history unchanged within their protocol's request shape. OpenAI V2 compaction must preserve the maximal unchanged prefix of the preceding model request, using the ordinary Session Contract, system prompt, tools, and active history before its compaction trigger. Local compaction must preserve the maximal unchanged prefix and retain the complete current active history, including the prior compaction replacement.
+- Every provider's compaction request must use the original tool declarations, system prompt, and other cache-snapshotted content unchanged. Kent must not rebuild the system prompt or insert a substitute system message during compaction.
+- Grok native compaction must use the actual Session cache key, effective priority tier, instructions, and configured controls. It must omit the OpenAI compaction trigger.
+- Grok compaction must not probe field support, strip fields and retry, or switch routes after rejection. Any additional field omission must require demonstrated service rejection and an explicitly approved contract change.
+- Compaction cache observations must describe the request actually dispatched, including its actual Session cache key, tools, and input.
 - The compaction request must use the pre-compaction Session Contract. When replacement history commits, Kent must clear the full Session Contract snapshot, including model and provider capabilities, generation parameters, enabled tools, and system/reviewer prompts. Every compaction trigger must use this same boundary behavior, including manual, automatic, pre-submit, handoff, and Workflow compaction. The next model request must populate and lock a fresh snapshot. An uncommitted compaction failure must preserve the outgoing snapshot; a later notification failure must not restore a snapshot cleared by committed compaction. Changed prompt-facing content naturally invalidates the changed request prefix while the prompt-cache key remains the Session ID.
 - Compaction alone emits no cache warning. `cache_warning_mode=default` records confirmed non-postfix invalidation and observed cache-reuse disappearance in Detail. `verbose` exposes the same warnings in Ongoing. `off` disables cache warnings.
 - Local compaction permits no tool calls. Each attempt that receives one records a model-visible and user-visible instruction not to call tools and to retry; Kent retries up to three times, then fails compaction and stops the model loop. Local summaries use automatic tool choice; post-compaction Workflow work uses the Node's ordinary generation policy.

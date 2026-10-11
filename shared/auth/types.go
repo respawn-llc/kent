@@ -15,11 +15,11 @@ var (
 )
 
 type OAuthMethod struct {
-	AccessToken  string    `json:"access_token"`
-	RefreshToken string    `json:"refresh_token"`
-	Expiry       time.Time `json:"expiry"`
-	AccountID    string    `json:"account_id,omitempty"`
-	Email        string    `json:"email,omitempty"`
+	AccessToken  string     `json:"access_token"`
+	RefreshToken string     `json:"refresh_token"`
+	Expiry       *time.Time `json:"expiry"`
+	AccountID    string     `json:"account_id,omitempty"`
+	Email        string     `json:"email,omitempty"`
 }
 
 func (m OAuthMethod) Validate() error {

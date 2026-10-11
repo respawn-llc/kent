@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"core/shared/config"
 	"core/shared/textutil"
 	"errors"
 	"fmt"
@@ -20,7 +21,7 @@ type pacedStreamEvent struct {
 func newPacedStreamTransport(t *testing.T, events ...pacedStreamEvent) *HTTPTransport {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/responses" {
+		if r.URL.Path != "/v1/responses" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -45,15 +46,15 @@ func newPacedStreamTransport(t *testing.T, events ...pacedStreamEvent) *HTTPTran
 	}))
 	t.Cleanup(server.Close)
 
-	transport := NewHTTPTransport(staticAuthHeader{})
-	transport.BaseURL = server.URL
-	transport.Client = server.Client()
+	transport := newTestHTTPTransport(t, staticAuthHeader{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
+	transport.Client = newRewritingHTTPClient(t, server)
 	return transport
 }
 
 func newPacedWatchdogClient(t *testing.T, idle time.Duration, events ...pacedStreamEvent) *idleWatchdogClient {
 	t.Helper()
-	return newIdleWatchdogClient(NewOpenAIClient(newPacedStreamTransport(t, events...)), idle)
+	return newIdleWatchdogClient(NewResponsesClient(newPacedStreamTransport(t, events...)), idle)
 }
 
 func completedStreamEvent(delay time.Duration) pacedStreamEvent {
@@ -63,7 +64,6 @@ func completedStreamEvent(delay time.Duration) pacedStreamEvent {
 func TestOAuthGenerateSurvivesConfiguredHTTPClientTimeout(t *testing.T) {
 	transport := newPacedStreamTransport(t, completedStreamEvent(150*time.Millisecond), pacedStreamEvent{data: `[DONE]`})
 	transport.Auth = oauthStaticAuth{}
-	transport.BaseURLExplicit = true
 	transport.Client.Timeout = 50 * time.Millisecond
 	dispatch, err := NewCodexDispatchContext(CodexDispatchFacts{
 		SessionID: "session-1", RunID: "run-1", RequestKind: CodexRequestKindTurn.Optional(),
@@ -71,9 +71,9 @@ func TestOAuthGenerateSurvivesConfiguredHTTPClientTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dispatch context: %v", err)
 	}
-	response, err := transport.Generate(context.Background(), OpenAIRequest{
+	response, err := transport.Generate(context.Background(), ResponsesRequest{
 		Model: "gpt-6-sol", SessionID: textutil.Value("session-1"), CodexDispatch: dispatch,
-		ToolChoiceMode: ToolChoiceModeAutomatic,
+		ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("OAuth Generate was truncated by HTTP client timeout: %v", err)
@@ -98,7 +98,7 @@ func TestGenerate_HealthyLongStreamSurvivesTotalWallClockBeyondIdle(t *testing.T
 		pacedStreamEvent{delay: 0, data: `[DONE]`},
 	)
 
-	resp, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
+	resp, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("healthy long stream failed: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestGenerate_StalledStreamReturnsStallSentinel(t *testing.T) {
 	)
 
 	ctx := context.Background()
-	_, err := client.Generate(ctx, Request{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
+	_, err := client.Generate(ctx, Request{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"}, StreamCallbacks{})
 	if err == nil {
 		t.Fatal("expected stall error")
 	}
@@ -146,7 +146,7 @@ func TestGenerate_ParentCancelIsDistinguishableFromStall(t *testing.T) {
 		cancel()
 	}()
 
-	_, err := client.Generate(ctx, Request{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
+	_, err := client.Generate(ctx, Request{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"}, StreamCallbacks{})
 	if err == nil {
 		t.Fatal("expected cancellation error")
 	}
@@ -163,7 +163,7 @@ func TestGenerate_StallAfterCompletedSalvagesResponse(t *testing.T) {
 		pacedStreamEvent{delay: 5 * time.Second, data: `[DONE]`},
 	)
 
-	resp, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
+	resp, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("a fully-received response must not be discarded as a stall: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestGenerate_CallerCancelAfterCompletedIsNotSalvaged(t *testing.T) {
 		cancel()
 	}()
 
-	_, err := client.Generate(ctx, Request{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
+	_, err := client.Generate(ctx, Request{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"}, StreamCallbacks{})
 	if err == nil {
 		t.Fatal("caller cancellation after a completed event must not be salvaged into a successful response")
 	}
@@ -204,7 +204,7 @@ func TestGenerate_TransportEmitsActivityHeartbeatPerEvent(t *testing.T) {
 	)
 
 	var beats atomic.Int32
-	if _, err := transport.Generate(context.Background(), OpenAIRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, StreamCallbacks{
+	if _, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{
 		OnStreamActivity: func() { beats.Add(1) },
 	}); err != nil {
 		t.Fatalf("Generate failed: %v", err)

@@ -20,6 +20,8 @@ The private `config.local.toml` is read from the main workspace when using workt
 
 **Connection discovery is an exception** - for provider connection declarations, Kent reads global configuration to keep provider access private to that installation. See [Authentication and connections](../authentication/).
 
+Grok connections have provider-specific model, thinking, and context defaults described in [Grok models and subscription routes](../authentication/#grok-models-and-subscription-routes). Explicit settings take precedence over those defaults.
+
 ## Locations
 
 ### Persistence root

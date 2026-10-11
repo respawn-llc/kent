@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 
 	"core/shared/config"
@@ -12,11 +13,11 @@ import (
 type Manager struct {
 	mutationMu sync.Mutex
 	store      Store
-	refresher  *OAuthRefresher
+	refreshers map[config.ConnectionProtocol]*OAuthRefresher
 }
 
-func NewManager(store Store, refresher *OAuthRefresher) *Manager {
-	return &Manager{store: store, refresher: refresher}
+func NewManager(store Store, refreshers map[config.ConnectionProtocol]*OAuthRefresher) *Manager {
+	return &Manager{store: store, refreshers: maps.Clone(refreshers)}
 }
 
 // Load observes persisted credentials without refreshing or waiting for a
@@ -48,7 +49,7 @@ func (m *Manager) SaveOAuth(ctx context.Context, id config.ConnectionID, credent
 	return m.save(ctx, state, id, credential)
 }
 
-func (m *Manager) CurrentOAuth(ctx context.Context, id config.ConnectionID) (OAuthMethod, error) {
+func (m *Manager) CurrentOAuth(ctx context.Context, id config.ConnectionID, protocol config.ConnectionProtocol) (OAuthMethod, error) {
 	if _, err := config.ParseConnectionID(string(id)); err != nil {
 		return OAuthMethod{}, err
 	}
@@ -62,10 +63,14 @@ func (m *Manager) CurrentOAuth(ctx context.Context, id config.ConnectionID) (OAu
 	if !present {
 		return OAuthMethod{}, fmt.Errorf("connection %s: %w; sign in to this connection", id, ErrAuthNotConfigured)
 	}
-	if m.refresher == nil {
+	if m.refreshers == nil {
 		return credential, nil
 	}
-	updated, refreshed, err := m.refresher.MaybeRefresh(ctx, credential)
+	refresher, present := m.refreshers[protocol]
+	if !present || refresher == nil {
+		return OAuthMethod{}, fmt.Errorf("connection %s has no OAuth refresher for protocol %s", id, protocol)
+	}
+	updated, refreshed, err := refresher.MaybeRefresh(ctx, credential)
 	if err != nil {
 		return OAuthMethod{}, fmt.Errorf("connection %s: %w", id, err)
 	}

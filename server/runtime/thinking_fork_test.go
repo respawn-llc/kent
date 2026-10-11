@@ -27,7 +27,7 @@ func TestThinkingForkPortability(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				parent := mustCreateTestSession(t)
 				log := mustMaterializeTestEventLog(t, parent)
-				update := llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+				update := llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 					Type: llm.ResponseItemTypeConfigurationUpdate, ConfigurationEffort: textutil.Value("high"),
 				}})[0]
 				history, err := sessionProviderHistoryItemFromLLM(0, update)

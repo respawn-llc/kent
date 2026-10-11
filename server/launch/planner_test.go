@@ -3,6 +3,7 @@ package launch
 import (
 	"context"
 	"core/internal/testharness/testsetup"
+	"core/server/llm"
 	"core/server/metadata"
 	"core/server/session"
 	"core/server/session/sessiontest"
@@ -56,6 +57,62 @@ func TestSessionConnectionResumeBindingAndReplacement(t *testing.T) {
 	delete(settings.Connections, "local")
 	if _, err := BindSessionConnection(store, &settings, nil); err == nil || *store.Meta().ConnectionID != "local" {
 		t.Fatal("missing replacement must fail without changing the binding")
+	}
+}
+
+func TestGrokSessionDefaultsPreserveSavedModel(t *testing.T) {
+	for _, authored := range []bool{false, true} {
+		t.Run(map[bool]string{false: "omitted", true: "authored empty"}[authored], func(t *testing.T) {
+			testGrokSessionDefaultsPreserveSavedModel(t, authored)
+		})
+	}
+}
+
+func testGrokSessionDefaultsPreserveSavedModel(t *testing.T, authored bool) {
+	root, workspace := t.TempDir(), t.TempDir()
+	source := `
+connection = "grok"
+[connections.grok]
+protocol = "grok-cli-proxy"
+`
+	if authored {
+		source = "thinking_level = \"\"\n" + source
+	}
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, locked := range []*session.LockedContract{nil, {Model: "grok-future"}} {
+		if authored && locked != nil {
+			continue
+		}
+		result, err := ResolveReadOnlySessionContextSettings(app, session.Meta{Locked: locked}, false)
+		if authored && locked == nil {
+			if !errors.Is(err, llm.ErrInvalidRequest) {
+				t.Fatalf("authored empty Thinking became %q: %v", result.Settings.ThinkingLevel, err)
+			}
+			result, err = ResolveReadOnlySessionContextSettings(app, session.Meta{ChatSettings: &session.ChatSettingsOverrides{Thinking: textutil.Value("low")}}, false)
+			if err != nil || result.Settings.ThinkingLevel != "low" {
+				t.Fatalf("Session override did not win: %q, %v", result.Settings.ThinkingLevel, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantModel := "grok-4.7"
+		if locked != nil {
+			wantModel = locked.Model
+		}
+		if result.Settings.Model != wantModel || result.Settings.ThinkingLevel != "high" || result.Settings.Reviewer.Model != wantModel {
+			t.Fatalf("resolved model/thinking/Supervisor = %s/%s/%s", result.Settings.Model, result.Settings.ThinkingLevel, result.Settings.Reviewer.Model)
+		}
+		if locked == nil && result.Settings.ModelContextWindow != 256_000 {
+			t.Fatalf("window = %d", result.Settings.ModelContextWindow)
+		}
 	}
 }
 
@@ -1290,25 +1347,38 @@ func TestApplyRunPromptOverridesKeepsExplicitToolSourcesWhenOnlyModelOverrides(t
 }
 
 func TestApplyRunPromptOverridesFastRoleWarnsWhenHeuristicDoesNothing(t *testing.T) {
-	workspace := t.TempDir()
-	loaded := loadLaunchConfig(t, workspace,
-		"model = \"gpt-6-sol\"",
-		"connection = \"custom\"",
-		"[connections.custom]",
-		"protocol = \"responses\"",
-		"endpoint = \"https://example.test/v1\"",
-	)
-	plan := newLoadedConfigPlan(t, workspace, loaded)
+	for _, protocol := range []string{"responses", "grok-cli-proxy", "grok-oauth-api", "grok-api-key"} {
+		t.Run(protocol, func(t *testing.T) {
+			workspace := t.TempDir()
+			lines := []string{
+				"model = \"gpt-6-sol\"",
+				"connection = \"custom\"",
+				"[connections.custom]",
+				"protocol = \"" + protocol + "\"",
+			}
+			if protocol == "responses" {
+				lines = append(lines, "endpoint = \"https://example.test/v1\"")
+			} else {
+				lines[0] = "model = \"grok-4.7\""
+				if protocol == "grok-api-key" {
+					lines = append(lines, "environment_variable = \"XAI_API_KEY\"")
+				}
+				lines = append(lines, "[connections.custom.provider_capabilities]", "provider_id = \"openai\"", "supports_responses_api = true")
+			}
+			loaded := loadLaunchConfig(t, workspace, lines...)
+			plan := newLoadedConfigPlan(t, workspace, loaded)
 
-	updated, warnings, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(config.BuiltInSubagentRoleFast)})
-	if err != nil {
-		t.Fatalf("ApplyRunPromptOverrides: %v", err)
-	}
-	if updated.ActiveSettings.Model != loaded.Settings.Model {
-		t.Fatalf("model = %q, want %q", updated.ActiveSettings.Model, loaded.Settings.Model)
-	}
-	if len(warnings) != 1 || warnings[0] != fastRoleSameAsMainWarning {
-		t.Fatalf("unexpected warnings: %+v", warnings)
+			updated, warnings, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(config.BuiltInSubagentRoleFast)})
+			if err != nil {
+				t.Fatalf("ApplyRunPromptOverrides: %v", err)
+			}
+			if updated.ActiveSettings.Model != loaded.Settings.Model {
+				t.Fatalf("model = %q, want %q", updated.ActiveSettings.Model, loaded.Settings.Model)
+			}
+			if protocol == "responses" && (len(warnings) != 1 || warnings[0] != fastRoleSameAsMainWarning) {
+				t.Fatalf("unexpected warnings: %+v", warnings)
+			}
+		})
 	}
 }
 

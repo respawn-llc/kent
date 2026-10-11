@@ -11,6 +11,7 @@ import (
 	"core/server/session/sessiontest"
 	"core/server/tools"
 	"core/shared/runtimeids"
+	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 )
@@ -28,7 +29,7 @@ func TestAcceptedResponsePersistsProviderModelMismatchAndAdjustedUsage(t *testin
 			store := mustCreateTestSession(t)
 			response := finalTextResponse("done")
 			response.ServedModel = stringPointer("served-model")
-			response.Usage = llm.Usage{InputTokens: 42, OutputTokens: 3, WindowTokens: 200000}
+			response.Usage = llm.Usage{InputTokens: textutil.Value(42), OutputTokens: textutil.Value(3), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 42, MeasurementPoint: llm.ContextMeasurementInput}}
 			engine := mustNewTestEngine(t, store, &fakeClient{responses: []llm.Response{response}}, newTestToolRegistry(t), Config{
 				Model: "requested-model",
 				Debug: test.debug,
@@ -46,7 +47,7 @@ func TestAcceptedResponsePersistsProviderModelMismatchAndAdjustedUsage(t *testin
 				warning.ProviderModelMismatch.ServedModel != "served-model" {
 				t.Fatalf("warning = %+v", warning)
 			}
-			if usage := store.Meta().UsageState; usage == nil || usage.InputTokens != 42 {
+			if usage := store.Meta().UsageState; usage == nil || usage.InputTokens == nil || *usage.InputTokens != 42 {
 				t.Fatalf("usage state = %+v, want accepted response usage", store.Meta().UsageState)
 			}
 		})
@@ -167,7 +168,7 @@ func acceptedMismatchCandidate() successfulRequestCandidate {
 	return successfulRequestCandidate{
 		response: llm.Response{
 			ServedModel: stringPointer("served-model"),
-			Usage:       llm.Usage{InputTokens: 42, OutputTokens: 3, WindowTokens: 200000},
+			Usage:       llm.Usage{InputTokens: textutil.Value(42), OutputTokens: textutil.Value(3), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 42, MeasurementPoint: llm.ContextMeasurementInput}},
 		},
 		requestedModel:          "requested-model",
 		estimatedProviderTokens: 17,

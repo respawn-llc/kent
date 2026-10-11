@@ -80,11 +80,14 @@ func (s *usageTrackingState) CacheHitSnapshot() (int, bool) {
 }
 
 func normalizeUsageForTrackingState(usage llm.Usage) llm.Usage {
-	if usage.InputTokens < 0 {
-		usage.InputTokens = 0
+	usage.InputTokens = textutil.Pointer(usage.InputTokens)
+	usage.OutputTokens = textutil.Pointer(usage.OutputTokens)
+	usage.ContextUsage = textutil.Pointer(usage.ContextUsage)
+	if usage.InputTokens != nil && *usage.InputTokens < 0 {
+		*usage.InputTokens = 0
 	}
-	if usage.OutputTokens < 0 {
-		usage.OutputTokens = 0
+	if usage.OutputTokens != nil && *usage.OutputTokens < 0 {
+		*usage.OutputTokens = 0
 	}
 	if usage.WindowTokens < 0 {
 		usage.WindowTokens = 0
@@ -93,28 +96,15 @@ func normalizeUsageForTrackingState(usage llm.Usage) llm.Usage {
 	if usage.CachedInputTokens != nil && *usage.CachedInputTokens < 0 {
 		*usage.CachedInputTokens = 0
 	}
-	if usage.CachedInputTokens != nil && *usage.CachedInputTokens > usage.InputTokens {
-		*usage.CachedInputTokens = usage.InputTokens
+	if usage.CachedInputTokens != nil && usage.InputTokens != nil && *usage.CachedInputTokens > *usage.InputTokens {
+		*usage.CachedInputTokens = *usage.InputTokens
 	}
 	return usage
 }
 
 func normalizePersistedUsageTrackingState(state session.UsageState) session.UsageState {
-	if state.InputTokens < 0 {
-		state.InputTokens = 0
-	}
-	if state.OutputTokens < 0 {
-		state.OutputTokens = 0
-	}
-	if state.WindowTokens < 0 {
-		state.WindowTokens = 0
-	}
-	if state.CachedInputTokens < 0 {
-		state.CachedInputTokens = 0
-	}
-	if state.CachedInputTokens > state.InputTokens {
-		state.CachedInputTokens = state.InputTokens
-	}
+	usage := normalizeUsageForTrackingState(llm.Usage{InputTokens: state.InputTokens, OutputTokens: state.OutputTokens, WindowTokens: state.WindowTokens, CachedInputTokens: state.CachedInputTokens})
+	state.InputTokens, state.OutputTokens, state.CachedInputTokens, state.WindowTokens = usage.InputTokens, usage.OutputTokens, usage.CachedInputTokens, usage.WindowTokens
 	if state.EstimatedProviderTokens < 0 {
 		state.EstimatedProviderTokens = 0
 	}
@@ -137,8 +127,8 @@ func nextUsageTrackingTotals(totalInputTokens, totalCachedInputTokens int, usage
 	if totalCachedInputTokens < 0 {
 		totalCachedInputTokens = 0
 	}
-	if usage.CachedInputTokens != nil && usage.InputTokens > 0 {
-		totalInputTokens += usage.InputTokens
+	if usage.CachedInputTokens != nil && usage.InputTokens != nil && *usage.InputTokens > 0 {
+		totalInputTokens += *usage.InputTokens
 		totalCachedInputTokens += *usage.CachedInputTokens
 		if totalCachedInputTokens > totalInputTokens {
 			totalCachedInputTokens = totalInputTokens

@@ -19,7 +19,7 @@ func steerTestPreparedHistoryIntent(engine string, mode compactionMode, number i
 		items: []steeringItem{{historyReplace: &steeringHistoryReplacement{payload: historyReplacementPayload{
 			Engine: engine, Mode: string(mode), CompactionNumber: &number,
 			LastCommittedAssistantFinalAnswer: textutil.Pointer(finalAnswer),
-			Items:                             llm.CloneResponseItems(llm.PrepareOpenAIInputItems(history.items)),
+			Items:                             llm.CloneResponseItems(llm.PrepareResponsesInputItems(history.items)),
 		}}}},
 	}
 }

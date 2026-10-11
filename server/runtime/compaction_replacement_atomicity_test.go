@@ -14,14 +14,57 @@ import (
 
 func TestCompactionOperationContextSurvivesReopen(t *testing.T) {
 	t.Parallel()
+	for _, test := range []struct {
+		name       string
+		fullBundle bool
+	}{{"OpenAI checkpoint", false}, {"Grok full bundle", true}} {
+		t.Run(test.name, func(t *testing.T) {
+			testCompactionOutputReopen(t, test.fullBundle)
+		})
+	}
+}
+
+func testCompactionOutputReopen(t *testing.T, fullBundle bool) {
 	store, globalConfigDir := mustCreateBaseMetaContextTestSession(t)
 	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{
 		remoteCompactionReplacement(1_000, 100, 200_000),
 	}}
-	client.compactionResponses[0].Checkpoint.Raw = json.RawMessage(`{"type":"compaction","id":"compaction-checkpoint","encrypted_content":"encrypted","provider_extension":{"retained":true}}`)
+	client.compactionResponses[0].OutputItems[0].Raw = json.RawMessage(`{"type":"compaction","id":"compaction-checkpoint","encrypted_content":"encrypted","provider_extension":{"retained":true}}`)
 	client.compactionResponses[0].ProviderEvidence.ProviderID = textutil.Value("openai")
-	checkpoint := llm.CloneResponseItems([]llm.ResponseItem{client.compactionResponses[0].Checkpoint})[0]
+	checkpoint := llm.CloneResponseItems([]llm.ResponseItem{client.compactionResponses[0].OutputItems[0]})[0]
 	checkpoint.Attribution = &modelcontract.ReasoningAttribution{Type: textutil.Value(modelcontract.ReasoningTypeOpenAI)}
+	client.compactionResponses[0].OutputItems[0] = checkpoint
+	if fullBundle {
+		bundle := llm.PrepareResponsesInputItems([]llm.ResponseItem{{
+			Type: llm.ResponseItemTypeMessage, Role: textutil.Value(llm.RoleUser), Content: textutil.Value("provider-retained input"),
+		}})
+		bundle = append(bundle, checkpoint)
+		bundle = append(bundle, llm.ResponseItem{
+			Attribution: &modelcontract.ReasoningAttribution{Type: textutil.Value(modelcontract.ReasoningTypeOpenAI)},
+			Type:        llm.ResponseItemTypeReasoning, EncryptedContent: textutil.Value("opaque-reasoning"),
+			Raw: json.RawMessage(`{"type":"reasoning","encrypted_content":"opaque-reasoning","summary":[],"extension":{"retain":true}}`),
+		})
+		client.compactionResponses[0].OutputItems = bundle
+	}
+	bundle := llm.CloneResponseItems(client.compactionResponses[0].OutputItems)
+	assertReplacement := func(items []llm.ResponseItem) {
+		t.Helper()
+		var bundleStart *int
+		for index := 0; index+len(bundle) <= len(items); index++ {
+			if reflect.DeepEqual(items[index:index+len(bundle)], bundle) {
+				bundleStart = textutil.Value(index)
+				break
+			}
+		}
+		if bundleStart == nil {
+			t.Fatalf("provider output bundle missing or changed: got %+v, want contiguous %+v", items, bundle)
+		}
+		end := *bundleStart + len(bundle)
+		if end >= len(items) || items[end].MessageType == nil || *items[end].MessageType != llm.MessageTypeEnvironment {
+			t.Fatal("Environment must follow the complete provider output")
+		}
+		assertCompactionCheckpointUnchanged(t, items, checkpoint)
+	}
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{
 		Model:           "gpt-6-sol",
 		GlobalConfigDir: globalConfigDir,
@@ -57,19 +100,21 @@ func TestCompactionOperationContextSurvivesReopen(t *testing.T) {
 		llm.MessageTypeEnvironment,
 		llm.MessageTypeCompactionPreservedUserMessage,
 	})
-	assertCompactionReplacementOrder(t, request.Items, false)
-	assertCompactionCheckpointUnchanged(t, request.Items, checkpoint)
+	assertReplacement(request.Items)
 
 	reopenedStore := mustOpenTestSession(t, store.Dir())
-	reopened := mustNewTestEngine(t, reopenedStore, &fakeClient{}, newTestToolRegistry(t), Config{
+	reopenedClient := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
+		ProviderEvidence: modelcontract.ProviderUsageEvidence{ProviderID: textutil.Value("openai")},
+		OutputItems:      llm.CloneResponseItems(bundle),
+	}}}
+	reopened := mustNewTestEngine(t, reopenedStore, reopenedClient, newTestToolRegistry(t), Config{
 		Model:           "gpt-6-sol",
 		GlobalConfigDir: globalConfigDir,
 	})
 	for range 2 {
 		restored := buildActiveTurnRequestForTest(t, reopened, nil, true)
 		assertCompactionRequestItemsEqual(t, request.Items, restored.Items)
-		assertCompactionReplacementOrder(t, restored.Items, false)
-		assertCompactionCheckpointUnchanged(t, restored.Items, checkpoint)
+		assertReplacement(restored.Items)
 	}
 
 	page, err := TranscriptNewestSegmentPageFromEventLog(mustMaterializeTestEventLog(t, reopenedStore), "")
@@ -89,6 +134,13 @@ func TestCompactionOperationContextSurvivesReopen(t *testing.T) {
 	if notices != 1 {
 		t.Fatalf("persisted native reminder notices = %d, want one", notices)
 	}
+	scheduleManualCompactionAndWait(t, reopened)
+	if len(reopenedClient.compactionCalls) != 1 {
+		t.Fatalf("recompaction requests = %d", len(reopenedClient.compactionCalls))
+	}
+	assertReplacement(reopenedClient.compactionCalls[0].Items)
+	next := buildActiveTurnRequestForTest(t, reopened, nil, true)
+	assertReplacement(next.Items)
 }
 
 func assertCompactionCheckpointUnchanged(t *testing.T, items []llm.ResponseItem, want llm.ResponseItem) {
