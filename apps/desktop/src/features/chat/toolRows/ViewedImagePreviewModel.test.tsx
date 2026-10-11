@@ -124,6 +124,7 @@ const imageItem: TranscriptToolSlotItem = {
     ReviewerError: null,
     Tool: {
       ViewedImageKind: "raster",
+      AnsweredBySessionID: null,
       ToolCallID: "image",
       ToolName: "view_image",
       Text: "",
