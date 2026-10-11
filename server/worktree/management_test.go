@@ -3,6 +3,7 @@ package worktree
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -11,9 +12,34 @@ import (
 	"core/shared/protoapi"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/runtimeids"
 	"core/shared/worktreecontract"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestCreateWorktreeReturnsSelectedSessionIdentity(t *testing.T) {
+	env := newServiceTestEnv(t)
+	identity := env.session.Identity()
+	for index, selector := range []runtimeids.SessionSelector{identity.ID, *identity.ShortID, identity.ID} {
+		if index == 2 {
+			if _, err := env.store.DB().ExecContext(env.ctx, "UPDATE sessions SET short_id = NULL WHERE id = ?", identity.ID.String()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		request := createWorktreeRequestForTest(worktreecontract.NewSetupOperationID(), identity.ID.String(), "", "HEAD", true, fmt.Sprintf("identity-%d", index))
+		request.Scope = worktreecontract.WorkspaceManagementScope(env.binding.ProjectID, env.binding.WorkspaceID, protoapi.SessionSelectorToProto(selector))
+		result, err := env.service.CreateWorktree(env.ctx, request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Session == nil || result.Session.SessionId != identity.ID.String() || (result.Session.ShortId != nil) != (index != 2) {
+			t.Fatalf("creation lost selected Session identity: %v", result)
+		}
+		if index != 2 && *result.Session.ShortId != identity.ShortID.Int64() {
+			t.Fatal("creation returned a different Session number")
+		}
+	}
+}
 
 func assertForeignManagementDeleteBlocked(t *testing.T, env *serviceTestEnv, worktreeID string) {
 	t.Helper()

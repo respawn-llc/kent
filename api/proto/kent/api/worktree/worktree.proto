@@ -824,6 +824,7 @@ message CreateRequest {
 message CreateSuccess {
   SessionExecutionTarget target = 1;
   ListEntry worktree = 2 [(buf.validate.field).required = true];
+  kent.api.shared.SessionIdentity session = 3;
 
   option (buf.validate.message).cel = {
     id: "kent.worktree.create_projection"
