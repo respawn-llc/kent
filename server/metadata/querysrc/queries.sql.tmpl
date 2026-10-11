@@ -2324,6 +2324,7 @@ LIMIT 1;
 -- name: GetSessionWorkspaceRetargetStateByID :one
 SELECT
     s.id AS session_id,
+    s.short_id,
     s.project_id,
     p.display_name AS project_display_name,
     p.project_key,
