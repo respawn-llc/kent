@@ -6,6 +6,7 @@ import (
 	"core/server/session/sessiontest"
 	"core/shared/config"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 	"core/shared/toolspec"
 	"errors"
 	"os"
@@ -64,7 +65,7 @@ func TestPlannerInteractiveReopensSelectedSessionWithinActiveContainer(t *testin
 	containerB := filepath.Join(root, "projects", "project-b", "sessions")
 	persistence := sessiontest.NewPersistence()
 	selected := createTestSessionInContainer(t, containerA, "sessions", "/tmp/workspace-a", persistence.Options()...)
-	if err := selected.SetName("selected"); err != nil {
+	if err := selected.SetName(textutil.Value("selected")); err != nil {
 		t.Fatalf("persist selected session meta: %v", err)
 	}
 	writeSessionEventArtifact(t, filepath.Join(containerB, selected.Meta().SessionID))
@@ -90,7 +91,7 @@ func TestPlannerSelectedSessionUsesAuthoritativeMetadata(t *testing.T) {
 	container := filepath.Join(root, "projects", "project-a", "sessions")
 	persistence := sessiontest.NewPersistence()
 	selected := createTestSessionInContainer(t, container, "sessions", "/tmp/workspace-old", persistence.Options()...)
-	if err := selected.SetName("selected"); err != nil {
+	if err := selected.SetName(textutil.Value("selected")); err != nil {
 		t.Fatalf("persist selected session meta: %v", err)
 	}
 	authoritative := selected.Meta()
@@ -133,7 +134,7 @@ func TestPlannerSelectedSessionIDUsesAuthoritativePersistedIdentity(t *testing.T
 	containerB := filepath.Join(root, "projects", "project-b", "sessions")
 	persistence := sessiontest.NewPersistence()
 	selected := createTestSessionInContainer(t, containerA, "sessions", "/tmp/workspace-a", persistence.Options()...)
-	if err := selected.SetName("selected"); err != nil {
+	if err := selected.SetName(textutil.Value("selected")); err != nil {
 		t.Fatalf("persist selected session meta: %v", err)
 	}
 	writeSessionEventArtifact(t, filepath.Join(containerB, selected.Meta().SessionID))
@@ -159,7 +160,7 @@ func TestPlannerSelectedSessionIDDoesNotOpenAcrossProjectContainers(t *testing.T
 	}
 	persistence := sessiontest.NewPersistence()
 	otherProjectSession := createTestSessionInContainer(t, otherProjectContainer, "sessions", "/tmp/other-project-workspace", persistence.Options()...)
-	if err := otherProjectSession.SetName("other project session"); err != nil {
+	if err := otherProjectSession.SetName(textutil.Value("other project session")); err != nil {
 		t.Fatalf("persist other project session meta: %v", err)
 	}
 	planner := newPersistenceBackedTestPlanner(

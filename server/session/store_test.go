@@ -100,7 +100,7 @@ func TestSessionCategoryUnaffectedByUnrelatedMetadataMutations(t *testing.T) {
 		}
 	}
 
-	if err := store.SetName("renamed session"); err != nil {
+	if err := store.SetName(stringPointer("renamed session")); err != nil {
 		t.Fatalf("rename: %v", err)
 	}
 	assertSubagent("rename")
@@ -270,7 +270,7 @@ func TestCompactionReplacementPersistsFreshContractBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, receipt, err := log.AppendCompactionHistoryReplacement(nil, HistoryReplacementRecord{
+	if _, receipt, err := log.AppendHistoryReplacement(nil, HistoryReplacementRecord{
 		Engine: "local", Mode: CompactionModeManual,
 	}); err != nil || !receipt.Committed {
 		t.Fatalf("commit compaction replacement: receipt=%+v error=%v", receipt, err)
@@ -281,6 +281,44 @@ func TestCompactionReplacementPersistsFreshContractBoundary(t *testing.T) {
 	opened := mustOpenSessionTestStore(t, store)
 	if locked := opened.Meta().Locked; locked != nil {
 		t.Fatalf("persisted locked contract = %+v, want absent", locked)
+	}
+}
+
+func TestGenerationPreparationPreservesCurrentContract(t *testing.T) {
+	store := newSessionTestStore(t)
+	log := mustMaterializeSessionTestEventLog(t, store)
+	count, start := 1, 0
+	summary := []ProviderHistoryItem{{
+		Type: ProviderHistoryItemTypeCompaction,
+		Raw:  []byte(`{ "type": "compaction", "encrypted_content": "checkpoint" }`),
+	}}
+	record := HistoryReplacementRecord{
+		Engine: "remote", Mode: CompactionModeWorkflowPostCompletion,
+		CompactionNumber: &count, CommittedEntryStart: &start,
+		CompactedOutput: &CompactedOutput{Summary: summary},
+	}
+	if _, receipt, err := log.AppendHistoryReplacement(nil, record); err != nil || !receipt.Committed {
+		t.Fatalf("save compaction: %+v, %v", receipt, err)
+	}
+	markSessionTestLocked(t, store, sessionTestLockedContract())
+	if err := store.AdoptOriginalThinkingEffort("medium"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetUsageState(&UsageState{InputTokens: textutil.Value(42)}); err != nil {
+		t.Fatal(err)
+	}
+	before := store.Meta()
+	context := GenerationContextRecord{AfterSummary: []MessageRecord{{
+		Role: MessageRoleDeveloper, Content: stringPointer("operation context"),
+	}}}
+	if _, receipt, err := log.AppendRecord(nil, context); err != nil || !receipt.Committed {
+		t.Fatalf("prepare generation: %+v, %v", receipt, err)
+	}
+	after := mustOpenSessionTestStore(t, store).Meta()
+	if !reflect.DeepEqual(before.Locked, after.Locked) ||
+		!reflect.DeepEqual(before.OriginalThinkingEffort, after.OriginalThinkingEffort) ||
+		!reflect.DeepEqual(before.UsageState, after.UsageState) {
+		t.Fatal("generation preparation reset the selected contract or compacted usage")
 	}
 }
 
@@ -302,7 +340,7 @@ func TestCompactedMetadataProjectionPreservesRetainedContextWithoutMutation(t *t
 		t.Fatal("compaction projection mutated retained metadata")
 	}
 	log := mustMaterializeSessionTestEventLog(t, store)
-	if _, receipt, err := log.AppendCompactionHistoryReplacement(nil, HistoryReplacementRecord{
+	if _, receipt, err := log.AppendHistoryReplacement(nil, HistoryReplacementRecord{
 		Engine: "local", Mode: CompactionModeManual,
 	}); err != nil || !receipt.Committed {
 		t.Fatalf("commit compaction: %+v, %v", receipt, err)
@@ -472,14 +510,14 @@ func TestSetListingMetadataPersistsNameAndFirstPromptPreview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if err := store.SetListingMetadata("  Workflow Session  ", "\n  Rendered workflow prompt\nsecond line"); err != nil {
+	if err := store.SetListingMetadata(stringPointer("  Workflow Session  "), "\n  Rendered workflow prompt\nsecond line"); err != nil {
 		t.Fatalf("SetListingMetadata: %v", err)
 	}
 	meta := storeTestMeta(store)
-	if meta.Name != "Workflow Session" || meta.FirstPromptPreview != "Rendered workflow prompt" {
-		t.Fatalf("metadata = name %q preview %q, want trimmed name and normalized preview", meta.Name, meta.FirstPromptPreview)
+	if meta.Name == nil || *meta.Name != "Workflow Session" || meta.FirstPromptPreview != "Rendered workflow prompt" {
+		t.Fatalf("metadata = name %v preview %q, want trimmed name and normalized preview", meta.Name, meta.FirstPromptPreview)
 	}
-	if !observer.called || observer.snapshot.Meta.Name != "Workflow Session" || observer.snapshot.Meta.FirstPromptPreview != "Rendered workflow prompt" {
+	if !observer.called || observer.snapshot.Meta.Name == nil || *observer.snapshot.Meta.Name != "Workflow Session" || observer.snapshot.Meta.FirstPromptPreview != "Rendered workflow prompt" {
 		t.Fatalf("observer snapshot = %+v, called %v", observer.snapshot.Meta, observer.called)
 	}
 
@@ -489,7 +527,7 @@ func TestSetListingMetadataPersistsNameAndFirstPromptPreview(t *testing.T) {
 	}
 
 	longPreview := strings.Repeat("x", firstPromptPreviewMaxChars+5)
-	if err := store.SetListingMetadata("Updated", longPreview); err != nil {
+	if err := store.SetListingMetadata(stringPointer("Updated"), longPreview); err != nil {
 		t.Fatalf("SetListingMetadata overwrite: %v", err)
 	}
 	wantTruncated := strings.Repeat("x", firstPromptPreviewMaxChars-1) + "…"
@@ -497,10 +535,10 @@ func TestSetListingMetadataPersistsNameAndFirstPromptPreview(t *testing.T) {
 		t.Fatalf("truncated preview = %q, want %q", got, wantTruncated)
 	}
 
-	if err := store.SetListingMetadata("  ", " \n\t "); err != nil {
+	if err := store.SetListingMetadata(nil, " \n\t "); err != nil {
 		t.Fatalf("SetListingMetadata clear: %v", err)
 	}
-	if store.Meta().Name != "" || store.Meta().FirstPromptPreview != "" {
+	if store.Meta().Name != nil || store.Meta().FirstPromptPreview != "" {
 		t.Fatalf("cleared metadata = %+v, want empty name and preview", store.Meta())
 	}
 
@@ -511,7 +549,7 @@ func TestSetListingMetadataPersistsNameAndFirstPromptPreview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	if reopened.Meta().Name != "" || reopened.Meta().FirstPromptPreview != "" {
+	if reopened.Meta().Name != nil || reopened.Meta().FirstPromptPreview != "" {
 		t.Fatalf("reopened metadata = %+v, want empty name and preview", reopened.Meta())
 	}
 }
@@ -770,8 +808,8 @@ func TestForkAtUserMessageCopiesPrefixBeforeSelectedMessage(t *testing.T) {
 	if meta.PreviousSessionID == nil || *meta.PreviousSessionID != parentID {
 		t.Fatalf("expected fork previous session id, got %v", meta.PreviousSessionID)
 	}
-	if meta.Name != "Parent → edit u2" {
-		t.Fatalf("expected fork name, got %q", meta.Name)
+	if meta.Name == nil || *meta.Name != "Parent → edit u2" {
+		t.Fatalf("expected fork name, got %v", meta.Name)
 	}
 	if meta.FirstPromptPreview != "u1" {
 		t.Fatalf("expected fork preview to persist first user message, got %q", meta.FirstPromptPreview)

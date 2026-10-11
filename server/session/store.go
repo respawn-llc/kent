@@ -546,7 +546,7 @@ func (s *Store) PromptFacingMetadataSnapshot() PromptFacingMetadataSnapshot {
 
 func (s *Store) RestorePromptFacingMetadata(snapshot PromptFacingMetadataSnapshot) error {
 	return s.mutateAndPersist(func() error {
-		s.meta.Name = snapshot.Name
+		s.meta.Name = textutil.Pointer(snapshot.Name)
 		s.meta.ConnectionID = textutil.Pointer(snapshot.ConnectionID)
 		s.meta.FirstPromptPreview = snapshot.FirstPromptPreview
 		s.meta.Continuation = cloneContinuationContext(snapshot.Continuation)
@@ -691,17 +691,20 @@ type NameMutationResult struct {
 	Changed bool
 }
 
-func (s *Store) SetName(name string) error {
+func (s *Store) SetName(name *string) error {
 	_, err := s.MutateName(name)
 	return err
 }
 
-func (s *Store) MutateName(name string) (NameMutationResult, error) {
-	normalized := strings.TrimSpace(name)
+func (s *Store) MutateName(name *string) (NameMutationResult, error) {
+	normalized, err := sessioncontract.NormalizeSessionName(name)
+	if err != nil {
+		return NameMutationResult{}, err
+	}
 	s.mutationMu.Lock()
 	defer s.mutationMu.Unlock()
 	s.mu.Lock()
-	if s.meta.Name == normalized {
+	if textutil.EqualOptional(s.meta.Name, normalized) {
 		s.mu.Unlock()
 		return NameMutationResult{}, nil
 	}
@@ -719,9 +722,13 @@ func (s *Store) MutateName(name string) (NameMutationResult, error) {
 	}, err
 }
 
-func (s *Store) SetListingMetadata(name string, firstPromptPreview string) error {
+func (s *Store) SetListingMetadata(name *string, firstPromptPreview string) error {
+	normalized, err := sessioncontract.NormalizeSessionName(name)
+	if err != nil {
+		return err
+	}
 	return s.mutateAndPersist(func() error {
-		s.meta.Name = strings.TrimSpace(name)
+		s.meta.Name = normalized
 		s.meta.FirstPromptPreview = normalizeFirstPromptPreview(firstPromptPreview)
 		s.meta.UpdatedAt = time.Now().UTC()
 		return nil

@@ -17,6 +17,7 @@ import {
   useAppNavigation,
   useChatHistoryBookmark,
   SidebarRootOwner,
+  useOwnedSidebarRoots,
   writeBrowserStorage,
   writeLastProjectRoute,
 } from "@/app-facade";
@@ -224,31 +225,39 @@ function ChatRouteOpening({
   projectID,
   sessionID,
 }: Readonly<{ projectID: string; sessionID: string | null }>) {
+  return (
+    <SidebarRootOwner>
+      <ChatRouteContent projectID={projectID} sessionID={sessionID} />
+    </SidebarRootOwner>
+  );
+}
+
+function ChatRouteContent({
+  projectID,
+  sessionID,
+}: Readonly<{ projectID: string; sessionID: string | null }>) {
   const bookmark = useChatHistoryBookmark(projectID, sessionID);
   const appNavigation = useAppNavigation();
+  const { open } = useOwnedSidebarRoots();
   const navigation = {
     openTask: (taskID: string) => {
-      void appNavigation.openTask(taskID);
+      open({ kind: "taskDetail", taskID });
     },
     openParentSession: async (previousSessionID: string) => {
       return appNavigation.openSessionChat({ projectID, sessionID: previousSessionID });
     },
   };
-  return (
-    <SidebarRootOwner>
-      {bookmark.sessionID === null ? (
-        <NewChatDestination
-          projectID={projectID}
-          navigation={navigation}
-          onSessionDelivered={bookmark.delivered}
-        />
-      ) : (
-        <ChatDestination
-          opening={{ kind: "session", projectID, sessionID: bookmark.sessionID }}
-          navigation={navigation}
-          onSessionDelivered={bookmark.delivered}
-        />
-      )}
-    </SidebarRootOwner>
+  return bookmark.sessionID === null ? (
+    <NewChatDestination
+      projectID={projectID}
+      navigation={navigation}
+      onSessionDelivered={bookmark.delivered}
+    />
+  ) : (
+    <ChatDestination
+      opening={{ kind: "session", projectID, sessionID: bookmark.sessionID }}
+      navigation={navigation}
+      onSessionDelivered={bookmark.delivered}
+    />
   );
 }

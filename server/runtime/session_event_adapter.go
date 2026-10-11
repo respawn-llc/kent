@@ -521,15 +521,19 @@ func sessionHistoryReplacementRecordFromRuntime(
 		LatestRollbackCandidate:           textutil.Pointer(payload.LatestRollbackCandidate),
 	}
 	record.CompactionNumber = textutil.Pointer(payload.CompactionNumber)
-	if len(payload.Items) > 0 {
-		record.Items = make([]session.ProviderHistoryItem, 0, len(payload.Items))
-		for index, item := range payload.Items {
-			historyItem, err := sessionProviderHistoryItemFromLLM(index, item)
-			if err != nil {
-				return session.HistoryReplacementRecord{}, err
-			}
-			record.Items = append(record.Items, historyItem)
+	if payload.Output != nil {
+		output, err := compactedOutputRecord(*payload.Output)
+		if err != nil {
+			return session.HistoryReplacementRecord{}, err
 		}
+		record.CompactedOutput = &output
+	}
+	for index, item := range payload.Items {
+		historyItem, err := sessionProviderHistoryItemFromLLM(index, item)
+		if err != nil {
+			return session.HistoryReplacementRecord{}, err
+		}
+		record.Items = append(record.Items, historyItem)
 	}
 	normalized, err := session.NewEventRecord(1, nil, record)
 	if err != nil {
@@ -558,15 +562,19 @@ func historyReplacementPayloadFromSessionRecord(
 		LatestRollbackCandidate:           textutil.Pointer(record.LatestRollbackCandidate),
 	}
 	payload.CompactionNumber = textutil.Pointer(record.CompactionNumber)
-	if len(record.Items) > 0 {
-		payload.Items = make([]llm.ResponseItem, 0, len(record.Items))
-		for _, item := range record.Items {
-			restored := llmResponseItemFromSessionHistory(item)
-			if err := llm.RestoreRetainedItemFacts(&restored); err != nil {
-				return historyReplacementPayload{}, err
-			}
-			payload.Items = append(payload.Items, restored)
+	if record.CompactedOutput != nil {
+		output, err := compactionOutputFromRecord(*record.CompactedOutput)
+		if err != nil {
+			return historyReplacementPayload{}, err
 		}
+		payload.Output = &output
+	}
+	for _, item := range record.Items {
+		restored := llmResponseItemFromSessionHistory(item)
+		if err := llm.RestoreRetainedItemFacts(&restored); err != nil {
+			return historyReplacementPayload{}, err
+		}
+		payload.Items = append(payload.Items, restored)
 	}
 	return payload, nil
 }

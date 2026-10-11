@@ -211,7 +211,7 @@ func (s *Service) checkDeleteTargetActivity(
 					return &worktreecontract.BlockedError{Details: &worktreepb.BlockedDetails{ActiveSessions: activeBlockers}}
 				}
 				activeBlockers.Sessions = append(activeBlockers.Sessions, &worktreepb.BlockingSession{
-					SessionId: target.SessionID, Name: nonblankPointer(target.SessionName),
+					SessionId: target.SessionID, Name: target.SessionName,
 				})
 			}
 			if page.Next == nil {

@@ -107,6 +107,19 @@ func projectPendingPromptResourceForTest(
 	createdAt time.Time,
 ) {
 	id := resource.SessionID().String()
+	if batch := request.QuestionBatch; batch != nil {
+		prepared := false
+		for _, pending := range registry.ListPendingPrompts(id) {
+			if pending.Resource == resource && pending.Request.StepID == request.StepID && pending.Batch != nil {
+				prepared = true
+			}
+		}
+		if !prepared {
+			if err := registry.pendingPrompts.Prepare(resource, batch.StepID, batch.BatchToolCallIDs); err != nil {
+				panic(err)
+			}
+		}
+	}
 	projected := registry.withCurrentAuthorityEntry(resource, func(entry *authorityRuntimeEntry) bool {
 		snapshot, admitted := registry.pendingPrompts.Begin(id, resource, scopeID, request, createdAt)
 		if !admitted {
@@ -449,7 +462,16 @@ func TestSessionTranscriptSubscriptionEstablishmentMayFinishWithTerminalDrain(t 
 
 func TestSessionSettingPublicationBatchesAuthoritativeStateBeforeFeedback(t *testing.T) {
 	registry := NewRuntimeRegistry()
-	engine := newRegistryTestRuntime(t, nil)
+	store := newRegistryTestSession(t, t.TempDir(), "workspace", t.TempDir())
+	eventLog, err := store.MaterializeEventLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := runtime.New(store, eventLog, registryRuntimeFakeClient{}, askquestion.NewRegistry(), runtime.Config{Model: "gpt-6-sol", ThinkingLevel: "medium"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = engine.Close() })
 	registerReady(t, registry, engine.SessionID(), engine)
 	subscription, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{
 		SessionId: engine.SessionID(),
@@ -462,11 +484,11 @@ func TestSessionSettingPublicationBatchesAuthoritativeStateBeforeFeedback(t *tes
 	}
 
 	name := "renamed"
-	if _, err := engine.SetSessionName(t.Context(), name); err != nil {
+	if err := store.SetName(&name); err != nil {
 		t.Fatal(err)
 	}
 	feedback := &transcriptpb.SessionSettingFeedback{
-		Kind: transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME, Changed: true, Value: &transcriptpb.SessionSettingFeedback_SessionName{SessionName: name},
+		Kind: transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME, Changed: true, Value: &transcriptpb.SessionSettingFeedback_SessionName{SessionName: &transcriptpb.SessionNameValue{Name: &name}},
 	}
 	if err := registry.PublishSessionSettingFeedback(engine.SessionID(), feedback); err != nil {
 		t.Fatal(err)

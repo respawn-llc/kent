@@ -511,8 +511,7 @@ func TestCompactRequestUsesSelectedProtocol(t *testing.T) {
 			if standard {
 				checkpointIndex = 1
 				if len(resp.OutputItems) != 3 || resp.OutputItems[0].Type != ResponseItemTypeMessage ||
-					optionalStringValue(resp.OutputItems[2].EncryptedContent) != "enc_2" ||
-					resp.ContextPlacement != CompactionContextAfterOutput {
+					optionalStringValue(resp.OutputItems[2].EncryptedContent) != "enc_2" {
 					t.Fatalf("provider bundle changed: %+v", resp)
 				}
 			} else if len(resp.OutputItems) != 1 {

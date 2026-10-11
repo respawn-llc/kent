@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"core/shared/runtimeids"
+	"core/shared/sessioncontract"
 	"core/shared/textutil"
 )
 
@@ -27,7 +28,7 @@ type cloneCreation struct {
 
 // PrepareClone captures source identity and metadata without opening history.
 // Startup acquires the source Store for the existing bounded replay.
-func PrepareClone(descriptor SessionDescriptor, source PersistedSessionRecord, name string, thinking ForkThinking, options ...StoreOption) (CreationPlan, error) {
+func PrepareClone(descriptor SessionDescriptor, source PersistedSessionRecord, name *string, thinking ForkThinking, options ...StoreOption) (CreationPlan, error) {
 	if err := ValidateOriginalThinkingEffort(&thinking.Desired); err != nil {
 		return CreationPlan{}, err
 	}
@@ -58,7 +59,10 @@ func PrepareClone(descriptor SessionDescriptor, source PersistedSessionRecord, n
 	if err != nil {
 		return CreationPlan{}, err
 	}
-	plan.snapshot.Meta.Name = strings.TrimSpace(name)
+	plan.snapshot.Meta.Name, err = sessioncontract.NormalizeSessionName(name)
+	if err != nil {
+		return CreationPlan{}, err
+	}
 	plan.snapshot.Meta.ChatSettings = &ChatSettingsOverrides{Thinking: textutil.Value(thinking.Desired)}
 	if thinking.PreserveNativeUpdates {
 		plan.snapshot.Meta.OriginalThinkingEffort = textutil.Pointer(source.Meta.OriginalThinkingEffort)
@@ -172,18 +176,22 @@ func (p CreationPlan) WithLaunchMetadata(name *string, continuation Continuation
 		if strings.TrimSpace(*name) == "" {
 			return CreationPlan{}, errors.New("Session name cannot be blank")
 		}
-		p.snapshot.Meta.Name = strings.TrimSpace(*name)
+		p.snapshot.Meta.Name = textutil.Value(strings.TrimSpace(*name))
 	}
 	p.snapshot.Meta.Continuation = normalized
 	return p, nil
 }
 
-func (p CreationPlan) WithListingMetadata(name, firstPromptPreview string) (CreationPlan, error) {
+func (p CreationPlan) WithListingMetadata(name *string, firstPromptPreview string) (CreationPlan, error) {
 	if err := p.descriptor.Validate(); err != nil {
 		return CreationPlan{}, err
 	}
 	p.snapshot = p.Snapshot()
-	p.snapshot.Meta.Name = strings.TrimSpace(name)
+	normalized, err := sessioncontract.NormalizeSessionName(name)
+	if err != nil {
+		return CreationPlan{}, err
+	}
+	p.snapshot.Meta.Name = normalized
 	p.snapshot.Meta.FirstPromptPreview = normalizeFirstPromptPreview(firstPromptPreview)
 	return p, nil
 }

@@ -59,9 +59,15 @@ type preparedPromptAnswer struct {
 	questionBatch *validatedQuestionBatchDescriptor
 }
 
-func PendingPromptOrderLess(leftCreatedAt time.Time, leftID string, rightCreatedAt time.Time, rightID string) bool {
+func SameStepPendingPromptOrderLess(left tools.AskQuestionRequest, leftCreatedAt time.Time, right tools.AskQuestionRequest, rightCreatedAt time.Time) bool {
+	if (left.QuestionBatch != nil) != (right.QuestionBatch != nil) {
+		return left.QuestionBatch != nil
+	}
+	if left.QuestionBatch != nil && left.QuestionBatch.CandidateOrdinal != right.QuestionBatch.CandidateOrdinal {
+		return left.QuestionBatch.CandidateOrdinal < right.QuestionBatch.CandidateOrdinal
+	}
 	if leftCreatedAt.Equal(rightCreatedAt) {
-		return leftID < rightID
+		return left.ToolCallID < right.ToolCallID
 	}
 	return leftCreatedAt.Before(rightCreatedAt)
 }
@@ -157,7 +163,7 @@ func (s *executionPromptStore) resolvePromptBatch(
 	sort.Slice(prepared, func(i, j int) bool {
 		left := prepared[i].entry.snapshot
 		right := prepared[j].entry.snapshot
-		return PendingPromptOrderLess(left.CreatedAt, left.Request.ToolCallID, right.CreatedAt, right.Request.ToolCallID)
+		return SameStepPendingPromptOrderLess(left.Request, left.CreatedAt, right.Request, right.CreatedAt)
 	})
 	for _, answer := range prepared {
 		if err := context.Cause(ctx); err != nil {

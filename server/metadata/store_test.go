@@ -806,7 +806,7 @@ func addMetadataRaceSession(ctx context.Context, store *Store, cfg config.App, b
 	if err != nil {
 		return "", fmt.Errorf("create concurrent session: %w", err)
 	}
-	if err := created.SetName(suffix); err != nil {
+	if err := created.SetName(&suffix); err != nil {
 		return "", fmt.Errorf("persist concurrent session: %w", err)
 	}
 	return created.Meta().SessionID, nil
@@ -998,7 +998,7 @@ func TestCommitSessionWorkspaceRetargetAttachesTargetAndUpdatesSession(t *testin
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)
 	}
-	if err := sess.SetName("incident triage"); err != nil {
+	if err := sess.SetName(metadataStringPointer("incident triage")); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
 	worktreeRootA := filepath.Join(cfg.WorkspaceRoot, "wt-a")
@@ -1094,7 +1094,7 @@ func TestCommitSessionWorkspaceRetargetClearsSameWorkspaceStaleWorktreeTarget(t 
 	ctx := context.Background()
 	store, cfg, binding := newMetadataTestStore(t)
 	sess := createMetadataTestSession(t, store, cfg, binding)
-	if err := sess.SetName("stale worktree recovery"); err != nil {
+	if err := sess.SetName(metadataStringPointer("stale worktree recovery")); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
 	worktreeRoot := filepath.Join(cfg.WorkspaceRoot, "deleted-task-worktree")
@@ -1286,7 +1286,7 @@ func TestRebindWorkspaceRetargetsDescendantWorktrees(t *testing.T) {
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)
 	}
-	if err := sess.SetName("hello"); err != nil {
+	if err := sess.SetName(metadataStringPointer("hello")); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
 	if err := sess.EnsureDurable(); err != nil {

@@ -186,7 +186,7 @@ func (s *Starter) PrepareCurrentNode(
 		}
 		creation, err = creation.WithLaunchMetadata(plan.SessionName, continuation)
 		if err == nil {
-			creation, err = creation.WithListingMetadata(name, preview)
+			creation, err = creation.WithListingMetadata(&name, preview)
 		}
 		if err == nil {
 			creation, err = creation.WithWorktreeReminder(reminder)
@@ -250,7 +250,7 @@ func (s *Starter) prepareCurrentNodeClone(ctx context.Context, planner launch.Pl
 	if err != nil {
 		return session.CreationPlan{}, err
 	}
-	return session.PrepareClone(descriptor, source, "", thinking, s.storeOptions...)
+	return session.PrepareClone(descriptor, source, nil, thinking, s.storeOptions...)
 }
 
 func (p *plannedCurrentNodeSession) materialize(ctx context.Context, starter *Starter, input workflowstore.CurrentNodeStartContext, prepared *preparedCurrentNodeAgentSession) error {
@@ -286,7 +286,7 @@ func (p *plannedCurrentNodeSession) materialize(ctx context.Context, starter *St
 				return err
 			}
 		}
-		if err := store.SetListingMetadata(*prepared.plan.SessionName, prepared.plan.FirstPromptPreview); err != nil {
+		if err := store.SetListingMetadata(prepared.plan.SessionName, prepared.plan.FirstPromptPreview); err != nil {
 			return err
 		}
 		return store.SetWorktreeReminderState(prepared.plan.WorktreeReminder)

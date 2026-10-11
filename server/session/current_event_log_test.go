@@ -310,12 +310,8 @@ func TestCurrentEventLogHistoryReplacementProviderRawSurvivesReopen(t *testing.T
 	if !ok {
 		t.Fatalf("payload type = %T, want HistoryReplacementRecord", mustEventRecordPayload(window.Records[0]))
 	}
-	if !reflect.DeepEqual(replacement, mustEventRecordPayload(record)) {
-		t.Fatalf("reopened replacement = %#v, want %#v", replacement, mustEventRecordPayload(record))
-	}
-	if !bytes.Equal(replacement.Items[0].Raw, raw) {
-		t.Fatalf("reopened Raw = %s, want exact %s", replacement.Items[0].Raw, raw)
-	}
+	assertCompactionJSONContentEqual(t, replacement, mustEventRecordPayload(record))
+	assertCompactionJSONContentEqual(t, replacement.Items[0].Raw, raw)
 }
 
 func TestCurrentEventLogAppendRejectsSequenceGapWithoutMutation(t *testing.T) {

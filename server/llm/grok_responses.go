@@ -118,7 +118,7 @@ func (grokResponsesPolicy) compact(ctx context.Context, transport *HTTPTransport
 		return ResponsesCompactionResponse{}, err
 	}
 	return ResponsesCompactionResponse{
-		OutputItems: items, ContextPlacement: CompactionContextAfterOutput,
-		Usage: usage, ProviderEvidence: evidence,
+		OutputItems: items,
+		Usage:       usage, ProviderEvidence: evidence,
 	}, nil
 }

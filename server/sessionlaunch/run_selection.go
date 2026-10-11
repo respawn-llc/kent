@@ -8,7 +8,6 @@ import (
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/session"
-	"core/server/subagentpolicy"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/serverapi"
@@ -82,20 +81,18 @@ func (s *Service) prepareRunSelection(
 	if err != nil {
 		return runSelection{}, err
 	}
-	var caller *subagentpolicy.Caller
 	if req.CallerSessionID != nil {
-		resolved, err := launch.ResolveSessionCaller(planner.Config.PersistenceRoot, *req.CallerSessionID)
+		_, err := launch.ResolveSessionCaller(planner.Config.PersistenceRoot, *req.CallerSessionID)
 		if err != nil {
 			if errors.Is(err, session.ErrSessionNotFound) {
 				return runSelection{}, &serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialCallerMissing}
 			}
 			return runSelection{}, err
 		}
-		caller = &resolved
 	}
 	baselineMeta := meta
 	baselineMeta.ChatSettings = nil
-	prepared, role, err := prepareExistingSelection(planner, req, baselineMeta, role, caller)
+	prepared, role, err := prepareExistingSelection(planner, req, baselineMeta, role)
 	if err != nil {
 		return runSelection{}, err
 	}

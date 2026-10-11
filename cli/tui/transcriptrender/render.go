@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"core/cli/internal/pathdisplay"
 	"core/shared/clientui"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
@@ -796,11 +797,15 @@ func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.Entr
 			panic(fmt.Sprintf("render error notice with unsupported reason %q", row.Reason))
 		}
 	}
-	typedCompactText := firstNonEmpty(optionalString(row.CompactLabel), optionalString(row.CondensedText), noticeLegacyText(row), cacheWarningText, optionalString(row.SourcePath))
+	sourcePath := optionalString(row.SourcePath)
+	if sourcePath != "" {
+		sourcePath = pathdisplay.Compact(sourcePath, nil)
+	}
+	typedCompactText := firstNonEmpty(optionalString(row.CompactLabel), optionalString(row.CondensedText), noticeLegacyText(row), cacheWarningText, sourcePath)
 	compactText := firstNonEmpty(typedCompactText, noticeReasonLabel(row.Reason))
 	text := compactText
 	if mode == ModeDetailExpanded {
-		text = firstNonBlankPreservingWhitespace(noticeLegacyText(row), optionalString(row.CondensedText), optionalString(row.CompactLabel), cacheWarningText, optionalString(row.SourcePath))
+		text = firstNonBlankPreservingWhitespace(noticeLegacyText(row), optionalString(row.CondensedText), optionalString(row.CompactLabel), cacheWarningText, sourcePath)
 		if strings.TrimSpace(text) == "" {
 			text = noticeReasonLabel(row.Reason)
 		}
@@ -852,6 +857,9 @@ func worktreeNoticeText(row *transcriptpb.NoticeRow, mode Mode) (string, bool) {
 	effectiveCWD := strings.TrimSpace(context.EffectiveCwd)
 	if effectiveCWD == "" {
 		effectiveCWD = strings.TrimSpace(context.WorktreePath)
+	}
+	if effectiveCWD != "" {
+		effectiveCWD = pathdisplay.Compact(effectiveCWD, nil)
 	}
 	if row.MessageType == nil {
 		return "", false

@@ -68,6 +68,9 @@ type HistoryReplacementRecord struct {
 	LastCommittedAssistantFinalAnswer *string                          `json:"last_committed_assistant_final_answer,omitempty"`
 	LatestRollbackCandidate           *rollbacktarget.CandidateLocator `json:"latest_rollback_candidate,omitempty"`
 	Items                             []ProviderHistoryItem            `json:"items,omitempty"`
+	// CompactedOutput awaits fresh operation context. Items represents an
+	// already prepared historical working set.
+	CompactedOutput *CompactedOutput `json:"compacted_output,omitempty"`
 }
 
 var ErrProviderHistoryItem = errors.New("invalid provider history item")
@@ -115,12 +118,10 @@ func (e ProviderHistoryItemError) Unwrap() error {
 }
 
 func normalizeHistoryReplacementRecord(record HistoryReplacementRecord) (HistoryReplacementRecord, error) {
-	record.Engine = strings.TrimSpace(record.Engine)
-	switch record.Engine {
-	case "local", "remote":
-	default:
-		return HistoryReplacementRecord{}, fmt.Errorf("unsupported compaction engine %q", record.Engine)
+	if err := validateCompactionEngine(CompactionEngine(record.Engine)); err != nil {
+		return HistoryReplacementRecord{}, err
 	}
+	var err error
 	switch record.Mode {
 	case CompactionModeAuto, CompactionModeHandoff, CompactionModeManual, CompactionModeWorkflowPostCompletion:
 	default:
@@ -147,7 +148,6 @@ func normalizeHistoryReplacementRecord(record HistoryReplacementRecord) (History
 		value := *record.CommittedEntryStart
 		record.CommittedEntryStart = &value
 	}
-	var err error
 	if record.PendingHandoffFutureMessage, err = normalizeOptionalEventText(
 		"pending handoff future message",
 		record.PendingHandoffFutureMessage,
@@ -160,24 +160,53 @@ func normalizeHistoryReplacementRecord(record HistoryReplacementRecord) (History
 	); err != nil {
 		return HistoryReplacementRecord{}, err
 	}
-	if record.LatestRollbackCandidate != nil {
-		candidate := *record.LatestRollbackCandidate
-		if err := candidate.Validate(); err != nil {
-			return HistoryReplacementRecord{}, fmt.Errorf("latest rollback candidate: %w", err)
-		}
-		record.LatestRollbackCandidate = &candidate
+	record.LatestRollbackCandidate, err = normalizeRollbackCandidate(record.LatestRollbackCandidate)
+	if err != nil {
+		return HistoryReplacementRecord{}, err
 	}
-	if len(record.Items) > 0 {
-		record.Items = append([]ProviderHistoryItem(nil), record.Items...)
-		for index := range record.Items {
-			item, itemErr := normalizeProviderHistoryItem(index, record.Items[index])
-			if itemErr != nil {
-				return HistoryReplacementRecord{}, itemErr
-			}
-			record.Items[index] = item
+	record.Items, err = normalizeProviderHistoryItems(record.Items)
+	if err != nil {
+		return HistoryReplacementRecord{}, err
+	}
+	if record.CompactedOutput != nil {
+		if record.Items != nil {
+			return HistoryReplacementRecord{}, errors.New("history replacement cannot contain both prepared history and compacted output")
 		}
+		if record.CompactionNumber == nil || record.CommittedEntryStart == nil {
+			return HistoryReplacementRecord{}, errors.New("compacted output requires compaction number and committed entry start")
+		}
+		output, err := normalizeCompactedOutput(*record.CompactedOutput)
+		if err != nil {
+			return HistoryReplacementRecord{}, err
+		}
+		record.CompactedOutput = &output
 	}
 	return record, nil
+}
+
+func normalizeRollbackCandidate(candidate *rollbacktarget.CandidateLocator) (*rollbacktarget.CandidateLocator, error) {
+	if candidate == nil {
+		return nil, nil
+	}
+	value := *candidate
+	if err := value.Validate(); err != nil {
+		return nil, fmt.Errorf("latest rollback candidate: %w", err)
+	}
+	return &value, nil
+}
+
+func normalizeProviderHistoryItems(items []ProviderHistoryItem) ([]ProviderHistoryItem, error) {
+	if len(items) > 0 {
+		items = append([]ProviderHistoryItem(nil), items...)
+		for index := range items {
+			item, err := normalizeProviderHistoryItem(index, items[index])
+			if err != nil {
+				return nil, err
+			}
+			items[index] = item
+		}
+	}
+	return items, nil
 }
 
 func normalizeProviderHistoryItem(
@@ -337,156 +366,4 @@ func providerHistoryItemError(
 	reason ProviderHistoryItemErrorReason,
 ) error {
 	return ProviderHistoryItemError{Index: index, Type: itemType, Reason: reason}
-}
-
-func encodeHistoryReplacementRecordV1(record HistoryReplacementRecord) ([]byte, error) {
-	var buffer bytes.Buffer
-	buffer.WriteByte('{')
-	if err := writeMarshaledJSONField(&buffer, "engine", record.Engine, false); err != nil {
-		return nil, err
-	}
-	if err := writeMarshaledJSONField(&buffer, "mode", record.Mode, true); err != nil {
-		return nil, err
-	}
-	for _, write := range []func() error{
-		func() error { return writeOptionalHistoryField(&buffer, "compaction_number", record.CompactionNumber) },
-		func() error {
-			return writeOptionalHistoryField(&buffer, "committed_entry_start", record.CommittedEntryStart)
-		},
-		func() error {
-			return writeOptionalHistoryField(
-				&buffer,
-				"pending_handoff_future_message",
-				record.PendingHandoffFutureMessage,
-			)
-		},
-		func() error {
-			return writeOptionalHistoryField(
-				&buffer,
-				"last_committed_assistant_final_answer",
-				record.LastCommittedAssistantFinalAnswer,
-			)
-		},
-		func() error {
-			return writeOptionalHistoryField(
-				&buffer,
-				"latest_rollback_candidate",
-				record.LatestRollbackCandidate,
-			)
-		},
-	} {
-		if err := write(); err != nil {
-			return nil, err
-		}
-	}
-	if len(record.Items) > 0 {
-		buffer.WriteString(`,"items":[`)
-		for index, item := range record.Items {
-			if index > 0 {
-				buffer.WriteByte(',')
-			}
-			if err := encodeProviderHistoryItemV1(&buffer, item); err != nil {
-				return nil, err
-			}
-		}
-		buffer.WriteByte(']')
-	}
-	buffer.WriteByte('}')
-	return buffer.Bytes(), nil
-}
-
-func encodeProviderHistoryItemV1(buffer *bytes.Buffer, item ProviderHistoryItem) error {
-	buffer.WriteByte('{')
-	if err := writeMarshaledJSONField(buffer, "type", item.Type, false); err != nil {
-		return err
-	}
-	for _, write := range []func() error{
-		func() error { return writeOptionalHistoryField(buffer, "role", item.Role) },
-		func() error { return writeOptionalHistoryField(buffer, "message_type", item.MessageType) },
-		func() error { return writeOptionalHistoryField(buffer, "source_path", item.SourcePath) },
-		func() error { return writeOptionalHistoryField(buffer, "worktree_context", item.WorktreeContext) },
-		func() error { return writeOptionalHistoryField(buffer, "phase", item.Phase) },
-		func() error { return writeOptionalHistoryField(buffer, "id", item.ID) },
-		func() error { return writeOptionalHistoryField(buffer, "name", item.Name) },
-		func() error { return writeOptionalHistoryField(buffer, "call_id", item.CallID) },
-		func() error { return writeOptionalHistoryField(buffer, "content", item.Content) },
-		func() error { return writeOptionalHistoryField(buffer, "compact_content", item.CompactContent) },
-		func() error {
-			return writeOptionalHistoryField(
-				buffer,
-				"background_activity_id",
-				item.BackgroundActivityID,
-			)
-		},
-		func() error {
-			return writeOptionalHistoryField(
-				buffer,
-				"background_exit_code",
-				item.BackgroundExitCode,
-			)
-		},
-	} {
-		if err := write(); err != nil {
-			return err
-		}
-	}
-	if len(item.ToolPresentation) > 0 {
-		if err := writeJSONField(buffer, "tool_presentation", item.ToolPresentation, true); err != nil {
-			return err
-		}
-	}
-	if len(item.Arguments) > 0 {
-		if err := writeJSONField(buffer, "arguments", item.Arguments, true); err != nil {
-			return err
-		}
-	}
-	if err := writeOptionalHistoryField(buffer, "custom_input", item.CustomInput); err != nil {
-		return err
-	}
-	if len(item.Output) > 0 {
-		if err := writeJSONField(buffer, "output", item.Output, true); err != nil {
-			return err
-		}
-	}
-	if len(item.ReasoningSummary) > 0 {
-		if err := writeMarshaledJSONField(
-			buffer,
-			"reasoning_summary",
-			item.ReasoningSummary,
-			true,
-		); err != nil {
-			return err
-		}
-	}
-	if err := writeOptionalHistoryField(buffer, "encrypted_content", item.EncryptedContent); err != nil {
-		return err
-	}
-	if err := writeOptionalHistoryField(buffer, "attribution", item.Attribution); err != nil {
-		return err
-	}
-	if err := writeOptionalHistoryField(buffer, "configuration_effort", item.ConfigurationEffort); err != nil {
-		return err
-	}
-	if err := writeJSONField(buffer, "raw", item.Raw, true); err != nil {
-		return err
-	}
-	if err := writeOptionalHistoryField(buffer, "linked_call_id", item.LinkedCallID); err != nil {
-		return err
-	}
-	if err := writeOptionalHistoryField(buffer, "link_kind", item.LinkKind); err != nil {
-		return err
-	}
-	buffer.WriteByte('}')
-	return nil
-}
-
-func writeOptionalHistoryField[T any](
-	buffer *bytes.Buffer,
-	name string,
-	value *T,
-) error {
-	if value == nil {
-		return nil
-	}
-	return writeMarshaledJSONField(buffer, name, value, true)
 }

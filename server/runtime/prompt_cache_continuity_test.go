@@ -206,10 +206,7 @@ func TestSkillsPolicyChangesOnlyAtMainContextReconstruction(t *testing.T) {
 	}
 
 	scheduleManualCompactionAndWait(t, disabled)
-	postCompactionRequest, err := disabled.buildRequest(context.Background(), "", true)
-	if err != nil {
-		t.Fatalf("build post-compaction request: %v", err)
-	}
+	postCompactionRequest := buildActiveTurnRequestForTest(t, disabled, nil, true)
 	if _, found := skillMessageContent(requestMessages(postCompactionRequest)); found {
 		t.Fatalf("post-compaction context retained disabled skills: %+v", requestMessages(postCompactionRequest))
 	}
@@ -282,6 +279,7 @@ func TestLiveReloadedSkillsPolicyAppliesOnlyAtCompaction(t *testing.T) {
 	}
 
 	scheduleManualCompactionAndWait(t, eng)
+	buildActiveTurnRequestForTest(t, eng, nil, true)
 	postCompactionSkills, found := skillMessageContent(eng.transcriptRuntimeState().SnapshotMessages())
 	if !found || postCompactionSkills == generationSkills {
 		t.Fatalf("post-compaction active transcript did not apply live-reloaded per-skill policy: %+v", eng.transcriptRuntimeState().SnapshotMessages())
@@ -546,7 +544,7 @@ func assertPromptCacheChunkPrefix(t *testing.T, previous llm.Request, next llm.R
 
 type promptCacheComparableMainView struct {
 	SessionID                      string                        `json:"session_id"`
-	SessionName                    string                        `json:"session_name,omitempty"`
+	SessionName                    *string                       `json:"session_name,omitempty"`
 	ConversationFreshness          string                        `json:"conversation_freshness"`
 	Revision                       int64                         `json:"revision"`
 	CommittedEntryCount            int                           `json:"committed_entry_count"`

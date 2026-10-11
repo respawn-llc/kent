@@ -98,6 +98,14 @@ func TestServiceAcceptedStartPreparesBeforeCutoverAndSurvivesClientCancellation(
 		t.Fatal("Start did not reach setup")
 	}
 	cancel()
+	duplicateFinished := make(chan result, 1)
+	go func() {
+		response, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+			TaskId: task.Task.Id, SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+			ExecutionTarget: &taskpb.ExecutionTargetSelection{Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_HEAD},
+		})
+		duplicateFinished <- result{response: response, err: err}
+	}()
 	during, err := service.store.ListCurrentNodes(ctx, taskID)
 	if err != nil || !reflect.DeepEqual(before, during) {
 		t.Fatalf("setup published executable Current Nodes: %+v, %v", during, err)
@@ -134,6 +142,18 @@ func TestServiceAcceptedStartPreparesBeforeCutoverAndSurvivesClientCancellation(
 	after, err := service.store.ListCurrentNodes(ctx, taskID)
 	if err != nil || len(after) != 1 || after[0].SessionID == nil || after[0].Scheduling == nil {
 		t.Fatalf("cutover did not publish exact execution: %+v, %v", after, err)
+	}
+	select {
+	case got := <-duplicateFinished:
+		if got.err != nil || got.response.GetApplied() == nil {
+			t.Fatalf("duplicate Start did not succeed: %+v", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("duplicate Start did not complete")
+	}
+	afterDuplicate, err := service.store.ListCurrentNodes(ctx, taskID)
+	if err != nil || !reflect.DeepEqual(after, afterDuplicate) {
+		t.Fatalf("duplicate Start changed Current Nodes: %+v, %v", afterDuplicate, err)
 	}
 	if len(targets.setupRequirements) != 1 {
 		t.Fatalf("accepted Start ran setup %d times", len(targets.setupRequirements))

@@ -1,9 +1,9 @@
 package app
 
 import (
+	"core/cli/internal/pathdisplay"
 	sharedtheme "core/shared/theme"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -144,16 +144,16 @@ func statusSessionProvenanceSummaries(snapshot uiStatusSnapshot) []string {
 	summaries := make([]string, 0, 2)
 	if snapshot.PreviousSessionID != nil {
 		previousID := snapshot.PreviousSessionID.String()
-		if previousName := strings.TrimSpace(snapshot.PreviousSessionName); previousName != "" {
-			summaries = append(summaries, fmt.Sprintf("Previous session: %s <%s>", previousName, previousID))
+		if snapshot.PreviousSessionName != nil {
+			summaries = append(summaries, fmt.Sprintf("Previous session: %s <%s>", *snapshot.PreviousSessionName, previousID))
 		} else {
 			summaries = append(summaries, fmt.Sprintf("Previous session: %s", previousID))
 		}
 	}
 	if snapshot.ParentAgentSessionID != nil {
 		parentAgentID := snapshot.ParentAgentSessionID.String()
-		if parentAgentName := strings.TrimSpace(snapshot.ParentAgentSessionName); parentAgentName != "" {
-			summaries = append(summaries, fmt.Sprintf("Parent agent session: %s <%s>", parentAgentName, parentAgentID))
+		if snapshot.ParentAgentSessionName != nil {
+			summaries = append(summaries, fmt.Sprintf("Parent agent session: %s <%s>", *snapshot.ParentAgentSessionName, parentAgentID))
 		} else {
 			summaries = append(summaries, fmt.Sprintf("Parent agent session: %s", parentAgentID))
 		}
@@ -180,25 +180,9 @@ func statusDisplayPath(path, workdir string) string {
 		return "<unknown>"
 	}
 	if work := filepath.ToSlash(strings.TrimSpace(workdir)); work != "" {
-		if trimmed == work {
-			return trimmed
-		}
-		if strings.HasPrefix(trimmed, work+"/") {
-			return "." + strings.TrimPrefix(trimmed, work)
-		}
+		return pathdisplay.Compact(trimmed, &work)
 	}
-	if home, err := os.UserHomeDir(); err == nil {
-		home = filepath.ToSlash(strings.TrimSpace(home))
-		if home != "" {
-			if trimmed == home {
-				return "~"
-			}
-			if strings.HasPrefix(trimmed, home+"/") {
-				return "~" + strings.TrimPrefix(trimmed, home)
-			}
-		}
-	}
-	return trimmed
+	return pathdisplay.Compact(trimmed, nil)
 }
 
 func statusValueOrFallback(value, fallback string) string {

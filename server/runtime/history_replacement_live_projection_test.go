@@ -48,6 +48,12 @@ func TestRemoteCompactionReplacementOwnsExactlyOneTranscriptSummary(t *testing.T
 		liveFacts = append(liveFacts, TranscriptCommittedRowFactsFromEvent(event)...)
 	}
 	assertSingleCompactionSummaryAndPreservedUserFact(t, liveFacts, preservedUserMessage)
+	buildActiveTurnRequestForTest(t, engine, nil, true)
+	liveFacts = nil
+	for _, event := range events {
+		liveFacts = append(liveFacts, TranscriptCommittedRowFactsFromEvent(event)...)
+	}
+	assertSingleCompactionSummaryAndPreservedUserFact(t, liveFacts, preservedUserMessage)
 
 	page := mustEngineNewestSegmentPage(t, engine)
 	assertSingleCompactionSummaryAndPreservedUserFact(
@@ -167,7 +173,7 @@ func TestHistoryReplacementProjectsPreservedUserContextWithoutReplayingUserTurns
 
 	if err := steerTestActiveStep(engine,
 		"compaction",
-		steerHistoryReplacementIntent("local", compactionModeAuto, 1, nil, items),
+		steerTestPreparedHistoryIntent("local", compactionModeAuto, 1, nil, preparedCompactionHistory{items: items}),
 	); err != nil {
 		t.Fatalf("persist history replacement: %v", err)
 	}
@@ -302,7 +308,7 @@ func TestEligibleHistoryReplacementTimestampParityAcrossPersistedAndLiveProjecti
 	if err := steerTestActiveStep(
 		engine,
 		"eligible replacement",
-		steerHistoryReplacementIntent("local", compactionModeAuto, 1, nil, items),
+		steerTestPreparedHistoryIntent("local", compactionModeAuto, 1, nil, preparedCompactionHistory{items: items}),
 	); err != nil {
 		t.Fatalf("persist eligible history replacement: %v", err)
 	}

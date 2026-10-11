@@ -414,6 +414,33 @@ func (r *RuntimeRegistry) PublishAuthorityRuntimeEvent(ref runtimeids.SessionRes
 }
 
 func (r *RuntimeRegistry) publishRuntimeEvent(entry *authorityRuntimeEntry, evt runtime.Event) error {
+	if evt.PreparedQuestionBatch != nil || evt.Kind == runtime.EventQuestionCandidateFinished {
+		entry.publicationMu.Lock()
+		changed := false
+		var err error
+		r.withCurrentAuthorityEntry(entry.ref, func(_ *authorityRuntimeEntry) bool {
+			if batch := evt.PreparedQuestionBatch; batch != nil {
+				if evt.StepID == nil || *evt.StepID != batch.StepID {
+					err = fmt.Errorf("prepared Question batch has a mismatched Step")
+				} else {
+					err = r.pendingPrompts.Prepare(entry.ref, batch.StepID, batch.BatchToolCallIDs)
+					changed = err == nil
+				}
+			} else if evt.StepID == nil || evt.FinishedQuestionCandidate == nil {
+				err = fmt.Errorf("finished Question candidate has no Step or tool call identity")
+			} else {
+				changed = r.pendingPrompts.Finished(entry.ref, *evt.StepID, string(*evt.FinishedQuestionCandidate))
+			}
+			return changed
+		})
+		if changed {
+			r.publishQuestionBatchPending(entry, *evt.StepID)
+		}
+		entry.publicationMu.Unlock()
+		if err != nil {
+			return err
+		}
+	}
 	if evt.Kind == runtime.EventRuntimeActivityChanged {
 		return r.publishCurrentRuntimeActivity(entry.ref.SessionID().String())
 	}
@@ -435,6 +462,15 @@ func (r *RuntimeRegistry) publishRuntimeEvent(entry *authorityRuntimeEntry, evt 
 		})
 	}
 	return nil
+}
+
+func (r *RuntimeRegistry) publishQuestionBatchPending(entry *authorityRuntimeEntry, stepID string) {
+	id := entry.ref.SessionID().String()
+	for _, pending := range r.pendingPrompts.List(id) {
+		if pending.Resource == entry.ref && pending.Request.StepID == stepID {
+			publishPendingPrompt(entry.sessionFeed, id, pending, pendingPromptEventPending)
+		}
+	}
 }
 
 func (r *RuntimeRegistry) PublishSessionIdentity(sessionID string) error {
@@ -726,7 +762,11 @@ func (r *RuntimeRegistry) PromptPendingScope(scope sessionruntime.ExecutionScope
 		return admitted
 	})
 	if projected {
-		publishPendingPrompt(entry.sessionFeed, id, snapshot, pendingPromptEventPending)
+		if req.QuestionBatch != nil {
+			r.publishQuestionBatchPending(entry, req.StepID)
+		} else {
+			publishPendingPrompt(entry.sessionFeed, id, snapshot, pendingPromptEventPending)
+		}
 		r.publishAttentionPending(id, snapshot)
 		wakeErr = r.publishTaskQuestionWaitingForScope(scope, snapshot)
 	}
@@ -758,6 +798,9 @@ func (r *RuntimeRegistry) PromptResolvedScope(scope sessionruntime.ExecutionScop
 	id := resource.SessionID().String()
 	var snapshot PendingPromptSnapshot
 	entry := r.authorityEntryByRef(resource)
+	if entry != nil {
+		entry.publicationMu.Lock()
+	}
 	resolved := r.withCurrentAuthorityEntry(resource, func(_ *authorityRuntimeEntry) bool {
 		var ok bool
 		snapshot, ok = r.pendingPrompts.Complete(id, resource, scope.ID(), requestID)
@@ -768,6 +811,11 @@ func (r *RuntimeRegistry) PromptResolvedScope(scope sessionruntime.ExecutionScop
 			publishPendingPrompt(entry.sessionFeed, id, snapshot, pendingPromptEventResolved)
 		}
 		r.publishAttentionResolved(id, snapshot)
+	}
+	if entry != nil {
+		entry.publicationMu.Unlock()
+	}
+	if resolved {
 		r.publishCurrentRuntimeActivity(id)
 		return r.publishTaskQuestionCleared(id, snapshot)
 	}

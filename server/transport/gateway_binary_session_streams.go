@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 
+	"core/shared/apicontract"
 	"core/shared/protoapi"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
@@ -22,6 +24,12 @@ import (
 
 func registerSessionStreamsGatewayBinaryBindings(bindings map[string]gatewayBinaryBinding) error {
 	return errors.Join(
+		registerSessionBinarySubscription(bindings,
+			chatsettingspb.File_kent_api_chat_settings_chat_settings_proto.Services().ByName("ChatSettingsService"), "Subscribe",
+			func() *chatsettingspb.SubscribeRequest { return &chatsettingspb.SubscribeRequest{} },
+			func(g *Gateway, ctx context.Context, request *chatsettingspb.SubscribeRequest) (apicontract.ChatSettingsSubscription, error) {
+				return g.deps.ChatSettingsClient().SubscribeChatSettings(ctx, request)
+			}),
 		registerSessionBinarySubscription(bindings,
 			transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("StreamService"), "Subscribe",
 			func() *transcriptpb.SubscribeRequest { return &transcriptpb.SubscribeRequest{} },

@@ -120,16 +120,16 @@ func (m *uiModel) worktreeTransitionCommand(transition runtimeinput.PendingWorkW
 	}
 }
 
-func (m *uiModel) suggestedWorktreeSessionName() string {
-	if trimmed := strings.TrimSpace(m.sessionName); trimmed != "" {
-		return trimmed
+func (m *uiModel) suggestedWorktreeSessionName() *string {
+	if m.sessionName != nil {
+		return m.sessionName
 	}
 	if cached, ok := m.runtimeClient().(interface {
 		CachedMainView() (*runtimepb.MainView, bool)
 	}); ok {
 		if view, hasCached := cached.CachedMainView(); hasCached {
-			return strings.TrimSpace(view.Session.GetSessionName())
+			return view.Session.SessionName
 		}
 	}
-	return ""
+	return nil
 }

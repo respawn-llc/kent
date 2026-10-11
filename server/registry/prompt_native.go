@@ -20,6 +20,7 @@ func PendingAskFromSnapshot(sessionID runtimeids.SessionID, item PendingPromptSn
 		ToolCallID: toolCallID, SessionID: sessionID, StepID: stepID,
 		Question: item.Request.Question, Suggestions: append([]string(nil), item.Request.Suggestions...),
 		RecommendedOptionIndex: recommendedOptionIndex, CreatedAt: item.CreatedAt,
+		Batch: item.Batch,
 	}, nil
 }
 
@@ -36,6 +37,7 @@ func PendingApprovalFromSnapshot(sessionID runtimeids.SessionID, item PendingPro
 		ToolCallID: toolCallID, SessionID: sessionID, StepID: stepID,
 		Question: item.Request.Question, Options: options,
 		AccessTargets: append([]clientui.FileAccessTarget(nil), item.Request.AccessTargets...), CreatedAt: item.CreatedAt,
+		Batch: item.Batch,
 	}, nil
 }
 

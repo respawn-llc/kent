@@ -72,7 +72,6 @@ type ResponsesResponse struct {
 
 type ResponsesCompactionResponse struct {
 	OutputItems      []ResponseItem
-	ContextPlacement CompactionContextPlacement
 	Usage            Usage
 	ProviderEvidence modelcontract.ProviderUsageEvidence
 }
@@ -175,7 +174,6 @@ func (c *ResponsesClient) Compact(ctx context.Context, request CompactionRequest
 	}
 	return CompactionResponse{
 		OutputItems:      CloneResponseItems(providerResp.OutputItems),
-		ContextPlacement: providerResp.ContextPlacement,
 		Usage:            providerResp.Usage,
 		ProviderEvidence: providerResp.ProviderEvidence.Clone(),
 	}, nil

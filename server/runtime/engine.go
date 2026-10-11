@@ -200,12 +200,7 @@ type Engine struct {
 	stepFlow       stepExecutor
 	toolFlow       toolExecutor
 
-	// baseMetaInjected guards the single per-conversation injection of base meta
-	// context (AGENTS.md, skills, subagents, environment). It is set when a
-	// resumed transcript already carries that context, and after the one-time
-	// boot injection. It is process-local: the persisted transcript itself is the
-	// source of truth across restarts.
-	baseMetaInjected bool
+	generationContext generationContext
 }
 
 type handoffRequest struct {
@@ -274,6 +269,7 @@ func New(
 	cfg.Reviewer.Client = nil
 	cfg.Reviewer.ClientFactory = nil
 	eng := &Engine{
+		generationContext:           freshGenerationContext{},
 		store:                       store,
 		eventLog:                    eventLog,
 		llm:                         newObservedModelClient(client),

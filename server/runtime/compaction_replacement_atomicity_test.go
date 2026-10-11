@@ -12,19 +12,19 @@ import (
 	"core/shared/transcript"
 )
 
-func TestCompactionReplacementAtomicallyEmbedsReinjectedMetaAndPreservedUserMessage(t *testing.T) {
+func TestCompactionOperationContextSurvivesReopen(t *testing.T) {
 	t.Parallel()
-	for name, placement := range map[string]llm.CompactionContextPlacement{
-		"OpenAI checkpoint": llm.CompactionContextBeforeOutput,
-		"Grok full bundle":  llm.CompactionContextAfterOutput,
-	} {
-		t.Run(name, func(t *testing.T) {
-			testCompactionReplacementContextPlacement(t, placement)
+	for _, test := range []struct {
+		name       string
+		fullBundle bool
+	}{{"OpenAI checkpoint", false}, {"Grok full bundle", true}} {
+		t.Run(test.name, func(t *testing.T) {
+			testCompactionOutputReopen(t, test.fullBundle)
 		})
 	}
 }
 
-func testCompactionReplacementContextPlacement(t *testing.T, placement llm.CompactionContextPlacement) {
+func testCompactionOutputReopen(t *testing.T, fullBundle bool) {
 	store, globalConfigDir := mustCreateBaseMetaContextTestSession(t)
 	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{
 		remoteCompactionReplacement(1_000, 100, 200_000),
@@ -33,8 +33,8 @@ func testCompactionReplacementContextPlacement(t *testing.T, placement llm.Compa
 	client.compactionResponses[0].ProviderEvidence.ProviderID = textutil.Value("openai")
 	checkpoint := llm.CloneResponseItems([]llm.ResponseItem{client.compactionResponses[0].OutputItems[0]})[0]
 	checkpoint.Attribution = &modelcontract.ReasoningAttribution{Type: textutil.Value(modelcontract.ReasoningTypeOpenAI)}
-	client.compactionResponses[0].ContextPlacement = placement
-	if placement == llm.CompactionContextAfterOutput {
+	client.compactionResponses[0].OutputItems[0] = checkpoint
+	if fullBundle {
 		bundle := llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 			Type: llm.ResponseItemTypeMessage, Role: textutil.Value(llm.RoleUser), Content: textutil.Value("provider-retained input"),
 		}})
@@ -49,12 +49,19 @@ func testCompactionReplacementContextPlacement(t *testing.T, placement llm.Compa
 	bundle := llm.CloneResponseItems(client.compactionResponses[0].OutputItems)
 	assertReplacement := func(items []llm.ResponseItem) {
 		t.Helper()
-		if placement == llm.CompactionContextAfterOutput {
-			if len(items) < len(bundle) || !reflect.DeepEqual(items[:len(bundle)], bundle) {
-				t.Fatalf("provider output bundle changed: got %+v, want prefix %+v", items, bundle)
+		var bundleStart *int
+		for index := 0; index+len(bundle) <= len(items); index++ {
+			if reflect.DeepEqual(items[index:index+len(bundle)], bundle) {
+				bundleStart = textutil.Value(index)
+				break
 			}
-		} else {
-			assertCompactionReplacementOrder(t, items, false)
+		}
+		if bundleStart == nil {
+			t.Fatalf("provider output bundle missing or changed: got %+v, want contiguous %+v", items, bundle)
+		}
+		end := *bundleStart + len(bundle)
+		if end >= len(items) || items[end].MessageType == nil || *items[end].MessageType != llm.MessageTypeEnvironment {
+			t.Fatal("Environment must follow the complete provider output")
 		}
 		assertCompactionCheckpointUnchanged(t, items, checkpoint)
 	}
@@ -77,31 +84,10 @@ func testCompactionReplacementContextPlacement(t *testing.T, placement llm.Compa
 	}
 
 	scheduleManualCompactionAndWait(t, engine)
-
-	window, err := mustMaterializeTestEventLog(t, store).ReadRecentRecords(16)
-	if err != nil {
-		t.Fatalf("read bounded compaction records: %v", err)
-	}
-	var replacement session.HistoryReplacementRecord
-	replacementIndex := -1
-	for index, event := range window.Records {
-		record, ok := mustSessionEventPayload(event).(session.HistoryReplacementRecord)
-		if !ok {
-			continue
-		}
-		if replacementIndex >= 0 {
-			t.Fatalf("bounded compaction records contain multiple replacements: %+v", window.Records)
-		}
-		replacementIndex = index
-		replacement = record
-	}
-	if replacementIndex < 0 {
-		t.Fatalf("bounded compaction records contain no history replacement: %+v", window.Records)
-	}
-
-	messageTypes := make([]llm.MessageType, 0, len(replacement.Items))
-	for _, item := range replacement.Items {
-		if item.Type != session.ProviderHistoryItemTypeMessage || item.MessageType == nil {
+	request := buildActiveTurnRequestForTest(t, engine, nil, true)
+	messageTypes := make([]llm.MessageType, 0, len(request.Items))
+	for _, item := range request.Items {
+		if item.Type != llm.ResponseItemTypeMessage || item.MessageType == nil {
 			continue
 		}
 		messageTypes = append(messageTypes, llm.MessageType(*item.MessageType))
@@ -114,35 +100,21 @@ func testCompactionReplacementContextPlacement(t *testing.T, placement llm.Compa
 		llm.MessageTypeEnvironment,
 		llm.MessageTypeCompactionPreservedUserMessage,
 	})
-	persistedItems := make([]llm.ResponseItem, 0, len(replacement.Items))
-	for _, item := range replacement.Items {
-		persistedItems = append(persistedItems, llmResponseItemFromSessionHistory(item))
-	}
-	assertReplacement(persistedItems)
-
-	for _, event := range window.Records[replacementIndex+1:] {
-		message, ok := mustSessionEventPayload(event).(session.MessageRecord)
-		if !ok || message.Role != session.MessageRoleDeveloper || message.MessageType == nil {
-			continue
-		}
-		t.Fatalf("replacement followed by typed developer meta record: %+v", event)
-	}
+	assertReplacement(request.Items)
 
 	reopenedStore := mustOpenTestSession(t, store.Dir())
 	reopenedClient := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
 		ProviderEvidence: modelcontract.ProviderUsageEvidence{ProviderID: textutil.Value("openai")},
-		OutputItems:      llm.CloneResponseItems(bundle), ContextPlacement: placement,
+		OutputItems:      llm.CloneResponseItems(bundle),
 	}}}
 	reopened := mustNewTestEngine(t, reopenedStore, reopenedClient, newTestToolRegistry(t), Config{
 		Model:           "gpt-6-sol",
 		GlobalConfigDir: globalConfigDir,
 	})
 	for range 2 {
-		request, err := reopened.buildRequest(t.Context(), "", true)
-		if err != nil {
-			t.Fatalf("build reopened request: %v", err)
-		}
-		assertReplacement(request.Items)
+		restored := buildActiveTurnRequestForTest(t, reopened, nil, true)
+		assertCompactionRequestItemsEqual(t, request.Items, restored.Items)
+		assertReplacement(restored.Items)
 	}
 
 	page, err := TranscriptNewestSegmentPageFromEventLog(mustMaterializeTestEventLog(t, reopenedStore), "")
@@ -166,20 +138,9 @@ func testCompactionReplacementContextPlacement(t *testing.T, placement llm.Compa
 	if len(reopenedClient.compactionCalls) != 1 {
 		t.Fatalf("recompaction requests = %d", len(reopenedClient.compactionCalls))
 	}
-	if placement == llm.CompactionContextAfterOutput {
-		assertReplacement(reopenedClient.compactionCalls[0].Items)
-	} else {
-		assertCompactionCheckpointUnchanged(t, reopenedClient.compactionCalls[0].Items, checkpoint)
-	}
-	request, err := reopened.buildRequest(t.Context(), "", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if placement == llm.CompactionContextAfterOutput {
-		assertReplacement(request.Items)
-	} else {
-		assertCompactionCheckpointUnchanged(t, request.Items, checkpoint)
-	}
+	assertReplacement(reopenedClient.compactionCalls[0].Items)
+	next := buildActiveTurnRequestForTest(t, reopened, nil, true)
+	assertReplacement(next.Items)
 }
 
 func assertCompactionCheckpointUnchanged(t *testing.T, items []llm.ResponseItem, want llm.ResponseItem) {

@@ -183,7 +183,7 @@ func TestServiceGetSessionMainViewDoesNotRequireStoreResolutionForLiveRuntime(t 
 func TestServiceGetSessionMainViewFallsBackToDurableSessionState(t *testing.T) {
 	dir := t.TempDir()
 	store, parentSessionID := newSessionViewParentAgentChild(t, dir, "ws", dir)
-	if err := store.SetName("incident triage"); err != nil {
+	if err := store.SetName(textutil.Value("incident triage")); err != nil {
 		t.Fatalf("set name: %v", err)
 	}
 	role := "worker"

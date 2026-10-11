@@ -3,7 +3,7 @@ import { memo } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { AttentionItem } from "@/api";
-import { formatRelativeTime, type SessionChatTarget } from "@/app-facade";
+import { formatRelativeTime, usePathFormatter, type SessionChatTarget } from "@/app-facade";
 import { desktopChatEnabled } from "@/shared/feature-flags";
 import { IconTooltipButton, Item, ItemContent, PromptAccessTargets } from "@/ui";
 import { attentionChatTarget } from "./attentionChatTarget";
@@ -73,13 +73,14 @@ function AttentionHeader({ item }: Readonly<{ item: AttentionItem }>) {
 }
 
 function AttentionBody({ item, message }: Readonly<{ item: AttentionItem; message: string | null }>) {
+  const formatPath = usePathFormatter();
   return (
     <>
       {item.kind === "question" &&
       item.question.kind === "approval" &&
       item.question.accessTargets.length > 0 ? (
         <div className="min-w-0 line-clamp-2 break-words text-sm text-[var(--color-muted)]">
-          <PromptAccessTargets targets={item.question.accessTargets} />
+          <PromptAccessTargets targets={item.question.accessTargets} formatPath={formatPath} />
         </div>
       ) : (
         <span className="min-w-0 line-clamp-2 break-words text-sm text-[var(--color-muted)]">{message}</span>

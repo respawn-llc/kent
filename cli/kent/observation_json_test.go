@@ -16,6 +16,7 @@ import (
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -211,7 +212,7 @@ func TestRunFinalJSONPreservesSessionNameAndDuration(t *testing.T) {
 		SessionId: "session",
 		Outcome: &promptpb.LiveWatchOutcome{
 			Outcome: &promptpb.LiveWatchOutcome_FinalAnswer{FinalAnswer: &promptpb.LiveWatchFinal{
-				Result: &resultText, SessionName: "live", Duration: durationpb.New(2500 * time.Millisecond),
+				Result: &resultText, SessionName: textutil.Value("live"), Duration: durationpb.New(2500 * time.Millisecond),
 			}},
 		},
 	})
@@ -232,7 +233,7 @@ func TestRunFinalJSONPreservesSessionNameAndDuration(t *testing.T) {
 	}
 	wait, code := projectRunWaitJSON("session", &runtimepb.LiveWaitSuccess{
 		Result:      &runtimepb.LiveWaitSuccess_AssistantFinalAnswer{AssistantFinalAnswer: &runtimepb.LiveWaitAssistantFinalAnswer{Result: "done"}},
-		SessionName: "waited", Duration: durationpb.New(1500 * time.Millisecond),
+		SessionName: textutil.Value("waited"), Duration: durationpb.New(1500 * time.Millisecond),
 	}, nil, context.Background())
 	if code != 0 {
 		t.Fatalf("wait projection code = %d", code)

@@ -31,6 +31,7 @@ func PendingAskFromQuestion(value *promptpb.Question) (clientui.PendingAsk, erro
 		ToolCallID: clientui.ToolCallID(value.ToolCallId), SessionID: sessionID, StepID: stepID,
 		Question: value.Question, Suggestions: append([]string(nil), value.Suggestions...),
 		RecommendedOptionIndex: recommended, CreatedAt: value.CreatedAt.AsTime(),
+		Batch: questionBatchFromProto(value.Batch),
 	}, nil
 }
 
@@ -50,6 +51,7 @@ func PendingApprovalFromApproval(value *promptpb.Approval) (clientui.PendingAppr
 		ToolCallID: clientui.ToolCallID(value.ToolCallId), SessionID: sessionID, StepID: stepID,
 		Question: value.GetQuestion(), AccessTargets: FileAccessTargetsFromProto(value.AccessTargets),
 		CreatedAt: value.CreatedAt.AsTime(),
+		Batch:     questionBatchFromProto(value.Batch),
 	}
 	for _, option := range value.Options {
 		decision, err := ApprovalDecisionFromProto(option.Decision)
@@ -66,6 +68,7 @@ func QuestionFromPendingAsk(value clientui.PendingAsk) (*promptpb.Question, erro
 		ToolCallId: string(value.ToolCallID), SessionId: value.SessionID.String(), StepId: value.StepID.String(),
 		Question: value.Question, Suggestions: append([]string(nil), value.Suggestions...),
 		CreatedAt: timestamppb.New(value.CreatedAt),
+		Batch:     questionBatchToProto(value.Batch),
 	}
 	if value.RecommendedOptionIndex != nil {
 		index, err := Int32(*value.RecommendedOptionIndex, "recommended option index")
@@ -82,6 +85,7 @@ func ApprovalFromPendingApproval(value clientui.PendingApproval) (*promptpb.Appr
 		ToolCallId: string(value.ToolCallID), SessionId: value.SessionID.String(), StepId: value.StepID.String(),
 		Question: textutil.OptionalExactString(value.Question), AccessTargets: FileAccessTargetsToProto(value.AccessTargets),
 		CreatedAt: timestamppb.New(value.CreatedAt),
+		Batch:     questionBatchToProto(value.Batch),
 	}
 	for _, option := range value.Options {
 		decision, err := ApprovalDecisionToProto(option.Decision)
@@ -91,6 +95,24 @@ func ApprovalFromPendingApproval(value clientui.PendingApproval) (*promptpb.Appr
 		result.Options = append(result.Options, &promptpb.ApprovalOption{Decision: decision})
 	}
 	return result, Validate(result)
+}
+
+func questionBatchFromProto(value *promptpb.QuestionBatch) *clientui.QuestionBatch {
+	if value == nil {
+		return nil
+	}
+	return &clientui.QuestionBatch{
+		ToolCallIDs: append([]string(nil), value.ToolCallIds...), UnmaterializedCount: value.UnmaterializedCount,
+	}
+}
+
+func questionBatchToProto(value *clientui.QuestionBatch) *promptpb.QuestionBatch {
+	if value == nil {
+		return nil
+	}
+	return &promptpb.QuestionBatch{
+		ToolCallIds: append([]string(nil), value.ToolCallIDs...), UnmaterializedCount: value.UnmaterializedCount,
+	}
 }
 
 func ApprovalDecisionToProto(value clientui.ApprovalDecision) (promptpb.ApprovalDecision, error) {

@@ -277,11 +277,11 @@ func TestHistoryReplacementSerializesAgainstCommittedLocalEntryAppend(t *testing
 
 	replaceDone := make(chan error, 1)
 	go func() {
-		_, err := newCompactionPersistence(eng).replaceHistory(stepID, "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{
+		_, err := replaceTestPreparedHistory(eng, stepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
 			Role:        llm.RoleDeveloper,
 			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
 			Content:     textutil.Value("summary"),
-		}}))
+		}})})
 		replaceDone <- err
 	}()
 	select {
@@ -631,15 +631,10 @@ func TestHistoryReplacementPublishesCompactionPreservedUserMessageBeforeLocalEnt
 	if !ok {
 		t.Fatal("expected non-empty compaction-preserved user message")
 	}
-	receipt, err := newCompactionPersistence(eng).replaceHistory(
-		compactionStepID,
-		"local",
-		compactionModeManual,
-		llm.ItemsFromMessages([]llm.Message{
-			{Role: llm.RoleUser, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value("summary")},
-			carryover,
-		}),
-	)
+	receipt, err := replaceTestPreparedHistory(eng, compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{
+		{Role: llm.RoleUser, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value("summary")},
+		carryover,
+	})})
 	if err != nil || !receipt.Committed {
 		t.Fatalf("replace history receipt=%+v error=%v", receipt, err)
 	}

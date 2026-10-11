@@ -23,7 +23,7 @@ func TestThinkingNoticeLiveHydrationAndPageParity(t *testing.T) {
 	snapshot := runtime.ChatSnapshot{Entries: []runtime.ChatEntry{entry}}
 	facts := runtime.TranscriptCommittedRowFactsFromSnapshot(snapshot)
 	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{CommittedRows: facts})
-	page, err := TranscriptPageFromSegment("58e121b5-30f7-4d0f-a1fa-fb3e6695e39c", "name", runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, runtime.TranscriptSegmentPage{Snapshot: snapshot})
+	page, err := TranscriptPageFromSegment("58e121b5-30f7-4d0f-a1fa-fb3e6695e39c", textutil.Value("name"), runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, runtime.TranscriptSegmentPage{Snapshot: snapshot})
 	if err != nil {
 		t.Fatal(err)
 	}

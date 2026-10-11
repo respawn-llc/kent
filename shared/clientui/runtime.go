@@ -94,7 +94,7 @@ type RuntimeClient interface {
 	RefreshMainView() (*runtimepb.MainView, error)
 	Status() *runtimepb.Status
 	SessionView() *runtimepb.SessionView
-	SetSessionName(name string) error
+	SetSessionName(mutation *runtimepb.SessionNameMutation) error
 	ShowGoal() (*runtimepb.GoalView, error)
 	SetGoal(objective string) (*runtimepb.GoalSetSuccess, error)
 	PauseGoal() (*runtimepb.GoalMutationSuccess, error)

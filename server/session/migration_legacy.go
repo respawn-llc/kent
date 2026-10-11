@@ -639,10 +639,10 @@ func (o *legacyMigrationOutput) writeRecord(record EventRecord) (EventRecord, er
 		return EventRecord{}, err
 	}
 	if replacement, ok := payload.(HistoryReplacementRecord); ok {
-		replacement = rebaseHistoryReplacementRollbackCandidate(
-			replacement,
-			o.latestRollbackCandidate,
-		)
+		replacement.LatestRollbackCandidate, err = normalizeRollbackCandidate(o.latestRollbackCandidate)
+		if err != nil {
+			return EventRecord{}, err
+		}
 		record, err = NewEventRecord(record.Seq(), record.StepID(), replacement)
 		if err != nil {
 			return EventRecord{}, fmt.Errorf(

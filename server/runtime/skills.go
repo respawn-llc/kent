@@ -22,7 +22,7 @@ func formatSkillDiscoveryWarning(issue skillcatalog.Issue, cwd, home string) str
 	if strings.TrimSpace(issue.Path) == "" {
 		return fmt.Sprintf("Skipped skill %q: %s", name, issue.Reason)
 	}
-	return fmt.Sprintf("Skipped skill %q at %s: %s", name, pathutil.Compact(issue.Path, cwd, home), issue.Reason)
+	return fmt.Sprintf("Skipped skill %q at %s: %s", name, pathutil.Compact(issue.Path, &home, &cwd), issue.Reason)
 }
 
 func renderSkillsContext(skills []skillcatalog.Skill, cwd, home string) string {
@@ -30,7 +30,7 @@ func renderSkillsContext(skills []skillcatalog.Skill, cwd, home string) string {
 	lines = append(lines, skillsPrompt)
 	lines = append(lines, skillsAvailableHeader)
 	for _, skill := range skills {
-		lines = append(lines, fmt.Sprintf("- %s: %s . %s", skill.Name, pathutil.Compact(skill.Path, cwd, home), skill.Description))
+		lines = append(lines, fmt.Sprintf("- %s: %s . %s", skill.Name, pathutil.Compact(skill.Path, &home, &cwd), skill.Description))
 	}
 	return strings.Join(lines, "\n")
 }

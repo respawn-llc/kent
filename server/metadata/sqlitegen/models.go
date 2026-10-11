@@ -155,7 +155,7 @@ type Session struct {
 	WorkspaceID              sql.NullString
 	WorktreeID               sql.NullString
 	ArtifactRelpath          string
-	Name                     string
+	Name                     sql.NullString
 	FirstPromptPreview       string
 	InputDraft               string
 	Category                 sql.NullString

@@ -370,6 +370,39 @@ describe("Task description checklist", () => {
     }
   });
 
+  it("removes Expand when the allocated description height fits and restores it when clipped again", async () => {
+    const geometry = installResizeObserverGeometry();
+    try {
+      mountTaskDetailSurface(
+        { task: { ...taskDetailResponse.task, body: "Long description" } },
+        { attention: emptyTaskAttentionResponse },
+      );
+      await screen.findByRole("textbox", { name: appI18n.t("task.description") });
+      const viewport = screen.getByTestId("markdown-field-read-content-viewport");
+      geometry.setGeometry(viewport, { clientHeight: 100, scrollHeight: 200 });
+      act(() => {
+        geometry.notify();
+      });
+      await screen.findByRole("button", { name: appI18n.t("app.expand") });
+
+      geometry.setGeometry(viewport, { clientHeight: 240, scrollHeight: 240 });
+      act(() => {
+        geometry.notify();
+      });
+      await waitFor(() => {
+        expect(screen.queryByRole("button", { name: appI18n.t("app.expand") })).not.toBeInTheDocument();
+      });
+
+      geometry.setGeometry(viewport, { clientHeight: 100, scrollHeight: 200 });
+      act(() => {
+        geometry.notify();
+      });
+      expect(await screen.findByRole("button", { name: appI18n.t("app.expand") })).toBeInTheDocument();
+    } finally {
+      geometry.restore();
+    }
+  });
+
   it("expands the description and keeps it expanded through later geometry notifications", async () => {
     const geometry = installResizeObserverGeometry();
     try {

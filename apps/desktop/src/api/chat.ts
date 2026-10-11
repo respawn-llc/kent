@@ -21,6 +21,8 @@ import { context, createChatSettingsApi } from "./chatSettings";
 import { createChatGoalApi } from "./chatGoal";
 import { createChatCommandApi } from "./chatCommands";
 import { createChatDraftApi } from "./chatDrafts";
+import { createChatNameApi } from "./chatName";
+import { chatSettingsObservation } from "./chatSettingsObservation";
 import { listPendingPrompts } from "./clientPendingPrompts";
 import { answerPromptBatch } from "./clientPromptAnswers";
 import { ContractError, RpcError, TransportError } from "./errors";
@@ -54,6 +56,9 @@ export type {
   ChatRuntimeRelease,
   ChatRuntimeStatus,
   ChatSessionTarget,
+  ChatSessionNameMutation,
+  ChatSettingsSnapshot,
+  ChatSettingsObservation,
   ChatSettings,
   ChatSettingsTarget,
   ChatTranscriptCompletion,
@@ -82,6 +87,7 @@ export type {
 
 export function createChatApi(transport: RpcTransport): ChatApi {
   return {
+    subscribeSettings: (target, reportOverflow) => chatSettingsObservation(transport, target, reportOverflow),
     listPendingPrompts: async (target) =>
       listPendingPrompts(transport, {
         projectID: target.projectID,
@@ -90,6 +96,7 @@ export function createChatApi(transport: RpcTransport): ChatApi {
     answerPromptBatch: async (input) => answerPromptBatch(transport, input),
     ...createChatMutationApi(transport),
     ...createChatDraftApi(transport),
+    ...createChatNameApi(transport),
     ...createChatSettingsApi(transport),
     ...createChatGoalApi(transport),
     ...createChatCommandApi(transport),

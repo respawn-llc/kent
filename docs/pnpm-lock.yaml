@@ -60,6 +60,9 @@ importers:
         specifier: ^5.1.0
         version: 5.1.0
     devDependencies:
+      '@astrojs/compiler':
+        specifier: 2.13.1
+        version: 2.13.1
       '@astrojs/check':
         specifier: ^0.9.10
         version: 0.9.10(prettier-plugin-astro@0.14.1)(prettier@3.9.6)(typescript@6.0.3)

@@ -331,7 +331,7 @@ func TestSubagentCatalogUsesSamePolicyOnBaseInjectionAndCompaction(t *testing.T)
 			if got := hasSubagentMetaMessage(eng.transcriptRuntimeState().SnapshotMessages()); got != tt.workerVisible {
 				t.Fatalf("base worker visibility = %t, want %t", got, tt.workerVisible)
 			}
-			projection, err := eng.compactionReinjectedMetaContextProjection(context.Background(), compactionModeManual)
+			projection, err := eng.generationMetaContextProjection(context.Background(), workflowTaskPromptTriggerCompaction)
 			if err != nil {
 				t.Fatalf("compaction reinjection: %v", err)
 			}
@@ -386,7 +386,7 @@ func TestSubagentCatalogRemainsVisibleAcrossDepthPreservingSessionPathsAndLimits
 			if !hasSubagentMetaMessage(eng.transcriptRuntimeState().SnapshotMessages()) {
 				t.Fatal("base context hid the subagent catalog")
 			}
-			projection, err := eng.compactionReinjectedMetaContextProjection(context.Background(), compactionModeManual)
+			projection, err := eng.generationMetaContextProjection(context.Background(), workflowTaskPromptTriggerCompaction)
 			if err != nil {
 				t.Fatalf("compaction reinjection: %v", err)
 			}
@@ -437,7 +437,7 @@ func TestSubagentCatalogIgnoresPersistedCallerTargetPolicyInBaseAndCompaction(t 
 	if !hasSubagentMetaMessage(eng.transcriptRuntimeState().SnapshotMessages()) {
 		t.Fatal("base catalog must advertise eligible targets regardless of persisted caller callability")
 	}
-	projection, err := eng.compactionReinjectedMetaContextProjection(context.Background(), compactionModeManual)
+	projection, err := eng.generationMetaContextProjection(context.Background(), workflowTaskPromptTriggerCompaction)
 	if err != nil {
 		t.Fatalf("compaction reinjection: %v", err)
 	}
@@ -468,7 +468,7 @@ func runtimeCatalogStoreForPath(t *testing.T, path string) *session.Store {
 		}
 		return forked
 	case "workflow-fan-out-clone":
-		cloned, err := session.CloneSession(mustMaterializeTestEventLog(t, source), "workflow clone", sessioncontract.SessionCategorySubagent, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+		cloned, err := session.CloneSession(mustMaterializeTestEventLog(t, source), new("workflow clone"), sessioncontract.SessionCategorySubagent, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 		if err != nil {
 			t.Fatalf("CloneSession: %v", err)
 		}
@@ -532,7 +532,7 @@ func TestCompactionReinjectsSubagentsMetaContext(t *testing.T) {
 		SubagentCatalog: testsetup.ProgrammaticConfig(t, settings),
 	})
 
-	projection, err := eng.compactionReinjectedMetaContextProjection(context.Background(), compactionModeManual)
+	projection, err := eng.generationMetaContextProjection(context.Background(), workflowTaskPromptTriggerCompaction)
 	if err != nil {
 		t.Fatalf("compaction reinjection: %v", err)
 	}
@@ -575,7 +575,7 @@ func TestCompactionReinjectedSkillsFollowCurrentPolicy(t *testing.T) {
 				Model:       "gpt-6-sol",
 				SkillPolicy: tt.policy,
 			})
-			projection, err := eng.compactionReinjectedMetaContextProjection(context.Background(), compactionModeManual)
+			projection, err := eng.generationMetaContextProjection(context.Background(), workflowTaskPromptTriggerCompaction)
 			if err != nil {
 				t.Fatalf("compaction reinjection: %v", err)
 			}
@@ -634,6 +634,7 @@ func TestManualCompactionPersistsSubagentCatalogInCanonicalTranscript(t *testing
 
 	completeManualEligibilityAgentStep(t, eng)
 	scheduleManualCompactionAndWait(t, eng)
+	buildActiveTurnRequestForTest(t, eng, nil, true)
 	if !hasSubagentMetaMessage(eng.transcriptRuntimeState().SnapshotMessages()) {
 		t.Fatalf("expected in-memory canonical transcript to keep subagent catalog, got %+v", eng.transcriptRuntimeState().SnapshotMessages())
 	}

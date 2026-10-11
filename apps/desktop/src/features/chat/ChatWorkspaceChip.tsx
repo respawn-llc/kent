@@ -3,6 +3,7 @@ import { ComposerIcon } from "./ComposerIcon";
 import { errorMessage, type WorkspaceCatalogRow } from "@/api";
 import type { useChatDestination } from "./useChatDestination";
 import { projectWorkspaceSelectorProjection } from "@/shared/workspaces";
+import { usePathFormatter } from "@/app-facade";
 import {
   Button,
   InteractiveChip,
@@ -36,6 +37,7 @@ export function ChatWorkspaceChip({
   select(row: WorkspaceCatalogRow): void;
 }>) {
   const { t } = useTranslation();
+  const formatPath = usePathFormatter();
   const rows = projectWorkspaceSelectorProjection({
     catalogPages: catalog.data?.pages ?? [],
     initiatingRow: undefined,
@@ -98,7 +100,9 @@ export function ChatWorkspaceChip({
                       </Button>
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent>{pending ? t("chat.workspacePending") : row.rootPath}</TooltipContent>
+                  <TooltipContent>
+                    {pending ? t("chat.workspacePending") : formatPath(row.rootPath)}
+                  </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             )}

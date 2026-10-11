@@ -1,6 +1,7 @@
 import type { ButtonHTMLAttributes, CSSProperties, ReactNode, Ref } from "react";
 
 import { cx } from "./classes";
+import { Spinner } from "./Spinner";
 
 export type ButtonVariant = "primary" | "primary-outline" | "secondary" | "ghost" | "danger" | "warning";
 export type ButtonSize = "default" | "icon" | "icon-sm";
@@ -10,6 +11,7 @@ export type ButtonProps = Readonly<{
   ref?: Ref<HTMLButtonElement>;
   size?: ButtonSize;
   variant?: ButtonVariant;
+  loading?: boolean;
 }> &
   ButtonHTMLAttributes<HTMLButtonElement>;
 
@@ -20,6 +22,7 @@ export function Button({
   size = "default",
   style,
   variant = "secondary",
+  loading,
   type = "button",
   ...props
 }: ButtonProps) {
@@ -36,7 +39,24 @@ export function Button({
       ref={ref}
       {...props}
     >
-      {children}
+      {loading === undefined ? (
+        children
+      ) : (
+        <span className="inline-grid place-items-center">
+          <span
+            className="col-start-1 row-start-1 inline-flex items-center justify-center gap-[var(--space-1)]"
+            style={{ opacity: loading ? 0 : 1, transition: "opacity var(--motion-fast)" }}
+          >
+            {children}
+          </span>
+          <span
+            className="pointer-events-none col-start-1 row-start-1 inline-flex items-center justify-center"
+            style={{ opacity: loading ? 1 : 0, transition: "opacity var(--motion-fast)" }}
+          >
+            <Spinner size="sm" tone="inherit" />
+          </span>
+        </span>
+      )}
     </button>
   );
 }
