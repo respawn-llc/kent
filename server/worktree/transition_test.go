@@ -75,7 +75,7 @@ func TestEnterWorktreeSchedulesCrossWorkspaceResolutionBeforeSelectorExists(t *t
 			WorkspaceId:   env.binding.WorkspaceID,
 			WorkspaceRoot: env.workspaceRoot,
 		},
-		Origin: &worktreepb.TransitionRuntimeStepOrigin{RunId: runID, StepId: stepID},
+		Origin: &worktreepb.TransitionRuntimeStepOrigin{SessionId: sourceSession.Meta().SessionID, RunId: runID, StepId: stepID},
 	})
 	if err != nil {
 		t.Fatalf("EnterWorktree before selector exists: %v", err)
@@ -116,7 +116,7 @@ func TestEnterWorktreeSchedulesCrossProjectRetargetFromNonGitWorkspace(t *testin
 			WorkspaceId:   env.binding.WorkspaceID,
 			WorkspaceRoot: env.workspaceRoot,
 		},
-		Origin: &worktreepb.TransitionRuntimeStepOrigin{RunId: runID, StepId: stepID},
+		Origin: &worktreepb.TransitionRuntimeStepOrigin{SessionId: sourceSession.Meta().SessionID, RunId: runID, StepId: stepID},
 	})
 	if err != nil {
 		t.Fatalf("EnterWorktree: %v", err)

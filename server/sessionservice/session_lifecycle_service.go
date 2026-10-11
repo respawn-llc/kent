@@ -15,6 +15,7 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/rollbacktarget"
 	"core/shared/runtimeids"
@@ -40,6 +41,7 @@ type SessionLifecycleService struct {
 
 type SessionLifecycleMetadata interface {
 	session.PersistedSessionResolver
+	ResolveSessionTarget(context.Context, *sharedpb.SessionSelector) (runtimeids.SessionID, error)
 	DeleteSession(context.Context, string) error
 	launch.MetadataExecutionTargetStore
 }
@@ -126,12 +128,19 @@ func (s *SessionLifecycleService) RetargetSessionWorkspace(ctx context.Context, 
 	if s == nil || s.retargeter == nil {
 		return nil, errSessionWorkspaceRetargeterRequired
 	}
+	if s.metadata == nil {
+		return nil, errors.New("Session metadata is required")
+	}
+	sessionID, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
 	retargetRequest := metadata.SessionWorkspaceRetargetRequest{
-		SessionID:     req.SessionId,
+		SessionID:     sessionID.String(),
 		WorkspaceRoot: req.WorkspaceRoot,
 		ProjectID:     req.ProjectId,
 	}
-	if req.Origin != nil {
+	if req.Origin != nil && req.Origin.SessionId == sessionID.String() {
 		acknowledgement, err := s.retargeter.ScheduleWorkspaceRetarget(
 			ctx,
 			retargetRequest,

@@ -147,7 +147,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	targetProjectID := bindingB.ProjectID
 	if _, err := sourceServer.SessionLifecycleClient().RetargetSessionWorkspace(
 		context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
-			SessionId:     parent.Meta().SessionID,
+			SessionId:     requestfixture.Selector(t, parent.Meta().SessionID),
 			WorkspaceRoot: workspaceB,
 			ProjectId:     &targetProjectID,
 		},

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"core/internal/testharness/postprocessfixture"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
@@ -201,12 +202,13 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 			return errors.New("originating Agent Step is required")
 		}
 		response, err := remote.RetargetSessionWorkspace(context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
-			SessionId:     movedSession.Meta().SessionID,
+			SessionId:     requestfixture.Selector(t, movedSession.Meta().SessionID),
 			WorkspaceRoot: targetConfig.Config.WorkspaceRoot,
 			ProjectId:     &targetBinding.ProjectID,
 			Origin: &sessionlaunchpb.RuntimeStepOrigin{
-				RunId:  active.RunId,
-				StepId: active.StepId,
+				SessionId: movedSession.Meta().SessionID,
+				RunId:     active.RunId,
+				StepId:    active.StepId,
 			},
 		})
 		if err != nil {
@@ -342,7 +344,7 @@ func TestGatewaySessionReattachCapabilitySurvivesGatewayReplacement(t *testing.T
 
 	if _, err := appCore.SessionLifecycleClient().RetargetSessionWorkspace(
 		t.Context(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
-			SessionId:     movedSession.Meta().SessionID,
+			SessionId:     requestfixture.Selector(t, movedSession.Meta().SessionID),
 			WorkspaceRoot: targetConfig.Config.WorkspaceRoot,
 			ProjectId:     &targetBinding.ProjectID,
 		},

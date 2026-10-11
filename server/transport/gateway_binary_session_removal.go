@@ -7,8 +7,11 @@ import (
 	"core/server/metadata"
 	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionservice"
 	"core/shared/apicontract"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	"core/shared/serverapi"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -81,31 +84,42 @@ func registerSessionRemovalGatewayBinaryBindings(bindings map[string]gatewayBina
 }
 
 func sessionRemovalRequestID(request proto.Message) *string {
-	var sessionID string
+	var target *sharedpb.SessionSelector
 	switch typed := request.(type) {
 	case *sessionlaunchpb.SessionArchiveRequest:
 		if typed == nil {
 			return nil
 		}
-		sessionID = typed.SessionId
+		target = typed.SessionId
 	case *sessionlaunchpb.SessionDeleteRequest:
 		if typed == nil {
 			return nil
 		}
-		sessionID = typed.SessionId
+		target = typed.SessionId
 	default:
 		return nil
 	}
-	return &sessionID
+	if target != nil {
+		if uuid, ok := target.Value.(*sharedpb.SessionSelector_SessionId); ok {
+			return &uuid.SessionId
+		}
+	}
+	return nil
 }
 
 func sessionRemovalFailureDetails(request proto.Message, err error) proto.Message {
 	sessionID := sessionRemovalRequestID(request)
+	var resolved *sessionservice.SessionRemovalError
+	if errors.As(err, &resolved) {
+		id := resolved.SessionID.String()
+		sessionID = &id
+	}
+	var self *serverapi.SessionSelfTargetError
+	if errors.As(err, &self) {
+		return &sharedpb.SessionSelfTargetDetails{SessionId: self.SessionID.String()}
+	}
 	_, deleteRequest := request.(*sessionlaunchpb.SessionDeleteRequest)
 	if errors.Is(err, session.ErrSessionNotFound) {
-		if sessionID == nil {
-			return binaryInternalFailure(err)
-		}
 		return &sessionlaunchpb.SessionNotFoundDetails{SessionId: sessionID}
 	}
 	var runtimeInUse *sessionruntime.SessionInUseError

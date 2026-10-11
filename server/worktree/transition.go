@@ -103,10 +103,11 @@ func (s *Service) enterWorktreeAcrossWorkspace(
 		_ = s.publishWorktreeTransitionResult(request, runErr, nil)
 	}
 	var runtimeOrigin *sessionlaunchpb.RuntimeStepOrigin
-	if origin != nil {
+	if origin != nil && origin.SessionId == request.sessionID {
 		runtimeOrigin = &sessionlaunchpb.RuntimeStepOrigin{
-			RunId:  strings.TrimSpace(origin.RunId),
-			StepId: strings.TrimSpace(origin.StepId),
+			SessionId: origin.SessionId,
+			RunId:     strings.TrimSpace(origin.RunId),
+			StepId:    strings.TrimSpace(origin.StepId),
 		}
 	}
 	if _, err := s.sessionRetargeter.ScheduleWorkspaceRetargetResolutionWithCompletion(

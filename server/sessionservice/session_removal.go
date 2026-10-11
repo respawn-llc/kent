@@ -9,7 +9,9 @@ import (
 
 	"core/server/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
+	"core/shared/serverapi"
 )
 
 const detachedArchiveGracePeriod = 5 * time.Minute
@@ -19,6 +21,28 @@ var ErrDetachedArchiveGraceExpired = errors.New("detached Session archive grace 
 type SessionRemovalCleanupError struct {
 	RemainingPath string
 	Cause         error
+}
+
+type SessionRemovalError struct {
+	SessionID runtimeids.SessionID
+	Cause     error
+}
+
+func (e *SessionRemovalError) Error() string { return e.Cause.Error() }
+func (e *SessionRemovalError) Unwrap() error { return e.Cause }
+
+func (s *SessionLifecycleService) removalTarget(ctx context.Context, target *sharedpb.SessionSelector, caller *string) (runtimeids.SessionID, error) {
+	if s == nil || s.metadata == nil {
+		return runtimeids.SessionID{}, errors.New("Session metadata is required")
+	}
+	id, err := s.metadata.ResolveSessionTarget(ctx, target)
+	if err != nil {
+		return runtimeids.SessionID{}, err
+	}
+	if caller != nil && *caller == id.String() {
+		return runtimeids.SessionID{}, &serverapi.SessionSelfTargetError{SessionID: id}
+	}
+	return id, nil
 }
 
 func (e *SessionRemovalCleanupError) Error() string {
@@ -121,11 +145,15 @@ func (s *SessionLifecycleService) ArchiveSession(
 	if request == nil {
 		return nil, errors.New("Session archive request is required")
 	}
-	if err := s.Archive(ctx, request.SessionId, request.OutputPath); err != nil {
+	id, err := s.removalTarget(ctx, request.SessionId, request.CallerSessionId)
+	if err != nil {
 		return nil, err
 	}
+	if err := s.Archive(ctx, id.String(), request.OutputPath); err != nil {
+		return nil, &SessionRemovalError{SessionID: id, Cause: err}
+	}
 	return &sessionlaunchpb.SessionArchiveSuccess{
-		SessionId:  request.SessionId,
+		SessionId:  id.String(),
 		OutputPath: request.OutputPath,
 	}, nil
 }
@@ -137,10 +165,14 @@ func (s *SessionLifecycleService) DeleteSession(
 	if request == nil {
 		return nil, errors.New("Session delete request is required")
 	}
-	if err := s.Delete(ctx, request.SessionId); err != nil {
+	id, err := s.removalTarget(ctx, request.SessionId, request.CallerSessionId)
+	if err != nil {
 		return nil, err
 	}
-	return &sessionlaunchpb.SessionDeleteSuccess{SessionId: request.SessionId}, nil
+	if err := s.Delete(ctx, id.String()); err != nil {
+		return nil, &SessionRemovalError{SessionID: id, Cause: err}
+	}
+	return &sessionlaunchpb.SessionDeleteSuccess{SessionId: id.String()}, nil
 }
 
 func waitForAcceptedSessionOperation(invocationCtx context.Context, result <-chan error) error {

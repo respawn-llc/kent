@@ -1243,7 +1243,7 @@ func TestProtocolErrorMapsSentinelCodes(t *testing.T) {
 func TestRemoteSessionRetargetErrorRoundTrip(t *testing.T) {
 	source := &serverapi.SessionRetargetError{
 		Reason:        serverapi.SessionRetargetTargetProjectRequired,
-		SessionID:     "session-1",
+		SessionID:     "33333333-3333-4333-8333-333333333333",
 		SourceProject: serverapi.ProjectReference{ID: "project-source", Name: "Source"},
 		TargetRoot:    "/work/target",
 		CandidateProjects: []serverapi.ProjectReference{{
@@ -1279,7 +1279,7 @@ func TestRemoteSessionRetargetErrorRoundTrip(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 	_, err = remote.RetargetSessionWorkspace(context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
-		SessionId:     source.SessionID,
+		SessionId:     requestfixture.Selector(t, source.SessionID),
 		WorkspaceRoot: source.TargetRoot,
 	})
 	assertRemoteSessionRetargetError(t, err, source)
