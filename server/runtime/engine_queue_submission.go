@@ -171,7 +171,15 @@ func (e *Engine) ApplyWorktreeTransitionTerminal(
 		return err
 	}
 	deferred := submitEngineRuntimeOperation(e, func(operationCtx context.Context) (struct{}, error) {
-		return struct{}{}, apply(operationCtx)
+		previous := e.WorktreeReminderState()
+		err := apply(operationCtx)
+		if worktreeFailureIsIndeterminate(err) {
+			return struct{}{}, err
+		}
+		if _, fresh := e.generationContextSnapshot().(freshGenerationContext); fresh {
+			return struct{}{}, err
+		}
+		return struct{}{}, errors.Join(err, e.steerWorktreeTransitionRaw(previous))
 	})
 	_, err := deferred.Await(context.WithoutCancel(ctx))
 	return err

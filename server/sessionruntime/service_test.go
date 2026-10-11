@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
+	"core/prompts"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
@@ -25,12 +26,129 @@ import (
 	shelltool "core/server/tools/shell"
 	"core/shared/config"
 	"core/shared/protoapi"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
+
+func TestSyncExecutionTargetAfterCompactionDeliversSwitch(t *testing.T) {
+	previousSwitch, previousCompaction := prompts.WorktreeModePrompt, prompts.WorktreePostCompactionPrompt
+	prompts.WorktreeModePrompt, prompts.WorktreePostCompactionPrompt = "{{branch}}", "{{cwd}}"
+	t.Cleanup(func() {
+		prompts.WorktreeModePrompt, prompts.WorktreePostCompactionPrompt = previousSwitch, previousCompaction
+	})
+	for _, dormant := range []bool{false, true} {
+		t.Run(fmt.Sprint(dormant), func(t *testing.T) {
+			fixture := newSessionRuntimeFixture(t)
+			initial := &session.WorktreeReminderState{
+				Mode: session.WorktreeReminderModeEnter,
+				WorktreeContext: session.WorktreeContext{
+					Branch: new("source"), WorktreePath: fixture.config.WorkspaceRoot,
+					WorkspaceRoot: fixture.config.WorkspaceRoot, EffectiveCwd: fixture.config.WorkspaceRoot,
+				},
+			}
+			if err := fixture.store.SetWorktreeReminderState(initial); err != nil {
+				t.Fatal(err)
+			}
+			client := &sessionRuntimeTestLLMClient{responses: []llm.Response{
+				{Assistant: llm.Message{Role: llm.RoleAssistant, Phase: new(llm.MessagePhaseFinal), Content: new("initial")}},
+				{Assistant: llm.Message{Role: llm.RoleAssistant, Phase: new(llm.MessagePhaseFinal), Content: new("summary")}},
+				{Assistant: llm.Message{Role: llm.RoleAssistant, Phase: new(llm.MessagePhaseFinal), Content: new("done")}},
+			}}
+			fixture.api = NewAPI(fixture.metadata, fixture.authority, APIOptions{
+				RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(context.Context, runtimewire.RuntimeClientRequest) (llm.Client, error) {
+					return client, nil
+				}),
+			})
+			settings := testsetup.ProviderSettings(config.DefaultOnboardingSettings())
+			settings.CompactionMode = config.CompactionModeLocal
+			settings.Reviewer.Frequency = "off"
+			request := serverapi.SessionRuntimeActivateRequest{
+				SessionID: fixture.store.Meta().SessionID, OwnerID: "worktree-transition",
+				QuestionsEnabled: new(true), AutoCompactionEnabled: new(true),
+				ActiveSettings: settings, Source: config.SourceReport{Sources: map[string]config.Origin{}},
+			}
+			attachment, err := fixture.api.ActivateSessionRuntime(t.Context(), request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			id, err := runtimeids.ParseSessionID(attachment.SessionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := fixture.authority.WithCurrentRuntime(t.Context(), id, func(ctx context.Context, engine *runtimepkg.Engine) error {
+				if _, err := engine.SubmitUserMessage(ctx, "start"); err != nil {
+					return err
+				}
+				if err := engine.CompactContext(ctx, ""); err != nil {
+					return err
+				}
+				deadline := time.Now().Add(5 * time.Second)
+				for (engine.CompactionCount() == 0 || engine.ActiveRun() != nil) && time.Now().Before(deadline) {
+					time.Sleep(10 * time.Millisecond)
+				}
+				if engine.CompactionCount() != 1 || engine.ActiveRun() != nil {
+					return errors.New("compaction did not finish before target synchronization")
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if dormant {
+				if _, err := fixture.api.ReleaseSessionRuntime(t.Context(), serverapi.SessionRuntimeReleaseRequest{
+					Attachment: attachment, OwnerID: request.OwnerID, DropOwner: true,
+					ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			root := t.TempDir()
+			target := &session.WorktreeReminderState{
+				Mode: session.WorktreeReminderModeEnter,
+				WorktreeContext: session.WorktreeContext{
+					Branch: new("target"), WorktreePath: root,
+					WorkspaceRoot: fixture.config.WorkspaceRoot, EffectiveCwd: root,
+				},
+			}
+			if err := fixture.authority.SyncExecutionTarget(t.Context(), id.String(), &worktreepb.SessionExecutionTarget{
+				WorkspaceRoot: fixture.config.WorkspaceRoot, EffectiveWorkdir: root,
+				Worktree: &worktreepb.SessionExecutionWorktreeTarget{Root: root},
+			}, target); err != nil {
+				t.Fatal(err)
+			}
+			if dormant {
+				if _, err := fixture.api.ActivateSessionRuntime(t.Context(), request); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := fixture.authority.WithCurrentRuntime(t.Context(), id, func(ctx context.Context, engine *runtimepkg.Engine) error {
+				_, err := engine.SubmitUserMessage(ctx, "continue")
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			requests := client.requestSnapshot()
+			if len(requests) != 3 {
+				t.Fatalf("provider requests = %d, want initial, summary, continuation", len(requests))
+			}
+			count := 0
+			for _, item := range requests[2].Items {
+				if item.WorktreeContext != nil {
+					count++
+					if item.WorktreeContext.EffectiveCwd != root || item.Content == nil || *item.Content != *target.Branch {
+						t.Fatal("target synchronization did not deliver the switch template for the new worktree")
+					}
+				}
+			}
+			if count != 1 {
+				t.Fatalf("worktree contexts = %d, want one", count)
+			}
+		})
+	}
+}
 
 func TestLaunchRetainsFirstExplicitToolListAcrossReopening(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)

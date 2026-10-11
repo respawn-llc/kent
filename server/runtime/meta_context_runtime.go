@@ -575,6 +575,16 @@ func (e *Engine) generationMetaContextProjection(ctx context.Context, trigger wo
 	opts.IncludeHeadless = e.cfg.HeadlessMode
 	opts.WorktreePromptKind = prompts.WorktreePromptPostCompaction
 	opts.WorktreeReminder = session.CloneWorktreeReminderState(meta.WorktreeReminder)
+	switchMessages, err := e.worktreeSwitchMessages()
+	if err != nil {
+		return metaContextProjection{}, err
+	}
+	activeItems := e.transcriptRuntimeState().SnapshotItems()
+	for _, message := range switchMessages {
+		if latestActiveMetaContextMatches(activeItems, message) {
+			opts.WorktreeReminder = nil
+		}
+	}
 	if e.workflowPromptActive() {
 		opts.IncludeHeadless = false
 		opts.SubagentInvocationContext = config.SubagentInvocationContextWorkflow
