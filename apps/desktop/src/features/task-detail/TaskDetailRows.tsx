@@ -6,7 +6,7 @@ import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { TaskCurrentNode, TaskDetail } from "@/api";
-import { errorMessage } from "@/api";
+import { errorMessage, sessionDisplayID } from "@/api";
 import {
   useAppServices,
   usePathFormatter,
@@ -395,9 +395,11 @@ function TaskOpenButtons({
                 aria-label={fullLabel}
                 onClick={() => {
                   setOpenError("");
-                  void openInCli(session.sessionID).catch((cause: unknown) => {
-                    setOpenError(errorMessage(cause));
-                  });
+                  void openInCli(sessionDisplayID(session.sessionID, session.shortID)).catch(
+                    (cause: unknown) => {
+                      setOpenError(errorMessage(cause));
+                    },
+                  );
                 }}
                 title={fullLabel}
                 variant="secondary"
@@ -435,7 +437,9 @@ function taskLiveSessionTarget(session: TaskLiveSession): string {
   if (session.sessionName !== null) {
     return session.sessionName;
   }
-  return session.nodeDisplayName.length > 0 ? session.nodeDisplayName : session.sessionID;
+  return session.nodeDisplayName.length > 0
+    ? session.nodeDisplayName
+    : sessionDisplayID(session.sessionID, session.shortID);
 }
 
 function taskInterruptTarget(detail: TaskDetail): string | null {

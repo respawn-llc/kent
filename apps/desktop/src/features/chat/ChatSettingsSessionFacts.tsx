@@ -1,7 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { errorMessage, type ChatSettingsSessionFacts as SessionFacts } from "@/api";
+import { errorMessage, sessionDisplayID, type ChatSettingsSessionFacts as SessionFacts } from "@/api";
 import { useAppServices } from "@/app-facade";
 import { writeClipboardText } from "@/shared/native-clipboard";
 import { showStatusToast, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/ui";
@@ -21,9 +21,10 @@ export function ChatSettingsSessionFacts({
   const { t } = useTranslation();
   const { nativeBridge } = useAppServices();
   const { sessionID, previousSessionID, task, connection } = facts;
+  const displayID = sessionDisplayID(sessionID, facts.shortID);
   async function copySessionID() {
     try {
-      await writeClipboardText(sessionID, nativeBridge);
+      await writeClipboardText(displayID, nativeBridge);
       showStatusToast({
         id: "chat-settings-copy",
         tone: "success",
@@ -91,12 +92,12 @@ export function ChatSettingsSessionFacts({
                 reason={undefined}
               >
                 <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--color-muted)]">
-                  {sessionID}
+                  {displayID}
                 </span>
               </SettingsRow>
             </div>
           </TooltipTrigger>
-          <TooltipContent className="font-mono">{sessionID}</TooltipContent>
+          <TooltipContent className="font-mono">{displayID}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
     </div>

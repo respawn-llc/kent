@@ -235,8 +235,12 @@ describe("Desktop Worktree client", () => {
       });
     }
     expect(transport.descriptorCalls.map(({ request }) => request)).toEqual([
-      create(StatusService.method.get.input, { sessionId: { value: { case: "sessionId", value: "session-1" } } }),
-      create(ListService.method.list.input, { sessionId: { value: { case: "sessionId", value: "session-1" } } }),
+      create(StatusService.method.get.input, {
+        sessionId: { value: { case: "sessionId", value: "session-1" } },
+      }),
+      create(ListService.method.list.input, {
+        sessionId: { value: { case: "sessionId", value: "session-1" } },
+      }),
     ]);
   });
 

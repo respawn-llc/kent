@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Plus } from "lucide-react";
 import { desktopChatEnabled } from "@/shared/feature-flags";
 
-import type { SessionCatalogSummary, SessionCategory } from "@/api";
+import { sessionDisplayID, type SessionCatalogSummary, type SessionCategory } from "@/api";
 import { errorMessage } from "@/api";
 import {
   formatRelativeTime,
@@ -198,7 +198,7 @@ function SessionList({
       renderItem={(session) => (
         <Item
           className="min-w-0 px-[var(--space-2)] py-[var(--space-3)]"
-          aria-label={session.name ?? session.id}
+          aria-label={session.name ?? sessionDisplayID(session.id, session.shortID)}
           onClick={() => {
             void navigation.openSessionChat({
               catalogOrigin: { category },
@@ -209,7 +209,9 @@ function SessionList({
         >
           <ItemContent className="min-w-0">
             <ItemTitle className="max-w-full">
-              <strong className="truncate">{session.name ?? session.id}</strong>
+              <strong className="truncate">
+                {session.name ?? sessionDisplayID(session.id, session.shortID)}
+              </strong>
             </ItemTitle>
             {session.firstPromptPreview === null ? null : (
               <span className="line-clamp-2 break-words text-sm text-[var(--color-muted)]">

@@ -278,6 +278,7 @@ function toolRow(value: T.ToolRow): NonNullable<ChatCommittedRow["Tool"]> {
     CondensedText: value.condensedText ?? null,
     Presentation: toolPresentation(value.presentation, value.toolName),
     AnsweredBySessionID: value.answeredBySessionId ?? null,
+    AnsweredBySessionShortID: value.answeredBySessionShortId ?? null,
     WebSearch: value.webSearch === undefined ? null : webSearchDetail(value.webSearch),
     QuestionAnswer:
       value.questionAnswer === undefined

@@ -41,11 +41,13 @@ describe("task detail execution target contract", () => {
     expect(detail.liveSessions).toEqual([
       {
         sessionID: "33333333-3333-4333-8333-333333333333",
+        shortID: null,
         sessionName: "Review chat",
         nodeDisplayName: "Code Review",
       },
       {
         sessionID: "44444444-4444-4444-8444-444444444444",
+        shortID: null,
         sessionName: null,
         nodeDisplayName: "Implementation",
       },

@@ -106,7 +106,10 @@ export async function resolveWorktreeCreateTarget(
     await transport.callDescriptorAttachedSession(
       { sessionID },
       method,
-      create(method.input, { scope: { scope: { case: "sessionId", value: { value: { case: "sessionId", value: sessionID } } } }, target }),
+      create(method.input, {
+        scope: { scope: { case: "sessionId", value: { value: { case: "sessionId", value: sessionID } } } },
+        target,
+      }),
     ),
   );
   authorizeWorktreeCreateTargetResolution(required(success.resolution));
@@ -125,7 +128,10 @@ export async function previewWorktreeDelete(
       await transport.callDescriptorAttachedSession(
         { sessionID },
         method,
-        create(method.input, { scope: { scope: { case: "sessionId", value: { value: { case: "sessionId", value: sessionID } } } }, selector }),
+        create(method.input, {
+          scope: { scope: { case: "sessionId", value: { value: { case: "sessionId", value: sessionID } } } },
+          selector,
+        }),
       ),
     ),
   );
@@ -149,7 +155,9 @@ export async function createWorktree(
       method,
       create(method.input, {
         setupOperationId: input.setupOperationID.toJSONValue(),
-        scope: { scope: { case: "sessionId", value: { value: { case: "sessionId", value: input.sessionID } } } },
+        scope: {
+          scope: { case: "sessionId", value: { value: { case: "sessionId", value: input.sessionID } } },
+        },
         spec: {
           baseRef: createBranch ? required(input.baseRef) : required(resolution.resolvedRef),
           createBranch,
@@ -193,7 +201,10 @@ export async function switchWorktree(
     : await transport.callDescriptorAttachedSession(
         { sessionID },
         TransitionService.method.leave,
-        create(TransitionService.method.leave.input, { operationId: operationID, sessionId: { value: { case: "sessionId", value: sessionID } } }),
+        create(TransitionService.method.leave.input, {
+          operationId: operationID,
+          sessionId: { value: { case: "sessionId", value: sessionID } },
+        }),
       );
   const acknowledgement = requireWorktreeSuccess(method, result);
   if (acknowledgement.operationId !== operationID) {

@@ -391,6 +391,7 @@ export function taskDetail(value: pb.TaskDetail | undefined): TaskDetail {
     currentNodes: value.currentNodes.map(taskCurrentNode),
     liveSessions: value.liveSessions.map((session) => ({
       sessionID: session.sessionId,
+      shortID: session.shortId ?? null,
       sessionName: session.sessionName ?? null,
       nodeDisplayName: session.nodeDisplayName,
     })),
