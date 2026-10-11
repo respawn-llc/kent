@@ -20,8 +20,12 @@ export type VirtualizedEndAnchoring = Readonly<{
 type ListVirtualizer = Virtualizer<HTMLDivElement, Element>;
 type ListOptions = VirtualizerOptions<HTMLDivElement, Element>;
 
-function scrollToNativeEnd(instance: ListVirtualizer): void {
-  instance.scrollToEnd({ behavior: prefersReducedMotion() ? "auto" : "smooth" });
+function scrollToNativeEnd(instance: ListVirtualizer, behavior: ScrollBehavior): void {
+  const element = instance.scrollElement;
+  if (element === null) return;
+  // Virtualizer smooth targets suppress measurements away from their target.
+  // Native end scrolling leaves expanded/streaming rows measurable throughout.
+  element.scrollTo({ top: element.scrollHeight - element.clientHeight, behavior });
 }
 
 export function useVirtualizedEndAnchoring(mode: VirtualizedEndAnchoring | undefined) {
@@ -46,7 +50,7 @@ export function useVirtualizedEndAnchoring(mode: VirtualizedEndAnchoring | undef
       observeElementRect(instance, (rect) => {
         const following = canFollow();
         callback(rect);
-        if (following) scrollToNativeEnd(instance);
+        if (following) scrollToNativeEnd(instance, prefersReducedMotion() ? "auto" : "smooth");
         publish(instance);
       }),
     [canFollow, publish],
@@ -63,15 +67,13 @@ export function useVirtualizedEndAnchoring(mode: VirtualizedEndAnchoring | undef
   const applyScrollRequest = useStableCallback((instance: ListVirtualizer) => {
     if (mode?.scrollRequest == null) return;
     resizeRequest.current = null;
-    instance.scrollToEnd({
-      behavior: prefersReducedMotion() ? "auto" : mode.scrollRequest.behavior,
-    });
+    scrollToNativeEnd(instance, prefersReducedMotion() ? "auto" : mode.scrollRequest.behavior);
   });
   const onChange = useStableCallback((instance: ListVirtualizer) => {
     if (mode === undefined) return;
     const resize = resizeRequest.current;
     resizeRequest.current = null;
-    if (resize !== null) instance.scrollToEnd();
+    if (resize !== null) scrollToNativeEnd(instance, "auto");
     publish(instance);
   });
   return {

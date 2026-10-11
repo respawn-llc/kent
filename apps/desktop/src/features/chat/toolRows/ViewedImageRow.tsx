@@ -1,12 +1,19 @@
 import { Image } from "lucide-react";
 import { useState } from "react";
-import { useIsPresent } from "motion/react";
+import { AnimatePresence, motion, useIsPresent, useReducedMotion } from "motion/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage, type ChatSessionTarget } from "@/api";
 import { queryKeys, useAppServices } from "@/app-facade";
-import { Button, showStatusToast, Spinner, TranscriptDisclosure } from "@/ui";
+import {
+  Button,
+  motionDurationFromCSSVar,
+  Shimmer,
+  showStatusToast,
+  Spinner,
+  TranscriptDisclosure,
+} from "@/ui";
 import {
   createViewedImagePreviewModel,
   useViewedImagePreview,
@@ -75,20 +82,50 @@ function ImagePreview(props: PreviewContext) {
   // An expansion owns its acquisition; later Main View hydration must not restart it.
   const [model] = useState(() => createViewedImagePreviewModel({ ...props, services, client }));
   const query = useViewedImagePreview(model);
-  if (query.isPending) return <Spinner size="sm" />;
+  const reducedMotion = useReducedMotion();
   if (query.isError) {
     return <span>{t("chat.toolRows.imageReadFailed", { error: errorMessage(query.error) })}</span>;
   }
   const preview = query.data;
-  if (preview.kind === "unavailable") return <span>{t("chat.toolRows.imageUnavailable")}</span>;
-  const scale = Math.max(1, 150 / Math.max(preview.width, preview.height));
+  if (preview?.kind === "unavailable") return <span>{t("chat.toolRows.imageUnavailable")}</span>;
+  const scale = preview === undefined ? 1 : Math.max(1, 150 / Math.max(preview.width, preview.height));
+  const transition = {
+    duration: reducedMotion ? 0 : motionDurationFromCSSVar("--motion-reveal", 280) / 1000,
+  };
   return (
-    <img
-      src={preview.url}
-      alt=""
-      className="transcript-viewed-image"
-      style={{ width: preview.width * scale, aspectRatio: preview.width / preview.height }}
-    />
+    <motion.div
+      className="relative max-w-full"
+      initial={false}
+      animate={
+        preview === undefined
+          ? { width: 300, aspectRatio: 2 }
+          : { width: preview.width * scale, aspectRatio: preview.width / preview.height }
+      }
+      transition={transition}
+    >
+      <AnimatePresence initial={false}>
+        {preview === undefined ? (
+          <motion.div
+            key="loading"
+            className="absolute inset-0"
+            exit={{ opacity: 0 }}
+            transition={transition}
+          >
+            <Shimmer className="block size-full rounded-[var(--radius-s)]" />
+          </motion.div>
+        ) : (
+          <motion.img
+            key="image"
+            src={preview.url}
+            alt=""
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={transition}
+            className="transcript-viewed-image absolute inset-0 size-full"
+          />
+        )}
+      </AnimatePresence>
+    </motion.div>
   );
 }
 

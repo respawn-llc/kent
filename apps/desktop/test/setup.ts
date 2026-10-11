@@ -12,6 +12,10 @@ if (typeof window !== "undefined") {
 // override these configurable getters with their own measurements.
 if (typeof HTMLElement !== "undefined")
   Object.defineProperties(HTMLElement.prototype, {
+    scrollTo: {
+      configurable: true,
+      value: vi.fn(),
+    },
     offsetHeight: {
       configurable: true,
       get(this: HTMLElement) {

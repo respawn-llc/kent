@@ -246,7 +246,7 @@
 
 ## Viewed Images
 
-- Successful raster-image View Image Tool rows must load a preview only when expanded and must show a Loading state while acquiring the image.
+- Successful raster-image View Image Tool rows must load a preview only when expanded. While acquiring the image, they must show a shimmer skeleton preview and smoothly crossfade from that skeleton to the loaded image.
 - Where the client can read local files, Desktop must first try the original at its absolute path. A matching local path is sufficient for this fast path, including for a remote Session. Desktop may display a local original that differs from the image the model received because of conversion or later file edits.
 - If the local source is absent, unreadable, or undecodable, or the client cannot read local files, Desktop must retrieve the original on the server. Desktop must not retrieve the stored processed model image for a preview.
 - Original-file reads must use a 10 MiB limit. Oversized originals must be treated as unusable sources.
