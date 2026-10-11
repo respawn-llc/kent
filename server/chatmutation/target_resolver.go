@@ -38,6 +38,7 @@ type TargetResolutionRequest struct {
 
 type ResolvedTarget struct {
 	SessionID runtimeids.SessionID
+	ShortID   *runtimeids.SessionShortID
 	Created   bool
 }
 
@@ -100,7 +101,7 @@ func (r *TargetResolver) SelectPlacement(ctx context.Context, target ResolvedTar
 	if err != nil {
 		return target, err
 	}
-	return ResolvedTarget{SessionID: planned.Plan.Descriptor.SessionID(), Created: true}, nil
+	return ResolvedTarget{SessionID: planned.Plan.Descriptor.SessionID(), ShortID: planned.Identity.ShortID, Created: true}, nil
 }
 
 func (r *TargetResolver) Resolve(
@@ -118,14 +119,15 @@ func (r *TargetResolver) Resolve(
 		if err != nil {
 			return ResolvedTarget{}, err
 		}
-		if _, err := session.ResolvePersistedSessionRecord(
+		record, err := session.ResolvePersistedSessionRecord(
 			ctx,
 			r.persistedSessions,
 			sessionID.String(),
-		); err != nil {
+		)
+		if err != nil {
 			return ResolvedTarget{}, err
 		}
-		return ResolvedTarget{SessionID: sessionID}, nil
+		return ResolvedTarget{SessionID: sessionID, ShortID: record.ShortID}, nil
 	}
 	newChat := request.Target.GetNewChat()
 	if newChat == nil {
@@ -164,5 +166,9 @@ func (r *TargetResolver) Resolve(
 	if err != nil {
 		return ResolvedTarget{}, fmt.Errorf("ordinary Session creation result: %w", err)
 	}
-	return ResolvedTarget{SessionID: sessionID, Created: true}, nil
+	shortID, err := protoapi.SessionShortIDFromProto(response.Plan.ShortId)
+	if err != nil {
+		return ResolvedTarget{}, err
+	}
+	return ResolvedTarget{SessionID: sessionID, ShortID: shortID, Created: true}, nil
 }

@@ -60,7 +60,11 @@ func taskCommentAddSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		commentAuthor := taskCommentAuthorForAdd(context.Background(), remote, taskID, *author, flagExplicit(fs, "author"))
+		commentAuthor, err := taskCommentAuthorForAdd(context.Background(), remote, *author, flagExplicit(fs, "author"))
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
 		if trimmedAuthorID := strings.TrimSpace(*authorID); trimmedAuthorID != "" {
 			commentAuthor.ID = trimmedAuthorID
 		}
@@ -90,30 +94,33 @@ type taskCommentAuthor struct {
 	ID   string
 }
 
-func taskCommentAuthorForAdd(ctx context.Context, remote apicontract.WorkflowService, taskID string, explicitAuthor string, explicit bool) taskCommentAuthor {
+func taskCommentAuthorForAdd(ctx context.Context, remote apicontract.SessionViewService, explicitAuthor string, explicit bool) (taskCommentAuthor, error) {
 	sessionID, ok := sessionenv.LookupSessionID(os.LookupEnv)
 	if ok {
-		return taskCommentAuthor{Kind: "agent", ID: sessionAgentAuthorID(ctx, remote, sessionID)}
+		id, err := sessionAgentAuthorID(ctx, remote, sessionID)
+		return taskCommentAuthor{Kind: "agent", ID: id}, err
 	}
 	if explicit {
-		return taskCommentAuthor{Kind: strings.TrimSpace(explicitAuthor)}
+		return taskCommentAuthor{Kind: strings.TrimSpace(explicitAuthor)}, nil
 	}
-	return taskCommentAuthor{Kind: "user"}
+	return taskCommentAuthor{Kind: "user"}, nil
 }
 
-func sessionAgentAuthorID(ctx context.Context, remote apicontract.WorkflowService, sessionID string) string {
-	trimmedSessionID := strings.TrimSpace(sessionID)
-	if getter, ok := remote.(apicontract.SessionViewService); ok {
-		rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
-		defer cancel()
-		resp, err := getter.GetSessionMainView(rpcCtx, &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: trimmedSessionID}}})
-		if err == nil {
-			if sessionName := strings.TrimSpace(resp.MainView.Session.GetSessionName()); sessionName != "" {
-				return fmt.Sprintf("Session %s agent", sessionName)
-			}
-		}
+func sessionAgentAuthorID(ctx context.Context, remote apicontract.SessionViewService, sessionID string) (string, error) {
+	rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
+	defer cancel()
+	resp, err := remote.GetSessionMainView(rpcCtx, &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}}})
+	if err != nil {
+		return "", err
 	}
-	return fmt.Sprintf("Session %s agent", trimmedSessionID)
+	if sessionName := strings.TrimSpace(resp.MainView.Session.GetSessionName()); sessionName != "" {
+		return fmt.Sprintf("Session %s agent", sessionName), nil
+	}
+	identity, err := protoapi.SessionIdentityFromProto(resp.MainView.Session.SessionId, resp.MainView.Session.ShortId)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Session %s agent", identity.String()), nil
 }
 
 func taskCommentListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {

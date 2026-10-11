@@ -146,6 +146,7 @@ func (s dormantSessionSnapshot) MainView(ctx context.Context) (*runtimepb.MainVi
 		Status:  status,
 		Session: &runtimepb.SessionView{
 			SessionId:             meta.SessionID,
+			ShortId:               protoapi.SessionShortIDToProto(s.view.Identity().ShortID),
 			SessionName:           textutil.Pointer(meta.Name),
 			AgentRole:             session.ContinuationAgentRole(meta),
 			ConversationFreshness: freshness,

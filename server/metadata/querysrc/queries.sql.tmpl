@@ -2616,6 +2616,7 @@ WHERE id = '';
 SELECT
     id,
     name,
+    short_id,
     updated_at_unix_ms
 FROM sessions
 WHERE worktree_id = sqlc.arg(worktree_id)

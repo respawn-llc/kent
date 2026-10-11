@@ -5502,6 +5502,7 @@ const listSessionsTargetingWorktreePage = `-- name: ListSessionsTargetingWorktre
 SELECT
     id,
     name,
+    short_id,
     updated_at_unix_ms
 FROM sessions
 WHERE worktree_id = ?1
@@ -5522,6 +5523,7 @@ type ListSessionsTargetingWorktreePageParams struct {
 type ListSessionsTargetingWorktreePageRow struct {
 	ID              string
 	Name            sql.NullString
+	ShortID         sql.NullInt64
 	UpdatedAtUnixMs int64
 }
 
@@ -5535,7 +5537,12 @@ func (q *Queries) ListSessionsTargetingWorktreePage(ctx context.Context, arg Lis
 	var items []ListSessionsTargetingWorktreePageRow
 	for rows.Next() {
 		var i ListSessionsTargetingWorktreePageRow
-		if err := recordQueryError(ctx, rows.Scan(&i.ID, &i.Name, &i.UpdatedAtUnixMs), listSessionsTargetingWorktreePage, 3); err != nil {
+		if err := recordQueryError(ctx, rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.ShortID,
+			&i.UpdatedAtUnixMs,
+		), listSessionsTargetingWorktreePage, 3); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

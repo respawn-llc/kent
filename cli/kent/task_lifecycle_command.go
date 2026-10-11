@@ -405,7 +405,10 @@ func taskStartSubcommand(args []string, stdout io.Writer, stderr io.Writer) int 
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		writeTaskStartResult(stdout, detail)
+		if err := writeTaskStartResult(stdout, detail); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
 		return 0
 	})
 }
@@ -608,7 +611,10 @@ func taskResumeSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 			fmt.Fprintf(stderr, "resumed task %s but failed to load task detail for output: %v\n", taskID, err)
 			return 1
 		}
-		writeTaskResumeResult(stdout, detail, resp.GetApplied())
+		if err := writeTaskResumeResult(stdout, detail, resp.GetApplied()); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
 		return 0
 	})
 }

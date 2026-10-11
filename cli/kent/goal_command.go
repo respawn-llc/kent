@@ -428,6 +428,9 @@ func writeGoalSetResult(stdout io.Writer, stderr io.Writer, result *runtimepb.Go
 
 func goalMutationCommandError(sessionID string, err error) error {
 	if errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+		if selector, parseErr := runtimeids.ParseSessionSelector(sessionID); parseErr == nil {
+			return goalRuntimeUnavailablePresentationError{SessionID: liveErrorSelector(selector, err)}
+		}
 		return goalRuntimeUnavailablePresentationError{SessionID: strings.TrimSpace(sessionID)}
 	}
 	return client.PresentGoalRequestError(err)

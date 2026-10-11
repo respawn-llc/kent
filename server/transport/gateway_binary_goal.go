@@ -7,6 +7,7 @@ import (
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
+	"core/shared/serverapi"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -53,6 +54,11 @@ func binaryGoalSetFailure(
 				return protoapi.GoalSetErrorFromError(errors.Join(err, lookupErr), sessionID)
 			}
 			sessionID = &id
+			identity, lookupErr := g.deps.MetadataStore().SessionIdentity(context.Background(), id)
+			if lookupErr != nil {
+				return protoapi.GoalSetErrorFromError(lookupErr, sessionID)
+			}
+			err = &serverapi.SessionTargetError{Identity: identity, Cause: err}
 		}
 	}
 	return protoapi.GoalSetErrorFromError(err, sessionID)

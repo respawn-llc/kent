@@ -41,6 +41,7 @@ type SessionLifecycleService struct {
 
 type SessionLifecycleMetadata interface {
 	session.PersistedSessionResolver
+	SessionIdentity(context.Context, runtimeids.SessionID) (runtimeids.SessionIdentity, error)
 	ResolveSessionTarget(context.Context, *sharedpb.SessionSelector) (runtimeids.SessionID, error)
 	DeleteSession(context.Context, string) error
 	launch.MetadataExecutionTargetStore

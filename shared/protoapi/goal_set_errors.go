@@ -20,10 +20,17 @@ func GoalSetErrorFromError(err error, sessionID *runtimeids.SessionID) *runtimep
 			value := sessionID.String()
 			identity = &value
 		}
+		details := &runtimepb.RuntimeUnavailableDetails{SessionId: identity}
+		var target *serverapi.SessionTargetError
+		if errors.As(err, &target) {
+			id := target.Identity.ID.String()
+			details.SessionId = &id
+			details.ShortId = SessionShortIDToProto(target.Identity.ShortID)
+		}
 		return &runtimepb.GoalSetError{
 			Code: "runtime_unavailable",
 			Detail: &runtimepb.GoalSetError_RuntimeUnavailable{
-				RuntimeUnavailable: &runtimepb.RuntimeUnavailableDetails{SessionId: identity},
+				RuntimeUnavailable: details,
 			},
 		}
 	}

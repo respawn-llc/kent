@@ -25,6 +25,7 @@ type SessionRemovalCleanupError struct {
 
 type SessionRemovalError struct {
 	SessionID runtimeids.SessionID
+	ShortID   *runtimeids.SessionShortID
 	Cause     error
 }
 
@@ -149,8 +150,12 @@ func (s *SessionLifecycleService) ArchiveSession(
 	if err != nil {
 		return nil, err
 	}
+	identity, err := s.metadata.SessionIdentity(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.Archive(ctx, id.String(), request.OutputPath); err != nil {
-		return nil, &SessionRemovalError{SessionID: id, Cause: err}
+		return nil, &SessionRemovalError{SessionID: id, ShortID: identity.ShortID, Cause: err}
 	}
 	return &sessionlaunchpb.SessionArchiveSuccess{
 		SessionId:  id.String(),
@@ -169,8 +174,12 @@ func (s *SessionLifecycleService) DeleteSession(
 	if err != nil {
 		return nil, err
 	}
+	identity, err := s.metadata.SessionIdentity(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.Delete(ctx, id.String()); err != nil {
-		return nil, &SessionRemovalError{SessionID: id, Cause: err}
+		return nil, &SessionRemovalError{SessionID: id, ShortID: identity.ShortID, Cause: err}
 	}
 	return &sessionlaunchpb.SessionDeleteSuccess{SessionId: id.String()}, nil
 }

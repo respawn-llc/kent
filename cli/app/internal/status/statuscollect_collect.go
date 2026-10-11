@@ -11,6 +11,7 @@ import (
 	"core/server/runtime"
 	"core/shared/apicontract"
 	"core/shared/config"
+	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
@@ -90,12 +91,18 @@ func (c Collector) EnrichBase(ctx context.Context, req Request, snapshot Snapsho
 			snapshot.CollectorWarning = JoinWarnings(snapshot.CollectorWarning, "current session: "+err.Error())
 		} else {
 			snapshot.AgentRole = textutil.Pointer(currentSession.AgentRole)
+			identity, err := protoapi.SessionIdentityFromProto(currentSession.SessionId, currentSession.ShortId)
+			if err != nil {
+				snapshot.CollectorWarning = JoinWarnings(snapshot.CollectorWarning, "current session: "+err.Error())
+			} else {
+				snapshot.SessionIdentity = &identity
+			}
 		}
 	}
 	var warning string
-	snapshot.PreviousSessionName, warning = c.relatedSessionName(ctx, req.SessionViews, snapshot.PreviousSessionID, "previous session")
+	snapshot.PreviousSessionName, snapshot.PreviousSessionShortID, warning = c.relatedSessionPresentation(ctx, req.SessionViews, snapshot.PreviousSessionID, "previous session")
 	snapshot.CollectorWarning = JoinWarnings(snapshot.CollectorWarning, warning)
-	snapshot.ParentAgentSessionName, warning = c.relatedSessionName(ctx, req.SessionViews, snapshot.ParentAgentSessionID, "parent agent session")
+	snapshot.ParentAgentSessionName, snapshot.ParentAgentSessionShortID, warning = c.relatedSessionPresentation(ctx, req.SessionViews, snapshot.ParentAgentSessionID, "parent agent session")
 	snapshot.CollectorWarning = JoinWarnings(snapshot.CollectorWarning, warning)
 	return snapshot
 }
@@ -107,15 +114,19 @@ func JoinWarnings(existing string, warning string) string {
 	}), " | ")
 }
 
-func (c Collector) relatedSessionName(ctx context.Context, sessionViews apicontract.SessionViewService, sessionID *runtimeids.SessionID, label string) (*string, string) {
+func (c Collector) relatedSessionPresentation(ctx context.Context, sessionViews apicontract.SessionViewService, sessionID *runtimeids.SessionID, label string) (*string, *runtimeids.SessionShortID, string) {
 	if sessionID == nil {
-		return nil, ""
+		return nil, nil, ""
 	}
 	sessionView, err := c.resolveSessionView(ctx, sessionViews, sessionID.String())
 	if err != nil {
-		return nil, label + ": " + err.Error()
+		return nil, nil, label + ": " + err.Error()
 	}
-	return sessionView.SessionName, ""
+	shortID, err := protoapi.SessionShortIDFromProto(sessionView.ShortId)
+	if err != nil {
+		return nil, nil, label + ": " + err.Error()
+	}
+	return sessionView.SessionName, shortID, ""
 }
 
 func (c Collector) resolveSessionView(ctx context.Context, sessionViews apicontract.SessionViewService, sessionID string) (*runtimepb.SessionView, error) {

@@ -133,6 +133,31 @@ func TestQuestionHistoryJSONStreamsExplicitNullsAndCompletion(t *testing.T) {
 	}
 }
 
+func TestQuestionHistoryAnswererPresentation(t *testing.T) {
+	id := uuid.NewString()
+	shortID := int64(73)
+	for _, number := range []*int64{&shortID, nil} {
+		var stdout bytes.Buffer
+		err := writeQuestionHistoryHumanItem(&stdout, &sessionpb.QuestionHistoryQuestion{
+			Question: "Proceed?", Answer: "Yes",
+			AnsweredBySessionId: &id, AnsweredBySessionShortId: number,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := id
+		if number != nil {
+			expected = "73"
+			if bytes.Contains(stdout.Bytes(), []byte(id)) {
+				t.Fatalf("numbered answerer exposed UUID: %s", &stdout)
+			}
+		}
+		if !bytes.Contains(stdout.Bytes(), []byte(expected)) {
+			t.Fatalf("missing answerer %s: %s", expected, &stdout)
+		}
+	}
+}
+
 func TestQuestionHistoryJSONLeavesPartialDocumentOnFailure(t *testing.T) {
 	sub := &questionHistoryScriptSubscription{
 		events: []*sessionpb.QuestionHistoryEvent{

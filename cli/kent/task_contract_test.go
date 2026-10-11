@@ -14,6 +14,8 @@ import (
 	"core/shared/apicontract"
 	"core/shared/config"
 	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
@@ -291,11 +293,24 @@ func TestTaskCommentListRejectsInvalidPaginationBeforeRemote(t *testing.T) {
 func TestTaskCommentAddCannotSpoofUserAuthorFromAgentSession(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, "018fdd67-89ab-4cde-8123-456789abcdef")
 
-	author := taskCommentAuthorForAdd(t.Context(), nil, "task-1", "user", true)
+	author, err := taskCommentAuthorForAdd(t.Context(), taskCommentSessionView{}, "user", true)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if author.Kind != "agent" {
 		t.Fatalf("author kind = %q, want agent", author.Kind)
 	}
+}
+
+type taskCommentSessionView struct {
+	apicontract.SessionViewService
+}
+
+func (taskCommentSessionView) GetSessionMainView(_ context.Context, req *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
+	return &sessionpb.MainViewSuccess{MainView: &runtimepb.MainView{Session: &runtimepb.SessionView{
+		SessionId: req.SessionId.GetSessionId(), ShortId: proto.Int64(73),
+	}}}, nil
 }
 
 func TestTaskSearchExecutionProjectsScopeAndTypedOutcomes(t *testing.T) {

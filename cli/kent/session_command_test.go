@@ -208,6 +208,25 @@ func TestSessionRemovalMissingNumericJSONOmitsUUID(t *testing.T) {
 	}
 }
 
+func TestSessionRemovalInUsePresentation(t *testing.T) {
+	id := "33333333-3333-4333-8333-333333333333"
+	shortID := int64(73)
+	failure := sessionDeleteFailure(id, deleteWireFailure("session_in_use",
+		&sessionlaunchpb.SessionDeleteError_SessionInUse{SessionInUse: &sessionlaunchpb.SessionInUseDetails{
+			SessionId: id, ShortId: &shortID,
+		}}))
+	var stdout, stderr bytes.Buffer
+	if code := writeSessionRemovalOutcome(&stdout, &stderr, nil, failure, false); code != 1 {
+		t.Fatalf("exit=%d", code)
+	}
+	if bytes.Contains(stderr.Bytes(), []byte(id)) || !bytes.Contains(stderr.Bytes(), []byte("73")) {
+		t.Fatalf("human target=%s", &stderr)
+	}
+	if failure.SessionID == nil || *failure.SessionID != id {
+		t.Fatalf("JSON target=%+v", failure.SessionID)
+	}
+}
+
 func runSessionCommandTest(t *testing.T, command sessionCommand, args []string) (int, []byte, string) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer

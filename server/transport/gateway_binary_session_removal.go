@@ -9,6 +9,7 @@ import (
 	"core/server/sessionruntime"
 	"core/server/sessionservice"
 	"core/shared/apicontract"
+	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/serverapi"
@@ -129,7 +130,11 @@ func sessionRemovalFailureDetails(request proto.Message, err error) proto.Messag
 		if sessionID == nil {
 			return binaryInternalFailure(err)
 		}
-		return &sessionlaunchpb.SessionInUseDetails{SessionId: *sessionID}
+		detail := &sessionlaunchpb.SessionInUseDetails{SessionId: *sessionID}
+		if resolved != nil {
+			detail.ShortId = protoapi.SessionShortIDToProto(resolved.ShortID)
+		}
+		return detail
 	}
 	var invalidPath *session.InvalidArchiveOutputPathError
 	if errors.As(err, &invalidPath) {
