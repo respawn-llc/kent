@@ -50,9 +50,18 @@ func cloneMeta(in Meta) Meta {
 		out.Goal = &goal
 	}
 	out.Locked = cloneLockedContract(in.Locked)
+	out.WorkflowSnapshot = cloneWorkflowSnapshot(in.WorkflowSnapshot)
 	out.ActiveWorkflowAssignment = cloneMessageRecord(in.ActiveWorkflowAssignment)
 	out.ActiveWorkflowAssignmentState = cloneActiveWorkflowAssignmentState(in.ActiveWorkflowAssignmentState)
 	return out
+}
+
+func cloneWorkflowSnapshot(in *WorkflowSnapshot) *WorkflowSnapshot {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	return &out
 }
 
 func cloneActiveWorkflowAssignmentState(in *ActiveWorkflowAssignmentState) *ActiveWorkflowAssignmentState {

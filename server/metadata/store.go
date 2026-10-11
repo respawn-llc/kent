@@ -80,6 +80,7 @@ type Store struct {
 }
 
 type sessionMetadataDocument struct {
+	WorkflowSnapshot                *session.WorkflowSnapshot              `json:"workflow_snapshot,omitempty"`
 	ConnectionID                    *config.ConnectionID                   `json:"connection_id"`
 	WorkspaceRoot                   string                                 `json:"workspace_root"`
 	WorkspaceContainer              string                                 `json:"workspace_container"`
@@ -2406,6 +2407,9 @@ func (s *Store) serializeSessionSnapshot(snapshot session.PersistedStoreSnapshot
 		return sqlitegen.UpsertSessionParams{}, fmt.Errorf("validate session Chat settings: %w", err)
 	}
 	snapshot.Meta.ChatSettings = chatSettings
+	if err := session.ValidateWorkflowSnapshot(snapshot.Meta.WorkflowSnapshot); err != nil {
+		return sqlitegen.UpsertSessionParams{}, err
+	}
 	if err := session.ValidateOriginalThinkingEffort(snapshot.Meta.OriginalThinkingEffort); err != nil {
 		return sqlitegen.UpsertSessionParams{}, err
 	}
@@ -2443,6 +2447,7 @@ func (s *Store) serializeSessionSnapshot(snapshot session.PersistedStoreSnapshot
 		return sqlitegen.UpsertSessionParams{}, err
 	}
 	metadataJSON, err := marshalJSON(sessionMetadataDocument{
+		WorkflowSnapshot:                snapshot.Meta.WorkflowSnapshot,
 		ConnectionID:                    snapshot.Meta.ConnectionID,
 		WorkspaceRoot:                   snapshot.Meta.WorkspaceRoot,
 		WorkspaceContainer:              snapshot.Meta.WorkspaceContainer,
@@ -2616,6 +2621,9 @@ func sessionMetaFromRecordRow(row sqlitegen.GetSessionRecordByIDRow) (session.Me
 	if err := session.ValidateOriginalThinkingEffort(metadataPayload.OriginalThinkingEffort); err != nil {
 		return session.Meta{}, err
 	}
+	if err := session.ValidateWorkflowSnapshot(metadataPayload.WorkflowSnapshot); err != nil {
+		return session.Meta{}, fmt.Errorf("validate session Workflow snapshot: %w", err)
+	}
 	if err := session.ValidateRetainedToolSelection(metadataPayload.RetainedToolSelection); err != nil {
 		return session.Meta{}, err
 	}
@@ -2673,6 +2681,7 @@ func sessionMetaFromRecordRow(row sqlitegen.GetSessionRecordByIDRow) (session.Me
 		Continuation:                    continuation,
 		ConnectionID:                    metadataPayload.ConnectionID,
 		ChatSettings:                    chatSettings,
+		WorkflowSnapshot:                metadataPayload.WorkflowSnapshot,
 		OriginalThinkingEffort:          metadataPayload.OriginalThinkingEffort,
 		RetainedToolSelection:           metadataPayload.RetainedToolSelection,
 		CreatedAt:                       timeFromStoredTimestamp(row.CreatedAtUnixMs),

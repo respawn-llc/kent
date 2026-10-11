@@ -740,8 +740,8 @@ func renderCurrentNodePrompt(text string, input workflowstore.CurrentNodeStartCo
 }
 
 func (s *Starter) resolveCurrentNodeCompletionMode(ctx context.Context, input workflowstore.CurrentNodeStartContext, plan launch.SessionPlan) (workflowruntime.CompletionMode, error) {
-	if plan.Locked != nil && plan.Locked.WorkflowCompletionMode != nil {
-		mode, err := workflowruntime.ParseCompletionMode(string(*plan.Locked.WorkflowCompletionMode))
+	if plan.WorkflowSnapshot != nil {
+		mode, err := workflowruntime.ParseCompletionMode(string(plan.WorkflowSnapshot.CompletionMode))
 		if err != nil {
 			return "", fmt.Errorf("parse retained Session completion mode: %w", err)
 		}

@@ -274,10 +274,12 @@
 - Completion modes are `structured_output`, dynamic `complete_node` tool, `shell_command`, and `unstructured_output`. Global `[workflow].completion_mode` selects `auto`, `structured_output`, `tool`, `shell_command`, or `unstructured_output`; agent nodes can override it with the same values or inherit the global default.
 - Start, join, and terminal nodes reject non-empty completion-mode overrides.
 - A completion-mode override belongs to the source Agent Node, not to a Transition Branch. Transitions define the possible branches and Parameter Requirements.
-- `auto` resolves when a Session Contract generation prepares its first model request after Session planning and tool availability are known: shell-unavailable agent execution uses `unstructured_output`; Workflows with any literal `continue_session` branch use `shell_command`; all other agent execution uses structured output when provider capabilities support it and dynamic tool mode otherwise. `compact_and_continue_session` does not trigger shell fallback. A Node-level `auto` override applies this policy even when the global config is a fixed mode.
-- The first model request snapshots the effective completion mode into the Session Contract generation.
-- Resume and `continue_session` reuse the retained Session Contract generation's effective completion mode even when the latest global setting or Agent Node override would select another mode. Full-history fan-out clones inherit the same effective completion mode.
-- `new_session` creates a new Session, and `compact_and_continue_session` creates a new Session Contract generation. Only these Context-Preservation Modes may select a different effective completion mode for the target Agent Node.
+- `auto` resolves when an Agent Node prepares its first model request without a retained Workflow Snapshot, after Session planning and tool availability are known: shell-unavailable agent execution uses `unstructured_output`; Workflows with any literal `continue_session` branch use `shell_command`; all other agent execution uses structured output when provider capabilities support it and dynamic tool mode otherwise. `compact_and_continue_session` does not trigger shell fallback. A Node-level `auto` override applies this policy even when the global config is a fixed mode.
+- Kent must retain the selected effective completion mode in the Session's Workflow Snapshot before dispatching its first model request.
+- Resume and `continue_session` must reuse the Workflow Snapshot's effective completion mode even when the latest global setting or Agent Node override would select another mode. Full-history fan-out clones must inherit the same Workflow Snapshot.
+- Manual, automatic, handoff, and Workflow Pre-Compaction must preserve the Workflow Snapshot. A later `continue_session` must retain that snapshot even when pre-compaction ran speculatively before the target Node was known.
+- `new_session` creates a new Session, and explicit `compact_and_continue_session` expires the target Session's Workflow Snapshot and creates a new Session Contract generation. Only these Context-Preservation Modes may select a different effective completion mode for the target Agent Node.
+- Explicit `compact_and_continue_session` must apply that refresh boundary even when Workflow Pre-Compaction already produced the summary; it must not create a second summary solely to refresh the Workflow Snapshot.
 - Resume resolves the latest Runtime Parameter Contract from the current Workflow definition. A live Exact Execution Scope keeps the completion contract already advertised for that scope until it stops.
 - Forced `structured_output` fails fast with an actionable error when unsupported. Forced `tool` always uses dynamic tool mode. Forced `shell_command` fails execution start when the resolved runtime shell tool is unavailable.
 - `[workflow].use_required_tool_calls` defaults to `true`. When enabled, each model response in `shell_command` and `tool` modes must call at least one available tool. This requirement does not add, remove, or reorder tools.
@@ -292,7 +294,7 @@
 - Ordinary conversation in that Session must not reactivate the completed Node, change its pending Approval, or move the Task.
 - Workflow execution requirements must govern execution of a Workflow Node, not ordinary conversation in a Session retained from completed Workflow work.
 - Send/Steer reactivation has the same completion contract and tool-choice policy as explicit Resume. It does not create a separate interactive completion mode.
-- Resume starts a fresh Exact Execution Scope while retaining the Session Contract generation's effective completion mode.
+- Resume starts a fresh Exact Execution Scope while retaining the Workflow Snapshot's effective completion mode.
 - `complete_node` is always available in tool completion mode, regardless of the Assignee's configured tools.
 - `shell_command` mode requires external structured completion rather than an ordinary assistant final answer.
 - `unstructured_output` mode requires the assistant's final answer to be exactly one raw JSON object.

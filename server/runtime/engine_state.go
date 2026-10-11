@@ -875,15 +875,16 @@ type storedLocalEntry struct {
 }
 
 type historyReplacementPayload struct {
-	Engine                            string                           `json:"engine"`
-	Mode                              string                           `json:"mode"`
-	CompactionNumber                  *int                             `json:"compaction_number,omitempty"`
-	CommittedEntryStart               *int                             `json:"committed_entry_start,omitempty"`
-	PendingHandoffFutureMessage       *string                          `json:"pending_handoff_future_message,omitempty"`
-	LastCommittedAssistantFinalAnswer *string                          `json:"last_committed_assistant_final_answer,omitempty"`
-	LatestRollbackCandidate           *rollbacktarget.CandidateLocator `json:"latest_rollback_candidate,omitempty"`
-	Items                             []llm.ResponseItem               `json:"items"`
-	Output                            *compactionOutput                `json:"-"`
+	Engine                            string                             `json:"engine"`
+	Mode                              string                             `json:"mode"`
+	CompactionNumber                  *int                               `json:"compaction_number,omitempty"`
+	CommittedEntryStart               *int                               `json:"committed_entry_start,omitempty"`
+	PendingHandoffFutureMessage       *string                            `json:"pending_handoff_future_message,omitempty"`
+	LastCommittedAssistantFinalAnswer *string                            `json:"last_committed_assistant_final_answer,omitempty"`
+	LatestRollbackCandidate           *rollbacktarget.CandidateLocator   `json:"latest_rollback_candidate,omitempty"`
+	Items                             []llm.ResponseItem                 `json:"items"`
+	CacheMetadata                     []session.CacheMetadataObservation `json:"cache_metadata,omitempty"`
+	Output                            *compactionOutput                  `json:"-"`
 }
 
 func (e *Engine) setLastUsage(usage llm.Usage) {

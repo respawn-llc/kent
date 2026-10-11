@@ -87,6 +87,7 @@ type SessionPlan struct {
 	WorktreeReminder                    *session.WorktreeReminderState
 	Continuation                        *session.ContinuationContext
 	Locked                              *session.LockedContract
+	WorkflowSnapshot                    *session.WorkflowSnapshot
 	ModelContractLocked                 bool
 	SkipContinuationAgentRoleValidation bool
 	WorkspaceRoot                       string
@@ -129,6 +130,7 @@ func sessionPlanWithMeta(plan SessionPlan, meta session.Meta, containerDir strin
 	plan.WorktreeReminder = meta.WorktreeReminder
 	plan.Continuation = meta.Continuation
 	plan.Locked = meta.Locked
+	plan.WorkflowSnapshot = meta.WorkflowSnapshot
 	plan.ModelContractLocked = meta.Locked != nil
 	return plan
 }

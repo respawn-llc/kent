@@ -34,18 +34,16 @@ func appendSessionTestRecord(
 
 func sessionTestLockedContract() LockedContract {
 	toolPreambles := true
-	workflowCompletionMode := sessioncontract.WorkflowCompletionModeTool
 	return LockedContract{
-		Model:                  "gpt-6-sol",
-		SystemPrompt:           "prompt",
-		HasSystemPrompt:        true,
-		ReviewerPrompt:         "reviewer",
-		HasReviewerPrompt:      true,
-		EnabledTools:           []string{"shell"},
-		HasEnabledTools:        true,
-		WebSearchMode:          "native",
-		ToolPreambles:          &toolPreambles,
-		WorkflowCompletionMode: &workflowCompletionMode,
+		Model:             "gpt-6-sol",
+		SystemPrompt:      "prompt",
+		HasSystemPrompt:   true,
+		ReviewerPrompt:    "reviewer",
+		HasReviewerPrompt: true,
+		EnabledTools:      []string{"shell"},
+		HasEnabledTools:   true,
+		WebSearchMode:     "native",
+		ToolPreambles:     &toolPreambles,
 	}
 }
 
@@ -257,9 +255,6 @@ func TestLockedContractPersistenceIncludesPromptAndRequestSnapshots(t *testing.T
 	if !locked.HasEnabledTools || len(locked.EnabledTools) != 0 || locked.WebSearchMode != "native" {
 		t.Fatalf("locked request shape = %+v, want explicit zero tools and native web search", locked)
 	}
-	if locked.WorkflowCompletionMode == nil || *locked.WorkflowCompletionMode != sessioncontract.WorkflowCompletionModeTool {
-		t.Fatalf("locked workflow completion mode = %v, want tool", locked.WorkflowCompletionMode)
-	}
 }
 
 func TestCompactionReplacementPersistsFreshContractBoundary(t *testing.T) {
@@ -329,7 +324,7 @@ func TestCompactedMetadataProjectionPreservesRetainedContextWithoutMutation(t *t
 		t.Fatal(err)
 	}
 	before := store.Meta()
-	projected := ProjectCompactedMeta(before)
+	projected := ProjectSnapshotBoundary(before, SnapshotBoundaryCompaction)
 	if projected.Locked != nil || projected.OriginalThinkingEffort != nil || projected.UsageState != nil {
 		t.Fatal("compaction projection retained the previous generation contract")
 	}
@@ -404,26 +399,22 @@ func TestLockedRequestShapeBackfillPersistsTogether(t *testing.T) {
 	}
 }
 
-func TestLockedWorkflowCompletionModeBackfillPersists(t *testing.T) {
+func TestWorkflowSnapshotReplacementPersists(t *testing.T) {
 	store := newSessionTestStore(t)
 	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-6-sol", SystemPrompt: "prompt", HasSystemPrompt: true}); err != nil {
 		t.Fatalf("mark model dispatch locked: %v", err)
 	}
-	result, err := store.BackfillLockedWorkflowCompletionMode(sessioncontract.WorkflowCompletionModeShellCommand)
-	if err != nil {
-		t.Fatalf("backfill workflow completion mode: %v", err)
-	}
-	if !result.Committed ||
-		result.Locked == nil ||
-		result.Locked.WorkflowCompletionMode == nil ||
-		*result.Locked.WorkflowCompletionMode != sessioncontract.WorkflowCompletionModeShellCommand {
-		t.Fatalf("workflow completion mode result = %+v", result)
+	for _, mode := range []sessioncontract.WorkflowCompletionMode{
+		sessioncontract.WorkflowCompletionModeTool, sessioncontract.WorkflowCompletionModeShellCommand,
+	} {
+		if err := store.SetWorkflowSnapshot(WorkflowSnapshot{CompletionMode: mode}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	opened := mustOpenSessionTestStore(t, store)
-	if locked := opened.Meta().Locked; locked == nil ||
-		locked.WorkflowCompletionMode == nil ||
-		*locked.WorkflowCompletionMode != sessioncontract.WorkflowCompletionModeShellCommand {
-		t.Fatalf("persisted workflow completion mode = %+v", locked)
+	if snapshot := opened.Meta().WorkflowSnapshot; snapshot == nil ||
+		snapshot.CompletionMode != sessioncontract.WorkflowCompletionModeShellCommand {
+		t.Fatalf("persisted workflow snapshot = %+v", snapshot)
 	}
 }
 

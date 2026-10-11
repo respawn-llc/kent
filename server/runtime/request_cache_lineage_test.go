@@ -9,6 +9,7 @@ import (
 	"core/server/tools"
 	"core/server/workflow"
 	"core/shared/config"
+	"core/shared/jsoncontract"
 	"core/shared/modelcontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -207,7 +208,7 @@ func TestHistoryReplacementPreservesReuseBaselineWhileSuppressingShapeWarning(t 
 	t.Parallel()
 	tracker := newRequestCacheTracker()
 	before := cacheLineageRequest("cache-key", transcript.CacheWarningScopeConversation, "before")
-	if _, err := tracker.Prepare(before); err != nil {
+	if _, err := tracker.Prepare(before, modelcontract.ProviderOperationPurposeGeneration); err != nil {
 		t.Fatalf("prepare pre-compaction request: %v", err)
 	}
 	tracker.RecordResponse(persistedCacheResponseObserved{
@@ -220,7 +221,7 @@ func TestHistoryReplacementPreservesReuseBaselineWhileSuppressingShapeWarning(t 
 	})
 	tracker.ResetAfterHistoryReplacement("cache-key")
 
-	after, err := tracker.Prepare(cacheLineageRequest("cache-key", transcript.CacheWarningScopeConversation, "after"))
+	after, err := tracker.Prepare(cacheLineageRequest("cache-key", transcript.CacheWarningScopeConversation, "after"), modelcontract.ProviderOperationPurposeGeneration)
 	if err != nil {
 		t.Fatalf("prepare post-compaction request: %v", err)
 	}
@@ -274,7 +275,7 @@ func TestGenerateWithRetryClient_PersistsExactNonPostfixCacheWarningInDefaultMod
 	}
 }
 
-func TestGenerateWithRetryClient_SuppressesExactNonPostfixWarningWhenProviderReuseIncreases(t *testing.T) {
+func TestGenerateWithRetryClient_ReportsExactNonPostfixWarningWhenProviderReuseIncreases(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{responses: []llm.Response{
 		{Usage: llm.Usage{InputTokens: textutil.Value(10), CachedInputTokens: textutil.Value(2_432), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}},
@@ -289,15 +290,13 @@ func TestGenerateWithRetryClient_SuppressesExactNonPostfixWarningWhenProviderReu
 		t.Fatalf("second generate: %v", err)
 	}
 
-	if warnings := persistedCacheWarnings(t, store); len(warnings) != 0 {
-		t.Fatalf("warning count = %d, want 0: %+v", len(warnings), warnings)
-	}
-	if got := persistedCacheWarningEventCount(t, store); got != 0 {
-		t.Fatalf("cache_warning event count = %d, want 0", got)
+	warnings := persistedCacheWarnings(t, store)
+	if len(warnings) != 1 || warnings[0].Reason != transcript.CacheWarningReasonNonPostfix || warnings[0].LostInputTokens != nil {
+		t.Fatalf("warnings = %+v, want confirmed prefix change without quantified loss", warnings)
 	}
 }
 
-func TestGenerateWithRetryClient_SuppressesExactNonPostfixWarningWithoutProviderCacheMetadata(t *testing.T) {
+func TestGenerateWithRetryClient_ReportsExactNonPostfixWarningWithoutProviderCacheMetadata(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{responses: []llm.Response{
 		{Usage: llm.Usage{InputTokens: textutil.Value(10), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}},
@@ -312,8 +311,28 @@ func TestGenerateWithRetryClient_SuppressesExactNonPostfixWarningWithoutProvider
 		t.Fatalf("second generate: %v", err)
 	}
 
-	if got := persistedCacheWarningEventCount(t, store); got != 0 {
-		t.Fatalf("cache_warning event count = %d, want 0", got)
+	warnings := persistedCacheWarnings(t, store)
+	if len(warnings) != 1 || warnings[0].Reason != transcript.CacheWarningReasonNonPostfix || warnings[0].LostInputTokens != nil {
+		t.Fatalf("warnings = %+v, want confirmed prefix change without quantified loss", warnings)
+	}
+}
+
+func TestGenerateWithRetryClient_UnknownReuseDoesNotFabricateLoss(t *testing.T) {
+	t.Parallel()
+	client := &fakeClient{responses: []llm.Response{
+		{Usage: llm.Usage{CachedInputTokens: textutil.Value(7)}},
+		{Usage: llm.Usage{}},
+	}}
+	store, eng := newCacheWarningTestEngine(t, client, config.CacheWarningModeDefault)
+	if _, err := generateTestActiveStep(context.Background(), eng, "before", client, testPromptCacheRequest("cache-key", "alpha")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := generateTestActiveStep(context.Background(), eng, "after", client, testPromptCacheRequest("cache-key", "beta")); err != nil {
+		t.Fatal(err)
+	}
+	warnings := persistedCacheWarnings(t, store)
+	if len(warnings) != 1 || warnings[0].Reason != transcript.CacheWarningReasonNonPostfix || warnings[0].LostInputTokens != nil {
+		t.Fatalf("warnings = %+v, want confirmed change with unknown token loss", warnings)
 	}
 }
 
@@ -841,6 +860,201 @@ func TestGenerateWithRetryClient_CompactionKeepsConversationCacheKeyWithoutWarni
 	warnings := persistedCacheWarnings(t, store)
 	if len(warnings) != 0 {
 		t.Fatalf("warning count = %d, want 0", len(warnings))
+	}
+}
+
+func TestGenerateWithRetryClient_CompactionPreservesMetadataChangeEvidence(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name             string
+		reopen           bool
+		reopenAtBoundary bool
+		retainPrefix     bool
+		changeSchema     bool
+		removeSchema     bool
+		cachedTokens     *int
+		mode             config.CacheWarningMode
+		wantWarning      bool
+	}{
+		{name: "schema change with increasing reuse", changeSchema: true, cachedTokens: textutil.Value(12_160), wantWarning: true},
+		{name: "schema change with unknown reuse", changeSchema: true, wantWarning: true},
+		{name: "schema removal with dropped reuse", removeSchema: true, cachedTokens: textutil.Value(0), wantWarning: true},
+		{name: "schema change after reopen", reopen: true, changeSchema: true, cachedTokens: textutil.Value(12_160), wantWarning: true},
+		{name: "retained prefix schema change after reopen", reopen: true, retainPrefix: true, changeSchema: true, cachedTokens: textutil.Value(12_160), wantWarning: true},
+		{name: "stable metadata after reopen", reopen: true, cachedTokens: textutil.Value(1)},
+		{name: "schema change immediately after boundary reopen", reopen: true, reopenAtBoundary: true, changeSchema: true, cachedTokens: textutil.Value(1), wantWarning: true},
+		{name: "retained prefix schema change immediately after boundary reopen", reopen: true, reopenAtBoundary: true, retainPrefix: true, changeSchema: true, cachedTokens: textutil.Value(12_160), wantWarning: true},
+		{name: "stable metadata immediately after boundary reopen", reopen: true, reopenAtBoundary: true, cachedTokens: textutil.Value(1)},
+		{name: "stable retained prefix", retainPrefix: true, cachedTokens: textutil.Value(1)},
+		{name: "off suppresses metadata warning", changeSchema: true, mode: config.CacheWarningModeOff, cachedTokens: textutil.Value(0)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			schema, err := jsoncontract.NewPreparer(true).Structured("cache test", struct {
+				Completed bool `json:"completed"`
+			}{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := &fakeClient{responses: []llm.Response{
+				{Usage: llm.Usage{CachedInputTokens: textutil.Value(2_432)}},
+				{Usage: llm.Usage{CachedInputTokens: tt.cachedTokens}},
+			}}
+			mode := tt.mode
+			if mode != config.CacheWarningModeOff {
+				mode = config.CacheWarningModeDefault
+			}
+			store, eng := newCacheWarningTestEngine(t, client, mode)
+			before := testPromptCacheRequest(eng.SessionID(), "alpha")
+			before.StructuredOutput = &llm.StructuredOutput{Name: "completion", Schema: schema}
+			if _, err := generateTestActiveStep(context.Background(), eng, "before", client, before); err != nil {
+				t.Fatal(err)
+			}
+			items := llm.ItemsFromMessages([]llm.Message{{
+				Role: llm.RoleAssistant, MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+				Content: textutil.Value("summary"),
+			}})
+			if tt.retainPrefix {
+				items = append(append([]llm.ResponseItem(nil), before.Items...), items...)
+			}
+			stepID := runtimeTestStepID("compact")
+			if err := runTestActiveStep(eng, stepID, func() error {
+				_, err := replaceTestPreparedHistory(eng, stepID, "local", compactionModeManual, preparedCompactionHistory{items: items})
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if warnings := persistedCacheWarnings(t, store); len(warnings) != 0 {
+				t.Fatalf("compaction itself emitted warnings: %+v", warnings)
+			}
+			if tt.reopen {
+				if !tt.reopenAtBoundary {
+					// A completed response in the active bounded projection is
+					// authoritative on reopen; discarded history is not scanned.
+					stable := before
+					stable.Items = items
+					if _, err := generateTestActiveStep(context.Background(), eng, "post-compact", client, stable); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := eng.Close(); err != nil {
+					t.Fatal(err)
+				}
+				store = mustOpenTestSession(t, store.Dir())
+				client = &fakeClient{responses: []llm.Response{{Usage: llm.Usage{CachedInputTokens: tt.cachedTokens}}}}
+				eng = mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol", CacheWarningMode: mode})
+			}
+			after := before
+			after.Items = items
+			if tt.changeSchema {
+				changed, err := jsoncontract.NewPreparer(true).Structured("changed cache test", struct {
+					Summary string `json:"summary"`
+				}{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				after.StructuredOutput = &llm.StructuredOutput{Name: "completion", Schema: changed}
+			} else if tt.removeSchema {
+				after.StructuredOutput = nil
+			}
+			if _, err := generateTestActiveStep(context.Background(), eng, "after", client, after); err != nil {
+				t.Fatal(err)
+			}
+			warnings := persistedCacheWarnings(t, store)
+			if !tt.wantWarning {
+				if len(warnings) != 0 {
+					t.Fatalf("unexpected cache warnings: %+v", warnings)
+				}
+				return
+			}
+			if len(warnings) != 1 || warnings[0].Reason != transcript.CacheWarningReasonNonPostfix || warnings[0].LostInputTokens != nil {
+				t.Fatalf("warnings = %+v, want metadata change without attributing compaction token loss", warnings)
+			}
+		})
+	}
+}
+
+func TestCompactionSummaryPreservesGenerationCacheMetadata(t *testing.T) {
+	t.Parallel()
+	for _, native := range []bool{false, true} {
+		t.Run(map[bool]string{false: "local", true: "native"}[native], func(t *testing.T) {
+			store := mustCreateTestSession(t)
+			client := &fakeCompactionClient{
+				caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsPromptCacheKey: true, SupportsResponsesCompact: true},
+				responses: []llm.Response{
+					{Usage: llm.Usage{CachedInputTokens: textutil.Value(7)}},
+					{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("summary")}},
+					{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("summary")}},
+					{},
+					{},
+				},
+				compactionResponses: []llm.CompactionResponse{{OutputItems: []llm.ResponseItem{{
+					Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint"),
+				}}}, {OutputItems: []llm.ResponseItem{{
+					Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint"),
+				}}}},
+			}
+			if native {
+				client.responses = []llm.Response{client.responses[0], {}, {}}
+			}
+			eng := mustNewWorkflowTestEngine(t, store, client,
+				testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeStructuredOutput),
+				Config{Model: "gpt-6-sol", CacheWarningMode: config.CacheWarningModeDefault})
+			before, err := eng.buildRequest(context.Background(), "before", true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if before.StructuredOutput == nil {
+				t.Fatal("workflow generation has no structured output")
+			}
+			if _, err := generateTestActiveStep(context.Background(), eng, "before", client, before); err != nil {
+				t.Fatal(err)
+			}
+			for attempt := 0; attempt < 2; attempt++ {
+				if err := runTestActiveStep(eng, "compact-summary", func() error {
+					if native {
+						req, err := eng.compactionRequest(context.Background(), before.Items, "summarize")
+						if err != nil {
+							return err
+						}
+						_, err = eng.compactWithRetry(context.Background(), runtimeTestStepID("compact-summary"), newObservedModelClient(client), req)
+						return err
+					}
+					_, err := eng.localCompactionSummary(context.Background(), before.Items, "summarize")
+					return err
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := generateTestActiveStep(context.Background(), eng, "unchanged-before-boundary", client, before); err != nil {
+				t.Fatal(err)
+			}
+			if warnings := persistedCacheWarnings(t, store); len(warnings) != 0 {
+				t.Fatalf("compaction-only metadata changes emitted warnings: %+v", warnings)
+			}
+			stepID := runtimeTestStepID("compact")
+			if err := runTestActiveStep(eng, stepID, func() error {
+				_, err := replaceTestPreparedHistory(eng, stepID, "local", compactionModeManual, preparedCompactionHistory{
+					items: llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleAssistant, Content: textutil.Value("summary")}}),
+				})
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := eng.Close(); err != nil {
+				t.Fatal(err)
+			}
+			reopened := mustOpenTestSession(t, store.Dir())
+			replayed := mustNewTestEngine(t, reopened, client, tools.NewRegistry(), Config{Model: "gpt-6-sol", CacheWarningMode: config.CacheWarningModeDefault})
+			after := before
+			after.Items = llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleAssistant, Content: textutil.Value("summary")}})
+			if _, err := generateTestActiveStep(context.Background(), replayed, "after", client, after); err != nil {
+				t.Fatal(err)
+			}
+			if warnings := persistedCacheWarnings(t, reopened); len(warnings) != 0 {
+				t.Fatalf("compaction summary replaced generation metadata evidence: %+v", warnings)
+			}
+		})
 	}
 }
 

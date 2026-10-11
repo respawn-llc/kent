@@ -416,10 +416,6 @@ func cloneLockedContract(in *LockedContract) *LockedContract {
 		toolPreambles := *in.ToolPreambles
 		copyLocked.ToolPreambles = &toolPreambles
 	}
-	if in.WorkflowCompletionMode != nil {
-		mode := *in.WorkflowCompletionMode
-		copyLocked.WorkflowCompletionMode = &mode
-	}
 	copyLocked.ProviderContract.SupportsProviderVerbosity = textutil.Pointer(in.ProviderContract.SupportsProviderVerbosity)
 	copyLocked.SystemPrompt = strings.TrimSpace(in.SystemPrompt)
 	copyLocked.ReviewerPrompt = strings.TrimSpace(in.ReviewerPrompt)
@@ -534,6 +530,7 @@ func InitializeCreationContext(child *Store, source CreationContextSource, kind 
 		return errors.New("invalid locked contract inheritance policy")
 	}
 	child.meta.WorkspaceRoot = sourceMeta.WorkspaceRoot
+	child.meta.WorkflowSnapshot = cloneWorkflowSnapshot(sourceMeta.WorkflowSnapshot)
 	child.meta.WorkspaceContainer = sourceMeta.WorkspaceContainer
 	child.meta.WorktreeReminder = CloneWorktreeReminderState(sourceMeta.WorktreeReminder)
 	child.meta.UsageState = nil

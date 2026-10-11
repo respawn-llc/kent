@@ -151,6 +151,9 @@ func (p *forkReplayCountingPersistence) childAppendCounts() []int {
 
 func TestCloneSessionStreamsLargeHistoryAcrossChunks(t *testing.T) {
 	parent := newSessionTestStore(t)
+	if err := parent.SetWorkflowSnapshot(WorkflowSnapshot{CompletionMode: sessioncontract.WorkflowCompletionModeTool}); err != nil {
+		t.Fatal(err)
+	}
 	markSessionTestLocked(t, parent, sessionTestLockedContract())
 	parentLog := materializedForkEventLog(t, parent)
 	appendForkTestRecords(t, parentLog, 6, 4)
@@ -182,10 +185,15 @@ func TestCloneSessionStreamsLargeHistoryAcrossChunks(t *testing.T) {
 	if !child.Meta().HeadlessActive {
 		t.Fatal("expected cloned child to inherit headless-active state derived from replay")
 	}
-	if locked := child.Meta().Locked; locked == nil ||
-		locked.WorkflowCompletionMode == nil ||
-		*locked.WorkflowCompletionMode != sessioncontract.WorkflowCompletionModeTool {
-		t.Fatalf("cloned workflow completion mode = %+v, want inherited tool mode", locked)
+	if snapshot := child.Meta().WorkflowSnapshot; snapshot == nil ||
+		snapshot.CompletionMode != sessioncontract.WorkflowCompletionModeTool {
+		t.Fatalf("cloned workflow snapshot = %+v, want inherited tool mode", snapshot)
+	}
+	childMeta := child.Meta()
+	childMeta.WorkflowSnapshot.CompletionMode = sessioncontract.WorkflowCompletionModeShellCommand
+	if child.Meta().WorkflowSnapshot.CompletionMode != sessioncontract.WorkflowCompletionModeTool ||
+		parent.Meta().WorkflowSnapshot.CompletionMode != sessioncontract.WorkflowCompletionModeTool {
+		t.Fatal("clone metadata aliases workflow snapshot")
 	}
 }
 

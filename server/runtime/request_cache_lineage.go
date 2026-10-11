@@ -38,6 +38,7 @@ type persistedCacheRequestObserved struct {
 	Scope         transcript.CacheWarningScope `json:"scope,omitempty"`
 	ChunkCount    int                          `json:"chunk_count"`
 	TerminalHash  string                       `json:"terminal_hash"`
+	MetadataHash  *string                      `json:"metadata_hash,omitempty"`
 }
 
 type persistedCacheResponseObserved struct {
@@ -46,6 +47,7 @@ type persistedCacheResponseObserved struct {
 	Scope             transcript.CacheWarningScope            `json:"scope,omitempty"`
 	ChunkCount        int                                     `json:"chunk_count"`
 	TerminalHash      string                                  `json:"terminal_hash"`
+	MetadataHash      *string                                 `json:"metadata_hash,omitempty"`
 	CachedInputTokens *int                                    `json:"cached_input_tokens,omitempty"`
 	OperationID       *string                                 `json:"operation_id,omitempty"`
 	SessionID         *string                                 `json:"session_id,omitempty"`
@@ -69,6 +71,7 @@ type preparedCacheRequestObservation struct {
 	previousHadReuse          bool
 	previousCachedInputTokens int
 	hasPreviousResponse       bool
+	historyReplaced           bool
 }
 
 type cacheResponseObservationMode uint8
@@ -92,7 +95,7 @@ func newRequestCacheTracker() *requestCacheTracker {
 	return &requestCacheTracker{lineage: make(map[string]requestCacheLineage)}
 }
 
-func (t *requestCacheTracker) Prepare(req llm.Request) (preparedCacheRequestObservation, error) {
+func (t *requestCacheTracker) Prepare(req llm.Request, purpose modelcontract.ProviderOperationPurpose) (preparedCacheRequestObservation, error) {
 	cacheKey := strings.TrimSpace(req.PromptCacheKey)
 	if cacheKey == "" {
 		return preparedCacheRequestObservation{}, nil
@@ -107,6 +110,7 @@ func (t *requestCacheTracker) Prepare(req llm.Request) (preparedCacheRequestObse
 		Scope:         req.PromptCacheScope,
 		ChunkCount:    shape.chunkCount,
 		TerminalHash:  shape.terminalHash,
+		MetadataHash:  textutil.Value(shape.prefixHashes[1]),
 	}
 	observation := preparedCacheRequestObservation{request: request}
 
@@ -126,7 +130,14 @@ func (t *requestCacheTracker) Prepare(req llm.Request) (preparedCacheRequestObse
 	observation.previousHadReuse = previous.lastResponseHadReuse
 	observation.previousCachedInputTokens = previous.lastCachedInputTokens
 	observation.hasPreviousResponse = previous.hasResponse
-	if !previous.suppressNextNonPostfix && !shape.HasPrefix(previous.request.ChunkCount, previous.request.TerminalHash) {
+	observation.historyReplaced = previous.suppressNextNonPostfix
+	metadataChanged := previous.request.MetadataHash != nil && *previous.request.MetadataHash != *request.MetadataHash
+	// Summary requests may temporarily omit generation-only controls. Their
+	// different metadata cannot prove a conversation-prefix mutation.
+	if purpose == modelcontract.ProviderOperationPurposeCompaction && (previous.request.MetadataHash == nil || metadataChanged) {
+		return observation, nil
+	}
+	if metadataChanged || (!previous.suppressNextNonPostfix && !shape.HasPrefix(previous.request.ChunkCount, previous.request.TerminalHash)) {
 		reason := transcript.CacheWarningReasonNonPostfix
 		if strings.TrimSpace(string(previous.pendingCause)) != "" {
 			reason = previous.pendingCause
@@ -180,10 +191,47 @@ func (t *requestCacheTracker) ResetAfterHistoryReplacement(cacheKey string) {
 		DigestVersion: requestCacheDigestVersion,
 		CacheKey:      cacheKey,
 		Scope:         state.request.Scope,
+		MetadataHash:  state.request.MetadataHash,
 	}
 	state.pendingCause = ""
 	state.suppressNextNonPostfix = true
 	t.lineage[cacheKey] = state
+}
+
+func (t *requestCacheTracker) SnapshotMetadata(cacheKeys ...string) []session.CacheMetadataObservation {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var observations []session.CacheMetadataObservation
+	for _, cacheKey := range cacheKeys {
+		state, ok := t.lineage[cacheKey]
+		if !ok || state.request.MetadataHash == nil {
+			continue
+		}
+		observations = append(observations, session.CacheMetadataObservation{
+			DigestVersion: state.request.DigestVersion,
+			CacheKey:      cacheKey,
+			Scope:         session.CacheScope(state.request.Scope),
+			MetadataHash:  *state.request.MetadataHash,
+		})
+	}
+	return observations
+}
+
+func (t *requestCacheTracker) RestoreMetadata(observations []session.CacheMetadataObservation) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, observation := range observations {
+		state := t.lineage[observation.CacheKey]
+		state.request = persistedCacheRequestObserved{
+			DigestVersion: observation.DigestVersion,
+			CacheKey:      observation.CacheKey,
+			Scope:         transcript.CacheWarningScope(observation.Scope),
+			MetadataHash:  textutil.Value(observation.MetadataHash),
+		}
+		state.pendingCause = ""
+		state.suppressNextNonPostfix = true
+		t.lineage[observation.CacheKey] = state
+	}
 }
 
 func (e *Engine) resetPromptCacheObservationBaselines() {
@@ -212,19 +260,26 @@ func (t *requestCacheTracker) RecordResponse(response persistedCacheResponseObse
 	if response.DigestVersion <= 0 {
 		response.DigestVersion = requestCacheDigestVersion
 	}
-	state := t.lineage[cacheKey]
-	state.request = persistedCacheRequestObserved{
-		DigestVersion: response.DigestVersion,
-		CacheKey:      response.CacheKey,
-		Scope:         response.Scope,
-		ChunkCount:    response.ChunkCount,
-		TerminalHash:  response.TerminalHash,
+	state, exists := t.lineage[cacheKey]
+	if response.Purpose != nil && *response.Purpose == modelcontract.ProviderOperationPurposeCompaction {
+		if !exists {
+			return
+		}
+	} else {
+		state.request = persistedCacheRequestObserved{
+			DigestVersion: response.DigestVersion,
+			CacheKey:      response.CacheKey,
+			Scope:         response.Scope,
+			ChunkCount:    response.ChunkCount,
+			TerminalHash:  response.TerminalHash,
+			MetadataHash:  textutil.Pointer(response.MetadataHash),
+		}
+		state.pendingCause = ""
+		state.suppressNextNonPostfix = false
 	}
 	state.lastResponseHadReuse = hadReuse
 	state.lastCachedInputTokens = cachedInputTokens
 	state.hasResponse = true
-	state.pendingCause = ""
-	state.suppressNextNonPostfix = false
 	t.lineage[cacheKey] = state
 }
 
@@ -272,7 +327,7 @@ func (e *Engine) prepareCacheObservedRequest(
 			return cacheObservedRequest{}, errors.New("reasoning omission warning persistence returned without a durable commit")
 		}
 	}
-	prepared, err := e.modelRequests().RequestCache().Prepare(request)
+	prepared, err := e.modelRequests().RequestCache().Prepare(request, purpose)
 	if err != nil {
 		return cacheObservedRequest{}, err
 	}
@@ -373,6 +428,7 @@ func (e *Engine) observeProviderResponseWithProvenance(
 		Scope:             prepared.request.Scope,
 		ChunkCount:        prepared.request.ChunkCount,
 		TerminalHash:      prepared.request.TerminalHash,
+		MetadataHash:      textutil.Pointer(prepared.request.MetadataHash),
 		CachedInputTokens: textutil.Pointer(usage.CachedInputTokens),
 		OperationID:       &operationID,
 		SessionID:         &sessionID,
@@ -384,16 +440,19 @@ func (e *Engine) observeProviderResponseWithProvenance(
 	hasCacheFacts := strings.TrimSpace(prepared.request.CacheKey) != ""
 	var warning *transcript.CacheWarning
 	if hasCacheFacts && prepared.exactWarning != nil && e.cfg.CacheWarningMode != config.CacheWarningModeOff {
-		lostInputTokens := lostCachedInputTokens(prepared, usage)
-		if lostInputTokens > 0 {
-			warning = prepared.exactWarning
-			warning.LostInputTokens = textutil.Value(lostInputTokens)
-			record, recordErr := sessionCacheWarningRecordFromRuntime(*warning)
-			if recordErr != nil {
-				return fmt.Errorf("adapt cache warning record: %w", recordErr)
+		warning = copyCacheWarning(prepared.exactWarning)
+		// History replacement also discards cached history, so its token delta
+		// cannot measure the loss caused by a metadata mutation.
+		if !prepared.historyReplaced {
+			if lostInputTokens := lostCachedInputTokens(prepared, usage); lostInputTokens > 0 {
+				warning.LostInputTokens = textutil.Value(lostInputTokens)
 			}
-			records = append(records, record)
 		}
+		record, recordErr := sessionCacheWarningRecordFromRuntime(*warning)
+		if recordErr != nil {
+			return fmt.Errorf("adapt cache warning record: %w", recordErr)
+		}
+		records = append(records, record)
 	} else if hasCacheFacts && shouldWarnOnCacheReuseDrop(e.cfg.CacheWarningMode, prepared, usage) {
 		lostInputTokens := lostCachedInputTokens(prepared, usage)
 		if lostInputTokens > 0 {
@@ -432,6 +491,9 @@ func shouldWarnOnCacheReuseDrop(mode config.CacheWarningMode, prepared preparedC
 }
 
 func lostCachedInputTokens(prepared preparedCacheRequestObservation, usage llm.Usage) int {
+	if !prepared.hasPreviousResponse || usage.CachedInputTokens == nil {
+		return 0
+	}
 	previous := prepared.previousCachedInputTokens
 	if previous < 0 {
 		previous = 0

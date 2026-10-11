@@ -322,7 +322,13 @@ func decodeLegacyCacheRequestV0(payload json.RawMessage) (CacheRequestObservatio
 		return CacheRequestObservationRecord{}, fmt.Errorf("decode legacy cache request: %w", err)
 	}
 	normalizeLegacyCacheFacts(&legacy.DigestVersion, &legacy.Scope)
-	return CacheRequestObservationRecord(legacy), nil
+	return CacheRequestObservationRecord{
+		DigestVersion: legacy.DigestVersion,
+		CacheKey:      legacy.CacheKey,
+		Scope:         legacy.Scope,
+		ChunkCount:    legacy.ChunkCount,
+		TerminalHash:  legacy.TerminalHash,
+	}, nil
 }
 
 func decodeLegacyCacheResponseV0(payload json.RawMessage) (CacheResponseObservationRecord, error) {

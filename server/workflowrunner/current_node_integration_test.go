@@ -2234,7 +2234,7 @@ func TestWorkflowPostCompletionCompactionReachesCACTargetWithoutSecondSummary(t 
 		f.store,
 		"Successful post-turn compaction",
 		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete the first node."},
-		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete the second node."},
+		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete the second node.", completionMode: string(config.WorkflowCompletionModeTool)},
 		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "reviewer", prompt: "Review the work."},
 	)
 	task := f.createTask(t, workflowID)
@@ -2246,6 +2246,10 @@ func TestWorkflowPostCompletionCompactionReachesCACTargetWithoutSecondSummary(t 
 	}
 	requests := f.waitForModelRequests(t, 3)
 
+	requireToolCompletionRequests(t, requests[1:2])
+	if requests[2].StructuredOutput == nil {
+		t.Fatal("explicit compact-and-continue retained the outgoing completion mode")
+	}
 	compactions := client.CompactionCalls()
 	if len(compactions) != 1 {
 		t.Fatalf("post-completion compactions = %d, want one", len(compactions))
@@ -2438,7 +2442,7 @@ func TestWorkflowPostCompletionCompactionPreservesOrdinaryContinueReplacementKey
 				Input: json.RawMessage(`{"transition":"next_2","commentary":"second done"}`),
 			},
 		),
-		ScriptedFinalAnswer(`{"commentary":"continued target done"}`),
+		ScriptedRuntimeError(ErrScriptedRuntime),
 	)
 	f := newCurrentNodeRunnerFixtureWithClient(t, client)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
@@ -2451,7 +2455,7 @@ func TestWorkflowPostCompletionCompactionPreservesOrdinaryContinueReplacementKey
 		f.store,
 		"Ordinary post-turn continuation",
 		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete the first node."},
-		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete the second node."},
+		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete the second node.", completionMode: string(config.WorkflowCompletionModeTool)},
 		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "coder", prompt: "Continue the work."},
 		currentNodeLinearTransition{
 			id:               "next_2",
@@ -2468,6 +2472,7 @@ func TestWorkflowPostCompletionCompactionPreservesOrdinaryContinueReplacementKey
 		t.Fatalf("apply ordinary continuation Approval: %v", err)
 	}
 	requests := f.waitForModelRequests(t, 3)
+	requireToolCompletionRequests(t, requests[1:])
 	if len(client.CompactionCalls()) != 1 {
 		t.Fatalf("ordinary continuation post-completions = %d, want one", len(client.CompactionCalls()))
 	}
@@ -2924,9 +2929,6 @@ func lockedContractDifferences(left, right *session.LockedContract) []string {
 	if !reflect.DeepEqual(left.ToolPreambles, right.ToolPreambles) {
 		differences = append(differences, "tool_preambles")
 	}
-	if !reflect.DeepEqual(left.WorkflowCompletionMode, right.WorkflowCompletionMode) {
-		differences = append(differences, "workflow_completion_mode")
-	}
 	if !reflect.DeepEqual(left.ModelCapabilities, right.ModelCapabilities) {
 		differences = append(differences, "model_capabilities")
 	}
@@ -3265,7 +3267,7 @@ func TestCompactAndContinueResumeRestoresAssignmentAfterPreActivationCompaction(
 		f.store,
 		"Pre-activation compaction recovery",
 		workflow.ContextModeCompactAndContinueSession,
-		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete the source."},
+		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete the source.", completionMode: string(config.WorkflowCompletionModeTool)},
 		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "reviewer", prompt: "Continue the target."},
 	)
 	definition, _, err := f.store.GetDefinition(context.Background(), workflowID)
@@ -3318,6 +3320,10 @@ func TestCompactAndContinueResumeRestoresAssignmentAfterPreActivationCompaction(
 		t.Fatalf("resume pre-activation target: %v", err)
 	}
 	requests := f.waitForModelRequests(t, 2)
+	requireToolCompletionRequests(t, requests[:1])
+	if requests[1].StructuredOutput == nil {
+		t.Fatal("resumed compact-and-continue target lost its refreshed completion mode")
+	}
 	assignments := workflowAssignments(requests[1])
 	if len(assignments) != 1 || assignments[0].sourcePath != identity {
 		t.Fatalf("pre-activation resumed assignments = %+v, want one exact target assignment", assignments)

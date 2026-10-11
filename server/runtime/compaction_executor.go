@@ -339,19 +339,15 @@ func (e *Engine) localCompactionSummaryFromWindow(ctx context.Context, stepID st
 			return "", toolCallRejectionCount, err
 		}
 
-		candidate, err := e.generateWithRetryClient(
-			ctx,
-			stepID,
-			e.llm,
-			req,
-			nil,
-			nil,
-			nil,
-		)
+		observed, err := e.prepareCacheObservedRequest(ctx, stepID, e.llm, req,
+			modelcontract.ProviderOperationPurposeCompaction, cacheResponseObservationExactStep)
 		if err != nil {
 			return "", toolCallRejectionCount, err
 		}
-		resp := candidate.response
+		resp, err := e.generateObservedWithRetry(ctx, stepID, e.llm, observed, nil, nil, nil)
+		if err != nil {
+			return "", toolCallRejectionCount, err
+		}
 		if len(resp.ToolCalls) > 0 {
 			toolCallRejectionCount++
 			if attempt >= localCompactionToolCallRetries {

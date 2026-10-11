@@ -162,7 +162,7 @@ func (c MaterializedEventLog) AppendHistoryReplacement(
 	outcome, err := c.appendRecordInputsAtomic([]EventRecordAppendInput{{
 		StepID: stepID, Payload: record,
 	}}, func(meta *Meta) (bool, error) {
-		*meta = ProjectCompactedMeta(*meta)
+		*meta = ProjectSnapshotBoundary(*meta, SnapshotBoundaryCompaction)
 		return true, nil
 	})
 	if len(outcome.records) != 1 {

@@ -123,7 +123,7 @@ func (s *Starter) PrepareCurrentNode(
 		if needsCompaction {
 			outgoing := plan
 			preparation.outgoing = &outgoing
-			meta = session.ProjectCompactedMeta(meta)
+			meta = session.ProjectSnapshotBoundary(meta, session.SnapshotBoundaryWorkflowContextReset)
 			plan, err = planner.PlanPreparedSession(ctx, launch.SessionRequest{
 				Mode: launch.ModeHeadless, Intent: serverapi.OpenExistingSessionLaunchIntent(*id),
 				SkipContinuationAgentRoleValidation: true,
@@ -276,10 +276,8 @@ func (p *plannedCurrentNodeSession) materialize(ctx context.Context, starter *St
 				return err
 			}
 		}
-		if prepared.plan.Locked != nil && prepared.plan.Locked.WorkflowCompletionMode == nil {
-			if _, err := store.BackfillLockedWorkflowCompletionMode(prepared.mode); err != nil {
-				return err
-			}
+		if err := store.SetWorkflowSnapshot(session.WorkflowSnapshot{CompletionMode: prepared.mode}); err != nil {
+			return err
 		}
 		if prepared.plan.Continuation != nil {
 			if err := store.SetContinuationContext(*prepared.plan.Continuation); err != nil {

@@ -571,8 +571,7 @@ func resourceSessionHasWorkflowContract(resource *agentResource) bool {
 	if resource == nil || resource.store == nil {
 		return false
 	}
-	locked := resource.store.Meta().Locked
-	return locked != nil && locked.WorkflowCompletionMode != nil
+	return resource.store.Meta().WorkflowSnapshot != nil
 }
 
 func runtimeBackgroundShellEvent(resource *agentResource, event shelltool.Event) runtime.BackgroundShellEvent {
