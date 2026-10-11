@@ -20,14 +20,6 @@ export type VirtualizedEndAnchoring = Readonly<{
 type ListVirtualizer = Virtualizer<HTMLDivElement, Element>;
 type ListOptions = VirtualizerOptions<HTMLDivElement, Element>;
 
-function scrollToNativeEnd(instance: ListVirtualizer, behavior: ScrollBehavior): void {
-  const element = instance.scrollElement;
-  if (element === null) return;
-  // Virtualizer smooth targets suppress measurements away from their target.
-  // Native end scrolling leaves expanded/streaming rows measurable throughout.
-  element.scrollTo({ top: element.scrollHeight - element.clientHeight, behavior });
-}
-
 export function useVirtualizedEndAnchoring(mode: VirtualizedEndAnchoring | undefined) {
   const end = useRef<boolean | null>(null);
   const resizeRequest = useRef<symbol | null>(null);
@@ -50,7 +42,7 @@ export function useVirtualizedEndAnchoring(mode: VirtualizedEndAnchoring | undef
       observeElementRect(instance, (rect) => {
         const following = canFollow();
         callback(rect);
-        if (following) scrollToNativeEnd(instance, prefersReducedMotion() ? "auto" : "smooth");
+        if (following) instance.scrollToEnd({ behavior: prefersReducedMotion() ? "auto" : "smooth" });
         publish(instance);
       }),
     [canFollow, publish],
@@ -67,13 +59,13 @@ export function useVirtualizedEndAnchoring(mode: VirtualizedEndAnchoring | undef
   const applyScrollRequest = useStableCallback((instance: ListVirtualizer) => {
     if (mode?.scrollRequest == null) return;
     resizeRequest.current = null;
-    scrollToNativeEnd(instance, prefersReducedMotion() ? "auto" : mode.scrollRequest.behavior);
+    instance.scrollToEnd({ behavior: prefersReducedMotion() ? "auto" : mode.scrollRequest.behavior });
   });
   const onChange = useStableCallback((instance: ListVirtualizer) => {
     if (mode === undefined) return;
     const resize = resizeRequest.current;
     resizeRequest.current = null;
-    if (resize !== null) scrollToNativeEnd(instance, "auto");
+    if (resize !== null) instance.scrollToEnd();
     publish(instance);
   });
   return {
@@ -87,9 +79,8 @@ export function useVirtualizedEndAnchoring(mode: VirtualizedEndAnchoring | undef
             scrollEndThreshold: mode.threshold,
             observeElementOffset: observeOffset,
             observeElementRect: observeRect,
-            // Direct positioning updates the size container before this callback.
-            // Finish any end resize here, in the same observer delivery, because
-            // the earlier scroll write can be clamped against the old DOM extent.
+            // Finish end resizing after the size-container commit so the earlier
+            // scroll write is not clamped against the previous extent.
             onChange,
             measureElement: measure,
           },
