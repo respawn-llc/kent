@@ -10,6 +10,7 @@ import "kent/api/runtime/runtime.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/session_selector.proto";
+import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/session;sessionpb";
 
@@ -124,6 +125,44 @@ message PromptHistoryResult {
   }
 }
 
+message IdentityLocationRequest {
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
+}
+
+message IdentityLocationSuccess {
+  string session_id = 1 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
+  optional int64 short_id = 2 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
+  string log_path = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+}
+
+message IdentityLocationError {
+  string code = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
+  ];
+  oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 2 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "internal_failure"
+    }];
+  }
+}
+
+message IdentityLocationResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    IdentityLocationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    IdentityLocationError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
+}
+
 service ReadService {
   rpc GetViewedImageOriginal(ViewedImageOriginalRequest) returns (ViewedImageOriginalResult) {
     option (kent.api.shared.kent_method) = {
@@ -135,6 +174,15 @@ service ReadService {
     };
   }
 
+  rpc GetIdentityLocation(IdentityLocationRequest) returns (IdentityLocationResult) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_UNARY
+      authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER
+      scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
+      direction: DIRECTION_CLIENT_TO_SERVER
+      unary_connection: UNARY_CONNECTION_MULTIPLEXED
+    };
+  }
   rpc GetPromptHistory(PromptHistoryRequest) returns (PromptHistoryResult) {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
