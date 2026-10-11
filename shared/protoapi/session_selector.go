@@ -7,6 +7,25 @@ import (
 	"core/shared/runtimeids"
 )
 
+func SessionShortIDToProto(value *runtimeids.SessionShortID) *int64 {
+	if value == nil {
+		return nil
+	}
+	number := value.Int64()
+	return &number
+}
+
+func SessionShortIDFromProto(value *int64) (*runtimeids.SessionShortID, error) {
+	if value == nil {
+		return nil, nil
+	}
+	number, err := runtimeids.NewSessionShortID(*value)
+	if err != nil {
+		return nil, err
+	}
+	return &number, nil
+}
+
 func SessionSelectorFromProto(value *sharedpb.SessionSelector) (runtimeids.SessionSelector, error) {
 	if err := Validate(value); err != nil {
 		return nil, err

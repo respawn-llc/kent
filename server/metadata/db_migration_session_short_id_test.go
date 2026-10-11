@@ -58,6 +58,10 @@ func TestSessionShortIDMigrationPreservesUnnumberedSessionOnUse(t *testing.T) {
 		updated.Meta.InputDraft != "authored draft" || updated.SessionDir != filepath.Join(root, relpath) {
 		t.Fatalf("migration/use altered retained identity/content: %+v", updated)
 	}
+	identity, err := store.SessionIdentity(t.Context(), id)
+	if err != nil || identity.ID != id || identity.ShortID != nil {
+		t.Fatalf("old Session identity projection = %v, %v", identity, err)
+	}
 	got, err := os.ReadFile(eventPath)
 	if err != nil || string(got) != string(content) {
 		t.Fatalf("historical content = %q, %v", got, err)

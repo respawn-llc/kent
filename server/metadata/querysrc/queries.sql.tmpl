@@ -26,6 +26,7 @@
 {{define "taskSessionProjectionFields"}}
 SELECT
     session.id AS session_id,
+    session.short_id,
     session.name AS session_name,
     node.display_name AS node_name,
     session.continuation_json,
@@ -2145,6 +2146,7 @@ ORDER BY
 -- name: ListSessionPage :many
 SELECT
     id,
+    short_id,
     name,
     first_prompt_preview,
     COALESCE(category, 'main') AS category,

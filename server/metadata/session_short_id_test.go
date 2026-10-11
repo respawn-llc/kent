@@ -32,6 +32,21 @@ func TestSessionShortIDsAreStableAcrossUpdatesAndProjects(t *testing.T) {
 		if sess.Identity().String() != record.ShortID.String() {
 			t.Fatalf("created Store identity = %s, want %s", sess.Identity(), record.ShortID)
 		}
+		projectID := binding.ProjectID
+		if index == 1 {
+			projectID = otherBinding.ProjectID
+		}
+		if err := sess.SetName("listed session"); err != nil {
+			t.Fatal(err)
+		}
+		page, err := store.ListSessionPage(t.Context(), projectID, sessioncontract.SessionCategoryMain, 0, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Sessions) != 1 || page.Sessions[0].SessionID != sess.Identity().ID ||
+			page.Sessions[0].ShortID == nil || *page.Sessions[0].ShortID != *record.ShortID {
+			t.Fatalf("listed identity = %+v, want %v", page.Sessions, sess.Identity())
+		}
 		for _, raw := range []string{record.ShortID.String(), "000" + record.ShortID.String(), sess.Meta().SessionID} {
 			selector, err := runtimeids.ParseSessionSelector(raw)
 			if err != nil {
@@ -79,6 +94,10 @@ func TestSessionShortIDsSurviveRestartAndAreNotReusedAfterDeletion(t *testing.T)
 	}
 	if _, err := reopened.ResolveSessionSelector(t.Context(), *record.ShortID); !errors.Is(err, session.ErrSessionNotFound) {
 		t.Fatalf("deleted selector lookup = %v", err)
+	}
+	deleted, err := reopened.SessionIdentity(t.Context(), id)
+	if err != nil || deleted.ID != id || deleted.ShortID != nil {
+		t.Fatalf("deleted reference = %v, %v", deleted, err)
 	}
 	next := createMetadataTestSession(t, reopened, cfg, binding)
 	nextRecord, err := reopened.ResolvePersistedSession(t.Context(), next.Meta().SessionID)

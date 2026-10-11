@@ -166,6 +166,10 @@ func (s *Service) LiveWait(ctx context.Context, req *runtimepb.LiveWaitRequest) 
 	if err != nil {
 		return resp, err
 	}
+	identity, err := s.metadata.SessionIdentity(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
 	result, err := waitHandle.Wait()
 	if errors.Is(err, runtime.ErrLiveRunNoFinalAnswer) {
 		return resp, serverapi.ErrRuntimeNoFinalAnswer
@@ -177,6 +181,7 @@ func (s *Service) LiveWait(ctx context.Context, req *runtimepb.LiveWaitRequest) 
 		return nil, errors.New("live run final answer content is required")
 	}
 	resp = &runtimepb.LiveWaitSuccess{
+		ShortId:   protoapi.SessionShortIDToProto(identity.ShortID),
 		SessionId: sessionID.String(), SessionName: sessionName,
 		Result: &runtimepb.LiveWaitSuccess_AssistantFinalAnswer{
 			AssistantFinalAnswer: &runtimepb.LiveWaitAssistantFinalAnswer{Result: *result.AssistantMessage.Content},
@@ -226,7 +231,7 @@ func liveWatchQuestionResult(id runtimeids.SessionID, question *serverapi.Observ
 	}}, nil
 }
 
-func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest) (*promptpb.LiveWatchSuccess, error) {
+func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest) (response *promptpb.LiveWatchSuccess, err error) {
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
@@ -237,6 +242,15 @@ func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest)
 	if s.attention == nil {
 		return nil, errors.New("attention notification service is required")
 	}
+	identity, err := s.metadata.SessionIdentity(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if response != nil {
+			response.ShortId = protoapi.SessionShortIDToProto(identity.ShortID)
+		}
+	}()
 	watchCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	sub, err := s.attention.SubscribeSessionAttentionNotifications(ctx, &attentionpb.SubscribeRequest{

@@ -241,6 +241,11 @@ func runSecondClientLiveControlsActiveRun(
 		t.Fatal("timed out waiting for LiveWait to finish")
 	}
 	waitResp := <-waitResult
+	if plan.Plan.ShortId == nil || resp.ShortId == nil || waitResp.ShortId == nil ||
+		*plan.Plan.ShortId != *resp.ShortId || *resp.ShortId != *waitResp.ShortId ||
+		waitResp.SessionId != sessionID {
+		t.Fatalf("launch/Run/wait identities disagree: %v, %v, %v", plan.Plan, resp, waitResp)
+	}
 	if waitResp.GetAssistantFinalAnswer() == nil || waitResp.GetAssistantFinalAnswer().Result != wantCurrentResult {
 		t.Fatalf("LiveWait result = %v, want %q", waitResp.Result, wantCurrentResult)
 	}

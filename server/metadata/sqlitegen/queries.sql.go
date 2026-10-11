@@ -3748,6 +3748,7 @@ const listActiveWorkflowTaskSessions = `-- name: ListActiveWorkflowTaskSessions 
 
 SELECT
     session.id AS session_id,
+    session.short_id,
     session.name AS session_name,
     node.display_name AS node_name,
     session.continuation_json,
@@ -3779,6 +3780,7 @@ type ListActiveWorkflowTaskSessionsParams struct {
 
 type ListActiveWorkflowTaskSessionsRow struct {
 	SessionID        string
+	ShortID          sql.NullInt64
 	SessionName      sql.NullString
 	NodeName         sql.NullString
 	ContinuationJson string
@@ -3797,6 +3799,7 @@ func (q *Queries) ListActiveWorkflowTaskSessions(ctx context.Context, arg ListAc
 		var i ListActiveWorkflowTaskSessionsRow
 		if err := recordQueryError(ctx, rows.Scan(
 			&i.SessionID,
+			&i.ShortID,
 			&i.SessionName,
 			&i.NodeName,
 			&i.ContinuationJson,
@@ -4283,6 +4286,7 @@ const listIdleWorkflowTaskSessions = `-- name: ListIdleWorkflowTaskSessions :man
 
 SELECT
     session.id AS session_id,
+    session.short_id,
     session.name AS session_name,
     node.display_name AS node_name,
     session.continuation_json,
@@ -4323,6 +4327,7 @@ type ListIdleWorkflowTaskSessionsParams struct {
 
 type ListIdleWorkflowTaskSessionsRow struct {
 	SessionID        string
+	ShortID          sql.NullInt64
 	SessionName      sql.NullString
 	NodeName         sql.NullString
 	ContinuationJson string
@@ -4347,6 +4352,7 @@ func (q *Queries) ListIdleWorkflowTaskSessions(ctx context.Context, arg ListIdle
 		var i ListIdleWorkflowTaskSessionsRow
 		if err := recordQueryError(ctx, rows.Scan(
 			&i.SessionID,
+			&i.ShortID,
 			&i.SessionName,
 			&i.NodeName,
 			&i.ContinuationJson,
@@ -5303,6 +5309,7 @@ func (q *Queries) ListSessionNamesByIDs(ctx context.Context, ids []string) ([]Li
 const listSessionPage = `-- name: ListSessionPage :many
 SELECT
     id,
+    short_id,
     name,
     first_prompt_preview,
     COALESCE(category, 'main') AS category,
@@ -5325,6 +5332,7 @@ type ListSessionPageParams struct {
 
 type ListSessionPageRow struct {
 	ID                 string
+	ShortID            sql.NullInt64
 	Name               sql.NullString
 	FirstPromptPreview string
 	Category           string
@@ -5349,6 +5357,7 @@ func (q *Queries) ListSessionPage(ctx context.Context, arg ListSessionPageParams
 		var i ListSessionPageRow
 		if err := recordQueryError(ctx, rows.Scan(
 			&i.ID,
+			&i.ShortID,
 			&i.Name,
 			&i.FirstPromptPreview,
 			&i.Category,
