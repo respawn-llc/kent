@@ -13,6 +13,7 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/sessionenv"
 )
@@ -105,7 +106,7 @@ func sessionAgentAuthorID(ctx context.Context, remote apicontract.WorkflowServic
 	if getter, ok := remote.(apicontract.SessionViewService); ok {
 		rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
 		defer cancel()
-		resp, err := getter.GetSessionMainView(rpcCtx, &sessionpb.MainViewRequest{SessionId: trimmedSessionID})
+		resp, err := getter.GetSessionMainView(rpcCtx, &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: trimmedSessionID}}})
 		if err == nil {
 			if sessionName := strings.TrimSpace(resp.MainView.Session.GetSessionName()); sessionName != "" {
 				return fmt.Sprintf("Session %s agent", sessionName)

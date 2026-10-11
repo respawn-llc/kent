@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
-	"core/shared/runtimeids"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -15,10 +14,10 @@ func registerChatContextGatewayBinaryBindings(bindings map[string]gatewayBinaryB
 		gatewayBinaryCoreActiveOrdinary,
 		func() *contextpb.GetRequest { return &contextpb.GetRequest{} },
 		func(request *contextpb.GetRequest) (routeScopeParams, error) {
-			return routeScopeParams{sessionID: request.Target.GetSession().SessionId}, nil
+			return routeScopeParams{sessionSelector: request.Target.GetSession().SessionId}, nil
 		},
 		func(g *Gateway, ctx context.Context, _ *connectionState, request *contextpb.GetRequest) (*contextpb.GetSuccess, error) {
-			id, err := runtimeids.ParseSessionID(request.Target.GetSession().SessionId)
+			id, err := g.deps.MetadataStore().ResolveSessionTarget(ctx, request.Target.GetSession().SessionId)
 			if err != nil {
 				return nil, err
 			}

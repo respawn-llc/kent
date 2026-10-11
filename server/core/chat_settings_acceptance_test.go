@@ -19,6 +19,7 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -132,7 +133,7 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 	}
 	chatSettings := appCore.ChatSettingsClient()
 	before, err := chatSettings.ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}}},
 	})
 	if err != nil {
 		t.Fatalf("ReadChatSettings before mutation: %v", err)
@@ -187,7 +188,7 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 	mutationDone := make(chan mutationResult, 1)
 	go func() {
 		response, mutationErr := chatSettings.MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
-			Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()},
+			Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}},
 			Operation: &chatsettingspb.MutationOperation{
 				Operation: &chatsettingspb.MutationOperation_QuestionsEnabled{QuestionsEnabled: requestedQuestions},
 			},
@@ -233,7 +234,7 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 func currentCoreRuntimeQuestions(t *testing.T, appCore *Core, sessionID runtimeids.SessionID) bool {
 	t.Helper()
 	response, err := appCore.SessionViewClient().GetSessionMainView(t.Context(), &sessionpb.MainViewRequest{
-		SessionId: sessionID.String(),
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}},
 	})
 	if err != nil {
 		t.Fatalf("GetSessionMainView: %v", err)

@@ -1,6 +1,7 @@
 package app
 
 import (
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 
 	"context"
@@ -289,7 +290,7 @@ func loadSelectedSessionExecutionTarget(ctx context.Context, sessionViews sessio
 	if sessionViews == nil {
 		return nil, errors.New("session view client is required")
 	}
-	resp, err := sessionViews.GetSessionMainView(ctx, &sessionpb.MainViewRequest{SessionId: strings.TrimSpace(sessionID)})
+	resp, err := sessionViews.GetSessionMainView(ctx, &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: strings.TrimSpace(sessionID)}}})
 	if err != nil {
 		return nil, err
 	}

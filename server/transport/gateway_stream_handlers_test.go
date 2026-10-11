@@ -118,7 +118,7 @@ func TestSessionTranscriptSubscriptionPublishesLiveRunFinishedWithoutRewritingSe
 	}
 	method := transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("StreamService").Methods().ByName("Subscribe")
 	serveGeneratedStream(t, fixture.gateway, conn, &connectionState{attachedProject: fixture.bindingA.ProjectID, attachedSession: &sessionID},
-		method, &transcriptpb.SubscribeRequest{SessionId: fixture.ownSessionID},
+		method, &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: fixture.ownSessionID}}},
 	)
 
 	associated, err := protoapi.ResolveSubscriptionOperations(method)

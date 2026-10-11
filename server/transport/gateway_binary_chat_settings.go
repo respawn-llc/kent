@@ -2,7 +2,9 @@ package transport
 
 import (
 	"context"
+	"errors"
 
+	"core/server/session"
 	"core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/chat_settings"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -26,7 +28,11 @@ func registerChatSettingsGatewayBinaryBindings(bindings map[string]gatewayBinary
 					sharedpb.ScopePolicy_SCOPE_POLICY_PROJECT_WORKSPACE_BINDING, readOperation.Name,
 					routeScopeParams{projectID: target.ProjectId, workspaceID: target.WorkspaceId})
 			} else {
-				err = g.requireSessionInActiveProject(ctx, state, request.GetSession().SessionId)
+				id, resolveErr := g.deps.MetadataStore().ResolveSessionTarget(ctx, request.GetSession().SessionId)
+				if resolveErr != nil {
+					return nil, resolveErr
+				}
+				err = g.requireSessionInActiveProject(ctx, state, id.String())
 			}
 			if err != nil {
 				return nil, err
@@ -41,7 +47,11 @@ func registerChatSettingsGatewayBinaryBindings(bindings map[string]gatewayBinary
 		bindings, service, "Mutate", gatewayBinaryCoreActiveOrdinary,
 		func() *pb.MutationRequest { return &pb.MutationRequest{} }, nil,
 		func(g *Gateway, ctx context.Context, state *connectionState, request *pb.MutationRequest) (*pb.MutationSuccess, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, request.Session.SessionId); err != nil {
+			id, err := g.deps.MetadataStore().ResolveSessionTarget(ctx, request.Session.SessionId)
+			if err != nil {
+				return nil, err
+			}
+			if err := g.requireSessionInActiveProject(ctx, state, id.String()); err != nil {
 				return nil, err
 			}
 			return g.deps.ChatSettingsClient().MutateChatSettings(ctx, request)
@@ -53,10 +63,18 @@ func registerChatSettingsGatewayBinaryBindings(bindings map[string]gatewayBinary
 func binaryChatSettingsFailure[Request interface {
 	proto.Message
 	GetSession() *pb.SessionTarget
-}](_ *Gateway, _ *connectionState, request Request, err error) proto.Message {
+}](g *Gateway, _ *connectionState, request Request, err error) proto.Message {
 	var sessionID *string
 	if request.GetSession() != nil {
-		sessionID = &request.GetSession().SessionId
+		id, lookupErr := g.deps.MetadataStore().ResolveSessionTarget(context.Background(), request.GetSession().SessionId)
+		if lookupErr != nil {
+			if errors.Is(lookupErr, session.ErrSessionNotFound) {
+				return binaryChatDomainFailure(nil, err)
+			}
+			return binaryInternalFailure(errors.Join(err, lookupErr))
+		}
+		value := id.String()
+		sessionID = &value
 	}
 	return binaryChatDomainFailure(sessionID, err)
 }

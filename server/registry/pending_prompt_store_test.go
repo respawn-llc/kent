@@ -76,7 +76,7 @@ func TestPendingPromptsRetainOriginalBatchReadinessAcrossExternalAnswers(t *test
 }
 
 func TestQuestionBatchReadinessUpdatesExistingPendingPromptSubscriptions(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	registry := NewRuntimeRegistry(nil)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })

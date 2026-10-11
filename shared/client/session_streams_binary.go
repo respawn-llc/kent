@@ -59,7 +59,11 @@ func subscribeSessionBinary[
 }
 
 func (c *Remote) SubscribeSessionTranscript(ctx context.Context, request *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
-	handoff, installHandoff, err := c.prepareDraftHandoff(ctx, request.GetSessionId())
+	target, err := protoapi.SessionSelectorFromProto(request.GetSessionId())
+	if err != nil {
+		return nil, err
+	}
+	handoff, installHandoff, err := c.prepareDraftHandoff(ctx, target.String())
 	if err != nil {
 		return nil, err
 	}

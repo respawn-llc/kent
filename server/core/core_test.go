@@ -22,6 +22,7 @@ import (
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -486,7 +487,7 @@ func TestChatSettingsReadUsesAuthoritativePersistenceRoot(t *testing.T) {
 		t.Fatalf("SetContinuationContext: %v", err)
 	}
 	response, err := appCore.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: store.Meta().SessionID}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}}},
 	})
 	if err != nil {
 		t.Fatalf("ReadChatSettings: %v", err)
@@ -537,7 +538,7 @@ func TestChatSettingsMaterializedReadUsesDetachedSessionSnapshotWithoutRebinding
 	response, err := appCore.ChatSettingsClient().ReadChatSettings(
 		t.Context(),
 		&chatsettingspb.ReadRequest{
-			Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()}},
+			Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}}},
 		},
 	)
 	if err != nil {
@@ -593,7 +594,7 @@ func TestSessionChatSettingsPreparationUsesPersistedConnection(t *testing.T) {
 	}
 
 	response, err := appCore.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: store.Meta().SessionID}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}}},
 	})
 	if err != nil {
 		t.Fatalf("ReadChatSettings: %v", err)
@@ -602,7 +603,7 @@ func TestSessionChatSettingsPreparationUsesPersistedConnection(t *testing.T) {
 		t.Fatalf("Fast = %+v, want unavailable for compatible endpoint", response.GetSession().Settings.Fast)
 	}
 	mutated, err := appCore.ChatSettingsClient().MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
-		Session: &chatsettingspb.SessionTarget{SessionId: store.Meta().SessionID},
+		Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}},
 		Operation: &chatsettingspb.MutationOperation{
 			Operation: &chatsettingspb.MutationOperation_FastEnabled{FastEnabled: true},
 		},
@@ -615,7 +616,7 @@ func TestSessionChatSettingsPreparationUsesPersistedConnection(t *testing.T) {
 		t.Fatalf("Fast mutation = %+v, want unavailable rejection", mutated)
 	}
 	switched, err := appCore.ChatSettingsClient().MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
-		Session: &chatsettingspb.SessionTarget{SessionId: store.Meta().SessionID},
+		Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}},
 		Operation: &chatsettingspb.MutationOperation{
 			Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: "worker"},
 		},
@@ -663,7 +664,7 @@ func TestChatSettingsReadUsesLockedPromptFacingModelCapabilities(t *testing.T) {
 	}
 
 	response, err := appCore.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: store.Meta().SessionID}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}}},
 	})
 	if err != nil {
 		t.Fatalf("ReadChatSettings: %v", err)

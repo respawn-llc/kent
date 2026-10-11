@@ -12,6 +12,7 @@ import "kent/api/runtime/runtime.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
+import "kent/api/shared/session_selector.proto";
 import "kent/api/transcript/tool_presentation.proto";
 import "kent/api/worktree/worktree.proto";
 
@@ -1258,14 +1259,7 @@ message Message {
 }
 
 message PageRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.transcript.page_request_session_id_nonblank"
-      message: "session ID must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
   oneof direction {
     int64 cursor = 2 [(buf.validate.field).int64 = {
       gte: 1
@@ -1329,14 +1323,7 @@ message PageSuccess {
   Page transcript = 1 [(buf.validate.field).required = true];
 }
 message LatestFinalAnswerRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.transcript.latest_final_answer_session_id_nonblank"
-      message: "session ID must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
 }
 message LatestFinalAnswerSuccess {
   optional string answer = 1 [
@@ -1349,14 +1336,7 @@ message LatestFinalAnswerSuccess {
   ];
 }
 message SubscribeRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.transcript.subscribe_session_id_nonblank"
-      message: "session ID must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
 }
 message AppendCommittedEntryRequest {
   string session_id = 1 [

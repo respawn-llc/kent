@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
 
@@ -73,7 +74,7 @@ func (m *uiModel) startFinalAnswerOperation(purpose uiFinalAnswerOperationPurpos
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), finalAnswerLookupTimeout)
 		defer cancel()
-		resp, err := reads.GetLatestCommittedAssistantFinalAnswer(ctx, &transcriptpb.LatestFinalAnswerRequest{SessionId: op.sessionID})
+		resp, err := reads.GetLatestCommittedAssistantFinalAnswer(ctx, &transcriptpb.LatestFinalAnswerRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: op.sessionID}}})
 		if err != nil {
 			return latestFinalAnswerDoneMsg{token: op.token, purpose: op.purpose, sessionID: op.sessionID, parentSessionID: op.parentSessionID, err: err}
 		}

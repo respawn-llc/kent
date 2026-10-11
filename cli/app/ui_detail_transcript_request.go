@@ -68,7 +68,7 @@ func (m *uiModel) loadDetailTranscriptPageWithOptionsCmd(
 		)
 	}
 	request := cloneTranscriptPageRequest(req)
-	request.SessionId = sessionID.String()
+	request.SessionId = protoapi.SessionSelectorToProto(sessionID)
 	requestID := uuid.New()
 	parentCtx, cancel := context.WithCancel(context.Background())
 	m.pendingDetailTranscript = &uiPendingDetailTranscriptRequest{

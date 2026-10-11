@@ -619,7 +619,7 @@ func TestRemoteGetsLatestCommittedAssistantFinalAnswer(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	resp, err := remote.GetLatestCommittedAssistantFinalAnswer(context.Background(), &transcriptpb.LatestFinalAnswerRequest{SessionId: "session-1"})
+	resp, err := remote.GetLatestCommittedAssistantFinalAnswer(context.Background(), &transcriptpb.LatestFinalAnswerRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "session-1"}}})
 	if err != nil {
 		t.Fatalf("GetLatestCommittedAssistantFinalAnswer: %v", err)
 	}
@@ -636,7 +636,7 @@ func TestRemoteSessionTranscriptSubscriptionUsesSeparateRouteAndDecodesMessages(
 		}
 		params := &transcriptpb.SubscribeRequest{}
 		call := receiveRemoteGeneratedCall(t, ws, "StreamService", "Subscribe", params)
-		if params.SessionId != "11111111-1111-4111-8111-111111111111" {
+		if params.SessionId.GetSessionId() != "11111111-1111-4111-8111-111111111111" {
 			t.Fatalf("transcript subscribe params = %+v, want session-1", params)
 		}
 		sendRemoteGeneratedResult(t, ws, call, &transcriptpb.SubscribeResult{Outcome: &transcriptpb.SubscribeResult_Success{Success: &emptypb.Empty{}}})
@@ -652,7 +652,7 @@ func TestRemoteSessionTranscriptSubscriptionUsesSeparateRouteAndDecodesMessages(
 	}
 	defer func() { _ = remote.Close() }()
 
-	sub, err := remote.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{SessionId: "11111111-1111-4111-8111-111111111111"})
+	sub, err := remote.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "11111111-1111-4111-8111-111111111111"}}})
 	if err != nil {
 		t.Fatalf("SubscribeSessionTranscript: %v", err)
 	}
@@ -676,7 +676,7 @@ func TestRemoteQuestionHistorySubscriptionAttachesAndDecodesTerminalStream(t *te
 		}
 		params := &sessionpb.QuestionHistorySubscribeRequest{}
 		call := receiveRemoteGeneratedCall(t, ws, "QuestionHistoryService", "Subscribe", params)
-		if params.SessionId != "11111111-1111-4111-8111-111111111111" || params.MaxHandoffs != 3 {
+		if params.SessionId.GetSessionId() != "11111111-1111-4111-8111-111111111111" || params.MaxHandoffs != 3 {
 			t.Fatalf("Question-history subscribe params = %+v", params)
 		}
 		sendRemoteGeneratedResult(t, ws, call, &sessionpb.QuestionHistorySubscribeResult{Outcome: &sessionpb.QuestionHistorySubscribeResult_Success{Success: &emptypb.Empty{}}})
@@ -696,7 +696,7 @@ func TestRemoteQuestionHistorySubscriptionAttachesAndDecodesTerminalStream(t *te
 	}
 	defer func() { _ = remote.Close() }()
 	sub, err := remote.SubscribeQuestionHistory(context.Background(), &sessionpb.QuestionHistorySubscribeRequest{
-		SessionId: "11111111-1111-4111-8111-111111111111", MaxHandoffs: 3,
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "11111111-1111-4111-8111-111111111111"}}, MaxHandoffs: 3,
 	})
 	if err != nil {
 		t.Fatalf("SubscribeQuestionHistory: %v", err)
@@ -745,7 +745,7 @@ func TestRemoteSessionTranscriptSubscriptionPreservesTypedCloseReason(t *testing
 	}
 	defer func() { _ = remote.Close() }()
 
-	sub, err := remote.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{SessionId: "11111111-1111-4111-8111-111111111111"})
+	sub, err := remote.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "11111111-1111-4111-8111-111111111111"}}})
 	if err != nil {
 		t.Fatalf("SubscribeSessionTranscript: %v", err)
 	}

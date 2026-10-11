@@ -5,13 +5,14 @@ import (
 
 	"core/shared/protoapi"
 	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 )
 
 func TestChatContextRequestAcceptsExactlyOneTarget(t *testing.T) {
 	sessionID := runtimeids.NewSessionID()
 	request := &contextpb.GetRequest{Target: &contextpb.Target{Target: &contextpb.Target_Session{
-		Session: &contextpb.SessionTarget{SessionId: sessionID.String()},
+		Session: &contextpb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}},
 	}}}
 	if err := protoapi.Validate(request); err != nil {
 		t.Fatalf("validate request: %v", err)
@@ -26,7 +27,7 @@ func TestChatContextRequestRejectsMalformedTargets(t *testing.T) {
 		{name: "missing target", request: &contextpb.GetRequest{}},
 		{name: "missing arm", request: &contextpb.GetRequest{Target: &contextpb.Target{}}},
 		{name: "noncanonical Session id", request: &contextpb.GetRequest{Target: &contextpb.Target{Target: &contextpb.Target_Session{
-			Session: &contextpb.SessionTarget{SessionId: "session-1"},
+			Session: &contextpb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "session-1"}}},
 		}}}},
 	}
 	for _, test := range tests {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"core/server/attentionnotify"
+	"core/server/metadata"
 	"core/server/runtime"
 	"core/server/runtimeactivity"
 	"core/server/runtimeview"
@@ -31,6 +32,7 @@ import (
 )
 
 type RuntimeRegistry struct {
+	metadata                   *metadata.Store
 	authorityMu                sync.Mutex
 	authorityBySession         sync.Map
 	authorityChanged           chan struct{}
@@ -67,8 +69,9 @@ const (
 	authorityRuntimeEntryRetired
 )
 
-func NewRuntimeRegistry() *RuntimeRegistry {
+func NewRuntimeRegistry(store *metadata.Store) *RuntimeRegistry {
 	return &RuntimeRegistry{
+		metadata:                 store,
 		authorityChanged:         make(chan struct{}),
 		blockingActivitySessions: make(map[string]bool),
 		pendingPrompts:           &pendingPromptStore{},
@@ -692,7 +695,11 @@ func (r *RuntimeRegistry) SubscribeSessionTranscript(ctx context.Context, req *t
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	id := strings.TrimSpace(req.SessionId)
+	sessionID, err := r.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	id := sessionID.String()
 	for {
 		authorityEntry, authorityChanged := r.authorityEntryAndChange(id)
 		if authorityEntry != nil {

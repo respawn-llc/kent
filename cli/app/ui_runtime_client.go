@@ -11,6 +11,7 @@ import (
 	"core/shared/clientui"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/serverapi"
 
@@ -231,7 +232,7 @@ func (c *sessionRuntimeClient) fetchMainViewSync(timeout time.Duration) (*runtim
 	ctx, cancel := c.readContext(timeout)
 	defer cancel()
 	resp, err := retryRuntimeUnavailableCall(ctx, c.recoverRuntimeConnectionPreservingContext, false, func() (*sessionpb.MainViewSuccess, error) {
-		return c.reads.GetSessionMainView(ctx, &sessionpb.MainViewRequest{SessionId: c.sessionID})
+		return c.reads.GetSessionMainView(ctx, &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: c.sessionID}}})
 	})
 	c.notifyConnectionState(err)
 	if err != nil {

@@ -56,7 +56,7 @@ func (c *Remote) ArchiveSession(
 	if err != nil {
 		return nil, err
 	}
-	if !sessionRemovalResponseMatches(request.SessionId, response.SessionId) || response.OutputPath != request.OutputPath {
+	if !sessionSelectorMatchesResponse(request.SessionId, response.SessionId) || response.OutputPath != request.OutputPath {
 		return nil, invalidResponseError(
 			"Session archive",
 			errors.New("response does not match the requested Session and output path"),
@@ -80,7 +80,7 @@ func (c *Remote) DeleteSession(
 	if err != nil {
 		return nil, err
 	}
-	if !sessionRemovalResponseMatches(request.SessionId, response.SessionId) {
+	if !sessionSelectorMatchesResponse(request.SessionId, response.SessionId) {
 		return nil, invalidResponseError(
 			"Session deletion",
 			errors.New("response does not match the requested Session"),
@@ -89,7 +89,7 @@ func (c *Remote) DeleteSession(
 	return response, nil
 }
 
-func sessionRemovalResponseMatches(target *sharedpb.SessionSelector, sessionID string) bool {
+func sessionSelectorMatchesResponse(target *sharedpb.SessionSelector, sessionID string) bool {
 	if uuid, ok := target.Value.(*sharedpb.SessionSelector_SessionId); ok {
 		return uuid.SessionId == sessionID
 	}

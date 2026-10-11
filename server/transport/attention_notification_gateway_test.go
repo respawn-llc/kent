@@ -172,7 +172,7 @@ func newGatewayAttentionTestServer(t *testing.T) (*core.Core, *registry.RuntimeR
 	t.Helper()
 	appCore, _ := newGatewayTestCore(t, true, true)
 	broker := attentionnotify.NewBroker()
-	prompts := registry.NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	prompts := registry.NewRuntimeRegistry(nil).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	gateway, err := NewGateway(
 		&gatewayAttentionDependencies{Core: appCore, attention: prompts},
 		gatewayTestIdentity(),

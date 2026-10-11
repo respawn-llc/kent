@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"core/cli/app/internal/runtimeattach"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/serverapi"
 )
@@ -189,7 +190,7 @@ func waitForTranscriptRehydrationRequest(ctx context.Context, requests <-chan st
 }
 
 func subscribeSessionTranscript(ctx context.Context, sessionID string, subscribe sessionTranscriptSubscriber) (serverapi.TranscriptSubscription, error) {
-	return subscribe(ctx, &transcriptpb.SubscribeRequest{SessionId: sessionID})
+	return subscribe(ctx, &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}}})
 }
 
 func waitForTranscriptSubscriptionRetry(ctx context.Context) bool {

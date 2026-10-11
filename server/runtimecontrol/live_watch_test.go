@@ -137,7 +137,7 @@ func (c *liveWatchReleasableFinalClient) ProviderCapabilities(context.Context) (
 func TestLiveWatchReturnsInitialPendingQuestionWhenNoRunIsActive(t *testing.T) {
 	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{})
 	sessionID := store.Meta().SessionID
-	attention := registry.NewRuntimeRegistry().WithAttentionNotifications(attentionnotify.NewBroker(), testharness.SessionNavigationBinding)
+	attention := registry.NewRuntimeRegistry(nil).WithAttentionNotifications(attentionnotify.NewBroker(), testharness.SessionNavigationBinding)
 	service.WithLiveWatchPromptSources(
 		liveWatchPromptSourceStub{items: []registry.PendingPromptSnapshot{{
 			Request:   tools.AskQuestionRequest{ToolCallID: "ask-1", StepID: mustRuntimeControlStepID(t).String(), Question: "Continue?"},
@@ -161,7 +161,7 @@ func TestLiveWatchSurfacesAttentionStreamFailureWhileRunIsBlocked(t *testing.T) 
 	client := newLiveWatchBlockingClient()
 	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
 	broker := attentionnotify.NewBroker()
-	attention := registry.NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	attention := registry.NewRuntimeRegistry(nil).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	observed := &liveWatchObservedAttention{
 		AttentionNotificationService: attention,
 		subscribed:                   make(chan struct{}),
@@ -209,7 +209,7 @@ func TestLiveWatchPromptWakeWinsWhileRunIsBlocked(t *testing.T) {
 
 	askView := &liveWatchMutablePromptSource{}
 	broker := attentionnotify.NewBroker()
-	attention := registry.NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	attention := registry.NewRuntimeRegistry(nil).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	observed := &liveWatchObservedAttention{
 		AttentionNotificationService: attention,
 		subscribed:                   make(chan struct{}),
@@ -293,7 +293,7 @@ func TestLiveWatchCancellationWhileRunIsBlocked(t *testing.T) {
 	<-client.started
 
 	broker := attentionnotify.NewBroker()
-	attention := registry.NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	attention := registry.NewRuntimeRegistry(nil).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	observed := &liveWatchObservedAttention{
 		AttentionNotificationService: attention,
 		subscribed:                   make(chan struct{}),
@@ -331,7 +331,7 @@ func TestLiveWatchTerminalCompletionWinsWhileRunIsBlocked(t *testing.T) {
 	<-client.started
 
 	broker := attentionnotify.NewBroker()
-	attention := registry.NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	attention := registry.NewRuntimeRegistry(nil).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	observed := &liveWatchObservedAttention{
 		AttentionNotificationService: attention,
 		subscribed:                   make(chan struct{}),
@@ -371,7 +371,7 @@ func TestLiveWatchReturnsInterruptedOutcomeWhenRunStops(t *testing.T) {
 	<-client.started
 
 	broker := attentionnotify.NewBroker()
-	attention := registry.NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	attention := registry.NewRuntimeRegistry(nil).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	observed := &liveWatchObservedAttention{
 		AttentionNotificationService: attention,
 		subscribed:                   make(chan struct{}),
@@ -422,7 +422,7 @@ func TestLiveWatchSurfacesCanceledAttentionStreamWhileRunIsBlocked(t *testing.T)
 	<-client.started
 
 	broker := attentionnotify.NewBroker()
-	attention := registry.NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	attention := registry.NewRuntimeRegistry(nil).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	observed := &liveWatchObservedAttention{
 		AttentionNotificationService: attention,
 		subscribed:                   make(chan struct{}),

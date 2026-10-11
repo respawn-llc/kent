@@ -254,7 +254,7 @@ func TestGatewayReturnsCompleteDormantMainViewWithActiveGoal(t *testing.T) {
 	defer func() { _ = remote.Close() }()
 
 	contextResponse, err := remote.GetChatContext(t.Context(), &contextpb.GetRequest{
-		Target: &contextpb.Target{Target: &contextpb.Target_Session{Session: &contextpb.SessionTarget{SessionId: sessionID.String()}}},
+		Target: &contextpb.Target{Target: &contextpb.Target_Session{Session: &contextpb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}}}},
 	})
 	if err != nil {
 		t.Fatalf("GetChatContext: %v", err)
@@ -266,13 +266,13 @@ func TestGatewayReturnsCompleteDormantMainViewWithActiveGoal(t *testing.T) {
 	generated := &sessionpb.MainViewResult{}
 	callGatewayDescriptor(t, conn, "main-view",
 		sessionpb.File_kent_api_session_session_proto.Services().ByName("ReadService").Methods().ByName("GetMainView"),
-		&sessionpb.MainViewRequest{SessionId: sessionID.String()}, generated)
+		&sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}}, generated)
 	if generated.GetSuccess().GetMainView().GetActivity().GetReviewer() != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE ||
 		generated.GetSuccess().GetMainView().GetStatus().GetGoal().GetGoal().GetObjective() != "ship the dormant projection" {
 		t.Fatalf("generated dormant Main View lost current facts: %v", generated)
 	}
 	response, err := remote.GetSessionMainView(t.Context(), &sessionpb.MainViewRequest{
-		SessionId: sessionID.String(),
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}},
 	})
 	if err != nil {
 		t.Fatalf("GetSessionMainView: %v", err)

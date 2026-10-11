@@ -22,7 +22,7 @@ import (
 
 func TestRuntimeRegistryDeliversGenericPromptAttentionToDesktopRootStream(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	registry := NewRuntimeRegistry(nil).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
@@ -66,7 +66,7 @@ func TestRuntimeRegistryDeliversGenericPromptAttentionToDesktopRootStream(t *tes
 
 func TestRuntimeRegistryPublishesGenericApprovalToSessionAttention(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	registry := NewRuntimeRegistry(nil).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
@@ -110,7 +110,7 @@ func TestRuntimeRegistryPublishesGenericApprovalToSessionAttention(t *testing.T)
 
 func TestRuntimeRegistryPublishesTaskQuestionBatchWithoutGenericResolve(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	registry := NewRuntimeRegistry(nil).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
@@ -148,7 +148,7 @@ func TestRuntimeRegistryPublishesTaskQuestionBatchWithoutGenericResolve(t *testi
 
 func TestRuntimeRegistryPublishesTaskApprovalPromptAsDurablyClearedQuestionAttention(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	registry := NewRuntimeRegistry(nil).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
@@ -215,7 +215,7 @@ func (p *recordingWorkflowEventPublisher) PublishWorkflowEvent(_ context.Context
 
 func TestRuntimeRegistrySkippedFirstTaskQuestionPreparesBatchBeforeMaterialization(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	registry := NewRuntimeRegistry(nil).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
@@ -249,7 +249,7 @@ func TestRuntimeRegistrySkippedFirstTaskQuestionPreparesBatchBeforeMaterializati
 
 func TestRuntimeRegistrySessionAttentionDoesNotReplayPendingPrompts(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	registry := NewRuntimeRegistry(nil).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
@@ -269,7 +269,7 @@ func TestRuntimeRegistrySessionAttentionDoesNotReplayPendingPrompts(t *testing.T
 
 func TestRuntimeRegistrySessionAttentionOnlyReceivesNewTaskQuestionBatchEvents(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	registry := NewRuntimeRegistry(nil).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })

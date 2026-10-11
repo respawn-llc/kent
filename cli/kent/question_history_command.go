@@ -55,7 +55,7 @@ func (c questionCommand) listSubcommand(args []string, stdout io.Writer, stderr 
 		fmt.Fprintln(stderr, "Session ID is required")
 		return 2
 	}
-	sessionID, err := runtimeids.ParseSessionID(rawSessionID)
+	sessionID, err := runtimeids.ParseSessionSelector(rawSessionID)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -69,7 +69,7 @@ func (c questionCommand) listSubcommand(args []string, stdout io.Writer, stderr 
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
 		sub, err := historyRemote.SubscribeQuestionHistory(ctx, &sessionpb.QuestionHistorySubscribeRequest{
-			SessionId: sessionID.String(), MaxHandoffs: handoffs,
+			SessionId: protoapi.SessionSelectorToProto(sessionID), MaxHandoffs: handoffs,
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, err)

@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"os"
@@ -264,15 +263,8 @@ func (c *Remote) prepareDraftHandoff(ctx context.Context, sessionID string) (*re
 	c.mu.Lock()
 	attachmentIntent := c.attachIntent
 	c.mu.Unlock()
-	attachedSessionID, attachedToSession := attachmentIntent.sessionID()
+	_, attachedToSession := attachmentIntent.sessionID()
 	if attachedToSession {
-		if attachedSessionID != sessionID {
-			return nil, false, fmt.Errorf(
-				"remote is attached to session %q, cannot prepare draft handoff for session %q",
-				attachedSessionID,
-				sessionID,
-			)
-		}
 		return nil, false, nil
 	}
 	if _, attachedToProject := attachmentIntent.projectRequest(); !attachedToProject {
@@ -320,7 +312,7 @@ func (c *Remote) prepareDraftHandoff(ctx context.Context, sessionID string) (*re
 	}
 	handoffRemote.expectedRootID.Store(c.rootID())
 	return &remoteSessionControl{
-		sessionID:      sessionID,
+		sessionID:      state.attachment.session.sessionID,
 		remote:         handoffRemote,
 		initialControl: handoffControl,
 	}, true, nil

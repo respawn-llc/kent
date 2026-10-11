@@ -14,6 +14,7 @@ import (
 	"core/server/session"
 	"core/shared/config"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/textutil"
 )
 
@@ -74,7 +75,7 @@ connection = "missing"
 						t.Fatal(err)
 					}
 				}
-				target := &chatsettingspb.SessionTarget{SessionId: store.Meta().SessionID}
+				target := &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}}
 				read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
 					Target: &chatsettingspb.ReadRequest_Session{Session: target},
 				})
@@ -110,7 +111,7 @@ connection = "missing"
 				if err != nil || mutated.GetResult().GetApplied() == nil {
 					t.Fatalf("bound non-Agent mutation: %+v, %v", mutated, err)
 				}
-				before, err := app.MetadataStore().ResolvePersistedSession(t.Context(), target.SessionId)
+				before, err := app.MetadataStore().ResolvePersistedSession(t.Context(), target.SessionId.GetSessionId())
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -131,7 +132,7 @@ connection = "missing"
 						if !errors.As(err, &reference) || reference.Connection == nil || *reference.Connection != "missing" {
 							t.Fatalf("unavailable selection error = %v", err)
 						}
-						after, err := app.MetadataStore().ResolvePersistedSession(t.Context(), target.SessionId)
+						after, err := app.MetadataStore().ResolvePersistedSession(t.Context(), target.SessionId.GetSessionId())
 						if err != nil {
 							t.Fatal(err)
 						}
@@ -222,7 +223,7 @@ model = %q
 		t.Fatal(err)
 	}
 	writeConfig("gpt-6-sol")
-	target := &chatsettingspb.SessionTarget{SessionId: before.SessionID}
+	target := &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: before.SessionID}}}
 	read := func() *chatsettingspb.Settings {
 		t.Helper()
 		response, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{

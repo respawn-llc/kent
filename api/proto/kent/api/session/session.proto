@@ -9,18 +9,12 @@ import "kent/api/auth/auth.proto";
 import "kent/api/runtime/runtime.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
+import "kent/api/shared/session_selector.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/session;sessionpb";
 
 message MainViewRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.session.main_view_session_id_nonblank"
-      message: "session ID must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
 }
 
 message MainViewSuccess {
@@ -53,7 +47,7 @@ message MainViewResult {
 }
 
 message PromptHistoryRequest {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
 }
 
 message ViewedImageOriginalRequest {
@@ -163,14 +157,7 @@ service ReadService {
 }
 
 message QuestionHistorySubscribeRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.session.question_history_session_id_nonblank"
-      message: "session ID must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
   int32 max_handoffs = 2 [(buf.validate.field).int32.gt = 0];
 }
 

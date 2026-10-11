@@ -138,7 +138,7 @@ func TestStatusRefreshUsesCurrentSessionAgentRoleWhenRuntimeCacheIsCold(t *testi
 	role := "qa_tester"
 	sessionViews := stubSessionViewClient{
 		getSessionMainView: func(_ context.Context, request *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
-			if request.SessionId != "session-1" {
+			if request.SessionId.GetSessionId() != "session-1" {
 				t.Fatalf("current session view request = %+v, want session-1", request)
 			}
 			return &sessionpb.MainViewSuccess{
@@ -171,7 +171,7 @@ func TestStatusRefreshCmdSchedulesBaseEnrichmentForProgressiveCollector(t *testi
 	previousSessionID := runtimeids.NewSessionID()
 	sessionViews := stubSessionViewClient{
 		getSessionMainView: func(_ context.Context, request *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
-			if request.SessionId != previousSessionID.String() {
+			if request.SessionId.GetSessionId() != previousSessionID.String() {
 				t.Fatalf("previous session view request = %+v, want %s", request, previousSessionID)
 			}
 			return &sessionpb.MainViewSuccess{

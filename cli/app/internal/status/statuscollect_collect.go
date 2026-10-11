@@ -14,6 +14,7 @@ import (
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 )
@@ -131,7 +132,7 @@ func (c Collector) resolveSessionView(ctx context.Context, sessionViews apicontr
 	}
 	readCtx, cancel := context.WithTimeout(ctx, readTimeout)
 	defer cancel()
-	resp, err := sessionViews.GetSessionMainView(readCtx, &sessionpb.MainViewRequest{SessionId: id})
+	resp, err := sessionViews.GetSessionMainView(readCtx, &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id}}})
 	if err != nil {
 		return &runtimepb.SessionView{}, err
 	}

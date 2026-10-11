@@ -217,7 +217,7 @@ type recordingTranscriptSubscriber struct {
 }
 
 func (s *recordingTranscriptSubscriber) SubscribeSessionTranscript(_ context.Context, req *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
-	s.sessionIDs = append(s.sessionIDs, req.SessionId)
+	s.sessionIDs = append(s.sessionIDs, req.SessionId.GetSessionId())
 	if len(s.subs) == 0 {
 		return nil, context.Canceled
 	}

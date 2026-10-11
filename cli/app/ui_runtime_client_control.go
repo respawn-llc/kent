@@ -32,7 +32,7 @@ func (c *sessionRuntimeClient) ReadChatSettings() (*chatsettingspb.Settings, err
 	ctx, cancel := context.WithTimeout(context.Background(), uiChatSettingsTimeout)
 	defer cancel()
 	response, err := c.chatSettings.ReadChatSettings(ctx, &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}}},
 	})
 	if err != nil {
 		return nil, err
@@ -48,7 +48,7 @@ func (c *sessionRuntimeClient) MutateChatSettings(operation *chatsettingspb.Muta
 	ctx, cancel := context.WithTimeout(context.Background(), uiChatSettingsTimeout)
 	defer cancel()
 	response, err := c.chatSettings.MutateChatSettings(ctx, &chatsettingspb.MutationRequest{
-		Session:   &chatsettingspb.SessionTarget{SessionId: sessionID.String()},
+		Session:   &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}},
 		Operation: operation,
 	})
 	if err != nil {

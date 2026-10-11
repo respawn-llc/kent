@@ -177,7 +177,7 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 	}
 	defer func() { _ = remote.Close() }()
 	transcript, err := remote.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{
-		SessionId: movedSession.Meta().SessionID,
+		SessionId: protoapi.SessionSelectorToProto(*movedSession.Identity().ShortID),
 	})
 	if err != nil {
 		t.Fatalf("SubscribeSessionTranscript: %v", err)
@@ -193,7 +193,7 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 
 	modelClient.setRun(func() error {
 		activeView, err := remote.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{
-			SessionId: movedSession.Meta().SessionID,
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: movedSession.Meta().SessionID}},
 		})
 		if err != nil {
 			return err
@@ -219,7 +219,7 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 			return errors.New("active-step Session rebind completed synchronously")
 		}
 		acknowledgedView, err := remote.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{
-			SessionId: movedSession.Meta().SessionID,
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: movedSession.Meta().SessionID}},
 		})
 		if err != nil {
 			return err
@@ -302,7 +302,7 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 	}
 	waitForGatewayCondition(t, "retained Runtime to finish its originating execution", func() bool {
 		view, viewErr := destination.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{
-			SessionId: movedSession.Meta().SessionID,
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: movedSession.Meta().SessionID}},
 		})
 		return viewErr == nil && view.MainView.Activity.State == runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE
 	})
