@@ -25,8 +25,7 @@ apps-lock: _docs-dependencies
 
 # Resolve intentional docs manifest changes without upgrading locked dependencies.
 docs-lock:
-    just _node
-    pnpm --dir docs install --no-frozen-lockfile
+    bun install --cwd docs
 
 [private]
 _effect-compiler:

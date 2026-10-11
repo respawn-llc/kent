@@ -115,7 +115,9 @@ update_apps_deps() {
 	fi
 	require_cmd bun
 	echo "==> Updating desktop Bun dependencies"
-	run_cmd bun update --cwd "$repo_root/apps" --recursive --latest
+	# Keep version-specific patches on their declared package versions until they
+	# are recreated intentionally for a newer release.
+	run_cmd bun update --cwd "$repo_root/apps" --recursive --latest '!streamdown'
 	# The lint parser supports TypeScript 6 only. Desktop build/typecheck scripts
 	# invoke the stable TypeScript 7 alias explicitly.
 	run_cmd bun add --cwd "$repo_root/apps" --filter @app/desktop --filter @app/native-bridge --dev "typescript@^6.0.3"
@@ -131,7 +133,7 @@ update_docs_deps() {
 	fi
 	require_cmd bun
 	echo "==> Updating docs Bun dependencies"
-	run_cmd bun update --cwd "$repo_root/docs" --latest
+	run_cmd bun update --cwd "$repo_root/docs" --latest '!starlight-llms-txt'
 	updated_any="true"
 }
 
