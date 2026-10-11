@@ -30,6 +30,7 @@ import (
 	"core/shared/worktreecontract"
 
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 
 	"github.com/google/uuid"
@@ -1929,6 +1930,18 @@ func (s *Service) CreateWorktree(ctx context.Context, req *worktreepb.CreateRequ
 	}
 	defer release()
 	workspaceCtx := management.binding
+	var selectedSession *sharedpb.SessionIdentity
+	if management.caller != nil {
+		id, err := runtimeids.ParseSessionID(management.caller.sessionID)
+		if err != nil {
+			return nil, err
+		}
+		identity, err := s.metadata.SessionIdentity(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		selectedSession = &sharedpb.SessionIdentity{SessionId: id.String(), ShortId: protoapi.SessionShortIDToProto(identity.ShortID)}
+	}
 	cleanup := failedCreateCleanup{
 		workspaceID:   workspaceCtx.WorkspaceID,
 		workspaceRoot: workspaceCtx.CanonicalRoot,
@@ -2058,7 +2071,7 @@ func (s *Service) CreateWorktree(ctx context.Context, req *worktreepb.CreateRequ
 	if management.caller != nil {
 		target = management.caller.target
 	}
-	return &worktreepb.CreateSuccess{Target: target, Worktree: createdEntry}, nil
+	return &worktreepb.CreateSuccess{Target: target, Worktree: createdEntry, Session: selectedSession}, nil
 }
 
 func (s *Service) addManagedWorktree(
