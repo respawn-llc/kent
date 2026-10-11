@@ -37,7 +37,7 @@ func TestLoadSelectedSessionExecutionTargetUsesMainViewAuthority(t *testing.T) {
 		target.WorkspaceAvailability != projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE {
 		t.Fatalf("execution target = %+v", target)
 	}
-	if reader.request.SessionId != "selected-session" {
+	if reader.request.SessionId.GetSessionId() != "selected-session" {
 		t.Fatalf("requested session = %q, want %q", reader.request.SessionId, "selected-session")
 	}
 }

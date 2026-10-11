@@ -10,6 +10,7 @@ import (
 	"core/server/session"
 	"core/server/session/sessiontest"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -39,9 +40,9 @@ func TestQuestionHistorySubscriptionProjectsNewestAnsweredQuestions(t *testing.T
 		&session.QuestionAnswerRecord{Freeform: sessionViewStringPointer("freeform")},
 	))
 
-	sub, err := NewService(newTestSessionResolver(store), nil, nil).
+	sub, err := NewService(newTestSessionResolver(store), nil, nil, nil).
 		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
-			SessionId: store.Meta().SessionID, MaxHandoffs: 2,
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}, MaxHandoffs: 2,
 		})
 	if err != nil {
 		t.Fatalf("subscribe Question history: %v", err)
@@ -108,9 +109,9 @@ func TestQuestionHistorySubscriptionProjectsAgentAndUnattributedAnswers(t *testi
 		&session.QuestionAnswerRecord{Freeform: sessionViewStringPointer("older answer")},
 	))
 
-	sub, err := NewService(newTestSessionResolver(store), nil, nil).
+	sub, err := NewService(newTestSessionResolver(store), nil, nil, nil).
 		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
-			SessionId: store.Meta().SessionID, MaxHandoffs: 1,
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}, MaxHandoffs: 1,
 		})
 	if err != nil {
 		t.Fatalf("subscribe Question history: %v", err)
@@ -171,9 +172,9 @@ func TestQuestionHistoryV1ProjectsPersistedAnswererAfterReload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen Session: %v", err)
 	}
-	sub, err := NewService(newTestSessionResolver(reopened), nil, nil).
+	sub, err := NewService(newTestSessionResolver(reopened), nil, nil, nil).
 		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
-			SessionId: reopened.Meta().SessionID, MaxHandoffs: 1,
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: reopened.Meta().SessionID}}, MaxHandoffs: 1,
 		})
 	if err != nil {
 		t.Fatalf("subscribe reloaded v1 Question history: %v", err)
@@ -198,9 +199,9 @@ func TestQuestionHistorySubscriptionOmissionEmptyAndCancellation(t *testing.T) {
 	if _, err := store.MaterializeEventLog(); err != nil {
 		t.Fatalf("materialize event log: %v", err)
 	}
-	sub, err := NewService(newTestSessionResolver(store), nil, nil).
+	sub, err := NewService(newTestSessionResolver(store), nil, nil, nil).
 		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
-			SessionId: store.Meta().SessionID, MaxHandoffs: 1,
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}, MaxHandoffs: 1,
 		})
 	if err != nil {
 		t.Fatalf("subscribe empty history: %v", err)
@@ -214,9 +215,9 @@ func TestQuestionHistorySubscriptionOmissionEmptyAndCancellation(t *testing.T) {
 		t.Fatalf("close empty subscription: %v", err)
 	}
 
-	sub, err = NewService(newTestSessionResolver(store), nil, nil).
+	sub, err = NewService(newTestSessionResolver(store), nil, nil, nil).
 		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
-			SessionId: store.Meta().SessionID, MaxHandoffs: 1,
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}, MaxHandoffs: 1,
 		})
 	if err != nil {
 		t.Fatalf("subscribe for cancellation: %v", err)
@@ -241,9 +242,9 @@ func TestQuestionHistorySubscriptionUsesOnlyPersistedResolver(t *testing.T) {
 		SessionDir: store.Dir(),
 		Meta:       sessionViewMetaPointer(store.Meta()),
 	}}
-	sub, err := NewService(resolver, nil, nil).
+	sub, err := NewService(resolver, nil, nil, nil).
 		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
-			SessionId: store.Meta().SessionID, MaxHandoffs: 1,
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}, MaxHandoffs: 1,
 		})
 	if err != nil {
 		t.Fatalf("subscribe with persisted-only resolver: %v", err)
@@ -299,9 +300,9 @@ func TestQuestionHistorySubscriptionChecksCancellationWhileSkippingRecords(t *te
 			Freeform: sessionViewStringPointer("ignored"),
 		},
 	})
-	sub, err := NewService(newTestSessionResolver(store), nil, nil).
+	sub, err := NewService(newTestSessionResolver(store), nil, nil, nil).
 		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
-			SessionId: store.Meta().SessionID, MaxHandoffs: 1,
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}, MaxHandoffs: 1,
 		})
 	if err != nil {
 		t.Fatalf("subscribe Question history: %v", err)
@@ -354,9 +355,9 @@ func TestQuestionHistorySubscriptionPullsThroughLargeSingleWindow(t *testing.T) 
 		t.Fatalf("append large single-window fixture: receipt=%+v error=%v", receipt, err)
 	}
 
-	sub, err := NewService(newTestSessionResolver(store), nil, nil).
+	sub, err := NewService(newTestSessionResolver(store), nil, nil, nil).
 		SubscribeQuestionHistory(t.Context(), &sessionpb.QuestionHistorySubscribeRequest{
-			SessionId: store.Meta().SessionID, MaxHandoffs: 1,
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}, MaxHandoffs: 1,
 		})
 	if err != nil {
 		t.Fatalf("subscribe Question history: %v", err)

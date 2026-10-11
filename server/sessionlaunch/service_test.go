@@ -755,7 +755,7 @@ func TestPlanLaunchSessionUsesResolvedCallerWorkflowOrigin(t *testing.T) {
 		PersistenceRoot: persistenceRoot, StoreOptions: meta.AuthoritativeSessionStoreOptions(),
 	})
 	t.Cleanup(func() { _ = authority.Close(context.Background()) })
-	settingsOwner := ChatSettingsOwner{Authority: authority, Registry: registry.NewRuntimeRegistry()}
+	settingsOwner := ChatSettingsOwner{Authority: authority, Registry: registry.NewRuntimeRegistry(nil)}
 	for _, callerID := range []string{workflowCallerID, ordinaryCallerID} {
 		for _, override := range []*string{nil, textutil.Value("worker")} {
 			if err := removed.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("worker")}); err != nil {

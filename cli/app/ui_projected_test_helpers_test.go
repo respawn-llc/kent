@@ -262,7 +262,7 @@ func newProjectedAuthorityRuntime(
 	if err != nil {
 		t.Fatalf("new projected runtime plan: %v", err)
 	}
-	activity := registry.NewRuntimeRegistry()
+	activity := registry.NewRuntimeRegistry(nil)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
 		PersistenceRoot:   root,
 		StoreOptions:      persistence.Options(),
@@ -283,7 +283,7 @@ func newProjectedAuthorityRuntime(
 			t.Errorf("close projected runtime: %v", err)
 		}
 	})
-	reads := sessionview.NewService(persistence, activity, nil)
+	reads := sessionview.NewService(persistence, activity, nil, nil)
 	controls := runtimecontrol.NewService(authority, nil).WithRuntimeActivityResolver(activity)
 	runtimeClient := newUIRuntimeClientWithReads(sessionID.String(), reads, controls, nil, nil).(*sessionRuntimeClient)
 	snapshot, err := activity.RuntimeReadModelFeedSnapshot(context.Background(), sessionID.String())
@@ -313,7 +313,7 @@ func newProjectedAuthorityRuntime(
 }
 
 func newUnavailableRuntimeControlService() *runtimecontrol.Service {
-	activity := registry.NewRuntimeRegistry()
+	activity := registry.NewRuntimeRegistry(nil)
 	return runtimecontrol.NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), nil).
 		WithRuntimeActivityResolver(activity)
 }

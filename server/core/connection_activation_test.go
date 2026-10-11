@@ -13,6 +13,7 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -50,7 +51,7 @@ func TestConnectionReplacementIsHydratedAfterCoreActivation(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	subscription, err := app.SessionTranscriptClient().SubscribeSessionTranscript(ctx, &transcriptpb.SubscribeRequest{SessionId: store.Meta().SessionID})
+	subscription, err := app.SessionTranscriptClient().SubscribeSessionTranscript(ctx, &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}})
 	if err != nil {
 		t.Fatal(err)
 	}

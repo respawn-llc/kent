@@ -11,6 +11,7 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -156,7 +157,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	}
 
 	childView, err := sourceServer.SessionViewClient().GetSessionMainView(
-		context.Background(), &sessionpb.MainViewRequest{SessionId: child.Meta().SessionID})
+		context.Background(), &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: child.Meta().SessionID}}})
 	if err != nil {
 		t.Fatalf("load child main view: %v", err)
 	}
@@ -311,7 +312,7 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 			}
 
 			childView, err := server.SessionViewClient().GetSessionMainView(
-				context.Background(), &sessionpb.MainViewRequest{SessionId: child.Meta().SessionID})
+				context.Background(), &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: child.Meta().SessionID}}})
 			if err != nil {
 				t.Fatalf("load child main view: %v", err)
 			}

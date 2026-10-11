@@ -58,7 +58,7 @@ func TestGatewayChatContextDispatchesOnlySessionOwner(t *testing.T) {
 	method := contextpb.File_kent_api_chat_context_chat_context_proto.Services().ByName("ChatContextService").Methods().ByName("Get")
 	binding := registration.binary[gatewayOperationName(t, method)]
 	payload, err := protoapi.Encode(&contextpb.GetRequest{Target: &contextpb.Target{Target: &contextpb.Target_Session{
-		Session: &contextpb.SessionTarget{SessionId: sessionID.String()},
+		Session: &contextpb.SessionTarget{SessionId: protoapi.SessionSelectorToProto(*store.Identity().ShortID)},
 	}}})
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestGatewayChatContextValidatesTargetBeforeSessionDispatch(t *testing.T) {
 	}
 	sessionResponse := &contextpb.GetResult{}
 	callGatewayDescriptor(t, conn, "session-context", method, &contextpb.GetRequest{Target: &contextpb.Target{Target: &contextpb.Target_Session{
-		Session: &contextpb.SessionTarget{SessionId: sessionID.String()},
+		Session: &contextpb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}},
 	}}}, sessionResponse)
 	if sessionResponse.GetSuccess() == nil {
 		t.Fatalf("pre-auth Session Context response: %v", sessionResponse)

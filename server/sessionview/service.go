@@ -9,6 +9,7 @@ import (
 	"core/server/chatcontext"
 	"core/server/launch"
 	"core/server/llm"
+	"core/server/metadata"
 	"core/server/runtime"
 	"core/server/session"
 	servicecontract "core/shared/apicontract"
@@ -54,6 +55,7 @@ type dormantChatProjection struct {
 }
 
 type Service struct {
+	metadata          *metadata.Store
 	promptHistory     promptHistoryReader
 	persisted         PersistedSessionResolver
 	mainViews         runtimeMainViewSnapshotProvider
@@ -72,13 +74,17 @@ func (s *Service) GetPromptHistory(ctx context.Context, req *sessionpb.PromptHis
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	if _, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, req.SessionId); err != nil {
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, id.String()); err != nil {
 		return nil, err
 	}
 	if s.promptHistory == nil {
 		return nil, errors.New("prompt history reader is required")
 	}
-	prompts, err := s.promptHistory.ReadPromptHistory(ctx, req.SessionId)
+	prompts, err := s.promptHistory.ReadPromptHistory(ctx, id.String())
 	if err != nil {
 		return nil, err
 	}
@@ -89,8 +95,10 @@ func NewService(
 	sessions PersistedSessionResolver,
 	mainViews runtimeMainViewSnapshotProvider,
 	targets ExecutionTargetResolver,
+	store *metadata.Store,
 ) *Service {
 	svc := &Service{
+		metadata:         store,
 		persisted:        sessions,
 		mainViews:        mainViews,
 		targets:          targets,
@@ -112,7 +120,11 @@ func (s *Service) SubscribeQuestionHistory(
 	if s == nil || s.persisted == nil {
 		return nil, session.ErrPersistedSessionResolverRequired
 	}
-	record, err := s.persisted.ResolvePersistedSession(ctx, req.SessionId)
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	record, err := s.persisted.ResolvePersistedSession(ctx, id.String())
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +255,11 @@ func (s *Service) GetSessionMainView(ctx context.Context, req *sessionpb.MainVie
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	view, err := s.resolveMainView(ctx, req.SessionId)
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	view, err := s.resolveMainView(ctx, id.String())
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +281,11 @@ func (s *Service) GetSessionTranscriptPage(ctx context.Context, req *transcriptp
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	view, err := session.ResolvePersistedSessionView(ctx, s.persisted, req.SessionId)
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	view, err := session.ResolvePersistedSessionView(ctx, s.persisted, id.String())
 	if err != nil {
 		return nil, err
 	}
@@ -303,7 +323,11 @@ func (s *Service) GetLatestCommittedAssistantFinalAnswer(ctx context.Context, re
 	if s == nil {
 		return nil, session.ErrPersistedSessionResolverRequired
 	}
-	view, err := session.ResolvePersistedSessionView(ctx, s.persisted, req.SessionId)
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	view, err := session.ResolvePersistedSessionView(ctx, s.persisted, id.String())
 	if err != nil {
 		return nil, err
 	}

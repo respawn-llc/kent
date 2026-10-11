@@ -65,7 +65,7 @@ func (s chatSettingsService) ReadChatSettings(
 		}
 		return s.core.sessionLaunchServiceForProjectContext(projectCtx).NewChatSettings(ctx)
 	case *chatsettingspb.ReadRequest_Session:
-		sessionID, err := runtimeids.ParseSessionID(target.Session.SessionId)
+		sessionID, err := s.core.MetadataStore().ResolveSessionTarget(ctx, target.Session.SessionId)
 		if err != nil {
 			return nil, err
 		}
@@ -85,7 +85,7 @@ func (s chatSettingsService) MutateChatSettings(
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	sessionID, err := runtimeids.ParseSessionID(req.Session.SessionId)
+	sessionID, err := s.core.MetadataStore().ResolveSessionTarget(ctx, req.Session.SessionId)
 	if err != nil {
 		return nil, err
 	}

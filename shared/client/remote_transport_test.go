@@ -565,7 +565,7 @@ func TestRemoteSessionAttachmentSurvivesUnaryControlReconnect(t *testing.T) {
 				reportHandlerError(handlerErrs, "decode Session main-view request: %v", err)
 				return
 			}
-			if request.SessionId != "11111111-1111-4111-8111-111111111111" {
+			if request.SessionId.GetSessionId() != "11111111-1111-4111-8111-111111111111" {
 				reportHandlerError(handlerErrs, "main-view Session = %q, want session-1", request.SessionId)
 				return
 			}
@@ -592,7 +592,7 @@ func TestRemoteSessionAttachmentSurvivesUnaryControlReconnect(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	request := &sessionpb.MainViewRequest{SessionId: "11111111-1111-4111-8111-111111111111"}
+	request := &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "11111111-1111-4111-8111-111111111111"}}}
 	if _, err := remote.GetSessionMainView(context.Background(), request); err != nil {
 		t.Fatalf("first GetSessionMainView: %v", err)
 	}

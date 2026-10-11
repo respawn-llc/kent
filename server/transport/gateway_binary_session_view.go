@@ -6,6 +6,7 @@ import (
 
 	"core/shared/apicontract"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 
 	"google.golang.org/protobuf/proto"
@@ -37,7 +38,7 @@ func registerSessionViewGatewayBinaryBindings(bindings map[string]gatewayBinaryB
 func registerSessionViewUnary[
 	Request interface {
 		proto.Message
-		GetSessionId() string
+		GetSessionId() *sharedpb.SessionSelector
 	},
 	Success proto.Message,
 ](
@@ -50,7 +51,7 @@ func registerSessionViewUnary[
 	return registerGatewayBinaryUnary(
 		bindings, service, method, gatewayBinaryCoreActiveOrdinary, newRequest,
 		func(request Request) (routeScopeParams, error) {
-			return routeScopeParams{sessionID: request.GetSessionId()}, nil
+			return routeScopeParams{sessionSelector: request.GetSessionId()}, nil
 		},
 		func(g *Gateway, ctx context.Context, _ *connectionState, request Request) (Success, error) {
 			client := g.deps.SessionViewClient()

@@ -47,7 +47,7 @@ export function createChatSettingsApi(
         target,
         method,
         create(method.input, {
-          session: { sessionId: sessionID },
+          session: { sessionId: { value: { case: "sessionId", value: sessionID } } },
           operation: { operation: mutationOperation(operation) },
         }),
       );
@@ -73,7 +73,7 @@ export function createChatSettingsApi(
           ? await transport.callDescriptorAttachedSession(
               target,
               method,
-              create(method.input, { target: { case: "session", value: { sessionId: target.sessionID } } }),
+              create(method.input, { target: { case: "session", value: { sessionId: { value: { case: "sessionId", value: target.sessionID } } } } }),
             )
           : await transport
               .callDescriptorAttachedProject({

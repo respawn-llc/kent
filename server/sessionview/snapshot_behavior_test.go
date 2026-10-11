@@ -11,6 +11,7 @@ import (
 	"core/server/sessionruntime"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/rollbacktarget"
 
@@ -46,7 +47,7 @@ func TestServiceDormantTranscriptPagesPreserveRollbackLocatorAcrossCandidateFree
 			LatestRollbackCandidate: &locator,
 		})
 	}
-	dormant := NewService(newTestSessionResolver(store), nil, nil)
+	dormant := NewService(newTestSessionResolver(store), nil, nil, nil)
 
 	dormantNewest := mustTranscriptPage(t, dormant, store.Meta().SessionID, nil, nil)
 	if !proto.Equal(dormantNewest.LatestRollbackCandidate, wantLocator) {
@@ -78,12 +79,12 @@ func TestServiceDormantTranscriptPagesPreserveRollbackLocatorAcrossCandidateFree
 
 func TestServiceTranscriptReadsHonorCanceledContext(t *testing.T) {
 	store := newSessionViewStore(t, t.TempDir(), "ws", t.TempDir())
-	service := NewService(newTestSessionResolver(store), nil, nil)
+	service := NewService(newTestSessionResolver(store), nil, nil, nil)
 	cursor := int64(1)
 	requests := map[string]*transcriptpb.PageRequest{
-		"newest page": {SessionId: store.Meta().SessionID},
-		"older page":  {SessionId: store.Meta().SessionID, Direction: &transcriptpb.PageRequest_Cursor{Cursor: cursor}},
-		"newer page":  {SessionId: store.Meta().SessionID, Direction: &transcriptpb.PageRequest_NewerCursor{NewerCursor: cursor}},
+		"newest page": {SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}},
+		"older page":  {SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}, Direction: &transcriptpb.PageRequest_Cursor{Cursor: cursor}},
+		"newer page":  {SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}, Direction: &transcriptpb.PageRequest_NewerCursor{NewerCursor: cursor}},
 	}
 	for name, request := range requests {
 		t.Run(name, func(t *testing.T) {
@@ -103,10 +104,10 @@ func TestServiceTranscriptReadsHonorCanceledContext(t *testing.T) {
 
 func TestRuntimeMainViewSnapshotDoesNotRequirePersistedSessionResolution(t *testing.T) {
 	store, fixture, release, handle := startBlockingRuntimeRun(t)
-	live := NewService(nil, fixture.activity, nil)
+	live := NewService(nil, fixture.activity, nil, nil)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := live.GetSessionMainView(ctx, &sessionpb.MainViewRequest{SessionId: store.Meta().SessionID}); !errors.Is(err, context.Canceled) {
+	if _, err := live.GetSessionMainView(ctx, &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled live main-view error = %v, want context canceled", err)
 	}
 	liveMain := mustMainView(t, live, store.Meta().SessionID)
@@ -143,7 +144,7 @@ func startBlockingRuntimeRun(t *testing.T) (*session.Store, sessionViewRuntimeFi
 
 func mustMainView(t *testing.T, svc *Service, sessionID string) *runtimepb.MainView {
 	t.Helper()
-	resp, err := svc.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{SessionId: sessionID})
+	resp, err := svc.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}}})
 	if err != nil {
 		t.Fatalf("get main view: %v", err)
 	}
@@ -152,7 +153,7 @@ func mustMainView(t *testing.T, svc *Service, sessionID string) *runtimepb.MainV
 
 func mustTranscriptPage(t *testing.T, svc *Service, sessionID string, cursor, newerCursor *int64) *transcriptpb.Page {
 	t.Helper()
-	request := &transcriptpb.PageRequest{SessionId: sessionID}
+	request := &transcriptpb.PageRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}}}
 	if cursor != nil {
 		request.Direction = &transcriptpb.PageRequest_Cursor{Cursor: *cursor}
 	}

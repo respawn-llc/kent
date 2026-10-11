@@ -111,7 +111,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	}
 	storeOptions := metadataStore.AuthoritativeSessionStoreOptions()
 	attentionBroker := attentionnotify.NewBroker()
-	runtimeRegistry := registry.NewRuntimeRegistry().WithAttentionNotifications(attentionBroker, metadataStore.ResolveSessionNavigationBinding)
+	runtimeRegistry := registry.NewRuntimeRegistry(metadataStore).WithAttentionNotifications(attentionBroker, metadataStore.ResolveSessionNavigationBinding)
 	runtimeRegistry.WithTranscriptContractViolationPanic(cfg.Settings.Debug)
 	var workflowController *workflowexecution.CurrentNodeController
 	connectionRotation := new(launch.ConnectionRotation)
@@ -218,7 +218,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	authStatusService := authservice.NewStatusService(connections, metadataStore)
 	updateStatusService := serverstatus.NewUpdateStatusService(config.Version, cfg.Settings.Debug)
 	serverStatusService := serverstatus.NewServerStatusService(cfg, updateStatusService)
-	sessionViewService := sessionview.NewService(metadataStore, runtimeRegistry, metadataStore).
+	sessionViewService := sessionview.NewService(metadataStore, runtimeRegistry, metadataStore, metadataStore).
 		WithPromptHistoryReader(metadataStore).
 		WithChatContextWorkspaceResolver(workspaceConfigResolver).
 		WithCacheWarningMode(cfg.Settings.CacheWarningMode)

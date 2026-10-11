@@ -25,6 +25,7 @@ import (
 	"core/shared/config"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -181,7 +182,7 @@ func TestRunThinkingPreparedActivationUsesPersistedSelection(t *testing.T) {
 	}
 	// A later accepted settings change owns the next activation.
 	changed, err := app.ChatSettingsClient().MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
-		Session:   &chatsettingspb.SessionTarget{SessionId: id.String()},
+		Session:   &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}},
 		Operation: &chatsettingspb.MutationOperation{Operation: &chatsettingspb.MutationOperation_Thinking{Thinking: "high"}},
 	})
 	if err != nil || changed.GetResult().GetApplied() == nil {
@@ -244,7 +245,7 @@ func testRunThinkingEffectiveSelection(t *testing.T, locked bool, overrides serv
 		t.Fatalf("effective model/Thinking = %+v", request)
 	}
 	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: id.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -265,7 +266,7 @@ func TestRunThinkingOmittedFlagUsesSavedSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	changed, err := app.ChatSettingsClient().MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
-		Session:   &chatsettingspb.SessionTarget{SessionId: id.String()},
+		Session:   &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}},
 		Operation: &chatsettingspb.MutationOperation{Operation: &chatsettingspb.MutationOperation_Thinking{Thinking: "high"}},
 	})
 	if err != nil || changed.GetResult().GetApplied() == nil {
@@ -335,7 +336,7 @@ func testRunThinkingContinuationFailure(t *testing.T, overrides serverapi.RunPro
 		t.Fatalf("continuation error = %v", err)
 	}
 	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: id.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -491,7 +492,7 @@ func TestRunThinkingLockedOverridesWarnWithoutThinking(t *testing.T) {
 		t.Fatalf("locked model override was applied: %+v", request)
 	}
 	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: id.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -521,7 +522,7 @@ func TestRunThinkingRejectsWhenLockedContractDisablesReasoning(t *testing.T) {
 		t.Fatal(err)
 	}
 	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: id.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -563,7 +564,7 @@ func TestRunThinkingRetainedSelectionAcceptsCustomValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: id.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -622,7 +623,7 @@ func TestRunThinkingPersistsWhileBusy(t *testing.T) {
 		t.Fatalf("busy continuation error = %v", err)
 	}
 	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: id.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}}},
 	})
 	if err != nil {
 		t.Fatal(err)

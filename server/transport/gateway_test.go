@@ -405,7 +405,7 @@ func gatewaySessionExecutionTarget(t *testing.T, conn *websocket.Conn, requestID
 		conn,
 		requestID,
 		sessionpb.File_kent_api_session_session_proto.Services().ByName("ReadService").Methods().ByName("GetMainView"),
-		&sessionpb.MainViewRequest{SessionId: sessionID},
+		&sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}}},
 		&response,
 	)
 	return response.GetSuccess().GetMainView().GetSession().GetExecutionTarget()
@@ -1276,7 +1276,7 @@ func TestGatewaySessionTranscriptSubscriptionReturnsHydrationOnDedicatedRoute(t 
 	service := transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("StreamService")
 	var result transcriptpb.SubscribeResult
 	callGatewayDescriptor(t, conn, "subscribe-transcript", service.Methods().ByName("Subscribe"),
-		&transcriptpb.SubscribeRequest{SessionId: store.Meta().SessionID}, &result)
+		&transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}}, &result)
 	if result.GetSuccess() == nil {
 		t.Fatalf("subscribe: %v", &result)
 	}
@@ -1304,7 +1304,7 @@ func TestGatewayQuestionHistorySubscriptionPassesAttachedSessionPreflight(t *tes
 	service := sessionpb.File_kent_api_session_session_proto.Services().ByName("QuestionHistoryService")
 	var result sessionpb.QuestionHistorySubscribeResult
 	callGatewayDescriptor(t, conn, "subscribe-question-history", service.Methods().ByName("Subscribe"),
-		&sessionpb.QuestionHistorySubscribeRequest{SessionId: store.Meta().SessionID, MaxHandoffs: 1}, &result)
+		&sessionpb.QuestionHistorySubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}, MaxHandoffs: 1}, &result)
 	if result.GetSuccess() == nil {
 		t.Fatalf("subscribe Question history: %v", &result)
 	}
@@ -1413,10 +1413,10 @@ func TestGatewayRejectsSessionAccessOutsideAttachedProject(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	if _, err := remote.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{SessionId: foreignSession.Meta().SessionID}); err == nil {
+	if _, err := remote.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: foreignSession.Meta().SessionID}}}); err == nil {
 		t.Fatal("expected foreign-project session view access to be rejected")
 	}
-	if _, err := remote.GetLatestCommittedAssistantFinalAnswer(context.Background(), &transcriptpb.LatestFinalAnswerRequest{SessionId: foreignSession.Meta().SessionID}); err == nil {
+	if _, err := remote.GetLatestCommittedAssistantFinalAnswer(context.Background(), &transcriptpb.LatestFinalAnswerRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: foreignSession.Meta().SessionID}}}); err == nil {
 		t.Fatal("expected foreign-project final answer access to be rejected")
 	}
 	if _, err := remote.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{SessionId: foreignSession.Meta().SessionID, Input: "should fail"}); err == nil {
@@ -1430,7 +1430,7 @@ func TestGatewayRejectsSessionAccessOutsideAttachedProject(t *testing.T) {
 		t.Fatalf("ParseSessionID foreign: %v", err)
 	}
 	if _, err := remote.ReadChatSettings(context.Background(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: foreignSessionID.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: foreignSessionID.String()}}}},
 	}); err == nil {
 		t.Fatal("expected foreign-project Chat settings access to be rejected")
 	}
@@ -1480,7 +1480,7 @@ func TestGatewayAuthorizesNewChatAndSessionSettingsTargets(t *testing.T) {
 		t.Fatalf("New Chat response has Session facts: %+v", newChat.GetSession())
 	}
 	sessionSettings, err := remote.ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}}},
 	})
 	if err != nil {
 		t.Fatalf("ReadChatSettings Session: %v", err)
@@ -1714,7 +1714,7 @@ func TestGatewayProjectReattachClearsStaleSessionAttachment(t *testing.T) {
 
 	var result transcriptpb.SubscribeResult
 	callGatewayDescriptor(t, conn, "subscribe", transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("StreamService").Methods().ByName("Subscribe"),
-		&transcriptpb.SubscribeRequest{SessionId: storeA.Meta().SessionID}, &result)
+		&transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: storeA.Meta().SessionID}}}, &result)
 	if result.GetError() == nil {
 		t.Fatalf("expected session-attach-required error after project reattach, got %+v", &result)
 	}

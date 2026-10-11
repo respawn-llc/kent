@@ -102,7 +102,7 @@ func TestBindSessionPromotesPreparedHandoffWithoutDialing(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = current.Close() })
 	subscription, err := current.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{
-		SessionId: "session-1",
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "session-1"}},
 	})
 	if err != nil {
 		t.Fatalf("SubscribeSessionTranscript: %v", err)

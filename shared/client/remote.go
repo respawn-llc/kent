@@ -656,7 +656,7 @@ func (c *Remote) ReadChatSettings(
 			return nil, invalidResponseError("Chat settings", errors.New("New Chat catalog is required"))
 		}
 	case *chatsettingspb.ReadRequest_Session:
-		if response.GetSession() == nil || response.GetSession().Session.SessionId != target.Session.SessionId {
+		if response.GetSession() == nil || !sessionSelectorMatchesResponse(target.Session.SessionId, response.GetSession().Session.SessionId) {
 			return nil, invalidResponseError("Chat settings", errors.New("response must contain the target Session"))
 		}
 	}
@@ -673,7 +673,7 @@ func (c *Remote) MutateChatSettings(
 	if err != nil {
 		return nil, err
 	}
-	if response.Session.SessionId != req.Session.SessionId {
+	if !sessionSelectorMatchesResponse(req.Session.SessionId, response.Session.SessionId) {
 		return nil, invalidResponseError("Chat settings mutation", errors.New("response must contain the target Session"))
 	}
 	return response, nil
