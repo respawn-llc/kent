@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"core/server/sessionruntime"
+	"core/shared/protoapi"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/worktreecontract"
 	"google.golang.org/protobuf/proto"
@@ -29,7 +31,7 @@ func assertForeignManagementDeleteBlocked(t *testing.T, env *serviceTestEnv, wor
 	}
 	request := worktreeDeleteRequest(env, worktreeID)
 	id := caller.Meta().SessionID
-	request.Scope = worktreecontract.WorkspaceManagementScope(env.binding.ProjectID, env.binding.WorkspaceID, &id)
+	request.Scope = worktreecontract.WorkspaceManagementScope(env.binding.ProjectID, env.binding.WorkspaceID, &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id}})
 	_, err = env.service.DeleteWorktree(context.Background(), request)
 	if !errors.Is(err, worktreecontract.ErrWorktreeBlocked) {
 		t.Fatalf("foreign delete error = %v, want blocked", err)
@@ -80,7 +82,7 @@ func TestWorkspaceManagementKeepsForeignCallerExecutionRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-started
-	scope := worktreecontract.WorkspaceManagementScope(binding.ProjectID, binding.WorkspaceID, &id)
+	scope := worktreecontract.WorkspaceManagementScope(binding.ProjectID, binding.WorkspaceID, protoapi.SessionSelectorToProto(*env.session.Identity().ShortID))
 	request := createWorktreeRequestForTest(worktreecontract.NewSetupOperationID(), id, "", "HEAD", true, "foreign-live")
 	request.Scope = scope
 	created, err := env.service.CreateWorktree(env.ctx, request)

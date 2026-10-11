@@ -26,6 +26,7 @@ import (
 	"core/server/workflowruntime"
 	"core/shared/clientui"
 	"core/shared/config"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -1340,7 +1341,7 @@ func TestDeleteWorktreeRechecksDirtyStateBeforeRemoval(t *testing.T) {
 			updateServiceTestSessionTarget(t, env, env.session.Meta().SessionID, env.binding.WorkspaceID, target.WorktreeID, ".")
 			state := captureDeleteTargetState(t, env, env.session.Meta().SessionID, target)
 			preview, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
-				Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+				Scope:    worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}}),
 				Selector: target.WorktreeID,
 			})
 			if err != nil {

@@ -10,6 +10,7 @@ import "kent/api/server/server.proto";
 import "kent/api/session_retarget/session_retarget.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
+import "kent/api/shared/session_selector.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/worktree;worktreepb";
 
@@ -425,7 +426,7 @@ message BlockedDetails {
 message PendingWorkCapacityDetails {}
 
 message StatusRequest {
-  string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
 }
 
 message StatusSuccess {
@@ -468,7 +469,7 @@ message StatusResult {
 }
 
 message ListRequest {
-  string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
 }
 
 message ListSuccess {
@@ -578,7 +579,7 @@ message WorkspaceListResult {
 }
 
 message SelectorResolveRequest {
-  string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
   string selector = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
@@ -641,14 +642,14 @@ message SelectorResolveResult {
 message ManagementScope {
   oneof scope {
     option (buf.validate.oneof).required = true;
-    string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+    kent.api.shared.SessionSelector session_id = 1;
     WorkspaceManagementTarget workspace = 2;
   }
 }
 
 message WorkspaceManagementTarget {
   kent.api.project.SelectedProjectWorkspace target = 1 [(buf.validate.field).required = true];
-  optional string caller_session_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  kent.api.shared.SessionSelector session_context = 2;
 }
 
 message DeletePreviewRequest {
@@ -890,7 +891,7 @@ message EnterRequest {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
-  string session_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  kent.api.shared.SessionSelector session_id = 2 [(buf.validate.field).required = true];
   string selector = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   TransitionWorkspace target_workspace = 4 [(buf.validate.field).required = true];
   optional TransitionRuntimeStepOrigin origin = 5;
@@ -921,7 +922,7 @@ message LeaveRequest {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
-  string session_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  kent.api.shared.SessionSelector session_id = 2 [(buf.validate.field).required = true];
 }
 
 message EnterError {

@@ -1798,7 +1798,11 @@ func (s *Service) taskSourceWorkspace(ctx context.Context, projectID string, sou
 }
 
 func (s *Service) ListWorktrees(ctx context.Context, req *worktreepb.ListRequest) (*worktreepb.ListSuccess, error) {
-	workspaceCtx, err := s.resolveSessionWorkspaceContext(ctx, req.SessionId)
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	workspaceCtx, err := s.resolveSessionWorkspaceContext(ctx, id.String())
 	if err != nil {
 		return nil, err
 	}
@@ -1810,7 +1814,7 @@ func (s *Service) ListWorktrees(ctx context.Context, req *worktreepb.ListRequest
 	if err != nil {
 		return nil, err
 	}
-	record, err := s.metadata.ResolvePersistedSession(ctx, req.SessionId)
+	record, err := s.metadata.ResolvePersistedSession(ctx, id.String())
 	if err != nil {
 		return nil, err
 	}

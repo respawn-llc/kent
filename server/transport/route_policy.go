@@ -120,7 +120,11 @@ func (e routePolicyExecutor) authorizeScopeFacts(
 	case sharedpb.ScopePolicy_SCOPE_POLICY_WORKTREE_MANAGEMENT:
 		switch selected := scopeParams.worktreeManagement.GetScope().(type) {
 		case *worktreepb.ManagementScope_SessionId:
-			return e.gateway.requireSessionInActiveProject(ctx, state, selected.SessionId)
+			id, err := e.gateway.deps.MetadataStore().ResolveSessionTarget(ctx, selected.SessionId)
+			if err != nil {
+				return err
+			}
+			return e.gateway.requireSessionInActiveProject(ctx, state, id.String())
 		case *worktreepb.ManagementScope_Workspace:
 			target := selected.Workspace.GetTarget()
 			return e.gateway.requireProjectWorkspaceBinding(ctx, state, target.GetProjectId(), target.GetWorkspaceId())

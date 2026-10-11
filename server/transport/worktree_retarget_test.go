@@ -8,6 +8,7 @@ import (
 
 	"core/shared/apicontract"
 	remoteclient "core/shared/client"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/serverapi"
 
@@ -47,7 +48,7 @@ func TestWorktreeEnterRetainsWorkflowRejection(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = remote.Close() })
 	_, err = remote.EnterWorktree(t.Context(), &worktreepb.EnterRequest{
-		OperationId: uuid.NewString(), SessionId: failure.SessionID, Selector: "branch",
+		OperationId: uuid.NewString(), SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: failure.SessionID}}, Selector: "branch",
 		TargetWorkspace: &worktreepb.TransitionWorkspace{WorkspaceId: uuid.NewString(), WorkspaceRoot: failure.TargetRoot},
 	})
 	var rejected *serverapi.SessionRetargetError
