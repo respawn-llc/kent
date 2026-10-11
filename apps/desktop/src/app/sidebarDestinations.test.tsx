@@ -14,7 +14,7 @@ type AsyncMock<Arguments extends unknown[]> = ReturnType<typeof vi.fn<(...args: 
 type SyncMock<Arguments extends unknown[]> = ReturnType<typeof vi.fn<(...args: Arguments) => void>>;
 interface SidebarFixture {
   copyText: AsyncMock<[unknown]>;
-  openWindow: AsyncMock<[unknown]>;
+  openWindow: ReturnType<typeof vi.fn<(options: unknown) => Promise<"created" | "reused">>>;
   openProject: AsyncMock<[unknown]>;
   openWorkflowEditor: AsyncMock<[]>;
   openSessionChat: AsyncMock<[unknown]>;
@@ -26,7 +26,7 @@ interface SidebarFixture {
 }
 const fixture = vi.hoisted((): SidebarFixture => ({
   copyText: vi.fn(async () => undefined),
-  openWindow: vi.fn(async () => undefined),
+  openWindow: vi.fn(async () => "created" as const),
   openProject: vi.fn(async () => undefined),
   openWorkflowEditor: vi.fn(async () => undefined),
   openSessionChat: vi.fn(async () => undefined),

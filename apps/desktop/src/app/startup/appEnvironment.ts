@@ -161,6 +161,7 @@ export function applyConfiguredTheme(theme: string): void {
 }
 
 export function applyNativeDialogThemeOverride(): void {
+  if (!import.meta.env.DEV) return;
   const theme = readNativeDialogThemeOverride();
   if (theme !== null) {
     setInMemoryThemeOverride(theme);

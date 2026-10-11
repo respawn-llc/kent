@@ -26,6 +26,11 @@ apps-lock: _docs-dependencies
     pnpm --dir apps install --no-frozen-lockfile
     just install _effect-compiler
 
+# Resolve intentional docs manifest changes without upgrading locked dependencies.
+docs-lock:
+    just _node
+    pnpm --dir docs install --no-frozen-lockfile
+
 [private]
 _effect-compiler:
     pnpm --dir apps/desktop exec effect-tsgo patch --typescript --typescript-package typescript7

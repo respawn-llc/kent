@@ -9,6 +9,10 @@ export type ChatSettingsNavigation = Readonly<{
   openTask(taskID: string): void;
   openParentSession(previousSessionID: string): void | Promise<void>;
 }>;
+export type ChatDestinationNavigation = ChatSettingsNavigation &
+  Readonly<{
+    openEditedSession(sessionID: string): void | Promise<void>;
+  }>;
 export type ChatSettingsOptions = ChatSettingsNavigation &
   Readonly<{
     model: ChatSettingsViewModel;

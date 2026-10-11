@@ -19,7 +19,7 @@ type SurfaceState = Readonly<{
 const ComposerSurfaceContext = createContext<SurfaceState | null>(null);
 
 export function ChatComposerSurface({ composer, children, enabled = true }: SurfaceProps) {
-  const promptPicker = useChatPromptPicker(composer.target);
+  const promptPicker = useChatPromptPicker(composer.target, composer.interactionRestriction);
   const { activity, observationError } = useChatRuntimePresentation();
   const stoppable = activity?.activeStep !== null && activity?.activeStep !== undefined;
   const keyboard = useComposerKeyboard(composer, stoppable, observationError, enabled);

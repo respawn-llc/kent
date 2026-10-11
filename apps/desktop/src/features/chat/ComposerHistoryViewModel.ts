@@ -74,7 +74,7 @@ export function createComposerHistoryViewModel({
   const navigate = Atom.fn<-1 | 1>()((direction, get) =>
     Effect.gen(function* (): Effect.fn.Return<ComposerHistoryMovement> {
       const result = get(current).observer.getCurrentResult();
-      if (result.isFetching || get(pending) || get(draft.navigationPending) || result.data === undefined)
+      if (result.isFetching || get(pending) || get(draft.interactionRestricted) || result.data === undefined)
         return { kind: "none" };
       return yield* get.setResult(draft.navigate, { direction, entries: result.data });
     }),
