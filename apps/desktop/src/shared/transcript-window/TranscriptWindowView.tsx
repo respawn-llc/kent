@@ -74,6 +74,8 @@ export function TranscriptWindowView({
   const emitInput = useStableCallback(onInput);
   const olderAvailable = snapshot.older.cursor !== null;
   const newerAvailable = snapshot.newer.cursor !== null;
+  const olderPage = transcriptPagination(snapshot.older, tailFailure !== undefined);
+  const newerPage = transcriptPagination(snapshot.newer, tailFailure !== undefined);
   const following = atEnd && !newerAvailable;
   const nativeRequest = useTranscriptEndRequest(
     {
@@ -137,13 +139,14 @@ export function TranscriptWindowView({
                 ? "transcript-window-message-row"
                 : undefined,
         })}
-        hasNextPage={tailFailure === undefined && newerAvailable && snapshot.newer.kind !== "error"}
-        hasPreviousPage={tailFailure === undefined && olderAvailable && snapshot.older.kind !== "error"}
-        isFetchingNextPage={snapshot.newer.kind === "loading"}
-        isFetchingPreviousPage={snapshot.older.kind === "loading"}
+        hasNextPage={newerPage.available}
+        hasPreviousPage={olderPage.available}
+        isFetchingNextPage={newerPage.fetching}
+        isFetchingPreviousPage={olderPage.fetching}
         items={items}
         pinnedItemKeys={pinnedItemKeys}
         loadingLabel={loadingLabel}
+        loadMoreKey={newerPage.key}
         nextBoundary={nextBoundary}
         onLoadMore={() => {
           visit("newer");
@@ -152,6 +155,7 @@ export function TranscriptWindowView({
           visit("older");
         }}
         previousBoundary={previousBoundary}
+        previousLoadKey={olderPage.key}
         renderItem={(item) => (
           <AnimatedReveal className={transcriptContentClassName} enter={entering.has(item.key)}>
             {item.kind === "failure" ? (
@@ -167,6 +171,14 @@ export function TranscriptWindowView({
       {overlay?.(following)}
     </div>
   );
+}
+
+function transcriptPagination(boundary: TranscriptWindowSnapshot["older"], suppressed: boolean) {
+  return {
+    available: !suppressed && boundary.cursor !== null && boundary.kind !== "error",
+    fetching: boundary.kind === "loading",
+    key: boundary.cursor?.toString(),
+  };
 }
 
 type TranscriptEndInput = Readonly<{

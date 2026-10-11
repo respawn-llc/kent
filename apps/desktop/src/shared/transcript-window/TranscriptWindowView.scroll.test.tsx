@@ -7,6 +7,69 @@ import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer
 import { StaticMarkdown, StreamingMarkdown } from "@/ui";
 import { TranscriptWindowView } from "./TranscriptWindowView";
 
+it.each(["older", "newer"] as const)(
+  "continues through equal-sized %s pages without another edge gesture",
+  (direction) => {
+    const geometry = installVirtualizedScrollGeometry(600);
+    const window = new TranscriptWindow();
+    const rows = (start: number) => [row(start), row(start + 1)];
+    window.dispatch({ kind: "initial-hydration", hydration: hydration(rows(301)) });
+    window.dispatch({
+      kind: "page-success",
+      request: visit(window, "older"),
+      page: page(rows(251), 250, 300),
+    });
+    window.dispatch({
+      kind: "page-success",
+      request: visit(window, "older"),
+      page: page(rows(201), 200, 250),
+    });
+    if (direction === "newer") {
+      window.dispatch({
+        kind: "page-success",
+        request: visit(window, "older"),
+        page: page(rows(101), null, 200),
+      });
+    }
+    const onInput = vi.fn();
+    const content = () => (
+      <TranscriptWindowView
+        snapshot={window.snapshot}
+        estimateSize={() => 40}
+        loadingLabel="Loading"
+        retryLabel="Retry"
+        boundaryErrorMessage={(error) => error.message}
+        onInput={onInput}
+        slots={{
+          user: (item) => <div>{item.value.Text}</div>,
+          assistant: () => null,
+          tool: () => null,
+          notice: () => null,
+          reasoning: () => null,
+          thinkingStatus: () => null,
+        }}
+      />
+    );
+    const view = render(content());
+    try {
+      expect(onInput).toHaveBeenCalledWith(expect.objectContaining({ kind: "edge-visit", direction }));
+      onInput.mockClear();
+      const request = visit(window, direction);
+      // A fast read can finish before React commits the loading snapshot.
+      window.dispatch({
+        kind: "page-success",
+        request,
+        page: direction === "older" ? page(rows(101), 100, 200) : page(rows(251), 250, 300),
+      });
+      view.rerender(content());
+      expect(onInput).toHaveBeenCalledWith(expect.objectContaining({ kind: "edge-visit", direction }));
+    } finally {
+      view.unmount();
+      geometry.restore();
+    }
+  },
+);
+
 it("opens and remounts a compacted live transcript at the bottom despite underestimated rows", async () => {
   const geometry = installVirtualizedScrollGeometry(600);
   const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (
