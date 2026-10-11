@@ -22,7 +22,7 @@ func TestViewedImageReadsCurrentOriginalWithoutRuntime(t *testing.T) {
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
 		target: availableSessionExecutionTarget(workdir),
-	})
+	}, nil)
 	path := filepath.Join(workdir, "original.png")
 	original := []byte{0x89, 'P', 'N', 'G'}
 	if err := os.WriteFile(path, original, 0600); err != nil {
@@ -45,7 +45,7 @@ func TestViewedImageMissingOriginalIsUnavailable(t *testing.T) {
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
 		target: availableSessionExecutionTarget(workdir),
-	})
+	}, nil)
 	result, err := service.GetViewedImageOriginal(t.Context(), &sessionpb.ViewedImageOriginalRequest{
 		SessionId: store.Meta().SessionID,
 		Path:      "missing.png",
@@ -63,7 +63,7 @@ func TestViewedImageUnreadableOriginalIsUnavailable(t *testing.T) {
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
 		target: availableSessionExecutionTarget(workdir),
-	})
+	}, nil)
 	path := filepath.Join(workdir, "unreadable.png")
 	if err := os.WriteFile(path, []byte("image"), 0000); err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestViewedImageOversizedOriginalIsUnavailable(t *testing.T) {
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
 		target: availableSessionExecutionTarget(workdir),
-	})
+	}, nil)
 	path := filepath.Join(workdir, "oversized.png")
 	file, err := os.Create(path)
 	if err != nil {
@@ -118,7 +118,7 @@ func TestViewedImageReadableSymlinkOriginal(t *testing.T) {
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
 		target: availableSessionExecutionTarget(workdir),
-	})
+	}, nil)
 	original := []byte("current original")
 	target := filepath.Join(workdir, "target.png")
 	if err := os.WriteFile(target, original, 0600); err != nil {
@@ -143,7 +143,7 @@ func TestViewedImageBrokenSymlinkIsUnavailable(t *testing.T) {
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
 		target: availableSessionExecutionTarget(workdir),
-	})
+	}, nil)
 	if err := os.Symlink(filepath.Join(workdir, "gone.png"), filepath.Join(workdir, "link.png")); err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestViewedImageBrokenSymlinkIsUnavailable(t *testing.T) {
 
 func TestViewedImageOperationalFailureIsNotUnavailable(t *testing.T) {
 	want := errors.New("Session metadata unavailable")
-	service := NewService(failingPersistedSessionResolver{err: want}, nil, nil)
+	service := NewService(failingPersistedSessionResolver{err: want}, nil, nil, nil)
 	result, err := service.GetViewedImageOriginal(t.Context(), &sessionpb.ViewedImageOriginalRequest{
 		SessionId: "session", Path: "/image.png",
 	})
@@ -174,7 +174,7 @@ func TestViewedImageCanceledReaderIsOperationalFailure(t *testing.T) {
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
 		target: availableSessionExecutionTarget(workdir),
-	})
+	}, nil)
 	path := filepath.Join(workdir, "original.png")
 	if err := os.WriteFile(path, []byte("image"), 0600); err != nil {
 		t.Fatal(err)

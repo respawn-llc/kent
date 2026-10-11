@@ -9,6 +9,7 @@ import (
 	"core/server/session"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
+	"core/shared/textutil"
 )
 
 func TestSessionShortIDsAreStableAcrossUpdatesAndProjects(t *testing.T) {
@@ -36,7 +37,7 @@ func TestSessionShortIDsAreStableAcrossUpdatesAndProjects(t *testing.T) {
 		if index == 1 {
 			projectID = otherBinding.ProjectID
 		}
-		if err := sess.SetName("listed session"); err != nil {
+		if err := sess.SetName(textutil.Value("listed session")); err != nil {
 			t.Fatal(err)
 		}
 		page, err := store.ListSessionPage(t.Context(), projectID, sessioncontract.SessionCategoryMain, 0, 10)

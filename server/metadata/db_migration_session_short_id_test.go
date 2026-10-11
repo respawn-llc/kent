@@ -54,7 +54,7 @@ func TestSessionShortIDMigrationPreservesUnnumberedSessionOnUse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.ShortID != nil || updated.Meta.SessionID != id.String() || updated.Meta.Name != "authored name" ||
+	if updated.ShortID != nil || updated.Meta.SessionID != id.String() || updated.Meta.Name == nil || *updated.Meta.Name != "authored name" ||
 		updated.Meta.InputDraft != "authored draft" || updated.SessionDir != filepath.Join(root, relpath) {
 		t.Fatalf("migration/use altered retained identity/content: %+v", updated)
 	}
