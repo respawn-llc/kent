@@ -72,6 +72,12 @@
 - Raw numeric time representations are permitted only when an external system owns that representation.
 - Existing first-party identifiers retain their owning domain format. The Protobuf API does not migrate the persistence or domain identity model.
 - First-party UUID v4 identifiers retain canonical textual wire form.
+- Session target inputs must accept a full UUID or a Session Short ID. The server must resolve the target to its UUID before target authorization, self-target checks, and execution.
+- Clients must not perform a separate preflight identity lookup for a Session selector.
+- Session subscriptions must use the server's operation-specific Project authorization after target resolution. Clients must not restrict those subscriptions to the Session attached to their connection.
+- Responses that present a Session identifier must include its assigned Session Short ID alongside its UUID when a Short ID exists.
+- Returned Session identities and caller Session identities must use canonical UUIDs. Internal Session operations must use UUID identity rather than distinguish selector forms.
+- Workspace-scoped Worktree operations must treat the selected Session context as a Session target, not as the invoking Session identity.
 - Third-party and provider identifiers remain validated string fields unless their owning contract defines another representation.
 - Generated TypeScript uses the standard Protobuf `bigint` representation for `int64` and `uint64`.
 - JavaScript-facing 64-bit values must remain within the JavaScript safe-integer range.
