@@ -234,14 +234,20 @@ function VirtualizedInfiniteListContent<TItem>({
     });
     return indexes;
   }, [getItemKey, itemStartIndex, items, retainedItemKeys]);
-  const { applyScrollRequest, options: endOptions } = useVirtualizedEndAnchoring(endAnchoring);
+  const {
+    applyScrollRequest,
+    cancelScrollRequest,
+    options: endOptions,
+  } = useVirtualizedEndAnchoring(endAnchoring);
+  const directDomUpdates = endAnchoring !== undefined && !horizontal;
   const virtualizer = useVirtualizer({
     count,
     getScrollElement: () => scrollRef.current,
     estimateSize,
     paddingEnd,
     paddingStart,
-    useFlushSync: endAnchoring !== undefined && !horizontal,
+    useFlushSync: directDomUpdates,
+    directDomUpdates,
     getItemKey: (index) =>
       virtualizedRowKey({
         getItemKey,
@@ -383,10 +389,14 @@ function VirtualizedInfiniteListContent<TItem>({
       rowSpacing,
       stickyItemKeys,
       virtualItem,
+      directDomUpdates,
     }),
   );
   const hasHorizontalBoundary = resolveHorizontalBoundary(horizontal, layout, nextBoundary);
   const containerClassName = resolveVirtualizedContainerClassName(className, horizontal);
+  const onScrollIntent = () => {
+    cancelScrollRequest(virtualizer);
+  };
   return (
     <div
       aria-label={ariaLabel}
@@ -394,13 +404,17 @@ function VirtualizedInfiniteListContent<TItem>({
       data-testid={testId}
       id={id}
       onScroll={onScroll}
+      onWheel={onScrollIntent}
+      onTouchStart={onScrollIntent}
+      onPointerDown={onScrollIntent}
       ref={setScrollElement}
       role={role}
       style={endAnchoring === undefined ? undefined : { overflowAnchor: "none" }}
     >
       <div
         className={resolveVirtualizedInnerClassName(horizontal, hasHorizontalBoundary)}
-        style={resolveVirtualizedInnerStyle(horizontal, virtualizer.getTotalSize())}
+        ref={directDomUpdates ? virtualizer.containerRef : undefined}
+        style={resolveVirtualizedInnerStyle(horizontal, virtualizer.getTotalSize(), directDomUpdates)}
       >
         {renderVirtualizedRowsContent({
           renderedRows,

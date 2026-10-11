@@ -178,6 +178,7 @@ export function renderVirtualizedInfiniteListRow<TItem>({
   rowSpacing,
   stickyItemKeys,
   virtualItem,
+  directDomUpdates,
 }: Readonly<{
   getItemKey: (item: TItem) => string;
   getItemWrapperProps: ((item: TItem, itemIndex: number) => HTMLAttributes<HTMLDivElement>) | undefined;
@@ -191,6 +192,7 @@ export function renderVirtualizedInfiniteListRow<TItem>({
   rowSpacing: "default" | "compact" | "tight";
   stickyItemKeys: ReadonlySet<string> | undefined;
   virtualItem: VirtualItem;
+  directDomUpdates: boolean;
 }>): ReactNode {
   const virtualIndex = virtualItem.index;
   const { item, itemKey, wrapperProps } = resolveVirtualizedRowItem({
@@ -234,6 +236,7 @@ export function renderVirtualizedInfiniteListRow<TItem>({
         sticky,
         virtualItem,
         wrapperStyle: wrapperProps?.style,
+        directDomUpdates,
       })}
     >
       {renderContent(item, virtualIndex)}
@@ -302,7 +305,9 @@ export function resolveVirtualizedInnerClassName(
 export function resolveVirtualizedInnerStyle(
   horizontal: boolean,
   totalSize: number,
-): Readonly<{ height?: string; width?: string }> {
+  directDomUpdates: boolean,
+): Readonly<{ height?: string; width?: string }> | undefined {
+  if (directDomUpdates) return undefined;
   return horizontal ? { width: `${totalSize.toString()}px` } : { height: `${totalSize.toString()}px` };
 }
 
@@ -365,13 +370,16 @@ function resolveVirtualizedRowStyle({
   sticky,
   virtualItem,
   wrapperStyle,
+  directDomUpdates,
 }: Readonly<{
   orientation: "vertical" | "horizontal";
   paddingStart: number;
   sticky: boolean;
   virtualItem: VirtualItem;
   wrapperStyle: CSSProperties | undefined;
+  directDomUpdates: boolean;
 }>): CSSProperties | undefined {
+  if (directDomUpdates) return wrapperStyle;
   if (sticky) {
     return {
       ...wrapperStyle,

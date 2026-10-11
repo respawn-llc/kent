@@ -1,7 +1,10 @@
 {
   "$schema": "./dependency-policy.schema.json",
   "minimumReleaseAgeSeconds": 604800,
-  "minimumReleaseAgeExcludes": [],
+  "minimumReleaseAgeExcludes": [
+    "@tanstack/react-virtual",
+    "@tanstack/virtual-core"
+  ],
   "directDependencyAllowlist": {
     "@app/apps": {
       "devDependencies": ["@bufbuild/protoc-gen-es", "postcss", "prettier"]

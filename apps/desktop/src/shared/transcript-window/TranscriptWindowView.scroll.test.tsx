@@ -7,15 +7,6 @@ import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer
 import { StaticMarkdown, StreamingMarkdown } from "@/ui";
 import { TranscriptWindowView } from "./TranscriptWindowView";
 
-beforeEach(() => {
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-});
-
-afterEach(() => {
-  vi.runOnlyPendingTimers();
-  vi.useRealTimers();
-});
-
 it.each(["older", "newer"] as const)(
   "continues through equal-sized %s pages without another edge gesture",
   (direction) => {
@@ -205,6 +196,7 @@ it.each(["following", "reading", "historical-end"])(
       });
       const list = screen.getByRole("list");
       if (position === "historical-end") {
+        fireEvent.wheel(list, { deltaY: -100 });
         for (let index = 0; index < 2; index++) {
           await act(async () => {
             host.dispatch({ kind: "edge-visit", direction: "older", older: true, newer: false });
@@ -291,6 +283,30 @@ function streamingView(history: readonly ReturnType<typeof row>[]) {
     },
   };
 }
+
+it.each([
+  { input: "wheel", emit: fireEvent.wheel },
+  { input: "scrollbar pointer", emit: fireEvent.pointerDown },
+  { input: "touch", emit: fireEvent.touchStart },
+])("lets $input take over an opening scroll", async ({ emit }) => {
+  const geometry = installVirtualizedScrollGeometry(600);
+  const { view } = streamingView(Array.from({ length: 100 }, (_, index) => row(index + 1)));
+  try {
+    const list = screen.getByRole("list");
+    emit(list);
+    list.scrollTop = 500;
+    fireEvent.scroll(list);
+    for (let frame = 0; frame < 4; frame++) {
+      await act(async () => {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      });
+    }
+    expect(list.scrollTop).toBe(500);
+  } finally {
+    view.unmount();
+    geometry.restore();
+  }
+});
 
 it("keeps a streaming response and its measured height intact offscreen until it commits", () => {
   const geometry = installVirtualizedScrollGeometry(600);
