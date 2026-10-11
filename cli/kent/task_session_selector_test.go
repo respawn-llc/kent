@@ -17,6 +17,7 @@ import (
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/protocol"
 	"core/shared/runtimeids"
+	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -109,5 +110,71 @@ func TestWorkflowCommandsSubmitNormalizedSessionSelectors(t *testing.T) {
 		if code := taskCompleteSubcommand(args, &stdout, &stderr); code != 2 || capture.target != nil {
 			t.Fatalf("invalid completion selectors: exit %d, target %+v, stderr %s", code, capture.target, stderr.String())
 		}
+	}
+	definition, err := service.GetWorkflow(t.Context(), &workflowpb.GetRequest{WorkflowId: created.Workflow.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph := protoapi.WorkflowGraphDraftFromDefinition(definition.Definition)
+	var startID, terminalID string
+	for _, node := range graph.Nodes {
+		switch node.Kind {
+		case workflowpb.NodeKind_WORKFLOW_NODE_KIND_START:
+			startID = node.Id
+		case workflowpb.NodeKind_WORKFLOW_NODE_KIND_TERMINAL:
+			terminalID = node.Id
+		}
+	}
+	agentID, groupID, startGroupID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	graph.Nodes = append(graph.Nodes, &workflowpb.GraphDraftNode{Id: agentID, Key: "agent", Kind: workflowpb.NodeKind_WORKFLOW_NODE_KIND_AGENT, DisplayName: "Agent", SubagentRole: proto.String(config.DefaultSubagentRole)})
+	graph.TransitionGroups = append(graph.TransitionGroups, &workflowpb.GraphDraftTransitionGroup{Id: startGroupID, SourceNodeId: startID, TransitionId: "start", DisplayName: "Start"})
+	graph.TransitionGroups = append(graph.TransitionGroups, &workflowpb.GraphDraftTransitionGroup{
+		Id: groupID, SourceNodeId: agentID, TransitionId: "done", DisplayName: "Done",
+	})
+	graph.Edges = append(graph.Edges, &workflowpb.GraphDraftEdge{
+		Id: uuid.NewString(), TransitionGroupId: startGroupID, Key: "start", TargetNodeId: agentID,
+		AssigneeSelection: workflowpb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_CONFIGURED,
+		ThinkingSelection: workflowpb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_CONFIGURED,
+		ContextMode:       workflowpb.ContextMode_WORKFLOW_CONTEXT_MODE_NEW_SESSION, PromptTemplate: "Work",
+		ContextSource: &workflowpb.ContextSource{Kind: workflowpb.ContextSourceKind_WORKFLOW_CONTEXT_SOURCE_KIND_IMMEDIATE_SOURCE},
+	})
+	graph.Edges = append(graph.Edges, &workflowpb.GraphDraftEdge{
+		Id: uuid.NewString(), TransitionGroupId: groupID, Key: "done", TargetNodeId: terminalID,
+		AssigneeSelection: workflowpb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_CONFIGURED,
+		ThinkingSelection: workflowpb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_CONFIGURED,
+		ContextMode:       workflowpb.ContextMode_WORKFLOW_CONTEXT_MODE_NEW_SESSION,
+		ContextSource:     &workflowpb.ContextSource{Kind: workflowpb.ContextSourceKind_WORKFLOW_CONTEXT_SOURCE_KIND_IMMEDIATE_SOURCE},
+	})
+	saved, err := service.SaveWorkflowGraph(t.Context(), &workflowpb.GraphSaveRequest{
+		WorkflowId: created.Workflow.Id, ExpectedVersion: definition.Definition.Workflow.Version, Graph: graph,
+	})
+	if err != nil || !saved.Saved {
+		t.Fatalf("completion fixture graph: %v, %v", saved, err)
+	}
+	for _, result := range saved.ValidationResults {
+		if !result.Result.Valid {
+			t.Fatalf("completion fixture validation: %v", result)
+		}
+	}
+	if _, err := fixture.core.MetadataStore().DB().ExecContext(t.Context(), "UPDATE sessions SET task_id = ? WHERE id = ?", task.Task.Id, fixture.sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.core.MetadataStore().DB().ExecContext(t.Context(), "UPDATE task_current_nodes SET node_id = ?, effective_assignee = ?, assignee_origin = 'configured_fallback' WHERE task_id = ?", agentID, config.DefaultSubagentRole, task.Task.Id); err != nil {
+		t.Fatal(err)
+	}
+	for _, selectorArgs := range [][]string{
+		{"--session", " " + record.ShortID.String() + " "},
+		{"--session= " + record.ShortID.String() + " "},
+	} {
+		capture.target = nil
+		var stdout, stderr bytes.Buffer
+		args := append([]string{"--force", "--transition", "done"}, selectorArgs...)
+		if code := taskCompleteSubcommand(args, &stdout, &stderr); code == 0 || capture.target != nil {
+			t.Fatalf("padded completion selector reached eligible Task: exit %d, target %v, stderr %s", code, capture.target, stderr.String())
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := taskCompleteSubcommand([]string{"--force", "--transition", "done", "--session", "000" + record.ShortID.String()}, &stdout, &stderr); code != 0 {
+		t.Fatalf("valid completion after rejected whitespace: exit %d, stderr %s", code, stderr.String())
 	}
 }
