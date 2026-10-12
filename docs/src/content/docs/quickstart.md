@@ -64,8 +64,6 @@ brew install --cask respawn-llc/tap/kent-desktop
 
 Homebrew installs update through `brew upgrade`, standalone installs self-update.
 
-In desktop Chat, paste a clipboard image with `Cmd+V` on macOS or `Ctrl+V` on Windows and Linux. Kent saves a temporary PNG and inserts its absolute path into the composer. OS temporary-file cleanup can remove that image.
-
 :::note
 The desktop app, due to the asynchronous nature of workflows, needs a [server](../server/) to connect to.
 

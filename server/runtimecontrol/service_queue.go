@@ -29,7 +29,7 @@ func (s *Service) AdmitChatQueuedUserInput(
 		return serverapi.ChatInputAdmissionResult{}, err
 	}
 	var queued runtime.QueuedUserMessage
-	err = s.authority.RunCurrentTurn(attempt.Context(), descriptor, attempt.Accept, func(runCtx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance, _ func()) error {
+	err = s.authority.RunCurrentTurn(attempt.Context(), descriptor, attempt.Accept, func(runCtx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
 		var queueErr error
 		queued, queueErr = engine.QueueUserInputWithAcceptance(
 			runCtx,

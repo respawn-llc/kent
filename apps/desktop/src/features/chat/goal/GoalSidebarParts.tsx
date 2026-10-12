@@ -82,10 +82,7 @@ export function GoalMetadata({
       <Check size={16} />
     );
   return (
-    <div
-      aria-label={t(`chat.goal.${status}`)}
-      className="grid gap-[var(--space-1)] px-[var(--space-2)]"
-    >
+    <div aria-label={t(`chat.goal.${status}`)} className="grid gap-[var(--space-1)] px-[var(--space-2)]">
       <motion.div
         key={status}
         initial={reducedMotion ? false : { opacity: 0 }}

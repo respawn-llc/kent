@@ -240,10 +240,7 @@ type GoalMutationRunnerInput = Readonly<{
 
 function useGoalMutationRunner(input: GoalMutationRunnerInput) {
   return useCallback(
-    async (
-      intent: GoalMutationIntent,
-      operation: () => Promise<GoalMutationOperationResult>,
-    ) => {
+    async (intent: GoalMutationIntent, operation: () => Promise<GoalMutationOperationResult>) => {
       if (input.actionsDisabled || input.pendingIntent !== null || !input.mounted.current) {
         return;
       }

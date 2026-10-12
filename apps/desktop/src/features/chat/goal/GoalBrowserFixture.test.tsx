@@ -64,9 +64,9 @@ describe("Goal browser fixture", () => {
       await selectFixture("Goal fixture state", state);
       await selectFixture("Goal mutation outcome", "pending");
 
-      await userEvent.setup().click(
-        await screen.findByRole("button", { name: appI18n.t(`chat.goal.${action}`) }),
-      );
+      await userEvent
+        .setup()
+        .click(await screen.findByRole("button", { name: appI18n.t(`chat.goal.${action}`) }));
       expect(screen.queryByTestId("goal-mutation-pending")).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: appI18n.t(`chat.goal.${next}`) })).toBeDisabled();
       await userEvent.setup().click(screen.getByRole("button", { name: "Resolve pending Goal action" }));

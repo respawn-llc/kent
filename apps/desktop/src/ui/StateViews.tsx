@@ -26,8 +26,8 @@ const defaultLoadingAppearanceDelayKey = "global";
 const delayedLoadingAppearanceKeys = new Set<string>();
 
 export function LoadingState({
-  inset = false,
-  surface = "island",
+  inset,
+  surface,
   title = null,
   body = null,
   actions,
@@ -169,8 +169,8 @@ export type ErrorStateProps = Readonly<{
 }>;
 
 export function ErrorState({
-  inset = false,
-  surface = "island",
+  inset,
+  surface,
   title = null,
   body = null,
   details = null,
@@ -221,8 +221,8 @@ export function ErrorState({
 }
 
 type StateIslandProps = Readonly<{
-  inset?: boolean;
-  surface?: "island" | "plain";
+  inset?: boolean | undefined;
+  surface?: "island" | "plain" | undefined;
   children: ReactNode;
   chromePadding: boolean;
   contentTestID: string;
@@ -240,20 +240,14 @@ type StateIslandProps = Readonly<{
 type StateContentWidth = "default" | "full";
 
 function StateIsland({
-  inset = false,
-  surface = "island",
   children,
-  chromePadding,
   contentTestID,
   contentWidth,
-  fullPage,
   icon,
   iconClassName,
-  reveal,
-  testID,
   title,
   titleClassName,
-  tone = "floating",
+  ...surfaceProps
 }: StateIslandProps) {
   const content = (
     <div
@@ -269,7 +263,7 @@ function StateIsland({
           "grid h-14 w-14 place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] text-[var(--color-muted)]",
           iconClassName,
         )}
-        data-testid={`${testID}-icon`}
+        data-testid={`${surfaceProps.testID}-icon`}
       >
         {icon}
       </div>
@@ -279,6 +273,25 @@ function StateIsland({
       <div className="grid max-w-full justify-items-center gap-[var(--space-2)]">{children}</div>
     </div>
   );
+  return (
+    <StateSurface {...surfaceProps} contentWidth={contentWidth}>
+      {content}
+    </StateSurface>
+  );
+}
+
+function StateSurface({
+  inset = false,
+  surface = "island",
+  children,
+  chromePadding,
+  contentWidth,
+  fullPage,
+  reveal,
+  testID,
+  tone = "floating",
+}: Omit<StateIslandProps, "contentTestID" | "icon" | "iconClassName" | "title" | "titleClassName">) {
+  const revealClassName = reveal && "animate-[surface-reveal_var(--motion-normal)]";
   if (surface === "plain") {
     return (
       <div
@@ -287,11 +300,11 @@ function StateIsland({
           inset && "p-[var(--space-4)]",
           fullPage && "h-full min-h-0",
           chromePadding && chromeContentPaddingClassName,
-          reveal && "animate-[surface-reveal_var(--motion-normal)]",
+          revealClassName,
         )}
         data-testid={testID}
       >
-        {content}
+        {children}
       </div>
     );
   }
@@ -305,26 +318,19 @@ function StateIsland({
         data-testid={testID}
       >
         <Island
-          className={cx(
-            "grid h-full min-h-0 w-full place-items-center overflow-hidden",
-            reveal && "animate-[surface-reveal_var(--motion-normal)]",
-          )}
+          className={cx("grid h-full min-h-0 w-full place-items-center overflow-hidden", revealClassName)}
           data-testid={`${testID}-island`}
           floatingWidth={contentWidth === "full" ? "full" : "default"}
           tone={tone}
         >
-          {content}
+          {children}
         </Island>
       </div>
     );
   }
   return (
-    <Island
-      className={cx("grid place-items-center", reveal && "animate-[surface-reveal_var(--motion-normal)]")}
-      data-testid={testID}
-      tone={tone}
-    >
-      {content}
+    <Island className={cx("grid place-items-center", revealClassName)} data-testid={testID} tone={tone}>
+      {children}
     </Island>
   );
 }
