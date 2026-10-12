@@ -71,7 +71,18 @@ _desktop-smoke-macos-implementation bundle_dir:
     [ "${#dmgs[@]}" -eq 1 ] || { echo "Expected exactly one macOS DMG, found ${#dmgs[@]}." >&2; exit 1; }
     mount_dir="$(mktemp -d)"
     printf 'Y\n' | hdiutil attach "${dmgs[0]}" -nobrowse -readonly -mountpoint "$mount_dir"
-    trap 'hdiutil detach "$mount_dir"' EXIT
+    cleanup() {
+        local smoke_status=$?
+        local detach_status=0
+        # This is a read-only smoke image; force eject after the application exits.
+        hdiutil detach -force "$mount_dir" || detach_status=$?
+        if [ "$smoke_status" -eq 0 ]; then
+            smoke_status=$detach_status
+        fi
+        trap - EXIT
+        exit "$smoke_status"
+    }
+    trap cleanup EXIT
     app="$mount_dir/Kent.app"
     executable="$app/Contents/MacOS/kent-desktop"
     [ "$(plutil -extract LSMinimumSystemVersion raw "$app/Contents/Info.plist")" = "15.0" ]
