@@ -130,6 +130,10 @@ func NewRuntimeWiringWithBackground(
 	if err != nil {
 		return nil, err
 	}
+	connectionVariant, err := llm.ResolveConnectionVariant(connection)
+	if err != nil {
+		return nil, err
+	}
 	tokenEstimator, err := llm.ResolveConnectionTokenEstimator(connection)
 	if err != nil {
 		return nil, err
@@ -176,15 +180,16 @@ func NewRuntimeWiringWithBackground(
 	modelCapabilities := lockedModelCapabilitiesForConfig(active.Model, active.ModelCapabilities, providerCapabilities, opts.Sources, "model_capabilities.supports_reasoning_effort", "model_capabilities.supports_vision_inputs")
 	var eng *runtime.Engine
 	localTools, askBroker, background, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{
-		WorkspaceMembership: opts.WorkspaceMembership,
-		FilesystemContext:   filesystemContext,
-		OwnerSessionID:      store.Meta().SessionID,
-		Enabled:             enabledTools,
-		MinimumExecToBgTime: time.Duration(active.MinimumExecToBgSeconds) * time.Second,
-		ShellOutputMaxChars: active.ShellOutputMaxChars,
-		ModelContextWindow:  active.ModelContextWindow,
-		EstimateText:        tokenEstimator.EstimateText,
-		AllowNonCwdEdits:    active.AllowNonCwdEdits,
+		WorkspaceMembership:    opts.WorkspaceMembership,
+		FilesystemContext:      filesystemContext,
+		OwnerSessionID:         store.Meta().SessionID,
+		Enabled:                enabledTools,
+		MinimumExecToBgTime:    time.Duration(active.MinimumExecToBgSeconds) * time.Second,
+		ShellOutputMaxChars:    active.ShellOutputMaxChars,
+		ModelContextWindow:     active.ModelContextWindow,
+		EstimateText:           tokenEstimator.EstimateText,
+		AllowNonCwdEdits:       active.AllowNonCwdEdits,
+		RawImageOriginalDetail: connectionVariant.Variant.Capabilities.IsOpenAIFirstParty,
 		SupportsVision: func() bool {
 			if locked := store.Meta().Locked; locked != nil {
 				return llm.LockedContractSupportsVisionInputs(locked, active.Model)
