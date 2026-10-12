@@ -3022,7 +3022,7 @@ func TestInteractivePreparedGenerationRestoresWorkflowAssignment(t *testing.T) {
 				}
 				time.Sleep(10 * time.Millisecond)
 			}
-			service := runtimecontrol.NewService(f.authority).
+			service := runtimecontrol.NewService(f.authority, f.metadata).
 				WithPromptHistoryStore(f.metadata).
 				WithWorkflowSessionReactivator(f.controller).
 				WithWorkflowSessionPreparationReader(f.controller)

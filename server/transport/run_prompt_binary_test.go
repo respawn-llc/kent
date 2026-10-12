@@ -92,10 +92,11 @@ func TestRunPromptBinaryReportsUnavailableConnectionSelection(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer client.Close()
-			_, err = client.RunPrompt(ctx, serverapi.RunPromptRequest{
+			request := requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 				Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 				Prompt: "report selection failure",
-			}, nil)
+			})
+			_, err = client.RunPrompt(ctx, request, nil)
 			if err == nil || err.Error() != selectionErr.Error() {
 				t.Fatalf("selection failure did not survive transport: %v; want %v", err, selectionErr)
 			}

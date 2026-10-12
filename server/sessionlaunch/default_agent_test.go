@@ -46,7 +46,7 @@ func TestChatAgentMutationAllocatesActualMemberAndPreservesUnchangedBinding(t *t
 	service := NewService(launch.Planner{
 		Config: cfg, Rotation: rotation, ContainerDir: filepath.Join(cfg.PersistenceRoot, "projects", binding.ProjectID, "sessions"),
 		StoreOptions: db.AuthoritativeSessionStoreOptions(), PersistedSessions: db, SessionProjects: db, ManagedWorktreeRoots: db,
-	}, ChatSettingsOwner{Authority: authority, Registry: registry.NewRuntimeRegistry()})
+	}, ChatSettingsOwner{Authority: authority, Registry: registry.NewRuntimeRegistry(db)}, db)
 	initial, err := service.PlanLaunchSession(t.Context(), PlanRequest{
 		Mode: launch.ModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	})

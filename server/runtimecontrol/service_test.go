@@ -2,8 +2,8 @@ package runtimecontrol
 
 import (
 	"context"
-	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/requestfixture"
+	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
 	"encoding/json"
 	"errors"
