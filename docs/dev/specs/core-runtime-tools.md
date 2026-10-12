@@ -146,6 +146,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - `view_image` opens and reads each local file in an isolated worker. Kent terminates the worker and returns a recoverable tool error when opening or reading takes longer than 10 seconds or the Agent Step is interrupted.
 - When a successful patch cannot accurately describe its whole-file deletion count, Kent never invents a count or reverses the filesystem change. Debug mode fails fast with diagnostics. Production preserves the successful path-only result, records an operator diagnostic excluded from model context, and continues.
 - `view_image` must support still WebP input and preserve transparency when optimizing images to WebP.
+- `view_image` must use automatic image detail by default. When `raw: true` is used with a first-party OpenAI API or ChatGPT connection, it must skip optimization and request original image detail. Other connections must retain automatic image detail when `raw: true` is used and must also skip optimization. PDF and file attachment behavior must remain unchanged.
 - For supported non-raw raster images of at least 100 KiB, `view_image` must attempt WebP re-encoding after validation. Kent must validate the generated image with an independent decoder before accepting it as provider-bound output. Kent keeps the validated original when optimization fails or is not smaller, and always enforces the attachment-size limit.
 
 ## Tool Output And Failure Behavior

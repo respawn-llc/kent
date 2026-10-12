@@ -7,6 +7,8 @@
 - The currently resolved Provider Connection's provider must own local context-token estimation. Saved Session Contracts and capability overrides must not select the estimator.
 - Providers must use shared default content and image estimates unless their implementation overrides them. Default reasoning estimates must treat reasoning as plain text. First-party OpenAI API and ChatGPT connections must use provider-specific encrypted-reasoning and encrypted-compaction estimates.
 - Local context-token estimation must not make remote token-count calls or fetch remote image content.
+- For first-party OpenAI API and ChatGPT connections, local estimation of original-detail inline images must count 32-pixel patches from locally available dimensions. It must round each dimension up to a whole patch and cap each image contribution at 10,000 tokens.
+- For first-party OpenAI API and ChatGPT connections, if local dimensions cannot be read from an original-detail inline image or remote image URL, local estimation must use the ordinary image estimate. File attachment estimates must remain unchanged.
 - Each connection must have one user-chosen configuration ID. IDs must begin with a lowercase ASCII letter and contain only lowercase ASCII letters, digits, hyphens, and underscores. Kent must reject duplicate IDs.
 - Creation must suggest an editable unused numbered provider-based ID. Connections must not require a separate display name or hidden identity.
 - Top-level `connection` must select the default for new unroled interactive Sessions. Roles must inherit that selection unless overridden. Main Workspace private configuration may assign developer-specific connection IDs to shared roles.

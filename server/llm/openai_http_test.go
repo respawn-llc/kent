@@ -262,7 +262,7 @@ func TestBuildResponsesInput_ToolOutputSupportsStructuredInputImageItems(t *test
 		{
 			Role:       RoleTool,
 			ToolCallID: textutil.Value("call_1"),
-			Content:    textutil.Value(`[{"type":"input_image","image_url":"data:image/png;base64,abc"}]`),
+			Content:    textutil.Value(`[{"type":"input_image","image_url":"data:image/png;base64,abc","detail":"original"}]`),
 		},
 	}))
 	if len(items) != 1 {
@@ -286,6 +286,9 @@ func TestBuildResponsesInput_ToolOutputSupportsStructuredInputImageItems(t *test
 	}
 	if got := part["image_url"]; got != "data:image/png;base64,abc" {
 		t.Fatalf("unexpected image_url in structured output: %#v", got)
+	}
+	if got := part["detail"]; got != "original" {
+		t.Fatalf("expected original image detail in outgoing request, got %#v", got)
 	}
 }
 
