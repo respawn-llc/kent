@@ -82,8 +82,13 @@ public static class InstallerFixture {
         if (Test-Path -LiteralPath $env:FIXTURE_CALLS) {
             $actual = @(Get-Content -LiteralPath $env:FIXTURE_CALLS)
         }
-        if (($actual | ConvertTo-Json -Compress) -ne ($ExpectedCalls | ConvertTo-Json -Compress)) {
-            throw "$Name commands: $($actual -join ', ')"
+        if ($actual.Count -ne $ExpectedCalls.Count) {
+            throw "$Name commands: $($actual -join ', '); expected: $($ExpectedCalls -join ', ')"
+        }
+        for ($index = 0; $index -lt $actual.Count; $index++) {
+            if (-not [string]::Equals($actual[$index], $ExpectedCalls[$index], [StringComparison]::Ordinal)) {
+                throw "$Name command ${index}: '$($actual[$index])'; expected: '$($ExpectedCalls[$index])'"
+            }
         }
         Write-Output "PASS $Name"
     }
