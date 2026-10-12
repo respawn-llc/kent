@@ -749,7 +749,7 @@ func TestResolveWorktreeCreateTargetClassifiesInvalidInputWithoutFailure(t *test
 	for _, target := range []string{"feature/", "Test WT", "feature..bad", "-feature"} {
 		t.Run(target, func(t *testing.T) {
 			result, err := env.service.ResolveWorktreeCreateTarget(env.ctx, &worktreepb.CreateTargetResolveRequest{
-				Scope: worktreecontract.SessionManagementScope(env.session.Meta().SessionID), Target: target,
+				Scope: worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}}), Target: target,
 			})
 			if err != nil {
 				t.Fatalf("invalid input must be a field classification, not a failed request: %v", err)

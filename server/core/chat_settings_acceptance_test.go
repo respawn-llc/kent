@@ -194,7 +194,7 @@ func testChatSettingsRuntimeMutation(t *testing.T, switchAgent bool) {
 	if switchAgent {
 		for _, role := range []string{"unavailable-agent", brand.DefaultSubagentRole} {
 			result, err := chatSettings.MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
-				Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()},
+				Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}},
 				Operation: &chatsettingspb.MutationOperation{
 					Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: role},
 				},
@@ -214,7 +214,7 @@ func testChatSettingsRuntimeMutation(t *testing.T, switchAgent bool) {
 			}
 		}
 		switched, err := chatSettings.MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
-			Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()},
+			Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}},
 			Operation: &chatsettingspb.MutationOperation{
 				Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: brand.BuiltInSubagentRoleFast},
 			},
