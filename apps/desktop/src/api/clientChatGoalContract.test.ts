@@ -145,7 +145,7 @@ describe("Desktop Chat Goal Set contract", () => {
       code: "runtime_unavailable",
       detail: {
         case: "runtimeUnavailable",
-        value: { sessionId: sessionID },
+        value: { sessionTarget: { stage: { case: "canonicalSessionId", value: sessionID } } },
       },
     });
   });
