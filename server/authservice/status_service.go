@@ -263,8 +263,8 @@ type grokProductUsage struct {
 type grokProduct string
 
 const (
-	grokProductBuild grokProduct = "PRODUCT_GROK_BUILD"
-	grokProductChat  grokProduct = "PRODUCT_GROK_CHAT"
+	grokProductBuild grokProduct = "GrokBuild"
+	grokProductChat  grokProduct = "GrokChat"
 )
 
 func fetchGrokBillingPayload(ctx context.Context, credential auth.OAuthMethod) (grokBillingPayload, error) {

@@ -317,32 +317,40 @@ func TestGrokStatusOmitsQuotaWindowWhenTotalUsageIsMissing(t *testing.T) {
 	}
 }
 
-func TestGrokStatusPreservesTotalAndProductContributions(t *testing.T) {
-	service, id := grokStatusTestService(t, config.ConnectionGrokCLIProxy)
-	withStatusTransport(t, func(request *http.Request) (*http.Response, error) {
-		return statusJSONResponse(http.StatusOK, `{
-			"config": {
-				"creditUsagePercent": 86,
-				"productUsage": [
-					{"product": "PRODUCT_GROK_BUILD", "usagePercent": 67},
-					{"product": "PRODUCT_GROK_CHAT", "usagePercent": 19}
-				]
+func TestGrokStatusPreservesTotalAndProductContributionsForBothRoutes(t *testing.T) {
+	for _, protocol := range []config.ConnectionProtocol{
+		config.ConnectionGrokOAuthAPI,
+		config.ConnectionGrokCLIProxy,
+	} {
+		t.Run(string(protocol), func(t *testing.T) {
+			service, id := grokStatusTestService(t, protocol)
+			withStatusTransport(t, func(request *http.Request) (*http.Response, error) {
+				return statusJSONResponse(http.StatusOK, `{
+					"config": {
+						"creditUsagePercent": 87,
+						"productUsage": [
+							{"product": "GrokBuild", "usagePercent": 68},
+							{"product": "GrokChat", "usagePercent": 19}
+						]
+					}
+				}`, request), nil
+			})
+			status, err := service.GetStatus(t.Context(), &authpb.GetStatusRequest{
+				Provider: &authpb.ProviderSelection{ConnectionId: id},
+			})
+			if err != nil {
+				t.Fatal(err)
 			}
-		}`, request), nil
-	})
-	status, err := service.GetStatus(t.Context(), &authpb.GetStatusRequest{
-		Provider: &authpb.ProviderSelection{ConnectionId: id},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	subscription := status.GetSubscription()
-	if len(subscription.GetWindows()) != 1 || subscription.GetWindows()[0].GetUsedPercent() != 86 {
-		t.Fatalf("Grok total usage = %+v", subscription)
-	}
-	contributions := subscription.GetWindows()[0].GetGrokContributions()
-	if contributions == nil || contributions.GetBuildUsedPercent() != 67 || contributions.GetChatUsedPercent() != 19 {
-		t.Fatalf("Grok product contributions = %+v", subscription.GetWindows()[0])
+			subscription := status.GetSubscription()
+			if len(subscription.GetWindows()) != 1 || subscription.GetWindows()[0].GetUsedPercent() != 87 {
+				t.Fatalf("Grok total usage = %+v", subscription)
+			}
+			contributions := subscription.GetWindows()[0].GetGrokContributions()
+			if contributions == nil || contributions.GetBuildUsedPercent() != 68 ||
+				contributions.GetChatUsedPercent() != 19 {
+				t.Fatalf("Grok product contributions = %+v", subscription.GetWindows()[0])
+			}
+		})
 	}
 }
 
@@ -353,8 +361,8 @@ func TestGrokStatusDistinguishesZeroAndMissingProductUsage(t *testing.T) {
 			"config": {
 				"creditUsagePercent": 0,
 				"productUsage": [
-					{"product": "PRODUCT_GROK_BUILD", "usagePercent": 0},
-					{"product": "PRODUCT_GROK_CHAT"}
+					{"product": "GrokBuild", "usagePercent": 0},
+					{"product": "GrokChat"}
 				]
 			}
 		}`, request), nil
