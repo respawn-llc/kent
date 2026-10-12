@@ -8,6 +8,23 @@ import { row } from "@/test-support/transcript-window";
 import { ChatAssistantMessage } from "./ChatAssistantMessage";
 import { ChatUserMessage } from "./ChatUserMessage";
 
+it("keeps the full initial layout height during ancestor entrance scaling", async () => {
+  const geometry = installAnimatedHeightGeometry(160, 0.95);
+  const view = render(
+    <TestAppProviders services={createTestServices([])}>
+      <ChatAssistantMessage item={liveAssistant("A response")} />
+    </TestAppProviders>,
+  );
+  try {
+    await flushAnimationFrames();
+    const bubble = screen.getByText(() => true, { selector: "section" });
+    expect(bubble.offsetHeight).toBe(160);
+  } finally {
+    view.unmount();
+    geometry.restore();
+  }
+});
+
 it("grows a streaming bubble smoothly without replacing already rendered characters", async () => {
   const geometry = installAnimatedHeightGeometry(80);
   const services = createTestServices([]);

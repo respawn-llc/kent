@@ -9,7 +9,7 @@ it("scrolls the selected Agent into view when the chooser opens", async () => {
   const overview = document.createElement("div");
   const scroll = document.createElement("div");
   const selected = document.createElement("div");
-  overview.getBoundingClientRect = () => DOMRect.fromRect({ height: 240 });
+  Object.defineProperty(overview, "offsetHeight", { value: 240 });
   Object.defineProperty(selected, "offsetTop", { value: 500 });
   Object.defineProperty(selected, "offsetHeight", { value: 40 });
   Object.defineProperty(scroll, "clientHeight", { value: 480 });

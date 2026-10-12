@@ -54,12 +54,16 @@ func (a *Authority) WithSessionAgentChange(ctx context.Context, sessionID runtim
 			}
 		}
 		return a.withMaintenanceResourceAdmission(runCtx, sessionID, maintenanceAdmissionAuthorized, false, func(ctx context.Context, store *session.Store, _ *agentResource, engine *runtime.Engine) (bool, error) {
-			if engine != nil {
-				if err := engine.RunWhenIdleBeforeQueuedUserWork(ctx, runtime.ActiveKindRuntimeMaintenance, func() error { return nil }); err != nil {
-					return false, err
-				}
+			if engine == nil {
+				return commit(ctx, store, nil)
 			}
-			return commit(ctx, store, engine)
+			var retire bool
+			err := engine.RunWhenIdleBeforeQueuedUserWork(ctx, runtime.ActiveKindRuntimeMaintenance, func() error {
+				var err error
+				retire, err = commit(ctx, store, engine)
+				return err
+			})
+			return retire, err
 		})
 	})
 	if err != nil {

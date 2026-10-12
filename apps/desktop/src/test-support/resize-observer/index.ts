@@ -10,8 +10,9 @@ export type ResizeObserverGeometryHarness = Readonly<{
   setGeometry(element: HTMLElement, geometry: ResizeObserverGeometry): void;
 }>;
 
-export function installAnimatedHeightGeometry(initialHeight: number) {
+export function installAnimatedHeightGeometry(initialHeight: number, scale = 1) {
   const observer = installResizeObserverGeometry();
+  const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
   let naturalHeight = initialHeight;
   // jsdom has no layout. Resolve the rendered height through actual Motion
   // output while supplying the natural content height at the leaf nodes.
@@ -28,7 +29,13 @@ export function installAnimatedHeightGeometry(initialHeight: number) {
   Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
     configurable: true,
     value(this: HTMLElement) {
-      return new DOMRect(0, 0, 320, height(this));
+      return new DOMRect(0, 0, 320, height(this) * scale);
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return height(this);
     },
   });
   return {
@@ -36,7 +43,10 @@ export function installAnimatedHeightGeometry(initialHeight: number) {
       naturalHeight = nextHeight;
       observer.notify();
     },
-    restore: observer.restore,
+    restore() {
+      observer.restore();
+      restoreDescriptor(HTMLElement.prototype, "offsetHeight", originalOffsetHeight);
+    },
   };
 }
 
@@ -212,7 +222,8 @@ class ControlledResizeObserver implements ResizeObserver {
 
 function restoreDescriptor(
   prototype: typeof HTMLElement.prototype,
-  property: "clientHeight" | "getBoundingClientRect" | "scrollHeight" | "scrollTo" | "scrollTop",
+  property:
+    "clientHeight" | "getBoundingClientRect" | "offsetHeight" | "scrollHeight" | "scrollTo" | "scrollTop",
   descriptor: PropertyDescriptor | undefined,
 ): void {
   if (descriptor === undefined) {

@@ -5,16 +5,17 @@ import (
 	"errors"
 
 	"core/server/runtime"
+	"core/server/session"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
 
 func (s *Service) AdmitChatQueuedUserInput(
 	ctx context.Context,
-	session string,
+	sessionIDText string,
 	projection PreparedUserTurn,
 ) (serverapi.ChatInputAdmissionResult, error) {
-	sessionID, err := runtimeids.ParseSessionID(session)
+	sessionID, err := runtimeids.ParseSessionID(sessionIDText)
 	if err != nil {
 		return serverapi.ChatInputAdmissionResult{}, err
 	}
@@ -23,13 +24,17 @@ func (s *Service) AdmitChatQueuedUserInput(
 	}
 	attempt := newRuntimeCommandAttempt(ctx)
 	defer attempt.Finish()
+	descriptor, err := session.NewOpenSessionDescriptor(sessionID)
+	if err != nil {
+		return serverapi.ChatInputAdmissionResult{}, err
+	}
 	var queued runtime.QueuedUserMessage
-	err = s.authority.WithCurrentRuntime(attempt.Context(), sessionID, func(runCtx context.Context, engine *runtime.Engine) error {
+	err = s.authority.RunCurrentTurn(attempt.Context(), descriptor, attempt.Accept, func(runCtx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance, _ func()) error {
 		var queueErr error
 		queued, queueErr = engine.QueueUserInputWithAcceptance(
 			runCtx,
 			projection.queuedInput(),
-			attempt.Accept,
+			accept,
 		)
 		return queueErr
 	})
@@ -40,7 +45,7 @@ func (s *Service) AdmitChatQueuedUserInput(
 	if parseErr != nil {
 		return serverapi.ChatInputAdmissionResult{Accepted: true}, errors.Join(err, parseErr)
 	}
-	historyErr := s.recordAcceptedUserTurnHistory(canonicalUserTurnRequest(session, projection.Input), projection)
+	historyErr := s.recordAcceptedUserTurnHistory(canonicalUserTurnRequest(sessionIDText, projection.Input), projection)
 	return serverapi.ChatInputAdmissionResult{
 		QueueItemID:          queueItemID,
 		Accepted:             true,

@@ -175,7 +175,7 @@ func ProjectChatSettingsState(meta Meta, target ChatSettingsState) (Meta, bool, 
 	if selection != nil {
 		next.AgentRole = selection.AgentRole
 	}
-	changed := !chatSettingsStatesEqual(current, next)
+	changed := !current.Equal(next)
 	if !changed {
 		return currentMeta, false, nil
 	}
@@ -384,7 +384,7 @@ func chatSettingsStateFromNormalizedMeta(meta Meta) ChatSettingsState {
 	}
 }
 
-func chatSettingsStatesEqual(left ChatSettingsState, right ChatSettingsState) bool {
+func (left ChatSettingsState) Equal(right ChatSettingsState) bool {
 	return textutil.EqualOptional(left.AgentRole, right.AgentRole) &&
 		textutil.EqualOptional(left.ConnectionID, right.ConnectionID) &&
 		chatSettingsOverridesEqual(left.Settings, right.Settings)

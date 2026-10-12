@@ -59,7 +59,8 @@ export function SteppedSelector<Value extends string>({
         }}
         onValueCommit={(next) => {
           setPreview(null);
-          onCommit(sliderValue(next, values));
+          const committed = sliderValue(next, values);
+          if (committed !== value) onCommit(committed);
         }}
         step={1}
         style={style}

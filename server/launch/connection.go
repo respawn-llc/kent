@@ -51,7 +51,21 @@ func (r *ConnectionRotation) Prepare(settings config.Settings, allocate bool) (c
 }
 
 func (p RunPromptPreparationContext) prepareConnection(settings *config.Settings, source config.SourceReport) error {
-	id, _, err := p.Rotation.ResolveSessionConnection(*settings, p.ConnectionID, p.AllocateConnection)
+	saved := p.ConnectionID
+	if retained := p.RetainedConnectionSelection; retained != nil {
+		if saved != nil || p.AllocateConnection {
+			return fmt.Errorf("retained Connection selection cannot be combined with resume or allocation")
+		}
+		members, err := settings.ConnectionMembers()
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(members, *retained) {
+			return fmt.Errorf("retained Connection %q is no longer a member of the selected Agent's connection set", *retained)
+		}
+		saved = retained
+	}
+	id, _, err := p.Rotation.ResolveSessionConnection(*settings, saved, p.AllocateConnection)
 	if err != nil {
 		return err
 	}

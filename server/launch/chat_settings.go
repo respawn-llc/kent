@@ -65,6 +65,12 @@ func PrepareChatAgentSelection(app config.App, selector string, meta session.Met
 	}, false)
 }
 
+func RevalidateChatAgentSelection(app config.App, selector string, meta session.Meta, connection config.ConnectionID) (PreparedChatAgentCatalogEntry, error) {
+	return prepareChatAgentEntry(app, selector, RunPromptPreparationContext{
+		Mode: defaultAgentMode(meta), RetainedConnectionSelection: &connection,
+	}, false)
+}
+
 func PrepareSessionChatAgentCatalog(app config.App, meta session.Meta) (PreparedChatAgentCatalog, error) {
 	state, err := session.ChatSettingsStateFromMeta(meta)
 	if err != nil {

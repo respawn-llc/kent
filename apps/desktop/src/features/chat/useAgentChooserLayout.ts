@@ -26,7 +26,7 @@ export function useAgentChooserLayout(choosing: boolean) {
     capture: () => {
       const overview = overviewRef.current;
       if (overview === null) return;
-      setHeight(overview.getBoundingClientRect().height * 2);
+      setHeight(overview.offsetHeight * 2);
     },
   };
 }
