@@ -17,6 +17,7 @@ import (
 	"core/server/runprompt"
 	serverstartup "core/server/startup"
 	askquestion "core/server/tools"
+	"core/shared/client"
 	"core/shared/config"
 	"core/shared/protoapi"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
@@ -287,8 +288,9 @@ func TestStartRunPromptClientWithoutServerRequiresRunningServer(t *testing.T) {
 	// kent run is a pure client: with no server running it cannot start one of
 	// its own, so it must fail with the "server required" error.
 	runClient, closeFn, err := startRunPromptClient(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
-	if !errors.Is(err, errRunRequiresServer) {
-		t.Fatalf("startRunPromptClient error = %v, want errRunRequiresServer", err)
+	var unavailable *client.ServerUnavailableError
+	if !errors.As(err, &unavailable) {
+		t.Fatalf("startRunPromptClient error = %v, want unavailable server", err)
 	}
 	if runClient != nil {
 		t.Fatalf("expected no run client, got %v", runClient)

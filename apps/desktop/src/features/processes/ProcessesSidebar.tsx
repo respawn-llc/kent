@@ -1,4 +1,4 @@
-import { Circle, Square } from "lucide-react";
+import { Circle, CornerDownRight, Square } from "lucide-react";
 import { useMemo, type ReactElement } from "react";
 import { useAtomMount, useAtomValue, useAtomSet } from "@effect/atom-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -7,12 +7,16 @@ import { useTranslation } from "react-i18next";
 import { errorMessage, type ChatSessionTarget, type DesktopProcess } from "@/api";
 import { useAppServices, useStatusController } from "@/app-facade";
 import {
-  cx,
+  ActionableListRow,
   EmptyState,
   ErrorState,
   IconTooltipButton,
   LoadingState,
   Spinner,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
   VirtualizedInfiniteList,
 } from "@/ui";
 import {
@@ -68,12 +72,13 @@ export function ProcessesSidebar({ target }: Readonly<{ target: ChatSessionTarge
   return (
     <VirtualizedInfiniteList
       ariaLabel={t("processes.title")}
-      className="h-full min-h-0 overflow-auto px-[var(--space-4)] py-[var(--space-3)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch]"
+      className="h-full min-h-0 overflow-auto px-[var(--space-4)] py-[var(--space-3)] hide-scrollbar contain-strict [overflow-anchor:none] [-webkit-overflow-scrolling:touch]"
       estimateSize={() => processRowEstimatedHeightPx}
       getItemKey={(process) => process.id}
       hasNextPage={false}
       isFetchingNextPage={false}
       items={data.processes}
+      layoutChangeScrollBehavior="natural"
       loadingLabel={t("app.loadingMore")}
       onLoadMore={noLoad}
       rowSpacing="tight"
@@ -116,44 +121,61 @@ function ProcessRow({
   const terminate = useAtomSet(model.terminate);
   const presentation = projectProcessPresentation(process, observationTime);
   return (
-    <div className="grid h-[76px] min-w-0 grid-rows-[28px_22px_22px] border-b border-[var(--color-outline)] text-sm">
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-[var(--space-2)]">
-        <div className="flex min-w-0 items-center gap-[var(--space-2)]">
-          <ProcessStateIcon indicator={presentation.stateIndicator} tone={presentation.stateTone} />
-          <span className={cx("shrink-0", processStateToneClassName[presentation.stateTone])}>
-            {presentation.stateLabel}
-          </span>
-          <span className="min-w-0 truncate font-mono font-semibold">{presentation.id}</span>
+    <ActionableListRow
+      layout="stacked"
+      selectionControl={
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex min-w-0 items-center gap-[var(--space-2)]">
+                <ProcessStateIcon indicator={presentation.stateIndicator} tone={presentation.stateTone} />
+                <span className="min-w-0 truncate font-mono text-sm font-medium">{presentation.id}</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-sm break-all font-mono">{presentation.workdir}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      }
+      actions={
+        <>
+          {pending || presentation.stopping || presentation.terminable ? (
+            <IconTooltipButton
+              className="size-5 text-[var(--color-error)]"
+              disabled={pending || presentation.stopping}
+              label={
+                pending || presentation.stopping
+                  ? t("processes.stopping")
+                  : t("processes.terminate", { id: processID })
+              }
+              onClick={() => {
+                terminate(undefined);
+              }}
+              loading={pending || presentation.stopping}
+              size="icon-sm"
+              variant="ghost"
+            >
+              <Square size={12} strokeWidth={1.5} />
+            </IconTooltipButton>
+          ) : null}
           {presentation.age === null ? null : (
-            <span className="shrink-0 text-[var(--color-muted)]">{presentation.age}</span>
+            <span className="shrink-0 text-xs tabular-nums text-[var(--color-muted)]">
+              {presentation.age}
+            </span>
           )}
-          {presentation.workdir.length === 0 ? null : (
-            <span className="min-w-0 truncate text-[var(--color-muted)]">{presentation.workdir}</span>
+        </>
+      }
+      subtitle={
+        <div className="grid min-w-0 gap-[var(--space-1)] font-mono text-xs text-[var(--color-muted)]">
+          <div className="truncate">{presentation.command}</div>
+          {presentation.output.length === 0 ? null : (
+            <div className="flex min-w-0 items-center gap-[var(--space-1)]">
+              <CornerDownRight className="shrink-0" size={12} strokeWidth={1.5} />
+              <span className="min-w-0 truncate">{presentation.output}</span>
+            </div>
           )}
         </div>
-        {pending ? (
-          <Spinner size="sm" />
-        ) : presentation.stopping ? (
-          <span className="shrink-0 text-xs text-[var(--color-muted)]">{t("processes.stopping")}</span>
-        ) : presentation.terminable ? (
-          <IconTooltipButton
-            label={t("processes.terminate", { id: processID })}
-            onClick={() => {
-              terminate(undefined);
-            }}
-            size="icon-sm"
-            variant="danger"
-          >
-            <Square aria-hidden="true" fill="currentColor" size={11} strokeWidth={0} />
-          </IconTooltipButton>
-        ) : null}
-      </div>
-      <div className="min-w-0 truncate font-mono text-[var(--color-on-island)]">
-        <span className="mr-[var(--space-2)] text-[var(--color-primary)]">$</span>
-        {presentation.command}
-      </div>
-      <div className="min-w-0 truncate font-mono text-[var(--color-muted)]">{presentation.output}</div>
-    </div>
+      }
+    />
   );
 }
 

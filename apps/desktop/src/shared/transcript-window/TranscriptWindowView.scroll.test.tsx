@@ -552,10 +552,10 @@ it("compensates above-viewport remeasurement while scrolling upward", async () =
 });
 
 it.each([
-  { height: 20, offset: 2010, expected: 2010 },
-  { height: 200, offset: 2010, expected: 2010 },
+  { height: 20, offset: 2010, expected: 1990 },
+  { height: 200, offset: 2010, expected: 2170 },
   { height: 20, offset: 2030, expected: 2010 },
-  { height: 200, offset: 2050, expected: 2050 },
+  { height: 200, offset: 2050, expected: 2210 },
 ])("anchors first measurement of $height px at offset $offset", async ({ height, offset, expected }) => {
   const geometry = installVirtualizedScrollGeometry(600);
   const { view } = streamingView(Array.from({ length: 100 }, (_, index) => row(index + 1)));

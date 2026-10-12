@@ -121,9 +121,12 @@ func requireExplicitRoot(req *AttachRunPromptRequest) string {
 }
 
 func TestAttachRunPromptWithoutReachableServer(t *testing.T) {
-	_, _, err := AttachRunPrompt(context.Background(), testAttachRequest(unavailableProjectDial))
-	if !errors.Is(err, ErrNoServerAvailable) {
-		t.Fatalf("err = %v, want ErrNoServerAvailable", err)
+	cause := errors.New("connection failed")
+	_, _, err := AttachRunPrompt(t.Context(), testAttachRequest(
+		func(context.Context, config.Connection) (ProjectViewRemote, error) { return nil, cause },
+	))
+	if !errors.Is(err, cause) {
+		t.Fatalf("connection diagnostic lost: %v", err)
 	}
 }
 
@@ -145,8 +148,9 @@ func TestAttachRunPromptReportsTypedPersistenceRootMismatch(t *testing.T) {
 			})
 			requireExplicitRoot(&req)
 			_, _, err := AttachRunPrompt(context.Background(), req)
+			var unavailable *client.ServerUnavailableError
 			if !errors.Is(err, ErrReachableServerRootMismatch) ||
-				errors.Is(err, ErrNoServerAvailable) {
+				errors.As(err, &unavailable) {
 				t.Fatalf("err = %v, want root mismatch distinct from no server", err)
 			}
 			var mismatch *RootMismatchServerError

@@ -171,8 +171,15 @@ func (p remoteDialPlan) dial(ctx context.Context, transport rpcwire.ClientTransp
 		if err == nil {
 			return conn, nil
 		}
+		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+			return nil, err
+		}
+		var networkError net.Error
+		if errors.As(err, &networkError) || errors.Is(err, context.DeadlineExceeded) {
+			err = &ServerUnavailableError{Endpoint: endpoint.ServerURL, Cause: err}
+		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
+			return nil, errors.Join(err, ctxErr)
 		}
 		dialErr = err
 	}

@@ -1116,7 +1116,7 @@ message SetupNotRequired {
 }
 
 message SetupProcessExit {
-  int32 exit_code = 1;
+  int64 exit_code = 1;
   optional string stdout = 2;
   optional string stderr = 3;
 

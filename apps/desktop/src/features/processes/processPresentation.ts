@@ -1,5 +1,4 @@
 import type { DesktopProcess } from "@/api";
-import { basename } from "@/app-facade";
 
 export type ProcessStateTone = "error" | "muted" | "primary" | "success";
 export type ProcessStateIndicator = "active" | "stopping" | "terminal";
@@ -10,7 +9,6 @@ export type ProcessPresentation = Readonly<{
   id: string;
   output: string;
   stateIndicator: ProcessStateIndicator;
-  stateLabel: string;
   stateTone: ProcessStateTone;
   stopping: boolean;
   terminable: boolean;
@@ -29,20 +27,11 @@ export function projectProcessPresentation(
     id: process.id,
     output: latestNonemptyLine(process.recentOutput),
     stateIndicator: stopping ? "stopping" : processStateIndicator(process, state),
-    stateLabel: processStateLabel(process, state),
     stateTone: processStateTone(process, state),
     stopping,
     terminable: process.running && !stopping,
-    workdir: basename(process.workdir),
+    workdir: process.workdir,
   };
-}
-
-function processStateLabel(process: DesktopProcess, state: string): string {
-  if (state.length > 0) return state;
-  if (process.running) return "running";
-  if (process.exitCode === 0) return "completed";
-  if (process.exitCode !== null) return "failed";
-  return "queued";
 }
 
 function processStateTone(process: DesktopProcess, state: string): ProcessStateTone {
@@ -66,8 +55,9 @@ function processAge(process: DesktopProcess, observationTime: number): string | 
   const elapsedSeconds = Math.floor((endTime - process.startedAt) / 1_000);
   if (elapsedSeconds < 60) return `${elapsedSeconds.toString()}s`;
   const elapsedMinutes = Math.floor(elapsedSeconds / 60);
-  if (elapsedMinutes < 60) return `${elapsedMinutes.toString()}m`;
-  return `${Math.floor(elapsedMinutes / 60).toString()}h`;
+  const seconds = `${(elapsedSeconds % 60).toString()}s`;
+  if (elapsedMinutes < 60) return `${elapsedMinutes.toString()}m ${seconds}`;
+  return `${Math.floor(elapsedMinutes / 60).toString()}h ${(elapsedMinutes % 60).toString()}m ${seconds}`;
 }
 
 function compactProcessCommand(command: string): string {

@@ -162,7 +162,7 @@ function noticeDiagnostics(
         : {
             ActivityID: value.background.activityId,
             ProcessID: value.background.processId,
-            ExitCode: value.background.exitCode ?? null,
+            ExitCode: value.background.exitCode === undefined ? null : safeNumber(value.background.exitCode),
           },
   };
 }

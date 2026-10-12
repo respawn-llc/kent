@@ -31,3 +31,11 @@ it.each([false, true])("running process stopping follows server stop-request sta
   expect(presentation.terminable).toBe(!killRequested);
   expect(presentation.stateIndicator).toBe(killRequested ? "stopping" : "active");
 });
+
+it("keeps elapsed seconds visible for long-running processes and freezes terminal duration", () => {
+  const running = { ...killedProcess, running: true, finishedAt: null };
+  expect(projectProcessPresentation(running, 3_662_000).age).toBe("1h 1m 1s");
+  expect(projectProcessPresentation(running, 3_663_000).age).toBe("1h 1m 2s");
+  const finished = { ...running, running: false, finishedAt: 3_662_000 };
+  expect(projectProcessPresentation(finished, 9_000_000).age).toBe("1h 1m 1s");
+});

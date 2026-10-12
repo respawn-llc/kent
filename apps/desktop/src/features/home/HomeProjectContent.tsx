@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus } from "lucide-react";
-import { desktopChatEnabled } from "@/shared/feature-flags";
 
 import type { SessionCatalogSummary, SessionCategory } from "@/api";
 import { errorMessage } from "@/api";
@@ -31,11 +30,9 @@ import { useHomeProjectModel, useHomeSessionPages } from "./HomeProjectModel";
 
 export function HomeProjectContent({
   projectID,
-  sessionsVisible,
   sidebarMode,
 }: Readonly<{
   projectID: string;
-  sessionsVisible: boolean;
   sidebarMode: SidebarMode;
 }>) {
   const navigation = useAppNavigation();
@@ -45,15 +42,13 @@ export function HomeProjectContent({
     catalogReturn?.consume();
   }, [catalogReturn]);
   useHomeProjectModel(projectID, async () => navigation.selectHomeProject(null));
-  return sessionsVisible ? (
+  return (
     <ProjectContentTabs
       catalogReturn={catalogReturn?.category ?? null}
       projectID={projectID}
       sidebarMode={sidebarMode}
       taskListViewMemory={taskListViewMemory}
     />
-  ) : (
-    <ProjectTasksSurface projectID={projectID} sidebarMode={sidebarMode} viewMemory={taskListViewMemory} />
   );
 }
 
@@ -96,15 +91,13 @@ function ProjectContentTabs({
             {
               label: t("home.prototype.sessions"),
               value: "sessions",
-              action: desktopChatEnabled
-                ? {
-                    ariaLabel: t("chat.newChat"),
-                    children: <Plus size={14} />,
-                    onClick: () => {
-                      void navigation.openNewChat(projectID);
-                    },
-                  }
-                : undefined,
+              action: {
+                ariaLabel: t("chat.newChat"),
+                children: <Plus size={14} />,
+                onClick: () => {
+                  void navigation.openNewChat(projectID);
+                },
+              },
             },
             { label: t("home.prototype.subagents"), value: "subagents" },
           ]}

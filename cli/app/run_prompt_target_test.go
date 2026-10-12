@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"core/cli/app/internal/startupconfig"
+	"core/shared/client"
 	"core/shared/config"
 )
 
@@ -29,7 +30,8 @@ func TestStartRunPromptClientUnavailableServerDoesNotValidateCallerLocally(t *te
 		WorkspaceContextSessionID: "session-from-env",
 		AgentRole:                 sessionLifecycleStringPtr("missing"),
 	})
-	if !errors.Is(err, errRunRequiresServer) || errors.Is(err, startupconfig.ErrWorkspaceContextSessionMissing) {
+	var unavailable *client.ServerUnavailableError
+	if !errors.As(err, &unavailable) || errors.Is(err, startupconfig.ErrWorkspaceContextSessionMissing) {
 		t.Fatalf("error = %v, want unavailable server without local caller validation", err)
 	}
 }

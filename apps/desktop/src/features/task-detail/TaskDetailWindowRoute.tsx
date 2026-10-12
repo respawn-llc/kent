@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAtomSet } from "@effect/atom-react";
 import { useAppServices, useStatusController } from "@/app-facade";
-import { desktopChatEnabled } from "@/shared/feature-flags";
 import { TaskDetailSurface } from "./TaskDetailSurface";
 import { useExactTaskDetailDeleteDismissal } from "./taskDetailDismissal";
 import { createTaskDetailChatOpening, TaskDetailChatOpeningContext } from "./TaskDetailChatOpening";
@@ -26,12 +25,11 @@ export function TaskDetailWindowRoute({ taskID }: Readonly<{ taskID: string }>) 
     [client, services, push, t],
   );
   const open = useAtomSet(model.open);
-  const openSessionChat =
-    desktopChatEnabled && nativeBridge.capabilities.dialogWindows
-      ? async (target: Parameters<typeof open>[0]) => {
-          open(target);
-        }
-      : undefined;
+  const openSessionChat = nativeBridge.capabilities.dialogWindows
+    ? async (target: Parameters<typeof open>[0]) => {
+        open(target);
+      }
+    : undefined;
   const onDeleteDismiss = useExactTaskDetailDeleteDismissal(taskID, async () => {
     await nativeBridge.window.closeCurrent();
   });

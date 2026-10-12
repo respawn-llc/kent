@@ -21,6 +21,8 @@ const releasePageUrl = "https://github.com/respawn-llc/kent/releases/latest";
       <a href={releasePageUrl}>Open the latest release</a>
     </main>
     <script>
+      import { detectOperatingSystem } from "../platform";
+
       const confirmationElement = document.getElementById(
         "download-confirmation",
       );
@@ -45,35 +47,15 @@ const releasePageUrl = "https://github.com/respawn-llc/kent/releases/latest";
       ];
 
       async function detectDesktopPlatform() {
-        const structuredPlatforms = [
-          navigator.userAgentData?.platform,
-          navigator.platform,
-        ].filter(Boolean);
-        if (
-          structuredPlatforms.some(
-            (platform) =>
-              platform === "Windows" ||
-              platform === "Win32" ||
-              platform === "Win64",
-          )
-        ) {
+        const operatingSystem = detectOperatingSystem(navigator);
+        if (operatingSystem === "windows") {
           return "windows-x64";
         }
-
-        const platform = [
-          navigator.userAgentData?.platform,
-          navigator.platform,
-          navigator.userAgent,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-
-        if (platform.includes("mac")) {
+        if (operatingSystem === "macos") {
           const architecture = await detectArchitecture();
           return architecture === "arm64" ? "macos-arm64" : "unsupported";
         }
-        if (platform.includes("linux") || platform.includes("x11")) {
+        if (operatingSystem === "linux") {
           return "linux";
         }
         return "unsupported";

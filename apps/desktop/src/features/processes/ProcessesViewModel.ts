@@ -1,5 +1,6 @@
 import { MutationObserver, QueryObserver, type QueryClient } from "@tanstack/react-query";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
@@ -35,6 +36,7 @@ export function createProcessesViewModel({
       Stream.prepend<ObservationState>([{ kind: "loading" }]),
     ),
   );
+  const clock = Atom.make(Stream.tick("1 second").pipe(Stream.mapEffect(() => Clock.currentTimeMillis)));
   const state = Atom.make((get) => {
     const query = get(content);
     const result = get(observation);
@@ -42,7 +44,12 @@ export function createProcessesViewModel({
     const status = AsyncResult.isSuccess(result) ? result.value : { kind: "loading" as const };
     if (status.kind !== "ready") return status;
     if (query.data === undefined) throw new Error("Process observation requires cached contents.");
-    return { kind: "ready", processes: query.data, observationTime: query.dataUpdatedAt } as const;
+    const tick = query.data.some((process) => process.running) ? get(clock) : undefined;
+    const observationTime =
+      tick !== undefined && AsyncResult.isSuccess(tick)
+        ? Math.max(query.dataUpdatedAt, tick.value)
+        : query.dataUpdatedAt;
+    return { kind: "ready", processes: query.data, observationTime } as const;
   });
   const retry = Atom.fn<undefined>()((_, get) =>
     Effect.sync(() => {

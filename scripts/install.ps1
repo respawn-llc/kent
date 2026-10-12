@@ -1,6 +1,6 @@
 param([string]$Version = $env:KENT_VERSION, [string]$InstallDir = "",
     [switch]$Yes, [switch]$NoPath, [switch]$NoDeps, [switch]$Uninstall,
-    [switch]$Force, [switch]$NoServiceRestart, [switch]$Help)
+    [switch]$Force, [switch]$NoServiceRestart, [switch]$Service, [switch]$NoService, [switch]$Help)
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 $DefaultRepo = "respawn-llc/kent"
@@ -26,7 +26,9 @@ Options:
   -NoDeps                  Do not offer to install git/rg through winget.
   -Uninstall               Remove Kent binary and installer-owned metadata.
   -Force                   Overwrite an existing kent.exe or symlink.
-  -NoServiceRestart        Do not restart an already-installed Kent service.
+  -NoServiceRestart        Skip service setup and do not restart an installed service.
+  -Service                 Install and start the service, including unattended installs.
+  -NoService               Skip the background service offer.
   -Help                    Show this help.
 Environment:
   KENT_VERSION       Override version.
@@ -557,9 +559,37 @@ function Restart-ServiceIfInstalled([string]$KentPath) {
         Warn "Kent background service restart failed after update: $($_.Exception.Message)"
     }
 }
+function Complete-ServiceSetup([string]$KentPath) {
+    if ($NoServiceRestart) {
+        Write-Output "Service setup and restart skipped. Start Kent manually with: & '$($KentPath.Replace("'", "''"))' serve"
+        return
+    }
+    if ($NoService) {
+        Write-Output "Start Kent manually with: & '$($KentPath.Replace("'", "''"))' serve"
+    } elseif (-not $Service -and -not $Yes -and
+        (-not [Environment]::UserInteractive -or [Console]::IsInputRedirected)) {
+        Write-Output "Unattended install: service setup skipped. Run kent serve manually."
+    } elseif ($Service -or (Confirm-Action "Install and start Kent as a background service?" $true)) {
+        # Kent owns registration, matching-service restart, elevation, and the persistence root.
+        & $KentPath service install
+        if ($LASTEXITCODE -ne 0) {
+            Fail "Kent binary installed, but background service setup failed. Run kent serve manually."
+        }
+        return
+    } else {
+        Write-Output "Start Kent manually with: & '$($KentPath.Replace("'", "''"))' serve"
+    }
+    Restart-ServiceIfInstalled $KentPath
+}
 if ($Help) {
     Write-Usage
     exit 0
+}
+if ($Service -and $NoService) {
+    Fail "Specify only one of -Service and -NoService."
+}
+if ($Service -and $NoServiceRestart) {
+    Fail "-Service and -NoServiceRestart cannot be used together."
 }
 $resolvedInstallDir = Resolve-InstallDir $InstallDir
 if ($Uninstall) {
@@ -626,9 +656,9 @@ try {
         Warn "Could not register Kent in Windows Apps & Features: $($_.Exception.Message)"
     }
     Install-MissingDependencies
-    Restart-ServiceIfInstalled $target
     $installSucceeded = $true
     Write-Output "Installed kent $normalizedVersion to $target"
+    Complete-ServiceSetup $target
 
     # Upgrade safety net for users coming from the old Builder release. Kent never
     # reads ~/.builder and this installer never runs the migration for you (it

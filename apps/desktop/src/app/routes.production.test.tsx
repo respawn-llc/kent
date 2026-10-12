@@ -1,11 +1,17 @@
 import { render, screen } from "@testing-library/react";
 import { RouterProvider } from "@tanstack/react-router";
-import { expect, it, vi } from "vitest";
+import { afterAll, expect, it, vi } from "vitest";
 
-import { sessionChatRoutePath } from "@/app-facade";
+import { newChatRoutePath, sessionChatRoutePath } from "@/app-facade";
 import { createAppRouter } from "./routes";
 
-vi.mock("@/shared/feature-flags", () => ({ desktopChatEnabled: false }));
+vi.hoisted(() => {
+  vi.stubEnv("DEV", false);
+});
+
+afterAll(() => {
+  vi.unstubAllEnvs();
+});
 vi.mock("./routeComponents", async () => {
   const { Outlet } = await import("@tanstack/react-router");
   return {
@@ -21,7 +27,7 @@ vi.mock("./routeComponents", async () => {
   };
 });
 
-it("leaves the development-gated Session Chat URL without Chat content in production", async () => {
+it("opens Session Chat in production", async () => {
   const router = createAppRouter();
 
   await router.navigate({
@@ -30,5 +36,12 @@ it("leaves the development-gated Session Chat URL without Chat content in produc
   });
   render(<RouterProvider router={router} />);
 
-  expect(screen.queryByTestId("chat-route")).not.toBeInTheDocument();
+  expect(await screen.findByTestId("chat-route")).toBeInTheDocument();
+});
+
+it("opens New Chat in production", async () => {
+  const router = createAppRouter();
+  await router.navigate({ to: newChatRoutePath, params: { projectId: "project-1" } });
+  render(<RouterProvider router={router} />);
+  expect(await screen.findByTestId("new-chat-route")).toBeInTheDocument();
 });

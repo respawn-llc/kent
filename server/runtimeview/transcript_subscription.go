@@ -465,12 +465,9 @@ type transcriptBackgroundActivityFacts struct {
 }
 
 func transcriptBackgroundActivityFromFacts(facts transcriptBackgroundActivityFacts) (*transcriptpb.BackgroundActivity, error) {
-	var exitCode *int32
+	var exitCode *int64
 	if facts.exitCode != nil {
-		value, err := protoapi.Int32(*facts.exitCode, "background exit code")
-		if err != nil {
-			return nil, err
-		}
+		value := int64(*facts.exitCode)
 		exitCode = &value
 	}
 	projected := &transcriptpb.BackgroundActivity{
@@ -1166,10 +1163,7 @@ func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowF
 			ProcessId:  processID,
 		}
 		if fact.BackgroundExitCode != nil {
-			exitCode, err := protoapi.Int32(*fact.BackgroundExitCode, "background exit code")
-			if err != nil {
-				return nil, err
-			}
+			exitCode := int64(*fact.BackgroundExitCode)
 			notice.Background.ExitCode = &exitCode
 		}
 	}

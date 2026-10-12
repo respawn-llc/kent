@@ -139,6 +139,9 @@ jobs:
           VERSION: 0.0.0
         run: just release _windows-installer-smoke --version "$VERSION" --goarch amd64 --dist-dir dist
 
+      - name: Test Windows process statuses and service setup
+        run: just release _windows-runtime-smoke
+
       - name: Smoke test installer restores stopped service after failure
         env:
           VERSION: 0.0.0

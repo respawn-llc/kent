@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unsafe"
@@ -41,43 +42,59 @@ func (scmServiceBackend) Install(_ context.Context, spec serviceSpec, force bool
 	}
 	defer func() { _ = m.Disconnect() }()
 
-	if existing, openErr := m.OpenService(serviceWindowsServiceName); openErr == nil {
+	existing, openErr := m.OpenService(serviceWindowsServiceName)
+	if openErr == nil {
 		if !force {
-			_ = existing.Close()
-			return errors.New(brand.ServiceDisplayName + " is already installed; use --force to rewrite it")
+			registered, err := existing.Config()
+			if err != nil {
+				_ = existing.Close()
+				return fmt.Errorf("read existing service registration: %w", err)
+			}
+			if err := validateWindowsServiceRegistration(registered, spec); err != nil {
+				_ = existing.Close()
+				return err
+			}
 		}
 		if err := stopServiceAndWait(existing); err != nil {
 			_ = existing.Close()
 			return fmt.Errorf("stop existing service before reinstall: %w", err)
 		}
-		deleteErr := existing.Delete()
-		_ = existing.Close()
-		if deleteErr != nil {
-			return fmt.Errorf("remove existing service before reinstall: %w", deleteErr)
+		if force {
+			deleteErr := existing.Delete()
+			_ = existing.Close()
+			if deleteErr != nil {
+				return fmt.Errorf("remove existing service before reinstall: %w", deleteErr)
+			}
+			if err := waitForServiceAbsent(m, 5*time.Second); err != nil {
+				return err
+			}
+			existing = nil
 		}
-		if err := waitForServiceAbsent(m, 5*time.Second); err != nil {
-			return err
-		}
+	} else if !errors.Is(openErr, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+		return fmt.Errorf("open existing service registration: %w", openErr)
 	}
 
-	config := mgr.Config{
-		ServiceType:      windows.SERVICE_WIN32_OWN_PROCESS,
-		StartType:        windows.SERVICE_AUTO_START,
-		ErrorControl:     windows.SERVICE_ERROR_NORMAL,
-		DisplayName:      brand.ServiceDisplayName,
-		Description:      brand.Product + " background server.",
-		ServiceStartName: "LocalSystem",
-	}
-	service, err := m.CreateService(serviceWindowsServiceName, spec.Executable, config, windowsServiceRunArguments(spec.Config.PersistenceRoot)...)
-	if err != nil {
-		return fmt.Errorf("create service: %w", err)
-	}
-	if err := configureCreatedService(service, spec); err != nil {
-		_ = service.Delete()
-		_ = service.Close()
-		return err
+	service := existing
+	if service == nil {
+		service, err = m.CreateService(serviceWindowsServiceName, spec.Executable, windowsServiceConfig(spec), windowsServiceRunArguments(spec.Config.PersistenceRoot)...)
+		if err != nil {
+			return fmt.Errorf("create service: %w", err)
+		}
 	}
 	defer func() { _ = service.Close() }()
+	if existing != nil {
+		if err := service.UpdateConfig(windowsServiceConfig(spec)); err != nil {
+			return fmt.Errorf("refresh existing service registration: %w", err)
+		}
+	}
+	if err := configureWindowsService(service, spec); err != nil {
+		if existing == nil {
+			if deleteErr := service.Delete(); deleteErr != nil {
+				return errors.Join(err, fmt.Errorf("remove incomplete service registration: %w", deleteErr))
+			}
+		}
+		return err
+	}
 
 	if start {
 		if err := service.Start(); err != nil {
@@ -87,7 +104,45 @@ func (scmServiceBackend) Install(_ context.Context, spec serviceSpec, force bool
 	return nil
 }
 
-func configureCreatedService(service *mgr.Service, spec serviceSpec) error {
+func windowsServiceConfig(spec serviceSpec) mgr.Config {
+	return mgr.Config{
+		ServiceType:      windows.SERVICE_WIN32_OWN_PROCESS,
+		StartType:        windows.SERVICE_AUTO_START,
+		ErrorControl:     windows.SERVICE_ERROR_NORMAL,
+		DisplayName:      brand.ServiceDisplayName,
+		Description:      brand.Product + " background server.",
+		ServiceStartName: "LocalSystem",
+		BinaryPathName:   windows.ComposeCommandLine(append([]string{spec.Executable}, windowsServiceRunArguments(spec.Config.PersistenceRoot)...)),
+	}
+}
+
+func validateWindowsServiceRegistration(existing mgr.Config, spec serviceSpec) error {
+	command, err := windows.DecomposeCommandLine(existing.BinaryPathName)
+	if err != nil {
+		return fmt.Errorf("parse existing service command: %w", err)
+	}
+	wanted := windowsServiceConfig(spec)
+	wantedCommand, err := windows.DecomposeCommandLine(wanted.BinaryPathName)
+	if err != nil {
+		return fmt.Errorf("parse desired service command: %w", err)
+	}
+	if !slices.Equal(command, wantedCommand) ||
+		existing.ServiceType != wanted.ServiceType ||
+		existing.StartType != wanted.StartType ||
+		existing.ErrorControl != wanted.ErrorControl ||
+		existing.DisplayName != wanted.DisplayName ||
+		existing.Description != wanted.Description ||
+		!strings.EqualFold(existing.ServiceStartName, wanted.ServiceStartName) ||
+		existing.LoadOrderGroup != wanted.LoadOrderGroup ||
+		!slices.Equal(existing.Dependencies, wanted.Dependencies) ||
+		existing.SidType != wanted.SidType ||
+		existing.DelayedAutoStart != wanted.DelayedAutoStart {
+		return errors.New(brand.ServiceDisplayName + " is already installed with a different registration; use --force to rewrite it")
+	}
+	return nil
+}
+
+func configureWindowsService(service *mgr.Service, spec serviceSpec) error {
 	if err := service.SetRecoveryActions([]mgr.RecoveryAction{
 		{Type: mgr.ServiceRestart, Delay: 2 * time.Second},
 		{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
@@ -425,9 +480,15 @@ func waitForServiceAbsent(m *mgr.Mgr, timeout time.Duration) error {
 	for {
 		service, err := m.OpenService(serviceWindowsServiceName)
 		if err != nil {
-			return nil
+			if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+				return nil
+			}
+			if !errors.Is(err, windows.ERROR_SERVICE_MARKED_FOR_DELETE) {
+				return fmt.Errorf("check existing service removal: %w", err)
+			}
+		} else {
+			_ = service.Close()
 		}
-		_ = service.Close()
 		if time.Now().After(deadline) {
 			return errors.New("existing service still registered after delete; reboot or stop dependent processes and retry")
 		}

@@ -20,7 +20,6 @@ interface SidebarFixture {
   openSessionChat: AsyncMock<[unknown]>;
   push: SyncMock<[unknown]>;
   services: TestAppServices | undefined;
-  featureFlags: { desktopChatEnabled: boolean };
   workflowEditorProps: SyncMock<[unknown]>;
   newTaskProps: SyncMock<[unknown]>;
 }
@@ -32,11 +31,9 @@ const fixture = vi.hoisted((): SidebarFixture => ({
   openSessionChat: vi.fn(async () => undefined),
   push: vi.fn(),
   services: undefined,
-  featureFlags: { desktopChatEnabled: true },
   workflowEditorProps: vi.fn<(props: unknown) => void>(),
   newTaskProps: vi.fn<(props: unknown) => void>(),
 }));
-vi.mock("@/shared/feature-flags", () => fixture.featureFlags);
 vi.mock("@/app-facade", async (importOriginal) => ({
   ...(await importOriginal()),
   sidebarTitle: () => "",
@@ -190,7 +187,6 @@ describe("Sidebar destination completion ownership", () => {
     fixture.push.mockClear();
     fixture.workflowEditorProps.mockClear();
     fixture.newTaskProps.mockClear();
-    fixture.featureFlags.desktopChatEnabled = true;
     headerAction.mockClear();
   });
   it("deduplicates only Task Detail destinations", () => {

@@ -659,7 +659,7 @@ func (e *Engine) queueMessageRaw(message llm.Message, presentation string, force
 			if e.liveRun.finishQueueItemPublication(queueItemID) {
 				e.failStoppedLiveRunQueueItems(map[runtimeids.QueueItemID]struct{}{queueItemID: {}})
 			} else if autoStart {
-				e.scheduleQueuedUserInjectionsIfIdle()
+				e.scheduleQueuedUserInjections()
 			}
 			return item, nil
 		}
@@ -687,7 +687,7 @@ func (e *Engine) queueMessageRaw(message llm.Message, presentation string, force
 		return QueuedUserMessage{}, err
 	}
 	if autoStart {
-		e.scheduleQueuedUserInjectionsIfIdle()
+		e.scheduleQueuedUserInjections()
 	}
 	return item, nil
 }

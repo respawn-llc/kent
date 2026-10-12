@@ -14,6 +14,8 @@ Usage:
   scripts/release-artifacts.sh verify-linux-static --version X.Y.Z [--dist-dir dist]
   scripts/release-artifacts.sh smoke-test --version X.Y.Z --goos <os> --goarch <arch> --archive-ext <ext> [--binary-ext <ext>] [--dist-dir dist]
   scripts/release-artifacts.sh smoke-windows-installer --version X.Y.Z --goarch <arch> [--dist-dir dist]
+  scripts/release-artifacts.sh smoke-installer-offer
+  scripts/release-artifacts.sh smoke-windows-installer-offer
 
 Build version defaults to KENT_VERSION or the repository VERSION file.
 USAGE
@@ -254,12 +256,23 @@ smoke_windows_installer() {
 		-Yes \
 		-NoPath \
 		-NoDeps \
-		-NoServiceRestart
+		-NoServiceRestart \
+		-NoService
 
 	powershell -NoProfile -ExecutionPolicy Bypass -File "$install_script" \
 		-Uninstall \
 		-InstallDir "$(to_powershell_path "$install_dir")" \
 		-Yes
+
+	smoke_windows_installer_offer
+}
+
+smoke_windows_installer_offer() {
+	if ! command -v powershell >/dev/null 2>&1; then
+		echo "powershell is required for Windows installer offer smoke test" >&2
+		exit 1
+	fi
+	powershell -NoProfile -ExecutionPolicy Bypass -File "$(to_powershell_path "$repo_root/scripts/tests/installers_test.ps1")"
 }
 
 mode="${1:-}"
@@ -340,6 +353,12 @@ smoke-test)
 	;;
 smoke-windows-installer)
 	smoke_windows_installer
+	;;
+smoke-installer-offer)
+	python3 scripts/tests/installers_test.py
+	;;
+smoke-windows-installer-offer)
+	smoke_windows_installer_offer
 	;;
 *)
 	echo "Unknown mode: $mode" >&2

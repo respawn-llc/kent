@@ -30,6 +30,19 @@ _windows-installer-smoke *args:
     bash scripts/release-artifacts.sh smoke-windows-installer {{args}}
 
 [private]
+_installer-offer-smoke:
+    bash scripts/release-artifacts.sh smoke-installer-offer
+
+[private]
+_windows-installer-offer-smoke:
+    bash scripts/release-artifacts.sh smoke-windows-installer-offer
+
+[private]
+_windows-runtime-smoke:
+    go test ./server/tools/shell -run '^TestWindowsChildExitStatus$'
+    go test ./cli/kent -run '^(TestWindowsServiceRegistration|TestElevatedService|TestOrdinaryServiceInvocation)'
+
+[private]
 _desktop-build *args:
     bash scripts/desktop-release.sh build {{args}}
 

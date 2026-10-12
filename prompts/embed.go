@@ -326,8 +326,6 @@ var (
 	WorkflowTaskCompleteHumanSafetyWarningPrompt     = strings.TrimSpace(mustPrompt("workflow/task_complete_human_safety_warning.md"))
 	WorktreeInitialPrompt                            = mustPrompt("worktree_initial_prompt.md")
 	WorktreePostCompactionPrompt                     = mustPrompt("worktree_post_compaction_prompt.md")
-	WorkspaceInitialPrompt                           = mustPrompt("workspace_initial_prompt.md")
-	WorkspacePostCompactionPrompt                    = mustPrompt("workspace_post_compaction_prompt.md")
 	WorktreeModePrompt                               = mustPrompt("worktree_switch_prompt.md")
 	WorktreeModeExitPrompt                           = mustPrompt("worktree_exit_prompt.md")
 	QuestionsDisabledPrompt                          = mustPrompt("questions/disabled.md")
@@ -522,8 +520,8 @@ func RenderWorktreeModePrompt(kind WorktreePromptKind, branch, cwd, worktreePath
 	return renderWorktreePrompt(worktreePromptForKind(kind, WorktreeInitialPrompt, WorktreePostCompactionPrompt, WorktreeModePrompt), branch, cwd, worktreePath, workspaceRoot)
 }
 
-func RenderWorktreeModeExitPrompt(kind WorktreePromptKind, branch, cwd, worktreePath, workspaceRoot string) string {
-	return renderWorktreePrompt(worktreePromptForKind(kind, WorkspaceInitialPrompt, WorkspacePostCompactionPrompt, WorktreeModeExitPrompt), branch, cwd, worktreePath, workspaceRoot)
+func RenderWorktreeModeExitPrompt(branch, cwd, worktreePath, workspaceRoot string) string {
+	return renderWorktreePrompt(WorktreeModeExitPrompt, branch, cwd, worktreePath, workspaceRoot)
 }
 
 func worktreePromptForKind(kind WorktreePromptKind, initial, postCompaction, switching string) string {

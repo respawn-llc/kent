@@ -33,12 +33,6 @@ The default and session-producing roles accept a connection name or an array of 
 - Global settings live at: `~/.kent/config.toml`, and this location (along with all other data storage) is overridable via `--persistence-root`. The flag also relocates the root's model-visible global context — global `AGENTS.md`, the global system-prompt file, global skills, and generated assets.
   `kent service` is also root-aware. Each `--persistence-root` install bakes the root into the registration. The OS holds a single service, so install with the root you want managed.
 
-## Model defaults
-
-Kent defaults to GPT-6.1 Sol. The built-in `fast` role uses GPT-6 Luna on first-party OpenAI connections. With Supervisor enabled, the Defaults option uses GPT-6 Luna on first-party OpenAI connections and the primary model on other providers. Custom setup pre-fills Supervisor with the selected primary model. GPT-6 models default to a 272,000-token context window. During setup, the large-context option selects 872,000 tokens for ChatGPT subscriptions or 1,050,000 tokens for the OpenAI API. Requests above 272,000 input tokens have higher [OpenAI API rates](https://developers.openai.com/api/docs/pricing).
-
-GPT-6 Sol and Luna support `thinking_level = "none"` to disable thinking.
-
 ## Example
 
 ```toml

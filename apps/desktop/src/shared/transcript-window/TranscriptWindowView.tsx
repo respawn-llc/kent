@@ -115,7 +115,7 @@ export function TranscriptWindowView({
   return (
     <div className="relative h-full min-h-0">
       <VirtualizedInfiniteList
-        className="h-full min-h-0 w-full min-w-0 overflow-x-hidden overflow-y-auto"
+        className="hide-scrollbar h-full min-h-0 w-full min-w-0 overflow-x-hidden overflow-y-auto"
         endAnchoring={{
           followEnabled: !newerAvailable,
           threshold: 80,

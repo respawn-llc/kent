@@ -3,7 +3,6 @@ import { z } from "zod";
 
 import { workflowIDSchema } from "@/api";
 import { newChatRoutePath, sessionChatRoutePath } from "@/app-facade";
-import { desktopChatEnabled } from "@/shared/feature-flags";
 import { createNativeDialogRoutes } from "./nativeDialogRoutes";
 import {
   HomeShellRoute,
@@ -75,16 +74,16 @@ const taskRoute = createRoute({
   component: TaskRoute,
 });
 
-const chatRoute = desktopChatEnabled
-  ? createRoute({
-      getParentRoute: () => rootRoute,
-      path: sessionChatRoutePath,
-      component: ChatRoute,
-    })
-  : undefined;
-const newChatRoute = desktopChatEnabled
-  ? createRoute({ getParentRoute: () => rootRoute, path: newChatRoutePath, component: NewChatRoute })
-  : undefined;
+const chatRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: sessionChatRoutePath,
+  component: ChatRoute,
+});
+const newChatRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: newChatRoutePath,
+  component: NewChatRoute,
+});
 
 const nativeDialogRoutes = createNativeDialogRoutes(rootRoute);
 
@@ -95,8 +94,8 @@ const routeTree = rootRoute.addChildren([
   workflowLibraryRoute,
   workflowEditorRoute,
   taskRoute,
-  ...(chatRoute === undefined ? [] : [chatRoute]),
-  ...(newChatRoute === undefined ? [] : [newChatRoute]),
+  chatRoute,
+  newChatRoute,
   ...nativeDialogRoutes,
 ]);
 

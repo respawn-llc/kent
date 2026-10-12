@@ -9,9 +9,7 @@ See [connection configuration](../config/#connecting-to-a-server) for address se
 
 The server owns all long-running work: sessions, projects, runtime orchestration, background shells, tool execution, tasks, workflows, and storage.
 
-Kent Desktop loads View Image previews from the original file on the connected server, including for remote sessions. Desktop previews support originals larger than 10 MiB, while the View Image tool reads originals up to 10 MiB and prepares model attachments up to 800 KiB.
-
-While annoying at times, this:
+Why? Because this:
 
 - Gives ability to fully isolate work on another machine, VM, or container. See [Sandboxing](../sandboxing/) for remote/container setup.
 - Drastically reduces resource consumption
@@ -21,7 +19,7 @@ While annoying at times, this:
 
 ## Background service
 
-Install a system service to run `kent serve` at login:
+The easiest way to use Kent locally without manually running the server is via the **system service**:
 
 ```bash
 kent service status
@@ -32,7 +30,7 @@ kent service start
 kent service uninstall
 ```
 
-All service commands accept `--persistence-root` and honor `KENT_PERSISTENCE_ROOT`. The root you install with is remembered, so pass the same root on `status`/`start`/`stop`/`restart`/`uninstall` to target that instance.
+Install the service once, then restart it after updates.
 
 ## Provider environment
 
@@ -49,9 +47,8 @@ See [API keys and background services](../authentication/#api-keys-and-backgroun
 - On Windows, uninstalling the service stops the server.
 - Linux headless machines may need lingering enabled so the server survives logout `loginctl enable-linger "$USER"`.
 
-## Port conflicts
+:::tip
 
-Service install/start commands refuse to change the service when Kent's configured server endpoint is already owned by a manual `kent serve` process or by a non-Kent listener.
-If you started `kent serve` manually, stop that process before installing or starting the background service.
+You can run multiple services or servers with different storage paths. All service commands accept `--persistence-root` and honor `KENT_PERSISTENCE_ROOT`. The root you install with is remembered, so pass the same root on `status`/`start`/`stop`/`restart`/`uninstall` to target that instance.
 
-Running another server on a different configured port is fine. Kent only checks the endpoint resolved from `server_host` and `server_port`.
+:::

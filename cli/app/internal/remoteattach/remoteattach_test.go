@@ -39,12 +39,8 @@ func TestDialHeadlessPreservesProtocolMismatch(t *testing.T) {
 			if remote != nil || reachable != test.reachable {
 				t.Fatalf("remote = %v, reachable = %v, want reachable %v", remote, reachable, test.reachable)
 			}
-			if test.reachable {
-				if !errors.Is(err, test.dialError) {
-					t.Fatalf("error = %v, want original handshake failure", err)
-				}
-			} else if err != nil {
-				t.Fatalf("unreachable server error = %v", err)
+			if !errors.Is(err, test.dialError) {
+				t.Fatalf("error = %v, want original connection failure", err)
 			}
 		})
 	}

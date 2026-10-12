@@ -39,6 +39,11 @@ func (s *ConnectionSelection) TOMLValue() any {
 
 func (s Settings) ConnectionMembers() ([]ConnectionID, error) {
 	if s.Connection == nil {
+		if len(s.Connections) == 1 {
+			for id := range s.Connections {
+				return []ConnectionID{id}, nil
+			}
+		}
 		return nil, &ConnectionReferenceError{}
 	}
 	members := make([]ConnectionID, 0, len(*s.Connection))

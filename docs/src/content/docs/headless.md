@@ -99,7 +99,7 @@ kent project delete <project-id>
 
 You can only do that if there are no active sessions or tasks targeting it.
 
-:::warning
+:::caution
 
 Deleting a project **permanently deletes without a trace all tasks associated with it** and orphans the sessions.
 
