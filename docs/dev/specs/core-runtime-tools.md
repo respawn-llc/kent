@@ -41,6 +41,9 @@
 - Model file-edit tools refuse writes in `<persistence-root>/.generated` without requesting approval. The refusal explains that generated files are overwritten and that a skill must be shadowed from an active user skill path using the same normalized name, ID, and directory structure. This restriction does not apply to command execution or file reads.
 - Generated-file protection can identify paths by exact path, glob pattern, or regular-expression pattern. Regular-expression matching in this protection policy is an explicit exception to the repository's general ban on regex parsing and replacement.
 - If generated content is edited, deleted, renamed, linked, or invalid, Kent moves the generated tree to `<persistence-root>/recovered/<UTC timestamp>/.generated` and recreates it. A non-empty recovered directory causes each new session to show a user-only warning to clean recovered files and not edit `.generated`.
+- Integrity checking must cover the whole `.generated` directory, including its generated README. Unauthorized additional files and directories must cause recovery. Recognized OS metadata files and permission changes must not cause recovery.
+- A Kent upgrade must replace valid, unchanged generated content with the newly shipped content without causing recovery or a new warning.
+- Generated-folder recovery notices follow the [full-warning wrapping policy](ongoing-scrollback-buffer.md#grouping-and-separators).
 - Generated skills are always seeded; `[skills]` settings only control their model visibility. Empty files, invalid frontmatter, duplicate names, symlinks, and non-regular generated entries are rejected.
 
 ## Core Tools And Runtime Integration
@@ -221,6 +224,10 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 ## Sessions, Location, And Transcript Bounds
 
 - Sessions can stop and resume. The persistence root is configurable and defaults to `~/.kent`; their durable location model is Project, Workspace, then Worktree.
+- A user-driven Edit or Fork must create a new interactive main Session with a new Session ID and no Task ownership, Workflow execution, inherited Agent-role continuation, or parent-agent ancestry. It must never continue the source Workflow.
+- A user fork must resolve fresh interactive settings, including previously snapshotted model, provider, prompt, and completion settings. It must preserve the source execution location, Worktree reminder, previous-Session provenance, complete Goal, and current desired Thinking selection. Goal and Thinking inheritance do not confer Workflow ownership.
+- A user fork must leave the parent unchanged and preserve the copied conversation prefix under the existing fork history rules. Historical Workflow instructions may remain in that history; they must not confer Workflow ownership or authorize Workflow execution in the child.
+- Workflow-internal clones are separate from user-driven forks and must follow the Workflow context-preservation contract.
 - Session rebinds must follow the execution-target transition rules below for every caller, including cross-Project moves.
 - A Workflow Session must not move to another Project. A cross-Project request must fail without moving the Session. Tool and CLI failures must explain: "Moving across projects during workflow makes no sense: the task would remain stuck in the old project".
 - Full transcript history can reach dozens of gigabytes. Production must never load the full session log into memory or walk it from start to end, except when forking or cloning through the selected fork point because copying that history is the operation itself, when the Question-history, Session log, or Session search commands perform their explicitly requested backward history reads, when restoring a Workflow assignment through the bounded-memory backward read defined below, or when streaming a complete Session into an archive.
@@ -283,6 +290,10 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - If global and workspace settings resolve to the same physical file, Kent must apply it once as global settings, disable that shared workspace layer, and retain diagnostics for both resolved locations.
 
 ## Model Requests And Cache Continuity
+
+- Kent must group captured Session properties by Snapshot Policy. Refresh eligibility must remain separate from permission to apply a change to the active context.
+- Compaction must expire the generation-scoped Session Contract without expiring the independently retained Workflow Snapshot. Workflow completion-mode refresh boundaries are owned by the [Workflow Orchestration specification](workflow-orchestration.md).
+- Provider cache impact must remain independent of snapshot refresh eligibility and application permission. A permitted refresh does not imply that a changed request prefix preserves provider cache reuse.
 
 - Every model generation request uses the provider's streaming response protocol. Kent has no non-streaming generation or fallback path.
 - Callers that expose only a completed response consume the generation stream internally and return the assembled response only after the stream completes successfully.
@@ -421,6 +432,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Compaction cache observations must describe the request actually dispatched, including its actual Session cache key, tools, and input.
 - The compaction request must use the pre-compaction Session Contract. When replacement history commits, Kent must clear the full Session Contract snapshot, including model and provider capabilities, generation parameters, enabled tools, and system/reviewer prompts. Every compaction trigger must use this same boundary behavior, including manual, automatic, pre-submit, handoff, and Workflow compaction. The next model request must populate and lock a fresh snapshot. An uncommitted compaction failure must preserve the outgoing snapshot; a later notification failure must not restore a snapshot cleared by committed compaction. Changed prompt-facing content naturally invalidates the changed request prefix while the prompt-cache key remains the Session ID.
 - Compaction alone emits no cache warning. `cache_warning_mode=default` records confirmed non-postfix invalidation and observed cache-reuse disappearance in Detail. `verbose` exposes the same warnings in Ongoing. `off` disables cache warnings.
+- Compaction must not suppress a separately confirmed change to retained request metadata, including the system prompt, tools, or structured-output schema. A confirmed non-postfix change must remain reportable when aggregate cache reuse increases or provider cache usage is unavailable. Kent must omit a token-loss amount when the observations cannot quantify it; discarded pre-compaction history must not be counted as loss caused by a metadata change.
 - Local compaction permits no tool calls. Each attempt that receives one records a model-visible and user-visible instruction not to call tools and to retry; Kent retries up to three times, then fails compaction and stops the model loop. Local summaries use automatic tool choice; post-compaction Workflow work uses the Node's ordinary generation policy.
 - If compaction both exceeds provider context length and receives the corresponding provider error, Kent retries the compaction request with cumulative supported earlier tool-payload collapse targets of 10%, 20%, and 40% of the model context window. Shell output and patch input become exactly `<collapsed>`; calls and their output relationships remain, while reasoning and unsupported payloads remain unchanged. A successful repair records the collapse count and estimated omitted tokens for the operator.
 - Completing compaction alone adds no UI-only transcript entry; transcript-visible summaries are ordinary transcript content.

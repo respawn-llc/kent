@@ -49,6 +49,6 @@ func registerPromptCatalogGatewayBinaryBindings(bindings map[string]gatewayBinar
 				}
 				return detail
 			}
-			return binaryAuthFailure(err)
+			return binaryAuthReadinessFailure(err)
 		})
 }

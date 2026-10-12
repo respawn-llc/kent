@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"core/server/launch"
 	"core/server/session"
 	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
@@ -27,9 +28,9 @@ type sessionTransition struct {
 }
 
 type sessionTransitionResolveRequest struct {
-	Store        *session.Store
-	Transition   sessionTransition
-	ForkThinking session.ForkThinking
+	Store      *session.Store
+	Transition sessionTransition
+	ForkTarget launch.InteractiveForkTarget
 }
 
 func sessionTransitionFromProto(value *sessionlaunchpb.SessionTransition) (sessionTransition, error) {
@@ -106,9 +107,12 @@ func resolveForkRollback(req sessionTransitionResolveRequest) (*sessionlaunchpb.
 	if err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
-	forkedStore, forkOrdinal, err := session.ForkAtUserMessage(eventLog, req.Transition.ForkUserMessageSeq, baseName, sessioncontract.SessionCategoryMain, req.ForkThinking)
+	forkedStore, forkOrdinal, err := session.ForkAtUserMessage(eventLog, req.Transition.ForkUserMessageSeq, baseName, sessioncontract.SessionCategoryMain, req.ForkTarget.Thinking)
 	if err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
+	}
+	if err := forkedStore.SetConnectionID(req.ForkTarget.ConnectionID); err != nil {
+		return &sessionlaunchpb.SessionDirective{}, errors.Join(err, forkedStore.RemoveDurable())
 	}
 	if err := forkedStore.SetName(textutil.Value(strings.TrimSpace(baseName + " \u2192 edit u" + strconv.Itoa(forkOrdinal)))); err != nil {
 		return &sessionlaunchpb.SessionDirective{}, errors.Join(err, forkedStore.RemoveDurable())

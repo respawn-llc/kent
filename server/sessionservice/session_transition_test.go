@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"core/server/launch"
 	"core/server/session"
 	"core/server/session/sessiontest"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
@@ -83,8 +84,8 @@ func TestResolveForkRollbackCreatesForkedSession(t *testing.T) {
 	appendSessionMessage(t, store, "s2", session.MessageRoleAssistant, "a2")
 
 	resolved, err := resolveSessionTransition(context.Background(), sessionTransitionResolveRequest{
-		Store:        store,
-		ForkThinking: session.ForkThinking{Desired: "medium"},
+		Store:      store,
+		ForkTarget: launch.InteractiveForkTarget{ConnectionID: "interactive", Thinking: session.ForkThinking{Desired: "medium"}},
 		Transition: sessionTransition{
 			Action:             sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_FORK_ROLLBACK,
 			InitialPrompt:      "edited user message",
@@ -125,8 +126,8 @@ func TestResolveForkRollbackPreservesIntentionalEmptyDraftOverride(t *testing.T)
 	appendSessionMessage(t, store, "s2", session.MessageRoleAssistant, "a2")
 
 	resolved, err := resolveSessionTransition(context.Background(), sessionTransitionResolveRequest{
-		Store:        store,
-		ForkThinking: session.ForkThinking{Desired: "medium"},
+		Store:      store,
+		ForkTarget: launch.InteractiveForkTarget{ConnectionID: "interactive", Thinking: session.ForkThinking{Desired: "medium"}},
 		Transition: sessionTransition{
 			Action:             sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_FORK_ROLLBACK,
 			InitialInput:       textutil.Value(""),

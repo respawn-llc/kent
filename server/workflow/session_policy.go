@@ -13,6 +13,13 @@ type AssigneeSessionPolicyRequest struct {
 	ContextMode           ContextMode
 	ContextSource         ContextSource
 	TargetSessionResolved bool
+	FanoutBranch          bool
+}
+
+func (request AssigneeSessionPolicyRequest) CopiesSourceSession() bool {
+	source := CanonicalContextSource(request.ContextSource)
+	return request.FanoutBranch && request.TargetSessionResolved && request.ContextMode != ContextModeNewSession &&
+		(source.Kind == ContextSourceImmediateSource || source.Kind == ContextSourceSelectedNode)
 }
 
 func ResolveAssigneeSessionPolicy(request AssigneeSessionPolicyRequest) (AssigneeSessionPolicy, error) {
@@ -29,6 +36,9 @@ func ResolveAssigneeSessionPolicy(request AssigneeSessionPolicyRequest) (Assigne
 	case ContextModeNewSession, ContextModeCompactAndContinueSession:
 		return AssigneeSessionPolicyEstablishTarget, nil
 	case ContextModeContinueSession:
+		if request.CopiesSourceSession() {
+			return AssigneeSessionPolicyEstablishTarget, nil
+		}
 		if source.Kind == ContextSourcePreviousTargetOrNew {
 			if request.TargetSessionResolved {
 				return AssigneeSessionPolicyPreserve, nil

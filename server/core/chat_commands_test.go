@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/llm"
@@ -34,12 +35,14 @@ func newChatCommandCore(t *testing.T, clientError error) (*Core, config.App, met
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := metadata.RegisterBinding(t.Context(), resolved.Config.PersistenceRoot, resolved.Config.WorkspaceRoot)
+	metadataStore := testsetup.OpenStore(t, resolved.Config.PersistenceRoot)
+	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), resolved.Config.WorkspaceRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
 	models := make(chan chatCommandModel, 8)
 	app := newCoreTestAppWithOptions(t, resolved.Config, auth.EmptyState(), Options{
+		MetadataStore: metadataStore,
 		RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(_ context.Context, request runtimewire.RuntimeClientRequest) (llm.Client, error) {
 			if clientError != nil {
 				return nil, clientError

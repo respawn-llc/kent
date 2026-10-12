@@ -19,7 +19,7 @@ func TestConnectionReplacementPersistenceFailureDoesNotPublishOrDispatch(t *test
 	gate := sessiontest.NewPersistenceGate(sessiontest.NewPersistence())
 	failure := errors.New("replacement persistence rejected")
 	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
-		return snapshot.Meta.ConnectionID != nil && *snapshot.Meta.ConnectionID == *fixture.config.Settings.Connection
+		return snapshot.Meta.ConnectionID != nil && *snapshot.Meta.ConnectionID == (*fixture.config.Settings.Connection)[0]
 	}, failure)
 	var notices int
 	authority := NewAuthority(AuthorityOptions{

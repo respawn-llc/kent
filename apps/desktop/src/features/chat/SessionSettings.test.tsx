@@ -155,6 +155,48 @@ it("requires confirmation before switching a cached Session Agent", async () => 
   });
 });
 
+it.each(["subscription", "api_key", "no_auth"] as const)(
+  "shows the saved Session Connection mode %s in Settings",
+  async (mode) => {
+    const services = createTestServices([]);
+    const connection = { id: "saved-connection", mode };
+    vi.spyOn(services.api.chat, "getSettings").mockResolvedValue({
+      ...initialRead,
+      session: { ...initialRead.session, connection },
+    });
+    render(<SessionSettingsChipHost />, {
+      wrapper: ({ children }) => <TestAppProviders services={services}>{children}</TestAppProviders>,
+    });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+    expect(
+      await screen.findByText(
+        appI18n.t("chatSettings.sessionConnection", {
+          id: connection.id,
+          mode: appI18n.t(`chatSettings.connectionModes.${mode}`),
+        }),
+      ),
+    ).toBeVisible();
+  },
+);
+
+it("omits the Session Connection row when the server does not project it", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(initialRead);
+  render(<SessionSettingsChipHost />, {
+    wrapper: ({ children }) => <TestAppProviders services={services}>{children}</TestAppProviders>,
+  });
+  await userEvent.setup().click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  expect(
+    screen.queryByText(
+      appI18n.t("chatSettings.sessionConnection", {
+        id: "saved-connection",
+        mode: appI18n.t("chatSettings.connectionModes.subscription"),
+      }),
+    ),
+  ).toBeNull();
+});
+
 it("shares eager Auto-compaction changes and rollback between Context and Settings", async () => {
   const services = createTestServices([]);
   const read = vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(initialRead);

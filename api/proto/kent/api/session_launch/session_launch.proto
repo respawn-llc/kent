@@ -194,6 +194,7 @@ message SubagentRole {
   string description = 3 [(buf.validate.field).string.max_len = 5000];
   bool agent_callable = 4;
   bool workflow_subagent = 6;
+  kent.api.auth.ConnectionSelection connection_selection = 9;
 }
 
 enum ConfigFileLayer {

@@ -163,7 +163,11 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 	if meta.FirstPromptPreview != "hello from user" {
 		t.Fatalf("first prompt preview = %q, want %q", meta.FirstPromptPreview, "hello from user")
 	}
-	if meta.ConnectionID == nil || *meta.ConnectionID != *cfg.Settings.Connection {
+	selected, err := cfg.Settings.Connection.ConcreteID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.ConnectionID == nil || *meta.ConnectionID != *selected {
 		t.Fatalf("unexpected connection binding: %+v", meta.ConnectionID)
 	}
 

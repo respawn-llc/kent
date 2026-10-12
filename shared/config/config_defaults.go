@@ -72,7 +72,7 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 	out.WriteString("# Edit and restart to apply changes.\n")
 	out.WriteString("# Config reference: " + DocsURL + "/config/\n\n")
 	if settings.Connection != nil {
-		writeDefaultLines(&out, []defaultConfigLine{{Path: []string{"connection"}, Value: string(*settings.Connection)}})
+		writeDefaultLines(&out, []defaultConfigLine{{Path: []string{"connection"}, Value: settings.Connection.TOMLValue()}})
 	}
 	writeRootConfigLines(&out, rootLines)
 	modelCapabilityLines := activeOptionalSectionLines(filterDefaultLines(lines, "model_capabilities"), filterDefaultLines(defaultLines, "model_capabilities"))

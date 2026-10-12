@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"core/server/launch"
 	"core/server/llm"
 	"core/server/session"
 	"core/server/workflow"
@@ -18,6 +19,36 @@ import (
 	"core/shared/config"
 	"core/shared/runtimeids"
 )
+
+func TestCompactionTargetDoesNotPrepareProviderBeforeCompaction(t *testing.T) {
+	f, input := newMaterializedRoleSelectionStart(t)
+	input.ContextMode = workflow.ContextModeCompactAndContinueSession
+	input.EnteringEdge.ContextMode = workflow.ContextModeCompactAndContinueSession
+	store, err := session.Create(filepath.Join(f.cfg.PersistenceRoot, "projects", input.Task.ProjectID, "sessions"),
+		"sessions", f.workspace, "main", f.starter.storeOptions...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetConnectionID("test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.EnsureDurable(); err != nil {
+		t.Fatal(err)
+	}
+	id, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.CurrentNode.SessionID, input.SourceSessionID = &id, &id
+	f.starter.connectionRotation = new(launch.ConnectionRotation)
+	before := len(f.runtimeRequests())
+	if _, err := f.starter.PrepareCurrentNode(t.Context(), input, workflowruntime.TaskPromptDeliveryAssignment); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.runtimeRequests()) != before {
+		t.Fatal("target constructed an executable provider client before compaction")
+	}
+}
 
 func TestApprovalCloneStartupWaitsForSourcePostTurnCompaction(t *testing.T) {
 	client := &heldLazyCompactionClient{

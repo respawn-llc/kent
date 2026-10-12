@@ -6,6 +6,7 @@ import "buf/validate/validate.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "kent/api/shared/foundation.proto";
+import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/auth;authpb";
 
@@ -211,6 +212,15 @@ message ProviderSelection {
 message GetStatusRequest {
   ProviderSelection provider = 1;
   bool skip_subscription_usage = 2;
+  optional string session_id = 3 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
+  option (buf.validate.message).cel = {
+    id: "kent.auth.status_target"
+    message: "Select a Provider Connection or a Session, not both"
+    expression: "!has(this.provider) || !has(this.session_id)"
+  };
 }
 
 message StatusFailure {
@@ -297,10 +307,19 @@ message ProviderFacts {
   };
 }
 
+message ConnectionFacts {
+  string connection_id = 1 [(buf.validate.field).string.min_len = 1];
+  AuthMethod method = 2 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+}
+
 message StatusFacts {
   AuthMethod method = 1 [(buf.validate.field).enum.defined_only = true];
   ProviderFacts provider = 2 [(buf.validate.field).required = true];
   string connection_id = 7 [(buf.validate.field).string.min_len = 1];
+  ConnectionFacts session_connection = 8;
   oneof method_facts {
     OAuthFacts oauth = 4;
     APIKeyFacts api_key = 5;
@@ -503,11 +522,15 @@ message GetConnectionsRequest {
   optional string workspace_root = 1 [(buf.validate.field).string.min_len = 1];
 }
 
+message ConnectionSelection {
+  repeated string ids = 1 [(buf.validate.field).repeated = {min_items: 1, unique: true, items: {string: {min_len: 1}}}];
+}
+
 message ConnectionCatalog {
   repeated ConnectionDefinition connections = 1;
-  optional string default_connection_id = 2 [(buf.validate.field).string.min_len = 1];
+  ConnectionSelection default_selection = 2;
   ConnectionDefinition pending_setup = 3;
-  optional string workspace_connection_id = 4 [(buf.validate.field).string.min_len = 1];
+  ConnectionSelection workspace_selection = 4;
 }
 
 message GetConnectionsResult {

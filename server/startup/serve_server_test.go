@@ -135,7 +135,11 @@ func TestStartupConvertsOldSubscriptionAndRequiresSignIn(t *testing.T) {
 			if err != nil || len(state.Connections) != 0 {
 				t.Fatalf("old token survived cutover: %+v, %v", state, err)
 			}
-			status, err := server.AuthBootstrapClient().GetBootstrapStatus(context.Background(), &authpb.GetBootstrapStatusRequest{Target: protoapi.ExistingConnectionTarget(*server.Config().Settings.Connection)})
+			id, err := server.Config().Settings.Connection.ConcreteID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			status, err := server.AuthBootstrapClient().GetBootstrapStatus(context.Background(), &authpb.GetBootstrapStatusRequest{Target: protoapi.ExistingConnectionTarget(*id)})
 			if err != nil || status.AuthReady || !status.AuthRequired {
 				t.Fatalf("subscription must be available for sign-in: %+v, %v", status, err)
 			}
@@ -756,9 +760,6 @@ func TestMissingConfigFinalizeActivationFailureIsTypedAndRetryConflicts(t *testi
 		t.Fatal(err)
 	}
 	metadataBlocker := filepath.Join(server.cfg.PersistenceRoot, "db")
-	if err := os.Rename(metadataBlocker, filepath.Join(server.cfg.PersistenceRoot, "saved-db")); err != nil {
-		t.Fatalf("move metadata directory before blocking activation: %v", err)
-	}
 	if err := os.WriteFile(metadataBlocker, []byte("block metadata open"), 0o644); err != nil {
 		t.Fatalf("write metadata blocker: %v", err)
 	}

@@ -239,6 +239,10 @@ func newEventRecord(
 	case CacheRequestObservationRecord:
 		typed.CacheKey = strings.TrimSpace(typed.CacheKey)
 		typed.TerminalHash = strings.TrimSpace(typed.TerminalHash)
+		if typed.MetadataHash != nil {
+			metadataHash := *typed.MetadataHash
+			typed.MetadataHash = &metadataHash
+		}
 		payload = typed
 	case CacheResponseObservationRecord:
 		if typed.CacheKey != nil {
@@ -248,6 +252,10 @@ func newEventRecord(
 		if typed.TerminalHash != nil {
 			terminalHash := strings.TrimSpace(*typed.TerminalHash)
 			typed.TerminalHash = &terminalHash
+		}
+		if typed.MetadataHash != nil {
+			metadataHash := *typed.MetadataHash
+			typed.MetadataHash = &metadataHash
 		}
 		if typed.DigestVersion != nil {
 			digestVersion := *typed.DigestVersion
@@ -420,6 +428,27 @@ type CacheRequestObservationRecord struct {
 	Scope         CacheScope `json:"scope"`
 	ChunkCount    int        `json:"chunk_count"`
 	TerminalHash  string     `json:"terminal_hash"`
+	MetadataHash  *string    `json:"metadata_hash,omitempty"`
+}
+
+type CacheMetadataObservation struct {
+	DigestVersion int        `json:"digest_version"`
+	CacheKey      string     `json:"cache_key"`
+	Scope         CacheScope `json:"scope"`
+	MetadataHash  string     `json:"metadata_hash"`
+}
+
+func (r CacheMetadataObservation) validate() error {
+	if r.DigestVersion != CacheDigestV1 {
+		return fmt.Errorf("unsupported cache digest version %d", r.DigestVersion)
+	}
+	if strings.TrimSpace(r.CacheKey) == "" {
+		return errors.New("cache key is required")
+	}
+	if err := validateCacheScope(r.Scope); err != nil {
+		return err
+	}
+	return validateCacheHash("metadata", r.MetadataHash)
 }
 
 type CacheResponseObservationRecord struct {
@@ -428,6 +457,7 @@ type CacheResponseObservationRecord struct {
 	Scope             *CacheScope                             `json:"scope,omitempty"`
 	ChunkCount        *int                                    `json:"chunk_count,omitempty"`
 	TerminalHash      *string                                 `json:"terminal_hash,omitempty"`
+	MetadataHash      *string                                 `json:"metadata_hash,omitempty"`
 	CachedInputTokens *int                                    `json:"cached_input_tokens,omitempty"`
 	OperationID       *string                                 `json:"operation_id,omitempty"`
 	SessionID         *string                                 `json:"session_id,omitempty"`
@@ -500,7 +530,7 @@ func (r CacheResponseObservationRecord) validate() error {
 			return errors.New("provider observation time is required")
 		}
 	}
-	if r.DigestVersion == nil && r.CacheKey == nil && r.Scope == nil && r.ChunkCount == nil && r.TerminalHash == nil {
+	if r.DigestVersion == nil && r.CacheKey == nil && r.Scope == nil && r.ChunkCount == nil && r.TerminalHash == nil && r.MetadataHash == nil {
 		if r.ProviderUsage == nil {
 			return errors.New("provider response observation requires provider usage")
 		}
@@ -518,6 +548,7 @@ func (r CacheResponseObservationRecord) validate() error {
 		Scope:         *r.Scope,
 		ChunkCount:    *r.ChunkCount,
 		TerminalHash:  *r.TerminalHash,
+		MetadataHash:  r.MetadataHash,
 	}
 	if err := request.validate(); err != nil {
 		return err
@@ -548,9 +579,19 @@ func (r CacheRequestObservationRecord) validate() error {
 	if strings.TrimSpace(r.TerminalHash) == "" {
 		return fmt.Errorf("terminal hash is required")
 	}
-	decodedHash, err := hex.DecodeString(strings.TrimSpace(r.TerminalHash))
-	if err != nil || len(decodedHash) != 32 {
-		return fmt.Errorf("terminal hash must be a SHA-256 hexadecimal digest")
+	if err := validateCacheHash("terminal", strings.TrimSpace(r.TerminalHash)); err != nil {
+		return err
+	}
+	if r.MetadataHash != nil {
+		return validateCacheHash("metadata", *r.MetadataHash)
+	}
+	return nil
+}
+
+func validateCacheHash(name, hash string) error {
+	decoded, err := hex.DecodeString(hash)
+	if err != nil || len(decoded) != 32 {
+		return fmt.Errorf("%s hash must be a SHA-256 hexadecimal digest", name)
 	}
 	return nil
 }

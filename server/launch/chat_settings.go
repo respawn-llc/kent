@@ -41,6 +41,7 @@ type PreparedChatAgentCatalog struct {
 }
 
 type preparedChatAgentComparison struct {
+	ConnectionMembership *string
 	Settings             config.Settings
 	Tools                []toolspec.ID
 	ProviderCapabilities llm.ProviderCapabilities
@@ -58,6 +59,12 @@ func PrepareChatAgentCatalog(
 
 }
 
+func PrepareChatAgentSelection(app config.App, selector string, meta session.Meta, rotation *ConnectionRotation) (PreparedChatAgentCatalogEntry, error) {
+	return prepareChatAgentEntry(app, selector, RunPromptPreparationContext{
+		Mode: defaultAgentMode(meta), Rotation: rotation, AllocateConnection: true,
+	}, false)
+}
+
 func PrepareSessionChatAgentCatalog(app config.App, meta session.Meta) (PreparedChatAgentCatalog, error) {
 	state, err := session.ChatSettingsStateFromMeta(meta)
 	if err != nil {
@@ -72,7 +79,7 @@ func PrepareSessionChatAgentCatalog(app config.App, meta session.Meta) (Prepared
 	// binding. Persisted controls and locks are applied by the settings owner.
 	target, err := (Planner{Config: app}).SelectedSessionPromptFacingTargetFromMeta(session.Meta{
 		ConnectionID: meta.ConnectionID, Continuation: continuation,
-	})
+	}, false)
 	if err != nil {
 		return PreparedChatAgentCatalog{}, err
 	}
@@ -118,6 +125,23 @@ func buildChatAgentCatalog(app config.App, current *string, locked bool, prepare
 		entry, err := prepare(selector)
 		if err != nil {
 			return PreparedChatAgentCatalog{}, err
+		}
+		configured := app.Settings
+		if selector != config.DefaultSubagentRole {
+			var err error
+			configured, err = config.OverlaySubagentRoleProviderSettings(app, app.Settings.Subagents[selector])
+			if err != nil {
+				return PreparedChatAgentCatalog{}, err
+			}
+		}
+		_, membership, membershipErr := ConnectionMembership(configured)
+		if membershipErr == nil {
+			entry.comparison.ConnectionMembership = &membership
+		} else {
+			var reference *config.ConnectionReferenceError
+			if !errors.As(membershipErr, &reference) {
+				return PreparedChatAgentCatalog{}, membershipErr
+			}
 		}
 		if (!locked || current == nil || selector != *current) && len(entries) > 0 &&
 			entry.SelectionError == nil && entries[0].SelectionError == nil &&
@@ -206,8 +230,12 @@ func chatAgentCatalogEntry(app config.App, selector string, target PreparedBaseT
 	}
 	tools := append([]toolspec.ID(nil), target.EnabledTools...)
 	role := app.Settings.Subagents[selector]
+	connection, err := target.Settings.Connection.ConcreteID()
+	if err != nil {
+		return PreparedChatAgentCatalogEntry{}, err
+	}
 	entry := PreparedChatAgentCatalogEntry{
-		ConnectionID: target.Settings.Connection,
+		ConnectionID: connection,
 		Choice: &chatsettingspb.AgentChoice{
 			Role:               selector,
 			Model:              textutil.OptionalTrimmedString(target.Settings.Model),
@@ -230,7 +258,6 @@ func chatAgentCatalogEntry(app config.App, selector string, target PreparedBaseT
 func partialChatAgentEntry(app config.App, selector string, partial unavailableAgent) PreparedChatAgentCatalogEntry {
 	role := app.Settings.Subagents[selector]
 	return PreparedChatAgentCatalogEntry{
-		ConnectionID: partial.Role.Settings.Connection,
 		Choice: &chatsettingspb.AgentChoice{
 			Role: selector, Model: partial.Role.Model, Thinking: partial.Role.Thinking,
 			CustomCapabilities: config.SubagentRoleHasCapabilityOverrides(role),

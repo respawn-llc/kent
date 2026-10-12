@@ -20,7 +20,8 @@ func ProviderSettings(settings config.Settings) config.Settings {
 		return settings
 	}
 	id, endpoint := config.ConnectionID("test"), "https://api.openai.com/v1"
-	settings.Connection = &id
+	settings.Connection = config.SingleConnection(id)
+	settings.ConnectionOrder = []config.ConnectionID{id}
 	settings.Connections = map[config.ConnectionID]config.ProviderConnection{
 		id: {Protocol: config.ConnectionResponses, Endpoint: &endpoint},
 	}
@@ -30,7 +31,11 @@ func ProviderSettings(settings config.Settings) config.Settings {
 func WithResponsesProvider(settings config.Settings, endpoint string) config.Settings {
 	settings = ProviderSettings(settings)
 	settings.Connections = maps.Clone(settings.Connections)
-	settings.Connections[*settings.Connection] = config.ProviderConnection{
+	id, err := settings.Connection.ConcreteID()
+	if err != nil {
+		panic(err)
+	}
+	settings.Connections[*id] = config.ProviderConnection{
 		Protocol: config.ConnectionResponses, Endpoint: &endpoint,
 	}
 	return settings
@@ -62,7 +67,7 @@ func WriteProviderSettings(t testing.TB, root string, settings config.Settings) 
 		}
 		connections[string(id)] = values
 	}
-	document["connections"], document["connection"] = connections, string(*settings.Connection)
+	document["connections"], document["connection"] = connections, settings.Connection.TOMLValue()
 	var buffer bytes.Buffer
 	if err := toml.NewEncoder(&buffer).Encode(document); err != nil {
 		t.Fatal(err)

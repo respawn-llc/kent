@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"core/shared/config"
-	"core/shared/textutil"
 
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 
@@ -70,7 +69,7 @@ func TestGetServerReadinessReadyWhenStartupAuthNotRequired(t *testing.T) {
 
 func TestGetServerReadinessDoesNotRequireDefaultConnectionCredentials(t *testing.T) {
 	readiness := requireServerReadiness(t, config.App{
-		Settings: config.Settings{Connection: textutil.Value(config.ConnectionID("work")), Connections: map[config.ConnectionID]config.ProviderConnection{
+		Settings: config.Settings{Connection: config.SingleConnection("work"), Connections: map[config.ConnectionID]config.ProviderConnection{
 			"work": {Protocol: config.ConnectionChatGPT},
 		}},
 	})

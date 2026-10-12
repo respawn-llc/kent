@@ -1219,6 +1219,12 @@ func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryRep
 	projectedStart := e.CommittedTranscriptEntryCount()
 	replacement.payload.CommittedEntryStart = &projectedStart
 	replacement.payload.LatestRollbackCandidate = e.transcriptRuntimeState().LatestRollbackCandidate()
+	if cache := e.modelRequests().RequestCache(); cache != nil {
+		replacement.payload.CacheMetadata = cache.SnapshotMetadata(
+			e.conversationPromptCacheKey(e.SessionID()),
+			e.conversationPromptCacheKey(reviewerSessionID(e.SessionID())),
+		)
+	}
 	record, adaptErr := sessionHistoryReplacementRecordFromRuntime(replacement.payload)
 	if adaptErr != nil {
 		return session.CommitReceipt{}, fmt.Errorf("adapt history replacement record: %w", adaptErr)

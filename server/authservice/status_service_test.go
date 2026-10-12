@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"core/server/auth"
+	"core/server/session"
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	"core/shared/textutil"
@@ -19,6 +20,68 @@ import (
 
 type failingAuthStatusStore struct {
 	err error
+}
+
+type statusSessionResolver struct {
+	record session.PersistedSessionRecord
+	err    error
+}
+
+func (s *statusSessionResolver) ResolvePersistedSession(context.Context, string) (session.PersistedSessionRecord, error) {
+	return s.record, s.err
+}
+
+func TestConnectionStatusReadsCurrentSavedSessionBinding(t *testing.T) {
+	id := "123e4567-e89b-42d3-a456-426614174000"
+	reader := &statusSessionResolver{record: session.PersistedSessionRecord{
+		SessionDir: t.TempDir(),
+		Meta:       &session.Meta{SessionID: id, ConnectionID: textutil.Value(config.ConnectionID("local"))},
+	}}
+	resolver := authServiceResolver(t, nil, func(string) (string, bool) { return "key", true })
+	service := NewStatusService(resolver, reader)
+	request := &authpb.GetStatusRequest{SessionId: &id, SkipSubscriptionUsage: true}
+	for _, tc := range []struct {
+		binding config.ConnectionID
+		method  authpb.AuthMethod
+	}{{"local", authpb.AuthMethod_AUTH_METHOD_NONE}, {"api", authpb.AuthMethod_AUTH_METHOD_API_KEY}} {
+		reader.record.Meta.ConnectionID = &tc.binding
+		result, err := service.GetStatus(t.Context(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		connection := result.GetResolution().GetKnown().GetSessionConnection()
+		if connection == nil || connection.ConnectionId != string(tc.binding) || connection.Method != tc.method {
+			t.Fatalf("current saved binding = %+v", result)
+		}
+	}
+	reader.record.Meta.ConnectionID = nil
+	result, err := service.GetStatus(t.Context(), request)
+	if err != nil || result.GetResolution().GetUnavailable() == nil {
+		t.Fatalf("unbound Session must not use global default: %+v, %v", result, err)
+	}
+	reader.record.Meta.ConnectionID = textutil.Value(config.ConnectionID("deleted"))
+	result, err = service.GetStatus(t.Context(), request)
+	if err != nil || result.GetResolution().GetUnavailable() == nil {
+		t.Fatalf("deleted Connection must not use global default: %+v, %v", result, err)
+	}
+	reader.err = errors.New("Session read failed")
+	result, err = service.GetStatus(t.Context(), request)
+	if err != nil || result.GetResolution().GetUnavailable() == nil {
+		t.Fatalf("unreadable Session must surface failure: %+v, %v", result, err)
+	}
+}
+
+func TestConnectionStatusDoesNotLabelGlobalOrProviderTargetsAsSessions(t *testing.T) {
+	service := NewStatusService(authServiceResolver(t, nil, func(string) (string, bool) { return "key", true }), nil)
+	for _, request := range []*authpb.GetStatusRequest{
+		{SkipSubscriptionUsage: true},
+		{Provider: &authpb.ProviderSelection{ConnectionId: "api"}, SkipSubscriptionUsage: true},
+	} {
+		result, err := service.GetStatus(t.Context(), request)
+		if err != nil || result.GetResolution().GetKnown() == nil || result.GetResolution().GetKnown().SessionConnection != nil {
+			t.Fatalf("non-Session target must not have Session Connection facts: %+v, %v", result, err)
+		}
+	}
 }
 
 func (s failingAuthStatusStore) Load(context.Context) (auth.State, error) {
@@ -37,7 +100,7 @@ func TestConnectionStatusReadsStoredOAuthWithoutRefreshing(t *testing.T) {
 		t.Error("status attempted OAuth refresh")
 		return auth.OAuthMethod{}, errors.New("unexpected refresh")
 	})})
-	status, err := NewStatusService(authServiceResolver(t, manager, nil)).GetStatus(t.Context(), &authpb.GetStatusRequest{SkipSubscriptionUsage: true})
+	status, err := NewStatusService(authServiceResolver(t, manager, nil), nil).GetStatus(t.Context(), &authpb.GetStatusRequest{SkipSubscriptionUsage: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +112,7 @@ func TestConnectionStatusReadsStoredOAuthWithoutRefreshing(t *testing.T) {
 
 func TestConnectionStatusSeparatesFailuresAndSelectedConnection(t *testing.T) {
 	manager := auth.NewManager(failingAuthStatusStore{err: errors.New("unreadable OAuth store")}, nil)
-	service := NewStatusService(authServiceResolver(t, manager, func(name string) (string, bool) { return "secret", name == "SERVER_KEY" }))
+	service := NewStatusService(authServiceResolver(t, manager, func(name string) (string, bool) { return "secret", name == "SERVER_KEY" }), nil)
 	status, err := service.GetStatus(t.Context(), &authpb.GetStatusRequest{SkipSubscriptionUsage: true})
 	if err != nil || status.Resolution.GetUnavailable() == nil {
 		t.Fatalf("OAuth failure was not reported: %+v, %v", status, err)

@@ -161,7 +161,7 @@ func TestSelectWorkflowTaskPromptResumeRestoresMissingOrDifferentAssignment(t *t
 		{
 			name:       "missing assignment",
 			items:      nil,
-			wantKind:   prompts.WorkflowTaskPromptInitialAssignment,
+			wantKind:   prompts.WorkflowTaskPromptCompactionReminder,
 			wantInject: true,
 		},
 		{

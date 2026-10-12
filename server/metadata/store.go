@@ -80,6 +80,7 @@ type Store struct {
 }
 
 type sessionMetadataDocument struct {
+	WorkflowSnapshot                *session.WorkflowSnapshot              `json:"workflow_snapshot,omitempty"`
 	ConnectionID                    *config.ConnectionID                   `json:"connection_id"`
 	WorkspaceRoot                   string                                 `json:"workspace_root"`
 	WorkspaceContainer              string                                 `json:"workspace_container"`
@@ -207,7 +208,23 @@ func Open(persistenceRoot string) (*Store, error) {
 	if trimmedRoot == "" {
 		return nil, errors.New("persistence root is required")
 	}
-	return OpenAtPath(trimmedRoot, filepath.Join(trimmedRoot, "db", "main.sqlite3"))
+	return OpenAtPath(trimmedRoot, databasePath(trimmedRoot))
+}
+
+func databasePath(persistenceRoot string) string {
+	return filepath.Join(persistenceRoot, "db", "main.sqlite3")
+}
+
+func DatabaseExists(persistenceRoot string) (bool, error) {
+	root := strings.TrimSpace(persistenceRoot)
+	if root == "" {
+		return false, errors.New("persistence root is required")
+	}
+	_, err := os.Stat(databasePath(root))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func OpenAtPath(persistenceRoot string, databasePath string) (*Store, error) {
@@ -223,6 +240,24 @@ func OpenAtPath(persistenceRoot string, databasePath string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	store, err := NewStore(trimmedRoot, db)
+	if err != nil {
+		_ = db.Close()
+	}
+	return store, err
+}
+
+// NewStore takes ownership of an initialized metadata database on success.
+func NewStore(persistenceRoot string, db *sql.DB) (*Store, error) {
+	trimmedRoot := strings.TrimSpace(persistenceRoot)
+	if trimmedRoot == "" {
+		return nil, errors.New("persistence root is required")
+	}
+	if db == nil {
+		return nil, errors.New("metadata database is required")
+	}
+	db.SetMaxOpenConns(sqlitegen.ConnectionPoolSize)
+	db.SetMaxIdleConns(sqlitegen.ConnectionPoolSize)
 	store := &Store{
 		persistenceRoot:  trimmedRoot,
 		db:               db,
@@ -230,7 +265,6 @@ func OpenAtPath(persistenceRoot string, databasePath string) (*Store, error) {
 		goalObservations: newGoalObservationBroker(),
 	}
 	if err := store.BackfillProjectKeys(context.Background()); err != nil {
-		_ = db.Close()
 		return nil, err
 	}
 	return store, nil
@@ -2406,6 +2440,9 @@ func (s *Store) serializeSessionSnapshot(snapshot session.PersistedStoreSnapshot
 		return sqlitegen.UpsertSessionParams{}, fmt.Errorf("validate session Chat settings: %w", err)
 	}
 	snapshot.Meta.ChatSettings = chatSettings
+	if err := session.ValidateWorkflowSnapshot(snapshot.Meta.WorkflowSnapshot); err != nil {
+		return sqlitegen.UpsertSessionParams{}, err
+	}
 	if err := session.ValidateOriginalThinkingEffort(snapshot.Meta.OriginalThinkingEffort); err != nil {
 		return sqlitegen.UpsertSessionParams{}, err
 	}
@@ -2443,6 +2480,7 @@ func (s *Store) serializeSessionSnapshot(snapshot session.PersistedStoreSnapshot
 		return sqlitegen.UpsertSessionParams{}, err
 	}
 	metadataJSON, err := marshalJSON(sessionMetadataDocument{
+		WorkflowSnapshot:                snapshot.Meta.WorkflowSnapshot,
 		ConnectionID:                    snapshot.Meta.ConnectionID,
 		WorkspaceRoot:                   snapshot.Meta.WorkspaceRoot,
 		WorkspaceContainer:              snapshot.Meta.WorkspaceContainer,
@@ -2616,6 +2654,9 @@ func sessionMetaFromRecordRow(row sqlitegen.GetSessionRecordByIDRow) (session.Me
 	if err := session.ValidateOriginalThinkingEffort(metadataPayload.OriginalThinkingEffort); err != nil {
 		return session.Meta{}, err
 	}
+	if err := session.ValidateWorkflowSnapshot(metadataPayload.WorkflowSnapshot); err != nil {
+		return session.Meta{}, fmt.Errorf("validate session Workflow snapshot: %w", err)
+	}
 	if err := session.ValidateRetainedToolSelection(metadataPayload.RetainedToolSelection); err != nil {
 		return session.Meta{}, err
 	}
@@ -2673,6 +2714,7 @@ func sessionMetaFromRecordRow(row sqlitegen.GetSessionRecordByIDRow) (session.Me
 		Continuation:                    continuation,
 		ConnectionID:                    metadataPayload.ConnectionID,
 		ChatSettings:                    chatSettings,
+		WorkflowSnapshot:                metadataPayload.WorkflowSnapshot,
 		OriginalThinkingEffort:          metadataPayload.OriginalThinkingEffort,
 		RetainedToolSelection:           metadataPayload.RetainedToolSelection,
 		CreatedAt:                       timeFromStoredTimestamp(row.CreatedAtUnixMs),

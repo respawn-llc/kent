@@ -310,7 +310,7 @@ func TestPrepareModelTurnSkipsAutoCompactionAfterPendingHandoffCompaction(t *tes
 	}
 }
 
-func TestPrepareModelTurnMaterializesWorktreeReminderAfterPendingHandoffCompaction(t *testing.T) {
+func TestHandoffRequestDeliversOneWorktreeContext(t *testing.T) {
 	store := mustCreateTestSession(t)
 	target := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
 		session.WorktreeReminderModeEnter,
@@ -324,7 +324,7 @@ func TestPrepareModelTurnMaterializesWorktreeReminderAfterPendingHandoffCompacti
 		responses: []llm.Response{{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("handoff summary")},
 			Usage:     llm.Usage{InputTokens: textutil.Value(1_900), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 1_900, MeasurementPoint: llm.ContextMeasurementInput}},
-		}},
+		}, finalOutputItemResponse("done")},
 	}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{
 		CompactionMode:        "local",
@@ -337,21 +337,17 @@ func TestPrepareModelTurnMaterializesWorktreeReminderAfterPendingHandoffCompacti
 	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(1_900), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 1_900, MeasurementPoint: llm.ContextMeasurementInput}})
 	eng.handoffRuntimeState().QueueRequest("keep runtime details", "")
 
-	executor := &defaultStepExecutor{engine: eng}
-	restoreStep := setTestActiveStep(eng, "step-1")
-	if err := executor.prepareModelTurn(context.Background(), runtimeTestStepID("step-1")); err != nil {
-		t.Fatalf("prepare model turn: %v", err)
+	if _, err := eng.SubmitUserMessage(t.Context(), "continue"); err != nil {
+		t.Fatalf("submit handoff continuation: %v", err)
 	}
-	restoreStep()
-
-	messages := eng.transcriptRuntimeState().SnapshotMessages()
+	if len(client.calls) != 2 {
+		t.Fatalf("provider calls = %d, want handoff summary and continuation", len(client.calls))
+	}
+	messages := requestMessages(client.calls[1])
 	if got := worktreeReminderMessageCount(messages); got != 1 {
-		t.Fatalf("worktree reminders after handoff compaction = %d, want 1 messages=%+v", got, messages)
+		t.Fatalf("worktree contexts in handoff continuation request = %d, want 1", got)
 	}
 	assertLatestWorktreeContext(t, messages, target)
-	if len(client.calls) != 1 {
-		t.Fatalf("expected only handoff compaction call, got %d calls", len(client.calls))
-	}
 }
 
 func TestPendingTriggerHandoffFailsToolCallsAndRetriesLocalSummary(t *testing.T) {

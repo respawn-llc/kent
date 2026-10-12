@@ -49,7 +49,7 @@ func TestGrokConnectionRouteIsIndependentOfCapabilities(t *testing.T) {
 				t.Fatalf("request capability override = %+v, %v", caps, err)
 			}
 			id := config.ConnectionID("grok")
-			settings := config.Settings{Connection: &id, Connections: map[config.ConnectionID]config.ProviderConnection{id: connection}}
+			settings := config.Settings{Connection: config.SingleConnection(id), Connections: map[config.ConnectionID]config.ProviderConnection{id: connection}}
 			locked := &session.LockedContract{ProviderContract: LockedProviderCapabilitiesFromContract(caps)}
 			resumed, err := ResolveEffectiveProviderCapabilities(locked, settings)
 			if err != nil {
@@ -67,7 +67,7 @@ func TestGrokConnectionRouteIsIndependentOfCapabilities(t *testing.T) {
 func TestConnectionCapabilitiesPreserveLockedRequestContract(t *testing.T) {
 	id := config.ConnectionID("local")
 	settings := config.Settings{
-		Model: "claude-model-alias", Connection: &id,
+		Model: "claude-model-alias", Connection: config.SingleConnection(id),
 		Connections: map[config.ConnectionID]config.ProviderConnection{
 			id: {Protocol: config.ConnectionResponses, Endpoint: openaiTestOptionalString("http://localhost:1234")},
 		},
@@ -125,7 +125,7 @@ func TestFastModeUsesCurrentConnectionCapabilityWithLockedProviderFacts(t *testi
 		t.Run(test.name, func(t *testing.T) {
 			id := config.ConnectionID("current")
 			settings := config.Settings{
-				Model: "custom-model", Connection: &id,
+				Model: "custom-model", Connection: config.SingleConnection(id),
 				Connections: map[config.ConnectionID]config.ProviderConnection{id: test.connection},
 			}
 			resolved, err := ResolveEffectiveProviderCapabilities(locked, settings)
@@ -144,7 +144,7 @@ func TestFastModeUsesCurrentConnectionCapabilityWithLockedProviderFacts(t *testi
 
 func TestConnectionCapabilityOverrides(t *testing.T) {
 	id := config.ConnectionID("local")
-	settings := config.Settings{Connection: &id, Connections: map[config.ConnectionID]config.ProviderConnection{
+	settings := config.Settings{Connection: config.SingleConnection(id), Connections: map[config.ConnectionID]config.ProviderConnection{
 		id: {
 			Protocol: config.ConnectionResponses, Endpoint: openaiTestOptionalString("http://localhost:1234"),
 			Capabilities: config.ProviderCapabilitiesOverride{

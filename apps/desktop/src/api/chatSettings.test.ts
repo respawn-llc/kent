@@ -1,5 +1,6 @@
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { create } from "@app/server-api-contract";
+import { AuthMethod } from "@app/server-api-contract/gen/kent/api/auth/auth_pb";
 import {
   AutoCompactionPolicy,
   ChatSettingsService,
@@ -167,6 +168,7 @@ describe("Chat Settings descriptor adapter", () => {
                   settings: settings(),
                   session: {
                     sessionId: sessionID,
+                    connection: { connectionId: "saved", method: AuthMethod.API_KEY },
                     previousSessionId: parentID,
                     taskId: taskID,
                     taskShortId: "KENT-416",
@@ -190,7 +192,12 @@ describe("Chat Settings descriptor adapter", () => {
         questions: { capable: true, enabled: true },
         autoCompaction: { policy: "optional", stored: true, effective: true },
       },
-      session: { sessionID, previousSessionID: parentID, task: { taskID, shortID: "KENT-416" } },
+      session: {
+        sessionID,
+        previousSessionID: parentID,
+        task: { taskID, shortID: "KENT-416" },
+        connection: { id: "saved", mode: "api_key" },
+      },
     });
     expect(transport.descriptorCalls[0]?.request).toMatchObject({
       target: { case: "session", value: { sessionId: sessionID } },
@@ -575,6 +582,34 @@ describe("Chat Settings descriptor adapter", () => {
         new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(sessionTarget),
       ).rejects.toBeInstanceOf(Error);
     }
+  });
+
+  it("rejects unspecified Session Connection authentication instead of inventing a mode", async () => {
+    const transport = new FakeRpcTransport([
+      {
+        descriptor: ChatSettingsService.method.read,
+        result: create(ReadResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              target: {
+                case: "session",
+                value: {
+                  settings: settings(),
+                  session: {
+                    sessionId: sessionID,
+                    connection: { connectionId: "saved", method: AuthMethod.UNSPECIFIED },
+                  },
+                },
+              },
+            },
+          },
+        }),
+      },
+    ]);
+    await expect(
+      new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(sessionTarget),
+    ).rejects.toBeInstanceOf(Error);
   });
 
   it("rejects impossible Settings capability, editability, and policy descriptors", async () => {

@@ -12,6 +12,7 @@ import (
 )
 
 type PreparedChatSettingsOperationInput struct {
+	Configuration config.App
 	ChatSettingsMutationContext
 	PersistedQuestions bool
 	PersistedThinking  *string

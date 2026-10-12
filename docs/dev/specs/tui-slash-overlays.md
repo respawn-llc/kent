@@ -12,6 +12,8 @@
 
 ## /status
 
+- The Auth section must include the conditional Session Connection row defined in [Provider Connections](provider-connections.md), styled consistently with its other rows. Grok must show its available Auth details without unsupported quota tracking.
+
 - `/status` is read-only and loads its sections progressively.
 - Content is organized in sections — Session, Git, Context, Auth (account + subscription windows with usage bars and reset times), Config (override sources, supervisor, questions), Skills, AGENTS.md inspection, Warnings — each section loads independently with a loading placeholder; section failures become warnings listed in the Warnings section, never a blank overlay. The section set is behavior-level; copy/layout is presentation.
 - Keys: scroll only (shared conventions); no actions.

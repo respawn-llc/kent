@@ -54,6 +54,7 @@ type WorkflowAttentionRegistry interface {
 }
 
 type Starter struct {
+	connectionRotation   *launch.ConnectionRotation
 	environment          func(string) (string, bool)
 	cfg                  config.App
 	workspaceConfig      chatcontext.FixedRootWorkspaceResolver
@@ -69,6 +70,7 @@ type Starter struct {
 }
 
 type StarterOptions struct {
+	ConnectionRotation         *launch.ConnectionRotation
 	WorkspaceConfigLoadOptions config.LoadOptions
 	Environment                func(string) (string, bool)
 	RuntimeClientFactory       runtimewire.RuntimeClientFactory
@@ -88,9 +90,10 @@ func NewStarter(cfg config.App, metadataStore *metadata.Store, store RuntimeStor
 		return nil, err
 	}
 	return &Starter{
+		connectionRotation:   opts.ConnectionRotation,
 		environment:          opts.Environment,
 		cfg:                  cfg,
-		workspaceConfig:      chatcontext.NewFixedRootWorkspaceResolver(cfg.PersistenceRoot, cfg.WorkspaceRoot, opts.WorkspaceConfigLoadOptions),
+		workspaceConfig:      chatcontext.NewFixedRootWorkspaceResolver(metadataStore, cfg.WorkspaceRoot, opts.WorkspaceConfigLoadOptions),
 		metadata:             metadataStore,
 		store:                store,
 		authManager:          authManager,
@@ -140,7 +143,7 @@ func (s *currentNodeAgentAssignmentSteer) Prepare(ctx context.Context) error {
 	s.started = true
 	s.mu.Unlock()
 
-	err = s.planned.materialize(ctx, s.starter, s.input, &s.prepared)
+	err = s.planned.materialize(ctx, s.starter, s.input, &s.prepared, &s.assignment)
 	var steer runtime.WorkflowAssignmentSteer
 	var admission sessionruntime.DormantSessionStoreAdmission
 	if err == nil {
@@ -644,24 +647,24 @@ type currentNodeSessionPolicy struct {
 
 func resolveCurrentNodeSessionPolicy(input workflowstore.CurrentNodeStartContext) (currentNodeSessionPolicy, error) {
 	source := workflow.CanonicalContextSource(input.EnteringEdge.ContextSource)
-	targetOwned := false
 	switch source.Kind {
 	case workflow.ContextSourceImmediateSource, workflow.ContextSourceSelectedNode:
 	case workflow.ContextSourcePreviousTarget, workflow.ContextSourcePreviousTargetOrNew:
-		targetOwned = true
 	default:
 		return currentNodeSessionPolicy{}, fmt.Errorf("current node session policy does not support context source %q", source.Kind)
 	}
-	assignee, err := workflow.ResolveAssigneeSessionPolicy(workflow.AssigneeSessionPolicyRequest{
+	request := workflow.AssigneeSessionPolicyRequest{
 		ContextMode:           input.ContextMode,
 		ContextSource:         source,
 		TargetSessionResolved: input.CurrentNode.SessionID != nil,
-	})
+		FanoutBranch:          input.IsFanoutBranch,
+	}
+	assignee, err := workflow.ResolveAssigneeSessionPolicy(request)
 	if err != nil {
 		return currentNodeSessionPolicy{}, err
 	}
 	return currentNodeSessionPolicy{
-		cloneRetainedSession: input.IsFanoutBranch && !targetOwned && input.ContextMode != workflow.ContextModeNewSession,
+		cloneRetainedSession: request.CopiesSourceSession(),
 		assignee:             assignee,
 	}, nil
 }
@@ -740,8 +743,8 @@ func renderCurrentNodePrompt(text string, input workflowstore.CurrentNodeStartCo
 }
 
 func (s *Starter) resolveCurrentNodeCompletionMode(ctx context.Context, input workflowstore.CurrentNodeStartContext, plan launch.SessionPlan) (workflowruntime.CompletionMode, error) {
-	if plan.Locked != nil && plan.Locked.WorkflowCompletionMode != nil {
-		mode, err := workflowruntime.ParseCompletionMode(string(*plan.Locked.WorkflowCompletionMode))
+	if plan.WorkflowSnapshot != nil {
+		mode, err := workflowruntime.ParseCompletionMode(string(plan.WorkflowSnapshot.CompletionMode))
 		if err != nil {
 			return "", fmt.Errorf("parse retained Session completion mode: %w", err)
 		}

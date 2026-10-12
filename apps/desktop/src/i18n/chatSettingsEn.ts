@@ -4,6 +4,12 @@ export const chatSettingsEnglish = {
   cancelSwitch: "Cancel",
   switchAgentWarning:
     "Switch to {{agent}}? Any current run will stop. The new Agent replaces the model, prompts, tools, and settings. Cached input may be reprocessed. History stays intact; the chat remains idle until you send another message.",
+  sessionConnection: "Session Connection: {{id}} ({{mode}})",
+  connectionModes: {
+    subscription: "Subscription",
+    api_key: "API Key",
+    no_auth: "No Auth",
+  },
   toParentChat: "To parent chat",
   copied: "Copied to clipboard",
   clickToCopy: "Click to copy",

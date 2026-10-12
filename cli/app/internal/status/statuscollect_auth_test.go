@@ -26,9 +26,25 @@ func TestAuthStageFromResponseProjectsTypedMethods(t *testing.T) {
 				}},
 			},
 		})
-		if result.Auth.Method != method || result.Auth.Visible != (method == authpb.AuthMethod_AUTH_METHOD_OAUTH) || result.Auth.Unavailable {
+		if result.Auth.Method != method || !result.Auth.Visible || result.Auth.Unavailable {
 			t.Fatalf("method %v projection = %+v", method, result)
 		}
+	}
+}
+
+func TestAuthStageShowsGrokDetailsWithoutSubscriptionQuotas(t *testing.T) {
+	connection := &authpb.ConnectionFacts{ConnectionId: "grok", Method: authpb.AuthMethod_AUTH_METHOD_OAUTH}
+	result := AuthStageFromResponse(&authpb.Status{
+		Resolution: &authpb.StatusResolution{Resolution: &authpb.StatusResolution_Known{
+			Known: &authpb.StatusFacts{
+				ConnectionId: "grok", Method: connection.Method, SessionConnection: connection,
+				Provider: &authpb.ProviderFacts{Kind: authpb.ProviderKind_PROVIDER_KIND_CONFIGURED_PROVIDER, Identifier: "grok"},
+			},
+		}},
+		Subscription: &authpb.SubscriptionFacts{},
+	})
+	if !result.Auth.Visible || result.Auth.Connection != connection || result.Subscription.Applicable || len(result.Subscription.Windows) != 0 {
+		t.Fatalf("Grok Auth projection = %+v", result)
 	}
 }
 

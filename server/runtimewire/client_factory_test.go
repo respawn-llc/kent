@@ -230,7 +230,7 @@ func TestResumedMainClientPreservesLockedGenerationCapabilities(t *testing.T) {
 		materializedRuntimeWireEventLog(t, store),
 		config.Settings{
 			Model:      "operator-alias",
-			Connection: textutil.Value(config.ConnectionID("local")),
+			Connection: config.SingleConnection("local"),
 			Connections: map[config.ConnectionID]config.ProviderConnection{
 				"local": {Protocol: config.ConnectionResponses, Endpoint: textutil.Value(recorder.URL())},
 			},

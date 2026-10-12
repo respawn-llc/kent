@@ -32,6 +32,9 @@ func (e *Engine) installHistoryReplacement(record session.EventRecord, replaceme
 		)
 	}
 	e.transcriptRuntimeState().SeedLastCommittedAssistantFinalAnswerIfAbsent(replacement.LastCommittedAssistantFinalAnswer)
+	if cache := e.modelRequests().RequestCache(); cache != nil {
+		cache.RestoreMetadata(replacement.CacheMetadata)
+	}
 	mode := session.CompactionMode(replacement.Mode)
 	if err := e.compactionRuntimeState().SetHistoryReplacementMode(&mode); err != nil {
 		return nil, fmt.Errorf("install history replacement mode: %w", err)

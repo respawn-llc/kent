@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/shared/config"
@@ -63,10 +64,10 @@ func newMetadataOnlyAncestryPlanner(t *testing.T) (Planner, string, *sessiontest
 		Config: config.App{
 			WorkspaceRoot:   "/tmp/workspace-a",
 			PersistenceRoot: root,
-			Settings: config.Settings{
+			Settings: testsetup.ProviderSettings(config.Settings{
 				Model:            "gpt-6-sol",
 				MaxSubagentDepth: 2,
-			},
+			}),
 		},
 		ContainerDir:      containerDir,
 		StoreOptions:      persistence.Options(),

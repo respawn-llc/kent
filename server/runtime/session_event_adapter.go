@@ -399,6 +399,7 @@ func sessionCacheRequestRecordFromRuntime(
 		Scope:         session.CacheScope(observation.Scope),
 		ChunkCount:    observation.ChunkCount,
 		TerminalHash:  observation.TerminalHash,
+		MetadataHash:  textutil.Pointer(observation.MetadataHash),
 	}
 	normalized, err := session.NewEventRecord(1, nil, record)
 	if err != nil {
@@ -422,6 +423,7 @@ func sessionCacheResponseRecordFromRuntime(
 		record.Scope = &scope
 		record.ChunkCount = &chunkCount
 		record.TerminalHash = &terminalHash
+		record.MetadataHash = textutil.Pointer(observation.MetadataHash)
 		record.CachedInputTokens = textutil.Pointer(observation.CachedInputTokens)
 	}
 	record.OperationID = textutil.Pointer(observation.OperationID)
@@ -464,6 +466,7 @@ func persistedCacheRequestObservedFromSessionRecord(
 		Scope:         transcript.CacheWarningScope(record.Scope),
 		ChunkCount:    record.ChunkCount,
 		TerminalHash:  record.TerminalHash,
+		MetadataHash:  textutil.Pointer(record.MetadataHash),
 	}
 }
 
@@ -471,6 +474,7 @@ func persistedCacheResponseObservedFromSessionRecord(
 	record session.CacheResponseObservationRecord,
 ) persistedCacheResponseObserved {
 	observation := persistedCacheResponseObserved{
+		MetadataHash:      textutil.Pointer(record.MetadataHash),
 		CachedInputTokens: textutil.Pointer(record.CachedInputTokens),
 		OperationID:       textutil.Pointer(record.OperationID),
 		SessionID:         textutil.Pointer(record.SessionID),
@@ -513,6 +517,7 @@ func sessionHistoryReplacementRecordFromRuntime(
 	payload historyReplacementPayload,
 ) (session.HistoryReplacementRecord, error) {
 	record := session.HistoryReplacementRecord{
+		CacheMetadata:                     append([]session.CacheMetadataObservation(nil), payload.CacheMetadata...),
 		Engine:                            payload.Engine,
 		Mode:                              session.CompactionMode(payload.Mode),
 		CommittedEntryStart:               textutil.Pointer(payload.CommittedEntryStart),
@@ -554,6 +559,7 @@ func historyReplacementPayloadFromSessionRecord(
 		return historyReplacementPayload{}, err
 	}
 	payload := historyReplacementPayload{
+		CacheMetadata:                     append([]session.CacheMetadataObservation(nil), record.CacheMetadata...),
 		Engine:                            record.Engine,
 		Mode:                              string(record.Mode),
 		CommittedEntryStart:               textutil.Pointer(record.CommittedEntryStart),

@@ -117,6 +117,7 @@ func cloneStringPointer(value *string) *string {
 }
 
 type authorityRuntimeOptions struct {
+	connectionRotation  *launch.ConnectionRotation
 	environment         func(string) (string, bool)
 	workspaceMembership runtimewire.WorkspaceMembership
 	debug               bool
@@ -136,6 +137,7 @@ type runtimeStoreAdmission struct {
 
 func newAuthorityRuntimeOptions(options AuthorityOptions) authorityRuntimeOptions {
 	return authorityRuntimeOptions{
+		connectionRotation:  options.ConnectionRotation,
 		environment:         options.Environment,
 		workspaceMembership: options.WorkspaceMembership,
 		debug:               options.Debug,
@@ -292,7 +294,8 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 		return nil, err
 	}
 	options.Settings.Connections = catalog.Settings.Connections
-	replacement, err := launch.BindSessionConnection(store, &options.Settings, options.Sources)
+	options.Settings.ConnectionOrder = catalog.Settings.ConnectionOrder
+	replacement, err := a.options.connectionRotation.BindSessionConnection(store, &options.Settings, options.Sources)
 	if err != nil {
 		return nil, err
 	}

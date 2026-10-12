@@ -539,6 +539,7 @@ func (s *Store) PromptFacingMetadataSnapshot() PromptFacingMetadataSnapshot {
 		Continuation:                  cloneContinuationContext(meta.Continuation),
 		ChatSettings:                  cloneChatSettingsOverrides(meta.ChatSettings),
 		Locked:                        cloneLockedContract(meta.Locked),
+		WorkflowSnapshot:              cloneWorkflowSnapshot(meta.WorkflowSnapshot),
 		ActiveWorkflowAssignment:      cloneMessageRecord(meta.ActiveWorkflowAssignment),
 		ActiveWorkflowAssignmentState: cloneActiveWorkflowAssignmentState(meta.ActiveWorkflowAssignmentState),
 	}
@@ -559,6 +560,7 @@ func (s *Store) RestorePromptFacingMetadata(snapshot PromptFacingMetadataSnapsho
 		}
 		s.meta.ChatSettings = settings
 		s.meta.Locked = cloneLockedContract(snapshot.Locked)
+		s.meta.WorkflowSnapshot = cloneWorkflowSnapshot(snapshot.WorkflowSnapshot)
 		s.meta.ActiveWorkflowAssignment = cloneMessageRecord(snapshot.ActiveWorkflowAssignment)
 		s.meta.ActiveWorkflowAssignmentState = cloneActiveWorkflowAssignmentState(snapshot.ActiveWorkflowAssignmentState)
 		s.meta.UpdatedAt = time.Now().UTC()
@@ -1291,18 +1293,6 @@ func (s *Store) BackfillLockedRequestShape(fields LockedRequestShapeBackfill) (L
 	return s.mutateLockedContractWithCommitStatus(func(locked *LockedContract) {
 		fields.WebSearchMode = strings.TrimSpace(fields.WebSearchMode)
 		*locked = locked.WithRequestShape(fields)
-	})
-}
-
-func (s *Store) BackfillLockedWorkflowCompletionMode(mode sessioncontract.WorkflowCompletionMode) (LockedContractMutationResult, error) {
-	parsed, err := sessioncontract.ParseWorkflowCompletionMode(string(mode))
-	if err != nil {
-		return LockedContractMutationResult{}, err
-	}
-	return s.mutateLockedContractWithCommitStatus(func(locked *LockedContract) {
-		if locked.WorkflowCompletionMode == nil {
-			*locked = locked.WithWorkflowCompletionMode(parsed)
-		}
 	})
 }
 

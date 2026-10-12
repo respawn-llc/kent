@@ -33,6 +33,6 @@ func registerChatContextGatewayBinaryBindings(bindings map[string]gatewayBinaryB
 			return &contextpb.GetSuccess{Context: facts}, nil
 		},
 		func(_ *Gateway, _ *connectionState, _ *contextpb.GetRequest, err error) proto.Message {
-			return binaryAuthFailure(err)
+			return binaryAuthReadinessFailure(err)
 		})
 }

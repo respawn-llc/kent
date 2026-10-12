@@ -8,6 +8,7 @@ import (
 
 	"core/server/metadata"
 	"core/server/session"
+	"core/server/workflow"
 	"core/shared/rollbacktarget"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
@@ -76,7 +77,10 @@ func TestCompactedOutputSurvivesReopenAndClone(t *testing.T) {
 				Engine: string(engine), Mode: session.CompactionModeWorkflowPostCompletion,
 				CompactionNumber: textutil.Value(1), CommittedEntryStart: textutil.Value(5),
 				CompactedOutput: &session.CompactedOutput{
-					Summary:              []session.ProviderHistoryItem{item},
+					Summary: []session.ProviderHistoryItem{item},
+					ContinuingCurrentNode: &session.CompactionCurrentNode{
+						TaskID: "task", NodeID: "node", TransitionBranchKey: textutil.Value(workflow.TransitionBranchKey("branch")),
+					},
 					PreservedUserMessage: &session.MessageRecord{Role: session.MessageRoleDeveloper, MessageType: &carryoverType, Content: &prompt},
 				},
 				LastCommittedAssistantFinalAnswer: &final,
@@ -88,6 +92,13 @@ func TestCompactedOutputSurvivesReopenAndClone(t *testing.T) {
 			invalid.CompactionNumber = textutil.Value(0)
 			if _, receipt, err := log.AppendHistoryReplacement(nil, invalid); err == nil || receipt.Committed {
 				t.Fatalf("invalid pending summary committed: receipt=%+v err=%v", receipt, err)
+			}
+			invalid = record
+			invalidOutput := *record.CompactedOutput
+			invalidOutput.ContinuingCurrentNode = &session.CompactionCurrentNode{TaskID: "task"}
+			invalid.CompactedOutput = &invalidOutput
+			if _, receipt, err := log.AppendHistoryReplacement(nil, invalid); err == nil || receipt.Committed {
+				t.Fatalf("invalid Current Node origin committed: receipt=%+v err=%v", receipt, err)
 			}
 			if meta := store.Meta(); meta.Locked == nil || meta.OriginalThinkingEffort == nil || meta.UsageState == nil {
 				t.Fatal("rejected summary reset outgoing context")

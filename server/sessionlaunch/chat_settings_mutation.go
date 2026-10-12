@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"core/server/launch"
 	"core/server/registry"
 	"core/server/runtime"
 	"core/server/session"
@@ -24,6 +25,9 @@ type ChatSettingsOwner struct {
 }
 
 func (s *Service) MutateChatSettings(ctx context.Context, sessionID runtimeids.SessionID, operation *chatsettingspb.MutationOperation) (*chatsettingspb.MutationResult, error) {
+	// A confirmed replacement selects one Connection before Stop and retains it
+	// while revalidating the Session at commit.
+	var selectedAgent *launch.PreparedChatAgentCatalogEntry
 	return s.applyChatSettings(ctx, sessionID, operation, func(ctx context.Context, store *session.Store) (PreparedChatSettingsOperationInput, PreparedChatSettingsOperationResult, error) {
 		input, err := s.PrepareSessionChatSettingsOperation(ctx, store)
 		if err != nil {
@@ -37,16 +41,28 @@ func (s *Service) MutateChatSettings(ctx context.Context, sessionID runtimeids.S
 			return input, rejectedChatSettingsOperation(input.ChatSettingsMutationContext, rejected.Reason), nil
 		}
 		projected, err := ProjectResolvedChatSettingsOperation(resolved)
-		if err == nil && projected.Rejection == nil && !textutil.EqualOptional(projected.State.AgentRole, input.Raw.AgentRole) {
-			entry, found := input.Catalog.Lookup(projected.State.AgentSelector())
-			if !found {
-				return input, projected, errors.New("selected Agent is missing from the prepared catalog")
+		_, agentEdit := operation.Operation.(*chatsettingspb.MutationOperation_AgentRole)
+		if agentEdit && err == nil && projected.Rejection == nil && !textutil.EqualOptional(projected.State.AgentRole, input.Raw.AgentRole) {
+			if selectedAgent == nil {
+				entry, selectionErr := launch.PrepareChatAgentSelection(input.Configuration, projected.State.AgentSelector(), store.Meta(), s.planner.Rotation)
+				if selectionErr != nil {
+					return input, PreparedChatSettingsOperationResult{}, selectionErr
+				}
+				selectedAgent = &entry
 			}
 			log, logErr := store.MaterializeEventLog()
 			if logErr != nil {
 				return input, projected, logErr
 			}
-			err = runtime.ValidateSessionProviderChange(log, entry.ProviderCapabilities())
+			if validationErr := runtime.ValidateSessionProviderChange(log, selectedAgent.ProviderCapabilities()); validationErr != nil {
+				return input, projected, validationErr
+			}
+			resolved.Selection.Settings = *selectedAgent.Settings
+			resolved.Selection.State, err = session.ChatSettingsStateFromCompleteSettings(selectedAgent.Choice.Role, selectedAgent.Settings.Baseline)
+			if err == nil {
+				resolved.Selection.State.ConnectionID = selectedAgent.ConnectionID
+				projected, err = ProjectResolvedChatSettingsOperation(resolved)
+			}
 		}
 		return input, projected, err
 	})
