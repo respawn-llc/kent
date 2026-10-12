@@ -1,4 +1,4 @@
-// Package imagefileio provides bounded, cancellable local image-file reads.
+// Package imagefileio provides regular image-file access and bounded, cancellable buffered reads.
 package imagefileio
 
 import (

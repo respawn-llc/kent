@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,6 +21,8 @@ import (
 	corepkg "core/server/core"
 	"core/server/metadata"
 	metadatamigrations "core/server/metadata/migrations"
+	"core/server/session"
+	"core/server/transport"
 	"core/server/workflow"
 	"core/server/workflowstore"
 	"core/shared/client"
@@ -28,11 +32,13 @@ import (
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/protocol"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/sessioncontract"
 
 	proto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -465,6 +471,160 @@ func TestServeExposesConfiguredHealthEndpoints(t *testing.T) {
 	readyResp := requireServeResponse(t, http.DefaultClient, config.ServerHTTPBaseURL(cfg)+protocol.ReadinessPath, http.StatusOK)
 	defer func() { _ = readyResp.Body.Close() }()
 
+}
+
+func TestServerMuxStreamsViewedImageOriginal(t *testing.T) {
+	workspace := newServeWorkspace(t)
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	metadataStore := server.MetadataStore()
+	imageSession, err := session.Create(
+		filepath.Join(server.Config().PersistenceRoot, "projects", server.ProjectID(), "sessions"),
+		filepath.Base(workspace),
+		workspace,
+		sessioncontract.SessionCategoryMain,
+		metadataStore.AuthoritativeSessionStoreOptions()...,
+	)
+	if err != nil {
+		t.Fatalf("create image Session: %v", err)
+	}
+	if err := imageSession.EnsureDurable(); err != nil {
+		t.Fatalf("persist image Session: %v", err)
+	}
+
+	const imageSize = (10 << 20) + 1
+	imagePath := filepath.Join(workspace, "large.png")
+	imageFile, err := os.Create(imagePath)
+	if err != nil {
+		t.Fatalf("create large original: %v", err)
+	}
+	if err := imageFile.Truncate(imageSize); err != nil {
+		_ = imageFile.Close()
+		t.Fatalf("size large original: %v", err)
+	}
+	if err := imageFile.Close(); err != nil {
+		t.Fatalf("close large original: %v", err)
+	}
+
+	gateway, err := transport.NewGateway(server.Core, newServerIdentity(server.Config()))
+	if err != nil {
+		t.Fatalf("create Gateway: %v", err)
+	}
+	imageServer := httptest.NewServer(buildServerMux(server.Core, newServerIdentity(server.Config()), gateway))
+	t.Cleanup(imageServer.Close)
+
+	unrelatedResponse, err := http.Get(imageServer.URL + "/unrelated")
+	if err != nil {
+		t.Fatalf("request unrelated listener path: %v", err)
+	}
+	_ = unrelatedResponse.Body.Close()
+	if unrelatedResponse.StatusCode != http.StatusNotFound {
+		t.Fatalf("unrelated listener path status = %d, want %d", unrelatedResponse.StatusCode, http.StatusNotFound)
+	}
+
+	remote, err := client.DialRemoteURLForProject(
+		context.Background(),
+		"ws"+imageServer.URL[len("http"):]+protocol.RPCPath,
+		server.ProjectID(),
+	)
+	if err != nil {
+		t.Fatalf("connect to Gateway: %v", err)
+	}
+	defer func() { _ = remote.Close() }()
+
+	source, err := remote.ResolveViewedImageOriginalSource(context.Background(), &sessionpb.ViewedImageOriginalSourceRequest{
+		SessionId: imageSession.Meta().SessionID,
+		Path:      "large.png",
+	})
+	if err != nil {
+		t.Fatalf("resolve viewed image source: %v", err)
+	}
+	imageURL := imageServer.URL + source.Url
+
+	response, err := http.Get(imageURL)
+	if err != nil {
+		t.Fatalf("request viewed image original: %v", err)
+	}
+	if response.StatusCode != http.StatusOK {
+		_ = response.Body.Close()
+		t.Fatalf("image response status = %d, want %d", response.StatusCode, http.StatusOK)
+	}
+	if response.ContentLength != imageSize {
+		_ = response.Body.Close()
+		t.Fatalf("image response length = %d, want %d", response.ContentLength, imageSize)
+	}
+	if response.Header.Get("Last-Modified") == "" {
+		_ = response.Body.Close()
+		t.Fatal("image response omitted Last-Modified")
+	}
+	if response.Header.Get("Cache-Control") != "private" {
+		_ = response.Body.Close()
+		t.Fatalf("image cache policy = %q, want private", response.Header.Get("Cache-Control"))
+	}
+
+	sink := &zeroOnlySink{}
+	if copied, err := io.CopyN(sink, response.Body, 32<<10); err != nil || copied != 32<<10 {
+		_ = response.Body.Close()
+		t.Fatalf("consume initial image response segment: copied=%d error=%v", copied, err)
+	}
+	if _, err := io.Copy(sink, response.Body); err != nil {
+		_ = response.Body.Close()
+		t.Fatalf("consume streamed image response: %v", err)
+	}
+	if err := response.Body.Close(); err != nil {
+		t.Fatalf("close image response: %v", err)
+	}
+	if sink.size != imageSize {
+		t.Fatalf("streamed image size = %d, want %d", sink.size, imageSize)
+	}
+
+	rangeRequest, err := http.NewRequest(http.MethodGet, imageURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rangeRequest.Header.Set("Range", "bytes=3-6")
+	rangeResponse, err := http.DefaultClient.Do(rangeRequest)
+	if err != nil {
+		t.Fatalf("request image range: %v", err)
+	}
+	rangeBody, readErr := io.ReadAll(rangeResponse.Body)
+	_ = rangeResponse.Body.Close()
+	if readErr != nil {
+		t.Fatalf("read image range: %v", readErr)
+	}
+	if rangeResponse.StatusCode != http.StatusPartialContent ||
+		rangeResponse.Header.Get("Content-Range") != "bytes 3-6/10485761" ||
+		len(rangeBody) != 4 {
+		t.Fatalf("image range response = status %d, range %q, body size %d",
+			rangeResponse.StatusCode, rangeResponse.Header.Get("Content-Range"), len(rangeBody))
+	}
+
+	conditionalRequest, err := http.NewRequest(http.MethodGet, imageURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conditionalRequest.Header.Set("If-Modified-Since", response.Header.Get("Last-Modified"))
+	conditionalResponse, err := http.DefaultClient.Do(conditionalRequest)
+	if err != nil {
+		t.Fatalf("request conditional image response: %v", err)
+	}
+	_ = conditionalResponse.Body.Close()
+	if conditionalResponse.StatusCode != http.StatusNotModified {
+		t.Fatalf("conditional image status = %d, want %d", conditionalResponse.StatusCode, http.StatusNotModified)
+	}
+}
+
+type zeroOnlySink struct {
+	size int64
+}
+
+func (s *zeroOnlySink) Write(data []byte) (int, error) {
+	for _, value := range data {
+		if value != 0 {
+			return 0, errors.New("streamed sparse image contains nonzero data")
+		}
+	}
+	s.size += int64(len(data))
+	return len(data), nil
 }
 
 func TestServeExposesDerivedLocalUnixSocketAndCleansStalePath(t *testing.T) {

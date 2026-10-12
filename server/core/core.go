@@ -14,6 +14,7 @@ import (
 	"core/server/metadata"
 	"core/server/runprompt"
 	"core/server/sessionlaunch"
+	"core/server/sessionview"
 	shelltool "core/server/tools/shell"
 	"core/shared/apicontract"
 	"core/shared/clientui"
@@ -389,7 +390,22 @@ func (s *Core) SessionViewClient() apicontract.SessionViewService {
 	if s == nil {
 		return nil
 	}
-	return s.safeBundles().Sessions.sessionViews
+	service := s.safeBundles().Sessions.sessionViews
+	if service == nil {
+		return nil
+	}
+	return service
+}
+
+func (s *Core) ViewedImageOriginalOpener() sessionview.ViewedImageOriginalOpener {
+	if s == nil {
+		return nil
+	}
+	service := s.safeBundles().Sessions.sessionViews
+	if service == nil {
+		return nil
+	}
+	return service
 }
 
 func (s *Core) SessionChatContextOwner() chatcontext.SessionOwner {

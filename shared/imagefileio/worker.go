@@ -46,9 +46,9 @@ func runWorker(stdin io.Reader, stdout io.Writer) error {
 		return fmt.Errorf("invalid image file read limit %d", request.Limit)
 	}
 
-	file, err := openReadOnlyRegularFile(request.Path)
+	file, _, err := OpenRegularFile(request.Path)
 	if err != nil {
-		return &AcquisitionError{Cause: err}
+		return err
 	}
 	defer func() { _ = file.Close() }()
 	data, err := readLimited(file, request.Limit)
@@ -61,44 +61,54 @@ func runWorker(stdin io.Reader, stdout io.Writer) error {
 	return nil
 }
 
-func openReadOnlyRegularFile(path string) (*os.File, error) {
+// OpenRegularFile opens a regular file without following a final symlink.
+// The caller owns the returned file and must close it.
+func OpenRegularFile(path string) (*os.File, os.FileInfo, error) {
+	file, info, err := openReadOnlyRegularFile(path)
+	if err != nil {
+		return nil, nil, &AcquisitionError{Cause: err}
+	}
+	return file, info, nil
+}
+
+func openReadOnlyRegularFile(path string) (*os.File, os.FileInfo, error) {
 	pathInfo, err := os.Lstat(path)
 	if err != nil {
-		return nil, fmt.Errorf("stat path at %q: %v", path, err)
+		return nil, nil, fmt.Errorf("stat path at %q: %v", path, err)
 	}
 	if !pathInfo.Mode().IsRegular() {
-		return nil, fmt.Errorf("path %q is not a regular file", path)
+		return nil, nil, fmt.Errorf("path %q is not a regular file", path)
 	}
 	file, err := openReadOnlyNoFollow(path)
 	if err != nil {
-		return nil, fmt.Errorf("unable to locate file at %q: %v", path, err)
+		return nil, nil, fmt.Errorf("unable to locate file at %q: %v", path, err)
 	}
 	info, err := file.Stat()
 	if err != nil {
 		if closeErr := file.Close(); closeErr != nil {
-			return nil, fmt.Errorf("stat file at %q: %v; close file: %w", path, err, closeErr)
+			return nil, nil, fmt.Errorf("stat file at %q: %v; close file: %w", path, err, closeErr)
 		}
-		return nil, fmt.Errorf("stat file at %q: %v", path, err)
+		return nil, nil, fmt.Errorf("stat file at %q: %v", path, err)
 	}
 	if !info.Mode().IsRegular() {
 		if closeErr := file.Close(); closeErr != nil {
-			return nil, fmt.Errorf("path %q is not a regular file; close file: %w", path, closeErr)
+			return nil, nil, fmt.Errorf("path %q is not a regular file; close file: %w", path, closeErr)
 		}
-		return nil, fmt.Errorf("path %q is not a regular file", path)
+		return nil, nil, fmt.Errorf("path %q is not a regular file", path)
 	}
 	if !os.SameFile(pathInfo, info) {
 		if closeErr := file.Close(); closeErr != nil {
-			return nil, fmt.Errorf("path %q changed while opening; retry the tool call; close file: %w", path, closeErr)
+			return nil, nil, fmt.Errorf("path %q changed while opening; retry the tool call; close file: %w", path, closeErr)
 		}
-		return nil, fmt.Errorf("path %q changed while opening; retry the tool call", path)
+		return nil, nil, fmt.Errorf("path %q changed while opening; retry the tool call", path)
 	}
 	if err := setReadBlocking(file); err != nil {
 		if closeErr := file.Close(); closeErr != nil {
-			return nil, fmt.Errorf("set file blocking mode at %q: %v; close file: %w", path, err, closeErr)
+			return nil, nil, fmt.Errorf("set file blocking mode at %q: %v; close file: %w", path, err, closeErr)
 		}
-		return nil, fmt.Errorf("set file blocking mode at %q: %v", path, err)
+		return nil, nil, fmt.Errorf("set file blocking mode at %q: %v", path, err)
 	}
-	return file, nil
+	return file, info, nil
 }
 
 func readLimited(file *os.File, limit int64) ([]byte, error) {

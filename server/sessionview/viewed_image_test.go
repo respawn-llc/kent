@@ -4,116 +4,101 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"core/shared/imagefileio"
-	sessionpb "core/shared/protoapi/gen/kent/api/session"
 )
 
-func TestMain(m *testing.M) {
-	imagefileio.ExitIfWorker(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
-	os.Exit(m.Run())
-}
-
-func TestViewedImageReadsCurrentOriginalWithoutRuntime(t *testing.T) {
+func TestOpenViewedImageOriginalResolvesRelativePath(t *testing.T) {
 	workdir := t.TempDir()
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
 		target: availableSessionExecutionTarget(workdir),
 	})
-	path := filepath.Join(workdir, "original.png")
-	original := []byte{0x89, 'P', 'N', 'G'}
-	if err := os.WriteFile(path, original, 0600); err != nil {
+	original := []byte("current original")
+	if err := os.WriteFile(filepath.Join(workdir, "original.png"), original, 0600); err != nil {
 		t.Fatal(err)
 	}
-	result, err := service.GetViewedImageOriginal(t.Context(), &sessionpb.ViewedImageOriginalRequest{
-		SessionId: store.Meta().SessionID,
-		Path:      "original.png",
-	})
+
+	opened, err := service.OpenViewedImageOriginal(t.Context(), store.Meta().SessionID, "original.png")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(result.GetContent(), original) {
-		t.Fatalf("original = %v, want %v", result.GetContent(), original)
+	defer opened.File.Close()
+	if opened.Info.Name() != "original.png" || opened.Info.Size() != int64(len(original)) {
+		t.Fatalf("original metadata = %q, %d bytes", opened.Info.Name(), opened.Info.Size())
+	}
+	content, err := io.ReadAll(opened.File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(content, original) {
+		t.Fatalf("original = %v, want %v", content, original)
 	}
 }
 
-func TestViewedImageMissingOriginalIsUnavailable(t *testing.T) {
+func TestOpenViewedImageOriginalRejectsUnavailableAndNonRegularSources(t *testing.T) {
 	workdir := t.TempDir()
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
 		target: availableSessionExecutionTarget(workdir),
 	})
-	result, err := service.GetViewedImageOriginal(t.Context(), &sessionpb.ViewedImageOriginalRequest{
-		SessionId: store.Meta().SessionID,
-		Path:      "missing.png",
-	})
-	if err != nil {
-		t.Fatal(err)
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "missing", path: "missing.png"},
+		{name: "directory", path: "."},
 	}
-	if result.GetUnavailable() == nil {
-		t.Fatalf("source = %v, want unavailable", result)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			opened, err := service.OpenViewedImageOriginal(t.Context(), store.Meta().SessionID, test.path)
+			if opened != nil {
+				_ = opened.File.Close()
+				t.Fatal("opened an unusable image source")
+			}
+			var acquisitionError *imagefileio.AcquisitionError
+			if !errors.As(err, &acquisitionError) {
+				t.Fatalf("source error = %v, want acquisition error", err)
+			}
+		})
 	}
 }
 
-func TestViewedImageUnreadableOriginalIsUnavailable(t *testing.T) {
+func TestOpenViewedImageOriginalOpensSourceAboveBufferedReadLimit(t *testing.T) {
 	workdir := t.TempDir()
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
 		target: availableSessionExecutionTarget(workdir),
 	})
-	path := filepath.Join(workdir, "unreadable.png")
-	if err := os.WriteFile(path, []byte("image"), 0000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chmod(path, 0600); err != nil {
-			t.Error(err)
-		}
-	})
-	result, err := service.GetViewedImageOriginal(t.Context(), &sessionpb.ViewedImageOriginalRequest{
-		SessionId: store.Meta().SessionID,
-		Path:      path,
-	})
+	file, err := os.Create(filepath.Join(workdir, "large.png"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.GetUnavailable() == nil {
-		t.Fatalf("source = %v, want unavailable", result)
-	}
-}
-
-func TestViewedImageOversizedOriginalIsUnavailable(t *testing.T) {
-	workdir := t.TempDir()
-	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
-	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
-		target: availableSessionExecutionTarget(workdir),
-	})
-	path := filepath.Join(workdir, "oversized.png")
-	file, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := file.Truncate(imagefileio.MaxReadBytes + 1); err != nil {
+	const size = imagefileio.MaxReadBytes + 1
+	if err := file.Truncate(size); err != nil {
+		_ = file.Close()
 		t.Fatal(err)
 	}
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	result, err := service.GetViewedImageOriginal(t.Context(), &sessionpb.ViewedImageOriginalRequest{
-		SessionId: store.Meta().SessionID, Path: path,
-	})
+
+	opened, err := service.OpenViewedImageOriginal(t.Context(), store.Meta().SessionID, "large.png")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.GetUnavailable() == nil {
-		t.Fatalf("source = %v, want unavailable", result)
+	defer opened.File.Close()
+	if opened.Info.Size() != size {
+		t.Fatalf("opened size = %d, want %d", opened.Info.Size(), size)
 	}
 }
 
-func TestViewedImageReadableSymlinkOriginal(t *testing.T) {
+func TestOpenViewedImageOriginalFollowsReadableSymlink(t *testing.T) {
 	workdir := t.TempDir()
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
@@ -127,18 +112,21 @@ func TestViewedImageReadableSymlinkOriginal(t *testing.T) {
 	if err := os.Symlink(target, filepath.Join(workdir, "link.png")); err != nil {
 		t.Fatal(err)
 	}
-	result, err := service.GetViewedImageOriginal(t.Context(), &sessionpb.ViewedImageOriginalRequest{
-		SessionId: store.Meta().SessionID, Path: "link.png",
-	})
+	opened, err := service.OpenViewedImageOriginal(t.Context(), store.Meta().SessionID, "link.png")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(result.GetContent(), original) {
-		t.Fatalf("original = %v, want %v", result.GetContent(), original)
+	defer opened.File.Close()
+	content, err := io.ReadAll(opened.File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(content, original) {
+		t.Fatalf("original = %v, want %v", content, original)
 	}
 }
 
-func TestViewedImageBrokenSymlinkIsUnavailable(t *testing.T) {
+func TestOpenViewedImageOriginalRejectsBrokenSymlink(t *testing.T) {
 	workdir := t.TempDir()
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
@@ -147,29 +135,27 @@ func TestViewedImageBrokenSymlinkIsUnavailable(t *testing.T) {
 	if err := os.Symlink(filepath.Join(workdir, "gone.png"), filepath.Join(workdir, "link.png")); err != nil {
 		t.Fatal(err)
 	}
-	result, err := service.GetViewedImageOriginal(t.Context(), &sessionpb.ViewedImageOriginalRequest{
-		SessionId: store.Meta().SessionID, Path: "link.png",
-	})
-	if err != nil {
-		t.Fatal(err)
+	opened, err := service.OpenViewedImageOriginal(t.Context(), store.Meta().SessionID, "link.png")
+	if opened != nil {
+		_ = opened.File.Close()
+		t.Fatal("opened a broken symlink")
 	}
-	if result.GetUnavailable() == nil {
-		t.Fatalf("source = %v, want unavailable", result)
+	var acquisitionError *imagefileio.AcquisitionError
+	if !errors.As(err, &acquisitionError) {
+		t.Fatalf("source error = %v, want acquisition error", err)
 	}
 }
 
 func TestViewedImageOperationalFailureIsNotUnavailable(t *testing.T) {
 	want := errors.New("Session metadata unavailable")
 	service := NewService(failingPersistedSessionResolver{err: want}, nil, nil)
-	result, err := service.GetViewedImageOriginal(t.Context(), &sessionpb.ViewedImageOriginalRequest{
-		SessionId: "session", Path: "/image.png",
-	})
-	if !errors.Is(err, want) || result != nil {
-		t.Fatalf("result = %v, error = %v", result, err)
+	opened, err := service.OpenViewedImageOriginal(t.Context(), "session", "/image.png")
+	if !errors.Is(err, want) || opened != nil {
+		t.Fatalf("opened = %v, error = %v", opened, err)
 	}
 }
 
-func TestViewedImageCanceledReaderIsOperationalFailure(t *testing.T) {
+func TestOpenViewedImageOriginalRejectsCanceledSourceResolution(t *testing.T) {
 	workdir := t.TempDir()
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
@@ -181,10 +167,8 @@ func TestViewedImageCanceledReaderIsOperationalFailure(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	result, err := service.GetViewedImageOriginal(ctx, &sessionpb.ViewedImageOriginalRequest{
-		SessionId: store.Meta().SessionID, Path: path,
-	})
-	if !errors.Is(err, context.Canceled) || result != nil {
-		t.Fatalf("result = %v, error = %v", result, err)
+	opened, err := service.OpenViewedImageOriginal(ctx, store.Meta().SessionID, path)
+	if !errors.Is(err, context.Canceled) || opened != nil {
+		t.Fatalf("opened = %v, error = %v", opened, err)
 	}
 }

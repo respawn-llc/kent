@@ -21,7 +21,6 @@ const DEFAULT_THEME: &str = "auto";
 const GUI_LOG_MAX_BYTES: u64 = 10 * 1024 * 1024;
 const GUI_LOG_RETAIN_BYTES: u64 = 5 * 1024 * 1024;
 const GUI_LOG_MAX_ENTRY_BYTES: usize = 64 * 1024;
-const IMAGE_MAX_READ_BYTES: u64 = 10 * 1024 * 1024;
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -173,31 +172,6 @@ fn resolve_regular_file(path: &str, base_path: &str) -> Result<PathBuf, String> 
         return Err("Path is not a file.".to_string());
     }
     Ok(resolved)
-}
-
-#[tauri::command]
-async fn read_image_original(
-    path: String,
-    base_path: Option<String>,
-) -> Result<tauri::ipc::Response, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let resolved = resolve_regular_file(&path, base_path.as_deref().unwrap_or(""))?;
-        let file = File::open(&resolved).map_err(|error| format!("Read image failed: {error}"))?;
-        let metadata = file.metadata().map_err(|error| format!("Read image metadata failed: {error}"))?;
-        if !metadata.is_file() || metadata.len() > IMAGE_MAX_READ_BYTES {
-            return Err("Image must be a regular file no larger than 10 MiB.".to_string());
-        }
-        let mut bytes = Vec::new();
-        file.take(IMAGE_MAX_READ_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|error| format!("Read image failed: {error}"))?;
-        if bytes.len() as u64 > IMAGE_MAX_READ_BYTES {
-            return Err("Image exceeds 10 MiB.".to_string());
-        }
-        Ok(tauri::ipc::Response::new(bytes))
-    })
-    .await
-    .map_err(|error| format!("Image reader failed: {error}"))?
 }
 
 #[tauri::command]
@@ -680,7 +654,6 @@ pub fn run() {
             select_file,
             file_available,
             open_file_path,
-            read_image_original,
             open_file_default,
             open_external_url,
             append_gui_log,
