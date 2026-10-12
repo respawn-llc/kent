@@ -202,7 +202,7 @@ type Settings struct {
 	AllowNonCwdEdits                 bool
 	ModelContextWindow               int
 	ContextCompactionThresholdTokens int
-	PreSubmitCompactionLeadTokens    int
+	PreSubmitCompactionLeadTokens    *int
 	MinimumExecToBgSeconds           int
 	CompactionMode                   CompactionMode
 	EnabledTools                     map[toolspec.ID]bool

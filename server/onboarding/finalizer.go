@@ -270,19 +270,7 @@ func applyContextWindow(settings *config.Settings, model string, choice *onboard
 		return invalidRequest("context_window.kind", "unsupported_value")
 	}
 	settings.ContextCompactionThresholdTokens = settings.ModelContextWindow * 95 / 100
-	settings.PreSubmitCompactionLeadTokens = clampedPreSubmitRunway(settings.ContextCompactionThresholdTokens, settings.ModelContextWindow, settings.PreSubmitCompactionLeadTokens)
 	return nil
-}
-
-func clampedPreSubmitRunway(thresholdTokens int, windowTokens int, configuredRunway int) int {
-	maxRunway := thresholdTokens - config.MinimumThresholdTokens(windowTokens)
-	if maxRunway < 1 {
-		return 1
-	}
-	if configuredRunway > maxRunway {
-		return maxRunway
-	}
-	return configuredRunway
 }
 
 func thinkingChoiceValue(choice *onboardingpb.ThinkingChoice, model, defaultEffort, field string) (string, error) {

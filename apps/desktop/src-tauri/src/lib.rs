@@ -961,10 +961,25 @@ fn home_dir() -> Result<PathBuf, String> {
 }
 
 fn server_rpc_url(host: &str, port: u16) -> String {
-    let authority_host = if host.contains(':') && !host.starts_with('[') && !host.ends_with(']') {
-        format!("[{host}]")
-    } else {
-        host.to_string()
+    let parse_host = host
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(host);
+    let parsed_host = parse_host.parse::<std::net::IpAddr>().ok();
+    let host = match parsed_host {
+        Some(std::net::IpAddr::V4(address)) if address.is_unspecified() => "127.0.0.1",
+        Some(std::net::IpAddr::V6(address)) if address.is_unspecified() => "::1",
+        _ => host,
+    };
+    let authority_host = match parsed_host {
+        Some(std::net::IpAddr::V6(_)) if host.starts_with('[') && host.ends_with(']') => {
+            host.to_string()
+        }
+        Some(std::net::IpAddr::V6(_)) => format!("[{host}]"),
+        _ if host.contains(':') && !host.starts_with('[') && !host.ends_with(']') => {
+            format!("[{host}]")
+        }
+        _ => host.to_string(),
     };
     format!("ws://{authority_host}:{port}/rpc")
 }

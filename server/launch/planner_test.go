@@ -1493,8 +1493,8 @@ func TestApplyRunPromptOverridesDerivesRoleContextBudgets(t *testing.T) {
 			if got := updated.ActiveSettings.ContextCompactionThresholdTokens; got != tt.wantThreshold {
 				t.Fatalf("compaction threshold = %d, want %d", got, tt.wantThreshold)
 			}
-			if got := updated.ActiveSettings.PreSubmitCompactionLeadTokens; got != tt.wantLead {
-				t.Fatalf("pre-submit lead = %d, want %d", got, tt.wantLead)
+			if got := config.SpeculativeCompactionTriggerTokens(tt.wantWindow, updated.ActiveSettings.PreSubmitCompactionLeadTokens); got != tt.wantWindow-tt.wantLead {
+				t.Fatalf("speculative trigger = %d, want %d", got, tt.wantWindow-tt.wantLead)
 			}
 		})
 	}
@@ -1623,8 +1623,8 @@ func TestApplyRunPromptOverridesCLIModelOverrideRecomputesBudgetAfterFastRole(t 
 	if updated.ActiveSettings.ContextCompactionThresholdTokens != 353_400 {
 		t.Fatalf("compaction threshold = %d, want 353400", updated.ActiveSettings.ContextCompactionThresholdTokens)
 	}
-	if updated.ActiveSettings.PreSubmitCompactionLeadTokens != 35_000 {
-		t.Fatalf("pre-submit lead = %d, want 35000", updated.ActiveSettings.PreSubmitCompactionLeadTokens)
+	if got := config.SpeculativeCompactionTriggerTokens(372_000, updated.ActiveSettings.PreSubmitCompactionLeadTokens); got != 327_360 {
+		t.Fatalf("speculative trigger = %d, want 327360", got)
 	}
 	if !updated.ActiveSettings.PriorityRequestMode {
 		t.Fatal("expected fast-role priority mode to stay enabled")

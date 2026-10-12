@@ -17,10 +17,12 @@ func TestNativeProgressSettingSurvivesSessionSettingsTransport(t *testing.T) {
 		name    string
 		content string
 		enabled bool
+		trigger int
 	}{
-		{name: "default", enabled: true},
-		{name: "enabled", content: "tui_native_progress_bar = true\n", enabled: true},
-		{name: "disabled", content: "tui_native_progress_bar = false\n"},
+		{name: "default", enabled: true, trigger: 176_000},
+		{name: "enabled", content: "tui_native_progress_bar = true\n", enabled: true, trigger: 176_000},
+		{name: "disabled", content: "tui_native_progress_bar = false\n", trigger: 176_000},
+		{name: "explicit lead", content: "pre_submit_compaction_lead_tokens = 35000\n", enabled: true, trigger: 165_000},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root, workspace := t.TempDir(), t.TempDir()
@@ -49,6 +51,9 @@ func TestNativeProgressSettingSurvivesSessionSettingsTransport(t *testing.T) {
 			}
 			if settings.TUINativeProgressBar != test.enabled {
 				t.Fatalf("native progress enabled after settings transport = %t, want %t", settings.TUINativeProgressBar, test.enabled)
+			}
+			if got := config.SpeculativeCompactionTriggerTokens(200_000, settings.PreSubmitCompactionLeadTokens); got != test.trigger {
+				t.Fatalf("speculative trigger after settings transport = %d, want %d", got, test.trigger)
 			}
 		})
 	}

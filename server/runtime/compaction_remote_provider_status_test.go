@@ -62,7 +62,7 @@ func malformedCompactionProviderError() *llm.ProviderAPIError {
 	return providerErr
 }
 
-func TestRemoteCompactionRetries413OverflowByCollapsingToolOutput(t *testing.T) {
+func TestSpeculativeRemoteCompactionRetries413OverflowByCollapsingToolOutput(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{
 		compactionErrors: []error{
@@ -103,10 +103,7 @@ func TestRemoteCompactionRetries413OverflowByCollapsingToolOutput(t *testing.T) 
 	}
 	restoreStep()
 
-	if err := engine.CompactContext(context.Background(), ""); err != nil {
-		t.Fatalf("schedule compaction after overflow: %v", err)
-	}
-	waitEngineLifecycleTasks(t, engine)
+	scheduleSpeculativeCompactionAndWait(t, engine)
 	if len(client.compactionCalls) != 2 || len(client.calls) != 0 {
 		t.Fatalf(
 			"remote/local compaction calls = %d/%d, want two/zero",
