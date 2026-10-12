@@ -284,6 +284,15 @@ func TestProgramAltArrowWithCapsLockMovesByWord(t *testing.T) {
 	}
 }
 
+func TestProgramCapsLockLeftArrowMovesCursor(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInputAtRuneCursor(model, "alpha beta", len([]rune("alpha beta")))
+	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[1;65D\x03", 1)
+	if got, want := testMainInputRuneCursor(result), len([]rune("alpha beta"))-1; got != want {
+		t.Fatalf("cursor after Caps-Lock Left = %d, want %d", got, want)
+	}
+}
+
 func TestProgramAltBackspaceDeletesPreviousWord(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	testSetMainInput(model, "alpha beta gamma")
@@ -301,6 +310,14 @@ func TestProgramF1OpensHelpFromEnhancedSequence(t *testing.T) {
 	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[P\x03", 1)
 	if !result.helpVisible {
 		t.Fatal("enhanced F1 did not open help")
+	}
+}
+
+func TestProgramF1WithCapsLockOpensHelp(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[1;65P\x03", 1)
+	if !result.helpVisible {
+		t.Fatal("Caps-Lock F1 did not open help")
 	}
 }
 

@@ -105,8 +105,19 @@ func decodeTerminalCSIKey(sequence terminalCSISequence) (tea.Msg, bool) {
 }
 
 func decodeTerminalFunctionalKey(sequence terminalCSISequence) (tea.Msg, bool) {
-	if len(sequence.parameters) == 0 && sequence.final == 'P' {
-		return tea.KeyMsg{Type: tea.KeyF1}, true
+	if sequence.final == 'P' {
+		switch len(sequence.parameters) {
+		case 0:
+			return tea.KeyMsg{Type: tea.KeyF1}, true
+		case 2:
+			if sequence.parameters[0] == 1 {
+				_, modifier, ok := normalizeCSIKey(0, sequence.parameters[1])
+				if ok && modifier == 1 {
+					return tea.KeyMsg{Type: tea.KeyF1}, true
+				}
+			}
+		}
+		return nil, false
 	}
 	if sequence.final != 'C' && sequence.final != 'D' {
 		return nil, false
@@ -115,14 +126,14 @@ func decodeTerminalFunctionalKey(sequence terminalCSISequence) (tea.Msg, bool) {
 		return nil, false
 	}
 	_, modifier, ok := normalizeCSIKey(0, sequence.parameters[1])
-	if !ok || modifier != 3 {
+	if !ok || (modifier != 1 && modifier != 3) {
 		return nil, false
 	}
 	switch sequence.final {
 	case 'C':
-		return tea.KeyMsg{Type: tea.KeyRight, Alt: true}, true
+		return tea.KeyMsg{Type: tea.KeyRight, Alt: modifier == 3}, true
 	case 'D':
-		return tea.KeyMsg{Type: tea.KeyLeft, Alt: true}, true
+		return tea.KeyMsg{Type: tea.KeyLeft, Alt: modifier == 3}, true
 	default:
 		return nil, false
 	}
