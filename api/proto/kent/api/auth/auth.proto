@@ -357,6 +357,22 @@ enum SubscriptionWindowBucket {
   SUBSCRIPTION_WINDOW_BUCKET_ADDITIONAL = 2;
 }
 
+enum SubscriptionQuotaSource {
+  SUBSCRIPTION_QUOTA_SOURCE_UNSPECIFIED = 0;
+  SUBSCRIPTION_QUOTA_SOURCE_CHATGPT = 1;
+  SUBSCRIPTION_QUOTA_SOURCE_GROK = 2;
+}
+
+enum SubscriptionFailureClassification {
+  SUBSCRIPTION_FAILURE_CLASSIFICATION_UNSPECIFIED = 0;
+  SUBSCRIPTION_FAILURE_CLASSIFICATION_UNAVAILABLE_FOR_SIGN_IN_METHOD = 1;
+}
+
+message GrokUsageContributions {
+  optional double build_used_percent = 1 [(buf.validate.field).double.finite = true];
+  optional double chat_used_percent = 2 [(buf.validate.field).double.finite = true];
+}
+
 message SubscriptionWindowFacts {
   SubscriptionWindowBucket bucket = 1 [
     (buf.validate.field).enum = {
@@ -373,6 +389,7 @@ message SubscriptionWindowFacts {
   google.protobuf.Timestamp reset_at = 4;
   optional string limit_name = 5 [(buf.validate.field).string.min_len = 1];
   optional string metered_feature = 6 [(buf.validate.field).string.min_len = 1];
+  GrokUsageContributions grok_contributions = 7;
 
   option (buf.validate.message).cel = {
     id: "kent.auth.subscription_window.bucket_fields"
@@ -391,13 +408,29 @@ message SubscriptionFacts {
   optional string plan = 2 [(buf.validate.field).string.min_len = 1];
   repeated SubscriptionWindowFacts windows = 3;
   StatusFailure failure = 4;
+  optional SubscriptionQuotaSource quota_source = 5 [
+    (buf.validate.field).enum = {
+      defined_only: true
+      not_in: [0]
+    }
+  ];
+  optional SubscriptionFailureClassification failure_classification = 6 [
+    (buf.validate.field).enum = {
+      defined_only: true
+      not_in: [0]
+    }
+  ];
 
   option (buf.validate.message).cel = {
     id: "kent.auth.subscription.applicability"
     message: "subscription facts must match applicability and failure state"
-    expression:
-      "!this.applicable ? (!has(this.plan) && size(this.windows) == 0 && !has(this.failure)) : "
+    expression: "!this.applicable ? (!has(this.plan) && size(this.windows) == 0 && !has(this.failure) && !has(this.quota_source) && !has(this.failure_classification)) : "
       "has(this.failure) ? (!has(this.plan) && size(this.windows) == 0) : true"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.auth.subscription.failure_classification"
+    message: "subscription failure classification requires a failure"
+    expression: "!has(this.failure_classification) || has(this.failure)"
   };
 }
 

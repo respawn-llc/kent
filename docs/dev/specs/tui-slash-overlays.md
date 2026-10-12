@@ -12,7 +12,10 @@
 
 ## /status
 
-- The Auth section must include the conditional Session Connection row defined in [Provider Connections](provider-connections.md), styled consistently with its other rows. Grok must show its available Auth details without unsupported quota tracking.
+- The Auth section must include the conditional Session Connection row defined in [Provider Connections](provider-connections.md), styled consistently with its other rows. Grok subscription quota access and failures must follow that spec.
+- Grok must use the same subscription plan and quota-window presentation as Codex. Kent must show applicable provider-reported plan, percentage left, and window length. Kent must show reset times only when their meaning is established. Missing facts must be omitted rather than displayed as zero. Explicit zero usage must be displayed as a full allowance. Grok-only purchased-credit balances, on-demand caps and spending, and past-period spending must not appear in this quota presentation.
+- If Grok reports usage without a usable period length, Kent must show a weekly quota window.
+- Grok's quota bar must fill with consumed allowance. If Grok reports Build and Chat contributions that account for total usage, Kent must show one stacked bar with Build first and Chat immediately afterward. Build must use Codex's quota-warning color selected from total shared usage. Chat must always use the secondary color. If the breakdown is missing or incomplete, Kent must show a single total-used bar with Codex's quota colors. The percentage left must come from Grok's reported total usage.
 
 - `/status` is read-only and loads its sections progressively.
 - Content is organized in sections — Session, Git, Context, Auth (account + subscription windows with usage bars and reset times), Config (override sources, supervisor, questions), Skills, AGENTS.md inspection, Warnings — each section loads independently with a loading placeholder; section failures become warnings listed in the Warnings section, never a blank overlay. The section set is behavior-level; copy/layout is presentation.

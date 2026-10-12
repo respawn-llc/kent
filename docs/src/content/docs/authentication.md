@@ -51,7 +51,7 @@ Native compaction is available on the public xAI API routes. It uses `/responses
 
 Native compaction is unavailable on the Grok CLI subscription proxy.
 
-The `/status` Auth section supports ChatGPT subscriptions only. Grok quota display is unavailable. HTTP 403 alone can indicate a permission or safety refusal. Signing in again requires separate evidence of an authentication failure.
+The `/status` Auth section shows quota status for ChatGPT subscriptions and Grok subscription connections that use `grok-oauth-api` or `grok-cli-proxy`. Grok API-key connections show their authentication details without a subscription-quota row. If a Grok billing request returns HTTP 404, 403, or 401, Kent shows `Quota unavailable for this sign-in method` with the provider diagnostic. Treat a 403 as a permission or safety refusal unless the diagnostic provides separate authentication evidence. Use `/login` only when the provider diagnostic identifies an authentication problem.
 
 Custom thinking accepts manual values for any model. Kent rejects unsupported efforts for catalogued models when sending a request. For uncatalogued models, the provider validates the custom value. Across providers, Disable is available only for models whose supported efforts include `none`.
 
