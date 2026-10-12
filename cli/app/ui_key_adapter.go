@@ -4,35 +4,37 @@ import (
 	"reflect"
 
 	tea "github.com/charmbracelet/bubbletea"
+	xansi "github.com/charmbracelet/x/ansi"
 )
 
-func adaptCustomKeyMsg(msg tea.Msg) tea.Msg {
-	seq, ok := extractUnknownCSISequence(msg)
+const (
+	csiModifierCapsLock = 1 << 6
+	csiModifierNumLock  = 1 << 7
+)
+
+func adaptTerminalKeyMsg(msg tea.Msg) tea.Msg {
+	bytes, ok := extractUnknownCSISequence(msg)
 	if !ok {
 		return msg
 	}
 
-	switch {
-	case isCtrlEnterCSISequence(seq):
-		return customKeyMsg{Kind: customKeyCtrlEnter}
-	case isShiftEnterCSISequence(seq):
-		return customKeyMsg{Kind: customKeyShiftEnter}
-	case isCtrlBackspaceCSISequence(seq):
-		return customKeyMsg{Kind: customKeyCtrlBackspace}
-	case isSuperBackspaceCSISequence(seq):
-		return customKeyMsg{Kind: customKeySuperBackspace}
-	case isHelpCSISequence(seq):
-		return customKeyMsg{Kind: customKeyHelp}
-	default:
+	sequence, ok := parseTerminalCSISequence(bytes)
+	if !ok {
 		return msg
 	}
+	key, ok := decodeTerminalCSIKey(sequence)
+	if !ok {
+		return msg
+	}
+	return key
 }
 
-func extractUnknownCSISequence(msg tea.Msg) (string, bool) {
-	if bytes, ok := decodeUnknownCSISequenceMsgBytes(msg); ok {
-		return decodeUnknownCSISequenceBytes(bytes)
+func extractUnknownCSISequence(msg tea.Msg) ([]byte, bool) {
+	bytes, ok := decodeUnknownCSISequenceMsgBytes(msg)
+	if !ok || len(bytes) < 3 || bytes[0] != '\x1b' || bytes[1] != '[' {
+		return nil, false
 	}
-	return "", false
+	return bytes, true
 }
 
 func decodeUnknownCSISequenceMsgBytes(msg tea.Msg) ([]byte, bool) {
@@ -54,14 +56,149 @@ func decodeUnknownCSISequenceMsgBytes(msg tea.Msg) ([]byte, bool) {
 	return bytes, true
 }
 
-func decodeUnknownCSISequenceBytes(bytes []byte) (string, bool) {
-	if len(bytes) < 3 {
-		return "", false
+type terminalCSISequence struct {
+	final      byte
+	parameters []int
+}
+
+func parseTerminalCSISequence(bytes []byte) (terminalCSISequence, bool) {
+	parser := xansi.GetParser()
+	defer xansi.PutParser(parser)
+
+	_, width, consumed, state := xansi.GraphemeWidth.DecodeSequenceInString(string(bytes), 0, parser)
+	if width != 0 || consumed != len(bytes) || state != 0 {
+		return terminalCSISequence{}, false
 	}
-	if bytes[0] != '\x1b' || bytes[1] != '[' {
-		return "", false
+	command := xansi.Cmd(parser.Command())
+	if command.Final() == 0 || command.Prefix() != 0 || command.Intermediate() != 0 {
+		return terminalCSISequence{}, false
 	}
-	return string(bytes[2:]), true
+
+	parameters := make([]int, len(parser.Params()))
+	for index, parameter := range parser.Params() {
+		if parameter.HasMore() {
+			return terminalCSISequence{}, false
+		}
+		parameters[index] = parameter.Param(0)
+	}
+	return terminalCSISequence{final: command.Final(), parameters: parameters}, true
+}
+
+func decodeTerminalCSIKey(sequence terminalCSISequence) (tea.Msg, bool) {
+	if key, ok := decodeTerminalFunctionalKey(sequence); ok {
+		return key, true
+	}
+	codepoint, modifier, ok := modifiedCSIKey(sequence)
+	if !ok {
+		return nil, false
+	}
+	if key, ok := decodeTerminalSpecialKey(codepoint, modifier); ok {
+		return key, true
+	}
+	if modifier == 5 && codepoint >= 'a' && codepoint <= 'z' {
+		return tea.KeyMsg{Type: tea.KeyType(codepoint - 'a' + 1)}, true
+	}
+	if modifier == 3 && codepoint >= 0x20 && codepoint <= 0x10ffff {
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{rune(codepoint)}, Alt: true}, true
+	}
+	return nil, false
+}
+
+func decodeTerminalFunctionalKey(sequence terminalCSISequence) (tea.Msg, bool) {
+	if len(sequence.parameters) == 0 && sequence.final == 'P' {
+		return tea.KeyMsg{Type: tea.KeyF1}, true
+	}
+	if sequence.final != 'C' && sequence.final != 'D' {
+		return nil, false
+	}
+	if len(sequence.parameters) != 2 || sequence.parameters[0] != 1 {
+		return nil, false
+	}
+	_, modifier, ok := normalizeCSIKey(0, sequence.parameters[1])
+	if !ok || modifier != 3 {
+		return nil, false
+	}
+	switch sequence.final {
+	case 'C':
+		return tea.KeyMsg{Type: tea.KeyRight, Alt: true}, true
+	case 'D':
+		return tea.KeyMsg{Type: tea.KeyLeft, Alt: true}, true
+	default:
+		return nil, false
+	}
+}
+
+func modifiedCSIKey(sequence terminalCSISequence) (int, int, bool) {
+	if sequence.final != 'u' && sequence.final != '~' {
+		return 0, 0, false
+	}
+	switch len(sequence.parameters) {
+	case 1:
+		return sequence.parameters[0], 1, true
+	case 2:
+		return normalizeCSIKey(sequence.parameters[0], sequence.parameters[1])
+	case 3:
+		if sequence.parameters[0] == 27 {
+			return normalizeCSIKey(sequence.parameters[2], sequence.parameters[1])
+		}
+	default:
+	}
+	return 0, 0, false
+}
+
+func normalizeCSIKey(codepoint, modifier int) (int, int, bool) {
+	if modifier < 1 {
+		return 0, 0, false
+	}
+	modifierBits := modifier - 1
+	modifierBits &^= csiModifierCapsLock | csiModifierNumLock
+	return codepoint, modifierBits + 1, true
+}
+
+func decodeTerminalSpecialKey(codepoint, modifier int) (tea.Msg, bool) {
+	switch codepoint {
+	case 13, 57414:
+		switch modifier {
+		case 1:
+			return tea.KeyMsg{Type: tea.KeyEnter}, true
+		case 2:
+			return customKeyMsg{Kind: customKeyShiftEnter}, true
+		case 3:
+			return tea.KeyMsg{Type: tea.KeyEnter, Alt: true}, true
+		case 5:
+			return customKeyMsg{Kind: customKeyCtrlEnter}, true
+		}
+	case 8, 127:
+		switch {
+		case modifierHasControl(modifier):
+			return customKeyMsg{Kind: customKeyCtrlBackspace}, true
+		case modifier == 3:
+			return tea.KeyMsg{Type: tea.KeyBackspace, Alt: true}, true
+		case modifierHasSuper(modifier):
+			return customKeyMsg{Kind: customKeySuperBackspace}, true
+		}
+	case 27:
+		if modifier == 1 {
+			return tea.KeyMsg{Type: tea.KeyEsc}, true
+		}
+	case '?', '/':
+		if modifierHasSuper(modifier) {
+			return customKeyMsg{Kind: customKeyHelp}, true
+		}
+	case 9:
+		if modifier == 2 {
+			return tea.KeyMsg{Type: tea.KeyShiftTab}, true
+		}
+	}
+	return nil, false
+}
+
+func modifierHasControl(modifier int) bool {
+	return modifier > 1 && (modifier-1)&4 != 0
+}
+
+func modifierHasSuper(modifier int) bool {
+	return modifier > 1 && (modifier-1)&8 != 0
 }
 
 func terminalCursorProgramFilter(state *uiTerminalCursorState) func(tea.Model, tea.Msg) tea.Msg {
@@ -69,6 +206,6 @@ func terminalCursorProgramFilter(state *uiTerminalCursorState) func(tea.Model, t
 		if _, ok := msg.(tea.QuitMsg); ok && state != nil {
 			state.Stop()
 		}
-		return adaptCustomKeyMsg(msg)
+		return adaptTerminalKeyMsg(msg)
 	}
 }

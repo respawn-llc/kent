@@ -65,8 +65,9 @@ func helpSectionsForGOOS(goos string) []uiHelpSection {
 				{Bindings: []string{"Tab / Ctrl + Enter"}, Description: "autocomplete a selected slash command, or queue/send the current input", Active: uiHelpInMainInput},
 				{Bindings: []string{"↑ / ↓"}, Description: "browse submitted prompts at input boundaries; otherwise move within multiline input", Active: uiHelpInTextEditing},
 				{Bindings: []string{"Ctrl/Alt + V/D"}, Description: "paste clipboard image path or text at the cursor", Active: uiHelpInTextEditing},
-				{Bindings: []string{"Shift + Enter / Ctrl + J"}, Description: "insert a newline", Active: uiHelpInTextEditing},
+				{Bindings: []string{"Shift + Enter / Ctrl + J / Alt + Enter"}, Description: "insert a newline", Active: uiHelpInTextEditing},
 				{Bindings: deleteCurrentLineBindingsForGOOS(goos), Description: "delete the current input line", Active: uiHelpInTextEditing},
+				{Bindings: []string{shortcutLabels.option + " + Backspace"}, Description: "delete the previous word", Active: uiHelpInTextEditing},
 				{Bindings: []string{"Delete / Ctrl + K/U/W/Y"}, Description: "edit/delete/yank text with shell-style shortcuts", Active: uiHelpInTextEditing},
 				{Bindings: []string{"Alt/Ctrl + ←/→"}, Description: "move the cursor by word", Active: uiHelpInTextEditing},
 				{Bindings: []string{"Home/End / Ctrl + A/E/End"}, Description: "jump to the line start or end", Active: uiHelpInTextEditing},
@@ -93,17 +94,18 @@ func deleteCurrentLineBindingsForGOOS(goos string) []string {
 }
 
 type uiShortcutLabels struct {
-	super string
+	option string
+	super  string
 }
 
 func shortcutLabelsForGOOS(goos string) uiShortcutLabels {
 	switch goos {
 	case "darwin":
-		return uiShortcutLabels{super: "⌘"}
+		return uiShortcutLabels{option: "Option", super: "⌘"}
 	case "windows":
-		return uiShortcutLabels{super: "Win"}
+		return uiShortcutLabels{option: "Alt", super: "Win"}
 	default:
-		return uiShortcutLabels{super: "Super"}
+		return uiShortcutLabels{option: "Alt", super: "Super"}
 	}
 }
 
