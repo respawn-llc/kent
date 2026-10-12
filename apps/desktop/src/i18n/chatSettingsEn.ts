@@ -1,9 +1,9 @@
 export const chatSettingsEnglish = {
-  switchAgent: "Switch agent",
-  stopAndSwitchAgent: "Stop and switch agent",
-  cancelSwitch: "Cancel",
+  switchAgent: "Invalidate caches?",
+  confirmSwitch: "Yes",
+  cancelSwitch: "No",
   switchAgentWarning:
-    "Switch to {{agent}}? Any current run will stop. The new Agent replaces the model, prompts, tools, and settings. Cached input may be reprocessed. History stays intact; the chat remains idle until you send another message.",
+    "Switching the role now will invalidate caches, causing ~10x cost for the next request and may lose model reasoning, degrading intelligence",
   sessionConnection: "Session Connection: {{id}} ({{mode}})",
   connectionModes: {
     subscription: "Subscription",

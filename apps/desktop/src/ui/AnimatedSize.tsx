@@ -1,10 +1,20 @@
-import { motion, useReducedMotion } from "motion/react";
+import { motion, useReducedMotion, type Transition } from "motion/react";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { cn } from "./classes";
 import { motionDurationFromCSSVar } from "./motion";
 
-export function AnimatedSize({ children, className }: Readonly<{ children: ReactNode; className?: string }>) {
+export function AnimatedSize({
+  children,
+  className,
+  contentClassName,
+  transition,
+}: Readonly<{
+  children: ReactNode;
+  className?: string;
+  contentClassName?: string;
+  transition?: Transition;
+}>) {
   const content = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState<number | null>(null);
   const reducedMotion = useReducedMotion();
@@ -27,11 +37,14 @@ export function AnimatedSize({ children, className }: Readonly<{ children: React
       initial={false}
       animate={{ height: height ?? "auto" }}
       transition={{
-        duration: reducedMotion ? 0 : motionDurationFromCSSVar("--motion-reveal", 280) / 1000,
         ease: "easeOut",
+        ...transition,
+        duration: reducedMotion
+          ? 0
+          : (transition?.duration ?? motionDurationFromCSSVar("--motion-reveal", 280) / 1000),
       }}
     >
-      <div className="shrink-0" ref={content}>
+      <div className={cn("shrink-0", contentClassName)} ref={content}>
         {children}
       </div>
     </motion.div>

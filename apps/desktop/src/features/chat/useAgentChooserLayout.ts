@@ -22,11 +22,16 @@ export function useAgentChooserLayout(choosing: boolean) {
     scrollRef,
     selectedRef,
     overviewOpacity: choosing ? 0 : 1,
-    maxHeight: choosing ? height : undefined,
+    maxHeight: chooserMaxHeight(choosing ? height : undefined),
     capture: () => {
       const overview = overviewRef.current;
       if (overview === null) return;
       setHeight(overview.getBoundingClientRect().height * 2);
     },
   };
+}
+
+function chooserMaxHeight(height: number | undefined): string {
+  const available = "calc(var(--radix-popover-content-available-height) - 2 * var(--space-1))";
+  return height === undefined ? available : `min(${height.toString()}px, ${available})`;
 }

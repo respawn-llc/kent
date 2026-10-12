@@ -142,10 +142,20 @@ it("requires confirmation before switching a cached Session Agent", async () => 
   await user.click(screen.getByText("default"));
   await user.click(await screen.findByText("reviewer"));
   expect(mutate).not.toHaveBeenCalled();
-  const dialog = await screen.findByRole("dialog", { name: appI18n.t("chatSettings.switchAgent") });
-  await user.click(within(dialog).getByRole("button", { name: appI18n.t("chatSettings.switchAgent") }));
+  let dialog = await screen.findByRole("dialog", { name: appI18n.t("chatSettings.switchAgent") });
+  expect(within(dialog).getByRole("button", { name: appI18n.t("chatSettings.cancelSwitch") })).toHaveFocus();
+  await user.keyboard("{Enter}");
+  expect(dialog).not.toBeInTheDocument();
+  expect(mutate).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await user.click(screen.getByText("default"));
+  await user.click(await screen.findByText("reviewer"));
+  dialog = await screen.findByRole("dialog", { name: appI18n.t("chatSettings.switchAgent") });
+  await user.click(within(dialog).getByRole("button", { name: appI18n.t("chatSettings.confirmSwitch") }));
   expect(mutate).toHaveBeenCalledExactlyOnceWith(target, { kind: "agent", role: "reviewer" });
-  expect(within(dialog).getByRole("button", { name: appI18n.t("chatSettings.switchAgent") })).toBeDisabled();
+  expect(
+    within(dialog).getByRole("button", { name: appI18n.t("chatSettings.confirmSwitch") }),
+  ).toBeDisabled();
   await act(async () => {
     pending.resolve(response());
     await pending.promise;

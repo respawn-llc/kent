@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 
 import { useAgentChooserLayout } from "./useAgentChooserLayout";
 
-it("caps the chooser at twice the overview and scrolls the selected Agent into view", async () => {
+it("scrolls the selected Agent into view when the chooser opens", async () => {
   const { result, rerender } = renderHook(({ choosing }) => useAgentChooserLayout(choosing), {
     initialProps: { choosing: false },
   });
@@ -22,10 +22,7 @@ it("caps the chooser at twice the overview and scrolls the selected Agent into v
   });
   rerender({ choosing: true });
 
-  expect(result.current.maxHeight).toBe(480);
   await waitFor(() => {
     expect(scroll.scrollTop).toBe(60);
   });
-  rerender({ choosing: false });
-  expect(result.current.maxHeight).toBeUndefined();
 });

@@ -30,9 +30,9 @@ export function ChatSettingsAgentRow({
         initial={selected ? false : { opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{
-          opacity: { duration: motionDurationFromCSSVar("--motion-morph", 350) / 1000 },
+          opacity: { duration: motionDurationFromCSSVar("--motion-fast", 140) / 1000 },
           layout: {
-            duration: motionDurationFromCSSVar("--motion-morph", 350) / 1000,
+            duration: motionDurationFromCSSVar("--motion-fast", 140) / 1000,
             ease: [0.22, 1, 0.36, 1],
           },
         }}

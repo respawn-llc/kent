@@ -1,10 +1,9 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { LayoutGroup, motion } from "motion/react";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 import { type ChatSettingsMutation } from "@/api";
-import { useChatRuntimePresentation } from "@/app-facade";
 import {
   Button,
   Dialog,
@@ -110,6 +109,9 @@ export function ChatSettingsView(props: ChatSettingsViewProps) {
           <ChatSettingsChip {...summary} />
           <PopoverContent
             align="start"
+            onCloseAutoFocus={(event) => {
+              if (agentSelection !== null) event.preventDefault();
+            }}
             className="w-96 max-w-[var(--radix-popover-content-available-width)] max-h-[var(--radix-popover-content-available-height)] grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-0 overflow-hidden p-[var(--space-1)]"
           >
             <motion.div
@@ -149,7 +151,7 @@ export function ChatSettingsView(props: ChatSettingsViewProps) {
                 ) : null}
                 <motion.div
                   animate={{ opacity: overviewOpacity }}
-                  transition={{ duration: motionDurationFromCSSVar("--motion-morph", 350) / 1000 }}
+                  transition={{ duration: motionDurationFromCSSVar("--motion-fast", 140) / 1000 }}
                 >
                   {settings.fast.kind === "supported" ? (
                     <SettingsSwitch
@@ -262,26 +264,22 @@ function AgentSwitchDialog({
   close(): void;
 }>) {
   const { t } = useTranslation();
-  const { activity } = useChatRuntimePresentation();
-  const running = activity?.activeStep != null;
+  const cancelRef = useRef<HTMLButtonElement>(null);
   if (feature.kind !== "ready-session") return null;
   return (
     <Dialog
       open={agentSelection !== null}
       title={t("chatSettings.switchAgent")}
-      closeLabel={t("chatSettings.cancelSwitch")}
+      closeLabel={t("app.close")}
       onClose={close}
       closeDisabled={feature.agentPending}
       width={compactDialogWidth}
+      initialFocusRef={cancelRef}
     >
       <div className="grid gap-[var(--space-3)]">
-        <p>{t("chatSettings.switchAgentWarning", { agent: agentSelection })}</p>
+        <p>{t("chatSettings.switchAgentWarning")}</p>
         <div className="flex justify-end gap-[var(--space-2)]">
-          <Button disabled={feature.agentPending} onClick={close}>
-            {t("chatSettings.cancelSwitch")}
-          </Button>
           <Button
-            variant="primary"
             loading={feature.agentPending}
             disabled={feature.agentPending}
             onClick={() => {
@@ -296,7 +294,10 @@ function AgentSwitchDialog({
                 });
             }}
           >
-            {t(running ? "chatSettings.stopAndSwitchAgent" : "chatSettings.switchAgent")}
+            {t("chatSettings.confirmSwitch")}
+          </Button>
+          <Button ref={cancelRef} variant="primary" disabled={feature.agentPending} onClick={close}>
+            {t("chatSettings.cancelSwitch")}
           </Button>
         </div>
       </div>
