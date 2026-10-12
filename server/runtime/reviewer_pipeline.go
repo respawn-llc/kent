@@ -76,7 +76,7 @@ func (r *defaultReviewerPipeline) Run(
 	ctx context.Context,
 	prepared preparedReviewerRequest,
 ) reviewerProviderResult {
-	resp, err := generateWithRetryClient(ctx, prepared.client, prepared.request, nil, nil, nil, nil)
+	resp, err := generateWithRetryClient(ctx, prepared.client, prepared.request, modelRequestRetriesAllowed, nil, nil, nil, nil)
 	if err != nil {
 		return reviewerProviderResult{err: err}
 	}

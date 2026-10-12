@@ -88,8 +88,7 @@ func (m *uiModel) isCompacting() bool {
 		return false
 	}
 	switch m.runtimeActivityProjection.ActiveStep.ActiveKind {
-	case runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_COMPACTION,
-		runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_PRE_SUBMIT_COMPACTION:
+	case runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_COMPACTION:
 		return true
 	default:
 		return false

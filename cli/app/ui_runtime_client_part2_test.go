@@ -48,8 +48,6 @@ type reconnectRetryRuntimeControlClient struct {
 	firstSubmitErr   error
 	firstRecordErr   error
 	appendErr        error
-	compactErr       error
-	compactCalls     int
 	showGoalErr      error
 	showGoalCalls    int
 	submitCalls      int
@@ -94,16 +92,6 @@ func (c *reconnectRetryRuntimeControlClient) AppendCommittedEntry(_ context.Cont
 	defer c.mu.Unlock()
 	c.localEntries = append(c.localEntries, req)
 	return c.appendErr
-}
-
-func (c *reconnectRetryRuntimeControlClient) ShouldCompactBeforeUserMessage(context.Context, *runtimepb.ShouldCompactRequest) (*runtimepb.ShouldCompactSuccess, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.compactCalls++
-	if c.compactCalls == 1 && c.compactErr != nil {
-		return &runtimepb.ShouldCompactSuccess{}, c.compactErr
-	}
-	return &runtimepb.ShouldCompactSuccess{}, nil
 }
 
 func (c *reconnectRetryRuntimeControlClient) SubmitUserTurn(_ context.Context, req *runtimepb.SubmitUserTurnRequest) (*runtimepb.SubmitUserTurnSuccess, error) {

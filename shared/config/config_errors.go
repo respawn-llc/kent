@@ -98,9 +98,9 @@ var (
 	// context window.
 	errCompactionThresholdBelowMinimum = newConfigError("context_compaction_threshold_tokens below minimum window percent")
 
-	// errPreSubmitThresholdBelowMinimum is returned when the pre-submit
-	// compaction lead pushes the effective threshold below the minimum.
-	errPreSubmitThresholdBelowMinimum = newConfigError("pre-submit compaction threshold below minimum window percent")
+	// errSpeculativeTriggerBelowMinimum is returned when the configured lead
+	// pushes the speculative trigger below the minimum.
+	errSpeculativeTriggerBelowMinimum = newConfigError("speculative compaction trigger below minimum window percent")
 
 	// Workflow validation sentinels.
 	errInvalidWorkflowSettings = newConfigError("invalid workflow settings")

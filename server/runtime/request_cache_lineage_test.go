@@ -1019,7 +1019,7 @@ func TestCompactionSummaryPreservesGenerationCacheMetadata(t *testing.T) {
 						if err != nil {
 							return err
 						}
-						_, err = eng.compactWithRetry(context.Background(), runtimeTestStepID("compact-summary"), newObservedModelClient(client), req)
+						_, err = eng.compactWithRetry(context.Background(), runtimeTestStepID("compact-summary"), newObservedModelClient(client), req, modelRequestRetriesAllowed)
 						return err
 					}
 					_, err := eng.localCompactionSummary(context.Background(), before.Items, "summarize")

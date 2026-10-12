@@ -332,11 +332,10 @@ func newSettingsRegistry() settingsRegistry {
 			"KENT_CONTEXT_COMPACTION_THRESHOLD_TOKENS",
 			nil,
 			settingDocOptions{}),
-		newIntSetting("pre_submit_compaction_lead_tokens", defaultPreSubmitCompactionLeadTokens,
-			func(state *settingsState, value int) { state.Settings.PreSubmitCompactionLeadTokens = value },
-			func(state settingsState) int { return state.Settings.PreSubmitCompactionLeadTokens },
+		newOptionalIntSetting("pre_submit_compaction_lead_tokens",
+			func(state *settingsState, value *int) { state.Settings.PreSubmitCompactionLeadTokens = value },
+			func(state settingsState) *int { return state.Settings.PreSubmitCompactionLeadTokens },
 			"KENT_PRE_SUBMIT_COMPACTION_LEAD_TOKENS",
-			nil,
 			settingDocOptions{}),
 		newIntSetting("minimum_exec_to_bg_seconds", defaultMinimumExecToBgSec,
 			func(state *settingsState, value int) { state.Settings.MinimumExecToBgSeconds = value },
@@ -454,6 +453,7 @@ func newSettingsRegistry() settingsRegistry {
 		rootOnlySetting[*int]{newOptionalIntSetting("workflow.pre_compaction_tokens",
 			func(state *settingsState, value *int) { state.Settings.Workflow.PreCompactionTokens = value },
 			func(state settingsState) *int { return state.Settings.Workflow.PreCompactionTokens },
+			"",
 			settingDocOptions{defaultValue: func(state settingsState) any {
 				return state.Settings.ContextCompactionThresholdTokens * 70 / 100
 			}})},
@@ -1033,13 +1033,24 @@ func newOptionalIntSetting(
 	key string,
 	apply func(*settingsState, *int),
 	get func(settingsState) *int,
+	envName string,
 	doc settingDocOptions,
 ) scalarSetting[*int] {
+	if doc.defaultValue == nil {
+		doc.defaultValue = func(state settingsState) any {
+			if value := get(state); value != nil {
+				return *value
+			}
+			return nil
+		}
+	}
 	return scalarSetting[*int]{
 		key:          key,
 		defaultValue: nil,
 		apply:        apply,
 		get:          get,
+		envName:      envName,
+		decodeEnv:    parsePositiveIntString,
 		equal: func(left *int, right *int) bool {
 			switch {
 			case left == nil && right == nil:
@@ -1790,6 +1801,9 @@ func hasPathPrefix(path []string, prefix []string) bool {
 
 func writeDefaultLines(builder *strings.Builder, lines []defaultConfigLine) {
 	for _, line := range lines {
+		if line.Value == nil {
+			continue
+		}
 		assignment := line.Path[len(line.Path)-1] + " = " + renderTOMLValue(line.Value)
 		if line.Commented {
 			builder.WriteString("# ")

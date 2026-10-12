@@ -5,16 +5,15 @@ import (
 
 	"core/server/chatcontext"
 	"core/server/llm"
-	compaction "core/shared/config"
 	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
+	"core/shared/textutil"
 )
 
 func TestCompactionPlannerDerivesThresholdsAndRunway(t *testing.T) {
 	t.Parallel()
 	planner := newCompactionPlanner()
 	snapshot := compactionPlanningSnapshot{
-		autoCompactionEnabled:         true,
-		preSubmitCompactionLeadTokens: 35_000,
+		autoCompactionEnabled: true,
 		policy: chatcontext.Policy{
 			ContextWindowTokens:      1_000_000,
 			AutomaticThresholdTokens: 900_000,
@@ -35,9 +34,6 @@ func TestCompactionPlannerDerivesThresholdsAndRunway(t *testing.T) {
 	}
 	if got := planner.autoCompactTokenLimit(snapshot); got != 900_000 {
 		t.Fatalf("autoCompactTokenLimit()=%d, want 900000", got)
-	}
-	if got := planner.preSubmitTokenLimit(snapshot); got != 865_000 {
-		t.Fatalf("preSubmitTokenLimit()=%d, want 865000", got)
 	}
 	if got := planner.soonReminderLimit(snapshot); got != 765_000 {
 		t.Fatalf("soonReminderLimit()=%d, want 765000", got)
@@ -74,14 +70,17 @@ func TestCompactionPlannerEagerCompactionUsesConsumedContextOnly(t *testing.T) {
 	t.Parallel()
 	planner := newCompactionPlanner()
 	for _, test := range []struct {
-		name   string
-		window int
+		name    string
+		window  int
+		lead    *int
+		trigger int
 	}{
-		{name: "272k", window: 272_000},
-		{name: "372k", window: 372_000},
+		{name: "272k", window: 272_000, trigger: 239_360},
+		{name: "372k", window: 372_000, trigger: 327_360},
+		{name: "explicit lead", window: 200_000, lead: textutil.Value(35_000), trigger: 165_000},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			threshold := test.window * 88 / 100
+			threshold := test.trigger
 			tests := []struct {
 				name         string
 				consumed     int
@@ -95,9 +94,10 @@ func TestCompactionPlannerEagerCompactionUsesConsumedContextOnly(t *testing.T) {
 			for _, tt := range tests {
 				t.Run(tt.name, func(t *testing.T) {
 					if got := planner.eagerCompactionEligible(compactionPlanningSnapshot{
-						policy:                chatcontext.Policy{ContextWindowTokens: int64(test.window)},
-						currentUsedTokens:     tt.consumed,
-						lockedMaxOutputTokens: tt.reserved,
+						policy:                        chatcontext.Policy{ContextWindowTokens: int64(test.window), AutomaticThresholdTokens: 199_000},
+						preSubmitCompactionLeadTokens: test.lead,
+						currentUsedTokens:             tt.consumed,
+						lockedMaxOutputTokens:         tt.reserved,
 					}); got != tt.wantEligible {
 						t.Fatalf("eagerCompactionEligible() = %t, want %t", got, tt.wantEligible)
 					}
@@ -138,8 +138,7 @@ func TestCompactionPlannerAppliesFallbacksAndSelectsEngine(t *testing.T) {
 	t.Parallel()
 	planner := newCompactionPlanner()
 	snapshot := compactionPlanningSnapshot{
-		autoCompactionEnabled:         true,
-		preSubmitCompactionLeadTokens: -1,
+		autoCompactionEnabled: true,
 		policy: chatcontext.Policy{
 			ContextWindowTokens:      2_000,
 			AutomaticThresholdTokens: 1_900,
@@ -152,9 +151,6 @@ func TestCompactionPlannerAppliesFallbacksAndSelectsEngine(t *testing.T) {
 	}
 	if got := planner.contextWindowTokens(snapshot); got != 2_000 {
 		t.Fatalf("contextWindowTokens()=%d, want last usage window", got)
-	}
-	if got := planner.preSubmitTokenLimit(snapshot); got != compaction.EffectivePreSubmitThresholdTokens(1_900, compaction.DefaultPreSubmitRunwayTokens) {
-		t.Fatalf("preSubmitTokenLimit()=%d, want default runway threshold", got)
 	}
 	if got := planner.soonReminderLimit(compactionPlanningSnapshot{policy: chatcontext.Policy{AutomaticThresholdTokens: 1}}); got != 1 {
 		t.Fatalf("soonReminderLimit()=%d, want minimum 1", got)
