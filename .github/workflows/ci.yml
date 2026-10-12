@@ -100,6 +100,9 @@ jobs:
       - name: Test
         run: just test server --no-wall-clock-cap
 
+      - name: Test Unix installers
+        run: just release _installer-offer-smoke
+
   windows-installer:
     runs-on: windows-latest
     defaults:

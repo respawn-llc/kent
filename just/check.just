@@ -6,6 +6,7 @@ default mode="": (server mode) (desktop mode) (docs mode)
 server mode="":
     just _lint server {{mode}}
     just test server
+    just release _installer-offer-smoke
     just build go
 
 desktop mode="":
