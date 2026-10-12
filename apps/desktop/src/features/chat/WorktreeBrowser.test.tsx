@@ -312,7 +312,8 @@ it.each(["33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444
         ),
       }),
     );
-    if (originSessionID === "33333333-3333-4333-8333-333333333333") expect(onOpenSession).not.toHaveBeenCalled();
+    if (originSessionID === "33333333-3333-4333-8333-333333333333")
+      expect(onOpenSession).not.toHaveBeenCalled();
     else expect(onOpenSession).toHaveBeenCalledWith(originSessionID);
   },
 );
