@@ -274,9 +274,7 @@ func (a *Authority) buildAgentResource(
 	resource.askBroker = wiring.AskBroker
 	resource.backgroundLimit = plan.options.Settings.ShellOutputMaxChars
 	resource.backgroundMode = shelltool.NormalizeBackgroundOutputMode(string(plan.options.Settings.BGShellsOutput))
-	resource.close = func() error {
-		return errors.Join(wiring.Close(), logger.Close())
-	}
+	resource.closeLogger = logger.Close
 	resource.state = AgentResourceReady
 	resource.signalLocked()
 	resource.mu.Unlock()

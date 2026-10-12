@@ -191,7 +191,7 @@ type agentResource struct {
 	logger               *runlog.RunLogger
 	localTools           *runtimewire.LocalToolRegistryBinding
 	askBroker            *tools.AskQuestionBroker
-	close                func() error
+	closeLogger          func() error
 	backgroundLimit      int
 	backgroundMode       shelltool.BackgroundOutputMode
 	current              *execution
@@ -402,9 +402,11 @@ func (r *agentResource) closeResource(ctx context.Context) error {
 	descriptor := r.descriptorLocked()
 	engine := r.engine
 	r.mu.Unlock()
-	var interruptErr error
+	// Close the Runtime before waiting for callbacks so queued operations
+	// cannot start new steps while the resource drains.
+	var closeRuntimeErr error
 	if engine != nil {
-		interruptErr = engine.Interrupt()
+		closeRuntimeErr = engine.Close()
 	}
 	var lifecycleErr error
 	if notifyDraining {
@@ -424,16 +426,16 @@ func (r *agentResource) closeResource(ctx context.Context) error {
 	// Another close caller may have finished while this caller released the lock.
 	if r.state == AgentResourceClosed {
 		r.mu.Unlock()
-		return errors.Join(lifecycleErr, interruptErr)
+		return errors.Join(lifecycleErr, closeRuntimeErr)
 	}
-	closeEngine := r.close
+	closeLogger := r.closeLogger
 	r.state = AgentResourceClosed
 	r.signalLocked()
 	r.mu.Unlock()
-	if closeEngine == nil {
-		return lifecycleErr
+	if closeLogger == nil {
+		return errors.Join(lifecycleErr, closeRuntimeErr)
 	}
-	return errors.Join(lifecycleErr, interruptErr, closeEngine())
+	return errors.Join(lifecycleErr, closeRuntimeErr, closeLogger())
 }
 
 func (r *agentResource) StepBegan(ctx context.Context, snapshot runtime.StepLifecycleSnapshot) error {
