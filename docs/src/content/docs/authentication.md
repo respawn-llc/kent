@@ -31,6 +31,8 @@ MY_PROVIDER_KEY=your-provider-key
 
 When using a custom persistence root, place `.env` in that root. For a remote server, configure the key on the server machine.
 
+On macOS and Linux, restrict the file to its owner with `chmod 600 ~/.kent/.env` (adjust the path for a custom persistence root). Kent rejects files with group or other permissions.
+
 A background service reads this file independently of your terminal shell. A variable already present in the server's launch environment takes precedence, including an empty value. Restart the server after changing either source.
 
 The OpenAI and Grok API-key choices use their official endpoints. Choose Generic to supply a different Responses endpoint.
@@ -46,7 +48,7 @@ The `/status` Auth section shows quota status for ChatGPT subscriptions and Grok
 Declare connections in the global `config.toml`. Workspace settings, agent roles, and the supervisor can select them by name:
 
 ```toml
-connection = "subscription"
+connection = "codex-1"
 
 [connections.codex-1]
 protocol = "chatgpt-codex"

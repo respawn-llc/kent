@@ -49,6 +49,6 @@ See [API keys and background services](../authentication/#api-keys-and-backgroun
 
 :::tip
 
-You can run multiple services or servers with different storage paths. All service commands accept `--persistence-root` and honor `KENT_PERSISTENCE_ROOT`. The root you install with is remembered, so pass the same root on `status`/`start`/`stop`/`restart`/`uninstall` to target that instance.
+You can run multiple manually launched servers with different storage paths. Managed service installation uses one registration regardless of storage path. All service commands accept `--persistence-root` and honor `KENT_PERSISTENCE_ROOT`. The root you install with is remembered, so pass the same root on `status`/`start`/`stop`/`restart`/`uninstall`.
 
 :::

@@ -42,7 +42,7 @@
 ## Installers
 
 - The command-line installers for macOS, Linux, and Windows must offer to install and start the background server service after installing the binary.
-- Interactive service-install prompts must default to Yes, including on upgrades. Unattended installs must skip service installation unless explicitly requested.
+- Interactive service-install prompts must default to Yes, including on upgrades. Unattended installs must skip service installation unless accepted through `-Service` or `-Yes` on Windows, or `--service` on macOS/Linux.
 - Declining or skipping service installation must show how to start the server manually with `kent serve`.
 - Windows must request service-install elevation only after acceptance. The elevated operation must use the invoking user's selected persistence root and return its failure diagnostics.
 - Installing an existing matching service registration must reload or restart it so the installed binary takes effect. A differing registration must fail unless replacement is explicitly requested with `--force`.
