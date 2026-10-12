@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -27,9 +28,18 @@ import (
 
 func TestGrokConnectionCredentialIsolation(t *testing.T) {
 	transport := http.DefaultTransport
-	http.DefaultTransport = httpclient.RoundTripFunc(func(*http.Request) (*http.Response, error) {
-		t.Error("Grok status must not query ChatGPT subscription usage")
-		return nil, errors.New("unexpected subscription usage request")
+	requests := map[string]*http.Request{}
+	requestCounts := map[string]int{}
+	http.DefaultTransport = httpclient.RoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		authorization := request.Header.Get("Authorization")
+		requests[authorization] = request.Clone(request.Context())
+		requestCounts[authorization]++
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"config":{"creditUsagePercent":0}}`)),
+			Request:    request,
+		}, nil
 	})
 	t.Cleanup(func() { http.DefaultTransport = transport })
 	root := t.TempDir()
@@ -85,8 +95,16 @@ func TestGrokConnectionCredentialIsolation(t *testing.T) {
 			authStatus, err := NewStatusService(resolver, nil).GetStatus(t.Context(), &authpb.GetStatusRequest{
 				Provider: &authpb.ProviderSelection{ConnectionId: string(id)},
 			})
-			if err != nil || authStatus.GetResolution().GetKnown() == nil || authStatus.GetSubscription().GetApplicable() {
-				t.Fatalf("unsupported Grok subscription status = %+v, %v", authStatus, err)
+			wantApplicable := id == config.ConnectionID(config.ConnectionGrokCLIProxy) ||
+				id == config.ConnectionID(config.ConnectionGrokOAuthAPI)
+			if err != nil || authStatus.GetResolution().GetKnown() == nil || authStatus.GetSubscription().GetApplicable() != wantApplicable {
+				t.Fatalf("Grok subscription status = %+v, %v", authStatus, err)
+			}
+			if wantApplicable && (authStatus.GetSubscription().GetQuotaSource() != authpb.SubscriptionQuotaSource_SUBSCRIPTION_QUOTA_SOURCE_GROK ||
+				len(authStatus.GetSubscription().GetWindows()) != 1 ||
+				authStatus.GetSubscription().GetWindows()[0].GetDurationSeconds() != 7*24*60*60 ||
+				authStatus.GetSubscription().GetWindows()[0].GetUsedPercent() != 0) {
+				t.Fatalf("Grok billing projection = %+v", authStatus.GetSubscription())
 			}
 			if facts := authStatus.GetResolution().GetKnown().GetProvider(); facts.GetKind() != authpb.ProviderKind_PROVIDER_KIND_CONFIGURED_PROVIDER || facts.Identifier != string(id) {
 				t.Fatalf("capability override changed authentication provider identity: %+v", facts)
@@ -110,6 +128,39 @@ func TestGrokConnectionCredentialIsolation(t *testing.T) {
 				}
 			}
 		})
+	}
+	for _, id := range []config.ConnectionID{
+		config.ConnectionID(config.ConnectionGrokCLIProxy),
+		config.ConnectionID(config.ConnectionGrokOAuthAPI),
+	} {
+		status, err := NewStatusService(resolver, nil).GetStatus(t.Context(), &authpb.GetStatusRequest{
+			Provider:              &authpb.ProviderSelection{ConnectionId: string(id)},
+			SkipSubscriptionUsage: true,
+		})
+		if err != nil || status.GetSubscription().GetApplicable() {
+			t.Fatalf("skipped Grok subscription status = %+v, %v", status, err)
+		}
+		if requestCounts["Bearer "+string(id)] != 1 {
+			t.Fatalf("billing requests for %s = %d", id, requestCounts["Bearer "+string(id)])
+		}
+	}
+	for _, id := range []config.ConnectionID{
+		config.ConnectionID(config.ConnectionGrokCLIProxy),
+		config.ConnectionID(config.ConnectionGrokOAuthAPI),
+	} {
+		request := requests["Bearer "+string(id)]
+		if request == nil || request.Method != http.MethodGet ||
+			request.URL.String() != "https://cli-chat-proxy.grok.com/v1/billing?format=credits" ||
+			request.Header.Get("User-Agent") != "kent/dev" ||
+			request.Header.Get("ChatGPT-Account-Id") != "" ||
+			request.Header.Get("x-userid") != "" ||
+			request.Header.Get("X-XAI-Token-Auth") != "" ||
+			request.Header.Get("x-grok-client-version") != "" {
+			t.Fatalf("Grok billing request for %s = %+v", id, request)
+		}
+	}
+	if len(requests) != 2 {
+		t.Fatalf("billing requests = %v", requests)
 	}
 }
 

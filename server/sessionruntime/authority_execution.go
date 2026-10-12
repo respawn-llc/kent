@@ -17,6 +17,7 @@ import (
 
 type ExecutionHandle interface {
 	Scope() ExecutionScope
+	Done() <-chan struct{}
 	RequestStop() bool
 	Stop(context.Context) error
 	Wait(context.Context) (ExecutionResult, error)
@@ -106,6 +107,13 @@ func (h executionHandle) Scope() ExecutionScope {
 		panic("execution handle is uninitialized")
 	}
 	return h.execution.scope
+}
+
+func (h executionHandle) Done() <-chan struct{} {
+	if h.execution == nil {
+		panic("execution handle is uninitialized")
+	}
+	return h.execution.done
 }
 
 func (h executionHandle) Stop(ctx context.Context) error {

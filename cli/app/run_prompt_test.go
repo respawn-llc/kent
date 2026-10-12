@@ -14,16 +14,16 @@ import (
 
 	"core/cli/app/internal/startupconfig"
 	"core/internal/testharness/testsetup"
-	"core/server/runprompt"
 	serverstartup "core/server/startup"
-	askquestion "core/server/tools"
 	"core/shared/client"
+	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/protoapi"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/protocol"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 
@@ -33,6 +33,15 @@ import (
 
 type staticRunPromptService struct {
 	response *runpromptpb.Success
+}
+
+func requireRunPromptFinalAnswer(t *testing.T, result RunPromptResult) string {
+	t.Helper()
+	outcome, ok := result.Outcome.(RunPromptFinalAnswer)
+	if !ok {
+		t.Fatalf("Run outcome = %T, want final answer", result.Outcome)
+	}
+	return outcome.Text
 }
 
 func (s staticRunPromptService) RunPrompt(
@@ -48,6 +57,7 @@ func TestRunPromptCarriesTypedSelectionWarningsIntoCLIWarnings(t *testing.T) {
 		response: &runpromptpb.Success{
 			SessionId: "session-id",
 			Duration:  durationpb.New(time.Millisecond),
+			Outcome:   &runpromptpb.Success_FinalAnswer{FinalAnswer: "done"},
 			SelectionWarnings: []runpromptpb.RunSelectionWarning{
 				runpromptpb.RunSelectionWarning_RUN_SELECTION_WARNING_AGENT_IGNORED_TO_PRESERVE_CACHE,
 				runpromptpb.RunSelectionWarning_RUN_SELECTION_WARNING_MODEL_IGNORED_TO_PRESERVE_CACHE,
@@ -59,6 +69,97 @@ func TestRunPromptCarriesTypedSelectionWarningsIntoCLIWarnings(t *testing.T) {
 	}
 	if len(result.Warnings) != 2 || strings.TrimSpace(result.Warnings[0]) == "" || strings.TrimSpace(result.Warnings[1]) == "" {
 		t.Fatalf("selection warning count/content = %q", result.Warnings)
+	}
+}
+
+func TestRunPromptProjectsPendingQuestionOutcome(t *testing.T) {
+	sessionID := runtimeids.NewSessionID()
+	stepID, err := runtimeids.ParseStepID("11111111-1111-4111-8111-111111111111")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recommended := 2
+	pending := serverapi.ObservationQuestion{Ask: &clientui.PendingAsk{
+		ToolCallID: "ask-1", SessionID: sessionID, StepID: stepID,
+		Question: "Proceed?", Suggestions: []string{"yes", "no"},
+		RecommendedOptionIndex: &recommended, CreatedAt: time.Unix(1, 0),
+	}}
+	question, err := protoapi.ObservationQuestionToProto(pending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runPrompt(t.Context(), staticRunPromptService{
+		response: &runpromptpb.Success{
+			SessionId: sessionID.String(),
+			Duration:  durationpb.New(time.Millisecond),
+			Outcome:   &runpromptpb.Success_Question{Question: question},
+		},
+	}, Options{}, "", "prompt", 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, ok := result.Outcome.(RunPromptPendingQuestion)
+	if !ok {
+		t.Fatalf("outcome = %T, want pending Question", result.Outcome)
+	}
+	if outcome.Question.Ask == nil || outcome.Question.Ask.ToolCallID != pending.Ask.ToolCallID ||
+		outcome.Question.Ask.SessionID != sessionID ||
+		outcome.Question.Ask.StepID != stepID ||
+		outcome.Question.Ask.Question != pending.Ask.Question ||
+		len(outcome.Question.Ask.Suggestions) != 2 ||
+		outcome.Question.Ask.Suggestions[1] != "no" ||
+		outcome.Question.Ask.RecommendedOptionIndex == nil ||
+		*outcome.Question.Ask.RecommendedOptionIndex != recommended {
+		t.Fatalf("pending Question = %+v", outcome.Question)
+	}
+}
+
+func TestRunPromptProjectsPendingApprovalOptions(t *testing.T) {
+	sessionID := runtimeids.NewSessionID()
+	stepID, err := runtimeids.ParseStepID("22222222-2222-4222-8222-222222222222")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := serverapi.ObservationQuestion{Approval: &clientui.PendingApproval{
+		ToolCallID: "approval-1", SessionID: sessionID, StepID: stepID,
+		AccessTargets: []clientui.FileAccessTarget{{
+			RequestedPath: "/alias/data", ResolvedPath: "/real/data",
+		}},
+		Options: []clientui.ApprovalOption{
+			{Decision: clientui.ApprovalDecisionAllowOnce},
+			{Decision: clientui.ApprovalDecisionAllowSession},
+			{Decision: clientui.ApprovalDecisionDeny},
+		},
+		CreatedAt: time.Unix(1, 0),
+	}}
+	question, err := protoapi.ObservationQuestionToProto(pending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runPrompt(t.Context(), staticRunPromptService{
+		response: &runpromptpb.Success{
+			SessionId: sessionID.String(),
+			Duration:  durationpb.New(time.Millisecond),
+			Outcome:   &runpromptpb.Success_Question{Question: question},
+		},
+	}, Options{}, "", "prompt", 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, ok := result.Outcome.(RunPromptPendingQuestion)
+	if !ok {
+		t.Fatalf("outcome = %T, want pending Approval", result.Outcome)
+	}
+	approval := outcome.Question.Approval
+	if approval == nil || approval.ToolCallID != pending.Approval.ToolCallID ||
+		approval.SessionID != sessionID || approval.StepID != stepID ||
+		len(approval.Options) != len(pending.Approval.Options) ||
+		approval.Options[0].Decision != clientui.ApprovalDecisionAllowOnce ||
+		approval.Options[1].Decision != clientui.ApprovalDecisionAllowSession ||
+		approval.Options[2].Decision != clientui.ApprovalDecisionDeny ||
+		len(approval.AccessTargets) != 1 ||
+		approval.AccessTargets[0] != pending.Approval.AccessTargets[0] {
+		t.Fatalf("pending Approval = %+v", approval)
 	}
 }
 
@@ -118,8 +219,8 @@ func TestRunPromptFromWorktreeUsesKentSessionWorkspaceContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
-	if result.Result != "worktree reply" {
-		t.Fatalf("result = %q, want worktree reply", result.Result)
+	if got := requireRunPromptFinalAnswer(t, result); got != "worktree reply" {
+		t.Fatalf("result = %q, want worktree reply", got)
 	}
 	if result.SessionID == parent.Meta().SessionID {
 		t.Fatal("expected worktree run to create a child run instead of continuing parent session")
@@ -236,13 +337,6 @@ func waitForConfiguredRunPromptDaemon(t *testing.T, workspace string) {
 	}, "configured daemon did not become healthy at %s", healthURL)
 }
 
-func TestRunPromptAskHandlerReturnsError(t *testing.T) {
-	_, err := runprompt.RunPromptAskHandler(askquestion.AskQuestionRequest{Question: "Need approval?"})
-	if !errors.Is(err, runprompt.ErrHeadlessAskUnsupported) {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 
@@ -271,8 +365,8 @@ func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
-	if result.Result != "daemon reply" {
-		t.Fatalf("result = %q, want %q", result.Result, "daemon reply")
+	if got := requireRunPromptFinalAnswer(t, result); got != "daemon reply" {
+		t.Fatalf("result = %q, want %q", got, "daemon reply")
 	}
 	if hits.Load() != 1 {
 		t.Fatalf("expected daemon-backed llm call once, got %d", hits.Load())

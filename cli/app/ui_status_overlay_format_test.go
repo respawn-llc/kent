@@ -1,6 +1,9 @@
 package app
 
-import "testing"
+import (
+	"core/cli/app/internal/status"
+	"testing"
+)
 
 func TestStatusSubscriptionRemainingClampsUsedPercent(t *testing.T) {
 	tests := []struct {
@@ -53,5 +56,72 @@ func TestStatusSubscriptionBarWidthBounds(t *testing.T) {
 	}
 	if got := statusSubscriptionBarWidth(500); got != statusSubscriptionBarMaxWidth {
 		t.Fatalf("wide width = %d, want %d", got, statusSubscriptionBarMaxWidth)
+	}
+}
+
+func TestGrokSubscriptionBarSegmentsUseTotalAndCompleteContributions(t *testing.T) {
+	floatPointer := func(value float64) *float64 { return &value }
+	tests := []struct {
+		name   string
+		window uiStatusSubscriptionWindow
+		want   grokSubscriptionBarSegments
+	}{
+		{
+			name: "complete breakdown",
+			window: uiStatusSubscriptionWindow{
+				UsedPercent: 86,
+				GrokContributions: &status.GrokUsageContribution{
+					BuildUsedPercent: floatPointer(67),
+					ChatUsedPercent:  floatPointer(19),
+				},
+			},
+			want: grokSubscriptionBarSegments{BuildOrTotalCells: 12, ChatCells: 3, EmptyCells: 3, Stacked: true},
+		},
+		{
+			name:   "missing breakdown",
+			window: uiStatusSubscriptionWindow{UsedPercent: 86},
+			want:   grokSubscriptionBarSegments{BuildOrTotalCells: 15, EmptyCells: 3},
+		},
+		{
+			name: "incomplete breakdown",
+			window: uiStatusSubscriptionWindow{
+				UsedPercent: 86,
+				GrokContributions: &status.GrokUsageContribution{
+					BuildUsedPercent: floatPointer(67),
+				},
+			},
+			want: grokSubscriptionBarSegments{BuildOrTotalCells: 15, EmptyCells: 3},
+		},
+		{
+			name: "contributions do not account for total",
+			window: uiStatusSubscriptionWindow{
+				UsedPercent: 86,
+				GrokContributions: &status.GrokUsageContribution{
+					BuildUsedPercent: floatPointer(66),
+					ChatUsedPercent:  floatPointer(19),
+				},
+			},
+			want: grokSubscriptionBarSegments{BuildOrTotalCells: 15, EmptyCells: 3},
+		},
+		{
+			name: "explicit zero usage",
+			window: uiStatusSubscriptionWindow{
+				UsedPercent: 0,
+				GrokContributions: &status.GrokUsageContribution{
+					BuildUsedPercent: floatPointer(0),
+					ChatUsedPercent:  floatPointer(0),
+				},
+			},
+			want: grokSubscriptionBarSegments{EmptyCells: statusSubscriptionBarMaxWidth, Stacked: true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := grokSubscriptionBarSegmentsForWindow(statusSubscriptionBarMaxWidth, tt.window)
+			if got != tt.want {
+				t.Fatalf("segments = %+v, want %+v", got, tt.want)
+			}
+		})
 	}
 }

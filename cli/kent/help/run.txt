@@ -7,9 +7,9 @@ Usage:
 
 Run a headless subagent session. This will start a real Kent agent with optional specified role and a specific prompt to stay quieter during work.
 
-- Headless subagents cannot ask questions and will try to work until they hit a blocker or do as much as they can.
+- A pending Question or access Approval is shown for later answering with `kent question`; `kent run` exits successfully while one is pending.
 - For this command to work, a shared Kent server/service must be running (see relevant documentation).
-- Finalized assistant responses print as they are committed. Use `-q` or `--quiet` for final-result-only output.
+- Finalized assistant responses print as they are committed. Use `-q` or `--quiet` to suppress live progress; pending Questions remain visible.
 - New sessions print a ready-to-use `run steer` command after the run becomes steerable.
 - Prefer passing `--session <id>` (returned by the first run of the `run` command) to continue the previous session.
 - Prefer continuing sessions over starting new ones for re-reviews, continuation of work, follow-ups, discussion, and start new ones separate tasks.

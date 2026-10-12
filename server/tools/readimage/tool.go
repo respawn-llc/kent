@@ -32,9 +32,10 @@ var supportedImageMIMEs = map[string]struct{}{
 }
 
 type Tool struct {
-	fileAccess            *tools.FileAccessPolicy
-	outsideWorkspaceAudit OutsideWorkspaceAuditLogger
-	supported             func() bool
+	fileAccess             *tools.FileAccessPolicy
+	outsideWorkspaceAudit  OutsideWorkspaceAuditLogger
+	rawImageOriginalDetail bool
+	supported              func() bool
 }
 
 type OutsideWorkspaceAudit struct {
@@ -50,6 +51,7 @@ type options struct {
 	allowOutsideWorkspace    bool
 	outsideWorkspaceApprover tools.FileAccessApprover
 	outsideWorkspaceAudit    OutsideWorkspaceAuditLogger
+	rawImageOriginalDetail   bool
 }
 
 func WithWorkspacePermissions(permissions *tools.WorkspacePermissions) Option {
@@ -76,6 +78,12 @@ func WithOutsideWorkspaceAuditLogger(logger OutsideWorkspaceAuditLogger) Option 
 	}
 }
 
+func WithRawImageOriginalDetail() Option {
+	return func(options *options) {
+		options.rawImageOriginalDetail = true
+	}
+}
+
 type input struct {
 	Path string `json:"path" jsonschema_description:"Local filesystem path to a PNG, JPEG, still WebP, still GIF, or PDF file. Relative paths resolve from the workspace root."`
 	Raw  bool   `json:"raw,omitempty" jsonschema_description:"Whether to disable image optimization, keep on unless facing issues. Defaults to false."`
@@ -86,10 +94,11 @@ func StaticContractSource() tools.StaticContractSource {
 }
 
 type contentItem struct {
-	Type     string `json:"type"`
-	ImageURL string `json:"image_url,omitempty"`
-	FileData string `json:"file_data,omitempty"`
-	Filename string `json:"filename,omitempty"`
+	Type     string  `json:"type"`
+	ImageURL string  `json:"image_url,omitempty"`
+	Detail   *string `json:"detail,omitempty"`
+	FileData string  `json:"file_data,omitempty"`
+	Filename string  `json:"filename,omitempty"`
 }
 
 func New(filesystemContext tools.FilesystemContext, supported func() bool, opts ...Option) (*Tool, error) {
@@ -113,9 +122,10 @@ func New(filesystemContext tools.FilesystemContext, supported func() bool, opts 
 		return nil, err
 	}
 	return &Tool{
-		fileAccess:            fileAccess,
-		outsideWorkspaceAudit: settings.outsideWorkspaceAudit,
-		supported:             supported,
+		fileAccess:             fileAccess,
+		outsideWorkspaceAudit:  settings.outsideWorkspaceAudit,
+		rawImageOriginalDetail: settings.rawImageOriginalDetail,
+		supported:              supported,
 	}, nil
 }
 
@@ -171,7 +181,11 @@ func (t *Tool) Call(ctx context.Context, c tools.Call) (tools.Result, error) {
 		return tools.ErrorResult(c, fmt.Sprintf("file %q is too large (%d bytes). max supported size is %d bytes (800 KiB). compress the image or PDF and try again", resolvedPath, int64(len(contentData)), maxFileSizeBytes)), nil
 	}
 
-	items, buildErr := buildContentItemsForFile(resolvedPath, contentMIME, contentData)
+	detail := "auto"
+	if in.Raw && t.rawImageOriginalDetail {
+		detail = "original"
+	}
+	items, buildErr := buildContentItemsForFile(resolvedPath, contentMIME, contentData, detail)
 	if buildErr != nil {
 		return tools.ErrorResult(c, buildErr.Error()), nil
 	}
@@ -350,7 +364,7 @@ func readImageOutsideWorkspacePath(req tools.FileAccessRequest) string {
 	return strings.TrimSpace(req.RequestedPath)
 }
 
-func buildContentItemsForFile(path, mimeType string, data []byte) ([]contentItem, error) {
+func buildContentItemsForFile(path, mimeType string, data []byte, detail string) ([]contentItem, error) {
 	if mimeType == "application/pdf" || strings.EqualFold(filepath.Ext(path), ".pdf") {
 		filename := filepath.Base(path)
 		if strings.TrimSpace(filename) == "" {
@@ -371,6 +385,7 @@ func buildContentItemsForFile(path, mimeType string, data []byte) ([]contentItem
 		return []contentItem{{
 			Type:     "input_image",
 			ImageURL: fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(data)),
+			Detail:   &detail,
 		}}, nil
 	}
 

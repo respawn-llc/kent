@@ -1,10 +1,14 @@
 package runtimewire
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1603,6 +1607,107 @@ func TestRuntimeWiringVisionDefaults(t *testing.T) {
 			}
 			if result.IsError == test.wantVision {
 				t.Fatalf("view_image result = %+v, want vision %t", result, test.wantVision)
+			}
+		})
+	}
+}
+
+func TestRuntimeWiringRawImageDetailUsesSelectedConnectionVariant(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		connection config.ProviderConnection
+		wantDetail string
+	}{
+		{
+			name: "first-party Responses despite capability override",
+			connection: config.ProviderConnection{
+				Protocol: config.ConnectionResponses, Endpoint: textutil.Value(config.DefaultOpenAIResponsesEndpoint),
+				Capabilities: config.ProviderCapabilitiesOverride{ProviderID: "compatible", SupportsResponsesAPI: true},
+			},
+			wantDetail: "original",
+		},
+		{
+			name: "ChatGPT despite capability override",
+			connection: config.ProviderConnection{
+				Protocol:     config.ConnectionChatGPT,
+				Capabilities: config.ProviderCapabilitiesOverride{ProviderID: "compatible", SupportsResponsesAPI: true},
+			},
+			wantDetail: "original",
+		},
+		{
+			name: "compatible endpoint despite first-party override",
+			connection: config.ProviderConnection{
+				Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://example.test/v1"),
+				Capabilities: config.ProviderCapabilitiesOverride{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true},
+			},
+			wantDetail: "auto",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			store := newRuntimeWireSession(t, root, "raw-image-detail")
+			id := config.ConnectionID("selected")
+			active := runtimeWireShellSettings(config.ShellPostprocessingModeBuiltin, nil)
+			active.Model = "gpt-6-luna"
+			active.ModelCapabilities.SupportsVisionInputs = true
+			active.Connection = config.SingleConnection(id)
+			active.ConnectionOrder = []config.ConnectionID{id}
+			active.Connections = map[config.ConnectionID]config.ProviderConnection{id: test.connection}
+
+			wiring, err := newTestRuntimeWiringWithBackground(t,
+				store, materializedRuntimeWireEventLog(t, store), active,
+				[]toolspec.ID{toolspec.ToolViewImage}, nil, nil, nil,
+				requiredRuntimeWireTestOptions(RuntimeWiringOptions{
+					Client:            &runtimewireCaptureClient{},
+					FilesystemContext: runtimeWireFilesystemContext(t, root),
+					GlobalConfigDir:   t.TempDir(),
+				}),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := wiring.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+
+			var imageBytes bytes.Buffer
+			if err := png.Encode(&imageBytes, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+				t.Fatal(err)
+			}
+			imagePath := filepath.Join(root, "image.png")
+			if err := os.WriteFile(imagePath, imageBytes.Bytes(), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			handler, ok := wiring.LocalTools.registry.Get(toolspec.ToolViewImage)
+			if !ok {
+				t.Fatal("missing view_image handler")
+			}
+			result, err := handler.Call(context.Background(), tools.Call{
+				ID: "raw-image", Name: toolspec.ToolViewImage,
+				Input: json.RawMessage(`{"path":"image.png","raw":true}`),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.IsError {
+				t.Fatalf("view_image failed: %s", result.Output)
+			}
+			var items []struct {
+				Type     string `json:"type"`
+				Detail   string `json:"detail"`
+				ImageURL string `json:"image_url"`
+			}
+			if err := json.Unmarshal(result.Output, &items); err != nil {
+				t.Fatal(err)
+			}
+			if len(items) != 1 || items[0].Type != "input_image" || items[0].Detail != test.wantDetail {
+				t.Fatalf("raw image content = %+v, want detail %q", items, test.wantDetail)
+			}
+			payload, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(items[0].ImageURL, "data:image/png;base64,"))
+			if err != nil || !bytes.Equal(payload, imageBytes.Bytes()) {
+				t.Fatalf("raw image bytes = %d bytes, want original %d bytes: %v", len(payload), imageBytes.Len(), err)
 			}
 		})
 	}

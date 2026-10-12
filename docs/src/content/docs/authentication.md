@@ -39,6 +39,8 @@ The OpenAI and Grok API-key choices use their official endpoints. Choose Generic
 
 There are 2, both semi-official, modes of using your subscription in Grok: CLI Proxy and OAuth API. First emulates the official CLI, used by e.g. OpenClaw. OAuth API is the official path, but does not have a Free Plan.
 
+The `/status` Auth section shows quota status for ChatGPT subscriptions and Grok subscription connections that use `grok-oauth-api` or `grok-cli-proxy`. Grok API-key connections show their authentication details without a subscription-quota row. If a Grok billing request returns HTTP 404, 403, or 401, Kent shows `Quota unavailable for this sign-in method` with the provider diagnostic. Treat a 403 as a permission or safety refusal unless the diagnostic provides separate authentication evidence. Use `/login` only when the provider diagnostic identifies an authentication problem.
+
 ## Configure connections and roles
 
 Declare connections in the global `config.toml`. Workspace settings, agent roles, and the supervisor can select them by name:

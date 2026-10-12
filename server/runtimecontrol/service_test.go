@@ -2773,6 +2773,10 @@ func TestServiceAdmitManualCompactionQueuesBehindActiveAgentStep(t *testing.T) {
 	if !runtimeControlPendingWorkContains(pending, itemID) {
 		t.Fatalf("manual compaction %s is absent from Pending Work: %+v", requestID, pending.Items)
 	}
+	// Stop the intentionally queued operation before Authority fixture cleanup.
+	if err := engine.Close(); err != nil {
+		t.Fatalf("close Runtime after verifying pending manual compaction: %v", err)
+	}
 }
 
 func TestServiceAdmitQueuedPromptCommandUsesExpandedExecutionAndCanonicalPresentation(t *testing.T) {

@@ -25,7 +25,7 @@ func InputContentItems(raw json.RawMessage) ([]InputContent, bool) {
 		item := &items[index]
 		if item.Type == "input_image" {
 			switch item.Detail {
-			case "low", "high", "auto":
+			case "low", "high", "auto", "original":
 			default:
 				item.Detail = ""
 			}
