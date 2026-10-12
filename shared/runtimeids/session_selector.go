@@ -1,8 +1,10 @@
 package runtimeids
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 const MaxSessionShortID int64 = 9_007_199_254_740_991
@@ -29,14 +31,29 @@ type SessionSelector interface {
 func (SessionID) sessionSelector()      {}
 func (SessionShortID) sessionSelector() {}
 
+// InvalidSessionShortIDError prevents malformed numeric targets from being
+// reinterpreted as ordinary prompt text by command dispatch.
+type InvalidSessionShortIDError struct{ Cause error }
+
+func (e *InvalidSessionShortIDError) Error() string { return e.Cause.Error() }
+func (e *InvalidSessionShortIDError) Unwrap() error { return e.Cause }
+
 func ParseSessionSelector(raw string) (SessionSelector, error) {
-	if value, err := strconv.ParseInt(raw, 10, 64); err == nil {
+	value, parseErr := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if parseErr == nil || errors.Is(parseErr, strconv.ErrRange) {
+		if parseErr != nil {
+			return nil, &InvalidSessionShortIDError{Cause: parseErr}
+		}
 		for _, character := range raw {
 			if character < '0' || character > '9' {
-				return nil, fmt.Errorf("session short ID must contain only decimal digits")
+				return nil, &InvalidSessionShortIDError{Cause: fmt.Errorf("session short ID must contain only decimal digits")}
 			}
 		}
-		return NewSessionShortID(value)
+		id, err := NewSessionShortID(value)
+		if err != nil {
+			return nil, &InvalidSessionShortIDError{Cause: err}
+		}
+		return id, nil
 	}
 	id, err := ParseSessionID(raw)
 	if err != nil {

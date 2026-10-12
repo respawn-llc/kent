@@ -457,6 +457,10 @@ func liveControlSubcommand(args []string) string {
 		return verb
 	}
 	if _, err := runtimeids.ParseSessionSelector(positionals[0]); err != nil {
+		var invalidNumber *runtimeids.InvalidSessionShortIDError
+		if errors.As(err, &invalidNumber) {
+			return verb
+		}
 		return ""
 	}
 	switch verb {
