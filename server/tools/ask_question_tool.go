@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"core/prompts"
 	"core/shared/clientui"
@@ -366,12 +367,20 @@ func (t *AskQuestionTool) Call(ctx context.Context, c Call) (Result, error) {
 		req.StepID = batch.StepID
 		req.QuestionBatch = &batch
 	}
+	askStartedAt := time.Now()
 	resolution, err := t.broker.Ask(ctx, req)
 	if err != nil {
 		if ShouldSkipRemainingQuestionBatch(err, context.Cause(ctx)) {
 			notifyAskQuestionBatchSkipped(c)
 		}
-		return ErrorResult(c, err.Error()), nil
+		message := err.Error()
+		if errors.Is(err, context.Canceled) {
+			message = fmt.Sprintf(
+				"You were interrupted while waiting for an answer to this question after %s. This does not mean you're authorized to go with your own decision or that any of the proposed options was chosen. Consider re-asking this question when appropriate.",
+				formatDurationShort(time.Since(askStartedAt)),
+			)
+		}
+		return ErrorResult(c, message), nil
 	}
 	summary, summaryErr := buildResolutionToolOutputSummary(resolution)
 	if summaryErr != nil {

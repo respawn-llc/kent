@@ -39,6 +39,19 @@ func testQuestionAnswer(text string) AskQuestionAnswer {
 	return AskQuestionAnswer{Freeform: textutil.Value(text)}
 }
 
+func assertCanceledQuestionResult(t *testing.T, result Result) {
+	t.Helper()
+	if !result.IsError {
+		t.Fatalf("result = %+v, want error result", result)
+	}
+	if result.QuestionAnswer != nil {
+		t.Fatalf("canceled Question result includes an answer: %+v", result.QuestionAnswer)
+	}
+	if result.AnsweredBySessionID != nil {
+		t.Fatalf("canceled Question result includes answer provenance: %s", *result.AnsweredBySessionID)
+	}
+}
+
 func TestUnboundAskFailsWithoutWaitingForCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -207,9 +220,7 @@ func TestAskQuestionToolSkipsPreparedBatchWhenBrokerReturnsBeforeHandler(t *test
 	if err != nil {
 		t.Fatalf("Call returned unexpected handler error: %v", err)
 	}
-	if !result.IsError {
-		t.Fatalf("result = %+v, want error result", result)
-	}
+	assertCanceledQuestionResult(t, result)
 	if handlerCalled {
 		t.Fatal("ask handler was called after context cancellation")
 	}
@@ -249,9 +260,7 @@ func TestAskQuestionToolDeclineKeepsPreparedSuccessorsPending(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Call returned unexpected error: %v", err)
 	}
-	if !result.IsError {
-		t.Fatalf("result = %+v, want declined error result", result)
-	}
+	assertCanceledQuestionResult(t, result)
 	if len(skipped) != 0 {
 		t.Fatalf("decline marked prepared successors skipped: %+v", skipped)
 	}
