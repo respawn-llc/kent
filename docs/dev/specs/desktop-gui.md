@@ -505,7 +505,7 @@
 - Leaving Task Detail discards unsubmitted Question and runtime Approval answer state.
 - A prompt resolved by another client disappears without feedback.
 - Task Detail does not offer Decline for Questions or runtime Approvals.
-- Approving a transition that first needs an Execution Target uses the same selection dialog. Dismissing it leaves Approval pending. Interrupt acts immediately without confirmation.
+- Interrupt acts immediately without confirmation.
 - Task Detail opened from Inbox remains open after resolution while Inbox updates in the background.
 - Desktop attention includes workflow Questions, workflow Approvals, ordinary Session Questions and Approvals with a Desktop response surface, and executable Nodes interrupted by errors. It excludes user interruptions.
 - A focused window shows a persistent in-app attention notification. Selecting it opens Task Detail or Session Chat at the relevant attention item. Every notification can be closed regardless of duration. An ordinary Session prompt does not show a duplicate notification while its owning Session Chat and picker are already the focused destination.
