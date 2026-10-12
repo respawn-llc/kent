@@ -57,14 +57,7 @@ func registerSessionViewUnary[
 	return registerGatewayBinaryUnary(
 		bindings, service, method, gatewayBinaryCoreActiveOrdinary, newRequest,
 		func(request Request) (routeScopeParams, error) {
-			switch target := any(request.GetSessionId()).(type) {
-			case string:
-				return routeScopeParams{sessionID: target}, nil
-			case *sharedpb.SessionSelector:
-				return routeScopeParams{sessionSelector: target}, nil
-			default:
-				panic("unsupported Session read target")
-			}
+			return runtimeControlScope(request.GetSessionId()), nil
 		},
 		func(g *Gateway, ctx context.Context, _ *connectionState, request Request) (Success, error) {
 			client := g.deps.SessionViewClient()
