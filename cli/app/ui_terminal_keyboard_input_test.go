@@ -419,6 +419,30 @@ func TestProgramAltBackspaceDeletesPreviousWord(t *testing.T) {
 	}
 }
 
+func TestProgramXtermAltBackspaceDeletesPreviousWord(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInput(model, "alpha beta gamma")
+	result := runTerminalInputProgram(t, model, "\x1b[27;3;127~\x03")
+	if got, want := testMainInput(result), "alpha beta "; got != want {
+		t.Fatalf("input after xterm Alt+Backspace = %q, want %q", got, want)
+	}
+	if got, want := testMainInputRuneCursor(result), len([]rune("alpha beta ")); got != want {
+		t.Fatalf("cursor after xterm Alt+Backspace = %d, want %d", got, want)
+	}
+}
+
+func TestProgramXtermCtrlBackspaceDeletesCurrentLine(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInputAtRuneCursor(model, "one\ntwo\nthree", 5)
+	result := runTerminalInputProgram(t, model, "\x1b[27;5;127~\x03")
+	if got, want := testMainInput(result), "one\nthree"; got != want {
+		t.Fatalf("input after xterm Ctrl+Backspace = %q, want %q", got, want)
+	}
+	if got, want := testMainInputRuneCursor(result), 4; got != want {
+		t.Fatalf("cursor after xterm Ctrl+Backspace = %d, want %d", got, want)
+	}
+}
+
 func TestProgramF1OpensHelpFromEnhancedSequence(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[P\x03", 1)

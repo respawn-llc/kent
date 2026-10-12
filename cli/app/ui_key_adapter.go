@@ -113,7 +113,7 @@ func decodeTerminalTildeKey(sequence terminalCSISequence) (tea.Msg, bool) {
 	}
 	if len(sequence.parameters) == 3 && sequence.parameters[0] == 27 {
 		codepoint, modifier, ok := normalizeCSIKey(sequence.parameters[2], sequence.parameters[1])
-		if ok && codepoint == 13 {
+		if ok && (codepoint == 13 || codepoint == 8 || codepoint == 127) {
 			return decodeTerminalSpecialKey(codepoint, modifier)
 		}
 		return nil, false
