@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -42,9 +41,6 @@ func (d viewedImageSourceDescriptor) validate() error {
 func (a *sessionReattachAuthority) issueViewedImageSourceURL(
 	descriptor viewedImageSourceDescriptor,
 ) (string, error) {
-	if a == nil {
-		return "", errors.New("viewed image source signing authority is required")
-	}
 	if err := descriptor.validate(); err != nil {
 		return "", err
 	}
@@ -66,15 +62,12 @@ func (a *sessionReattachAuthority) verifyViewedImageSource(
 	encodedSource string,
 	encodedSignature string,
 ) (viewedImageSourceDescriptor, error) {
-	if a == nil {
-		return viewedImageSourceDescriptor{}, errors.New("viewed image source signing authority is required")
-	}
 	payload, err := base64.RawURLEncoding.DecodeString(encodedSource)
-	if err != nil || base64.RawURLEncoding.EncodeToString(payload) != encodedSource {
+	if err != nil {
 		return viewedImageSourceDescriptor{}, errors.New("viewed image source descriptor encoding is invalid")
 	}
 	signature, err := base64.RawURLEncoding.DecodeString(encodedSignature)
-	if err != nil || base64.RawURLEncoding.EncodeToString(signature) != encodedSignature {
+	if err != nil {
 		return viewedImageSourceDescriptor{}, errors.New("viewed image source signature encoding is invalid")
 	}
 	if len(signature) != sha256.Size {
@@ -89,13 +82,6 @@ func (a *sessionReattachAuthority) verifyViewedImageSource(
 	var descriptor viewedImageSourceDescriptor
 	if err := json.Unmarshal(payload, &descriptor); err != nil {
 		return viewedImageSourceDescriptor{}, fmt.Errorf("decode viewed image source descriptor: %w", err)
-	}
-	canonical, err := json.Marshal(descriptor)
-	if err != nil {
-		return viewedImageSourceDescriptor{}, fmt.Errorf("re-encode viewed image source descriptor: %w", err)
-	}
-	if !bytes.Equal(canonical, payload) {
-		return viewedImageSourceDescriptor{}, errors.New("viewed image source descriptor encoding is not canonical")
 	}
 	if err := descriptor.validate(); err != nil {
 		return viewedImageSourceDescriptor{}, err

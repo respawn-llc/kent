@@ -98,13 +98,10 @@ func (g *Gateway) serveViewedImageOriginal(w http.ResponseWriter, r *http.Reques
 		}
 		return
 	}
-	provider, ok := g.deps.(viewedImageOriginalOpenerProvider)
-	if !ok {
-		slog.Error("viewed image original opener is unavailable")
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
+	var opener sessionview.ViewedImageOriginalOpener
+	if provider, ok := g.deps.(viewedImageOriginalOpenerProvider); ok {
+		opener = provider.ViewedImageOriginalOpener()
 	}
-	opener := provider.ViewedImageOriginalOpener()
 	if opener == nil {
 		slog.Error("viewed image original opener is unavailable")
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
