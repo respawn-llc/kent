@@ -73,6 +73,27 @@ func TestProgramAltEnterInsertsNewline(t *testing.T) {
 	}
 }
 
+func TestProgramXtermShiftEnterInsertsNewline(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInput(model, "draft")
+	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[27;2;13~\x03", 1)
+	if got, want := testMainInput(result), "draft\n"; got != want {
+		t.Fatalf("input after xterm Shift+Enter = %q, want %q", got, want)
+	}
+	if result.isBusy() {
+		t.Fatal("xterm Shift+Enter submitted the composer")
+	}
+}
+
+func TestProgramXtermCtrlEnterSubmitsDraft(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInput(model, "draft")
+	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[27;5;13~\x03", 1)
+	if !result.isBusy() {
+		t.Fatal("xterm Ctrl+Enter did not submit the composer")
+	}
+}
+
 func TestProgramAltEnterInsertsNewlineWithVisiblePathCompletion(t *testing.T) {
 	model, _ := newPathReferenceTestModel("inspect @ab")
 	model = deliverPathReferenceTestMatches(t, model, 1, []uiPathReferenceCandidate{{Path: "cli/app/ui.go"}})
