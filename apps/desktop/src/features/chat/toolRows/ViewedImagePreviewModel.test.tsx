@@ -80,11 +80,10 @@ it("resolves the server source only after expansion and mounts one image element
   expect(context.resolveSource).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button"));
   await waitFor(() => {
-    expect(context.resolveSource).toHaveBeenCalledWith(
-      { projectID: "project", sessionID: "session" },
-      "/images/image.png",
-      expect.any(AbortSignal),
-    );
+    const [target, path, signal] = context.resolveSource.mock.calls[0] ?? [];
+    expect(target).toEqual({ projectID: "project", sessionID: "session" });
+    expect(path).toBe("/images/image.png");
+    expect(signal).toBeInstanceOf(AbortSignal);
   });
   await waitFor(() => {
     expect(screen.queryAllByAltText("")).toHaveLength(1);
@@ -123,20 +122,28 @@ it("shows source-resolution failures inline in the expanded row", async () => {
 it("cancels source resolution when the row collapses", async () => {
   const context = fixture();
   let requestSignal: AbortSignal | undefined;
-  context.resolveSource.mockImplementation((_target, _path, signal) => {
+  context.resolveSource.mockImplementation(async (_target, _path, signal) => {
     requestSignal = signal;
     return new Promise((_resolve, reject) => {
-      signal?.addEventListener("abort", () => reject(new Error("source request cancelled")), {
-        once: true,
-      });
+      signal?.addEventListener(
+        "abort",
+        () => {
+          reject(new Error("source request cancelled"));
+        },
+        { once: true },
+      );
     });
   });
   renderPreview(context);
 
   fireEvent.click(screen.getByRole("button"));
-  await waitFor(() => expect(requestSignal).toBeDefined());
+  await waitFor(() => {
+    expect(requestSignal).toBeDefined();
+  });
   fireEvent.click(screen.getByRole("button"));
-  await waitFor(() => expect(requestSignal?.aborted).toBe(true));
+  await waitFor(() => {
+    expect(requestSignal?.aborted).toBe(true);
+  });
 });
 
 it("offers native Open for an available absolute PDF without a working directory", async () => {

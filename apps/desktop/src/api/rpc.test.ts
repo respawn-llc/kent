@@ -264,7 +264,9 @@ describe("RpcWebSocketTransport", () => {
 
     controller.abort();
     try {
-      await vi.waitFor(() => expect(socket.readyState).toBe(MockWebSocket.CLOSED));
+      await vi.waitFor(() => {
+        expect(socket.readyState).toBe(MockWebSocket.CLOSED);
+      });
     } finally {
       if (socket.readyState !== MockWebSocket.CLOSED) socket.close();
     }

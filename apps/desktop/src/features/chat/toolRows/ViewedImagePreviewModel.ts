@@ -1,4 +1,4 @@
-import { QueryObserver, type QueryClient } from "@tanstack/react-query";
+import { QueryObserver, type QueryClient, type QueryFunctionContext } from "@tanstack/react-query";
 import * as Effect from "effect/Effect";
 import * as Atom from "effect/reactivity/Atom";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
@@ -32,7 +32,7 @@ export type ViewedImagePreviewInput = Readonly<{
 export function createViewedImagePreviewModel(input: ViewedImagePreviewInput) {
   const queryOptions = {
     queryKey: queryKeys.viewedImage(input.target.sessionID, input.locator),
-    queryFn: async ({ signal }) => {
+    queryFn: async ({ signal }: QueryFunctionContext) => {
       const source = await input.services.api.chat.resolveViewedImageOriginalSource(
         input.target,
         input.path,
