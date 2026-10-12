@@ -386,7 +386,7 @@ func TestCompactionMissingToolOutputRepairAppendsAndRetries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create compaction dispatch: %v", err)
 	}
-	if _, _, _, err := eng.compactWithContextRepairRetry(context.Background(), runtimeTestStepID("step"), newObservedModelClient(client), request, request.Items, "", dispatchFactory, modelRequestRetriesAllowed); err != nil {
+	if _, _, _, err := eng.compactWithContextRepairRetry(context.Background(), runtimeTestStepID("step"), newObservedModelClient(client), request, request.Items, "", dispatchFactory, modelRequestSingleAttempt); err != nil {
 		t.Fatalf("compact with repair retry: %v", err)
 	}
 	if len(client.compactionCalls) != 2 {

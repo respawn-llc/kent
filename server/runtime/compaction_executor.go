@@ -82,7 +82,7 @@ func (e *Engine) compactWithContextRepairRetry(
 			return llm.CompactionResponse{}, items, err
 		}
 		resp, err := e.compactWithRetry(ctx, stepID, client, req, retryPolicy)
-		if retryPolicy == modelRequestSingleAttempt || !isMissingToolOutputProviderError(err, items) {
+		if !isMissingToolOutputProviderError(err, items) {
 			return resp, items, err
 		}
 		if !canRepair {
@@ -286,7 +286,7 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, stepID st
 	// 400 is an invariant violation and panics; other 400s fall through.
 	summarize := func(w []llm.ResponseItem, canRepair bool) (string, []llm.ResponseItem, int, error) {
 		summary, rejectedToolCalls, err := e.localCompactionSummaryFromWindow(ctx, stepID, w, instructions, dispatchFactory, retryPolicy)
-		if retryPolicy == modelRequestSingleAttempt || !isMissingToolOutputProviderError(err, w) {
+		if !isMissingToolOutputProviderError(err, w) {
 			return summary, w, rejectedToolCalls, err
 		}
 		if !canRepair {
