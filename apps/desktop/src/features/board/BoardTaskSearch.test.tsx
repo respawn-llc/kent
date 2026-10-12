@@ -25,6 +25,7 @@ const openSidebarRoot = vi.fn<SidebarRootController["open"]>(() => ({
 }));
 const testSidebarRoots: SidebarRootController = {
   open: openSidebarRoot,
+  toggle: vi.fn(),
 };
 
 describe("Board Task Search", () => {

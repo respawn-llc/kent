@@ -15,6 +15,7 @@ export function CopyableValue({
   copyFailed,
   copySucceeded,
   size = "sm",
+  unpadded = false,
 }: Readonly<{
   accessibleLabel: string;
   children: ReactNode;
@@ -23,6 +24,7 @@ export function CopyableValue({
   copyFailed: CopyFeedback;
   copySucceeded: CopyFeedback;
   size?: "sm" | "xs";
+  unpadded?: boolean;
 }>) {
   const { nativeBridge } = useAppServices();
   return (
@@ -30,6 +32,7 @@ export function CopyableValue({
       accessibleLabel={accessibleLabel}
       {...(className === undefined ? {} : { className })}
       size={size}
+      unpadded={unpadded}
       onActivate={() => {
         void writeClipboardText(clipboardValue, nativeBridge)
           .then(() => {

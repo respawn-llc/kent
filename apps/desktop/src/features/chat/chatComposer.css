@@ -4,6 +4,7 @@
   width: 100%;
   max-width: var(--chat-content-max-width);
   margin-inline: auto;
+  padding-inline: var(--space-2);
   padding-block-end: var(--space-2);
 }
 
@@ -29,7 +30,7 @@
   border: 0;
   background: transparent;
   border-radius: 0;
-  padding: var(--space-1);
+  padding: var(--space-1) calc(var(--space-2) + var(--space-1) / 2);
   box-shadow: none;
   transition: none;
 }

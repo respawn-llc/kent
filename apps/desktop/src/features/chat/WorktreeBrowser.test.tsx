@@ -68,6 +68,7 @@ function createFormModel() {
   const services = createTestServices([]);
   const push = vi.fn();
   const model = createWorktreeCreate({
+    openSession: vi.fn(),
     client: new QueryClient(),
     api: services.api,
     sessionID: "session-1",
@@ -88,6 +89,57 @@ const resolvedCreateTarget = {
     kind: CreateTargetResolutionKind.WORKTREE_CREATE_TARGET_RESOLUTION_KIND_NEW_BRANCH,
   },
 } as const;
+
+it("keeps an invalid typed Worktree name editable and resumes resolution after correction", async () => {
+  const user = userEvent.setup();
+  const services = createTestServices([worktreeBrowserFixtureRoute()]);
+  const client = new QueryClient();
+  vi.spyOn(services.api, "resolveWorktreeCreateTarget").mockImplementation(async (_sessionID, target) => ({
+    ...resolvedCreateTarget,
+    resolution: {
+      ...resolvedCreateTarget.resolution,
+      input: target,
+      kind:
+        target === "Test WT"
+          ? CreateTargetResolutionKind.WORKTREE_CREATE_TARGET_RESOLUTION_KIND_INVALID
+          : CreateTargetResolutionKind.WORKTREE_CREATE_TARGET_RESOLUTION_KIND_NEW_BRANCH,
+    },
+  }));
+  const create = vi.spyOn(services.api, "createWorktree");
+  const actions = createWorktreeActions({
+    client,
+    api: services.api,
+    sessionID: "session-1",
+    onAccepted: vi.fn(),
+    push: vi.fn(),
+    t: appI18n.t,
+    refreshOpenWorktreeList: vi.fn(),
+  });
+  render(
+    <BrowserProviders services={services}>
+      <QueryClientProvider client={client}>
+        <WorktreeCreateForm
+          sessionID="session-1"
+          openSession={vi.fn()}
+          navigator={createTestSidebarNavigator()}
+          actions={actions}
+        />
+      </QueryClientProvider>
+    </BrowserProviders>,
+  );
+  const input = await screen.findByRole("textbox", { name: appI18n.t("chat.worktree.targetLabel") });
+  await user.type(input, "Test WT");
+  await screen.findByText(appI18n.t("chat.worktree.targetInvalid"));
+  expect(input).toHaveValue("Test WT");
+  expect(screen.queryByTestId("error-state")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.createSubmit") }));
+  expect(create).not.toHaveBeenCalled();
+  await user.clear(input);
+  await user.type(input, "Test-WT");
+  await screen.findByText(appI18n.t("chat.worktree.newBranch"));
+  expect(screen.queryByText(appI18n.t("chat.worktree.targetInvalid"))).not.toBeInTheDocument();
+  expect(input).toHaveValue("Test-WT");
+});
 
 it.each(["list", "target"] as const)(
   "preserves Create fields behind its %s read Error and Retry",
@@ -112,6 +164,7 @@ it.each(["list", "target"] as const)(
       <BrowserProviders services={services}>
         <QueryClientProvider client={client}>
           <WorktreeCreateForm
+            openSession={vi.fn()}
             sessionID="session-1"
             navigator={createTestSidebarNavigator()}
             actions={actions}
@@ -215,11 +268,15 @@ it.each(["base_ref", "form"] as const)("classifies Create rejection owned by %s"
   }
 });
 
-function WorktreeBrowser(props: Readonly<{ sessionID: string }>) {
+function WorktreeBrowser({
+  onOpenSession = vi.fn(),
+  ...props
+}: Readonly<{ sessionID: string; onOpenSession?: (sessionID: string) => void }>) {
   const [navigator] = useState(() => createTestSidebarNavigator());
   return (
     <Browser
       {...props}
+      onOpenSession={onOpenSession}
       navigator={navigator}
       onCreate={vi.fn()}
       onSwitch={vi.fn()}
@@ -227,6 +284,57 @@ function WorktreeBrowser(props: Readonly<{ sessionID: string }>) {
     />
   );
 }
+
+it.each(["session-1", "origin-session"])(
+  "opens origin Session %s without navigating to itself",
+  async (originSessionID) => {
+    const user = userEvent.setup();
+    const entry = worktreeBrowserFixtureEntry("registered", false);
+    if (entry.topology?.topology.case !== "registered" || entry.topology.topology.value.kent === undefined)
+      throw new Error("Expected registered fixture");
+    entry.topology.topology.value.kent.originSessionId = originSessionID;
+    const services = createTestServices([worktreeBrowserFixtureRoute([entry])]);
+    const onOpenSession = vi.fn();
+    render(
+      <BrowserProviders services={services}>
+        <WorktreeBrowser sessionID="session-1" onOpenSession={onOpenSession} />
+      </BrowserProviders>,
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: appI18n.t(
+          originSessionID === "session-1"
+            ? "chat.worktree.currentOriginSession"
+            : "chat.worktree.openOriginSession",
+          { sessionID: originSessionID },
+        ),
+      }),
+    );
+    if (originSessionID === "session-1") expect(onOpenSession).not.toHaveBeenCalled();
+    else expect(onOpenSession).toHaveBeenCalledWith(originSessionID);
+  },
+);
+
+it.each(["registered", "missing"] as const)("copies the full %s path from its subtitle", async (kind) => {
+  const user = userEvent.setup();
+  const entry = worktreeBrowserFixtureEntry(kind, true);
+  const topology = entry.topology?.topology;
+  if (topology?.case === "registered" && topology.value.kent !== undefined) {
+    topology.value.kent.displayName = "feature";
+  }
+  const services = createTestServices([worktreeBrowserFixtureRoute([entry])]);
+  render(
+    <BrowserProviders services={services}>
+      <WorktreeBrowser sessionID="session-1" />
+    </BrowserProviders>,
+  );
+  const copy = await screen.findByRole("button", {
+    name: appI18n.t("chat.worktree.copyPath", { path: "/repo/feature" }),
+  });
+  expect(copy).toHaveTextContent("/repo/feature");
+  await user.click(copy);
+  expect(await navigator.clipboard.readText()).toBe("/repo/feature");
+});
 
 it("opens with a fresh read even when the Session list is cached", async () => {
   const services = createTestServices([worktreeBrowserFixtureRoute()]);
@@ -336,7 +444,14 @@ function ControlOwner() {
           : { kind: "ready" }
       }
       content={() => null}
-      composer={() => <WorktreeControl sessionID={target.sessionID} target={executionTarget} query={query} />}
+      composer={() => (
+        <WorktreeControl
+          sessionID={target.sessionID}
+          target={executionTarget}
+          query={query}
+          openSession={vi.fn()}
+        />
+      )}
     />
   );
 }
@@ -382,6 +497,7 @@ it("refreshes after a completed typed transition without changing Chat target or
     onWorktreeTransitionOutcome: worktreeTransitionOutcomeHandler(
       createRefreshOpenWorktreeList(client, services.api, () => ({
         kind: "worktree",
+        openSession: vi.fn(),
         sessionID: target.sessionID,
         page: "list",
       })),

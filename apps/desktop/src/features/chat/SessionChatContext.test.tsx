@@ -34,7 +34,7 @@ it("presents admitted usage and policy updates from the ordinary observation", a
   render(
     <TestAppProviders services={services}>
       <ChatRuntimeProvider api={services.api} target={target} host={runtimeHost()}>
-        <SessionChatContext compact={vi.fn()} settings={{ kind: "loading-session", retry: vi.fn() }} />
+        <SessionChatContext compact={vi.fn()} />
       </ChatRuntimeProvider>
     </TestAppProviders>,
   );
@@ -123,7 +123,7 @@ it("retains admitted usage during a later Main View load", async () => {
         >
           Reload
         </button>
-        <SessionChatContext compact={vi.fn()} settings={{ kind: "loading-session", retry: vi.fn() }} />
+        <SessionChatContext compact={vi.fn()} />
       </>
     );
   }

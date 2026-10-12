@@ -115,6 +115,7 @@ export const taskDetailResponse = {
     currentNodes: [
       {
         nodeId: "node-1",
+        nodeDisplayName: "Code Review",
         sessionId: "33333333-3333-4333-8333-333333333333",
       },
     ],
@@ -239,7 +240,9 @@ export const taskDetailNoInboxResponse = {
 export const taskDetailResponseWithCurrentScript = {
   task: create(taskRead.TaskDetailSchema, {
     ...taskDetailNoInboxResponse.task,
-    currentNodes: [create(AttentionCurrentNodeSchema, { nodeId: "node-script" })],
+    currentNodes: [
+      create(AttentionCurrentNodeSchema, { nodeId: "node-script", nodeDisplayName: "Run checks" }),
+    ],
     liveSessions: [],
     currentScripts: [
       create(taskRead.CurrentScriptSchema, {

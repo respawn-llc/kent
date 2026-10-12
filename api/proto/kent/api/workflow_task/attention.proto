@@ -91,6 +91,7 @@ message AttentionCurrentNode {
   optional string session_id = 3 [(buf.validate.field).string.min_len = 1];
   optional string effective_assignee = 4 [(buf.validate.field).string.min_len = 1];
   optional string effective_thinking = 5 [(buf.validate.field).string.min_len = 1];
+  optional string node_display_name = 6 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
 message OrdinaryQuestion {

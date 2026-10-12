@@ -146,6 +146,52 @@ function ShellHarness() {
 }
 
 describe("SidebarProvider stack", () => {
+  it("toggles the current Worktree root and replaces other roots without history", () => {
+    const { result } = renderHook(useHarness, { wrapper: productionWrapper });
+    const worktree = {
+      kind: "worktree",
+      sessionID: "session-1",
+      page: "list",
+      openSession: vi.fn(),
+    } as const;
+    act(() => {
+      result.current.roots.open(worktree);
+    });
+    act(() => {
+      expect(result.current.roots.toggle({ ...worktree })).toBeNull();
+    });
+    expect(result.current.shell.phase).toBe("closing");
+    act(() => {
+      result.current.roots.toggle(worktree);
+    });
+    expect(result.current.shell.phase).toBe("open");
+    act(() => {
+      result.current.roots.toggle({ kind: "processes", projectID: "project-1", sessionID: "session-1" });
+    });
+    expect(result.current.shell.activeDestination?.kind).toBe("processes");
+    expect(result.current.shell.canGoBack).toBe(false);
+  });
+
+  it("toggles a custom root by identity and respects its close availability", () => {
+    const { result } = renderHook(useHarness, { wrapper: productionWrapper });
+    const goal = { kind: "custom", title: "Goal", content: emptyContent, identity: Symbol("goal") } as const;
+    act(() => {
+      result.current.roots.toggle(goal);
+    });
+    const page = requireNavigator(result.current);
+    let unregister: (() => void) | undefined;
+    act(() => {
+      unregister = page.registerAvailability({ back: true, close: false });
+      expect(result.current.roots.toggle({ ...goal, content: () => null })).toBeNull();
+    });
+    expect(result.current.shell.phase).toBe("open");
+    act(() => {
+      unregister?.();
+      expect(result.current.roots.toggle({ ...goal, content: () => null })).toBeNull();
+    });
+    expect(result.current.shell.phase).toBe("closing");
+  });
+
   it("pushes, restores snapshots, truncates a matching branch, replaces, and goes Back", async () => {
     const { result } = renderHook(useHarness, { wrapper });
     let lifecycle: Promise<unknown> | undefined;

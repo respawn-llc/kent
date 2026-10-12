@@ -51,15 +51,6 @@ func TestCompactionPreparationFailureKeepsModelContract(t *testing.T) {
 	if locked == nil || locked.Model != "gpt-6-sol" {
 		t.Fatalf("prepared context lost its model contract: %+v", locked)
 	}
-	target, err := session.ChatSettingsStateFromCompleteSettings("reviewer", session.ChatSettings{
-		Supervisor: "off", Thinking: "high", Questions: true, AutoCompaction: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if receipt, err := reopenedStore.CommitChatSettingsState(target); !errors.Is(err, session.ErrChatAgentLocked) || receipt.Committed {
-		t.Fatalf("changing the prepared context's Agent: receipt=%+v error=%v", receipt, err)
-	}
 	nextClient := &fakeClient{responses: []llm.Response{finalOutputItemResponse("done")}}
 	next := mustNewTestEngine(t, reopenedStore, nextClient, tools.NewRegistry(), Config{Model: "gpt-6.1-sol"})
 	if _, err := next.SubmitUserMessage(t.Context(), "continue"); err != nil {

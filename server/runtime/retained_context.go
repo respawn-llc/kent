@@ -1,6 +1,43 @@
 package runtime
 
-import "core/server/llm"
+import (
+	"core/server/llm"
+	"core/server/session"
+)
+
+// Only the latest context boundary can contain an active encrypted checkpoint.
+// Retained reasoning remains subject to the ordinary dispatch compatibility path.
+func ValidateSessionProviderChange(log session.MaterializedEventLog, destination llm.ProviderCapabilities) error {
+	var matchErr error
+	window, err := log.ReadNewestSegmentBackward(compactionBoundaryMatcher(&matchErr))
+	if err != nil {
+		return err
+	}
+	if matchErr != nil {
+		return matchErr
+	}
+	for _, record := range window.Records {
+		payload, err := record.Payload()
+		if err != nil {
+			return err
+		}
+		replacement, ok := payload.(session.HistoryReplacementRecord)
+		if !ok {
+			continue
+		}
+		items := replacement.Items
+		if replacement.CompactedOutput != nil {
+			items = replacement.CompactedOutput.Summary
+		}
+		prepared := make([]llm.ResponseItem, 0, len(items))
+		for _, item := range items {
+			prepared = append(prepared, llmResponseItemFromSessionHistory(item))
+		}
+		_, _, err = prepareRetainedContext(prepared, destination)
+		return err
+	}
+	return nil
+}
 
 // The dispatch snapshot owns this slice. Payloads and the retained chat-store
 // source remain unchanged, so switching back can reuse compatible reasoning.

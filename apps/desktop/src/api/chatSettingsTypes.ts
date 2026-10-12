@@ -3,7 +3,6 @@ import type { ChatContext, InitialChatSettings } from "./chatTypes";
 export type ChatSettingsEditability =
   | Readonly<{ kind: "editable" }>
   | Readonly<{ kind: "workflow_lock" }>
-  | Readonly<{ kind: "caching_lock" }>
   | Readonly<{ kind: "policy_disabled" }>;
 
 export type ChatSettingsAgent = Readonly<{

@@ -51,6 +51,8 @@ checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 name = "app-desktop"
 version = "0.0.0"
 dependencies = [
+ "arboard",
+ "image",
  "mac-usernotifications",
  "notify-rust",
  "objc2",
@@ -68,6 +70,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-store",
  "tauri-plugin-updater",
+ "tempfile",
  "tokio",
  "toml 0.9.12+spec-1.1.0",
  "windows",

@@ -54,6 +54,34 @@ func TestWorkflowCurrentNodeOmitsSelectionForNonAgentProjection(t *testing.T) {
 	}
 }
 
+func TestTaskDetailCurrentNodesUseWorkflowDisplayNames(t *testing.T) {
+	reference, err := workflow.NewCurrentNodeReference("task-1", "node-uuid", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := workflow.NewCurrentNode(reference, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := &pb.WorkflowDefinition{Nodes: []*pb.WorkflowNode{
+		{Id: "node-uuid", Key: "recon", DisplayName: "Recon"},
+	}}
+	for _, name := range []string{"Recon", "QA"} {
+		definition.Nodes[0].DisplayName = name
+		projected, err := taskDetailCurrentNodes([]workflow.CurrentNode{node}, definition)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(projected) != 1 || projected[0].GetNodeDisplayName() != name || projected[0].NodeId != "node-uuid" {
+			t.Fatalf("unexpected named Current Node: %v", projected)
+		}
+	}
+	definition.Nodes = nil
+	if _, err := taskDetailCurrentNodes([]workflow.CurrentNode{node}, definition); err == nil {
+		t.Fatal("expected unknown Current Node to fail projection")
+	}
+}
+
 func TestWorkflowDerivedEdgeWiringProjectsTypedSelectorApplicability(t *testing.T) {
 	def := selectorProjectionDefinition()
 	projected, err := DerivedWiring(def, selectorProjectionCatalog{})

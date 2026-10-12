@@ -1,12 +1,13 @@
 import { Check, CircleDot, Pause, PauseCircle, Play, RotateCcw, Save, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
+import { motion, useReducedMotion } from "motion/react";
 
 import type { ChatGoalStatus } from "@/api";
 import {
   Button,
   DisabledInteractionGuard,
-  IslandSurface,
+  motionDurationFromCSSVar,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -71,6 +72,7 @@ export function GoalMetadata({
   status,
 }: Readonly<{ createdAt: string | null; now: number; status: ChatGoalStatus }>) {
   const { t } = useTranslation();
+  const reducedMotion = useReducedMotion();
   const icon =
     status === "active" ? (
       <CircleDot size={16} />
@@ -80,12 +82,12 @@ export function GoalMetadata({
       <Check size={16} />
     );
   return (
-    <IslandSurface
-      aria-label={t(`chat.goal.${status}`)}
-      className="grid gap-[var(--space-1)] rounded-[var(--radius-l)] p-[var(--space-3)]"
-      level={1}
-    >
-      <div
+    <div aria-label={t(`chat.goal.${status}`)} className="grid gap-[var(--space-1)] px-[var(--space-2)]">
+      <motion.div
+        key={status}
+        initial={reducedMotion ? false : { opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: motionDurationFromCSSVar("--motion-fast", 140) / 1000 }}
         className={cx(
           "flex items-center gap-[var(--space-2)] font-medium",
           status === "active"
@@ -97,7 +99,7 @@ export function GoalMetadata({
       >
         {icon}
         <span>{t(`chat.goal.${status}`)}</span>
-      </div>
+      </motion.div>
       {createdAt === null ? null : (
         <span className="text-sm text-[var(--color-muted)]">
           {t("chat.goal.setAt")}{" "}
@@ -109,7 +111,7 @@ export function GoalMetadata({
           {t("chat.goal.age", { age: formatGoalAge(createdAt, now) })}
         </span>
       )}
-    </IslandSurface>
+    </div>
   );
 }
 

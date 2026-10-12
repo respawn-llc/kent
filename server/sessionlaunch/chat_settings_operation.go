@@ -45,13 +45,13 @@ func ProjectResolvedChatSettingsOperation(input ResolvedChatSettingsOperation) (
 	if !valid || effectiveAgent != input.EffectiveAgent {
 		return PreparedChatSettingsOperationResult{}, errors.New("resolved Chat settings current Agent is invalid")
 	}
-	if (input.Locked != nil || input.WorkflowLocked) &&
+	if input.WorkflowLocked &&
 		effectiveAgent != input.Selection.State.AgentSelector() {
 		return rejectedChatSettingsOperation(input.ChatSettingsMutationContext, chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AGENT_LOCKED), nil
 	}
 	target := input.Selection.State
 	prepared := input.Selection.Settings
-	if input.Locked != nil {
+	if input.Locked != nil && effectiveAgent == target.AgentSelector() {
 		var err error
 		prepared, err = lockedPreparedChatSettings(*input.Locked, prepared, input.Effective)
 		if err != nil {

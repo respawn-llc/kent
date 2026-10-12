@@ -32,6 +32,10 @@ type PreparedChatAgentCatalogEntry struct {
 	comparison     preparedChatAgentComparison
 }
 
+func (e PreparedChatAgentCatalogEntry) ProviderCapabilities() llm.ProviderCapabilities {
+	return e.comparison.ProviderCapabilities
+}
+
 type PreparedChatAgentCatalog struct {
 	entries []PreparedChatAgentCatalogEntry
 }
@@ -58,6 +62,12 @@ func PrepareChatAgentCatalog(
 func PrepareChatAgentSelection(app config.App, selector string, meta session.Meta, rotation *ConnectionRotation) (PreparedChatAgentCatalogEntry, error) {
 	return prepareChatAgentEntry(app, selector, RunPromptPreparationContext{
 		Mode: defaultAgentMode(meta), Rotation: rotation, AllocateConnection: true,
+	}, false)
+}
+
+func RevalidateChatAgentSelection(app config.App, selector string, meta session.Meta, connection config.ConnectionID) (PreparedChatAgentCatalogEntry, error) {
+	return prepareChatAgentEntry(app, selector, RunPromptPreparationContext{
+		Mode: defaultAgentMode(meta), RetainedConnectionSelection: &connection,
 	}, false)
 }
 
