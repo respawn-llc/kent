@@ -31,7 +31,13 @@ describe("Desktop Chat Goal Set contract", () => {
             case: "error",
             value:
               code === "runtime_unavailable"
-                ? { code, detail: { case: "runtimeUnavailable", value: { sessionTarget: { stage: { case: "canonicalSessionId", value: sessionID } } } } }
+                ? {
+                    code,
+                    detail: {
+                      case: "runtimeUnavailable",
+                      value: { sessionTarget: { stage: { case: "canonicalSessionId", value: sessionID } } },
+                    },
+                  }
                 : code === "internal_failure"
                   ? {
                       code,
@@ -114,7 +120,10 @@ describe("Desktop Chat Goal Set contract", () => {
                 case: "rejected",
                 value: {
                   code: "runtime_unavailable",
-                  detail: { case: "runtimeUnavailable", value: { sessionTarget: { stage: { case: "canonicalSessionId", value: sessionID } } } },
+                  detail: {
+                    case: "runtimeUnavailable",
+                    value: { sessionTarget: { stage: { case: "canonicalSessionId", value: sessionID } } },
+                  },
                 },
               },
             },

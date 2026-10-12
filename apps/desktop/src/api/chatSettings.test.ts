@@ -767,7 +767,10 @@ describe("Chat Settings descriptor adapter", () => {
       {
         wire: create(ReadErrorSchema, {
           code: "session_not_found",
-          detail: { case: "sessionNotFound", value: { sessionTarget: { stage: { case: "canonicalSessionId", value: sessionID } } } },
+          detail: {
+            case: "sessionNotFound",
+            value: { sessionTarget: { stage: { case: "canonicalSessionId", value: sessionID } } },
+          },
         }),
         expected: { kind: "session_not_found", sessionID },
       },

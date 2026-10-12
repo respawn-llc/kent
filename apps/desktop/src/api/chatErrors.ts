@@ -172,7 +172,8 @@ function capturedSessionID(context: SessionTargetContext | undefined): string | 
       return target.value;
     case "projected":
       return target.value.sessionId;
-    default:
+    case "unresolved":
+    case undefined:
       return null;
   }
 }
