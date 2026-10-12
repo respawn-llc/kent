@@ -37,8 +37,6 @@ func (r *runProgressRenderer) PublishRunPromptProgress(progress *runpromptpb.Pro
 		if event.AssistantMessage.Phase == runpromptpb.MessagePhase_MESSAGE_PHASE_FINAL {
 			r.finalResponseEmitted = true
 		}
-	case *runpromptpb.ProgressEvent_SteeredMessage:
-		_, _ = fmt.Fprintf(r.stderr, "Steered message: %s\n", event.SteeredMessage.Content)
 	case *runpromptpb.ProgressEvent_CompactionStarted:
 		_, _ = fmt.Fprintln(r.stderr, "Compacting context")
 	case *runpromptpb.ProgressEvent_CompactionFailed:

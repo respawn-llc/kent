@@ -2,6 +2,7 @@ package runprompt
 
 import (
 	"strings"
+	"sync"
 
 	"core/server/llm"
 	"core/server/runtime"
@@ -10,6 +11,30 @@ import (
 
 	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+type runPromptProgressDelivery struct {
+	mu     sync.RWMutex
+	sink   serverapi.RunPromptProgressSink
+	closed bool
+}
+
+func newRunPromptProgressDelivery(sink serverapi.RunPromptProgressSink) *runPromptProgressDelivery {
+	return &runPromptProgressDelivery{sink: sink}
+}
+
+func (d *runPromptProgressDelivery) PublishRunPromptProgress(progress *runpromptpb.ProgressEvent) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if !d.closed && d.sink != nil {
+		d.sink.PublishRunPromptProgress(progress)
+	}
+}
+
+func (d *runPromptProgressDelivery) Close() {
+	d.mu.Lock()
+	d.closed = true
+	d.mu.Unlock()
+}
 
 func PublishRunPromptProgress(progress serverapi.RunPromptProgressSink, evt runtime.Event) {
 	if progress == nil {
@@ -58,18 +83,6 @@ func RunPromptProgressFromRuntimeEvent(evt runtime.Event) (*runpromptpb.Progress
 	case runtime.EventInFlightClearFailed:
 		return &runpromptpb.ProgressEvent{
 			Payload: &runpromptpb.ProgressEvent_RunCleanupFailed{RunCleanupFailed: runPromptFailure(evt.Error)},
-		}, true
-	case runtime.EventQueuedUserMessageStatus:
-		status := evt.QueuedUserMessageStatus
-		if status == nil || status.Status != runtime.QueuedUserMessageAccepted {
-			return nil, false
-		}
-		content := status.Text
-		if strings.TrimSpace(content) == "" {
-			return nil, false
-		}
-		return &runpromptpb.ProgressEvent{
-			Payload: &runpromptpb.ProgressEvent_SteeredMessage{SteeredMessage: &runpromptpb.SteeredMessage{Content: content}},
 		}, true
 	default:
 		return nil, false

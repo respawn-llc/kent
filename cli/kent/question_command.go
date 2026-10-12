@@ -145,6 +145,7 @@ func (c questionCommand) showSessionQuestion(sessionID runtimeids.SessionID, std
 
 func (c questionCommand) answerSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet(config.Command+" question answer", stderr, questionAnswerUsage)
+	persistenceRoot := fs.String("persistence-root", "", persistenceRootFlagUsage)
 	var sessionFlag *string
 	registerOptionalStringFlag(fs, "session", "session whose pending question to answer", &sessionFlag)
 	var taskFlag *string
@@ -172,6 +173,12 @@ func (c questionCommand) answerSubcommand(args []string, stdout io.Writer, stder
 	if option == nil && commentary == nil {
 		fmt.Fprintln(stderr, "question answer requires --option or non-blank --commentary")
 		return 2
+	}
+	if flagExplicit(fs, "persistence-root") {
+		if err := publishPersistenceRootEnv(*persistenceRoot); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
 	}
 	selector, err := resolveQuestionCommandSelector(sessionFlag, taskFlag, *projectFlag, config.Command+" question answer")
 	if err != nil {

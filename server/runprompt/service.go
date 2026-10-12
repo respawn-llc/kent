@@ -31,11 +31,16 @@ func (s *inProcessRunPromptService) runPrompt(ctx context.Context, req serverapi
 		return nil, err
 	}
 
-	runtimeHandle, err := s.launcher.prepareHeadlessPrompt(ctx, req, progress)
+	delivery := newRunPromptProgressDelivery(progress)
+	defer delivery.Close()
+	runtimeHandle, err := s.launcher.prepareHeadlessPrompt(ctx, req, delivery)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
+		if err == nil && response != nil && response.GetQuestion() != nil {
+			return
+		}
 		err = errors.Join(err, runtimeHandle.plan.CloseWithFailure(err != nil))
 	}()
 

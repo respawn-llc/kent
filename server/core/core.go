@@ -325,6 +325,7 @@ func (s *Core) runPromptClientForProjectContext(projectCtx projectContext) apico
 		SessionLaunch:          s.sessionLaunchServiceForProjectContext(projectCtx),
 		PromptHistory:          s.safeBundles().Persistence.metadataStore,
 		RuntimeAuthority:       s.safeBundles().Runtime.runtimeAuthority,
+		LiveRunObserver:        s.safeBundles().Runtime.liveRunObserver,
 		ManagedWorktreeBaseDir: s.safeBundles().Projects.cfg.Settings.Worktrees.BaseDir,
 	})
 	s.safeBundles().Sessions.runPromptMap[scopeKey] = client
