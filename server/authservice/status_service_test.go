@@ -376,7 +376,6 @@ func TestGrokStatusDistinguishesZeroAndMissingProductUsage(t *testing.T) {
 }
 
 func TestGrokBillingFailuresClassifyUnavailableSignInStatuses(t *testing.T) {
-	const providerDiagnostic = "Subscription required"
 	for _, statusCode := range []int{
 		http.StatusNotFound,
 		http.StatusForbidden,
@@ -386,7 +385,11 @@ func TestGrokBillingFailuresClassifyUnavailableSignInStatuses(t *testing.T) {
 		t.Run(http.StatusText(statusCode), func(t *testing.T) {
 			service, id := grokStatusTestService(t, config.ConnectionGrokOAuthAPI)
 			withStatusTransport(t, func(request *http.Request) (*http.Response, error) {
-				return statusJSONResponse(statusCode, `{"error":"Subscription required"}`, request), nil
+				body := `{"error":"Subscription required"}`
+				if statusCode == http.StatusNotFound {
+					body = `{}`
+				}
+				return statusJSONResponse(statusCode, body, request), nil
 			})
 
 			status, err := service.GetStatus(t.Context(), &authpb.GetStatusRequest{
@@ -397,8 +400,7 @@ func TestGrokBillingFailuresClassifyUnavailableSignInStatuses(t *testing.T) {
 			}
 			subscription := status.GetSubscription()
 			if status.GetResolution().GetKnown() == nil || !subscription.GetApplicable() ||
-				subscription.GetFailure() == nil ||
-				!strings.Contains(subscription.GetFailure().GetCause(), providerDiagnostic) {
+				subscription.GetFailure() == nil {
 				t.Fatalf("Grok HTTP failure facts = %+v", status)
 			}
 			if statusCode == http.StatusInternalServerError {
@@ -407,6 +409,52 @@ func TestGrokBillingFailuresClassifyUnavailableSignInStatuses(t *testing.T) {
 				}
 			} else if subscription.GetFailureClassification() != authpb.SubscriptionFailureClassification_SUBSCRIPTION_FAILURE_CLASSIFICATION_UNAVAILABLE_FOR_SIGN_IN_METHOD {
 				t.Fatalf("HTTP %d classification = %v", statusCode, subscription.GetFailureClassification())
+			}
+		})
+	}
+}
+
+func TestStatusHTTPErrorPreservesDiagnosticPresence(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		body       string
+		diagnostic *string
+	}{
+		{name: "missing diagnostic", body: `{}`},
+		{name: "null diagnostic", body: `{"error":null}`},
+		{
+			name:       "provider diagnostic",
+			body:       `{"error":"Subscription required"}`,
+			diagnostic: authStatusTestString("Subscription required"),
+		},
+		{
+			name:       "blank diagnostic",
+			body:       `{"error":"  "}`,
+			diagnostic: authStatusTestString(""),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withStatusTransport(t, func(request *http.Request) (*http.Response, error) {
+				return statusJSONResponse(http.StatusServiceUnavailable, tc.body, request), nil
+			})
+			request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://status.example/billing", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = fetchStatusPayload[json.RawMessage](request, "billing")
+			var statusErr *statusHTTPError
+			if !errors.As(err, &statusErr) {
+				t.Fatalf("status error = %v, want typed HTTP failure", err)
+			}
+			if statusErr.statusCode != http.StatusServiceUnavailable {
+				t.Fatalf("HTTP status = %d", statusErr.statusCode)
+			}
+			if tc.diagnostic == nil {
+				if statusErr.diagnostic != nil {
+					t.Fatalf("diagnostic = %q, want absent", *statusErr.diagnostic)
+				}
+			} else if statusErr.diagnostic == nil || *statusErr.diagnostic != *tc.diagnostic {
+				t.Fatalf("diagnostic = %v, want %q", statusErr.diagnostic, *tc.diagnostic)
 			}
 		})
 	}

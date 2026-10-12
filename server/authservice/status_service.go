@@ -306,11 +306,16 @@ func fetchStatusPayload[T any](request *http.Request, operation string) (T, erro
 		var errorPayload statusErrorPayload
 		decodeErr := json.NewDecoder(response.Body).Decode(&errorPayload)
 		closeErr := response.Body.Close()
+		diagnostic := errorPayload.Error
+		if diagnostic != nil {
+			normalized := strings.TrimSpace(*diagnostic)
+			diagnostic = &normalized
+		}
 		statusErr := &statusHTTPError{
 			operation:  operation,
 			status:     response.Status,
 			statusCode: response.StatusCode,
-			diagnostic: strings.TrimSpace(errorPayload.Error),
+			diagnostic: diagnostic,
 		}
 		if errors.Is(decodeErr, io.EOF) {
 			decodeErr = nil
@@ -332,22 +337,25 @@ func fetchStatusPayload[T any](request *http.Request, operation string) (T, erro
 }
 
 type statusErrorPayload struct {
-	Error string `json:"error"`
+	Error *string `json:"error"`
 }
 
 type statusHTTPError struct {
 	operation  string
 	status     string
 	statusCode int
-	diagnostic string
+	diagnostic *string
 }
 
 func (e *statusHTTPError) Error() string {
 	message := fmt.Sprintf("%s request failed: %s", e.operation, e.status)
-	if e.diagnostic != "" {
-		message += ": " + e.diagnostic
+	if e.diagnostic == nil {
+		return message
 	}
-	return message
+	if *e.diagnostic == "" {
+		return message + ": provider returned a blank error diagnostic"
+	}
+	return message + ": " + *e.diagnostic
 }
 
 func grokUsageWindowFacts(payload grokBillingPayload) ([]*authpb.SubscriptionWindowFacts, error) {
