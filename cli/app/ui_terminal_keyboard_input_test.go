@@ -293,6 +293,87 @@ func TestProgramCapsLockLeftArrowMovesCursor(t *testing.T) {
 	}
 }
 
+func TestProgramCapsLockRightArrowMovesCursor(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInputAtRuneCursor(model, "alpha beta", 0)
+	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[1;65C\x03", 1)
+	if got, want := testMainInputRuneCursor(result), 1; got != want {
+		t.Fatalf("cursor after Caps-Lock Right = %d, want %d", got, want)
+	}
+}
+
+func TestProgramCapsLockCtrlLeftMovesByWord(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInputAtRuneCursor(model, "alpha beta gamma", len([]rune("alpha beta gamma")))
+	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[1;69D\x03", 1)
+	if got, want := testMainInputRuneCursor(result), len([]rune("alpha beta ")); got != want {
+		t.Fatalf("cursor after Caps-Lock Ctrl+Left = %d, want %d", got, want)
+	}
+}
+
+func TestProgramCapsLockCtrlRightMovesByWord(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInputAtRuneCursor(model, "alpha beta gamma", len([]rune("alpha beta ")))
+	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[1;69C\x03", 1)
+	if got, want := testMainInputRuneCursor(result), len([]rune("alpha beta gamma")); got != want {
+		t.Fatalf("cursor after Caps-Lock Ctrl+Right = %d, want %d", got, want)
+	}
+}
+
+func TestProgramCapsLockUpMovesWithinDraft(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInputAtRuneCursor(model, "alpha\nbeta", 9)
+	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[1;65A\x03", 1)
+	if got, want := testMainInputRuneCursor(result), 1; got != want {
+		t.Fatalf("cursor after Caps-Lock Up = %d, want %d", got, want)
+	}
+}
+
+func TestProgramCapsLockDownMovesWithinDraft(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInputAtRuneCursor(model, "alpha\nbeta", 1)
+	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[1;65B\x03", 1)
+	if got, want := testMainInputRuneCursor(result), 9; got != want {
+		t.Fatalf("cursor after Caps-Lock Down = %d, want %d", got, want)
+	}
+}
+
+func TestProgramCapsLockHomeMovesToLogicalLineStart(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInputAtRuneCursor(model, "one\ntwo\nthree", len([]rune("one\ntw")))
+	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[1;65H\x03", 1)
+	if got, want := testMainInputRuneCursor(result), len([]rune("one\n")); got != want {
+		t.Fatalf("cursor after Caps-Lock Home = %d, want %d", got, want)
+	}
+}
+
+func TestProgramCapsLockEndMovesToLogicalLineEnd(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInputAtRuneCursor(model, "one\ntwo\nthree", len([]rune("one\ntw")))
+	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[1;65F\x03", 1)
+	if got, want := testMainInputRuneCursor(result), len([]rune("one\ntwo")); got != want {
+		t.Fatalf("cursor after Caps-Lock End = %d, want %d", got, want)
+	}
+}
+
+func TestProgramCapsLockCtrlEndMovesToLogicalLineEnd(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInputAtRuneCursor(model, "one\ntwo\nthree", len([]rune("one\ntw")))
+	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[1;69F\x03", 1)
+	if got, want := testMainInputRuneCursor(result), len([]rune("one\ntwo")); got != want {
+		t.Fatalf("cursor after Caps-Lock Ctrl+End = %d, want %d", got, want)
+	}
+}
+
+func TestProgramCapsLockDeleteDeletesForward(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInputAtRuneCursor(model, "alpha beta", 0)
+	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[3;65~\x03", 1)
+	if got, want := testMainInput(result), "lpha beta"; got != want {
+		t.Fatalf("input after Caps-Lock Delete = %q, want %q", got, want)
+	}
+}
+
 func TestProgramAltBackspaceDeletesPreviousWord(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	testSetMainInput(model, "alpha beta gamma")

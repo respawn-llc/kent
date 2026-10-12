@@ -119,23 +119,53 @@ func decodeTerminalFunctionalKey(sequence terminalCSISequence) (tea.Msg, bool) {
 		}
 		return nil, false
 	}
-	if sequence.final != 'C' && sequence.final != 'D' {
-		return nil, false
-	}
 	if len(sequence.parameters) != 2 || sequence.parameters[0] != 1 {
 		return nil, false
 	}
 	_, modifier, ok := normalizeCSIKey(0, sequence.parameters[1])
-	if !ok || (modifier != 1 && modifier != 3) {
+	if !ok {
 		return nil, false
 	}
-	switch sequence.final {
-	case 'C':
-		return tea.KeyMsg{Type: tea.KeyRight, Alt: modifier == 3}, true
-	case 'D':
-		return tea.KeyMsg{Type: tea.KeyLeft, Alt: modifier == 3}, true
-	default:
+	keyType, ok := terminalFunctionalKeyType(sequence.final)
+	if !ok {
 		return nil, false
+	}
+	switch modifier {
+	case 1:
+		return tea.KeyMsg{Type: keyType}, true
+	case 3:
+		if keyType == tea.KeyLeft || keyType == tea.KeyRight {
+			return tea.KeyMsg{Type: keyType, Alt: true}, true
+		}
+	case 5:
+		switch keyType {
+		case tea.KeyLeft:
+			return tea.KeyMsg{Type: tea.KeyCtrlLeft}, true
+		case tea.KeyRight:
+			return tea.KeyMsg{Type: tea.KeyCtrlRight}, true
+		case tea.KeyEnd:
+			return tea.KeyMsg{Type: tea.KeyCtrlEnd}, true
+		}
+	}
+	return nil, false
+}
+
+func terminalFunctionalKeyType(final byte) (tea.KeyType, bool) {
+	switch final {
+	case 'A':
+		return tea.KeyUp, true
+	case 'B':
+		return tea.KeyDown, true
+	case 'C':
+		return tea.KeyRight, true
+	case 'D':
+		return tea.KeyLeft, true
+	case 'F':
+		return tea.KeyEnd, true
+	case 'H':
+		return tea.KeyHome, true
+	default:
+		return 0, false
 	}
 }
 
@@ -178,6 +208,10 @@ func decodeTerminalSpecialKey(codepoint, modifier int) (tea.Msg, bool) {
 			return tea.KeyMsg{Type: tea.KeyEnter, Alt: true}, true
 		case 5:
 			return customKeyMsg{Kind: customKeyCtrlEnter}, true
+		}
+	case 3:
+		if modifier == 1 {
+			return tea.KeyMsg{Type: tea.KeyDelete}, true
 		}
 	case 8, 127:
 		switch {
