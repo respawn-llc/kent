@@ -12,6 +12,8 @@ type modelRequestRetryPolicy uint8
 
 const (
 	modelRequestRetriesAllowed modelRequestRetryPolicy = iota + 1
+	// Each provider dispatch is single-attempt. Compaction's specified
+	// tool-call correction and overflow repairs may dispatch corrected requests.
 	modelRequestSingleAttempt
 )
 

@@ -99,7 +99,7 @@ func TestManualCompactionLocalUsesHistorySinceLastCompactionCheckpoint(t *testin
 	}
 }
 
-func TestManualCompactionLocalRetriesWhenModelAttemptsToolCalls(t *testing.T) {
+func TestSpeculativeCompactionLocalRetriesWhenModelAttemptsToolCalls(t *testing.T) {
 	t.Parallel()
 	probe := &toolExecutionProbe{}
 	store := mustCreateTestSession(t)
@@ -155,7 +155,7 @@ func TestManualCompactionLocalRetriesWhenModelAttemptsToolCalls(t *testing.T) {
 	engine.cfg.OnEvent = func(event Event) {
 		events = append(events, event)
 	}
-	scheduleManualCompactionAndWait(t, engine)
+	scheduleSpeculativeCompactionAndWait(t, engine)
 	if !hasEventKind(events, EventCompactionCompleted) {
 		t.Fatalf("manual local compaction events = %+v, want completed event", events)
 	}

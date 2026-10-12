@@ -114,7 +114,7 @@ func (e *Engine) compactWithContextRepairRetry(
 		if err == nil {
 			return resp, currentInput, repairStats, nil
 		}
-		if retryPolicy == modelRequestSingleAttempt || !llm.IsContextLengthOverflowError(err) || attempt == len(compactionOverflowRepairTargetPercents) {
+		if !llm.IsContextLengthOverflowError(err) || attempt == len(compactionOverflowRepairTargetPercents) {
 			return llm.CompactionResponse{}, currentInput, repairStats, err
 		}
 
@@ -314,7 +314,7 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, stepID st
 		if err == nil {
 			return summary, repairStats, toolCallRejectionCount, nil
 		}
-		if retryPolicy == modelRequestSingleAttempt || !llm.IsContextLengthOverflowError(err) || repairAttempt == len(compactionOverflowRepairTargetPercents) {
+		if !llm.IsContextLengthOverflowError(err) || repairAttempt == len(compactionOverflowRepairTargetPercents) {
 			return "", repairStats, toolCallRejectionCount, err
 		}
 		targetSavedTokens := compactionOverflowRepairTargetTokens(contextWindowTokens, repairAttempt+1)
@@ -355,7 +355,7 @@ func (e *Engine) localCompactionSummaryFromWindow(ctx context.Context, stepID st
 		}
 		if len(resp.ToolCalls) > 0 {
 			toolCallRejectionCount++
-			if retryPolicy == modelRequestSingleAttempt || attempt >= localCompactionToolCallRetries {
+			if attempt >= localCompactionToolCallRetries {
 				return "", toolCallRejectionCount, errLocalCompactionAttemptedToolCalls
 			}
 			retryItems, err := localCompactionToolCallRetryItems(resp)
