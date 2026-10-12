@@ -14,8 +14,8 @@ export const chatToolRowsEnglish = {
   searchedWeb: 'Searched the web for "{{query}}"',
   image: "image",
   viewedImage: "Viewed image at {{path}}",
-  imageUnavailable: "File no longer present",
   imageReadFailed: "Image loading failed: {{error}}",
+  imageLoadFailed: "The image could not be loaded.",
   openPDF: "Open",
   pdfOpenFailed: "Could not open PDF",
 };

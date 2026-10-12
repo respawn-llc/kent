@@ -256,13 +256,15 @@
 ## Viewed Images
 
 - Successful raster-image View Image Tool rows must load a preview only when expanded. While acquiring the image, they must show a shimmer skeleton preview and smoothly crossfade from that skeleton to the loaded image.
-- Where the client can read local files, Desktop must first try the original at its absolute path. A matching local path is sufficient for this fast path, including for a remote Session. Desktop may display a local original that differs from the image the model received because of conversion or later file edits.
-- If the local source is absent, unreadable, or undecodable, or the client cannot read local files, Desktop must retrieve the original on the server. Desktop must not retrieve the stored processed model image for a preview.
-- Original-file reads must use a 10 MiB limit. Oversized originals must be treated as unusable sources.
-- If no source supplies a usable image, Desktop must show `File no longer present` inside the expanded row rather than a broken image.
+- Desktop must retrieve preview originals from the Kent server for both local and remote Sessions. Desktop must not substitute a matching client-local file or retrieve the stored processed model image for a preview. A preview may differ from the image the model received because of conversion or later server-file edits.
+- Native Desktop on macOS, Linux, and Windows must stream server original-image reads and transfers without buffering a complete original in Kent-owned memory. Kent must not impose an arbitrary original-image size limit. Platform-managed image decoding memory is permitted.
+- Native Desktop must use platform- or library-owned persistent disk caching for original-image previews. The cache must use the selected facility's default freshness, disk budget, eviction, and revalidation policy without new user settings. Cache reuse after re-expansion or application restart is best-effort according to that policy. Source changes may be unseen until the facility expires or invalidates the entry.
+- Browser-fixture streaming and disk caching are optional.
+- If the original is unavailable or invalid, Desktop must show the normal inline image-loading error inside the expanded row rather than a broken image.
 - If a server request fails, Desktop must show the failure inline in the expanded row instead of replacing Chat with an Error state. Collapsing and re-expanding the row must retry loading.
 - Desktop must preserve the image's aspect ratio and fit it within the available transcript width. Desktop must enlarge images whose longer dimension is below 150 display pixels to that size, subject to the available width.
-- Image data and preview resources must remain scoped to an expanded, mounted row. Collapse or unmount must release them. Re-expansion must load again without a cross-row image cache. Late completion must not update another row.
+- Kent-owned image data and active preview resources must be scoped to an expanded, mounted row. Collapse or unmount must release them and use the loading facility's default request cancellation without discarding a valid disk cache entry. Late completion must not update another row. Preview cancellation must not interrupt server-owned agent work.
+- If a cache write fails, Desktop must display the image uncached when the loading facility supports it and log the cache failure. Otherwise Desktop must show the existing inline failure. Transfer and decode failures must use the existing inline failure and close/reopen retry behavior without special automatic retries or resumable downloads.
 - PDF View Image Tool rows must remain non-expandable, retain their path, and load no preview content. Desktop must show Open only when the PDF exists on the client's filesystem at its path. Desktop must not describe PDFs as unavailable images.
 - PDF Open must open the document in the system's default PDF application on macOS, Linux, and Windows.
 - Failed View Image calls must retain their diagnostic text and error indication without an image preview or image-content request.

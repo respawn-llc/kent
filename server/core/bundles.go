@@ -95,7 +95,7 @@ type SessionBundle struct {
 	sessionServices     map[string]*sessionlaunch.Service
 	runPromptMap        map[string]apicontract.RunPromptService
 	sessionLaunch       apicontract.SessionLaunchService
-	sessionViews        apicontract.SessionViewService
+	sessionViews        *sessionview.Service
 	sessionContextOwner chatcontext.SessionOwner
 	sessionLifecycle    apicontract.SessionLifecycleService
 	runPrompt           apicontract.RunPromptService

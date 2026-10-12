@@ -22,6 +22,7 @@ import (
 	"core/server/metadata"
 	"core/server/onboarding"
 	"core/server/serverstatus"
+	"core/server/sessionview"
 	"core/server/transport"
 	"core/shared/apicontract"
 	"core/shared/config"
@@ -310,6 +311,7 @@ func buildServerMux(deps transport.GatewayDependencies, identity protocol.Server
 		writeStatusJSON(w, status, body)
 	})
 	mux.Handle(protocol.RPCPath, gateway.Handler())
+	mux.Handle(transport.ViewedImageBodyPath, gateway.ViewedImageHandler())
 	return mux
 }
 
@@ -556,6 +558,12 @@ func (d *startupGatewayDependencies) SessionBelongsToProject(ctx context.Context
 func (d *startupGatewayDependencies) SessionViewClient() apicontract.SessionViewService {
 	if c := d.activeCore(); c != nil {
 		return c.SessionViewClient()
+	}
+	return nil
+}
+func (d *startupGatewayDependencies) ViewedImageOriginalOpener() sessionview.ViewedImageOriginalOpener {
+	if c := d.activeCore(); c != nil {
+		return c.ViewedImageOriginalOpener()
 	}
 	return nil
 }

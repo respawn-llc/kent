@@ -3,55 +3,73 @@ package sessionview
 import (
 	"context"
 	"errors"
-	"log/slog"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"core/server/session"
 	"core/shared/imagefileio"
-	"core/shared/protoapi"
-	sessionpb "core/shared/protoapi/gen/kent/api/session"
-
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-func (s *Service) GetViewedImageOriginal(ctx context.Context, req *sessionpb.ViewedImageOriginalRequest) (*sessionpb.ViewedImageOriginalSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
-	if _, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, req.SessionId); err != nil {
-		return nil, err
-	}
-	if s.targets == nil {
-		return nil, errors.New("Session execution-target resolver is required")
-	}
-	target, err := s.targets.ResolveSessionExecutionTarget(ctx, req.SessionId)
+// OpenedViewedImageOriginal owns an opened regular image file and its metadata.
+// The caller owns File and must close it.
+type OpenedViewedImageOriginal struct {
+	File *os.File
+	Info os.FileInfo
+}
+
+// ViewedImageOriginalOpener opens the current Session original for streamed delivery.
+type ViewedImageOriginalOpener interface {
+	OpenViewedImageOriginal(context.Context, string, string) (*OpenedViewedImageOriginal, error)
+}
+
+func (s *Service) OpenViewedImageOriginal(
+	ctx context.Context,
+	sessionID string,
+	requestedPath string,
+) (*OpenedViewedImageOriginal, error) {
+	path, err := s.resolveViewedImageOriginalPath(ctx, sessionID, requestedPath)
 	if err != nil {
 		return nil, err
 	}
-	path := req.Path
+	file, info, err := imagefileio.OpenRegularFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return &OpenedViewedImageOriginal{File: file, Info: info}, nil
+}
+
+func (s *Service) resolveViewedImageOriginalPath(
+	ctx context.Context,
+	sessionID string,
+	requestedPath string,
+) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		return "", errors.New("Session id is required")
+	}
+	if strings.TrimSpace(requestedPath) == "" {
+		return "", errors.New("image path is required")
+	}
+	if _, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, sessionID); err != nil {
+		return "", err
+	}
+	if s.targets == nil {
+		return "", errors.New("Session execution-target resolver is required")
+	}
+	target, err := s.targets.ResolveSessionExecutionTarget(ctx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	path := requestedPath
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(target.EffectiveWorkdir, path)
 	}
 	path, err = filepath.EvalSymlinks(path)
 	if err != nil {
-		return unavailableViewedImage(req.Path, err), nil
+		return "", &imagefileio.AcquisitionError{Cause: err}
 	}
-	data, err := imagefileio.Read(ctx, path, imagefileio.MaxReadBytes)
-	if err != nil {
-		var acquisitionError *imagefileio.AcquisitionError
-		if errors.As(err, &acquisitionError) {
-			return unavailableViewedImage(path, err), nil
-		}
-		return nil, err
-	}
-	return &sessionpb.ViewedImageOriginalSuccess{
-		Source: &sessionpb.ViewedImageOriginalSuccess_Content{Content: data},
-	}, nil
-}
-
-func unavailableViewedImage(path string, err error) *sessionpb.ViewedImageOriginalSuccess {
-	slog.Warn("viewed image original unavailable", "path", path, "error", err)
-	return &sessionpb.ViewedImageOriginalSuccess{
-		Source: &sessionpb.ViewedImageOriginalSuccess_Unavailable{Unavailable: &emptypb.Empty{}},
-	}
+	return path, nil
 }

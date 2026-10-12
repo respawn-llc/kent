@@ -9,6 +9,8 @@ See [connection configuration](../config/#connecting-to-a-server) for address se
 
 The server owns all long-running work: sessions, projects, runtime orchestration, background shells, tool execution, tasks, workflows, and storage.
 
+Kent Desktop loads View Image previews from the original file on the connected server, including for remote sessions. Desktop previews support originals larger than 10 MiB, while the View Image tool reads originals up to 10 MiB and prepares model attachments up to 800 KiB.
+
 While annoying at times, this:
 
 - Gives ability to fully isolate work on another machine, VM, or container. See [Sandboxing](../sandboxing/) for remote/container setup.

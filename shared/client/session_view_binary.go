@@ -7,11 +7,11 @@ import (
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
-func (c *Remote) GetViewedImageOriginal(ctx context.Context, request *sessionpb.ViewedImageOriginalRequest) (*sessionpb.ViewedImageOriginalSuccess, error) {
+func (c *Remote) ResolveViewedImageOriginalSource(ctx context.Context, request *sessionpb.ViewedImageOriginalSourceRequest) (*sessionpb.ViewedImageOriginalSourceSuccess, error) {
 	return callGeneratedBinary(c, ctx,
-		bootstrapMethod(sessionpb.File_kent_api_session_session_proto, "ReadService", "GetViewedImageOriginal"),
-		request, &sessionpb.ViewedImageOriginalResult{},
-		func(failure *sessionpb.ViewedImageOriginalError) error {
+		bootstrapMethod(sessionpb.File_kent_api_session_session_proto, "ReadService", "ResolveViewedImageOriginalSource"),
+		request, &sessionpb.ViewedImageOriginalSourceResult{},
+		func(failure *sessionpb.ViewedImageOriginalSourceError) error {
 			return generatedOperationFailure(failure.Code)
 		})
 }
