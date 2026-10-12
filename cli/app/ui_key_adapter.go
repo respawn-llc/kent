@@ -88,6 +88,9 @@ func decodeTerminalCSIKey(sequence terminalCSISequence) (tea.Msg, bool) {
 	if key, ok := decodeTerminalFunctionalKey(sequence); ok {
 		return key, true
 	}
+	if key, ok := decodeTerminalTildeKey(sequence); ok {
+		return key, true
+	}
 	codepoint, modifier, ok := modifiedCSIKey(sequence)
 	if !ok {
 		return nil, false
@@ -102,6 +105,24 @@ func decodeTerminalCSIKey(sequence terminalCSISequence) (tea.Msg, bool) {
 		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{rune(codepoint)}, Alt: true}, true
 	}
 	return nil, false
+}
+
+func decodeTerminalTildeKey(sequence terminalCSISequence) (tea.Msg, bool) {
+	if sequence.final != '~' || len(sequence.parameters) != 2 {
+		return nil, false
+	}
+	codepoint, modifier, ok := normalizeCSIKey(sequence.parameters[0], sequence.parameters[1])
+	if !ok || modifier != 1 {
+		return nil, false
+	}
+	switch codepoint {
+	case 3:
+		return tea.KeyMsg{Type: tea.KeyDelete}, true
+	case 13:
+		return tea.KeyMsg{Type: tea.KeyF3}, true
+	default:
+		return nil, false
+	}
 }
 
 func decodeTerminalFunctionalKey(sequence terminalCSISequence) (tea.Msg, bool) {
@@ -170,7 +191,7 @@ func terminalFunctionalKeyType(final byte) (tea.KeyType, bool) {
 }
 
 func modifiedCSIKey(sequence terminalCSISequence) (int, int, bool) {
-	if sequence.final != 'u' && sequence.final != '~' {
+	if sequence.final != 'u' {
 		return 0, 0, false
 	}
 	switch len(sequence.parameters) {
@@ -208,10 +229,6 @@ func decodeTerminalSpecialKey(codepoint, modifier int) (tea.Msg, bool) {
 			return tea.KeyMsg{Type: tea.KeyEnter, Alt: true}, true
 		case 5:
 			return customKeyMsg{Kind: customKeyCtrlEnter}, true
-		}
-	case 3:
-		if modifier == 1 {
-			return tea.KeyMsg{Type: tea.KeyDelete}, true
 		}
 	case 8, 127:
 		switch {

@@ -374,6 +374,18 @@ func TestProgramCapsLockDeleteDeletesForward(t *testing.T) {
 	}
 }
 
+func TestProgramCapsLockF3PreservesDraft(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInput(model, "draft")
+	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[13;65~\x03", 1)
+	if result.isBusy() {
+		t.Fatal("Caps-Lock F3 submitted the composer")
+	}
+	if got, want := testMainInput(result), "draft"; got != want {
+		t.Fatalf("input after Caps-Lock F3 = %q, want %q", got, want)
+	}
+}
+
 func TestProgramAltBackspaceDeletesPreviousWord(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	testSetMainInput(model, "alpha beta gamma")
