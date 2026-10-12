@@ -128,6 +128,10 @@ func decodeTerminalTildeKey(sequence terminalCSISequence) (tea.Msg, bool) {
 	switch codepoint {
 	case 3:
 		return tea.KeyMsg{Type: tea.KeyDelete}, true
+	case 5:
+		return tea.KeyMsg{Type: tea.KeyPgUp}, true
+	case 6:
+		return tea.KeyMsg{Type: tea.KeyPgDown}, true
 	case 13:
 		return tea.KeyMsg{Type: tea.KeyF3}, true
 	default:
