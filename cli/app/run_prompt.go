@@ -9,6 +9,7 @@ import (
 
 	"core/cli/app/internal/startupconfig"
 	"core/shared/apicontract"
+	"core/shared/protoapi"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -19,10 +20,26 @@ const subagentSessionSuffix = "subagent"
 type RunPromptResult struct {
 	SessionID   string
 	SessionName *string
-	Result      string
+	Outcome     RunPromptOutcome
 	Duration    time.Duration
 	Warnings    []string
 }
+
+type RunPromptOutcome interface {
+	runPromptOutcome()
+}
+
+type RunPromptFinalAnswer struct {
+	Text string
+}
+
+func (RunPromptFinalAnswer) runPromptOutcome() {}
+
+type RunPromptPendingQuestion struct {
+	Question serverapi.ObservationQuestion
+}
+
+func (RunPromptPendingQuestion) runPromptOutcome() {}
 
 func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Options, initialSessionID, prompt string, timeout time.Duration, progress serverapi.RunPromptProgressSink) (RunPromptResult, error) {
 	intent, err := runPromptLaunchIntent(opts, initialSessionID)
@@ -48,10 +65,23 @@ func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Op
 	if warningErr != nil {
 		return RunPromptResult{}, errors.Join(err, warningErr)
 	}
+	var outcome RunPromptOutcome
+	switch selected := response.GetOutcome().(type) {
+	case *runpromptpb.Success_FinalAnswer:
+		outcome = RunPromptFinalAnswer{Text: selected.FinalAnswer}
+	case *runpromptpb.Success_Question:
+		question, err := protoapi.ObservationQuestionFromProto(selected.Question)
+		if err != nil {
+			return RunPromptResult{}, errors.Join(err, warningErr)
+		}
+		outcome = RunPromptPendingQuestion{Question: question}
+	default:
+		return RunPromptResult{}, errors.New("Run response has no outcome")
+	}
 	result := RunPromptResult{
 		SessionID:   response.SessionId,
 		SessionName: response.SessionName,
-		Result:      response.Result,
+		Outcome:     outcome,
 		Duration:    response.Duration.AsDuration(),
 		Warnings:    warnings,
 	}

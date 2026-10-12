@@ -123,7 +123,8 @@ func (s controlledRunPrompt) RunPrompt(ctx context.Context, _ serverapi.RunPromp
 	select {
 	case <-s.release:
 		return &runpromptpb.Success{
-			SessionId: s.sessionID, SessionName: proto.String("Session"), Result: "final answer",
+			SessionId: s.sessionID, SessionName: proto.String("Session"),
+			Outcome:  &runpromptpb.Success_FinalAnswer{FinalAnswer: "final answer"},
 			Duration: durationpb.New(time.Millisecond), SelectionWarnings: s.selectionWarnings,
 		}, nil
 	case <-ctx.Done():
@@ -249,7 +250,7 @@ func TestRunPromptBinaryDeliversProgressBeforeFinalAnswer(t *testing.T) {
 	finish()
 	select {
 	case result := <-done:
-		if result.err != nil || result.response.Result != "final answer" ||
+		if result.err != nil || result.response.GetFinalAnswer() != "final answer" ||
 			!reflect.DeepEqual(result.response.SelectionWarnings, []runpromptpb.RunSelectionWarning{
 				runpromptpb.RunSelectionWarning_RUN_SELECTION_WARNING_AGENT_IGNORED_TO_PRESERVE_CACHE,
 			}) {
@@ -282,7 +283,7 @@ func TestRunPromptBinaryDeliversProgressBeforeFinalAnswer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if finalResult.GetSuccess().GetResult() != "final answer" {
+	if finalResult.GetSuccess().GetFinalAnswer() != "final answer" {
 		t.Fatalf("generated final result = %v", finalResult)
 	}
 }

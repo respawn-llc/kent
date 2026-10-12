@@ -79,7 +79,7 @@ func TestStartupAndHeadlessUseSelectedConnectionDespiteUnavailableDefault(t *tes
 		t.Fatalf("selected Session reauthentication: %v", err)
 	}
 	result, err := RunPrompt(t.Context(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, "hello", 0, nil)
-	if err != nil || result.Result != "selected connection reply" || hits.Load() != 1 {
+	if err != nil || requireRunPromptFinalAnswer(t, result) != "selected connection reply" || hits.Load() != 1 {
 		t.Fatalf("headless B dispatch: %+v, %v, hits=%d", result, err, hits.Load())
 	}
 }
