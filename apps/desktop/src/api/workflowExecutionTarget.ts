@@ -101,7 +101,10 @@ export type TaskResumeResponse =
     }>;
 export type TaskMoveResponse =
   WorkflowExecutionTargetActionResponse<TaskMoveApplied> | Readonly<{ outcome: "no_op"; noOp: TaskMoveNoOp }>;
-export type TaskApproveResponse = WorkflowExecutionTargetActionResponse<TaskApproveApplied>;
+export type TaskApproveResponse = Readonly<{
+  outcome: "applied";
+  applied: TaskApproveApplied;
+}>;
 
 export type TaskMovePreviewBlocker =
   | "invalid_workflow"
