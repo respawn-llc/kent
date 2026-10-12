@@ -13,6 +13,7 @@ import (
 	"core/server/workflowruntime"
 	"core/shared/textutil"
 	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 type defaultStepExecutor struct {
@@ -330,8 +331,12 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 				return stepLoopResult{}, err
 			}
 		}
-		if err := s.resolveReasoningDisposition(stepID, prepared.next, prepared.response.Reasoning); err != nil {
-			return stepLoopResult{}, err
+		assistantPhase, _ := textutil.OptionalValue(prepared.assistant.Phase)
+		if prepared.next != completedResponseNextAccepted ||
+			transcript.ClassifyAssistantPhase(string(assistantPhase)) != transcript.AssistantPhaseFinal {
+			if err := s.resolveReasoningDisposition(stepID, prepared.next, prepared.response.Reasoning); err != nil {
+				return stepLoopResult{}, err
+			}
 		}
 		switch prepared.next {
 		case completedResponseNextExternalWorkflowTerminal:
@@ -687,9 +692,15 @@ func (s *defaultStepExecutor) prepareCompletedResponse(ctx context.Context, step
 		}
 	}
 
+	assistantPhase, _ := textutil.OptionalValue(assistantMsg.Phase)
+	if transcript.ClassifyAssistantPhase(string(assistantPhase)) == transcript.AssistantPhaseFinal {
+		if err := s.resolveReasoningDisposition(stepID, completedResponseNextAccepted, resp.Reasoning); err != nil {
+			return preparedCompletedResponse{}, err
+		}
+	}
+
 	if !silentFinalAnswer {
 		assistantChars := 0
-		assistantPhase, _ := textutil.OptionalValue(assistantMsg.Phase)
 		if assistantMsg.Content != nil {
 			assistantChars = len(*assistantMsg.Content)
 		}

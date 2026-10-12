@@ -468,8 +468,8 @@ describe("Chat Settings descriptor adapter", () => {
       values: [],
     };
     current.cachingLocked = true;
-    current.agentLocked = true;
-    current.agentEditability = Editability.CACHING_LOCK;
+    current.agentLocked = false;
+    current.agentEditability = Editability.EDITABLE;
     current.autoCompaction = {
       ...current.autoCompaction,
       policy: AutoCompactionPolicy.DISABLED,
@@ -492,7 +492,7 @@ describe("Chat Settings descriptor adapter", () => {
       result: { kind: "applied", changed: false },
       settings: {
         thinking: { kind: "custom", value: "precise custom effort", baselineValue: "custom baseline" },
-        agentEditability: { kind: "caching_lock" },
+        agentEditability: { kind: "editable" },
         autoCompaction: {
           policy: "disabled",
           stored: true,

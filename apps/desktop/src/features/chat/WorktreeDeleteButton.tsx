@@ -35,7 +35,7 @@ export function WorktreeDeleteButton(props: Props) {
         <Tooltip>
           <TooltipTrigger asChild>
             <PopoverTrigger asChild>
-              <Button size="icon" variant="ghost" aria-label={t("chat.worktree.delete")}>
+              <Button size="icon-sm" variant="ghost" aria-label={t("chat.worktree.delete")}>
                 <Trash2 size={16} />
               </Button>
             </PopoverTrigger>

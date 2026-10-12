@@ -27,6 +27,7 @@ export function createWorktreeCreate({
   client,
   api,
   sessionID,
+  openSession,
   suggestion,
   t,
   submitSwitch,
@@ -37,6 +38,7 @@ export function createWorktreeCreate({
   client: QueryClient;
   api: ApiService;
   sessionID: string;
+  openSession(sessionID: string): void | Promise<void>;
   suggestion: string | undefined;
   navigator: SidebarPageNavigator;
   refreshOpenWorktreeList(sessionID: string): void;
@@ -96,7 +98,7 @@ export function createWorktreeCreate({
       if (
         error instanceof WorktreeError &&
         error.detail.kind === "setup_retained" &&
-        navigator.replace({ kind: "worktree", sessionID, page: "list" }) !== "accepted"
+        navigator.replace({ kind: "worktree", sessionID, page: "list", openSession }) !== "accepted"
       ) {
         refreshOpenWorktreeList(sessionID);
       }
@@ -113,6 +115,8 @@ export function createWorktreeCreate({
         if (value.length === 0 || !result?.isSuccess) return;
         const authority = result.data.resolution;
         if (authority === undefined) throw new Error("Create resolution is required");
+        if (authority.kind === CreateTargetResolutionKind.WORKTREE_CREATE_TARGET_RESOLUTION_KIND_INVALID)
+          return;
         const baseRef =
           authority.kind === CreateTargetResolutionKind.WORKTREE_CREATE_TARGET_RESOLUTION_KIND_NEW_BRANCH
             ? get(base).trim()
@@ -193,6 +197,10 @@ export function createWorktreeCreate({
       pending: created.isPending,
       resolving: value.trim().length > 0 && authority === undefined && !result?.isError,
       ...errors,
+      targetError:
+        authority?.kind === CreateTargetResolutionKind.WORKTREE_CREATE_TARGET_RESOLUTION_KIND_INVALID
+          ? t("chat.worktree.targetInvalid")
+          : errors.targetError,
     };
   });
   return { state, resolution, creation, resolve, retryResolution, submit, editTarget, editBase };

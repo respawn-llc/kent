@@ -72,8 +72,6 @@ export function settingsDisabledReason(
       return undefined;
     case "workflow_lock":
       return t("chatSettings.workflowLock");
-    case "caching_lock":
-      return t("chatSettings.cachingLock");
     case "policy_disabled":
       return t("chatSettings.policyDisabled");
   }

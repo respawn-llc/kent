@@ -11,6 +11,7 @@ use std::sync::{
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
+mod clipboard;
 mod native_glass;
 
 const CONFIG_FILE_NAME: &str = "config.toml";
@@ -647,6 +648,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            clipboard::paste_clipboard,
             resolve_native_context,
             resolve_native_platform,
             self_update_supported,

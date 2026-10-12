@@ -1,5 +1,5 @@
 import { createElement, type ReactElement } from "react";
-import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { ChatContext, ChatSettingsMutation, ChatSettingsMutationResponse } from "@/api";
 import { ChatSettingsView, type ChatSettingsViewProps } from "./ChatSettingsView";
 import type { ChatSettingsViewModel } from "./ChatSettingsViewModel";
@@ -21,14 +21,17 @@ export type ChatSettingsOptions = ChatSettingsNavigation &
 export type ReadyChatSettings =
   | (ReadyNewChat & Readonly<{ activate(operation: ChatSettingsMutation): void }>)
   | (Omit<ReadySession, "lastDelivered"> &
-      Readonly<{ activate(operation: ChatSettingsMutation): Promise<ChatSettingsMutationResponse> }>);
+      Readonly<{
+        agentPending: boolean;
+        activate(operation: ChatSettingsMutation): Promise<ChatSettingsMutationResponse>;
+      }>);
 export type ChatSettingsFeature =
   | (Exclude<SettingsState, ReadyNewChat | ReadySession> & Readonly<{ retry(): void }>)
   | (ReadyChatSettings & Readonly<{ settingsChip: ReactElement }>);
 
 export function useChatSettings(options: ChatSettingsOptions): ChatSettingsFeature {
   const state = useAtomValue(options.model.state);
-  useAtomMount(options.model.requests);
+  const request = useAtomValue(options.model.requests);
   const activate = useAtomSet(options.model.activate);
   const refresh = useAtomSet(options.model.refresh);
   if (state.kind !== "ready-new-chat" && state.kind !== "ready-session")
@@ -57,6 +60,10 @@ export function useChatSettings(options: ChatSettingsOptions): ChatSettingsFeatu
         }
       : {
           ...state,
+          agentPending:
+            request.isPending &&
+            request.variables.input.operation.kind === "agent" &&
+            request.variables.session.sessionID === state.session.sessionID,
           activate: async (operation) => {
             const result = await apply(operation);
             if (result === null) throw new Error("Session Settings action requires a Session.");

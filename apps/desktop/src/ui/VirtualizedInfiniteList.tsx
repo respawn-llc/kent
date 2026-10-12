@@ -19,7 +19,7 @@ import {
   useVirtualizedLoadMore,
 } from "./virtualizedInfiniteListLoadMore";
 import { pinnedVirtualRangeExtractor, virtualizedVisibleIndexes } from "./virtualizedPinnedRange";
-import { shouldAdjustScrollForVirtualizedResize } from "./virtualizedResizePolicy";
+import { resolveVirtualizedResizePolicy } from "./virtualizedResizePolicy";
 import {
   requireVirtualizedPixelOffsetRequest,
   type VirtualizedPixelOffsetRequest,
@@ -41,7 +41,6 @@ import {
   resolveVirtualizedContainerClassName,
   resolveVirtualizedInnerClassName,
   resolveVirtualizedInnerStyle,
-  resolveVirtualizedBlockGap,
   renderVirtualizedRowsContent,
   renderVirtualizedRow,
   type VirtualizedInfiniteListLayout,
@@ -235,15 +234,20 @@ function VirtualizedInfiniteListContent<TItem>({
     });
     return indexes;
   }, [getItemKey, itemStartIndex, items, retainedItemKeys]);
-  const { applyScrollRequest, options: endOptions } = useVirtualizedEndAnchoring(endAnchoring);
-  const blockPositioning = endAnchoring !== undefined && !horizontal;
+  const {
+    applyScrollRequest,
+    cancelScrollRequest,
+    options: endOptions,
+  } = useVirtualizedEndAnchoring(endAnchoring);
+  const directDomUpdates = endAnchoring !== undefined && !horizontal;
   const virtualizer = useVirtualizer({
     count,
     getScrollElement: () => scrollRef.current,
     estimateSize,
     paddingEnd,
     paddingStart,
-    useFlushSync: blockPositioning,
+    useFlushSync: directDomUpdates,
+    directDomUpdates,
     getItemKey: (index) =>
       virtualizedRowKey({
         getItemKey,
@@ -259,11 +263,10 @@ function VirtualizedInfiniteListContent<TItem>({
   useLayoutEffect(() => {
     applyScrollRequest(virtualizer);
   }, [endAnchoring?.scrollRequest, applyScrollRequest, virtualizer]);
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
-    nonAdjustingResizeItemKey === undefined
-      ? undefined
-      : (item: VirtualItem) =>
-          shouldAdjustScrollForVirtualizedResize(nonAdjustingResizeItemKey, String(item.key));
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = resolveVirtualizedResizePolicy(
+    nonAdjustingResizeItemKey,
+    endAnchoring !== undefined,
+  );
   const virtualItems = virtualizer.getVirtualItems();
   const visibleIndexes = virtualizedVisibleIndexes(virtualizer);
 
@@ -372,8 +375,7 @@ function VirtualizedInfiniteListContent<TItem>({
       renderItem,
       virtualIndex,
     });
-  const firstVirtualItem = virtualItems.at(0);
-  const renderedRows = virtualItems.map((virtualItem, index): ReactNode =>
+  const renderedRows = virtualItems.map((virtualItem): ReactNode =>
     renderVirtualizedInfiniteListRow({
       getItemKey,
       getItemWrapperProps,
@@ -387,11 +389,14 @@ function VirtualizedInfiniteListContent<TItem>({
       rowSpacing,
       stickyItemKeys,
       virtualItem,
-      blockGap: resolveVirtualizedBlockGap(blockPositioning, virtualItem, virtualItems[index - 1]),
+      directDomUpdates,
     }),
   );
   const hasHorizontalBoundary = resolveHorizontalBoundary(horizontal, layout, nextBoundary);
   const containerClassName = resolveVirtualizedContainerClassName(className, horizontal);
+  const onScrollIntent = () => {
+    cancelScrollRequest(virtualizer);
+  };
   return (
     <div
       aria-label={ariaLabel}
@@ -399,16 +404,19 @@ function VirtualizedInfiniteListContent<TItem>({
       data-testid={testId}
       id={id}
       onScroll={onScroll}
+      onWheel={onScrollIntent}
+      onTouchStart={onScrollIntent}
+      onPointerDown={onScrollIntent}
       ref={setScrollElement}
       role={role}
+      style={endAnchoring === undefined ? undefined : { overflowAnchor: "none" }}
     >
       <div
         className={resolveVirtualizedInnerClassName(horizontal, hasHorizontalBoundary)}
-        style={resolveVirtualizedInnerStyle(horizontal, virtualizer.getTotalSize())}
+        ref={directDomUpdates ? virtualizer.containerRef : undefined}
+        style={resolveVirtualizedInnerStyle(horizontal, virtualizer.getTotalSize(), directDomUpdates)}
       >
         {renderVirtualizedRowsContent({
-          blockPositioning,
-          firstVirtualItem,
           renderedRows,
           hasItems: items.length > 0,
           empty,

@@ -388,7 +388,6 @@ func TestGitInspectorResolveCreateTarget(t *testing.T) {
 		results      map[string]stubGitCommandResult
 		kind         CreateTargetResolutionKind
 		resolvedRef  string
-		invalid      bool
 	}{
 		{
 			name: "existing branch", target: "main",
@@ -427,7 +426,7 @@ func TestGitInspectorResolveCreateTarget(t *testing.T) {
 				gitCommandKey("check-ref-format", "refs/heads/feature..bad"):               {err: errors.New("exit status 1"), exitCode: 1},
 				gitCommandKey("rev-parse", "--verify", "--quiet", "feature..bad^{object}"): {err: errors.New("exit status 1"), exitCode: 1},
 			},
-			invalid: true,
+			kind: CreateTargetResolutionKindInvalid,
 		},
 	}
 	for _, tt := range tests {
@@ -437,13 +436,6 @@ func TestGitInspectorResolveCreateTarget(t *testing.T) {
 				filepath.Join(t.TempDir(), "workspace"),
 				tt.target,
 			)
-			if tt.invalid {
-				var invalidTarget *InvalidCreateTargetError
-				if !errors.As(err, &invalidTarget) || invalidTarget.Target != tt.target {
-					t.Fatalf("ResolveCreateTarget error = %v", err)
-				}
-				return
-			}
 			if err != nil {
 				t.Fatalf("ResolveCreateTarget: %v", err)
 			}

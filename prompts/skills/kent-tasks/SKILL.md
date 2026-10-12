@@ -75,10 +75,9 @@ kent task start <short-id-or-task-id> --ignore-dependencies
 kent task move <short-id-or-task-id> <target-node-id> --ignore-dependencies
 ```
 
-When approval or movement requires a Git execution target, rerun it with the same concrete selectors:
+When a Manual Move requires a Git execution target, rerun it with the same concrete selector:
 
 ```bash
-kent task approve <transition-id> --execution-target none|head|default-branch|ref:<revision>
 kent task move <task> <target-node-id> --execution-target none|head|default-branch|ref:<revision>
 ```
 

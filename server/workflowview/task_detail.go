@@ -172,6 +172,10 @@ func (d *TaskDetail) task(ctx context.Context, task sqlitegen.TaskRecord) (*task
 	if task.SourceUrl != "" {
 		sourceURL = &task.SourceUrl
 	}
+	currentNodes, err := taskDetailCurrentNodes(projected.CurrentNodes, definition.api)
+	if err != nil {
+		return nil, err
+	}
 	detail := &taskpb.TaskDetail{
 		Summary: taskSummary(task, projected.Status, projected.Done),
 		Project: project,
@@ -185,7 +189,7 @@ func (d *TaskDetail) task(ctx context.Context, task sqlitegen.TaskRecord) (*task
 		SourceWorkspace:      sourceWorkspace,
 		ExecutionTarget:      executionTarget,
 		WorktreePath:         worktreePath,
-		CurrentNodes:         ProjectCurrentNodes(projected.CurrentNodes),
+		CurrentNodes:         currentNodes,
 		LiveSessions:         liveSessions,
 		CurrentScripts:       currentScripts,
 		RetainedSessionCount: retainedCount,
@@ -196,6 +200,20 @@ func (d *TaskDetail) task(ctx context.Context, task sqlitegen.TaskRecord) (*task
 	}
 	detail.Dependencies = projectedDependencies
 	return detail, nil
+}
+
+func taskDetailCurrentNodes(nodes []workflow.CurrentNode, definition *pb.WorkflowDefinition) ([]*taskpb.AttentionCurrentNode, error) {
+	byID := workflowNodesByID(definition)
+	projected := ProjectCurrentNodes(nodes)
+	for _, current := range projected {
+		node, exists := byID[current.NodeId]
+		if !exists {
+			return nil, fmt.Errorf("Task Detail references unknown Node %q", current.NodeId)
+		}
+		name := workflow.DisplayLabel(node.DisplayName, node.Key)
+		current.NodeDisplayName = &name
+	}
+	return projected, nil
 }
 
 func taskDetailLiveTargets(

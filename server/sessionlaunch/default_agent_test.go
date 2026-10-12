@@ -3,6 +3,7 @@ package sessionlaunch
 import (
 	"context"
 	"errors"
+	"io"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -43,10 +44,12 @@ func TestChatAgentMutationAllocatesActualMemberAndPreservesUnchangedBinding(t *t
 		PersistenceRoot: cfg.PersistenceRoot, StoreOptions: db.AuthoritativeSessionStoreOptions(), ConnectionRotation: rotation,
 	})
 	t.Cleanup(func() { _ = authority.Close(context.Background()) })
+	changes := NewSettingsBroadcaster()
+	t.Cleanup(func() { _ = changes.Close() })
 	service := NewService(launch.Planner{
 		Config: cfg, Rotation: rotation, ContainerDir: filepath.Join(cfg.PersistenceRoot, "projects", binding.ProjectID, "sessions"),
 		StoreOptions: db.AuthoritativeSessionStoreOptions(), PersistedSessions: db, SessionProjects: db, ManagedWorktreeRoots: db,
-	}, ChatSettingsOwner{Authority: authority, Registry: registry.NewRuntimeRegistry()})
+	}, ChatSettingsOwner{Authority: authority, Registry: registry.NewRuntimeRegistry(), Changes: changes})
 	initial, err := service.PlanLaunchSession(t.Context(), PlanRequest{
 		Mode: launch.ModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	})
@@ -93,10 +96,24 @@ func TestChatAgentMutationAllocatesActualMemberAndPreservesUnchangedBinding(t *t
 		t.Fatalf("reads/unchanged edits consumed a slot: %s, %v", next, err)
 	}
 	before := record.Meta
-	if _, err := service.MutateChatSettings(t.Context(), id, &chatsettingspb.MutationOperation{
-		Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: "worker"},
-	}); err != nil {
+	subscription, err := service.SubscribeChatSettings(t.Context(), id)
+	if err != nil {
 		t.Fatal(err)
+	}
+	for _, operation := range []*chatsettingspb.MutationOperation{
+		{Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: "worker"}},
+		{Operation: &chatsettingspb.MutationOperation_Thinking{Thinking: *record.Meta.ChatSettings.Thinking}},
+	} {
+		result, err := service.MutateChatSettings(t.Context(), id, operation)
+		if err != nil || result.GetApplied() == nil || result.GetApplied().Changed {
+			t.Fatalf("unchanged selection = %v, %v", result, err)
+		}
+	}
+	if err := subscription.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot, err := subscription.Next(t.Context()); !errors.Is(err, io.EOF) {
+		t.Fatalf("unchanged settings published a mutation: %v, %v", snapshot, err)
 	}
 	record, err = db.ResolvePersistedSession(t.Context(), id.String())
 	if err != nil || !reflect.DeepEqual(before, record.Meta) {

@@ -169,9 +169,12 @@ type PreparedBaseTarget struct {
 // RunPromptPreparationContext carries a selected session's immutable,
 // prompt-facing contract into pre-materialization target preparation.
 type RunPromptPreparationContext struct {
-	Rotation                        *ConnectionRotation
-	AllocateConnection              bool
-	ConnectionID                    *config.ConnectionID
+	Rotation           *ConnectionRotation
+	AllocateConnection bool
+	ConnectionID       *config.ConnectionID
+	// A replacement retains its allocated choice, not an ordinary resume binding.
+	// It must still belong to the Agent's current connection set.
+	RetainedConnectionSelection     *config.ConnectionID
 	Mode                            Mode
 	ModelLock                       *session.LockedContract
 	ToolLock                        *session.LockedContract

@@ -5,6 +5,7 @@ import * as Stream from "effect/Stream";
 import * as Atom from "effect/reactivity/Atom";
 
 import type { AppServices } from "@/app-facade";
+import { insertTextAtSelection } from "@/shared/text-input";
 
 export function useWindowFileDrops({ nativeBridge, logger }: AppServices): void {
   const drops = useMemo(
@@ -48,18 +49,8 @@ export function useWindowFileDrops({ nativeBridge, logger }: AppServices): void 
 
 function insertFilePaths(paths: readonly string[]): void {
   const input = document.activeElement;
-  if (
-    !(input instanceof HTMLTextAreaElement || input instanceof HTMLInputElement) ||
-    input.disabled ||
-    input.readOnly ||
-    input.selectionStart === null ||
-    input.selectionEnd === null ||
-    paths.length === 0
-  ) {
+  if (!(input instanceof HTMLTextAreaElement || input instanceof HTMLInputElement) || paths.length === 0) {
     return;
   }
-  const text = paths.join(" ");
-  const start = input.selectionStart;
-  input.setRangeText(text, start, input.selectionEnd, "end");
-  input.dispatchEvent(new Event("input", { bubbles: true }));
+  insertTextAtSelection(input, paths.join(" "));
 }

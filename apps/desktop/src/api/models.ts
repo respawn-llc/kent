@@ -703,7 +703,7 @@ export type TaskDetail = Readonly<{
   dependencies: TaskDependencies;
   executionTarget: WorkflowExecutionTarget | null;
   worktreePath: string | null;
-  currentNodes: readonly TaskCurrentNode[];
+  currentNodes: readonly (TaskCurrentNode & Readonly<{ displayName: string }>)[];
   liveSessions: readonly TaskLiveSession[];
   currentScripts: readonly Readonly<{ currentNode: TaskScriptCurrentNode; path: string }>[];
   retainedSessionCount: number;

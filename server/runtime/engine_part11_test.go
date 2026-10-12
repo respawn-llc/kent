@@ -61,7 +61,7 @@ func assertRequestHasUserMessage(t *testing.T, request llm.Request, content stri
 	}
 }
 
-func TestQueuedUserMessageFlushAfterFinalAssistantWithReasoningPublishesAssistantFirst(t *testing.T) {
+func TestQueuedUserMessageFlushAfterFinalAssistantWithReasoningPublishesReasoningFirst(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{responses: []llm.Response{
 		{
@@ -91,7 +91,7 @@ func TestQueuedUserMessageFlushAfterFinalAssistantWithReasoningPublishesAssistan
 
 	committedEvents := committedTranscriptEventsWithEntries(events)
 	if len(committedEvents) < 3 {
-		t.Fatalf("expected assistant, reasoning, and queued user committed events, got %+v", committedEvents)
+		t.Fatalf("expected initial user, reasoning, and assistant committed events, got %+v", committedEvents)
 	}
 	userIdx := -1
 	for idx, evt := range committedEvents {
@@ -103,9 +103,20 @@ func TestQueuedUserMessageFlushAfterFinalAssistantWithReasoningPublishesAssistan
 	if userIdx < 0 {
 		t.Fatalf("expected initial user flush event, got %+v", committedEvents)
 	}
-	assistant := committedEvents[userIdx+1]
-	if assistant.Kind != EventAssistantMessage || messageContent(assistant.Message) != "first final" {
-		t.Fatalf("committed event after initial user = %+v, want first final assistant before reasoning/queued rows; all=%+v", assistant, committedEvents)
+	reasoning := committedEvents[userIdx+1]
+	assistant := committedEvents[userIdx+2]
+	if reasoning.Kind != EventLocalEntryAdded ||
+		reasoning.LocalEntry == nil ||
+		reasoning.LocalEntry.Role != "reasoning" ||
+		assistant.Kind != EventAssistantMessage ||
+		messageContent(assistant.Message) != "first final" {
+		t.Fatalf(
+			"committed initial turn order = initial_user:%+v reasoning:%+v final:%+v events:%+v",
+			committedEvents[userIdx],
+			reasoning,
+			assistant,
+			committedEvents,
+		)
 	}
 	assertRuntimeEventsAdvanceCommittedFrontierContiguously(t, committedEvents)
 }
