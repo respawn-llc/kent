@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 import { useAtomValue } from "@effect/atom-react";
+import { AnimatePresence } from "motion/react";
 
 import type {
   ChatApi,
@@ -12,7 +13,7 @@ import type {
 } from "@/api";
 import { ChatOperationError, ContractError, errorMessage } from "@/api";
 import { recoverOrThrowDebugFailure, useAppServices, useStatusController } from "@/app-facade";
-import { ErrorState, LoadingState } from "@/ui";
+import { AnimatedReveal, ErrorState, LoadingState, Spinner } from "@/ui";
 import { type NewChatGoalBinding } from "./goalBinding";
 import {
   deriveGoalSidebarState,
@@ -123,13 +124,14 @@ function NewChatGoalSidebar({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-[var(--space-3)] p-[var(--space-4)]">
-      <p className="m-0 text-sm leading-relaxed text-[var(--color-muted)]">{t("chat.goal.guidance")}</p>
-      <div className="min-h-0 flex-1">
+    <div className="flex min-h-0 flex-col gap-[var(--space-3)]">
+      <div className="min-h-0 shrink-0">
         <GoalMarkdownField
           editing={editing}
           floatingAction={
-            snapshot.pending || draft.trim().length === 0 ? undefined : (
+            snapshot.pending ? (
+              <Spinner size="sm" testID="goal-mutation-pending" />
+            ) : draft.trim().length === 0 ? undefined : (
               <GoalSaveButton
                 disabled={!canSave}
                 label={
@@ -171,11 +173,12 @@ function ExactGoalSidebar({
   const model = useExactGoalSidebarModel({ api, initialDraft, target });
 
   if (model.observation.kind === "loading" && model.fact === null) {
-    return <LoadingState fullPage={false} title={model.t("chat.goal.loading")} />;
+    return <LoadingState surface="plain" title={model.t("chat.goal.loading")} />;
   }
   if (model.observation.kind === "error" || model.observation.kind === "loading_retryable") {
     return (
       <ErrorState
+        surface="plain"
         body={model.observation.error.message}
         onRetry={model.replaceObservation}
         retryLabel={model.t("app.retry")}
@@ -239,12 +242,12 @@ function useGoalMutationRunner(input: GoalMutationRunnerInput) {
   return useCallback(
     async (
       intent: GoalMutationIntent,
-      action: "set" | "pause" | "resume" | "reopen" | "clear",
       operation: () => Promise<GoalMutationOperationResult>,
     ) => {
       if (input.actionsDisabled || input.pendingIntent !== null || !input.mounted.current) {
         return;
       }
+      const action = intent.kind;
       const submittedDraftRevision = input.draftRevision.current;
       const previous = { draft: input.draftState.draft, editing: input.editing, expanded: input.expanded };
       input.setPendingIntent(intent);
@@ -418,10 +421,9 @@ function useExactGoalSidebarModel(
     setEditing(false);
     void runMutation(
       {
-        kind: "goal",
+        kind: "set",
         preview: { objective: draftState.draft, status: "active" },
       },
-      "set",
       async () => {
         const result = await api.setGoal({ kind: "session", sessionID: target.sessionID }, draftState.draft);
         if (result.outcome.kind === "rejected") throw result.outcome.error;
@@ -434,13 +436,12 @@ function useExactGoalSidebarModel(
   const runLifecycle = () => {
     void runMutation(
       {
-        kind: "goal",
+        kind: lifecycle,
         preview: {
           objective: fact?.goal?.objective ?? draftState.draft,
           status: lifecycle === "pause" ? "paused" : "active",
         },
       },
-      lifecycle,
       lifecycle === "pause"
         ? async () => ({ mutation: await api.pauseGoal(target), diagnostic: null })
         : async () => ({ mutation: await api.resumeGoal(target), diagnostic: null }),
@@ -448,7 +449,7 @@ function useExactGoalSidebarModel(
   };
 
   const clear = () => {
-    void runMutation({ kind: "clear" }, "clear", async () => ({
+    void runMutation({ kind: "clear" }, async () => ({
       mutation: await api.clearGoal(target),
       diagnostic: null,
     }));
@@ -580,13 +581,8 @@ function ExactGoalContent({ model }: Readonly<{ model: ExactGoalSidebarModel }>)
   if (fact === null) return null;
   const showActions = model.displayedStatus !== null;
   return (
-    <div className="flex h-full min-h-0 flex-col gap-[var(--space-3)] p-[var(--space-4)]">
-      {!showActions ? (
-        <p className="m-0 text-sm leading-relaxed text-[var(--color-muted)]">
-          {model.t("chat.goal.guidance")}
-        </p>
-      ) : null}
-      <div className="min-h-0 flex-1">
+    <div className="flex min-h-0 flex-col">
+      <div className="min-h-0 shrink-0">
         <GoalMarkdownField
           editing={model.editing}
           floatingAction={renderSaveAction(model)}
@@ -604,24 +600,29 @@ function ExactGoalContent({ model }: Readonly<{ model: ExactGoalSidebarModel }>)
           value={model.displayedObjective}
         />
       </div>
-      {showActions ? (
-        <>
-          <GoalMetadata createdAt={model.displayedCreatedAt} now={model.now} status={model.displayedStatus} />
-          <GoalActions model={model} />
-        </>
-      ) : null}
+      <AnimatePresence initial={false}>
+        {showActions ? (
+          <AnimatedReveal key="metadata" variant="fade">
+            <div className="flex flex-col gap-[var(--space-3)] pt-[var(--space-3)]">
+              <GoalMetadata
+                createdAt={model.displayedCreatedAt}
+                now={model.now}
+                status={model.displayedStatus}
+              />
+              <GoalActions model={model} />
+            </div>
+          </AnimatedReveal>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }
 
 function renderSaveAction(model: ExactGoalSidebarModel): ReactElement | undefined {
-  if (!model.dirty || model.draftState.draft.trim().length === 0) return undefined;
-  if (
-    model.pendingIntent?.kind === "goal" &&
-    model.pendingIntent.preview.objective === model.draftState.draft
-  ) {
-    return undefined;
+  if (model.pendingIntent?.kind === "set" || model.pendingIntent?.kind === "clear") {
+    return <Spinner size="sm" testID="goal-mutation-pending" />;
   }
+  if (!model.dirty || model.draftState.draft.trim().length === 0) return undefined;
   return (
     <GoalSaveButton
       disabled={!model.saveAvailable || model.unavailable}

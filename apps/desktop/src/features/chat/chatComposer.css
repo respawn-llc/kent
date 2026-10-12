@@ -4,6 +4,7 @@
   width: 100%;
   max-width: var(--chat-content-max-width);
   margin-inline: auto;
+  padding-inline: var(--space-2);
   padding-block-end: var(--space-2);
 }
 

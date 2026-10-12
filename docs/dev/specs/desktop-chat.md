@@ -185,6 +185,7 @@
 - Authoritative replacement hydration during a pending Jump must fulfill that Jump at the replacement tail. The prior newest request's later success or failure must have no effect. Leaving Chat must end its pending navigation without affecting server-owned work.
 - `Jump to latest` is a 40px circular glass control with a 24px downward arrow. It must be horizontally centered in the Chat pane and float 12px above the full composer and attached-panel area, without overlapping Pending Work. It uses scale motion when it appears or disappears; reduced motion changes visibility immediately.
 - At the tail, new assistant content, committed rows, and composer-height changes keep the view at the tail. Reduced motion removes movement animation.
+- During Chat width changes, message bubbles must fit their reflowed content without a separate height animation. Viewport resizing must keep an already-followed tail aligned without starting a separate scroll animation and must not return an operator reading older content to the tail.
 - At the local bottom of a historical window, expanding a row must keep the expanded content's bottom visible. If the expanded row is taller than the viewport, its beginning may move offscreen. A newer-history boundary must keep `Jump to latest` visible. This behavior must not introduce automatic expansion reveal for rows elsewhere in the transcript.
 - User, committed assistant, and live assistant content use the same rich Markdown presentation. It sanitizes raw HTML and applies the specified link behavior. Completed supported code is syntax-highlighted and selectable; incomplete code remains selectable plain text until the Markdown parser reports the fence complete. Diagrams, math, and built-in Markdown controls are unavailable.
 - A live assistant message appears only after its first nonempty content arrives. It presents live text with the specified character motion and no caret; completed messages use static presentation. Reduced motion shows characters immediately.
@@ -219,7 +220,7 @@
 - The message footer must offset downward by 8px within the bubble's bottom padding, without changing the bubble's size.
 - Message bubbles and the Pending Work sheet must use one smaller island corner-radius level than the composer.
 - User and assistant speech bubbles use the standard Island surface, outline, and shadow with the approved radii, padding, and alignment.
-- The composer must have a bottom gap equal to the outer island's gap to the window chrome. The transcript's bottom clearance must include this gap.
+- The composer must have side and bottom gaps equal to the outer island's gap to the window chrome, including at narrow widths. The transcript's bottom clearance must include the bottom gap.
 - The composer must use 8px inner padding.
 - Composer chips must have transparent backgrounds and borders at rest and show a subtle background highlight on hover. Their text and icons must retain semantic colors.
 - Composer control icons and loading indicators must have optically balanced sizes. The Processes chip must use a terminal icon. The Goal chip must use a literal goal icon rather than a target.
@@ -250,6 +251,7 @@
 - Message bubbles must use the Respawn corner pattern: the user bottom-right and assistant bottom-left corners are always small; the corresponding top corner is also small when the preceding message has the same role. Other corners remain rounded. Consecutive same-role messages use tighter spacing and remain separate islands. Bubbles use a compact minimum size adapted from Respawn's 40-unit height; the Copy icon uses the timestamp's muted color.
 - Tools, diagnostics, context, and notices use flat transcript rows rather than message islands. Transcript content opens no duplicate detail surfaces; its full content is available through expansion.
 - Contextual destinations adapt between shifted and overlay presentation. Processes and Goal are the defined Chat destinations. Session settings use a non-modal popover from the composer Settings chip, not a contextual destination.
+- The Worktree, Goal, and Processes composer chips must toggle their matching current sidebar destination closed on repeated activation. Activating a different sidebar chip must replace the sidebar root and discard its navigation stack, without closing and reopening the sidebar frame. Sidebar focus changes must not scroll the outer application frame during entrance or exit animation.
 
 ## Viewed Images
 
@@ -408,15 +410,14 @@
 - A Context meter must remain available below the editor and while a Question or Approval replaces the editor. Its normal compact trigger must follow the composer chip presentation and be content-sized on the right before Send/Stop, with used-context percentage followed by a circular used-context meter matching the font size.
 - New Chat omits the Context trigger and pop-up until Session creation succeeds.
 - `/compact` remains a recognized New Chat command. One `chat.compact` request sends one typed lexical invocation from which the server derives both the byte-exact New Chat draft and normalized manual-compaction admission. Malformed lexical structure fails before Session creation. The server establishes the ordinary Session and then invokes normal manual-compaction admission. A truly fresh Session rejects it as too soon while still returning the resulting Session identity and preserving the exact reconstructed draft.
-- Desktop must enable `Compact` when Session policy permits compaction and compaction is not known to be active. Desktop must surface the server's typed too-soon rejection instead of inferring manual-compaction eligibility.
-- Hovering, clicking, or tapping the Context meter must open a compact pop-up above the trigger with detailed context-window usage and a `Compact` action. When normal browser focus is on the meter, its ordinary button Enter and Space behavior also opens the pop-up; these keys are not Context shortcuts elsewhere.
+- Desktop must enable `Compact now` when Session policy permits compaction and compaction is not known to be active. Desktop must surface the server's typed too-soon rejection instead of inferring manual-compaction eligibility.
+- Hovering, clicking, or tapping the Context meter must open a compact pop-up above the trigger with detailed context-window usage and a `Compact now` action. When normal browser focus is on the meter, its ordinary button Enter and Space behavior also opens the pop-up; these keys are not Context shortcuts elsewhere.
 - Escape or clicking away closes the Context pop-up.
-- The pop-up must show remaining-context percentage and tokens against the complete context window, whether Auto-compaction is on or off, and the completed compaction count. It must omit the automatic-compaction threshold.
+- The pop-up must show used-context percentage and used and total token counts against the complete context window. It must omit the Auto-compaction toggle, completed compaction count, and automatic-compaction threshold. Auto-compaction remains available in Settings.
 - Context must present facts delivered through ordinary Chat snapshots and updates without an independent Context request. Before information is available, the trigger must show zero-like progress and must not open the pop-up. Later loads must retain the last known state. Context must not add a separate loading pop-up or Retry control.
-- Context must display whole-number percentages. Token counts with magnitude of at least one thousand must be truncated to whole thousands with a `k` suffix; smaller counts must display the exact number.
-- Authoritative used-context tokens may exceed the context window. In that state, the text must show used context above 100% and a negative remaining-token total instead of capping either value. The ring and bar must stop at their full extent without overlapping rendering.
+- Context must display whole-number percentages. Token counts below one thousand must remain exact; larger counts must use a `k` suffix with one decimal place, such as `28.5k`.
+- Authoritative used-context tokens may exceed the context window. In that state, the text must show used context above 100% and the complete used-token total instead of capping either value. The ring and bar must stop at their full extent without overlapping rendering.
 - The Context read returns a usable result when stored numeric facts are invalid: negative usage and completed-compaction totals become zero, a non-positive context window uses the effective configured model window, and the automatic threshold is constrained to that window. This normalization produces no user-facing or operational error.
-- When a Session has no persisted completed-compaction count, the pop-up reports zero until a successful compaction updates the count.
 - If persisting the completed-compaction count or manual-compaction eligibility fails, a later dormant or live-to-dormant Context read shows the last successfully persisted value.
 - For a resumed Session, Context must resolve the context window, automatic threshold, and Compaction Mode from the current persisted-Agent-role configuration and preserve the Session's provider-native capability across runs. Dormant Context and the next activation use the same projection, so activation does not change the displayed policy merely because the Session became live.
 - The stateless New Chat settings read and an unlocked existing Session's Context projection must derive provider-native availability from the selected [Provider Connection](provider-connections.md), using the same result as Session planning and activation. These reads must not refresh credentials, contact an authentication provider, or update stored authentication. Connection configuration changes affect subsequent reads and plans; an already-live Session keeps the capability and Compaction Mode selected when it was activated.
@@ -424,19 +425,18 @@
 - Presented Session policy and compaction activity may remain stale in an open pop-up until a later ordinary Session-status or context-usage broadcast. Server command admission must remain authoritative if the user acts on stale facts.
 - If a live Session becomes dormant during a Context read, the server returns one complete result from the Session's persisted facts. It does not mix live and persisted facts in one result.
 - The pop-up omits the TUI status inspection's detailed instruction, skill, and Agent-file token breakdown.
-- The Context details must have three rows: remaining usage, an Auto-compaction switch, and the completed-compaction count labeled `Compactions:`. Important labels and numeric values use bold primary text; connective and explanatory text stays muted.
-- The Auto-compaction switch must share the existing Settings value and mutation behavior, including eager value changes, rollback, disabled-policy explanation, and error feedback. It must not create a separate settings read or mutation owner.
+- The Context details must use one unified progress display. The used percentage must be centered directly above the bar; the used-token count must sit to its left and the total-token count to its right.
 - The pop-up has no chips, badges, statistic cards, inset items, or other secondary containers.
-- A bottom row contains one wide progress bar and the `Compact` action. The bar visualizes used context exactly like the TUI meter, while the text states remaining context.
+- A full-width `Compact now` button must appear below the progress display with centered text.
 - The progress fill uses one fixed soft gradient from Success through Warning to Error across the complete 0–100% range. Current usage clips the revealed gradient; the unused track stays muted.
 - The progress bar never recolors its complete fill when usage crosses a threshold.
 - Authoritative usage changes animate the progress value. Reduced motion applies the new value immediately.
-- The pop-up has no compaction-guidance field. Its `Compact` action is equivalent to `/compact` with no guidance.
-- Activating `Compact` closes the Context pop-up and uses the same Pending Work flow as `/compact`. Every other transient surface that initiates manual compaction also closes after accepting the action.
+- The pop-up has no compaction-guidance field. Its `Compact now` action is equivalent to `/compact` with no guidance.
+- Activating `Compact now` closes the Context pop-up and uses the same Pending Work flow as `/compact`. Every other transient surface that initiates manual compaction also closes after accepting the action.
 - Manual compaction guidance is available only through `/compact <guidance>`.
 - While any compaction is active, the compact Context meter replaces its ordinary percentage and ring with a font-sized secondary-tone spinner and `Compacting`. The trigger wraps the visible content instead of reserving the compacting label's width while idle.
 - The compacting Context trigger remains interactive and can open the Context pop-up. The pop-up keeps the last authoritative usage values visible until new usage arrives.
-- Automatic compaction does not close an already-open Context pop-up. While compaction remains active, an open pop-up keeps its usage details visible and disables `Compact`.
+- Automatic compaction does not close an already-open Context pop-up. While compaction remains active, an open pop-up keeps its usage details visible and disables `Compact now`.
 - Desktop never starts or queues another compaction after it knows compaction is active. A raced button activation or `/compact` request still reaches the server admission contract and surfaces its typed rejection.
 - Repeated manual compaction requests made before the first request starts remain separate Steer items. When those items drain, the first eligible request may compact and every later ineligible request fails independently.
 - A failed pending or immediate manual-compaction request leaves no pending item. Desktop shows a Sonner error unless an authoritative durable transcript error is explicitly reported as the owner of that failure; Desktop never synthesizes a transcript row.
@@ -445,20 +445,23 @@
 - When the Desktop window is unfocused, successful user-requested compaction sends a system notification only after its following Pending Work drain is idle. Activation focuses Desktop and opens the owning Session at its latest content.
 - Desktop must send at most one completion notification for the Session when that drain becomes idle, even if multiple user-requested compactions succeeded during it.
 - Automatic, pre-submit, and handoff compaction do not send this completion notification.
-- When Session policy disables compaction, the Auto-compaction switch must use the existing Settings disabled-policy explanation, and its `Compact` action must be unavailable.
+- When Session policy disables compaction, the Context pop-up's `Compact now` action must be unavailable and explain the disabled policy.
 - In that policy state, `/compact` remains a known command and surfaces the server's typed disabled-policy failure instead of becoming an ordinary user message.
 - Context and compaction lifecycle create no transcript status rows.
 
 ## Goal
 
 - Goal is a Session control, not a Session setting.
-- The composer control row always contains one Goal affordance. An active Goal uses a primary-colored Goal chip. A paused, completed, or absent Goal uses a neutral `Goal` affordance. Activating it opens the existing Goal when present or Goal creation when absent.
+- The composer control row always contains one Goal affordance. An active Goal uses a primary-colored Goal chip. A paused, completed, or absent Goal uses a neutral `Goal` affordance. Its destination is the existing Goal when present or Goal creation when absent.
 - The control label is always `Goal`. It shows no objective preview or state text; its primary or neutral treatment communicates whether Goal work is active.
 - The control shows a target icon before `Goal`. It never becomes icon-only.
 - Desktop has no `/goal` command. The visible Goal affordance and Goal sidebar are its only Goal entry path.
 - Goal uses the shared adaptive contextual-sidebar host.
 - The same Goal sidebar handles creation and management. It edits the complete objective as Markdown and has an explicit `Save` action.
 - Goal objective uses the shared collapsible large Markdown field defined for Desktop and used by Task Description.
+- Goal objective must use Task Description's shared field surface and corner radius. Goal status must appear directly on the sidebar surface without a nested island background, outline, or shadow.
+- Goal guidance must appear as the empty objective field's placeholder, not as separate copy. The objective editor must use Task Description's 220px default height and scroll longer text internally rather than fill the sidebar. Saved Goal previews must retain that minimum height. Goal must use the sidebar host's standard outer padding without an additional inset.
+- Goal editor and preview switches, status changes, and metadata/action appearance or removal must use opacity-only fades, without clipped height reveals or sliding motion. Unresolved objective Save and Clear mutations must show a spinner in the objective field; Pause, Resume, and Reopen must not show that spinner. Reduced motion must remove transition animations. Presentation transitions must preserve draft text, focus behavior, and action admission.
 - An existing Goal opens as rendered Markdown. Activating the objective enters the shared editor. Goal creation opens the editor focused.
 - `Save` appears only while the objective draft differs from the authoritative Goal and contains non-whitespace text. A whitespace-only draft has no Save action. Saving an existing Goal replaces it directly without another confirmation. Success keeps the sidebar open and re-baselines the editor to the authoritative Goal.
 - `Save` is a floating primary action that fades out while its request is unresolved after the submitted Markdown becomes the rendered preview. A failed Save preserves the complete draft, reopens and focuses the editor, and fades Save back in.
@@ -479,11 +482,11 @@
 - After a successful response, the destination ends unresolved presentation and displays its latest subscribed state. That state may briefly be older than the committed mutation until a later Goal observation updates it.
 - Closing a destination ends its local pending presentation, closes only that destination's Goal observation, and detaches its callbacks. A reopened destination may start another mutation while the earlier RPC still settles; server authority orders accepted work. The earlier response can update neither the reopened destination nor the Chat affordance.
 - Every Goal mutation failure uses Sonner even if the initiating Goal destination has closed. If that destination remains mounted, Desktop removes its mutation presentation, displays the latest subscribed Goal and availability state without rolling it back, and restores the captured draft, edit, and focus state. Save failure preserves the complete dirty objective draft. A result delivered after disposal has no destination state callback or restoration, but its operation completion still reports the failure. A completely validated New Chat Goal Set success delivers its resolved Session and authoritative Goal to the lifetime-independent Chat host before showing exactly one warning notification for its returned diagnostic, including after the sidebar closes and without waiting for sidebar hydration. The sidebar receives no mutation-result replay and loads through its ordinary subscription. The warning does not change the successful result and creates no success notification. Successful mutations trigger no additional Goal read, polling, or replay.
-- The sidebar uses one non-sticky adaptive action row immediately below the metadata island. It contains lifecycle first and Clear second; the floating Save action remains attached to the Markdown field. Create mode shows the floating Save action alone.
+- The sidebar uses one non-sticky adaptive action row immediately below the metadata. It contains lifecycle first and Clear second; the floating Save action remains attached to the Markdown field. Create mode shows the floating Save action alone.
 - When the sidebar narrows, the action row flows onto additional lines without truncating, overlapping, shrinking, or mangling button labels and controls.
 - Desktop offers no human `Mark complete` Goal action.
 - Goal suspension is not a Desktop product state. Desktop neither retains nor presents runtime-local Goal suspension. It presents a durably active Goal as Active and never shows suspension copy, explanation, iconography, or a separate Resume action for runtime-local suspension.
-- The sidebar shows the Goal status in one compact colored metadata island and a small secondary line `Set at <date and time> (<period> ago)` derived from the server's Goal creation timestamp. It omits Goal ID and updated time.
+- The sidebar shows the Goal status as compact colored text and a small secondary line `Set at <date and time> (<period> ago)` derived from the server's Goal creation timestamp. It omits Goal ID and updated time.
 - Goal status uses a primary-colored circle-dot icon and label for Active, a warning-colored pause-in-circle icon and label for Paused, and a success-colored checkmark icon and label for Complete.
 - The relative period shows `0 min` below one minute, `N min` below one hour, `HhMm` below one day, and `DdHhMm` from one day onward. It omits zero-value units, keeps days unbounded, and refreshes once per minute.
 - If an already-hydrated Goal observation fails, the mounted destination must close that observation, replace its own page with Error and an explicit Retry action, retain its destination-owned draft, and become idle. It must not replace Chat, automatically replace or retry the observation, or show the previous Goal page while waiting for explicit Retry. Retry starts a fresh destination observation with sequence-1 hydration; it does not depend on transcript recovery or replay a prior result.
@@ -534,7 +537,6 @@
 - When the current target is missing or inaccessible, the affordance preserves that recorded target name and adds warning iconography and semantic warning treatment. It does not replace the identity with generic warning copy.
 - For a missing or inaccessible Worktree, the affordance must show the recorded Kent display name, including when the Worktree was branch-backed.
 - The affordance end-truncates a long target name. The Worktree sidebar owns the complete target facts.
-- Activating the Worktree affordance opens the shared adaptive contextual-sidebar host.
 - Desktop does not place Worktree management in the Settings popover or a separate full-page destination.
 - Opening the Worktree list moves keyboard focus to its first enabled list action. If no row has an enabled action, focus moves to the header `+` action.
 - The Worktree list must use Tab and Shift+Tab to navigate enabled actions and Enter or Space to activate the focused action. Row text must not be a separate interactive focus stop.
@@ -578,9 +580,12 @@
 - Each Worktree row uses the display name as its title.
 - Before adoption gives an External worktree a Kent display name, its title is the branch name when available. A detached External worktree uses the final component of its canonical path as the title.
 - The External title fallback never exposes the complete path. After the Session switches to that worktree and Kent adopts it, ordinary Kent display-name rules apply.
-- When the branch or ref differs from the display name, the row shows that branch or ref on a second line. It omits the second line when it would repeat the title.
-- Worktree rows never show a path.
-- At narrow sidebar widths, a row keeps its title and optional branch/ref above a separate action line.
+- When the branch or ref differs from the display name, the row must show that branch or ref on a second line. Otherwise, it must show the absolute worktree path on that line.
+- Hovering the subtitle must reveal the full absolute path. Activating the subtitle must copy that path.
+- The current worktree must show a `Current` chip.
+- When a Worktree has an origin Session, its row must show a chat-icon action that opens that Session through the containing Chat's Session navigation. When the origin is the current Session, the icon must use the primary color and activation must do nothing. Rows without an origin Session must omit this action.
+- Worktree rows must keep the title and status chip together on the first line, with action icons at the trailing edge. The optional branch/ref must occupy a second line spanning the row.
+- Worktree rows must visually group their title, status chip, and subtitle with tighter spacing within each item than between items. Each item must use a consistent inset and a rounded hover highlight.
 - Worktree rows use no horizontal scrolling, overflow-action menu, hidden action, or card conversion.
 - Long row text end-truncates without removing an available action.
 - An External row places an `External` warning-colored chip after its title.
@@ -637,6 +642,7 @@
 - Desktop must use typed error ownership to distinguish Base-ref validation from operational failure. It must never parse diagnostic text to choose error placement.
 - An empty Base ref sends no creation request and shows `Base ref is required`.
 - The creation state has no custom filesystem-path field. Kent uses the configured worktree base directory.
+- An invalid or incomplete branch/ref must remain an editable field-validation state, not a page-level read failure. Desktop must preserve the input, show its validation message beside the field, and send no creation request until the input resolves to a valid target.
 - The primary creation action is `Create`. Back returns to the Worktree list without creating anything.
 - Leaving the creation state must discard its draft. Opening creation again must initialize Branch or ref from the sanitized Session title and Base ref from `HEAD`. Creation draft state must remain local to the destination without persistence.
 - While creation and optional setup run, the creation child state shows one simple spinner for the complete operation.
@@ -719,6 +725,8 @@
 
 ## Failure And Recovery
 
+- Goal, Processes, and Worktree sidebar loading and error states must fill the available sidebar area and center padded content directly within it, without a nested island.
+
 - Send must remain icon-only. It must not show an ordinary enabled-action tooltip or an error-diagnostic tooltip. Disabled-state tooltips must remain.
 - Each page must own its server-read failures and show its Error state with Retry. A sidebar destination is an independent page; its failures must not replace Chat or another page. Pages must not signal errors outside themselves through callbacks, navigation events, or event buses.
 - Chat Settings, saved draft, Pending Work, and composer Worktree-label read failures must use whole-Chat Error with Retry. This includes failed refreshes with retained data. Workspace-selector initial and refresh failures must use Chat's Error state; virtualized Workspace pagination failures must retain their boundary Retry.
@@ -766,3 +774,5 @@
 - Desktop Chat provides no screen-reader transcript model, streaming announcements, ARIA-specific interaction architecture, or blind-user interaction flow.
 - Shared UI-kit components keep their ordinary incidental semantics. Keyboard shortcuts, functional focus transitions, Copy/select behavior, resizable-window layouts, and explicitly specified reduced-motion behavior remain product mechanics rather than a separate accessibility program.
 - Desktop Chat has no file or image upload, drag-and-drop attachment, clipboard-image attachment, attachment chip, or transcript attachment.
+- When the native Chat composer is focused, Paste must prefer a clipboard image over text, save the image as a temporary PNG, and insert its absolute path as ordinary composer text. Cmd+V on macOS and Ctrl+V on Windows and Linux must use this behavior. Text-only clipboard content must paste as text.
+- Clipboard images must use the OS temporary storage convention used by TUI. Their paths need not survive OS temporary-file cleanup. Paste failures must preserve the draft and show a temporary error notice.

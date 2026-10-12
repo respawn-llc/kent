@@ -5,7 +5,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import type { TaskCurrentNode, TaskDetail } from "@/api";
+import type { TaskDetail } from "@/api";
 import { errorMessage } from "@/api";
 import {
   useAppServices,
@@ -328,19 +328,21 @@ export function PropertiesIsland({
   );
 }
 
-export function TaskCurrentNodeSelectionProperties({ node }: Readonly<{ node: TaskCurrentNode }>) {
+export function TaskCurrentNodeSelectionProperties({
+  node,
+}: Readonly<{ node: TaskDetail["currentNodes"][number] }>) {
   const { t } = useTranslation();
   return (
     <>
       {node.effectiveAssignee === null ? null : (
         <TaskPropertyLine
-          label={t("task.currentNodeAssignee", { nodeID: node.nodeID })}
+          label={t("task.currentNodeAssignee", { nodeName: node.displayName })}
           value={<span className="font-mono">{node.effectiveAssignee}</span>}
         />
       )}
       {node.effectiveThinking === null ? null : (
         <TaskPropertyLine
-          label={t("task.currentNodeThinking", { nodeID: node.nodeID })}
+          label={t("task.currentNodeThinking", { nodeName: node.displayName })}
           value={<span className="font-mono">{node.effectiveThinking}</span>}
         />
       )}

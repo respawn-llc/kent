@@ -23,12 +23,11 @@ export function createTestSidebarController(
     return;
   },
 ): SidebarRootController {
-  return {
-    open(destination) {
-      onOpen(destination);
-      return { lifecycle: Promise.resolve("closed"), release: () => undefined };
-    },
+  const open: SidebarRootController["open"] = (destination) => {
+    onOpen(destination);
+    return { lifecycle: Promise.resolve("closed"), release: () => undefined };
   };
+  return { open, toggle: open };
 }
 
 export function createTestSidebarShell(): SidebarShellController {

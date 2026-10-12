@@ -491,6 +491,38 @@ it("keeps viewport compensation and measured content geometry in the same resize
   }
 });
 
+it("keeps the tail aligned during viewport resizing without moving a reader back to the tail", async () => {
+  const geometry = installVirtualizedScrollGeometry(600);
+  const { view } = streamingView(Array.from({ length: 100 }, (_, index) => row(index + 1)));
+  try {
+    await act(async () => {
+      await new Promise(requestAnimationFrame);
+    });
+    const list = screen.getByRole("list");
+    list.scrollTop = list.scrollHeight - list.clientHeight;
+    fireEvent.scroll(list);
+    for (const height of [400, 500, 300]) {
+      act(() => {
+        geometry.resize(list, height);
+      });
+      expect(list.scrollTop).toBe(list.scrollHeight - list.clientHeight);
+      await act(async () => {
+        await new Promise(requestAnimationFrame);
+      });
+    }
+    fireEvent.wheel(list);
+    list.scrollTop = 500;
+    fireEvent.scroll(list);
+    act(() => {
+      geometry.resize(list, 450);
+    });
+    expect(list.scrollTop).toBe(500);
+  } finally {
+    view.unmount();
+    geometry.restore();
+  }
+});
+
 it("compensates above-viewport remeasurement while scrolling upward", async () => {
   const geometry = installVirtualizedScrollGeometry(600);
   const { view } = streamingView(Array.from({ length: 100 }, (_, index) => row(index + 1)));

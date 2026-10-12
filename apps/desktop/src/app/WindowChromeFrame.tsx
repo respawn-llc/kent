@@ -38,7 +38,7 @@ export function WindowChromeFrame({
       {floatingControls}
       {title !== null && !macOS ? <WindowChromeTitle title={title} macOS={false} /> : null}
       <div
-        className="app-region-no-drag relative flex min-h-0 min-w-0 w-full overflow-hidden"
+        className="app-region-no-drag relative flex min-h-0 min-w-0 w-full overflow-clip"
         data-testid="app-shell-content"
       >
         {children}

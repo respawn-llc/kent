@@ -294,7 +294,7 @@ function MarkdownFieldEditor({
       autoFocus
       className={cx(
         fieldIslandInputClassName(1, surfaceRadius),
-        "block h-full min-h-0 min-w-0 resize-none p-[var(--space-2)] font-mono",
+        "block h-full min-h-0 min-w-0 resize-none overflow-y-auto p-[var(--space-2)] font-mono",
         hasFloatingAction && "pb-12",
       )}
       id={fieldID}

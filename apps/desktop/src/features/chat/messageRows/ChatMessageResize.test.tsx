@@ -117,7 +117,7 @@ function liveAssistant(text: string): Extract<TranscriptRenderItem, { kind: "ass
 }
 
 it.each(["user", "assistant"] as const)(
-  "animates a completed %s bubble shrinking after reflow",
+  "keeps a completed %s bubble fitted to its content during width reflow",
   async (kind) => {
     const geometry = installAnimatedHeightGeometry(160);
     const services = createTestServices([]);
@@ -155,18 +155,15 @@ it.each(["user", "assistant"] as const)(
       const bubble = screen.getByText(() => true, { selector: "section" });
       await flushAnimationFrames();
       act(() => {
-        geometry.resize(80);
+        geometry.resize(80, 480);
       });
-      expect(bubble.getBoundingClientRect().height).toBeGreaterThan(80);
-      const intermediateHeight = await waitFor(() => {
-        const height = bubble.getBoundingClientRect().height;
-        expect(height).toBeLessThan(160);
-        return height;
+      await flushAnimationFrames();
+      expect(bubble.getBoundingClientRect().height).toBe(80);
+      act(() => {
+        geometry.resize(200, 240);
       });
-      expect(intermediateHeight).toBeGreaterThan(80);
-      await waitFor(() => {
-        expect(bubble.getBoundingClientRect().height).toBeCloseTo(80);
-      });
+      await flushAnimationFrames();
+      expect(bubble.getBoundingClientRect().height).toBe(200);
     } finally {
       view.unmount();
       geometry.restore();

@@ -42,7 +42,9 @@ export function useVirtualizedEndAnchoring(mode: VirtualizedEndAnchoring | undef
       observeElementRect(instance, (rect) => {
         const following = canFollow();
         callback(rect);
-        if (following) instance.scrollToEnd({ behavior: prefersReducedMotion() ? "auto" : "smooth" });
+        // Resize already moves the viewport. Keep its tail aligned in the same
+        // frame rather than restarting a second, lagging scroll animation.
+        if (following) instance.scrollToEnd({ behavior: "auto" });
         publish(instance);
       }),
     [canFollow, publish],

@@ -45,8 +45,9 @@ export function ProcessesSidebar({ target }: Readonly<{ target: ChatSessionTarge
   if (data.kind === "error") {
     return (
       <ErrorState
+        inset
+        surface="plain"
         body={errorMessage(data.error)}
-        fullPage={false}
         onRetry={() => {
           retry(undefined);
         }}
@@ -56,7 +57,7 @@ export function ProcessesSidebar({ target }: Readonly<{ target: ChatSessionTarge
     );
   }
   if (data.kind === "loading") {
-    return <LoadingState fullPage={false} title={t("processes.loading")} />;
+    return <LoadingState surface="plain" inset title={t("processes.loading")} />;
   }
 
   if (data.processes.length === 0) {

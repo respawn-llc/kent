@@ -1,4 +1,5 @@
 export const chatComposerEnglish = {
+  pasteFailed: "Could not paste from clipboard",
   connectionReplaced: "Provider connection changed",
   connectionReplacedBody: "{{previous}} is unavailable; using {{current}}.",
   commands: {
@@ -10,12 +11,9 @@ export const chatComposerEnglish = {
   historyFailed: "Could not load prompt history",
   historyBlocked: "Send or clear this draft before browsing history; your previous draft is kept.",
   context: {
-    compact: "Compact",
+    compact: "Compact now",
     compacting: "Compacting",
-    remaining:
-      "<strong>{{tokens}}</strong> of <strong>{{window}}</strong> tokens remaining (<strong>{{percent}}%</strong>)",
     disabled: "Compaction disabled by policy",
-    completed: "Compactions: <strong>{{count}}</strong>",
     completedTitle: "Compaction complete",
     completedBody: "Your Chat context is ready.",
     failed: "Compaction failed",

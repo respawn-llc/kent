@@ -330,6 +330,7 @@ function ContextualWorktrees() {
         <SidebarHeaderActionProvider>
           <SidebarHeaderActionSlot />
           <WorktreeBrowser
+            onOpenSession={vi.fn()}
             sessionID={sessionTarget.sessionID}
             navigator={navigator}
             onCreate={vi.fn()}

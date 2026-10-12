@@ -167,7 +167,7 @@ function mountDestination(destination: SidebarDestination, pageNavigator = creat
   fixture.services = services;
   render(
     <TestAppProviders services={services}>
-      <SidebarRootContext.Provider value={{ open: vi.fn() }}>
+      <SidebarRootContext.Provider value={{ open: vi.fn(), toggle: vi.fn() }}>
         <SidebarDestinationView destination={destination} navigator={pageNavigator} />
       </SidebarRootContext.Provider>
     </TestAppProviders>,

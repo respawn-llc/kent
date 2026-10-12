@@ -26,8 +26,12 @@ export function AnimatedSize({
   const height = useMotionValue<number | string>("auto");
   const animation = useRef<AnimationPlaybackControls | null>(null);
   const reducedMotion = useReducedMotion();
-  const resize = useEffectEvent((next: number) => {
+  const resize = useEffectEvent((next: number, widthChanged: boolean) => {
     animation.current?.stop();
+    if (widthChanged) {
+      height.set(next);
+      return;
+    }
     animation.current = animate(height, next, {
       ease: "easeOut",
       ...transition,
@@ -41,9 +45,18 @@ export function AnimatedSize({
     if (element === null) return;
     // Initialize the unscaled layout height without animating from "auto".
     // The popup owns entrance motion; only later content resizes animate here.
-    height.set(element.offsetHeight);
+    let measuredHeight = element.offsetHeight;
+    let measuredWidth = element.offsetWidth;
+    height.set(measuredHeight);
     const observer = new ResizeObserver(() => {
-      resize(element.offsetHeight);
+      const nextHeight = element.offsetHeight;
+      const nextWidth = element.offsetWidth;
+      if (nextHeight === measuredHeight && nextWidth === measuredWidth) return;
+      // Width reflow already follows the containing layout's motion. Animating
+      // height again makes wrapped text lag behind that layout.
+      resize(nextHeight, nextWidth !== measuredWidth);
+      measuredHeight = nextHeight;
+      measuredWidth = nextWidth;
     });
     observer.observe(element);
     return () => {

@@ -347,6 +347,8 @@
 
 ## Tasks
 
+- Task Detail must identify Current Nodes by their workflow display names in effective Agent and thinking labels and their tooltips, not by Node IDs.
+
 - New Task requires title and accepts optional body, Project Labels, hidden source information, and source workspace. Workflow selection is outside the form.
 - The source-workspace selector uses the Project Workspace catalog with infinite scroll and bounded page retention.
 - Source-workspace options use the Workspace-name presentation.

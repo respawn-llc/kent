@@ -22,6 +22,7 @@ import { useComposerSurface } from "./ChatComposerSurface";
 import type { useChatComposer } from "./useChatComposer";
 import type { ChatSettingsFeature } from "./useChatSettings";
 import "./chatComposer.css";
+import { useChatClipboard } from "./ChatClipboard";
 
 export type ChatComposerProps = Readonly<{
   settings: ChatSettingsFeature;
@@ -42,6 +43,7 @@ export function ChatComposer({
 }: ChatComposerProps) {
   const { t } = useTranslation();
   const { nativeBridge } = useAppServices();
+  const clipboard = useChatClipboard();
   const { composer, activity, stoppable, promptPicker, onEditorKeyDown } = useComposerSurface();
   const root = useRef<HTMLDivElement>(null);
   const localEditor = useRef<HTMLTextAreaElement>(null);
@@ -104,7 +106,34 @@ export function ChatComposer({
     />
   );
   return (
-    <div className="chat-composer" ref={root}>
+    <div
+      className="chat-composer"
+      ref={root}
+      onKeyDownCapture={(event) => {
+        if (
+          !clipboard.supported ||
+          promptVisible ||
+          event.key.toLowerCase() !== "v" ||
+          !(event.metaKey || event.ctrlKey) ||
+          event.altKey
+        )
+          return;
+        if (editor.current === null || composer.interactionRestricted) return;
+        event.preventDefault();
+        clipboard.paste(editor.current);
+      }}
+      onPaste={(event) => {
+        if (
+          !clipboard.supported ||
+          promptVisible ||
+          editor.current === null ||
+          composer.interactionRestricted
+        )
+          return;
+        event.preventDefault();
+        clipboard.paste(editor.current);
+      }}
+    >
       <AnimatePresence initial={false}>
         {(pickerOpen || composer.pending.items.length > 0) && (
           <AnimatedReveal key="peeking-surface">
@@ -123,6 +152,9 @@ export function ChatComposer({
               className={promptVisible ? "hidden" : "flex min-h-0 min-w-0 flex-col"}
             >
               {editorRegion}
+              <div hidden={!clipboard.pending}>
+                <Spinner size="sm" />
+              </div>
             </div>
             {promptPicker !== null && <ChatPromptPicker picker={promptPicker} />}
             <ComposerControls
@@ -204,9 +236,7 @@ function ComposerControls({
       </div>
       {controls}
       <div className="chat-composer-actions">
-        {composer.target?.kind === "session" && (
-          <SessionChatContext compact={composer.compact} settings={settings} />
-        )}
+        {composer.target?.kind === "session" && <SessionChatContext compact={composer.compact} />}
         <ComposerStopButton />
         <ComposerSendButton />
       </div>

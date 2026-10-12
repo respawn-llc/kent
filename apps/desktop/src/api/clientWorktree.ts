@@ -136,6 +136,9 @@ export async function createWorktree(
   input: WorktreeCreateInput,
 ): Promise<CreateSuccess> {
   const resolution = requireWorktreeAuthority(input.resolution, "create");
+  if (resolution.kind === CreateTargetResolutionKind.WORKTREE_CREATE_TARGET_RESOLUTION_KIND_INVALID) {
+    throw new TypeError("Cannot create a worktree from an invalid branch name or ref.");
+  }
   const createBranch =
     resolution.kind === CreateTargetResolutionKind.WORKTREE_CREATE_TARGET_RESOLUTION_KIND_NEW_BRANCH;
   if (createBranch !== (input.baseRef !== null)) {

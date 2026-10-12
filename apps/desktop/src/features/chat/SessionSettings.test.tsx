@@ -17,7 +17,6 @@ import { useChatSettings, type ChatSettingsOptions } from "./chatSettingsTestOwn
 import * as ui from "@/ui";
 import { appI18n } from "@/i18n";
 import { ChatContextControl } from "./ChatContextControl";
-import { ChatAutoCompactionSwitch } from "./ChatAutoCompactionSwitch";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -207,7 +206,7 @@ it("omits the Session Connection row when the server does not project it", async
   ).toBeNull();
 });
 
-it("shares eager Auto-compaction changes and rollback between Context and Settings", async () => {
+it("keeps Auto-compaction changes and rollback in Settings, outside Context", async () => {
   const services = createTestServices([]);
   const read = vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(initialRead);
   const contextRead = vi.spyOn(services.api.chat, "getContext");
@@ -222,11 +221,9 @@ it("shares eager Auto-compaction changes and rollback between Context and Settin
         <ChatContextControl
           used={20}
           window={100}
-          completedCount={0}
           compacting={false}
           policyDisabled={false}
           compact={vi.fn()}
-          autoCompactionControl={<ChatAutoCompactionSwitch feature={feature} />}
         />
       </>
     );
@@ -239,13 +236,13 @@ it("shares eager Auto-compaction changes and rollback between Context and Settin
   );
   await screen.findByRole("button", { name: appI18n.t("chatSettings.open") });
   await user.click(screen.getByRole("button", { name: "20%" }));
+  expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: appI18n.t("chatSettings.open") }));
   const toggle = screen.getByRole("switch", { name: appI18n.t("chatSettings.autoCompaction") });
   expect(toggle).toBeChecked();
   await user.click(toggle);
   expect(toggle).not.toBeChecked();
   expect(mutate).toHaveBeenCalledExactlyOnceWith(target, { kind: "auto_compaction", enabled: false });
-  await user.click(screen.getByRole("button", { name: appI18n.t("chatSettings.open") }));
-  expect(screen.getByRole("switch", { name: appI18n.t("chatSettings.autoCompaction") })).not.toBeChecked();
   await act(async () => {
     mutation.reject(typedSettingsFailure());
   });

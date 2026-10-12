@@ -8,6 +8,8 @@ import { Island } from "./Island";
 import { Spinner } from "./Spinner";
 
 export type LoadingStateProps = Readonly<{
+  inset?: boolean;
+  surface?: "island" | "plain";
   title?: ReactNode;
   body?: ReactNode;
   actions?: ReactNode;
@@ -24,6 +26,8 @@ const defaultLoadingAppearanceDelayKey = "global";
 const delayedLoadingAppearanceKeys = new Set<string>();
 
 export function LoadingState({
+  inset = false,
+  surface = "island",
   title = null,
   body = null,
   actions,
@@ -40,6 +44,8 @@ export function LoadingState({
   }
   return (
     <StateIsland
+      inset={inset}
+      surface={surface}
       chromePadding={chromePadding}
       contentTestID="loading-state-content"
       contentWidth={contentWidth}
@@ -148,6 +154,8 @@ export function EmptyState({
 }
 
 export type ErrorStateProps = Readonly<{
+  inset?: boolean;
+  surface?: "island" | "plain";
   title?: ReactNode;
   body?: ReactNode;
   details?: ReactNode;
@@ -161,6 +169,8 @@ export type ErrorStateProps = Readonly<{
 }>;
 
 export function ErrorState({
+  inset = false,
+  surface = "island",
   title = null,
   body = null,
   details = null,
@@ -174,6 +184,8 @@ export function ErrorState({
 }: ErrorStateProps) {
   return (
     <StateIsland
+      inset={inset}
+      surface={surface}
       chromePadding={chromePadding}
       contentTestID="error-state-content"
       contentWidth={contentWidth}
@@ -209,6 +221,8 @@ export function ErrorState({
 }
 
 type StateIslandProps = Readonly<{
+  inset?: boolean;
+  surface?: "island" | "plain";
   children: ReactNode;
   chromePadding: boolean;
   contentTestID: string;
@@ -226,6 +240,8 @@ type StateIslandProps = Readonly<{
 type StateContentWidth = "default" | "full";
 
 function StateIsland({
+  inset = false,
+  surface = "island",
   children,
   chromePadding,
   contentTestID,
@@ -263,6 +279,22 @@ function StateIsland({
       <div className="grid max-w-full justify-items-center gap-[var(--space-2)]">{children}</div>
     </div>
   );
+  if (surface === "plain") {
+    return (
+      <div
+        className={cx(
+          "grid min-w-0 place-items-center",
+          inset && "p-[var(--space-4)]",
+          fullPage && "h-full min-h-0",
+          chromePadding && chromeContentPaddingClassName,
+          reveal && "animate-[surface-reveal_var(--motion-normal)]",
+        )}
+        data-testid={testID}
+      >
+        {content}
+      </div>
+    );
+  }
   if (fullPage) {
     return (
       <div
