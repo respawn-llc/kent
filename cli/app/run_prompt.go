@@ -62,6 +62,14 @@ func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Op
 		return RunPromptResult{}, err
 	}
 	warnings, warningErr := runPromptWarnings(response)
+	if err != nil && response.GetOutcome() == nil {
+		return RunPromptResult{
+			SessionID:   response.SessionId,
+			SessionName: response.SessionName,
+			Duration:    response.Duration.AsDuration(),
+			Warnings:    warnings,
+		}, errors.Join(err, warningErr)
+	}
 	if warningErr != nil {
 		return RunPromptResult{}, errors.Join(err, warningErr)
 	}
@@ -70,13 +78,13 @@ func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Op
 	case *runpromptpb.Success_FinalAnswer:
 		outcome = RunPromptFinalAnswer{Text: selected.FinalAnswer}
 	case *runpromptpb.Success_Question:
-		question, err := protoapi.ObservationQuestionFromProto(selected.Question)
-		if err != nil {
-			return RunPromptResult{}, errors.Join(err, warningErr)
+		question, conversionErr := protoapi.ObservationQuestionFromProto(selected.Question)
+		if conversionErr != nil {
+			return RunPromptResult{}, errors.Join(err, conversionErr)
 		}
 		outcome = RunPromptPendingQuestion{Question: question}
 	default:
-		return RunPromptResult{}, errors.New("Run response has no outcome")
+		return RunPromptResult{}, errors.Join(err, errors.New("Run response has no outcome"))
 	}
 	result := RunPromptResult{
 		SessionID:   response.SessionId,

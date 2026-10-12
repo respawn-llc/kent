@@ -109,7 +109,7 @@ Project deletion never deletes or moves workspace files.
 
 ## Output modes
 
-By default, `kent run` writes each finalized assistant commentary or final response to `stdout` as it is committed. Use `--quiet` to suppress live output and print only the terminal result. For scripting, use JSON mode:
+By default, `kent run` writes each finalized assistant commentary or final response to `stdout` as it is committed. Use `--quiet` to suppress live output. Pending questions and approvals are shown. For scripting, use JSON mode:
 
 ```bash
 kent run --output-mode=json "summarize the repo" | jq
@@ -129,6 +129,29 @@ JSON mode emits exactly one final object on `stdout`.
   "duration_ms": 1234
 }
 ```
+
+When a question or approval is pending, JSON omits `result` and includes an `outcome` with `kind: "question"` and the Session answer target:
+
+```json
+{
+  "status": "ok",
+  "outcome": {
+    "kind": "question",
+    "question_id": "...",
+    "text": "...",
+    "suggestions": ["..."],
+    "answer_target": {
+      "session_id": "..."
+    }
+  },
+  "session_id": "...",
+  "continue_id": "...",
+  "continue_command": "...",
+  "duration_ms": 1234
+}
+```
+
+For an access approval, `outcome` also includes `access_targets` when target details are available.
 
 On failure, JSON mode emits `status: "error"` and an `error` object instead of `result`.
 
