@@ -68,7 +68,7 @@ func TestSyncExecutionTargetAfterCompactionDeliversSwitch(t *testing.T) {
 			settings.CompactionMode = config.CompactionModeLocal
 			settings.Reviewer.Frequency = "off"
 			request := serverapi.SessionRuntimeActivateRequest{
-				SessionID: fixture.store.Meta().SessionID, OwnerID: "worktree-transition",
+				SessionID: requestfixture.SessionID(t, fixture.store.Meta().SessionID), OwnerID: "worktree-transition",
 				QuestionsEnabled: new(true), AutoCompactionEnabled: new(true),
 				ActiveSettings: settings, Source: config.SourceReport{Sources: map[string]config.Origin{}},
 			}
