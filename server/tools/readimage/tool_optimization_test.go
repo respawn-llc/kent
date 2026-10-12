@@ -129,6 +129,13 @@ func TestCall_RawImageSkipsOptimization(t *testing.T) {
 	if !bytes.Equal(payload, original.Bytes()) {
 		t.Fatalf("expected raw image bytes to be preserved")
 	}
+	var items []contentItem
+	if err := json.Unmarshal(result.Output, &items); err != nil {
+		t.Fatalf("decode raw image content: %v", err)
+	}
+	if len(items) != 1 || items[0].Detail == nil || *items[0].Detail != "auto" {
+		t.Fatalf("raw non-OpenAI image detail = %+v, want auto", items)
+	}
 }
 
 func TestCall_RawImageStillEnforcesAttachmentCap(t *testing.T) {

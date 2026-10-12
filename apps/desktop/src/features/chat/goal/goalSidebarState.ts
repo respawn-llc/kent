@@ -1,7 +1,10 @@
 import type { ChatGoalFact, ChatGoalStatus } from "@/api";
 
 export type GoalMutationIntent =
-  | Readonly<{ kind: "goal"; preview: Readonly<{ objective: string; status: ChatGoalStatus }> }>
+  | Readonly<{
+      kind: "set" | "pause" | "resume" | "reopen";
+      preview: Readonly<{ objective: string; status: ChatGoalStatus }>;
+    }>
   | Readonly<{ kind: "clear" }>;
 
 export type GoalObservationState =
@@ -51,7 +54,7 @@ export function reconcileDraftState(
   pendingIntent: GoalMutationIntent | null,
 ): DraftState {
   if (pendingIntent?.kind === "clear") return { base: "", draft: "" };
-  if (pendingIntent?.kind === "goal" && fact?.goal === null) return localDraft;
+  if (pendingIntent !== null && fact?.goal === null) return localDraft;
   if (fact === null) {
     return localDraft.draft === localDraft.base ? { base: "", draft: "" } : { ...localDraft, base: "" };
   }
@@ -72,13 +75,13 @@ function goalPresentation(
   draft: string,
 ): Readonly<{ objective: string; status: ChatGoalStatus | null; createdAt: string | null }> {
   if (pendingIntent?.kind === "clear") return { objective: "", status: null, createdAt: null };
-  if (pendingIntent?.kind === "goal") return pendingGoalPresentation(fact, pendingIntent, draft);
+  if (pendingIntent !== null) return pendingGoalPresentation(fact, pendingIntent, draft);
   return { objective: draft, status: fact?.goal?.status ?? null, createdAt: fact?.goal?.createdAt ?? null };
 }
 
 function pendingGoalPresentation(
   fact: ChatGoalFact | null,
-  pendingIntent: Extract<GoalMutationIntent, { kind: "goal" }>,
+  pendingIntent: Exclude<GoalMutationIntent, { kind: "clear" }>,
   draft: string,
 ): Readonly<{ objective: string; status: ChatGoalStatus; createdAt: string | null }> {
   const authoritativeGoal = fact?.goal;

@@ -661,6 +661,21 @@ func (f *currentNodeRunnerFixture) waitForTaskQuiescence(t *testing.T, taskID wo
 	t.Fatalf("Task %s did not reach Workflow execution quiescence", taskID)
 }
 
+func (f *currentNodeRunnerFixture) waitForSessionExecutionQuiescence(
+	t *testing.T,
+	sessionID runtimeids.SessionID,
+) {
+	t.Helper()
+	deadline := time.Now().Add(currentNodeRunnerWait)
+	for time.Now().Before(deadline) {
+		if _, active := f.authority.SessionExecution(sessionID); !active {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("Session %s did not reach execution quiescence", sessionID)
+}
+
 func (f *currentNodeRunnerFixture) workflowExecutionOwned(reference workflow.CurrentNodeReference) (bool, error) {
 	snapshots, err := f.authority.CurrentWorkflowTaskExecutionSnapshots()
 	if err != nil {
@@ -3033,6 +3048,7 @@ func TestInteractivePreparedGenerationRestoresWorkflowAssignment(t *testing.T) {
 				t.Fatal(err)
 			}
 			f.waitForAssistantFinal(t, sessionID, "ordinary answer")
+			f.waitForSessionExecutionQuiescence(t, sessionID)
 			if approvalCase {
 				if _, err := f.controller.ApplyPendingApproval(t.Context(), approval.ID); err != nil {
 					t.Fatal(err)

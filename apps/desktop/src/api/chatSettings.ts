@@ -285,8 +285,6 @@ function editability(value: Editability): ChatSettingsEditability {
       return { kind: "editable" };
     case Editability.WORKFLOW_LOCK:
       return { kind: "workflow_lock" };
-    case Editability.CACHING_LOCK:
-      return { kind: "caching_lock" };
     case Editability.POLICY_DISABLED:
       return { kind: "policy_disabled" };
     case Editability.UNSPECIFIED:

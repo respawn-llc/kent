@@ -334,7 +334,7 @@ message Settings {
   bool allow_non_cwd_edits = 20;
   int32 model_context_window = 21 [(buf.validate.field).int32.gte = 40000];
   int32 context_compaction_threshold_tokens = 22 [(buf.validate.field).int32.gt = 0];
-  int32 pre_submit_compaction_lead_tokens = 23 [(buf.validate.field).int32.gt = 0];
+  optional int32 pre_submit_compaction_lead_tokens = 23 [(buf.validate.field).int32.gt = 0];
   int32 minimum_exec_to_bg_seconds = 24 [(buf.validate.field).int32.gt = 0];
   CompactionMode compaction_mode = 25 [(buf.validate.field).enum = {
     defined_only: true

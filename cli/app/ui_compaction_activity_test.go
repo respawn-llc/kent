@@ -7,7 +7,7 @@ import (
 )
 
 func TestRuntimeActivityOwnsCompactionStatus(t *testing.T) {
-	for _, kind := range []runtimepb.ActivityActiveKind{runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_COMPACTION, runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_PRE_SUBMIT_COMPACTION} {
+	for _, kind := range []runtimepb.ActivityActiveKind{runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_COMPACTION} {
 		t.Run(kind.String(), func(t *testing.T) {
 			model := newProjectedStaticUIModel()
 

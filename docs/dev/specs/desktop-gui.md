@@ -33,6 +33,7 @@
 - Desktop must buffer at most 1,000 pending Project subscription events. When the buffer is full, production Desktop must drop the incoming event, log each dropped event, and continue observation. Debug Desktop must surface overflow as a fatal UI error, not a retryable status; it need not terminate the native process or host browser. Overflow must not change server-owned work.
 - Local capabilities such as clipboard, directory selection, separate windows, window controls, and notifications are distinct from server readiness. When unavailable, explain the unavailable action; cosmetic shell behavior may be absent in a browser presentation.
 - Text input is plain multiline Markdown. Rich Markdown preserves every source newline as a visible line break. Rich Markdown remains within its available surface width; only a code block may scroll horizontally inside its own block. Task Detail and Workflow Editor content use the shared rich Markdown presentation with sanitized raw-HTML and link behavior. Board previews are flattened text previews: they strip Markdown formatting and raw HTML without rendering rich structure or controls, preserve readable text labels, and remain bounded for dense boards. Completed supported code is syntax-highlighted and selectable in rich content; incomplete code remains selectable plain text.
+- Rich Markdown must load image references from any HTTP or HTTPS origin, including third-party hosts.
 - Activating a permitted external Markdown link must open it directly in the system's default application without a confirmation dialog. Raw-HTML sanitization and unsafe-link blocking must remain active.
 - Task Description and Goal objective use one shared large Markdown field. Desktop does not maintain feature-specific copies of its read or edit presentation.
 - The shared Markdown field has one base read-and-edit presentation and one optional collapsible presentation. The collapsible presentation adds overflow detection, a fade, and an accessible Expand action without creating another Markdown editor.
@@ -347,6 +348,8 @@
 
 ## Tasks
 
+- Task Detail must identify Current Nodes by their workflow display names in effective Agent and thinking labels and their tooltips, not by Node IDs.
+
 - New Task requires title and accepts optional body, Project Labels, hidden source information, and source workspace. Workflow selection is outside the form.
 - The source-workspace selector uses the Project Workspace catalog with infinite scroll and bounded page retention.
 - Source-workspace options use the Workspace-name presentation.
@@ -383,6 +386,7 @@
 - Source URL is read-only. Valid web, secure web, and mail links use their host as the label and open externally; other values are plain source text.
 - Core Task Detail, Task attention, Comments, and Activity load independently. Comments and Activity start their first page asynchronously and in parallel without blocking other Task Detail content. Attention loading must not block core detail. Opening from Inbox focuses its requested attention item once available. Live server changes update open Task Detail without replacing unsaved title or body edits or collapsing the surface.
 - Comments and Activity use 50 rows per page, newest first, and retain at most 10 nearby pages per feed.
+- A Comment header's author title must occupy all width left after its icon, timestamp, and delete action. The title must ellipsize only when that space is exhausted, both while editing and viewing the Comment.
 - Each feed uses edge-driven infinite scroll in both directions. Loading beyond the page budget evicts the farthest page on the opposite side, and returning to an evicted side reloads it.
 - Live feed changes refresh the retained bounded pages. Desktop keeps the visible row steady when it remains loaded and otherwise uses the nearest loaded position.
 - A page-edge failure retains loaded rows and offers Retry at that edge. A first-page failure and an empty feed use the standard feed error and empty states.
@@ -491,6 +495,8 @@
 - Inbox-opened Task Detail can move through the live Inbox order with Previous and Next. After resolution removes the open Task, Next advances to the replacement item. These controls are unavailable outside Inbox.
 - The top Task Detail action opens or focuses the highest-priority unresolved attention. Every unresolved item not awaiting an answer result retains its applicable inline controls. Preparation failures use the ordinary Task action failure presentation defined by [Workflow Orchestration](workflow-orchestration.md#execution-targets-and-worktrees).
 - Home Inbox shows only task-scoped attention. It has no Workflow-validity badge or section.
+- Task Detail must label its Session action `Open in Chat`, or `Open in CLI` where Chat is unavailable. With one live Session, it must execute the action directly. With multiple live Sessions, it must show a scrollable popup using the Task search popup's row treatment. Each one-line row must show the Session name, or its ID when unnamed, in the small body font. Activating a row must act only on that Session. Open in CLI must keep its command-copy behavior. The `Interrupt` action must keep its Task-wide behavior without a Session picker.
+- Home Inbox items must highlight their complete area on hover, including the Open in Chat action. That action must occupy the header row and reduce only the title's available width. The body must use the full item width. Session list titles and bodies must use the full item width without reserving space for an absent action.
 - Questions support suggestions, freeform commentary, recommendations, pointer or keyboard selection, and ordinary focus navigation. An option Question selects its valid recommended option by default and otherwise selects option 1; malformed recommendation metadata follows the same option-1 fallback. Live refresh preserves the user's selection and draft. Selection and recommendation remain distinct states. A Question with no suggestions has only freeform response and does not offer `Neither`.
 - Runtime Approvals use the actual prompt, approval-specific choices, select the one-time allow choice when offered and otherwise the first offered choice, and do not offer `Neither`; Deny requires commentary. A consolidated outside-workspace Approval begins with `Agent wants to access a batch of files, but <count> are outside workspace dir:`, shows every unique model-provided path and any different real resolved path as an ordered bullet, and ends with `Allow this access?` before its choices. Workflow transition approval offers only Approve and shows source Node, Transition Key and label, target Nodes, required values, commentary, Workflow Version, and stale warning.
 - Task Detail sends each `Submit answer` independently and does not collect responses across Questions or runtime Approvals.
@@ -505,7 +511,7 @@
 - Leaving Task Detail discards unsubmitted Question and runtime Approval answer state.
 - A prompt resolved by another client disappears without feedback.
 - Task Detail does not offer Decline for Questions or runtime Approvals.
-- Approving a transition that first needs an Execution Target uses the same selection dialog. Dismissing it leaves Approval pending. Interrupt acts immediately without confirmation.
+- Interrupt acts immediately without confirmation.
 - Task Detail opened from Inbox remains open after resolution while Inbox updates in the background.
 - Desktop attention includes workflow Questions, workflow Approvals, ordinary Session Questions and Approvals with a Desktop response surface, and executable Nodes interrupted by errors. It excludes user interruptions.
 - A focused window shows a persistent in-app attention notification. Selecting it opens Task Detail or Session Chat at the relevant attention item. Every notification can be closed regardless of duration. An ordinary Session prompt does not show a duplicate notification while its owning Session Chat and picker are already the focused destination.

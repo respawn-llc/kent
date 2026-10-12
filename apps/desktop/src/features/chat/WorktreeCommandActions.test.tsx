@@ -20,6 +20,7 @@ it.each([false, true])("resolves a command selector before Switch, current=%s", 
     sessionID: "33333333-3333-4333-8333-333333333333",
     roots: { open },
     focusComposer: vi.fn(),
+    openSession: vi.fn(),
     deleteTarget: vi.fn(),
     refreshOpenWorktreeList: vi.fn(),
     push,
@@ -72,6 +73,7 @@ it("dispatches Leave without resolving or listing targets", async () => {
     sessionID: "33333333-3333-4333-8333-333333333333",
     roots: { open },
     focusComposer: vi.fn(),
+    openSession: vi.fn(),
     deleteTarget: vi.fn(),
     refreshOpenWorktreeList: vi.fn(),
     push,
@@ -124,6 +126,7 @@ it.each(["resolveWorktreeSelector", "switchWorktree"] as const)(
       sessionID: "33333333-3333-4333-8333-333333333333",
       roots: { open: vi.fn() },
       focusComposer: vi.fn(),
+      openSession: vi.fn(),
       deleteTarget: vi.fn(),
       refreshOpenWorktreeList: vi.fn(),
       push,
@@ -176,17 +179,16 @@ it.each(["list", "create"] as const)("opens the ordinary %s destination", async 
     sessionID: "33333333-3333-4333-8333-333333333333",
     roots: { open },
     focusComposer: vi.fn(),
+    openSession: vi.fn(),
     deleteTarget: vi.fn(),
     refreshOpenWorktreeList: vi.fn(),
     push: vi.fn(),
     t: appI18n.t,
   });
   await model.execute({ kind });
-  expect(open).toHaveBeenCalledWith({
-    kind: "worktree",
-    sessionID: "33333333-3333-4333-8333-333333333333",
-    page: kind,
-  });
+  expect(open).toHaveBeenCalledWith(
+    expect.objectContaining({ kind: "worktree", sessionID: "33333333-3333-4333-8333-333333333333", page: kind }),
+  );
   expect(services.transport.descriptorCalls).toHaveLength(0);
 });
 

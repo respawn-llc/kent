@@ -3257,7 +3257,7 @@ func TestServiceSubmitUserTurnPromptResolutionFailureDuringActiveRunReturnsWitho
 	}
 }
 
-func TestServicePreSubmitCompactionDoesNotOwnDraftOrSteeringAdmission(t *testing.T) {
+func TestServiceInputAdmissionDoesNotCompactContext(t *testing.T) {
 	client := &blockingCompactionRuntimeControlClient{
 		runtimeControlFakeClient: runtimeControlFakeClient{
 			capabilities: runtimeControlOpenAICapabilities,
@@ -3277,36 +3277,26 @@ func TestServicePreSubmitCompactionDoesNotOwnDraftOrSteeringAdmission(t *testing
 	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{
 		Model: "gpt-6-sol", ProviderCapabilitiesOverride: &runtimeControlOpenAICapabilities,
 	})
-	client.responses[0].Usage.InputTokens = textutil.Value(int(engine.LiveChatContextSnapshot().Policy.AutomaticThresholdTokens) - config.DefaultPreSubmitRunwayTokens + 1)
+	client.responses[0].Usage.InputTokens = textutil.Value(int(engine.LiveChatContextSnapshot().Policy.AutomaticThresholdTokens) - 35_000 + 1)
 	client.responses[0].Usage.ContextUsage = &llm.ContextUsage{
 		Tokens: *client.responses[0].Usage.InputTokens, MeasurementPoint: llm.ContextMeasurementInput,
 	}
 	if _, err := engine.SubmitUserMessage(t.Context(), "seed"); err != nil {
 		t.Fatal(err)
 	}
-	first := make(chan error, 1)
-	go func() {
-		_, err := service.SubmitUserTurn(t.Context(), runtimeControlUserTurnRequest(store, "precompact", "first after compaction"))
-		first <- err
-	}()
-	select {
-	case <-client.started:
-	case <-time.After(5 * time.Second):
-		t.Fatal("pre-submit compaction did not start")
-	}
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
-	response, err := service.SubmitUserTurn(ctx, runtimeControlUserTurnRequest(store, "during", "during compaction"))
+	response, err := service.SubmitUserTurn(ctx, runtimeControlUserTurnRequest(store, "followup", "ordinary follow-up"))
 	if err != nil {
-		release()
-		<-first
-		t.Fatalf("steering admission while compacting: %v", err)
+		t.Fatalf("ordinary steering admission: %v", err)
 	}
-	if response.GetQueued() == nil || !engine.HasQueuedUserWork() {
-		t.Fatal("steering must remain pending during compaction")
+	if response.GetQueued() == nil {
+		t.Fatal("input was not accepted through ordinary steering")
 	}
-	if countUserMessagesWithContent(t, store, "during compaction") != 0 {
-		t.Fatal("compaction drained steering")
+	select {
+	case <-client.started:
+		t.Fatal("input admission started compaction")
+	default:
 	}
 	id, err := runtimeids.ParseSessionID(store.Meta().SessionID)
 	if err != nil {
@@ -3321,13 +3311,9 @@ func TestServicePreSubmitCompactionDoesNotOwnDraftOrSteeringAdmission(t *testing
 	}); err != nil {
 		t.Fatal(err)
 	}
-	release()
-	if err := <-first; err != nil {
-		t.Fatal(err)
-	}
 	waitForRuntimeControlAssistantFinal(t, engine, "delivered")
-	if countUserMessagesWithContent(t, store, "during compaction") != 1 {
-		t.Fatal("accepted steering was not delivered after compaction")
+	if countUserMessagesWithContent(t, store, "ordinary follow-up") != 1 {
+		t.Fatal("accepted steering was not delivered exactly once")
 	}
 }
 

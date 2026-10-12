@@ -231,8 +231,7 @@ func taskActions(
 	hasLiveExecution := len(live) != 0
 	hasInterruptibleExecution := false
 	for _, execution := range live {
-		hasInterruptibleExecution = hasInterruptibleExecution ||
-			(!execution.Queued && !execution.HasPendingPrompts())
+		hasInterruptibleExecution = hasInterruptibleExecution || !execution.Queued
 	}
 	actions := &taskpb.TaskActions{
 		CanStart:     !done && !hasLiveExecution && status.Kind == taskpb.TaskStatusKind_TASK_STATUS_KIND_BACKLOG,

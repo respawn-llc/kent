@@ -72,6 +72,8 @@ export type { SyntaxHighlightedCodeProps } from "./SyntaxHighlightedCode";
 export { compactExternalUrlLabel, safeExternalUrl } from "./externalLinks";
 export { readEffectiveTheme, type AppTheme } from "./theme";
 export { cx } from "./classes";
+export { SteppedSelector } from "./SteppedSelector";
+export { useTextOverflow } from "./useTextOverflow";
 export { motionDurationFromCSSVar, prefersReducedMotion, useOpacityExit } from "./motion";
 export {
   CollapsibleMarkdownField,

@@ -1,0 +1,20 @@
+.stepped-selector > :has(> .stepped-selector-thumb) {
+  transition: left var(--motion-fast);
+}
+
+.stepped-selector-range {
+  transition:
+    left var(--motion-fast),
+    right var(--motion-fast),
+    background-color var(--motion-fast);
+}
+
+.stepped-selector-thumb {
+  transition:
+    background-color var(--motion-fast),
+    scale var(--motion-fast);
+}
+
+.stepped-selector-thumb:active {
+  scale: 1.15;
+}

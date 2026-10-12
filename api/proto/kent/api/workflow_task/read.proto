@@ -873,7 +873,11 @@ message TaskDetail {
   TaskSourceWorkspace source_workspace = 6 [(buf.validate.field).required = true];
   optional ExecutionTarget execution_target = 7;
   optional string worktree_path = 8 [(buf.validate.field).string.min_len = 1];
-  repeated AttentionCurrentNode current_nodes = 9;
+  repeated AttentionCurrentNode current_nodes = 9 [(buf.validate.field).repeated.items.cel = {
+    id: "kent.workflow_task.detail_current_node_name"
+    message: "Task Detail Current Nodes must have a display name"
+    expression: "has(this.node_display_name)"
+  }];
   // Kent permits at most 100 concurrent agent runs. The matching bound lets
   // portable Protovalidate CEL enumerate every adjacent pair without custom list extensions.
   repeated LiveSession live_sessions = 10 [(buf.validate.field).repeated.max_items = 100];

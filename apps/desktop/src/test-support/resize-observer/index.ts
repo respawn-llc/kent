@@ -10,9 +10,12 @@ export type ResizeObserverGeometryHarness = Readonly<{
   setGeometry(element: HTMLElement, geometry: ResizeObserverGeometry): void;
 }>;
 
-export function installAnimatedHeightGeometry(initialHeight: number) {
+export function installAnimatedHeightGeometry(initialHeight: number, scale = 1) {
   const observer = installResizeObserverGeometry();
+  const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+  const originalOffsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
   let naturalHeight = initialHeight;
+  let naturalWidth = 320;
   // jsdom has no layout. Resolve the rendered height through actual Motion
   // output while supplying the natural content height at the leaf nodes.
   const height = (element: HTMLElement): number => {
@@ -28,15 +31,30 @@ export function installAnimatedHeightGeometry(initialHeight: number) {
   Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
     configurable: true,
     value(this: HTMLElement) {
-      return new DOMRect(0, 0, 320, height(this));
+      return new DOMRect(0, 0, naturalWidth, height(this) * scale);
     },
   });
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return height(this);
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+    configurable: true,
+    get: () => naturalWidth,
+  });
   return {
-    resize(nextHeight: number) {
+    resize(nextHeight: number, nextWidth = naturalWidth) {
       naturalHeight = nextHeight;
+      naturalWidth = nextWidth;
       observer.notify();
     },
-    restore: observer.restore,
+    restore() {
+      observer.restore();
+      restoreDescriptor(HTMLElement.prototype, "offsetHeight", originalOffsetHeight);
+      restoreDescriptor(HTMLElement.prototype, "offsetWidth", originalOffsetWidth);
+    },
   };
 }
 
@@ -106,6 +124,7 @@ export function installVirtualizedScrollGeometry(viewportHeight: number): Readon
   });
   return {
     resize(element, height) {
+      if (element.getAttribute("role") === "list") viewportHeight = height;
       const box = [{ inlineSize: 800, blockSize: height }];
       const entry: ResizeObserverEntry = {
         target: element,
@@ -212,7 +231,14 @@ class ControlledResizeObserver implements ResizeObserver {
 
 function restoreDescriptor(
   prototype: typeof HTMLElement.prototype,
-  property: "clientHeight" | "getBoundingClientRect" | "scrollHeight" | "scrollTo" | "scrollTop",
+  property:
+    | "clientHeight"
+    | "getBoundingClientRect"
+    | "offsetHeight"
+    | "offsetWidth"
+    | "scrollHeight"
+    | "scrollTo"
+    | "scrollTop",
   descriptor: PropertyDescriptor | undefined,
 ): void {
   if (descriptor === undefined) {

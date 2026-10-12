@@ -221,6 +221,16 @@ func (g *Gateway) Handler() http.Handler {
 	return rpcwire.NewWebSocketTransport().Handler(g.handleConn)
 }
 
+func (g *Gateway) ViewedImageHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != ViewedImageBodyPath {
+			http.NotFound(w, r)
+			return
+		}
+		g.serveViewedImageOriginal(w, r)
+	})
+}
+
 func (g *Gateway) handleConn(ctx context.Context, conn rpcwire.Conn) {
 	connCtx, cancel := context.WithCancel(ctx)
 	var stopOnce sync.Once

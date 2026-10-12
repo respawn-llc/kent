@@ -65,6 +65,7 @@ enum CreateTargetResolutionKind {
   WORKTREE_CREATE_TARGET_RESOLUTION_KIND_NEW_BRANCH = 1;
   WORKTREE_CREATE_TARGET_RESOLUTION_KIND_EXISTING_BRANCH = 2;
   WORKTREE_CREATE_TARGET_RESOLUTION_KIND_DETACHED_REF = 3;
+  WORKTREE_CREATE_TARGET_RESOLUTION_KIND_INVALID = 4;
 }
 
 enum SelectorErrorKind {
@@ -736,9 +737,9 @@ message CreateTargetResolution {
 
   option (buf.validate.message).cel = {
     id: "kent.worktree.create_target_resolution"
-    message: "new branch omits resolved_ref and existing targets require it"
+    message: "new or invalid targets omit resolved_ref and existing targets require it"
     expression:
-      "(this.kind == 1 && !has(this.resolved_ref)) || "
+      "(this.kind in [1, 4] && !has(this.resolved_ref)) || "
       "(this.kind in [2, 3] && has(this.resolved_ref))"
   };
 }

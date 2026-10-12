@@ -34,6 +34,7 @@ describe("task detail execution target contract", () => {
         effectiveAssignee: null,
         effectiveThinking: null,
         nodeID: "node-1",
+        displayName: "Code Review",
         transitionBranchKey: null,
         sessionID: "33333333-3333-4333-8333-333333333333",
       },
@@ -81,7 +82,11 @@ describe("task detail execution target contract", () => {
   it("accepts session-backed Current Nodes and sessionless Current Scripts", async () => {
     const executionIDs = Array.from({ length: 201 }, (_, index) => index.toString());
     const currentNodes = executionIDs.map((id) =>
-      create(AttentionCurrentNodeSchema, { nodeId: `node-${id}`, sessionId: `session-${id}` }),
+      create(AttentionCurrentNodeSchema, {
+        nodeId: `node-${id}`,
+        nodeDisplayName: `Review ${id}`,
+        sessionId: `session-${id}`,
+      }),
     );
     const currentScripts = executionIDs.map((id) =>
       create(pb.CurrentScriptSchema, {
@@ -97,6 +102,7 @@ describe("task detail execution target contract", () => {
         effectiveAssignee: null,
         effectiveThinking: null,
         nodeID: node.nodeId,
+        displayName: node.nodeDisplayName,
         transitionBranchKey: null,
         sessionID: node.sessionId,
       })),

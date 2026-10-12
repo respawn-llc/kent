@@ -297,7 +297,6 @@ message ApproveSuccess {
   oneof outcome {
     option (buf.validate.oneof).required = true;
     ApproveApplied applied = 1;
-    SelectionRequired selection_required = 2;
   }
 }
 

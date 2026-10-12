@@ -203,13 +203,15 @@ func TestTaskDetailProjectsLiveAgentStates(t *testing.T) {
 		name          string
 		queued        bool
 		approval      bool
+		question      bool
 		wantStatus    taskpb.TaskStatusKind
 		wantAttention int
 		wantInterrupt bool
 	}{
 		{name: "queued", queued: true, wantStatus: taskpb.TaskStatusKind_TASK_STATUS_KIND_QUEUED},
 		{name: "running", wantStatus: taskpb.TaskStatusKind_TASK_STATUS_KIND_RUNNING, wantInterrupt: true},
-		{name: "Approval", approval: true, wantStatus: taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_APPROVAL, wantAttention: 1},
+		{name: "Approval", approval: true, wantStatus: taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_APPROVAL, wantAttention: 1, wantInterrupt: true},
+		{name: "Question", question: true, wantStatus: taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_QUESTION, wantAttention: 1, wantInterrupt: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -229,6 +231,11 @@ func TestTaskDetailProjectsLiveAgentStates(t *testing.T) {
 				execution.PendingPrompts = []sessionruntime.PendingPromptReference{{
 					ToolCallID: "approval",
 					Kind:       sessionruntime.PendingPromptKindSessionApproval,
+				}}
+			}
+			if test.question {
+				execution.PendingPrompts = []sessionruntime.PendingPromptReference{{
+					ToolCallID: "question", Kind: sessionruntime.PendingPromptKindQuestion,
 				}}
 			}
 			detail := taskDetailWithObservation(t, fixture, workflowexecution.WorkflowTaskExecutionObservation{

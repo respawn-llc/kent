@@ -207,14 +207,12 @@ function SessionList({
             });
           }}
         >
-          <ItemContent className="min-w-0">
-            <ItemTitle className="max-w-full">
-              <strong className="truncate">
-                {session.name ?? sessionDisplayID(session.id, session.shortID)}
-              </strong>
+          <ItemContent className="min-w-0 w-full">
+            <ItemTitle className="w-full min-w-0">
+              <strong className="min-w-0 flex-1 truncate">{session.name ?? sessionDisplayID(session.id, session.shortID)}</strong>
             </ItemTitle>
             {session.firstPromptPreview === null ? null : (
-              <span className="line-clamp-2 break-words text-sm text-[var(--color-muted)]">
+              <span className="min-w-0 w-full line-clamp-2 break-words text-sm text-[var(--color-muted)]">
                 {session.firstPromptPreview}
               </span>
             )}

@@ -3,7 +3,6 @@ package runtime
 import (
 	"encoding/json"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 
@@ -61,7 +60,7 @@ func TestFailedManualCompactionPersistsOneErrorAndPublishesFailureStatus(t *test
 }
 
 func TestFailedEagerCompactionPersistsOneErrorWithoutFailingSuccessfulTurn(t *testing.T) {
-	client := &fakeCompactionClient{responses: []llm.Response{{
+	client := &fakeCompactionClient{errors: []error{nil, &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 503, Code: llm.UnifiedErrorCodeUnknown}}, responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done")},
 		Usage: llm.Usage{
 			InputTokens: textutil.Value(390_000), WindowTokens: 400_000,
@@ -141,12 +140,6 @@ func TestFailedStandaloneCompactionPersistsOneErrorAndPublishesFailureStatus(t *
 		mode compactionMode
 		run  func(*Engine) error
 	}{
-		{
-			name: "pre-submit", mode: compactionModeManual,
-			run: func(engine *Engine) error {
-				return engine.CompactContextForPreSubmit(t.Context(), strings.Repeat("next ", 400_000))
-			},
-		},
 		{
 			name: "workflow", mode: compactionModeWorkflowPostCompletion,
 			run: func(engine *Engine) error {

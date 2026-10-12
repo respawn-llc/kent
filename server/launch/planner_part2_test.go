@@ -49,7 +49,7 @@ func TestApplyRunPromptOverridesRejectsDerivedContextWindowBelowMinimum(t *testi
 	applier := func(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool) error {
 		settings.ModelContextWindow = 39_999
 		settings.ContextCompactionThresholdTokens = 38_000
-		settings.PreSubmitCompactionLeadTokens = 1_000
+		settings.PreSubmitCompactionLeadTokens = textutil.Value(1_000)
 		return nil
 	}
 

@@ -51,6 +51,7 @@ export function useChatDestination({
   const worktreeCommands = useWorktreeCommands(
     target?.kind === "session" ? target.sessionID : null,
     focusComposer,
+    navigation.openParentSession,
   );
   const roots = useOwnedSidebarRoots();
   const openProcesses = useStableCallback(() => {

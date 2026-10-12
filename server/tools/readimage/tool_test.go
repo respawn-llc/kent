@@ -92,6 +92,9 @@ func TestCall_ImagePathReturnsInputImageContentItem(t *testing.T) {
 	if got := items[0]["type"]; got != "input_image" {
 		t.Fatalf("expected input_image type, got %#v", got)
 	}
+	if got := items[0]["detail"]; got != "auto" {
+		t.Fatalf("expected automatic image detail, got %#v", got)
+	}
 	url, ok := items[0]["image_url"].(string)
 	if !ok {
 		t.Fatalf("expected image_url string, got %#v", items[0]["image_url"])

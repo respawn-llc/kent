@@ -242,6 +242,14 @@ export function createSidebarStack(policy: SidebarDestinationPolicy) {
         },
       };
     };
+    const toggle = (destination: SidebarDestination): SidebarRootHandle | null => {
+      const entry = current();
+      if (entry !== undefined && view().phase === "open" && policy.equals(entry.destination, destination)) {
+        if (entry.capability.availability?.close !== false) close(entry.capability.id);
+        return null;
+      }
+      return open(destination);
+    };
     get.addFinalizer(() => {
       clearCloseTimeout();
       if (root !== undefined) {
@@ -252,6 +260,7 @@ export function createSidebarStack(policy: SidebarDestinationPolicy) {
       currentSurface: () =>
         current() === undefined || view().phase === "closing" ? null : (current()?.destination ?? null),
       open,
+      toggle,
     };
   });
   return { view: Atom.make((get) => get(state)), controls };

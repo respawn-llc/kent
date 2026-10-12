@@ -111,22 +111,15 @@ export function createChatApi(transport: RpcTransport): ChatApi {
       );
       return requireUnarySuccess(method, result).prompts;
     },
-    async getViewedImageOriginal(target, path) {
-      const method = SessionReadService.method.getViewedImageOriginal;
+    async resolveViewedImageOriginalSource(target, path, signal) {
+      const method = SessionReadService.method.resolveViewedImageOriginalSource;
       const result = await transport.callDescriptorAttachedSession(
         target,
         method,
         create(method.input, { sessionId: requireChatSessionID(target), path }),
+        signal === undefined ? undefined : { signal },
       );
-      const source = requireUnarySuccess(method, result).source;
-      switch (source.case) {
-        case "content":
-          return { kind: "content", bytes: source.value };
-        case "unavailable":
-          return { kind: "unavailable" };
-        case undefined:
-          throw new ContractError("Viewed image original source is missing.");
-      }
+      return requireUnarySuccess(method, result).url;
     },
     async getMainView(target) {
       const sessionId = requireChatSessionID(target);

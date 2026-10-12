@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 
 import type { ChatSettingsThinking } from "@/api";
 
-import { SteppedSelector } from "./SteppedSelector";
+import { SteppedSelector } from "@/ui";
 
 export function ThinkingSelector({
   thinking,
@@ -34,15 +34,17 @@ export function ThinkingHeading({ value }: Readonly<{ value: string }>) {
   );
 }
 
-function thinkingTone(value: string): "neutral" | "primary" | "secondary" {
+function thinkingTone(value: string): "neutral" | "success" | "primary" | "error" {
   switch (value) {
+    case "low":
+      return "success";
     case "medium":
     case "high":
       return "primary";
     case "xhigh":
     case "max":
     case "ultra":
-      return "secondary";
+      return "error";
     default:
       return "neutral";
   }

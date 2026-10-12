@@ -124,6 +124,37 @@ func (s *Starter) PrepareCurrentNode(
 			}
 			preparation.creation = &creation
 			meta = creation.Snapshot().Meta
+		} else if meta.LastSequence == 0 && !meta.ConversationEstablished && meta.ModelRequestCount == 0 {
+			var thinking session.ForkThinking
+			var sourceMeta *session.Meta
+			if meta.PreviousSessionID != nil {
+				source, err := session.ResolvePersistedSessionRecord(ctx, s.metadata, meta.PreviousSessionID.String())
+				if err != nil {
+					return workflowexecution.CurrentNodePreparation{}, err
+				}
+				sourceMeta = source.Meta
+				thinking, err = launch.ResolveForkThinking(cfg, *source.Meta, true)
+				if err != nil {
+					return workflowexecution.CurrentNodePreparation{}, err
+				}
+			}
+			creation, err := session.ResumeCreation(record, thinking)
+			if err != nil {
+				return workflowexecution.CurrentNodePreparation{}, err
+			}
+			if creation != nil {
+				recovery := plannedCurrentNodeSession{creation: creation}
+				if err := recovery.materializeCreation(ctx, s); err != nil {
+					return workflowexecution.CurrentNodePreparation{}, err
+				}
+				record, err = session.ResolvePersistedSessionRecord(ctx, s.metadata, id.String())
+				if err != nil {
+					return workflowexecution.CurrentNodePreparation{}, err
+				}
+				meta = *record.Meta
+				cloneSourceMeta = sourceMeta
+				delivery = workflowruntime.TaskPromptDeliveryAssignment
+			}
 		}
 		plan, err = planner.PlanPreparedSession(ctx, launch.SessionRequest{
 			Mode: launch.ModeHeadless, Intent: serverapi.OpenExistingSessionLaunchIntent(*id),
@@ -144,7 +175,7 @@ func (s *Starter) PrepareCurrentNode(
 		}
 		if needsCompaction {
 			outgoing := plan
-			if clone {
+			if cloneSourceMeta != nil {
 				outgoingMeta := *cloneSourceMeta
 				outgoingMeta.SessionID = id.String()
 				outgoing, err = planner.PlanPreparedSession(ctx, launch.SessionRequest{

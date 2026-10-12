@@ -30,9 +30,9 @@ func (p PreparedUserTurn) queuedInput() runtime.QueuedUserInput {
 	}
 }
 
-func queuedUserTurnResponse(compacted bool, queueItemID string) *runtimepb.SubmitUserTurnSuccess {
+func queuedUserTurnResponse(queueItemID string) *runtimepb.SubmitUserTurnSuccess {
 	return &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_Queued{
-		Queued: &runtimepb.SubmitUserTurnQueued{Compacted: compacted, Steered: true, QueueItemId: queueItemID},
+		Queued: &runtimepb.SubmitUserTurnQueued{Steered: true, QueueItemId: queueItemID},
 	}}
 }
 
@@ -143,45 +143,17 @@ func (s *Service) submitUserTurn(
 	if err != nil {
 		return nil, err
 	}
-	runTurn := func(runCtx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance, onPreSubmitActive func()) error {
-		shouldCompact := false
-		// Existing executions receive steering directly. Only a new execution
-		// runs the pre-submit check, releasing admission when compaction starts.
-		if onPreSubmitActive != nil {
-			var err error
-			shouldCompact, err = engine.ShouldCompactBeforeUserMessage(runCtx, projection.ExecutionText)
-			if err != nil {
-				return err
-			}
-		}
-		compacted := false
-		var acceptedCompactionErr error
-		if shouldCompact {
-			compactionAccepted, compactErr := s.runPreSubmitCompaction(
-				attempt.Context(),
-				engine,
-				projection.ExecutionText,
-				onPreSubmitActive,
-			)
-			if compactionAccepted {
-				compacted = true
-				acceptedCompactionErr = compactErr
-			} else if compactErr != nil {
-				if !errors.Is(compactErr, runtime.ErrAgentBusy) {
-					return compactErr
-				}
-			}
-		}
+	runTurn := func(runCtx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
 		queued, err := engine.SteerInput(
 			runCtx,
 			projection.queuedInput(),
 			accept,
 		)
 		if err != nil {
-			return errors.Join(acceptedCompactionErr, err)
+			return err
 		}
-		response = queuedUserTurnResponse(compacted, queued.ID)
-		return acceptedCompactionErr
+		response = queuedUserTurnResponse(queued.ID)
+		return nil
 	}
 	executeTurn := func() error {
 		return s.authority.RunCurrentTurn(
@@ -203,7 +175,7 @@ func (s *Service) submitUserTurn(
 			err = preparingErr
 		case preparing:
 			err = s.withRuntime(attempt.Context(), request.SessionID, func(runCtx context.Context, engine *runtime.Engine) error {
-				return runTurn(runCtx, engine, attempt.Accept, nil)
+				return runTurn(runCtx, engine, attempt.Accept)
 			})
 		case s.reactivator != nil:
 			var workflowState *runtime.WorkflowSessionState
@@ -231,7 +203,7 @@ func (s *Service) submitUserTurn(
 				)
 				if err == nil {
 					err = s.withRuntime(attempt.Context(), request.SessionID, func(runCtx context.Context, engine *runtime.Engine) error {
-						return runTurn(runCtx, engine, attempt.Accept, nil)
+						return runTurn(runCtx, engine, attempt.Accept)
 					})
 				}
 			}
@@ -252,16 +224,4 @@ func (s *Service) recordAcceptedUserTurnHistory(
 		return errors.Join(err, reportErr)
 	}
 	return nil
-}
-
-func (s *Service) runPreSubmitCompaction(
-	ctx context.Context,
-	engine *runtime.Engine,
-	text string,
-	onActive func(),
-) (bool, error) {
-	attempt := newRuntimeCommandAttempt(ctx)
-	defer attempt.Finish()
-	receipt, err := engine.CompactContextForPreSubmitWithAcceptance(attempt.Context(), text, onActive, attempt.Accept)
-	return receipt.Committed, err
 }

@@ -620,6 +620,68 @@ func TestWriteStdinPollingPreservesTerminalLifecycleForAllCompletionShapes(t *te
 	}
 }
 
+func TestWriteStdinShortOutputPollUsesDefaultWindow(t *testing.T) {
+	milliseconds := func(value int) *int { return &value }
+	for _, test := range []struct {
+		name          string
+		yieldTimeMS   *int
+		includeWaitMS bool
+	}{
+		{name: "negative", yieldTimeMS: milliseconds(-1), includeWaitMS: true},
+		{name: "zero", yieldTimeMS: milliseconds(0), includeWaitMS: true},
+		{name: "250 milliseconds", yieldTimeMS: milliseconds(250), includeWaitMS: true},
+		{name: "1,000 milliseconds", yieldTimeMS: milliseconds(1_000), includeWaitMS: true},
+		{name: "1,100 milliseconds", yieldTimeMS: milliseconds(1_100), includeWaitMS: true},
+		{name: "omitted"},
+		{name: "null", includeWaitMS: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			manager := newShellTestManager(t, 50*time.Millisecond)
+			execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
+			pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+
+			start := callExecCommand(t, execTool, "short-window-start", map[string]any{
+				"cmd":           "sleep 3",
+				"shell":         "/bin/sh",
+				"login":         false,
+				"yield_time_ms": 50,
+			})
+			if start.IsError {
+				t.Fatalf("unexpected exec_command error: %s", string(start.Output))
+			}
+			snapshots := manager.List()
+			if len(snapshots) != 1 {
+				t.Fatalf("background snapshot count = %d, want 1", len(snapshots))
+			}
+			sessionID, err := strconv.Atoi(snapshots[0].ID)
+			if err != nil {
+				t.Fatalf("background session ID must be numeric: %v", err)
+			}
+
+			input := map[string]any{"session_id": sessionID}
+			if test.includeWaitMS {
+				input["yield_time_ms"] = test.yieldTimeMS
+			}
+			started := time.Now()
+			poll := callWriteStdin(t, pollTool, "short-window-poll", input)
+			elapsed := time.Since(started)
+			if poll.IsError {
+				t.Fatalf("unexpected write_stdin error: %s", string(poll.Output))
+			}
+			if elapsed < 200*time.Millisecond {
+				t.Fatalf("poll returned before the default collection window: %s", elapsed)
+			}
+			if elapsed > 750*time.Millisecond {
+				t.Fatalf("poll exceeded the default collection window: %s", elapsed)
+			}
+			if snapshot, err := manager.Snapshot(snapshots[0].ID); err != nil || !snapshot.Running {
+				t.Fatalf("expected process to remain running: snapshot=%+v err=%v", snapshot, err)
+			}
+		})
+	}
+}
+
 func TestWriteStdinRejectsShortTimedOutputPolls(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
@@ -639,19 +701,15 @@ func TestWriteStdinRejectsShortTimedOutputPolls(t *testing.T) {
 	for _, test := range []struct {
 		name        string
 		yieldTimeMS int
-		chars       string
 	}{
-		{name: "below minimum", yieldTimeMS: 14_999},
-		{name: "zero", yieldTimeMS: 0},
-		{name: "negative", yieldTimeMS: -1},
+		{name: "threshold plus one", yieldTimeMS: 1_101},
+		{name: "three seconds", yieldTimeMS: 3_000},
+		{name: "below minimum wait", yieldTimeMS: 14_999},
 		{name: "above maximum", yieldTimeMS: 86_400_001},
 	} {
 		input := map[string]any{
 			"session_id":    1000,
 			"yield_time_ms": test.yieldTimeMS,
-		}
-		if test.chars != "" {
-			input["chars"] = test.chars
 		}
 		rejected := callWriteStdin(t, pollTool, "short-poll-rejected", input)
 		if !rejected.IsError {
@@ -1035,6 +1093,50 @@ func TestWriteStdinPollHonorsRequestedDuration(t *testing.T) {
 		t.Fatalf("expected session to still be running: %+v, %v", snapshot, err)
 	}
 	waitForManagerCount(t, manager, 0, 2*time.Second)
+}
+
+func TestWriteStdinInputBypassesShortPollError(t *testing.T) {
+	workspace := t.TempDir()
+	manager := newShellTestManager(t, 50*time.Millisecond)
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
+	stdinTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+
+	start := callExecCommand(t, execTool, "input-short-poll-start", map[string]any{
+		"cmd":           "IFS= read -r line && [ \"$line\" = continue ]",
+		"shell":         "/bin/sh",
+		"login":         false,
+		"tty":           true,
+		"yield_time_ms": 50,
+	})
+	if start.IsError {
+		t.Fatalf("unexpected exec_command error: %s", string(start.Output))
+	}
+	snapshots := manager.List()
+	if len(snapshots) != 1 {
+		t.Fatalf("background snapshot count = %d, want 1", len(snapshots))
+	}
+	sessionID, err := strconv.Atoi(snapshots[0].ID)
+	if err != nil {
+		t.Fatalf("background session ID must be numeric: %v", err)
+	}
+
+	result := callWriteStdin(t, stdinTool, "input-short-poll", map[string]any{
+		"session_id":    sessionID,
+		"chars":         "continue\n",
+		"yield_time_ms": 1_101,
+	})
+	if result.IsError {
+		t.Fatalf("unexpected write_stdin error: %s", string(result.Output))
+	}
+	if result.CompletedBackgroundSessionID == nil || *result.CompletedBackgroundSessionID != sessionID ||
+		result.PresentationDelta == nil || result.PresentationDelta.ShellExitCode == nil ||
+		*result.PresentationDelta.ShellExitCode != 0 {
+		t.Fatalf("completed input result = %+v", result)
+	}
+	if decodeStringToolOutput(t, result) == "" {
+		t.Fatal("completed input response must contain presentation")
+	}
+	waitForManagerCount(t, manager, 0, time.Second)
 }
 
 func TestWriteStdinWhitespaceInputRemainsInputAtLongWaits(t *testing.T) {

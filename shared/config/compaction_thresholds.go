@@ -1,9 +1,8 @@
 package config
 
 const (
-	MinimumWindowPercent         = 50
-	DefaultPreSubmitRunwayTokens = 35_000
-	EstimatedTokensPerToolCall   = 1_400
+	MinimumWindowPercent       = 50
+	EstimatedTokensPerToolCall = 1_400
 
 	estimatedToolCallCorpusStartDate              = "2026-04-12"
 	estimatedToolCallCorpusCompactionModeFilter   = "auto,handoff"
@@ -24,15 +23,11 @@ func MinimumThresholdTokens(window int) int {
 	return threshold
 }
 
-func EffectivePreSubmitThresholdTokens(autoThreshold int, runwayTokens int) int {
-	if autoThreshold <= 0 {
-		return 0
+func SpeculativeCompactionTriggerTokens(window int, lead *int) int {
+	if lead != nil {
+		return window - *lead
 	}
-	threshold := autoThreshold - runwayTokens
-	if threshold < 1 {
-		return 1
-	}
-	return threshold
+	return int(percentOfInt(window, 88))
 }
 
 // EstimatedToolCallsForTokenBudget converts a token budget into an estimated

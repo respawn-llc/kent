@@ -103,14 +103,14 @@ export function CommentRow({
       <header className="flex min-w-0 items-center gap-[var(--space-2)]">
         <CommentAuthorIcon authorKind={comment.authorKind} />
         {editing ? (
-          <AuthorText author={authorLabel} className="basis-0 grow-[0.5]" />
+          <AuthorText author={authorLabel} className="flex-1" />
         ) : (
           <button
             aria-label={t("task.editCommentBy", {
               author: authorLabel,
               defaultValue: `Edit comment by ${authorLabel}`,
             })}
-            className="min-w-0 basis-0 grow-[0.5] rounded-[var(--radius-m)] p-0 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
+            className="min-w-0 flex-1 rounded-[var(--radius-m)] p-0 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
             disabled={interactionDisabled}
             onClick={() => {
               onEdit(comment);
@@ -120,13 +120,12 @@ export function CommentRow({
             <AuthorText author={authorLabel} />
           </button>
         )}
-        <span aria-hidden="true" className="min-w-0 flex-1" />
-        <time className="min-w-0 basis-0 flex-1 whitespace-nowrap text-right text-sm text-[var(--color-muted)]">
+        <time className="shrink-0 whitespace-nowrap text-right text-sm text-[var(--color-muted)]">
           {formatRelativeTime(comment.createdAt)}
         </time>
         <button
           aria-label={t("task.deleteComment")}
-          className="grid h-8 w-8 place-items-center rounded-full text-[var(--color-error)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-error)_14%,transparent)] disabled:cursor-not-allowed disabled:opacity-55"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[var(--color-error)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-error)_14%,transparent)] disabled:cursor-not-allowed disabled:opacity-55"
           disabled={interactionDisabled}
           onClick={() => {
             actions.remove(comment.id);
@@ -145,9 +144,9 @@ export function CommentRow({
 
 function CommentAuthorIcon({ authorKind }: Readonly<{ authorKind: TaskComment["authorKind"] }>) {
   return authorKind === "user" ? (
-    <UserRound aria-hidden="true" size={16} strokeWidth={1.8} />
+    <UserRound aria-hidden="true" className="shrink-0" size={16} strokeWidth={1.8} />
   ) : (
-    <Bot aria-hidden="true" size={16} strokeWidth={1.8} />
+    <Bot aria-hidden="true" className="shrink-0" size={16} strokeWidth={1.8} />
   );
 }
 

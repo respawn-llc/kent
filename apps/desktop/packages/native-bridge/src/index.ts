@@ -103,6 +103,7 @@ export {
 export type NativeBridge = Readonly<{
   capabilities: NativeCapabilityState;
   clipboard: Readonly<{
+    paste: (() => Promise<string | null>) | null;
     writeText(value: string): Promise<void>;
     readText(): Promise<string>;
   }>;
@@ -226,6 +227,7 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
   return {
     capabilities,
     clipboard: {
+      paste: null,
       async writeText(): Promise<void> {
         throw new Error("Native clipboard is unavailable in this shell.");
       },
@@ -334,6 +336,7 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
   return {
     capabilities,
     clipboard: {
+      paste: async () => invoke<string | null>("paste_clipboard"),
       async writeText(value: string): Promise<void> {
         await writeText(value);
       },

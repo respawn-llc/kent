@@ -110,15 +110,26 @@ export function createChatSettingsViewModel({
     (input, get) =>
       Effect.gen(function* () {
         const scope = get(current);
+        const pending = mutation.getCurrentResult();
+        if (
+          pending.isPending &&
+          pending.variables.input.operation.kind === "agent" &&
+          scope.selected?.kind === "session" &&
+          pending.variables.session.sessionID === scope.selected.sessionID
+        ) {
+          input.rejected(new ContractError("An Agent switch is already in progress."));
+          return;
+        }
         const initial = get(scope.read).data;
         if (initial === undefined || scope.selected === null) {
           input.rejected(new ContractError("Chat Settings are not ready."));
           return;
         }
-        get.set(scope.local, {
-          source: initial,
-          state: settingsReducer(get(scope.state), { kind: "activated", operation: input.operation }),
-        });
+        if (input.operation.kind !== "agent" || scope.selected.kind === "new_chat")
+          get.set(scope.local, {
+            source: initial,
+            state: settingsReducer(get(scope.state), { kind: "activated", operation: input.operation }),
+          });
         if (scope.selected.kind === "new_chat") {
           input.completed(null);
           return;

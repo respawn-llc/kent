@@ -401,22 +401,6 @@ func (s *Service) AppendSessionEntry(ctx context.Context, sessionID string, role
 	})
 }
 
-func (s *Service) ShouldCompactBeforeUserMessage(ctx context.Context, req *runtimepb.ShouldCompactRequest) (*runtimepb.ShouldCompactSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
-	var shouldCompact bool
-	err := s.withRuntime(ctx, req.SessionId, func(callbackCtx context.Context, engine *runtime.Engine) error {
-		var err error
-		shouldCompact, err = engine.ShouldCompactBeforeUserMessage(callbackCtx, req.Text)
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &runtimepb.ShouldCompactSuccess{ShouldCompact: shouldCompact}, nil
-}
-
 func (s *Service) SubmitUserShellCommand(ctx context.Context, req *runtimepb.ShellCommandRequest) error {
 	if err := protoapi.Validate(req); err != nil {
 		return err

@@ -82,17 +82,19 @@ it.each([
     const session = taskDetailResponse.task.liveSessions[0];
     if (session === undefined) throw new Error("Live Session fixture is required.");
     fireEvent.click(openInCli);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Review chat" }));
     await waitFor(() => {
       expect(fixture.copyText).toHaveBeenCalledWith(`kent --session=${session.sessionId}`);
     });
   }
 
   const openChat = within(flow).queryByRole("button", {
-    name: appI18n.t("task.openChat", { name: "Review chat" }),
+    name: appI18n.t("task.openInChat"),
   });
   expect(openChat !== null).toBe(hasChat);
   if (openChat !== null) {
     fireEvent.click(openChat);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Review chat" }));
     await waitFor(() => {
       expect(fixture.navigation.openSessionChat).toHaveBeenCalledWith({
         projectID: "project-1",
@@ -113,7 +115,7 @@ it("keeps native Task Detail on its CLI action without a Chat action", async () 
   ).toBeInTheDocument();
   expect(
     within(flow).queryByRole("button", {
-      name: appI18n.t("task.openChat", { name: "Review chat" }),
+      name: appI18n.t("task.openInChat"),
     }),
   ).not.toBeInTheDocument();
 });

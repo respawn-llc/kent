@@ -170,7 +170,7 @@ func TestCompactionOverflowRepairTargetsUseContextWindow(t *testing.T) {
 	}
 }
 
-func TestLocalCompactionCollapsesToolPayloadAfterOverflow(t *testing.T) {
+func TestSpeculativeLocalCompactionCollapsesToolPayloadAfterOverflow(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{
@@ -203,7 +203,7 @@ func TestLocalCompactionCollapsesToolPayloadAfterOverflow(t *testing.T) {
 		t.Fatalf("append tool output: %v", err)
 	}
 
-	scheduleManualCompactionAndWait(t, eng)
+	scheduleSpeculativeCompactionAndWait(t, eng)
 	if len(client.calls) != 2 {
 		t.Fatalf("local compaction model calls = %d, want 2", len(client.calls))
 	}

@@ -1,193 +1,123 @@
-import { QueryObserver, type QueryClient } from "@tanstack/react-query";
+import { QueryObserver, type QueryClient, type QueryFunctionContext } from "@tanstack/react-query";
 import * as Effect from "effect/Effect";
 import * as Atom from "effect/reactivity/Atom";
-import * as Scope from "effect/Scope";
-import * as Exit from "effect/Exit";
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useLayoutEffect } from "react";
 
 import type { ChatSessionTarget, ChatTranscriptCommittedRow } from "@/api";
 import { queryAtom, queryKeys, type AppServices } from "@/app-facade";
 
-export type ViewedImagePreview = Readonly<{
-  kind: "image";
-  source: "local" | "server";
-  url: string;
-  width: number;
-  height: number;
-}>;
-export type ViewedImageOutcome = ViewedImagePreview | Readonly<{ kind: "unavailable" }>;
+type ViewedImagePreviewState =
+  | Readonly<{ kind: "resolving" }>
+  | Readonly<{ kind: "loading"; url: string }>
+  | Readonly<{ kind: "loaded"; url: string; width: number; height: number }>
+  | Readonly<{ kind: "source-error"; error: Error }>
+  | Readonly<{ kind: "image-error" }>;
+
+type ImageLoadState =
+  | Readonly<{ kind: "loading" }>
+  | Readonly<{ kind: "loaded"; width: number; height: number }>
+  | Readonly<{ kind: "error" }>;
+
+type ImageDimensions = Readonly<{ width: number; height: number }>;
 
 export type ViewedImagePreviewInput = Readonly<{
   services: AppServices;
   client: QueryClient;
   target: ChatSessionTarget;
-  effectiveWorkdir: string | null;
   path: string;
   locator: ChatTranscriptCommittedRow["Locator"];
 }>;
 
-type ReadRequest = Readonly<{
-  signal: AbortSignal;
-  resolve(preview: ViewedImageOutcome): void;
-  reject(error: Error): void;
-}>;
-
 export function createViewedImagePreviewModel(input: ViewedImagePreviewInput) {
-  const owner = Atom.make((get) => {
-    const read = Atom.fn((request: ReadRequest) =>
-      Effect.scoped(
-        Effect.raceFirst(
-          Effect.gen(function* () {
-            const preview = yield* resolveOriginal(input);
-            request.resolve(preview);
-            if (preview.kind === "unavailable") return;
-            return yield* Effect.never;
-          }).pipe(
-            Effect.catch((error) =>
-              Effect.sync(() => {
-                request.reject(error.cause);
-              }),
-            ),
-          ),
-          observationEnded(request),
-        ),
-      ),
-    ).pipe(Atom.setIdleTTL(0));
-    get.mount(read);
-    const observer = new QueryObserver(input.client, {
-      queryKey: queryKeys.viewedImage(input.target.sessionID, input.locator),
-      queryFn: async ({ signal }) =>
-        new Promise<ViewedImageOutcome>((resolve, reject) => {
-          get.set(read, { signal, resolve, reject });
+  const queryOptions = {
+    queryKey: queryKeys.viewedImage(input.target.sessionID, input.locator),
+    queryFn: async ({ signal }: QueryFunctionContext) => {
+      const source = await input.services.api.chat.resolveViewedImageOriginalSource(
+        input.target,
+        input.path,
+        signal,
+      );
+      return resolveViewedImageURL(input.services.endpoint, source);
+    },
+    retry: false,
+    networkMode: "always" as const,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    gcTime: 0,
+  };
+  const observer = new QueryObserver(input.client, queryOptions);
+  const source = queryAtom(observer);
+  const active = Atom.make(true);
+  const imageLoad = Atom.make<ImageLoadState>({ kind: "loading" });
+  const loaded = Atom.fn<ImageDimensions>()((dimensions, get) =>
+    Effect.sync(() => {
+      if (!get(active)) return;
+      if (dimensions.width <= 0 || dimensions.height <= 0) {
+        get.set(imageLoad, { kind: "error" });
+        return;
+      }
+      get.set(imageLoad, { kind: "loaded", ...dimensions });
+    }),
+  );
+  const failed = Atom.fn<undefined>()((_input, get) =>
+    Effect.gen(function* () {
+      if (!get(active)) return;
+      get.set(imageLoad, { kind: "error" });
+      yield* Effect.promise(async () =>
+        input.services.logger.append("warn", "Viewed image preview failed to load.", {
+          session_id: input.target.sessionID,
+          path: input.path,
         }),
-      retry: false,
-      networkMode: "always",
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
-      gcTime: 0,
-    });
-    return { observer, client: input.client, result: queryAtom(observer).pipe(Atom.setIdleTTL(0)) };
-  }).pipe(Atom.setIdleTTL(0));
-  return owner;
+      );
+    }),
+  );
+  const state = Atom.make((get): ViewedImagePreviewState => {
+    const request = get(source);
+    if (request.isError) return { kind: "source-error", error: request.error };
+    if (request.data === undefined) return { kind: "resolving" };
+    const image = get(imageLoad);
+    if (image.kind === "error") return { kind: "image-error" };
+    if (image.kind === "loading") return { kind: "loading", url: request.data };
+    return { kind: "loaded", url: request.data, width: image.width, height: image.height };
+  });
+  return { active, client: input.client, failed, loaded, observer, queryOptions, state } as const;
+}
+
+function resolveViewedImageURL(endpoint: string, source: string): string {
+  const imageEndpoint = new URL(endpoint);
+  switch (imageEndpoint.protocol) {
+    case "ws:":
+      imageEndpoint.protocol = "http:";
+      break;
+    case "wss:":
+      imageEndpoint.protocol = "https:";
+      break;
+    default:
+      throw new Error("Kent server endpoint must use ws:// or wss://.");
+  }
+  const imageURL = new URL(source, imageEndpoint);
+  if (imageURL.origin !== imageEndpoint.origin) {
+    throw new Error("Viewed image source must belong to the configured Kent server.");
+  }
+  return imageURL.href;
 }
 
 export function useViewedImagePreview(model: ReturnType<typeof createViewedImagePreviewModel>) {
-  const owner = useAtomValue(model);
-  // Atom finalizers are low-priority; end Query observation at the React boundary.
+  const state = useAtomValue(model.state);
+  const setActive = useAtomSet(model.active);
+  const loaded = useAtomSet(model.loaded);
+  const failed = useAtomSet(model.failed, { mode: "promise" });
   useLayoutEffect(() => {
+    setActive(true);
     // Strict mount replay reattaches the same observer after cleanup removes its Query.
-    owner.observer.setOptions(owner.observer.options);
+    model.observer.setOptions(model.queryOptions);
     return () => {
-      const filter = { queryKey: owner.observer.options.queryKey, exact: true };
-      void owner.client.cancelQueries(filter);
-      owner.client.removeQueries(filter);
+      setActive(false);
+      const filter = { queryKey: model.queryOptions.queryKey, exact: true };
+      void model.client.cancelQueries(filter);
+      model.client.removeQueries(filter);
     };
-  }, [owner]);
-  return useAtomValue(owner.result);
+  }, [model, setActive]);
+  return { state, loaded, failed } as const;
 }
-
-const resolveOriginal = Effect.fnUntraced(function* (input: ViewedImagePreviewInput) {
-  const localRead = input.services.nativeBridge.files.readImage;
-  const effectiveWorkdir = input.effectiveWorkdir;
-  if (localRead !== null) {
-    const bytes = yield* Effect.tryPromise({
-      try: async () => localRead({ path: input.path, basePath: effectiveWorkdir ?? undefined }),
-      catch: asError,
-    }).pipe(
-      Effect.catch((failure) =>
-        Effect.promise(async () => {
-          await input.services.logger.append("warn", "Viewed image local source unavailable.", {
-            path: input.path,
-            error: failure.cause.message,
-          });
-          return null;
-        }),
-      ),
-    );
-    if (bytes !== null) {
-      const image = yield* decodeOriginal(input, bytes, "local");
-      if (image !== null) return image;
-    }
-  }
-  const server = yield* Effect.tryPromise({
-    try: async () => input.services.api.chat.getViewedImageOriginal(input.target, input.path),
-    catch: asError,
-  });
-  if (server.kind === "content") {
-    const image = yield* decodeOriginal(input, server.bytes, "server");
-    if (image !== null) return image;
-  }
-  return { kind: "unavailable" } as const;
-});
-
-const decodeOriginal = Effect.fnUntraced(function* (
-  input: ViewedImagePreviewInput,
-  bytes: Uint8Array,
-  source: ViewedImagePreview["source"],
-) {
-  const parent = yield* Effect.scope;
-  const candidate = yield* Scope.fork(parent);
-  const url = yield* Effect.acquireRelease(
-    Effect.sync(() => URL.createObjectURL(new Blob([new Uint8Array(bytes)]))),
-    (url) =>
-      Effect.sync(() => {
-        URL.revokeObjectURL(url);
-      }),
-  ).pipe(Effect.provideService(Scope.Scope, candidate));
-  const image = new Image();
-  image.src = url;
-  const decoded = yield* Effect.tryPromise({
-    try: async () => image.decode(),
-    catch: asError,
-  }).pipe(
-    Effect.as(true),
-    Effect.catch((failure) =>
-      Effect.promise(async () => {
-        await input.services.logger.append("warn", "Viewed image original could not decode.", {
-          path: input.path,
-          source,
-          error: failure.cause.message,
-        });
-        return false;
-      }),
-    ),
-  );
-  if (!decoded) {
-    yield* Scope.close(candidate, Exit.void);
-    return null;
-  }
-  return {
-    kind: "image",
-    source,
-    url,
-    width: image.naturalWidth,
-    height: image.naturalHeight,
-  } as const;
-});
-
-class ImageSourceFailure {
-  readonly _tag = "ImageSourceFailure";
-  constructor(readonly cause: Error) {}
-}
-
-function asError(cause: unknown): ImageSourceFailure {
-  return new ImageSourceFailure(cause instanceof Error ? cause : new Error(String(cause)));
-}
-
-const observationEnded = Effect.fnUntraced(function* (request: ReadRequest) {
-  return yield* Effect.callback<never>((resume) => {
-    const abort = () => {
-      request.reject(new DOMException("Image observation ended.", "AbortError"));
-      resume(Effect.interrupt);
-    };
-    if (request.signal.aborted) {
-      abort();
-      return;
-    }
-    request.signal.addEventListener("abort", abort, { once: true });
-    return Effect.sync(() => {
-      request.signal.removeEventListener("abort", abort);
-    });
-  });
-});

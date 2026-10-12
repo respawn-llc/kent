@@ -71,6 +71,27 @@ func persistRetainedItems(t *testing.T, store *session.Store, items []llm.Respon
 	}
 }
 
+func TestAgentProviderChangeRejectsIncompatibleCheckpoint(t *testing.T) {
+	store := mustCreateTestSession(t)
+	persistRetainedItems(t, store, []llm.ResponseItem{{
+		Type:             llm.ResponseItemTypeCompaction,
+		EncryptedContent: textutil.Value("checkpoint"),
+		Attribution:      &modelcontract.ReasoningAttribution{Type: textutil.Value(modelcontract.ReasoningTypeOpenAI)},
+	}})
+	log := mustMaterializeTestEventLog(t, store)
+	err := ValidateSessionProviderChange(log, llm.ProviderCapabilities{})
+	var incompatible *llm.RetainedContextCompatibilityError
+	if !errors.As(err, &incompatible) {
+		t.Fatalf("incompatible provider accepted checkpoint: %v", err)
+	}
+	if err := ValidateSessionProviderChange(log, llm.ProviderCapabilities{
+		SupportsResponsesAPI: true,
+		ReasoningType:        textutil.Value(modelcontract.ReasoningTypeOpenAI),
+	}); err != nil {
+		t.Fatalf("original provider cannot reuse checkpoint: %v", err)
+	}
+}
+
 func TestRetainedReasoningDispatchCompatibility(t *testing.T) {
 	for _, test := range []struct {
 		name        string

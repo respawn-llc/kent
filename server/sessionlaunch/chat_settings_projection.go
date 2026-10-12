@@ -114,8 +114,6 @@ func projectSelectedChatSettings(
 	agentEditability := chatsettingspb.Editability_EDITABILITY_EDITABLE
 	if input.WorkflowLocked {
 		agentEditability = chatsettingspb.Editability_EDITABILITY_WORKFLOW_LOCK
-	} else if cachingLocked {
-		agentEditability = chatsettingspb.Editability_EDITABILITY_CACHING_LOCK
 	}
 	thinking := projectChatThinking(effective.Thinking, selectedSettings)
 	var fast *chatsettingspb.Fast
@@ -151,7 +149,7 @@ func projectSelectedChatSettings(
 			Editability: chatsettingspb.Editability_EDITABILITY_EDITABLE,
 		},
 		AutoCompaction: autoCompaction,
-		AgentLocked:    input.WorkflowLocked || cachingLocked,
+		AgentLocked:    input.WorkflowLocked,
 		WorkflowLocked: input.WorkflowLocked,
 		CachingLocked:  cachingLocked,
 	}, nil

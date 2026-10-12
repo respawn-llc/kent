@@ -174,7 +174,7 @@ func (d *TaskDetail) task(ctx context.Context, task sqlitegen.TaskRecord) (*task
 	if task.SourceUrl != "" {
 		sourceURL = &task.SourceUrl
 	}
-	currentNodes, err := ProjectCurrentNodes(ctx, d.metadata, projected.CurrentNodes)
+	currentNodes, err := d.taskDetailCurrentNodes(ctx, projected.CurrentNodes, definition.api)
 	if err != nil {
 		return nil, err
 	}
@@ -202,6 +202,23 @@ func (d *TaskDetail) task(ctx context.Context, task sqlitegen.TaskRecord) (*task
 	}
 	detail.Dependencies = projectedDependencies
 	return detail, nil
+}
+
+func (d *TaskDetail) taskDetailCurrentNodes(ctx context.Context, nodes []workflow.CurrentNode, definition *pb.WorkflowDefinition) ([]*taskpb.AttentionCurrentNode, error) {
+	byID := workflowNodesByID(definition)
+	projected, err := ProjectCurrentNodes(ctx, d.metadata, nodes)
+	if err != nil {
+		return nil, err
+	}
+	for _, current := range projected {
+		node, exists := byID[current.NodeId]
+		if !exists {
+			return nil, fmt.Errorf("Task Detail references unknown Node %q", current.NodeId)
+		}
+		name := workflow.DisplayLabel(node.DisplayName, node.Key)
+		current.NodeDisplayName = &name
+	}
+	return projected, nil
 }
 
 func taskDetailLiveTargets(

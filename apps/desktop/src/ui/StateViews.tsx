@@ -8,6 +8,8 @@ import { Island } from "./Island";
 import { Spinner } from "./Spinner";
 
 export type LoadingStateProps = Readonly<{
+  inset?: boolean;
+  surface?: "island" | "plain";
   title?: ReactNode;
   body?: ReactNode;
   actions?: ReactNode;
@@ -24,6 +26,8 @@ const defaultLoadingAppearanceDelayKey = "global";
 const delayedLoadingAppearanceKeys = new Set<string>();
 
 export function LoadingState({
+  inset,
+  surface,
   title = null,
   body = null,
   actions,
@@ -40,6 +44,8 @@ export function LoadingState({
   }
   return (
     <StateIsland
+      inset={inset}
+      surface={surface}
       chromePadding={chromePadding}
       contentTestID="loading-state-content"
       contentWidth={contentWidth}
@@ -148,6 +154,8 @@ export function EmptyState({
 }
 
 export type ErrorStateProps = Readonly<{
+  inset?: boolean;
+  surface?: "island" | "plain";
   title?: ReactNode;
   body?: ReactNode;
   details?: ReactNode;
@@ -161,6 +169,8 @@ export type ErrorStateProps = Readonly<{
 }>;
 
 export function ErrorState({
+  inset,
+  surface,
   title = null,
   body = null,
   details = null,
@@ -174,6 +184,8 @@ export function ErrorState({
 }: ErrorStateProps) {
   return (
     <StateIsland
+      inset={inset}
+      surface={surface}
       chromePadding={chromePadding}
       contentTestID="error-state-content"
       contentWidth={contentWidth}
@@ -209,6 +221,8 @@ export function ErrorState({
 }
 
 type StateIslandProps = Readonly<{
+  inset?: boolean | undefined;
+  surface?: "island" | "plain" | undefined;
   children: ReactNode;
   chromePadding: boolean;
   contentTestID: string;
@@ -227,17 +241,13 @@ type StateContentWidth = "default" | "full";
 
 function StateIsland({
   children,
-  chromePadding,
   contentTestID,
   contentWidth,
-  fullPage,
   icon,
   iconClassName,
-  reveal,
-  testID,
   title,
   titleClassName,
-  tone = "floating",
+  ...surfaceProps
 }: StateIslandProps) {
   const content = (
     <div
@@ -253,7 +263,7 @@ function StateIsland({
           "grid h-14 w-14 place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] text-[var(--color-muted)]",
           iconClassName,
         )}
-        data-testid={`${testID}-icon`}
+        data-testid={`${surfaceProps.testID}-icon`}
       >
         {icon}
       </div>
@@ -263,6 +273,41 @@ function StateIsland({
       <div className="grid max-w-full justify-items-center gap-[var(--space-2)]">{children}</div>
     </div>
   );
+  return (
+    <StateSurface {...surfaceProps} contentWidth={contentWidth}>
+      {content}
+    </StateSurface>
+  );
+}
+
+function StateSurface({
+  inset = false,
+  surface = "island",
+  children,
+  chromePadding,
+  contentWidth,
+  fullPage,
+  reveal,
+  testID,
+  tone = "floating",
+}: Omit<StateIslandProps, "contentTestID" | "icon" | "iconClassName" | "title" | "titleClassName">) {
+  const revealClassName = reveal && "animate-[surface-reveal_var(--motion-normal)]";
+  if (surface === "plain") {
+    return (
+      <div
+        className={cx(
+          "grid min-w-0 place-items-center",
+          inset && "p-[var(--space-4)]",
+          fullPage && "h-full min-h-0",
+          chromePadding && chromeContentPaddingClassName,
+          revealClassName,
+        )}
+        data-testid={testID}
+      >
+        {children}
+      </div>
+    );
+  }
   if (fullPage) {
     return (
       <div
@@ -273,26 +318,19 @@ function StateIsland({
         data-testid={testID}
       >
         <Island
-          className={cx(
-            "grid h-full min-h-0 w-full place-items-center overflow-hidden",
-            reveal && "animate-[surface-reveal_var(--motion-normal)]",
-          )}
+          className={cx("grid h-full min-h-0 w-full place-items-center overflow-hidden", revealClassName)}
           data-testid={`${testID}-island`}
           floatingWidth={contentWidth === "full" ? "full" : "default"}
           tone={tone}
         >
-          {content}
+          {children}
         </Island>
       </div>
     );
   }
   return (
-    <Island
-      className={cx("grid place-items-center", reveal && "animate-[surface-reveal_var(--motion-normal)]")}
-      data-testid={testID}
-      tone={tone}
-    >
-      {content}
+    <Island className={cx("grid place-items-center", revealClassName)} data-testid={testID} tone={tone}>
+      {children}
     </Island>
   );
 }

@@ -20,7 +20,8 @@ export type ActionableListRowProps = Readonly<{
   contextualActions?: ReactNode;
   leadingActions?: ReactNode;
   selected?: boolean;
-  wrapActions?: boolean;
+  layout?: "inline" | "stacked";
+  subtitle?: ReactNode;
 }> &
   ActionableListRowSelection &
   Omit<HTMLAttributes<HTMLDivElement>, "children" | "className">;
@@ -32,7 +33,8 @@ export function ActionableListRow({
   contextualActions,
   leadingActions,
   selected = false,
-  wrapActions = false,
+  layout = "inline",
+  subtitle,
   selectionControl,
   selectButtonProps,
   ...props
@@ -40,9 +42,11 @@ export function ActionableListRow({
   return (
     <div
       className={cx(
-        "group/actionable-row app-region-no-drag relative flex min-h-9 w-full items-center rounded-[var(--radius-s)] border border-transparent bg-transparent transition-colors duration-100 motion-reduce:transition-none focus-within:bg-[var(--color-island-1)] data-[selected=true]:bg-[var(--color-island-2)] [@media(pointer:coarse)]:min-h-11",
+        "group/actionable-row app-region-no-drag relative min-h-9 w-full items-center rounded-[var(--radius-s)] border border-transparent bg-transparent transition-colors duration-100 motion-reduce:transition-none focus-within:bg-[var(--color-island-1)] data-[selected=true]:bg-[var(--color-island-2)] [@media(pointer:coarse)]:min-h-11",
         className,
-        wrapActions && "flex-wrap gap-y-[var(--space-1)]",
+        layout === "stacked"
+          ? "grid grid-cols-[minmax(0,1fr)_auto] gap-x-[var(--space-1)] p-[var(--space-1)] hover:bg-[var(--color-island-1)]"
+          : "flex",
       )}
       data-selected={selected}
       {...props}
@@ -66,7 +70,7 @@ export function ActionableListRow({
         <div
           className={cx(
             "ml-auto flex shrink-0 items-center gap-[var(--space-1)]",
-            selected ? "pr-[calc(var(--space-5)+var(--space-1))]" : undefined,
+            selected && layout === "inline" ? "pr-[calc(var(--space-5)+var(--space-1))]" : undefined,
           )}
         >
           {contextualActions === undefined ? null : (
@@ -77,6 +81,7 @@ export function ActionableListRow({
           {actions}
         </div>
       )}
+      {subtitle === undefined ? null : <div className="col-span-full min-w-0">{subtitle}</div>}
     </div>
   );
 }

@@ -34,13 +34,13 @@ export function SettingsRow({
 export function SettingsSwitch({
   checked,
   label,
-  icon,
+  trailingIcon,
   onChange,
   reason,
 }: Readonly<{
   checked: boolean;
   label: string;
-  icon?: ReactNode;
+  trailingIcon?: ReactNode;
   reason: string | undefined;
   onChange(checked: boolean): void;
 }>) {
@@ -52,8 +52,8 @@ export function SettingsSwitch({
       reason={reason}
     >
       <span className="flex min-w-0 flex-1 items-center gap-[var(--space-1)]">
-        {icon}
         <span className="truncate">{label}</span>
+        {trailingIcon}
       </span>
       <Switch
         className="after:inset-0"
