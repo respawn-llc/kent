@@ -63,7 +63,7 @@ func SessionRetargetFailureText(commandName string, cause error) string {
 	guidance := ""
 	switch retargetErr.Reason {
 	case SessionRetargetWorkflowOwned:
-		guidance = "Moving across projects during workflow makes no sense: the task would remain stuck in the old project"
+		guidance = "Moving across projects during workflow makes no sense: the task would stay stuck in the old project"
 	case SessionRetargetTargetProjectRequired:
 		guidance = sessionRetargetTargetProjectRequiredGuidance(commandName, retargetErr)
 	case SessionRetargetTargetProjectConflict:

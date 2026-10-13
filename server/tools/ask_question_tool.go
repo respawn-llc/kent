@@ -376,7 +376,7 @@ func (t *AskQuestionTool) Call(ctx context.Context, c Call) (Result, error) {
 		message := err.Error()
 		if errors.Is(err, context.Canceled) {
 			message = fmt.Sprintf(
-				"You were interrupted while waiting for an answer to this question after %s. This does not mean you're authorized to go with your own decision or that any of the proposed options was chosen. Consider re-asking this question when appropriate.",
+				"You were interrupted while waiting for an answer to this question after %s. The interruption grants no authorization to make your own decision or treat any of the proposed options as chosen. Consider re-asking this question when appropriate.",
 				formatDurationShort(time.Since(askStartedAt)),
 			)
 		}

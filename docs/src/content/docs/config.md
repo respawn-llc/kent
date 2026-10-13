@@ -29,7 +29,7 @@ The default and session-producing roles accept a connection name or an array of 
 ### Persistence root
 
 - Workspace settings live at: `<workspace-root>/.kent/config.toml`. Note that workspace root is not necessarily the same as where you might have started the TUI - it's where the agent will actually do the work.
-- Private settings live at `<main-workspace-root>/.kent/config.local.toml`. The file is optional and accepts workspace-allowed settings. Keep personal overrides uncommitted using your own Git ignore configuration. Kent leaves Git rules untouched and reads this file from the main workspace instead of copying it into worktrees.
+- Private settings live at `<main-workspace-root>/.kent/config.local.toml`. The file is optional and accepts workspace-allowed settings. Keep personal overrides uncommitted using your own Git ignore configuration. Kent leaves Git rules untouched. All worktrees read the main workspace's private settings file.
 - Global settings live at: `~/.kent/config.toml`, and this location (along with all other data storage) is overridable via `--persistence-root`. The flag also relocates the root's model-visible global context — global `AGENTS.md`, the global system-prompt file, global skills, and generated assets.
   `kent service` is also root-aware. Each `--persistence-root` install bakes the root into the registration. The OS holds a single service, so install with the root you want managed.
 
