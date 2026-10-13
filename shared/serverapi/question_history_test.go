@@ -3,13 +3,14 @@ package serverapi_test
 import (
 	"core/shared/protoapi"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"google.golang.org/protobuf/proto"
 	"testing"
 )
 
 func TestQuestionHistorySubscribeRequestValidation(t *testing.T) {
 	valid := &sessionpb.QuestionHistorySubscribeRequest{
-		SessionId:   "12345678-1234-4234-8234-123456789012",
+		SessionId:   &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "12345678-1234-4234-8234-123456789012"}},
 		MaxHandoffs: 25,
 	}
 	if err := protoapi.Validate(valid); err != nil {

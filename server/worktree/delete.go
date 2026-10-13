@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"core/server/metadata"
+	"core/shared/protoapi"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/worktreecontract"
 )
@@ -211,7 +212,7 @@ func (s *Service) checkDeleteTargetActivity(
 					return &worktreecontract.BlockedError{Details: &worktreepb.BlockedDetails{ActiveSessions: activeBlockers}}
 				}
 				activeBlockers.Sessions = append(activeBlockers.Sessions, &worktreepb.BlockingSession{
-					SessionId: target.SessionID, Name: target.SessionName,
+					SessionId: target.SessionID, ShortId: protoapi.SessionShortIDToProto(target.ShortID), Name: target.SessionName,
 				})
 			}
 			if page.Next == nil {

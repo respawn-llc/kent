@@ -559,7 +559,7 @@ it("preserves focus, selection and continued typing across successive deliveries
     },
   });
   await act(async () => {
-    first.resolve(accepted("first-session"));
+    first.resolve(accepted("33333333-3333-4333-8333-333333333333"));
   });
   await waitFor(() => {
     expect(view.services.api.chat.persistDraft).toHaveBeenCalled();
@@ -569,7 +569,7 @@ it("preserves focus, selection and continued typing across successive deliveries
   expect(editor.selectionEnd).toBe(5);
   expect(editor).toHaveValue("continuing");
   await act(async () => {
-    second.resolve(accepted("second-session"));
+    second.resolve(accepted("44444444-4444-4444-8444-444444444444"));
   });
   expect(screen.getByRole("textbox")).toHaveFocus();
   expect(editor.selectionStart).toBe(2);

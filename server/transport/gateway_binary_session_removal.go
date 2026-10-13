@@ -7,8 +7,12 @@ import (
 	"core/server/metadata"
 	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionservice"
 	"core/shared/apicontract"
+	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	"core/shared/serverapi"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -81,32 +85,43 @@ func registerSessionRemovalGatewayBinaryBindings(bindings map[string]gatewayBina
 }
 
 func sessionRemovalRequestID(request proto.Message) *string {
-	var sessionID string
+	var target *sharedpb.SessionSelector
 	switch typed := request.(type) {
 	case *sessionlaunchpb.SessionArchiveRequest:
 		if typed == nil {
 			return nil
 		}
-		sessionID = typed.SessionId
+		target = typed.SessionId
 	case *sessionlaunchpb.SessionDeleteRequest:
 		if typed == nil {
 			return nil
 		}
-		sessionID = typed.SessionId
+		target = typed.SessionId
 	default:
 		return nil
 	}
-	return &sessionID
+	if target != nil {
+		if uuid, ok := target.Value.(*sharedpb.SessionSelector_SessionId); ok {
+			return &uuid.SessionId
+		}
+	}
+	return nil
 }
 
 func sessionRemovalFailureDetails(request proto.Message, err error) proto.Message {
 	sessionID := sessionRemovalRequestID(request)
+	var resolved *sessionservice.SessionRemovalError
+	if errors.As(err, &resolved) {
+		id := resolved.SessionID.String()
+		sessionID = &id
+	}
+	var self *serverapi.SessionSelfTargetError
+	if errors.As(err, &self) {
+		return protoapi.SessionSelfTargetToProto(err, self)
+	}
 	_, deleteRequest := request.(*sessionlaunchpb.SessionDeleteRequest)
 	if errors.Is(err, session.ErrSessionNotFound) {
-		if sessionID == nil {
-			return binaryInternalFailure(err)
-		}
-		return &sessionlaunchpb.SessionNotFoundDetails{SessionId: *sessionID}
+		return &sessionlaunchpb.SessionNotFoundDetails{SessionId: sessionID}
 	}
 	var runtimeInUse *sessionruntime.SessionInUseError
 	var metadataInUse *metadata.SessionInUseError
@@ -115,7 +130,11 @@ func sessionRemovalFailureDetails(request proto.Message, err error) proto.Messag
 		if sessionID == nil {
 			return binaryInternalFailure(err)
 		}
-		return &sessionlaunchpb.SessionInUseDetails{SessionId: *sessionID}
+		detail := &sessionlaunchpb.SessionInUseDetails{SessionId: *sessionID}
+		if resolved != nil {
+			detail.ShortId = protoapi.SessionShortIDToProto(resolved.ShortID)
+		}
+		return detail
 	}
 	var invalidPath *session.InvalidArchiveOutputPathError
 	if errors.As(err, &invalidPath) {

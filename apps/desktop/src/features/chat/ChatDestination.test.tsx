@@ -51,7 +51,7 @@ function setup(commands: readonly ComposerCommand[] = [], selected: ChatDestinat
         workflowLocked: false,
         cachingLocked: false,
       },
-      session: { sessionID: target.sessionID, previousSessionID: null, task: null },
+      session: { sessionID: target.sessionID, shortID: null, previousSessionID: null, task: null },
     };
   });
   const draft = vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();

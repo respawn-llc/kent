@@ -545,7 +545,7 @@ func TestRemoteSessionAttachmentSurvivesUnaryControlReconnect(t *testing.T) {
 				ContextUsage: &runtimepb.ContextUsage{WindowTokens: 1000},
 			},
 			Session: &runtimepb.SessionView{
-				SessionId:             "session-1",
+				SessionId:             "11111111-1111-4111-8111-111111111111",
 				ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH,
 				ExecutionTarget: &worktreepb.SessionExecutionTarget{
 					WorkspaceId: proto.String("workspace-1"), WorkspaceName: "workspace",
@@ -605,7 +605,7 @@ func TestRemoteSessionAttachmentSurvivesUnaryControlReconnect(t *testing.T) {
 				reportHandlerError(handlerErrs, "decode Session main-view request: %v", err)
 				return
 			}
-			if request.SessionId != "session-1" {
+			if request.SessionId.GetSessionId() != "11111111-1111-4111-8111-111111111111" {
 				reportHandlerError(handlerErrs, "main-view Session = %q, want session-1", request.SessionId)
 				return
 			}
@@ -625,14 +625,14 @@ func TestRemoteSessionAttachmentSurvivesUnaryControlReconnect(t *testing.T) {
 	remote, err := DialRemoteURLForSession(
 		context.Background(),
 		"ws"+server.URL[len("http"):],
-		"session-1",
+		"11111111-1111-4111-8111-111111111111",
 	)
 	if err != nil {
 		t.Fatalf("DialRemoteURLForSession: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
 
-	request := &sessionpb.MainViewRequest{SessionId: "session-1"}
+	request := &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "11111111-1111-4111-8111-111111111111"}}}
 	if _, err := remote.GetSessionMainView(context.Background(), request); err != nil {
 		t.Fatalf("first GetSessionMainView: %v", err)
 	}

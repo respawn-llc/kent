@@ -13,6 +13,7 @@ import (
 	"time"
 
 	modelstub "core/internal/testharness/pty/blackbox"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/launch"
@@ -24,6 +25,7 @@ import (
 	"core/shared/config"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -85,10 +87,10 @@ func TestRunThinkingExplicitDefaultSurvivesFailedContinuation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+	_, err = client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "select headless default",
 		Overrides: serverapi.RunPromptOverrides{AgentRole: textutil.Value(config.DefaultSubagentRole), ThinkingLevel: "high"},
-	}, nil)
+	}), nil)
 	if !errors.Is(err, runprompt.ErrHeadlessGoalSession) {
 		t.Fatal(err)
 	}
@@ -102,9 +104,9 @@ func TestRunThinkingExplicitDefaultSurvivesFailedContinuation(t *testing.T) {
 	if _, _, err := reopened.ClearGoal(session.GoalActorUser); err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+	_, err = client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "use saved headless default",
-	}, nil)
+	}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,10 +139,10 @@ func TestRunThinkingKeepsConfiguredAgentOmittedFromPicker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+	_, err = client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "keep the configured selection",
 		Overrides: serverapi.RunPromptOverrides{ThinkingLevel: "high"},
-	}, nil)
+	}), nil)
 	if !errors.Is(err, runprompt.ErrHeadlessGoalSession) {
 		t.Fatal(err)
 	}
@@ -180,7 +182,7 @@ func TestRunThinkingPreparedActivationUsesPersistedSelection(t *testing.T) {
 	}
 	// A later accepted settings change owns the next activation.
 	changed, err := app.ChatSettingsClient().MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
-		Session:   &chatsettingspb.SessionTarget{SessionId: id.String()},
+		Session:   &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}},
 		Operation: &chatsettingspb.MutationOperation{Operation: &chatsettingspb.MutationOperation_Thinking{Thinking: "high"}},
 	})
 	if err != nil || changed.GetResult().GetApplied() == nil {
@@ -231,10 +233,10 @@ func testRunThinkingEffectiveSelection(t *testing.T, locked bool, overrides serv
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+	response, err := client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "use the combined selection",
 		Overrides: overrides,
-	}, nil)
+	}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +245,7 @@ func testRunThinkingEffectiveSelection(t *testing.T, locked bool, overrides serv
 		t.Fatalf("effective model/Thinking = %+v", request)
 	}
 	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: id.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -264,15 +266,15 @@ func TestRunThinkingOmittedFlagUsesSavedSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	changed, err := app.ChatSettingsClient().MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
-		Session:   &chatsettingspb.SessionTarget{SessionId: id.String()},
+		Session:   &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}},
 		Operation: &chatsettingspb.MutationOperation{Operation: &chatsettingspb.MutationOperation_Thinking{Thinking: "high"}},
 	})
 	if err != nil || changed.GetResult().GetApplied() == nil {
 		t.Fatalf("save Thinking: %v, %v", changed, err)
 	}
-	_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+	_, err = client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "use saved Thinking",
-	}, nil)
+	}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,11 +285,11 @@ func TestRunThinkingOmittedFlagUsesSavedSelection(t *testing.T) {
 
 func TestRunThinkingNewSessionUsesExplicitSelection(t *testing.T) {
 	_, _, client, requests := newRunThinkingRecordingSession(t)
-	_, err := client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+	_, err := client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent:    serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 		Prompt:    "create with explicit Thinking",
 		Overrides: serverapi.RunPromptOverrides{ThinkingLevel: "high"},
-	}, nil)
+	}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,16 +327,16 @@ func testRunThinkingContinuationFailure(t *testing.T, overrides serverapi.RunPro
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+	_, err = client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent:    serverapi.OpenExistingSessionLaunchIntent(id),
 		Prompt:    "must not be submitted",
 		Overrides: overrides,
-	}, nil)
+	}), nil)
 	if !errors.Is(err, runprompt.ErrHeadlessGoalSession) {
 		t.Fatalf("continuation error = %v", err)
 	}
 	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: id.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -380,10 +382,10 @@ func TestRunThinkingCombinedRejectionUsesNewModelCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+	_, err = client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "save supported selection",
 		Overrides: serverapi.RunPromptOverrides{Model: "gpt-5.6-sol", ThinkingLevel: "xhigh"},
-	}, nil)
+	}), nil)
 	if !errors.Is(err, runprompt.ErrHeadlessGoalSession) {
 		t.Fatal(err)
 	}
@@ -391,10 +393,10 @@ func TestRunThinkingCombinedRejectionUsesNewModelCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+	_, err = client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "reject unsupported selection",
 		Overrides: serverapi.RunPromptOverrides{Model: "gpt-5", ThinkingLevel: "ultra"},
-	}, nil)
+	}), nil)
 	if err == nil || errors.Is(err, runprompt.ErrHeadlessGoalSession) {
 		t.Fatalf("invalid combination reached continuation: %v", err)
 	}
@@ -421,11 +423,11 @@ func testRunThinkingRejected(t *testing.T, overrides serverapi.RunPromptOverride
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+	_, err = client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent:    serverapi.OpenExistingSessionLaunchIntent(id),
 		Prompt:    "must not be submitted",
 		Overrides: overrides,
-	}, nil)
+	}), nil)
 	var rejected *serverapi.RunSelectionRejectedError
 	if !errors.As(err, &rejected) || rejected.Reason != chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_THINKING_UNAVAILABLE {
 		t.Fatalf("unsupported Thinking rejection lost its reason: %v", err)
@@ -472,10 +474,10 @@ func TestRunThinkingLockedOverridesWarnWithoutThinking(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+	response, err := client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "continue with the locked selection",
 		Overrides: serverapi.RunPromptOverrides{AgentRole: textutil.Value("worker"), Model: "gpt-4.1"},
-	}, nil)
+	}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +492,7 @@ func TestRunThinkingLockedOverridesWarnWithoutThinking(t *testing.T) {
 		t.Fatalf("locked model override was applied: %+v", request)
 	}
 	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: id.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -520,7 +522,7 @@ func TestRunThinkingRejectsWhenLockedContractDisablesReasoning(t *testing.T) {
 		t.Fatal(err)
 	}
 	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: id.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -532,10 +534,10 @@ func TestRunThinkingRejectsWhenLockedContractDisablesReasoning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+	_, err = client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "must not dispatch",
 		Overrides: serverapi.RunPromptOverrides{ThinkingLevel: "high"},
-	}, nil)
+	}), nil)
 	if err == nil {
 		t.Fatal("accepted Thinking despite locked capability")
 	}
@@ -562,7 +564,7 @@ func TestRunThinkingRetainedSelectionAcceptsCustomValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: id.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -570,10 +572,10 @@ func TestRunThinkingRetainedSelectionAcceptsCustomValues(t *testing.T) {
 	if read.GetSession().Settings.Thinking.Kind != chatsettingspb.ThinkingKind_THINKING_KIND_CUSTOM {
 		t.Fatal("fixture is not a custom-valued Thinking selection")
 	}
-	_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+	_, err = client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "save another custom Thinking value",
 		Overrides: serverapi.RunPromptOverrides{ThinkingLevel: "provider-depth-next"},
-	}, nil)
+	}), nil)
 	if err == nil {
 		t.Fatal("expected continuation to fail after saving the custom selection")
 	}
@@ -601,9 +603,9 @@ func TestRunThinkingPersistsWhileBusy(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, err := client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+		_, err := client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 			Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "hold this request",
-		}, nil)
+		}), nil)
 		done <- err
 	}()
 	select {
@@ -613,15 +615,15 @@ func TestRunThinkingPersistsWhileBusy(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("first Run did not dispatch")
 	}
-	_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+	_, err = client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "must not dispatch",
 		Overrides: serverapi.RunPromptOverrides{ThinkingLevel: "high"},
-	}, nil)
+	}), nil)
 	if !errors.Is(err, runprompt.ErrSessionRunning) {
 		t.Fatalf("busy continuation error = %v", err)
 	}
 	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: id.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}}},
 	})
 	if err != nil {
 		t.Fatal(err)

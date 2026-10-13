@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"core/internal/testharness/requestfixture"
 	"core/server/session"
 	serverstartup "core/server/startup"
 	"core/shared/apicontract"
@@ -10,6 +11,7 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -146,7 +148,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	targetProjectID := bindingB.ProjectID
 	if _, err := sourceServer.SessionLifecycleClient().RetargetSessionWorkspace(
 		context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
-			SessionId:     parent.Meta().SessionID,
+			SessionId:     requestfixture.Selector(t, parent.Meta().SessionID),
 			WorkspaceRoot: workspaceB,
 			ProjectId:     &targetProjectID,
 		},
@@ -155,7 +157,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	}
 
 	childView, err := sourceServer.SessionViewClient().GetSessionMainView(
-		context.Background(), &sessionpb.MainViewRequest{SessionId: child.Meta().SessionID})
+		context.Background(), &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: child.Meta().SessionID}}})
 	if err != nil {
 		t.Fatalf("load child main view: %v", err)
 	}
@@ -218,7 +220,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 		t.Fatalf("workspace-change prompts after remote /back = %d, want 0", promptCalls)
 	}
 	planner := newSessionLaunchPlanner(targetServer)
-	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeInteractive, Intent: intent})
+	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, intent)})
 	if err != nil {
 		t.Fatalf("plan target parent: %v", err)
 	}
@@ -310,7 +312,7 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 			}
 
 			childView, err := server.SessionViewClient().GetSessionMainView(
-				context.Background(), &sessionpb.MainViewRequest{SessionId: child.Meta().SessionID})
+				context.Background(), &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: child.Meta().SessionID}}})
 			if err != nil {
 				t.Fatalf("load child main view: %v", err)
 			}
@@ -380,7 +382,7 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 			planner := newSessionLaunchPlanner(server)
 			parentPlan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{
 				Mode:   launchModeInteractive,
-				Intent: serverapi.OpenExistingSessionLaunchIntent(sessionLifecycleSessionIDForTest(t, parent.Meta().SessionID)),
+				Intent: requestfixture.LaunchIntent(t, serverapi.OpenExistingSessionLaunchIntent(sessionLifecycleSessionIDForTest(t, parent.Meta().SessionID))),
 			})
 			if err != nil {
 				t.Fatalf("plan parent session: %v", err)

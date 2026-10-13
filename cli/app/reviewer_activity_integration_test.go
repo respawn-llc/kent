@@ -7,6 +7,7 @@ import (
 	"core/server/runtime"
 	"core/server/sessionruntime"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -35,7 +36,7 @@ func TestReviewerActivityPublishesInvocationAndTerminalStateToTUI(t *testing.T) 
 			if testCase.terminal == "failure" {
 				reviewer.resultErr = errors.Join(llm.ErrInvalidRequest, errors.New("reviewer unavailable"))
 			}
-			activity := registry.NewRuntimeRegistry()
+			activity := registry.NewRuntimeRegistry(nil)
 			var engine *runtime.Engine
 			store, engine := newAppRuntimeEngine(t, reviewerActivityMainClient{}, runtime.Config{
 				Model:         "gpt-6-sol",
@@ -84,7 +85,7 @@ func TestReviewerActivityPublishesInvocationAndTerminalStateToTUI(t *testing.T) 
 			})
 
 			subscription, err := activity.SubscribeSessionTranscript(
-				context.Background(), &transcriptpb.SubscribeRequest{SessionId: engine.SessionID()})
+				context.Background(), &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: engine.SessionID()}}})
 			if err != nil {
 				t.Fatalf("subscribe transcript: %v", err)
 			}

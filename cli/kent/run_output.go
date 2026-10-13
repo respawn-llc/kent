@@ -12,18 +12,32 @@ import (
 	"core/shared/llmerrors"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/protocol"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 )
 
+func liveErrorSelector(request runtimeids.SessionSelector, err error) string {
+	var target *serverapi.SessionTargetError
+	if errors.As(err, &target) {
+		if identity := target.Projection(); identity != nil {
+			return identity.String()
+		}
+		if id := target.SessionID(); id != nil {
+			return id.String()
+		}
+	}
+	return request.String()
+}
+
 type runJSONResult struct {
+	Outcome     observationJSONOutcome `json:"outcome,omitempty"`
 	Status      string                 `json:"status"`
 	Result      string                 `json:"result,omitempty"`
-	Outcome     observationJSONOutcome `json:"outcome,omitempty"`
-	SessionID   string                 `json:"session_id,omitempty"`
+	SessionID   *string                `json:"session_id,omitempty"`
 	SessionName *string                `json:"session_name,omitempty"`
-	ContinueID  string                 `json:"continue_id,omitempty"`
-	ContinueCmd string                 `json:"continue_command,omitempty"`
+	ContinueID  *string                `json:"continue_id,omitempty"`
+	ContinueCmd *string                `json:"continue_command,omitempty"`
 	Warnings    []string               `json:"warnings,omitempty"`
 	DurationMS  int64                  `json:"duration_ms"`
 	Error       *runJSONError          `json:"error,omitempty"`
@@ -55,6 +69,10 @@ func parseRunOutputMode(raw string) (runOutputMode, error) {
 }
 
 func runErrorMessage(err error) string {
+	var target *serverapi.SessionTargetError
+	if errors.Is(err, serverapi.ErrRuntimeUnavailable) && errors.As(err, &target) && target.SessionID() == nil {
+		return "The Session does not exist; it may have been deleted."
+	}
 	var selection *serverapi.RunSelectionRejectedError
 	if errors.As(err, &selection) {
 		switch selection.Reason {

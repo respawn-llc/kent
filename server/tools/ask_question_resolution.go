@@ -14,9 +14,9 @@ type AskQuestionResolution interface {
 }
 
 type AskQuestionAnswer struct {
-	SelectedOptionNumber *int                  `json:"selected_option_number,omitempty"`
-	Freeform             *string               `json:"freeform,omitempty"`
-	AnsweredBySessionID  *runtimeids.SessionID `json:"-"`
+	SelectedOptionNumber *int                        `json:"selected_option_number,omitempty"`
+	Freeform             *string                     `json:"freeform,omitempty"`
+	Answerer             *runtimeids.SessionIdentity `json:"-"`
 }
 
 func (AskQuestionAnswer) askQuestionResolution() {}
@@ -90,7 +90,7 @@ func validateOfferedApproval(req AskQuestionRequest, decision AskQuestionApprova
 type questionResolutionText struct {
 	selected   *int
 	freeform   *string
-	answeredBy *runtimeids.SessionID
+	answeredBy *runtimeids.SessionIdentity
 }
 
 func resolutionQuestionText(resolution AskQuestionResolution) (questionResolutionText, error) {
@@ -99,7 +99,7 @@ func resolutionQuestionText(resolution AskQuestionResolution) (questionResolutio
 		return questionResolutionText{
 			selected:   answer.SelectedOptionNumber,
 			freeform:   normalizedResolutionText(answer.Freeform),
-			answeredBy: answer.AnsweredBySessionID,
+			answeredBy: answer.Answerer,
 		}, nil
 	default:
 		return questionResolutionText{}, fmt.Errorf("Question resolution type %T is invalid", resolution)
@@ -155,7 +155,7 @@ func buildResolutionCondensedToolOutputText(
 	return base + "\n" + questionAnswererLabel(answer.answeredBy) + " also said:\n" + *answer.freeform, nil
 }
 
-func questionAnswererLabel(answeredBy *runtimeids.SessionID) string {
+func questionAnswererLabel(answeredBy *runtimeids.SessionIdentity) string {
 	if answeredBy == nil {
 		return "User"
 	}

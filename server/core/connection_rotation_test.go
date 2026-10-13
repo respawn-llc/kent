@@ -49,7 +49,7 @@ model = "operator-model"
 		}
 		clients = append(clients, client)
 	}
-	intent, err := protoapi.SessionLaunchIntentToProto(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
 	if err != nil {
 		t.Fatal(err)
 	}

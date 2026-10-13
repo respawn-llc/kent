@@ -7,6 +7,7 @@ import "kent/api/project/project.proto";
 import "kent/api/server/server.proto";
 import "kent/api/session_launch/session_lifecycle.proto";
 import "kent/api/shared/foundation.proto";
+import "kent/api/shared/session_selector.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/connection;connectionpb";
 
@@ -107,14 +108,7 @@ message AttachProjectRequest {
 }
 
 message AttachSessionRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.connection.attach_session.session_id.trimmed"
-      message: "session_id must not have surrounding whitespace"
-      expression: "this == this.trim()"
-    }
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
   optional string reattach_capability = 2 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {

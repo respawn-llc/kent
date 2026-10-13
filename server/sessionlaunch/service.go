@@ -9,6 +9,7 @@ import (
 
 	"core/server/launch"
 	"core/server/llm"
+	"core/server/metadata"
 	"core/server/session"
 	"core/server/subagentpolicy"
 	servicecontract "core/shared/apicontract"
@@ -26,9 +27,11 @@ import (
 type Service struct {
 	planner       launch.Planner
 	settingsOwner ChatSettingsOwner
+	metadataStore *metadata.Store
 }
 
 type PlanResult struct {
+	Identity             runtimeids.SessionIdentity
 	Plan                 launch.SessionPlan
 	Warnings             []string
 	RunSelectionWarnings []runpromptpb.RunSelectionWarning
@@ -64,8 +67,19 @@ func (r PlanRequest) Validate() error {
 	return r.Overrides.ValidateAgentRoleOverride()
 }
 
-func NewService(planner launch.Planner, settingsOwner ChatSettingsOwner) *Service {
-	return &Service{planner: planner, settingsOwner: settingsOwner}
+func NewService(planner launch.Planner, settingsOwner ChatSettingsOwner, metadataStore *metadata.Store) *Service {
+	return &Service{planner: planner, settingsOwner: settingsOwner, metadataStore: metadataStore}
+}
+
+func (s *Service) ResolveRunPromptRequest(ctx context.Context, request *runpromptpb.Request) (serverapi.RunPromptRequest, error) {
+	if err := protoapi.Validate(request); err != nil {
+		return serverapi.RunPromptRequest{}, err
+	}
+	intent, err := s.metadataStore.ResolveSessionLaunchIntent(ctx, request.Intent)
+	if err != nil {
+		return serverapi.RunPromptRequest{}, err
+	}
+	return protoapi.RunPromptRequestFromProto(request, intent)
 }
 
 func (s *Service) PrepareSessionChatSettingsOperation(
@@ -198,6 +212,7 @@ func (s *Service) SessionChatSettings(
 	}
 	facts := &chatsettingspb.SessionFacts{
 		SessionId: sessionID.String(),
+		ShortId:   protoapi.SessionShortIDToProto(record.ShortID),
 	}
 	facts.Connection, err = authstatus.SessionConnection(input.Configuration.Settings, record.Meta.ConnectionID)
 	if err != nil {
@@ -245,7 +260,7 @@ func (s *Service) PlanSession(
 	ctx context.Context,
 	req *sessionlaunchpb.SessionPlanRequest,
 ) (*sessionlaunchpb.SessionPlanSuccess, error) {
-	internal, err := sessionPlanRequestFromGenerated(req)
+	internal, err := s.sessionPlanRequestFromGenerated(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -507,14 +522,19 @@ func (s *Service) finalizeLaunchPlan(
 		return PlanResult{}, err
 	}
 	plan = launch.ApplyContextPolicy(plan, capabilities)
+	record, err := s.planner.PersistedSessions.ResolvePersistedSession(ctx, plan.Descriptor.SessionID().String())
+	if err != nil {
+		return PlanResult{}, err
+	}
 	return PlanResult{
+		Identity:             runtimeids.SessionIdentity{ID: plan.Descriptor.SessionID(), ShortID: record.ShortID},
 		Plan:                 plan,
 		Warnings:             warnings,
 		RunSelectionWarnings: append([]runpromptpb.RunSelectionWarning(nil), selectionWarnings...),
 	}, nil
 }
 
-func sessionPlanRequestFromGenerated(request *sessionlaunchpb.SessionPlanRequest) (PlanRequest, error) {
+func (s *Service) sessionPlanRequestFromGenerated(ctx context.Context, request *sessionlaunchpb.SessionPlanRequest) (PlanRequest, error) {
 	if request == nil {
 		return PlanRequest{}, errors.New("Session plan request is required")
 	}
@@ -527,7 +547,7 @@ func sessionPlanRequestFromGenerated(request *sessionlaunchpb.SessionPlanRequest
 	default:
 		return PlanRequest{}, fmt.Errorf("generated Session launch mode %v is invalid", request.Mode)
 	}
-	intent, err := protoapi.SessionLaunchIntentFromProto(request.Intent)
+	intent, err := s.metadataStore.ResolveSessionLaunchIntent(ctx, request.Intent)
 	if err != nil {
 		return PlanRequest{}, err
 	}
@@ -573,6 +593,7 @@ func sessionPlanSuccessFromResult(result PlanResult) (*sessionlaunchpb.SessionPl
 		enabledToolIDs = append(enabledToolIDs, generated)
 	}
 	plan := &sessionlaunchpb.SessionPlan{
+		ShortId:                  protoapi.SessionShortIDToProto(result.Identity.ShortID),
 		SessionId:                result.Plan.Descriptor.SessionID().String(),
 		ActiveSettings:           settings,
 		EnabledToolIds:           enabledToolIDs,

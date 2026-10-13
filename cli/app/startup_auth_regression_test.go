@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"core/internal/testharness/requestfixture"
 	serverstartup "core/server/startup"
 	"core/shared/config"
 	"core/shared/serverapi"
@@ -66,7 +67,7 @@ func TestSelectedSessionMissingConnectionCredentialsOpensLogin(t *testing.T) {
 		t.Fatal("startup checked provider credentials before selecting a Session")
 	}
 	intent := serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())
-	err = runSessionLifecycleWithOptions(t.Context(), server, interactor, sessionLifecycleOptions{Intent: &intent})
+	err = runSessionLifecycleWithOptions(t.Context(), server, interactor, sessionLifecycleOptions{Intent: requestfixture.LaunchIntent(t, intent)})
 	if !opened || !errors.Is(err, ErrAuthCanceledByUser) {
 		t.Fatalf("login opened = %t, startup error = %v", opened, err)
 	}

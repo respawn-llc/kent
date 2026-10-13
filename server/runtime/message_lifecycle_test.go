@@ -104,7 +104,7 @@ func queueMessageLifecycleTestSteers(t *testing.T, engine *Engine, texts ...stri
 	t.Helper()
 	queued := make([]QueuedUserMessage, 0, len(texts))
 	for _, text := range texts {
-		steer, err := NewAgentSteer(runtimeids.NewSessionID(), text)
+		steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, text)
 		if err != nil {
 			t.Fatalf("create Agent Steer %q: %v", text, err)
 		}

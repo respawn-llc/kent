@@ -18,6 +18,7 @@ import (
 	"time"
 
 	modelstub "core/internal/testharness/pty/blackbox"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/attentionnotify"
 	"core/server/auth"
@@ -37,8 +38,10 @@ import (
 	"core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -237,17 +240,17 @@ func TestRunPromptProgressFromRuntimeEventDropsOperationalSpam(t *testing.T) {
 
 func TestInProcessRunPromptClientRejectsInvalidRequestsBeforeLaunch(t *testing.T) {
 	reservedRole := "self"
-	validIntent := serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())
+	validIntent := requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
 	tests := []struct {
 		name string
-		req  serverapi.RunPromptRequest
+		req  *runpromptpb.Request
 	}{
-		{name: "blank prompt", req: serverapi.RunPromptRequest{Intent: validIntent, Prompt: " \n "}},
-		{name: "invalid intent", req: serverapi.RunPromptRequest{Prompt: "work"}},
-		{name: "reserved role", req: serverapi.RunPromptRequest{
+		{name: "blank prompt", req: &runpromptpb.Request{Intent: validIntent, Prompt: " \n "}},
+		{name: "invalid intent", req: &runpromptpb.Request{Prompt: "work"}},
+		{name: "reserved role", req: &runpromptpb.Request{
 			Intent:    validIntent,
 			Prompt:    "work",
-			Overrides: serverapi.RunPromptOverrides{AgentRole: &reservedRole},
+			Overrides: &sessionlaunchpb.RunPromptOverrides{AgentRole: &reservedRole},
 		}},
 	}
 
@@ -283,7 +286,7 @@ func newTestHeadlessSessionLaunch(
 			CwdRelpath:       ".",
 			EffectiveWorkdir: cfg.WorkspaceRoot,
 		}},
-	}, sessionlaunch.ChatSettingsOwner{})
+	}, sessionlaunch.ChatSettingsOwner{}, nil)
 }
 
 type fixedSessionProjectResolver struct{}
@@ -306,12 +309,13 @@ func newTestHeadlessRuntimeAuthority(root string, authManager *auth.Manager, bac
 }
 
 func newObservedTestHeadlessRuntimeAuthority(
+	t *testing.T,
 	root string,
 	authManager *auth.Manager,
 	background *shelltool.Manager,
 	storeOptions ...session.StoreOption,
 ) (*sessionruntime.Authority, *runtimecontrol.Service) {
-	observed := newObservedTestHeadlessRuntime(root, authManager, background, storeOptions...)
+	observed := newObservedTestHeadlessRuntime(t, root, authManager, background, storeOptions...)
 	return observed.authority, observed.observer
 }
 
@@ -332,12 +336,14 @@ type observedHeadlessTestRuntime struct {
 }
 
 func newObservedTestHeadlessRuntime(
+	t *testing.T,
 	root string,
 	authManager *auth.Manager,
 	background *shelltool.Manager,
 	storeOptions ...session.StoreOption,
 ) observedHeadlessTestRuntime {
-	runtimeRegistry := registry.NewRuntimeRegistry().WithAttentionNotifications(
+	db := testsetup.OpenStore(t, root)
+	runtimeRegistry := registry.NewRuntimeRegistry(db).WithAttentionNotifications(
 		attentionnotify.NewBroker(),
 		testsetup.SessionNavigationBinding,
 	)
@@ -359,7 +365,7 @@ func newObservedTestHeadlessRuntime(
 		registry:    runtimeRegistry,
 		initialRead: make(chan struct{}),
 	}
-	observer := runtimecontrol.NewService(authority).
+	observer := runtimecontrol.NewService(authority, db).
 		WithLiveWatchPromptSources(pendingPrompts, runtimeRegistry)
 	return observedHeadlessTestRuntime{
 		authority:         authority,
@@ -471,7 +477,7 @@ func newSelectedRunPromptFixture(
 		t.Fatalf("EnsureDurable: %v", err)
 	}
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
-	observed := newObservedTestHeadlessRuntime(root, authManager, nil, persistence.Options()...)
+	observed := newObservedTestHeadlessRuntime(t, root, authManager, nil, persistence.Options()...)
 
 	if len(enabledTools) == 0 {
 		enabledTools = []toolspec.ID{toolspec.ToolAskQuestion}
@@ -561,7 +567,7 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 			Shell:        config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}, provider.URL)),
 	}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:            cfg,
@@ -571,15 +577,16 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 			CallerSessions:    meta,
 			ExecutionTargets:  meta,
 			SessionProjects:   meta, ManagedWorktreeRoots: meta,
-		}, sessionlaunch.ChatSettingsOwner{}),
+		}, sessionlaunch.ChatSettingsOwner{}, meta,
+		),
 		RuntimeAuthority: authority,
 		LiveRunObserver:  liveRunObserver,
 	})
 	sessionID := mustRunPromptSessionID(t, store.Meta().SessionID)
-	response, err := client.RunPrompt(ctx, serverapi.RunPromptRequest{
+	response, err := client.RunPrompt(ctx, requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(sessionID),
 		Prompt: "write to the sibling Workspace",
-	}, nil)
+	}), nil)
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
@@ -719,7 +726,7 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 	cfg.Settings.Worktrees = config.WorktreeSettings{BaseDir: managedBase}
 	cfg.Settings.ShellOutputMaxChars = 16_000
 	cfg.Settings.Shell.PostprocessingMode = config.ShellPostprocessingModeBuiltin
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:            cfg,
@@ -729,18 +736,20 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 			CallerSessions:    meta,
 			ExecutionTargets:  meta,
 			SessionProjects:   meta, ManagedWorktreeRoots: meta,
-		}, sessionlaunch.ChatSettingsOwner{}),
+		}, sessionlaunch.ChatSettingsOwner{}, meta,
+		),
 		RuntimeAuthority:       authority,
 		LiveRunObserver:        liveRunObserver,
 		PromptHistory:          meta,
+		Metadata:               meta,
 		ManagedWorktreeBaseDir: managedBase,
 	})
 	parentID := parent.Meta().SessionID
-	response, err := client.RunPrompt(ctx, serverapi.RunPromptRequest{
+	response, err := client.RunPrompt(ctx, requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent:          serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(mustRunPromptSessionID(t, parentID))),
 		CallerSessionID: &parentID,
 		Prompt:          "verify the inherited execution target",
-	}, nil)
+	}), nil)
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
@@ -911,20 +920,22 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 		CallerSessions:    meta,
 		ExecutionTargets:  meta,
 		SessionProjects:   meta, ManagedWorktreeRoots: meta,
-	}, sessionlaunch.ChatSettingsOwner{})
+	}, sessionlaunch.ChatSettingsOwner{}, meta,
+	)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    sessionLauncher,
+		Metadata:         meta,
 		RuntimeAuthority: authority,
 	})
 	before := snapshotHeadlessLaunchArtifacts(t, ctx, meta, binding.ProjectID, binding.WorkspaceID, containerDir, root, worktreeRoot)
 	role := "hidden"
 	parentID := parent.Meta().SessionID
-	_, err = client.RunPrompt(ctx, serverapi.RunPromptRequest{
+	_, err = client.RunPrompt(ctx, requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent:          serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(mustRunPromptSessionID(t, parentID))),
 		CallerSessionID: &parentID,
 		Prompt:          "delegate this",
 		Overrides:       serverapi.RunPromptOverrides{AgentRole: &role},
-	}, nil)
+	}), nil)
 	var denied *serverapi.SubagentLaunchDeniedError
 	if !errors.As(err, &denied) || denied.Kind != serverapi.SubagentLaunchDenialNotCallable {
 		t.Fatalf("RunPrompt error = %T %v, want workflow policy denial", err, err)
@@ -936,12 +947,12 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 	ordinaryCallerID := ordinaryCaller.Meta().SessionID
 	blockedRole := "blocked"
 	beforeOrdinaryTargetDenial := snapshotHeadlessLaunchArtifacts(t, ctx, meta, binding.ProjectID, binding.WorkspaceID, containerDir, root, worktreeRoot)
-	_, err = client.RunPrompt(ctx, serverapi.RunPromptRequest{
+	_, err = client.RunPrompt(ctx, requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent:          serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(mustRunPromptSessionID(t, ordinaryCallerID))),
 		CallerSessionID: &ordinaryCallerID,
 		Prompt:          "delegate this",
 		Overrides:       serverapi.RunPromptOverrides{AgentRole: &blockedRole},
-	}, nil)
+	}), nil)
 	if !errors.As(err, &denied) || denied.Kind != serverapi.SubagentLaunchDenialNotCallable {
 		t.Fatalf("ordinary blocked-target error = %T %v, want not-callable denial", err, err)
 	}
@@ -1103,7 +1114,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 			AgentCallable: true,
 		},
 	}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:            cfg,
@@ -1113,24 +1124,37 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 			CallerSessions:    meta,
 			ExecutionTargets:  meta,
 			SessionProjects:   meta, ManagedWorktreeRoots: meta,
-		}, sessionlaunch.ChatSettingsOwner{}),
+		}, sessionlaunch.ChatSettingsOwner{}, meta,
+		),
 		RuntimeAuthority: authority,
 		LiveRunObserver:  liveRunObserver,
 		PromptHistory:    meta,
+		Metadata:         meta,
 	})
 
 	worker := "worker"
 	var sessionStarted int
-	response, err := client.RunPrompt(ctx, serverapi.RunPromptRequest{
+	request := requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent:          serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(mustRunPromptSessionID(t, parentID))),
 		CallerSessionID: &parentID,
 		Prompt:          "delegate this",
 		Overrides:       serverapi.RunPromptOverrides{AgentRole: &worker},
-	}, serverapi.RunPromptProgressFunc(func(progress *runpromptpb.ProgressEvent) {
+	})
+	parentRecord, err := meta.ResolvePersistedSession(ctx, parentID)
+	if err != nil || parentRecord.ShortID == nil {
+		t.Fatalf("parent identity = %+v, %v", parentRecord, err)
+	}
+	request.Intent.GetCreateNew().Origin = &sessionlaunchpb.SessionCreateRequestOrigin_ParentAgentSessionId{
+		ParentAgentSessionId: protoapi.SessionSelectorToProto(*parentRecord.ShortID),
+	}
+	response, err := client.RunPrompt(ctx, request, serverapi.RunPromptProgressFunc(func(progress *runpromptpb.ProgressEvent) {
 		if _, ok := progress.Payload.(*runpromptpb.ProgressEvent_SessionStarted); !ok {
 			return
 		}
 		sessionStarted++
+		if progress.GetSessionStarted().ShortId == nil {
+			t.Error("new Session start omitted its assigned number")
+		}
 		if progress.GetSessionStarted() == nil {
 			t.Errorf("session_started published before the new runtime became active: %+v", progress)
 			return
@@ -1158,6 +1182,9 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 		t.Fatalf("OpenByID child: %v", err)
 	}
 	childMeta := child.Meta()
+	if response.ShortId == nil || child.Identity().ShortID == nil || *response.ShortId != child.Identity().ShortID.Int64() {
+		t.Fatalf("completion identity = %v, want %v", response.ShortId, child.Identity())
+	}
 	parentSessionID := mustRunPromptSessionID(t, parentID)
 	if childMeta.ParentAgentSessionID == nil || *childMeta.ParentAgentSessionID != parentSessionID {
 		t.Fatalf("parent-agent id = %v, want %q", childMeta.ParentAgentSessionID, parentID)
@@ -1172,6 +1199,21 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 	if _, active := authority.SessionExecution(responseID); active {
 		t.Fatalf("completed headless launch left runtime active for %q", response.SessionId)
 	}
+	for _, raw := range []string{"000" + child.Identity().String(), child.Meta().SessionID} {
+		selector, err := runtimeids.ParseSessionSelector(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resumed, err := client.RunPrompt(ctx, &runpromptpb.Request{
+			Intent: &sessionlaunchpb.SessionLaunchRequestIntent{Intent: &sessionlaunchpb.SessionLaunchRequestIntent_OpenExistingSessionId{
+				OpenExistingSessionId: protoapi.SessionSelectorToProto(selector),
+			}},
+			Prompt: "continue",
+		}, nil)
+		if err != nil || resumed.SessionId != child.Meta().SessionID {
+			t.Fatalf("continue %s = %+v, %v", raw, resumed, err)
+		}
+	}
 
 	fast := config.BuiltInSubagentRoleFast
 	ordinaryTests := []struct {
@@ -1183,12 +1225,12 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 	}
 	for _, test := range ordinaryTests {
 		t.Run("ordinary non-callable caller "+test.name, func(t *testing.T) {
-			response, err := client.RunPrompt(ctx, serverapi.RunPromptRequest{
+			response, err := client.RunPrompt(ctx, requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 				Intent:          serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(mustRunPromptSessionID(t, ordinaryParentID))),
 				CallerSessionID: &ordinaryParentID,
 				Prompt:          "delegate this",
 				Overrides:       serverapi.RunPromptOverrides{AgentRole: &test.role},
-			}, nil)
+			}), nil)
 			if err != nil {
 				t.Fatalf("RunPrompt: %v", err)
 			}
@@ -1216,8 +1258,8 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 			}
 		})
 	}
-	if responseCount != 3 {
-		t.Fatalf("provider responses = %d, want 3", responseCount)
+	if responseCount != 5 {
+		t.Fatalf("provider responses = %d, want 5", responseCount)
 	}
 }
 
@@ -1268,7 +1310,7 @@ func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 	}
 	testsetup.WriteProviderSettings(t, root, cfg.Settings)
 	history := &recordingPromptHistoryStore{}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
@@ -1281,7 +1323,7 @@ func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 		Intent: serverapi.OpenExistingSessionLaunchIntent(mustRunPromptSessionID(t, store.Meta().SessionID)),
 		Prompt: "  hello  ",
 	}
-	response, err := client.RunPrompt(context.Background(), request, serverapi.RunPromptProgressFunc(func(progress *runpromptpb.ProgressEvent) {
+	response, err := client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, request), serverapi.RunPromptProgressFunc(func(progress *runpromptpb.ProgressEvent) {
 		progresses = append(progresses, progress)
 	}))
 	if err != nil {
@@ -1301,7 +1343,7 @@ func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 	if got := store.Meta().ConnectionID; got == nil || *got != connectionID {
 		t.Fatalf("expected persisted connection preserved, got %+v", got)
 	}
-	replayed, err := client.RunPrompt(context.Background(), request, nil)
+	replayed, err := client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, request), nil)
 	if err != nil {
 		t.Fatalf("replayed RunPrompt: %v", err)
 	}
@@ -1313,7 +1355,7 @@ func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 	}
 	mismatch := request
 	mismatch.Prompt = "different"
-	if _, err := client.RunPrompt(context.Background(), mismatch, nil); err != nil {
+	if _, err := client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, mismatch), nil); err != nil {
 		t.Fatalf("repeated request with changed input: %v", err)
 	}
 	if providerCalls.Load() != 3 {
@@ -1325,7 +1367,7 @@ func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 	definition.EnvironmentVariable = &keyName
 	cfg.Settings.Connections[connectionID] = definition
 	testsetup.WriteProviderSettings(t, root, cfg.Settings)
-	if _, err := client.RunPrompt(context.Background(), request, nil); err == nil {
+	if _, err := client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, request), nil); err == nil {
 		t.Fatal("missing credential must fail the bound connection")
 	}
 	reopened, err := session.Open(store.Dir(), persistence.Options()...)
@@ -1359,11 +1401,11 @@ func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
 		}
 		done := make(chan result, 1)
 		go func() {
-			response, err := fixture.client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+			response, err := fixture.client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 				Intent:  serverapi.OpenExistingSessionLaunchIntent(sessionID),
 				Prompt:  "hello",
 				Timeout: 2 * time.Second,
-			}, nil)
+			}), nil)
 			done <- result{response: response, err: err}
 		}()
 
@@ -1423,11 +1465,11 @@ func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
 		}
 		done := make(chan result, 1)
 		go func() {
-			response, err := fixture.client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+			response, err := fixture.client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 				Intent:  serverapi.OpenExistingSessionLaunchIntent(mustRunPromptSessionID(t, fixture.store.Meta().SessionID)),
 				Prompt:  "hello",
 				Timeout: runTimeout,
-			}, nil)
+			}), nil)
 			done <- result{response: response, err: err}
 		}()
 
@@ -1504,10 +1546,10 @@ func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
 		}
 		done := make(chan result, 1)
 		go func() {
-			response, err := fixture.client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+			response, err := fixture.client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 				Intent: serverapi.OpenExistingSessionLaunchIntent(sessionID),
 				Prompt: "hello",
-			}, nil)
+			}), nil)
 			done <- result{response: response, err: err}
 		}()
 
@@ -1562,10 +1604,10 @@ func TestInProcessRunPromptFailsBeforeProviderWhenPromptHistoryFails(t *testing.
 	historyErr := errors.New("prompt history failed")
 	fixture := newSelectedRunPromptFixture(t, server.URL, failingPromptHistoryStore{err: historyErr})
 	sessionID := mustRunPromptSessionID(t, fixture.store.Meta().SessionID)
-	response, err := fixture.client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+	response, err := fixture.client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(sessionID),
 		Prompt: "hello",
-	}, nil)
+	}), nil)
 	if !errors.Is(err, historyErr) {
 		t.Fatalf("RunPrompt error = %v, want prompt history failure", err)
 	}
@@ -1624,10 +1666,10 @@ func TestInProcessRunPromptReturnsPendingQuestionAndExecutionContinues(t *testin
 	}, 1)
 	selectedSessionID := mustRunPromptSessionID(t, fixture.store.Meta().SessionID)
 	go func() {
-		response, err := fixture.client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+		response, err := fixture.client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 			Intent: serverapi.OpenExistingSessionLaunchIntent(selectedSessionID),
 			Prompt: "ask before continuing",
-		}, nil)
+		}), nil)
 		responseCh <- struct {
 			response *runpromptpb.Success
 			err      error
@@ -1751,10 +1793,10 @@ func TestInProcessRunPromptReturnsPendingApprovalAndExecutionContinues(t *testin
 	}, 1)
 	selectedSessionID := mustRunPromptSessionID(t, fixture.store.Meta().SessionID)
 	go func() {
-		response, err := fixture.client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+		response, err := fixture.client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 			Intent: serverapi.OpenExistingSessionLaunchIntent(selectedSessionID),
 			Prompt: "write outside the workspace",
-		}, nil)
+		}), nil)
 		responseCh <- struct {
 			response *runpromptpb.Success
 			err      error
@@ -1924,17 +1966,17 @@ func TestInProcessRunPromptClientUsesActiveShellPostprocessorWithSuppliedBackgro
 			},
 		}, server.URL)),
 	}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(root, authManager, background, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, background, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
 		LiveRunObserver:  liveRunObserver,
 	})
 
-	response, err := client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+	response, err := client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(mustRunPromptSessionID(t, store.Meta().SessionID)),
 		Prompt: "run the shell probe",
-	}, nil)
+	}), nil)
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
@@ -2088,17 +2130,17 @@ func TestInProcessRunPromptClientRejectsSelectedSessionWithGoal(t *testing.T) {
 		Settings:        testsetup.WriteProviderSettings(t, root, config.Settings{Model: "gpt-6-sol"}),
 	}
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
 		LiveRunObserver:  liveRunObserver,
 	})
 
-	_, err = client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+	_, err = client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(mustRunPromptSessionID(t, store.Meta().SessionID)),
 		Prompt: "continue",
-	}, nil)
+	}), nil)
 	if !errors.Is(err, ErrHeadlessGoalSession) {
 		t.Fatalf("RunPrompt error = %v, want ErrHeadlessGoalSession", err)
 	}
@@ -2143,7 +2185,7 @@ func TestInProcessRunPromptClientUnregistersRuntimeAfterCompletion(t *testing.T)
 			Shell:         config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}, server.URL)),
 	}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
@@ -2152,10 +2194,10 @@ func TestInProcessRunPromptClientUnregistersRuntimeAfterCompletion(t *testing.T)
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+		_, err := client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 			Intent: serverapi.OpenExistingSessionLaunchIntent(mustRunPromptSessionID(t, store.Meta().SessionID)),
 			Prompt: "hello",
-		}, nil)
+		}), nil)
 		done <- err
 	}()
 
@@ -2224,21 +2266,21 @@ func TestHeadlessRunPromptOverridesRespectLockedModelContract(t *testing.T) {
 	cfg.Settings.Model = "base-model"
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, server.URL))
 	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolPatch: true}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
 		LiveRunObserver:  liveRunObserver,
 	})
 
-	response, err := client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+	response, err := client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(mustRunPromptSessionID(t, store.Meta().SessionID)),
 		Prompt: "hello",
 		Overrides: serverapi.RunPromptOverrides{
 			Model: "override-model",
 			Tools: "patch",
 		},
-	}, nil)
+	}), nil)
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}

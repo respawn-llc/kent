@@ -24,7 +24,7 @@ func (c *Remote) ActivateSessionRuntime(ctx context.Context, request serverapi.S
 		return serverapi.SessionRuntimeAttachment{}, err
 	}
 	attachment := protoapi.SessionRuntimeAttachmentFromProto(success.Attachment)
-	return attachment, attachment.ValidateForSession(request.SessionID)
+	return attachment, attachment.Validate()
 }
 
 func (c *Remote) ReleaseSessionRuntime(ctx context.Context, request serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
@@ -40,7 +40,10 @@ func sessionRuntimeError[Failure interface {
 	GetCode() string
 	GetRuntimeUnavailable() *sessionlaunchpb.SessionRuntimeUnavailableDetails
 }](failure Failure) error {
-	if failure.GetRuntimeUnavailable() != nil {
+	if unavailable := failure.GetRuntimeUnavailable(); unavailable != nil {
+		if unavailable.SessionTarget != nil {
+			return protoapi.SessionTargetContextErrorFromProto(unavailable.SessionTarget, serverapi.ErrRuntimeUnavailable)
+		}
 		return serverapi.ErrRuntimeUnavailable
 	}
 	return generatedOperationFailure(failure.GetCode())

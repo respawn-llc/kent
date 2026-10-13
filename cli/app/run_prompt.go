@@ -11,14 +11,16 @@ import (
 	"core/shared/apicontract"
 	"core/shared/protoapi"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 const subagentSessionSuffix = "subagent"
 
 type RunPromptResult struct {
-	SessionID   string
+	Identity    *runtimeids.SessionIdentity
 	SessionName *string
 	Outcome     RunPromptOutcome
 	Duration    time.Duration
@@ -47,13 +49,20 @@ func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Op
 		return RunPromptResult{}, err
 	}
 	callerSessionID := runPromptCallerSessionID(opts)
-	response, err := client.RunPrompt(ctx, serverapi.RunPromptRequest{
+	overrides, err := protoapi.RunPromptOverridesToProto(runPromptOverridesFromOptions(opts))
+	if err != nil {
+		return RunPromptResult{}, err
+	}
+	request := &runpromptpb.Request{
 		Intent:          intent,
-		CallerSessionID: callerSessionID,
+		CallerSessionId: callerSessionID,
 		Prompt:          prompt,
-		Timeout:         timeout,
-		Overrides:       runPromptOverridesFromOptions(opts),
-	}, progress)
+		Overrides:       overrides,
+	}
+	if timeout != 0 {
+		request.Timeout = durationpb.New(timeout)
+	}
+	response, err := client.RunPrompt(ctx, request, progress)
 	var denied *serverapi.SubagentLaunchDeniedError
 	if callerSessionID != nil && errors.As(err, &denied) && denied.Kind == serverapi.SubagentLaunchDenialCallerMissing {
 		err = startupconfig.WorkspaceContextSessionError(*callerSessionID, err)
@@ -62,9 +71,13 @@ func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Op
 		return RunPromptResult{}, err
 	}
 	warnings, warningErr := runPromptWarnings(response)
+	identity, identityErr := protoapi.SessionIdentityFromProto(response.SessionId, response.ShortId)
+	if identityErr != nil {
+		return RunPromptResult{}, errors.Join(err, identityErr)
+	}
 	if err != nil && response.GetOutcome() == nil {
 		return RunPromptResult{
-			SessionID:   response.SessionId,
+			Identity:    &identity,
 			SessionName: response.SessionName,
 			Duration:    response.Duration.AsDuration(),
 			Warnings:    warnings,
@@ -87,7 +100,7 @@ func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Op
 		return RunPromptResult{}, errors.Join(err, errors.New("Run response has no outcome"))
 	}
 	result := RunPromptResult{
-		SessionID:   response.SessionId,
+		Identity:    &identity,
 		SessionName: response.SessionName,
 		Outcome:     outcome,
 		Duration:    response.Duration.AsDuration(),
@@ -119,22 +132,22 @@ func runPromptCallerSessionID(opts Options) *string {
 	return &sessionID
 }
 
-func runPromptLaunchIntent(opts Options, initialSessionID string) (serverapi.SessionLaunchIntent, error) {
-	if selected := strings.TrimSpace(initialSessionID); selected != "" {
-		sessionID, err := runtimeids.ParseSessionID(selected)
+func runPromptLaunchIntent(opts Options, initialSessionID string) (*sessionlaunchpb.SessionLaunchRequestIntent, error) {
+	if initialSessionID != "" {
+		sessionID, err := runtimeids.ParseSessionSelector(initialSessionID)
 		if err != nil {
-			return serverapi.SessionLaunchIntent{}, err
+			return nil, err
 		}
-		return serverapi.OpenExistingSessionLaunchIntent(sessionID), nil
+		return &sessionlaunchpb.SessionLaunchRequestIntent{Intent: &sessionlaunchpb.SessionLaunchRequestIntent_OpenExistingSessionId{OpenExistingSessionId: protoapi.SessionSelectorToProto(sessionID)}}, nil
 	}
 	if rawParentID := strings.TrimSpace(opts.WorkspaceContextSessionID); rawParentID != "" {
 		parsedParentID, err := runtimeids.ParseSessionID(rawParentID)
 		if err != nil {
-			return serverapi.SessionLaunchIntent{}, err
+			return nil, err
 		}
-		return serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(parsedParentID)), nil
+		return protoapi.SessionLaunchRequestIntentToProto(serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(parsedParentID)))
 	}
-	return serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()), nil
+	return protoapi.SessionLaunchRequestIntentToProto(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
 }
 
 func runPromptOverridesFromOptions(opts Options) serverapi.RunPromptOverrides {

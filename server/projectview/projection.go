@@ -162,6 +162,7 @@ func sessionPageToGenerated(page metadata.SessionPage) (*projectpb.SessionPageSu
 		}
 		session := &projectpb.SessionSummary{
 			SessionId: summary.SessionID.String(),
+			ShortId:   protoapi.SessionShortIDToProto(summary.ShortID),
 			Category:  summaryCategory,
 			Name:      textutil.Pointer(summary.Name),
 			FirstPromptPreview: textutil.Pointer(

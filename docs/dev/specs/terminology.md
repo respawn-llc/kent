@@ -12,6 +12,12 @@ A named server-owned provider-access configuration containing provider implement
 
 The provider-assigned compatibility type of retained reasoning or an encrypted native compaction checkpoint. Types are OpenAI, Anthropic, Grok, and unencrypted. A Reasoning Type is independent of a Provider Connection's user-chosen ID and the selected model. Matching types do not establish cross-account compatibility.
 
+## Session identity
+
+### Session Short ID
+
+A positive incrementing number used to address a Session in CLI commands and agent-facing output. It is unique within a Kent persistence root and is never reassigned after deletion. It does not replace the Session's UUID identity.
+
 ## Workflow
 
 ### Task

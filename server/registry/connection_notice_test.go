@@ -11,7 +11,7 @@ import (
 )
 
 func TestConnectionReplacementLiveDeliveryMatchesHydration(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	registry := NewRuntimeRegistry(nil)
 	engine := newRegistryRuntime(t, registryRuntimeFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-6-sol", ThinkingLevel: "medium"},
 		func(engine *runtime.Engine, event runtime.Event) {
 			if engine != nil {

@@ -8,6 +8,7 @@ import (
 
 	servicecontract "core/shared/apicontract"
 	"core/shared/config"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -84,7 +85,11 @@ func (a *Activation) ReleaseWithClosePolicy(closePolicy serverapi.SessionRuntime
 }
 
 func activate(ctx context.Context, service servicecontract.SessionRuntimeService, req Request, ownerID string) (serverapi.SessionRuntimeAttachment, error) {
-	response, err := service.ActivateSessionRuntime(ctx, activateRequest(req, ownerID))
+	request, err := activateRequest(req, ownerID)
+	if err != nil {
+		return serverapi.SessionRuntimeAttachment{}, err
+	}
+	response, err := service.ActivateSessionRuntime(ctx, request)
 	if err != nil {
 		return serverapi.SessionRuntimeAttachment{}, err
 	}
@@ -94,9 +99,13 @@ func activate(ctx context.Context, service servicecontract.SessionRuntimeService
 	return response, nil
 }
 
-func activateRequest(req Request, ownerID string) serverapi.SessionRuntimeActivateRequest {
+func activateRequest(req Request, ownerID string) (serverapi.SessionRuntimeActivateRequest, error) {
+	id, err := runtimeids.ParseSessionID(req.SessionID)
+	if err != nil {
+		return serverapi.SessionRuntimeActivateRequest{}, err
+	}
 	return serverapi.SessionRuntimeActivateRequest{
-		SessionID:                req.SessionID,
+		SessionID:                id,
 		OwnerID:                  ownerID,
 		ActiveSettings:           req.ActiveSettings,
 		EnabledToolIDs:           toolspec.IDStrings(req.EnabledTools),
@@ -106,5 +115,5 @@ func activateRequest(req Request, ownerID string) serverapi.SessionRuntimeActiva
 		AgentSelection:           req.AgentSelection,
 		ExplicitToolSelection:    config.CloneToolSelection(req.ExplicitToolSelection),
 		Source:                   req.Source,
-	}
+	}, nil
 }

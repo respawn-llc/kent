@@ -309,7 +309,7 @@ func TestAskQuestionRecommendedOptionIsSelectedAndSubmitted(t *testing.T) {
 
 	updated, request := submitAskPromptKey(t, updated, control, tea.KeyMsg{Type: tea.KeyEnter})
 	entry := requireQuestionAnswerEntry(t, request)
-	if request.SessionId != transcriptPromptSessionID(event.prompt) || request.StepId != transcriptPromptStepID(event.prompt) ||
+	if request.SessionId.GetSessionId() != transcriptPromptSessionID(event.prompt) || request.StepId != transcriptPromptStepID(event.prompt) ||
 		entry.ToolCallId != transcriptPromptToolCallID(event.prompt) || entry.GetQuestionAnswer().SelectedOptionNumber == nil ||
 		*entry.GetQuestionAnswer().SelectedOptionNumber != recommended {
 		t.Fatalf("selected option = %+v, want %d", entry.GetQuestionAnswer().SelectedOptionNumber, recommended)

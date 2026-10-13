@@ -12,7 +12,7 @@ import (
 
 func TestResolveSessionNamesDeduplicatesInputAndMatchesReorderedRowsByExactID(t *testing.T) {
 	var queriedIDs []string
-	names, err := resolveSessionNames(
+	names, err := resolveSessionPresentations(
 		t.Context(),
 		func(_ context.Context, ids []string) ([]sqlitegen.ListSessionNamesByIDsRow, error) {
 			queriedIDs = append([]string(nil), ids...)
@@ -21,16 +21,16 @@ func TestResolveSessionNamesDeduplicatesInputAndMatchesReorderedRowsByExactID(t 
 				{ID: "session-a", Name: sql.NullString{String: "First", Valid: true}},
 			}, nil
 		},
-		[]string{"session-a", "session-b", "session-a"},
-	)
+		[]string{"session-a", "session-b", "session-a"})
+
 	if err != nil {
 		t.Fatalf("resolveSessionNames: %v", err)
 	}
 	if !reflect.DeepEqual(queriedIDs, []string{"session-a", "session-b"}) {
 		t.Fatalf("queried IDs = %v, want stable deduplicated input", queriedIDs)
 	}
-	if names["session-a"] == nil || *names["session-a"] != "First" ||
-		names["session-b"] == nil || *names["session-b"] != "Second" {
+	if names["session-a"].Name == nil || *names["session-a"].Name != "First" ||
+		names["session-b"].Name == nil || *names["session-b"].Name != "Second" {
 		t.Fatalf("resolved names = %+v", names)
 	}
 }
@@ -83,13 +83,13 @@ func TestResolveSessionNamesRejectsInvalidInputsAndResults(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := resolveSessionNames(
+			_, err := resolveSessionPresentations(
 				t.Context(),
 				func(context.Context, []string) ([]sqlitegen.ListSessionNamesByIDsRow, error) {
 					return test.rows, nil
 				},
-				test.sessionIDs,
-			)
+				test.sessionIDs)
+
 			if err == nil || !strings.Contains(err.Error(), test.wantError) {
 				t.Fatalf("resolveSessionNames error = %v, want containing %q", err, test.wantError)
 			}
@@ -98,17 +98,17 @@ func TestResolveSessionNamesRejectsInvalidInputsAndResults(t *testing.T) {
 }
 
 func TestResolveSessionNamesPreservesAbsentName(t *testing.T) {
-	names, err := resolveSessionNames(
+	names, err := resolveSessionPresentations(
 		t.Context(),
 		func(context.Context, []string) ([]sqlitegen.ListSessionNamesByIDsRow, error) {
 			return []sqlitegen.ListSessionNamesByIDsRow{{ID: "session-a"}}, nil
 		},
-		[]string{"session-a"},
-	)
+		[]string{"session-a"})
+
 	if err != nil {
 		t.Fatalf("resolveSessionNames: %v", err)
 	}
-	if name, exists := names["session-a"]; !exists || name != nil {
+	if name, exists := names["session-a"]; !exists || name.Name != nil {
 		t.Fatalf("resolved Session name = %v, present = %t; want unnamed", name, exists)
 	}
 }

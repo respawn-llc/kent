@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	testharness "core/internal/testharness/testsetup"
 	"core/server/attentionnotify"
 	"core/server/llm"
@@ -143,7 +144,7 @@ func (c *liveWatchReleasableFinalClient) ProviderCapabilities(context.Context) (
 func TestLiveWatchReturnsInitialPendingQuestionWhenNoRunIsActive(t *testing.T) {
 	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{})
 	sessionID := store.Meta().SessionID
-	attention := registry.NewRuntimeRegistry().WithAttentionNotifications(attentionnotify.NewBroker(), testharness.SessionNavigationBinding)
+	attention := registry.NewRuntimeRegistry(service.metadata).WithAttentionNotifications(attentionnotify.NewBroker(), testharness.SessionNavigationBinding)
 	service.WithLiveWatchPromptSources(
 		liveWatchPromptSourceStub{items: []registry.PendingPromptSnapshot{{
 			Request:   tools.AskQuestionRequest{ToolCallID: "ask-1", StepID: mustRuntimeControlStepID(t).String(), Question: "Continue?"},
@@ -152,7 +153,7 @@ func TestLiveWatchReturnsInitialPendingQuestionWhenNoRunIsActive(t *testing.T) {
 		attention,
 	)
 
-	response, err := service.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: sessionID})
+	response, err := service.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: requestfixture.Selector(t, sessionID)})
 	if err != nil {
 		t.Fatalf("LiveWatch: %v", err)
 	}
@@ -167,7 +168,7 @@ func TestLiveWatchSurfacesAttentionStreamFailureWhileRunIsBlocked(t *testing.T) 
 	client := newLiveWatchBlockingClient()
 	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
 	broker := attentionnotify.NewBroker()
-	attention := registry.NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	attention := registry.NewRuntimeRegistry(service.metadata).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	observed := &liveWatchObservedAttention{
 		AttentionNotificationService: attention,
 		subscribed:                   make(chan struct{}),
@@ -183,7 +184,7 @@ func TestLiveWatchSurfacesAttentionStreamFailureWhileRunIsBlocked(t *testing.T) 
 
 	watchDone := make(chan error, 1)
 	go func() {
-		_, err := service.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: store.Meta().SessionID})
+		_, err := service.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
 		watchDone <- err
 	}()
 	<-observed.subscribed
@@ -215,7 +216,7 @@ func TestLiveWatchPromptWakeWinsWhileRunIsBlocked(t *testing.T) {
 
 	askView := &liveWatchMutablePromptSource{}
 	broker := attentionnotify.NewBroker()
-	attention := registry.NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	attention := registry.NewRuntimeRegistry(service.metadata).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	observed := &liveWatchObservedAttention{
 		AttentionNotificationService: attention,
 		subscribed:                   make(chan struct{}),
@@ -224,7 +225,7 @@ func TestLiveWatchPromptWakeWinsWhileRunIsBlocked(t *testing.T) {
 	watchDone := make(chan *promptpb.LiveWatchSuccess, 1)
 	watchErr := make(chan error, 1)
 	go func() {
-		response, err := service.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: store.Meta().SessionID})
+		response, err := service.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
 		watchDone <- response
 		watchErr <- err
 	}()
@@ -299,7 +300,7 @@ func TestLiveWatchCancellationWhileRunIsBlocked(t *testing.T) {
 	<-client.started
 
 	broker := attentionnotify.NewBroker()
-	attention := registry.NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	attention := registry.NewRuntimeRegistry(service.metadata).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	observed := &liveWatchObservedAttention{
 		AttentionNotificationService: attention,
 		subscribed:                   make(chan struct{}),
@@ -308,7 +309,7 @@ func TestLiveWatchCancellationWhileRunIsBlocked(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	watchDone := make(chan error, 1)
 	go func() {
-		_, err := service.LiveWatch(ctx, &promptpb.LiveWatchRequest{SessionId: store.Meta().SessionID})
+		_, err := service.LiveWatch(ctx, &promptpb.LiveWatchRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
 		watchDone <- err
 	}()
 	<-observed.subscribed
@@ -337,7 +338,7 @@ func TestLiveWatchTerminalCompletionWinsWhileRunIsBlocked(t *testing.T) {
 	<-client.started
 
 	broker := attentionnotify.NewBroker()
-	attention := registry.NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	attention := registry.NewRuntimeRegistry(service.metadata).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	observed := &liveWatchObservedAttention{
 		AttentionNotificationService: attention,
 		subscribed:                   make(chan struct{}),
@@ -346,7 +347,7 @@ func TestLiveWatchTerminalCompletionWinsWhileRunIsBlocked(t *testing.T) {
 	watchDone := make(chan *promptpb.LiveWatchSuccess, 1)
 	watchErr := make(chan error, 1)
 	go func() {
-		response, err := service.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: store.Meta().SessionID})
+		response, err := service.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
 		watchDone <- response
 		watchErr <- err
 	}()
@@ -378,7 +379,7 @@ func TestLiveWatchReturnsInterruptedOutcomeWhenRunStops(t *testing.T) {
 	<-client.started
 
 	broker := attentionnotify.NewBroker()
-	attention := registry.NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	attention := registry.NewRuntimeRegistry(service.metadata).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	observed := &liveWatchObservedAttention{
 		AttentionNotificationService: attention,
 		subscribed:                   make(chan struct{}),
@@ -387,7 +388,7 @@ func TestLiveWatchReturnsInterruptedOutcomeWhenRunStops(t *testing.T) {
 	watchDone := make(chan *promptpb.LiveWatchSuccess, 1)
 	watchErr := make(chan error, 1)
 	go func() {
-		response, err := service.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: store.Meta().SessionID})
+		response, err := service.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
 		watchDone <- response
 		watchErr <- err
 	}()
@@ -399,7 +400,7 @@ func TestLiveWatchReturnsInterruptedOutcomeWhenRunStops(t *testing.T) {
 	}
 
 	stopResponse, err := service.LiveStop(context.Background(), &runtimepb.LiveStopRequest{
-		SessionId: store.Meta().SessionID,
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 	})
 	if err != nil {
 		t.Fatalf("LiveStop: %v", err)
@@ -434,7 +435,7 @@ func TestLiveWatchSurfacesCanceledAttentionStreamWhileRunIsBlocked(t *testing.T)
 	<-client.started
 
 	broker := attentionnotify.NewBroker()
-	attention := registry.NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	attention := registry.NewRuntimeRegistry(service.metadata).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	observed := &liveWatchObservedAttention{
 		AttentionNotificationService: attention,
 		subscribed:                   make(chan struct{}),
@@ -442,7 +443,7 @@ func TestLiveWatchSurfacesCanceledAttentionStreamWhileRunIsBlocked(t *testing.T)
 	service.WithLiveWatchPromptSources(liveWatchPromptSourceStub{}, observed)
 	watchErr := make(chan error, 1)
 	go func() {
-		_, err := service.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: store.Meta().SessionID})
+		_, err := service.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
 		watchErr <- err
 	}()
 	<-observed.subscribed
@@ -466,7 +467,7 @@ func TestLiveWatchSurfacesAttentionStreamFailureBeforeArbitration(t *testing.T) 
 	streamErr := errors.New("attention stream failed")
 	service.WithLiveWatchPromptSources(liveWatchPromptSourceStub{}, failingLiveWatchAttention{err: streamErr})
 
-	_, err := service.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: store.Meta().SessionID})
+	_, err := service.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
 	if !errors.Is(err, streamErr) {
 		t.Fatalf("LiveWatch error = %v, want attention stream failure", err)
 	}

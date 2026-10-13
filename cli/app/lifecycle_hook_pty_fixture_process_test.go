@@ -9,6 +9,7 @@ import (
 
 	checkpoint "core/internal/testharness/pty/analyzer"
 	"core/internal/testharness/pty/appfixture"
+	"core/internal/testharness/requestfixture"
 	"core/server/metadata"
 	"core/server/session"
 	"core/shared/lifecyclecontract"
@@ -81,7 +82,7 @@ func runLifecycleHookPTYFixtureProcess(
 	planner := newSessionLaunchPlanner(server)
 	plan, err := planner.PlanSession(ctx, sessionLaunchRequest{
 		Mode:   launchModeInteractive,
-		Intent: intent,
+		Intent: requestfixture.LaunchIntent(t, intent),
 	})
 	if err != nil {
 		return err

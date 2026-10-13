@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"core/prompts"
+	"core/shared/protoapi"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 )
 
@@ -26,11 +27,16 @@ func (r *runProgressRenderer) PublishRunPromptProgress(progress *runpromptpb.Pro
 	}
 	switch event := progress.GetPayload().(type) {
 	case *runpromptpb.ProgressEvent_SessionStarted:
+		identity, err := protoapi.SessionIdentityFromProto(event.SessionStarted.SessionId, event.SessionStarted.ShortId)
+		if err != nil {
+			fmt.Fprintln(r.stderr, err)
+			return
+		}
 		_, _ = fmt.Fprintf(
 			r.stderr,
 			"Started a new session, `%s run steer %s \"prompt\"` to send messages while it runs\n",
 			prompts.LaunchCommand(),
-			event.SessionStarted.SessionId,
+			identity.String(),
 		)
 	case *runpromptpb.ProgressEvent_AssistantMessage:
 		r.writeStdoutBlock(event.AssistantMessage.Content)

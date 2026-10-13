@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	"core/server/metadata"
 	"core/server/session"
 	"core/shared/protoapi"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
@@ -13,6 +14,7 @@ import (
 const largeQuestionHistoryBytes = int64(1_073_741_824)
 
 type questionHistorySubscription struct {
+	metadata  *metadata.Store
 	cursor    *session.QuestionHistoryCursor
 	started   bool
 	completed bool
@@ -65,14 +67,23 @@ func (s *questionHistorySubscription) Next(ctx context.Context) (*sessionpb.Ques
 			}
 			selected = &value
 		}
+		var answererShortID *int64
+		if question.AnsweredBySessionID != nil {
+			identity, err := s.metadata.SessionIdentity(ctx, *question.AnsweredBySessionID)
+			if err != nil {
+				return nil, err
+			}
+			answererShortID = protoapi.SessionShortIDToProto(identity.ShortID)
+		}
 		event := &sessionpb.QuestionHistoryEvent{
 			Event: &sessionpb.QuestionHistoryEvent_Question{Question: &sessionpb.QuestionHistoryQuestion{
-				Question:             question.Question,
-				Answer:               question.Answer,
-				SelectedOptionNumber: selected,
-				Commentary:           question.Commentary,
-				CommittedAt:          at,
-				AnsweredBySessionId:  protoapi.OptionalSessionIDToProto(question.AnsweredBySessionID),
+				AnsweredBySessionShortId: answererShortID,
+				Question:                 question.Question,
+				Answer:                   question.Answer,
+				SelectedOptionNumber:     selected,
+				Commentary:               question.Commentary,
+				CommittedAt:              at,
+				AnsweredBySessionId:      protoapi.OptionalSessionIDToProto(question.AnsweredBySessionID),
 			}},
 		}
 		return event, protoapi.Validate(event)

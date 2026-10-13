@@ -64,6 +64,7 @@ function sessionSummary(summary: SessionSummary): SessionCatalogSummary {
   }
   return {
     id: summary.sessionId,
+    shortID: summary.shortId ?? null,
     category: sessionCategoryFromGenerated(summary.category),
     name: summary.name ?? null,
     firstPromptPreview: summary.firstPromptPreview ?? null,

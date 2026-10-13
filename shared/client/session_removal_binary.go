@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -55,7 +56,7 @@ func (c *Remote) ArchiveSession(
 	if err != nil {
 		return nil, err
 	}
-	if response.SessionId != request.SessionId || response.OutputPath != request.OutputPath {
+	if !sessionSelectorMatchesResponse(request.SessionId, response.SessionId) || response.OutputPath != request.OutputPath {
 		return nil, invalidResponseError(
 			"Session archive",
 			errors.New("response does not match the requested Session and output path"),
@@ -79,13 +80,20 @@ func (c *Remote) DeleteSession(
 	if err != nil {
 		return nil, err
 	}
-	if response.SessionId != request.SessionId {
+	if !sessionSelectorMatchesResponse(request.SessionId, response.SessionId) {
 		return nil, invalidResponseError(
 			"Session deletion",
 			errors.New("response does not match the requested Session"),
 		)
 	}
 	return response, nil
+}
+
+func sessionSelectorMatchesResponse(target *sharedpb.SessionSelector, sessionID string) bool {
+	if uuid, ok := target.Value.(*sharedpb.SessionSelector_SessionId); ok {
+		return uuid.SessionId == sessionID
+	}
+	return true
 }
 
 func sessionArchiveGeneratedError(failure *sessionlaunchpb.SessionArchiveError) error {

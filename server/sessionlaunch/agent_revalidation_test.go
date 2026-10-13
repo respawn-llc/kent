@@ -55,7 +55,7 @@ func agentReplacementFixture(t *testing.T) (config.App, *Service, *metadata.Stor
 	service := NewService(launch.Planner{
 		Config: cfg, Rotation: rotation, ContainerDir: filepath.Join(cfg.PersistenceRoot, "projects", binding.ProjectID, "sessions"),
 		StoreOptions: db.AuthoritativeSessionStoreOptions(), PersistedSessions: db, SessionProjects: db, ManagedWorktreeRoots: db,
-	}, ChatSettingsOwner{Authority: authority, Registry: registry.NewRuntimeRegistry(), Changes: changes})
+	}, ChatSettingsOwner{Authority: authority, Registry: registry.NewRuntimeRegistry(db), Changes: changes}, db)
 	initial, err := service.PlanLaunchSession(t.Context(), PlanRequest{
 		Mode: launch.ModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	})

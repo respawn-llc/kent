@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"net/http"
 	"net/http/httptest"
@@ -32,7 +33,7 @@ func TestSecondClientLiveControlsActiveRun(t *testing.T) {
 			done := make(chan result, 1)
 			go func() {
 				response, err := appCore.RuntimeLiveControlClient().LiveSteer(context.Background(), &runtimepb.LiveSteerRequest{
-					SessionId: sessionID,
+					SessionId: requestfixture.Selector(t, sessionID),
 					Text:      "steer me",
 				})
 				done <- result{response: response, err: err}
@@ -159,7 +160,7 @@ func runSecondClientLiveControlsActiveRun(
 	if err != nil {
 		t.Fatalf("SessionLaunchClientForProjectWorkspace: %v", err)
 	}
-	intent, err := protoapi.SessionLaunchIntentToProto(
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(
 		serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	)
 	if err != nil {
@@ -188,10 +189,10 @@ func runSecondClientLiveControlsActiveRun(
 	runDone := make(chan error, 1)
 	runResult := make(chan *runpromptpb.Success, 1)
 	go func() {
-		resp, runErr := runClient.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+		resp, runErr := runClient.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 			Intent: serverapi.OpenExistingSessionLaunchIntent(typedSessionID),
 			Prompt: "drive the run",
-		}, nil)
+		}), nil)
 		runResult <- resp
 		runDone <- runErr
 	}()
@@ -207,7 +208,7 @@ func runSecondClientLiveControlsActiveRun(
 	waitDone := make(chan error, 1)
 	waitResult := make(chan *runtimepb.LiveWaitSuccess, 1)
 	go func() {
-		resp, waitErr := appCore.RuntimeLiveControlClient().LiveWait(context.Background(), &runtimepb.LiveWaitRequest{SessionId: sessionID})
+		resp, waitErr := appCore.RuntimeLiveControlClient().LiveWait(context.Background(), &runtimepb.LiveWaitRequest{SessionId: requestfixture.Selector(t, sessionID)})
 		waitResult <- resp
 		waitDone <- waitErr
 	}()
@@ -240,6 +241,11 @@ func runSecondClientLiveControlsActiveRun(
 		t.Fatal("timed out waiting for LiveWait to finish")
 	}
 	waitResp := <-waitResult
+	if plan.Plan.ShortId == nil || resp.ShortId == nil || waitResp.ShortId == nil ||
+		*plan.Plan.ShortId != *resp.ShortId || *resp.ShortId != *waitResp.ShortId ||
+		waitResp.SessionId != sessionID {
+		t.Fatalf("launch/Run/wait identities disagree: %v, %v, %v", plan.Plan, resp, waitResp)
+	}
 	if waitResp.GetAssistantFinalAnswer() == nil || waitResp.GetAssistantFinalAnswer().Result != wantCurrentResult {
 		t.Fatalf("LiveWait result = %v, want %q", waitResp.Result, wantCurrentResult)
 	}

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/server/runtimecontrol"
 	"core/server/session"
 	"core/server/sessionruntime"
@@ -307,7 +308,7 @@ func TestServiceCarriesOneOperationContextAcrossChatLifecycle(t *testing.T) {
 					}, nil
 				},
 				nil,
-				nil,
+				nil, nil,
 			)
 			attachment := &lifecycleAttachment{recorder: recorder, sessionID: sessionID}
 			service := NewService(
@@ -323,7 +324,7 @@ func TestServiceCarriesOneOperationContextAcrossChatLifecycle(t *testing.T) {
 			)
 			target := &chatpb.ChatTarget{
 				Target: &chatpb.ChatTarget_Session{
-					Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
+					Session: &chatpb.ExistingSessionRequestTarget{SessionId: requestfixture.Selector(t, sessionID.String())},
 				},
 			}
 			if test.newChat {

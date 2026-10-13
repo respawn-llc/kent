@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus } from "lucide-react";
 
-import type { SessionCatalogSummary, SessionCategory } from "@/api";
+import { sessionDisplayID, type SessionCatalogSummary, type SessionCategory } from "@/api";
 import { errorMessage } from "@/api";
 import {
   formatRelativeTime,
@@ -191,7 +191,7 @@ function SessionList({
       renderItem={(session) => (
         <Item
           className="min-w-0 px-[var(--space-2)] py-[var(--space-3)]"
-          aria-label={session.name ?? session.id}
+          aria-label={session.name ?? sessionDisplayID(session.id, session.shortID)}
           onClick={() => {
             void navigation.openSessionChat({
               catalogOrigin: { category },
@@ -202,7 +202,9 @@ function SessionList({
         >
           <ItemContent className="min-w-0 w-full">
             <ItemTitle className="w-full min-w-0">
-              <strong className="min-w-0 flex-1 truncate">{session.name ?? session.id}</strong>
+              <strong className="min-w-0 flex-1 truncate">
+                {session.name ?? sessionDisplayID(session.id, session.shortID)}
+              </strong>
             </ItemTitle>
             {session.firstPromptPreview === null ? null : (
               <span className="min-w-0 w-full line-clamp-2 break-words text-sm text-[var(--color-muted)]">

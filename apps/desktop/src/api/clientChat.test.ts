@@ -810,7 +810,12 @@ describe("Desktop Chat mutation adapter", () => {
 
     expect(transport.descriptorCalls.map(({ request }) => request)).toMatchObject([
       {
-        target: { target: { case: "session", value: { sessionId: sessionID } } },
+        target: {
+          target: {
+            case: "session",
+            value: { sessionId: { value: { case: "sessionId", value: sessionID } } },
+          },
+        },
         activation: { input: { case: "text", value: "continue" } },
       },
       {

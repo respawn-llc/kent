@@ -9,6 +9,7 @@ import (
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/serverapi"
 
@@ -25,13 +26,16 @@ func runtimePendingWorkClient(deps GatewayDependencies) apicontract.RuntimePendi
 	return client
 }
 
-func binaryRuntimeControlFailure(sessionID string, err error) proto.Message {
+func binaryRuntimeControlFailure(err error) proto.Message {
 	var rejected *serverapi.RuntimeCommandNotAcceptedError
 	var notPending *serverapi.PendingWorkNotPendingError
 	var commandErr *serverapi.PromptCommandError
+	var self *serverapi.SessionSelfTargetError
 	switch {
+	case errors.As(err, &self):
+		return protoapi.SessionSelfTargetToProto(err, self)
 	case errors.As(err, &rejected):
-		return protoapi.RuntimeCommandNotAcceptedToProto(sessionID, rejected)
+		return protoapi.RuntimeCommandNotAcceptedToProto(protoapi.SessionTargetErrorContext(err), rejected)
 	case errors.As(err, &notPending):
 		return &runtimepb.PendingWorkNotPendingDetails{ItemId: notPending.ItemID.String()}
 	case errors.As(err, &commandErr):
@@ -41,7 +45,7 @@ func binaryRuntimeControlFailure(sessionID string, err error) proto.Message {
 		}
 		return detail
 	case errors.Is(err, serverapi.ErrRuntimeUnavailable):
-		return &runtimepb.RuntimeUnavailableDetails{SessionId: sessionID}
+		return &runtimepb.RuntimeUnavailableDetails{SessionTarget: protoapi.SessionTargetErrorContext(err)}
 	case errors.Is(err, serverapi.ErrManualCompactionTooSoon):
 		return &chatpb.ManualCompactionTooSoonDetails{}
 	case errors.Is(err, serverapi.ErrManualCompactionDisabled):
@@ -125,12 +129,27 @@ func registerRuntimeControlGatewayBinaryBindings(bindings map[string]gatewayBina
 	)
 }
 
-type runtimeControlRequest interface {
-	proto.Message
-	GetSessionId() string
+type runtimeControlTarget interface {
+	string | *sharedpb.SessionSelector
 }
 
-func registerRuntimeControlUnary[Service any, Request runtimeControlRequest, Success proto.Message](
+type runtimeControlRequest[Target runtimeControlTarget] interface {
+	proto.Message
+	GetSessionId() Target
+}
+
+func runtimeControlScope[Target runtimeControlTarget](target Target) routeScopeParams {
+	switch value := any(target).(type) {
+	case string:
+		return routeScopeParams{sessionID: value}
+	case *sharedpb.SessionSelector:
+		return routeScopeParams{sessionSelector: value}
+	default:
+		panic("invalid Runtime control target")
+	}
+}
+
+func registerRuntimeControlUnary[Service any, Target runtimeControlTarget, Request runtimeControlRequest[Target], Success proto.Message](
 	bindings map[string]gatewayBinaryBinding, resolve func(GatewayDependencies) Service, service protoreflect.ServiceDescriptor, method protoreflect.Name,
 	newRequest func() Request, invoke func(Service, context.Context, Request) (Success, error),
 	failure ...func(Request, error) proto.Message,
@@ -140,7 +159,7 @@ func registerRuntimeControlUnary[Service any, Request runtimeControlRequest, Suc
 	}
 	return registerGatewayBinaryUnary(bindings, service, method, gatewayBinaryCoreActiveOrdinary, newRequest,
 		func(request Request) (routeScopeParams, error) {
-			return routeScopeParams{sessionID: request.GetSessionId()}, nil
+			return runtimeControlScope(request.GetSessionId()), nil
 		},
 		func(g *Gateway, ctx context.Context, _ *connectionState, request Request) (Success, error) {
 			client := resolve(g.deps)
@@ -150,15 +169,19 @@ func registerRuntimeControlUnary[Service any, Request runtimeControlRequest, Suc
 			}
 			return invoke(client, ctx, request)
 		},
-		func(_ *Gateway, _ *connectionState, request Request, err error) proto.Message {
+		func(g *Gateway, _ *connectionState, request Request, err error) proto.Message {
 			if errors.Is(err, serverapi.ErrServerAuthRequired) {
 				return binaryAuthReadinessFailure(err)
+			}
+			var self *serverapi.SessionSelfTargetError
+			if errors.As(err, &self) {
+				return protoapi.SessionSelfTargetToProto(err, self)
 			}
 			if len(failure) == 1 && failure[0] != nil {
 				if detail := failure[0](request, err); detail != nil {
 					return detail
 				}
 			}
-			return binaryRuntimeControlFailure(request.GetSessionId(), err)
+			return binaryRuntimeControlFailure(err)
 		})
 }

@@ -3,6 +3,7 @@ package workflowview
 import (
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/workflow"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
@@ -55,6 +56,7 @@ func TestWorkflowCurrentNodeOmitsSelectionForNonAgentProjection(t *testing.T) {
 }
 
 func TestTaskDetailCurrentNodesUseWorkflowDisplayNames(t *testing.T) {
+	detail := &TaskDetail{metadata: testsetup.OpenStore(t, t.TempDir())}
 	reference, err := workflow.NewCurrentNodeReference("task-1", "node-uuid", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +70,7 @@ func TestTaskDetailCurrentNodesUseWorkflowDisplayNames(t *testing.T) {
 	}}
 	for _, name := range []string{"Recon", "QA"} {
 		definition.Nodes[0].DisplayName = name
-		projected, err := taskDetailCurrentNodes([]workflow.CurrentNode{node}, definition)
+		projected, err := detail.taskDetailCurrentNodes(t.Context(), []workflow.CurrentNode{node}, definition)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -77,7 +79,7 @@ func TestTaskDetailCurrentNodesUseWorkflowDisplayNames(t *testing.T) {
 		}
 	}
 	definition.Nodes = nil
-	if _, err := taskDetailCurrentNodes([]workflow.CurrentNode{node}, definition); err == nil {
+	if _, err := detail.taskDetailCurrentNodes(t.Context(), []workflow.CurrentNode{node}, definition); err == nil {
 		t.Fatal("expected unknown Current Node to fail projection")
 	}
 }

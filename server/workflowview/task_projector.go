@@ -1,6 +1,7 @@
 package workflowview
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"core/server/workflowstore"
 	"core/shared/protoapi"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+	"core/shared/runtimeids"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -110,12 +112,26 @@ func Comment(comment workflowstore.CommentRecord) (*taskpb.Comment, error) {
 	}, nil
 }
 
-func ProjectCurrentNodes(nodes []workflow.CurrentNode) []*taskpb.AttentionCurrentNode {
+func ProjectCurrentNodes(ctx context.Context, store *metadata.Store, nodes []workflow.CurrentNode) ([]*taskpb.AttentionCurrentNode, error) {
+	ids := make([]runtimeids.SessionID, 0, len(nodes))
+	for _, node := range nodes {
+		if node.SessionID != nil {
+			ids = append(ids, *node.SessionID)
+		}
+	}
+	identities, err := store.SessionIdentities(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	projected := make([]*taskpb.AttentionCurrentNode, 0, len(nodes))
 	for _, currentNode := range nodes {
-		projected = append(projected, workflowCurrentNode(currentNode))
+		node := workflowCurrentNode(currentNode)
+		if currentNode.SessionID != nil {
+			node.ShortId = protoapi.SessionShortIDToProto(identities[*currentNode.SessionID].ShortID)
+		}
+		projected = append(projected, node)
 	}
-	return projected
+	return projected, nil
 }
 
 func workflowCurrentNode(currentNode workflow.CurrentNode) *taskpb.AttentionCurrentNode {

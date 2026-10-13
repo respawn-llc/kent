@@ -14,6 +14,7 @@ import (
 	"core/shared/protoapi"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -41,7 +42,7 @@ func (r *RuntimeRegistry) SubscribeAttentionNotifications(_ context.Context, req
 	if err != nil {
 		return nil, err
 	}
-	return &attentionSubscription{native: sub}, nil
+	return &attentionSubscription{native: sub, registry: r}, nil
 }
 
 func (r *RuntimeRegistry) SubscribeSessionAttentionNotifications(_ context.Context, req *attentionpb.SubscribeRequest) (serverapi.SessionAttentionNotificationSubscription, error) {
@@ -55,7 +56,19 @@ func (r *RuntimeRegistry) SubscribeSessionAttentionNotifications(_ context.Conte
 	if err != nil {
 		return nil, err
 	}
-	return &sessionAttentionSubscription{native: sub}, nil
+	return &sessionAttentionSubscription{native: sub, registry: r}, nil
+}
+
+func (r *RuntimeRegistry) attentionSessionShortID(ctx context.Context, raw string) (*int64, error) {
+	id, err := runtimeids.ParseSessionID(raw)
+	if err != nil {
+		return nil, err
+	}
+	identity, err := r.metadata.SessionIdentity(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return protoapi.SessionShortIDToProto(identity.ShortID), nil
 }
 
 func (r *RuntimeRegistry) publishAttentionPending(sessionID string, snapshot PendingPromptSnapshot) {

@@ -20,6 +20,7 @@ import (
 	"core/shared/clientui"
 	"core/shared/config"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -168,7 +169,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry := NewRuntimeRegistry().WithExecutionTargetResolver(persistence.ResolveOptionalSessionExecutionTarget)
+	registry := NewRuntimeRegistry(nil).WithExecutionTargetResolver(persistence.ResolveOptionalSessionExecutionTarget)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
 		PersistenceRoot: root, StoreOptions: persistence.AuthoritativeSessionStoreOptions(),
 		ResourceLifecycle: registry, PromptFeed: registry,
@@ -193,7 +194,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	subscription, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{SessionId: id.String()})
+	subscription, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +272,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		reopenedSubscription, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{SessionId: id.String()})
+		reopenedSubscription, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -311,7 +312,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		reopened := make(chan error, 1)
 		go func() {
 			close(reopenStarted)
-			sub, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{SessionId: id.String()})
+			sub, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}})
 			if err == nil {
 				_, err = sub.Next(t.Context())
 				err = errors.Join(err, sub.Close())

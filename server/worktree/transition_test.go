@@ -17,6 +17,7 @@ import (
 	shelltool "core/server/tools/shell"
 	"core/shared/clientui"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -69,13 +70,13 @@ func TestEnterWorktreeSchedulesCrossWorkspaceResolutionBeforeSelectorExists(t *t
 
 	ack, err := env.service.EnterWorktree(requestCtx, &worktreepb.EnterRequest{
 		OperationId: operationID.String(),
-		SessionId:   sourceSession.Meta().SessionID,
+		SessionId:   &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sourceSession.Meta().SessionID}},
 		Selector:    "feature/created-after-acceptance",
 		TargetWorkspace: &worktreepb.TransitionWorkspace{
 			WorkspaceId:   env.binding.WorkspaceID,
 			WorkspaceRoot: env.workspaceRoot,
 		},
-		Origin: &worktreepb.TransitionRuntimeStepOrigin{RunId: runID, StepId: stepID},
+		Origin: &worktreepb.TransitionRuntimeStepOrigin{SessionId: sourceSession.Meta().SessionID, RunId: runID, StepId: stepID},
 	})
 	if err != nil {
 		t.Fatalf("EnterWorktree before selector exists: %v", err)
@@ -110,13 +111,13 @@ func TestEnterWorktreeSchedulesCrossProjectRetargetFromNonGitWorkspace(t *testin
 
 	ack, err := env.service.EnterWorktree(t.Context(), &worktreepb.EnterRequest{
 		OperationId: operationID.String(),
-		SessionId:   sourceSession.Meta().SessionID,
+		SessionId:   &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sourceSession.Meta().SessionID}},
 		Selector:    next.DisplayName,
 		TargetWorkspace: &worktreepb.TransitionWorkspace{
 			WorkspaceId:   env.binding.WorkspaceID,
 			WorkspaceRoot: env.workspaceRoot,
 		},
-		Origin: &worktreepb.TransitionRuntimeStepOrigin{RunId: runID, StepId: stepID},
+		Origin: &worktreepb.TransitionRuntimeStepOrigin{SessionId: sourceSession.Meta().SessionID, RunId: runID, StepId: stepID},
 	})
 	if err != nil {
 		t.Fatalf("EnterWorktree: %v", err)
@@ -165,7 +166,7 @@ func TestEnterWorktreeMovesDormantSessionFromNonGitWorkspaceAcrossProjects(t *te
 
 	ack, err := env.service.EnterWorktree(t.Context(), &worktreepb.EnterRequest{
 		OperationId: operationID.String(),
-		SessionId:   sourceSession.Meta().SessionID,
+		SessionId:   &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sourceSession.Meta().SessionID}},
 		Selector:    next.DisplayName,
 		TargetWorkspace: &worktreepb.TransitionWorkspace{
 			WorkspaceId:   env.binding.WorkspaceID,
@@ -295,7 +296,7 @@ func TestWorktreeTransitionTerminalCases(t *testing.T) {
 			if test.selector {
 				ack, runErr = env.service.EnterWorktree(t.Context(), &worktreepb.EnterRequest{
 					OperationId: operationID.String(),
-					SessionId:   request.sessionID,
+					SessionId:   &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: request.sessionID}},
 					Selector:    "missing-worktree",
 					TargetWorkspace: &worktreepb.TransitionWorkspace{
 						WorkspaceId:   env.binding.WorkspaceID,

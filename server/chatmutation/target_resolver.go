@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"core/server/launch"
+	"core/server/metadata"
 	"core/server/promptcommands"
 	"core/server/runtimecontrol"
 	"core/server/session"
@@ -37,10 +38,12 @@ type TargetResolutionRequest struct {
 
 type ResolvedTarget struct {
 	SessionID runtimeids.SessionID
+	ShortID   *runtimeids.SessionShortID
 	Created   bool
 }
 
 type TargetResolver struct {
+	metadata          *metadata.Store
 	persistedSessions session.PersistedSessionResolver
 	sessionLaunch     SessionLaunchServiceResolver
 	sourceLaunch      SessionRuntimePlannerResolver
@@ -52,8 +55,10 @@ func NewTargetResolver(
 	sessionLaunch SessionLaunchServiceResolver,
 	sourceLaunch SessionRuntimePlannerResolver,
 	activity runtimecontrol.RuntimeActivityResolver,
+	store *metadata.Store,
 ) *TargetResolver {
 	return &TargetResolver{
+		metadata:          store,
 		persistedSessions: persistedSessions,
 		sessionLaunch:     sessionLaunch,
 		sourceLaunch:      sourceLaunch,
@@ -96,13 +101,19 @@ func (r *TargetResolver) SelectPlacement(ctx context.Context, target ResolvedTar
 	if err != nil {
 		return target, err
 	}
-	return ResolvedTarget{SessionID: planned.Plan.Descriptor.SessionID(), Created: true}, nil
+	return ResolvedTarget{SessionID: planned.Plan.Descriptor.SessionID(), ShortID: planned.Identity.ShortID, Created: true}, nil
 }
 
 func (r *TargetResolver) Resolve(
 	ctx context.Context,
 	request TargetResolutionRequest,
-) (ResolvedTarget, error) {
+) (resolved ResolvedTarget, err error) {
+	var captured serverapi.SessionTarget
+	defer func() {
+		if captured != nil {
+			err = serverapi.WithSessionTarget(captured, err)
+		}
+	}()
 	if err := protoapi.Validate(request.Target); err != nil {
 		return ResolvedTarget{}, fmt.Errorf("Chat target: %w", err)
 	}
@@ -110,18 +121,21 @@ func (r *TargetResolver) Resolve(
 		return ResolvedTarget{}, errors.New("Chat target resolver is required")
 	}
 	if sessionTarget := request.Target.GetSession(); sessionTarget != nil {
-		sessionID, err := runtimeids.ParseSessionID(sessionTarget.SessionId)
+		captured = serverapi.UnresolvedSessionTarget{}
+		sessionID, err := r.metadata.ResolveSessionTarget(ctx, sessionTarget.SessionId)
 		if err != nil {
 			return ResolvedTarget{}, err
 		}
-		if _, err := session.ResolvePersistedSessionRecord(
+		captured = serverapi.CanonicalSessionTarget{ID: sessionID}
+		record, err := session.ResolvePersistedSessionRecord(
 			ctx,
 			r.persistedSessions,
 			sessionID.String(),
-		); err != nil {
+		)
+		if err != nil {
 			return ResolvedTarget{}, err
 		}
-		return ResolvedTarget{SessionID: sessionID}, nil
+		return ResolvedTarget{SessionID: sessionID, ShortID: record.ShortID}, nil
 	}
 	newChat := request.Target.GetNewChat()
 	if newChat == nil {
@@ -137,7 +151,7 @@ func (r *TargetResolver) Resolve(
 	if service == nil {
 		return ResolvedTarget{}, errors.New("Session launch service is required")
 	}
-	intent, err := protoapi.SessionLaunchIntentToProto(
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(
 		serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	)
 	if err != nil {
@@ -160,5 +174,10 @@ func (r *TargetResolver) Resolve(
 	if err != nil {
 		return ResolvedTarget{}, fmt.Errorf("ordinary Session creation result: %w", err)
 	}
-	return ResolvedTarget{SessionID: sessionID, Created: true}, nil
+	captured = serverapi.CanonicalSessionTarget{ID: sessionID}
+	shortID, err := protoapi.SessionShortIDFromProto(response.Plan.ShortId)
+	if err != nil {
+		return ResolvedTarget{}, err
+	}
+	return ResolvedTarget{SessionID: sessionID, ShortID: shortID, Created: true}, nil
 }

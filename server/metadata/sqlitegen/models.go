@@ -180,6 +180,7 @@ type Session struct {
 	CompletedCompactionCount sql.NullInt64
 	ManualCompactEligible    sql.NullInt64
 	ProtectedInputDraft      sql.NullString
+	ShortID                  sql.NullInt64
 }
 
 type SessionPromptHistoryEntry struct {
@@ -187,6 +188,11 @@ type SessionPromptHistoryEntry struct {
 	SessionID       string
 	Text            string
 	CreatedAtUnixMs int64
+}
+
+type SessionShortIDSequence struct {
+	Singleton int64
+	NextValue int64
 }
 
 type SessionWorkflowNodeAssociation struct {

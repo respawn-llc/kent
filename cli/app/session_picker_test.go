@@ -26,6 +26,30 @@ type staticAuthStatusClient struct {
 	request  *authpb.GetStatusRequest
 }
 
+func TestSessionPickerUnnamedTitleUsesSuppliedIdentity(t *testing.T) {
+	id := runtimeids.NewSessionID()
+	number, err := runtimeids.NewSessionShortID(73)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, shortID := range []*runtimeids.SessionShortID{nil, &number} {
+		item := clientui.SessionSummary{SessionID: id, ShortID: shortID}
+		selector, err := runtimeids.ParseSessionSelector(sessionPickerTitle(item))
+		var expected runtimeids.SessionSelector = id
+		if shortID != nil {
+			expected = *shortID
+		}
+		if err != nil || selector != expected || item.SessionID != id {
+			t.Fatalf("picker identity = %v, %v", selector, err)
+		}
+		name := "Authored name"
+		item.Name = &name
+		if sessionPickerTitle(item) != name {
+			t.Fatal("picker replaced authored name")
+		}
+	}
+}
+
 func (c *staticAuthStatusClient) GetStatus(_ context.Context, request *authpb.GetStatusRequest) (*authpb.Status, error) {
 	c.calls++
 	c.request = request

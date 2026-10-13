@@ -52,7 +52,7 @@ func TestReadDormantSessionChatContextUsesExactExecutionRootAndBoundedFacts(t *t
 	settings.CompactionMode = config.CompactionModeLocal
 	resolver := &sessionChatContextWorkspaceResolver{app: testsetup.ProgrammaticConfig(t, settings)}
 	target := availableSessionExecutionTarget(executionRoot)
-	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{target: target}).
+	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{target: target}, nil).
 		WithChatContextWorkspaceResolver(resolver)
 
 	got, err := service.ReadSessionChatContext(t.Context(), sessionChatContextSessionID(t, store))
@@ -123,7 +123,7 @@ func TestReadDormantSessionChatContextUsesCurrentRoleBudgetWithLockedProvider(t 
 	service := NewService(
 		newTestSessionResolver(store),
 		nil,
-		staticExecutionTargetResolver{target: availableSessionExecutionTarget(executionRoot)},
+		staticExecutionTargetResolver{target: availableSessionExecutionTarget(executionRoot)}, nil,
 	).WithChatContextWorkspaceResolver(resolver)
 
 	got, err := service.ReadSessionChatContext(t.Context(), sessionChatContextSessionID(t, store))
@@ -171,7 +171,7 @@ func TestReadDormantSessionChatContextUsesProductionPersistenceResolverWithoutEv
 	service := NewService(
 		metadataStore,
 		nil,
-		metadataStore,
+		metadataStore, nil,
 	).WithChatContextWorkspaceResolver(&sessionChatContextWorkspaceResolver{
 		app: testsetup.ProgrammaticConfig(t, settings),
 	})
@@ -193,7 +193,7 @@ func TestReadDormantSessionChatContextPropagatesLoadFailures(t *testing.T) {
 	targets := staticExecutionTargetResolver{target: availableSessionExecutionTarget(t.TempDir())}
 
 	loadErr := errors.New("config unavailable")
-	service := NewService(newTestSessionResolver(store), nil, targets).
+	service := NewService(newTestSessionResolver(store), nil, targets, nil).
 		WithChatContextWorkspaceResolver(&sessionChatContextWorkspaceResolver{err: loadErr})
 	if _, err := service.ReadSessionChatContext(t.Context(), sessionID); !errors.Is(err, loadErr) {
 		t.Fatalf("load error = %v, want %v", err, loadErr)

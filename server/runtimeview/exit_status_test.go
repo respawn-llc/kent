@@ -103,7 +103,7 @@ func TestBackgroundExitStatusRoundTrips(t *testing.T) {
 				},
 			}
 			for _, event := range events {
-				messages, err := TranscriptMessagesFromRuntimeEventChecked(event)
+				messages, err := TranscriptMessagesFromRuntimeEventChecked(event, nil)
 				if err != nil {
 					t.Fatal(err)
 				}

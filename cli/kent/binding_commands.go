@@ -19,6 +19,7 @@ import (
 	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
 
@@ -244,28 +245,32 @@ func rebindWorkspaceWithTimeout(ctx context.Context, remote apicontract.ProjectV
 }
 
 func retargetSessionWorkspace(ctx context.Context, remote apicontract.SessionLifecycleService, sessionID string, workspaceRoot string, projectID *string) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
-	origin, err := sessionRetargetRuntimeOrigin(sessionID)
+	selector, err := runtimeids.ParseSessionSelector(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	origin, err := sessionRetargetRuntimeOrigin()
 	if err != nil {
 		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
 	}
 	return remote.RetargetSessionWorkspace(ctx, &sessionlaunchpb.SessionRetargetWorkspaceRequest{
-		SessionId:     sessionID,
+		SessionId:     protoapi.SessionSelectorToProto(selector),
 		WorkspaceRoot: workspaceRoot,
 		ProjectId:     projectID,
 		Origin:        origin,
 	})
 }
 
-func sessionRetargetRuntimeOrigin(sessionID string) (*sessionlaunchpb.RuntimeStepOrigin, error) {
+func sessionRetargetRuntimeOrigin() (*sessionlaunchpb.RuntimeStepOrigin, error) {
 	currentSessionID, ok := sessionenv.LookupSessionID(os.LookupEnv)
-	if !ok || currentSessionID != strings.TrimSpace(sessionID) {
+	if !ok {
 		return nil, nil
 	}
 	runID, stepID := sessionenv.LookupRunStepID(os.LookupEnv)
 	if runID == "" && stepID == "" {
 		return nil, nil
 	}
-	origin := &sessionlaunchpb.RuntimeStepOrigin{RunId: runID, StepId: stepID}
+	origin := &sessionlaunchpb.RuntimeStepOrigin{SessionId: currentSessionID, RunId: runID, StepId: stepID}
 	return origin, protoapi.Validate(origin)
 }
 

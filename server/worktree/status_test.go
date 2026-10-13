@@ -11,6 +11,7 @@ import (
 
 	"core/server/metadata/sqlitegen"
 	"core/shared/config"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -32,7 +33,7 @@ func updateWorktreeStatusTarget(t *testing.T, env *serviceTestEnv, worktreeID st
 func mustGetWorktreeStatus(t *testing.T, env *serviceTestEnv) *worktreepb.StatusSuccess {
 	t.Helper()
 	status, err := env.service.GetWorktreeStatus(env.ctx, &worktreepb.StatusRequest{
-		SessionId: env.session.Meta().SessionID,
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}},
 	})
 	if err != nil {
 		t.Fatalf("GetWorktreeStatus: %v", err)
@@ -161,7 +162,7 @@ func TestWorktreeStatusSurfacesInvalidRecordedGitMetadata(t *testing.T) {
 	}
 
 	if _, err := env.service.GetWorktreeStatus(env.ctx, &worktreepb.StatusRequest{
-		SessionId: env.session.Meta().SessionID,
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}},
 	}); err == nil {
 		t.Fatal("GetWorktreeStatus succeeded with invalid recorded Git metadata")
 	}
@@ -172,7 +173,7 @@ func TestWorktreeStatusPropagatesGitInspectionCancellation(t *testing.T) {
 	env.service.git = NewGitInspector(canceledGitCommandRunner{})
 
 	_, err := env.service.GetWorktreeStatus(env.ctx, &worktreepb.StatusRequest{
-		SessionId: env.session.Meta().SessionID,
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}},
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("GetWorktreeStatus error = %v, want context canceled", err)
@@ -222,7 +223,7 @@ func TestWorktreeStatusPropagatesRecordedRefInspectionCancellation(t *testing.T)
 	env.service.git = NewGitInspector(statusRefFailingGitRunner{err: context.Canceled, exitCode: -1})
 
 	_, err := env.service.GetWorktreeStatus(env.ctx, &worktreepb.StatusRequest{
-		SessionId: env.session.Meta().SessionID,
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}},
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("GetWorktreeStatus error = %v, want context canceled", err)

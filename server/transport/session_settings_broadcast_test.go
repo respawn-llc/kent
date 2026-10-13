@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/shared/apicontract"
 	remoteclient "core/shared/client"
 	settingspb "core/shared/protoapi/gen/kent/api/chat_settings"
@@ -63,7 +64,7 @@ func testSessionSettingsBroadcast(t *testing.T, activate bool, activity runtimep
 	}
 	assertDeliveredSessionSettings(t, clients[0], subscriptions, fixture.ownSessionID, textutil.Value("Review  notes"))
 	_, err := clients[0].MutateChatSettings(t.Context(), &settingspb.MutationRequest{
-		Session: &settingspb.SessionTarget{SessionId: fixture.ownSessionID},
+		Session: &settingspb.SessionTarget{SessionId: requestfixture.Selector(t, fixture.ownSessionID)},
 		Operation: &settingspb.MutationOperation{
 			Operation: &settingspb.MutationOperation_QuestionsEnabled{QuestionsEnabled: false},
 		},
@@ -79,7 +80,7 @@ func testSessionSettingsBroadcast(t *testing.T, activate bool, activity runtimep
 		t.Fatal(err)
 	}
 	assertDeliveredSessionSettings(t, clients[0], subscriptions, fixture.ownSessionID, nil)
-	view, err := clients[1].GetSessionMainView(t.Context(), &sessionpb.MainViewRequest{SessionId: fixture.ownSessionID})
+	view, err := clients[1].GetSessionMainView(t.Context(), &sessionpb.MainViewRequest{SessionId: requestfixture.Selector(t, fixture.ownSessionID)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +92,7 @@ func testSessionSettingsBroadcast(t *testing.T, activate bool, activity runtimep
 func assertDeliveredSessionSettings(t *testing.T, client *remoteclient.Remote, subscriptions []apicontract.ChatSettingsSubscription, sessionID string, name *string) {
 	t.Helper()
 	expected, err := client.ReadChatSettings(t.Context(), &settingspb.ReadRequest{
-		Target: &settingspb.ReadRequest_Session{Session: &settingspb.SessionTarget{SessionId: sessionID}},
+		Target: &settingspb.ReadRequest_Session{Session: &settingspb.SessionTarget{SessionId: requestfixture.Selector(t, sessionID)}},
 	})
 	if err != nil {
 		t.Fatal(err)

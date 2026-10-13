@@ -134,7 +134,9 @@ describe("Desktop Worktree client", () => {
       new FakeRpcTransport([{ descriptor: TransitionService.method.delete, result }]),
       unexpectedProjectOverflow,
     );
-    await expect(client.deleteWorktree("session-1", clean, "confirm")).rejects.toSatisfy(
+    await expect(
+      client.deleteWorktree("33333333-3333-4333-8333-333333333333", clean, "confirm"),
+    ).rejects.toSatisfy(
       (error: unknown) =>
         error instanceof WorktreeError &&
         error.detail.kind === "delete_partial" &&
@@ -160,7 +162,7 @@ describe("Desktop Worktree client", () => {
       new FakeRpcTransport([{ descriptor: ListService.method.list, result }]),
       unexpectedProjectOverflow,
     );
-    await expect(client.listWorktrees("retained-session")).rejects.toSatisfy(
+    await expect(client.listWorktrees("55555555-5555-4555-8555-555555555555")).rejects.toSatisfy(
       (error: unknown) => error instanceof RpcError && error.code === "workspace_not_registered",
     );
   });
@@ -214,11 +216,11 @@ describe("Desktop Worktree client", () => {
     expect(topologies[4]).toMatchObject({
       topology: { value: { git: { pathAvailable: false } } },
     });
-    await expect(client.getWorktreeStatus("session-1")).resolves.toMatchObject({
+    await expect(client.getWorktreeStatus("33333333-3333-4333-8333-333333333333")).resolves.toMatchObject({
       worktree: { recordedRoot: "/repo" },
       problems,
     });
-    await expect(client.listWorktrees("session-1")).resolves.toMatchObject({
+    await expect(client.listWorktrees("33333333-3333-4333-8333-333333333333")).resolves.toMatchObject({
       worktrees: [
         {
           projection: {
@@ -230,13 +232,17 @@ describe("Desktop Worktree client", () => {
     });
     for (const method of [StatusService.method.get, ListService.method.list]) {
       expect(transport.attachedSessionCalls).toContainEqual({
-        sessionID: "session-1",
+        sessionID: "33333333-3333-4333-8333-333333333333",
         method: operationName(method),
       });
     }
     expect(transport.descriptorCalls.map(({ request }) => request)).toEqual([
-      create(StatusService.method.get.input, { sessionId: "session-1" }),
-      create(ListService.method.list.input, { sessionId: "session-1" }),
+      create(StatusService.method.get.input, {
+        sessionId: { value: { case: "sessionId", value: "33333333-3333-4333-8333-333333333333" } },
+      }),
+      create(ListService.method.list.input, {
+        sessionId: { value: { case: "sessionId", value: "33333333-3333-4333-8333-333333333333" } },
+      }),
     ]);
   });
 
@@ -333,16 +339,22 @@ describe("Desktop Worktree client", () => {
       resolution: typeof existing,
       baseRef: string | null,
       setupOperationID = newSetupOperationID(),
-    ) => client.createWorktree({ sessionID: "session-1", setupOperationID, resolution, baseRef });
+    ) =>
+      client.createWorktree({
+        sessionID: "33333333-3333-4333-8333-333333333333",
+        setupOperationID,
+        resolution,
+        baseRef,
+      });
 
     await invokeCreate(existing, null, setupIDs[0]);
     await invokeCreate(newBranch, "HEAD", setupIDs[1]);
     await invokeCreate(detached, null, setupIDs[2]);
-    await client.switchWorktree("session-1", enter);
-    await client.switchWorktree("session-1", leave);
-    await client.deleteWorktree("session-1", dirty, "confirm_and_branch");
-    await client.deleteWorktree("session-1", clean, "confirm");
-    await client.deleteWorktree("session-1", unknown, "confirm");
+    await client.switchWorktree("33333333-3333-4333-8333-333333333333", enter);
+    await client.switchWorktree("33333333-3333-4333-8333-333333333333", leave);
+    await client.deleteWorktree("33333333-3333-4333-8333-333333333333", dirty, "confirm_and_branch");
+    await client.deleteWorktree("33333333-3333-4333-8333-333333333333", clean, "confirm");
+    await client.deleteWorktree("33333333-3333-4333-8333-333333333333", unknown, "confirm");
 
     for (const method of [
       CreateService.method.create,
@@ -351,7 +363,7 @@ describe("Desktop Worktree client", () => {
       TransitionService.method.delete,
     ]) {
       expect(transport.attachedSessionCalls).toContainEqual({
-        sessionID: "session-1",
+        sessionID: "33333333-3333-4333-8333-333333333333",
         method: operationName(method),
       });
     }
@@ -366,7 +378,12 @@ describe("Desktop Worktree client", () => {
     expect(mutations.slice(0, 3).map(({ request }) => request)).toMatchObject(
       setupIDs.map((setupOperationID) => ({
         setupOperationId: setupOperationID.toJSONValue(),
-        scope: { scope: { case: "sessionId", value: "session-1" } },
+        scope: {
+          scope: {
+            case: "sessionId",
+            value: { value: { case: "sessionId", value: "33333333-3333-4333-8333-333333333333" } },
+          },
+        },
       })),
     );
     for (const { request } of mutations.slice(0, 3)) {
@@ -386,7 +403,14 @@ describe("Desktop Worktree client", () => {
     });
     expect(mutations[4]?.descriptor).toBe(TransitionService.method.leave);
     for (const { request } of mutations.slice(5)) {
-      expect(request).toMatchObject({ scope: { scope: { case: "sessionId", value: "session-1" } } });
+      expect(request).toMatchObject({
+        scope: {
+          scope: {
+            case: "sessionId",
+            value: { value: { case: "sessionId", value: "33333333-3333-4333-8333-333333333333" } },
+          },
+        },
+      });
     }
     expect(mutations.slice(5).map(({ request }) => request)).toMatchObject([
       {
@@ -419,14 +443,16 @@ describe("Desktop Worktree client", () => {
     await expect(
       Reflect.apply(client.createWorktree, client, [
         {
-          sessionID: "s",
+          sessionID: "66666666-6666-4666-8666-666666666666",
           setupOperationID: newSetupOperationID(),
           resolution: { ...newBranch },
           baseRef: "HEAD",
         },
       ]),
     ).rejects.toThrow("decoded authority");
-    await expect(client.deleteWorktree("s", branchless, "confirm_and_branch")).rejects.toThrow(TypeError);
+    await expect(
+      client.deleteWorktree("66666666-6666-4666-8666-666666666666", branchless, "confirm_and_branch"),
+    ).rejects.toThrow(TypeError);
     expect(transport.descriptorCalls).toHaveLength(callsBeforeForgery);
   });
 
@@ -449,7 +475,7 @@ describe("Desktop Worktree client", () => {
     ]);
     await expect(
       new ApiClient(transport, unexpectedProjectOverflow).createWorktree({
-        sessionID: "caller",
+        sessionID: "77777777-7777-4777-8777-777777777777",
         setupOperationID: newSetupOperationID(),
         resolution,
         baseRef: null,
@@ -495,7 +521,7 @@ describe("Desktop Worktree client", () => {
           },
         ]),
         unexpectedProjectOverflow,
-      ).switchWorktree("session-1", operation),
+      ).switchWorktree("33333333-3333-4333-8333-333333333333", operation),
     ).rejects.toThrow("different Worktree operation identity");
 
     for (const [method, result] of [
@@ -564,9 +590,10 @@ async function resolveTarget(kind: CreateTargetResolutionKind, input: string, re
     },
   ]);
   const client = new ApiClient(transport, unexpectedProjectOverflow);
-  const resolution = (await client.resolveWorktreeCreateTarget("session-1", input)).resolution;
+  const resolution = (await client.resolveWorktreeCreateTarget("33333333-3333-4333-8333-333333333333", input))
+    .resolution;
   expect(transport.attachedSessionCalls).toContainEqual({
-    sessionID: "session-1",
+    sessionID: "33333333-3333-4333-8333-333333333333",
     method: operationName(CreateTargetService.method.resolve),
   });
   if (resolution === undefined) throw new Error("fixture omitted Create target resolution");
@@ -583,10 +610,10 @@ async function resolveSwitch(value: ListEntry) {
     },
   ]);
   const client = new ApiClient(transport, unexpectedProjectOverflow);
-  const operation = (await client.resolveWorktreeSelector("session-1", "feature")).worktree?.projection
-    ?.switch;
+  const operation = (await client.resolveWorktreeSelector("33333333-3333-4333-8333-333333333333", "feature"))
+    .worktree?.projection?.switch;
   expect(transport.attachedSessionCalls).toContainEqual({
-    sessionID: "session-1",
+    sessionID: "33333333-3333-4333-8333-333333333333",
     method: operationName(SelectorService.method.resolve),
   });
   if (operation === undefined) throw new Error("fixture omitted Switch authority");
@@ -614,9 +641,9 @@ async function resolvePreview(
     },
   ]);
   const client = new ApiClient(transport, unexpectedProjectOverflow);
-  const preview = await client.previewWorktreeDelete("session-1", "feature");
+  const preview = await client.previewWorktreeDelete("33333333-3333-4333-8333-333333333333", "feature");
   expect(transport.attachedSessionCalls).toContainEqual({
-    sessionID: "session-1",
+    sessionID: "33333333-3333-4333-8333-333333333333",
     method: operationName(DeletePreviewService.method.get),
   });
   return preview;

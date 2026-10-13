@@ -26,6 +26,7 @@
 {{define "taskSessionProjectionFields"}}
 SELECT
     session.id AS session_id,
+    session.short_id,
     session.name AS session_name,
     node.display_name AS node_name,
     session.continuation_json,
@@ -1925,6 +1926,7 @@ WHERE id = sqlc.arg(id);
 -- name: UpsertSession :exec
 INSERT INTO sessions (
     id,
+    short_id,
     project_id,
     workspace_id,
     worktree_id,
@@ -1950,6 +1952,7 @@ INSERT INTO sessions (
     manual_compact_eligible
 ) VALUES (
     sqlc.arg(id),
+    sqlc.narg(short_id),
     sqlc.arg(project_id),
     sqlc.arg(workspace_id),
     sqlc.narg(worktree_id),
@@ -2143,6 +2146,7 @@ ORDER BY
 -- name: ListSessionPage :many
 SELECT
     id,
+    short_id,
     name,
     first_prompt_preview,
     COALESCE(category, 'main') AS category,
@@ -2263,6 +2267,7 @@ WHERE id = sqlc.arg(project_id);
 -- name: GetSessionRecordByID :one
 SELECT
     s.id,
+    s.short_id,
     s.artifact_relpath,
     s.name,
     s.first_prompt_preview,
@@ -2287,6 +2292,18 @@ LEFT JOIN workspaces w ON w.id = s.workspace_id
 WHERE s.id = sqlc.arg(session_id)
 LIMIT 1;
 
+-- name: AllocateSessionShortID :one
+UPDATE session_short_id_sequence
+SET next_value = next_value + 1
+WHERE singleton = 1 AND next_value <= sqlc.arg(max_short_id)
+RETURNING CAST(next_value - 1 AS INTEGER) AS short_id;
+
+-- name: GetSessionIDByShortID :one
+SELECT id FROM sessions WHERE short_id = sqlc.arg(short_id);
+
+-- name: GetSessionShortID :one
+SELECT short_id FROM sessions WHERE id = sqlc.arg(session_id);
+
 -- name: GetSessionExecutionTargetByID :one
 SELECT
     s.id AS session_id,
@@ -2307,6 +2324,7 @@ LIMIT 1;
 -- name: GetSessionWorkspaceRetargetStateByID :one
 SELECT
     s.id AS session_id,
+    s.short_id,
     s.project_id,
     p.display_name AS project_display_name,
     p.project_key,
@@ -2599,6 +2617,7 @@ WHERE id = '';
 SELECT
     id,
     name,
+    short_id,
     updated_at_unix_ms
 FROM sessions
 WHERE worktree_id = sqlc.arg(worktree_id)
@@ -2743,8 +2762,10 @@ SELECT
     durable_attention.session_id,
     durable_attention.interruption_reason,
     durable_attention.interruption_detail_json,
-    durable_attention.occurred_at_unix_ms
+    durable_attention.occurred_at_unix_ms,
+    session.short_id AS session_short_id
 FROM durable_attention
+LEFT JOIN sessions session ON session.id = durable_attention.session_id
 LEFT JOIN task_pending_approvals approval
   ON durable_attention.kind = 'approval'
  AND approval.id = durable_attention.approval_id
@@ -2793,7 +2814,12 @@ FROM task_comments
 WHERE id IN (sqlc.slice('ids'));
 
 -- name: ListSessionNamesByIDs :many
-SELECT id, name
+SELECT id, name, short_id
+FROM sessions
+WHERE id IN (sqlc.slice('ids'));
+
+-- name: ListSessionShortIDsByIDs :many
+SELECT id, short_id
 FROM sessions
 WHERE id IN (sqlc.slice('ids'));
 

@@ -101,9 +101,9 @@ func (c *Remote) CreateWorktree(ctx context.Context, request *worktreepb.CreateR
 		return nil, err
 	}
 	workspace := request.Scope.GetWorkspace()
-	hasCaller := workspace == nil || workspace.CallerSessionId != nil
-	if (success.Target != nil) != hasCaller {
-		return nil, invalidResponseError("worktree create", errors.New("caller location presence does not match management scope"))
+	hasSessionContext := workspace == nil || workspace.SessionContext != nil
+	if (success.Target != nil) != hasSessionContext {
+		return nil, invalidResponseError("worktree create", errors.New("Session location presence does not match management scope"))
 	}
 	if err := validateWorktreeListFallback(success.Worktree); err != nil {
 		return nil, invalidResponseError("worktree create", err)

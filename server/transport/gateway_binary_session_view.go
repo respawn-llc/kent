@@ -7,6 +7,7 @@ import (
 
 	"core/shared/apicontract"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/protocol"
 
@@ -19,6 +20,9 @@ func registerSessionViewGatewayBinaryBindings(bindings map[string]gatewayBinaryB
 	transcriptService := transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("ReadService")
 	return errors.Join(
 		registerViewedImageOriginalSource(bindings, sessionService),
+		registerSessionViewUnary(bindings, sessionService, "GetIdentityLocation",
+			func() *sessionpb.IdentityLocationRequest { return &sessionpb.IdentityLocationRequest{} },
+			apicontract.SessionViewService.GetSessionIdentityLocation),
 		registerSessionViewUnary(bindings, sessionService, "GetPromptHistory",
 			func() *sessionpb.PromptHistoryRequest { return &sessionpb.PromptHistoryRequest{} },
 			apicontract.SessionViewService.GetPromptHistory),
@@ -81,9 +85,12 @@ func registerViewedImageOriginalSource(
 }
 
 func registerSessionViewUnary[
+	Target interface {
+		string | *sharedpb.SessionSelector
+	},
 	Request interface {
 		proto.Message
-		GetSessionId() string
+		GetSessionId() Target
 	},
 	Success proto.Message,
 ](
@@ -96,7 +103,7 @@ func registerSessionViewUnary[
 	return registerGatewayBinaryUnary(
 		bindings, service, method, gatewayBinaryCoreActiveOrdinary, newRequest,
 		func(request Request) (routeScopeParams, error) {
-			return routeScopeParams{sessionID: request.GetSessionId()}, nil
+			return runtimeControlScope(request.GetSessionId()), nil
 		},
 		func(g *Gateway, ctx context.Context, _ *connectionState, request Request) (Success, error) {
 			client := g.deps.SessionViewClient()

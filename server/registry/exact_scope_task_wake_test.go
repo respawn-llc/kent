@@ -101,7 +101,7 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 		t.Fatalf("new runtime plan: %v", err)
 	}
 	events := &exactScopeTaskWakeEvents{}
-	registry := NewRuntimeRegistry().WithWorkflowEventPublisher(events.publish)
+	registry := NewRuntimeRegistry(nil).WithWorkflowEventPublisher(events.publish)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
 		PersistenceRoot:   persistenceRoot,
 		ResourceLifecycle: registry,

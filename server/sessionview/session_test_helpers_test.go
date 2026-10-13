@@ -87,7 +87,7 @@ func newSessionViewRuntimeFixture(t *testing.T, store *session.Store, client llm
 	if err != nil {
 		t.Fatalf("new runtime plan: %v", err)
 	}
-	activity := registry.NewRuntimeRegistry()
+	activity := registry.NewRuntimeRegistry(nil)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
 		PersistenceRoot:   root,
 		StoreOptions:      sessionViewTestPersistence.Options(),
