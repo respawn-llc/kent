@@ -9,7 +9,6 @@ import (
 	"core/shared/protoapi"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
-	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 
@@ -90,7 +89,7 @@ func productionGatewayBinaryBindings() (map[string]gatewayBinaryBinding, error) 
 		func() *connectionpb.AttachSessionRequest { return &connectionpb.AttachSessionRequest{} },
 		func(request *connectionpb.AttachSessionRequest) (routeScopeParams, error) {
 			return routeScopeParams{
-				sessionID:                 request.SessionId,
+				sessionSelector:           request.SessionId,
 				sessionReattachCapability: request.ReattachCapability,
 			}, nil
 		},
@@ -372,17 +371,25 @@ func invokeBinaryAttachSession(
 	ctx context.Context,
 	state *connectionState,
 	request *connectionpb.AttachSessionRequest,
-) (*connectionpb.AttachmentSuccess, error) {
-	_, binding, err := g.resolveSessionAttachmentTargetWithCapability(
-		ctx,
-		state,
-		request.SessionId,
-		request.ReattachCapability,
-	)
+) (result *connectionpb.AttachmentSuccess, err error) {
+	var target serverapi.SessionTarget = serverapi.UnresolvedSessionTarget{}
+	defer func() { err = serverapi.WithSessionTarget(target, err) }()
+	parsedSessionID, err := g.deps.MetadataStore().ResolveSessionTarget(ctx, request.SessionId)
 	if err != nil {
 		return nil, err
 	}
-	parsedSessionID, err := runtimeids.ParseSessionID(request.SessionId)
+	target = serverapi.CanonicalSessionTarget{ID: parsedSessionID}
+	identity, err := g.deps.MetadataStore().SessionIdentity(ctx, parsedSessionID)
+	if err != nil {
+		return nil, err
+	}
+	target = serverapi.ProjectedSessionTarget{Identity: identity}
+	_, binding, err := g.resolveSessionAttachmentTargetWithCapability(
+		ctx,
+		state,
+		parsedSessionID.String(),
+		request.ReattachCapability,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -390,7 +397,7 @@ func invokeBinaryAttachSession(
 	if err != nil {
 		return nil, err
 	}
-	reattachCapability, err := authority.issue(request.SessionId)
+	reattachCapability, err := authority.issue(parsedSessionID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -404,7 +411,7 @@ func invokeBinaryAttachSession(
 				ProjectId:          binding.ProjectID,
 				WorkspaceId:        binding.WorkspaceID,
 				WorkspaceRoot:      binding.CanonicalRoot,
-				SessionId:          request.SessionId,
+				SessionId:          parsedSessionID.String(),
 				ReattachCapability: reattachCapability,
 			},
 		},
@@ -455,37 +462,36 @@ func binaryAttachProjectFailure(
 }
 
 func binaryAttachSessionFailure(
-	g *Gateway,
-	state *connectionState,
-	request *connectionpb.AttachSessionRequest,
+	_ *Gateway,
+	_ *connectionState,
+	_ *connectionpb.AttachSessionRequest,
 	err error,
 ) proto.Message {
+	var sessionID *string
+	var target *serverapi.SessionTargetError
+	if errors.As(err, &target) {
+		sessionID = protoapi.OptionalSessionIDToProto(target.SessionID())
+	}
 	switch {
-	case errors.Is(err, sessioncontract.ErrSessionNotFound) && request != nil:
+	case errors.Is(err, sessioncontract.ErrSessionNotFound):
 		return &connectionpb.AttachSessionError{
 			Code: "session_not_found",
 			Detail: &connectionpb.AttachSessionError_SessionNotFound{
-				SessionNotFound: &sessionlaunchpb.SessionNotFoundDetails{SessionId: request.SessionId},
+				SessionNotFound: &sessionlaunchpb.SessionNotFoundDetails{SessionId: sessionID},
 			},
 		}
-	case errors.Is(err, serverapi.ErrProjectNotFound) && request != nil:
-		details := &connectionpb.SessionAttachmentTargetDetails{SessionId: request.SessionId}
-		if projectID := connectionAttachmentProjectID(g, state); projectID != "" {
-			details.ProjectId = &projectID
-		}
+	case errors.Is(err, serverapi.ErrProjectNotFound) && sessionID != nil:
 		return &connectionpb.AttachSessionError{
 			Code: "project_not_found",
 			Detail: &connectionpb.AttachSessionError_ProjectNotFound{
-				ProjectNotFound: details,
+				ProjectNotFound: connectionSessionAttachmentTargetDetails(*sessionID, err),
 			},
 		}
-	case errors.Is(err, serverapi.ErrWorkspaceNotRegistered) && request != nil:
+	case errors.Is(err, serverapi.ErrWorkspaceNotRegistered) && sessionID != nil:
 		return &connectionpb.AttachSessionError{
 			Code: "workspace_not_registered",
 			Detail: &connectionpb.AttachSessionError_WorkspaceNotRegistered{
-				WorkspaceNotRegistered: connectionSessionWorkspaceNotRegisteredDetails(
-					g, state, request.SessionId, err,
-				),
+				WorkspaceNotRegistered: connectionSessionAttachmentTargetDetails(*sessionID, err),
 			},
 		}
 	default:
@@ -517,13 +523,14 @@ func binaryServerNotReadyDetails(err error) (*serverpb.ServerNotReadyDetails, bo
 	return details, conversionErr == nil
 }
 
-func connectionSessionWorkspaceNotRegisteredDetails(
-	g *Gateway,
-	state *connectionState,
+func connectionSessionAttachmentTargetDetails(
 	sessionID string,
 	err error,
 ) *connectionpb.SessionAttachmentTargetDetails {
-	workspace := binaryWorkspaceNotRegisteredDetails(g, state, err)
+	workspace := sessionAttachmentWorkspaceFacts(err)
+	if workspace == nil {
+		return &connectionpb.SessionAttachmentTargetDetails{SessionId: sessionID}
+	}
 	return &connectionpb.SessionAttachmentTargetDetails{
 		SessionId:     sessionID,
 		ProjectId:     workspace.ProjectId,
@@ -533,9 +540,20 @@ func connectionSessionWorkspaceNotRegisteredDetails(
 }
 
 func binaryWorkspaceNotRegisteredDetails(g *Gateway, state *connectionState, err error) *projectpb.WorkspaceNotRegisteredDetails {
+	if details := sessionAttachmentWorkspaceFacts(err); details != nil {
+		return details
+	}
 	details := &projectpb.WorkspaceNotRegisteredDetails{}
-	var attachmentErr sessionWorkspaceNotRegisteredError
+	if projectID := connectionAttachmentProjectID(g, state); projectID != "" {
+		details.ProjectId = &projectID
+	}
+	return details
+}
+
+func sessionAttachmentWorkspaceFacts(err error) *projectpb.WorkspaceNotRegisteredDetails {
+	var attachmentErr sessionAttachmentTargetError
 	if errors.As(err, &attachmentErr) {
+		details := &projectpb.WorkspaceNotRegisteredDetails{}
 		if attachmentErr.projectID != "" {
 			details.ProjectId = &attachmentErr.projectID
 		}
@@ -547,15 +565,11 @@ func binaryWorkspaceNotRegisteredDetails(g *Gateway, state *connectionState, err
 		}
 		return details
 	}
-	if projectID := connectionAttachmentProjectID(g, state); projectID != "" {
-		details.ProjectId = &projectID
-	}
-	return details
+	return nil
 }
 
 func binaryInternalFailure(err error) *sharedpb.InternalFailureDetails {
-	cause := err.Error()
-	return &sharedpb.InternalFailureDetails{Cause: &cause}
+	return protoapi.InternalFailureToProto(err)
 }
 
 func (g *Gateway) resolveBinaryRequest(

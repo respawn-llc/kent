@@ -170,6 +170,7 @@ describe("Chat Settings descriptor adapter", () => {
                   session: {
                     sessionId: sessionID,
                     connection: { connectionId: "saved", method: AuthMethod.API_KEY },
+                    shortId: 73n,
                     previousSessionId: parentID,
                     taskId: taskID,
                     taskShortId: "KENT-416",
@@ -195,13 +196,14 @@ describe("Chat Settings descriptor adapter", () => {
       },
       session: {
         sessionID,
+        shortID: 73n,
         previousSessionID: parentID,
         task: { taskID, shortID: "KENT-416" },
         connection: { id: "saved", mode: "api_key" },
       },
     });
     expect(transport.descriptorCalls[0]?.request).toMatchObject({
-      target: { case: "session", value: { sessionId: sessionID } },
+      target: { case: "session", value: { sessionId: { value: { case: "sessionId", value: sessionID } } } },
     });
   });
 
@@ -240,7 +242,7 @@ describe("Chat Settings descriptor adapter", () => {
         operation,
       );
       expect(transport.descriptorCalls[0]?.request).toMatchObject({
-        session: { sessionId: sessionID },
+        session: { sessionId: { value: { case: "sessionId", value: sessionID } } },
         operation: { operation: wire },
       });
       expect(result).toMatchObject({
@@ -766,7 +768,10 @@ describe("Chat Settings descriptor adapter", () => {
       {
         wire: create(ReadErrorSchema, {
           code: "session_not_found",
-          detail: { case: "sessionNotFound", value: { sessionId: sessionID } },
+          detail: {
+            case: "sessionNotFound",
+            value: { sessionTarget: { stage: { case: "canonicalSessionId", value: sessionID } } },
+          },
         }),
         expected: { kind: "session_not_found", sessionID },
       },

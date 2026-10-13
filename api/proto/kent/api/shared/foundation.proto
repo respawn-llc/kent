@@ -7,6 +7,7 @@ import "google/protobuf/descriptor.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
+import "kent/api/shared/session_selector.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/shared;sharedpb";
 
@@ -20,6 +21,7 @@ message FoundationImports {
 message InternalFailureDetails {
   optional string operation = 1 [(buf.validate.field).string.min_len = 1];
   optional string cause = 2 [(buf.validate.field).string.min_len = 1];
+  optional SessionTargetContext session_target = 3;
 }
 
 enum TranscriptCloseReason {

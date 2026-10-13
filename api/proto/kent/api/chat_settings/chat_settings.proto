@@ -9,6 +9,7 @@ import "kent/api/chat_context/chat_context.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
+import "kent/api/shared/session_selector.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/chat_settings;chatsettingspb";
 
@@ -52,10 +53,7 @@ message NewChatTarget {
 }
 
 message SessionTarget {
-  string session_id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
 }
 
 message ReadRequest {
@@ -267,6 +265,7 @@ message Settings {
 
 message SessionFacts {
   kent.api.auth.ConnectionFacts connection = 5;
+  optional int64 short_id = 6 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -351,10 +350,7 @@ message NewChatAgentChoice {
 }
 
 message SessionNotFoundDetails {
-  string session_id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
+  optional kent.api.shared.SessionTargetContext session_target = 2;
 }
 
 message WorkspaceNotRegisteredDetails {}

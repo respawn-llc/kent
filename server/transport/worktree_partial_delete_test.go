@@ -8,6 +8,7 @@ import (
 
 	"core/shared/apicontract"
 	remoteclient "core/shared/client"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/worktreecontract"
 )
@@ -58,7 +59,7 @@ func TestWorktreeDeletionPartialProgressSurvivesGateway(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = remote.Close() })
 		_, err = remote.DeleteWorktree(t.Context(), &worktreepb.DeleteRequest{
-			Scope: worktreecontract.SessionManagementScope(sess.Meta().SessionID), Selector: "worktree",
+			Scope: worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sess.Meta().SessionID}}), Selector: "worktree",
 			BranchCleanupPolicy: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_RETAIN,
 		})
 		var progress *worktreecontract.DeletePartialError

@@ -12,7 +12,8 @@ import (
 )
 
 type sessionAttentionSubscription struct {
-	native *attentionnotify.Subscription
+	native   *attentionnotify.Subscription
+	registry *RuntimeRegistry
 }
 
 func (s *sessionAttentionSubscription) Close() error {
@@ -49,6 +50,10 @@ func (s *sessionAttentionSubscription) Next(ctx context.Context) (*attentionpb.N
 		notification := &attentionpb.Notification{
 			Id: id, OccurredAt: timestamppb.New(pending.OccurredAt),
 			Revision: pending.Revision, SessionId: pending.Target.SessionID,
+		}
+		notification.ShortId, err = s.registry.attentionSessionShortID(ctx, pending.Target.SessionID)
+		if err != nil {
+			return nil, err
 		}
 		switch pending.Kind {
 		case clientui.AttentionNotificationKindQuestion:

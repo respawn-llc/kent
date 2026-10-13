@@ -125,7 +125,7 @@ function sessionWithPrompts(
   if (choice === undefined) throw new Error("Missing settings choice");
   const settings = vi.spyOn(services.api.chat, "getSettings").mockResolvedValue({
     kind: "session",
-    session: { sessionID: sessionTarget.sessionID, previousSessionID: null, task: null },
+    session: { sessionID: sessionTarget.sessionID, shortID: null, previousSessionID: null, task: null },
     settings: {
       selectedAgent: { role: choice.agent.role, model: choice.agent.model, thinking: choice.agent.thinking },
       agentChoices: [choice.agent],

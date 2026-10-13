@@ -3,6 +3,7 @@ package client
 import (
 	"buf.build/go/protovalidate"
 	"context"
+	"core/internal/testharness/requestfixture"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	sessionretargetpb "core/shared/protoapi/gen/kent/api/session_retarget"
@@ -196,7 +197,7 @@ func TestRemotePreviewWorktreeDeleteSendsRouteAndDecodesEveryCleanlinessVariant(
 			defer func() { _ = remote.Close() }()
 
 			got, err := remote.PreviewWorktreeDelete(context.Background(), &worktreepb.DeletePreviewRequest{
-				Scope:    worktreecontract.SessionManagementScope("session-1"),
+				Scope:    worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "33333333-3333-4333-8333-333333333333"}}),
 				Selector: "feature",
 			})
 			if err != nil {
@@ -244,7 +245,7 @@ func TestRemotePreviewWorktreeDeleteRejectsMismatchedResponseSelector(t *testing
 	defer func() { _ = remote.Close() }()
 
 	_, err = remote.PreviewWorktreeDelete(context.Background(), &worktreepb.DeletePreviewRequest{
-		Scope:    worktreecontract.SessionManagementScope("session-1"),
+		Scope:    worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "33333333-3333-4333-8333-333333333333"}}),
 		Selector: "external",
 	})
 	if err == nil {
@@ -281,7 +282,7 @@ func TestRemoteLiveWatchRejectsMalformedResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = remote.Close() }()
-	_, err = remote.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: "session-1"})
+	_, err = remote.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: requestfixture.Selector(t, "018fdd67-89ab-4cde-8123-456789abcdef")})
 	var validationError *protovalidate.ValidationError
 	if !errors.As(err, &validationError) {
 		t.Fatalf("LiveWatch error = %v, want generated response validation error", err)
@@ -311,7 +312,7 @@ func TestRemoteLiveWaitRejectsMalformedResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = remote.Close() }()
-	_, err = remote.LiveWait(context.Background(), &runtimepb.LiveWaitRequest{SessionId: "018fdd67-89ab-4cde-8123-456789abcdef"})
+	_, err = remote.LiveWait(context.Background(), &runtimepb.LiveWaitRequest{SessionId: requestfixture.Selector(t, "018fdd67-89ab-4cde-8123-456789abcdef")})
 	var validationError *protovalidate.ValidationError
 	if !errors.As(err, &validationError) {
 		t.Fatalf("LiveWait error = %v, want generated response validation error", err)
@@ -330,11 +331,11 @@ func TestRemoteLiveResponsesRejectMismatchedSessionIDs(t *testing.T) {
 			name:    "live watch",
 			method:  promptpb.File_kent_api_prompt_prompt_proto.Services().ByName("LiveWatchService").Methods().ByName("Watch"),
 			request: &promptpb.LiveWatchRequest{},
-			response: &promptpb.LiveWatchSuccess{SessionId: "session-b", Outcome: &promptpb.LiveWatchOutcome{
+			response: &promptpb.LiveWatchSuccess{SessionId: "018fdd67-89ab-4cde-8123-456789abcdee", Outcome: &promptpb.LiveWatchOutcome{
 				Outcome: &promptpb.LiveWatchOutcome_FinalAnswer{FinalAnswer: &promptpb.LiveWatchFinal{SessionName: proto.String("Session"), Duration: durationpb.New(time.Millisecond)}},
 			}},
 			call: func(ctx context.Context, remote *Remote) error {
-				_, err := remote.LiveWatch(ctx, &promptpb.LiveWatchRequest{SessionId: "session-a"})
+				_, err := remote.LiveWatch(ctx, &promptpb.LiveWatchRequest{SessionId: requestfixture.Selector(t, "018fdd67-89ab-4cde-8123-456789abcdef")})
 				return err
 			},
 		},
@@ -351,7 +352,7 @@ func TestRemoteLiveResponsesRejectMismatchedSessionIDs(t *testing.T) {
 				TerminalStepId: "018fdd67-89ab-4cde-8123-456789abcdef", TerminalStatus: "completed",
 			},
 			call: func(ctx context.Context, remote *Remote) error {
-				_, err := remote.LiveWait(ctx, &runtimepb.LiveWaitRequest{SessionId: "018fdd67-89ab-4cde-8123-456789abcdef"})
+				_, err := remote.LiveWait(ctx, &runtimepb.LiveWaitRequest{SessionId: requestfixture.Selector(t, "018fdd67-89ab-4cde-8123-456789abcdef")})
 				return err
 			},
 		},
@@ -618,7 +619,7 @@ func TestRemoteGetsLatestCommittedAssistantFinalAnswer(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	resp, err := remote.GetLatestCommittedAssistantFinalAnswer(context.Background(), &transcriptpb.LatestFinalAnswerRequest{SessionId: "session-1"})
+	resp, err := remote.GetLatestCommittedAssistantFinalAnswer(context.Background(), &transcriptpb.LatestFinalAnswerRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "33333333-3333-4333-8333-333333333333"}}})
 	if err != nil {
 		t.Fatalf("GetLatestCommittedAssistantFinalAnswer: %v", err)
 	}
@@ -635,7 +636,7 @@ func TestRemoteSessionTranscriptSubscriptionUsesSeparateRouteAndDecodesMessages(
 		}
 		params := &transcriptpb.SubscribeRequest{}
 		call := receiveRemoteGeneratedCall(t, ws, "StreamService", "Subscribe", params)
-		if params.SessionId != "session-1" {
+		if params.SessionId.GetSessionId() != "11111111-1111-4111-8111-111111111111" {
 			t.Fatalf("transcript subscribe params = %+v, want session-1", params)
 		}
 		sendRemoteGeneratedResult(t, ws, call, &transcriptpb.SubscribeResult{Outcome: &transcriptpb.SubscribeResult_Success{Success: &emptypb.Empty{}}})
@@ -651,7 +652,7 @@ func TestRemoteSessionTranscriptSubscriptionUsesSeparateRouteAndDecodesMessages(
 	}
 	defer func() { _ = remote.Close() }()
 
-	sub, err := remote.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{SessionId: "session-1"})
+	sub, err := remote.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "11111111-1111-4111-8111-111111111111"}}})
 	if err != nil {
 		t.Fatalf("SubscribeSessionTranscript: %v", err)
 	}
@@ -675,7 +676,7 @@ func TestRemoteQuestionHistorySubscriptionAttachesAndDecodesTerminalStream(t *te
 		}
 		params := &sessionpb.QuestionHistorySubscribeRequest{}
 		call := receiveRemoteGeneratedCall(t, ws, "QuestionHistoryService", "Subscribe", params)
-		if params.SessionId != "session-1" || params.MaxHandoffs != 3 {
+		if params.SessionId.GetSessionId() != "11111111-1111-4111-8111-111111111111" || params.MaxHandoffs != 3 {
 			t.Fatalf("Question-history subscribe params = %+v", params)
 		}
 		sendRemoteGeneratedResult(t, ws, call, &sessionpb.QuestionHistorySubscribeResult{Outcome: &sessionpb.QuestionHistorySubscribeResult_Success{Success: &emptypb.Empty{}}})
@@ -695,7 +696,7 @@ func TestRemoteQuestionHistorySubscriptionAttachesAndDecodesTerminalStream(t *te
 	}
 	defer func() { _ = remote.Close() }()
 	sub, err := remote.SubscribeQuestionHistory(context.Background(), &sessionpb.QuestionHistorySubscribeRequest{
-		SessionId: "session-1", MaxHandoffs: 3,
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "11111111-1111-4111-8111-111111111111"}}, MaxHandoffs: 3,
 	})
 	if err != nil {
 		t.Fatalf("SubscribeQuestionHistory: %v", err)
@@ -744,7 +745,7 @@ func TestRemoteSessionTranscriptSubscriptionPreservesTypedCloseReason(t *testing
 	}
 	defer func() { _ = remote.Close() }()
 
-	sub, err := remote.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{SessionId: "session-1"})
+	sub, err := remote.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "11111111-1111-4111-8111-111111111111"}}})
 	if err != nil {
 		t.Fatalf("SubscribeSessionTranscript: %v", err)
 	}
@@ -875,7 +876,7 @@ func TestRemoteDeleteWorktreePreservesPartialProgressAndBlockers(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 	_, err = remote.DeleteWorktree(context.Background(), &worktreepb.DeleteRequest{
-		Scope: worktreecontract.SessionManagementScope("session-1"), Selector: "wt-1",
+		Scope: worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "33333333-3333-4333-8333-333333333333"}}), Selector: "wt-1",
 		BranchCleanupPolicy: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_RETAIN,
 	})
 	var progress *worktreecontract.DeletePartialError
@@ -893,7 +894,7 @@ func TestRemoteDeleteWorktreeCarriesTypedCleanupPolicyAndResult(t *testing.T) {
 		acceptRemoteHandshake(t, ws)
 		var params worktreepb.DeleteRequest
 		call := receiveRemoteGeneratedCall(t, ws, "TransitionService", "Delete", &params)
-		if params.Scope.GetSessionId() != "session-1" ||
+		if params.Scope.GetSessionId().GetSessionId() != "33333333-3333-4333-8333-333333333333" ||
 			params.Selector != "wt-1" ||
 			params.BranchCleanupPolicy != worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_DELETE_SAFE {
 			t.Fatalf("unexpected delete params: session=%q selector=%q cleanup=%v", params.Scope.GetSessionId(), params.GetSelector(), params.GetBranchCleanupPolicy())
@@ -919,7 +920,7 @@ func TestRemoteDeleteWorktreeCarriesTypedCleanupPolicyAndResult(t *testing.T) {
 	defer func() { _ = remote.Close() }()
 
 	resp, err := remote.DeleteWorktree(context.Background(), &worktreepb.DeleteRequest{
-		Scope:               worktreecontract.SessionManagementScope("session-1"),
+		Scope:               worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "33333333-3333-4333-8333-333333333333"}}),
 		Selector:            "wt-1",
 		BranchCleanupPolicy: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_DELETE_SAFE,
 	})
@@ -936,7 +937,7 @@ func TestRemoteResolveWorktreeCreateTargetCarriesMethodAndPayload(t *testing.T) 
 		acceptRemoteHandshake(t, ws)
 		var params worktreepb.CreateTargetResolveRequest
 		call := receiveRemoteGeneratedCall(t, ws, "CreateTargetService", "Resolve", &params)
-		if params.Scope.GetSessionId() != "session-1" || params.Target != "HEAD~1" {
+		if params.Scope.GetSessionId().GetSessionId() != "33333333-3333-4333-8333-333333333333" || params.Target != "HEAD~1" {
 			t.Fatalf("unexpected resolve params: session=%q target=%q", params.Scope.GetSessionId(), params.GetTarget())
 		}
 		resolvedRef := "abc123"
@@ -957,7 +958,7 @@ func TestRemoteResolveWorktreeCreateTargetCarriesMethodAndPayload(t *testing.T) 
 	}
 	defer func() { _ = remote.Close() }()
 
-	resp, err := remote.ResolveWorktreeCreateTarget(context.Background(), &worktreepb.CreateTargetResolveRequest{Scope: worktreecontract.SessionManagementScope("session-1"), Target: "HEAD~1"})
+	resp, err := remote.ResolveWorktreeCreateTarget(context.Background(), &worktreepb.CreateTargetResolveRequest{Scope: worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "33333333-3333-4333-8333-333333333333"}}), Target: "HEAD~1"})
 	if err != nil {
 		t.Fatalf("ResolveWorktreeCreateTarget: %v", err)
 	}
@@ -979,7 +980,7 @@ func TestRemoteCreateWorktreeUsesOnlySetupOperationIdentity(t *testing.T) {
 		if params.ProtoReflect().Descriptor().Fields().ByName("client_request_id") != nil {
 			t.Fatal("create request retained generic identity")
 		}
-		if params.SetupOperationId != setupID || params.Scope.GetSessionId() != "session-1" {
+		if params.SetupOperationId != setupID || params.Scope.GetSessionId().GetSessionId() != "33333333-3333-4333-8333-333333333333" {
 			t.Fatalf("create params: setup operation=%q session=%q", params.GetSetupOperationId(), params.Scope.GetSessionId())
 		}
 		sendRemoteGeneratedResult(t, ws, call, &worktreepb.CreateResult{
@@ -997,7 +998,7 @@ func TestRemoteCreateWorktreeUsesOnlySetupOperationIdentity(t *testing.T) {
 	baseRef := "feature"
 	response, err := remote.CreateWorktree(context.Background(), &worktreepb.CreateRequest{
 		SetupOperationId: setupID,
-		Scope:            worktreecontract.SessionManagementScope("session-1"),
+		Scope:            worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "33333333-3333-4333-8333-333333333333"}}),
 		Spec:             &worktreepb.CreateSpec{BaseRef: &baseRef},
 	})
 	if err != nil {
@@ -1034,7 +1035,7 @@ func TestRemoteWorktreeProjectedResponsesRejectContradictoryScope(t *testing.T) 
 				}},
 			},
 			call: func(ctx context.Context, remote *Remote) error {
-				_, err := remote.ListWorktrees(ctx, &worktreepb.ListRequest{SessionId: "session"})
+				_, err := remote.ListWorktrees(ctx, &worktreepb.ListRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "33333333-3333-4333-8333-333333333333"}}})
 				return err
 			},
 		},
@@ -1067,7 +1068,7 @@ func TestRemoteWorktreeProjectedResponsesRejectContradictoryScope(t *testing.T) 
 			},
 			call: func(ctx context.Context, remote *Remote) error {
 				_, err := remote.ResolveWorktreeSelector(ctx, &worktreepb.SelectorResolveRequest{
-					SessionId: "session",
+					SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "33333333-3333-4333-8333-333333333333"}},
 					Selector:  branchName,
 				})
 				return err
@@ -1086,7 +1087,7 @@ func TestRemoteWorktreeProjectedResponsesRejectContradictoryScope(t *testing.T) 
 			call: func(ctx context.Context, remote *Remote) error {
 				_, err := remote.CreateWorktree(ctx, &worktreepb.CreateRequest{
 					SetupOperationId: worktreecontract.NewSetupOperationID().String(),
-					Scope:            worktreecontract.SessionManagementScope("session"),
+					Scope:            worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "33333333-3333-4333-8333-333333333333"}}),
 					Spec:             &worktreepb.CreateSpec{BaseRef: &branchName},
 				})
 				return err
@@ -1114,14 +1115,14 @@ func TestRemoteWorktreeProjectedResponsesRejectContradictoryScope(t *testing.T) 
 }
 
 func TestRemoteCreateRejectsCallerLocationPresenceMismatch(t *testing.T) {
-	caller := "caller"
+	caller := "33333333-3333-4333-8333-333333333333"
 	for _, tc := range []struct {
 		name      string
 		scope     *worktreepb.ManagementScope
 		hasCaller bool
 	}{
-		{"session", worktreecontract.SessionManagementScope(caller), true},
-		{"workspace with caller", worktreecontract.WorkspaceManagementScope("project", "workspace", &caller), true},
+		{"Session context", worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: caller}}), true},
+		{"workspace with caller", worktreecontract.WorkspaceManagementScope("project", "workspace", &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: caller}}), true},
 		{"sessionless", worktreecontract.WorkspaceManagementScope("project", "workspace", nil), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1242,7 +1243,7 @@ func TestProtocolErrorMapsSentinelCodes(t *testing.T) {
 func TestRemoteSessionRetargetErrorRoundTrip(t *testing.T) {
 	source := &serverapi.SessionRetargetError{
 		Reason:        serverapi.SessionRetargetTargetProjectRequired,
-		SessionID:     "session-1",
+		SessionID:     "33333333-3333-4333-8333-333333333333",
 		SourceProject: serverapi.ProjectReference{ID: "project-source", Name: "Source"},
 		TargetRoot:    "/work/target",
 		CandidateProjects: []serverapi.ProjectReference{{
@@ -1278,7 +1279,7 @@ func TestRemoteSessionRetargetErrorRoundTrip(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 	_, err = remote.RetargetSessionWorkspace(context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
-		SessionId:     source.SessionID,
+		SessionId:     requestfixture.Selector(t, source.SessionID),
 		WorkspaceRoot: source.TargetRoot,
 	})
 	assertRemoteSessionRetargetError(t, err, source)
@@ -1362,7 +1363,7 @@ func remoteTestWorktreeStructuredErrors() []remoteTestWorktreeStructuredError {
 			}},
 			call: func(ctx context.Context, remote *Remote) error {
 				_, err := remote.ResolveWorktreeSelector(ctx, &worktreepb.SelectorResolveRequest{
-					SessionId: "session", Selector: "feature",
+					SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "33333333-3333-4333-8333-333333333333"}}, Selector: "feature",
 				})
 				return err
 			},
@@ -1394,7 +1395,7 @@ func remoteTestWorktreeStructuredErrors() []remoteTestWorktreeStructuredError {
 				baseRef := "feature"
 				_, err := remote.CreateWorktree(ctx, &worktreepb.CreateRequest{
 					SetupOperationId: worktreecontract.NewSetupOperationID().String(),
-					Scope:            worktreecontract.SessionManagementScope("session"),
+					Scope:            worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "33333333-3333-4333-8333-333333333333"}}),
 					Spec:             &worktreepb.CreateSpec{BaseRef: &baseRef},
 				})
 				return err
@@ -1424,7 +1425,7 @@ func remoteTestWorktreeStructuredErrors() []remoteTestWorktreeStructuredError {
 			}},
 			call: func(ctx context.Context, remote *Remote) error {
 				_, err := remote.DeleteWorktree(ctx, &worktreepb.DeleteRequest{
-					Scope:               worktreecontract.SessionManagementScope("session"),
+					Scope:               worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "33333333-3333-4333-8333-333333333333"}}),
 					Selector:            "feature",
 					BranchCleanupPolicy: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_RETAIN,
 				})
@@ -1456,7 +1457,7 @@ func remoteTestWorktreeStructuredErrors() []remoteTestWorktreeStructuredError {
 				baseRef := "feature"
 				_, err := remote.CreateWorktree(ctx, &worktreepb.CreateRequest{
 					SetupOperationId: worktreecontract.NewSetupOperationID().String(),
-					Scope:            worktreecontract.SessionManagementScope("session"),
+					Scope:            worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "33333333-3333-4333-8333-333333333333"}}),
 					Spec:             &worktreepb.CreateSpec{BaseRef: &baseRef},
 				})
 				return err
@@ -1643,7 +1644,7 @@ func TestBinaryErrorDecodesRuntimeCommandNotAcceptedCauses(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			source := serverapi.NewRuntimeCommandNotAcceptedError(test.cause)
-			details := protoapi.RuntimeCommandNotAcceptedToProto("session-1", source)
+			details := protoapi.RuntimeCommandNotAcceptedToProto(nil, source)
 			wire, err := protoapi.Encode(details)
 			if err != nil {
 				t.Fatal(err)

@@ -299,6 +299,7 @@ func currentNodeFromAttentionCandidate(row sqlitegen.ListWorkflowDurableAttentio
 			return nil, fmt.Errorf("interrupted attention candidate %q has blank session id", row.ID)
 		}
 		currentNode.SessionId = &value
+		currentNode.ShortId = metadata.OptionalInt64(row.SessionShortID)
 	}
 	return currentNode, nil
 }
@@ -432,13 +433,15 @@ func (a *Attention) attachLiveQuestionSessionNames(ctx context.Context, candidat
 		}
 		sessionIDs = append(sessionIDs, candidate.item.GetQuestion().Question.SessionId)
 	}
-	names, err := resolveSessionNames(ctx, a.queries.ListSessionNamesByIDs, sessionIDs)
+	names, err := resolveSessionPresentations(ctx, a.queries.ListSessionNamesByIDs, sessionIDs)
 	if err != nil {
 		return err
 	}
 	for index := range candidates {
 		question := candidates[index].item.GetQuestion()
-		question.SessionName = names[question.Question.SessionId]
+		presentation := names[question.Question.SessionId]
+		question.SessionName = presentation.Name
+		question.Question.ShortId = presentation.ShortID
 	}
 	return nil
 }

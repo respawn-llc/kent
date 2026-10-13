@@ -85,8 +85,10 @@ func TestDeleteWorktreeRetainsAcceptedWorkAfterEarlierSessionMoveAndRetries(t *t
 				t.Fatalf("first Session was not moved before accepting later work: %+v", movedTarget)
 			}
 			var submitErr error
-			acceptedTurn, submitErr = runtimecontrol.NewService(env.authority).SubmitUserTurn(env.ctx, &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: blockedSessionID,
-				Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "accepted after the first Session moved"}},
+			acceptedTurn, submitErr = runtimecontrol.NewService(env.authority, nil).SubmitUserTurn(env.ctx, &runtimepb.SubmitUserTurnRequest{
+				QueueItemId: runtimeids.NewQueueItemID().String(),
+				SessionId:   blockedSessionID,
+				Input:       &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "accepted after the first Session moved"}},
 			})
 			if submitErr != nil {
 				t.Fatalf("accept user turn on later Session: %v", submitErr)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	modelstub "core/internal/testharness/pty/blackbox"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/session"
@@ -95,7 +96,7 @@ func TestConnectionDispatchPreservesEstablishedGenerationContract(t *testing.T) 
 				t.Fatal(err)
 			}
 			_, err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-				SessionID: store.Meta().SessionID, OwnerID: "contract-test",
+				SessionID: requestfixture.SessionID(t, store.Meta().SessionID), OwnerID: "contract-test",
 				ActiveSettings: cfg.Settings, Source: cfg.Source,
 				QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(false),
 			})

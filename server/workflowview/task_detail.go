@@ -19,6 +19,7 @@ import (
 )
 
 type TaskDetail struct {
+	metadata     *metadata.Store
 	queries      *sqlitegen.Queries
 	projection   *TaskStatusProjection
 	dependencies *TaskDependencies
@@ -35,6 +36,7 @@ func NewTaskDetail(metadataStore *metadata.Store, projection *TaskStatusProjecti
 		return nil, errors.New("task dependencies read model is required")
 	}
 	return &TaskDetail{
+		metadata:     metadataStore,
 		queries:      metadataStore.Queries(),
 		projection:   projection,
 		dependencies: dependencies,
@@ -172,7 +174,7 @@ func (d *TaskDetail) task(ctx context.Context, task sqlitegen.TaskRecord) (*task
 	if task.SourceUrl != "" {
 		sourceURL = &task.SourceUrl
 	}
-	currentNodes, err := taskDetailCurrentNodes(projected.CurrentNodes, definition.api)
+	currentNodes, err := d.taskDetailCurrentNodes(ctx, projected.CurrentNodes, definition.api)
 	if err != nil {
 		return nil, err
 	}
@@ -202,9 +204,12 @@ func (d *TaskDetail) task(ctx context.Context, task sqlitegen.TaskRecord) (*task
 	return detail, nil
 }
 
-func taskDetailCurrentNodes(nodes []workflow.CurrentNode, definition *pb.WorkflowDefinition) ([]*taskpb.AttentionCurrentNode, error) {
+func (d *TaskDetail) taskDetailCurrentNodes(ctx context.Context, nodes []workflow.CurrentNode, definition *pb.WorkflowDefinition) ([]*taskpb.AttentionCurrentNode, error) {
 	byID := workflowNodesByID(definition)
-	projected := ProjectCurrentNodes(nodes)
+	projected, err := ProjectCurrentNodes(ctx, d.metadata, nodes)
+	if err != nil {
+		return nil, err
+	}
 	for _, current := range projected {
 		node, exists := byID[current.NodeId]
 		if !exists {
@@ -262,7 +267,7 @@ func taskDetailLiveTargets(
 			return nil, nil, fmt.Errorf("task %q live workflow execution has no target", taskID)
 		}
 	}
-	names, err := resolveSessionNames(ctx, nameLookup, sessionIDs)
+	names, err := resolveSessionPresentations(ctx, nameLookup, sessionIDs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("task %q live Sessions: %w", taskID, err)
 	}
@@ -270,7 +275,8 @@ func taskDetailLiveTargets(
 	for _, agent := range agents {
 		liveSessions = append(liveSessions, &taskpb.LiveSession{
 			SessionId:       agent.sessionID,
-			SessionName:     names[agent.sessionID],
+			SessionName:     names[agent.sessionID].Name,
+			ShortId:         names[agent.sessionID].ShortID,
 			NodeDisplayName: agent.nodeDisplayName,
 		})
 	}

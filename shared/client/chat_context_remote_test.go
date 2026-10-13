@@ -8,6 +8,7 @@ import (
 	"buf.build/go/protovalidate"
 	"core/shared/apicontract"
 	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"golang.org/x/net/websocket"
 	"google.golang.org/protobuf/proto"
@@ -29,7 +30,7 @@ func TestRemoteGetChatContextUsesSoleContractAndValidatesResponse(t *testing.T) 
 		acceptRemoteHandshake(t, ws)
 		decoded := &contextpb.GetRequest{}
 		request := receiveRemoteGeneratedCall(t, ws, "ChatContextService", "Get", decoded)
-		if got := decoded.GetTarget().GetSession().GetSessionId(); got != sessionID.String() {
+		if got := decoded.GetTarget().GetSession().GetSessionId().GetSessionId(); got != sessionID.String() {
 			t.Errorf("Session target = %s, want %s", got, sessionID)
 			return
 		}
@@ -42,7 +43,7 @@ func TestRemoteGetChatContextUsesSoleContractAndValidatesResponse(t *testing.T) 
 	defer func() { _ = remote.Close() }()
 
 	got, err := remote.GetChatContext(t.Context(), &contextpb.GetRequest{Target: &contextpb.Target{Target: &contextpb.Target_Session{
-		Session: &contextpb.SessionTarget{SessionId: sessionID.String()},
+		Session: &contextpb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}},
 	}}})
 	if err != nil {
 		t.Fatalf("GetChatContext: %v", err)
@@ -73,7 +74,7 @@ func TestRemoteGetChatContextRejectsInvalidResponse(t *testing.T) {
 	defer func() { _ = remote.Close() }()
 
 	_, err = remote.GetChatContext(t.Context(), &contextpb.GetRequest{Target: &contextpb.Target{Target: &contextpb.Target_Session{
-		Session: &contextpb.SessionTarget{SessionId: runtimeids.NewSessionID().String()},
+		Session: &contextpb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: runtimeids.NewSessionID().String()}}},
 	}}})
 	var invalidResponse *protovalidate.ValidationError
 	if err == nil || !errors.As(err, &invalidResponse) {

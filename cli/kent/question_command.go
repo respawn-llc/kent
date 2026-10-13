@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"core/cli/app"
+	"core/prompts"
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/clientui"
@@ -54,7 +56,7 @@ type questionCommand struct {
 }
 
 type questionCommandSelector struct {
-	SessionID  *runtimeids.SessionID
+	SessionID  runtimeids.SessionSelector
 	TaskRef    *string
 	ProjectRef string
 	Command    string
@@ -62,6 +64,7 @@ type questionCommandSelector struct {
 
 type taskQuestionSessionCandidate struct {
 	SessionID   runtimeids.SessionID
+	ShortID     *runtimeids.SessionShortID
 	SessionName *string
 	Questions   []questionCommandPendingQuestion
 }
@@ -69,6 +72,7 @@ type taskQuestionSessionCandidate struct {
 type questionCommandPendingQuestion struct {
 	ToolCallID             clientui.ToolCallID
 	SessionID              runtimeids.SessionID
+	ShortID                *runtimeids.SessionShortID
 	StepID                 runtimeids.StepID
 	Kind                   taskpb.AttentionQuestionKind
 	Question               string
@@ -122,17 +126,16 @@ func (c questionCommand) showSubcommand(args []string, stdout io.Writer, stderr 
 		return 2
 	}
 	if selector.SessionID != nil {
-		return c.showSessionQuestion(*selector.SessionID, stdout, stderr)
+		return c.showSessionQuestion(selector.SessionID, stdout, stderr)
 	}
 	return c.showTaskQuestion(selector, stdout, stderr)
 }
 
-func (c questionCommand) showSessionQuestion(sessionID runtimeids.SessionID, stdout io.Writer, stderr io.Writer) int {
+func (c questionCommand) showSessionQuestion(sessionID runtimeids.SessionSelector, stdout io.Writer, stderr io.Writer) int {
 	return c.withRemote(stderr, sessionID, func(remote questionCommandRemote) int {
 		question, ok, err := listPendingSessionPrompt(context.Background(), remote, sessionID)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
+			return questionOperationFailure(stderr, config.Command+" question", err)
 		}
 		if !ok {
 			fmt.Fprintln(stdout, noPendingQuestionsText)
@@ -186,13 +189,13 @@ func (c questionCommand) answerSubcommand(args []string, stdout io.Writer, stder
 		return 2
 	}
 	if selector.SessionID != nil {
-		return c.answerSessionQuestion(*selector.SessionID, option, commentary, stdout, stderr)
+		return c.answerSessionQuestion(selector.SessionID, option, commentary, stdout, stderr)
 	}
 	return c.answerTaskQuestion(selector, option, commentary, stdout, stderr)
 }
 
 func (c questionCommand) answerSessionQuestion(
-	sessionID runtimeids.SessionID,
+	sessionID runtimeids.SessionSelector,
 	option *int,
 	commentary *string,
 	stdout io.Writer,
@@ -201,8 +204,7 @@ func (c questionCommand) answerSessionQuestion(
 	return c.withRemote(stderr, sessionID, func(remote questionCommandRemote) int {
 		question, ok, err := listPendingSessionPrompt(context.Background(), remote, sessionID)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
+			return questionOperationFailure(stderr, config.Command+" question answer", err)
 		}
 		if !ok {
 			fmt.Fprintln(stderr, noPendingQuestionAnswerText)
@@ -252,8 +254,7 @@ func (c questionCommand) showResolvedTaskQuestion(
 	return c.withRemote(stderr, candidate.SessionID, func(promptRemote questionCommandRemote) int {
 		question, ok, err := readPendingSessionPromptByKey(context.Background(), promptRemote, expected)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
+			return questionOperationFailure(stderr, selector.Command, err)
 		}
 		if !ok {
 			fmt.Fprintln(stdout, noPendingQuestionsText)
@@ -310,8 +311,7 @@ func (c questionCommand) answerResolvedTaskQuestion(
 	return c.withRemote(stderr, candidate.SessionID, func(promptRemote questionCommandRemote) int {
 		question, ok, err := readPendingSessionPromptByKey(context.Background(), promptRemote, expected)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
+			return questionOperationFailure(stderr, selector.Command, err)
 		}
 		if !ok {
 			fmt.Fprintln(stderr, noPendingQuestionAnswerText)
@@ -348,6 +348,16 @@ func isQuestionAnswerUsageError(err error) bool {
 	return errors.As(err, &usageErr)
 }
 
+func questionOperationFailure(stderr io.Writer, command string, err error) int {
+	var self *serverapi.SessionSelfTargetError
+	if errors.As(err, &self) {
+		fmt.Fprintln(stderr, prompts.RenderLiveControlSelfTargetDeniedPrompt(command))
+		return 2
+	}
+	fmt.Fprintln(stderr, err)
+	return 1
+}
+
 func answerQuestionThroughBatch(
 	remote questionCommandRemote,
 	question questionCommandPendingQuestion,
@@ -373,7 +383,7 @@ func answerQuestionThroughBatch(
 	answerCtx, stopAnswer := questionAnswerContext()
 	defer stopAnswer()
 	watch, err := remote.SubscribeFollowUp(answerCtx, &promptpb.FollowUpWatchRequest{
-		SessionId:  question.SessionID.String(),
+		SessionId:  protoapi.SessionSelectorToProto(question.SessionID),
 		StepId:     question.StepID.String(),
 		ToolCallId: string(question.ToolCallID),
 	})
@@ -383,7 +393,7 @@ func answerQuestionThroughBatch(
 	}
 	defer func() { _ = watch.Close() }()
 	request := &promptpb.AnswerBatchRequest{
-		SessionId:         question.SessionID.String(),
+		SessionId:         protoapi.SessionSelectorToProto(question.SessionID),
 		StepId:            question.StepID.String(),
 		Entries:           []*promptpb.AnswerBatchEntry{entry},
 		InvokingSessionId: invokingSessionID,
@@ -395,10 +405,10 @@ func answerQuestionThroughBatch(
 			fmt.Fprintf(
 				stderr,
 				"You are a sub-agent trying to answer a question from your parent session %s. This question is likely intended for someone else. Do not answer questions you are not authorized to answer.\n",
-				rejected.QuestionSessionID,
+				(runtimeids.SessionIdentity{ID: question.SessionID, ShortID: question.ShortID}).String(),
 			)
 		} else {
-			fmt.Fprintln(stderr, err)
+			return questionOperationFailure(stderr, config.Command+" question answer", err)
 		}
 		return 1
 	}
@@ -489,12 +499,16 @@ func readTaskQuestionFollowUp(
 func listPendingSessionQuestions(
 	ctx context.Context,
 	remote questionCommandRemote,
-	sessionID runtimeids.SessionID,
+	sessionID runtimeids.SessionSelector,
 ) ([]clientui.PendingAsk, error) {
 	ctx, cancel := context.WithTimeout(ctx, questionCommandTimeout)
 	defer cancel()
+	caller, err := app.LiveSteerCallerSessionID()
+	if err != nil {
+		return nil, err
+	}
 	response, err := remote.ListPendingAsksBySession(ctx, &promptpb.ListPendingRequest{
-		SessionId: sessionID.String(),
+		SessionId: protoapi.SessionSelectorToProto(sessionID), CallerSessionId: caller,
 	})
 	if err != nil {
 		return nil, err
@@ -510,10 +524,14 @@ func listPendingSessionQuestions(
 	return asks, nil
 }
 
-func listPendingSessionApprovals(ctx context.Context, remote questionCommandRemote, sessionID runtimeids.SessionID) ([]clientui.PendingApproval, error) {
+func listPendingSessionApprovals(ctx context.Context, remote questionCommandRemote, sessionID runtimeids.SessionSelector) ([]clientui.PendingApproval, error) {
 	ctx, cancel := context.WithTimeout(ctx, questionCommandTimeout)
 	defer cancel()
-	response, err := remote.ListPendingApprovalsBySession(ctx, &promptpb.ListPendingRequest{SessionId: sessionID.String()})
+	caller, err := app.LiveSteerCallerSessionID()
+	if err != nil {
+		return nil, err
+	}
+	response, err := remote.ListPendingApprovalsBySession(ctx, &promptpb.ListPendingRequest{SessionId: protoapi.SessionSelectorToProto(sessionID), CallerSessionId: caller})
 	if err != nil {
 		return nil, err
 	}
@@ -531,7 +549,7 @@ func listPendingSessionApprovals(ctx context.Context, remote questionCommandRemo
 func listPendingSessionPrompt(
 	ctx context.Context,
 	remote questionCommandRemote,
-	sessionID runtimeids.SessionID,
+	sessionID runtimeids.SessionSelector,
 ) (questionCommandPendingQuestion, bool, error) {
 	asks, err := listPendingSessionQuestions(ctx, remote, sessionID)
 	if err != nil {
@@ -677,6 +695,10 @@ func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessio
 		if err != nil {
 			return nil, err
 		}
+		shortID, err := protoapi.SessionShortIDFromProto(prompt.ShortId)
+		if err != nil {
+			return nil, err
+		}
 		stepID, err := runtimeids.ParseStepID(prompt.StepId)
 		if err != nil {
 			return nil, err
@@ -688,6 +710,7 @@ func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessio
 		question := questionCommandPendingQuestion{
 			ToolCallID: clientui.ToolCallID(prompt.ToolCallId),
 			SessionID:  sessionID,
+			ShortID:    shortID,
 			StepID:     stepID,
 		}
 		if ordinary := prompt.GetOrdinary(); ordinary != nil {
@@ -714,6 +737,7 @@ func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessio
 			candidateBySession[sessionID] = index
 			candidates = append(candidates, taskQuestionSessionCandidate{
 				SessionID:   sessionID,
+				ShortID:     shortID,
 				SessionName: sessionName,
 			})
 		} else if !textutil.EqualOptional(candidates[index].SessionName, sessionName) {
@@ -747,10 +771,6 @@ func selectTaskQuestionCandidate(
 		writeTaskQuestionAmbiguity(stderr, selector, candidates)
 		return nil, 1
 	}
-	if err := rejectSelfTarget(candidates[0].SessionID, selector.Command); err != nil {
-		fmt.Fprintln(stderr, err)
-		return nil, 2
-	}
 	return &candidates[0], 0
 }
 
@@ -769,7 +789,7 @@ func writeTaskQuestionAmbiguity(
 		if candidate.SessionName != nil {
 			name = *candidate.SessionName
 		}
-		fmt.Fprintf(stderr, "- %s (%s)\n", name, candidate.SessionID)
+		fmt.Fprintf(stderr, "- %s (%s)\n", name, (runtimeids.SessionIdentity{ID: candidate.SessionID, ShortID: candidate.ShortID}).String())
 	}
 }
 
@@ -810,14 +830,11 @@ func resolveQuestionCommandSelector(
 		return questionCommandSelector{}, errors.New("--project requires a non-blank project selector")
 	}
 	if sessionPresent {
-		sessionID, err := parseCLILiveSessionID(*rawSessionID)
+		sessionID, err := runtimeids.ParseSessionSelector(*rawSessionID)
 		if err != nil {
 			return questionCommandSelector{}, err
 		}
-		if err := rejectSelfTarget(sessionID, selector.Command); err != nil {
-			return questionCommandSelector{}, err
-		}
-		selector.SessionID = &sessionID
+		selector.SessionID = sessionID
 		return selector, nil
 	}
 	taskRef := strings.TrimSpace(*rawTaskRef)
@@ -830,7 +847,7 @@ func resolveQuestionCommandSelector(
 
 func (c questionCommand) withRemote(
 	stderr io.Writer,
-	sessionID runtimeids.SessionID,
+	sessionID runtimeids.SessionSelector,
 	run func(questionCommandRemote) int,
 ) int {
 	remote, err := c.openRemote(context.Background(), sessionID.String())
@@ -843,6 +860,10 @@ func (c questionCommand) withRemote(
 }
 
 func openQuestionCommandRemote(ctx context.Context, sessionID string) (questionCommandRemote, error) {
+	return openConfiguredSessionRemote(ctx, sessionID)
+}
+
+func openConfiguredSessionRemote(ctx context.Context, sessionID string) (*client.Remote, error) {
 	configRoot, err := nearestCommandConfigRoot()
 	if err != nil {
 		return nil, err
@@ -883,6 +904,7 @@ func pendingSessionQuestion(ask clientui.PendingAsk) (questionCommandPendingQues
 	return questionCommandPendingQuestion{
 		ToolCallID:             ask.ToolCallID,
 		SessionID:              ask.SessionID,
+		ShortID:                ask.ShortID,
 		StepID:                 ask.StepID,
 		Kind:                   taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY,
 		Question:               ask.Question,
@@ -903,6 +925,7 @@ func pendingSessionApproval(
 	return questionCommandPendingQuestion{
 		ToolCallID: approval.ToolCallID,
 		SessionID:  approval.SessionID,
+		ShortID:    approval.ShortID,
 		StepID:     approval.StepID,
 		Kind:       taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL,
 		Question:   approval.Question,

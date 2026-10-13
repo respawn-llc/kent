@@ -8,8 +8,8 @@ import (
 )
 
 func TestSessionLifecycleOptionsUseExplicitTypedInitialIntent(t *testing.T) {
-	selected := mustRunnerSessionID(t, "selected-session")
-	parent := mustRunnerSessionID(t, "parent-session")
+	selected := runtimeids.NewSessionID()
+	parent := runtimeids.NewSessionID()
 
 	tests := []struct {
 		name          string
@@ -47,23 +47,23 @@ func TestSessionLifecycleOptionsUseExplicitTypedInitialIntent(t *testing.T) {
 			if err != nil {
 				t.Fatalf("SessionLifecycleOptionsFor: %v", err)
 			}
-			if intent.Kind() != test.wantKind {
-				t.Fatalf("intent kind = %q, want %q", intent.Kind(), test.wantKind)
+			if (intent.GetCreateNew() != nil) != (test.wantKind == serverapi.SessionLaunchIntentCreateNew) {
+				t.Fatalf("intent = %v, want %q", intent, test.wantKind)
 			}
 			if test.wantSessionID.IsZero() {
-				if _, present := intent.SessionID(); present {
+				if intent.GetOpenExistingSessionId() != nil {
 					t.Fatal("create intent unexpectedly has an existing session identity")
 				}
-			} else if got, present := intent.SessionID(); !present || got != test.wantSessionID {
-				t.Fatalf("session identity = %q/%v, want %q/true", got.String(), present, test.wantSessionID.String())
+			} else if got := intent.GetOpenExistingSessionId().GetSessionId(); got != test.wantSessionID.String() {
+				t.Fatalf("session identity = %q, want %q", got, test.wantSessionID.String())
 			}
-			origin, hasOrigin := intent.CreateOrigin()
+			origin := intent.GetCreateNew()
 			if test.wantParentID.IsZero() {
-				if hasOrigin && origin.Kind() == serverapi.SessionCreateOriginParentAgent {
+				if origin.GetParentAgentSessionId() != nil {
 					t.Fatal("intent unexpectedly has a parent-agent origin")
 				}
-			} else if got, present := origin.SessionID(); !hasOrigin || origin.Kind() != serverapi.SessionCreateOriginParentAgent || !present || got != test.wantParentID {
-				t.Fatalf("parent-agent identity = %q/%v, want %q/true", got.String(), present, test.wantParentID.String())
+			} else if got := origin.GetParentAgentSessionId().GetSessionId(); got != test.wantParentID.String() {
+				t.Fatalf("parent-agent identity = %q, want %q", got, test.wantParentID.String())
 			}
 		})
 	}

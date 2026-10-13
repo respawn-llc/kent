@@ -105,7 +105,9 @@ export function createChatApi(transport: RpcTransport): ChatApi {
       const result = await transport.callDescriptorAttachedSession(
         target,
         method,
-        create(method.input, { sessionId: requireChatSessionID(target) }),
+        create(method.input, {
+          sessionId: { value: { case: "sessionId", value: requireChatSessionID(target) } },
+        }),
       );
       return requireUnarySuccess(method, result).prompts;
     },
@@ -125,7 +127,7 @@ export function createChatApi(transport: RpcTransport): ChatApi {
       const result = await transport.callDescriptorAttachedSession(
         target,
         method,
-        create(method.input, { sessionId }),
+        create(method.input, { sessionId: { value: { case: "sessionId", value: sessionId } } }),
       );
       return mainView(required(requireUnarySuccess(method, result).mainView), sessionId);
     },
@@ -136,7 +138,12 @@ export function createChatApi(transport: RpcTransport): ChatApi {
         target,
         method,
         create(method.input, {
-          target: { target: { case: "session", value: { sessionId } } },
+          target: {
+            target: {
+              case: "session",
+              value: { sessionId: { value: { case: "sessionId", value: sessionId } } },
+            },
+          },
         }),
       );
       return context(required(requireUnarySuccess(method, result).context));
@@ -148,7 +155,7 @@ export function createChatApi(transport: RpcTransport): ChatApi {
         target,
         method,
         create(method.input, {
-          sessionId,
+          sessionId: { value: { case: "sessionId", value: sessionId } },
           ...(cursor === undefined
             ? {}
             : {
@@ -205,7 +212,7 @@ export function createChatApi(transport: RpcTransport): ChatApi {
       const method = StreamService.method.subscribe;
       return transport.subscribeDescriptor({
         method,
-        request: create(method.input, { sessionId: sessionID }),
+        request: create(method.input, { sessionId: { value: { case: "sessionId", value: sessionID } } }),
         attachment: { projectID: target.projectID, sessionID },
         establishmentTimeoutMs: null,
         eventDescriptor: MessageSchema,

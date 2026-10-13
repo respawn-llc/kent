@@ -55,6 +55,7 @@ type Store struct {
 	sessionDir              string
 	eventsFP                string
 	meta                    Meta
+	shortID                 *runtimeids.SessionShortID
 	contextFacts            SessionContextFacts
 	initialContextFacts     SessionContextFacts
 	conversationFreshness   ConversationFreshness
@@ -215,6 +216,11 @@ func Create(workspaceContainerDir, workspaceContainerName, workspaceRoot string,
 	if err := s.observePersistence(observation); err != nil {
 		return nil, errors.Join(err, s.RemoveDurable())
 	}
+	record, err := ResolvePersistedSessionRecord(context.Background(), s.options.resolver, s.meta.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	s.shortID = textutil.Pointer(record.ShortID)
 	return s, nil
 }
 
@@ -312,6 +318,7 @@ func openPersistedSession(
 		return nil, ErrPersistedSessionResolverRequired
 	}
 	s.meta = cloneMeta(*record.Meta)
+	s.shortID = textutil.Pointer(record.ShortID)
 	s.contextFacts = normalizeSessionContextFacts(record.ContextFacts)
 	s.initialContextFacts = s.contextFacts.Clone()
 	if err := normalizeMetaContinuation(&s.meta); err != nil {
@@ -519,6 +526,16 @@ func (s *Store) RemoveDurable() error {
 type metaSnapshot struct {
 	meta                  Meta
 	conversationFreshness ConversationFreshness
+}
+
+func (s *Store) Identity() runtimeids.SessionIdentity {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id, err := runtimeids.ParseSessionID(s.meta.SessionID)
+	if err != nil {
+		panic(err)
+	}
+	return runtimeids.SessionIdentity{ID: id, ShortID: textutil.Pointer(s.shortID)}
 }
 
 func (s *Store) Meta() Meta {

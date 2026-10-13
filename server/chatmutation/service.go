@@ -143,7 +143,7 @@ func (s *Service) settleGoalSet(
 	return goalSetSuccess(
 		target.SessionID,
 		invocation.mutation,
-		errors.Join(invocation.diagnostic, releaseErr),
+		goalSetTargetError(target, errors.Join(invocation.diagnostic, releaseErr)),
 	), nil
 }
 
@@ -154,7 +154,16 @@ func settleGoalSetError(
 	if target.SessionID.IsZero() {
 		return nil, err
 	}
-	return goalSetSuccessRejected(target.SessionID, err), nil
+	return goalSetSuccessRejected(target.SessionID, goalSetTargetError(target, err)), nil
+}
+
+func goalSetTargetError(target ResolvedTarget, err error) error {
+	if err == nil {
+		return nil
+	}
+	return serverapi.WithSessionTarget(serverapi.ProjectedSessionTarget{
+		Identity: runtimeids.SessionIdentity{ID: target.SessionID, ShortID: target.ShortID},
+	}, err)
 }
 
 type goalSetInvocation struct {
@@ -173,7 +182,7 @@ func (s *Service) invokeGoal(
 	resolvedRequest := &runtimepb.GoalSetRequest{
 		Target: &chatpb.ChatTarget{
 			Target: &chatpb.ChatTarget_Session{
-				Session: &chatpb.ExistingSessionTarget{SessionId: target.SessionID.String()},
+				Session: &chatpb.ExistingSessionRequestTarget{SessionId: protoapi.SessionSelectorToProto(target.SessionID)},
 			},
 		},
 		Objective:       strings.TrimSpace(request.Objective),
@@ -214,7 +223,7 @@ func goalSetSuccess(
 		Outcome: &runtimepb.GoalSetSuccess_Mutation{Mutation: mutation},
 	}
 	if diagnostic != nil {
-		success.Diagnostic = protoapi.GoalSetErrorFromError(diagnostic, sessionID)
+		success.Diagnostic = protoapi.GoalSetErrorFromError(diagnostic)
 	}
 	return success
 }
@@ -288,7 +297,7 @@ func goalSetSuccessRejected(
 	return &runtimepb.GoalSetSuccess{
 		Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
 		Outcome: &runtimepb.GoalSetSuccess_Rejected{
-			Rejected: protoapi.GoalSetErrorFromError(err, sessionID),
+			Rejected: protoapi.GoalSetErrorFromError(err),
 		},
 	}
 }

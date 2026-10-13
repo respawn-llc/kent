@@ -54,7 +54,12 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
             target,
             method,
             create(method.input, {
-              target: { target: { case: "session", value: { sessionId: requireChatSessionID(target) } } },
+              target: {
+                target: {
+                  case: "session",
+                  value: { sessionId: { value: { case: "sessionId", value: requireChatSessionID(target) } } },
+                },
+              },
               activation: chatActivation(activation),
               queueItemId: queueItemID.toJSONValue(),
             }),
@@ -120,7 +125,14 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
               target,
               method,
               create(method.input, {
-                target: { target: { case: "session", value: { sessionId: requireChatSessionID(target) } } },
+                target: {
+                  target: {
+                    case: "session",
+                    value: {
+                      sessionId: { value: { case: "sessionId", value: requireChatSessionID(target) } },
+                    },
+                  },
+                },
                 invocation,
               }),
             )
@@ -172,7 +184,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
       const result = await transport.callDescriptorAttachedSession(
         target,
         method,
-        create(method.input, { sessionId: requestedSessionID }),
+        create(method.input, { sessionId: { value: { case: "sessionId", value: requestedSessionID } } }),
       );
       const success = requireChatSuccess(method, result);
       switch (success.status) {
@@ -253,16 +265,14 @@ function mutationTarget(
   target: Extract<ChatMutationTarget, { kind: "new_chat" }>,
   workspaceID: string,
 ): {
-  target:
-    | { case: "session"; value: { sessionId: string } }
-    | {
-        case: "newChat";
-        value: {
-          projectId: string;
-          workspaceId: string;
-          initialSettings: ReturnType<typeof initialChatSettingsToWire>;
-        };
-      };
+  target: {
+    case: "newChat";
+    value: {
+      projectId: string;
+      workspaceId: string;
+      initialSettings: ReturnType<typeof initialChatSettingsToWire>;
+    };
+  };
 } {
   requireChatProjectTarget(target);
   return {

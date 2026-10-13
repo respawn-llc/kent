@@ -33,13 +33,13 @@ func TestReviewerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing.T) {
 	}
 	snapshot := runtime.ChatSnapshot{Entries: entries}
 	liveFacts := runtime.TranscriptCommittedRowFactsFromSnapshot(snapshot)
-	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{CommittedRows: liveFacts})
+	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{CommittedRows: liveFacts}, nil)
 	page, err := TranscriptPageFromSegment(
 		"58e121b5-30f7-4d0f-a1fa-fb3e6695e39c",
 		textutil.Value("name"),
 		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
-		runtime.TranscriptSegmentPage{Snapshot: snapshot},
-	)
+		runtime.TranscriptSegmentPage{Snapshot: snapshot}, nil)
+
 	if err != nil {
 		t.Fatalf("project page: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestReviewerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing.T) {
 			LocalEntry: &entries[index], LocalEntryProjected: true,
 			CommittedProvenance: entries[index].CommittedProvenance,
 		}
-		liveMessages, err := TranscriptMessagesFromRuntimeEventChecked(event)
+		liveMessages, err := TranscriptMessagesFromRuntimeEventChecked(event, nil)
 		if err != nil {
 			t.Fatalf("project live Reviewer event %d: %v", index, err)
 		}
@@ -118,13 +118,13 @@ func TestQuestionAnswerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing
 	}
 	snapshot := runtime.ChatSnapshot{Entries: []runtime.ChatEntry{entry}}
 	facts := runtime.TranscriptCommittedRowFactsFromSnapshot(snapshot)
-	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{CommittedRows: facts})
+	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{CommittedRows: facts}, nil)
 	page, err := TranscriptPageFromSegment(
 		sessionID,
 		textutil.Value("name"),
 		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
-		runtime.TranscriptSegmentPage{Snapshot: snapshot},
-	)
+		runtime.TranscriptSegmentPage{Snapshot: snapshot}, nil)
+
 	if err != nil {
 		t.Fatalf("project page: %v", err)
 	}
@@ -139,7 +139,8 @@ func TestQuestionAnswerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing
 			QuestionAnswer: answer,
 		},
 		CommittedProvenance: provenance,
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project live Question event: %v", err)
 	}

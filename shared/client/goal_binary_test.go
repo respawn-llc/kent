@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"core/internal/testharness/requestfixture"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -86,7 +87,7 @@ func TestRemoteSetGoalPreservesSuccessfulDiagnostic(t *testing.T) {
 
 	response, err := remote.SetGoal(context.Background(), &runtimepb.GoalSetRequest{
 		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
-			Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
+			Session: &chatpb.ExistingSessionRequestTarget{SessionId: requestfixture.Selector(t, sessionID.String())},
 		}},
 		Objective:       "ship the feature",
 		Actor:           "user",

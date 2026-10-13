@@ -97,7 +97,7 @@ export async function listPendingAsks(
     await transport.callDescriptorAttachedSession(
       target,
       method,
-      create(method.input, { sessionId: target.sessionID }),
+      create(method.input, { sessionId: { value: { case: "sessionId", value: target.sessionID } } }),
     ),
   );
   return result.questions.map(pendingQuestion);

@@ -305,7 +305,9 @@ export async function setupSocket(
     const attachment = await sendSocketDescriptorRequest(
       socket,
       ConnectionService.method.attachSession,
-      create(ConnectionService.method.attachSession.input, { sessionId: options.sessionID }),
+      create(ConnectionService.method.attachSession.input, {
+        sessionId: { value: { case: "sessionId", value: options.sessionID } },
+      }),
       requestOptions,
     );
     requireDescriptorSuccess(ConnectionService.method.attachSession, attachment);

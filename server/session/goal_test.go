@@ -52,6 +52,7 @@ func TestSetGoalReportsCommittedObserverFailure(t *testing.T) {
 		t.TempDir(),
 		testSessionCategory,
 		WithPersistenceObserver(observer),
+		WithPersistedSessionResolver(observer),
 	)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -121,6 +122,7 @@ func TestGoalMetadataMutationsReportCommitCertainty(t *testing.T) {
 				t.TempDir(),
 				testSessionCategory,
 				WithPersistenceObserver(observer),
+				WithPersistedSessionResolver(observer),
 			)
 			if err != nil {
 				t.Fatalf("Create: %v", err)
@@ -150,6 +152,7 @@ func TestCompleteGoalIfActiveReportsCommittedObserverFailure(t *testing.T) {
 		t.TempDir(),
 		testSessionCategory,
 		WithPersistenceObserver(observer),
+		WithPersistedSessionResolver(observer),
 	)
 	if err != nil {
 		t.Fatalf("Create: %v", err)

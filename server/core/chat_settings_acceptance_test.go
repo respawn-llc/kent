@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"sync"
 	"testing"
@@ -18,6 +19,7 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -123,7 +125,7 @@ func testChatSettingsRuntimeMutation(t *testing.T, switchAgent bool) {
 	if err != nil {
 		t.Fatalf("SessionLaunchClientForProjectWorkspace: %v", err)
 	}
-	intent, err := protoapi.SessionLaunchIntentToProto(
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(
 		serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	)
 	if err != nil {
@@ -142,7 +144,7 @@ func testChatSettingsRuntimeMutation(t *testing.T, switchAgent bool) {
 	}
 	chatSettings := appCore.ChatSettingsClient()
 	before, err := chatSettings.ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}}},
 	})
 	if err != nil {
 		t.Fatalf("ReadChatSettings before mutation: %v", err)
@@ -152,7 +154,7 @@ func testChatSettingsRuntimeMutation(t *testing.T, switchAgent bool) {
 
 	const ownerID = "chat-settings-acceptance-test"
 	activation, err := appCore.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID:             sessionID.String(),
+		SessionID:             requestfixture.SessionID(t, sessionID.String()),
 		OwnerID:               ownerID,
 		ActiveSettings:        resolved.Config.Settings,
 		QuestionsEnabled:      textutil.Value(initialQuestions),
@@ -191,7 +193,7 @@ func testChatSettingsRuntimeMutation(t *testing.T, switchAgent bool) {
 	if switchAgent {
 		for _, role := range []string{"unavailable-agent", brand.DefaultSubagentRole} {
 			result, err := chatSettings.MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
-				Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()},
+				Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}},
 				Operation: &chatsettingspb.MutationOperation{
 					Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: role},
 				},
@@ -211,7 +213,7 @@ func testChatSettingsRuntimeMutation(t *testing.T, switchAgent bool) {
 			}
 		}
 		switched, err := chatSettings.MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
-			Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()},
+			Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}},
 			Operation: &chatsettingspb.MutationOperation{
 				Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: brand.BuiltInSubagentRoleFast},
 			},
@@ -263,7 +265,7 @@ func testChatSettingsRuntimeMutation(t *testing.T, switchAgent bool) {
 	mutationDone := make(chan mutationResult, 1)
 	go func() {
 		response, mutationErr := chatSettings.MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
-			Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()},
+			Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}},
 			Operation: &chatsettingspb.MutationOperation{
 				Operation: &chatsettingspb.MutationOperation_QuestionsEnabled{QuestionsEnabled: requestedQuestions},
 			},
@@ -309,7 +311,7 @@ func testChatSettingsRuntimeMutation(t *testing.T, switchAgent bool) {
 func currentCoreRuntimeQuestions(t *testing.T, appCore *Core, sessionID runtimeids.SessionID) bool {
 	t.Helper()
 	response, err := appCore.SessionViewClient().GetSessionMainView(t.Context(), &sessionpb.MainViewRequest{
-		SessionId: sessionID.String(),
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}},
 	})
 	if err != nil {
 		t.Fatalf("GetSessionMainView: %v", err)

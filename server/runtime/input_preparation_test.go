@@ -136,7 +136,7 @@ func testInputPreparationOutcome(t *testing.T, stop bool) {
 					_, err := engine.Steer(t.Context(), "pending input", nil)
 					done <- err
 				} else if submission == "agent" {
-					steer, err := NewAgentSteer(runtimeids.NewSessionID(), "pending input")
+					steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "pending input")
 					if err != nil {
 						done <- err
 						return

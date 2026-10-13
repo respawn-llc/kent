@@ -133,15 +133,15 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 	if finalAnswer != "hello from fake" {
 		t.Fatalf("result = %q, want %q", finalAnswer, "hello from fake")
 	}
-	if strings.TrimSpace(result.SessionID) == "" {
+	if result.Identity == nil {
 		t.Fatal("expected session id")
 	}
 	if len(progresses) < 2 {
 		t.Fatalf("progress events = %+v, want session start and assistant response", progresses)
 	}
 	started := progresses[0].GetSessionStarted()
-	if started == nil || started.SessionId != result.SessionID {
-		t.Fatalf("first progress event = %+v, want new session %q", progresses[0], result.SessionID)
+	if started == nil || started.SessionId != result.Identity.ID.String() {
+		t.Fatalf("first progress event = %+v, want new session %q", progresses[0], result.Identity.ID)
 	}
 	last := progresses[len(progresses)-1].GetAssistantMessage()
 	if last == nil || last.Content != finalAnswer {
@@ -152,7 +152,7 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 	}
 
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	store := openAuthoritativeAppSession(t, cfg.PersistenceRoot, result.SessionID)
+	store := openAuthoritativeAppSession(t, cfg.PersistenceRoot, result.Identity.ID.String())
 	meta := store.Meta()
 	wantWorkspaceRoot, err := config.CanonicalWorkspaceRoot(cfg.WorkspaceRoot)
 	if err != nil {
@@ -271,7 +271,7 @@ func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testi
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
-	child := openAuthoritativeAppSession(t, cfg.PersistenceRoot, result.SessionID)
+	child := openAuthoritativeAppSession(t, cfg.PersistenceRoot, result.Identity.ID.String())
 	childMeta := child.Meta()
 	if childMeta.ParentAgentSessionID == nil || childMeta.ParentAgentSessionID.String() != parent.Meta().SessionID {
 		t.Fatalf("child parent-agent session id = %v, want %q", childMeta.ParentAgentSessionID, parent.Meta().SessionID)
@@ -347,7 +347,7 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 	if got := payload["model"]; got != "gpt-6-sol" {
 		t.Fatalf("model payload = %#v, want startup CLI model gpt-6-sol", got)
 	}
-	store := openAuthoritativeWorkspaceSessionStore(t, workspace, result.SessionID)
+	store := openAuthoritativeWorkspaceSessionStore(t, workspace, result.Identity.ID.String())
 	if store.Meta().ConnectionID == nil || *store.Meta().ConnectionID != "test" {
 		t.Fatalf("unexpected connection binding: %+v", store.Meta().ConnectionID)
 	}

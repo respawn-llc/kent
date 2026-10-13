@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/shared/textutil"
 	"errors"
@@ -21,6 +22,7 @@ import (
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -287,11 +289,17 @@ func TestNewProvidesRegistrationSafeClientsForUnregisteredWorkspace(t *testing.T
 	if appCore.RunPromptClient() == nil {
 		t.Fatal("expected run prompt client stub")
 	}
-	_, err = appCore.SessionLaunchClient().PlanSession(context.Background(), &sessionlaunchpb.SessionPlanRequest{})
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = appCore.SessionLaunchClient().PlanSession(context.Background(), &sessionlaunchpb.SessionPlanRequest{Intent: intent})
 	if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
 		t.Fatalf("PlanSession error = %v, want ErrWorkspaceNotRegistered", err)
 	}
-	_, err = appCore.RunPromptClient().RunPrompt(context.Background(), serverapi.RunPromptRequest{}, nil)
+	_, err = appCore.RunPromptClient().RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+	}), nil)
 	if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
 		t.Fatalf("RunPrompt error = %v, want ErrWorkspaceNotRegistered", err)
 	}
@@ -420,7 +428,7 @@ func TestSessionLaunchClientForProjectWorkspaceUsesWorkspaceLocalConfig(t *testi
 	if err != nil {
 		t.Fatalf("SessionLaunchClientForProjectWorkspace: %v", err)
 	}
-	intent, err := protoapi.SessionLaunchIntentToProto(
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(
 		serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	)
 	if err != nil {
@@ -492,7 +500,7 @@ func TestChatSettingsReadUsesAuthoritativePersistenceRoot(t *testing.T) {
 		t.Fatalf("SetContinuationContext: %v", err)
 	}
 	response, err := appCore.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: store.Meta().SessionID}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}}},
 	})
 	if err != nil {
 		t.Fatalf("ReadChatSettings: %v", err)
@@ -544,7 +552,7 @@ func TestChatSettingsMaterializedReadUsesDetachedSessionSnapshotWithoutRebinding
 	response, err := appCore.ChatSettingsClient().ReadChatSettings(
 		t.Context(),
 		&chatsettingspb.ReadRequest{
-			Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()}},
+			Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}}},
 		},
 	)
 	if err != nil {
@@ -601,7 +609,7 @@ func TestSessionChatSettingsPreparationUsesPersistedConnection(t *testing.T) {
 	}
 
 	response, err := appCore.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: store.Meta().SessionID}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}}},
 	})
 	if err != nil {
 		t.Fatalf("ReadChatSettings: %v", err)
@@ -610,7 +618,7 @@ func TestSessionChatSettingsPreparationUsesPersistedConnection(t *testing.T) {
 		t.Fatalf("Fast = %+v, want unavailable for compatible endpoint", response.GetSession().Settings.Fast)
 	}
 	mutated, err := appCore.ChatSettingsClient().MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
-		Session: &chatsettingspb.SessionTarget{SessionId: store.Meta().SessionID},
+		Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}},
 		Operation: &chatsettingspb.MutationOperation{
 			Operation: &chatsettingspb.MutationOperation_FastEnabled{FastEnabled: true},
 		},
@@ -623,7 +631,7 @@ func TestSessionChatSettingsPreparationUsesPersistedConnection(t *testing.T) {
 		t.Fatalf("Fast mutation = %+v, want unavailable rejection", mutated)
 	}
 	switched, err := appCore.ChatSettingsClient().MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
-		Session: &chatsettingspb.SessionTarget{SessionId: store.Meta().SessionID},
+		Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}},
 		Operation: &chatsettingspb.MutationOperation{
 			Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: "worker"},
 		},
@@ -676,7 +684,7 @@ func TestChatSettingsReadUsesLockedPromptFacingModelCapabilities(t *testing.T) {
 	}
 
 	response, err := appCore.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: store.Meta().SessionID}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}}},
 	})
 	if err != nil {
 		t.Fatalf("ReadChatSettings: %v", err)

@@ -11,6 +11,7 @@ import (
 	"core/server/metadata"
 	"core/server/session"
 	"core/server/sessionruntime"
+	"core/shared/protoapi"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/worktreecontract"
@@ -95,7 +96,7 @@ func (s *Service) retargetDeleteSessionPage(ctx context.Context, workspace metad
 		if !retired {
 			return retargeted, &worktreecontract.BlockedError{Details: &worktreepb.BlockedDetails{
 				ActiveSessions: &worktreepb.ActiveSessionBlockers{Sessions: []*worktreepb.BlockingSession{{
-					SessionId: target.SessionID, Name: target.SessionName,
+					SessionId: target.SessionID, ShortId: protoapi.SessionShortIDToProto(target.ShortID), Name: target.SessionName,
 				}}},
 			}}
 		}

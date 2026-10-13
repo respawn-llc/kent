@@ -102,6 +102,7 @@ function questionRow(
       Text: isError ? (freeform ?? "failed Question") : "answered",
       IsError: isError,
       AnsweredBySessionID: null,
+      AnsweredBySessionShortID: null,
       ResultSummary: null,
       CondensedText: null,
       Presentation: {

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"core/server/metadata"
 	"core/server/session"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -36,8 +37,8 @@ func TestPrepareSessionDoesNotPublishIdentityOrArtifacts(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(container, id.String())); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("preparation published artifacts: %v", err)
 	}
-	if prepared.Creation.Snapshot().Meta.Name == nil {
-		t.Fatal("preparation omitted headless listing metadata")
+	if prepared.Creation.Snapshot().Meta.Name != nil {
+		t.Fatal("private preparation assigned a name before the number was committed")
 	}
 }
 
@@ -63,5 +64,40 @@ func TestPlanPreparedRetainedSessionLeavesMetadataUnchanged(t *testing.T) {
 	}
 	if !reflect.DeepEqual(meta, *record.Meta) {
 		t.Fatal("retained preparation mutated committed metadata")
+	}
+}
+
+func TestHeadlessNameUsesCommittedNumberAndPreservesAuthoredName(t *testing.T) {
+	root, workspace := t.TempDir(), t.TempDir()
+	persistence, err := metadata.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = persistence.Close() })
+	binding, err := persistence.RegisterWorkspaceBinding(t.Context(), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := session.Create(
+		filepath.Join(root, "projects", binding.ProjectID, "sessions"), binding.WorkspaceName,
+		workspace, sessioncontract.SessionCategorySubagent, persistence.AuthoritativeSessionStoreOptions()...,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureSubagentSessionName(store); err != nil {
+		t.Fatal(err)
+	}
+	if store.Meta().Name == nil || *store.Meta().Name != store.Identity().String()+" "+SubagentSessionSuffix || store.Identity().ShortID == nil {
+		t.Fatalf("generated name did not use committed number: %v", store.Meta().Name)
+	}
+	if err := store.SetName(textutil.Value("authored name")); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureSubagentSessionName(store); err != nil {
+		t.Fatal(err)
+	}
+	if store.Meta().Name == nil || *store.Meta().Name != "authored name" {
+		t.Fatal("existing name was replaced")
 	}
 }

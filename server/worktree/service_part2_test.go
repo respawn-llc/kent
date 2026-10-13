@@ -8,6 +8,7 @@ import (
 	"core/server/sessionruntime"
 	shelltool "core/server/tools/shell"
 	"core/shared/config"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/sessioncontract"
 	"core/shared/worktreecontract"
@@ -387,7 +388,7 @@ func mustCreateWorktree(t *testing.T, env *serviceTestEnv, branchName string) se
 	baseRef := "HEAD"
 	resp, err := env.service.CreateWorktree(env.ctx, &worktreepb.CreateRequest{
 		SetupOperationId: setupOperationID.String(),
-		Scope:            worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+		Scope:            worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}}),
 		Spec: &worktreepb.CreateSpec{
 			BaseRef:      &baseRef,
 			CreateBranch: true,
@@ -402,7 +403,7 @@ func mustCreateWorktree(t *testing.T, env *serviceTestEnv, branchName string) se
 
 func worktreeDeleteRequest(env *serviceTestEnv, worktreeID string) *worktreepb.DeleteRequest {
 	return &worktreepb.DeleteRequest{
-		Scope:               worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+		Scope:               worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}}),
 		Selector:            worktreeID,
 		BranchCleanupPolicy: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_RETAIN,
 	}
@@ -421,7 +422,7 @@ func updateServiceTestSessionTarget(t *testing.T, env *serviceTestEnv, sessionID
 
 func mustListWorktrees(t *testing.T, env *serviceTestEnv) *worktreepb.ListSuccess {
 	t.Helper()
-	resp, err := env.service.ListWorktrees(env.ctx, &worktreepb.ListRequest{SessionId: env.session.Meta().SessionID})
+	resp, err := env.service.ListWorktrees(env.ctx, &worktreepb.ListRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}}})
 	if err != nil {
 		t.Fatalf("ListWorktrees: %v", err)
 	}

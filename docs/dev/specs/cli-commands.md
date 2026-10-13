@@ -144,17 +144,36 @@
 - Plain archive and delete emit no progress output.
 - Both commands accept `--json`.
 - Successful JSON uses `status: "ok"` and includes `session_id`. Archive success also includes `output_path`.
-- Failed JSON uses `status: "error"` and includes `code`, `message`, and `session_id`.
+- Failed JSON uses `status: "error"` and includes `code` and `message`. It includes the full UUID in `session_id` when known and omits that field when a numeric selector could not be resolved.
 - Stable failure codes are `confirmation_required`, `session_not_found`, `session_in_use`, `self_session_forbidden`, `invalid_output_path`, `output_exists`, and `request_failed`.
-- `confirmation_required` and `self_session_forbidden` are CLI-local outcomes decided before any remote connection or request.
+- `confirmation_required` is a CLI-local outcome decided before any remote connection or request. The server must decide `self_session_forbidden` after resolving the selector and before Session removal.
 - Uncommon server, filesystem, cleanup, transport, and response failures use `request_failed` and report the returned error message unchanged.
 - JSON mode emits exactly one final object to stdout with no progress output while the command runs.
 - Successful operations exit 0, operational failures exit 1, and usage failures exit 2.
 
 ## Session Identity And Log Path
 
-- `kent session-id` must report the invoking Session's ID and its actual absolute server-side Session log path.
-- Human output must identify both values so the Session ID and log path can be distinguished.
+### Session selectors and presentation
+
+- Kent must assign each new Session a Session Short ID from one increasing sequence across Projects within its persistence root.
+- Assigned Session Short IDs must be unchanged across restarts. Kent must never reassign them after Session deletion.
+- Kent must leave existing Sessions without a Session Short ID unnumbered, including when they are resumed or displayed.
+- Every CLI command that accepts a Session selector must accept its full UUID or assigned Session Short ID.
+- Numeric selectors must represent positive decimal numbers. Leading zeros must be accepted and normalized to the unpadded number. Signs, zero, negative numbers, whitespace, and out-of-range values must be rejected.
+- Ordinary CLI output must use the assigned Session Short ID wherever Kent presents a Session selector. For an unnumbered Session, it must use the full UUID. The diagnostic `kent session-id` output must also include the full UUID.
+- Technical JSON output must use full UUID Session identities.
+- JSON errors for unresolved numeric selectors must omit unavailable UUID identity fields.
+- Historical references to deleted Sessions must display and copy their recorded UUID. Kent must not store a separate Short ID mapping for deleted Sessions.
+- Using a Session Short ID must not change Session UUID identity, Session artifact paths, deep links, returned server-client Session identities, or caller Session identity.
+- Clients must submit Session selectors directly to the server without a separate identity lookup. The server must resolve a selector before target authorization, self-target checks, or execution.
+- Session selector lookup must use indexed resolution rather than a Session collection or database walk.
+- Missing selectors must use the selected command's missing-Session behavior. Lookup failures must produce an error rather than guess another Session identity.
+- Selecting a Session by its Short ID must apply the same self-target checks and other operation behavior as selecting it by UUID.
+
+### Invoking Session identity
+
+- `kent session-id` must report the invoking Session's assigned Short ID when present, full UUID, and actual absolute server-side Session log path.
+- Human output must label the Short ID, UUID, and log path so the values can be distinguished. For an unnumbered Session, it must indicate that no Short ID is assigned.
 - The command must be available only in the harness and fail when the invoking Session ID is unavailable.
 - The command must resolve the path through the server's authoritative Session location.
 - A server or path-resolution failure must produce an error and unsuccessful exit status rather than a successful ID-only result or a fabricated path.
@@ -300,7 +319,7 @@
 - Run stop returns after direct exact-live cancellation. Cancellation closes pending Question and access-request calls through the ordinary interrupted execution outcome. Pending human Steering for the stopped execution is removed when that execution unwinds. The CLI neither waits for that cleanup nor promises restoration.
 - `kent run wait <session-id>` waits for an active Session's final result.
 - `kent run wait …` always selects the Run wait command. A headless prompt beginning with `wait` uses `kent run -- wait …`.
-- Run wait requires a canonical UUIDv4 Session ID, rejects attempts by a Session to target itself, and fails without final-answer output if no execution is active.
+- Run wait requires a canonical UUIDv4 Session ID or Session Short ID, rejects attempts by a Session to target itself, and fails without final-answer output if no execution is active.
 - Run wait stays blocked while a regular Question or access request is pending.
 - Run wait returns only for a Final answer, no-final result, Execution error, or Interrupted outcome.
 - An explicit stop is an Interrupted outcome.

@@ -3,12 +3,15 @@ package session
 import (
 	"context"
 	"path/filepath"
+
+	"core/shared/runtimeids"
 )
 
 // PersistedSessionView is a bounded read-only projection captured from one
 // persisted metadata record and one independently bounded event-log projection.
 type PersistedSessionView struct {
 	meta         Meta
+	identity     runtimeids.SessionIdentity
 	contextFacts SessionContextFacts
 	eventLog     *currentEventLog
 }
@@ -19,11 +22,19 @@ func ResolvePersistedSessionView(ctx context.Context, resolver PersistedSessionR
 		return nil, err
 	}
 	meta := *record.Meta
+	id, err := runtimeids.ParseSessionID(meta.SessionID)
+	if err != nil {
+		return nil, err
+	}
 	eventLog, err := openCurrentEventLog(filepath.Join(record.SessionDir, eventsFile), currentEventLogPersistedSnapshot)
 	if err != nil {
 		return nil, err
 	}
-	return &PersistedSessionView{meta: meta, contextFacts: record.ContextFacts.Clone(), eventLog: eventLog}, nil
+	return &PersistedSessionView{meta: meta, identity: runtimeids.SessionIdentity{ID: id, ShortID: record.ShortID}, contextFacts: record.ContextFacts.Clone(), eventLog: eventLog}, nil
+}
+
+func (v *PersistedSessionView) Identity() runtimeids.SessionIdentity {
+	return v.identity
 }
 
 func (v *PersistedSessionView) Meta() Meta {

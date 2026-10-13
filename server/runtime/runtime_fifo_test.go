@@ -137,7 +137,7 @@ func TestAgentStepBoundaryDrainsEveryAcceptedSteerBeforeNextRequest(t *testing.T
 	expectedMessages := make([]string, 0, len(texts))
 	steerDone := make(chan error, len(texts))
 	for _, text := range texts {
-		steer, err := NewAgentSteer(runtimeids.NewSessionID(), text)
+		steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, text)
 		if err != nil {
 			t.Fatalf("create Agent Steer %q: %v", text, err)
 		}
@@ -256,7 +256,7 @@ func TestAgentStepBoundaryDrainsSteersAcceptedWhileFollowingRequestIsPreparing(t
 	queueSteer := func(text string, beforeQueue func() error) (<-chan error, string) {
 		t.Helper()
 		done := make(chan error, 1)
-		steer, err := NewAgentSteer(runtimeids.NewSessionID(), text)
+		steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, text)
 		if err != nil {
 			t.Fatalf("create Agent Steer %q: %v", text, err)
 		}

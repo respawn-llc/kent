@@ -78,7 +78,9 @@ func applyAgentSelection(store *session.Store, target *session.ChatSettingsState
 	return result.Changed, err
 }
 
-func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error) {
+func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (result serverapi.SessionRuntimeAttachment, err error) {
+	var target serverapi.SessionTarget = serverapi.UnresolvedSessionTarget{}
+	defer func() { err = serverapi.WithSessionTarget(target, err) }()
 	if err := req.Validate(); err != nil {
 		return serverapi.SessionRuntimeAttachment{}, err
 	}
@@ -89,10 +91,16 @@ func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionR
 	if s == nil || s.authority == nil {
 		return serverapi.SessionRuntimeAttachment{}, errors.New("session runtime authority is required")
 	}
-	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(req.SessionID))
+	sessionID, err := s.metadataStore.ResolveSessionSelector(ctx, req.SessionID)
 	if err != nil {
 		return serverapi.SessionRuntimeAttachment{}, err
 	}
+	target = serverapi.CanonicalSessionTarget{ID: sessionID}
+	identity, err := s.metadataStore.SessionIdentity(ctx, sessionID)
+	if err != nil {
+		return serverapi.SessionRuntimeAttachment{}, err
+	}
+	target = serverapi.ProjectedSessionTarget{Identity: identity}
 	attachment, err := s.authority.openRuntime(ctx, RuntimeOpenRequest{
 		SessionID: sessionID,
 		OwnerID:   ownerID,
@@ -248,7 +256,7 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionR
 	})
 }
 
-func (s *API) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
+func (s *API) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (response *sessionlaunchpb.SessionRuntimeReleaseSuccess, err error) {
 	if err := req.Validate(); err != nil {
 		return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, err
 	}
@@ -263,6 +271,7 @@ func (s *API) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRu
 	if err != nil {
 		return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, err
 	}
+	defer func() { err = serverapi.WithSessionTarget(serverapi.CanonicalSessionTarget{ID: sessionID}, err) }()
 	resource, err := runtimeids.NewSessionResourceRef(sessionID, runtimeids.ResourceGeneration(req.Attachment.Generation))
 	if err != nil {
 		return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, err

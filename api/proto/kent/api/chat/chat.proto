@@ -11,6 +11,7 @@ import "kent/api/prompt_command/validation.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
+import "kent/api/shared/session_selector.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/chat;chatpb";
 
@@ -19,6 +20,10 @@ message ExistingSessionTarget {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
+}
+
+message ExistingSessionRequestTarget {
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
 }
 
 message NewChatTarget {
@@ -39,7 +44,7 @@ message ChatTarget {
   oneof target {
     option (buf.validate.oneof).required = true;
 
-    ExistingSessionTarget session = 1;
+    ExistingSessionRequestTarget session = 1;
     NewChatTarget new_chat = 2;
   }
 }

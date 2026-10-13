@@ -393,7 +393,7 @@ func TestDetailTranscriptVisibleSessionReplacementCancelsOldRequestAndHydratesNe
 
 	newDone := runDetailTranscriptCommand(newCmd)
 	newRequest := waitForDetailTranscriptRequest(t, sessionViews)
-	if newRequest.SessionId != detailTestReplacementSessionID {
+	if newRequest.SessionId.GetSessionId() != detailTestReplacementSessionID {
 		t.Fatalf("replacement hydration session = %q, want %q", newRequest.SessionId, detailTestReplacementSessionID)
 	}
 	replacementNotice := "replacement target active"
@@ -438,7 +438,7 @@ func TestDetailTranscriptHiddenSessionReplacementResetsAndHydratesNewTarget(t *t
 
 	done := runDetailTranscriptCommand(cmd)
 	request := waitForDetailTranscriptRequest(t, sessionViews)
-	if request.SessionId != detailTestReplacementSessionID {
+	if request.SessionId.GetSessionId() != detailTestReplacementSessionID {
 		t.Fatalf("hidden replacement hydration session = %q, want %q", request.SessionId, detailTestReplacementSessionID)
 	}
 	sessionViews.results <- controlledTranscriptPageResult{response: &transcriptpb.PageSuccess{

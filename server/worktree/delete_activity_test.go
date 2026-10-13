@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
 	"core/server/metadata"
@@ -25,6 +26,7 @@ import (
 	"core/server/workflowruntime"
 	"core/shared/clientui"
 	"core/shared/config"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -1151,7 +1153,7 @@ func TestDeleteWorktreeRetiresIdleRuntimeAndRetargetsSessionBeforePhysicalRemova
 	settings.Reviewer.Frequency = "off"
 	ownerID := "delete-idle-runtime-retargeted"
 	activated, err := api.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID:             otherSession.Meta().SessionID,
+		SessionID:             requestfixture.SessionID(t, otherSession.Meta().SessionID),
 		OwnerID:               ownerID,
 		ActiveSettings:        settings,
 		EnabledToolIDs:        []string{string(toolspec.ToolEdit), string(toolspec.ToolExecCommand)},
@@ -1338,7 +1340,7 @@ func TestDeleteWorktreeRechecksDirtyStateBeforeRemoval(t *testing.T) {
 			updateServiceTestSessionTarget(t, env, env.session.Meta().SessionID, env.binding.WorkspaceID, target.WorktreeID, ".")
 			state := captureDeleteTargetState(t, env, env.session.Meta().SessionID, target)
 			preview, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
-				Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+				Scope:    worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}}),
 				Selector: target.WorktreeID,
 			})
 			if err != nil {

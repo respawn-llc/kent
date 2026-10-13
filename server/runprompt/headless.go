@@ -16,6 +16,7 @@ import (
 	askquestion "core/server/tools"
 	"core/shared/apicontract"
 	"core/shared/clientui"
+	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/runtimeids"
@@ -43,6 +44,7 @@ type LiveRunObserver interface {
 }
 
 type HeadlessBootstrap struct {
+	Metadata         *metadata.Store
 	SessionLaunch    *sessionlaunch.Service
 	PromptHistory    promptHistoryStore
 	RuntimeAuthority *sessionruntime.Authority
@@ -91,7 +93,7 @@ func (l *headlessPromptLauncher) prepareHeadlessPrompt(ctx context.Context, req 
 	if plan.Goal != nil {
 		return nil, fmt.Errorf("%w", ErrHeadlessGoalSession)
 	}
-	agentSteer, err := agentSteerForRunPrompt(req)
+	agentSteer, err := l.agentSteerForRunPrompt(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -106,9 +108,10 @@ func (l *headlessPromptLauncher) prepareHeadlessPrompt(ctx context.Context, req 
 			runtimePlan.CloseWithFailure(true)
 			return nil, fmt.Errorf("new headless session id %q is not a UUIDv4", runtimePlan.sessionID)
 		}
-		sessionStarted = &runpromptpb.SessionStarted{SessionId: sessionID.String()}
+		sessionStarted = &runpromptpb.SessionStarted{SessionId: sessionID.String(), ShortId: protoapi.SessionShortIDToProto(result.Identity.ShortID)}
 	}
 	return &headlessPromptRuntime{
+		identity:          result.Identity,
 		plan:              runtimePlan,
 		warnings:          result.Warnings,
 		selectionWarnings: result.RunSelectionWarnings,
@@ -118,7 +121,7 @@ func (l *headlessPromptLauncher) prepareHeadlessPrompt(ctx context.Context, req 
 	}, nil
 }
 
-func agentSteerForRunPrompt(req serverapi.RunPromptRequest) (*runtime.AgentSteer, error) {
+func (l *headlessPromptLauncher) agentSteerForRunPrompt(ctx context.Context, req serverapi.RunPromptRequest) (*runtime.AgentSteer, error) {
 	if req.CallerSessionID == nil {
 		return nil, nil
 	}
@@ -126,7 +129,11 @@ func agentSteerForRunPrompt(req serverapi.RunPromptRequest) (*runtime.AgentSteer
 	if err != nil {
 		return nil, err
 	}
-	steer, err := runtime.NewAgentSteer(sourceID, req.Prompt)
+	source, err := l.boot.Metadata.SessionIdentity(ctx, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	steer, err := runtime.NewAgentSteer(source, req.Prompt)
 	if err != nil {
 		return nil, err
 	}
@@ -304,6 +311,7 @@ func (l *headlessPromptLauncher) prepareRuntime(ctx context.Context, plan launch
 }
 
 type headlessPromptRuntime struct {
+	identity          runtimeids.SessionIdentity
 	plan              *headlessRuntimePlan
 	warnings          []string
 	selectionWarnings []runpromptpb.RunSelectionWarning
@@ -323,6 +331,7 @@ func (r *headlessPromptRuntime) submitUserMessage(ctx context.Context, prompt st
 	observerCtx, cancelObserver := context.WithCancel(ctx)
 	defer cancelObserver()
 	response := &runpromptpb.Success{
+		ShortId:   protoapi.SessionShortIDToProto(r.identity.ShortID),
 		SessionId: r.plan.sessionID,
 		Warnings:  append([]string(nil), r.warnings...),
 		SelectionWarnings: append(

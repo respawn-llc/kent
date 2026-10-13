@@ -14,6 +14,7 @@ import (
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -31,7 +32,7 @@ func (c *sessionRuntimeClient) ReadChatSettings() (*chatsettingspb.Settings, err
 	ctx, cancel := context.WithTimeout(context.Background(), uiChatSettingsTimeout)
 	defer cancel()
 	response, err := c.chatSettings.ReadChatSettings(ctx, &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}}},
 	})
 	if err != nil {
 		return nil, err
@@ -47,7 +48,7 @@ func (c *sessionRuntimeClient) MutateChatSettings(operation *chatsettingspb.Muta
 	ctx, cancel := context.WithTimeout(context.Background(), uiChatSettingsTimeout)
 	defer cancel()
 	response, err := c.chatSettings.MutateChatSettings(ctx, &chatsettingspb.MutationRequest{
-		Session:   &chatsettingspb.SessionTarget{SessionId: sessionID.String()},
+		Session:   &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}},
 		Operation: operation,
 	})
 	if err != nil {
@@ -88,7 +89,7 @@ func runtimeGoalCall[T any](c *sessionRuntimeClient, appendWarning bool, call fu
 
 func (c *sessionRuntimeClient) ShowGoal() (*runtimepb.GoalView, error) {
 	resp, err := runtimeGoalCall(c, false, func(ctx context.Context) (*runtimepb.GoalShowSuccess, error) {
-		return c.controls.ShowGoal(ctx, &runtimepb.GoalShowRequest{SessionId: c.sessionID})
+		return c.controls.ShowGoal(ctx, &runtimepb.GoalShowRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: c.sessionID}}})
 	})
 	if err != nil {
 		return nil, err
@@ -97,6 +98,10 @@ func (c *sessionRuntimeClient) ShowGoal() (*runtimepb.GoalView, error) {
 }
 
 func (c *sessionRuntimeClient) SetGoal(objective string) (*runtimepb.GoalSetSuccess, error) {
+	sessionID, err := runtimeids.ParseSessionID(c.sessionID)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := runtimeGoalCall(c, true, func(ctx context.Context) (*runtimepb.GoalSetSuccess, error) {
 		if c.goalSet == nil {
 			return nil, errors.New("Goal Set service is required")
@@ -104,7 +109,7 @@ func (c *sessionRuntimeClient) SetGoal(objective string) (*runtimepb.GoalSetSucc
 		return c.goalSet.SetGoal(ctx, &runtimepb.GoalSetRequest{
 			Target: &chatpb.ChatTarget{
 				Target: &chatpb.ChatTarget_Session{
-					Session: &chatpb.ExistingSessionTarget{SessionId: c.sessionID},
+					Session: &chatpb.ExistingSessionRequestTarget{SessionId: protoapi.SessionSelectorToProto(sessionID)},
 				},
 			},
 			Objective:       objective,
@@ -147,14 +152,14 @@ func (c *sessionRuntimeClient) CompleteGoal() (*runtimepb.GoalMutationSuccess, e
 
 func (c *sessionRuntimeClient) ClearGoal() (*runtimepb.GoalMutationSuccess, error) {
 	resp, err := runtimeGoalCall(c, true, func(ctx context.Context) (*runtimepb.GoalMutationSuccess, error) {
-		return c.controls.ClearGoal(ctx, &runtimepb.GoalClearRequest{SessionId: c.sessionID, Actor: "user"})
+		return c.controls.ClearGoal(ctx, &runtimepb.GoalClearRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: c.sessionID}}, Actor: "user"})
 	})
 	return resp, err
 }
 
 func (c *sessionRuntimeClient) setGoalStatus(call func(context.Context, *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error)) (*runtimepb.GoalMutationSuccess, error) {
 	resp, err := runtimeGoalCall(c, true, func(ctx context.Context) (*runtimepb.GoalMutationSuccess, error) {
-		return call(ctx, &runtimepb.GoalMutationRequest{SessionId: c.sessionID, Actor: "user"})
+		return call(ctx, &runtimepb.GoalMutationRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: c.sessionID}}, Actor: "user"})
 	})
 	return resp, err
 }

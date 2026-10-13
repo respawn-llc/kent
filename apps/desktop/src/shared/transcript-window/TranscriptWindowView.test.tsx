@@ -51,6 +51,7 @@ function committedPromotions(): readonly TranscriptCommittedItem["row"][] {
         Text: "Committed tool",
         IsError: false,
         AnsweredBySessionID: null,
+        AnsweredBySessionShortID: null,
         ResultSummary: "",
         CondensedText: "",
         Presentation: null,

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	modelstub "core/internal/testharness/pty/blackbox"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/launch"
@@ -64,13 +65,13 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	}
 
 	var callerID *string
-	var callerRuntimeID *runtimeids.SessionID
+	var callerIdentity *runtimeids.SessionIdentity
 	if agent {
 		caller := createSession(sessioncontract.SessionCategoryMain)
 		id := caller.Meta().SessionID
 		callerID = &id
-		parsedID := mustRunPromptSessionID(t, id)
-		callerRuntimeID = &parsedID
+		identity := caller.Identity()
+		callerIdentity = &identity
 	}
 	var targetID string
 	if !create {
@@ -82,7 +83,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	wantContent := prompt
 	wantRole := session.MessageRoleUser
 	if agent {
-		steer, err := runtime.NewAgentSteer(*callerRuntimeID, prompt)
+		steer, err := runtime.NewAgentSteer(*callerIdentity, prompt)
 		if err != nil {
 			t.Fatalf("NewAgentSteer: %v", err)
 		}
@@ -124,8 +125,9 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	}
 	cfg.Settings.Shell.PostprocessingMode = config.ShellPostprocessingModeBuiltin
 	history := &recordingPromptHistoryStore{}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(root, authManager, nil, storeOptions...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, storeOptions...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
+		Metadata: meta,
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:            cfg,
 			ContainerDir:      containerDir,
@@ -134,7 +136,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 			CallerSessions:    meta,
 			SessionProjects:   fixedSessionProjectResolver{}, ManagedWorktreeRoots: fixedSessionProjectResolver{},
 			ExecutionTargets: meta,
-		}, sessionlaunch.ChatSettingsOwner{}),
+		}, sessionlaunch.ChatSettingsOwner{}, meta),
 		RuntimeAuthority: authority,
 		LiveRunObserver:  liveRunObserver,
 		PromptHistory:    history,
@@ -144,7 +146,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	if create {
 		if agent {
 			intent = serverapi.CreateNewSessionLaunchIntent(
-				serverapi.ParentAgentSessionCreateOrigin(*callerRuntimeID),
+				serverapi.ParentAgentSessionCreateOrigin(callerIdentity.ID),
 			)
 		} else {
 			intent = serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())
@@ -152,11 +154,11 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	} else {
 		intent = serverapi.OpenExistingSessionLaunchIntent(mustRunPromptSessionID(t, targetID))
 	}
-	response, err := client.RunPrompt(ctx, serverapi.RunPromptRequest{
+	response, err := client.RunPrompt(ctx, requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent:          intent,
 		CallerSessionID: callerID,
 		Prompt:          prompt,
-	}, nil)
+	}), nil)
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}

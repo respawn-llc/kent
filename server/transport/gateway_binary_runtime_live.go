@@ -4,11 +4,11 @@ import (
 	"errors"
 
 	"core/shared/apicontract"
+	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/serverapi"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func registerRuntimeLiveGatewayBinaryBindings(bindings map[string]gatewayBinaryBinding) error {
@@ -19,7 +19,11 @@ func registerRuntimeLiveGatewayBinaryBindings(bindings map[string]gatewayBinaryB
 			apicontract.RuntimeLiveControlService.LiveSteer,
 			func(_ *runtimepb.LiveSteerRequest, err error) proto.Message {
 				if errors.Is(err, serverapi.ErrRuntimeNoActiveRun) {
-					return &runtimepb.LiveSteerError{Code: "no_active_run", Detail: &runtimepb.LiveSteerError_NoActiveRun{NoActiveRun: &emptypb.Empty{}}}
+					identity, identityErr := protoapi.SessionTargetErrorIdentity(err)
+					if identityErr != nil {
+						return binaryInternalFailure(errors.Join(err, identityErr))
+					}
+					return &runtimepb.LiveSteerError{Code: "no_active_run", Detail: &runtimepb.LiveSteerError_NoActiveRun{NoActiveRun: identity}}
 				}
 				return nil
 			}),
@@ -30,11 +34,18 @@ func registerRuntimeLiveGatewayBinaryBindings(bindings map[string]gatewayBinaryB
 			func() *runtimepb.LiveWaitRequest { return &runtimepb.LiveWaitRequest{} },
 			apicontract.RuntimeLiveControlService.LiveWait,
 			func(_ *runtimepb.LiveWaitRequest, err error) proto.Message {
+				if !errors.Is(err, serverapi.ErrRuntimeNoActiveRun) && !errors.Is(err, serverapi.ErrRuntimeNoFinalAnswer) {
+					return nil
+				}
+				identity, identityErr := protoapi.SessionTargetErrorIdentity(err)
+				if identityErr != nil {
+					return binaryInternalFailure(errors.Join(err, identityErr))
+				}
 				switch {
 				case errors.Is(err, serverapi.ErrRuntimeNoActiveRun):
-					return &runtimepb.LiveWaitError{Code: "no_active_run", Detail: &runtimepb.LiveWaitError_NoActiveRun{NoActiveRun: &emptypb.Empty{}}}
+					return &runtimepb.LiveWaitError{Code: "no_active_run", Detail: &runtimepb.LiveWaitError_NoActiveRun{NoActiveRun: identity}}
 				case errors.Is(err, serverapi.ErrRuntimeNoFinalAnswer):
-					return &runtimepb.LiveWaitError{Code: "no_final_answer", Detail: &runtimepb.LiveWaitError_NoFinalAnswer{NoFinalAnswer: &emptypb.Empty{}}}
+					return &runtimepb.LiveWaitError{Code: "no_final_answer", Detail: &runtimepb.LiveWaitError_NoFinalAnswer{NoFinalAnswer: identity}}
 				}
 				return nil
 			}),
@@ -44,7 +55,11 @@ func registerRuntimeLiveGatewayBinaryBindings(bindings map[string]gatewayBinaryB
 			func(_ *promptpb.LiveWatchRequest, err error) proto.Message {
 				switch {
 				case errors.Is(err, serverapi.ErrRuntimeNoActiveRun):
-					return &promptpb.LiveWatchError{Code: "no_active_run", Detail: &promptpb.LiveWatchError_NoActiveRun{NoActiveRun: &emptypb.Empty{}}}
+					identity, identityErr := protoapi.SessionTargetErrorIdentity(err)
+					if identityErr != nil {
+						return binaryInternalFailure(errors.Join(err, identityErr))
+					}
+					return &promptpb.LiveWatchError{Code: "no_active_run", Detail: &promptpb.LiveWatchError_NoActiveRun{NoActiveRun: identity}}
 				case errors.Is(err, serverapi.ErrStreamFailed):
 					return &promptpb.LiveWatchError{Code: "stream_failed", Detail: &promptpb.LiveWatchError_StreamFailed{StreamFailed: binaryInternalFailure(err)}}
 				default:

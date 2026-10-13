@@ -142,7 +142,7 @@ func attachRemoteBinaryRPC(
 			"attach-session",
 			method,
 			&connectionpb.AttachSessionRequest{
-				SessionId:          request.sessionID,
+				SessionId:          protoapi.SessionSelectorToProto(request.sessionID),
 				ReattachCapability: request.reattachCapability,
 			},
 			result,

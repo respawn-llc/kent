@@ -57,7 +57,7 @@ export async function getWorktreeStatus(transport: RpcTransport, sessionID: stri
     await transport.callDescriptorAttachedSession(
       { sessionID },
       method,
-      create(method.input, { sessionId: sessionID }),
+      create(method.input, { sessionId: { value: { case: "sessionId", value: sessionID } } }),
     ),
   );
 }
@@ -69,7 +69,7 @@ export async function listWorktrees(transport: RpcTransport, sessionID: string):
     await transport.callDescriptorAttachedSession(
       { sessionID },
       method,
-      create(method.input, { sessionId: sessionID }),
+      create(method.input, { sessionId: { value: { case: "sessionId", value: sessionID } } }),
     ),
   );
   success.worktrees.forEach(authorizeWorktreeListEntry);
@@ -87,7 +87,7 @@ export async function resolveWorktreeSelector(
     await transport.callDescriptorAttachedSession(
       { sessionID },
       method,
-      create(method.input, { sessionId: sessionID, selector }),
+      create(method.input, { sessionId: { value: { case: "sessionId", value: sessionID } }, selector }),
     ),
   );
   if (success.worktree !== undefined) authorizeWorktreeListEntry(success.worktree);
@@ -106,7 +106,10 @@ export async function resolveWorktreeCreateTarget(
     await transport.callDescriptorAttachedSession(
       { sessionID },
       method,
-      create(method.input, { scope: { scope: { case: "sessionId", value: sessionID } }, target }),
+      create(method.input, {
+        scope: { scope: { case: "sessionId", value: { value: { case: "sessionId", value: sessionID } } } },
+        target,
+      }),
     ),
   );
   authorizeWorktreeCreateTargetResolution(required(success.resolution));
@@ -125,7 +128,10 @@ export async function previewWorktreeDelete(
       await transport.callDescriptorAttachedSession(
         { sessionID },
         method,
-        create(method.input, { scope: { scope: { case: "sessionId", value: sessionID } }, selector }),
+        create(method.input, {
+          scope: { scope: { case: "sessionId", value: { value: { case: "sessionId", value: sessionID } } } },
+          selector,
+        }),
       ),
     ),
   );
@@ -152,7 +158,9 @@ export async function createWorktree(
       method,
       create(method.input, {
         setupOperationId: input.setupOperationID.toJSONValue(),
-        scope: { scope: { case: "sessionId", value: input.sessionID } },
+        scope: {
+          scope: { case: "sessionId", value: { value: { case: "sessionId", value: input.sessionID } } },
+        },
         spec: {
           baseRef: createBranch ? required(input.baseRef) : required(resolution.resolvedRef),
           createBranch,
@@ -185,7 +193,7 @@ export async function switchWorktree(
         TransitionService.method.enter,
         create(TransitionService.method.enter.input, {
           operationId: operationID,
-          sessionId: sessionID,
+          sessionId: { value: { case: "sessionId", value: sessionID } },
           selector: required(selector),
           targetWorkspace: {
             workspaceId: required(required(target).workspaceId),
@@ -196,7 +204,10 @@ export async function switchWorktree(
     : await transport.callDescriptorAttachedSession(
         { sessionID },
         TransitionService.method.leave,
-        create(TransitionService.method.leave.input, { operationId: operationID, sessionId: sessionID }),
+        create(TransitionService.method.leave.input, {
+          operationId: operationID,
+          sessionId: { value: { case: "sessionId", value: sessionID } },
+        }),
       );
   const acknowledgement = requireWorktreeSuccess(method, result);
   if (acknowledgement.operationId !== operationID) {
@@ -236,7 +247,7 @@ export async function deleteWorktree(
       { sessionID },
       method,
       create(method.input, {
-        scope: { scope: { case: "sessionId", value: sessionID } },
+        scope: { scope: { case: "sessionId", value: { value: { case: "sessionId", value: sessionID } } } },
         selector: authority.deletionSelector,
         forceFolderRemoval: required(authority.cleanliness).kind !== DirtyStateKind.DIRTY_STATE_CLEAN,
         branchCleanupPolicy:

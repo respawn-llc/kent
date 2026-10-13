@@ -87,6 +87,7 @@ func (s *TaskSessions) List(ctx context.Context, req *taskpb.TaskOffsetPageReque
 		for _, row := range rows {
 			projection, err := taskSessionProjectionFromFields(
 				row.SessionID,
+				row.ShortID,
 				row.SessionName,
 				row.NodeName,
 				row.ContinuationJson,
@@ -148,6 +149,7 @@ func (s *TaskSessions) activeTaskSessions(ctx context.Context, taskID string) ([
 		}
 		projection, err := taskSessionProjectionFromFields(
 			row.SessionID,
+			row.ShortID,
 			row.SessionName,
 			row.NodeName,
 			row.ContinuationJson,
@@ -208,6 +210,7 @@ func taskSessionStatusRank(status taskpb.SessionStatus) int {
 
 func taskSessionProjectionFromFields(
 	sessionID string,
+	shortID sql.NullInt64,
 	sessionName sql.NullString,
 	nodeName sql.NullString,
 	continuationJSON string,
@@ -221,6 +224,7 @@ func taskSessionProjectionFromFields(
 	return taskSessionProjection{
 		item: &taskpb.SessionItem{
 			SessionId:   sessionID,
+			ShortId:     metadata.OptionalInt64(shortID),
 			SessionName: metadata.OptionalString(sessionName),
 			NodeName:    metadata.OptionalString(nodeName),
 			AgentRole:   agentRole,

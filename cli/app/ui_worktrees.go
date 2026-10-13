@@ -11,6 +11,7 @@ import (
 	tuiinput "core/cli/tui/input"
 	"core/shared/apicontract"
 	"core/shared/clientui"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -604,7 +605,7 @@ func (m *uiModel) worktreeMutationService() worktreeui.Service {
 	}
 	service := worktreeui.Service{
 		Client:        m.worktreeClient,
-		SessionID:     m.sessionID,
+		SessionTarget: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: m.sessionID}},
 		WorkspaceID:   target.GetWorkspaceId(),
 		WorkspaceRoot: target.GetWorkspaceRoot(),
 		ResolveContext: func() (context.Context, context.CancelFunc) {

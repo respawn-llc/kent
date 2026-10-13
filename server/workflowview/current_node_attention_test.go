@@ -73,6 +73,13 @@ func TestAttentionProjectsPendingApprovalAndInterruptedCurrentNode(t *testing.T)
 	}
 	interrupted := interruptions.Items[0]
 	detail := interrupted.GetInterruptedCurrentNode()
+	record, err := interruptedFixture.metadata.ResolvePersistedSession(interruptedFixture.ctx, interruptedSessionID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.ShortID == nil || detail.CurrentNode.ShortId == nil || *detail.CurrentNode.ShortId != record.ShortID.Int64() {
+		t.Fatalf("interrupted Session number = %v, want %v", detail.CurrentNode.ShortId, record.ShortID)
+	}
 	if interrupted.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_INTERRUPTED_CURRENT_NODE ||
 		interrupted.TaskId != string(interruptedStarted.task.ID) ||
 		detail == nil || detail.CurrentNode == nil ||
@@ -259,6 +266,13 @@ func TestAttentionAndDetailProjectLiveQuestionFromExactScope(t *testing.T) {
 	}
 	item := taskAttention.Items[0]
 	prompt := item.GetQuestion()
+	record, err := fixture.metadata.ResolvePersistedSession(fixture.ctx, question.sessionID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.ShortID == nil || prompt.Question.ShortId == nil || *prompt.Question.ShortId != record.ShortID.Int64() {
+		t.Fatalf("question Session number = %v, want %v", prompt.Question.ShortId, record.ShortID)
+	}
 	if item.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION ||
 		prompt == nil || prompt.GetMessage() != question.request.Question ||
 		prompt.GetSessionName() != "Current Node session" || prompt.Question == nil ||
@@ -293,6 +307,8 @@ func TestAttentionAndDetailProjectLiveQuestionFromExactScope(t *testing.T) {
 	if projected.Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_QUESTION ||
 		projected.AttentionCount != 1 ||
 		len(projected.LiveSessions) != 1 ||
+		projected.LiveSessions[0].ShortId == nil ||
+		*projected.LiveSessions[0].ShortId != record.ShortID.Int64() ||
 		projected.LiveSessions[0].SessionId != question.sessionID.String() ||
 		projected.LiveSessions[0].SessionName == nil ||
 		*projected.LiveSessions[0].SessionName != "Current Node session" ||

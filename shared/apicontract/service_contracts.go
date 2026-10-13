@@ -125,7 +125,7 @@ type PromptControlService interface {
 }
 
 type RunPromptService interface {
-	RunPrompt(ctx context.Context, req serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (*runpromptpb.Success, error)
+	RunPrompt(ctx context.Context, req *runpromptpb.Request, progress serverapi.RunPromptProgressSink) (*runpromptpb.Success, error)
 }
 
 type ServerStatusService interface {
@@ -198,6 +198,7 @@ type SessionRuntimeService interface {
 }
 
 type SessionViewService interface {
+	GetSessionIdentityLocation(ctx context.Context, req *sessionpb.IdentityLocationRequest) (*sessionpb.IdentityLocationSuccess, error)
 	GetPromptHistory(ctx context.Context, req *sessionpb.PromptHistoryRequest) (*sessionpb.PromptHistorySuccess, error)
 	GetSessionMainView(ctx context.Context, req *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error)
 	GetSessionTranscriptPage(ctx context.Context, req *transcriptpb.PageRequest) (*transcriptpb.PageSuccess, error)

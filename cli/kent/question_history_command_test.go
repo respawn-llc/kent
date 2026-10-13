@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"core/shared/protoapi"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	"core/shared/sessionenv"
 	"core/shared/transcript"
@@ -132,6 +133,31 @@ func TestQuestionHistoryJSONStreamsExplicitNullsAndCompletion(t *testing.T) {
 	}
 }
 
+func TestQuestionHistoryAnswererPresentation(t *testing.T) {
+	id := uuid.NewString()
+	shortID := int64(73)
+	for _, number := range []*int64{&shortID, nil} {
+		var stdout bytes.Buffer
+		err := writeQuestionHistoryHumanItem(&stdout, &sessionpb.QuestionHistoryQuestion{
+			Question: "Proceed?", Answer: "Yes",
+			AnsweredBySessionId: &id, AnsweredBySessionShortId: number,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := id
+		if number != nil {
+			expected = "73"
+			if bytes.Contains(stdout.Bytes(), []byte(id)) {
+				t.Fatalf("numbered answerer exposed UUID: %s", &stdout)
+			}
+		}
+		if !bytes.Contains(stdout.Bytes(), []byte(expected)) {
+			t.Fatalf("missing answerer %s: %s", expected, &stdout)
+		}
+	}
+}
+
 func TestQuestionHistoryJSONLeavesPartialDocumentOnFailure(t *testing.T) {
 	sub := &questionHistoryScriptSubscription{
 		events: []*sessionpb.QuestionHistoryEvent{
@@ -165,19 +191,26 @@ func TestQuestionHistoryListDispatchesAliasesAndSelectorContracts(t *testing.T) 
 	for _, commandArgs := range [][]string{
 		{"list", "--session", explicit, "--max-handoffs", "7"},
 		{"history", "--session", explicit, "--max-handoffs", "7"},
+		{"list", "--session", "0007", "--max-handoffs", "7"},
 	} {
 		remote := &stubQuestionCommandRemote{}
 		command, opened := questionCommandWithRemote(remote)
 		if exit := command.run(commandArgs, io.Discard, io.Discard); exit != 0 {
 			t.Fatalf("command %v exit = %d", commandArgs, exit)
 		}
-		if len(*opened) != 1 || (*opened)[0] != explicit {
+		expected := explicit
+		if commandArgs[2] == "0007" {
+			expected = "7"
+		}
+		if len(*opened) != 1 || (*opened)[0] != expected {
 			t.Fatalf("command %v opened Sessions = %v", commandArgs, *opened)
 		}
-		if len(remote.historyRequests) != 1 ||
-			remote.historyRequests[0].SessionId != explicit ||
-			remote.historyRequests[0].MaxHandoffs != 7 {
+		if len(remote.historyRequests) != 1 || remote.historyRequests[0].MaxHandoffs != 7 {
 			t.Fatalf("command %v request = %+v", commandArgs, remote.historyRequests)
+		}
+		target, err := protoapi.SessionSelectorFromProto(remote.historyRequests[0].SessionId)
+		if err != nil || target.String() != expected {
+			t.Fatalf("target = %v, %v", target, err)
 		}
 	}
 
@@ -218,7 +251,7 @@ func TestRunQuestionsTranslatesPositionalSessionToCanonicalList(t *testing.T) {
 		t.Fatalf("run questions exit = %d", exit)
 	}
 	if len(remote.historyRequests) != 1 ||
-		remote.historyRequests[0].SessionId != sessionID ||
+		remote.historyRequests[0].SessionId.GetSessionId() != sessionID ||
 		remote.historyRequests[0].MaxHandoffs != 4 {
 		t.Fatalf("run questions request = %+v", remote.historyRequests)
 	}

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	modelstub "core/internal/testharness/pty/blackbox"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
 	"core/prompts"
@@ -43,6 +44,7 @@ import (
 	"core/server/worktree"
 	"core/shared/config"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -224,7 +226,7 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 			session.WithPersistedSessionResolver(persisted),
 		}
 	}
-	fixture.runtimes = registry.NewRuntimeRegistry()
+	fixture.runtimes = registry.NewRuntimeRegistry(nil)
 	connectionRotation := new(launch.ConnectionRotation)
 	var controller *workflowexecution.CurrentNodeController
 	fixture.authority = sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
@@ -485,7 +487,7 @@ func (f *currentNodeRunnerFixture) restartRuntime(t *testing.T) {
 		t.Fatalf("close pre-restart runtime authority: %v", err)
 	}
 
-	f.runtimes = registry.NewRuntimeRegistry()
+	f.runtimes = registry.NewRuntimeRegistry(nil)
 	storeOptions := f.metadata.AuthoritativeSessionStoreOptions()
 	f.authority = sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
 		WorkspaceMembership: f.metadata,
@@ -1010,9 +1012,10 @@ func (f *currentNodeRunnerFixture) runHeadlessOrdinaryContinuation(
 	f.cfg.Settings.Connections[(*f.cfg.Settings.Connection)[0]] = definition
 	f.cfg.Settings = testsetup.WriteProviderSettings(t, f.cfg.PersistenceRoot, f.cfg.Settings)
 	f.runtimes.WithAttentionNotifications(attentionnotify.NewBroker(), testsetup.SessionNavigationBinding)
-	liveRunObserver := runtimecontrol.NewService(f.authority).
+	liveRunObserver := runtimecontrol.NewService(f.authority, f.metadata).
 		WithLiveWatchPromptSources(f.runtimes, f.runtimes)
 	headless := runprompt.NewInProcessRunPromptClient(runprompt.HeadlessBootstrap{
+		Metadata: f.metadata,
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:            f.cfg,
 			ContainerDir:      filepath.Join(f.cfg.PersistenceRoot, "projects", f.projectID, "sessions"),
@@ -1020,15 +1023,15 @@ func (f *currentNodeRunnerFixture) runHeadlessOrdinaryContinuation(
 			PersistedSessions: f.metadata,
 			ExecutionTargets:  f.metadata,
 			SessionProjects:   f.metadata, ManagedWorktreeRoots: f.metadata,
-		}, sessionlaunch.ChatSettingsOwner{}),
+		}, sessionlaunch.ChatSettingsOwner{}, nil),
 		PromptHistory:    f.metadata,
 		RuntimeAuthority: f.authority,
 		LiveRunObserver:  liveRunObserver,
 	})
-	response, err := headless.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+	response, err := headless.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(sessionID),
 		Prompt: prompt,
-	}, nil)
+	}), nil)
 	if err != nil {
 		t.Fatalf("headless ordinary continuation: %v", err)
 	}
@@ -1274,7 +1277,7 @@ func TestCompletedWorkflowSessionAllowsOrdinaryInteractiveContinuation(t *testin
 	before := f.conversationState(t, task.ID, source, sessionID)
 	f.openRetainedRuntime(t, sessionID)
 
-	service := runtimecontrol.NewService(f.authority).
+	service := runtimecontrol.NewService(f.authority, nil).
 		WithPromptHistoryStore(f.metadata).
 		WithWorkflowSessionReactivator(f.controller).
 		WithWorkflowSessionPreparationReader(f.controller)
@@ -1401,7 +1404,7 @@ func TestWorkflowMovedPastSessionAllowsOrdinaryInteractiveContinuation(t *testin
 	before := f.conversationState(t, task.ID, source, sessionID)
 	f.openRetainedRuntime(t, sessionID)
 
-	service := runtimecontrol.NewService(f.authority).
+	service := runtimecontrol.NewService(f.authority, nil).
 		WithPromptHistoryStore(f.metadata).
 		WithWorkflowSessionReactivator(f.controller).
 		WithWorkflowSessionPreparationReader(f.controller)
@@ -2754,7 +2757,7 @@ func TestResumeRetainsEstablishedSessionContractAndAttachedRuntime(t *testing.T)
 	})
 	subscription, err := f.runtimes.SubscribeSessionTranscript(
 		context.Background(),
-		&transcriptpb.SubscribeRequest{SessionId: sessionID.String()},
+		&transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}},
 	)
 	if err != nil {
 		t.Fatalf("subscribe attached Session transcript: %v", err)
@@ -3037,7 +3040,7 @@ func TestInteractivePreparedGenerationRestoresWorkflowAssignment(t *testing.T) {
 				}
 				time.Sleep(10 * time.Millisecond)
 			}
-			service := runtimecontrol.NewService(f.authority).
+			service := runtimecontrol.NewService(f.authority, f.metadata).
 				WithPromptHistoryStore(f.metadata).
 				WithWorkflowSessionReactivator(f.controller).
 				WithWorkflowSessionPreparationReader(f.controller)
@@ -4372,7 +4375,7 @@ func TestCurrentNodeContinuationWithActiveTranscriptSubscriberDoesNotBlockLaterA
 		t.Fatal("source Exact Execution Scope has no Active Session Runtime")
 	}
 	transcript, err := f.runtimes.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{
-		SessionId: sessionID.String(),
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}},
 	})
 	if err != nil {
 		t.Fatalf("subscribe source transcript: %v", err)

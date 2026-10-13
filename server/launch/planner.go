@@ -461,8 +461,6 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 				return SessionPlan{}, err
 			}
 			meta = store.Meta()
-		} else if meta.Name == nil {
-			meta.Name = textutil.Value(subagentSessionName(meta))
 		}
 	}
 	baseActive := EffectiveSettings(p.Config.Settings, meta.Locked)
@@ -1361,11 +1359,7 @@ func EnsureSubagentSessionName(store *session.Store) error {
 	if meta.Name != nil {
 		return nil
 	}
-	return store.SetName(textutil.Value(subagentSessionName(meta)))
-}
-
-func subagentSessionName(meta session.Meta) string {
-	return strings.TrimSpace(meta.SessionID + " " + SubagentSessionSuffix)
+	return store.SetName(textutil.Value(store.Identity().String() + " " + SubagentSessionSuffix))
 }
 
 func EffectiveSettings(base config.Settings, locked *session.LockedContract) config.Settings {

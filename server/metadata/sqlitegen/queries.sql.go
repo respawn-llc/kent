@@ -289,6 +289,21 @@ func (q *Queries) AllocateProjectTaskSequence(ctx context.Context, arg AllocateP
 	return i, err
 }
 
+const allocateSessionShortID = `-- name: AllocateSessionShortID :one
+UPDATE session_short_id_sequence
+SET next_value = next_value + 1
+WHERE singleton = 1 AND next_value <= ?1
+RETURNING CAST(next_value - 1 AS INTEGER) AS short_id
+`
+
+func (q *Queries) AllocateSessionShortID(ctx context.Context, maxShortID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, allocateSessionShortID, maxShortID)
+	var column_1 int64
+	err := recordQueryError(ctx, row.Scan(&column_1), allocateSessionShortID, 1)
+
+	return column_1, err
+}
+
 const bindInitialTaskManagedWorktree = `-- name: BindInitialTaskManagedWorktree :execrows
 UPDATE tasks
 SET
@@ -2038,9 +2053,22 @@ func (q *Queries) GetSessionExecutionTargetByID(ctx context.Context, sessionID s
 	return i, err
 }
 
+const getSessionIDByShortID = `-- name: GetSessionIDByShortID :one
+SELECT id FROM sessions WHERE short_id = ?1
+`
+
+func (q *Queries) GetSessionIDByShortID(ctx context.Context, shortID sql.NullInt64) (string, error) {
+	row := q.db.QueryRowContext(ctx, getSessionIDByShortID, shortID)
+	var id string
+	err := recordQueryError(ctx, row.Scan(&id), getSessionIDByShortID, 1)
+
+	return id, err
+}
+
 const getSessionRecordByID = `-- name: GetSessionRecordByID :one
 SELECT
     s.id,
+    s.short_id,
     s.artifact_relpath,
     s.name,
     s.first_prompt_preview,
@@ -2068,6 +2096,7 @@ LIMIT 1
 
 type GetSessionRecordByIDRow struct {
 	ID                       string
+	ShortID                  sql.NullInt64
 	ArtifactRelpath          string
 	Name                     sql.NullString
 	FirstPromptPreview       string
@@ -2094,6 +2123,7 @@ func (q *Queries) GetSessionRecordByID(ctx context.Context, sessionID string) (G
 	var i GetSessionRecordByIDRow
 	err := recordQueryError(ctx, row.Scan(
 		&i.ID,
+		&i.ShortID,
 		&i.ArtifactRelpath,
 		&i.Name,
 		&i.FirstPromptPreview,
@@ -2118,9 +2148,22 @@ func (q *Queries) GetSessionRecordByID(ctx context.Context, sessionID string) (G
 	return i, err
 }
 
+const getSessionShortID = `-- name: GetSessionShortID :one
+SELECT short_id FROM sessions WHERE id = ?1
+`
+
+func (q *Queries) GetSessionShortID(ctx context.Context, sessionID string) (sql.NullInt64, error) {
+	row := q.db.QueryRowContext(ctx, getSessionShortID, sessionID)
+	var short_id sql.NullInt64
+	err := recordQueryError(ctx, row.Scan(&short_id), getSessionShortID, 1)
+
+	return short_id, err
+}
+
 const getSessionWorkspaceRetargetStateByID = `-- name: GetSessionWorkspaceRetargetStateByID :one
 SELECT
     s.id AS session_id,
+    s.short_id,
     s.project_id,
     p.display_name AS project_display_name,
     p.project_key,
@@ -2133,6 +2176,7 @@ LIMIT 1
 
 type GetSessionWorkspaceRetargetStateByIDRow struct {
 	SessionID          string
+	ShortID            sql.NullInt64
 	ProjectID          string
 	ProjectDisplayName string
 	ProjectKey         string
@@ -2144,6 +2188,7 @@ func (q *Queries) GetSessionWorkspaceRetargetStateByID(ctx context.Context, sess
 	var i GetSessionWorkspaceRetargetStateByIDRow
 	err := recordQueryError(ctx, row.Scan(
 		&i.SessionID,
+		&i.ShortID,
 		&i.ProjectID,
 		&i.ProjectDisplayName,
 		&i.ProjectKey,
@@ -3706,6 +3751,7 @@ const listActiveWorkflowTaskSessions = `-- name: ListActiveWorkflowTaskSessions 
 
 SELECT
     session.id AS session_id,
+    session.short_id,
     session.name AS session_name,
     node.display_name AS node_name,
     session.continuation_json,
@@ -3737,6 +3783,7 @@ type ListActiveWorkflowTaskSessionsParams struct {
 
 type ListActiveWorkflowTaskSessionsRow struct {
 	SessionID        string
+	ShortID          sql.NullInt64
 	SessionName      sql.NullString
 	NodeName         sql.NullString
 	ContinuationJson string
@@ -3755,6 +3802,7 @@ func (q *Queries) ListActiveWorkflowTaskSessions(ctx context.Context, arg ListAc
 		var i ListActiveWorkflowTaskSessionsRow
 		if err := recordQueryError(ctx, rows.Scan(
 			&i.SessionID,
+			&i.ShortID,
 			&i.SessionName,
 			&i.NodeName,
 			&i.ContinuationJson,
@@ -4241,6 +4289,7 @@ const listIdleWorkflowTaskSessions = `-- name: ListIdleWorkflowTaskSessions :man
 
 SELECT
     session.id AS session_id,
+    session.short_id,
     session.name AS session_name,
     node.display_name AS node_name,
     session.continuation_json,
@@ -4281,6 +4330,7 @@ type ListIdleWorkflowTaskSessionsParams struct {
 
 type ListIdleWorkflowTaskSessionsRow struct {
 	SessionID        string
+	ShortID          sql.NullInt64
 	SessionName      sql.NullString
 	NodeName         sql.NullString
 	ContinuationJson string
@@ -4305,6 +4355,7 @@ func (q *Queries) ListIdleWorkflowTaskSessions(ctx context.Context, arg ListIdle
 		var i ListIdleWorkflowTaskSessionsRow
 		if err := recordQueryError(ctx, rows.Scan(
 			&i.SessionID,
+			&i.ShortID,
 			&i.SessionName,
 			&i.NodeName,
 			&i.ContinuationJson,
@@ -5215,14 +5266,15 @@ func (q *Queries) ListProjects(ctx context.Context) ([]ListProjectsRow, error) {
 }
 
 const listSessionNamesByIDs = `-- name: ListSessionNamesByIDs :many
-SELECT id, name
+SELECT id, name, short_id
 FROM sessions
 WHERE id IN (/*SLICE:ids*/?)
 `
 
 type ListSessionNamesByIDsRow struct {
-	ID   string
-	Name sql.NullString
+	ID      string
+	Name    sql.NullString
+	ShortID sql.NullInt64
 }
 
 func (q *Queries) ListSessionNamesByIDs(ctx context.Context, ids []string) ([]ListSessionNamesByIDsRow, error) {
@@ -5245,7 +5297,7 @@ func (q *Queries) ListSessionNamesByIDs(ctx context.Context, ids []string) ([]Li
 	var items []ListSessionNamesByIDsRow
 	for rows.Next() {
 		var i ListSessionNamesByIDsRow
-		if err := recordQueryError(ctx, rows.Scan(&i.ID, &i.Name), query, 1); err != nil {
+		if err := recordQueryError(ctx, rows.Scan(&i.ID, &i.Name, &i.ShortID), query, 1); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -5262,6 +5314,7 @@ func (q *Queries) ListSessionNamesByIDs(ctx context.Context, ids []string) ([]Li
 const listSessionPage = `-- name: ListSessionPage :many
 SELECT
     id,
+    short_id,
     name,
     first_prompt_preview,
     COALESCE(category, 'main') AS category,
@@ -5284,6 +5337,7 @@ type ListSessionPageParams struct {
 
 type ListSessionPageRow struct {
 	ID                 string
+	ShortID            sql.NullInt64
 	Name               sql.NullString
 	FirstPromptPreview string
 	Category           string
@@ -5308,6 +5362,7 @@ func (q *Queries) ListSessionPage(ctx context.Context, arg ListSessionPageParams
 		var i ListSessionPageRow
 		if err := recordQueryError(ctx, rows.Scan(
 			&i.ID,
+			&i.ShortID,
 			&i.Name,
 			&i.FirstPromptPreview,
 			&i.Category,
@@ -5369,6 +5424,51 @@ func (q *Queries) ListSessionPromptHistoryText(ctx context.Context, arg ListSess
 	return items, nil
 }
 
+const listSessionShortIDsByIDs = `-- name: ListSessionShortIDsByIDs :many
+SELECT id, short_id
+FROM sessions
+WHERE id IN (/*SLICE:ids*/?)
+`
+
+type ListSessionShortIDsByIDsRow struct {
+	ID      string
+	ShortID sql.NullInt64
+}
+
+func (q *Queries) ListSessionShortIDsByIDs(ctx context.Context, ids []string) ([]ListSessionShortIDsByIDsRow, error) {
+	query := listSessionShortIDsByIDs
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	err = recordQueryError(ctx, err, query, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSessionShortIDsByIDsRow
+	for rows.Next() {
+		var i ListSessionShortIDsByIDsRow
+		if err := recordQueryError(ctx, rows.Scan(&i.ID, &i.ShortID), query, 1); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := recordQueryError(ctx, rows.Close(), query, 1); err != nil {
+		return nil, err
+	}
+	if err := recordQueryError(ctx, rows.Err(), query, 1); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSessionWorkflowTaskIDs = `-- name: ListSessionWorkflowTaskIDs :many
 SELECT task_id
 FROM sessions
@@ -5405,6 +5505,7 @@ const listSessionsTargetingWorktreePage = `-- name: ListSessionsTargetingWorktre
 SELECT
     id,
     name,
+    short_id,
     updated_at_unix_ms
 FROM sessions
 WHERE worktree_id = ?1
@@ -5425,6 +5526,7 @@ type ListSessionsTargetingWorktreePageParams struct {
 type ListSessionsTargetingWorktreePageRow struct {
 	ID              string
 	Name            sql.NullString
+	ShortID         sql.NullInt64
 	UpdatedAtUnixMs int64
 }
 
@@ -5438,7 +5540,12 @@ func (q *Queries) ListSessionsTargetingWorktreePage(ctx context.Context, arg Lis
 	var items []ListSessionsTargetingWorktreePageRow
 	for rows.Next() {
 		var i ListSessionsTargetingWorktreePageRow
-		if err := recordQueryError(ctx, rows.Scan(&i.ID, &i.Name, &i.UpdatedAtUnixMs), listSessionsTargetingWorktreePage, 3); err != nil {
+		if err := recordQueryError(ctx, rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.ShortID,
+			&i.UpdatedAtUnixMs,
+		), listSessionsTargetingWorktreePage, 3); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -6591,8 +6698,10 @@ SELECT
     durable_attention.session_id,
     durable_attention.interruption_reason,
     durable_attention.interruption_detail_json,
-    durable_attention.occurred_at_unix_ms
+    durable_attention.occurred_at_unix_ms,
+    session.short_id AS session_short_id
 FROM durable_attention
+LEFT JOIN sessions session ON session.id = durable_attention.session_id
 LEFT JOIN task_pending_approvals approval
   ON durable_attention.kind = 'approval'
  AND approval.id = durable_attention.approval_id
@@ -6626,6 +6735,7 @@ type ListWorkflowDurableAttentionCandidatesRow struct {
 	InterruptionReason     sql.NullString
 	InterruptionDetailJson sql.NullString
 	OccurredAtUnixMs       int64
+	SessionShortID         sql.NullInt64
 }
 
 func (q *Queries) ListWorkflowDurableAttentionCandidates(ctx context.Context, arg ListWorkflowDurableAttentionCandidatesParams) ([]ListWorkflowDurableAttentionCandidatesRow, error) {
@@ -6660,6 +6770,7 @@ func (q *Queries) ListWorkflowDurableAttentionCandidates(ctx context.Context, ar
 			&i.InterruptionReason,
 			&i.InterruptionDetailJson,
 			&i.OccurredAtUnixMs,
+			&i.SessionShortID,
 		), listWorkflowDurableAttentionCandidates, 5); err != nil {
 			return nil, err
 		}
@@ -9415,6 +9526,7 @@ func (q *Queries) UpsertSerialSessionWorkflowNodeAssociation(ctx context.Context
 const upsertSession = `-- name: UpsertSession :exec
 INSERT INTO sessions (
     id,
+    short_id,
     project_id,
     workspace_id,
     worktree_id,
@@ -9462,7 +9574,8 @@ INSERT INTO sessions (
     ?21,
     ?22,
     ?23,
-    ?24
+    ?24,
+    ?25
 )
 ON CONFLICT(id) DO UPDATE SET
     name = excluded.name,
@@ -9487,6 +9600,7 @@ ON CONFLICT(id) DO UPDATE SET
 
 type UpsertSessionParams struct {
 	ID                       string
+	ShortID                  sql.NullInt64
 	ProjectID                string
 	WorkspaceID              sql.NullString
 	WorktreeID               sql.NullString
@@ -9515,6 +9629,7 @@ type UpsertSessionParams struct {
 func (q *Queries) UpsertSession(ctx context.Context, arg UpsertSessionParams) error {
 	_, err := q.db.ExecContext(ctx, upsertSession,
 		arg.ID,
+		arg.ShortID,
 		arg.ProjectID,
 		arg.WorkspaceID,
 		arg.WorktreeID,
@@ -9539,7 +9654,7 @@ func (q *Queries) UpsertSession(ctx context.Context, arg UpsertSessionParams) er
 		arg.CompletedCompactionCount,
 		arg.ManualCompactEligible,
 	)
-	err = recordQueryError(ctx, err, upsertSession, 24)
+	err = recordQueryError(ctx, err, upsertSession, 25)
 
 	return err
 }

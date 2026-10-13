@@ -35,6 +35,10 @@ func TestTaskSessionsProjectsActiveParallelOrdinaryAndIdleMetadata(t *testing.T)
 	fixture := newCurrentNodeViewFixture(t, false)
 	started := fixture.startTask(t, "Task Session projection")
 	namedIdleID := fixture.bindCurrentNodeSession(t, started)
+	record, err := fixture.metadata.ResolvePersistedSession(fixture.ctx, namedIdleID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
 	namedRole := "reviewer"
 	if _, err := fixture.metadata.DB().ExecContext(fixture.ctx, `UPDATE sessions SET continuation_json = ? WHERE id = ?`, `{"agent_role":"reviewer"}`, namedIdleID.String()); err != nil {
 		t.Fatalf("persist named role: %v", err)
@@ -86,6 +90,9 @@ func TestTaskSessionsProjectsActiveParallelOrdinaryAndIdleMetadata(t *testing.T)
 		}
 	}
 	namedIdle := response.Items[3]
+	if record.ShortID == nil || namedIdle.ShortId == nil || *namedIdle.ShortId != record.ShortID.Int64() {
+		t.Fatalf("Session identity projection = %v, want %v", namedIdle.ShortId, record.ShortID)
+	}
 	if namedIdle.SessionName == nil || *namedIdle.SessionName != "Current Node session" ||
 		namedIdle.NodeName == nil || *namedIdle.NodeName != "Agent" ||
 		namedIdle.AgentRole != namedRole {

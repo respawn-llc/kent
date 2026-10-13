@@ -10,6 +10,7 @@ import "kent/api/auth/auth.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
+import "kent/api/shared/session_selector.proto";
 import "kent/api/workflow_definition/workflow_definition.proto";
 import "kent/api/workflow_task/attention.proto";
 import "kent/api/workflow_task/read.proto";
@@ -254,7 +255,7 @@ message StartSuccess {
 message InterruptRequest {
   string task_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   optional string invoking_session_id = 2 [(buf.validate.field).string.min_len = 1];
-  optional string session_id = 3 [(buf.validate.field).string.min_len = 1];
+  kent.api.shared.SessionSelector session_id = 3;
   optional string reason = 4;
 }
 
@@ -424,7 +425,7 @@ message MoveSuccess {
 }
 
 message CompleteRequest {
-  optional string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  kent.api.shared.SessionSelector session_id = 1;
   optional string task_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   optional string transition_id = 3 [(buf.validate.field).string.min_len = 1];
   repeated NamedValue output_values = 4;
@@ -622,6 +623,7 @@ message ActivityListSuccess {
 }
 
 message SessionItem {
+  optional int64 short_id = 6 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [(buf.validate.field).string.min_len = 1];
   optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
   optional string node_name = 3 [(buf.validate.field).string.min_len = 1];
@@ -684,6 +686,7 @@ message ObserveDone {
 }
 
 message ObserveQuestion {
+  optional int64 short_id = 5 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   optional string session_id = 1 [(buf.validate.field).string.min_len = 1];
   optional string script_path = 2 [(buf.validate.field).string.min_len = 1];
   optional string node_key = 3 [(buf.validate.field).string.min_len = 1];
@@ -691,6 +694,7 @@ message ObserveQuestion {
 }
 
 message ObserveFailure {
+  optional int64 short_id = 5 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   optional string session_id = 1 [(buf.validate.field).string.min_len = 1];
   optional string script_path = 2 [(buf.validate.field).string.min_len = 1];
   optional string node_key = 3 [(buf.validate.field).string.min_len = 1];

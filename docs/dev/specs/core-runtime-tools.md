@@ -108,7 +108,9 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 ```
 
 - Kent must insert one literal `>` followed by one space immediately before the submitted text. It must not add quote markers to later lines.
-- The message includes the source Session ID and omits its name.
+- The message includes the source Session selector using the [CLI Session presentation rules](cli-commands.md#session-selectors-and-presentation) and omits its name.
+- When rendering model-facing Session selectors in Kent prompts, tool output, and runtime notices, Kent must follow the same presentation rules.
+- Kent must not rewrite Session identifiers in existing persisted messages or already-sent conversation history.
 - When invoked by an agent, `kent run steer` must reject malformed invoking-Session identity before submission. An absent or blank invoking-Session identity uses human-steer behavior.
 - Prompt history stores the complete wrapped message.
 - Tool lifecycle effects, Runtime notices, additions after history replacement, and other model/transcript-visible results enter through the owning Agent Step or accepted Session mutation order.

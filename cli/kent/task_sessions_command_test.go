@@ -119,6 +119,59 @@ func TestWriteTaskSessionsResponse(t *testing.T) {
 	}
 }
 
+func TestTaskSessionPresentationUsesShortIDWithoutChangingJSON(t *testing.T) {
+	id := "33333333-3333-4333-8333-333333333333"
+	shortID := int64(73)
+	response := taskSessionsResponse([]*taskpb.SessionItem{{
+		SessionId: id, ShortId: &shortID, AgentRole: "coder",
+		Status: taskpb.SessionStatus_SESSION_STATUS_IDLE,
+	}}, nil)
+	var stdout, stderr bytes.Buffer
+	if code := writeTaskSessionsResponse(&stdout, &stderr, response, false); code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, &stderr)
+	}
+	if bytes.Contains(stdout.Bytes(), []byte(id)) || !bytes.Contains(stdout.Bytes(), []byte("73")) {
+		t.Fatalf("human identity=%s", &stdout)
+	}
+	stdout.Reset()
+	if code := writeTaskSessionsResponse(&stdout, &stderr, response, true); code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, &stderr)
+	}
+	var output struct {
+		Items []struct {
+			SessionID string `json:"session_id"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
+		t.Fatal(err)
+	}
+	if len(output.Items) != 1 || output.Items[0].SessionID != id {
+		t.Fatalf("JSON identity=%+v", output)
+	}
+}
+
+func TestTaskLifecycleSessionPresentation(t *testing.T) {
+	id := "33333333-3333-4333-8333-333333333333"
+	shortID := int64(73)
+	task := &taskpb.TaskDetail{
+		Summary:      &taskpb.TaskSummary{ShortId: "KENT-1"},
+		Workflow:     &taskpb.TaskWorkflowSummary{DisplayName: "Review"},
+		LiveSessions: []*taskpb.LiveSession{{SessionId: id, ShortId: &shortID}},
+	}
+	var stdout bytes.Buffer
+	writeTaskStartResult(&stdout, task)
+	if bytes.Contains(stdout.Bytes(), []byte(id)) || !bytes.Contains(stdout.Bytes(), []byte("73")) {
+		t.Fatalf("start identity=%s", &stdout)
+	}
+	stdout.Reset()
+	writeTaskResumeResult(&stdout, task, &taskpb.ResumeApplied{
+		CurrentNodes: []*taskpb.AttentionCurrentNode{{SessionId: &id, ShortId: &shortID}},
+	})
+	if bytes.Contains(stdout.Bytes(), []byte(id)) || !bytes.Contains(stdout.Bytes(), []byte("73")) {
+		t.Fatalf("resume identity=%s", &stdout)
+	}
+}
+
 func TestRunTaskSessionsResolvesSelectors(t *testing.T) {
 	for _, test := range []struct {
 		name       string

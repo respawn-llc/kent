@@ -11,7 +11,7 @@ import (
 
 func TestQueuedUserMessageStorePreservesTypedAgentSteer(t *testing.T) {
 	sourceID := runtimeids.NewSessionID()
-	steer, err := NewAgentSteer(sourceID, "report status")
+	steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "report status")
 	if err != nil {
 		t.Fatalf("NewAgentSteer: %v", err)
 	}
@@ -73,11 +73,11 @@ func TestQueuedUserMessageStoreRejectsDuplicatePendingIdentity(t *testing.T) {
 
 func TestQueuedUserMessageFlushGroupsKeepAgentSteersSeparate(t *testing.T) {
 	human := llm.Message{Role: llm.RoleUser, Content: textutil.Value("human")}
-	first, err := NewAgentSteer(runtimeids.NewSessionID(), "first")
+	first, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "first")
 	if err != nil {
 		t.Fatalf("NewAgentSteer first: %v", err)
 	}
-	second, err := NewAgentSteer(runtimeids.NewSessionID(), "second")
+	second, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "second")
 	if err != nil {
 		t.Fatalf("NewAgentSteer second: %v", err)
 	}

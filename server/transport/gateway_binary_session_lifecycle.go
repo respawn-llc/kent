@@ -38,9 +38,9 @@ func registerSessionLifecycleGatewayBinaryBindings(bindings map[string]gatewayBi
 	)
 }
 
-func registerSessionLifecycleUnary[Request interface {
+func registerSessionLifecycleUnary[Target runtimeControlTarget, Request interface {
 	proto.Message
-	GetSessionId() string
+	GetSessionId() Target
 }, Success proto.Message](
 	bindings map[string]gatewayBinaryBinding,
 	name protoreflect.Name,
@@ -51,7 +51,7 @@ func registerSessionLifecycleUnary[Request interface {
 		sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionLifecycleService"),
 		name, gatewayBinaryCoreActiveOrdinary, newRequest,
 		func(request Request) (routeScopeParams, error) {
-			return routeScopeParams{sessionID: request.GetSessionId()}, nil
+			return runtimeControlScope(request.GetSessionId()), nil
 		},
 		func(g *Gateway, ctx context.Context, _ *connectionState, request Request) (Success, error) {
 			return invoke(g.deps.SessionLifecycleClient(), ctx, request)
