@@ -17,7 +17,7 @@ func (m *uiModel) observeRuntimeRequestResult(err error) {
 		m.setRuntimeDisconnected(false)
 		return
 	}
-	if runtimeattach.IsRuntimeConnectionError(err) {
+	if runtimeattach.IsRuntimeConnectionError(err) || runtimeattach.IsRuntimeProtocolMismatch(err) {
 		m.setRuntimeDisconnected(true)
 		return
 	}

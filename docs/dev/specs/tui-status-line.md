@@ -41,6 +41,7 @@
 
 - One notice shows at a time (ladder rung 6), in the right-aligned reasoning slot immediately before the context meter. While a notice is visible, the live reasoning status header is hidden. When the notice clears, that header returns if reasoning is active. The only persisted notice is server-disconnect. Transient notices overtake it for their duration: a transient shows immediately during disconnect, and the disconnect notice resumes when the transient clears. Whether other status-line items render alongside is governed solely by the space ladder.
 - Any connection failure sets the persistent disconnect notice. A later successful request clears it.
+- A protocol-version mismatch during reconnection must show an error notice explaining that the client and server need the same build. It must mark the server connection unusable without panicking or exiting the TUI, including in debug mode. The incompatible transcript subscription must stop without automatic retries.
 - Terminal write failures surface immediately and do not create a status-line notice.
 - Transient notices have one of four kinds: `error`, `warning`, `info`, or `success`. They use the matching theme role and clear automatically after about eight seconds.
 - Delivery modes: replace (default — new notice supersedes the current one) and queue (FIFO behind the current notice, consecutive duplicates dropped). Callers pick per notice.

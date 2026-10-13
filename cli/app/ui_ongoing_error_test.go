@@ -2,14 +2,41 @@ package app
 
 import (
 	"core/cli/tui/ongoing"
+	"core/shared/client"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"errors"
+	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"net"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestProtocolMismatchAfterRestartKeepsTUIOpen(t *testing.T) {
+	for _, debug := range []bool{false, true} {
+		t.Run(fmt.Sprintf("debug=%t", debug), func(t *testing.T) {
+			controller := newNoopOngoingTranscriptController(&ongoingSurfaceSpy{}, ongoingTestFrameProvider)
+			m := newProjectedTestUIModel(&runtimeControlFakeClient{},
+				withUIOngoingTranscriptController(controller), WithUIDebug(debug))
+			mismatch := &client.ProtocolVersionMismatchError{}
+			err := fmt.Errorf("handshake: %w", mismatch)
+			m.setRuntimeDisconnected(true)
+			m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{
+				Kind: ongoingTranscriptEventFailure, Err: err,
+			})
+			if m.Transition().Exit || m.forcedLocalExit {
+				t.Fatal("protocol mismatch requested TUI exit")
+			}
+			if !m.runtimeDisconnectStatusVisible() {
+				t.Fatal("incompatible server was marked usable")
+			}
+			if m.transientStatusKind != uiStatusNoticeError || m.transientStatus != err.Error() {
+				t.Fatal("protocol mismatch did not surface an error notice")
+			}
+		})
+	}
+}
 
 func TestOngoingSurfaceErrorExitsTUIInRelease(t *testing.T) {
 	m := newProjectedStaticUIModel()
