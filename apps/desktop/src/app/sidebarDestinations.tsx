@@ -15,7 +15,6 @@ import {
   WorkflowInspectorHeader,
 } from "@/features/workflow-editor";
 import { LinkWorkflowSidebar, WorkflowCreateForm } from "@/features/workflows";
-import { desktopChatEnabled } from "@/shared/feature-flags";
 import {
   sidebarTitle,
   useAppNavigation,
@@ -90,14 +89,12 @@ function TaskDetailDestination({
   retainedState?: unknown;
 }>): ReactElement {
   const navigation = useAppNavigation();
-  const openSessionChat: TaskDetailSessionChatEntry | undefined = desktopChatEnabled
-    ? async (target) => {
-        if (navigator.close() !== "accepted") {
-          return;
-        }
-        await navigation.openSessionChat(target);
-      }
-    : undefined;
+  const openSessionChat: TaskDetailSessionChatEntry = async (target) => {
+    if (navigator.close() !== "accepted") {
+      return;
+    }
+    await navigation.openSessionChat(target);
+  };
   usePublishSidebarHeaderAction(<TaskDetailHeaderActions destination={destination} navigator={navigator} />);
   return (
     <TaskDetailSurface

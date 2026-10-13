@@ -41,6 +41,12 @@
 
 ## Installers
 
+- The command-line installers for macOS, Linux, and Windows must offer to install and start the background server service after installing the binary.
+- Interactive service-install prompts must default to Yes, including on upgrades. Unattended installs must skip service installation unless accepted through `-Service` or `-Yes` on Windows, or `--service` on macOS/Linux.
+- Declining or skipping service installation must show how to start the server manually with `kent serve`.
+- Windows must request service-install elevation only after acceptance. The elevated operation must use the invoking user's selected persistence root and return its failure diagnostics.
+- Installing an existing matching service registration must reload or restart it so the installed binary takes effect. A differing registration must fail unless replacement is explicitly requested with `--force`.
+- Service-install failure must report the cause and leave the installed binary available. Installers must never report that the server started when service installation failed.
 - Windows one-command installs are served by `scripts/install.ps1`.
 - The default Windows user install path is `~/.kent/bin/kent.exe`, matching the user-scoped Kent persistence root.
 - Windows installer uninstalls remove only installer-owned binary, PATH, registry, and marker files.

@@ -128,17 +128,25 @@ type ConfigInfo struct {
 }
 
 type SubscriptionInfo struct {
-	Applicable bool
-	Summary    string
-	Error      string
-	Windows    []SubscriptionWindow
+	Applicable            bool
+	Summary               string
+	Error                 string
+	QuotaSource           *authpb.SubscriptionQuotaSource
+	FailureClassification *authpb.SubscriptionFailureClassification
+	Windows               []SubscriptionWindow
 }
 
 type SubscriptionWindow struct {
-	Label       string
-	Qualifier   string
-	UsedPercent float64
-	ResetAt     time.Time
+	Label             string
+	Qualifier         string
+	UsedPercent       float64
+	ResetAt           time.Time
+	GrokContributions *GrokUsageContribution
+}
+
+type GrokUsageContribution struct {
+	BuildUsedPercent *float64
+	ChatUsedPercent  *float64
 }
 
 type SkillInspection struct {

@@ -254,12 +254,14 @@ smoke_windows_installer() {
 		-Yes \
 		-NoPath \
 		-NoDeps \
-		-NoServiceRestart
+		-NoServiceRestart \
+		-NoService
 
 	powershell -NoProfile -ExecutionPolicy Bypass -File "$install_script" \
 		-Uninstall \
 		-InstallDir "$(to_powershell_path "$install_dir")" \
 		-Yes
+
 }
 
 mode="${1:-}"

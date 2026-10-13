@@ -6,7 +6,7 @@ import type {
   ChatPatchPresentation,
   ChatToolPresentation,
 } from "./chatTranscriptTypes";
-import { enumValue, required } from "./chatWire";
+import { enumValue, required, safeNumber } from "./chatWire";
 import { ContractError } from "./errors";
 
 function presentationKind(value: T.ToolPresentationKind): ChatToolPresentation["Presentation"] {
@@ -39,7 +39,7 @@ export function toolPresentation(
     RawOutputRequested: value.rawOutputRequested,
     OutputTruncated: value.outputTruncated,
     MovedToBackground: value.movedToBackground,
-    ShellExitCode: value.shellExitCode ?? null,
+    ShellExitCode: value.shellExitCode === undefined ? null : safeNumber(value.shellExitCode),
     RenderHint: renderHint(value.renderHint),
     PatchPresentation:
       value.patchPresentation === undefined ? null : patchPresentation(value.patchPresentation),

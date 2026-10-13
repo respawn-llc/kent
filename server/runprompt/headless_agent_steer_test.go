@@ -125,7 +125,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	}
 	cfg.Settings.Shell.PostprocessingMode = config.ShellPostprocessingModeBuiltin
 	history := &recordingPromptHistoryStore{}
-	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, storeOptions...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, storeOptions...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		Metadata: meta,
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
@@ -138,6 +138,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 			ExecutionTargets: meta,
 		}, sessionlaunch.ChatSettingsOwner{}, meta),
 		RuntimeAuthority: authority,
+		LiveRunObserver:  liveRunObserver,
 		PromptHistory:    history,
 	})
 

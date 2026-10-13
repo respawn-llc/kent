@@ -21,6 +21,12 @@ const grokCLIProtocolVersion = "1.0.46"
 type grokResponsesPolicy struct{}
 type grokCLIResponsesPolicy struct{ grokResponsesPolicy }
 
+func (grokResponsesPolicy) isHostedCustomToolCall(callID string) bool {
+	// Grok's Responses protocol identifies server-owned attachment and X
+	// searches by these call-ID namespaces, despite their custom_tool_call type.
+	return strings.HasPrefix(callID, "as_") || strings.HasPrefix(callID, "xs_")
+}
+
 func (grokResponsesPolicy) usage(raw responses.ResponseUsage, window int) (Usage, error) {
 	usage := usageFromSDK(raw, window)
 	// The OpenAI SDK has no typed Grok context_details field. Decode this
@@ -102,7 +108,7 @@ func (grokResponsesPolicy) compact(ctx context.Context, transport *HTTPTransport
 	if err := client.Post(ctx, "responses/compact", payload, &response, options...); err != nil {
 		return ResponsesCompactionResponse{}, newResponsesRequestErrorMapper(preparation.variant.ProviderID).Map(err, rawResponse, "compact responses")
 	}
-	items, _, _, _, _, _, _, err := parseOutputItems(response.Output)
+	items, _, _, _, _, _, _, err := parseOutputItems(response.Output, grokResponsesPolicy{})
 	if err != nil {
 		return ResponsesCompactionResponse{}, err
 	}

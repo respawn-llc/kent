@@ -10,15 +10,11 @@ import { createTestServices, TestAppProviders } from "@/test-support/app-service
 import { createTestSidebarController } from "@/test-support/sidebar";
 
 const fixture = vi.hoisted(() => ({
-  featureFlags: { desktopChatEnabled: true },
   openSessionChat: vi.fn(async () => undefined),
 }));
 
-vi.mock("@/shared/feature-flags", () => fixture.featureFlags);
-
 beforeAll(async () => initializeI18n());
 beforeEach(() => {
-  fixture.featureFlags.desktopChatEnabled = true;
   fixture.openSessionChat.mockClear();
 });
 
@@ -174,13 +170,14 @@ it.each([
   }
 });
 
-it("keeps production attention rows as one Task Detail interaction", () => {
-  fixture.featureFlags.desktopChatEnabled = false;
+it("opens the question Session in Chat", () => {
   const { openSidebar } = renderAttention(questionAttention);
   const row = screen.getByTestId("attention-row");
 
   expect(within(row).queryByTestId("attention-chat-header")).not.toBeInTheDocument();
-  expect(screen.getAllByRole("button")).toHaveLength(1);
-  fireEvent.click(screen.getByRole("button"));
-  expect(openSidebar).toHaveBeenCalledOnce();
+  fireEvent.click(
+    screen.getByRole("button", { name: appI18n.t("task.openChat", { name: questionAttention.taskTitle }) }),
+  );
+  expect(fixture.openSessionChat).toHaveBeenCalledWith({ projectID: "project-1", sessionID: "session-1" });
+  expect(openSidebar).not.toHaveBeenCalled();
 });

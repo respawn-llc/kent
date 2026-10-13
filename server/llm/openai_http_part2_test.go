@@ -344,7 +344,7 @@ func TestParseOutputItems_PreservesCompactionItem(t *testing.T) {
 	if err := json.Unmarshal(raw, &output); err != nil {
 		t.Fatalf("unmarshal output: %v", err)
 	}
-	items, assistantText, assistantPhase, _, toolCalls, reasoning, reasoningItems, err := parseOutputItems(output)
+	items, assistantText, assistantPhase, _, toolCalls, reasoning, reasoningItems, err := parseOutputItems(output, openAIResponsesPolicy{})
 	if err != nil {
 		t.Fatalf("parse output: %v", err)
 	}
@@ -384,7 +384,7 @@ func TestParseOutputItems_UsesLastAssistantMessageWhenMultipleUnphased(t *testin
 	if err := json.Unmarshal(raw, &output); err != nil {
 		t.Fatalf("unmarshal output: %v", err)
 	}
-	_, assistantText, assistantPhase, _, _, _, _, err := parseOutputItems(output)
+	_, assistantText, assistantPhase, _, _, _, _, err := parseOutputItems(output, openAIResponsesPolicy{})
 	if err != nil {
 		t.Fatalf("parse output: %v", err)
 	}
@@ -424,7 +424,7 @@ func TestParseOutputItems_UsesTrailingAssistantPhaseBlock(t *testing.T) {
 	if err := json.Unmarshal(raw, &output); err != nil {
 		t.Fatalf("unmarshal output: %v", err)
 	}
-	_, assistantText, assistantPhase, _, _, _, _, err := parseOutputItems(output)
+	_, assistantText, assistantPhase, _, _, _, _, err := parseOutputItems(output, openAIResponsesPolicy{})
 	if err != nil {
 		t.Fatalf("parse output: %v", err)
 	}

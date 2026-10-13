@@ -195,6 +195,7 @@ func (e *Engine) prepareStoredToolCompletion(
 		CallID:              r.CallID,
 		Name:                string(r.Name),
 		IsError:             r.IsError,
+		ProviderItemOnly:    r.ProviderItemOnly,
 		Output:              append(json.RawMessage(nil), r.Output...),
 		Summary:             r.Summary,
 		CondensedText:       r.CondensedText,
@@ -220,6 +221,9 @@ func (e *Engine) applyCommittedStoredToolCompletion(
 }
 
 func (e *Engine) providerItemsForToolCompletion(r tools.Result) []llm.ResponseItem {
+	if r.ProviderItemOnly {
+		return nil
+	}
 	callID := strings.TrimSpace(r.CallID)
 	if callID == "" {
 		return nil

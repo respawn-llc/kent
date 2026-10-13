@@ -208,10 +208,11 @@ type responsesFunctionCallRaw struct {
 }
 
 type responsesCustomToolCallRaw struct {
-	Type   string `json:"type"`
-	CallID string `json:"call_id"`
-	Name   string `json:"name"`
-	Input  string `json:"input"`
+	Type   string  `json:"type"`
+	ID     *string `json:"id,omitempty"`
+	CallID string  `json:"call_id"`
+	Name   string  `json:"name"`
+	Input  string  `json:"input"`
 }
 
 type responsesReasoningSummaryRaw struct {
@@ -300,6 +301,7 @@ func responsesInputRawForResponseItem(item ResponseItem) (json.RawMessage, bool)
 		input, _ := textutil.OptionalExact(item.CustomInput)
 		return marshalResponsesInputRaw(responsesCustomToolCallRaw{
 			Type:   string(ResponseItemTypeCustomToolCall),
+			ID:     item.ID,
 			CallID: callID,
 			Name:   name,
 			Input:  input,

@@ -752,6 +752,44 @@ func decodeHostedWebSearchOutput(item HostedToolOutput) (HostedExecution, bool) 
 	}, true
 }
 
+func decodeHostedCustomToolOutput(item HostedToolOutput) (HostedExecution, bool) {
+	if !json.Valid(item.Raw) {
+		return HostedExecution{}, false
+	}
+	var payload struct {
+		Type   string          `json:"type"`
+		CallID string          `json:"call_id"`
+		Name   string          `json:"name"`
+		Input  json.RawMessage `json:"input"`
+		Status string          `json:"status"`
+	}
+	if err := json.Unmarshal(item.Raw, &payload); err != nil || payload.Type != "custom_tool_call" {
+		return HostedExecution{}, false
+	}
+	callID := strings.TrimSpace(payload.CallID)
+	name := strings.TrimSpace(payload.Name)
+	if callID == "" || name == "" || len(payload.Input) == 0 {
+		return HostedExecution{}, false
+	}
+	input := payload.Input
+	if payload.Input[0] == '"' {
+		var encoded string
+		if err := json.Unmarshal(payload.Input, &encoded); err != nil {
+			return HostedExecution{}, false
+		}
+		if json.Valid([]byte(encoded)) {
+			input = json.RawMessage(encoded)
+		}
+	}
+	if !json.Valid(input) {
+		return HostedExecution{}, false
+	}
+	return HostedExecution{
+		Call:   HostedCall{ID: callID, Name: toolspec.ID(name), Input: append(json.RawMessage(nil), input...), ProviderItem: append(json.RawMessage(nil), item.Raw...)},
+		Result: Result{CallID: callID, Name: toolspec.ID(name), Output: append(json.RawMessage(nil), item.Raw...), IsError: strings.EqualFold(payload.Status, "failed"), ProviderItemOnly: true},
+	}, true
+}
+
 func formatToolInput(toolID toolspec.ID, raw json.RawMessage) (string, string) {
 	payload, err := jsoncontract.DecodeValue(raw)
 	if err != nil {

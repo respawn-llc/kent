@@ -31,15 +31,16 @@ func liveErrorSelector(request runtimeids.SessionSelector, err error) string {
 }
 
 type runJSONResult struct {
-	Status      string        `json:"status"`
-	Result      string        `json:"result,omitempty"`
-	SessionID   *string       `json:"session_id,omitempty"`
-	SessionName *string       `json:"session_name,omitempty"`
-	ContinueID  *string       `json:"continue_id,omitempty"`
-	ContinueCmd *string       `json:"continue_command,omitempty"`
-	Warnings    []string      `json:"warnings,omitempty"`
-	DurationMS  int64         `json:"duration_ms"`
-	Error       *runJSONError `json:"error,omitempty"`
+	Outcome     observationJSONOutcome `json:"outcome,omitempty"`
+	Status      string                 `json:"status"`
+	Result      string                 `json:"result,omitempty"`
+	SessionID   *string                `json:"session_id,omitempty"`
+	SessionName *string                `json:"session_name,omitempty"`
+	ContinueID  *string                `json:"continue_id,omitempty"`
+	ContinueCmd *string                `json:"continue_command,omitempty"`
+	Warnings    []string               `json:"warnings,omitempty"`
+	DurationMS  int64                  `json:"duration_ms"`
+	Error       *runJSONError          `json:"error,omitempty"`
 }
 
 type runJSONError struct {

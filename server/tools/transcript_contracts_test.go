@@ -194,6 +194,23 @@ func TestFormatAskQuestionToolOutputRejectsPresentZeroSelection(t *testing.T) {
 	}
 }
 
+func TestGrokHostedCustomOutputKeepsProviderToolIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		raw    json.RawMessage
+		callID string
+		name   string
+		input  string
+	}{
+		{json.RawMessage(`{"type":"custom_tool_call","id":"ctc_pdf","call_id":"as_pdf","name":"pdf_browse","input":"{\"pages\":\"1\"}"}`), "as_pdf", "pdf_browse", `{"pages":"1"}`},
+		{json.RawMessage(`{"type":"custom_tool_call","id":"ctc_x","call_id":"xs_search","name":"x_keyword_search","input":"{\"query\":\"kent\"}"}`), "xs_search", "x_keyword_search", `{"query":"kent"}`},
+	} {
+		executions := HostedExecutionsFromOutputs([]HostedToolOutput{{Raw: tc.raw}}, nil)
+		if len(executions) != 1 || executions[0].Call.ID != tc.callID || string(executions[0].Call.Name) != tc.name || string(executions[0].Call.Input) != tc.input || string(executions[0].Call.ProviderItem) != string(tc.raw) || !executions[0].Result.ProviderItemOnly {
+			t.Fatalf("hosted execution = %+v", executions)
+		}
+	}
+}
+
 func TestFormatAskQuestionToolOutputAcceptsLegacyOmittedSelection(t *testing.T) {
 	formatted, ok := formatAskQuestionToolOutput([]byte(`{"freeform_answer":"typed"}`))
 	if !ok || formatted == "" {

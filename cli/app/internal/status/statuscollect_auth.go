@@ -100,16 +100,27 @@ func subscriptionInfoFromFacts(facts *authpb.SubscriptionFacts) SubscriptionInfo
 	}
 	if facts.GetFailure() != nil {
 		cause := strings.TrimSpace(facts.GetFailure().GetCause())
+		summary := "Subscription unavailable: " + cause
+		if facts.GetFailureClassification() == authpb.SubscriptionFailureClassification_SUBSCRIPTION_FAILURE_CLASSIFICATION_UNAVAILABLE_FOR_SIGN_IN_METHOD {
+			summary = "Quota unavailable for this sign-in method"
+			if cause != "" {
+				summary += ": " + cause
+			}
+		}
 		return SubscriptionInfo{
-			Applicable: true,
-			Summary:    "Subscription unavailable: " + cause,
-			Error:      cause,
+			Applicable:            true,
+			Summary:               summary,
+			Error:                 cause,
+			QuotaSource:           facts.QuotaSource,
+			FailureClassification: facts.FailureClassification,
 		}
 	}
 	return SubscriptionInfo{
-		Applicable: true,
-		Summary:    subscriptionPlanSummary(facts.Plan),
-		Windows:    subscriptionWindowsFromFacts(facts.GetWindows()),
+		Applicable:            true,
+		Summary:               subscriptionPlanSummary(facts.Plan),
+		QuotaSource:           facts.QuotaSource,
+		FailureClassification: facts.FailureClassification,
+		Windows:               subscriptionWindowsFromFacts(facts.GetWindows()),
 	}
 }
 
@@ -126,6 +137,12 @@ func subscriptionWindowsFromFacts(facts []*authpb.SubscriptionWindowFacts) []Sub
 		}
 		if fact.GetResetAt() != nil {
 			window.ResetAt = fact.GetResetAt().AsTime()
+		}
+		if contributions := fact.GetGrokContributions(); contributions != nil {
+			window.GrokContributions = &GrokUsageContribution{
+				BuildUsedPercent: contributions.BuildUsedPercent,
+				ChatUsedPercent:  contributions.ChatUsedPercent,
+			}
 		}
 		if fact.GetBucket() == authpb.SubscriptionWindowBucket_SUBSCRIPTION_WINDOW_BUCKET_ADDITIONAL {
 			window.Qualifier = subscriptionWindowQualifier(fact, qualifierCounts)

@@ -32,8 +32,11 @@ func TestAuthStageFromResponseProjectsTypedMethods(t *testing.T) {
 	}
 }
 
-func TestAuthStageShowsGrokDetailsWithoutSubscriptionQuotas(t *testing.T) {
+func TestAuthStageShowsGrokQuotaAlongsideAuthDetails(t *testing.T) {
 	connection := &authpb.ConnectionFacts{ConnectionId: "grok", Method: authpb.AuthMethod_AUTH_METHOD_OAUTH}
+	source := authpb.SubscriptionQuotaSource_SUBSCRIPTION_QUOTA_SOURCE_GROK
+	buildUsedPercent := float64(67)
+	chatUsedPercent := float64(19)
 	result := AuthStageFromResponse(&authpb.Status{
 		Resolution: &authpb.StatusResolution{Resolution: &authpb.StatusResolution_Known{
 			Known: &authpb.StatusFacts{
@@ -41,10 +44,29 @@ func TestAuthStageShowsGrokDetailsWithoutSubscriptionQuotas(t *testing.T) {
 				Provider: &authpb.ProviderFacts{Kind: authpb.ProviderKind_PROVIDER_KIND_CONFIGURED_PROVIDER, Identifier: "grok"},
 			},
 		}},
-		Subscription: &authpb.SubscriptionFacts{},
+		Subscription: &authpb.SubscriptionFacts{
+			Applicable:  true,
+			QuotaSource: &source,
+			Windows: []*authpb.SubscriptionWindowFacts{{
+				DurationSeconds: 7 * 24 * 60 * 60,
+				UsedPercent:     86,
+				GrokContributions: &authpb.GrokUsageContributions{
+					BuildUsedPercent: &buildUsedPercent,
+					ChatUsedPercent:  &chatUsedPercent,
+				},
+			}},
+		},
 	})
-	if !result.Auth.Visible || result.Auth.Connection != connection || result.Subscription.Applicable || len(result.Subscription.Windows) != 0 {
+	if !result.Auth.Visible || result.Auth.Connection != connection ||
+		!result.Subscription.Applicable || result.Subscription.QuotaSource == nil ||
+		*result.Subscription.QuotaSource != source || len(result.Subscription.Windows) != 1 {
 		t.Fatalf("Grok Auth projection = %+v", result)
+	}
+	window := result.Subscription.Windows[0]
+	if window.Label != "weekly" || window.UsedPercent != 86 || window.GrokContributions == nil ||
+		window.GrokContributions.BuildUsedPercent == nil || *window.GrokContributions.BuildUsedPercent != buildUsedPercent ||
+		window.GrokContributions.ChatUsedPercent == nil || *window.GrokContributions.ChatUsedPercent != chatUsedPercent {
+		t.Fatalf("Grok quota projection = %+v", window)
 	}
 }
 
@@ -115,6 +137,49 @@ func TestSubscriptionProjectionPreservesDurationAndDuplicateBuckets(t *testing.T
 		projected.Windows[0].Label == projected.Windows[3].Label ||
 		projected.Windows[1].Qualifier == projected.Windows[2].Qualifier {
 		t.Fatalf("window projections = %+v", projected.Windows)
+	}
+}
+
+func TestSubscriptionProjectionPreservesGrokSourceAndContributionPresence(t *testing.T) {
+	source := authpb.SubscriptionQuotaSource_SUBSCRIPTION_QUOTA_SOURCE_GROK
+	buildUsedPercent := float64(0)
+	projected := AuthStageFromResponse(&authpb.Status{
+		Subscription: &authpb.SubscriptionFacts{
+			Applicable:  true,
+			QuotaSource: &source,
+			Windows: []*authpb.SubscriptionWindowFacts{{
+				DurationSeconds: 7 * 24 * 60 * 60,
+				GrokContributions: &authpb.GrokUsageContributions{
+					BuildUsedPercent: &buildUsedPercent,
+				},
+			}},
+		},
+	}).Subscription
+	if projected.QuotaSource == nil || *projected.QuotaSource != source || len(projected.Windows) != 1 {
+		t.Fatalf("subscription source = %+v", projected)
+	}
+	contributions := projected.Windows[0].GrokContributions
+	if contributions == nil || contributions.BuildUsedPercent == nil || *contributions.BuildUsedPercent != 0 ||
+		contributions.ChatUsedPercent != nil {
+		t.Fatalf("Grok contributions = %+v", projected.Windows[0])
+	}
+}
+
+func TestSubscriptionProjectionPreservesUnavailableSignInClassificationAndDiagnostic(t *testing.T) {
+	classification := authpb.SubscriptionFailureClassification_SUBSCRIPTION_FAILURE_CLASSIFICATION_UNAVAILABLE_FOR_SIGN_IN_METHOD
+	source := authpb.SubscriptionQuotaSource_SUBSCRIPTION_QUOTA_SOURCE_GROK
+	const diagnostic = "billing access denied"
+	projected := AuthStageFromResponse(&authpb.Status{
+		Subscription: &authpb.SubscriptionFacts{
+			Applicable:            true,
+			QuotaSource:           &source,
+			FailureClassification: &classification,
+			Failure:               &authpb.StatusFailure{Cause: diagnostic},
+		},
+	}).Subscription
+	if projected.FailureClassification == nil || *projected.FailureClassification != classification ||
+		projected.Error != diagnostic {
+		t.Fatalf("subscription failure projection = %+v", projected)
 	}
 }
 

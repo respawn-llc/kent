@@ -12,6 +12,7 @@
 - Each connection must have one user-chosen configuration ID. IDs must begin with a lowercase ASCII letter and contain only lowercase ASCII letters, digits, hyphens, and underscores. Kent must reject duplicate IDs.
 - Creation must suggest an editable unused numbered provider-based ID. Connections must not require a separate display name or hidden identity.
 - Top-level `connection` must select the default for new unroled interactive Sessions. Roles must inherit that selection unless overridden. Main Workspace private configuration may assign developer-specific connection IDs to shared roles.
+- When effective `connection` is absent and exactly one Provider Connection is defined, Kent must select that connection without rewriting configuration. With zero or multiple definitions, selection must fail. Explicit selections and saved Session bindings must retain their precedence.
 - Main agents, child roles, Supervisor, and Workflow must use the same connection-selection rules.
 - Workflow preparation must use completed connection and default edits without requiring a server restart. Saved Session bindings must retain their defined precedence.
 - Credentials must remain server-owned. Requests must use only the selected connection's credentials.
@@ -61,7 +62,11 @@
 - If Grok rejects the client's protocol version, Kent must report the update requirement without switching routes or replaying the request.
 - Grok entitlement rejection must include the provider's original readable diagnostic and identify the affected connection. Kent must distinguish subscription or credit requirements from invalid sign-in and must not claim that re-authentication will fix entitlement.
 - HTTP 403 alone must not classify a response as an authentication failure for any provider. Permission or safety refusals without authentication evidence must not direct the user to sign in again.
-- Subscription usage requests must use only ChatGPT subscription credentials. The terminal `/status` Auth section must be hidden for other authentication methods until provider-specific quota support exists.
+- Subscription usage requests must use only the selected Provider Connection's credentials. ChatGPT subscription usage requests must use the ChatGPT usage service.
+- Both Grok subscription protocols must request quota from the official CLI proxy billing service with that connection's OAuth credentials and the service's required headers. Kent has no established subscription quota request path through the public xAI API. This quota-only use of the CLI proxy must not change the connection's chat route.
+- Grok API-key connections must not request subscription quota.
+- The terminal `/status` Auth section must be hidden for other authentication methods until provider-specific quota support exists.
+- A quota failure must not interrupt chat, automatically refresh sign-in, retry the quota request, or switch connections or routes. Kent must show available Auth details and readable connection-specific failure diagnostics. If Grok billing returns HTTP 404, 403, or 401, Kent must explain that quota is unavailable for this sign-in method. This presentation must not introduce a request fallback. Entitlement failures must not advise re-authentication.
 - If a terminal Session has saved OAuth credentials, opening it must not attempt refresh. An expired refresh token must not close the terminal, block chat or `/login`, or require deleting saved credentials.
 - If refreshing a terminal Session's saved OAuth credentials fails during a request, Kent must persist a transcript error identifying the Provider Connection, preserving readable original diagnostics, and directing the user to sign in. The error must read: "Failed to authenticate the provider connection: <readable Go error>. Run /login to authenticate connection <conn-id>, used for this session."
 - Provider authentication failure must not automatically retry or replay the failed request or select another connection.

@@ -11,12 +11,9 @@ import (
 )
 
 func ProcessFromSnapshot(snapshot shelltool.Snapshot) (*processpb.BackgroundProcess, error) {
-	var exitCode *int32
+	var exitCode *int64
 	if snapshot.ExitCode != nil {
-		value, err := protoapi.Int32(*snapshot.ExitCode, "process exit code")
-		if err != nil {
-			return nil, err
-		}
+		value := int64(*snapshot.ExitCode)
 		exitCode = &value
 	}
 	result := &processpb.BackgroundProcess{

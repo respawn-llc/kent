@@ -459,7 +459,7 @@ message BackgroundNoticeIdentity {
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string process_id = 2 [(buf.validate.field).string.min_len = 1];
-  optional int32 exit_code = 3;
+  optional int64 exit_code = 3;
 }
 
 message WorktreeContext {
@@ -920,7 +920,7 @@ message BackgroundActivity {
   string workdir = 7 [(buf.validate.field).string.min_len = 1];
   optional string log_path = 8 [(buf.validate.field).string.min_len = 1];
   optional string preview = 9 [(buf.validate.field).string.min_len = 1];
-  optional int32 exit_code = 10;
+  optional int64 exit_code = 10;
   bool user_requested_kill = 11;
   bool notice_suppressed = 12;
   optional Diagnostic diagnostic = 13;

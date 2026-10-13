@@ -229,8 +229,8 @@ func runSecondClientLiveControlsActiveRun(
 		t.Fatalf("timed out waiting for RunPrompt to finish after %d model requests", count)
 	}
 	resp := <-runResult
-	if resp.Result != wantCurrentResult {
-		t.Fatalf("RunPrompt result = %q, want %q", resp.Result, wantCurrentResult)
+	if resp.GetFinalAnswer() != wantCurrentResult {
+		t.Fatalf("RunPrompt result = %q, want %q", resp.GetFinalAnswer(), wantCurrentResult)
 	}
 	select {
 	case waitErr := <-waitDone:

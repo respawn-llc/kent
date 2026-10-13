@@ -22,6 +22,7 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
 	"core/prompts"
+	"core/server/attentionnotify"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
@@ -1010,6 +1011,9 @@ func (f *currentNodeRunnerFixture) runHeadlessOrdinaryContinuation(
 	definition.Endpoint = textutil.Value(provider.URL())
 	f.cfg.Settings.Connections[(*f.cfg.Settings.Connection)[0]] = definition
 	f.cfg.Settings = testsetup.WriteProviderSettings(t, f.cfg.PersistenceRoot, f.cfg.Settings)
+	f.runtimes.WithAttentionNotifications(attentionnotify.NewBroker(), testsetup.SessionNavigationBinding)
+	liveRunObserver := runtimecontrol.NewService(f.authority, f.metadata).
+		WithLiveWatchPromptSources(f.runtimes, f.runtimes)
 	headless := runprompt.NewInProcessRunPromptClient(runprompt.HeadlessBootstrap{
 		Metadata: f.metadata,
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
@@ -1022,6 +1026,7 @@ func (f *currentNodeRunnerFixture) runHeadlessOrdinaryContinuation(
 		}, sessionlaunch.ChatSettingsOwner{}, nil),
 		PromptHistory:    f.metadata,
 		RuntimeAuthority: f.authority,
+		LiveRunObserver:  liveRunObserver,
 	})
 	response, err := headless.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(sessionID),
@@ -1033,7 +1038,7 @@ func (f *currentNodeRunnerFixture) runHeadlessOrdinaryContinuation(
 	if response == nil {
 		t.Fatal("headless ordinary continuation returned no response")
 	}
-	return response.Result, provider.ScriptedRequestCount()
+	return response.GetFinalAnswer(), provider.ScriptedRequestCount()
 }
 
 func (f *currentNodeRunnerFixture) waitForPendingApproval(t *testing.T, taskID workflow.TaskID) workflow.PendingApproval {

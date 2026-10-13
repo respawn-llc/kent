@@ -116,6 +116,10 @@ func (e *configuredServerPreflightError) Unwrap() error {
 }
 
 func newConfiguredServerPreflightError(cfg config.Connection, operation string, cause error) error {
+	var unavailable *client.ServerUnavailableError
+	if errors.As(cause, &unavailable) {
+		return cause
+	}
 	return &configuredServerPreflightError{
 		endpoint:  cfg.RPCURL(),
 		operation: operation,

@@ -32,7 +32,7 @@ type supervisorTurnHarness struct {
 	prompts   authorityPromptFeed
 }
 
-func newSupervisorTurnHarness(t *testing.T) *supervisorTurnHarness {
+func newSupervisorTurnHarness(t *testing.T, additionalTools ...toolspec.ID) *supervisorTurnHarness {
 	t.Helper()
 	fixture := newSessionRuntimeFixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -62,10 +62,16 @@ func newSupervisorTurnHarness(t *testing.T) *supervisorTurnHarness {
 	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = "all"
+	projectID, err := fixture.metadata.ResolveSessionProjectID(t.Context(), h.sessionID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	filesystem := runtimeTestFilesystemContext(t, fixture.config.WorkspaceRoot)
+	filesystem.Access.ProjectID = projectID
 	plan, err := NewAgentRuntimePlan(AgentRuntimePlanOptions{
 		Settings: settings, Client: model(h.main),
-		EnabledTools:      []toolspec.ID{toolspec.ToolAskQuestion},
-		MainWorkspaceRoot: fixture.config.WorkspaceRoot, FilesystemContext: runtimeTestFilesystemContext(t, fixture.config.WorkspaceRoot),
+		EnabledTools:      append([]toolspec.ID{toolspec.ToolAskQuestion}, additionalTools...),
+		MainWorkspaceRoot: fixture.config.WorkspaceRoot, FilesystemContext: filesystem,
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		ProviderCapabilitiesOverride: &llm.ProviderCapabilities{
@@ -79,9 +85,10 @@ func newSupervisorTurnHarness(t *testing.T) *supervisorTurnHarness {
 		t.Fatal(err)
 	}
 	h.authority = NewAuthority(AuthorityOptions{
-		PersistenceRoot: fixture.config.PersistenceRoot,
-		StoreOptions:    fixture.metadata.AuthoritativeSessionStoreOptions(),
-		PromptFeed:      h.prompts,
+		PersistenceRoot:     fixture.config.PersistenceRoot,
+		WorkspaceMembership: fixture.metadata,
+		StoreOptions:        fixture.metadata.AuthoritativeSessionStoreOptions(),
+		PromptFeed:          h.prompts,
 	})
 	t.Cleanup(func() {
 		cancel()

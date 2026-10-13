@@ -66,10 +66,7 @@ func ToolPresentationToProto(meta *transcript.ToolCallMeta) (*transcriptpb.ToolP
 		out.RecommendedOptionIndex = &index
 	}
 	if normalized.ShellExitCode != nil {
-		code, err := protoapi.Int32(*normalized.ShellExitCode, "tool shell exit code")
-		if err != nil {
-			return nil, err
-		}
+		code := int64(*normalized.ShellExitCode)
 		out.ShellExitCode = &code
 	}
 	if hint := normalized.RenderHint; hint != nil {

@@ -661,7 +661,10 @@ func (s *defaultStepExecutor) prepareCompletedResponse(ctx context.Context, step
 	assistantMsg.ToolCalls = acceptedCalls.toolCalls()
 	phaseTurn.Assistant = assistantMsg
 
-	finalAnswerWithToolCalls := messagePhaseIs(assistantMsg, llm.MessagePhaseFinal) &&
+	// Without a phase protocol, an answer with only completed hosted work is
+	// already final. Hosted observations do not require a model continuation.
+	finalAnswerWithToolCalls := (messagePhaseIs(assistantMsg, llm.MessagePhaseFinal) ||
+		(!phaseTurn.EnforcePhaseProtocol && phaseTurn.EffectivePhase.IsAbsent() && len(acceptedCalls.local) == 0)) &&
 		assistantMsg.Content != nil &&
 		strings.TrimSpace(*assistantMsg.Content) != "" &&
 		acceptedCalls.hasCalls()

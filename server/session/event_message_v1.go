@@ -61,6 +61,7 @@ type MessageToolCallRecord struct {
 	Presentation json.RawMessage `json:"presentation,omitempty"`
 	Input        json.RawMessage `json:"input"`
 	CustomInput  *string         `json:"custom_input,omitempty"`
+	ProviderItem json.RawMessage `json:"provider_item,omitempty"`
 }
 
 type MessageReasoningRecord struct {
@@ -261,6 +262,12 @@ func normalizeMessageToolCallRecord(call MessageToolCallRecord) (MessageToolCall
 		return MessageToolCallRecord{}, err
 	}
 	call.Input = append(json.RawMessage(nil), call.Input...)
+	if len(call.ProviderItem) > 0 {
+		if err := validateJSONValue("provider item", call.ProviderItem); err != nil {
+			return MessageToolCallRecord{}, err
+		}
+		call.ProviderItem = append(json.RawMessage(nil), call.ProviderItem...)
+	}
 	if len(call.Presentation) > 0 {
 		if err := validateJSONValue("presentation", call.Presentation); err != nil {
 			return MessageToolCallRecord{}, err

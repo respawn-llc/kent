@@ -20,7 +20,7 @@ The private `config.local.toml` is read from the main workspace when using workt
 
 **Connection discovery is an exception** - for provider connection declarations, Kent reads global configuration to keep provider access private to that installation. See [Authentication and connections](../authentication/).
 
-Grok connections have provider-specific model, thinking, and context defaults described in [Grok models and subscription routes](../authentication/#grok-models-and-subscription-routes). Explicit settings take precedence over those defaults.
+See [Grok support](../authentication/#grok-support) for subscription routes and sign-in diagnostics.
 
 The default and session-producing roles accept a connection name or an array of equivalent connection names. See [connection sets](../authentication/#share-work-across-equivalent-connections) for assignment, saved-session behavior, and the supervisor's single-name override.
 
@@ -32,12 +32,6 @@ The default and session-producing roles accept a connection name or an array of 
 - Private settings live at `<main-workspace-root>/.kent/config.local.toml`. The file is optional and accepts workspace-allowed settings. Keep personal overrides uncommitted using your own Git ignore configuration. Kent leaves Git rules untouched and reads this file from the main workspace instead of copying it into worktrees.
 - Global settings live at: `~/.kent/config.toml`, and this location (along with all other data storage) is overridable via `--persistence-root`. The flag also relocates the root's model-visible global context — global `AGENTS.md`, the global system-prompt file, global skills, and generated assets.
   `kent service` is also root-aware. Each `--persistence-root` install bakes the root into the registration. The OS holds a single service, so install with the root you want managed.
-
-## Model defaults
-
-Kent defaults to GPT-6.1 Sol. The built-in `fast` role uses GPT-6 Luna on first-party OpenAI connections. With Supervisor enabled, the Defaults option uses GPT-6 Luna on first-party OpenAI connections and the primary model on other providers. Custom setup pre-fills Supervisor with the selected primary model. GPT-6 models default to a 272,000-token context window. During setup, the large-context option selects 872,000 tokens for ChatGPT subscriptions or 1,050,000 tokens for the OpenAI API. Requests above 272,000 input tokens have higher [OpenAI API rates](https://developers.openai.com/api/docs/pricing).
-
-GPT-6 Sol and Luna support `thinking_level = "none"` to disable thinking.
 
 ## Example
 

@@ -35,11 +35,15 @@ var ErrGatewayDependenciesRequired = errors.New("gateway dependencies are requir
 const canceledByClientMessage = "request canceled by client"
 
 type Gateway struct {
-	deps              GatewayDependencies
-	identity          protocol.ServerIdentity
-	registration      gatewayRegistration
-	sessionReattachMu sync.Mutex
-	sessionReattach   *sessionReattachAuthority
+	deps                  GatewayDependencies
+	identity              protocol.ServerIdentity
+	registration          gatewayRegistration
+	sessionReattachMu     sync.Mutex
+	sessionReattach       *sessionReattachAuthority
+	connectionLifecycle   context.Context
+	closeConnections      context.CancelFunc
+	connectionLifecycleMu sync.Mutex
+	connections           sync.WaitGroup
 }
 
 type GatewayDependencies interface {
@@ -176,11 +180,23 @@ func NewGateway(deps GatewayDependencies, identity protocol.ServerIdentity) (*Ga
 	if err := registration.Validate(); err != nil {
 		return nil, fmt.Errorf("validate Gateway registration: %w", err)
 	}
+	connectionLifecycle, closeConnections := context.WithCancel(context.Background())
 	return &Gateway{
-		deps:         deps,
-		identity:     identity,
-		registration: registration,
+		deps:                deps,
+		identity:            identity,
+		registration:        registration,
+		connectionLifecycle: connectionLifecycle,
+		closeConnections:    closeConnections,
 	}, nil
+}
+
+// Close disconnects clients and drains their handlers before server resources
+// are released. HTTP shutdown alone does not wait for upgraded WebSockets.
+func (g *Gateway) Close() {
+	g.connectionLifecycleMu.Lock()
+	g.closeConnections()
+	g.connectionLifecycleMu.Unlock()
+	g.connections.Wait()
 }
 
 func (g *Gateway) sessionReattachAuthority() (*sessionReattachAuthority, error) {
@@ -232,6 +248,16 @@ func (g *Gateway) ViewedImageHandler() http.Handler {
 }
 
 func (g *Gateway) handleConn(ctx context.Context, conn rpcwire.Conn) {
+	g.connectionLifecycleMu.Lock()
+	if g.connectionLifecycle.Err() != nil {
+		g.connectionLifecycleMu.Unlock()
+		_ = conn.Close()
+		return
+	}
+	g.connections.Add(1)
+	g.connectionLifecycleMu.Unlock()
+	defer g.connections.Done()
+
 	connCtx, cancel := context.WithCancel(ctx)
 	var stopOnce sync.Once
 	stop := func() {
@@ -240,6 +266,8 @@ func (g *Gateway) handleConn(ctx context.Context, conn rpcwire.Conn) {
 			_ = conn.Close()
 		})
 	}
+	stopShutdown := context.AfterFunc(g.connectionLifecycle, stop)
+	defer stopShutdown()
 	go func() {
 		select {
 		case <-ctx.Done():

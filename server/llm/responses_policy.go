@@ -20,9 +20,12 @@ type responsesPolicy interface {
 	prepareDispatch(string, string, *CodexDispatchContext, *responses.ResponseNewParamsServiceTier, ProviderVariantContract) (*codexDispatchProjection, error)
 	reasoningDelta(ReasoningEntry) ReasoningSummaryDelta
 	reasoningEntries([]ReasoningEntry) []ReasoningEntry
+	isHostedCustomToolCall(string) bool
 }
 
 type openAIResponsesPolicy struct{}
+
+func (openAIResponsesPolicy) isHostedCustomToolCall(string) bool { return false }
 
 func (openAIResponsesPolicy) usage(raw responses.ResponseUsage, window int) (Usage, error) {
 	usage := usageFromSDK(raw, window)

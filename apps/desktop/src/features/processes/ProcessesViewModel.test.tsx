@@ -67,6 +67,38 @@ it("replaces all content in server order, including removal of previous rows", a
   expect(view.transport.descriptorCalls).toHaveLength(0);
 });
 
+it("advances elapsed time locally without another process observation and stops after disposal", async () => {
+  const view = setup();
+  await waitFor(() => {
+    expect(view.transport.descriptorSubscriptions).toHaveLength(1);
+  });
+  vi.useFakeTimers();
+  try {
+    await act(async () => {
+      view.observation.publish("a");
+    });
+    const initial = view.result.current.state;
+    if (initial.kind !== "ready") throw new Error("Expected running process.");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    const current = view.result.current.state;
+    expect(current.kind).toBe("ready");
+    if (current.kind !== "ready") throw new Error("Expected running process.");
+    expect(current.observationTime - initial.observationTime).toBeGreaterThanOrEqual(1_000);
+    expect(current.processes).toBe(initial.processes);
+    expect(view.transport.descriptorSubscriptionStarts).toHaveLength(1);
+    expect(view.transport.descriptorCalls).toHaveLength(0);
+    view.unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(view.transport.descriptorSubscriptions).toHaveLength(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("hides cached content on failure and retries only on an explicit action with fresh loading", async () => {
   const view = setup();
   await waitFor(() => {

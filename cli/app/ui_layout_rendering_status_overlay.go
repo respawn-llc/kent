@@ -2,6 +2,7 @@ package app
 
 import (
 	"core/cli/app/internal/status"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	sharedtheme "core/shared/theme"
 	"fmt"
 	"strings"
@@ -172,7 +173,7 @@ func (l uiViewLayout) statusOverlayContentLines(width int) []string {
 			appendWrapped("Loading account...", subtleStyle)
 		}
 		if subscriptionSummary != "" {
-			if strings.TrimSpace(snapshot.Subscription.Error) != "" {
+			if strings.TrimSpace(snapshot.Subscription.Error) != "" || snapshot.Subscription.FailureClassification != nil {
 				appendWrapped(subscriptionSummary, warningStyle)
 			} else {
 				appendWrapped(subscriptionSummary, boldStyle)
@@ -181,7 +182,7 @@ func (l uiViewLayout) statusOverlayContentLines(width int) []string {
 		if hasSubscriptionRows {
 			labelWidth := statusSubscriptionLabelWidth(snapshot.Subscription.Windows)
 			for _, window := range snapshot.Subscription.Windows {
-				appendANSI(l.renderStatusSubscriptionLine(width, window, labelWidth))
+				appendANSI(l.renderStatusSubscriptionLine(width, window, labelWidth, snapshot.Subscription.QuotaSource))
 			}
 		} else if subscriptionSummary != "" && l.statusSectionLoading(uiStatusSectionAuth) {
 			appendWrapped("Loading limits...", subtleStyle)
@@ -259,7 +260,12 @@ func (l uiViewLayout) statusSectionLoading(section uiStatusSection) bool {
 	return l.model.status.pendingSections != nil && l.model.status.pendingSections[section]
 }
 
-func (l uiViewLayout) renderStatusSubscriptionLine(width int, window uiStatusSubscriptionWindow, labelWidth int) string {
+func (l uiViewLayout) renderStatusSubscriptionLine(
+	width int,
+	window uiStatusSubscriptionWindow,
+	labelWidth int,
+	quotaSource *authpb.SubscriptionQuotaSource,
+) string {
 	palette := uiPalette(l.model.theme)
 	remaining := statusSubscriptionRemaining(window.UsedPercent)
 	label := strings.TrimSpace(window.Label)
@@ -282,7 +288,12 @@ func (l uiViewLayout) renderStatusSubscriptionLine(width int, window uiStatusSub
 		metaStyled = lipgloss.NewStyle().Foreground(palette.muted).Faint(true).Render("• " + metaText)
 	}
 	barWidth := statusSubscriptionBarWidthForLine(width, paddedLabel, fmt.Sprintf("%.0f%% left", remaining), metaText)
-	bar := l.statusSubscriptionBar(barWidth, remaining)
+	bar := ""
+	if quotaSource != nil && *quotaSource == authpb.SubscriptionQuotaSource_SUBSCRIPTION_QUOTA_SOURCE_GROK {
+		bar = l.statusGrokSubscriptionBar(barWidth, window)
+	} else {
+		bar = l.statusSubscriptionBar(barWidth, remaining)
+	}
 	line := paddedLabel + " | " + bar + " | " + leftStyled
 	if metaStyled != "" {
 		line += " " + metaStyled
@@ -356,4 +367,18 @@ func (l uiViewLayout) statusSubscriptionBar(width int, remaining float64) string
 	)
 	bar.EmptyColor = sharedtheme.ResolvePalette(l.model.theme).Status.ContextEmpty.TrueColor
 	return bar.ViewAs(remaining / 100.0)
+}
+
+func (l uiViewLayout) statusGrokSubscriptionBar(width int, window uiStatusSubscriptionWindow) string {
+	segments := grokSubscriptionBarSegmentsForWindow(width, window)
+	palette := sharedtheme.ResolvePalette(l.model.theme)
+	buildStyle := lipgloss.NewStyle().Foreground(statusContextZone(l.model.theme, int(statusClampPercent(window.UsedPercent))).Lipgloss())
+	emptyStyle := lipgloss.NewStyle().Foreground(palette.Status.ContextEmpty.Lipgloss())
+	bar := buildStyle.Render(strings.Repeat("▮", segments.BuildOrTotalCells))
+	if segments.Stacked {
+		chatStyle := lipgloss.NewStyle().Foreground(palette.App.Secondary.Lipgloss())
+		bar += chatStyle.Render(strings.Repeat("▮", segments.ChatCells))
+	}
+	bar += emptyStyle.Render(strings.Repeat("▯", segments.EmptyCells))
+	return bar
 }

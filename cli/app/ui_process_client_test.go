@@ -128,7 +128,7 @@ func TestUIProcessClientProjectsManagerSnapshots(t *testing.T) {
 		return false
 	})
 
-	var projectedExitCode *int32
+	var projectedExitCode *int64
 	found := false
 	entries, err := client.ListProcesses(context.Background())
 	if err != nil {

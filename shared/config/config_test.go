@@ -47,6 +47,29 @@ model = "local-model"
 	}
 }
 
+func TestProviderConnectionImplicitSelection(t *testing.T) {
+	for _, count := range []int{0, 1, 2} {
+		settings := Settings{Connections: map[ConnectionID]ProviderConnection{}}
+		for _, id := range []ConnectionID{"first", "second"}[:count] {
+			settings.Connections[id] = ProviderConnection{Protocol: ConnectionChatGPT}
+		}
+		members, err := settings.ConnectionMembers()
+		if count == 1 {
+			if err != nil || !reflect.DeepEqual(members, []ConnectionID{"first"}) {
+				t.Fatalf("sole connection selection = %v, %v", members, err)
+			}
+		} else {
+			var referenceErr *ConnectionReferenceError
+			if !errors.As(err, &referenceErr) {
+				t.Fatalf("%d connections must require selection, got %v, %v", count, members, err)
+			}
+		}
+		if settings.Connection != nil {
+			t.Fatal("implicit selection must not rewrite configured selection")
+		}
+	}
+}
+
 func TestProviderConnectionSetDeclarationOrder(t *testing.T) {
 	_, _, app := loadConfigTestFileApp(t, `
 connection = ["account-a", "account-z", "account-a", "unknown"]

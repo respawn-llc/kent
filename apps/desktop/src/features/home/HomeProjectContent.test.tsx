@@ -177,7 +177,7 @@ it("renders the Task surface while selected Project metadata is pending", () => 
     isPending: true,
   };
 
-  render(<HomeProjectContent projectID="project-1" sessionsVisible={false} sidebarMode="shift" />);
+  render(<HomeProjectContent projectID="project-1" sidebarMode="shift" />);
 
   expect(
     screen.getByRole("grid", { name: appI18n.t("home.prototype.projectTasksGrid") }),
@@ -185,7 +185,7 @@ it("renders the Task surface while selected Project metadata is pending", () => 
 });
 
 it("restores Task-grid pixels after visiting another Project tab", () => {
-  render(<HomeProjectContent projectID="project-1" sessionsVisible sidebarMode="shift" />);
+  render(<HomeProjectContent projectID="project-1" sidebarMode="shift" />);
   const grid = screen.getByRole("grid", { name: appI18n.t("home.prototype.projectTasksGrid") });
   grid.scrollTop = 500;
   grid.scrollLeft = 0;
@@ -202,10 +202,10 @@ it("restores Task-grid pixels after visiting another Project tab", () => {
   expect(restoredGrid.scrollLeft).toBe(0);
 });
 
-it("renders Tasks directly when Desktop Sessions are unavailable", () => {
-  render(<HomeProjectContent projectID="project-1" sessionsVisible={false} sidebarMode="shift" />);
+it("offers Project tabs with Tasks selected initially", () => {
+  render(<HomeProjectContent projectID="project-1" sidebarMode="shift" />);
 
-  expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: appI18n.t("home.prototype.tasks") })).toBeInTheDocument();
   expect(
     screen.getByRole("grid", { name: appI18n.t("home.prototype.projectTasksGrid") }),
   ).toBeInTheDocument();
@@ -227,7 +227,7 @@ it.each([
     },
   ];
 
-  render(<HomeProjectContent projectID="project-1" sessionsVisible sidebarMode="shift" />);
+  render(<HomeProjectContent projectID="project-1" sidebarMode="shift" />);
   fireEvent.click(screen.getByRole("tab", { name: appI18n.t(`home.prototype.${tabLabel}`) }));
   fireEvent.click(await screen.findByRole("button", { name: sessionName }));
 
@@ -250,7 +250,7 @@ it("uses the Session ID as an unnamed row title and shows its supplied preview o
     updatedAt: 1,
   };
   fixture.sessions = [session];
-  render(<HomeProjectContent projectID="project-1" sessionsVisible sidebarMode="shift" />);
+  render(<HomeProjectContent projectID="project-1" sidebarMode="shift" />);
   fireEvent.click(screen.getByRole("tab", { name: appI18n.t("home.prototype.sessions") }));
   expect(await screen.findByRole("button", { name: "73" })).toBeVisible();
   expect(screen.getAllByText(session.firstPromptPreview)).toHaveLength(1);

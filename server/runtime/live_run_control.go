@@ -317,7 +317,7 @@ func (e *Engine) queueMessageForActiveRun(ctx context.Context, message llm.Messa
 	if e.liveRun.finishQueueItemPublication(queueItemID) {
 		e.failStoppedLiveRunQueueItems(map[runtimeids.QueueItemID]struct{}{queueItemID: {}})
 	} else {
-		e.scheduleQueuedUserInjectionsIfIdle()
+		e.scheduleQueuedUserInjections()
 	}
 	return item, true, nil
 }

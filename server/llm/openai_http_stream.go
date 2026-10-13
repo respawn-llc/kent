@@ -81,7 +81,7 @@ func (a *responseStreamAccumulator) Consume(evt responses.ResponseStreamEventUni
 		a.toolCalls.UpsertFromOutput(evt.Item)
 		a.reasoning.UpsertReasoningItem(evt.Item, evt.OutputIndex)
 		a.recordReasoningAccumulatorError()
-		a.passthrough.Upsert(evt.Item, evt.OutputIndex)
+		a.passthrough.Upsert(evt.Item, evt.OutputIndex, a.policy)
 	case "response.function_call_arguments.delta":
 		a.toolCalls.AppendArguments(evt.ItemID, evt.Delta)
 	case "response.function_call_arguments.done":
@@ -280,7 +280,7 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	}
 	finalPhase := streamPhase
 	finalProviderPhase := streamProviderPhase
-	finalCalls := a.toolCalls.ToToolCalls()
+	finalCalls := a.toolCalls.ToToolCalls(a.policy)
 	finalReasoning := a.reasoning.Entries()
 	finalReasoningItems := a.reasoning.Items()
 	finalOutputItems := mergePassthroughOutputItems(buildOutputItemsFromStream(finalText, finalTextPresent, finalPhase, finalCalls, finalReasoning, finalReasoningItems), a.passthrough.Items())
@@ -302,7 +302,7 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	if err != nil {
 		return ResponsesResponse{}, err
 	}
-	parsedItems, parsedText, parsedPhase, parsedProviderPhase, parsedCalls, parsedReasoning, parsedReasoningItems, err := parseOutputItems(a.completed.Output)
+	parsedItems, parsedText, parsedPhase, parsedProviderPhase, parsedCalls, parsedReasoning, parsedReasoningItems, err := parseOutputItems(a.completed.Output, a.policy)
 	if err != nil {
 		return ResponsesResponse{}, err
 	}
@@ -346,7 +346,7 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 		finalProviderPhase = parsedProviderPhase
 	}
 	a.toolCalls.Merge(parsedCalls)
-	finalCalls = a.toolCalls.ToToolCalls()
+	finalCalls = a.toolCalls.ToToolCalls(a.policy)
 	mergedReasoning, mergeErr := mergeReasoningEntries(parsedReasoning, finalReasoning)
 	if mergeErr != nil {
 		return ResponsesResponse{}, mergeErr
@@ -589,7 +589,7 @@ func (a *assistantMessageAccumulator) Upsert(item responses.ResponseOutputItemUn
 	if a == nil || item.Type != "message" {
 		return nil
 	}
-	parsedItems, _, _, providerPhase, _, _, _, err := parseOutputItems([]responses.ResponseOutputItemUnion{item})
+	parsedItems, _, _, providerPhase, _, _, _, err := parseOutputItems([]responses.ResponseOutputItemUnion{item}, openAIResponsesPolicy{})
 	if err != nil {
 		return err
 	}
@@ -874,7 +874,7 @@ func (a *toolCallAccumulator) Merge(calls []ToolCall) {
 	}
 }
 
-func (a *toolCallAccumulator) ToToolCalls() []ToolCall {
+func (a *toolCallAccumulator) ToToolCalls(policy responsesPolicy) []ToolCall {
 	out := make([]ToolCall, 0, len(a.order))
 	for _, key := range a.order {
 		state, ok := a.byKey[key]
@@ -882,6 +882,9 @@ func (a *toolCallAccumulator) ToToolCalls() []ToolCall {
 			continue
 		}
 		callID := textutil.FirstNonEmpty(strings.TrimSpace(state.CallID), key)
+		if state.IsCustom && policy.isHostedCustomToolCall(callID) {
+			continue
+		}
 		if callID == "" && strings.TrimSpace(state.Name) == "" {
 			continue
 		}
@@ -912,7 +915,7 @@ func buildOutputItemsFromStream(text *string, textPresent bool, phase MessagePha
 		}
 		if call.Custom {
 			items = append(items, ResponseItem{
-				Type: ResponseItemTypeCustomToolCall, ID: textutil.Value(callID),
+				Type:   ResponseItemTypeCustomToolCall,
 				CallID: textutil.Value(callID), Name: textutil.Value(call.Name),
 				CustomInput: textutil.Pointer(call.CustomInput),
 			})
@@ -973,7 +976,7 @@ func newPassthroughOutputAccumulator() *passthroughOutputAccumulator {
 	}
 }
 
-func (a *passthroughOutputAccumulator) Upsert(item responses.ResponseOutputItemUnion, outputIndex int64) {
+func (a *passthroughOutputAccumulator) Upsert(item responses.ResponseOutputItemUnion, outputIndex int64, policy responsesPolicy) {
 	if a == nil {
 		return
 	}
@@ -990,7 +993,7 @@ func (a *passthroughOutputAccumulator) Upsert(item responses.ResponseOutputItemU
 		a.byIndex[outputIndex] = checkpoint
 		return
 	}
-	if isKnownResponseOutputItemType(item.Type) {
+	if isKnownResponseOutputItemType(item.Type) && !(item.Type == "custom_tool_call" && policy.isHostedCustomToolCall(item.CallID)) {
 		return
 	}
 	raw := json.RawMessage(item.RawJSON())

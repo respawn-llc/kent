@@ -17,7 +17,7 @@ function buildDocsGlobPatterns() {
   const excludedLegacyMirroredFiles = `!content/docs/{${legacyMirroredFileNames.join(",")}}.md`;
 
   return [
-    "content/docs/**/*.md",
+    "content/docs/**/*.{md,mdx}",
     excludedLegacyMirroredFiles,
     ".generated/content/docs/**/*.md",
   ];

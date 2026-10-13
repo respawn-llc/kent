@@ -117,7 +117,7 @@ func (m *sessionPickerModel) renderPickerStatus() string {
 	projection := projectStartupPickerStatus(m.startupStatus)
 	if projection.Failure == nil && m.headerFactsErr != nil {
 		projection.Notice = startupPickerNotice{
-			Text: "Could not load settings. Press Enter to retry. " + m.headerFactsErr.Error(),
+			Text: "Could not load settings. " + m.headerFactsErr.Error(),
 			Kind: startupPickerNoticeError, Diagnostic: m.headerFactsErr,
 		}
 	}

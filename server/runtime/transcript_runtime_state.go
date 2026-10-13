@@ -560,6 +560,7 @@ func (s *transcriptRuntimeState) RecordStoredToolCompletion(completion storedToo
 		CallID:              completion.CallID,
 		Name:                toolspec.ID(completion.Name),
 		IsError:             completion.IsError,
+		ProviderItemOnly:    completion.ProviderItemOnly,
 		Output:              completion.Output,
 		Summary:             completion.Summary,
 		CondensedText:       completion.CondensedText,

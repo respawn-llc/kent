@@ -71,7 +71,7 @@ func TestQueuedInputBatchRemainsCommittedOnObserverFailure(t *testing.T) {
 		return snapshot.Meta.LastSequence > baselineSequence
 	}, observerErr)
 
-	if !engine.scheduleQueuedUserInjectionsIfIdle() {
+	if !engine.scheduleQueuedUserInjections() {
 		t.Fatal("accepted Steers did not schedule their model work")
 	}
 	waitEngineLifecycleTasks(t, engine)

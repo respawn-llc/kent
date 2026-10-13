@@ -20,19 +20,26 @@ import (
 	modelstub "core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
+	"core/server/attentionnotify"
 	"core/server/auth"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
+	"core/server/metadata/sqlitegen"
+	"core/server/registry"
 	"core/server/runtime"
+	"core/server/runtimecontrol"
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/server/sessionlaunch"
 	"core/server/sessionruntime"
+	askquestion "core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/apicontract"
+	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
@@ -191,19 +198,6 @@ func TestRunPromptProgressFromRuntimeEventPublishesUserVisibleEvents(t *testing.
 				CompactionFailed: &runpromptpb.ProgressFailure{Error: textutil.Value("provider rejected compaction")},
 			}},
 		},
-		{
-			name: "steering accepted",
-			event: runtime.Event{
-				Kind: runtime.EventQueuedUserMessageStatus,
-				QueuedUserMessageStatus: &runtime.QueuedUserMessageStatusEvent{
-					Status: runtime.QueuedUserMessageAccepted,
-					Text:   "use the safer migration",
-				},
-			},
-			want: &runpromptpb.ProgressEvent{Payload: &runpromptpb.ProgressEvent_SteeredMessage{
-				SteeredMessage: &runpromptpb.SteeredMessage{Content: "use the safer migration"},
-			}},
-		},
 	}
 
 	for _, test := range tests {
@@ -228,6 +222,13 @@ func TestRunPromptProgressFromRuntimeEventDropsOperationalSpam(t *testing.T) {
 			Kind: runtime.EventQueuedUserMessageStatus,
 			QueuedUserMessageStatus: &runtime.QueuedUserMessageStatusEvent{
 				Status: runtime.QueuedUserMessageSubmitted,
+			},
+		},
+		{
+			Kind: runtime.EventQueuedUserMessageStatus,
+			QueuedUserMessageStatus: &runtime.QueuedUserMessageStatusEvent{
+				Status: runtime.QueuedUserMessageAccepted,
+				Text:   "received Steering must not be echoed",
 			},
 		},
 	} {
@@ -307,6 +308,72 @@ func newTestHeadlessRuntimeAuthority(root string, authManager *auth.Manager, bac
 	})
 }
 
+func newObservedTestHeadlessRuntimeAuthority(
+	t *testing.T,
+	root string,
+	authManager *auth.Manager,
+	background *shelltool.Manager,
+	storeOptions ...session.StoreOption,
+) (*sessionruntime.Authority, *runtimecontrol.Service) {
+	observed := newObservedTestHeadlessRuntime(t, root, authManager, background, storeOptions...)
+	return observed.authority, observed.observer
+}
+
+type emptyRunPromptWorkspaceMembership struct{}
+
+func (emptyRunPromptWorkspaceMembership) FindContainingProjectWorkspace(
+	context.Context,
+	string,
+	string,
+) (*sqlitegen.Workspace, error) {
+	return nil, nil
+}
+
+type observedHeadlessTestRuntime struct {
+	authority         *sessionruntime.Authority
+	observer          *runtimecontrol.Service
+	initialPromptRead <-chan struct{}
+}
+
+func newObservedTestHeadlessRuntime(
+	t *testing.T,
+	root string,
+	authManager *auth.Manager,
+	background *shelltool.Manager,
+	storeOptions ...session.StoreOption,
+) observedHeadlessTestRuntime {
+	db := testsetup.OpenStore(t, root)
+	runtimeRegistry := registry.NewRuntimeRegistry(db).WithAttentionNotifications(
+		attentionnotify.NewBroker(),
+		testsetup.SessionNavigationBinding,
+	)
+	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
+		PersistenceRoot:     root,
+		AuthManager:         authManager,
+		Background:          background,
+		StoreOptions:        storeOptions,
+		WorkspaceMembership: emptyRunPromptWorkspaceMembership{},
+		ResourceLifecycle:   runtimeRegistry,
+		PromptFeed:          runtimeRegistry,
+		EventFeed: func(ref runtimeids.SessionResourceRef, event runtime.Event) {
+			if err := runtimeRegistry.PublishAuthorityRuntimeEvent(ref, event); err != nil {
+				panic(err)
+			}
+		},
+	})
+	pendingPrompts := &observedPendingPromptSource{
+		registry:    runtimeRegistry,
+		initialRead: make(chan struct{}),
+	}
+	observer := runtimecontrol.NewService(authority, db).
+		WithLiveWatchPromptSources(pendingPrompts, runtimeRegistry)
+	return observedHeadlessTestRuntime{
+		authority:         authority,
+		observer:          observer,
+		initialPromptRead: pendingPrompts.initialRead,
+	}
+}
+
 func TestHeadlessRuntimeUsesServerManagedWorktreeNamespace(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
@@ -371,12 +438,32 @@ func TestHeadlessRuntimeUsesServerManagedWorktreeNamespace(t *testing.T) {
 }
 
 type selectedRunPromptFixture struct {
-	store     *session.Store
-	authority *sessionruntime.Authority
-	client    apicontract.RunPromptService
+	store             *session.Store
+	authority         *sessionruntime.Authority
+	initialPromptRead <-chan struct{}
+	client            apicontract.RunPromptService
 }
 
-func newSelectedRunPromptFixture(t *testing.T, providerURL string, history promptHistoryStore) selectedRunPromptFixture {
+type observedPendingPromptSource struct {
+	registry    *registry.RuntimeRegistry
+	initialRead chan struct{}
+	once        sync.Once
+}
+
+func (s *observedPendingPromptSource) ListPendingPrompts(sessionID string) []registry.PendingPromptSnapshot {
+	prompts := s.registry.ListPendingPrompts(sessionID)
+	if len(prompts) == 0 {
+		s.once.Do(func() { close(s.initialRead) })
+	}
+	return prompts
+}
+
+func newSelectedRunPromptFixture(
+	t *testing.T,
+	providerURL string,
+	history promptHistoryStore,
+	enabledTools ...toolspec.ID,
+) selectedRunPromptFixture {
 	t.Helper()
 	root := t.TempDir()
 	workspace := t.TempDir()
@@ -390,25 +477,34 @@ func newSelectedRunPromptFixture(t *testing.T, providerURL string, history promp
 		t.Fatalf("EnsureDurable: %v", err)
 	}
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
+	observed := newObservedTestHeadlessRuntime(t, root, authManager, nil, persistence.Options()...)
 
+	if len(enabledTools) == 0 {
+		enabledTools = []toolspec.ID{toolspec.ToolAskQuestion}
+	}
+	enabled := make(map[toolspec.ID]bool, len(enabledTools))
+	for _, tool := range enabledTools {
+		enabled[tool] = true
+	}
 	cfg := config.App{
 		WorkspaceRoot:   store.Meta().WorkspaceRoot,
 		PersistenceRoot: root,
 		Settings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
 			Model:         "gpt-6-sol",
 			ThinkingLevel: "medium",
-			EnabledTools:  map[toolspec.ID]bool{toolspec.ToolAskQuestion: true},
+			EnabledTools:  enabled,
 			Shell:         config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}, providerURL)),
 	}
-	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
 	return selectedRunPromptFixture{
-		store:     store,
-		authority: authority,
+		store:             store,
+		authority:         observed.authority,
+		initialPromptRead: observed.initialPromptRead,
 		client: NewInProcessRunPromptClient(HeadlessBootstrap{
 			SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
-			RuntimeAuthority: authority,
+			RuntimeAuthority: observed.authority,
 			PromptHistory:    history,
+			LiveRunObserver:  observed.observer,
 		}),
 	}
 }
@@ -471,7 +567,7 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 			Shell:        config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}, provider.URL)),
 	}
-	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:            cfg,
@@ -484,6 +580,7 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 		}, sessionlaunch.ChatSettingsOwner{}, meta,
 		),
 		RuntimeAuthority: authority,
+		LiveRunObserver:  liveRunObserver,
 	})
 	sessionID := mustRunPromptSessionID(t, store.Meta().SessionID)
 	response, err := client.RunPrompt(ctx, requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
@@ -493,8 +590,8 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
-	if response.Result != "done" {
-		t.Fatalf("RunPrompt result = %q, want done", response.Result)
+	if response.GetFinalAnswer() != "done" {
+		t.Fatalf("RunPrompt result = %q, want done", response.GetFinalAnswer())
 	}
 	if data, err := os.ReadFile(target); err != nil || string(data) != "headless sibling\n" {
 		t.Fatalf("sibling patch data = %q, error = %v", data, err)
@@ -629,7 +726,7 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 	cfg.Settings.Worktrees = config.WorktreeSettings{BaseDir: managedBase}
 	cfg.Settings.ShellOutputMaxChars = 16_000
 	cfg.Settings.Shell.PostprocessingMode = config.ShellPostprocessingModeBuiltin
-	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:            cfg,
@@ -642,6 +739,7 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 		}, sessionlaunch.ChatSettingsOwner{}, meta,
 		),
 		RuntimeAuthority:       authority,
+		LiveRunObserver:        liveRunObserver,
 		PromptHistory:          meta,
 		Metadata:               meta,
 		ManagedWorktreeBaseDir: managedBase,
@@ -655,8 +753,8 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
-	if response.Result != "done" {
-		t.Fatalf("RunPrompt result = %q, want done", response.Result)
+	if response.GetFinalAnswer() != "done" {
+		t.Fatalf("RunPrompt result = %q, want done", response.GetFinalAnswer())
 	}
 	select {
 	case output := <-patchOutput:
@@ -1016,7 +1114,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 			AgentCallable: true,
 		},
 	}
-	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:            cfg,
@@ -1029,6 +1127,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 		}, sessionlaunch.ChatSettingsOwner{}, meta,
 		),
 		RuntimeAuthority: authority,
+		LiveRunObserver:  liveRunObserver,
 		PromptHistory:    meta,
 		Metadata:         meta,
 	})
@@ -1072,8 +1171,8 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
-	if response.Result != "workflow response" {
-		t.Fatalf("result = %q, want provider response", response.Result)
+	if response.GetFinalAnswer() != "workflow response" {
+		t.Fatalf("result = %q, want provider response", response.GetFinalAnswer())
 	}
 	if sessionStarted != 1 {
 		t.Fatalf("session_started events = %d, want 1", sessionStarted)
@@ -1135,8 +1234,8 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 			if err != nil {
 				t.Fatalf("RunPrompt: %v", err)
 			}
-			if response.Result != "workflow response" {
-				t.Fatalf("result = %q, want provider response", response.Result)
+			if response.GetFinalAnswer() != "workflow response" {
+				t.Fatalf("result = %q, want provider response", response.GetFinalAnswer())
 			}
 			child, err := session.OpenByID(root, response.SessionId, meta.AuthoritativeSessionStoreOptions()...)
 			if err != nil {
@@ -1211,10 +1310,11 @@ func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 	}
 	testsetup.WriteProviderSettings(t, root, cfg.Settings)
 	history := &recordingPromptHistoryStore{}
-	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
+		LiveRunObserver:  liveRunObserver,
 		PromptHistory:    history,
 	})
 
@@ -1232,8 +1332,8 @@ func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 	if response.SessionId != store.Meta().SessionID {
 		t.Fatalf("session id = %q, want %q", response.SessionId, store.Meta().SessionID)
 	}
-	if response.Result != "from persisted continuation" {
-		t.Fatalf("result = %q, want from persisted continuation", response.Result)
+	if response.GetFinalAnswer() != "from persisted continuation" {
+		t.Fatalf("result = %q, want from persisted continuation", response.GetFinalAnswer())
 	}
 	for _, progress := range progresses {
 		if progress.GetSessionStarted() != nil {
@@ -1247,7 +1347,7 @@ func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("replayed RunPrompt: %v", err)
 	}
-	if replayed.SessionId != response.SessionId || replayed.Result != response.Result || providerCalls.Load() != 2 {
+	if replayed.SessionId != response.SessionId || replayed.GetFinalAnswer() != response.GetFinalAnswer() || providerCalls.Load() != 2 {
 		t.Fatalf("repeated response=%+v provider calls=%d, want a second direct operation", replayed, providerCalls.Load())
 	}
 	if len(history.entries) != 2 {
@@ -1329,7 +1429,7 @@ func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
 			if got.err != nil {
 				t.Fatalf("RunPrompt error after prompt history release: %v", got.err)
 			}
-			if got.response.SessionId != fixture.store.Meta().SessionID || got.response.Result != "history delayed run" {
+			if got.response.SessionId != fixture.store.Meta().SessionID || got.response.GetFinalAnswer() != "history delayed run" {
 				t.Fatalf("RunPrompt response=%+v, want selected session and delayed result", got.response)
 			}
 		case <-time.After(10 * time.Second):
@@ -1485,7 +1585,7 @@ func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
 			if got.err != nil {
 				t.Fatalf("RunPrompt error after provider release: %v", got.err)
 			}
-			if got.response.SessionId != fixture.store.Meta().SessionID || got.response.Result != "unbounded run" {
+			if got.response.SessionId != fixture.store.Meta().SessionID || got.response.GetFinalAnswer() != "unbounded run" {
 				t.Fatalf("RunPrompt response=%+v, want selected session and unbounded result", got.response)
 			}
 		case <-time.After(10 * time.Second):
@@ -1522,67 +1622,266 @@ func TestInProcessRunPromptFailsBeforeProviderWhenPromptHistoryFails(t *testing.
 	}
 }
 
-func TestInProcessRunPromptPublishesCommentaryBeforeHeadlessAskFollowupFails(t *testing.T) {
+func TestInProcessRunPromptReturnsPendingQuestionAndExecutionContinues(t *testing.T) {
 	var calls atomic.Int32
-	var sawAskResult atomic.Bool
+	providerStarted := make(chan struct{})
+	releaseProvider := make(chan struct{})
+	continued := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch calls.Add(1) {
 		case 1:
+			close(providerStarted)
+			select {
+			case <-releaseProvider:
+			case <-r.Context().Done():
+				return
+			}
 			writeRunPromptAskQuestionResponse(w, "partial progress")
 		case 2:
 			defer r.Body.Close()
 			var payload map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-				t.Errorf("decode ask follow-up request: %v", err)
+				t.Errorf("decode Question follow-up request: %v", err)
 			}
 			if _, ok := findRunPromptFunctionCallOutput(payload); !ok {
-				t.Errorf("ask follow-up request has no function_call_output")
-			} else {
-				sawAskResult.Store(true)
+				t.Errorf("Question follow-up request has no function_call_output")
 			}
-			writeSSEJSON(w, map[string]any{
-				"type": "response.incomplete",
-				"response": map[string]any{
-					"incomplete_details": map[string]any{"reason": "max_output_tokens"},
-					"output":             []any{},
-				},
-			})
-			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			close(continued)
+			modelstub.WriteCompletedResponseStream(w, "resumed", 1, 1)
 		default:
 			t.Errorf("unexpected provider request %d", calls.Load())
-		}
-		if flusher, ok := w.(http.Flusher); ok {
-			flusher.Flush()
 		}
 	}))
 	defer server.Close()
 
 	fixture := newSelectedRunPromptFixture(t, server.URL, nil)
-	var progresses []*runpromptpb.ProgressEvent
-	response, err := fixture.client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
-		Intent: serverapi.OpenExistingSessionLaunchIntent(mustRunPromptSessionID(t, fixture.store.Meta().SessionID)),
-		Prompt: "ask before failing",
-	}), serverapi.RunPromptProgressFunc(func(progress *runpromptpb.ProgressEvent) {
-		progresses = append(progresses, progress)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = fixture.authority.Close(ctx)
+	})
+	responseCh := make(chan struct {
+		response *runpromptpb.Success
+		err      error
+	}, 1)
+	selectedSessionID := mustRunPromptSessionID(t, fixture.store.Meta().SessionID)
+	go func() {
+		response, err := fixture.client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+			Intent: serverapi.OpenExistingSessionLaunchIntent(selectedSessionID),
+			Prompt: "ask before continuing",
+		}), nil)
+		responseCh <- struct {
+			response *runpromptpb.Success
+			err      error
+		}{response, err}
+	}()
+	select {
+	case <-providerStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("provider request did not start")
+	}
+	select {
+	case <-fixture.initialPromptRead:
+	case <-time.After(3 * time.Second):
+		t.Fatal("launch observer did not perform its initial empty prompt read")
+	}
+	close(releaseProvider)
+	var response *runpromptpb.Success
+	select {
+	case result := <-responseCh:
+		if result.err != nil {
+			t.Fatalf("RunPrompt: %v", result.err)
+		}
+		response = result.response
+	case <-time.After(3 * time.Second):
+		t.Fatal("RunPrompt did not return while the Question was pending")
+	}
+	question := response.GetQuestion()
+	if response.SessionId != fixture.store.Meta().SessionID ||
+		question == nil ||
+		question.GetAsk() == nil ||
+		question.GetAsk().GetToolCallId() == "" {
+		t.Fatalf("RunPrompt response = %+v, want pending Question", response)
+	}
+	sessionID := mustRunPromptSessionID(t, response.SessionId)
+	stepID, err := runtimeids.ParseStepID(question.GetAsk().GetStepId())
+	if err != nil {
+		t.Fatalf("parse pending Question Step ID: %v", err)
+	}
+	before, active := fixture.authority.SessionExecution(sessionID)
+	if !active {
+		t.Fatal("execution stopped when the launch returned a pending Question")
+	}
+	_, err = fixture.authority.ResolvePromptBatch(context.Background(), sessionID, stepID, []sessionruntime.PromptAnswerCommand{{
+		ToolCallID: clientui.ToolCallID(question.GetAsk().GetToolCallId()),
+		Payload: sessionruntime.PromptQuestionAnswerCommand{Answer: askquestion.AskQuestionAnswer{
+			Freeform: textutil.Value("continue"),
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("answer pending Question through Session Runtime Authority: %v", err)
+	}
+	select {
+	case <-continued:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the same execution did not continue after answering the Question")
+	}
+	after, active := fixture.authority.SessionExecution(sessionID)
+	if !active || after != before {
+		t.Fatalf("execution after answer = %v active=%t, want the same active execution", after, active)
+	}
+	if _, err := before.Wait(context.Background()); err != nil {
+		t.Fatalf("continued execution: %v", err)
+	}
+}
+
+func TestInProcessRunPromptReturnsPendingApprovalAndExecutionContinues(t *testing.T) {
+	var calls atomic.Int32
+	providerStarted := make(chan struct{})
+	releaseProvider := make(chan struct{})
+	continued := make(chan struct{})
+	outside := testsetup.NonTemporaryDirectory(t, "kent-runprompt-outside-", askquestion.IsPathInTemporaryDir)
+	target := filepath.Join(outside, "approved.txt")
+	patchArgs, err := json.Marshal(map[string]any{"patch": strings.Join([]string{
+		"*** Begin Patch",
+		"*** Add File: " + target,
+		"+approved",
+		"*** End Patch",
+		"",
+	}, "\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch calls.Add(1) {
+		case 1:
+			close(providerStarted)
+			select {
+			case <-releaseProvider:
+			case <-r.Context().Done():
+				return
+			}
+			writeRunPromptFunctionCallResponse(w, "fc-approval", "call-approval", toolspec.ToolPatch, patchArgs)
+		case 2:
+			defer r.Body.Close()
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Errorf("decode Approval follow-up request: %v", err)
+			}
+			_, ok := findRunPromptFunctionCallOutput(payload)
+			if !ok {
+				t.Errorf("Approval follow-up request has no function_call_output")
+			}
+			close(continued)
+			modelstub.WriteCompletedResponseStream(w, "resumed", 1, 1)
+		default:
+			// The scenario verifies that the same execution resumes, not an exact model-turn count.
+			modelstub.WriteCompletedResponseStream(w, "resumed", 1, 1)
+		}
 	}))
-	if err == nil || !llm.IsNonRetriableModelError(err) {
-		t.Fatalf("RunPrompt error = %v, want non-retriable provider failure", err)
+	defer server.Close()
+
+	fixture := newSelectedRunPromptFixture(t, server.URL, nil, toolspec.ToolPatch)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = fixture.authority.Close(ctx)
+	})
+	responseCh := make(chan struct {
+		response *runpromptpb.Success
+		err      error
+	}, 1)
+	selectedSessionID := mustRunPromptSessionID(t, fixture.store.Meta().SessionID)
+	go func() {
+		response, err := fixture.client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+			Intent: serverapi.OpenExistingSessionLaunchIntent(selectedSessionID),
+			Prompt: "write outside the workspace",
+		}), nil)
+		responseCh <- struct {
+			response *runpromptpb.Success
+			err      error
+		}{response, err}
+	}()
+	select {
+	case <-providerStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("provider request did not start")
 	}
-	if response.SessionId != fixture.store.Meta().SessionID || calls.Load() != 2 || !sawAskResult.Load() {
-		t.Fatalf("response=%+v calls=%d saw ask result=%t", response, calls.Load(), sawAskResult.Load())
+	select {
+	case <-fixture.initialPromptRead:
+	case <-time.After(3 * time.Second):
+		t.Fatal("launch observer did not perform its initial empty prompt read")
 	}
-	foundCommentary := false
-	for _, progress := range progresses {
-		if progress.GetAssistantMessage() != nil &&
-			progress.GetAssistantMessage().Phase == runpromptpb.MessagePhase_MESSAGE_PHASE_COMMENTARY &&
-			progress.GetAssistantMessage().Content == "partial progress" {
-			foundCommentary = true
+	close(releaseProvider)
+	var response *runpromptpb.Success
+	select {
+	case result := <-responseCh:
+		if result.err != nil {
+			t.Fatalf("RunPrompt: %v", result.err)
+		}
+		response = result.response
+	case <-time.After(3 * time.Second):
+		t.Fatal("RunPrompt did not return while the Approval was pending")
+	}
+	approval := response.GetQuestion().GetApproval()
+	if response.SessionId != fixture.store.Meta().SessionID ||
+		approval == nil ||
+		approval.GetToolCallId() == "" ||
+		len(approval.GetOptions()) != 3 ||
+		len(approval.GetAccessTargets()) != 1 {
+		t.Fatalf("RunPrompt response = %+v, want pending access Approval", response)
+	}
+	wantDecisions := []promptpb.ApprovalDecision{
+		promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE,
+		promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_SESSION,
+		promptpb.ApprovalDecision_APPROVAL_DECISION_DENY,
+	}
+	for i, option := range approval.GetOptions() {
+		if option.GetDecision() != wantDecisions[i] {
+			t.Fatalf("Approval option %d = %v, want %v", i, option.GetDecision(), wantDecisions[i])
 		}
 	}
-	sessionID := mustRunPromptSessionID(t, fixture.store.Meta().SessionID)
-	_, active := fixture.authority.SessionExecution(sessionID)
-	if !foundCommentary || active {
-		t.Fatalf("commentary found=%t runtime active=%t", foundCommentary, active)
+	if approval.GetAccessTargets()[0].GetRequestedPath() != target {
+		t.Fatalf("Approval access target = %+v, want requested path %q", approval.GetAccessTargets()[0], target)
+	}
+	if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("outside-workspace operation ran before approval, stat error = %v", err)
+	}
+	stepID, err := runtimeids.ParseStepID(approval.GetStepId())
+	if err != nil {
+		t.Fatalf("parse pending Approval Step ID: %v", err)
+	}
+	before, active := fixture.authority.SessionExecution(selectedSessionID)
+	if !active {
+		t.Fatal("execution stopped when the launch returned a pending Approval")
+	}
+	_, err = fixture.authority.ResolvePromptBatch(context.Background(), selectedSessionID, stepID, []sessionruntime.PromptAnswerCommand{{
+		ToolCallID: clientui.ToolCallID(approval.GetToolCallId()),
+		Payload: sessionruntime.PromptApprovalAnswerCommand{Answer: askquestion.AskQuestionApproval{
+			Decision: askquestion.AskQuestionApprovalDecisionAllowOnce,
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("answer pending Approval through Session Runtime Authority: %v", err)
+	}
+	select {
+	case <-continued:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the same execution did not continue after answering the Approval")
+	}
+	after, active := fixture.authority.SessionExecution(selectedSessionID)
+	if !active || after != before {
+		t.Fatalf("execution after answer = %v active=%t, want the same active execution", after, active)
+	}
+	if _, err := before.Wait(context.Background()); err != nil {
+		t.Fatalf("continued execution: %v", err)
+	}
+	output, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read approved operation output: %v", err)
+	}
+	if string(output) != "approved\n" {
+		t.Fatalf("approved operation output = %q, want file created by patch tool", output)
 	}
 }
 
@@ -1667,10 +1966,11 @@ func TestInProcessRunPromptClientUsesActiveShellPostprocessorWithSuppliedBackgro
 			},
 		}, server.URL)),
 	}
-	authority := newTestHeadlessRuntimeAuthority(root, authManager, background, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, background, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
+		LiveRunObserver:  liveRunObserver,
 	})
 
 	response, err := client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
@@ -1680,8 +1980,8 @@ func TestInProcessRunPromptClientUsesActiveShellPostprocessorWithSuppliedBackgro
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
-	if response.Result != "done" {
-		t.Fatalf("result = %q, want done", response.Result)
+	if response.GetFinalAnswer() != "done" {
+		t.Fatalf("result = %q, want done", response.GetFinalAnswer())
 	}
 	select {
 	case output := <-toolOutput:
@@ -1830,10 +2130,11 @@ func TestInProcessRunPromptClientRejectsSelectedSessionWithGoal(t *testing.T) {
 		Settings:        testsetup.WriteProviderSettings(t, root, config.Settings{Model: "gpt-6-sol"}),
 	}
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
-	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
+		LiveRunObserver:  liveRunObserver,
 	})
 
 	_, err = client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
@@ -1884,10 +2185,11 @@ func TestInProcessRunPromptClientUnregistersRuntimeAfterCompletion(t *testing.T)
 			Shell:         config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}, server.URL)),
 	}
-	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
+		LiveRunObserver:  liveRunObserver,
 	})
 
 	done := make(chan error, 1)
@@ -1964,10 +2266,11 @@ func TestHeadlessRunPromptOverridesRespectLockedModelContract(t *testing.T) {
 	cfg.Settings.Model = "base-model"
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, server.URL))
 	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolPatch: true}
-	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
+		LiveRunObserver:  liveRunObserver,
 	})
 
 	response, err := client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
@@ -1981,8 +2284,8 @@ func TestHeadlessRunPromptOverridesRespectLockedModelContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
-	if response.Result != "locked response" {
-		t.Fatalf("result = %q, want locked response", response.Result)
+	if response.GetFinalAnswer() != "locked response" {
+		t.Fatalf("result = %q, want locked response", response.GetFinalAnswer())
 	}
 	select {
 	case payload := <-requestBodies:

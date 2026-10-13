@@ -973,6 +973,27 @@ func TestGenerate_ParsesCustomPatchToolCall(t *testing.T) {
 	if len(resp.OutputItems) != 1 || resp.OutputItems[0].Type != ResponseItemTypeCustomToolCall || resp.OutputItems[0].CustomInput == nil || *resp.OutputItems[0].CustomInput != patchInput {
 		t.Fatalf("unexpected custom output item: %+v", resp.OutputItems)
 	}
+	if resp.OutputItems[0].ID == nil || *resp.OutputItems[0].ID != "ct_1" || resp.OutputItems[0].CallID == nil || *resp.OutputItems[0].CallID != "call_1" {
+		t.Fatalf("provider item and call identities were not preserved: %+v", resp.OutputItems[0])
+	}
+}
+
+func TestStreamFallbackCustomPatchToolCallDoesNotInventProviderItemID(t *testing.T) {
+	output := buildOutputItemsFromStream(nil, false, "", []ToolCall{{ID: "call_1", Name: "patch", Custom: true, CustomInput: textutil.Value("patch input")}}, nil, nil)
+	if len(output) != 1 || output[0].Type != ResponseItemTypeCustomToolCall {
+		t.Fatalf("missing custom tool call: %+v", output)
+	}
+	prepared := PrepareResponsesInputItems(output)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(prepared[0].Raw, &raw); err != nil {
+		t.Fatalf("decode prepared call: %v", err)
+	}
+	if _, hasID := raw["id"]; hasID {
+		t.Fatalf("stream fallback invented a provider item ID: %s", prepared[0].Raw)
+	}
+	if string(raw["call_id"]) != `"call_1"` {
+		t.Fatalf("stream fallback lost call_id: %s", prepared[0].Raw)
+	}
 }
 
 func TestToolCallAccumulatorMergesCompletedCustomInputWithoutJSONInput(t *testing.T) {
@@ -980,7 +1001,7 @@ func TestToolCallAccumulatorMergesCompletedCustomInputWithoutJSONInput(t *testin
 	accumulator.Merge([]ToolCall{{ID: "call-1", Name: "patch", Custom: true, CustomInput: textutil.Value("partial")}})
 	accumulator.Merge([]ToolCall{{ID: "call-1", Name: "patch", Custom: true, CustomInput: textutil.Value("complete")}})
 
-	calls := accumulator.ToToolCalls()
+	calls := accumulator.ToToolCalls(openAIResponsesPolicy{})
 	if len(calls) != 1 {
 		t.Fatalf("expected one call, got %+v", calls)
 	}

@@ -8,7 +8,6 @@ import { TaskDetailWindowRoute } from "@/features/task-detail";
 import { InvalidNativeDialogRoute } from "./InvalidNativeDialogRoute";
 import { taskDetailNativeDialogPath } from "./sidebarPopOut";
 import { useWindowChromeTitle, nativeChatRoutePath } from "@/app-facade";
-import { desktopChatEnabled } from "@/shared/feature-flags";
 import { NativeChatRoute } from "./NativeChatRoute";
 
 export const projectDeleteNativeDialogPath = "/native-dialog/project-delete";
@@ -39,22 +38,19 @@ export function createNativeDialogRoutes(rootRoute: RootRoute<Register>) {
     projectID: z.string().trim().min(1),
     sessionID: z.string().trim().min(1),
   });
-  const chatRoute = desktopChatEnabled
-    ? createRoute({
-        getParentRoute: () => rootRoute,
-        path: nativeChatRoutePath,
-        validateSearch: (search: Record<string, unknown>) => {
-          const parsed = chatSearchSchema.safeParse(search);
-          return {
-            chat: parsed.success ? { kind: "valid" as const, ...parsed.data } : { kind: "invalid" as const },
-          };
-        },
-        component: ChatNativeRoute,
-      })
-    : undefined;
+  const chatRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: nativeChatRoutePath,
+    validateSearch: (search: Record<string, unknown>) => {
+      const parsed = chatSearchSchema.safeParse(search);
+      return {
+        chat: parsed.success ? { kind: "valid" as const, ...parsed.data } : { kind: "invalid" as const },
+      };
+    },
+    component: ChatNativeRoute,
+  });
 
   function ChatNativeRoute() {
-    if (chatRoute === undefined) return <InvalidNativeDialogRoute />;
     const { chat } = chatRoute.useSearch();
     if (chat.kind === "invalid") return <InvalidNativeDialogRoute />;
     return <NativeChatRoute key={chat.sessionID} projectID={chat.projectID} sessionID={chat.sessionID} />;
@@ -126,6 +122,6 @@ export function createNativeDialogRoutes(rootRoute: RootRoute<Register>) {
     projectDeleteRoute,
     taskDeleteWindowRoute,
     taskDetailWindowRoute,
-    ...(chatRoute === undefined ? [] : [chatRoute]),
+    chatRoute,
   ] as const;
 }
