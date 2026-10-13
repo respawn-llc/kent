@@ -72,6 +72,15 @@ func TestProgramAltEnterInsertsNewline(t *testing.T) {
 	}
 }
 
+func TestProgramKittyShiftEnterInsertsNewline(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInput(model, "draft")
+	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[13;2u\x03", 1)
+	if got, want := testMainInput(result), "draft\n"; got != want {
+		t.Fatalf("input after Kitty Shift+Enter = %q, want %q", got, want)
+	}
+}
+
 func TestProgramXtermShiftEnterInsertsNewline(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	testSetMainInput(model, "draft")
@@ -194,6 +203,51 @@ func TestProgramEnhancedCtrlJInsertsNewline(t *testing.T) {
 	}
 }
 
+func TestProgramKittyAssociatedTextInsertsPlainRune(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInput(model, "draft")
+	result := runTerminalInputProgram(t, model, "\x1b[97;1;97u\x03")
+	if got, want := testMainInput(result), "drafta"; got != want {
+		t.Fatalf("input after Kitty text event = %q, want %q", got, want)
+	}
+}
+
+func TestProgramKittyAssociatedTextPreservesShiftedRune(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInput(model, "draft")
+	result := runTerminalInputProgram(t, model, "\x1b[97;2;65u\x03")
+	if got, want := testMainInput(result), "draftA"; got != want {
+		t.Fatalf("input after Kitty shifted text event = %q, want %q", got, want)
+	}
+}
+
+func TestProgramKittyAssociatedTextPreservesMultipleCodepoints(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInput(model, "draft")
+	result := runTerminalInputProgram(t, model, "\x1b[0;;97:769u\x03")
+	if got, want := testMainInput(result), "drafta\u0301"; got != want {
+		t.Fatalf("input after Kitty multi-codepoint text event = %q, want %q", got, want)
+	}
+}
+
+func TestProgramKittyKeyWithoutAssociatedTextDoesNotInventText(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInput(model, "draft")
+	result := runTerminalInputProgram(t, model, "\x1b[97;2u\x03")
+	if got, want := testMainInput(result), "draft"; got != want {
+		t.Fatalf("input after Kitty key event without associated text = %q, want %q", got, want)
+	}
+}
+
+func TestProgramKittyAssociatedTextPreservesSpace(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInput(model, "draft")
+	result := runTerminalInputProgram(t, model, "\x1b[32;1;32u\x03")
+	if got, want := testMainInput(result), "draft "; got != want {
+		t.Fatalf("input after Kitty Space text event = %q, want %q", got, want)
+	}
+}
+
 func TestProgramEnhancedCtrlJWithLockModifiersInsertsNewline(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -207,7 +261,7 @@ func TestProgramEnhancedCtrlJWithLockModifiersInsertsNewline(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			model := newProjectedStaticUIModel()
 			testSetMainInput(model, "draft")
-			result := runTerminalInputProgram(t, model, test.input+"\x03")
+			result := runTerminalInputProgram(t, model, test.input)
 			if got, want := testMainInput(result), "draft\n"; got != want {
 				t.Fatalf("input after enhanced Ctrl+J with lock modifiers = %q, want %q", got, want)
 			}
@@ -230,6 +284,33 @@ func TestProgramKeypadEnterSubmitsLikeEnter(t *testing.T) {
 	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[57414u\x03", 1)
 	if !result.isBusy() {
 		t.Fatal("keypad Enter did not start submission")
+	}
+}
+
+func TestProgramKittyPlainEnterSubmitsLikeEnter(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInput(model, "draft")
+	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[13;1u\x03", 1)
+	if !result.isBusy() {
+		t.Fatal("Kitty plain Enter did not start submission")
+	}
+}
+
+func TestProgramKittyPlainTabQueuesLikeTab(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInput(model, "draft")
+	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[9;1u\x03", 1)
+	if !result.isBusy() {
+		t.Fatal("Kitty plain Tab did not start submission")
+	}
+}
+
+func TestProgramKittyPlainBackspaceDeletesBackward(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	testSetMainInput(model, "draft")
+	result := runTerminalInputProgram(t, model, "\x1b[127;1u\x03")
+	if got, want := testMainInput(result), "draf"; got != want {
+		t.Fatalf("input after Kitty plain Backspace = %q, want %q", got, want)
 	}
 }
 

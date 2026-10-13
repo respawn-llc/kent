@@ -122,7 +122,7 @@ func (o *uiTerminalKeyboardReportingOwner) Close() error {
 func writeKittyKeyboardReporting(output io.Writer, enable bool) error {
 	sequence := xansi.PopKittyKeyboard(1)
 	if enable {
-		sequence = xansi.PushKittyKeyboard(xansi.KittyDisambiguateEscapeCodes)
+		sequence = xansi.PushKittyKeyboard(xansi.KittyReportAllKeysAsEscapeCodes | xansi.KittyReportAssociatedKeys)
 	}
 	n, err := io.WriteString(output, sequence)
 	if err != nil {
