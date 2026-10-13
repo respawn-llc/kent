@@ -10,9 +10,10 @@
 ## Editing Model
 
 - Movement: `Left`/`Right` by grapheme cluster; `Ctrl+Left`/`Ctrl+Right` and `Option+Left`/`Option+Right` by word; `Home`/`Ctrl+A` to line start; `End`/`Ctrl+E`/`Ctrl+End` to line end. At the typed terminal-input boundary, an Alt-modified single-rune `b`/`f` event is a compatibility encoding for previous-word/next-word movement rather than inserted text. `Up`/`Down` move across wrapped/multiline content when the cursor is not at a whole-buffer boundary (boundary behavior is prompt history, below).
-- Deletion: `Backspace`/`Ctrl+H` deletes backward; `Delete` deletes forward; `Ctrl+W` deletes the previous word.
+- Deletion: `Backspace`/`Ctrl+H` deletes backward; `Delete` deletes forward; `Ctrl+W` deletes the previous word. `Option+Backspace`/`Alt+Backspace` must delete the previous word using the same word boundaries as `Ctrl+W`.
 - Kill/yank: `Ctrl+K` kills to line end; `Ctrl+U` kills to line start (macOS: `Ctrl+U` deletes the current line); `Ctrl+Y` yanks the last killed text. One editor-local kill buffer.
-- `Shift+Enter` inserts a newline. Known Shift+Enter and Ctrl+Enter terminal encodings map to their canonical actions. `Ctrl+J` always inserts a newline.
+- `Shift+Enter` inserts a newline. `Alt+Enter` must insert a newline. Known Shift+Enter and Ctrl+Enter terminal encodings map to their canonical actions. `Ctrl+J` always inserts a newline.
+- If the terminal cannot report modified keys distinctly, Kent must keep ordinary input and existing shortcuts usable without a startup warning. Plain `Enter` must retain its existing action.
 - The input area grows with wrapped content. No other part of the TUI inserts content into the editor's rendered lines.
 
 ## Prompt History

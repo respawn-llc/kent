@@ -10,10 +10,11 @@ import (
 )
 
 type uiTerminalOutput struct {
-	mu               sync.Mutex
-	out              io.Writer
-	started          bool
-	readinessPending bool
+	mu                sync.Mutex
+	out               io.Writer
+	keyboardReporting *uiTerminalKeyboardReportingOwner
+	started           bool
+	readinessPending  bool
 }
 
 func newUITerminalOutput(out io.Writer) *uiTerminalOutput {
@@ -35,7 +36,13 @@ func (w *uiTerminalOutput) Write(payload []byte) (int, error) {
 		}
 		w.readinessPending = false
 	}
-	n, err := w.out.Write(payload)
+	var n int
+	var err error
+	if w.keyboardReporting == nil {
+		n, err = w.out.Write(payload)
+	} else {
+		n, err = w.keyboardReporting.writeLocked(w.out, payload)
+	}
 	if err == nil && n == len(payload) {
 		w.started = true
 	}

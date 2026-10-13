@@ -55,6 +55,10 @@ func runUILoop(request uiLoopRequest) (tea.Model, error) {
 }
 
 func terminalSupportsNativeProgress(output io.Writer) bool {
+	return terminalOutputIsTerminal(output)
+}
+
+func terminalOutputIsTerminal(output io.Writer) bool {
 	file, ok := output.(terminalCursorFile)
 	return ok && term.IsTerminal(int(file.Fd()))
 }
@@ -106,6 +110,11 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 	// Preserve terminal-file identity (Fd/Read/Close) so Bubble Tea can detect
 	// the real terminal and emit WindowSizeMsg.
 	terminalOutput := newUITerminalOutputFile(output)
+	keyboardReporting := newUITerminalKeyboardReportingOwner(
+		terminalOutput.uiTerminalOutput,
+		terminalOutputIsTerminal(output),
+	)
+	terminalOutput.keyboardReporting = keyboardReporting
 	terminalCapabilities := currentTerminalCapabilities()
 	ongoingSurface := ongoing.NewSurfaceWithOptions(
 		terminalOutput,
@@ -196,6 +205,7 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		}
 		return nil, errors.New("projected UI model has unexpected type")
 	}
+	model.keyboardReporting = keyboardReporting
 	if request.initialTransientStatus != nil {
 		model.startupCmds = append(model.startupCmds, model.showTransientStatusNotice(uiStatusNotice{
 			Text:     *request.initialTransientStatus,
@@ -225,6 +235,9 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		terminalOutput:        nativeProgressOutput,
 		nativeProgressEnabled: nativeProgressEnabled,
 		close: func() {
+			if err := keyboardReporting.Close(); err != nil && uiLogger != nil {
+				uiLogger.Logf("app.exit keyboard_reporting_reset_error=%q", err.Error())
+			}
 			model.Close()
 			if tuiLogger != nil {
 				_ = tuiLogger.Close()
