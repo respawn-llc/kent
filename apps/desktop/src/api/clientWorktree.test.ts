@@ -483,6 +483,23 @@ describe("Desktop Worktree client", () => {
     ).rejects.toThrow(ContractError);
   });
 
+  it("never submits creation for a decoded invalid target", async () => {
+    const resolution = await resolveTarget(
+      CreateTargetResolutionKind.WORKTREE_CREATE_TARGET_RESOLUTION_KIND_INVALID,
+      "Test WT",
+    );
+    const transport = new FakeRpcTransport([]);
+    await expect(
+      new ApiClient(transport, unexpectedProjectOverflow).createWorktree({
+        sessionID: "s",
+        setupOperationID: newSetupOperationID(),
+        resolution,
+        baseRef: null,
+      }),
+    ).rejects.toThrow(TypeError);
+    expect(transport.descriptorCalls).toHaveLength(0);
+  });
+
   it("rejects acknowledgement mismatches and maps every typed error family", async () => {
     const operation = await resolveSwitch(entry);
     vi.spyOn(crypto, "randomUUID").mockReturnValue(ids[0]);

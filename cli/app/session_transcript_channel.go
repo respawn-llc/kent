@@ -60,7 +60,7 @@ func startSessionTranscriptEvents(
 					if (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) && pollCtx.Err() != nil {
 						return
 					}
-					if runtimeattach.IsRuntimeTimeoutError(err) {
+					if runtimeattach.IsRuntimeTimeoutError(err) || errors.Is(err, serverapi.ErrRuntimeUnavailable) {
 						if waitForTranscriptSubscriptionRetry(pollCtx) {
 							continue
 						}

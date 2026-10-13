@@ -35,23 +35,28 @@ func (r *ConnectionResolver) Resolve(settings config.Settings) (ResolvedConnecti
 	if err != nil {
 		return ResolvedConnection{}, err
 	}
-	id := *settings.Connection
+	selected, err := settings.Connection.ConcreteID()
+	if err != nil {
+		return ResolvedConnection{}, err
+	}
+	id := *selected
 	return ResolvedConnection{ID: id, Definition: definition, Auth: connectionAuth{owner: r, id: id}}, nil
 }
 
-func (r *ConnectionResolver) resolveTarget(raw *string) (ResolvedConnection, error) {
+func (r *ConnectionResolver) resolveTarget(raw *string) (ResolvedConnection, config.Settings, error) {
 	app, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: r.root})
 	if err != nil {
-		return ResolvedConnection{}, err
+		return ResolvedConnection{}, config.Settings{}, err
 	}
 	if raw != nil {
 		id, err := config.ParseConnectionID(*raw)
 		if err != nil {
-			return ResolvedConnection{}, err
+			return ResolvedConnection{}, config.Settings{}, err
 		}
-		app.Settings.Connection = &id
+		app.Settings.Connection = config.SingleConnection(id)
 	}
-	return r.Resolve(app.Settings)
+	connection, err := r.Resolve(app.Settings)
+	return connection, app.Settings, err
 }
 
 func (r *ConnectionResolver) apiKey(id config.ConnectionID, name string) (string, error) {
@@ -64,17 +69,18 @@ func (r *ConnectionResolver) apiKey(id config.ConnectionID, name string) (string
 
 type connectionSnapshot struct {
 	connection ResolvedConnection
+	settings   config.Settings
 	oauth      *auth.OAuthMethod
 	failure    error
 	pending    *pendingConnection
 }
 
 func (r *ConnectionResolver) snapshot(ctx context.Context, raw *string) (connectionSnapshot, error) {
-	connection, err := r.resolveTarget(raw)
+	connection, settings, err := r.resolveTarget(raw)
 	if err != nil {
 		return connectionSnapshot{}, err
 	}
-	snapshot := connectionSnapshot{connection: connection}
+	snapshot := connectionSnapshot{connection: connection, settings: settings}
 	if connection.Definition.Protocol.IsSubscription() {
 		if r.manager == nil {
 			snapshot.failure = auth.ErrAuthNotConfigured

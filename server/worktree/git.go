@@ -17,17 +17,6 @@ import (
 
 var errGitTargetNotFound = errors.New("git target not found")
 
-// InvalidCreateTargetError reports that a requested create target is neither a
-// valid branch name nor a resolvable ref. It exposes the offending target so
-// callers can inspect it via errors.As instead of parsing message wording.
-type InvalidCreateTargetError struct {
-	Target string
-}
-
-func (e *InvalidCreateTargetError) Error() string {
-	return fmt.Sprintf("target %q is not a valid branch name or resolvable ref", e.Target)
-}
-
 type GitWorktree struct {
 	Root           string       `json:"-"`
 	HeadOID        string       `json:"head_oid,omitempty"`
@@ -175,6 +164,7 @@ const (
 	CreateTargetResolutionKindNewBranch      CreateTargetResolutionKind = "new_branch"
 	CreateTargetResolutionKindExistingBranch CreateTargetResolutionKind = "existing_branch"
 	CreateTargetResolutionKindDetachedRef    CreateTargetResolutionKind = "detached_ref"
+	CreateTargetResolutionKindInvalid        CreateTargetResolutionKind = "invalid"
 )
 
 type CreateTargetResolution struct {
@@ -944,7 +934,7 @@ func (i *GitInspector) ResolveCreateTarget(ctx context.Context, workspaceRoot st
 	if err != nil {
 		if refExit == 1 {
 			if !validBranchName {
-				return CreateTargetResolution{}, &InvalidCreateTargetError{Target: trimmedTarget}
+				return CreateTargetResolution{Input: trimmedTarget, Kind: CreateTargetResolutionKindInvalid}, nil
 			}
 			return CreateTargetResolution{Input: trimmedTarget, Kind: CreateTargetResolutionKindNewBranch}, nil
 		}

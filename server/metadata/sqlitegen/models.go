@@ -105,6 +105,11 @@ type MigrationWorkflowGraphEdge struct {
 	ParametersJson string
 }
 
+type PragmaTableList struct {
+	Name string
+	Type string
+}
+
 type Project struct {
 	ID                           string
 	DisplayName                  string

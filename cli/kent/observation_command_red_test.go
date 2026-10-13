@@ -81,6 +81,17 @@ func TestRunSteerAndStopRouteNumericSelectorsBeforePromptLaunch(t *testing.T) {
 	if steers != 3 || stops != 3 || prompts != 0 {
 		t.Fatalf("control routing: steer=%d stop=%d prompt=%d", steers, stops, prompts)
 	}
+	for _, selector := range []string{" 1 ", "\t1\n", "0", "0000", "-1", "+1", "9007199254740992", "9223372036854775808"} {
+		for _, verb := range []string{"steer", "stop"} {
+			args := []string{verb, selector}
+			if verb == "steer" {
+				args = append(args, "probe")
+			}
+			if code := runSubcommand(args); code == 0 || steers != 3 || stops != 3 || prompts != 0 {
+				t.Fatalf("invalid %s %q: exit=%d steer=%d stop=%d prompt=%d", verb, selector, code, steers, stops, prompts)
+			}
+		}
+	}
 	for _, args := range [][]string{{"steer", "the", "agent"}, {"stop", "the", "run"}, {"--", "steer", "123", "continue"}} {
 		if code := runSubcommand(args); code != 0 {
 			t.Fatalf("prompt %v exit = %d", args, code)
@@ -88,6 +99,9 @@ func TestRunSteerAndStopRouteNumericSelectorsBeforePromptLaunch(t *testing.T) {
 	}
 	if steers != 3 || stops != 3 || prompts != 3 {
 		t.Fatalf("prompt routing: steer=%d stop=%d prompt=%d", steers, stops, prompts)
+	}
+	if code := runSubcommand([]string{"--", "steer", " 0 ", "probe"}); code != 0 || prompts != 4 {
+		t.Fatalf("explicit numeric prompt escape: exit=%d prompts=%d", code, prompts)
 	}
 }
 

@@ -22,7 +22,6 @@ function mainStatus(
     case "goal_loop":
       return latest?.StepID === step.StepID ? { kind: "text", text: latest.Text } : { kind: "working" };
     case "compaction":
-    case "pre_submit_compaction":
       return { kind: "compacting" };
     case "user_shell":
     case "background":

@@ -7,6 +7,7 @@ import (
 	"core/prompts"
 	"core/server/llm"
 	"core/server/session"
+	"core/server/workflow"
 	"core/shared/textutil"
 )
 
@@ -39,9 +40,10 @@ func (e *Engine) setGenerationContext(generation generationContext) {
 }
 
 type compactionOutput struct {
-	summary              []llm.ResponseItem
-	preservedUserMessage *llm.Message
-	futureAgentMessage   *llm.Message
+	summary               []llm.ResponseItem
+	continuingCurrentNode *workflow.CurrentNodeReference
+	preservedUserMessage  *llm.Message
+	futureAgentMessage    *llm.Message
 }
 
 func (output compactionOutput) estimateTokens(estimator llm.TokenEstimator) int {
@@ -104,11 +106,18 @@ func (e *Engine) prepareRequestGenerationContext(ctx context.Context, stepID str
 	}
 	if e.workflowPromptActive() {
 		var committedErr error
-		trigger := workflowTaskPromptTriggerCompaction
-		if pending.replacement.Mode == string(session.CompactionModeWorkflowPostCompletion) {
-			trigger = workflowTaskPromptTriggerTaskDelivery
+		trigger := workflowTaskPromptTriggerTaskDelivery
+		if execution, active := e.currentNodeExecutionConfig(); active &&
+			pending.replacement.Output.continuingCurrentNode != nil &&
+			pending.replacement.Output.continuingCurrentNode.Equal(execution.Instructions.CurrentNode) {
+			trigger = workflowTaskPromptTriggerCompaction
 		}
 		err := e.currentNodeExecutionSnapshot().delivery.apply(trigger, func(trigger workflowTaskPromptTrigger) error {
+			if trigger == workflowTaskPromptTriggerResumeDelivery {
+				// Pending summaries without an exact unfinished-Node origin
+				// cannot inherit the prepared-generation Resume template.
+				trigger = workflowTaskPromptTriggerAssignmentDelivery
+			}
 			// A target assignment already committed after the summary keeps its
 			// original row; preparing base context must not deliver it again.
 			if workflowAssignmentIdentityFromItems(e.transcriptRuntimeState().SnapshotItems()) != nil {
@@ -228,6 +237,13 @@ func (e *Engine) installGenerationContext(record session.EventRecord, context se
 
 func compactionOutputFromRecord(record session.CompactedOutput) (compactionOutput, error) {
 	output := compactionOutput{}
+	if record.ContinuingCurrentNode != nil {
+		reference, err := record.ContinuingCurrentNode.Reference()
+		if err != nil {
+			return compactionOutput{}, err
+		}
+		output.continuingCurrentNode = &reference
+	}
 	for _, item := range record.Summary {
 		restored := llmResponseItemFromSessionHistory(item)
 		if err := llm.RestoreRetainedItemFacts(&restored); err != nil {
@@ -254,6 +270,12 @@ func compactionOutputFromRecord(record session.CompactedOutput) (compactionOutpu
 
 func compactedOutputRecord(output compactionOutput) (session.CompactedOutput, error) {
 	record := session.CompactedOutput{}
+	if node := output.continuingCurrentNode; node != nil {
+		record.ContinuingCurrentNode = &session.CompactionCurrentNode{TaskID: node.TaskID, NodeID: node.NodeID}
+		if branch, present := node.TransitionBranchKey(); present {
+			record.ContinuingCurrentNode.TransitionBranchKey = &branch
+		}
+	}
 	for index, item := range llm.PrepareResponsesInputItems(output.summary) {
 		stored, err := sessionProviderHistoryItemFromLLM(index, item)
 		if err != nil {

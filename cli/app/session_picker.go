@@ -275,13 +275,6 @@ func (m *sessionPickerModel) handleKey(key tea.KeyMsg) tea.Cmd {
 		if tab.bodyPhase == sessionPickerBodyFailed {
 			return m.startBodyRequest(m.activeTab, sessionPickerBodyRequestRetry)
 		}
-		if m.headerFactsErr != nil {
-			if m.headerFactsLoading {
-				return nil
-			}
-			m.headerFactsLoading = true
-			return tea.Batch(m.collectHeaderFactsCmd(), m.reconcileSpinnerTick())
-		}
 		switch selected := tab.selected.(type) {
 		case sessionPickerCreateSelection:
 			m.result = newSessionPickerCreateResult()

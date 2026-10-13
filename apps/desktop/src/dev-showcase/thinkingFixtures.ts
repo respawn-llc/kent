@@ -23,7 +23,6 @@ export const fixtureKindControls: readonly FixtureActiveKind[] = [
   "workflow_turn",
   "goal_loop",
   "compaction",
-  "pre_submit_compaction",
   "user_shell",
   "background",
   "runtime_maintenance",

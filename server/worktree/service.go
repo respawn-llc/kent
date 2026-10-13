@@ -1880,6 +1880,8 @@ func createTargetResolutionKind(kind CreateTargetResolutionKind) (worktreepb.Cre
 		return worktreepb.CreateTargetResolutionKind_WORKTREE_CREATE_TARGET_RESOLUTION_KIND_EXISTING_BRANCH, nil
 	case CreateTargetResolutionKindDetachedRef:
 		return worktreepb.CreateTargetResolutionKind_WORKTREE_CREATE_TARGET_RESOLUTION_KIND_DETACHED_REF, nil
+	case CreateTargetResolutionKindInvalid:
+		return worktreepb.CreateTargetResolutionKind_WORKTREE_CREATE_TARGET_RESOLUTION_KIND_INVALID, nil
 	default:
 		return worktreepb.CreateTargetResolutionKind_WORKTREE_CREATE_TARGET_RESOLUTION_KIND_UNSPECIFIED,
 			fmt.Errorf("worktree create target resolution kind %q is unsupported", kind)
@@ -2618,7 +2620,7 @@ func setupFailureFromError(err error, retained *worktreepb.TopologyEntry) *workt
 	case setupErr.ExitCode != nil:
 		failed.Cause = &worktreepb.SetupFailureCause{
 			Cause: &worktreepb.SetupFailureCause_ProcessExit{ProcessExit: &worktreepb.SetupProcessExit{
-				ExitCode: int32(*setupErr.ExitCode),
+				ExitCode: int64(*setupErr.ExitCode),
 				Stdout:   &stdout,
 				Stderr:   &stderr,
 			}},

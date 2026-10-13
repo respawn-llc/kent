@@ -4,7 +4,8 @@
 
 - Protobuf schemas are the sole editable authority for the Kent server API.
 - Generated Protobuf messages are the API-boundary contract for official Go and TypeScript clients.
-- Kent carries serialized Protobuf messages in typed binary WebSocket envelopes. It does not expose gRPC or Connect transport semantics.
+- Kent carries serialized Protobuf API messages in typed binary WebSocket envelopes. It does not expose gRPC or Connect transport semantics.
+- Viewed-image original bodies may use authenticated streaming HTTP delivery with the same Session access checks and protocol-version gating. Normal API messages must use their existing transport.
 - Kent's protocol version is the sole compatibility authority for API schema changes.
 - Every contract change must increment the protocol version.
 - Clients and servers must use the same protocol version.

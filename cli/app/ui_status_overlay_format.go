@@ -5,6 +5,7 @@ import (
 	"core/shared/runtimeids"
 	sharedtheme "core/shared/theme"
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"time"
@@ -33,6 +34,42 @@ func statusClampPercent(value float64) float64 {
 		return 100
 	}
 	return value
+}
+
+type grokSubscriptionBarSegments struct {
+	BuildOrTotalCells int
+	ChatCells         int
+	EmptyCells        int
+	Stacked           bool
+}
+
+func grokSubscriptionBarSegmentsForWindow(width int, window uiStatusSubscriptionWindow) grokSubscriptionBarSegments {
+	width = min(statusSubscriptionBarMaxWidth, max(4, width))
+	totalUsed := statusClampPercent(window.UsedPercent)
+	totalCells := int(math.Round(float64(width) * totalUsed / 100))
+	segments := grokSubscriptionBarSegments{
+		BuildOrTotalCells: totalCells,
+		EmptyCells:        width - totalCells,
+	}
+	contributions := window.GrokContributions
+	if contributions == nil || contributions.BuildUsedPercent == nil || contributions.ChatUsedPercent == nil {
+		return segments
+	}
+
+	buildUsed := statusClampPercent(*contributions.BuildUsedPercent)
+	chatUsed := statusClampPercent(*contributions.ChatUsedPercent)
+	if math.Abs(buildUsed+chatUsed-totalUsed) > 0.01 {
+		return segments
+	}
+
+	buildCells := int(math.Round(float64(width) * buildUsed / 100))
+	buildCells = min(totalCells, buildCells)
+	return grokSubscriptionBarSegments{
+		BuildOrTotalCells: buildCells,
+		ChatCells:         totalCells - buildCells,
+		EmptyCells:        width - totalCells,
+		Stacked:           true,
+	}
 }
 
 func statusSubscriptionBarWidth(width int) int {

@@ -25,6 +25,7 @@ import {
   ConnectionService,
   HandshakeResultSchema,
 } from "@app/server-api-contract/gen/kent/api/connection/connection_pb";
+import { ReadService as SessionReadService } from "@app/server-api-contract/gen/kent/api/session/session_pb";
 import {
   GetReadinessResultSchema,
   ServerNotReadyDetailsSchema,
@@ -221,6 +222,57 @@ describe("RpcWebSocketTransport", () => {
 
     await expect(answer).resolves.toMatchObject({ outcome: { case: "success", value: { questions: [] } } });
     expect(socket.readyState).toBe(MockWebSocket.CLOSED);
+  });
+
+  it("cancels a viewed-image source call and closes its dedicated Session socket", async () => {
+    const sessionID = "123e4567-e89b-42d3-a456-426614174000";
+    const transport = createRpcTransport("ws://127.0.0.1:53082/rpc");
+    const controller = new AbortController();
+    const source = createChatApi(transport).resolveViewedImageOriginalSource(
+      { sessionID, projectID: "project-1" },
+      "image.png",
+      controller.signal,
+    );
+    const sourceSettled = source.then(
+      () => undefined,
+      () => undefined,
+    );
+    const socket = sockets[0] ?? failTest("viewed-image source socket missing");
+
+    await socket.setup();
+    binaryAck(socket, 1, ConnectionService.method.attachSession, {
+      result: create(AttachSessionResultSchema, {
+        outcome: {
+          case: "success",
+          value: {
+            attachment: {
+              case: "session",
+              value: {
+                projectId: "project-1",
+                workspaceId: "workspace-1",
+                workspaceRoot: "/workspace",
+                sessionId: sessionID,
+                reattachCapability: "reattach-capability-1",
+              },
+            },
+          },
+        },
+      }),
+    });
+    await waitForSent(socket, 3);
+    expect(descriptorOperation(socket, 2)).toBe(
+      operationName(SessionReadService.method.resolveViewedImageOriginalSource),
+    );
+
+    controller.abort();
+    try {
+      await vi.waitFor(() => {
+        expect(socket.readyState).toBe(MockWebSocket.CLOSED);
+      });
+    } finally {
+      if (socket.readyState !== MockWebSocket.CLOSED) socket.close();
+    }
+    await sourceSettled;
   });
 
   it("does not send a Session-scoped call when Session attachment fails", async () => {

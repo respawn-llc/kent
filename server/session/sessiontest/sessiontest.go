@@ -171,6 +171,10 @@ func (*Persistence) ChatSettingsTaskIdentityForSession(
 	return nil, nil
 }
 
+func (*Persistence) SessionHasWorkflowTask(context.Context, string) (bool, error) {
+	return false, nil
+}
+
 func clonePersistedSessionRecord(record session.PersistedSessionRecord) session.PersistedSessionRecord {
 	record.Meta = cloneMeta(record.Meta)
 	record.ContextFacts = record.ContextFacts.Clone()

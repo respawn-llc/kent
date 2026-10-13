@@ -14,7 +14,7 @@ esac
 
 usage() {
 	cat <<'USAGE'
-Usage: just test [server|desktop|tui|rust] [--timeout SECONDS] [--workers COUNT] [--no-wall-clock-cap] [--inherit-env] [-- TOOL-ARGS...]
+Usage: just test [server|desktop|docs|tui|rust] [--timeout SECONDS] [--workers COUNT] [--no-wall-clock-cap] [--inherit-env] [-- TOOL-ARGS...]
 
 The timeout covers the complete command, including every selected test process.
 Bare `just test` runs server and desktop tests under one timeout.
@@ -30,7 +30,7 @@ tool_args=()
 
 while [ "$#" -gt 0 ]; do
 	case "$1" in
-	server | desktop | tui | rust)
+	server | desktop | docs | tui | rust)
 		[ "$target" = "default" ] || { echo "Select one test target" >&2; exit 2; }
 		target="$1"
 		shift
@@ -103,7 +103,7 @@ fi
 }
 
 case "$target" in
-default | desktop) just _node ;;
+default | desktop | docs) just _node ;;
 esac
 
 started="$SECONDS"
@@ -237,6 +237,10 @@ run_tui() {
 	run_suite tui go test -p "$workers" "${go_test_timeout_args[@]}" ./cli/tui/... "${tool_args[@]}"
 }
 
+run_docs() {
+	run_suite docs bun test docs/scripts docs/src "${tool_args[@]}"
+}
+
 run_rust() {
 	run_suite rust cargo test --manifest-path tui-rs/Cargo.toml --workspace --locked "${tool_args[@]}"
 }
@@ -248,6 +252,7 @@ default)
 	;;
 server) run_server ;;
 desktop) run_desktop ;;
+docs) run_docs ;;
 tui) run_tui ;;
 rust) run_rust ;;
 esac

@@ -18,6 +18,8 @@ const LabelFoldFunctionName = "kent_label_casefold_v1_fold"
 const LiteralOccurrenceCountFunctionName = "kent_task_search_occurrence_count_v1"
 const GraphEntityIDBlobFunctionName = "kent_graph_entity_id_blob_v1"
 const GraphEntityIDTextFunctionName = "kent_graph_entity_id_text_v1"
+const ConnectionPoolSize = 8
+const BusyTimeoutMilliseconds = 15000
 
 type RegistrationError struct {
 	ExtensionName string

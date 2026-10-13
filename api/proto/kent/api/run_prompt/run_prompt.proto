@@ -7,6 +7,7 @@ import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
 import "kent/api/auth/auth.proto";
 import "kent/api/chat_settings/chat_settings.proto";
+import "kent/api/prompt/prompt.proto";
 import "kent/api/server/server.proto";
 import "kent/api/session_launch/session_launch.proto";
 import "kent/api/session_launch/session_lifecycle.proto";
@@ -43,15 +44,19 @@ message Request {
 }
 
 message Success {
-  optional int64 short_id = 7 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
+  optional int64 short_id = 8 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [(buf.validate.field).string.min_len = 1];
   optional string session_name = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   google.protobuf.Duration duration = 3 [(buf.validate.field).required = true];
   repeated string warnings = 4;
-  string result = 5;
   repeated RunSelectionWarning selection_warnings = 6 [
     (buf.validate.field).repeated.items.enum = {defined_only: true not_in: [0]}
   ];
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    string final_answer = 5;
+    kent.api.prompt.ObservationQuestion question = 7;
+  }
 }
 
 message Error {
@@ -111,17 +116,6 @@ message AssistantMessage {
   string content = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
-message SteeredMessage {
-  string content = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.run_prompt.steered_message_nonblank"
-      message: "content must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
-}
-
 message ProgressFailure {
   optional string error = 1 [
     (buf.validate.field).string.min_len = 1,
@@ -138,7 +132,6 @@ message ProgressEvent {
     option (buf.validate.oneof).required = true;
     SessionStarted session_started = 1;
     AssistantMessage assistant_message = 2;
-    SteeredMessage steered_message = 3;
     google.protobuf.Empty compaction_started = 4;
     ProgressFailure compaction_failed = 5;
     ProgressFailure run_logging_failed = 6;

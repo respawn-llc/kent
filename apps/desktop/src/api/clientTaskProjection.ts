@@ -388,7 +388,11 @@ export function taskDetail(value: pb.TaskDetail | undefined): TaskDetail {
     dependencies: taskDependencies(value.dependencies),
     executionTarget: taskExecutionTarget(value.executionTarget),
     worktreePath: value.worktreePath ?? null,
-    currentNodes: value.currentNodes.map(taskCurrentNode),
+    currentNodes: value.currentNodes.map((node) => {
+      if (node.nodeDisplayName === undefined)
+        throw new ContractError("Task Detail Current Node display name is required.");
+      return { ...taskCurrentNode(node), displayName: node.nodeDisplayName };
+    }),
     liveSessions: value.liveSessions.map((session) => ({
       sessionID: session.sessionId,
       shortID: session.shortId ?? null,

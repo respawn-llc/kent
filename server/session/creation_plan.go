@@ -13,8 +13,8 @@ import (
 	"core/shared/textutil"
 )
 
-// CreationPlan grants artifact creation only for one newly allocated identity.
-// Opening an ordinary persisted Session never grants this capability.
+// CreationPlan grants artifact creation for a new or committed unstarted
+// identity. Opening an ordinary persisted Session never grants this capability.
 type CreationPlan struct {
 	descriptor SessionDescriptor
 	snapshot   PersistedStoreSnapshot
@@ -24,6 +24,58 @@ type CreationPlan struct {
 type cloneCreation struct {
 	source   SessionDescriptor
 	thinking ForkThinking
+}
+
+// ResumeCreation reconstructs an unstarted Session's creation capability from
+// its committed facts. Missing files alone never authorize recreating history.
+// An existing event log returns no plan and remains owned by ordinary opening.
+func ResumeCreation(record PersistedSessionRecord, thinking ForkThinking) (*CreationPlan, error) {
+	if record.Meta == nil {
+		return nil, errResolverRecordMissingMetadata
+	}
+	meta := record.Meta
+	if err := validatePersistedSessionRecord(meta.SessionID, record); err != nil {
+		return nil, err
+	}
+	if meta.LastSequence != 0 || meta.ConversationEstablished || meta.ModelRequestCount != 0 {
+		return nil, errors.New("cannot recreate an established Session")
+	}
+	if _, err := os.Lstat(filepath.Join(record.SessionDir, eventsFile)); err == nil {
+		return nil, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	id, err := runtimeids.ParseSessionID(meta.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	if meta.Category == nil {
+		return nil, errors.New("Session creation requires a category")
+	}
+	descriptor, err := NewCreateSessionDescriptor(id, filepath.Dir(record.SessionDir), meta.WorkspaceContainer, meta.WorkspaceRoot, *meta.Category)
+	if err != nil {
+		return nil, err
+	}
+	plan := CreationPlan{
+		descriptor: descriptor,
+		snapshot: PersistedStoreSnapshot{
+			SessionDir: record.SessionDir, Meta: cloneMeta(*meta), ContextFacts: record.ContextFacts.Clone(),
+		},
+	}
+	if meta.PreviousSessionID != nil {
+		if err := ValidateOriginalThinkingEffort(&thinking.Desired); err != nil {
+			return nil, err
+		}
+		source, err := NewScopedOpenSessionDescriptor(*meta.PreviousSessionID, filepath.Dir(record.SessionDir))
+		if err != nil {
+			return nil, err
+		}
+		if source.SessionID() == id {
+			return nil, errors.New("clone source and child identities must differ")
+		}
+		plan.clone = &cloneCreation{source: source, thinking: thinking}
+	}
+	return &plan, nil
 }
 
 // PrepareClone captures source identity and metadata without opening history.
@@ -54,11 +106,12 @@ func PrepareClone(descriptor SessionDescriptor, source PersistedSessionRecord, n
 	plan, err := PrepareCreation(CreationRequest{
 		Descriptor: descriptor, Source: CreationContextSourceFromMeta(*source.Meta),
 		SourceKind:     SessionCreationSourcePreviousSession,
-		ContextOptions: ChildContextOptions{LockedContract: InheritFullContract, InheritContinuation: true},
+		ContextOptions: ChildContextOptions{},
 	}, options...)
 	if err != nil {
 		return CreationPlan{}, err
 	}
+	plan.snapshot.Meta.ParentAgentSessionID = textutil.Pointer(source.Meta.ParentAgentSessionID)
 	plan.snapshot.Meta.Name, err = sessioncontract.NormalizeSessionName(name)
 	if err != nil {
 		return CreationPlan{}, err

@@ -52,10 +52,18 @@ function WorktreeDestinationContent({ destination, navigator }: Parameters<typeo
   const actions = useWorktreeActions(model);
   const switching = useAtomValue(model.requestPending);
   if (destination.page === "create")
-    return <WorktreeCreateForm sessionID={destination.sessionID} navigator={navigator} actions={model} />;
+    return (
+      <WorktreeCreateForm
+        sessionID={destination.sessionID}
+        openSession={destination.openSession}
+        navigator={navigator}
+        actions={model}
+      />
+    );
   return (
     <WorktreeBrowser
       sessionID={destination.sessionID}
+      onOpenSession={destination.openSession}
       navigator={navigator}
       switchPending={switching}
       refreshOpenWorktreeList={model.refreshOpenWorktreeList}

@@ -11,6 +11,7 @@ use std::sync::{
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
+mod clipboard;
 mod native_glass;
 
 const CONFIG_FILE_NAME: &str = "config.toml";
@@ -21,7 +22,6 @@ const DEFAULT_THEME: &str = "auto";
 const GUI_LOG_MAX_BYTES: u64 = 10 * 1024 * 1024;
 const GUI_LOG_RETAIN_BYTES: u64 = 5 * 1024 * 1024;
 const GUI_LOG_MAX_ENTRY_BYTES: usize = 64 * 1024;
-const IMAGE_MAX_READ_BYTES: u64 = 10 * 1024 * 1024;
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -173,31 +173,6 @@ fn resolve_regular_file(path: &str, base_path: &str) -> Result<PathBuf, String> 
         return Err("Path is not a file.".to_string());
     }
     Ok(resolved)
-}
-
-#[tauri::command]
-async fn read_image_original(
-    path: String,
-    base_path: Option<String>,
-) -> Result<tauri::ipc::Response, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let resolved = resolve_regular_file(&path, base_path.as_deref().unwrap_or(""))?;
-        let file = File::open(&resolved).map_err(|error| format!("Read image failed: {error}"))?;
-        let metadata = file.metadata().map_err(|error| format!("Read image metadata failed: {error}"))?;
-        if !metadata.is_file() || metadata.len() > IMAGE_MAX_READ_BYTES {
-            return Err("Image must be a regular file no larger than 10 MiB.".to_string());
-        }
-        let mut bytes = Vec::new();
-        file.take(IMAGE_MAX_READ_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|error| format!("Read image failed: {error}"))?;
-        if bytes.len() as u64 > IMAGE_MAX_READ_BYTES {
-            return Err("Image exceeds 10 MiB.".to_string());
-        }
-        Ok(tauri::ipc::Response::new(bytes))
-    })
-    .await
-    .map_err(|error| format!("Image reader failed: {error}"))?
 }
 
 #[tauri::command]
@@ -673,6 +648,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            clipboard::paste_clipboard,
             resolve_native_context,
             resolve_native_platform,
             self_update_supported,
@@ -680,7 +656,6 @@ pub fn run() {
             select_file,
             file_available,
             open_file_path,
-            read_image_original,
             open_file_default,
             open_external_url,
             append_gui_log,
@@ -959,10 +934,25 @@ fn home_dir() -> Result<PathBuf, String> {
 }
 
 fn server_rpc_url(host: &str, port: u16) -> String {
-    let authority_host = if host.contains(':') && !host.starts_with('[') && !host.ends_with(']') {
-        format!("[{host}]")
-    } else {
-        host.to_string()
+    let parse_host = host
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(host);
+    let parsed_host = parse_host.parse::<std::net::IpAddr>().ok();
+    let host = match parsed_host {
+        Some(std::net::IpAddr::V4(address)) if address.is_unspecified() => "127.0.0.1",
+        Some(std::net::IpAddr::V6(address)) if address.is_unspecified() => "::1",
+        _ => host,
+    };
+    let authority_host = match parsed_host {
+        Some(std::net::IpAddr::V6(_)) if host.starts_with('[') && host.ends_with(']') => {
+            host.to_string()
+        }
+        Some(std::net::IpAddr::V6(_)) => format!("[{host}]"),
+        _ if host.contains(':') && !host.starts_with('[') && !host.ends_with(']') => {
+            format!("[{host}]")
+        }
+        _ => host.to_string(),
     };
     format!("ws://{authority_host}:{port}/rpc")
 }

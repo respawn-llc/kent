@@ -12,7 +12,6 @@ import (
 	"core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
-	authpb "core/shared/protoapi/gen/kent/api/auth"
 	"core/shared/textutil"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -29,7 +28,6 @@ type uiStatusConfig struct {
 	ExecutionTarget *worktreepb.SessionExecutionTarget
 	SessionViews    apicontract.SessionViewService
 	Settings        config.Settings
-	AuthSelection   *authpb.ProviderSelection
 	Source          config.SourceReport
 	AuthStatus      apicontract.AuthStatusService
 }
@@ -125,7 +123,6 @@ func (m *uiModel) newStatusRequest(now time.Time) uiStatusRequest {
 		ExecutionTarget:       executionTarget,
 		SessionViews:          m.statusConfig.SessionViews,
 		Settings:              m.statusConfig.Settings,
-		AuthSelection:         m.statusConfig.AuthSelection,
 		Source:                m.statusConfig.Source,
 		AuthStatus:            m.statusConfig.AuthStatus,
 		SessionName:           m.sessionName,

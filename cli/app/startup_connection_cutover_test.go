@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"core/cli/app/internal/startupconfig"
@@ -31,7 +32,7 @@ func TestStartupAndHeadlessUseSelectedConnectionDespiteUnavailableDefault(t *tes
 	a, b := config.ConnectionID("a"), config.ConnectionID("b")
 	missing := "KENT_TEST_UNAVAILABLE_CONNECTION_KEY"
 	t.Setenv(missing, "")
-	cfg.Settings.Connection = &a
+	cfg.Settings.Connection = config.SingleConnection(a)
 	cfg.Settings.Connections = map[config.ConnectionID]config.ProviderConnection{
 		a: {Protocol: config.ConnectionResponses, Endpoint: &responses.URL, EnvironmentVariable: &missing},
 		b: {Protocol: config.ConnectionResponses, Endpoint: &responses.URL},
@@ -55,7 +56,7 @@ func TestStartupAndHeadlessUseSelectedConnectionDespiteUnavailableDefault(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.ActiveSettings.Connection == nil || *plan.ActiveSettings.Connection != b {
+	if !reflect.DeepEqual(plan.ActiveSettings.Connection, config.SingleConnection(b)) {
 		t.Fatalf("Session plan selected %v instead of B", plan.ActiveSettings.Connection)
 	}
 	interactor := &interactiveAuthInteractor{pickMethod: func(authInteraction) (authMethodPickerResult, error) {
@@ -72,14 +73,14 @@ func TestStartupAndHeadlessUseSelectedConnectionDespiteUnavailableDefault(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resumePlan.ActiveSettings.Connection == nil || *resumePlan.ActiveSettings.Connection != b {
+	if !reflect.DeepEqual(resumePlan.ActiveSettings.Connection, config.SingleConnection(b)) {
 		t.Fatalf("bound Session lost B: %v", resumePlan.ActiveSettings.Connection)
 	}
 	if err := resumed.EnsureAuthReady(t.Context(), resumePlan.ActiveSettings, newHeadlessAuthInteractor()); err != nil {
 		t.Fatalf("selected Session reauthentication: %v", err)
 	}
 	result, err := RunPrompt(t.Context(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, "hello", 0, nil)
-	if err != nil || result.Result != "selected connection reply" || hits.Load() != 1 {
+	if err != nil || requireRunPromptFinalAnswer(t, result) != "selected connection reply" || hits.Load() != 1 {
 		t.Fatalf("headless B dispatch: %+v, %v, hits=%d", result, err, hits.Load())
 	}
 }

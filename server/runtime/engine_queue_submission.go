@@ -171,7 +171,15 @@ func (e *Engine) ApplyWorktreeTransitionTerminal(
 		return err
 	}
 	deferred := submitEngineRuntimeOperation(e, func(operationCtx context.Context) (struct{}, error) {
-		return struct{}{}, apply(operationCtx)
+		previous := e.WorktreeReminderState()
+		err := apply(operationCtx)
+		if worktreeFailureIsIndeterminate(err) {
+			return struct{}{}, err
+		}
+		if _, fresh := e.generationContextSnapshot().(freshGenerationContext); fresh {
+			return struct{}{}, err
+		}
+		return struct{}{}, errors.Join(err, e.steerWorktreeTransitionRaw(previous))
 	})
 	_, err := deferred.Await(context.WithoutCancel(ctx))
 	return err
@@ -285,7 +293,7 @@ func (e *Engine) resumeQueuedUserAutoDrain() {
 		e.queuedUserWorkPauseCount--
 	}
 	e.queuedUserWorkMu.Unlock()
-	e.scheduleQueuedUserInjectionsIfIdle()
+	e.scheduleQueuedUserInjections()
 }
 
 func (e *Engine) waitQueuedUserAutoDrainAllowed(ctx context.Context) error {
@@ -323,14 +331,14 @@ func (e *Engine) HasQueuedUserWork() bool {
 	return false
 }
 
-func (e *Engine) scheduleQueuedUserInjectionsIfIdle() bool {
+func (e *Engine) scheduleQueuedUserInjections() bool {
 	if e == nil {
 		return false
 	}
 	e.ensureOrchestrationCollaborators()
-	if e.stepLifecycle != nil && e.stepLifecycle.IsBusy() {
-		return false
-	}
+	// Schedule at acceptance even while compaction or another step is busy.
+	// The worker waits for that step; its completion keeps the execution owner
+	// (including Questions and Approvals) attached until queued work finishes.
 	if !e.messageFlow.HasPendingUserInjections() {
 		return false
 	}

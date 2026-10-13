@@ -292,10 +292,41 @@ func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest)
 	if captureErr != nil {
 		return nil, captureErr
 	}
-	if question, err := s.pendingWatchQuestion(identity); err != nil {
+	return s.observeCapturedLiveRun(watchCtx, cancel, identity, name, handle, sub)
+}
+
+// ObserveLiveRun observes a run already captured by its owner. cancel must
+// cancel the context used to capture handle, so a pending prompt can release
+// the observer's terminal waiter without affecting the execution itself.
+func (s *Service) ObserveLiveRun(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	id runtimeids.SessionID,
+	handle *runtime.LiveRunWaitHandle,
+) (*promptpb.LiveWatchSuccess, error) {
+	identity, err := s.metadata.SessionIdentity(ctx, id)
+	if err != nil {
+		cancel()
 		return nil, err
-	} else if question != nil {
-		return liveWatchQuestionResult(id, question)
+	}
+	return s.observeCapturedLiveRun(ctx, cancel, identity, nil, handle, nil)
+}
+
+func (s *Service) observeCapturedLiveRun(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	identity runtimeids.SessionIdentity,
+	name *string,
+	handle *runtime.LiveRunWaitHandle,
+	sub serverapi.SessionAttentionNotificationSubscription,
+) (*promptpb.LiveWatchSuccess, error) {
+	id := identity.ID
+	if cancel == nil {
+		return nil, errors.New("live run observation cancel function is required")
+	}
+	if handle == nil {
+		cancel()
+		return nil, errors.New("live run observation handle is required")
 	}
 	type terminal struct {
 		result runtime.LiveRunResult
@@ -305,20 +336,49 @@ func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest)
 	questionCh := make(chan *serverapi.ObservationQuestion, 1)
 	attentionErrCh := make(chan error, 1)
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() { defer wg.Done(); result, err := handle.Wait(); terminalCh <- terminal{result, err} }()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		result, err := handle.Wait()
+		terminalCh <- terminal{result, err}
+	}()
+	ownsSubscription := sub == nil
+	if ownsSubscription {
+		if s.attention == nil {
+			cancel()
+			wg.Wait()
+			return nil, errors.New("attention notification service is required")
+		}
+		var err error
+		sub, err = s.attention.SubscribeSessionAttentionNotifications(ctx, &attentionpb.SubscribeRequest{
+			SessionId: id.String(),
+		})
+		if err != nil {
+			cancel()
+			wg.Wait()
+			return nil, err
+		}
+	}
+	defer func() {
+		cancel()
+		if ownsSubscription {
+			_ = sub.Close()
+		}
+		wg.Wait()
+	}()
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		for {
-			if _, err := sub.Next(watchCtx); err != nil {
-				if watchCtx.Err() == nil {
+			if _, err := sub.Next(ctx); err != nil {
+				if ctx.Err() == nil {
 					attentionErrCh <- liveWatchAttentionStreamError(err)
 				}
 				return
 			}
 			question, err := s.pendingWatchQuestion(identity)
 			if err != nil {
-				if watchCtx.Err() == nil {
+				if ctx.Err() == nil {
 					attentionErrCh <- liveWatchAttentionStreamError(err)
 				}
 				return
@@ -329,34 +389,29 @@ func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest)
 			}
 		}
 	}()
+	if question, err := s.pendingWatchQuestion(identity); err != nil {
+		return nil, err
+	} else if question != nil {
+		return liveWatchQuestionResult(id, question)
+	}
 	select {
 	case question := <-questionCh:
-		cancel()
-		wg.Wait()
 		return liveWatchQuestionResult(id, question)
 	case terminal := <-terminalCh:
-		cancel()
-		wg.Wait()
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		return liveWatchResult(id, name, terminal.result, terminal.err)
 	case err := <-attentionErrCh:
 		if ctx.Err() == nil {
 			select {
 			case terminal := <-terminalCh:
-				cancel()
-				wg.Wait()
 				return liveWatchResult(id, name, terminal.result, terminal.err)
 			default:
 			}
 		}
-		cancel()
-		wg.Wait()
 		return nil, err
 	case <-ctx.Done():
-		cancel()
-		wg.Wait()
 		return nil, ctx.Err()
 	}
 }

@@ -212,11 +212,6 @@ export async function approveApproval(
           currentNodes: response.outcome.value.currentNodes.map(taskCurrentNode),
         },
       };
-    case "selectionRequired":
-      return {
-        outcome: "selection_required",
-        selectionRequired: taskTargetSelectionRequired(response.outcome.value),
-      };
     case undefined:
       throw new ContractError("Task Approval outcome is required.");
   }

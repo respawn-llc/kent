@@ -45,7 +45,6 @@ type Request struct {
 	Source                config.SourceReport
 	CacheKeys             CacheKeys
 	AuthStatus            apicontract.AuthStatusService
-	AuthSelection         *authpb.ProviderSelection
 	SessionName           *string
 	SessionID             string
 	AgentRole             *string
@@ -90,6 +89,7 @@ type Snapshot struct {
 }
 
 type AuthInfo struct {
+	Connection  *authpb.ConnectionFacts
 	Summary     string
 	Details     []string
 	Visible     bool
@@ -128,17 +128,25 @@ type ConfigInfo struct {
 }
 
 type SubscriptionInfo struct {
-	Applicable bool
-	Summary    string
-	Error      string
-	Windows    []SubscriptionWindow
+	Applicable            bool
+	Summary               string
+	Error                 string
+	QuotaSource           *authpb.SubscriptionQuotaSource
+	FailureClassification *authpb.SubscriptionFailureClassification
+	Windows               []SubscriptionWindow
 }
 
 type SubscriptionWindow struct {
-	Label       string
-	Qualifier   string
-	UsedPercent float64
-	ResetAt     time.Time
+	Label             string
+	Qualifier         string
+	UsedPercent       float64
+	ResetAt           time.Time
+	GrokContributions *GrokUsageContribution
+}
+
+type GrokUsageContribution struct {
+	BuildUsedPercent *float64
+	ChatUsedPercent  *float64
 }
 
 type SkillInspection struct {

@@ -22,6 +22,7 @@ import (
 	"core/server/metadata"
 	"core/server/onboarding"
 	"core/server/serverstatus"
+	"core/server/sessionview"
 	"core/server/transport"
 	"core/shared/apicontract"
 	"core/shared/config"
@@ -176,12 +177,14 @@ func (s *ServeServer) close() {
 // runningRPC tracks the HTTP servers exposing a Core's control endpoints over
 // the bound loopback listeners so they can be shut down together.
 type runningRPC struct {
+	gateway     *transport.Gateway
 	httpServers []*http.Server
 	errCh       chan error
 	count       int
 }
 
 func (r *runningRPC) shutdown() {
+	r.gateway.Close()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for _, httpServer := range r.httpServers {
@@ -249,7 +252,7 @@ func startGatewayRPC(deps transport.GatewayDependencies, listenCfg config.App) (
 			errCh <- serveErr
 		}(httpServer, listener)
 	}
-	return &runningRPC{httpServers: httpServers, errCh: errCh, count: len(listeners)}, nil
+	return &runningRPC{gateway: gateway, httpServers: httpServers, errCh: errCh, count: len(listeners)}, nil
 }
 
 // newServerIdentity builds the protocol identity stamped on every handshake. The
@@ -310,6 +313,7 @@ func buildServerMux(deps transport.GatewayDependencies, identity protocol.Server
 		writeStatusJSON(w, status, body)
 	})
 	mux.Handle(protocol.RPCPath, gateway.Handler())
+	mux.Handle(transport.ViewedImageBodyPath, gateway.ViewedImageHandler())
 	return mux
 }
 
@@ -500,7 +504,10 @@ func (d *startupGatewayDependencies) ConnectionManagementClient() apicontract.Co
 	return d.authSupport.Connections
 }
 func (d *startupGatewayDependencies) AuthStatusClient() apicontract.AuthStatusService {
-	return authservice.NewStatusService(authservice.NewConnectionResolver(d.snapshotConfig().PersistenceRoot, d.authSupport.AuthManager, d.authSupport.Environment))
+	if c := d.activeCore(); c != nil {
+		return c.AuthStatusClient()
+	}
+	return authservice.NewStatusService(authservice.NewConnectionResolver(d.snapshotConfig().PersistenceRoot, d.authSupport.AuthManager, d.authSupport.Environment), nil)
 }
 func (d *startupGatewayDependencies) CapabilityFactsClient() apicontract.CapabilityFactsService {
 	snapshot := d.snapshot.Load()
@@ -553,6 +560,12 @@ func (d *startupGatewayDependencies) SessionBelongsToProject(ctx context.Context
 func (d *startupGatewayDependencies) SessionViewClient() apicontract.SessionViewService {
 	if c := d.activeCore(); c != nil {
 		return c.SessionViewClient()
+	}
+	return nil
+}
+func (d *startupGatewayDependencies) ViewedImageOriginalOpener() sessionview.ViewedImageOriginalOpener {
+	if c := d.activeCore(); c != nil {
+		return c.ViewedImageOriginalOpener()
 	}
 	return nil
 }

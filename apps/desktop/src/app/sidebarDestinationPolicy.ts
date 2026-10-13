@@ -23,7 +23,15 @@ export const sidebarDestinationPolicy: SidebarDestinationPolicy = {
       }),
     };
   },
-  equals: (left, right) =>
-    left.kind === "taskDetail" && right.kind === "taskDetail" && left.taskID === right.taskID,
+  equals: (left, right) => {
+    if (left.kind === "taskDetail" && right.kind === "taskDetail") return left.taskID === right.taskID;
+    if (left.kind === "worktree" && right.kind === "worktree")
+      return left.sessionID === right.sessionID && left.page === right.page;
+    if (left.kind === "processes" && right.kind === "processes")
+      return left.projectID === right.projectID && left.sessionID === right.sessionID;
+    if (left.kind === "custom" && right.kind === "custom")
+      return left.identity !== undefined && left.identity === right.identity;
+    return false;
+  },
   retainedState: (_destination, state) => state,
 };

@@ -72,7 +72,12 @@ type PreviewContext = RowContext & Pick<ViewedImagePreviewInput, "path" | "locat
 
 function PresentImagePreview(props: PreviewContext) {
   const present = useIsPresent();
-  return present ? <ImagePreview {...props} /> : null;
+  const key = JSON.stringify([
+    props.target.sessionID,
+    props.locator.event_sequence,
+    props.locator.row_ordinal,
+  ]);
+  return present ? <ImagePreview key={key} {...props} /> : null;
 }
 
 function ImagePreview(props: PreviewContext) {
@@ -80,15 +85,26 @@ function ImagePreview(props: PreviewContext) {
   const client = useQueryClient();
   const { t } = useTranslation();
   // An expansion owns its acquisition; later Main View hydration must not restart it.
-  const [model] = useState(() => createViewedImagePreviewModel({ ...props, services, client }));
-  const query = useViewedImagePreview(model);
+  const [model] = useState(() =>
+    createViewedImagePreviewModel({
+      services,
+      client,
+      target: props.target,
+      path: props.path,
+      locator: props.locator,
+    }),
+  );
+  const preview = useViewedImagePreview(model);
   const reducedMotion = useReducedMotion();
-  if (query.isError) {
-    return <span>{t("chat.toolRows.imageReadFailed", { error: errorMessage(query.error) })}</span>;
+  if (preview.state.kind === "source-error") {
+    return <span>{t("chat.toolRows.imageReadFailed", { error: errorMessage(preview.state.error) })}</span>;
   }
-  const preview = query.data;
-  if (preview?.kind === "unavailable") return <span>{t("chat.toolRows.imageUnavailable")}</span>;
-  const scale = preview === undefined ? 1 : Math.max(1, 150 / Math.max(preview.width, preview.height));
+  if (preview.state.kind === "image-error") {
+    return <span>{t("chat.toolRows.imageReadFailed", { error: t("chat.toolRows.imageLoadFailed") })}</span>;
+  }
+  const loaded = preview.state.kind === "loaded";
+  const imageURL = preview.state.kind === "resolving" ? null : preview.state.url;
+  const scale = loaded ? Math.max(1, 150 / Math.max(preview.state.width, preview.state.height)) : 1;
   const transition = {
     duration: reducedMotion ? 0 : motionDurationFromCSSVar("--motion-reveal", 280) / 1000,
   };
@@ -97,14 +113,17 @@ function ImagePreview(props: PreviewContext) {
       className="relative max-w-full"
       initial={false}
       animate={
-        preview === undefined
+        !loaded
           ? { width: 300, aspectRatio: 2 }
-          : { width: preview.width * scale, aspectRatio: preview.width / preview.height }
+          : {
+              width: preview.state.width * scale,
+              aspectRatio: preview.state.width / preview.state.height,
+            }
       }
       transition={transition}
     >
       <AnimatePresence initial={false}>
-        {preview === undefined ? (
+        {!loaded ? (
           <motion.div
             key="loading"
             className="absolute inset-0"
@@ -113,18 +132,29 @@ function ImagePreview(props: PreviewContext) {
           >
             <Shimmer className="block size-full rounded-[var(--radius-s)]" />
           </motion.div>
-        ) : (
-          <motion.img
-            key="image"
-            src={preview.url}
-            alt=""
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={transition}
-            className="transcript-viewed-image absolute inset-0 size-full"
-          />
-        )}
+        ) : null}
       </AnimatePresence>
+      {imageURL === null ? null : (
+        <motion.img
+          src={imageURL}
+          alt=""
+          onLoad={(event) => {
+            preview.loaded({
+              width: event.currentTarget.naturalWidth,
+              height: event.currentTarget.naturalHeight,
+            });
+          }}
+          onError={() => {
+            void preview.failed(undefined).catch((cause: unknown) => {
+              reportError(cause);
+            });
+          }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: loaded ? 1 : 0 }}
+          transition={transition}
+          className="transcript-viewed-image absolute inset-0 size-full"
+        />
+      )}
     </motion.div>
   );
 }

@@ -45,6 +45,7 @@ export type LinkWorkflowCompletion =
 export type SidebarDestination =
   | Readonly<{
       kind: "worktree";
+      openSession(sessionID: string): void | Promise<void>;
       mode?: SidebarMode;
       sessionID: string;
       page: "list" | "create";
@@ -120,6 +121,7 @@ export type SidebarDestination =
     }>
   | Readonly<{
       kind: "custom";
+      identity?: symbol;
       mode?: SidebarMode;
       sizing?: SidebarSizePreference | undefined;
       title: string;
@@ -148,6 +150,7 @@ export type SidebarRootHandle = Readonly<{
 
 export type SidebarRootController = Readonly<{
   open(destination: SidebarDestination): SidebarRootHandle;
+  toggle(destination: SidebarDestination): SidebarRootHandle | null;
 }>;
 
 export type SidebarShellController = Readonly<{
@@ -198,6 +201,11 @@ export function SidebarRootOwner({ children }: Readonly<{ children: ReactNode }>
             // Opening a root settles its predecessor; only the latest handle can remain owned.
             handle = roots.open(destination);
             return handle;
+          },
+          toggle: (destination: SidebarDestination) => {
+            const opened = roots.toggle(destination);
+            if (opened !== null) handle = opened;
+            return opened;
           },
         };
       }),

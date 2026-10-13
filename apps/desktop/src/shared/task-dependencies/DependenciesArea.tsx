@@ -38,7 +38,7 @@ export function DependenciesArea({
   const blockedBy = requiredTaskDependencyDirection(dependencies, "blocked-by");
   const blocks = requiredTaskDependencyDirection(dependencies, "blocks");
   return (
-    <Island className="grid gap-[var(--space-3)] p-[var(--space-3)]" level={1} radius="l">
+    <Island className="grid grid-cols-1 gap-[var(--space-3)] p-[var(--space-3)]" level={1} radius="l">
       <header className="flex min-w-0 items-center justify-between gap-[var(--space-2)]">
         <h2 className="m-0 text-base font-semibold">{t("task.dependencies")}</h2>
         {dependencies.blockerCount === 0 ? null : (
@@ -137,7 +137,7 @@ function DependencyDirection({
           </span>
         ) : null}
       </header>
-      <div className="grid gap-[2px]">
+      <div className="grid grid-cols-1 gap-[2px]">
         {direction.items.map((item) => (
           <DependencyActionRow
             direction={direction.direction}

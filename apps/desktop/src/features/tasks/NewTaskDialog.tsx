@@ -284,7 +284,7 @@ function NewTaskFormContent({
 
   return (
     <form
-      className={cx("grid gap-[var(--space-3)]", className)}
+      className={cx("grid grid-cols-1 gap-[var(--space-3)]", className)}
       onKeyDown={formShortcut}
       onSubmit={(event) => void form.handleSubmit(submit)(event)}
     >

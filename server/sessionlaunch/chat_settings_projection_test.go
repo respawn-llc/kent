@@ -143,8 +143,8 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 	}
 	if locked.SelectedAgent.Role != "historical" ||
 		locked.SelectedAgent.Model != "gpt-6-sol" ||
-		locked.AgentEditability != chatsettingspb.Editability_EDITABILITY_CACHING_LOCK ||
-		!locked.AgentLocked || !locked.CachingLocked ||
+		locked.AgentEditability != chatsettingspb.Editability_EDITABILITY_EDITABLE ||
+		locked.AgentLocked || !locked.CachingLocked ||
 		locked.Questions.Capable || !locked.Questions.Enabled ||
 		locked.Fast == nil || !locked.Fast.Value {
 		t.Fatalf("locked projection = %+v", locked)

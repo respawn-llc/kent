@@ -8,39 +8,16 @@ func TestMinimumThresholdTokens(t *testing.T) {
 	}
 }
 
-func TestEffectivePreSubmitThresholdTokens(t *testing.T) {
-	tests := []struct {
-		name          string
-		autoThreshold int
-		runwayTokens  int
-		expected      int
-	}{
-		{
-			name:          "subtracts runway from auto threshold",
-			autoThreshold: 190_000,
-			runwayTokens:  35_000,
-			expected:      155_000,
-		},
-		{
-			name:          "large windows still use fixed runway",
-			autoThreshold: 950_000,
-			runwayTokens:  35_000,
-			expected:      915_000,
-		},
-		{
-			name:          "clamps to one token minimum",
-			autoThreshold: 20,
-			runwayTokens:  50,
-			expected:      1,
-		},
+func TestSpeculativeCompactionTriggerDefaultsToWindowPercentage(t *testing.T) {
+	if got := SpeculativeCompactionTriggerTokens(200_001, nil); got != 176_000 {
+		t.Fatalf("trigger = %d, want 176000", got)
 	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := EffectivePreSubmitThresholdTokens(tt.autoThreshold, tt.runwayTokens); got != tt.expected {
-				t.Fatalf("EffectivePreSubmitThresholdTokens = %d, want %d", got, tt.expected)
-			}
-		})
+func TestSpeculativeCompactionTriggerUsesExplicitLead(t *testing.T) {
+	lead := 35_000
+	if got := SpeculativeCompactionTriggerTokens(200_000, &lead); got != 165_000 {
+		t.Fatalf("explicit trigger = %d, want 165000", got)
 	}
 }
 

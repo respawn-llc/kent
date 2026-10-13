@@ -61,7 +61,7 @@ func assertRequestHasUserMessage(t *testing.T, request llm.Request, content stri
 	}
 }
 
-func TestQueuedUserMessageFlushAfterFinalAssistantWithReasoningPublishesAssistantFirst(t *testing.T) {
+func TestQueuedUserMessageFlushAfterFinalAssistantWithReasoningPublishesReasoningFirst(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{responses: []llm.Response{
 		{
@@ -91,7 +91,7 @@ func TestQueuedUserMessageFlushAfterFinalAssistantWithReasoningPublishesAssistan
 
 	committedEvents := committedTranscriptEventsWithEntries(events)
 	if len(committedEvents) < 3 {
-		t.Fatalf("expected assistant, reasoning, and queued user committed events, got %+v", committedEvents)
+		t.Fatalf("expected initial user, reasoning, and assistant committed events, got %+v", committedEvents)
 	}
 	userIdx := -1
 	for idx, evt := range committedEvents {
@@ -103,9 +103,20 @@ func TestQueuedUserMessageFlushAfterFinalAssistantWithReasoningPublishesAssistan
 	if userIdx < 0 {
 		t.Fatalf("expected initial user flush event, got %+v", committedEvents)
 	}
-	assistant := committedEvents[userIdx+1]
-	if assistant.Kind != EventAssistantMessage || messageContent(assistant.Message) != "first final" {
-		t.Fatalf("committed event after initial user = %+v, want first final assistant before reasoning/queued rows; all=%+v", assistant, committedEvents)
+	reasoning := committedEvents[userIdx+1]
+	assistant := committedEvents[userIdx+2]
+	if reasoning.Kind != EventLocalEntryAdded ||
+		reasoning.LocalEntry == nil ||
+		reasoning.LocalEntry.Role != "reasoning" ||
+		assistant.Kind != EventAssistantMessage ||
+		messageContent(assistant.Message) != "first final" {
+		t.Fatalf(
+			"committed initial turn order = initial_user:%+v reasoning:%+v final:%+v events:%+v",
+			committedEvents[userIdx],
+			reasoning,
+			assistant,
+			committedEvents,
+		)
 	}
 	assertRuntimeEventsAdvanceCommittedFrontierContiguously(t, committedEvents)
 }
@@ -496,45 +507,5 @@ func TestContextUsageDoesNotInflateInlineImagePayloadByBase64Length(t *testing.T
 	}
 	if usage.UsedTokens >= 2_000 {
 		t.Fatalf("expected inline image estimate to avoid base64 inflation, got %d", usage.UsedTokens)
-	}
-}
-
-func TestPreSubmitCompactionTokenLimitUsesFixedRunwayReserve(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name     string
-		limit    int
-		runway   int
-		expected int
-	}{
-		{
-			name:     "subtracts fixed runway from auto threshold",
-			limit:    190_000,
-			runway:   35_000,
-			expected: 155_000,
-		},
-		{
-			name:     "large windows still use same fixed runway",
-			limit:    950_000,
-			runway:   35_000,
-			expected: 915_000,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store := mustCreateTestSession(t)
-
-			eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-				Model:                         "gpt-6-sol",
-				AutoCompactTokenLimit:         tt.limit,
-				ContextWindowTokens:           1_000_000,
-				PreSubmitCompactionLeadTokens: tt.runway,
-			})
-
-			if got := eng.compactionPlannerState().preSubmitTokenLimit(eng.compactionPlanningSnapshot()); got != tt.expected {
-				t.Fatalf("unexpected pre-submit compaction threshold: got %d want %d", got, tt.expected)
-			}
-		})
 	}
 }

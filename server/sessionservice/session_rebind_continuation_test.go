@@ -152,8 +152,7 @@ func TestCrossProjectSelfRebindContinuesWithoutAnotherUserMessage(t *testing.T) 
 
 func TestHumanRebindPreservesExecutionAndQueuedInputAfterCallerDisconnects(t *testing.T) {
 	fixture := newRealSessionRetargetFixture(t, false)
-	service := NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, nil).
-		WithPersistedSessionResolver(fixture.metadata).
+	service := NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, nil, fixture.metadata).
 		WithWorkspaceRetargeter(fixture.retargeter(fixture.metadata, retargetProcessSource{}))
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -221,7 +220,7 @@ func TestHumanRebindPreservesExecutionAndQueuedInputAfterCallerDisconnects(t *te
 	const queuedInput = "verify the destination after moving"
 	err = fixture.authority.RunCurrentTurn(ctx, descriptor,
 		func(commit func() (bool, error)) (bool, error) { return commit() },
-		func(ctx context.Context, current *runtime.Engine, accept runtime.CommandAcceptance, _ func()) error {
+		func(ctx context.Context, current *runtime.Engine, accept runtime.CommandAcceptance) error {
 			_, accepted, err := current.QueueUserMessageForActiveRunWithAcceptance(ctx, queuedInput, accept)
 			if err == nil && !accepted {
 				return errors.New("queued input was rejected")

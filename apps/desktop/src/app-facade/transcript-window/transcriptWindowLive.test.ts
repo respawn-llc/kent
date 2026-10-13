@@ -179,7 +179,6 @@ describe("transcript live membership and compaction", () => {
       ["workflow_turn", "working"],
       ["goal_loop", "working"],
       ["compaction", "compacting"],
-      ["pre_submit_compaction", "compacting"],
       ["user_shell", "running"],
       ["background", "running"],
       ["runtime_maintenance", "running"],

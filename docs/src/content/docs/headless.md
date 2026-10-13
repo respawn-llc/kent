@@ -3,10 +3,10 @@ title: Headless runs
 description: Headless Kent runs, scriptable output modes, and how interactive Kent uses the same mechanism for subagents.
 ---
 
-Kent supports a headless, non-interactive run mode via `kent run`, which is also how Kent runs subagents.
+Kent supports a headless run mode via `kent run`, which is also how Kent runs subagents.
 This keeps the subagent path contextual and scriptable: subagent invocations are not new tools and consume no extra tokens in model context.
 
-Headless runs are non-interactive. They do not stop to ask the human operator questions mid-run, issue tool preambles, or support the Supervisor. That makes them more suitable for background execution, automation, and saves tokens. You can talk to a headless agent if you select it in the `/resume` (session picker).
+Headless runs support deferred questions and approvals through `kent question`.
 
 :::tip
 `kent run` needs a server connection to keep long-running shells and agents properly orchestrated. If you want to script kent runs, make sure the [Server](../server/) is running.
@@ -35,13 +35,13 @@ kent run wait <session-id> # wait for the model's turn to end
 kent run watch <session-id> # report the next question or terminal outcome
 ```
 
-When a human invokes `kent run steer`, the running Session receives a user message. When agents communicate, they also receive guidance on how to respond.
+When a human invokes `kent run steer`, the running session receives a user message. When agents communicate, they also receive guidance on how to respond.
 
 ### Questions
 
-Subagent `kent run` sessions cannot ask questions, but agents can answer each other's questions for workflow tasks and interactive sessions. In general, humans don't need to use the CLI, agents know how to ask and answer each other's questions.
+Headless runs can pause on an ordinary question or access approval. `kent run` displays the pending prompt and a targeted answer command, then exits successfully. The run proceeds after you answer.
 
-To inspect or answer a pending Question from an interactive or Workflow Session:
+Use the session ID with these commands to inspect or answer the pending question:
 
 ```bash
 kent question --session <session-id>
@@ -54,13 +54,13 @@ kent questions list --session <session-id> --max-handoffs 1 --json
 
 More info in the CLI help.
 
-## Subagent Roles
+## Subagent roles
 
-Roles select the model settings and context used by a headless Session.
+Roles select the model settings and context used by a headless session.
 
 - Resuming a session selects its last-used role.
 - You can start a new interactive session with a specified role by running `kent --agent <role>`.
-- To apply a role while reopening a specific Session, combine it with `--session` or `--continue`.
+- To apply a role while reopening a specific session, combine it with `--session` or `--continue`.
 - To open an interactive session with a role, run: `kent --agent <role_key>`.
 
 See [Configuration](../config/#subagents) for role overrides and delegation metadata.
@@ -71,7 +71,7 @@ Kent limits model-originated creation of new children to prevent infinite subage
 
 Configure the root-level TOML key, supported range, and disable-with-zero behavior in the [configuration reference](../config/#core-settings). There is no environment-variable or `kent run` flag override.
 
-## Workspace Binding
+## Workspace binding
 
 Headless runs fail if the selected workspace is not already attached to a Kent project.
 Attach the workspace to a project before launching a headless run:
@@ -91,7 +91,7 @@ More info in the CLI help.
 
 ### Project deletion
 
-Delete a Project by its canonical Project ID:
+Delete a project by its canonical project ID:
 
 ```bash
 kent project delete <project-id>
@@ -99,7 +99,7 @@ kent project delete <project-id>
 
 You can only do that if there are no active sessions or tasks targeting it.
 
-:::warning
+:::caution
 
 Deleting a project **permanently deletes without a trace all tasks associated with it** and orphans the sessions.
 
@@ -107,9 +107,9 @@ Deleting a project **permanently deletes without a trace all tasks associated wi
 
 Project deletion never deletes or moves workspace files.
 
-## Output Modes
+## Output modes
 
-By default, `kent run` writes each finalized assistant commentary or final response to `stdout` as it is committed. Use `--quiet` to suppress live output and print only the terminal result. For scripting, use JSON mode:
+By default, `kent run` writes each finalized assistant commentary or final response to `stdout` as it is committed. Use `--quiet` to suppress live output. Pending questions and approvals are shown. For scripting, use JSON mode:
 
 ```bash
 kent run --output-mode=json "summarize the repo" | jq
@@ -129,6 +129,29 @@ JSON mode emits exactly one final object on `stdout`.
   "duration_ms": 1234
 }
 ```
+
+When a question or approval is pending, JSON omits `result` and includes an `outcome` with `kind: "question"` and the Session answer target:
+
+```json
+{
+  "status": "ok",
+  "outcome": {
+    "kind": "question",
+    "question_id": "...",
+    "text": "...",
+    "suggestions": ["..."],
+    "answer_target": {
+      "session_id": "..."
+    }
+  },
+  "session_id": "...",
+  "continue_id": "...",
+  "continue_command": "...",
+  "duration_ms": 1234
+}
+```
+
+For an access approval, `outcome` also includes `access_targets` when target details are available.
 
 On failure, JSON mode emits `status: "error"` and an `error` object instead of `result`.
 

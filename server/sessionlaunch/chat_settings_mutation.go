@@ -6,10 +6,12 @@ import (
 	"log/slog"
 	"strings"
 
+	"core/server/launch"
 	"core/server/registry"
 	"core/server/runtime"
 	"core/server/session"
 	"core/server/sessionruntime"
+	"core/shared/config"
 	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
@@ -24,6 +26,9 @@ type ChatSettingsOwner struct {
 }
 
 func (s *Service) MutateChatSettings(ctx context.Context, sessionID runtimeids.SessionID, operation *chatsettingspb.MutationOperation) (*chatsettingspb.MutationResult, error) {
+	// A confirmed replacement selects one Connection before Stop and retains it
+	// while revalidating the Session at commit.
+	var selectedConnection *config.ConnectionID
 	return s.applyChatSettings(ctx, sessionID, operation, func(ctx context.Context, store *session.Store) (PreparedChatSettingsOperationInput, PreparedChatSettingsOperationResult, error) {
 		input, err := s.PrepareSessionChatSettingsOperation(ctx, store)
 		if err != nil {
@@ -37,6 +42,33 @@ func (s *Service) MutateChatSettings(ctx context.Context, sessionID runtimeids.S
 			return input, rejectedChatSettingsOperation(input.ChatSettingsMutationContext, rejected.Reason), nil
 		}
 		projected, err := ProjectResolvedChatSettingsOperation(resolved)
+		_, agentEdit := operation.Operation.(*chatsettingspb.MutationOperation_AgentRole)
+		if agentEdit && err == nil && projected.Rejection == nil && !textutil.EqualOptional(projected.State.AgentRole, input.Raw.AgentRole) {
+			var selectedAgent launch.PreparedChatAgentCatalogEntry
+			var selectionErr error
+			if selectedConnection == nil {
+				selectedAgent, selectionErr = launch.PrepareChatAgentSelection(input.Configuration, projected.State.AgentSelector(), store.Meta(), s.planner.Rotation)
+			} else {
+				selectedAgent, selectionErr = launch.RevalidateChatAgentSelection(input.Configuration, projected.State.AgentSelector(), store.Meta(), *selectedConnection)
+			}
+			if selectionErr != nil {
+				return input, PreparedChatSettingsOperationResult{}, selectionErr
+			}
+			selectedConnection = selectedAgent.ConnectionID
+			log, logErr := store.MaterializeEventLog()
+			if logErr != nil {
+				return input, projected, logErr
+			}
+			if validationErr := runtime.ValidateSessionProviderChange(log, selectedAgent.ProviderCapabilities()); validationErr != nil {
+				return input, projected, validationErr
+			}
+			resolved.Selection.Settings = *selectedAgent.Settings
+			resolved.Selection.State, err = session.ChatSettingsStateFromCompleteSettings(selectedAgent.Choice.Role, selectedAgent.Settings.Baseline)
+			if err == nil {
+				resolved.Selection.State.ConnectionID = selectedAgent.ConnectionID
+				projected, err = ProjectResolvedChatSettingsOperation(resolved)
+			}
+		}
 		return input, projected, err
 	})
 }
@@ -53,7 +85,7 @@ func (s *Service) applyChatSettings(
 	result := &chatsettingspb.MutationResult{Outcome: &chatsettingspb.MutationResult_Applied{Applied: &chatsettingspb.MutationApplied{}}}
 	var changed bool
 	var committed bool
-	err := s.settingsOwner.Authority.WithSessionChatSettings(ctx, sessionID.String(), func(
+	apply := func(
 		runCtx context.Context,
 		sessionStore *session.Store,
 		engine *runtime.Engine,
@@ -64,6 +96,9 @@ func (s *Service) applyChatSettings(
 		}
 		if projected.Rejection != nil {
 			result.Outcome = &chatsettingspb.MutationResult_Rejected{Rejected: projected.Rejection}
+			return false, nil
+		}
+		if input.Raw.Equal(projected.State) && input.Effective == projected.Effective {
 			return false, nil
 		}
 		sameAgent := textutil.EqualOptional(projected.State.AgentRole, input.Raw.AgentRole)
@@ -89,9 +124,34 @@ func (s *Service) applyChatSettings(
 				return false, err
 			}
 		}
-		return !sameAgent && changed, nil
-	})
-	if committed || (err == nil && result.GetApplied() != nil) {
+		return !sameAgent && committed, nil
+	}
+	var err error
+	if _, agentChange := operation.Operation.(*chatsettingspb.MutationOperation_AgentRole); agentChange {
+		err = s.settingsOwner.Authority.WithSessionAgentChange(ctx, sessionID,
+			func(ctx context.Context, store *session.Store, engine *runtime.Engine) (bool, error) {
+				input, projected, err := prepare(ctx, store)
+				if err != nil {
+					return false, err
+				}
+				if projected.Rejection != nil {
+					result.Outcome = &chatsettingspb.MutationResult_Rejected{Rejected: projected.Rejection}
+					return false, nil
+				}
+				if textutil.EqualOptional(projected.State.AgentRole, input.Raw.AgentRole) {
+					return apply(ctx, store, engine)
+				}
+				return true, nil
+			},
+			func(ctx context.Context, store *session.Store, engine *runtime.Engine) (bool, error) {
+				return apply(ctx, store, engine)
+			})
+	} else {
+		err = s.settingsOwner.Authority.WithSessionChatSettings(ctx, sessionID.String(), func(runCtx context.Context, store *session.Store, engine *runtime.Engine) (bool, error) {
+			return apply(runCtx, store, engine)
+		})
+	}
+	if committed {
 		responseCtx := context.WithoutCancel(ctx)
 		s.PublishSessionSettings(responseCtx, sessionID)
 	}
@@ -100,6 +160,9 @@ func (s *Service) applyChatSettings(
 	}
 	if applied := result.GetApplied(); applied != nil {
 		applied.Changed = changed
+		if !changed {
+			return result, nil
+		}
 		responseCtx := context.WithoutCancel(ctx)
 		settings, err := s.SessionChatSettings(responseCtx, sessionID)
 		if err != nil {

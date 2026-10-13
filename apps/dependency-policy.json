@@ -1,7 +1,10 @@
 {
   "$schema": "./dependency-policy.schema.json",
   "minimumReleaseAgeSeconds": 604800,
-  "minimumReleaseAgeExcludes": [],
+  "minimumReleaseAgeExcludes": [
+    "@tanstack/react-virtual",
+    "@tanstack/virtual-core"
+  ],
   "directDependencyAllowlist": {
     "@app/apps": {
       "devDependencies": ["@bufbuild/protoc-gen-es", "postcss", "prettier"]
@@ -20,6 +23,7 @@
         "@radix-ui/react-dropdown-menu",
         "@radix-ui/react-popover",
         "@radix-ui/react-radio-group",
+        "@radix-ui/react-slider",
         "@radix-ui/react-switch",
         "@radix-ui/react-tooltip",
         "@tanstack/react-query",

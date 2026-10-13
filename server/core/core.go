@@ -14,6 +14,7 @@ import (
 	"core/server/metadata"
 	"core/server/runprompt"
 	"core/server/sessionlaunch"
+	"core/server/sessionview"
 	shelltool "core/server/tools/shell"
 	"core/shared/apicontract"
 	"core/shared/clientui"
@@ -27,9 +28,10 @@ import (
 )
 
 type Core struct {
-	bundles   *Bundles
-	closeOnce sync.Once
-	closeErr  error
+	connectionRotation *launch.ConnectionRotation
+	bundles            *Bundles
+	closeOnce          sync.Once
+	closeErr           error
 }
 
 type unregisteredSessionLaunchClient struct{}
@@ -291,10 +293,12 @@ func (s *Core) sessionLaunchServiceForProjectContextLocked(projectCtx projectCon
 
 func (s *Core) newSessionLaunchService(projectCtx projectContext) *sessionlaunch.Service {
 	return sessionlaunch.NewService(launch.Planner{
+		Rotation:          s.connectionRotation,
 		Config:            projectCtx.config,
 		ContainerDir:      projectCtx.projectSession,
 		StoreOptions:      s.safeBundles().Persistence.metadataStore.AuthoritativeSessionStoreOptions(),
 		PersistedSessions: s.safeBundles().Persistence.metadataStore,
+		CallerSessions:    s.safeBundles().Persistence.metadataStore,
 		ExecutionTargets:  s.safeBundles().Persistence.metadataStore,
 		SessionProjects:   s.safeBundles().Persistence.metadataStore, ManagedWorktreeRoots: s.safeBundles().Persistence.metadataStore,
 		ReloadConfig: func() (config.App, error) {
@@ -322,6 +326,7 @@ func (s *Core) runPromptClientForProjectContext(projectCtx projectContext) apico
 		SessionLaunch:          s.sessionLaunchServiceForProjectContext(projectCtx),
 		PromptHistory:          s.safeBundles().Persistence.metadataStore,
 		RuntimeAuthority:       s.safeBundles().Runtime.runtimeAuthority,
+		LiveRunObserver:        s.safeBundles().Runtime.liveRunObserver,
 		ManagedWorktreeBaseDir: s.safeBundles().Projects.cfg.Settings.Worktrees.BaseDir,
 	})
 	s.safeBundles().Sessions.runPromptMap[scopeKey] = client
@@ -387,7 +392,22 @@ func (s *Core) SessionViewClient() apicontract.SessionViewService {
 	if s == nil {
 		return nil
 	}
-	return s.safeBundles().Sessions.sessionViews
+	service := s.safeBundles().Sessions.sessionViews
+	if service == nil {
+		return nil
+	}
+	return service
+}
+
+func (s *Core) ViewedImageOriginalOpener() sessionview.ViewedImageOriginalOpener {
+	if s == nil {
+		return nil
+	}
+	service := s.safeBundles().Sessions.sessionViews
+	if service == nil {
+		return nil
+	}
+	return service
 }
 
 func (s *Core) SessionChatContextOwner() chatcontext.SessionOwner {

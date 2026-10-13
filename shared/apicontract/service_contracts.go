@@ -136,7 +136,6 @@ type ServerStatusService interface {
 type RuntimeControlService interface {
 	SetSessionName(ctx context.Context, req *runtimepb.SetSessionNameRequest) error
 	AppendCommittedEntry(ctx context.Context, req *transcriptpb.AppendCommittedEntryRequest) error
-	ShouldCompactBeforeUserMessage(ctx context.Context, req *runtimepb.ShouldCompactRequest) (*runtimepb.ShouldCompactSuccess, error)
 	SubmitUserTurn(ctx context.Context, req *runtimepb.SubmitUserTurnRequest) (*runtimepb.SubmitUserTurnSuccess, error)
 	SubmitUserShellCommand(ctx context.Context, req *runtimepb.ShellCommandRequest) error
 	CompactContext(ctx context.Context, req *runtimepb.CompactContextRequest) error
@@ -199,7 +198,6 @@ type SessionRuntimeService interface {
 }
 
 type SessionViewService interface {
-	GetViewedImageOriginal(ctx context.Context, req *sessionpb.ViewedImageOriginalRequest) (*sessionpb.ViewedImageOriginalSuccess, error)
 	GetSessionIdentityLocation(ctx context.Context, req *sessionpb.IdentityLocationRequest) (*sessionpb.IdentityLocationSuccess, error)
 	GetPromptHistory(ctx context.Context, req *sessionpb.PromptHistoryRequest) (*sessionpb.PromptHistorySuccess, error)
 	GetSessionMainView(ctx context.Context, req *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error)

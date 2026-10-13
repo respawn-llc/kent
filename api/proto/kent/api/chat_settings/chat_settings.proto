@@ -69,7 +69,6 @@ enum Editability {
   EDITABILITY_UNSPECIFIED = 0;
   EDITABILITY_EDITABLE = 1;
   EDITABILITY_WORKFLOW_LOCK = 2;
-  EDITABILITY_CACHING_LOCK = 3;
   EDITABILITY_POLICY_DISABLED = 4;
 }
 
@@ -257,16 +256,16 @@ message Settings {
 
   option (buf.validate.message).cel = {
     id: "kent.chat_settings.agent_lock"
-    message: "agent lock and editability must agree with workflow and caching locks"
+    message: "agent lock and editability must agree with workflow control"
     expression:
-      "this.agent_locked == (this.workflow_locked || this.caching_locked) && "
-      "(this.workflow_locked ? this.agent_editability == 2 : "
-      "this.caching_locked ? this.agent_editability == 3 : this.agent_editability == 1)"
+      "this.agent_locked == this.workflow_locked && "
+      "(this.workflow_locked ? this.agent_editability == 2 : this.agent_editability == 1)"
   };
 }
 
 message SessionFacts {
-  optional int64 short_id = 5 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
+  kent.api.auth.ConnectionFacts connection = 5;
+  optional int64 short_id = 6 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true

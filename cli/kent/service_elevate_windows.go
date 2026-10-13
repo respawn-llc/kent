@@ -4,7 +4,9 @@ package main
 
 import (
 	brand "core/shared/config"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"unsafe"
@@ -53,6 +55,21 @@ func elevateServiceAction(action serviceAction) (int, bool) {
 	if windows.GetCurrentProcessToken().IsElevated() {
 		return 0, false
 	}
+	args, err := elevatedServiceParams()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1, true
+	}
+	output, err := captureElevatedServiceOutput()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1, true
+	}
+	defer func() {
+		if err := output.close(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
+	}()
 	exe, err := os.Executable()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -68,7 +85,7 @@ func elevateServiceAction(action serviceAction) (int, bool) {
 		fmt.Fprintln(os.Stderr, err)
 		return 1, true
 	}
-	paramsPtr, err := windows.UTF16PtrFromString(windows.ComposeCommandLine(elevatedServiceParams()))
+	paramsPtr, err := windows.UTF16PtrFromString(windows.ComposeCommandLine(output.commandArgs(args)))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1, true
@@ -88,7 +105,8 @@ func elevateServiceAction(action serviceAction) (int, bool) {
 		return 1, true
 	}
 	if info.process == 0 {
-		return 0, true
+		fmt.Fprintln(os.Stderr, "elevation returned no process handle; service action completion is unknown")
+		return 1, true
 	}
 	defer func() { _ = windows.CloseHandle(info.process) }()
 	if _, err := windows.WaitForSingleObject(info.process, windows.INFINITE); err != nil {
@@ -100,10 +118,17 @@ func elevateServiceAction(action serviceAction) (int, bool) {
 		fmt.Fprintln(os.Stderr, err)
 		return 1, true
 	}
+	if err := output.replay(os.Stdout, os.Stderr); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1, true
+	}
+	if code != 0 {
+		fmt.Fprintf(os.Stderr, "elevated service %s failed with exit status %d\n", action, code)
+	}
 	return int(code), true
 }
 
-func elevatedServiceParams() []string {
+func elevatedServiceParams() ([]string, error) {
 	args := os.Args[1:]
 	root := strings.TrimSpace(os.Getenv(brand.PersistenceRootEnvName))
 	if root == "" {
@@ -111,7 +136,65 @@ func elevatedServiceParams() []string {
 	}
 	abs, err := brand.NormalizePersistenceRoot(root)
 	if err != nil {
-		return args
+		return nil, fmt.Errorf("resolve invoking user's persistence root before elevation: %w", err)
 	}
-	return append(argsWithoutPersistenceRoot(args), "--persistence-root", abs)
+	return append(argsWithoutPersistenceRoot(args), "--persistence-root", abs), nil
+}
+
+// ShellExecuteEx cannot inherit redirected standard handles across UAC.
+// Capture the elevated child's output and relay it once the child exits.
+const elevatedServiceOutputFlag = "--service-elevation-output"
+
+type elevatedServiceOutput struct {
+	stdout *os.File
+	stderr *os.File
+}
+
+func captureElevatedServiceOutput() (*elevatedServiceOutput, error) {
+	stdout, err := os.CreateTemp("", "kent-service-stdout-*")
+	if err != nil {
+		return nil, fmt.Errorf("capture elevated service stdout: %w", err)
+	}
+	stderr, err := os.CreateTemp("", "kent-service-stderr-*")
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("capture elevated service stderr: %w", err), stdout.Close(), os.Remove(stdout.Name()))
+	}
+	return &elevatedServiceOutput{stdout: stdout, stderr: stderr}, nil
+}
+
+func (o *elevatedServiceOutput) commandArgs(args []string) []string {
+	return append([]string{elevatedServiceOutputFlag, o.stdout.Name(), o.stderr.Name()}, args...)
+}
+
+func (o *elevatedServiceOutput) close() error {
+	return errors.Join(o.stdout.Close(), o.stderr.Close(), os.Remove(o.stdout.Name()), os.Remove(o.stderr.Name()))
+}
+
+func (o *elevatedServiceOutput) replay(stdout, stderr io.Writer) error {
+	_, outErr := io.Copy(stdout, o.stdout)
+	_, errErr := io.Copy(stderr, o.stderr)
+	return errors.Join(outErr, errErr)
+}
+
+func openElevatedServiceOutput(args []string) ([]string, *os.File, *os.File, error) {
+	if len(args) == 0 || args[0] != elevatedServiceOutputFlag {
+		return args, nil, nil, nil
+	}
+	if len(args) < 5 || args[3] != "service" {
+		return nil, nil, nil, errors.New("invalid elevated service invocation")
+	}
+	switch serviceAction(args[4]) {
+	case serviceActionInstall, serviceActionUninstall, serviceActionRestart:
+	default:
+		return nil, nil, nil, errors.New("invalid elevated service action")
+	}
+	stdout, err := os.OpenFile(args[1], os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("open elevated service stdout: %w", err)
+	}
+	stderr, err := os.OpenFile(args[2], os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		return nil, nil, nil, errors.Join(fmt.Errorf("open elevated service stderr: %w", err), stdout.Close())
+	}
+	return args[3:], stdout, stderr, nil
 }

@@ -22,7 +22,7 @@ var (
 	errLocalCompactionToolCallEmptyID = errors.New("local compaction summary attempted tool call with empty id")
 )
 
-func (e *Engine) compactRemote(ctx context.Context, stepID string, input []llm.ResponseItem, providerID string, instructions string, dispatchFactory dispatchRequestFactory) (compactionResult, []llm.ResponseItem, error) {
+func (e *Engine) compactRemote(ctx context.Context, stepID string, input []llm.ResponseItem, providerID string, instructions string, dispatchFactory dispatchRequestFactory, retryPolicy modelRequestRetryPolicy) (compactionResult, []llm.ResponseItem, error) {
 	if !e.llm.supportsCompaction() {
 		return compactionResult{}, nil, errors.New("llm client does not support remote compaction")
 	}
@@ -31,7 +31,7 @@ func (e *Engine) compactRemote(ctx context.Context, stepID string, input []llm.R
 		return compactionResult{}, nil, err
 	}
 
-	resp, sentInput, repairStats, err := e.compactWithContextRepairRetry(ctx, stepID, e.llm, baseRequest, input, instructions, dispatchFactory)
+	resp, sentInput, repairStats, err := e.compactWithContextRepairRetry(ctx, stepID, e.llm, baseRequest, input, instructions, dispatchFactory, retryPolicy)
 	if err != nil {
 		return compactionResult{overflowRepair: repairStats, provider: providerID}, sentInput, err
 	}
@@ -62,6 +62,7 @@ func (e *Engine) compactWithContextRepairRetry(
 	input []llm.ResponseItem,
 	instructions string,
 	dispatchFactory dispatchRequestFactory,
+	retryPolicy modelRequestRetryPolicy,
 ) (llm.CompactionResponse, []llm.ResponseItem, compactionOverflowRepairStats, error) {
 	currentInput := llm.CloneResponseItems(input)
 	repairStats := compactionOverflowRepairStats{}
@@ -80,7 +81,7 @@ func (e *Engine) compactWithContextRepairRetry(
 		if err != nil {
 			return llm.CompactionResponse{}, items, err
 		}
-		resp, err := e.compactWithRetry(ctx, stepID, client, req)
+		resp, err := e.compactWithRetry(ctx, stepID, client, req, retryPolicy)
 		if !isMissingToolOutputProviderError(err, items) {
 			return resp, items, err
 		}
@@ -103,7 +104,7 @@ func (e *Engine) compactWithContextRepairRetry(
 		if freshErr != nil {
 			return llm.CompactionResponse{}, repairedItems, freshErr
 		}
-		resp, err = e.compactWithRetry(ctx, stepID, client, req)
+		resp, err = e.compactWithRetry(ctx, stepID, client, req, retryPolicy)
 		return resp, repairedItems, err
 	}
 
@@ -132,7 +133,7 @@ func (e *Engine) compactWithContextRepairRetry(
 	return llm.CompactionResponse{}, nil, repairStats, errors.New("compaction context repair retry exhausted")
 }
 
-func (e *Engine) compactWithRetry(ctx context.Context, stepID string, client *observedModelClient, request llm.CompactionRequest) (llm.CompactionResponse, error) {
+func (e *Engine) compactWithRetry(ctx context.Context, stepID string, client *observedModelClient, request llm.CompactionRequest, retryPolicy modelRequestRetryPolicy) (llm.CompactionResponse, error) {
 	observed, err := e.prepareCacheObservedRequest(
 		ctx,
 		stepID,
@@ -145,7 +146,7 @@ func (e *Engine) compactWithRetry(ctx context.Context, stepID string, client *ob
 		return llm.CompactionResponse{}, err
 	}
 
-	delays := compactionRetryDelays
+	delays := retryPolicy.delays(compactionRetryDelays)
 	var lastErr error
 	publishedProviderDiagnostics := make(map[llm.CodexTurnStateDiagnosticCategory]struct{}, 2)
 	for i := 0; i <= len(delays); i++ {
@@ -167,6 +168,9 @@ func (e *Engine) compactWithRetry(ctx context.Context, stepID string, client *ob
 		}
 		lastErr = err
 		if i == len(delays) {
+			if retryPolicy == modelRequestSingleAttempt {
+				return llm.CompactionResponse{}, err
+			}
 			break
 		}
 		if err := rpcwire.WaitForRetry(ctx, delays[i]); err != nil {
@@ -230,13 +234,14 @@ func (e *Engine) compactionRequestFromItems(ctx context.Context, items []llm.Res
 	return req, nil
 }
 
-func (e *Engine) compactLocal(ctx context.Context, stepID string, input []llm.ResponseItem, providerID string, instructions string, dispatchFactory dispatchRequestFactory) (compactionResult, error) {
+func (e *Engine) compactLocal(ctx context.Context, stepID string, input []llm.ResponseItem, providerID string, instructions string, dispatchFactory dispatchRequestFactory, retryPolicy modelRequestRetryPolicy) (compactionResult, error) {
 	summary, repairStats, toolCallRejectionCount, err := e.localCompactionSummaryWithRepair(
 		ctx,
 		stepID,
 		input,
 		instructions,
 		dispatchFactory,
+		retryPolicy,
 	)
 	if err != nil {
 		return compactionResult{localToolCallRejectionCount: toolCallRejectionCount}, err
@@ -266,11 +271,11 @@ func (e *Engine) localCompactionSummary(ctx context.Context, input []llm.Respons
 	if err != nil {
 		return "", err
 	}
-	summary, _, _, err := e.localCompactionSummaryWithRepair(ctx, run.StepID, input, instructions, factory)
+	summary, _, _, err := e.localCompactionSummaryWithRepair(ctx, run.StepID, input, instructions, factory, modelRequestRetriesAllowed)
 	return summary, err
 }
 
-func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, stepID string, input []llm.ResponseItem, instructions string, dispatchFactory dispatchRequestFactory) (string, compactionOverflowRepairStats, int, error) {
+func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, stepID string, input []llm.ResponseItem, instructions string, dispatchFactory dispatchRequestFactory, retryPolicy modelRequestRetryPolicy) (string, compactionOverflowRepairStats, int, error) {
 	window := llm.CloneResponseItems(input)
 	repairStats := compactionOverflowRepairStats{}
 	toolCallRejectionCount := 0
@@ -280,7 +285,7 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, stepID st
 	// window. After a collapse, output items are preserved, so a missing-output
 	// 400 is an invariant violation and panics; other 400s fall through.
 	summarize := func(w []llm.ResponseItem, canRepair bool) (string, []llm.ResponseItem, int, error) {
-		summary, rejectedToolCalls, err := e.localCompactionSummaryFromWindow(ctx, stepID, w, instructions, dispatchFactory)
+		summary, rejectedToolCalls, err := e.localCompactionSummaryFromWindow(ctx, stepID, w, instructions, dispatchFactory, retryPolicy)
 		if !isMissingToolOutputProviderError(err, w) {
 			return summary, w, rejectedToolCalls, err
 		}
@@ -298,7 +303,7 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, stepID st
 			return summary, w, rejectedToolCalls, err
 		}
 		repairedWindow := e.transcriptRuntimeState().SnapshotItems()
-		repairedSummary, repairedRejectedToolCalls, repairedErr := e.localCompactionSummaryFromWindow(ctx, stepID, repairedWindow, instructions, dispatchFactory)
+		repairedSummary, repairedRejectedToolCalls, repairedErr := e.localCompactionSummaryFromWindow(ctx, stepID, repairedWindow, instructions, dispatchFactory, retryPolicy)
 		return repairedSummary, repairedWindow, rejectedToolCalls + repairedRejectedToolCalls, repairedErr
 	}
 
@@ -326,7 +331,7 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, stepID st
 	return "", repairStats, toolCallRejectionCount, errors.New("local compaction context repair retry exhausted")
 }
 
-func (e *Engine) localCompactionSummaryFromWindow(ctx context.Context, stepID string, window []llm.ResponseItem, instructions string, dispatchFactory dispatchRequestFactory) (string, int, error) {
+func (e *Engine) localCompactionSummaryFromWindow(ctx context.Context, stepID string, window []llm.ResponseItem, instructions string, dispatchFactory dispatchRequestFactory, retryPolicy modelRequestRetryPolicy) (string, int, error) {
 	items := compactionConversationWithPromptItems(window, instructions)
 	toolCallRejectionCount := 0
 	for attempt := 0; ; attempt++ {
@@ -339,19 +344,15 @@ func (e *Engine) localCompactionSummaryFromWindow(ctx context.Context, stepID st
 			return "", toolCallRejectionCount, err
 		}
 
-		candidate, err := e.generateWithRetryClient(
-			ctx,
-			stepID,
-			e.llm,
-			req,
-			nil,
-			nil,
-			nil,
-		)
+		observed, err := e.prepareCacheObservedRequest(ctx, stepID, e.llm, req,
+			modelcontract.ProviderOperationPurposeCompaction, cacheResponseObservationExactStep)
 		if err != nil {
 			return "", toolCallRejectionCount, err
 		}
-		resp := candidate.response
+		resp, err := e.generateObservedWithRetry(ctx, stepID, e.llm, observed, retryPolicy, nil, nil, nil)
+		if err != nil {
+			return "", toolCallRejectionCount, err
+		}
 		if len(resp.ToolCalls) > 0 {
 			toolCallRejectionCount++
 			if attempt >= localCompactionToolCallRetries {

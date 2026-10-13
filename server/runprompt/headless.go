@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"core/server/launch"
-	"core/server/llm"
 	"core/server/metadata"
 	"core/server/runlog"
 	"core/server/runtime"
@@ -18,6 +17,7 @@ import (
 	"core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -30,13 +30,17 @@ var ErrHeadlessGoalSession = errors.New("headless runs cannot continue sessions 
 
 var ErrSessionRunning = errors.New("selected session has an active run")
 
-// ErrHeadlessAskUnsupported is returned by the headless ask handler when the
-// model attempts to ask a question in headless/background mode, where no
-// interactive answer is possible.
-var ErrHeadlessAskUnsupported = errors.New("You can't ask questions in headless/background mode. If the question is critical and materially affects the task, ask it by ending your turn after trying to do as much work as possible beforehand. Otherwise, follow best practice and mention the ambiguity in your final answer.")
-
 type promptHistoryStore interface {
 	RecordPromptHistoryEntry(ctx context.Context, entry metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, error)
+}
+
+type LiveRunObserver interface {
+	ObserveLiveRun(
+		context.Context,
+		context.CancelFunc,
+		runtimeids.SessionID,
+		*runtime.LiveRunWaitHandle,
+	) (*promptpb.LiveWatchSuccess, error)
 }
 
 type HeadlessBootstrap struct {
@@ -44,6 +48,7 @@ type HeadlessBootstrap struct {
 	SessionLaunch    *sessionlaunch.Service
 	PromptHistory    promptHistoryStore
 	RuntimeAuthority *sessionruntime.Authority
+	LiveRunObserver  LiveRunObserver
 	// ManagedWorktreeBaseDir is the server-owned managed Worktree namespace.
 	ManagedWorktreeBaseDir string
 }
@@ -112,6 +117,7 @@ func (l *headlessPromptLauncher) prepareHeadlessPrompt(ctx context.Context, req 
 		selectionWarnings: result.RunSelectionWarnings,
 		progress:          progress,
 		sessionStarted:    sessionStarted,
+		liveRunObserver:   l.boot.LiveRunObserver,
 	}, nil
 }
 
@@ -138,15 +144,23 @@ type headlessRuntimePlan struct {
 	handle     sessionruntime.ExecutionHandle
 	sessionID  string
 	submission chan headlessPromptSubmission
-	content    string
-	name       *string
+	activeRun  chan activeRunCapture
 	onActive   func()
 	agentSteer *runtime.AgentSteer
 }
 
 type headlessPromptSubmission struct {
-	prompt string
-	steer  *runtime.AgentSteer
+	prompt         string
+	steer          *runtime.AgentSteer
+	observerCtx    context.Context
+	observerCancel context.CancelFunc
+}
+
+type activeRunCapture struct {
+	observerHandle *runtime.LiveRunWaitHandle
+	observerCancel context.CancelFunc
+	sessionName    *string
+	err            error
 }
 
 func (p *headlessRuntimePlan) PromptHistoryText(fallback string) string {
@@ -234,15 +248,13 @@ func (l *headlessPromptLauncher) prepareRuntime(ctx context.Context, plan launch
 	prepared := &headlessRuntimePlan{
 		sessionID:  sessionID.String(),
 		submission: make(chan headlessPromptSubmission),
+		activeRun:  make(chan activeRunCapture, 1),
 		agentSteer: agentSteer,
 	}
 	handle, err := l.boot.RuntimeAuthority.StartAgentExecution(ctx, sessionruntime.AgentExecutionRequest{
 		Descriptor: plan.Descriptor,
 		Runtime:    &runtimePlan,
 		Resource:   sessionruntime.ReplaceAgentResource{},
-		Ask: func(_ context.Context, _ sessionruntime.ExecutionScope, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
-			return RunPromptAskHandler(req)
-		},
 		Runner: func(runCtx context.Context, _ sessionruntime.ExecutionScope, bridge sessionruntime.AgentRuntimeBridge) error {
 			var submission headlessPromptSubmission
 			select {
@@ -253,32 +265,31 @@ func (l *headlessPromptLauncher) prepareRuntime(ctx context.Context, plan launch
 			return bridge.WithEngine(runCtx, func(engineCtx context.Context, engine *runtime.Engine) error {
 				var waitHandle *runtime.LiveRunWaitHandle
 				var waitStartErr error
-				submit := func() (llm.Message, error) {
+				submit := func() error {
 					onActive := func() {
 						waitHandle, waitStartErr = engine.CaptureActiveRunResult(engineCtx)
+						observerHandle, observerErr := engine.CaptureActiveRunResult(submission.observerCtx)
+						prepared.activeRun <- activeRunCapture{
+							observerHandle: observerHandle,
+							observerCancel: submission.observerCancel,
+							sessionName:    engine.SessionName(),
+							err:            errors.Join(waitStartErr, observerErr),
+						}
 						if waitStartErr == nil && prepared.onActive != nil {
 							prepared.onActive()
 						}
 					}
 					if submission.steer != nil {
-						return engine.SubmitAgentSteerWithHooks(engineCtx, *submission.steer, onActive, nil)
+						_, err := engine.SubmitAgentSteerWithHooks(engineCtx, *submission.steer, onActive, nil)
+						return err
 					}
-					return engine.SubmitUserMessageWithHooks(engineCtx, submission.prompt, onActive, nil)
+					_, err := engine.SubmitUserMessageWithHooks(engineCtx, submission.prompt, onActive, nil)
+					return err
 				}
-				assistant, submitErr := submit()
-				prepared.content = preservePresentAssistantContent(
-					prepared.content,
-					assistant,
-				)
-				prepared.name = engine.SessionName()
+				submitErr := submit()
 				if waitHandle != nil {
-					result, waitErr := waitHandle.Wait()
-					if waitErr == nil {
-						prepared.content = preservePresentAssistantContent(
-							prepared.content,
-							result.AssistantMessage,
-						)
-					} else if submitErr == nil && !errors.Is(waitErr, runtime.ErrLiveRunNoFinalAnswer) {
+					_, waitErr := waitHandle.Wait()
+					if waitErr != nil && submitErr == nil && !errors.Is(waitErr, runtime.ErrLiveRunNoFinalAnswer) {
 						submitErr = waitErr
 					}
 				} else if waitStartErr != nil && submitErr == nil {
@@ -299,13 +310,6 @@ func (l *headlessPromptLauncher) prepareRuntime(ctx context.Context, plan launch
 	return prepared, nil
 }
 
-func preservePresentAssistantContent(current string, message llm.Message) string {
-	if message.Content == nil {
-		return current
-	}
-	return *message.Content
-}
-
 type headlessPromptRuntime struct {
 	identity          runtimeids.SessionIdentity
 	plan              *headlessRuntimePlan
@@ -313,33 +317,134 @@ type headlessPromptRuntime struct {
 	selectionWarnings []runpromptpb.RunSelectionWarning
 	progress          serverapi.RunPromptProgressSink
 	sessionStarted    *runpromptpb.SessionStarted
+	liveRunObserver   LiveRunObserver
 }
 
 func (r *headlessPromptRuntime) submitUserMessage(ctx context.Context, prompt string) (*runpromptpb.Success, error) {
 	if r.plan == nil || r.plan.handle == nil {
 		return &runpromptpb.Success{}, errors.Join(serverapi.ErrRuntimeUnavailable, errors.New("headless runtime is unavailable"))
 	}
-	r.plan.onActive = r.publishSessionStarted
-	select {
-	case r.plan.submission <- headlessPromptSubmission{prompt: prompt, steer: r.plan.agentSteer}:
-	case <-ctx.Done():
-		return &runpromptpb.Success{}, context.Cause(ctx)
+	sessionID, err := runtimeids.ParseSessionID(r.plan.sessionID)
+	if err != nil {
+		return &runpromptpb.Success{}, err
 	}
-	_, err := r.plan.handle.Wait(ctx)
-	if err != nil && context.Cause(ctx) != nil {
-		err = errors.Join(err, r.plan.handle.Stop(context.Background()))
-	}
-	return &runpromptpb.Success{
-		ShortId:     protoapi.SessionShortIDToProto(r.identity.ShortID),
-		SessionId:   r.plan.sessionID,
-		SessionName: r.plan.name,
-		Result:      r.plan.content,
-		Warnings:    append([]string(nil), r.warnings...),
+	observerCtx, cancelObserver := context.WithCancel(ctx)
+	defer cancelObserver()
+	response := &runpromptpb.Success{
+		ShortId:   protoapi.SessionShortIDToProto(r.identity.ShortID),
+		SessionId: r.plan.sessionID,
+		Warnings:  append([]string(nil), r.warnings...),
 		SelectionWarnings: append(
 			[]runpromptpb.RunSelectionWarning(nil),
 			r.selectionWarnings...,
 		),
-	}, err
+	}
+	r.plan.onActive = r.publishSessionStarted
+	var (
+		active    activeRunCapture
+		hasActive bool
+	)
+	select {
+	case r.plan.submission <- headlessPromptSubmission{
+		prompt:         prompt,
+		steer:          r.plan.agentSteer,
+		observerCtx:    observerCtx,
+		observerCancel: cancelObserver,
+	}:
+	case <-r.plan.handle.Done():
+		active, hasActive, err = r.completedBeforeActivation(ctx)
+		if err != nil {
+			return response, err
+		}
+	case <-ctx.Done():
+		return response, context.Cause(ctx)
+	}
+	if !hasActive {
+		select {
+		case active = <-r.plan.activeRun:
+			hasActive = true
+		case <-r.plan.handle.Done():
+			active, hasActive, err = r.completedBeforeActivation(ctx)
+			if err != nil {
+				return response, err
+			}
+		case <-ctx.Done():
+			return response, context.Cause(ctx)
+		}
+	}
+	response.SessionName = active.sessionName
+	if active.err != nil {
+		active.observerCancel()
+		if active.observerHandle != nil {
+			_, _ = active.observerHandle.Wait()
+		}
+		return response, active.err
+	}
+	if r.liveRunObserver == nil {
+		active.observerCancel()
+		if active.observerHandle != nil {
+			_, _ = active.observerHandle.Wait()
+		}
+		return response, errors.New("headless live run observer is required")
+	}
+	observed, err := r.liveRunObserver.ObserveLiveRun(
+		observerCtx,
+		active.observerCancel,
+		sessionID,
+		active.observerHandle,
+	)
+	if err != nil {
+		return response, err
+	}
+	if question := observed.GetOutcome().GetQuestion(); question != nil {
+		response.Outcome = &runpromptpb.Success_Question{Question: question}
+		return response, nil
+	}
+	if _, err := r.plan.handle.Wait(ctx); err != nil {
+		return response, err
+	}
+	switch outcome := observed.GetOutcome().GetOutcome().(type) {
+	case *promptpb.LiveWatchOutcome_FinalAnswer:
+		if outcome.FinalAnswer == nil || outcome.FinalAnswer.Result == nil {
+			return response, errors.New("live run final answer content is required")
+		}
+		response.Outcome = &runpromptpb.Success_FinalAnswer{FinalAnswer: *outcome.FinalAnswer.Result}
+		return response, nil
+	case *promptpb.LiveWatchOutcome_NoFinalResult:
+		return response, runtime.ErrLiveRunNoFinalAnswer
+	case *promptpb.LiveWatchOutcome_ExecutionError:
+		return response, liveWatchFailureError(outcome.ExecutionError)
+	case *promptpb.LiveWatchOutcome_Interrupted:
+		return response, liveWatchFailureError(outcome.Interrupted)
+	default:
+		return response, errors.New("live run observer returned an unsupported outcome")
+	}
+}
+
+func (r *headlessPromptRuntime) completedBeforeActivation(ctx context.Context) (activeRunCapture, bool, error) {
+	select {
+	case active := <-r.plan.activeRun:
+		return active, true, nil
+	default:
+	}
+	if _, err := r.plan.handle.Wait(ctx); err != nil {
+		return activeRunCapture{}, false, err
+	}
+	return activeRunCapture{}, false, runtime.ErrNoActiveLiveRun
+}
+
+func liveWatchFailureError(failure *promptpb.LiveWatchFailure) error {
+	if failure == nil {
+		return errors.New("live run failed")
+	}
+	reason := strings.TrimSpace(failure.Reason)
+	if failure.Diagnostic != nil && strings.TrimSpace(*failure.Diagnostic) != "" {
+		return fmt.Errorf("%s: %s", reason, strings.TrimSpace(*failure.Diagnostic))
+	}
+	if reason == "" {
+		return errors.New("live run failed")
+	}
+	return errors.New(reason)
 }
 
 func (r *headlessPromptRuntime) publishSessionStarted() {
@@ -351,8 +456,4 @@ func (r *headlessPromptRuntime) publishSessionStarted() {
 	r.progress.PublishRunPromptProgress(&runpromptpb.ProgressEvent{
 		Payload: &runpromptpb.ProgressEvent_SessionStarted{SessionStarted: started},
 	})
-}
-
-func RunPromptAskHandler(req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
-	return nil, ErrHeadlessAskUnsupported
 }

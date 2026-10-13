@@ -1,103 +1,21 @@
-import { RegistryProvider } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
-import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
-import { StrictMode, type ReactNode } from "react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 
-import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
-import { createViewedImagePreviewModel, useViewedImagePreview } from "./ViewedImagePreviewModel";
+import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { ViewedImageRow } from "./ViewedImageRow";
 import type { TranscriptToolSlotItem } from "./toolSlotTypes";
 import type { ToolPresentation } from "./toolPresentation";
 
-const decode = vi.fn(async (): Promise<void> => undefined);
-const createURL = vi.fn(() => "blob:preview");
-const revokeURL = vi.fn();
-
-beforeEach(() => {
-  decode.mockReset().mockResolvedValue(undefined);
-  createURL.mockReset().mockReturnValue("blob:preview");
-  revokeURL.mockReset();
-  vi.stubGlobal(
-    "Image",
-    class {
-      src = "";
-      naturalWidth = 25;
-      naturalHeight = 50;
-      decode = decode;
-    },
-  );
-  vi.stubGlobal(
-    "URL",
-    class extends URL {
-      static override createObjectURL = createURL;
-      static override revokeObjectURL = revokeURL;
-    },
-  );
-});
-
-afterEach(() => vi.unstubAllGlobals());
-
-function fixture(localEnabled = true, effectiveWorkdir: string | null = "/workspace", path = "image.png") {
+function fixture() {
   const services = createTestServices([]);
-  const server = vi.spyOn(services.api.chat, "getViewedImageOriginal").mockResolvedValue({
-    kind: "content",
-    bytes: new Uint8Array([2]),
-  });
-  const local = vi.fn(async (): Promise<Uint8Array> => new Uint8Array([1]));
-  const nativeBridge = {
-    ...services.nativeBridge,
-    files: { ...services.nativeBridge.files, readImage: localEnabled ? local : null },
-  };
+  const resolveSource = vi
+    .spyOn(services.api.chat, "resolveViewedImageOriginalSource")
+    .mockResolvedValue("/viewed-image?source=source&signature=signature");
   const client = new QueryClient();
-  const model = createViewedImagePreviewModel({
-    services: { ...services, nativeBridge },
-    client,
-    target: { projectID: "project", sessionID: "session" },
-    effectiveWorkdir,
-    path,
-    locator: { event_sequence: 1, row_ordinal: 0 },
-  });
-  return { client, local, server, model, services: { ...services, nativeBridge } };
+  return { client, resolveSource, services };
 }
-
-function mount(context: ReturnType<typeof fixture>) {
-  return renderHook(() => useViewedImagePreview(context.model), {
-    wrapper: ({ children }: { children: ReactNode }) => <RegistryProvider>{children}</RegistryProvider>,
-  });
-}
-
-it("uses a decoded local original without transferring server bytes", async () => {
-  const context = fixture();
-  const view = mount(context);
-  await waitFor(() => {
-    expect(view.result.current.data?.kind).toBe("image");
-  });
-  expect(view.result.current.data).toMatchObject({ source: "local", width: 25, height: 50 });
-  expect(context.server).not.toHaveBeenCalled();
-  view.unmount();
-  await waitFor(() => {
-    expect(revokeURL).toHaveBeenCalledWith("blob:preview");
-  });
-});
-
-it("uses the server original without local path context", async () => {
-  const context = fixture(true, null);
-  context.local.mockRejectedValue(new Error("Relative path requires a base directory"));
-  const view = mount(context);
-  await waitFor(() => {
-    expect(view.result.current.data).toMatchObject({ kind: "image", source: "server" });
-  });
-});
-
-it("uses an absolute local original without a working directory", async () => {
-  const context = fixture(true, null, "/images/image.png");
-  const view = mount(context);
-  await waitFor(() => {
-    expect(view.result.current.data).toMatchObject({ kind: "image", source: "local" });
-  });
-  expect(context.server).not.toHaveBeenCalled();
-});
 
 const imagePresentation: Extract<ToolPresentation, { kind: "view-image" }> = {
   kind: "view-image",
@@ -109,6 +27,7 @@ const imagePresentation: Extract<ToolPresentation, { kind: "view-image" }> = {
   iconTone: "neutral",
   running: false,
 };
+
 const imageItem: TranscriptToolSlotItem = {
   kind: "committed",
   row: {
@@ -134,37 +53,97 @@ const imageItem: TranscriptToolSlotItem = {
   },
 };
 
-it("finishes an expanded acquisition through Strict mount replay and context hydration", async () => {
-  const context = fixture(false, null);
-  const read = deferred<Awaited<ReturnType<typeof context.server>>>();
-  context.server.mockReturnValue(read.promise);
-  const row = (effectiveWorkdir: string | null) => (
+function renderPreview(context: ReturnType<typeof fixture>, strict = false) {
+  return render(
     <ViewedImageRow
       presentation={imagePresentation}
       item={imageItem}
       target={{ projectID: "project", sessionID: "session" }}
-      effectiveWorkdir={effectiveWorkdir}
-    />
+      effectiveWorkdir={null}
+    />,
+    {
+      wrapper: ({ children }) => {
+        const providers = (
+          <TestAppProviders services={context.services} queryClient={context.client}>
+            {children}
+          </TestAppProviders>
+        );
+        return strict ? <StrictMode>{providers}</StrictMode> : providers;
+      },
+    },
   );
-  const view = render(row(null), {
-    wrapper: ({ children }) => (
-      <StrictMode>
-        <TestAppProviders services={context.services} queryClient={context.client}>
-          {children}
-        </TestAppProviders>
-      </StrictMode>
-    ),
+}
+
+it("resolves the server source only after expansion and mounts one image element", async () => {
+  const context = fixture();
+  renderPreview(context, true);
+
+  expect(context.resolveSource).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button"));
+  await waitFor(() => {
+    const [target, path, signal] = context.resolveSource.mock.calls[0] ?? [];
+    expect(target).toEqual({ projectID: "project", sessionID: "session" });
+    expect(path).toBe("/images/image.png");
+    expect(signal).toBeInstanceOf(AbortSignal);
+  });
+  await waitFor(() => {
+    expect(screen.queryAllByAltText("")).toHaveLength(1);
+    expect(screen.getByAltText("")).toHaveAttribute(
+      "src",
+      "http://127.0.0.1:53082/viewed-image?source=source&signature=signature",
+    );
+  });
+});
+
+it("shows an inline failure instead of leaving a broken image", async () => {
+  const context = fixture();
+  renderPreview(context);
+  fireEvent.click(screen.getByRole("button"));
+  fireEvent.error(await screen.findByAltText(""));
+
+  await waitFor(() => {
+    expect(screen.queryByAltText("")).not.toBeInTheDocument();
+  });
+  expect(screen.getByRole("button", { expanded: true })).toBeInTheDocument();
+});
+
+it("shows source-resolution failures inline in the expanded row", async () => {
+  const context = fixture();
+  context.resolveSource.mockRejectedValue(new Error("source request failed"));
+  renderPreview(context);
+  fireEvent.click(screen.getByRole("button"));
+
+  await waitFor(() => {
+    expect(context.resolveSource).toHaveBeenCalled();
+    expect(screen.queryByAltText("")).not.toBeInTheDocument();
+  });
+  expect(screen.getByRole("button", { expanded: true })).toBeInTheDocument();
+});
+
+it("cancels source resolution when the row collapses", async () => {
+  const context = fixture();
+  let requestSignal: AbortSignal | undefined;
+  context.resolveSource.mockImplementation(async (_target, _path, signal) => {
+    requestSignal = signal;
+    return new Promise((_resolve, reject) => {
+      signal?.addEventListener(
+        "abort",
+        () => {
+          reject(new Error("source request cancelled"));
+        },
+        { once: true },
+      );
+    });
+  });
+  renderPreview(context);
+
+  fireEvent.click(screen.getByRole("button"));
+  await waitFor(() => {
+    expect(requestSignal).toBeDefined();
   });
   fireEvent.click(screen.getByRole("button"));
   await waitFor(() => {
-    expect(context.server).toHaveBeenCalled();
-  });
-  view.rerender(row("/workspace"));
-  await act(async () => {
-    read.resolve({ kind: "content", bytes: new Uint8Array([3]) });
-  });
-  await waitFor(() => {
-    expect(screen.getByAltText("")).toHaveAttribute("src", "blob:preview");
+    expect(requestSignal?.aborted).toBe(true);
   });
 });
 
@@ -189,178 +168,57 @@ it("offers native Open for an available absolute PDF without a working directory
       target={{ projectID: "project", sessionID: "session" }}
       effectiveWorkdir={null}
     />,
-    { wrapper: ({ children }) => <TestAppProviders services={services}>{children}</TestAppProviders> },
+    {
+      wrapper: ({ children }) => (
+        <TestAppProviders services={services} queryClient={context.client}>
+          {children}
+        </TestAppProviders>
+      ),
+    },
   );
-  const button = await screen.findByRole("button");
-  fireEvent.click(button);
+  fireEvent.click(await screen.findByRole("button"));
   await waitFor(() => {
     expect(open).toHaveBeenCalledWith({ path: "/images/file.pdf", basePath: undefined });
   });
   expect(available).toHaveBeenCalledWith({ path: "/images/file.pdf", basePath: undefined });
-  expect(context.server).not.toHaveBeenCalled();
+  expect(context.resolveSource).not.toHaveBeenCalled();
 });
 
-it("uses the server original when local acquisition fails", async () => {
+it("does not let a disposed source resolution replace a reopened row", async () => {
   const context = fixture();
-  context.local.mockRejectedValue(new Error("local file unavailable"));
-  const view = mount(context);
-  await waitFor(() => {
-    expect(view.result.current.data?.kind).toBe("image");
-  });
-  expect(view.result.current.data).toMatchObject({ source: "server" });
-});
+  const oldSource = deferred<string>();
+  const currentSource = deferred<string>();
+  context.resolveSource.mockReturnValueOnce(oldSource.promise).mockReturnValueOnce(currentSource.promise);
+  renderPreview(context);
+  const disclosure = screen.getByRole("button");
 
-it("falls back to the server when the local original cannot decode", async () => {
-  const context = fixture();
-  decode.mockRejectedValueOnce(new Error("corrupt local image"));
-  createURL.mockReturnValueOnce("blob:local").mockReturnValueOnce("blob:server");
-  const view = mount(context);
+  fireEvent.click(disclosure);
   await waitFor(() => {
-    expect(view.result.current.data).toMatchObject({ kind: "image", source: "server" });
+    expect(context.resolveSource).toHaveBeenCalledTimes(1);
   });
-  expect(revokeURL).toHaveBeenCalledWith("blob:local");
-  expect(revokeURL).not.toHaveBeenCalledWith("blob:server");
-});
+  fireEvent.click(disclosure);
+  await waitFor(() => {
+    expect(screen.queryByAltText("")).not.toBeInTheDocument();
+  });
+  fireEvent.click(disclosure);
+  await waitFor(() => {
+    expect(context.resolveSource).toHaveBeenCalledTimes(2);
+  });
 
-it("shows unavailable when the server original is missing", async () => {
-  const context = fixture();
-  context.local.mockRejectedValue(new Error("local unavailable"));
-  context.server.mockResolvedValue({ kind: "unavailable" });
-  const view = mount(context);
-  await waitFor(() => {
-    expect(view.result.current.data).toEqual({ kind: "unavailable" });
-  });
-  expect(createURL).not.toHaveBeenCalled();
-});
-
-it("reports an operational server failure as a request error", async () => {
-  const context = fixture();
-  context.local.mockRejectedValue(new Error("local unavailable"));
-  const failure = new Error("connection timeout");
-  context.server.mockRejectedValue(failure);
-  const view = mount(context);
-  await waitFor(() => {
-    expect(view.result.current.isError).toBe(true);
-  });
-  expect(view.result.current.error).toBe(failure);
-});
-
-it("re-expands with a fresh acquisition before a disposed native read completes", async () => {
-  const context = fixture();
-  const oldRead = deferred<Uint8Array>();
-  const freshRead = deferred<Uint8Array>();
-  context.local.mockReturnValueOnce(oldRead.promise).mockReturnValueOnce(freshRead.promise);
-  const utils = mount(context);
-  await waitFor(() => {
-    expect(context.local).toHaveBeenCalledTimes(1);
-  });
-  utils.unmount();
-  const view = mount(context);
-  await waitFor(() => {
-    expect(context.local).toHaveBeenCalledTimes(2);
-  });
   await act(async () => {
-    oldRead.resolve(new Uint8Array([3]));
+    oldSource.resolve("/viewed-image?source=old&signature=signature");
+    await oldSource.promise;
   });
-  expect(view.result.current.isPending).toBe(true);
-  expect(createURL).not.toHaveBeenCalled();
-  expect(context.server).not.toHaveBeenCalled();
-  await act(async () => {
-    freshRead.resolve(new Uint8Array([4]));
-  });
-  await waitFor(() => {
-    expect(view.result.current.data).toMatchObject({ kind: "image", source: "local" });
-  });
-});
+  expect(screen.queryByAltText("")).not.toBeInTheDocument();
 
-it("uses server-only acquisition in a browser without touching native files", async () => {
-  const context = fixture(false);
-  const view = mount(context);
-  await waitFor(() => {
-    expect(view.result.current.data).toMatchObject({ kind: "image", source: "server" });
-  });
-  expect(context.local).not.toHaveBeenCalled();
-});
-
-it("shows unavailable and releases the candidate when the server original cannot decode", async () => {
-  const context = fixture(false);
-  decode.mockRejectedValue(new Error("unsupported image"));
-  const view = mount(context);
-  await waitFor(() => {
-    expect(view.result.current.data).toEqual({ kind: "unavailable" });
-  });
-  expect(revokeURL).toHaveBeenCalledWith("blob:preview");
-});
-
-it("discards a disposed server read and reacquires before its completion", async () => {
-  const context = fixture(false);
-  const oldRead = deferred<Awaited<ReturnType<typeof context.server>>>();
-  const freshRead = deferred<Awaited<ReturnType<typeof context.server>>>();
-  context.server.mockReturnValueOnce(oldRead.promise).mockReturnValueOnce(freshRead.promise);
-  const utils = mount(context);
-  await waitFor(() => {
-    expect(context.server).toHaveBeenCalledTimes(1);
-  });
-  utils.unmount();
-  const view = mount(context);
-  await waitFor(() => {
-    expect(context.server).toHaveBeenCalledTimes(2);
-  });
   await act(async () => {
-    oldRead.resolve({ kind: "content", bytes: new Uint8Array([3]) });
-  });
-  expect(view.result.current.isPending).toBe(true);
-  expect(createURL).not.toHaveBeenCalled();
-  await act(async () => {
-    freshRead.resolve({ kind: "content", bytes: new Uint8Array([4]) });
+    currentSource.resolve("/viewed-image?source=current&signature=signature");
+    await currentSource.promise;
   });
   await waitFor(() => {
-    expect(view.result.current.data).toMatchObject({ kind: "image", source: "server" });
-  });
-});
-
-it("releases a decoding candidate on disposal and ignores its later failure", async () => {
-  const context = fixture();
-  const oldDecode = deferred<undefined>();
-  decode.mockReturnValueOnce(oldDecode.promise);
-  createURL.mockReturnValueOnce("blob:old").mockReturnValueOnce("blob:fresh");
-  const utils = mount(context);
-  await waitFor(() => {
-    expect(decode).toHaveBeenCalledTimes(1);
-  });
-  utils.unmount();
-  const view = mount(context);
-  await waitFor(() => {
-    expect(view.result.current.data).toMatchObject({ url: "blob:fresh" });
-  });
-  expect(revokeURL).toHaveBeenCalledWith("blob:old");
-  await act(async () => {
-    oldDecode.reject(new Error("late decode failure"));
-  });
-  expect(view.result.current.data).toMatchObject({ url: "blob:fresh" });
-  expect(context.server).not.toHaveBeenCalled();
-  expect(revokeURL).not.toHaveBeenCalledWith("blob:fresh");
-});
-
-it("re-expands a completed row without retaining its old preview", async () => {
-  const context = fixture();
-  createURL.mockReturnValueOnce("blob:old").mockReturnValueOnce("blob:fresh");
-  const utils = mount(context);
-  await waitFor(() => {
-    expect(utils.result.current.data).toMatchObject({ url: "blob:old" });
-  });
-  utils.unmount();
-  const freshRead = deferred<Uint8Array>();
-  context.local.mockReturnValueOnce(freshRead.promise);
-  const view = mount(context);
-  expect(view.result.current.data).toBeUndefined();
-  await waitFor(() => {
-    expect(context.local).toHaveBeenCalledTimes(2);
-  });
-  await act(async () => {
-    freshRead.resolve(new Uint8Array([4]));
-  });
-  await waitFor(() => {
-    expect(view.result.current.data).toMatchObject({ url: "blob:fresh" });
+    expect(screen.getByAltText("")).toHaveAttribute(
+      "src",
+      "http://127.0.0.1:53082/viewed-image?source=current&signature=signature",
+    );
   });
 });

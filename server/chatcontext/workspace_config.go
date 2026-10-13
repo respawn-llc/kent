@@ -12,14 +12,16 @@ import (
 // FixedRootWorkspaceResolver reloads an exact workspace while retaining the
 // config root and explicit settings overrides selected at server startup.
 type FixedRootWorkspaceResolver struct {
+	metadata             *metadata.Store
 	startupWorkspaceRoot string
 	startupLoadOptions   config.LoadOptions
 }
 
-func NewFixedRootWorkspaceResolver(configRoot string, startupWorkspaceRoot string, startupLoadOptions config.LoadOptions) FixedRootWorkspaceResolver {
-	configRoot = strings.TrimSpace(configRoot)
+func NewFixedRootWorkspaceResolver(store *metadata.Store, startupWorkspaceRoot string, startupLoadOptions config.LoadOptions) FixedRootWorkspaceResolver {
+	configRoot := store.PersistenceRoot()
 	startupLoadOptions.ConfigRoot = configRoot
 	return FixedRootWorkspaceResolver{
+		metadata:             store,
 		startupWorkspaceRoot: strings.TrimSpace(startupWorkspaceRoot),
 		startupLoadOptions:   startupLoadOptions,
 	}
@@ -44,7 +46,7 @@ func (r FixedRootWorkspaceResolver) Resolve(workspaceRoot string) (config.App, e
 			loadOptions = r.startupLoadOptions
 		}
 	}
-	mainRoot, err := ResolveMainWorkspaceRoot(configRoot, workspaceRoot)
+	mainRoot, err := resolveMainWorkspaceRoot(r.metadata, workspaceRoot)
 	if err != nil {
 		return config.App{}, err
 	}
@@ -54,13 +56,25 @@ func (r FixedRootWorkspaceResolver) Resolve(workspaceRoot string) (config.App, e
 // ResolveMainWorkspaceRoot uses workspace/worktree bindings, without registering
 // an ordinary unbound workspace or inferring ownership from its parent folders.
 func ResolveMainWorkspaceRoot(persistenceRoot, workspaceRoot string) (string, error) {
+	exists, err := metadata.DatabaseExists(persistenceRoot)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return config.CanonicalWorkspaceRoot(workspaceRoot)
+	}
 	store, err := metadata.Open(persistenceRoot)
 	if err != nil {
 		return "", err
 	}
+	root, resolveErr := resolveMainWorkspaceRoot(store, workspaceRoot)
+	return root, errors.Join(resolveErr, store.Close())
+}
+
+func resolveMainWorkspaceRoot(store *metadata.Store, workspaceRoot string) (string, error) {
 	canonicalRoot, binding, resolveErr := store.ResolveWorkspacePath(context.Background(), workspaceRoot)
-	if err := errors.Join(resolveErr, store.Close()); err != nil {
-		return "", err
+	if resolveErr != nil {
+		return "", resolveErr
 	}
 	if binding != nil {
 		return binding.CanonicalRoot, nil

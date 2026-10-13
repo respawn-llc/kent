@@ -96,6 +96,76 @@ func TestCommittedCloneReplaysThroughTheOwningSourceStore(t *testing.T) {
 	}
 }
 
+func TestResumeCreationPreservesCommittedCloneAndSource(t *testing.T) {
+	parent := newSessionTestStoreAt(t, t.TempDir())
+	parentLog := mustMaterializeSessionTestEventLog(t, parent)
+	if _, _, err := parentLog.AppendRecord(nil, userMessagePayload(t, "retained source context")); err != nil {
+		t.Fatal(err)
+	}
+	parentMeta := parent.Meta()
+	id := runtimeids.NewSessionID()
+	descriptor, err := NewCreateSessionDescriptor(id, filepath.Dir(parent.Dir()), parentMeta.WorkspaceContainer, parentMeta.WorkspaceRoot, testSessionCategory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	thinking := ForkThinking{Desired: "medium", PreserveNativeUpdates: true}
+	plan, err := PrepareClone(descriptor, PersistedSessionRecord{SessionDir: parent.Dir(), Meta: &parentMeta}, new("retained clone"), thinking)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sessionTestPersistence.ObservePersistedStore(t.Context(), plan.Snapshot()); err != nil {
+		t.Fatal(err)
+	}
+	record, err := ResolvePersistedSessionRecord(t.Context(), sessionTestPersistence, id.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := ResumeCreation(record, thinking)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered == nil {
+		t.Fatal("missing unstarted Session was not recovered")
+	}
+	options := []StoreOption{WithPersistenceObserver(sessionTestPersistence), WithPersistedSessionResolver(sessionTestPersistence)}
+	for range 2 {
+		child, err := MaterializeCommittedClone(t.Context(), *recovered, parentLog, options...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		meta := child.Meta()
+		if meta.SessionID != id.String() || !meta.CreatedAt.Equal(record.Meta.CreatedAt) ||
+			meta.LastSequence != parentMeta.LastSequence || meta.PreviousSessionID == nil ||
+			meta.PreviousSessionID.String() != parentMeta.SessionID {
+			t.Fatalf("creation recovery lost committed identity or inherited context: %+v", meta)
+		}
+	}
+	if parent.Meta().LastSequence != parentMeta.LastSequence {
+		t.Fatal("creation recovery changed the source conversation")
+	}
+}
+
+func TestResumeCreationRejectsEstablishedSession(t *testing.T) {
+	store := newSessionTestStoreAt(t, t.TempDir())
+	base := store.Meta()
+	for _, test := range []struct {
+		name string
+		set  func(*Meta)
+	}{
+		{"events", func(meta *Meta) { meta.LastSequence = 1 }},
+		{"conversation", func(meta *Meta) { meta.ConversationEstablished = true }},
+		{"model request", func(meta *Meta) { meta.ModelRequestCount = 1 }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			meta := cloneMeta(base)
+			test.set(&meta)
+			if _, err := ResumeCreation(PersistedSessionRecord{SessionDir: store.Dir(), Meta: &meta}, ForkThinking{}); err == nil {
+				t.Fatal("established Session granted permission to recreate history")
+			}
+		})
+	}
+}
+
 func TestCommittedCreationPreservesExistingConversation(t *testing.T) {
 	container := t.TempDir()
 	descriptor, err := NewCreateSessionDescriptor(runtimeids.NewSessionID(), container, "workspace", container, testSessionCategory)
@@ -208,7 +278,7 @@ func TestCommittedClonePreservesSourceContextAndDoesNotReplayTwice(t *testing.T)
 		meta := child.Meta()
 		if meta.LastSequence != parent.Meta().LastSequence ||
 			meta.PreviousSessionID == nil || meta.PreviousSessionID.String() != parent.Meta().SessionID ||
-			meta.Continuation == nil || meta.Continuation.AgentRole == nil || *meta.Continuation.AgentRole != "researcher" {
+			meta.Continuation != nil || meta.Locked != nil || meta.WorkflowSnapshot != nil || meta.ConnectionID != nil {
 			t.Fatalf("clone lost context or duplicated history: %+v", meta)
 		}
 		if _, err := child.MaterializeEventLog(); err != nil {

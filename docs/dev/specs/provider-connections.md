@@ -7,16 +7,38 @@
 - The currently resolved Provider Connection's provider must own local context-token estimation. Saved Session Contracts and capability overrides must not select the estimator.
 - Providers must use shared default content and image estimates unless their implementation overrides them. Default reasoning estimates must treat reasoning as plain text. First-party OpenAI API and ChatGPT connections must use provider-specific encrypted-reasoning and encrypted-compaction estimates.
 - Local context-token estimation must not make remote token-count calls or fetch remote image content.
+- For first-party OpenAI API and ChatGPT connections, local estimation of original-detail inline images must count 32-pixel patches from locally available dimensions. It must round each dimension up to a whole patch and cap each image contribution at 10,000 tokens.
+- For first-party OpenAI API and ChatGPT connections, if local dimensions cannot be read from an original-detail inline image or remote image URL, local estimation must use the ordinary image estimate. File attachment estimates must remain unchanged.
 - Each connection must have one user-chosen configuration ID. IDs must begin with a lowercase ASCII letter and contain only lowercase ASCII letters, digits, hyphens, and underscores. Kent must reject duplicate IDs.
 - Creation must suggest an editable unused numbered provider-based ID. Connections must not require a separate display name or hidden identity.
 - Top-level `connection` must select the default for new unroled interactive Sessions. Roles must inherit that selection unless overridden. Main Workspace private configuration may assign developer-specific connection IDs to shared roles.
+- When effective `connection` is absent and exactly one Provider Connection is defined, Kent must select that connection without rewriting configuration. With zero or multiple definitions, selection must fail. Explicit selections and saved Session bindings must retain their precedence.
 - Main agents, child roles, Supervisor, and Workflow must use the same connection-selection rules.
 - Workflow preparation must use completed connection and default edits without requiring a server restart. Saved Session bindings must retain their defined precedence.
 - Credentials must remain server-owned. Requests must use only the selected connection's credentials.
 - The server must own provider sign-in initiation, device polling, token exchange, and refresh. Clients must receive sign-in instructions without access or refresh credentials. Clients must own browser launch and callback or pasted-input collection.
 - Setup completion must remain server-wide. Credential readiness must be checked for the actual Session/role connection, not as a default-connection gate before Session selection. A broken default must not block working connections. If credentials are missing when an interactive Session opens, Kent must open the affected connection's authentication flow. Headless credential failures must return actionable errors.
 
+## Connection Sets
+
+- The `connection` setting must accept either one connection ID or an array of connection IDs. The default and role overrides must support both forms with the existing inheritance rules.
+- Array selections must reference the existing global connection definitions. Kent must not require separately named groups or duplicate connection definitions.
+- Kent must treat each array as a set. Kent must collapse duplicate IDs, reject empty arrays and invalid IDs, and ignore unknown IDs. If no defined member remains, selection must fail with an actionable error rather than inherit or select another connection.
+- Kent must accept valid member definitions without requiring equal protocols, endpoints, or capabilities. Inclusion in a set must express the user's assertion that its members can serve the configured Agent.
+- Selection must preserve the Agent's configured model, prompts, and settings. A fresh Session must use the selected connection's declared provider capabilities for supported request features. Selecting a connection that cannot serve the configured model must be treated as a user configuration error.
+- Kent must assign fresh Agent Sessions by round-robin over the effective member set in global connection declaration order. Array order must not affect rotation.
+- Identical effective member sets must share one server-wide rotation across roles and workspaces. Each distinct effective set must begin at its first globally declared member. Rotation need not survive server restart or preserve position across membership changes.
+- Concurrent selections must use the same shared rotation.
+- Listing Agents, reading settings, and previewing selections must not advance rotation.
+- Selection must not check credentials, refresh tokens, or probe providers to choose a member. The selected connection must use the existing authentication flow or actionable error. Credential or provider failures must not automatically select another member.
+- Ordinary turns, resume, and Workflow Continue reusing the same Session ID must retain the saved connection without advancing rotation. Workflow-internal copies with new Session IDs must select fresh connections under the [Workflow context-preservation contract](workflow-orchestration.md#context-preservation-and-bindings). User-driven Edit/Fork must select a fresh connection under the interactive Session creation contract in [Core Runtime Tools](core-runtime-tools.md).
+- Explicit Chat Settings Agent changes, Workflow Compact-and-Continue after successful compaction, and replacement of a deleted saved connection must select the next member of the applicable set under the existing Session Binding rules. These must remain the only forceful replacement cases. Existing valid bindings must remain usable when the current configured set cannot select a member.
+- Connection sets must be configured through configuration files. Terminal connection management must continue to manage individual connections. Make default must select one connection without changing existing Session bindings.
+- Explicit Supervisor `reviewer.connection` must accept one connection ID. When the Supervisor inherits connection selection, it must use the main Session's selected connection rather than allocate separately from the configured set.
+
 ## Authentication
+
+- When more than one Provider Connection is configured, Session connection displays must show the Session's saved connection ID and authentication mode as `Session Connection: <id> (<mode>)`. The mode must be `Subscription`, `API Key`, or `No Auth`. With one configured connection, this row must be hidden. Reading this information must not allocate a connection or advance rotation.
 
 - Kent must offer OpenAI Subscription and API Key, Grok Subscription and API Key, and Generic Responses-compatible api key and No auth setup choices.
 - The two Responses-compatible choices must share one connection model with an optional environment-variable reference. Absence must select auth-less access. A configured reference whose value is missing or empty must fail with an actionable error, not select anonymous access.
@@ -40,7 +62,11 @@
 - If Grok rejects the client's protocol version, Kent must report the update requirement without switching routes or replaying the request.
 - Grok entitlement rejection must include the provider's original readable diagnostic and identify the affected connection. Kent must distinguish subscription or credit requirements from invalid sign-in and must not claim that re-authentication will fix entitlement.
 - HTTP 403 alone must not classify a response as an authentication failure for any provider. Permission or safety refusals without authentication evidence must not direct the user to sign in again.
-- Subscription usage requests must use only ChatGPT subscription credentials. The terminal `/status` Auth section must be hidden for other authentication methods until provider-specific quota support exists.
+- Subscription usage requests must use only the selected Provider Connection's credentials. ChatGPT subscription usage requests must use the ChatGPT usage service.
+- Both Grok subscription protocols must request quota from the official CLI proxy billing service with that connection's OAuth credentials and the service's required headers. Kent has no established subscription quota request path through the public xAI API. This quota-only use of the CLI proxy must not change the connection's chat route.
+- Grok API-key connections must not request subscription quota.
+- The terminal `/status` Auth section must be hidden for other authentication methods until provider-specific quota support exists.
+- A quota failure must not interrupt chat, automatically refresh sign-in, retry the quota request, or switch connections or routes. Kent must show available Auth details and readable connection-specific failure diagnostics. If Grok billing returns HTTP 404, 403, or 401, Kent must explain that quota is unavailable for this sign-in method. This presentation must not introduce a request fallback. Entitlement failures must not advise re-authentication.
 - If a terminal Session has saved OAuth credentials, opening it must not attempt refresh. An expired refresh token must not close the terminal, block chat or `/login`, or require deleting saved credentials.
 - If refreshing a terminal Session's saved OAuth credentials fails during a request, Kent must persist a transcript error identifying the Provider Connection, preserving readable original diagnostics, and directing the user to sign in. The error must read: "Failed to authenticate the provider connection: <readable Go error>. Run /login to authenticate connection <conn-id>, used for this session."
 - Provider authentication failure must not automatically retry or replay the failed request or select another connection.

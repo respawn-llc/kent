@@ -35,10 +35,17 @@ func mustRuntimeControlStepID(t *testing.T) runtimeids.StepID {
 }
 
 type liveWatchPromptSourceStub struct {
-	items []registry.PendingPromptSnapshot
+	items  []registry.PendingPromptSnapshot
+	listed chan struct{}
 }
 
 func (s liveWatchPromptSourceStub) ListPendingPrompts(string) []registry.PendingPromptSnapshot {
+	if s.listed != nil {
+		select {
+		case s.listed <- struct{}{}:
+		default:
+		}
+	}
 	return append([]registry.PendingPromptSnapshot(nil), s.items...)
 }
 
@@ -363,6 +370,7 @@ func TestLiveWatchTerminalCompletionWinsWhileRunIsBlocked(t *testing.T) {
 func TestLiveWatchReturnsInterruptedOutcomeWhenRunStops(t *testing.T) {
 	client := newLiveWatchBlockingClient()
 	store, _, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
+	promptProjectionStarted := make(chan struct{}, 1)
 	runDone := make(chan error, 1)
 	go func() {
 		_, err := service.SubmitUserTurn(context.Background(), runtimeControlUserTurnRequest(store, "watch-interrupt", "hello"))
@@ -376,7 +384,7 @@ func TestLiveWatchReturnsInterruptedOutcomeWhenRunStops(t *testing.T) {
 		AttentionNotificationService: attention,
 		subscribed:                   make(chan struct{}),
 	}
-	service.WithLiveWatchPromptSources(liveWatchPromptSourceStub{}, observed)
+	service.WithLiveWatchPromptSources(liveWatchPromptSourceStub{listed: promptProjectionStarted}, observed)
 	watchDone := make(chan *promptpb.LiveWatchSuccess, 1)
 	watchErr := make(chan error, 1)
 	go func() {
@@ -385,6 +393,11 @@ func TestLiveWatchReturnsInterruptedOutcomeWhenRunStops(t *testing.T) {
 		watchErr <- err
 	}()
 	<-observed.subscribed
+	select {
+	case <-promptProjectionStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("LiveWatch did not capture the active run and read its initial prompt projection")
+	}
 
 	stopResponse, err := service.LiveStop(context.Background(), &runtimepb.LiveStopRequest{
 		SessionId: requestfixture.Selector(t, store.Meta().SessionID),

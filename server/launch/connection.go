@@ -1,17 +1,85 @@
 package launch
 
 import (
+	"encoding/json"
+	"fmt"
 	"maps"
+	"slices"
+	"sync"
+	"sync/atomic"
 
 	"core/server/llm"
 	"core/server/session"
 	"core/shared/config"
-	"core/shared/textutil"
 )
+
+type ConnectionRotation struct {
+	counters sync.Map
+}
+
+func ConnectionMembership(settings config.Settings) ([]config.ConnectionID, string, error) {
+	members, err := settings.ConnectionMembers()
+	if err != nil {
+		return nil, "", err
+	}
+	canonical := slices.Clone(members)
+	slices.Sort(canonical)
+	key, err := json.Marshal(canonical)
+	if err != nil {
+		return nil, "", err
+	}
+	return members, string(key), nil
+}
+
+func (r *ConnectionRotation) Prepare(settings config.Settings, allocate bool) (config.ConnectionID, error) {
+	members, key, err := ConnectionMembership(settings)
+	if err != nil {
+		return "", err
+	}
+	if !allocate {
+		return members[0], nil
+	}
+	if r == nil {
+		if len(members) == 1 {
+			return members[0], nil
+		}
+		return "", fmt.Errorf("server connection rotation is required for allocating a connection set")
+	}
+	counter, _ := r.counters.LoadOrStore(key, new(atomic.Uint64))
+	index := counter.(*atomic.Uint64).Add(1) - 1
+	return members[index%uint64(len(members))], nil
+}
+
+func (p RunPromptPreparationContext) prepareConnection(settings *config.Settings, source config.SourceReport) error {
+	saved := p.ConnectionID
+	if retained := p.RetainedConnectionSelection; retained != nil {
+		if saved != nil || p.AllocateConnection {
+			return fmt.Errorf("retained Connection selection cannot be combined with resume or allocation")
+		}
+		members, err := settings.ConnectionMembers()
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(members, *retained) {
+			return fmt.Errorf("retained Connection %q is no longer a member of the selected Agent's connection set", *retained)
+		}
+		saved = retained
+	}
+	id, _, err := p.Rotation.ResolveSessionConnection(*settings, saved, p.AllocateConnection)
+	if err != nil {
+		return err
+	}
+	settings.Connection = config.SingleConnection(id)
+	return projectSessionConnection(settings, source, session.Meta{ConnectionID: &id, Locked: p.ModelLock})
+}
 
 // ResolveSessionConnection projects a binding without changing Session metadata.
 // Only a removed definition permits ordinary resume to select a replacement.
 func ResolveSessionConnection(settings config.Settings, saved *config.ConnectionID) (config.ConnectionID, *config.ConnectionReplacement, error) {
+	return (*ConnectionRotation)(nil).ResolveSessionConnection(settings, saved, false)
+}
+
+func (r *ConnectionRotation) ResolveSessionConnection(settings config.Settings, saved *config.ConnectionID, allocate bool) (config.ConnectionID, *config.ConnectionReplacement, error) {
 	if saved != nil {
 		if _, err := config.ParseConnectionID(string(*saved)); err != nil {
 			return "", nil, err
@@ -20,10 +88,10 @@ func ResolveSessionConnection(settings config.Settings, saved *config.Connection
 			return *saved, nil, nil
 		}
 	}
-	if _, err := settings.SelectedConnection(); err != nil {
+	selected, err := r.Prepare(settings, allocate)
+	if err != nil {
 		return "", nil, err
 	}
-	selected := *settings.Connection
 	if saved == nil {
 		return selected, nil, nil
 	}
@@ -31,8 +99,12 @@ func ResolveSessionConnection(settings config.Settings, saved *config.Connection
 }
 
 func BindSessionConnection(store *session.Store, settings *config.Settings, sources map[string]config.Origin) (*config.ConnectionReplacement, error) {
+	return (*ConnectionRotation)(nil).BindSessionConnection(store, settings, sources)
+}
+
+func (r *ConnectionRotation) BindSessionConnection(store *session.Store, settings *config.Settings, sources map[string]config.Origin) (*config.ConnectionReplacement, error) {
 	saved := store.Meta().ConnectionID
-	selected, replacement, err := ResolveSessionConnection(*settings, saved)
+	selected, replacement, err := r.ResolveSessionConnection(*settings, saved, settings.Connection != nil && len(*settings.Connection) > 1)
 	if err != nil {
 		return nil, err
 	}
@@ -46,13 +118,12 @@ func BindSessionConnection(store *session.Store, settings *config.Settings, sour
 	}
 	return replacement, nil
 }
-
 func projectSessionConnection(settings *config.Settings, source config.SourceReport, meta session.Meta) error {
 	selected, _, err := ResolveSessionConnection(*settings, meta.ConnectionID)
 	if err != nil {
 		return err
 	}
-	settings.Connection = textutil.Value(selected)
+	settings.Connection = config.SingleConnection(selected)
 	defaultSources := maps.Clone(source.Sources)
 	if meta.Locked != nil {
 		if defaultSources == nil {

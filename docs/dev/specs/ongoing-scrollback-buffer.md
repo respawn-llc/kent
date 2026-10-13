@@ -69,9 +69,10 @@
 - A separator is one blank line emitted into the immutable area immediately before the first row of a new group. The blank line below a group and the blank line above the next group are the same single separator. Separators are never emitted retroactively, never inserted above existing content, and never emitted between rows of the same kind.
 - Separator placement uses only the most recently promoted group kind. A different incoming kind emits one blank line before the row. The same incoming kind appends without a separator.
 - Pending tool activity renders in the mutable band and repaints freely there until the server emits a committed tool row or abort for that call. A committed tool row appends to the immutable area immediately in server order and must not be retained for delayed group promotion, reordering, or batching.
-- Compact tool and notice rows remain one-line width-bound summaries and may ellipsize at emission. This compacting contract is separate from full user/assistant Markdown flow.
+- Compact tool and notice rows otherwise remain one-line width-bound summaries and may ellipsize at emission. This compacting contract is separate from full user/assistant Markdown flow and the warning and error exceptions below.
 - Error-severity notices are a renderer-owned exception to compact notice layout regardless of the selected Ongoing render mode. The renderer emits the complete typed reason payload, including complete runtime-diagnostic detail and complete untyped-notice text, wrapped without ellipsis; cache-warning, compaction, and tool-output-repair errors use their complete typed reason text.
-- Every non-error tool and notice row follows its specified compact or full policy. Agent Steer notices and verbose Reviewer Suggestions use the full Ongoing presentation.
+- Warning-severity notices use full-content wrapping without ellipsis in every render mode. Kent preserves each notice's existing text selection and typed content.
+- Every other non-error tool and notice row follows its specified compact or full policy. Agent Steer notices and verbose Reviewer Suggestions use the full Ongoing presentation.
 - Assistant output groups promote progressively through stream promotion; the blank separator for the group is emitted before its first promoted row.
 
 ## Queueing While Not Owning The Normal Buffer

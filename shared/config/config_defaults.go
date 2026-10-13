@@ -14,32 +14,31 @@ import (
 const DefaultMaxConcurrentShells = 100
 
 const (
-	defaultModel                         = "gpt-6.1-sol"
-	defaultThinkingLevel                 = "medium"
-	defaultModelVerbosity                = ModelVerbosityLow
-	defaultTheme                         = theme.Auto
-	defaultModelContextWindow            = 272_000
-	minimumModelContextWindow            = 40_000
-	defaultModelTimeoutSeconds           = 400
-	defaultMinimumExecToBgSec            = 15
-	defaultShellOutputMaxChars           = 16_000
-	defaultBGShellsOutput                = "default"
-	defaultShellPostprocessingMode       = ShellPostprocessingModeBuiltin
-	defaultCacheWarningMode              = CacheWarningModeDefault
-	defaultWorkflowCompletionMode        = WorkflowCompletionModeAuto
-	defaultWorkflowConcurrency           = 5
-	defaultWorkflowInvalidCompletionCap  = 5
-	defaultWorkflowUseRequiredToolCalls  = true
-	defaultWorkflowSubagents             = false
-	defaultMaxSubagentDepth              = 2
-	defaultCompactionThreshold           = defaultModelContextWindow * 95 / 100
-	defaultPreSubmitCompactionLeadTokens = DefaultPreSubmitRunwayTokens
-	defaultReviewerFrequency             = "edits"
-	defaultReviewerTimeoutSec            = 120
-	defaultCompactionMode                = "local"
-	defaultServerHost                    = "127.0.0.1"
-	defaultServerPort                    = 53082
-	defaultWorktreeSetupTimeoutSeconds   = 60
+	defaultModel                        = "gpt-6.1-sol"
+	defaultThinkingLevel                = "medium"
+	defaultModelVerbosity               = ModelVerbosityLow
+	defaultTheme                        = theme.Auto
+	defaultModelContextWindow           = 272_000
+	minimumModelContextWindow           = 40_000
+	defaultModelTimeoutSeconds          = 400
+	defaultMinimumExecToBgSec           = 15
+	defaultShellOutputMaxChars          = 16_000
+	defaultBGShellsOutput               = "default"
+	defaultShellPostprocessingMode      = ShellPostprocessingModeBuiltin
+	defaultCacheWarningMode             = CacheWarningModeDefault
+	defaultWorkflowCompletionMode       = WorkflowCompletionModeAuto
+	defaultWorkflowConcurrency          = 5
+	defaultWorkflowInvalidCompletionCap = 5
+	defaultWorkflowUseRequiredToolCalls = true
+	defaultWorkflowSubagents            = false
+	defaultMaxSubagentDepth             = 2
+	defaultCompactionThreshold          = defaultModelContextWindow * 95 / 100
+	defaultReviewerFrequency            = "edits"
+	defaultReviewerTimeoutSec           = 120
+	defaultCompactionMode               = "local"
+	defaultServerHost                   = "127.0.0.1"
+	defaultServerPort                   = 53082
+	defaultWorktreeSetupTimeoutSeconds  = 60
 )
 
 func settingsTOMLForOnboarding(settings Settings, preservedDefaults map[string]bool) string {
@@ -72,7 +71,7 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 	out.WriteString("# Edit and restart to apply changes.\n")
 	out.WriteString("# Config reference: " + DocsURL + "/config/\n\n")
 	if settings.Connection != nil {
-		writeDefaultLines(&out, []defaultConfigLine{{Path: []string{"connection"}, Value: string(*settings.Connection)}})
+		writeDefaultLines(&out, []defaultConfigLine{{Path: []string{"connection"}, Value: settings.Connection.TOMLValue()}})
 	}
 	writeRootConfigLines(&out, rootLines)
 	modelCapabilityLines := activeOptionalSectionLines(filterDefaultLines(lines, "model_capabilities"), filterDefaultLines(defaultLines, "model_capabilities"))

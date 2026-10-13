@@ -10,7 +10,7 @@ import (
 
 type compactionPlanningSnapshot struct {
 	autoCompactionEnabled         bool
-	preSubmitCompactionLeadTokens int
+	preSubmitCompactionLeadTokens *int
 	policy                        chatcontext.Policy
 	maxOutputTokens               int
 	lockedMaxOutputTokens         int
@@ -33,8 +33,6 @@ type compactionEnginePlan struct {
 }
 
 type compactionPlanner struct{}
-
-const eagerCompactionContextPercent = 88
 
 func newCompactionPlanner() *compactionPlanner {
 	return &compactionPlanner{}
@@ -74,22 +72,10 @@ func (p *compactionPlanner) eagerCompactionEligible(snapshot compactionPlanningS
 	if window <= 0 || snapshot.currentUsedTokens < 0 {
 		return false
 	}
-	return snapshot.currentUsedTokens >= window*eagerCompactionContextPercent/100
+	return snapshot.currentUsedTokens >= compaction.SpeculativeCompactionTriggerTokens(window, snapshot.preSubmitCompactionLeadTokens)
 }
 func (p *compactionPlanner) autoCompactTokenLimit(snapshot compactionPlanningSnapshot) int {
 	return int(snapshot.policy.AutomaticThresholdTokens)
-}
-
-func (p *compactionPlanner) preSubmitTokenLimit(snapshot compactionPlanningSnapshot) int {
-	limit := p.autoCompactTokenLimit(snapshot)
-	if limit <= 0 {
-		return 0
-	}
-	runwayTokens := compaction.DefaultPreSubmitRunwayTokens
-	if snapshot.preSubmitCompactionLeadTokens > 0 {
-		runwayTokens = snapshot.preSubmitCompactionLeadTokens
-	}
-	return compaction.EffectivePreSubmitThresholdTokens(limit, runwayTokens)
 }
 
 func (p *compactionPlanner) soonReminderLimit(snapshot compactionPlanningSnapshot) int {

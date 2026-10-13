@@ -84,6 +84,51 @@ func TestBuildRequestUsesLatestHistoryReplacementAndActiveTail(t *testing.T) {
 	}
 }
 
+func TestBuildRequestReplaysPersistedCustomToolCallWithoutCallIDAsItemID(t *testing.T) {
+	t.Parallel()
+	store := mustCreateTestSession(t)
+	callID := "call_UnbEo1BIBE40RjqhTkbs7Gxj"
+	if _, _, err := appendTestEvent(t, store, "step", llm.Message{
+		Role:      llm.RoleAssistant,
+		ToolCalls: []llm.ToolCall{{ID: callID, Name: string(toolspec.ToolPatch), Custom: true, CustomInput: textutil.Value("*** Begin Patch\n*** End Patch\n")}},
+	}); err != nil {
+		t.Fatalf("persist assistant custom tool call: %v", err)
+	}
+	if _, _, err := appendTestEvent(t, store, "step", llm.Message{
+		Role: llm.RoleTool, MessageType: textutil.Value(llm.MessageTypeCustomToolCallOutput),
+		ToolCallID: &callID, Name: textutil.Value(string(toolspec.ToolPatch)), Content: textutil.Value(`{"ok":true}`),
+	}); err != nil {
+		t.Fatalf("persist custom tool output: %v", err)
+	}
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
+	request, err := engine.buildRequest(context.Background(), "step", true)
+	if err != nil {
+		t.Fatalf("build replayed request: %v", err)
+	}
+	var foundCall, foundOutput bool
+	for _, item := range request.Items {
+		if item.CallID == nil || *item.CallID != callID {
+			continue
+		}
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(item.Raw, &raw); err != nil {
+			t.Fatalf("decode replayed input: %v", err)
+		}
+		switch item.Type {
+		case llm.ResponseItemTypeCustomToolCall:
+			foundCall = true
+			if _, present := raw["id"]; present {
+				t.Fatalf("custom tool call reused call_id as provider item id: %s", item.Raw)
+			}
+		case llm.ResponseItemTypeCustomToolOutput:
+			foundOutput = true
+		}
+	}
+	if !foundCall || !foundOutput {
+		t.Fatalf("replayed request lost custom tool pair: call=%t output=%t", foundCall, foundOutput)
+	}
+}
+
 func TestHistoryReplacementRebasesDanglingToolCallStepOwnership(t *testing.T) {
 	t.Parallel()
 	const replacementStepID = "22222222-2222-4222-8222-222222222222"

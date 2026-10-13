@@ -65,8 +65,8 @@ func TestLifecycleHookExcludedFromServerHeadlessAndSubagentRuns(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s RunPrompt: %v", name, err)
 		}
-		if result.Result != want {
-			t.Fatalf("%s result = %q, want %q", name, result.Result, want)
+		if got := requireRunPromptFinalAnswer(t, result); got != want {
+			t.Fatalf("%s result = %q, want %q", name, got, want)
 		}
 		requireNoLifecycleHookProductRecords(t, recordPath)
 	}
@@ -129,8 +129,9 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
-	if result.Result != "hello from fake" {
-		t.Fatalf("result = %q, want %q", result.Result, "hello from fake")
+	finalAnswer := requireRunPromptFinalAnswer(t, result)
+	if finalAnswer != "hello from fake" {
+		t.Fatalf("result = %q, want %q", finalAnswer, "hello from fake")
 	}
 	if result.Identity == nil {
 		t.Fatal("expected session id")
@@ -143,7 +144,7 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 		t.Fatalf("first progress event = %+v, want new session %q", progresses[0], result.Identity.ID)
 	}
 	last := progresses[len(progresses)-1].GetAssistantMessage()
-	if last == nil || last.Content != result.Result {
+	if last == nil || last.Content != finalAnswer {
 		t.Fatalf("last progress event = %+v, want assistant result", progresses[len(progresses)-1])
 	}
 	if result.SessionName == nil || !strings.HasSuffix(*result.SessionName, " "+subagentSessionSuffix) {
@@ -163,7 +164,11 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 	if meta.FirstPromptPreview != "hello from user" {
 		t.Fatalf("first prompt preview = %q, want %q", meta.FirstPromptPreview, "hello from user")
 	}
-	if meta.ConnectionID == nil || *meta.ConnectionID != *cfg.Settings.Connection {
+	selected, err := cfg.Settings.Connection.ConcreteID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.ConnectionID == nil || *meta.ConnectionID != *selected {
 		t.Fatalf("unexpected connection binding: %+v", meta.ConnectionID)
 	}
 
@@ -335,8 +340,8 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
-	if result.Result != "fast via role provider" {
-		t.Fatalf("result = %q, want %q", result.Result, "fast via role provider")
+	if got := requireRunPromptFinalAnswer(t, result); got != "fast via role provider" {
+		t.Fatalf("result = %q, want %q", got, "fast via role provider")
 	}
 	payload := <-requestBodies
 	if got := payload["model"]; got != "gpt-6-sol" {

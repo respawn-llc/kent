@@ -7,7 +7,7 @@ import (
 	"core/shared/clientui"
 )
 
-const runtimeDisconnectedStatusMessage = "server disconnected"
+const runtimeDisconnectedStatusMessage = "server connection lost"
 
 func (m *uiModel) observeRuntimeRequestResult(err error) {
 	if m == nil || !m.hasRuntimeClient() {

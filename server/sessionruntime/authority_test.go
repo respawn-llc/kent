@@ -2116,13 +2116,14 @@ func TestBackgroundCompletionAfterFinalStepStartsContinuationAfterExecutionRetir
 func TestCompletedWorkflowSessionDoesNotStartBackgroundContinuation(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
 	sessionID := lifecycleSessionID(t, fixture)
-	mode := sessioncontract.WorkflowCompletionModeTool
+	if err := fixture.store.SetWorkflowSnapshot(session.WorkflowSnapshot{CompletionMode: sessioncontract.WorkflowCompletionModeTool}); err != nil {
+		t.Fatal(err)
+	}
 	if err := fixture.store.MarkModelDispatchLocked(session.LockedContract{
-		Model:                  "gpt-6-sol",
-		Temperature:            1,
-		EnabledTools:           []string{string(toolspec.ToolAskQuestion)},
-		HasEnabledTools:        true,
-		WorkflowCompletionMode: &mode,
+		Model:           "gpt-6-sol",
+		Temperature:     1,
+		EnabledTools:    []string{string(toolspec.ToolAskQuestion)},
+		HasEnabledTools: true,
 	}); err != nil {
 		t.Fatalf("mark workflow Session contract locked: %v", err)
 	}

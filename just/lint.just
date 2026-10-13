@@ -86,8 +86,8 @@ docs mode="":
     bun run --bun --cwd docs astro check
 
 [private]
-_desktop-native:
-    cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
+_desktop-native command="check" *args:
+    cargo {{command}} --manifest-path apps/desktop/src-tauri/Cargo.toml --locked {{args}}
 
 [private]
 _effect-policy *paths:

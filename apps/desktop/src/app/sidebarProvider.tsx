@@ -50,7 +50,7 @@ export function SidebarProvider({
   );
 
   const availability = current?.capability.availability;
-  const rootValue = useMemo(() => ({ open: stack.open }), [stack]);
+  const rootValue = useMemo(() => ({ open: stack.open, toggle: stack.toggle }), [stack]);
   const shellValue = useMemo(
     () => ({
       currentSurface: stack.currentSurface,

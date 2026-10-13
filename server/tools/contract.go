@@ -51,9 +51,10 @@ type HostedToolOutput struct {
 }
 
 type HostedCall struct {
-	ID    string
-	Name  toolspec.ID
-	Input json.RawMessage
+	ID           string
+	Name         toolspec.ID
+	Input        json.RawMessage
+	ProviderItem json.RawMessage
 }
 
 type HostedExecution struct {
@@ -268,11 +269,15 @@ func NeedsNativeWebSearch(ids []toolspec.ID, mode string) bool {
 }
 
 func HostedExecutionsFromOutputs(items []HostedToolOutput, defs []Definition) []HostedExecution {
-	if len(items) == 0 || len(defs) == 0 {
+	if len(items) == 0 {
 		return nil
 	}
 	out := make([]HostedExecution, 0, len(items))
 	for _, item := range items {
+		if execution, ok := decodeHostedCustomToolOutput(item); ok {
+			out = append(out, execution)
+			continue
+		}
 		for _, def := range defs {
 			execution, ok := def.DecodeHostedOutput(item)
 			if !ok {

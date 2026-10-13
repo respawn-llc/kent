@@ -154,9 +154,11 @@ func (c Collector) CollectAuth(ctx context.Context, req Request, _ Snapshot) Aut
 	if req.AuthStatus == nil {
 		return AuthStageResult{}
 	}
-	response, err := req.AuthStatus.GetStatus(ctx, &authpb.GetStatusRequest{
-		Provider: req.AuthSelection,
-	})
+	request := &authpb.GetStatusRequest{}
+	if req.SessionID != "" {
+		request.SessionId = &req.SessionID
+	}
+	response, err := req.AuthStatus.GetStatus(ctx, request)
 	if err != nil {
 		return UnavailableAuthStage(err)
 	}

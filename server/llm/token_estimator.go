@@ -2,15 +2,26 @@ package llm
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"image"
+	"image/gif"
+	"image/jpeg"
+	"image/png"
+	"log/slog"
+	"mime"
+	"net/url"
 	"strings"
 
 	"core/server/llm/openaiwire"
 	"core/shared/textutil"
+	webp "golang.org/x/image/webp"
 )
 
 // Top-level tools have this implicit namespace in Codex's content accounting.
 const defaultFunctionNamespace = "functions"
+const maxOriginalImageTokens = 10_000
 
 // TokenEstimator performs local accounting without provider requests.
 type TokenEstimator interface {
@@ -35,7 +46,49 @@ func (estimator OpenAITokenEstimator) EstimateItem(item ResponseItem) int {
 		visibleBytes := len(*item.EncryptedContent)*3/4 - 650
 		return textutil.ApproxTokenCount(visibleBytes)
 	}
-	return estimator.DefaultTokenEstimator.EstimateItem(item)
+	return textutil.ApproxTokenCount(estimateDefaultItemBytes(estimator, item))
+}
+
+func (estimator OpenAITokenEstimator) EstimateImageBytes(input ImageEstimateInput) int {
+	if input.Detail == nil || *input.Detail != "original" {
+		return estimator.DefaultTokenEstimator.EstimateImageBytes(input)
+	}
+	mediaType, data, inline, err := decodeImageDataURL(input.Reference)
+	if err != nil {
+		slog.Warn("Unable to read original image dimensions; using ordinary image estimate", "error", err)
+		return estimator.DefaultTokenEstimator.EstimateImageBytes(input)
+	}
+	if !inline {
+		return estimator.DefaultTokenEstimator.EstimateImageBytes(input)
+	}
+	var config image.Config
+	switch mediaType {
+	case "image/png":
+		config, err = png.DecodeConfig(bytes.NewReader(data))
+	case "image/jpeg":
+		config, err = jpeg.DecodeConfig(bytes.NewReader(data))
+	case "image/gif":
+		config, err = gif.DecodeConfig(bytes.NewReader(data))
+	case "image/webp":
+		config, err = webp.DecodeConfig(bytes.NewReader(data))
+	default:
+		slog.Warn("Unable to read original image dimensions; using ordinary image estimate", "error", fmt.Errorf("unsupported inline image media type %q", mediaType))
+		return estimator.DefaultTokenEstimator.EstimateImageBytes(input)
+	}
+	if err != nil {
+		slog.Warn("Unable to read original image dimensions; using ordinary image estimate", "error", err)
+		return estimator.DefaultTokenEstimator.EstimateImageBytes(input)
+	}
+	if config.Width <= 0 || config.Height <= 0 {
+		slog.Warn("Unable to read original image dimensions; using ordinary image estimate", "width", config.Width, "height", config.Height)
+		return estimator.DefaultTokenEstimator.EstimateImageBytes(input)
+	}
+	patchesWide := (config.Width-1)/32 + 1
+	patchesHigh := (config.Height-1)/32 + 1
+	if patchesWide > maxOriginalImageTokens/patchesHigh {
+		return maxOriginalImageTokens * 4
+	}
+	return patchesWide * patchesHigh * 4
 }
 
 func (DefaultTokenEstimator) EstimateText(text string) int {
@@ -47,6 +100,10 @@ func (DefaultTokenEstimator) EstimateImageBytes(ImageEstimateInput) int {
 }
 
 func (estimator DefaultTokenEstimator) EstimateItem(item ResponseItem) int {
+	return textutil.ApproxTokenCount(estimateDefaultItemBytes(estimator, item))
+}
+
+func estimateDefaultItemBytes(estimator TokenEstimator, item ResponseItem) int {
 	size := EstimateItemContentBytes(estimator, item)
 	switch item.Type {
 	case ResponseItemTypeFunctionCall, ResponseItemTypeCustomToolCall:
@@ -54,7 +111,7 @@ func (estimator DefaultTokenEstimator) EstimateItem(item ResponseItem) int {
 	case ResponseItemTypeFunctionCallOutput, ResponseItemTypeCustomToolOutput:
 		size += stringBytes(item.CallID) + stringBytes(item.Name)
 	}
-	return textutil.ApproxTokenCount(size)
+	return size
 }
 
 // EstimateItemContentBytes shares content traversal with providers that override
@@ -120,6 +177,33 @@ func referenceBytes(value string) int {
 		return 0
 	}
 	return len(value)
+}
+
+func decodeImageDataURL(reference string) (string, []byte, bool, error) {
+	parsed, err := url.Parse(reference)
+	if err != nil {
+		return "", nil, false, err
+	}
+	if !strings.EqualFold(parsed.Scheme, "data") {
+		return "", nil, false, nil
+	}
+	header, payload, ok := strings.Cut(parsed.Opaque, ",")
+	if !ok {
+		return "", nil, true, fmt.Errorf("inline image data URL has no payload separator")
+	}
+	metadata, base64Encoded := strings.CutSuffix(header, ";base64")
+	if !base64Encoded {
+		return "", nil, true, fmt.Errorf("inline image data URL is not base64 encoded")
+	}
+	mediaType, _, err := mime.ParseMediaType(metadata)
+	if err != nil {
+		return "", nil, true, fmt.Errorf("parse inline image media type: %w", err)
+	}
+	data, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return "", nil, true, fmt.Errorf("decode inline image base64: %w", err)
+	}
+	return mediaType, data, true, nil
 }
 
 func stringBytes(value *string) int {

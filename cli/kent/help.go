@@ -169,7 +169,7 @@ var (
 	goalClearUsage      = leafCommandUsage(config.Command+" goal clear [--session <id>]", "Remove a session goal.", "", "User-only; unavailable inside Kent shell commands.")
 	questionUsage       = commandUsage{helpFile: "question.txt"}
 	questionShowUsage   = leafCommandUsage(config.Command+" question (--session <id>|--task <task>) [--project <project>]", "Show the first pending question selected by Session or Workflow Task.")
-	questionAnswerUsage = leafCommandUsage(config.Command+" question answer (--session <id>|--task <task>) [--project <project>] [--option <number>] [--commentary <text>]", "Answer the first pending question selected by Session or Workflow Task.", "", "Provide --option, --commentary, or both.")
+	questionAnswerUsage = leafCommandUsage(config.Command+" question answer [--persistence-root <root>] (--session <id>|--task <task>) [--project <project>] [--option <number>] [--commentary <text>]", "Answer the first pending question selected by Session or Workflow Task.", "", "Provide --option, --commentary, or both.")
 	questionListUsage   = leafCommandUsage(config.Command+" questions list [--session <id>] [--max-handoffs <count>] [--json]", "List answered Questions from one Session, newest first.", "", "Tasks can have hundreds of sessions, use `kent task sessions` to find the one you need, then use `--session`.", "JSON Question-history output can be slow.")
 	worktreeUsage       = leafCommandUsage(config.Command+" worktree <status|list|create|enter|leave|delete> ...", "Inspect workspace worktrees and manage a session's execution target.")
 	worktreeStatusUsage = leafCommandUsage(config.Command+" worktree status [--session <id>] [--json]", "Inspect the selected session's recorded worktree target.")

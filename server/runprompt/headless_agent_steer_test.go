@@ -13,13 +13,11 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/launch"
-	"core/server/metadata"
 	"core/server/runtime"
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/server/sessionlaunch"
 	"core/shared/config"
-	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -48,11 +46,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	ctx := context.Background()
 	root := t.TempDir()
 	workspace := t.TempDir()
-	meta, err := metadata.Open(root)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
+	meta := testsetup.OpenStore(t, root)
 	binding, err := meta.RegisterWorkspaceBinding(ctx, workspace)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
@@ -131,7 +125,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	}
 	cfg.Settings.Shell.PostprocessingMode = config.ShellPostprocessingModeBuiltin
 	history := &recordingPromptHistoryStore{}
-	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, storeOptions...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, storeOptions...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		Metadata: meta,
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
@@ -139,15 +133,12 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 			ContainerDir:      containerDir,
 			StoreOptions:      storeOptions,
 			PersistedSessions: meta,
+			CallerSessions:    meta,
 			SessionProjects:   fixedSessionProjectResolver{}, ManagedWorktreeRoots: fixedSessionProjectResolver{},
-			ExecutionTargets: fixedSessionExecutionTargetResolver{target: &worktreepb.SessionExecutionTarget{
-				WorkspaceRoot:    workspace,
-				CwdRelpath:       ".",
-				EffectiveWorkdir: workspace,
-			}},
-		}, sessionlaunch.ChatSettingsOwner{}, meta,
-		),
+			ExecutionTargets: meta,
+		}, sessionlaunch.ChatSettingsOwner{}, meta),
 		RuntimeAuthority: authority,
+		LiveRunObserver:  liveRunObserver,
 		PromptHistory:    history,
 	})
 

@@ -91,7 +91,7 @@ type Config struct {
 	RefreshToolRegistry             func([]toolspec.ID) error
 	AutoCompactTokenLimit           int
 	WorkflowPreCompactionTokenLimit int
-	PreSubmitCompactionLeadTokens   int
+	PreSubmitCompactionLeadTokens   *int
 	ContextWindowTokens             int
 	EffectiveContextWindowPercent   int
 	LocalCompactionCarryoverLimit   int
@@ -234,9 +234,7 @@ func New(
 	if cfg.MaxTokens < 0 {
 		cfg.MaxTokens = 0
 	}
-	if cfg.PreSubmitCompactionLeadTokens <= 0 {
-		cfg.PreSubmitCompactionLeadTokens = config.DefaultPreSubmitRunwayTokens
-	}
+	cfg.PreSubmitCompactionLeadTokens = textutil.Pointer(cfg.PreSubmitCompactionLeadTokens)
 	if cfg.LocalCompactionCarryoverLimit <= 0 {
 		cfg.LocalCompactionCarryoverLimit = 20_000
 	}
@@ -661,7 +659,7 @@ func (e *Engine) queueMessageRaw(message llm.Message, presentation string, force
 			if e.liveRun.finishQueueItemPublication(queueItemID) {
 				e.failStoppedLiveRunQueueItems(map[runtimeids.QueueItemID]struct{}{queueItemID: {}})
 			} else if autoStart {
-				e.scheduleQueuedUserInjectionsIfIdle()
+				e.scheduleQueuedUserInjections()
 			}
 			return item, nil
 		}
@@ -689,7 +687,7 @@ func (e *Engine) queueMessageRaw(message llm.Message, presentation string, force
 		return QueuedUserMessage{}, err
 	}
 	if autoStart {
-		e.scheduleQueuedUserInjectionsIfIdle()
+		e.scheduleQueuedUserInjections()
 	}
 	return item, nil
 }
@@ -740,7 +738,7 @@ func (e *Engine) waitingForLiveRunStepStart() bool {
 
 func activeKindUsesLiveRun(kind ActiveKind) bool {
 	switch kind {
-	case ActiveKindCompaction, ActiveKindPreSubmitCompaction, ActiveKindRuntimeMaintenance:
+	case ActiveKindCompaction, ActiveKindRuntimeMaintenance:
 		return false
 	default:
 		return true
@@ -1078,7 +1076,11 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 		if err != nil {
 			return session.LockedContract{}, err
 		}
-		lock.WorkflowCompletionMode = &mode
+		if e.store.Meta().WorkflowSnapshot == nil {
+			if err := e.store.SetWorkflowSnapshot(session.WorkflowSnapshot{CompletionMode: mode}); err != nil {
+				return session.LockedContract{}, err
+			}
+		}
 	}
 	if hasProviderContract {
 		lock.ProviderContract = llm.LockedProviderCapabilitiesFromContract(providerContract)
@@ -1163,6 +1165,10 @@ func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID
 }
 
 func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (successfulRequestCandidate, error) {
+	return e.generateWithRetryPolicy(ctx, stepID, client, req, modelRequestRetriesAllowed, onDelta, onReasoningDelta, onAttemptReset)
+}
+
+func (e *Engine) generateWithRetryPolicy(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, retryPolicy modelRequestRetryPolicy, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (successfulRequestCandidate, error) {
 	observed, err := e.prepareCacheObservedRequest(
 		ctx,
 		stepID,
@@ -1174,28 +1180,34 @@ func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, cli
 	if err != nil {
 		return successfulRequestCandidate{}, err
 	}
-	publishedProviderDiagnostics := make(map[llm.CodexTurnStateDiagnosticCategory]struct{}, 2)
-	resp, err := generateWithRetryClient(
-		ctx,
-		client,
-		observed,
-		onDelta,
-		onReasoningDelta,
-		onAttemptReset,
-		func() {
-			e.publishProviderTurnStateDiagnostics(stepID, req.CodexDispatch, publishedProviderDiagnostics)
-		},
-	)
+	resp, err := e.generateObservedWithRetry(ctx, stepID, client, observed, retryPolicy, onDelta, onReasoningDelta, onAttemptReset)
 	if err != nil {
 		return successfulRequestCandidate{}, err
 	}
 	return newSuccessfulRequestCandidate(e.cfg.TokenEstimator, observed.request, resp), nil
 }
 
+func (e *Engine) generateObservedWithRetry(ctx context.Context, stepID string, client *observedModelClient, observed cacheObservedRequest, retryPolicy modelRequestRetryPolicy, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
+	publishedProviderDiagnostics := make(map[llm.CodexTurnStateDiagnosticCategory]struct{}, 2)
+	return generateWithRetryClient(
+		ctx,
+		client,
+		observed,
+		retryPolicy,
+		onDelta,
+		onReasoningDelta,
+		onAttemptReset,
+		func() {
+			e.publishProviderTurnStateDiagnostics(stepID, observed.request.CodexDispatch, publishedProviderDiagnostics)
+		},
+	)
+}
+
 func generateWithRetryClient(
 	ctx context.Context,
 	client *observedModelClient,
 	observed cacheObservedRequest,
+	retryPolicy modelRequestRetryPolicy,
 	onDelta func(llm.AssistantDelta),
 	onReasoningDelta func(llm.ReasoningSummaryDelta),
 	onAttemptReset func(),
@@ -1277,11 +1289,14 @@ func generateWithRetryClient(
 		}
 		resetAttempt()
 		lastErr = attemptErr
-		delays := generateRetryDelays
+		delays := retryPolicy.delays(generateRetryDelays)
 		if errors.Is(attemptErr, llm.ErrModelStreamStalled) {
-			delays = idleStallRetryDelays
+			delays = retryPolicy.delays(idleStallRetryDelays)
 		}
 		if i >= len(delays) {
+			if retryPolicy == modelRequestSingleAttempt {
+				return llm.Response{}, attemptErr
+			}
 			break
 		}
 		if err := rpcwire.WaitForRetry(ctx, delays[i]); err != nil {

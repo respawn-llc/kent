@@ -9,7 +9,6 @@ import { useAppNavigation } from "@/app-facade";
 import { SidebarRootOwner, useOwnedSidebarRoots, type SidebarMode } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import { useStatusController } from "@/app-facade";
-import { desktopChatEnabled } from "@/shared/feature-flags";
 import { ErrorState, LoadingState, VirtualizedInfiniteList, useStableCallback } from "@/ui";
 import { HomeSidebar } from "./HomeSidebar";
 import { createHomeViewModel, type HomeViewModel } from "./HomeViewModel";
@@ -119,7 +118,6 @@ function HomeRouteContent({ selectedProjectID }: Readonly<{ selectedProjectID: s
               <HomeProjectContent
                 key={selectedProjectID}
                 projectID={selectedProjectID}
-                sessionsVisible={desktopChatEnabled}
                 sidebarMode={sidebarMode}
               />
             ) : (

@@ -425,7 +425,7 @@ func TestRunWaitHardCutoverAndHeadlessEscape(t *testing.T) {
 	}
 	runPromptApp = func(context.Context, app.Options, string, time.Duration, serverapi.RunPromptProgressSink) (app.RunPromptResult, error) {
 		promptCalls++
-		return app.RunPromptResult{}, nil
+		return app.RunPromptResult{Outcome: app.RunPromptFinalAnswer{Text: "done"}}, nil
 	}
 	if code := runSubcommand([]string{"wait", "ordinary", "text"}); code != 2 {
 		t.Fatalf("wait text exit = %d", code)

@@ -202,6 +202,7 @@
 
 - `kent question` shows the first pending ordinary Question or live internal access request. `kent questions` is an alias.
 - The Question CLI requires exactly one of `--session <session-id>` or `--task <task-id-or-short-id>`.
+- `kent question answer` accepts `--persistence-root <root>` to select the Kent config and data directory used for its connection.
 - A Task Short ID uses `--project`, which defaults to the Project attached to the current workspace.
 - A Session selector cannot target the invoking agent's `KENT_SESSION_ID`.
 - A Task selector uses the live Workflow Question authority. If pending ordinary Questions or access requests belong to exactly one Session, the command selects that Session.
@@ -282,7 +283,11 @@
 - `--fast` selects the built-in fast role and cannot be combined with `--agent`.
 - On first-party OpenAI connections, the built-in fast role must default to GPT-6 Luna when model overrides are allowed.
 - Named roles are file-only `[subagents.<role>]` settings and inherit main settings unless overridden.
-- Headless execution runs one non-interactive prompt with ordinary Session persistence.
+- Headless execution runs one prompt with ordinary Session persistence and no inline answering.
+- Headless Run must allow ordinary Questions and access Approvals through the shared pending-Question experience defined in [Core Tools And Runtime Integration](core-runtime-tools.md#questions-and-approvals).
+- When an ordinary Question or access Approval becomes pending, the launching Run command must exit with code 0. Ending that CLI observation must leave the pending prompt and server-owned execution available for the existing answer and continuation behavior.
+- Run must present a pending Question or access Approval through the same Question presentation and directly targeted answer template as Run watch. Quiet mode must retain that presentation.
+- Run JSON output must distinguish a pending Question or access Approval from a Final answer and include the structured pending prompt and its Session answer target.
 - For an existing Session selected with `--continue` or `--session`, Run must treat `--thinking-level` as a persistent Session Thinking selection. The server must resolve the permitted Agent and model, validate the requested Thinking, and save it through the ordinary Session settings owner before attempting continuation.
 - When `--thinking-level` is supplied for an unlocked existing Session, an explicitly selected Agent must supply the defaults, and explicit `--model` and `--thinking-level` values must override those defaults. Existing Agent and model locks must remain authoritative. Run must validate Thinking against the resulting effective selection.
 - When an existing Session's cache is locked, Run must ignore an explicit `--agent` selection and include the warning `Warning: your agent selection was ignored to preserve the cache of an existing session. Start a new session or compact to change the agent.` Run must ignore an explicit `--model` selection and include the warning `Warning: your model selection was ignored to preserve the cache of an existing session. Start a new session or compact to change the model.`
@@ -306,7 +311,7 @@
 - JSON output for that block uses `subagent_max_depth_exceeded` with numeric attempted depth and limit.
 - `kent run steer <session-id> <message...>` sends input to an active Session.
 - Run steer requires a Session ID, rejects attempts by a Session to target itself, and prints `ok` when accepted.
-- The target prints `Steered message: <full text>` with no later delivery notice.
+- Headless Run must not echo received Steering text to stdout or stderr. Steering delivery, model replies, and pending Question presentation must remain unchanged.
 - Run steer never starts or queues work for an idle Session; it fails with the equivalent `kent run --continue <session-id> <message>` command.
 - Agent-issued `kent run`, `kent run --continue`, and `kent run steer` must use the shared attribution, formatting, and prompt-history behavior defined in [Core Tools And Runtime Integration](core-runtime-tools.md#core-tools-and-runtime-integration).
 - A present malformed `KENT_SESSION_ID` fails Run steer before submission. An absent or blank value uses human-steer behavior.

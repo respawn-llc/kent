@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -267,8 +268,10 @@ func TestRestoreMessagesPreservesRecoveredMultiToolProviderOrder(t *testing.T) {
 }
 
 func TestStreamingRetryResetsAttemptDeltas(t *testing.T) {
-	withGenerateRetryDelays(t, []time.Duration{time.Millisecond})
+	synctest.Test(t, testStreamingRetryResetsAttemptDeltas)
+}
 
+func testStreamingRetryResetsAttemptDeltas(t *testing.T) {
 	store := mustCreateTestSession(t)
 
 	client := &fakeStreamClient{}

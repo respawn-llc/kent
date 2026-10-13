@@ -449,11 +449,11 @@ func (e *Engine) workflowCompletionMode(ctx context.Context) (workflowruntime.Co
 	if err != nil {
 		return "", err
 	}
-	locked, lockedConfigured := e.lockedContractState().Snapshot()
-	if !lockedConfigured || locked.WorkflowCompletionMode == nil {
+	snapshot := e.store.Meta().WorkflowSnapshot
+	if snapshot == nil {
 		return promptMode, nil
 	}
-	lockedMode, err := workflowruntime.ParseCompletionMode(string(*locked.WorkflowCompletionMode))
+	lockedMode, err := workflowruntime.ParseCompletionMode(string(snapshot.CompletionMode))
 	if err != nil {
 		return "", fmt.Errorf("parse Session-locked workflow completion mode: %w", err)
 	}
@@ -541,9 +541,10 @@ func hostedToolExecutionsFromOutputItems(items []llm.ResponseItem, defs []tools.
 		for _, execution := range decoded {
 			out = append(out, hostedToolExecution{
 				Call: llm.ToolCall{
-					ID:    execution.Call.ID,
-					Name:  string(execution.Call.Name),
-					Input: execution.Call.Input,
+					ID:           execution.Call.ID,
+					Name:         string(execution.Call.Name),
+					Input:        execution.Call.Input,
+					ProviderItem: append(json.RawMessage(nil), execution.Call.ProviderItem...),
 				},
 				Result:         execution.Result,
 				outputPosition: position,

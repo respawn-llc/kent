@@ -12,6 +12,7 @@ import (
 	"core/internal/testharness/requestfixture"
 	"core/shared/apicontract"
 	remoteclient "core/shared/client"
+	"core/shared/config"
 	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
@@ -60,6 +61,49 @@ func TestRunPromptBinaryPreservesSelectionRejection(t *testing.T) {
 	}
 }
 
+func TestRunPromptBinaryReportsUnavailableConnectionSelection(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		selection config.ConnectionSelection
+	}{
+		{name: "singleton", selection: config.ConnectionSelection{"qa-unknown"}},
+		{name: "set", selection: config.ConnectionSelection{"qa-unknown", "qa-also-unknown"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			core, _ := newGatewayTestCore(t, true, true)
+			defer core.Close()
+			settings := config.Settings{Connection: &test.selection}
+			_, selectionErr := settings.ConnectionMembers()
+			if selectionErr == nil {
+				t.Fatal("undefined selection was accepted")
+			}
+			gateway, err := NewGateway(runPromptTestDependencies{
+				GatewayDependencies: core, run: rejectedRunPrompt{err: selectionErr},
+			}, gatewayTestIdentity())
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(gateway.handleConn))
+			defer server.Close()
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			client, err := remoteclient.DialRemoteURLForProject(ctx, "ws"+server.URL[len("http"):], core.ProjectID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			request := requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+				Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+				Prompt: "report selection failure",
+			})
+			_, err = client.RunPrompt(ctx, request, nil)
+			if err == nil || err.Error() != selectionErr.Error() {
+				t.Fatalf("selection failure did not survive transport: %v; want %v", err, selectionErr)
+			}
+		})
+	}
+}
+
 type controlledRunPrompt struct {
 	release           <-chan struct{}
 	sessionID         string
@@ -81,7 +125,8 @@ func (s controlledRunPrompt) RunPrompt(ctx context.Context, _ *runpromptpb.Reque
 	select {
 	case <-s.release:
 		return &runpromptpb.Success{
-			SessionId: s.sessionID, SessionName: proto.String("Session"), Result: "final answer",
+			SessionId: s.sessionID, SessionName: proto.String("Session"),
+			Outcome:  &runpromptpb.Success_FinalAnswer{FinalAnswer: "final answer"},
 			Duration: durationpb.New(time.Millisecond), SelectionWarnings: s.selectionWarnings,
 		}, nil
 	case <-ctx.Done():
@@ -207,7 +252,7 @@ func TestRunPromptBinaryDeliversProgressBeforeFinalAnswer(t *testing.T) {
 	finish()
 	select {
 	case result := <-done:
-		if result.err != nil || result.response.Result != "final answer" ||
+		if result.err != nil || result.response.GetFinalAnswer() != "final answer" ||
 			!reflect.DeepEqual(result.response.SelectionWarnings, []runpromptpb.RunSelectionWarning{
 				runpromptpb.RunSelectionWarning_RUN_SELECTION_WARNING_AGENT_IGNORED_TO_PRESERVE_CACHE,
 			}) {
@@ -240,7 +285,7 @@ func TestRunPromptBinaryDeliversProgressBeforeFinalAnswer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if finalResult.GetSuccess().GetResult() != "final answer" {
+	if finalResult.GetSuccess().GetFinalAnswer() != "final answer" {
 		t.Fatalf("generated final result = %v", finalResult)
 	}
 }

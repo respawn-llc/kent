@@ -6,7 +6,6 @@ import (
 
 	"context"
 	"core/shared/apicontract"
-	"core/shared/authstatus"
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/config"
@@ -243,7 +242,6 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	activeSettings.Debug = local.Debug
 	activeSettings.NotificationMethod = local.NotificationMethod
 	activeSettings.TUINativeProgressBar = local.TUINativeProgressBar
-	authSelection := authstatus.ProviderSelection(activeSettings)
 	sessionTitle, err := validateLaunchSessionTitle(resp.Plan.SessionName)
 	if err != nil {
 		return sessionLaunchPlan{}, err
@@ -277,7 +275,6 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 			PersistenceRoot: cfg.PersistenceRoot,
 			SessionViews:    p.server.SessionViewClient(),
 			Settings:        activeSettings,
-			AuthSelection:   authSelection,
 			Source:          source,
 			AuthStatus:      p.server.AuthStatusClient(),
 		},

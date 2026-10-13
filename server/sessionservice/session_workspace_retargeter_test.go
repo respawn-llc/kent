@@ -168,11 +168,7 @@ func newRealSessionRetargetFixture(t *testing.T, useBlockingObserver bool, sourc
 	t.Helper()
 	ctx := context.Background()
 	persistenceRoot := t.TempDir()
-	metadataStore, err := metadata.Open(persistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
+	metadataStore := testsetup.OpenStore(t, persistenceRoot)
 	managedBase := t.TempDir()
 	sourceRoot := filepath.Join(managedBase, "source")
 	if len(sourceRoots) != 0 {
@@ -964,8 +960,7 @@ func TestSessionRetargetSelectorFailureIdentity(t *testing.T) {
 	if err != nil || identity.ShortID == nil {
 		t.Fatalf("numbered fixture: %v", err)
 	}
-	service := NewGlobalSessionLifecycleService(t.TempDir(), f.authority, nil).
-		WithPersistedSessionResolver(f.metadata).
+	service := NewGlobalSessionLifecycleService(t.TempDir(), f.authority, nil, f.metadata).
 		WithWorkspaceRetargeter(f.retargeter(f.metadata, retargetProcessSource{{ID: "blocking", OwnerSessionID: f.childID.String(), Running: true}}))
 	for _, numbered := range []bool{true, false} {
 		selectors := []runtimeids.SessionSelector{identity.ID}

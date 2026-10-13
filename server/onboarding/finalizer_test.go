@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -150,7 +151,7 @@ func TestFinishPersistsPendingConnectionAfterObserverCancellation(t *testing.T) 
 	}
 	app := loadFinalizedConfig(t, root)
 	connection, err := app.Settings.SelectedConnection()
-	if err != nil || *app.Settings.Connection != "first" || connection.Endpoint == nil || *connection.Endpoint != "http://localhost:1234/v1" {
+	if err != nil || !reflect.DeepEqual(app.Settings.Connection, config.SingleConnection("first")) || connection.Endpoint == nil || *connection.Endpoint != "http://localhost:1234/v1" {
 		t.Fatalf("Finish did not persist the pending selection: %+v %v", connection, err)
 	}
 	catalog, err := owner.GetConnections(t.Context(), &authpb.GetConnectionsRequest{})
@@ -450,7 +451,7 @@ func TestFinalizerAcceptsMinimumCustomContextWindow(t *testing.T) {
 	if cfg.Settings.ModelContextWindow != 50_000 {
 		t.Fatalf("model context window = %d, want 50000", cfg.Settings.ModelContextWindow)
 	}
-	if effective := config.EffectivePreSubmitThresholdTokens(cfg.Settings.ContextCompactionThresholdTokens, cfg.Settings.PreSubmitCompactionLeadTokens); effective < config.MinimumThresholdTokens(cfg.Settings.ModelContextWindow) {
+	if effective := config.SpeculativeCompactionTriggerTokens(cfg.Settings.ModelContextWindow, cfg.Settings.PreSubmitCompactionLeadTokens); effective < config.MinimumThresholdTokens(cfg.Settings.ModelContextWindow) {
 		t.Fatalf("effective pre-submit threshold = %d below minimum", effective)
 	}
 }
@@ -1030,7 +1031,7 @@ func TestFinalizerPreservesPublishedBaselineAndExplicitlyResetsWindow(t *testing
 			if settings.ModelContextWindow != expectedWindow || settings.ContextCompactionThresholdTokens != expectedWindow*95/100 {
 				t.Fatalf("context budgets: window=%d threshold=%d expected=%d", settings.ModelContextWindow, settings.ContextCompactionThresholdTokens, expectedWindow)
 			}
-			if settings.ContextCompactionThresholdTokens-settings.PreSubmitCompactionLeadTokens < config.MinimumThresholdTokens(expectedWindow) {
+			if config.SpeculativeCompactionTriggerTokens(expectedWindow, settings.PreSubmitCompactionLeadTokens) < config.MinimumThresholdTokens(expectedWindow) {
 				t.Fatal("pre-submit compaction budget exceeds the selected window")
 			}
 		})

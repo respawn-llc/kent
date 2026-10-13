@@ -59,10 +59,11 @@ func TestWorkflowAgentPanicsBeforeSecondModelTurnWithoutWorkflowInstructions(t *
 
 func TestCompletedWorkflowContractDoesNotClassifyOrdinaryTurnAsWorkflow(t *testing.T) {
 	store := mustCreateTestSession(t)
-	mode := sessioncontract.WorkflowCompletionModeTool
+	if err := store.SetWorkflowSnapshot(session.WorkflowSnapshot{CompletionMode: sessioncontract.WorkflowCompletionModeTool}); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model:                  "gpt-6-sol",
-		WorkflowCompletionMode: &mode,
+		Model: "gpt-6-sol",
 	}); err != nil {
 		t.Fatalf("mark completed Workflow contract: %v", err)
 	}

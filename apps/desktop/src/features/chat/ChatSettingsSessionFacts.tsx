@@ -20,7 +20,7 @@ export function ChatSettingsSessionFacts({
 }>) {
   const { t } = useTranslation();
   const { nativeBridge } = useAppServices();
-  const { sessionID, previousSessionID, task } = facts;
+  const { sessionID, previousSessionID, task, connection } = facts;
   const displayID = sessionDisplayID(sessionID, facts.shortID);
   async function copySessionID() {
     try {
@@ -70,6 +70,16 @@ export function ChatSettingsSessionFacts({
           <ChevronRight className="shrink-0 text-[var(--color-muted)]" size={14} />
         </SettingsRow>
       )}
+      {connection === undefined ? null : (
+        <SettingsRow reason={undefined}>
+          <span className="min-w-0 flex-1 truncate text-xs text-[var(--color-muted)]">
+            {t("chatSettings.sessionConnection", {
+              id: connection.id,
+              mode: t(`chatSettings.connectionModes.${connection.mode}`),
+            })}
+          </span>
+        </SettingsRow>
+      )}
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -87,7 +97,7 @@ export function ChatSettingsSessionFacts({
               </SettingsRow>
             </div>
           </TooltipTrigger>
-          <TooltipContent className="font-mono">{displayID}</TooltipContent>
+          <TooltipContent>{t("chatSettings.clickToCopy")}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
     </div>

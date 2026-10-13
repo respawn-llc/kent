@@ -180,8 +180,9 @@ func (p SkillPolicy) Equivalent(other SkillPolicy) bool {
 }
 
 type Settings struct {
-	Connection                       *ConnectionID
+	Connection                       *ConnectionSelection
 	Connections                      map[ConnectionID]ProviderConnection
+	ConnectionOrder                  []ConnectionID
 	Model                            string
 	ThinkingLevel                    string
 	ModelVerbosity                   ModelVerbosity
@@ -201,7 +202,7 @@ type Settings struct {
 	AllowNonCwdEdits                 bool
 	ModelContextWindow               int
 	ContextCompactionThresholdTokens int
-	PreSubmitCompactionLeadTokens    int
+	PreSubmitCompactionLeadTokens    *int
 	MinimumExecToBgSeconds           int
 	CompactionMode                   CompactionMode
 	EnabledTools                     map[toolspec.ID]bool
@@ -238,7 +239,7 @@ type ProviderCapabilitiesOverride struct {
 }
 
 type ReviewerSettings struct {
-	Connection         *ConnectionID
+	Connection         *ConnectionSelection
 	Frequency          string
 	Model              string
 	ThinkingLevel      string

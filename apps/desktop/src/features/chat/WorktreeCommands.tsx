@@ -12,7 +12,7 @@ import {
   useStatusController,
   worktreeTransitionOutcomeHandler,
 } from "@/app-facade";
-import { Spinner } from "@/ui";
+import { Spinner, useStableCallback } from "@/ui";
 import { createWorktreeCommand } from "./worktreeCommand";
 import { createWorktreeCommandActions } from "./WorktreeCommandActions";
 import { createWorktreeCommandDelete, useWorktreeCommandDelete } from "./WorktreeCommandDelete";
@@ -25,13 +25,18 @@ type WorktreeCommandModel = Readonly<{
   preview: Atom.Writable<WorktreeDeletePreview | null>;
 }>;
 
-export function useWorktreeCommands(sessionID: string | null, focusComposer: () => void) {
+export function useWorktreeCommands(
+  sessionID: string | null,
+  focusComposer: () => void,
+  openSession: (sessionID: string) => void | Promise<void>,
+) {
   const { api } = useAppServices();
   const client = useQueryClient();
   const roots = useOwnedSidebarRoots();
   const { currentSurface } = useSidebarShell();
   const { push } = useStatusController();
   const { t } = useTranslation();
+  const openOriginSession = useStableCallback(openSession);
   const scope = useMemo(
     () =>
       Atom.make((get) => {
@@ -56,6 +61,7 @@ export function useWorktreeCommands(sessionID: string | null, focusComposer: () 
           ...dependencies,
           roots,
           focusComposer,
+          openSession: openOriginSession,
           deleteTarget: deletion.prepare,
         });
         return {
@@ -72,7 +78,7 @@ export function useWorktreeCommands(sessionID: string | null, focusComposer: () 
           },
         };
       }),
-    [api, client, currentSurface, focusComposer, push, roots, sessionID, t],
+    [api, client, currentSurface, focusComposer, openOriginSession, push, roots, sessionID, t],
   );
   const model = useAtomValue(scope);
   const commands = useMemo(

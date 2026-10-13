@@ -719,10 +719,6 @@ func taskApproveSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 			return 1
 		}
 		applied := resp.GetApplied()
-		if applied == nil {
-			writeWorkflowExecutionTargetSelectionRequired(stderr, resp.GetSelectionRequired())
-			return 1
-		}
 		detail, err := getWorkflowTaskByID(context.Background(), remote, applied.TaskId)
 		if err != nil {
 			fmt.Fprintf(stderr, "approved workflow change %s but failed to load task detail for output: %v\n", positionals[0], err)

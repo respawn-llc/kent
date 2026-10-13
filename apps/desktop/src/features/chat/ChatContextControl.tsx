@@ -1,5 +1,5 @@
-import { useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Trans, useTranslation } from "react-i18next";
+import { useRef, useState, type CSSProperties } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Button,
   DisabledInteractionGuard,
@@ -15,9 +15,7 @@ import { ComposerIcon } from "./ComposerIcon";
 type Props = Readonly<{
   used: number;
   window: number | null;
-  autoCompactionControl: ReactNode;
   policyDisabled: boolean;
-  completedCount: number;
   compacting: boolean;
   compact(): void;
 }>;
@@ -64,7 +62,7 @@ export function ChatContextControl(props: Props) {
         <PopoverContent
           side="top"
           align="end"
-          className="chat-context-popover text-sm text-[var(--color-muted)]"
+          className="chat-context-popover w-80 text-sm text-[var(--color-muted)]"
           onOpenAutoFocus={(event) => {
             if (hoverOpened.current) event.preventDefault();
           }}
@@ -72,44 +70,29 @@ export function ChatContextControl(props: Props) {
             if (hoverOpened.current) event.preventDefault();
           }}
         >
-          <div>
-            <Trans
-              i18nKey="chatComposer.context.remaining"
-              values={{
-                tokens: presentation.remaining,
-                percent: presentation.remainingPercent,
-                window: presentation.window,
-              }}
-              components={{ strong: <strong /> }}
-            />
-          </div>
-          {props.autoCompactionControl}
-          <div>
-            <Trans
-              i18nKey="chatComposer.context.completed"
-              values={{ count: props.completedCount }}
-              components={{ strong: <strong /> }}
-            />
-          </div>
-          <div className="chat-context-bottom">
+          <div className="chat-context-progress">
+            <strong className="chat-context-percent">{presentation.usedPercent}%</strong>
+            <span className="chat-context-used">{presentation.used}</span>
             <div className="chat-context-track">
               <div
                 className="chat-context-gradient"
                 style={{ clipPath: `inset(0 ${((1 - presentation.extent) * 100).toString()}% 0 0)` }}
               />
             </div>
-            <DisabledInteractionGuard disabled={disabledReason !== undefined} reason={disabledReason}>
-              <Button
-                disabled={disabledReason !== undefined}
-                onClick={() => {
-                  setOpen(false);
-                  props.compact();
-                }}
-              >
-                {t("chatComposer.context.compact")}
-              </Button>
-            </DisabledInteractionGuard>
+            <span className="chat-context-total">{presentation.window}</span>
           </div>
+          <DisabledInteractionGuard disabled={disabledReason !== undefined} reason={disabledReason}>
+            <Button
+              className="w-full"
+              disabled={disabledReason !== undefined}
+              onClick={() => {
+                setOpen(false);
+                props.compact();
+              }}
+            >
+              {t("chatComposer.context.compact")}
+            </Button>
+          </DisabledInteractionGuard>
         </PopoverContent>
       )}
     </Popover>

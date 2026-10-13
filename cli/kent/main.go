@@ -419,22 +419,47 @@ func runSubcommand(args []string) int {
 		return 1
 	}
 	if outputMode == runOutputModeJSON {
-		emitRunJSON(runJSONResult{
+		output := runJSONResult{
 			Status:      "ok",
-			Result:      result.Result,
 			SessionID:   continueID,
 			SessionName: result.SessionName,
 			ContinueID:  continueID,
 			ContinueCmd: continueCmd,
 			Warnings:    append([]string(nil), result.Warnings...),
 			DurationMS:  result.Duration.Milliseconds(),
-		})
-	} else {
-		if progressRenderer != nil {
-			progressRenderer.Complete(result.Result, result.Warnings, continueHint)
-		} else {
-			emitRunFinalText(os.Stdout, result.Warnings, result.Result, continueHint)
 		}
+		switch outcome := result.Outcome.(type) {
+		case app.RunPromptFinalAnswer:
+			output.Result = outcome.Text
+		case app.RunPromptPendingQuestion:
+			question, err := projectObservationQuestion(outcome.Question, result.Identity.ID.String(), nil)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return 1
+			}
+			output.Outcome = question
+		}
+		emitRunJSON(output)
+		return 0
+	}
+	switch outcome := result.Outcome.(type) {
+	case app.RunPromptFinalAnswer:
+		if progressRenderer != nil {
+			progressRenderer.Complete(outcome.Text, result.Warnings, continueHint)
+		} else {
+			emitRunFinalText(os.Stdout, result.Warnings, outcome.Text, continueHint)
+		}
+	case app.RunPromptPendingQuestion:
+		warningsWriter := io.Writer(os.Stdout)
+		if progressRenderer != nil {
+			warningsWriter = os.Stderr
+		}
+		emitWarnings(warningsWriter, result.Warnings)
+		writeObservedQuestion(
+			os.Stdout,
+			outcome.Question,
+			observationQuestionHint([]string{"--session", result.Identity.String()}, outcome.Question),
+		)
 	}
 	return 0
 }
@@ -457,6 +482,10 @@ func liveControlSubcommand(args []string) string {
 		return verb
 	}
 	if _, err := runtimeids.ParseSessionSelector(positionals[0]); err != nil {
+		var invalidNumber *runtimeids.InvalidSessionShortIDError
+		if errors.As(err, &invalidNumber) {
+			return verb
+		}
 		return ""
 	}
 	switch verb {

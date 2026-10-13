@@ -744,6 +744,23 @@ func TestResolveWorktreeCreateTargetClassifiesBranchDetachedRefAndNewBranch(t *t
 	}
 }
 
+func TestResolveWorktreeCreateTargetClassifiesInvalidInputWithoutFailure(t *testing.T) {
+	env := newServiceTestEnv(t)
+	for _, target := range []string{"feature/", "Test WT", "feature..bad", "-feature"} {
+		t.Run(target, func(t *testing.T) {
+			result, err := env.service.ResolveWorktreeCreateTarget(env.ctx, &worktreepb.CreateTargetResolveRequest{
+				Scope: worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}}), Target: target,
+			})
+			if err != nil {
+				t.Fatalf("invalid input must be a field classification, not a failed request: %v", err)
+			}
+			if result.Resolution.Input != target || result.Resolution.ResolvedRef != nil || result.Resolution.Kind != worktreepb.CreateTargetResolutionKind_WORKTREE_CREATE_TARGET_RESOLUTION_KIND_INVALID {
+				t.Fatalf("unexpected invalid input resolution: %v", result.Resolution)
+			}
+		})
+	}
+}
+
 func TestResolveRequestedWorktreeRootPreservesExplicitRelativeRoot(t *testing.T) {
 	baseDir := filepath.Join(t.TempDir(), "missing-base")
 	service := &Service{managedRoots: newManagedRootAllocator(baseDir, nil)}

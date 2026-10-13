@@ -48,8 +48,12 @@ func (e *Engine) ensureMetaContextForRequest(ctx context.Context, stepID string)
 }
 
 func (e *Engine) materializePendingExecutionTargetReminders(stepID string) error {
-	if err := e.materializePendingWorktreeReminder(stepID); err != nil {
-		return err
+	// A pending generation owns its worktree context. Incremental transitions
+	// resume after that context is committed, preserving one delivery boundary.
+	if _, pending := e.generationContextSnapshot().(pendingGenerationContext); !pending {
+		if err := e.materializePendingWorktreeReminder(stepID); err != nil {
+			return err
+		}
 	}
 	return e.materializePendingSessionRebindReminder(stepID)
 }
@@ -293,7 +297,7 @@ func selectWorkflowTaskPrompt(
 	}
 	if trigger == workflowTaskPromptTriggerResumeDelivery {
 		if currentAssignmentIdentity == nil {
-			return prompts.WorkflowTaskPromptInitialAssignment, true, nil
+			return prompts.WorkflowTaskPromptCompactionReminder, true, nil
 		}
 		if *currentAssignmentIdentity == normalizedCurrentNodeIdentity {
 			return prompts.WorkflowTaskPromptInitialAssignment, false, nil
@@ -571,6 +575,16 @@ func (e *Engine) generationMetaContextProjection(ctx context.Context, trigger wo
 	opts.IncludeHeadless = e.cfg.HeadlessMode
 	opts.WorktreePromptKind = prompts.WorktreePromptPostCompaction
 	opts.WorktreeReminder = session.CloneWorktreeReminderState(meta.WorktreeReminder)
+	switchMessages, err := e.worktreeSwitchMessages()
+	if err != nil {
+		return metaContextProjection{}, err
+	}
+	activeItems := e.transcriptRuntimeState().SnapshotItems()
+	for _, message := range switchMessages {
+		if latestActiveMetaContextMatches(activeItems, message) {
+			opts.WorktreeReminder = nil
+		}
+	}
 	if e.workflowPromptActive() {
 		opts.IncludeHeadless = false
 		opts.SubagentInvocationContext = config.SubagentInvocationContextWorkflow

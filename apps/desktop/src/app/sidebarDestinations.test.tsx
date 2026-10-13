@@ -20,7 +20,6 @@ interface SidebarFixture {
   openSessionChat: AsyncMock<[unknown]>;
   push: SyncMock<[unknown]>;
   services: TestAppServices | undefined;
-  featureFlags: { desktopChatEnabled: boolean };
   workflowEditorProps: SyncMock<[unknown]>;
   newTaskProps: SyncMock<[unknown]>;
 }
@@ -32,11 +31,9 @@ const fixture = vi.hoisted((): SidebarFixture => ({
   openSessionChat: vi.fn(async () => undefined),
   push: vi.fn(),
   services: undefined,
-  featureFlags: { desktopChatEnabled: true },
   workflowEditorProps: vi.fn<(props: unknown) => void>(),
   newTaskProps: vi.fn<(props: unknown) => void>(),
 }));
-vi.mock("@/shared/feature-flags", () => fixture.featureFlags);
 vi.mock("@/app-facade", async (importOriginal) => ({
   ...(await importOriginal()),
   sidebarTitle: () => "",
@@ -167,7 +164,7 @@ function mountDestination(destination: SidebarDestination, pageNavigator = creat
   fixture.services = services;
   render(
     <TestAppProviders services={services}>
-      <SidebarRootContext.Provider value={{ open: vi.fn() }}>
+      <SidebarRootContext.Provider value={{ open: vi.fn(), toggle: vi.fn() }}>
         <SidebarDestinationView destination={destination} navigator={pageNavigator} />
       </SidebarRootContext.Provider>
     </TestAppProviders>,
@@ -190,7 +187,6 @@ describe("Sidebar destination completion ownership", () => {
     fixture.push.mockClear();
     fixture.workflowEditorProps.mockClear();
     fixture.newTaskProps.mockClear();
-    fixture.featureFlags.desktopChatEnabled = true;
     headerAction.mockClear();
   });
   it("deduplicates only Task Detail destinations", () => {
@@ -298,9 +294,10 @@ describe("Sidebar destination completion ownership", () => {
     const flow = await screen.findByTestId("task-detail-action-flow");
     fireEvent.click(
       within(flow).getByRole("button", {
-        name: appI18n.t("task.openChat", { name: "Review chat" }),
+        name: appI18n.t("task.openInChat"),
       }),
     );
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Review chat" }));
     await waitFor(() => {
       expect(navigator.close).toHaveBeenCalledOnce();
       expect(fixture.openSessionChat).toHaveBeenCalledWith({
@@ -319,9 +316,10 @@ describe("Sidebar destination completion ownership", () => {
     if (staleFlow === undefined) throw new Error("Expected stale Task Detail action flow.");
     fireEvent.click(
       within(staleFlow).getByRole("button", {
-        name: appI18n.t("task.openChat", { name: "Review chat" }),
+        name: appI18n.t("task.openInChat"),
       }),
     );
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Review chat" }));
     expect(stale.close).toHaveBeenCalledOnce();
     expect(fixture.openSessionChat).toHaveBeenCalledOnce();
   });

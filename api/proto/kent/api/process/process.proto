@@ -22,7 +22,7 @@ message BackgroundProcess {
   string workdir = 7 [(buf.validate.field).string.min_len = 1];
   google.protobuf.Timestamp started_at = 8 [(buf.validate.field).required = true];
   optional google.protobuf.Timestamp finished_at = 9;
-  optional int32 exit_code = 10;
+  optional int64 exit_code = 10;
   string log_path = 11;
   bool running = 15;
   bool stdin_open = 16;

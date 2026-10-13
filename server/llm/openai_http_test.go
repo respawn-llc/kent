@@ -165,6 +165,20 @@ func TestItemsFromMessagesNormalizesEscapedHTMLToolArguments(t *testing.T) {
 	}
 }
 
+func TestItemsFromMessagesReplaysCustomToolCallWithoutInventingProviderItemID(t *testing.T) {
+	items := ItemsFromMessages([]Message{
+		{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "call_patch", Name: "patch", Custom: true, CustomInput: textutil.Value("*** Begin Patch\n*** End Patch\n")}}},
+		{Role: RoleTool, MessageType: textutil.Value(MessageTypeCustomToolCallOutput), ToolCallID: textutil.Value("call_patch"), Content: textutil.Value(`{"ok":true}`)},
+	})
+	input := mustMarshalItems(t, mustBuildResponsesInput(t, items))
+	if len(input) != 2 || input[0]["type"] != "custom_tool_call" || input[0]["call_id"] != "call_patch" || input[1]["call_id"] != "call_patch" {
+		t.Fatalf("custom tool call replay lost its call identity: %#v", input)
+	}
+	if _, hasID := input[0]["id"]; hasID {
+		t.Fatalf("reconstructed custom tool call invented a provider item ID: %#v", input[0])
+	}
+}
+
 func TestBuildResponsesInput_AssistantUsesTypedMessageInput(t *testing.T) {
 	items := mustBuildResponsesInput(t, ItemsFromMessages([]Message{
 		{Role: RoleUser, Content: textutil.Value("u1")},
@@ -262,7 +276,7 @@ func TestBuildResponsesInput_ToolOutputSupportsStructuredInputImageItems(t *test
 		{
 			Role:       RoleTool,
 			ToolCallID: textutil.Value("call_1"),
-			Content:    textutil.Value(`[{"type":"input_image","image_url":"data:image/png;base64,abc"}]`),
+			Content:    textutil.Value(`[{"type":"input_image","image_url":"data:image/png;base64,abc","detail":"original"}]`),
 		},
 	}))
 	if len(items) != 1 {
@@ -286,6 +300,9 @@ func TestBuildResponsesInput_ToolOutputSupportsStructuredInputImageItems(t *test
 	}
 	if got := part["image_url"]; got != "data:image/png;base64,abc" {
 		t.Fatalf("unexpected image_url in structured output: %#v", got)
+	}
+	if got := part["detail"]; got != "original" {
+		t.Fatalf("expected original image detail in outgoing request, got %#v", got)
 	}
 }
 

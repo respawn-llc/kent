@@ -1187,7 +1187,7 @@ func TestTranscriptPageProjectsReviewerAndBackgroundMetadata(t *testing.T) {
 	if backgroundRow.GetNotice() == nil {
 		t.Fatalf("background row = %+v, want notice", backgroundRow)
 	}
-	if background := backgroundRow.GetNotice().Background; background == nil || background.ExitCode == nil || *background.ExitCode != int32(exitCode) {
+	if background := backgroundRow.GetNotice().Background; background == nil || background.ExitCode == nil || *background.ExitCode != int64(exitCode) {
 		t.Fatalf("background notice = %+v, want exit code %d", background, exitCode)
 	}
 }
@@ -1355,7 +1355,7 @@ func TestTranscriptBackgroundNoticeCarriesTypedExitCode(t *testing.T) {
 		t.Fatal("background notice row is missing notice payload")
 	}
 	background := row.GetNotice().Background
-	if background == nil || background.ExitCode == nil || *background.ExitCode != int32(exitCode) {
+	if background == nil || background.ExitCode == nil || *background.ExitCode != int64(exitCode) {
 		t.Fatalf("background notice = %+v, want exit code %d", background, exitCode)
 	}
 }

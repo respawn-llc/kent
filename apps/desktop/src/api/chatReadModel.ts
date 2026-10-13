@@ -23,7 +23,6 @@ export function activeKind(value: R.ActivityActiveKind): ChatActiveKind {
     [R.ActivityActiveKind.RUNTIME_ACTIVITY_ACTIVE_KIND_WORKFLOW_TURN]: "workflow_turn",
     [R.ActivityActiveKind.RUNTIME_ACTIVITY_ACTIVE_KIND_GOAL_LOOP]: "goal_loop",
     [R.ActivityActiveKind.RUNTIME_ACTIVITY_ACTIVE_KIND_COMPACTION]: "compaction",
-    [R.ActivityActiveKind.RUNTIME_ACTIVITY_ACTIVE_KIND_PRE_SUBMIT_COMPACTION]: "pre_submit_compaction",
     [R.ActivityActiveKind.RUNTIME_ACTIVITY_ACTIVE_KIND_USER_SHELL]: "user_shell",
     [R.ActivityActiveKind.RUNTIME_ACTIVITY_ACTIVE_KIND_BACKGROUND]: "background",
     [R.ActivityActiveKind.RUNTIME_ACTIVITY_ACTIVE_KIND_RUNTIME_MAINTENANCE]: "runtime_maintenance",

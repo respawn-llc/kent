@@ -4,7 +4,6 @@ import { useTranslation } from "react-i18next";
 
 import type { AttentionItem } from "@/api";
 import { formatRelativeTime, usePathFormatter, type SessionChatTarget } from "@/app-facade";
-import { desktopChatEnabled } from "@/shared/feature-flags";
 import { IconTooltipButton, Item, ItemContent, PromptAccessTargets } from "@/ui";
 import { attentionChatTarget } from "./attentionChatTarget";
 
@@ -21,32 +20,36 @@ export const AttentionRow = memo(function AttentionRow({
       : item.kind === "interrupted_current_node"
         ? t("app.attention.interruptedCurrentNodeFallback")
         : null);
-  const chatTarget = desktopChatEnabled ? attentionChatTarget(item) : null;
+  const chatTarget = attentionChatTarget(item);
   return (
-    <div className="flex min-w-0 items-start" data-testid="attention-row">
+    <div className="group/attention relative min-w-0" data-testid="attention-row">
       <Item
-        className="min-w-0 flex-1 px-[var(--space-2)] py-[var(--space-3)]"
+        className="absolute inset-0 h-full group-hover/attention:bg-[var(--color-island-1)]"
         aria-label={`${item.taskShortID} ${item.taskTitle}`}
         onClick={() => {
           onTaskDetail(item);
         }}
-      >
-        <ItemContent className="min-w-0">
+      />
+      <ItemContent className="pointer-events-none relative min-w-0 px-[var(--space-2)] py-[var(--space-3)]">
+        <div className="flex min-w-0 items-center gap-[var(--space-2)]">
           <AttentionHeader item={item} />
-          <AttentionBody item={item} message={message} />
-        </ItemContent>
-      </Item>
-      {chatTarget === null ? null : (
-        <IconTooltipButton
-          className="mt-[var(--space-2)] text-[var(--color-muted)]"
-          label={t("task.openChat", { name: item.taskTitle })}
-          onClick={() => {
-            onSessionChat(chatTarget);
-          }}
-        >
-          <MessageCircle className="size-4" strokeWidth={1.5} />
-        </IconTooltipButton>
-      )}
+          {chatTarget === null ? null : (
+            <span className="pointer-events-auto shrink-0">
+              <IconTooltipButton
+                className="text-[var(--color-muted)]"
+                size="icon-sm"
+                label={t("task.openChat", { name: item.taskTitle })}
+                onClick={() => {
+                  onSessionChat(chatTarget);
+                }}
+              >
+                <MessageCircle className="size-4" strokeWidth={1.5} />
+              </IconTooltipButton>
+            </span>
+          )}
+        </div>
+        <AttentionBody item={item} message={message} />
+      </ItemContent>
     </div>
   );
 }, attentionRowPropsEqual);

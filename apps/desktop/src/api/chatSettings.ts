@@ -1,4 +1,5 @@
 import { create } from "@app/server-api-contract";
+import { AuthMethod } from "@app/server-api-contract/gen/kent/api/auth/auth_pb";
 import {
   AutoCompactionPolicy,
   ChatSettingsService,
@@ -214,10 +215,32 @@ export function sessionFacts(value: SessionFacts, sessionID: string): ChatSettin
   }
   return {
     sessionID: value.sessionId,
+    ...(value.connection === undefined
+      ? {}
+      : {
+          connection: {
+            id: value.connection.connectionId,
+            mode: connectionMode(value.connection.method),
+          },
+        }),
     shortID: value.shortId ?? null,
     previousSessionID: value.previousSessionId ?? null,
     task: value.taskId === undefined ? null : { taskID: value.taskId, shortID: required(value.taskShortId) },
   };
+}
+
+function connectionMode(method: AuthMethod): "subscription" | "api_key" | "no_auth" {
+  switch (method) {
+    case AuthMethod.OAUTH:
+      return "subscription";
+    case AuthMethod.API_KEY:
+      return "api_key";
+    case AuthMethod.NONE:
+      return "no_auth";
+    case AuthMethod.UNSPECIFIED:
+    default:
+      throw new ContractError("Session Connection has an invalid Auth method.");
+  }
 }
 
 function required<T>(value: T | undefined): T {
@@ -262,8 +285,6 @@ function editability(value: Editability): ChatSettingsEditability {
       return { kind: "editable" };
     case Editability.WORKFLOW_LOCK:
       return { kind: "workflow_lock" };
-    case Editability.CACHING_LOCK:
-      return { kind: "caching_lock" };
     case Editability.POLICY_DISABLED:
       return { kind: "policy_disabled" };
     case Editability.UNSPECIFIED:

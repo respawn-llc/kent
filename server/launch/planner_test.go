@@ -19,6 +19,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -31,7 +32,7 @@ func TestSessionConnectionResumeBindingAndReplacement(t *testing.T) {
 	}
 	selected := config.ConnectionID("work")
 	settings := config.DefaultOnboardingSettings()
-	settings.Connection = &selected
+	settings.Connection = config.SingleConnection(selected)
 	settings.Connections = map[config.ConnectionID]config.ProviderConnection{
 		"work":  {Protocol: config.ConnectionChatGPT},
 		"local": {Protocol: config.ConnectionResponses, Endpoint: textutil.Value("http://localhost:1234")},
@@ -44,7 +45,7 @@ func TestSessionConnectionResumeBindingAndReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	selected = "local"
-	settings.Connection = &selected
+	settings.Connection = config.SingleConnection(selected)
 	id, notice, err := ResolveSessionConnection(settings, store.Meta().ConnectionID)
 	if err != nil || id != "work" || notice != nil {
 		t.Fatalf("resume followed changed default: %v, %v, %v", id, notice, err)
@@ -539,11 +540,7 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 	ctx := context.Background()
 	workspace := t.TempDir()
 	cfg := loadLaunchConfig(t, workspace)
-	metadataStore, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	defer func() { _ = metadataStore.Close() }()
+	metadataStore := testsetup.OpenStore(t, cfg.PersistenceRoot)
 	binding, err := metadataStore.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
@@ -612,6 +609,7 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 		ContainerDir:      containerDir,
 		StoreOptions:      metadataStore.AuthoritativeSessionStoreOptions(),
 		PersistedSessions: metadataStore,
+		ExecutionTargets:  metadataStore,
 		SessionProjects:   metadataStore, ManagedWorktreeRoots: metadataStore,
 	}
 
@@ -639,7 +637,7 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 	if childMeta.Locked.ReviewerPrompt != "parent interactive reviewer prompt" || !childMeta.Locked.HasReviewerPrompt {
 		t.Fatalf("child reviewer prompt lock = %+v, want parent interactive reviewer prompt", childMeta.Locked)
 	}
-	if childMeta.ConnectionID == nil || *childMeta.ConnectionID != "test" || plan.ActiveSettings.Connection == nil || *plan.ActiveSettings.Connection != "test" {
+	if childMeta.ConnectionID == nil || *childMeta.ConnectionID != "test" || plan.ActiveSettings.Connection == nil || !reflect.DeepEqual(plan.ActiveSettings.Connection, config.SingleConnection("test")) {
 		t.Fatal("direct continuation did not retain the parent binding")
 	}
 	if plan.ActiveSettings.Model != "locked-parent-model" {
@@ -898,6 +896,9 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 				if meta.Continuation != nil {
 					t.Fatalf("continuation = %+v, want fresh parent-agent continuation", meta.Continuation)
 				}
+				if meta.ConnectionID == nil || *meta.ConnectionID != "a" {
+					t.Fatalf("fresh child binding = %v, want a", meta.ConnectionID)
+				}
 			},
 		},
 	}
@@ -934,6 +935,14 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 				},
 			}, containerDir, persistence)
 			planner.PersistedSessions = resolver
+			selection := config.ConnectionSelection{"a", "test"}
+			planner.Config.Settings.Connection = &selection
+			planner.Config.Settings.ConnectionOrder = []config.ConnectionID{"a", "test"}
+			planner.Config.Settings.Connections = map[config.ConnectionID]config.ProviderConnection{
+				"a":    {Protocol: config.ConnectionChatGPT},
+				"test": {Protocol: config.ConnectionChatGPT},
+			}
+			planner.Rotation = new(ConnectionRotation)
 			sourceID := mustTypedIntentSessionID(t, source.Meta().SessionID)
 
 			plan, err := planner.PlanSession(context.Background(), SessionRequest{
@@ -948,6 +957,14 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 				t.Fatalf("child workspace = root %q container %q, want source metadata", childMeta.WorkspaceRoot, childMeta.WorkspaceContainer)
 			}
 			test.assertMeta(t, childMeta, sourceID)
+			next, err := planner.Rotation.Prepare(planner.Config.Settings, true)
+			want := config.ConnectionID("a")
+			if test.name == "parent agent" {
+				want = "test"
+			}
+			if err != nil || next != want {
+				t.Fatalf("next allocation = %v, %v; want %v", next, err, want)
+			}
 		})
 	}
 }
@@ -956,11 +973,7 @@ func TestPlannerNewChildSessionRetainsDurableChildWhenExecutionTargetCopyFails(t
 	ctx := context.Background()
 	workspace := t.TempDir()
 	cfg := loadLaunchConfig(t, workspace)
-	metadataStore, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	defer func() { _ = metadataStore.Close() }()
+	metadataStore := testsetup.OpenStore(t, cfg.PersistenceRoot)
 	binding, err := metadataStore.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
@@ -998,11 +1011,11 @@ func TestPlannerNewChildSessionRetainsDurableChildWhenExecutionTargetCopyFails(t
 	}
 	failingStore := &failingUpdateMetadataExecutionTargetStore{base: metadataStore, updateErr: session.ErrSessionNotFound}
 	planner := Planner{
-		Config:              cfg,
-		ContainerDir:        containerDir,
-		StoreOptions:        metadataStore.AuthoritativeSessionStoreOptions(),
-		PersistedSessions:   metadataStore,
-		MetadataStoreOpener: func(string) (MetadataExecutionTargetStore, error) { return failingStore, nil },
+		Config:            cfg,
+		ContainerDir:      containerDir,
+		StoreOptions:      metadataStore.AuthoritativeSessionStoreOptions(),
+		PersistedSessions: metadataStore,
+		ExecutionTargets:  failingStore,
 	}
 
 	_, err = planner.PlanSession(context.Background(), SessionRequest{
@@ -1480,8 +1493,8 @@ func TestApplyRunPromptOverridesDerivesRoleContextBudgets(t *testing.T) {
 			if got := updated.ActiveSettings.ContextCompactionThresholdTokens; got != tt.wantThreshold {
 				t.Fatalf("compaction threshold = %d, want %d", got, tt.wantThreshold)
 			}
-			if got := updated.ActiveSettings.PreSubmitCompactionLeadTokens; got != tt.wantLead {
-				t.Fatalf("pre-submit lead = %d, want %d", got, tt.wantLead)
+			if got := config.SpeculativeCompactionTriggerTokens(tt.wantWindow, updated.ActiveSettings.PreSubmitCompactionLeadTokens); got != tt.wantWindow-tt.wantLead {
+				t.Fatalf("speculative trigger = %d, want %d", got, tt.wantWindow-tt.wantLead)
 			}
 		})
 	}
@@ -1610,8 +1623,8 @@ func TestApplyRunPromptOverridesCLIModelOverrideRecomputesBudgetAfterFastRole(t 
 	if updated.ActiveSettings.ContextCompactionThresholdTokens != 353_400 {
 		t.Fatalf("compaction threshold = %d, want 353400", updated.ActiveSettings.ContextCompactionThresholdTokens)
 	}
-	if updated.ActiveSettings.PreSubmitCompactionLeadTokens != 35_000 {
-		t.Fatalf("pre-submit lead = %d, want 35000", updated.ActiveSettings.PreSubmitCompactionLeadTokens)
+	if got := config.SpeculativeCompactionTriggerTokens(372_000, updated.ActiveSettings.PreSubmitCompactionLeadTokens); got != 327_360 {
+		t.Fatalf("speculative trigger = %d, want 327360", got)
 	}
 	if !updated.ActiveSettings.PriorityRequestMode {
 		t.Fatal("expected fast-role priority mode to stay enabled")

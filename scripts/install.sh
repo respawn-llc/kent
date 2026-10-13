@@ -5,14 +5,17 @@ REPO="${KENT_REPO:-respawn-llc/kent}"
 VERSION="${KENT_VERSION:-${VERSION:-}}"
 PREFIX="${KENT_PREFIX:-}"
 RELEASE_BASE="${KENT_RELEASE_BASE:-https://github.com/${REPO}/releases/download}"
+SERVICE="offer"
 
 usage() {
 	cat <<EOF
-Usage: install.sh [--version vX.Y.Z|X.Y.Z] [--prefix /path]
+Usage: install.sh [--version vX.Y.Z|X.Y.Z] [--prefix /path] [--service|--no-service]
 
 Options:
   --version  Release tag to install (vX.Y.Z or X.Y.Z; defaults to latest)
   --prefix   Install prefix (defaults to /usr/local or ~/.local)
+  --service  Install and start the background service, including unattended installs
+  --no-service  Skip the background service offer
 
 Environment:
   KENT_VERSION       Override version
@@ -46,6 +49,14 @@ while [ $# -gt 0 ]; do
 	--prefix)
 		PREFIX="${2:-}"
 		shift 2
+		;;
+	--service | --no-service)
+		if [ "$SERVICE" != "offer" ]; then
+			echo "Specify only one of --service and --no-service." >&2
+			exit 1
+		fi
+		SERVICE="${1#--}"
+		shift
 		;;
 	-h | --help)
 		usage
@@ -266,3 +277,40 @@ if [ -n "$old_builder" ] && [ "$old_builder" != "$target" ]; then
 	echo "A previous 'builder' binary is still on PATH at $old_builder." >&2
 	echo "After migrating, remove it with:  rm \"$old_builder\"" >&2
 fi
+
+service_offer() {
+	if [ "$SERVICE" = "no-service" ]; then
+		echo "Start Kent manually with: \"$target\" serve"
+		return
+	fi
+	if [ "$SERVICE" = "offer" ]; then
+		# stdin may contain this script when installation runs through curl | sh.
+		if ! (exec </dev/tty) 2>/dev/null; then
+			echo "Unattended install: service setup skipped. Start Kent manually with: \"$target\" serve"
+			return
+		fi
+		echo "Install and start Kent as a background service? [Y/n]" >/dev/tty
+		answer=""
+		if ! IFS= read -r answer </dev/tty; then
+			echo "Service setup skipped. Start Kent manually with: \"$target\" serve"
+			return
+		fi
+		case "$answer" in
+		"" | y | Y | yes | Yes | YES) ;;
+		*)
+			echo "Start Kent manually with: \"$target\" serve"
+			return
+			;;
+		esac
+	fi
+	# Kent owns service registration, startup, and existing-service refusal.
+	if "$target" service install; then
+		echo "Kent background service setup completed."
+	else
+		echo "Kent binary installed, but background service setup failed." >&2
+		echo "Start Kent manually with: \"$target\" serve"
+		return 1
+	fi
+}
+
+service_offer

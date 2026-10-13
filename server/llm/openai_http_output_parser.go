@@ -42,7 +42,7 @@ func newResponseOutputItemParsers(registrations ...responseOutputItemParserRegis
 	return responseOutputItemParsers{byType: byType}
 }
 
-func parseOutputItems(items []responses.ResponseOutputItemUnion) ([]ResponseItem, *string, MessagePhase, *ProviderPhase, []ToolCall, []ReasoningEntry, []ReasoningItem, error) {
+func parseOutputItems(items []responses.ResponseOutputItemUnion, policy responsesPolicy) ([]ResponseItem, *string, MessagePhase, *ProviderPhase, []ToolCall, []ReasoningEntry, []ReasoningItem, error) {
 	parsers := newResponseOutputItemParsers(
 		responseOutputItemParserRegistration{itemType: "message", parser: messageOutputItemParser{}},
 		responseOutputItemParserRegistration{itemType: "function_call", parser: functionCallOutputItemParser{}},
@@ -58,7 +58,7 @@ func parseOutputItems(items []responses.ResponseOutputItemUnion) ([]ResponseItem
 
 	for outputIndex, item := range items {
 		parsed, ok := parsers.byType[item.Type]
-		if !ok {
+		if !ok || (item.Type == "custom_tool_call" && policy.isHostedCustomToolCall(item.CallID)) {
 			raw := json.RawMessage(item.RawJSON())
 			if len(raw) > 0 && json.Valid(raw) {
 				canonical = append(canonical, ResponseItem{Type: ResponseItemTypeOther, ID: textutil.OptionalExactString(item.ID), OutputIndex: int64(outputIndex), Raw: raw})

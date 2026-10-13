@@ -695,6 +695,51 @@ func TestHostedOnlyAcceptedCallsPersistInOutputOrder(t *testing.T) {
 	}
 }
 
+func TestGrokHostedCustomCallAppearsAfterReopenAndReplaysUnchanged(t *testing.T) {
+	t.Parallel()
+	store := mustCreateTestSession(t)
+	raw := json.RawMessage(`{"type":"custom_tool_call","id":"ctc_pdf","call_id":"as_pdf","name":"pdf_browse","input":"{\"document_id\":\"doc\",\"pages\":\"1\"}"}`)
+	client := &fakeClient{
+		caps: llm.ProviderCapabilities{ProviderID: "grok-oauth-api", SupportsResponsesAPI: true},
+		responses: []llm.Response{
+			{Assistant: llm.Message{Role: llm.RoleAssistant}, OutputItems: []llm.ResponseItem{{Type: llm.ResponseItemTypeOther, ID: textutil.Value("ctc_pdf"), Raw: raw}}, Usage: llm.Usage{WindowTokens: 200000}},
+			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)}, Usage: llm.Usage{WindowTokens: 200000}},
+		},
+	}
+	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{Model: "grok-4.7", ThinkingLevel: "high"})
+	if _, err := engine.SubmitUserMessage(context.Background(), "browse the PDF"); err != nil {
+		t.Fatal(err)
+	}
+	reopened := mustOpenTestSession(t, store.Dir())
+	restored := mustNewTestEngine(t, reopened, &fakeClient{}, newTestToolRegistry(t), Config{Model: "grok-4.7", ThinkingLevel: "high"})
+	snapshot := mustTranscriptHydrationSnapshot(t, restored)
+	if rows := countHydratedToolRows(snapshot, "as_pdf"); rows != 1 {
+		t.Fatalf("hosted PDF rows after reopen = %d, want 1", rows)
+	}
+	if len(client.calls) < 2 {
+		t.Fatalf("model calls = %d, want at least 2", len(client.calls))
+	}
+	var found bool
+	for _, item := range client.calls[1].Items {
+		if item.Type == llm.ResponseItemTypeOther && string(item.Raw) == string(raw) {
+			found = true
+		}
+		if item.CallID != nil && *item.CallID == "as_pdf" && item.Type != llm.ResponseItemTypeOther {
+			t.Fatalf("invented hosted tool protocol item: %+v", item)
+		}
+	}
+	if !found {
+		t.Fatalf("hosted provider item absent from follow-up request: %+v", client.calls[1].Items)
+	}
+	replayed, _ := restored.transcriptRuntimeState().SnapshotRequestItems()
+	for _, item := range replayed {
+		if item.Type == llm.ResponseItemTypeOther && string(item.Raw) == string(raw) {
+			return
+		}
+	}
+	t.Fatalf("hosted provider item absent after reopen: %+v", replayed)
+}
+
 func TestSubmitUserMessageContinuesAfterInvalidHostedWebSearch(t *testing.T) {
 	store := mustCreateTestSession(t)
 	var hostedStart *llm.ToolCall

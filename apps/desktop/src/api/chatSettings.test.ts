@@ -1,5 +1,6 @@
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { create } from "@app/server-api-contract";
+import { AuthMethod } from "@app/server-api-contract/gen/kent/api/auth/auth_pb";
 import {
   AutoCompactionPolicy,
   ChatSettingsService,
@@ -167,6 +168,7 @@ describe("Chat Settings descriptor adapter", () => {
                   settings: settings(),
                   session: {
                     sessionId: sessionID,
+                    connection: { connectionId: "saved", method: AuthMethod.API_KEY },
                     shortId: 73n,
                     previousSessionId: parentID,
                     taskId: taskID,
@@ -196,6 +198,7 @@ describe("Chat Settings descriptor adapter", () => {
         shortID: 73n,
         previousSessionID: parentID,
         task: { taskID, shortID: "KENT-416" },
+        connection: { id: "saved", mode: "api_key" },
       },
     });
     expect(transport.descriptorCalls[0]?.request).toMatchObject({
@@ -467,8 +470,8 @@ describe("Chat Settings descriptor adapter", () => {
       values: [],
     };
     current.cachingLocked = true;
-    current.agentLocked = true;
-    current.agentEditability = Editability.CACHING_LOCK;
+    current.agentLocked = false;
+    current.agentEditability = Editability.EDITABLE;
     current.autoCompaction = {
       ...current.autoCompaction,
       policy: AutoCompactionPolicy.DISABLED,
@@ -491,7 +494,7 @@ describe("Chat Settings descriptor adapter", () => {
       result: { kind: "applied", changed: false },
       settings: {
         thinking: { kind: "custom", value: "precise custom effort", baselineValue: "custom baseline" },
-        agentEditability: { kind: "caching_lock" },
+        agentEditability: { kind: "editable" },
         autoCompaction: {
           policy: "disabled",
           stored: true,
@@ -581,6 +584,34 @@ describe("Chat Settings descriptor adapter", () => {
         new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(sessionTarget),
       ).rejects.toBeInstanceOf(Error);
     }
+  });
+
+  it("rejects unspecified Session Connection authentication instead of inventing a mode", async () => {
+    const transport = new FakeRpcTransport([
+      {
+        descriptor: ChatSettingsService.method.read,
+        result: create(ReadResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              target: {
+                case: "session",
+                value: {
+                  settings: settings(),
+                  session: {
+                    sessionId: sessionID,
+                    connection: { connectionId: "saved", method: AuthMethod.UNSPECIFIED },
+                  },
+                },
+              },
+            },
+          },
+        }),
+      },
+    ]);
+    await expect(
+      new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(sessionTarget),
+    ).rejects.toBeInstanceOf(Error);
   });
 
   it("rejects impossible Settings capability, editability, and policy descriptors", async () => {

@@ -76,7 +76,7 @@ func DialHeadless(ctx context.Context, req HeadlessRequest) (*client.Remote, boo
 		if errors.As(err, &mismatch) {
 			return nil, true, err
 		}
-		return nil, false, nil
+		return nil, false, err
 	}
 	if req.Accept != nil && !req.Accept(projectViews.Identity()) {
 		_ = projectViews.Close()

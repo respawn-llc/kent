@@ -68,6 +68,7 @@ type HistoryReplacementRecord struct {
 	LastCommittedAssistantFinalAnswer *string                          `json:"last_committed_assistant_final_answer,omitempty"`
 	LatestRollbackCandidate           *rollbacktarget.CandidateLocator `json:"latest_rollback_candidate,omitempty"`
 	Items                             []ProviderHistoryItem            `json:"items,omitempty"`
+	CacheMetadata                     []CacheMetadataObservation       `json:"cache_metadata,omitempty"`
 	// CompactedOutput awaits fresh operation context. Items represents an
 	// already prepared historical working set.
 	CompactedOutput *CompactedOutput `json:"compacted_output,omitempty"`
@@ -118,6 +119,25 @@ func (e ProviderHistoryItemError) Unwrap() error {
 }
 
 func normalizeHistoryReplacementRecord(record HistoryReplacementRecord) (HistoryReplacementRecord, error) {
+	if len(record.CacheMetadata) > 2 {
+		return HistoryReplacementRecord{}, errors.New("history replacement cache metadata is limited to conversation and reviewer")
+	}
+	record.CacheMetadata = append([]CacheMetadataObservation(nil), record.CacheMetadata...)
+	scopes := make(map[CacheScope]struct{}, len(record.CacheMetadata))
+	keys := make(map[string]struct{}, len(record.CacheMetadata))
+	for _, observation := range record.CacheMetadata {
+		if err := observation.validate(); err != nil {
+			return HistoryReplacementRecord{}, err
+		}
+		if _, duplicate := scopes[observation.Scope]; duplicate {
+			return HistoryReplacementRecord{}, errors.New("history replacement cache metadata repeats a scope")
+		}
+		if _, duplicate := keys[observation.CacheKey]; duplicate {
+			return HistoryReplacementRecord{}, errors.New("history replacement cache metadata repeats a cache key")
+		}
+		scopes[observation.Scope] = struct{}{}
+		keys[observation.CacheKey] = struct{}{}
+	}
 	if err := validateCompactionEngine(CompactionEngine(record.Engine)); err != nil {
 		return HistoryReplacementRecord{}, err
 	}

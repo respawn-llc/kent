@@ -14,6 +14,7 @@ import (
 	"core/server/processview"
 	"core/server/promptcontrol"
 	"core/server/registry"
+	"core/server/runprompt"
 	"core/server/runtimecontrol"
 	"core/server/serverstatus"
 	"core/server/sessionlaunch"
@@ -83,6 +84,7 @@ type RuntimeBundle struct {
 	runtimeAuthority    *sessionruntime.Authority
 	runtimeControls     apicontract.RuntimeControlService
 	runtimeLiveControls apicontract.RuntimeLiveControlService
+	liveRunObserver     runprompt.LiveRunObserver
 	sessionRuntime      apicontract.SessionRuntimeService
 	sessionTranscript   apicontract.SessionTranscriptService
 }
@@ -95,7 +97,7 @@ type SessionBundle struct {
 	sessionServices     map[string]*sessionlaunch.Service
 	runPromptMap        map[string]apicontract.RunPromptService
 	sessionLaunch       apicontract.SessionLaunchService
-	sessionViews        apicontract.SessionViewService
+	sessionViews        *sessionview.Service
 	sessionContextOwner chatcontext.SessionOwner
 	sessionLifecycle    apicontract.SessionLifecycleService
 	runPrompt           apicontract.RunPromptService
@@ -298,6 +300,7 @@ func newRuntimeBundle(background *shelltool.Manager, runtimeRegistry *registry.R
 		runtimeAuthority:    runtimeAuthority,
 		runtimeControls:     runtimeControlService,
 		runtimeLiveControls: runtimeControlService,
+		liveRunObserver:     runtimeControlService,
 		sessionRuntime:      sessionRuntimeAPI,
 		sessionTranscript:   runtimeRegistry,
 	}

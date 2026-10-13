@@ -53,7 +53,7 @@ func binaryRuntimeControlFailure(err error) proto.Message {
 	case errors.Is(err, serverapi.ErrManualCompactionActive):
 		return &chatpb.ManualCompactionActiveDetails{}
 	default:
-		return binaryAuthFailure(err)
+		return binaryAuthReadinessFailure(err)
 	}
 }
 
@@ -75,9 +75,6 @@ func registerRuntimeControlGatewayBinaryBindings(bindings map[string]gatewayBina
 				}
 				return &emptypb.Empty{}, nil
 			}),
-		registerRuntimeControlUnary(bindings, GatewayDependencies.RuntimeControlClient, runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("TurnService"), "ShouldCompactBeforeUserMessage",
-			func() *runtimepb.ShouldCompactRequest { return &runtimepb.ShouldCompactRequest{} },
-			apicontract.RuntimeControlService.ShouldCompactBeforeUserMessage),
 		registerRuntimeControlUnary(bindings, GatewayDependencies.RuntimeControlClient, runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("TurnService"), "SubmitUserTurn",
 			func() *runtimepb.SubmitUserTurnRequest { return &runtimepb.SubmitUserTurnRequest{} },
 			apicontract.RuntimeControlService.SubmitUserTurn),
@@ -174,7 +171,7 @@ func registerRuntimeControlUnary[Service any, Target runtimeControlTarget, Reque
 		},
 		func(g *Gateway, _ *connectionState, request Request, err error) proto.Message {
 			if errors.Is(err, serverapi.ErrServerAuthRequired) {
-				return binaryAuthFailure(err)
+				return binaryAuthReadinessFailure(err)
 			}
 			var self *serverapi.SessionSelfTargetError
 			if errors.As(err, &self) {

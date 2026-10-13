@@ -40,10 +40,11 @@ func TestNewBuildsReusableServerCore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
-	if _, err := metadata.RegisterBinding(context.Background(), resolved.Config.PersistenceRoot, resolved.Config.WorkspaceRoot); err != nil {
+	metadataStore := testsetup.OpenStore(t, resolved.Config.PersistenceRoot)
+	if _, err := metadataStore.RegisterWorkspaceBinding(context.Background(), resolved.Config.WorkspaceRoot); err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	appCore := newCoreTestApp(t, resolved.Config, auth.EmptyState())
+	appCore := newCoreTestAppWithOptions(t, resolved.Config, auth.EmptyState(), Options{MetadataStore: metadataStore})
 
 	if appCore.Config().WorkspaceRoot == "" {
 		t.Fatal("expected workspace root")
@@ -115,17 +116,18 @@ func TestPromptCommandCatalogUsesRequestedWorkspaceRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
-	bindingA, err := metadata.RegisterBinding(context.Background(), resolved.Config.PersistenceRoot, workspaceA)
+	metadataStore := testsetup.OpenStore(t, resolved.Config.PersistenceRoot)
+	bindingA, err := metadataStore.RegisterWorkspaceBinding(context.Background(), workspaceA)
 	if err != nil {
 		t.Fatalf("RegisterBinding A: %v", err)
 	}
-	bindingB, err := metadata.RegisterBinding(context.Background(), resolved.Config.PersistenceRoot, workspaceB)
+	bindingB, err := metadataStore.RegisterWorkspaceBinding(context.Background(), workspaceB)
 	if err != nil {
 		t.Fatalf("RegisterBinding B: %v", err)
 	}
 	writeCorePromptFixture(t, workspaceA, "only-a", "A")
 	writeCorePromptFixture(t, workspaceB, "only_b", "B")
-	appCore := newCoreTestApp(t, resolved.Config, auth.EmptyState())
+	appCore := newCoreTestAppWithOptions(t, resolved.Config, auth.EmptyState(), Options{MetadataStore: metadataStore})
 
 	client, err := appCore.PromptCommandCatalogClientForProjectWorkspace(context.Background(), bindingB.ProjectID, workspaceB)
 	if err != nil {
@@ -157,11 +159,12 @@ func TestPromptCommandCatalogUsesRegisteredWorktreeRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
-	binding, err := metadata.RegisterBinding(context.Background(), resolved.Config.PersistenceRoot, workspace)
+	metadataStore := testsetup.OpenStore(t, resolved.Config.PersistenceRoot)
+	binding, err := metadataStore.RegisterWorkspaceBinding(context.Background(), workspace)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	appCore := newCoreTestApp(t, resolved.Config, auth.EmptyState())
+	appCore := newCoreTestAppWithOptions(t, resolved.Config, auth.EmptyState(), Options{MetadataStore: metadataStore})
 	if err := os.MkdirAll(worktree, 0o755); err != nil {
 		t.Fatalf("MkdirAll worktree: %v", err)
 	}
@@ -226,7 +229,8 @@ func TestPromptCommandCatalogRedactsFilesystemCauseAtClientBoundary(t *testing.T
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
-	binding, err := metadata.RegisterBinding(context.Background(), resolved.Config.PersistenceRoot, workspace)
+	metadataStore := testsetup.OpenStore(t, resolved.Config.PersistenceRoot)
+	binding, err := metadataStore.RegisterWorkspaceBinding(context.Background(), workspace)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
@@ -238,7 +242,7 @@ func TestPromptCommandCatalogRedactsFilesystemCauseAtClientBoundary(t *testing.T
 	if err := os.Symlink(missingTarget, filepath.Join(promptRoot, "broken.md")); err != nil {
 		t.Fatal(err)
 	}
-	appCore := newCoreTestApp(t, resolved.Config, auth.EmptyState())
+	appCore := newCoreTestAppWithOptions(t, resolved.Config, auth.EmptyState(), Options{MetadataStore: metadataStore})
 	client, err := appCore.PromptCommandCatalogClientForProjectWorkspace(context.Background(), binding.ProjectID, workspace)
 	if err != nil {
 		t.Fatalf("PromptCommandCatalogClientForProjectWorkspace: %v", err)
@@ -364,7 +368,8 @@ func TestSessionLaunchClientForProjectWorkspaceRejectsUnavailableProjectRoot(t *
 	if err != nil {
 		t.Fatalf("ResolveConfig A: %v", err)
 	}
-	binding, err := metadata.RegisterBinding(context.Background(), resolvedA.Config.PersistenceRoot, resolvedA.Config.WorkspaceRoot)
+	metadataStore := testsetup.OpenStore(t, resolvedA.Config.PersistenceRoot)
+	binding, err := metadataStore.RegisterWorkspaceBinding(context.Background(), resolvedA.Config.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
@@ -377,7 +382,7 @@ func TestSessionLaunchClientForProjectWorkspaceRejectsUnavailableProjectRoot(t *
 	if err != nil {
 		t.Fatalf("ResolveConfig B: %v", err)
 	}
-	appCore := newCoreTestApp(t, resolvedB.Config, auth.EmptyState())
+	appCore := newCoreTestAppWithOptions(t, resolvedB.Config, auth.EmptyState(), Options{MetadataStore: metadataStore})
 
 	_, err = appCore.SessionLaunchClientForProjectWorkspace(context.Background(), binding.ProjectID, workspaceB)
 	if !errors.Is(err, serverapi.ErrProjectUnavailable) {
@@ -412,11 +417,12 @@ func TestSessionLaunchClientForProjectWorkspaceUsesWorkspaceLocalConfig(t *testi
 	if err != nil {
 		t.Fatalf("ResolveConfig B: %v", err)
 	}
-	bindingB, err := metadata.RegisterBinding(context.Background(), resolvedB.Config.PersistenceRoot, resolvedB.Config.WorkspaceRoot)
+	metadataStore := testsetup.OpenStore(t, resolvedA.Config.PersistenceRoot)
+	bindingB, err := metadataStore.RegisterWorkspaceBinding(context.Background(), resolvedB.Config.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterBinding B: %v", err)
 	}
-	appCore := newCoreTestApp(t, resolvedA.Config, auth.EmptyState())
+	appCore := newCoreTestAppWithOptions(t, resolvedA.Config, auth.EmptyState(), Options{MetadataStore: metadataStore})
 
 	client, err := appCore.SessionLaunchClientForProjectWorkspace(context.Background(), bindingB.ProjectID, workspaceB)
 	if err != nil {
@@ -481,11 +487,12 @@ func TestChatSettingsReadUsesAuthoritativePersistenceRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
-	binding, err := metadata.RegisterBinding(t.Context(), persistenceRoot, workspace)
+	metadataStore := testsetup.OpenStore(t, persistenceRoot)
+	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), workspace)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	appCore := newCoreTestApp(t, resolved.Config, auth.EmptyState())
+	appCore := newCoreTestAppWithOptions(t, resolved.Config, auth.EmptyState(), Options{MetadataStore: metadataStore})
 	store := createCoreSettingsSession(t, appCore, resolved.Config, binding.ProjectID)
 	if err := store.SetContinuationContext(session.ContinuationContext{
 		AgentRole: textutil.Value("worker"),
@@ -512,11 +519,12 @@ func TestChatSettingsMaterializedReadUsesDetachedSessionSnapshotWithoutRebinding
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
-	binding, err := metadata.RegisterBinding(t.Context(), resolved.Config.PersistenceRoot, workspace)
+	metadataStore := testsetup.OpenStore(t, resolved.Config.PersistenceRoot)
+	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), workspace)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	appCore := newCoreTestApp(t, resolved.Config, auth.EmptyState())
+	appCore := newCoreTestAppWithOptions(t, resolved.Config, auth.EmptyState(), Options{MetadataStore: metadataStore})
 	store, err := session.Create(
 		filepath.Join(resolved.Config.PersistenceRoot, "projects", binding.ProjectID, "sessions"),
 		"detached",
@@ -583,11 +591,12 @@ func TestSessionChatSettingsPreparationUsesPersistedConnection(t *testing.T) {
 	resolved.Config.Settings.Model = "gpt-6-sol"
 	resolved.Config.Settings = testsetup.WriteProviderSettings(t, resolved.Config.PersistenceRoot, testsetup.WithResponsesProvider(resolved.Config.Settings, "https://api.openai.com/v1"))
 	resolved.Config.Settings.PriorityRequestMode = true
-	binding, err := metadata.RegisterBinding(t.Context(), persistenceRoot, workspace)
+	metadataStore := testsetup.OpenStore(t, persistenceRoot)
+	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), workspace)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	appCore := newCoreTestApp(t, resolved.Config, auth.EmptyState())
+	appCore := newCoreTestAppWithOptions(t, resolved.Config, auth.EmptyState(), Options{MetadataStore: metadataStore})
 	store := createCoreSettingsSession(t, appCore, resolved.Config, binding.ProjectID)
 	compatibleID := brand.ConnectionID("compatible")
 	endpoint := "http://127.0.0.1:1/v1"
@@ -638,7 +647,11 @@ func TestSessionChatSettingsPreparationUsesPersistedConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != *resolved.Config.Settings.Connection {
+	selected, err := resolved.Config.Settings.Connection.ConcreteID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != *selected {
 		t.Fatalf("explicit Agent selection did not persist its configured connection: %v", record.Meta.ConnectionID)
 	}
 }
@@ -654,11 +667,12 @@ func TestChatSettingsReadUsesLockedPromptFacingModelCapabilities(t *testing.T) {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
 	resolved.Config.Settings.Model = "gpt-6-sol"
-	binding, err := metadata.RegisterBinding(t.Context(), persistenceRoot, workspace)
+	metadataStore := testsetup.OpenStore(t, persistenceRoot)
+	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), workspace)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	appCore := newCoreTestApp(t, resolved.Config, auth.EmptyState())
+	appCore := newCoreTestAppWithOptions(t, resolved.Config, auth.EmptyState(), Options{MetadataStore: metadataStore})
 	store := createCoreSettingsSession(t, appCore, resolved.Config, binding.ProjectID)
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
 		Model: "gpt-6-sol",
@@ -695,7 +709,8 @@ func TestSessionLaunchClientForProjectWorkspaceRejectsInaccessibleProjectRoot(t 
 	if err != nil {
 		t.Fatalf("ResolveConfig A: %v", err)
 	}
-	binding, err := metadata.RegisterBinding(context.Background(), resolvedA.Config.PersistenceRoot, resolvedA.Config.WorkspaceRoot)
+	metadataStore := testsetup.OpenStore(t, resolvedA.Config.PersistenceRoot)
+	binding, err := metadataStore.RegisterWorkspaceBinding(context.Background(), resolvedA.Config.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
@@ -710,11 +725,6 @@ func TestSessionLaunchClientForProjectWorkspaceRejectsInaccessibleProjectRoot(t 
 	if _, err := os.Stat(workspaceA); err == nil {
 		t.Skip("filesystem permissions do not prevent stat for current user")
 	}
-	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
 	workspace, err := metadataStore.ResolveProjectSourceWorkspace(context.Background(), binding.ProjectID)
 	if err != nil {
 		t.Fatalf("ResolveProjectSourceWorkspace: %v", err)
@@ -727,7 +737,7 @@ func TestSessionLaunchClientForProjectWorkspaceRejectsInaccessibleProjectRoot(t 
 	if err != nil {
 		t.Fatalf("ResolveConfig B: %v", err)
 	}
-	appCore := newCoreTestApp(t, resolvedB.Config, auth.EmptyState())
+	appCore := newCoreTestAppWithOptions(t, resolvedB.Config, auth.EmptyState(), Options{MetadataStore: metadataStore})
 
 	_, err = appCore.SessionLaunchClientForProjectWorkspace(context.Background(), binding.ProjectID, workspaceB)
 	if !errors.Is(err, serverapi.ErrProjectUnavailable) {
@@ -753,6 +763,9 @@ func newCoreTestAppWithLoadOptions(t *testing.T, cfg brand.App, state auth.State
 
 func newCoreTestAppWithOptions(t *testing.T, cfg brand.App, state auth.State, options Options) *Core {
 	t.Helper()
+	if options.MetadataStore == nil {
+		options.MetadataStore = testsetup.OpenStore(t, cfg.PersistenceRoot)
+	}
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), cfg.PersistenceRoot, auth.NewMemoryStore(state), nil, nil)
 	if err != nil {

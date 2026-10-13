@@ -61,6 +61,46 @@ func TestDialConfiguredRemotePrefersLocalUnixSocket(t *testing.T) {
 	requireNoHandlerError(t, handlerErrs)
 }
 
+func TestDialConfiguredRemoteUnavailablePreservesAddressAndCause(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Connection{PersistenceRoot: t.TempDir(), ServerHost: "127.0.0.1", ServerPort: port}
+	remote, err := DialConfiguredRemote(t.Context(), cfg)
+	if remote != nil {
+		_ = remote.Close()
+		t.Fatal("unavailable server returned a connection")
+	}
+	var unavailable *ServerUnavailableError
+	if !errors.As(err, &unavailable) {
+		t.Fatalf("expected server-unavailable error, got %v", err)
+	}
+	if unavailable.Endpoint != cfg.RPCURL() {
+		t.Fatalf("endpoint = %q, want %q", unavailable.Endpoint, cfg.RPCURL())
+	}
+	var networkError *net.OpError
+	if !errors.As(err, &networkError) {
+		t.Fatalf("network diagnostic lost: %v", err)
+	}
+}
+
+func TestDialConfiguredRemoteCancellationIsNotServerUnavailable(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := DialConfiguredRemote(ctx, config.Connection{
+		PersistenceRoot: t.TempDir(), ServerHost: "127.0.0.1", ServerPort: 1,
+	})
+	var unavailable *ServerUnavailableError
+	if !errors.Is(err, context.Canceled) || errors.As(err, &unavailable) {
+		t.Fatalf("cancellation was classified as a missing server: %v", err)
+	}
+}
+
 func TestRemoteReleaseSessionRuntimePropagatesClosePolicy(t *testing.T) {
 	const sessionID = "123e4567-e89b-42d3-a456-426614174000"
 	releaseRequests := make(chan *sessionlaunchpb.SessionRuntimeReleaseRequest, 1)

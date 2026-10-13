@@ -13,8 +13,6 @@ import { createTestServices, startupRoutes } from "@/test-support/app-services";
 import { installAnimationFrameTestSupport } from "@/test-support/scheduling";
 import { AppRoot } from "./AppRoot";
 
-vi.mock("@/shared/feature-flags", () => ({ desktopChatEnabled: false }));
-
 describe("open Inbox attention refresh", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/");
@@ -71,25 +69,23 @@ describe("open Inbox attention refresh", () => {
     });
   });
 
-  it("ignores Session Chat questions in production without failing the notification stream", async () => {
+  it("delivers Session Chat questions to native notifications", async () => {
     const services = createTestServices([
       ...startupRoutes,
       globalAttentionRoute(() => globalAttentionPage([])),
     ]);
-    const notify = vi.spyOn(services.nativeBridge.notifications, "notify");
+    const notify = vi.spyOn(services.nativeBridge.notifications, "notify").mockResolvedValue(undefined);
     render(<AppRoot services={services} />);
     await waitFor(() => {
       expect(screen.getByTestId("home-route-root")).toBeInTheDocument();
       expect(attentionEventsFixture(services.transport).activeCount).toBeGreaterThan(0);
     });
     const notices = toast.getToasts();
-    const logs = services.logger.entries();
     await act(async () => {
       attentionEventsFixture(services.transport).pendingSessionQuestion();
     });
     expect(toast.getToasts()).toEqual(notices);
-    expect(services.logger.entries()).toEqual(logs);
-    expect(notify).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledOnce();
     expect(screen.queryByTestId("attention-row")).not.toBeInTheDocument();
   });
 });

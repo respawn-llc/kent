@@ -197,7 +197,12 @@ function ChatDestinationShell({
                   </div>
                 )}
                 {target !== null && (
-                  <WorktreeControl sessionID={target.sessionID} target={executionTarget} query={worktrees} />
+                  <WorktreeControl
+                    sessionID={target.sessionID}
+                    target={executionTarget}
+                    query={worktrees}
+                    openSession={navigation.openParentSession}
+                  />
                 )}
                 {shownGoal !== null && <GoalAffordance goal={shownGoal} onActivate={destination.openGoal} />}
                 {target !== null && (
