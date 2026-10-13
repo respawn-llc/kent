@@ -8,11 +8,15 @@ import (
 
 func bodyPreview(body string) string {
 	trimmed := strings.TrimSpace(body)
-	const limit = 96
-	if len(trimmed) <= limit {
-		return trimmed
+	const codePointLimit = 96
+	codePointCount := 0
+	for byteIndex := range trimmed {
+		if codePointCount == codePointLimit {
+			return trimmed[:byteIndex]
+		}
+		codePointCount++
 	}
-	return trimmed[:limit]
+	return trimmed
 }
 
 func markdownPreview(body string) *taskpb.MarkdownPreview {
