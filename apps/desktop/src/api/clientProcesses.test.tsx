@@ -61,6 +61,40 @@ it("observes initial lists only while mounted and releases the descriptor subscr
   expect(context.transport.descriptorCalls).toHaveLength(0);
 });
 
+it.each([-1n, 0n, 255n, 2147483648n, 3221225477n, 4294967295n])(
+  "preserves process exit status %s",
+  async (exitCode) => {
+    const context = fixture();
+    const view = mount(context);
+    await waitFor(() => {
+      expect(context.transport.descriptorSubscriptions).toHaveLength(1);
+    });
+    await act(async () => {
+      context.transport.openDescriptor(ViewService.method.observe);
+      context.transport.emitDescriptor(
+        ViewService.method.observe,
+        ViewService.method.event,
+        create(ViewService.method.event.input, {
+          processes: [
+            {
+              id: "process-status",
+              ownerSessionId: "session-1",
+              state: "completed",
+              command: "child",
+              workdir: "/tmp",
+              startedAt: { seconds: 1n, nanos: 0 },
+              lastUpdatedAt: { seconds: 1n, nanos: 0 },
+              exitCode,
+            },
+          ],
+        }),
+      );
+    });
+    expect(context.received[0]?.[0]?.exitCode).toBe(Number(exitCode));
+    view.unmount();
+  },
+);
+
 it.each(["failure", "completion", "overflow", "rejection"] as const)(
   "fails observation on %s without recovery",
   async (kind) => {

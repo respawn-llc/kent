@@ -127,7 +127,7 @@ function background(value: T.BackgroundActivity): Payloads["background_activity"
     Workdir: value.workdir,
     LogPath: value.logPath ?? null,
     Preview: value.preview ?? null,
-    ExitCode: value.exitCode ?? null,
+    ExitCode: value.exitCode === undefined ? null : safeNumber(value.exitCode),
     UserRequestedKill: value.userRequestedKill,
     NoticeSuppressed: value.noticeSuppressed,
     Diagnostic: diagnostic(value.diagnostic),

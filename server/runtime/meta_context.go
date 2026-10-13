@@ -679,7 +679,10 @@ func worktreeModeMetaMessage(state session.WorktreeReminderState, home string, k
 }
 
 func worktreeModeExitMetaMessage(state session.WorktreeReminderState, home string, kind prompts.WorktreePromptKind) (llm.Message, bool) {
-	content := prompts.RenderWorktreeModeExitPrompt(kind, worktreeBranchPromptValue(state.Branch), state.EffectiveCwd,
+	if kind != prompts.WorktreePromptSwitch {
+		return llm.Message{}, false
+	}
+	content := prompts.RenderWorktreeModeExitPrompt(worktreeBranchPromptValue(state.Branch), state.EffectiveCwd,
 		pathutil.Compact(state.WorktreePath, &home, &state.EffectiveCwd),
 		pathutil.Compact(state.WorkspaceRoot, &home, &state.EffectiveCwd))
 	if strings.TrimSpace(content) == "" {

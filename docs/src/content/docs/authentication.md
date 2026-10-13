@@ -3,70 +3,57 @@ title: Authentication and connections
 description: Use subscriptions, API keys, and local models with Kent.
 ---
 
-## Choose how to access models
+Kent ships built-in multi-account with load balancing and sticky sessions. Supported providers:
 
-A connection gives Kent access to a model provider. Keep separate connections for subscriptions, API accounts, and local model servers, then choose which one each agent uses.
+- ChatGPT
+- Any API-Key Responses-compatible
+- Grok Build
+- Local model servers
+- GLM Coding plan
 
-- **OpenAI:** ChatGPT subscription or API key.
-- **Grok:** subscription or xAI API key.
-- **Generic:** Responses-compatible API key or no auth, including local servers such as omlx.
+Anthropic and Gemini will not be supported as they forbid usage of third party harnesses.
 
-Run `kent` for first-time setup. Use `/login` to add a connection or update an existing sign-in or API-key reference. `/logout` opens the same connection manager and keeps saved credentials.
-
-OpenAI subscription sign-in offers browser and device authorization. Browser sign-in also accepts pasted callback input. Grok subscription sign-in opens a device-authorization page automatically. Compare the code displayed by Kent with the browser, then approve access in the browser. Kent shows the code until authorization completes. Each named connection keeps its own credentials.
-
-## Subscription usage
-
-Connections let you decide which work uses your subscription allowance. For example, use a subscription connection for interactive work and a local or API connection for frequently used subagents or the supervisor.
-
-Choose another connection when you want to save subscription usage for later. Changing the global default affects new sessions. Existing sessions keep their connection, and role or workspace choices take precedence over the global default. To change an existing unlocked session's connection, select an agent configured for that connection in Chat settings.
-
-Switching the default leaves requests already in progress on their original connection. Re-authenticating or editing an API-key reference takes effect for subsequent requests.
+- Each sign-in is called a connection.
+- Use `/login` in TUI to add connections (sign in on Desktop is in development). Call it multiple time to populate account credentials.
+- Edit the `config.toml` to assign connection rotation and usage of connection by your Agent Roles.
+- You can specify a connection for Supervisor requests (rotation is not supported there as supervisor requests are bound to the Session)
+- Kent will try to preserve cache by reusing the same connection for a given session. Kent rotates on new sessions only, so the usage will likely not be perfectly even if part of your sessions are token-hungry.
 
 ## API keys and background services
 
-During setup, enter the **name** of an environment variable, such as `MY_PROVIDER_KEY`, instead of pasting the key. Set its value in the Kent server's environment or in `~/.kent/.env`:
+To securely authenticate via API keys in public repos and support remote control, your API keys are environment variables, so config knows only their names.
+
+During setup, enter the **name** of an environment variable, such as `MY_PROVIDER_KEY`. Set its value in the Kent server's environment or in `~/.kent/.env`:
 
 ```dotenv
 MY_PROVIDER_KEY=your-provider-key
 ```
 
-Protect that file with `chmod 600 ~/.kent/.env`. When using a custom persistence root, place `.env` in that root. For a remote server, configure the key on the server machine.
+When using a custom persistence root, place `.env` in that root. For a remote server, configure the key on the server machine.
+
+On macOS and Linux, restrict the file to its owner with `chmod 600 ~/.kent/.env` (adjust the path for a custom persistence root). Kent rejects files with group or other permissions.
 
 A background service reads this file independently of your terminal shell. A variable already present in the server's launch environment takes precedence, including an empty value. Restart the server after changing either source.
 
-Kent can start without an `.env` file. If you create one, it must be readable by its owner, private to that owner, and valid dotenv. Referenced provider-key variables are excluded from agent shell processes.
-
 The OpenAI and Grok API-key choices use their official endpoints. Choose Generic to supply a different Responses endpoint.
 
-## Grok models and subscription routes
+## Grok support
 
-Grok connections default to `grok-4.7` with `high` thinking. The supervisor inherits the primary model unless explicitly configured. Saved sessions and explicit role settings keep their selected models.
-
-Kent's built-in catalog includes `grok-4.6` and `grok-4.7`. The subscription proxy uses a 256,000-token context setting for `grok-4.7`, with 500,000 available as the larger choice. Its `grok-4.6` context limit is unknown. Public API connections use 500,000 tokens for both models.
-
-Both catalogued models offer `low`, `medium`, `high`, and `xhigh` thinking, vision, reasoning summaries, and native web search. Fast mode requests priority processing with the same model. Verbosity settings do not affect Grok requests.
-
-Native compaction is available on the public xAI API routes. It uses `/responses/compact` and keeps the provider's complete returned context for continuation. Compaction sends the session cache key, effective priority tier, original tools, and system prompt. A failed native compaction reports the error without switching routes or retrying with local compaction.
-
-Native compaction is unavailable on the Grok CLI subscription proxy.
+There are 2, both semi-official, modes of using your subscription in Grok: CLI Proxy and OAuth API. First emulates the official CLI, used by e.g. OpenClaw. OAuth API is the official path, but does not have a Free Plan.
 
 The `/status` Auth section shows quota status for ChatGPT subscriptions and Grok subscription connections that use `grok-oauth-api` or `grok-cli-proxy`. Grok API-key connections show their authentication details without a subscription-quota row. If a Grok billing request returns HTTP 404, 403, or 401, Kent shows `Quota unavailable for this sign-in method` with the provider diagnostic. Treat a 403 as a permission or safety refusal unless the diagnostic provides separate authentication evidence. Use `/login` only when the provider diagnostic identifies an authentication problem.
-
-Custom thinking accepts manual values for any model. Kent rejects unsupported efforts for catalogued models when sending a request. For uncatalogued models, the provider validates the custom value. Across providers, Disable is available only for models whose supported efforts include `none`.
-
-Grok setup recommends subscription access through the public API (`grok-oauth-api`), which requires a paid plan. The CLI proxy (`grok-cli-proxy`) is an experimental alternative that can break or be removed as compatibility changes. Both routes are available in the provider picker and create separate named connections, even for the same account. The API-key choice (`grok-api-key`) uses regular API-key billing. Requests already running keep their original route.
-
-Expired or invalid sign-in requires `/login`. A subscription or spending-limit rejection requires resolving the account's entitlement or credits with xAI, rather than signing in again. A protocol-version rejection requires updating Kent.
 
 ## Configure connections and roles
 
 Declare connections in the global `config.toml`. Workspace settings, agent roles, and the supervisor can select them by name:
 
 ```toml
-connection = "subscription"
+connection = "codex-1"
 
-[connections.subscription]
+[connections.codex-1]
+protocol = "chatgpt-codex"
+
+[connections.codex-2]
 protocol = "chatgpt-codex"
 
 [connections.api]
@@ -86,16 +73,19 @@ protocol = "responses"
 endpoint = "http://127.0.0.1:8000/v1"
 
 [subagents.worker]
-connection = "local"
-model = "your-local-model"
+connection = ["codex-1", "codex-2"]
+model = "gpt-6-astra"
 
 [reviewer]
 connection = "api"
 ```
 
-The API-key variable is optional for `responses` connections. Omit it for an auth-less endpoint. Choose a model that the selected provider offers. See [Configuration](../config/) for model settings and precedence.
+:::tip
 
-Grok protocols use fixed endpoints: `grok-cli-proxy` uses `https://cli-chat-proxy.grok.com/v1`, while `grok-oauth-api` and `grok-api-key` use `https://api.x.ai/v1`. Omit `endpoint` for these protocols. Only `grok-api-key` accepts and requires `environment_variable`.
+Kent won't replace your model just because a connector doesn't offer it, so it's your responsibility to declare a model and settings that are supported by all the connections you use when load-balancing.
+i
+
+:::
 
 ### Share work across equivalent connections
 
@@ -111,20 +101,6 @@ protocol = "chatgpt-codex"
 protocol = "chatgpt-codex"
 ```
 
-New sessions alternate between the defined members in their global declaration order, regardless of array order. The same member set shares one rotation across roles and workspaces. Restarting the server may start at the first member again.
+New sessions alternate between the defined members in their global declaration order, regardless of array order. The same member set shares one rotation across roles and workspaces.
 
-Duplicate names count once. Unknown names are ignored for selection without removing them from your configuration. Empty arrays, invalid names, and selections with no defined members fail. Listing connections or previewing agents leaves rotation unchanged.
-
-Existing sessions use their saved connection across turns, resume, workflow Continue, and copied or rollback-fork sessions, even if the current selection has no usable members. An explicit Chat settings agent change, successful workflow Compact-and-Continue, or removal of the saved connection definition selects from the current set.
-
-Include connections only if you consider them equivalent for the configured work. Kent keeps your model and prompts and prepares requests using the selected connection's capabilities. Missing credentials or provider rejection surface for that member without automatically switching to another.
-
-An explicit `reviewer.connection` accepts one name. When omitted, the supervisor uses the main session's selected connection.
-
-Make default replaces the global selection with the chosen single connection, including a member already in an array. An explicit workspace selection takes precedence. Existing sessions use their saved connection.
-
-## Updating an older configuration
-
-Kent converts global `provider_override`, `openai_base_url`, and `provider_capabilities` settings into connections, including choices for roles and the supervisor. Sign in again for converted ChatGPT connections.
-
-If startup identifies an API connection without an environment-variable reference, add a connection with `environment_variable` as shown above. Replace the old access settings with its `connection` name. Apply the same edits manually to shared workspace and private `config.local.toml` files when startup identifies them. Keep model, thinking, tools, and context settings in their existing scopes.
+`reviewer.connection` is an exclusion - it only accepts one connection. When omitted, the supervisor uses the main session's connection.

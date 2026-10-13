@@ -980,7 +980,7 @@ func TestToolCallAccumulatorMergesCompletedCustomInputWithoutJSONInput(t *testin
 	accumulator.Merge([]ToolCall{{ID: "call-1", Name: "patch", Custom: true, CustomInput: textutil.Value("partial")}})
 	accumulator.Merge([]ToolCall{{ID: "call-1", Name: "patch", Custom: true, CustomInput: textutil.Value("complete")}})
 
-	calls := accumulator.ToToolCalls()
+	calls := accumulator.ToToolCalls(openAIResponsesPolicy{})
 	if len(calls) != 1 {
 		t.Fatalf("expected one call, got %+v", calls)
 	}

@@ -37,7 +37,7 @@ Ordered gates; each gate is skipped when its condition does not apply, never byp
 - If multiple Provider Connections are configured, the picker's connection indicator must show only `N connections` with the configured count.
 - Provider metadata display must not refresh credentials or contact a provider.
 - The picker must show an animated spinner while it loads its header settings.
-- If a header settings or provider metadata read fails, the picker must show an error with an explicit `Enter` retry action. Retrying must leave the active tab, selected Session, scroll position, loaded pages, and persisted drafts unchanged. A failed active tab's list load must take priority for `Enter`.
+- If a header settings or provider metadata read fails, the picker must show the error without blocking navigation or opening the selected Session or New Session. A failed active tab's list load must take priority for `Enter` and retry that list.
 - The picker shows recent Sessions and a new-Session action. Infinite Scroll provides older Sessions. An empty state opens new-Session setup.
 - The picker has `Sessions` and `Subagents` tabs and opens on `Sessions`. Ordinary interactive sessions and interactive forks start in `Sessions`; sessions created for headless or workflow-agent execution start in `Subagents`. Every interactive open of a Subagent session, including opening by explicit session ID, permanently promotes it to `Sessions`. Picker selection alone does not promote: workspace lookup failure returns to the picker with a generic retry error in the shared status line, and declining a workspace change returns to the picker; neither changes the session artifact, recency, or category. An accepted retarget completes before open and promotion. Automated headless/workflow resumes and renames never change category. Sessions without a recorded category appear in `Sessions`; category is never guessed from a session's name, parent, or current activity.
 - The tabs appear directly below the status header using the horizontal bracketed button-row treatment. The selected tab uses the primary bold treatment, the other tab is muted, and incremental lists do not show total counts.
@@ -101,7 +101,7 @@ Ordered gates; each gate is skipped when its condition does not apply, never byp
 
 ## Errors
 
-- Preflight server-connection failure at TUI startup exits the TUI with an actionable error message (endpoint + reason). No retry affordance, no per-surface handling.
+- Preflight server-connection failure at TUI startup must exit with the attempted endpoint and underlying reason. An unreachable-server error must explain how to run `kent serve` in a separate terminal or install the background service with `kent service install`, and link to the server setup guide. Instructions must apply to the server machine when the configured endpoint is remote. No retry affordance, no per-surface handling.
 - After startup, connection loss shows one persistent `server connection lost` status-line notice across all surfaces.
 - A successful request after reconnection clears the notice.
 - If the TUI cannot preserve a coherent connection-loss state, it exits with a clear error.

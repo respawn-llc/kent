@@ -213,6 +213,9 @@ func (m *onboardingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyRunes:
 			filtered, _ := stripMouseSGRRunes(typed.Runes)
 			if len(filtered) == 1 {
+				if filtered[0] == ' ' && m.currentScreen.Kind == onboardingScreenMulti {
+					return m, m.toggleCurrentSelection()
+				}
 				if (filtered[0] == 'a' || filtered[0] == 'A') && m.currentScreen.Kind == onboardingScreenMulti && screenHasToggleAllOption(m.currentScreen) {
 					return m, m.toggleAllSelections()
 				}

@@ -81,9 +81,6 @@ func startRunPromptClientWithWorkspaceConfig(ctx context.Context, workspaceConfi
 			}
 			return nil, nil, errRunServerRootMismatch
 		}
-		if errors.Is(err, serverattach.ErrNoServerAvailable) {
-			return nil, nil, errRunRequiresServer
-		}
 		return nil, nil, err
 	}
 	return runPrompt, closeFn, nil
@@ -98,16 +95,13 @@ func startRuntimeLiveControlClient(ctx context.Context, opts Options) (apicontra
 	defer cancel()
 	remote, err := dialConfiguredRuntimeLiveControlRemote(attachCtx, cfg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: %v", errRunRequiresServer, err)
+		return nil, nil, err
 	}
 	if err := remote.RequireRoot(config.ExplicitPersistenceRootID(cfg)); err != nil {
 		return nil, remote.Close, errRunServerRootMismatch
 	}
 	return remote, remote.Close, nil
 }
-
-// errRunRequiresServer is returned when no server is reachable for `kent run`.
-var errRunRequiresServer = errors.New("`kent run` can only be used when a server is already running. Start a server with `kent serve` or install a service with `kent service install` to prevent subagents and scripted runs from exiting abruptly if running concurrently with each other")
 
 // errRunServerRootMismatch is returned when a reachable server on the configured
 // endpoint serves a different persistence root than the one selected. Starting

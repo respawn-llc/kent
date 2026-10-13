@@ -2603,7 +2603,7 @@ func setupFailureFromError(err error, retained *worktreepb.TopologyEntry) *workt
 	case setupErr.ExitCode != nil:
 		failed.Cause = &worktreepb.SetupFailureCause{
 			Cause: &worktreepb.SetupFailureCause_ProcessExit{ProcessExit: &worktreepb.SetupProcessExit{
-				ExitCode: int32(*setupErr.ExitCode),
+				ExitCode: int64(*setupErr.ExitCode),
 				Stdout:   &stdout,
 				Stderr:   &stderr,
 			}},

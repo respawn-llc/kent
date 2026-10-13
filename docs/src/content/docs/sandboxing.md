@@ -3,7 +3,7 @@ title: Sandboxing and security
 description: Kent's default trust model, outside-workspace edit prompts, and remote/container server setup.
 ---
 
-:::warning
+:::caution
 Kent tools run with the permissions of the server process. They can access its files, secrets, and network connections.
 :::
 

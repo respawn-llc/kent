@@ -51,7 +51,7 @@ message ToolPresentation {
   bool raw_output_requested = 13;
   bool output_truncated = 14;
   bool moved_to_background = 15;
-  optional int32 shell_exit_code = 16;
+  optional int64 shell_exit_code = 16;
   optional ToolRenderHint render_hint = 17;
   optional PatchPresentation patch_presentation = 18;
   option (buf.validate.message).cel = {

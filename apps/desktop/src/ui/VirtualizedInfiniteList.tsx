@@ -11,7 +11,10 @@ import {
 import { type VirtualItem, useVirtualizer } from "@tanstack/react-virtual";
 import { useVirtualizedEndAnchoring, type VirtualizedEndAnchoring } from "./virtualizedEndAnchoring";
 
-import type { VirtualizedInfiniteListBoundaryState } from "./InfiniteListBoundary";
+import {
+  useVirtualizedListBoundaries,
+  type VirtualizedInfiniteListBoundaryState,
+} from "./InfiniteListBoundary";
 import { resolveVirtualizedInitialScroll } from "./virtualizedInfiniteListInitialScroll";
 import {
   resolveNextLoadEdge,
@@ -190,6 +193,15 @@ function VirtualizedInfiniteListContent<TItem>({
   endAnchoring,
 }: VirtualizedInfiniteListResolvedProps<TItem>) {
   const horizontal = orientation === "horizontal";
+  const boundaries = useVirtualizedListBoundaries({
+    anchored: endAnchoring !== undefined,
+    horizontal,
+    hasNextPage,
+    previousBoundary,
+    nextBoundary,
+    paddingStart,
+    paddingEnd,
+  });
   const getItemAnchorKeyForItem = getItemAnchorKey ?? getItemKey;
   const getItemOccurrenceKeyForItem = getItemOccurrenceKey ?? getItemKey;
   const validatedPixelOffsetRequest = requireVirtualizedPixelOffsetRequest(pixelOffsetRequest);
@@ -210,12 +222,10 @@ function VirtualizedInfiniteListContent<TItem>({
   const wasFetchingNextPageRef = useRef(false);
   const layout: VirtualizedInfiniteListLayout = resolveVirtualizedInfiniteListLayout({
     empty,
-    hasNextPage,
+    ...boundaries.layout,
     header,
     horizontal,
     itemsLength: items.length,
-    nextBoundary,
-    previousBoundary,
   });
   const { count, itemStartIndex } = layout;
   const retainedItemKeys = useMemo(
@@ -244,8 +254,8 @@ function VirtualizedInfiniteListContent<TItem>({
     count,
     getScrollElement: () => scrollRef.current,
     estimateSize,
-    paddingEnd,
-    paddingStart,
+    paddingEnd: boundaries.paddingEnd,
+    paddingStart: boundaries.paddingStart,
     useFlushSync: directDomUpdates,
     directDomUpdates,
     getItemKey: (index) =>
@@ -257,7 +267,13 @@ function VirtualizedInfiniteListContent<TItem>({
       }),
     ...(horizontal ? {} : { overscan: 6 }),
     horizontal,
-    rangeExtractor: (range) => pinnedVirtualRangeExtractor(range, pinnedIndexes),
+    rangeExtractor: (range) =>
+      pinnedVirtualRangeExtractor(
+        endAnchoring === undefined
+          ? range
+          : { ...range, overscan: Math.max(range.overscan, range.endIndex - range.startIndex + 1) },
+        pinnedIndexes,
+      ),
     ...endOptions,
   });
   useLayoutEffect(() => {
@@ -416,12 +432,14 @@ function VirtualizedInfiniteListContent<TItem>({
         ref={directDomUpdates ? virtualizer.containerRef : undefined}
         style={resolveVirtualizedInnerStyle(horizontal, virtualizer.getTotalSize(), directDomUpdates)}
       >
+        {boundaries.leading}
         {renderVirtualizedRowsContent({
           renderedRows,
           hasItems: items.length > 0,
           empty,
           loadingLabel,
         })}
+        {boundaries.trailing}
       </div>
       {footer}
     </div>

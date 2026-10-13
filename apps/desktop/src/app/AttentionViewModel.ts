@@ -12,7 +12,6 @@ import {
   type SidebarRootController,
   type StatusController,
 } from "@/app-facade";
-import { desktopChatEnabled } from "@/shared/feature-flags";
 import {
   advancesAttentionNotificationRevision,
   attentionNotificationIDKey,
@@ -78,7 +77,6 @@ export function createAttentionViewModel({
     const openTarget = Effect.fn("openAttentionTarget")(function* (
       target: AttentionNotificationTarget | NativeNotificationTarget,
     ) {
-      if (target.kind === "session_prompt" && !desktopChatEnabled) return;
       yield* Effect.tryPromise(async () => bridge.window.focusMain()).pipe(
         Effect.catch((error) =>
           Effect.promise(async () =>
@@ -219,7 +217,6 @@ export function createAttentionViewModel({
       { concurrent: true, initialValue: null },
     );
     const pending = (get: Atom.AtomContext, notification: AttentionNotification) => {
-      if (notification.target.kind === "session_prompt" && !desktopChatEnabled) return;
       const id = attentionNotificationIDKey(notification.id);
       const current = get.once(surfaces).get(id);
       if (!advancesAttentionNotificationRevision(current?.notification.revision, notification.revision))

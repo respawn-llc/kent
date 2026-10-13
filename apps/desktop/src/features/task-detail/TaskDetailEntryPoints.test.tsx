@@ -17,7 +17,6 @@ import { StandaloneTaskRoute } from "./StandaloneTaskRoute";
 import { TaskDetailWindowRoute } from "./TaskDetailWindowRoute";
 
 const fixture = vi.hoisted(() => ({
-  featureFlags: { desktopChatEnabled: true },
   copyText: vi.fn(async () => undefined),
   navigation: {
     openHome: vi.fn(async () => undefined),
@@ -25,7 +24,6 @@ const fixture = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@/shared/feature-flags", () => fixture.featureFlags);
 vi.mock("@/app-facade", async (importOriginal) => ({
   ...(await importOriginal()),
   useAppNavigation: () => fixture.navigation,
@@ -35,8 +33,8 @@ vi.mock("./taskDetailDismissal", () => ({
 }));
 
 beforeAll(async () => initializeI18n());
+afterEach(() => vi.unstubAllEnvs());
 beforeEach(() => {
-  fixture.featureFlags.desktopChatEnabled = true;
   fixture.copyText.mockClear();
   fixture.navigation.openHome.mockClear();
   fixture.navigation.openSessionChat.mockClear();
@@ -68,9 +66,9 @@ function renderTaskDetailHost(child: ReactElement) {
 
 it.each([
   ["development", true, true],
-  ["production", false, false],
+  ["production", false, true],
 ] as const)("renders the %s main-window Task Detail actions", async (_name, enabled, hasChat) => {
-  fixture.featureFlags.desktopChatEnabled = enabled;
+  vi.stubEnv("DEV", enabled);
   renderTaskDetailHost(<StandaloneTaskRoute taskId="task-1" />);
 
   const flow = await screen.findByTestId("task-detail-action-flow");

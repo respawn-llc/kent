@@ -39,7 +39,7 @@ func TestOpenAIBlankFinalResponsePresence(t *testing.T) {
 				t.Fatalf("unmarshal output: %v", err)
 			}
 
-			items, assistantText, phase, _, _, _, _, err := parseOutputItems(output)
+			items, assistantText, phase, _, _, _, _, err := parseOutputItems(output, openAIResponsesPolicy{})
 			if err != nil {
 				t.Fatalf("parse output: %v", err)
 			}

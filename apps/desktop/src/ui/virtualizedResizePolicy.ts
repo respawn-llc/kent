@@ -7,10 +7,10 @@ export function resolveVirtualizedResizePolicy(
   if (nonAdjustingItemKey === undefined && !endAnchored) return undefined;
   return (item, delta, instance) =>
     nonAdjustingItemKey !== item.key &&
-    // A shrinking first measurement may put the entire row above the fold
-    // even though its estimate crossed it. Compensate that newly exposed
-    // space, but do not shift a row that still spans the viewport's top.
+    // First measurements replace estimates, including the estimated row that
+    // spans the fold. Later resizes must not drag a reader inside a growing row.
     (!endAnchored ||
       (instance.scrollOffset !== null &&
-        item.end + delta <= instance.scrollOffset + instance.scrollAdjustments));
+        (instance.itemSizeCache.has(item.key) ? item.end + delta : item.start) <=
+          instance.scrollOffset + instance.scrollAdjustments));
 }

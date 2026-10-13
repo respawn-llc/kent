@@ -4,7 +4,6 @@ import { useTranslation } from "react-i18next";
 
 import type { AttentionItem } from "@/api";
 import { formatRelativeTime, usePathFormatter, type SessionChatTarget } from "@/app-facade";
-import { desktopChatEnabled } from "@/shared/feature-flags";
 import { IconTooltipButton, Item, ItemContent, PromptAccessTargets } from "@/ui";
 import { attentionChatTarget } from "./attentionChatTarget";
 
@@ -21,7 +20,7 @@ export const AttentionRow = memo(function AttentionRow({
       : item.kind === "interrupted_current_node"
         ? t("app.attention.interruptedCurrentNodeFallback")
         : null);
-  const chatTarget = desktopChatEnabled ? attentionChatTarget(item) : null;
+  const chatTarget = attentionChatTarget(item);
   return (
     <div className="group/attention relative min-w-0" data-testid="attention-row">
       <Item

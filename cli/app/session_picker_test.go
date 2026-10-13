@@ -222,20 +222,15 @@ func TestSessionPickerHeaderLoadingKeepsAnimatingAfterPagesComplete(t *testing.T
 	}
 }
 
-func TestSessionPickerHeaderRetryPreservesSelectionAndPages(t *testing.T) {
+func TestSessionPickerHeaderFailureDoesNotBlockSessionOpening(t *testing.T) {
 	failure := errors.New("settings unavailable")
-	attempts := 0
 	summaries := make([]clientui.SessionSummary, 20)
 	for i := range summaries {
 		summaries[i] = pickerTestSummary(t, fmt.Sprintf("retry-session-%d", i), time.Now().UTC())
 	}
 	m := newTestSessionPickerModel(t, summaries, sessionPickerHeaderInfo{
 		loadHeaderFacts: func(context.Context) (*sessionPickerHeaderFacts, error) {
-			attempts++
-			if attempts == 1 {
-				return nil, failure
-			}
-			return &sessionPickerHeaderFacts{Model: sessionPickerTestModelFacts("gpt-5", "high")}, nil
+			return nil, failure
 		},
 	})
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
@@ -246,23 +241,15 @@ func TestSessionPickerHeaderRetryPreservesSelectionAndPages(t *testing.T) {
 	offset := m.main.offset
 	activeTab := m.activeTab
 	pages := append([]sessionPickerPageSegment(nil), m.main.segments...)
-	_, retry := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if retry == nil || m.result != nil {
-		t.Fatal("Enter must retry failed header settings without opening the selected Session")
-	}
-	runSessionPickerCommands(t, m, retry)
-	if attempts != 2 || m.header.Model == "" {
-		t.Fatalf("header did not recover: attempts=%d model=%q", attempts, m.header.Model)
-	}
-	if m.main.selected != selected || !reflect.DeepEqual(m.main.segments, pages) || m.main.offset != offset || m.activeTab != activeTab {
-		t.Fatal("header retry changed Session selection, loaded pages, viewport, or active tab")
-	}
-	if m.headerFactsErr != nil {
-		t.Fatal("successful header retry retained its failure")
-	}
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.main.selected != selected || !reflect.DeepEqual(m.main.segments, pages) || m.main.offset != offset || m.activeTab != activeTab {
+		t.Fatal("opening changed Session selection, loaded pages, viewport, or active tab")
+	}
+	if !errors.Is(m.headerFactsErr, failure) {
+		t.Fatal("header failure diagnostic was lost")
+	}
 	if _, ok := m.result.(sessionPickerOpenResult); !ok {
-		t.Fatal("Enter did not resume normal Session opening after header recovery")
+		t.Fatal("header failure blocked opening the selected Session")
 	}
 }
 

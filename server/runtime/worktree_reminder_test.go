@@ -20,6 +20,18 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestMainWorkspaceReminderOnlyOnExplicitSwitch(t *testing.T) {
+	state := testWorktreeReminderState(session.WorktreeReminderModeExit, "main", "/tmp/worktree", "/tmp/workspace", "/tmp/workspace")
+	for _, kind := range []prompts.WorktreePromptKind{prompts.WorktreePromptInitial, prompts.WorktreePromptPostCompaction} {
+		if _, emitted := worktreeModeExitMetaMessage(state, t.TempDir(), kind); emitted {
+			t.Fatal("main Workspace startup or compaction emitted a reminder")
+		}
+	}
+	if _, emitted := worktreeModeExitMetaMessage(state, t.TempDir(), prompts.WorktreePromptSwitch); !emitted {
+		t.Fatal("explicit Worktree exit lost its reminder")
+	}
+}
+
 func TestWorktreeReminderCWDIsIndependentOfServerWorkingDirectory(t *testing.T) {
 	t.Chdir(string(filepath.Separator))
 	home := t.TempDir()

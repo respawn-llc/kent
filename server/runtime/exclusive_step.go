@@ -704,7 +704,7 @@ func (s *defaultExclusiveStepLifecycle) notifyNextWaiterLocked() {
 
 func (s *defaultExclusiveStepLifecycle) scheduleIdleWork(scheduleQueuedUserWork bool) error {
 	if scheduleQueuedUserWork {
-		if !s.engine.scheduleQueuedUserInjectionsIfIdle() && s.background != nil {
+		if !s.engine.scheduleQueuedUserInjections() && s.background != nil {
 			s.background.ScheduleIfIdle()
 		}
 	} else if s.background != nil {

@@ -100,6 +100,9 @@ jobs:
       - name: Test
         run: just test server --no-wall-clock-cap
 
+      - name: Test Unix installers
+        run: just release _installer-offer-smoke
+
   windows-installer:
     runs-on: windows-latest
     defaults:
@@ -138,6 +141,9 @@ jobs:
         env:
           VERSION: 0.0.0
         run: just release _windows-installer-smoke --version "$VERSION" --goarch amd64 --dist-dir dist
+
+      - name: Test Windows process statuses and service setup
+        run: just release _windows-runtime-smoke
 
       - name: Smoke test installer restores stopped service after failure
         env:

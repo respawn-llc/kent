@@ -12,6 +12,7 @@ import {
 } from "@app/server-api-contract/gen/kent/api/process/process_pb";
 
 import { timestampMillis } from "./clientTime";
+import { safeNumber } from "./chatWire";
 import { requireUnarySuccess, streamCompletionFailure } from "./protobufRpc";
 import { ProcessObservationError, type DesktopProcess } from "./processes";
 import type { ChatSessionTarget } from "./chatTypes";
@@ -90,7 +91,7 @@ function processFromGenerated(process: BackgroundProcess): DesktopProcess {
     workdir: process.workdir,
     startedAt: timestampMillis(process.startedAt),
     finishedAt: process.finishedAt === undefined ? null : timestampMillis(process.finishedAt),
-    exitCode: process.exitCode ?? null,
+    exitCode: process.exitCode === undefined ? null : safeNumber(process.exitCode),
     recentOutput: process.recentOutput,
     running: process.running,
     backgrounded: process.backgrounded,

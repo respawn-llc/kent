@@ -254,6 +254,41 @@ func TestOnboardingModelBackspaceTogglesMultiSelect(t *testing.T) {
 	}
 }
 
+func TestOnboardingModelSpaceInputsToggleCurrentMultiSelection(t *testing.T) {
+	tests := []struct {
+		name string
+		key  tea.KeyMsg
+	}{
+		{name: "space key", key: tea.KeyMsg{Type: tea.KeySpace}},
+		{name: "space rune", key: tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := newOnboardingModelForWorkspace(t.TempDir(), "", testOnboardingFlowState(t, func(cfg *config.App) { cfg.Settings.Theme = theme.Dark }))
+			model.currentScreen = onboardingScreen{
+				ID:      "skills_enabled",
+				Kind:    onboardingScreenMulti,
+				Options: []onboardingOption{{ID: "skill", Title: "Skill"}, {ID: "other", Title: "Other"}},
+			}
+			model.selection = map[string]bool{"skill": true, "other": true}
+			model.cursor = 0
+
+			next, _ := model.Update(tt.key)
+			updated := next.(*onboardingModel)
+			if updated.selection["skill"] {
+				t.Fatal("space input did not disable the current skill")
+			}
+			if !updated.selection["other"] {
+				t.Fatal("space input changed another skill")
+			}
+			next, _ = updated.Update(tt.key)
+			if !next.(*onboardingModel).selection["skill"] {
+				t.Fatal("second space input did not re-enable the current skill")
+			}
+		})
+	}
+}
+
 func TestBuildSkillSelectionScreenAddsToggleAllOptionWhenThereAreMoreThanTwoItems(t *testing.T) {
 	choiceID := "test-choice"
 	sourceRoot := t.TempDir()
@@ -321,6 +356,7 @@ func TestOnboardingModelToggleAllInputsToggleMultiSelection(t *testing.T) {
 	}{
 		{name: "hotkey", key: tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}}},
 		{name: "menu item", key: tea.KeyMsg{Type: tea.KeySpace}},
+		{name: "space rune", key: tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

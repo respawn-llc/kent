@@ -6,6 +6,7 @@ default mode="": (server mode) (desktop mode) (docs mode)
 server mode="":
     just _lint server {{mode}}
     just test server
+    just release _installer-offer-smoke
     just build go
 
 desktop mode="":
@@ -27,5 +28,5 @@ rust mode="":
 
 docs mode="":
     just _lint docs {{mode}}
-    bun test docs/scripts/sync-mirrored-docs.test.mjs
+    just test docs
     just build docs
