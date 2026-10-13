@@ -31,7 +31,7 @@ func TestOpenAICustomCallsDoNotUseGrokOwnershipNamespaces(t *testing.T) {
 	}
 }
 
-func TestPreparedCustomCallIncludesItemIdentity(t *testing.T) {
+func TestPreparedCustomCallKeepsCallIdentityWithoutInventingItemIdentity(t *testing.T) {
 	items := PrepareResponsesInputItems(ItemsFromMessages([]Message{{
 		Role:      RoleAssistant,
 		ToolCalls: []ToolCall{{ID: "local-call", Name: "patch", Custom: true, CustomInput: textutil.Value("patch input")}},
@@ -45,14 +45,20 @@ func TestPreparedCustomCallIncludesItemIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	var calls []struct {
-		ID     string `json:"id"`
 		CallID string `json:"call_id"`
 	}
 	if err := json.Unmarshal(raw, &calls); err != nil {
 		t.Fatal(err)
 	}
-	if len(calls) != 1 || calls[0].ID != "local-call" || calls[0].CallID != "local-call" {
+	if len(calls) != 1 || calls[0].CallID != "local-call" {
 		t.Fatalf("custom call identity = %+v", calls)
+	}
+	var payload []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := payload[0]["id"]; present {
+		t.Fatalf("reconstructed call invented provider item ID: %s", raw)
 	}
 }
 

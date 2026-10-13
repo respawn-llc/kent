@@ -915,7 +915,7 @@ func buildOutputItemsFromStream(text *string, textPresent bool, phase MessagePha
 		}
 		if call.Custom {
 			items = append(items, ResponseItem{
-				Type: ResponseItemTypeCustomToolCall, ID: textutil.Value(callID),
+				Type:   ResponseItemTypeCustomToolCall,
 				CallID: textutil.Value(callID), Name: textutil.Value(call.Name),
 				CustomInput: textutil.Pointer(call.CustomInput),
 			})

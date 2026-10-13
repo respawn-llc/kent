@@ -223,7 +223,6 @@ func ItemsFromMessages(messages []Message) []ResponseItem {
 					}
 					out = append(out, ResponseItem{
 						Type:             ResponseItemTypeCustomToolCall,
-						ID:               textutil.Value(callID),
 						CallID:           textutil.Value(callID),
 						Name:             textutil.Value(tc.Name),
 						ToolPresentation: append(json.RawMessage(nil), tc.Presentation...),
