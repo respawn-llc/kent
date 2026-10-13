@@ -17,6 +17,27 @@ import "kent/api/session_retarget/session_retarget.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/session_launch;sessionlaunchpb";
 
+message SessionPromoteRequest {
+  string session_id = 1 [(buf.validate.field).string.(scoped_session_id) = true];
+}
+
+message SessionPromoteError {
+  string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
+  oneof detail {
+    kent.api.auth.AuthRequiredDetails auth_required = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
+    kent.api.server.ServerNotReadyDetails server_not_ready = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
+  }
+}
+
+message SessionPromoteResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    google.protobuf.Empty success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    SessionPromoteError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
+}
+
 message SessionInitialInputRequest {
   optional string session_id = 1 [
     (buf.validate.field).string.(scoped_session_id) = true
@@ -490,6 +511,15 @@ message SessionDeleteResult {
 }
 
 service SessionLifecycleService {
+  rpc Promote(SessionPromoteRequest) returns (SessionPromoteResult) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_UNARY
+      authentication_stage: AUTHENTICATION_STAGE_SERVER
+      scope_policy: SCOPE_POLICY_SESSION_ATTACHED_PROJECT
+      direction: DIRECTION_CLIENT_TO_SERVER
+      unary_connection: UNARY_CONNECTION_MULTIPLEXED
+    };
+  }
   rpc GetInitialInput(SessionInitialInputRequest) returns (SessionInitialInputResult) {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY

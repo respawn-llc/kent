@@ -219,6 +219,7 @@ func (c *sessionRuntimeClient) SubmitRuntimeInput(ctx context.Context, req clien
 	}
 	accepted := resp.GetAccepted()
 	return clientui.UserTurnSubmission{
+		SessionID:  &resp.Session.SessionId,
 		ResultKind: clientui.UserTurnResultKindQueued,
 		Queued:     clientui.QueuedUserMessage{ID: accepted.QueueItem.Id, Text: runtimeSubmitInputText(req)},
 	}, protoapi.ChatAcceptedDiagnosticFromProto(accepted.Diagnostic)

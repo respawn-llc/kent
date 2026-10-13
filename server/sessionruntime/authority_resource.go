@@ -76,6 +76,7 @@ type RuntimeOpenRequest struct {
 type resourceObservation struct {
 	resource *agentResource
 	once     sync.Once
+	err      error
 }
 
 func (r *resourceObservation) Close() error {
@@ -83,14 +84,15 @@ func (r *resourceObservation) Close() error {
 		resource := r.resource
 		resource.mu.Lock()
 		defer resource.mu.Unlock()
-		resource.observers--
-		if resource.observers < 0 {
-			panic("Session Runtime observation underflow")
+		if resource.observers == 0 {
+			r.err = resource.authority.invariant("close observation", errors.New("Session Runtime observation underflow"))
+			return
 		}
+		resource.observers--
 		resource.updateIdleLocked(false)
 		resource.signalLocked()
 	})
-	return nil
+	return r.err
 }
 
 type AgentRuntimeBridge struct {
@@ -572,6 +574,10 @@ func (a *Authority) closeAdmittedResourceLocked(ctx context.Context, resource *a
 }
 
 func (a *Authority) StartAgentExecution(ctx context.Context, request AgentExecutionRequest) (ExecutionHandle, error) {
+	return a.startAgentExecution(ctx, request, executionAccepted)
+}
+
+func (a *Authority) startAgentExecution(ctx context.Context, request AgentExecutionRequest, admission executionAdmission) (ExecutionHandle, error) {
 	if a == nil {
 		return nil, errors.New("session runtime authority is required")
 	}
@@ -594,7 +600,7 @@ func (a *Authority) StartAgentExecution(ctx context.Context, request AgentExecut
 		return nil, err
 	}
 	defer gate.lock.Unlock()
-	return a.startAgentExecutionUnderAdmission(ctx, gate, request, executionAccepted)
+	return a.startAgentExecutionUnderAdmission(ctx, gate, request, admission)
 }
 
 func (a *Authority) startAgentExecutionUnderAdmission(
@@ -1051,7 +1057,7 @@ func (a *Authority) RunCurrentAgentExecution(
 		return errors.New("agent runtime callback is required")
 	}
 	operationContinues := make(chan bool, 1)
-	handle, err := a.StartAgentExecution(ctx, AgentExecutionRequest{
+	handle, err := a.startAgentExecution(ctx, AgentExecutionRequest{
 		Descriptor: descriptor,
 		Resource:   CurrentAgentResource{},
 		Runner: func(executionCtx context.Context, _ ExecutionScope, bridge AgentRuntimeBridge) error {
@@ -1069,7 +1075,7 @@ func (a *Authority) RunCurrentAgentExecution(
 			}
 			return runErr
 		},
-	})
+	}, executionProvisional)
 	if err != nil {
 		return err
 	}

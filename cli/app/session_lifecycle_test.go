@@ -341,6 +341,10 @@ type recordingSessionLifecycleClient struct {
 
 func (c *recordingSessionLifecycleClient) Close() error { return nil }
 
+func (c *recordingSessionLifecycleClient) Promote(context.Context, *sessionlaunchpb.SessionPromoteRequest) (*emptypb.Empty, error) {
+	return nil, errors.New("unexpected Promote call")
+}
+
 func (c *recordingSessionLifecycleClient) GetInitialInput(ctx context.Context, req *sessionlaunchpb.SessionInitialInputRequest) (*sessionlaunchpb.SessionInitialInputSuccess, error) {
 	if c.getInitialInput == nil {
 		return nil, errors.New("unexpected GetInitialInput call")

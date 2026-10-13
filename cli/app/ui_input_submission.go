@@ -120,6 +120,11 @@ func (c uiInputController) submitCmd(text string, input runtimeinput.Input, queu
 		submission, err := m.submitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
 			Input: input,
 		})
+		if submission.SessionID != nil && *submission.SessionID != sessionID.String() {
+			done := doneMessage("", err)
+			done.selectedSessionID = submission.SessionID
+			return done
+		}
 		if err != nil {
 			if !errors.Is(err, serverapi.ErrRuntimeCommandNotAccepted) && errors.Is(err, context.Canceled) {
 				return doneMessage("", runtimeattach.ErrSubmissionInterrupted)
@@ -131,6 +136,7 @@ func (c uiInputController) submitCmd(text string, input runtimeinput.Input, queu
 			message = *submission.Message
 		}
 		done := doneMessage(message, nil)
+		done.selectedSessionID = submission.SessionID
 		done.queued = submission.Queued
 		resultKind := submission.ResultKind
 		done.resultKind = &resultKind
@@ -282,6 +288,14 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 		return m, pendingWorkRefreshCmd
 	}
 	submitOrigin := m.activeSubmit.origin
+	if msg.selectedSessionID != nil && *msg.selectedSessionID != m.sessionID {
+		m.nextSessionID = *msg.selectedSessionID
+		m.exitAction = UIActionOpenSession
+		if msg.err != nil {
+			return m, tea.Sequence(m.appendLocalEntryWithNoticeID("error", msg.err.Error(), ""), tea.Quit)
+		}
+		return m, tea.Quit
+	}
 	m.observeRuntimeRequestResult(msg.err)
 	restoreSubmittedText := msg.err != nil && (msg.token == 0 || m.shouldRestoreSubmittedTextOnSubmitError(msg.err))
 	activeQueuedID := m.activeSubmit.queuedID

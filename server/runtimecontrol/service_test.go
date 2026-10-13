@@ -42,6 +42,31 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
+func TestRejectedRuntimeCompactionPreservesIdleLifetime(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{})
+		sessionID, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(2 * time.Minute)
+		err = service.CompactContext(t.Context(), &runtimepb.CompactContextRequest{
+			SessionId: sessionID.String(),
+			RequestId: runtimeids.NewCompactionRequestID().String(),
+			Admission: &runtimepb.ManualCompactionAdmission{},
+		})
+		if err == nil {
+			t.Fatal("compaction without eligible context was accepted")
+		}
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		err = service.authority.WithCurrentRuntime(t.Context(), sessionID, func(context.Context, *runtime.Engine) error { return nil })
+		if !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+			t.Fatalf("Runtime after original deadline = %v, want unavailable", err)
+		}
+	})
+}
+
 func TestCommittedRuntimeWriteRefreshesIdleLifetime(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{})

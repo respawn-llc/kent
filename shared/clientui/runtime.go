@@ -26,6 +26,7 @@ const (
 )
 
 type UserTurnSubmission struct {
+	SessionID  *string
 	Message    *string
 	ResultKind UserTurnResultKind
 	Queued     QueuedUserMessage

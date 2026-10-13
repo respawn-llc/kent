@@ -302,6 +302,9 @@ func prepareSessionUIRun(
 	transitionInput string,
 	overrideStoredDraft bool,
 ) (*runtimeLaunchPlan, uiLoopRequest, error) {
+	if _, err := server.SessionLifecycleClient().Promote(ctx, &sessionlaunchpb.SessionPromoteRequest{SessionId: plan.SessionID}); err != nil {
+		return nil, uiLoopRequest{}, err
+	}
 	runtimePlan, err := planner.PrepareRuntime(ctx, plan, os.Stderr, "app.start session_id="+plan.SessionID+" workspace="+plan.ExecutionTarget.EffectiveWorkdir+" model="+plan.ActiveSettings.Model)
 	if err != nil {
 		return nil, uiLoopRequest{}, err

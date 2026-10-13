@@ -15,6 +15,11 @@ import (
 
 func registerSessionLifecycleGatewayBinaryBindings(bindings map[string]gatewayBinaryBinding) error {
 	return errors.Join(
+		registerSessionLifecycleUnary(bindings, "Promote",
+			func() *sessionlaunchpb.SessionPromoteRequest {
+				return &sessionlaunchpb.SessionPromoteRequest{}
+			},
+			apicontract.SessionLifecycleService.Promote),
 		registerSessionLifecycleUnary(bindings, "GetInitialInput",
 			func() *sessionlaunchpb.SessionInitialInputRequest {
 				return &sessionlaunchpb.SessionInitialInputRequest{}

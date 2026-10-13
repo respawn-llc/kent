@@ -187,6 +187,7 @@ type ChatSettingsSubscription interface {
 type SessionLifecycleService interface {
 	GetInitialInput(ctx context.Context, req *sessionlaunchpb.SessionInitialInputRequest) (*sessionlaunchpb.SessionInitialInputSuccess, error)
 	PersistInputDraft(ctx context.Context, req *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error)
+	Promote(ctx context.Context, req *sessionlaunchpb.SessionPromoteRequest) (*emptypb.Empty, error)
 	RetargetSessionWorkspace(ctx context.Context, req *sessionlaunchpb.SessionRetargetWorkspaceRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error)
 	ResolveTransition(ctx context.Context, req *sessionlaunchpb.SessionResolveTransitionRequest) (*sessionlaunchpb.SessionDirective, error)
 	ArchiveSession(ctx context.Context, req *sessionlaunchpb.SessionArchiveRequest) (*sessionlaunchpb.SessionArchiveSuccess, error)

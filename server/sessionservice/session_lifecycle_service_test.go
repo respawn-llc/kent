@@ -15,6 +15,7 @@ import (
 	"core/server/auth"
 	"core/server/launch"
 	"core/server/metadata"
+	"core/server/runtime"
 	"core/server/session"
 	sessionruntime "core/server/sessionruntime"
 	"core/shared/config"
@@ -282,6 +283,34 @@ func TestServicePersistInputDraftWritesBySessionID(t *testing.T) {
 	}
 	if reopened.Meta().InputDraft != "saved by service" {
 		t.Fatalf("input draft = %q, want %q", reopened.Meta().InputDraft, "saved by service")
+	}
+}
+
+func TestPromoteDormantSubagentWithoutRuntime(t *testing.T) {
+	root, container, parent, persistence := createPersistedSession(t)
+	child, err := session.Create(container, "child", parent.Meta().WorkspaceRoot, sessioncontract.SessionCategorySubagent, persistence.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := newTestSessionLifecycleService(root, nil, persistence)
+	id, err := runtimeids.ParseSessionID(child.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if _, err := service.Promote(t.Context(), &sessionlaunchpb.SessionPromoteRequest{SessionId: id.String()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reopened, err := session.Open(child.Dir(), persistence.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.Meta().Category == nil || *reopened.Meta().Category != sessioncontract.SessionCategoryMain {
+		t.Fatal("Subagent was not permanently promoted")
+	}
+	if err := service.authority.WithCurrentRuntime(t.Context(), id, func(context.Context, *runtime.Engine) error { return nil }); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+		t.Fatalf("promotion loaded Runtime: %v", err)
 	}
 }
 

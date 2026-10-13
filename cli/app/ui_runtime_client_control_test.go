@@ -20,9 +20,10 @@ import (
 
 type shellPreparationClient struct {
 	apicontract.ChatMutationService
-	requests    []*chatshellpb.ShellCommandRequest
-	inputs      []*chatpb.SteerRequest
-	compactions []*chatpb.CompactRequest
+	requests          []*chatshellpb.ShellCommandRequest
+	inputs            []*chatpb.SteerRequest
+	compactions       []*chatpb.CompactRequest
+	selectedSessionID *string
 }
 
 func (c *shellPreparationClient) Compact(_ context.Context, request *chatpb.CompactRequest) (*chatpb.CompactionMutationSuccess, error) {
@@ -37,8 +38,12 @@ func (c *shellPreparationClient) Compact(_ context.Context, request *chatpb.Comp
 
 func (c *shellPreparationClient) Steer(_ context.Context, request *chatpb.SteerRequest) (*chatpb.InputMutationSuccess, error) {
 	c.inputs = append(c.inputs, request)
+	id := request.Target.GetSession().SessionId.GetSessionId()
+	if c.selectedSessionID != nil {
+		id = *c.selectedSessionID
+	}
 	return &chatpb.InputMutationSuccess{
-		Session: &chatpb.ExistingSessionTarget{SessionId: request.Target.GetSession().SessionId.GetSessionId()},
+		Session: &chatpb.ExistingSessionTarget{SessionId: id},
 		Outcome: &chatpb.InputMutationSuccess_Accepted{Accepted: &chatpb.InputAccepted{
 			QueueItem: &chatpb.QueueItemIdentity{Id: runtimeids.NewQueueItemID().String()},
 		}},
@@ -166,13 +171,18 @@ func TestRuntimeGoalReadDoesNotActivateUnavailableRuntime(t *testing.T) {
 func TestRuntimeClientInputMakesOneExplicitCall(t *testing.T) {
 	controls := &reconnectRetryRuntimeControlClient{}
 	runtimeClient := newUIRuntimeClientWithReads(ongoingTestSessionID().String(), &countingSessionViewClient{}, controls, controls, nil).(*sessionRuntimeClient)
-	chat := &shellPreparationClient{}
+	selected := runtimeids.NewSessionID().String()
+	chat := &shellPreparationClient{selectedSessionID: &selected}
 	runtimeClient.chatMutations = chat
 
-	if _, err := runtimeClient.SubmitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
+	submission, err := runtimeClient.SubmitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
 		Input: runtimeinput.Text("hello"),
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("SubmitRuntimeInput: %v", err)
+	}
+	if submission.SessionID == nil || *submission.SessionID != selected {
+		t.Fatalf("selected Session = %v", submission.SessionID)
 	}
 	if len(chat.inputs) != 1 {
 		t.Fatalf("submit calls = %d, want 1", len(chat.inputs))

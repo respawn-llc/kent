@@ -114,6 +114,17 @@ func (s *SessionLifecycleService) resolvePersistedSessionMeta(ctx context.Contex
 	return *record.Meta, nil
 }
 
+func (s *SessionLifecycleService) Promote(ctx context.Context, req *sessionlaunchpb.SessionPromoteRequest) (*emptypb.Empty, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
+	}
+	err := s.withStore(ctx, req.SessionId, func(_ context.Context, store *session.Store) error {
+		_, err := store.PromoteSubagentToMain()
+		return err
+	})
+	return &emptypb.Empty{}, err
+}
+
 func (s *SessionLifecycleService) PersistInputDraft(ctx context.Context, req *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error) {
 	err := s.withStore(ctx, req.SessionId, func(_ context.Context, store *session.Store) error {
 		var protected *session.ProtectedInputDraftUpdate

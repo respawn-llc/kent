@@ -17,13 +17,14 @@ import (
 )
 
 type submitDoneMsg struct {
-	token         uint64
-	sessionID     runtimeids.SessionID
-	message       string
-	submittedText string
-	resultKind    *clientui.UserTurnResultKind
-	queued        clientui.QueuedUserMessage
-	err           error
+	selectedSessionID *string
+	token             uint64
+	sessionID         runtimeids.SessionID
+	message           string
+	submittedText     string
+	resultKind        *clientui.UserTurnResultKind
+	queued            clientui.QueuedUserMessage
+	err               error
 }
 
 func newSubmitDoneMsg(token uint64, message string, submittedText string, err error) submitDoneMsg {
