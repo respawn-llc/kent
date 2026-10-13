@@ -3,22 +3,33 @@ import {
   autoUpdate,
   flip,
   FloatingPortal,
+  FloatingNode,
   offset,
   safePolygon,
   shift,
   size,
   useDismiss,
   useFloating,
+  useFloatingNodeId,
   useHover,
   useInteractions,
   useTransitionStatus,
 } from "@floating-ui/react";
 import { cn } from "./classes";
+import { FloatingTreeScope } from "./FloatingTreeScope";
 import { motionDurationFromCSSVar } from "./motion";
 import { PopoverBody, popoverLayoutClassName } from "./popoverPresentation";
 import { radixIslandSurfaceContentClassName } from "./radix/radix-island-surface";
 
-export function HoverPopover({
+export function HoverPopover(props: ComponentPropsWithRef<typeof HoverPopoverNode>) {
+  return (
+    <FloatingTreeScope>
+      <HoverPopoverNode {...props} />
+    </FloatingTreeScope>
+  );
+}
+
+function HoverPopoverNode({
   open,
   onOpenChange,
   trigger,
@@ -35,7 +46,9 @@ export function HoverPopover({
   align?: "start" | "end";
   className?: string;
 }>) {
+  const nodeId = useFloatingNodeId();
   const { refs, floatingStyles, context, placement } = useFloating({
+    nodeId,
     open,
     onOpenChange,
     placement: `${side}-${align}`,
@@ -81,7 +94,7 @@ export function HoverPopover({
     [refs],
   );
   return (
-    <>
+    <FloatingNode id={nodeId}>
       {trigger({ ...getReferenceProps(), ref: setReference })}
       {isMounted && (
         <FloatingPortal>
@@ -107,6 +120,6 @@ export function HoverPopover({
           </div>
         </FloatingPortal>
       )}
-    </>
+    </FloatingNode>
   );
 }

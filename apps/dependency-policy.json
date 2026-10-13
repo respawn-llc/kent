@@ -26,7 +26,6 @@
         "@radix-ui/react-radio-group",
         "@radix-ui/react-slider",
         "@radix-ui/react-switch",
-        "@radix-ui/react-tooltip",
         "@tanstack/react-query",
         "@tanstack/react-router",
         "@tanstack/react-virtual",
