@@ -276,8 +276,7 @@ func TestGatewayAuthorizesChatTargetModes(t *testing.T) {
 				conn,
 				"authorize-chat",
 				method,
-				&chatpb.SteerRequest{
-					Target: test.target,
+				&chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: test.target,
 					Activation: &chatpb.Activation{
 						Input: &chatpb.Activation_Text{Text: "continue"},
 					},
@@ -350,10 +349,9 @@ func TestGatewayDisconnectStopsDeliveryWithoutCancelingChatOperation(t *testing.
 	if err != nil {
 		t.Fatalf("resolve Chat operation: %v", err)
 	}
-	payload, err := protoapi.Marshal(&chatpb.SteerRequest{
-		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
-			Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
-		}},
+	payload, err := protoapi.Marshal(&chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
+		Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
+	}},
 		Activation: &chatpb.Activation{
 			Input: &chatpb.Activation_Text{Text: "continue"},
 		},

@@ -17,6 +17,7 @@ import (
 	"core/shared/toolspec"
 	"core/shared/transcript"
 
+	"core/shared/runtimeids"
 	"github.com/google/uuid"
 )
 
@@ -65,7 +66,7 @@ func TestConcurrentLiveSteerPendingOrderMatchesDeliveryAndStop(t *testing.T) {
 			for i := range count {
 				go func() {
 					<-gate
-					_, accepted, err := engine.QueueUserMessageForActiveRun(t.Context(), fmt.Sprintf("input-%d", i), nil)
+					_, accepted, err := engine.QueueUserMessageForActiveRun(t.Context(), runtimeids.NewQueueItemID().String(), fmt.Sprintf("input-%d", i), nil)
 					if err == nil && !accepted {
 						err = errors.New("live steer was not accepted")
 					}
@@ -227,7 +228,7 @@ func TestQueueMessageForActiveRunCancellationPreventsAcceptance(t *testing.T) {
 	caller, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	go func() {
-		_, accepted, err := eng.QueueUserMessageForActiveRun(caller, "queued", func() error {
+		_, accepted, err := eng.QueueUserMessageForActiveRun(caller, runtimeids.NewQueueItemID().String(), "queued", func() error {
 			close(entered)
 			<-release
 			return nil
@@ -611,7 +612,7 @@ func TestInstantStopBroadcastsRemovedHumanInputInAcceptanceOrder(t *testing.T) {
 	releaseFirstApplication := make(chan struct{})
 	firstDone := make(chan queuedResult, 1)
 	go func() {
-		item, accepted, err := eng.QueueUserMessageForActiveRun(t.Context(), "first", func() error {
+		item, accepted, err := eng.QueueUserMessageForActiveRun(t.Context(), runtimeids.NewQueueItemID().String(), "first", func() error {
 			close(firstApplying)
 			<-releaseFirstApplication
 			return nil
@@ -631,7 +632,7 @@ func TestInstantStopBroadcastsRemovedHumanInputInAcceptanceOrder(t *testing.T) {
 	}
 	secondDone := make(chan queuedResult, 1)
 	go func() {
-		item, accepted, err := eng.QueueUserMessageForActiveRun(t.Context(), "second", nil)
+		item, accepted, err := eng.QueueUserMessageForActiveRun(t.Context(), runtimeids.NewQueueItemID().String(), "second", nil)
 		secondDone <- queuedResult{item: item, accepted: accepted, err: err}
 	}()
 	transitionStarted := make(chan struct{})

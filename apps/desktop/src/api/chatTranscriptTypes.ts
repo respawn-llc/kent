@@ -1,4 +1,5 @@
 import type { PromptUpdate } from "./promptModels";
+import type { PendingWorkItemID } from "./pendingWork";
 export type ChatWebSearchDetail = Readonly<{
   action:
     | Readonly<{ kind: "search"; queries: readonly string[] }>
@@ -150,6 +151,7 @@ export type ChatCommittedRow = Readonly<{
     Text: string;
     CondensedText?: string | null;
     RollbackTargetID?: string | null;
+    QueueItemIDs: readonly PendingWorkItemID[];
     committed_at_unix_ms?: number | null;
   }> | null;
   Assistant: Readonly<{

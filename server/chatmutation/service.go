@@ -300,7 +300,7 @@ func (s *Service) Steer(
 	if err := protoapi.Validate(request); err != nil {
 		return nil, err
 	}
-	return s.runInputMutation(ctx, request.Target, request.Activation, inputMutationSteer)
+	return s.runInputMutation(ctx, request.Target, request.Activation, request.QueueItemId, inputMutationSteer)
 }
 
 func (s *Service) Queue(
@@ -310,7 +310,7 @@ func (s *Service) Queue(
 	if err := protoapi.Validate(request); err != nil {
 		return nil, err
 	}
-	return s.runInputMutation(ctx, request.Target, request.Activation, inputMutationQueue)
+	return s.runInputMutation(ctx, request.Target, request.Activation, request.QueueItemId, inputMutationQueue)
 }
 
 func (s *Service) Compact(
@@ -418,6 +418,7 @@ func (s *Service) mutateInput(
 	scope OperationScope,
 	targetRequest *chatpb.ChatTarget,
 	activation *chatpb.Activation,
+	queueItemID string,
 	operation inputMutationOperation,
 ) (*chatpb.InputMutationSuccess, error) {
 	ctx := scope.Context()
@@ -439,6 +440,7 @@ func (s *Service) mutateInput(
 	if err != nil {
 		return inputNotAccepted(target.SessionID, operation, err), nil
 	}
+	prepared.QueueItemID = queueItemID
 	target, err = s.targets.SelectPlacement(ctx, target, prepared.Placement)
 	if err != nil {
 		return inputNotAccepted(target.SessionID, operation, err), nil
@@ -501,6 +503,7 @@ func (s *Service) runInputMutation(
 	ctx context.Context,
 	target *chatpb.ChatTarget,
 	activation *chatpb.Activation,
+	queueItemID string,
 	kind inputMutationOperation,
 ) (*chatpb.InputMutationSuccess, error) {
 	if s == nil || s.operations == nil {
@@ -509,7 +512,7 @@ func (s *Service) runInputMutation(
 	var result *chatpb.InputMutationSuccess
 	operation, err := s.operations.Start(ctx, func(scope OperationScope) error {
 		var operationErr error
-		result, operationErr = s.mutateInput(scope, target, activation, kind)
+		result, operationErr = s.mutateInput(scope, target, activation, queueItemID, kind)
 		return operationErr
 	})
 	if err != nil {

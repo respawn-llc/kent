@@ -9,6 +9,8 @@ import {
   type ChatMutationTarget,
   type InitialChatSettings,
   type ChatNotAcceptedReason,
+  type PendingWorkItemID,
+  parsePendingWorkItemID,
 } from "@/api";
 import { mutationPendingAtom, queryAtom, type AppServices } from "@/app-facade";
 import { showStatusToast } from "@/ui";
@@ -22,6 +24,7 @@ import {
   dispatchComposerCommand,
   resolveComposerCommand,
   type ComposerCommand,
+  type PreparedComposerCommand,
   type ComposerCommandResolution,
   type ComposerCommandResult,
 } from "./composerCommands";
@@ -38,6 +41,8 @@ type SubmissionCallbacks = Readonly<{
   accepted(sessionID: string, submittedText: string): void;
   failed(): void;
   delivered?(result: CompletedInput, target: ChatMutationTarget): void | Promise<void>;
+  prepared?(queueItemID: PendingWorkItemID): void;
+  rejected?(queueItemID: PendingWorkItemID): void;
 }>;
 type Request = SubmissionCallbacks &
   Readonly<{
@@ -45,7 +50,7 @@ type Request = SubmissionCallbacks &
     original: string | null;
     submittedText: string;
     intent: "send" | "queue";
-    command: Exclude<ComposerCommandResolution, { kind: "unknown-prompt" | "unavailable" }>;
+    command: PreparedComposerCommand;
   }>;
 export type ComposerInputActivation = SubmissionCallbacks &
   Readonly<{
@@ -77,9 +82,12 @@ export function createComposerInputViewModel({
     mutationFn: async (input: Request) =>
       dispatchComposerCommand(services.api.chat, input.target, input.command, input.intent),
     onSuccess: async (result, input) => {
+      if (input.command.kind === "input" && !("kind" in result) && result.outcome.kind === "not_accepted")
+        input.rejected?.(input.command.queueItemID);
       if (observer.hasListeners()) await complete(result, input, t);
     },
     onError: (error, input) => {
+      if (input.command.kind === "input") input.rejected?.(input.command.queueItemID);
       if (observer.hasListeners()) {
         if (input.original !== null) input.restore({ text: input.original, direction: "append" });
         input.failed();
@@ -121,14 +129,31 @@ export function createComposerInputViewModel({
           command.notify();
           return;
         }
+        const prepared = prepareSubmission(command, input);
         if (original !== null) yield* get.setResult(draft.submit, undefined);
         yield* Effect.tryPromise(async () =>
-          observer.mutate({ ...input, target: requestTarget, original, submittedText: text, command }),
+          observer.mutate({
+            ...input,
+            target: requestTarget,
+            original,
+            submittedText: text,
+            command: prepared,
+          }),
         ).pipe(Effect.ignore);
       }),
     { concurrent: true },
   );
   return { result, pending, submit } as const;
+}
+
+function prepareSubmission(
+  command: Exclude<ComposerCommandResolution, { kind: "unknown-prompt" | "unavailable" }>,
+  callbacks: SubmissionCallbacks,
+): PreparedComposerCommand {
+  if (command.kind === "direct") return command;
+  const queueItemID = parsePendingWorkItemID(crypto.randomUUID());
+  callbacks.prepared?.(queueItemID);
+  return { ...command, queueItemID };
 }
 
 function submissionText(input: ComposerInputActivation, draft: string) {

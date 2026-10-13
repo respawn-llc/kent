@@ -76,8 +76,7 @@ func TestChatTargetSemanticUnion(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := protoapi.ChatTargetFromRequest(&chatpb.SteerRequest{
-				Target: test.target,
+			_, err := protoapi.ChatTargetFromRequest(&chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: test.target,
 				Activation: &chatpb.Activation{
 					Input: &chatpb.Activation_Text{Text: "continue"},
 				},
@@ -157,10 +156,9 @@ func TestChatResultClassification(t *testing.T) {
 
 func TestBinaryChatFailureMapsAgentPreparationCategories(t *testing.T) {
 	sessionID := runtimeids.NewSessionID()
-	request := &chatpb.SteerRequest{
-		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
-			Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
-		}},
+	request := &chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
+		Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
+	}},
 	}
 	for _, test := range []struct {
 		category serverapi.ChatSettingsAgentPreparationCategory

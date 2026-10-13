@@ -31,9 +31,8 @@ func TestSecondClientLiveControlsActiveRun(t *testing.T) {
 			}
 			done := make(chan result, 1)
 			go func() {
-				response, err := appCore.RuntimeLiveControlClient().LiveSteer(context.Background(), &runtimepb.LiveSteerRequest{
-					SessionId: sessionID,
-					Text:      "steer me",
+				response, err := appCore.RuntimeLiveControlClient().LiveSteer(context.Background(), &runtimepb.LiveSteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: sessionID,
+					Text: "steer me",
 				})
 				done <- result{response: response, err: err}
 			}()
@@ -60,9 +59,8 @@ func TestSecondClientLiveControlsActiveRun(t *testing.T) {
 			}
 			done := make(chan result, 1)
 			go func() {
-				response, err := appCore.RuntimeControlClient().SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
-					SessionId: sessionID,
-					Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "steer me"}},
+				response, err := appCore.RuntimeControlClient().SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: sessionID,
+					Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "steer me"}},
 				})
 				done <- result{response: response, err: err}
 			}()

@@ -17,6 +17,7 @@ import (
 )
 
 type PreparedUserTurn struct {
+	QueueItemID   string
 	Input         runtimeinput.Input
 	Placement     promptcommands.Placement
 	ExecutionText string
@@ -25,6 +26,7 @@ type PreparedUserTurn struct {
 
 func (p PreparedUserTurn) queuedInput() runtime.QueuedUserInput {
 	return runtime.QueuedUserInput{
+		ID:                    p.QueueItemID,
 		ExecutionText:         p.ExecutionText,
 		CanonicalPresentation: p.HistoryText,
 	}
@@ -84,6 +86,7 @@ func (s *Service) SubmitUserTurn(ctx context.Context, req *runtimepb.SubmitUserT
 		if err != nil {
 			return nil, false, err
 		}
+		prepared.QueueItemID = req.QueueItemId
 		response, accepted, _, err := s.admitUserTurn(ctx, req.SessionId, prepared)
 		return response, accepted, err
 	})

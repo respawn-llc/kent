@@ -899,8 +899,7 @@ func TestDeleteWorktreeRejectsAcceptedQueuedInputBeforeMovingSessions(t *testing
 		}
 	})
 
-	queued, err := engine.QueueUserInput(context.Background(), runtime.QueuedUserInput{
-		ExecutionText:         "accepted before Worktree deletion",
+	queued, err := engine.QueueUserInput(context.Background(), runtime.QueuedUserInput{ID: runtimeids.NewQueueItemID().String(), ExecutionText: "accepted before Worktree deletion",
 		CanonicalPresentation: "accepted before Worktree deletion",
 	})
 	if err != nil {

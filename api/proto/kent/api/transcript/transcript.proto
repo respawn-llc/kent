@@ -236,6 +236,11 @@ message UserRow {
     }
   ];
   optional google.protobuf.Timestamp committed_at = 5;
+  repeated string queue_item_ids = 6 [
+    (buf.validate.field).repeated.unique = true,
+    (buf.validate.field).repeated.items.string.uuid = true,
+    (buf.validate.field).repeated.items.string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 }
 
 message AssistantRow {

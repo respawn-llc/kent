@@ -13,6 +13,7 @@ import (
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -82,9 +83,7 @@ func TestConnectionReplacementIsHydratedAfterCoreActivation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.RuntimeControlClient().SubmitUserTurn(ctx, &runtimepb.SubmitUserTurnRequest{
-		SessionId: store.Meta().SessionID, Input: input,
-	}); err != nil {
+	if _, err := app.RuntimeControlClient().SubmitUserTurn(ctx, &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: store.Meta().SessionID, Input: input}); err != nil {
 		t.Fatal(err)
 	}
 	select {

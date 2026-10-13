@@ -1243,9 +1243,8 @@ func TestServiceInterruptReturnsDiagnosticActivityWhenPostInterruptSnapshotFails
 
 func TestServiceLiveSteerRequiresActiveRun(t *testing.T) {
 	store, _, service := newRuntimeControlTestService(t, finalResponseRuntimeControlClient(), nil, runtime.Config{})
-	_, err := service.LiveSteer(context.Background(), &runtimepb.LiveSteerRequest{
-		SessionId: store.Meta().SessionID,
-		Text:      "steer while idle",
+	_, err := service.LiveSteer(context.Background(), &runtimepb.LiveSteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: store.Meta().SessionID,
+		Text: "steer while idle",
 	})
 	if !errors.Is(err, serverapi.ErrRuntimeNoActiveRun) {
 		t.Fatalf("LiveSteer idle error = %v, want ErrRuntimeNoActiveRun", err)
@@ -1257,9 +1256,8 @@ func TestServiceLiveSteerRequiresActiveRun(t *testing.T) {
 
 func TestServiceLiveSteerUnavailableRuntimeStaysUnavailable(t *testing.T) {
 	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}))
-	_, err := service.LiveSteer(context.Background(), &runtimepb.LiveSteerRequest{
-		SessionId: "018fdd67-89ab-4cde-8123-456789abcdef",
-		Text:      "steer closed runtime",
+	_, err := service.LiveSteer(context.Background(), &runtimepb.LiveSteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: "018fdd67-89ab-4cde-8123-456789abcdef",
+		Text: "steer closed runtime",
 	})
 	if !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
 		t.Fatalf("LiveSteer unavailable runtime error = %v, want ErrRuntimeUnavailable", err)
@@ -1321,9 +1319,9 @@ func TestServiceLiveSteerRecordsHistoryAfterActiveAdmission(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for active runtime")
 	}
-	steerDone := liveSteerRuntimeControlAsync(service, &runtimepb.LiveSteerRequest{
-		SessionId: store.Meta().SessionID,
-		Text:      " steer live ",
+	queueItemID := runtimeids.NewQueueItemID().String()
+	steerDone := liveSteerRuntimeControlAsync(service, &runtimepb.LiveSteerRequest{QueueItemId: queueItemID, SessionId: store.Meta().SessionID,
+		Text: " steer live ",
 	})
 	var result runtimeControlLiveSteerResult
 	select {
@@ -1336,7 +1334,7 @@ func TestServiceLiveSteerRecordsHistoryAfterActiveAdmission(t *testing.T) {
 		t.Fatalf("LiveSteer: %v", result.err)
 	}
 	resp := result.response
-	if resp.QueueItemId == "" || resp.Text != "steer live" {
+	if resp.QueueItemId != queueItemID || resp.Text != "steer live" {
 		t.Fatalf("LiveSteer response = %+v", resp)
 	}
 	waitForRuntimeControlPromptHistoryCount(t, runtimeControlPromptHistoryStoresLoad(t, store.Meta().SessionID), "steer live", 1)
@@ -1368,8 +1366,7 @@ func TestServiceLiveSteerAgentCallerUsesOneWrappedDeveloperMessage(t *testing.T)
 		t.Fatalf("NewAgentSteer: %v", err)
 	}
 	sourceText := sourceID.String()
-	steerDone := liveSteerRuntimeControlAsync(service, &runtimepb.LiveSteerRequest{
-		SessionId:       store.Meta().SessionID,
+	steerDone := liveSteerRuntimeControlAsync(service, &runtimepb.LiveSteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: store.Meta().SessionID,
 		CallerSessionId: &sourceText,
 		Text:            "steer live",
 	})
@@ -1419,9 +1416,8 @@ func TestServiceLiveSteerReportsAdmittedPromptHistoryErrorDiagnostically(t *test
 	}
 	historyErr := errors.New("prompt history failed")
 	runtimeControlPromptHistoryStoresLoad(t, store.Meta().SessionID).SetRecordError(historyErr)
-	steerDone := liveSteerRuntimeControlAsync(service, &runtimepb.LiveSteerRequest{
-		SessionId: store.Meta().SessionID,
-		Text:      "steer live",
+	steerDone := liveSteerRuntimeControlAsync(service, &runtimepb.LiveSteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: store.Meta().SessionID,
+		Text: "steer live",
 	})
 	select {
 	case result := <-steerDone:
@@ -2666,9 +2662,8 @@ func TestServiceSubmitUserTurnPromptCommandUsesExpandedExecutionAndCanonicalHist
 	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
 	resolver := &runtimeControlPromptCommandResolver{content: "expanded current body"}
 	service.WithPromptCommandResolver(resolver)
-	req := &runtimepb.SubmitUserTurnRequest{
-		SessionId: store.Meta().SessionID,
-		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: runtimeinput.PromptCommandReviewName, Arguments: "src/internal"}}},
+	req := &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: store.Meta().SessionID,
+		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: runtimeinput.PromptCommandReviewName, Arguments: "src/internal"}}},
 	}
 	resp, err := service.SubmitUserTurn(context.Background(), req)
 	if err != nil {
@@ -2802,6 +2797,7 @@ func TestServiceAdmitQueuedPromptCommandUsesExpandedExecutionAndCanonicalPresent
 	if err != nil {
 		t.Fatal(err)
 	}
+	prepared.QueueItemID = request.QueueItemId
 	result, err := service.AdmitChatQueuedUserInput(t.Context(), request.SessionId, prepared)
 	if err != nil {
 		t.Fatalf("AdmitChatQueuedUserInput: %v", err)
@@ -2855,6 +2851,7 @@ func TestServiceChatAdmissionsPreservePromptHistoryFailureAfterAcceptance(t *tes
 			if err != nil {
 				t.Fatal(err)
 			}
+			prepared.QueueItemID = runtimeids.NewQueueItemID().String()
 			result, err := test.run(
 				service,
 				t.Context(),
@@ -2920,9 +2917,8 @@ func TestServiceSubmitUserTurnPromptResolutionFailureIsNotAcceptedAndRemainsRetr
 func TestServiceSubmitUserTurnRecordsCommittedAtFlushBeforeAssistantCompletion(t *testing.T) {
 	client := newCancelObservingRuntimeControlClient()
 	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
-	req := &runtimepb.SubmitUserTurnRequest{
-		SessionId: store.Meta().SessionID,
-		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "flush before model completes"}},
+	req := &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: store.Meta().SessionID,
+		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "flush before model completes"}},
 	}
 	response, err := service.SubmitUserTurn(context.Background(), req)
 	if err != nil {
@@ -3610,9 +3606,8 @@ func countUserMessagesWithContent(t *testing.T, store *session.Store, content st
 }
 
 func runtimeControlUserTurnRequest(store *session.Store, _ string, text string) *runtimepb.SubmitUserTurnRequest {
-	return &runtimepb.SubmitUserTurnRequest{
-		SessionId: store.Meta().SessionID,
-		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: text}},
+	return &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: store.Meta().SessionID,
+		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: text}},
 	}
 }
 

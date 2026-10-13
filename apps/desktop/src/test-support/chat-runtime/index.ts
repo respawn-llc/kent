@@ -135,7 +135,7 @@ export function incompatibleHydration(
     ...payload,
     SessionIdentity: { ...payload.SessionIdentity, SessionName: sessionName },
     TailSegment: {
-      Entries: [{ ...row(10), User: { Text: text } }],
+      Entries: [{ ...row(10), User: { Text: text, QueueItemIDs: [] } }],
       OlderCursor: null,
       HasMoreAbove: false,
     },

@@ -10,6 +10,7 @@ import { enumValue, required, safeNumber } from "./chatWire";
 import { timestampMillis } from "./clientTime";
 import { toolPresentation } from "./chatToolPresentation";
 import { ContractError } from "./errors";
+import { parsePendingWorkItemID } from "./pendingWork";
 
 export function diagnostic(value: T.Diagnostic | undefined): ChatDiagnostic | null {
   return value === undefined ? null : { Code: value.code, Detail: value.detail };
@@ -245,6 +246,7 @@ function userRow(value: T.UserRow): NonNullable<ChatCommittedRow["User"]> {
     Text: value.text,
     CondensedText: value.condensedText ?? null,
     RollbackTargetID: value.rollbackTargetId ?? null,
+    QueueItemIDs: value.queueItemIds.map(parsePendingWorkItemID),
     committed_at_unix_ms: value.committedAt === undefined ? null : timestampMillis(value.committedAt),
   };
 }

@@ -32,6 +32,7 @@ import (
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/worktreecontract"
@@ -224,9 +225,8 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 		}
 		return nil
 	})
-	submission, err := remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
-		SessionId: movedSession.Meta().SessionID,
-		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "move this Session"}},
+	submission, err := remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: movedSession.Meta().SessionID,
+		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "move this Session"}},
 	})
 	if err != nil {
 		t.Fatalf("SubmitUserTurn with self-rebind: %v", err)

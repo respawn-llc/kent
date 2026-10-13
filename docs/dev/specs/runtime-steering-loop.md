@@ -85,6 +85,10 @@
 - Pending Work contains only human messages, manual compaction, and Active-Runtime Worktree enter or leave.
 - Pending Work is separate from the internal Engine Intent Queue and has no persistence, replay, reconciliation, or connection-owned lifecycle.
 - Every accepted queued action receives one identity.
+- Desktop, TUI, and CLI callers must generate a UUID v4 Queue Item identity before submitting human Steer or Queue input. Kent must validate the supplied identity and retain it unchanged on acceptance. Server-authored input must receive its identity at its origin.
+- Kent must reject a supplied identity that belongs to existing pending or active input without replacing that input. This identity does not provide replay or retry deduplication after the input leaves pending and active work.
+- Each newly committed user message must retain the identities of the Queue Items consumed into it. Live delivery and later transcript reads must expose this same source-input provenance with the committed row identity.
+- Existing transcript history must remain unchanged. Historical messages and messages without originating Queue Items may have no source-input identities.
 - The same identity represents that action in Pending Work, removal, compaction status, and Worktree acknowledgement or outcome wherever those surfaces apply.
 - Each item carries a concrete typed operation rather than a generic command.
 - A human-message item presents its exact submitted text.

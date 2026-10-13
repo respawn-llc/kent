@@ -10,6 +10,7 @@ import (
 
 	"core/server/llm"
 	"core/server/tools"
+	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/textutil"
 )
@@ -148,13 +149,9 @@ func TestStopRestoresSteerAndPostTurnQueueWithoutContinuation(t *testing.T) {
 		done <- err
 	}()
 	pendingWorkTestWait(t, client.started, "held provider")
-	steer, err := engine.SteerInput(t.Context(), QueuedUserInput{
-		ExecutionText: "expanded steer", CanonicalPresentation: "/review steer",
-	}, nil)
+	steer, err := engine.SteerInput(t.Context(), QueuedUserInput{ID: runtimeids.NewQueueItemID().String(), ExecutionText: "expanded steer", CanonicalPresentation: "/review steer"}, nil)
 	pendingWorkTestNoError(t, err)
-	queued, err := engine.QueueUserInput(t.Context(), QueuedUserInput{
-		ExecutionText: "expanded queue", CanonicalPresentation: "/review queue",
-	})
+	queued, err := engine.QueueUserInput(t.Context(), QueuedUserInput{ID: runtimeids.NewQueueItemID().String(), ExecutionText: "expanded queue", CanonicalPresentation: "/review queue"})
 	pendingWorkTestNoError(t, err)
 	stopped, err := engine.TryInterruptActiveRun()
 	pendingWorkTestNoError(t, err)

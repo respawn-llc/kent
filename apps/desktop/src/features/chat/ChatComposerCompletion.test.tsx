@@ -48,13 +48,17 @@ it.each(["send", "queue"] as const)(
     await act(async () => {
       result.current.submit(intent);
     });
-    expect(queue).toHaveBeenCalledWith(target, {
-      kind: "command",
-      catalogIdentity: "prompt:review",
-      token: "/prompt:review",
-      separatorWhitespace: "",
-      arguments: "",
-    });
+    expect(queue).toHaveBeenCalledWith(
+      target,
+      {
+        kind: "command",
+        catalogIdentity: "prompt:review",
+        token: "/prompt:review",
+        separatorWhitespace: "",
+        arguments: "",
+      },
+      expect.anything(),
+    );
   },
 );
 

@@ -279,9 +279,7 @@ func TestWorkflowRestoredOriginalAcceptsSessionMessageAfterSetupFailure(t *testi
 	})
 	const message = "Continue on the restored original checkout"
 	submitted := testsetup.Start(func() (*runtimepb.SubmitUserTurnSuccess, error) {
-		return f.app.RuntimeControlClient().SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
-			SessionId: node.SessionID.String(), Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: message}},
-		})
+		return f.app.RuntimeControlClient().SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: node.SessionID.String(), Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: message}}})
 	})
 	waitRecoveryModel(t, f.second, f.store, f.task.ID)
 	delivered := false

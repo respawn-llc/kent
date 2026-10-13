@@ -798,7 +798,7 @@ it("clears on activation and preserves later typing after acceptance", async () 
   });
   expect(result.current.text).toBe("");
   await waitFor(() => {
-    expect(steer).toHaveBeenCalledWith(target, { kind: "text", text: "submitted" });
+    expect(steer).toHaveBeenCalledWith(target, { kind: "text", text: "submitted" }, expect.anything());
   });
   act(() => {
     result.current.edit("later");
@@ -927,6 +927,7 @@ it("keeps New Chat typing while Settings load and delivers the identified Sessio
   expect(steer).toHaveBeenCalledWith(
     { ...newChat, initialSettings: settings },
     { kind: "text", text: "typed before settings" },
+    expect.anything(),
   );
   expect(result.current.text).toBe("typed before settings");
   expect(onDeliveredSession).toHaveBeenCalledWith(rejected, { ...newChat, initialSettings: settings });

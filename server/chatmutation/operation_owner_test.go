@@ -330,8 +330,7 @@ func TestServiceCarriesOneOperationContextAcrossChatLifecycle(t *testing.T) {
 				target.Target = &chatpb.ChatTarget_NewChat{NewChat: newChatTarget}
 			}
 
-			result, err := service.Steer(caller, &chatpb.SteerRequest{
-				Target: target,
+			result, err := service.Steer(caller, &chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: target,
 				Activation: &chatpb.Activation{
 					Input: &chatpb.Activation_Text{Text: "continue"},
 				},

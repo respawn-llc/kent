@@ -19,13 +19,15 @@ import { useComposerHistoryActions } from "./ComposerHistoryViewModel";
 import type { ChatComposerViewModel } from "./ChatComposerViewModel";
 import type { QuerySnapshot } from "@/app-facade";
 import type { QueryObserverResult } from "@tanstack/react-query";
-import type { ChatApi, ChatMutationTarget, ChatTranscriptPayloadByKind } from "@/api";
-import { showStatusToast } from "@/ui";
+import type { ChatApi, ChatMutationTarget, ChatTranscriptPayloadByKind, PendingWorkItemID } from "@/api";
+import { SharedTextMotion, showStatusToast } from "@/ui";
 
 export type { ComposerSubmission } from "./ComposerInputViewModel";
 type DraftState = Readonly<{ kind: "loading" | "ready" }> | Readonly<{ kind: "failed"; error: unknown }>;
 export type ChatComposerOptions = Readonly<{
   model: ChatComposerViewModel;
+  prepared?(queueItemID: PendingWorkItemID): void;
+  rejected?(queueItemID: PendingWorkItemID): void;
   onDeliveredSession?(
     result: Exclude<ComposerCommandResult, { kind: "local" }>,
     target: ChatMutationTarget,
@@ -37,6 +39,13 @@ export type ChatComposerOptions = Readonly<{
 const noCommands: readonly ComposerCommand[] = [];
 
 export function useChatComposer(options: ChatComposerOptions) {
+  const [messageMotion] = useState(() => new SharedTextMotion());
+  useEffect(
+    () => () => {
+      messageMotion.dispose();
+    },
+    [messageMotion],
+  );
   const { model, onDeliveredSession, commands: additionalCommands = noCommands } = options;
   const services = useAppServices();
   const client = useQueryClient();
@@ -124,6 +133,8 @@ export function useChatComposer(options: ChatComposerOptions) {
   function submit(intent: "send" | "queue", source: "editor" | "compact-button" = "editor") {
     if (interactionRestricted) return;
     inputActions.submit({
+      ...(options.prepared === undefined ? {} : { prepared: options.prepared }),
+      ...(options.rejected === undefined ? {} : { rejected: options.rejected }),
       intent,
       source,
       commands,
@@ -154,6 +165,7 @@ export function useChatComposer(options: ChatComposerOptions) {
     if (source === "editor") setPicker({ kind: "selecting", token: null });
   }
   return {
+    messageMotion,
     target,
     text,
     draft,

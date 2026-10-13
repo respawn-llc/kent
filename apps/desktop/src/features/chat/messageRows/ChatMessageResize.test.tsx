@@ -7,6 +7,8 @@ import { row } from "@/test-support/transcript-window";
 
 import { ChatAssistantMessage } from "./ChatAssistantMessage";
 import { ChatUserMessage } from "./ChatUserMessage";
+import { ChatMessageMotion } from "../ChatMessageMotion";
+import { SharedTextMotion } from "@/ui";
 
 it("keeps the full initial layout height during ancestor entrance scaling", async () => {
   const geometry = installAnimatedHeightGeometry(160, 0.95);
@@ -134,10 +136,18 @@ it.each(["user", "assistant"] as const)(
     const view = render(
       <TestAppProviders services={services}>
         {kind === "user" ? (
-          <ChatUserMessage
-            item={{ kind, state: "committed", key: "1:1", row: committed, value: { Text: text } }}
-            edit={{ onEdit: vi.fn() }}
-          />
+          <ChatMessageMotion motion={new SharedTextMotion()}>
+            <ChatUserMessage
+              item={{
+                kind,
+                state: "committed",
+                key: "1:1",
+                row: committed,
+                value: { Text: text, QueueItemIDs: [] },
+              }}
+              edit={{ onEdit: vi.fn() }}
+            />
+          </ChatMessageMotion>
         ) : (
           <ChatAssistantMessage
             item={{

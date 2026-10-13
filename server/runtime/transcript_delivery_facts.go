@@ -44,6 +44,7 @@ type TranscriptCommittedRowFact struct {
 }
 
 type TranscriptUserRowFact struct {
+	QueueItemIDs      []string
 	Text              string
 	CondensedText     string
 	RollbackTargetID  *string
@@ -248,6 +249,9 @@ func locateTranscriptCommittedRowFacts(facts []TranscriptCommittedRowFact) []Tra
 		}
 		facts[index].Provenance = cloneTranscriptCommittedRowProvenance(provenance)
 		facts[index].Provenance.ProjectedOrdinal = nil
+		if facts[index].User != nil {
+			facts[index].User.QueueItemIDs = append([]string(nil), provenance.QueueItemIDs...)
+		}
 	}
 	return facts
 }

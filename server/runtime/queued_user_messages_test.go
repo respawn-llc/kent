@@ -17,6 +17,7 @@ func TestQueuedUserMessageStorePreservesTypedAgentSteer(t *testing.T) {
 	}
 	message := steer.Message()
 	item, err := (&queuedUserMessageStore{}).QueueItem(QueuedUserMessage{
+		ID:                    runtimeids.NewQueueItemID().String(),
 		Message:               message,
 		CanonicalPresentation: "report status",
 	})
@@ -36,6 +37,7 @@ func TestQueuedUserMessageStoreReturnsErrorsForInvalidPayloads(t *testing.T) {
 	}
 	for _, content := range []string{"", " \t "} {
 		if _, err := store.QueueItem(QueuedUserMessage{
+			ID: runtimeids.NewQueueItemID().String(),
 			Message: llm.Message{
 				Role:    llm.RoleUser,
 				Content: textutil.Value(content),

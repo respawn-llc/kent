@@ -100,16 +100,12 @@ func TestChatReviewQueueCreatesChildAndLeavesParentRunning(t *testing.T) {
 	app, cfg, binding, models := newChatCommandCore(t, nil)
 	source := createCoreSettingsSession(t, app, cfg, binding.ProjectID)
 	id := source.Meta().SessionID
-	parentResult, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
-		Target: chatCommandTarget(id), Activation: &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "parent work"}},
-	})
+	parentResult, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: chatCommandTarget(id), Activation: &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "parent work"}}})
 	if err != nil || parentResult.GetAccepted() == nil {
 		t.Fatalf("parent acceptance = %v, %v", parentResult, err)
 	}
 	parent := awaitChatCommandModel(t, models)
-	result, err := app.ChatMutationClient().Queue(t.Context(), &chatpb.QueueRequest{
-		Target: chatCommandTarget(id), Activation: chatCommandActivation("prompt:review", "/review"),
-	})
+	result, err := app.ChatMutationClient().Queue(t.Context(), &chatpb.QueueRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: chatCommandTarget(id), Activation: chatCommandActivation("prompt:review", "/review")})
 	if err != nil || result.GetAccepted() == nil {
 		t.Fatalf("review acceptance = %v, %v", result, err)
 	}
@@ -172,7 +168,7 @@ func TestChatBuiltinsSelectNewFreshAndEstablishedSessions(t *testing.T) {
 					InitialSettings: &chatsettingspb.InitialChatSettings{AgentRole: "default", Supervisor: chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF, QuestionsEnabled: &enabled, AutoCompactionEnabled: &enabled},
 				}}}
 			}
-			result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{Target: target, Activation: chatCommandActivation(test.identity, test.token)})
+			result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: target, Activation: chatCommandActivation(test.identity, test.token)})
 			if err != nil || result.GetAccepted() == nil {
 				t.Fatalf("command result = %v, %v", result, err)
 			}
@@ -205,7 +201,7 @@ func TestChatFileCommandRetainsSessionAndRequestedAdmission(t *testing.T) {
 	source := createCoreSettingsSession(t, app, cfg, binding.ProjectID)
 	id := source.Meta().SessionID
 	activation := chatCommandActivation("prompt:file", "/prompt:file")
-	result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{Target: chatCommandTarget(id), Activation: activation})
+	result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: chatCommandTarget(id), Activation: activation})
 	if err != nil || result.GetAccepted() == nil || result.GetSession().GetSessionId() != id {
 		t.Fatalf("idle file Send = %v, %v", result, err)
 	}
@@ -214,10 +210,10 @@ func TestChatFileCommandRetainsSessionAndRequestedAdmission(t *testing.T) {
 	for _, queue := range []bool{false, true} {
 		wantLane := runtimepb.PendingWorkLane_PENDING_WORK_LANE_STEER
 		if queue {
-			result, err = app.ChatMutationClient().Queue(t.Context(), &chatpb.QueueRequest{Target: chatCommandTarget(id), Activation: activation})
+			result, err = app.ChatMutationClient().Queue(t.Context(), &chatpb.QueueRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: chatCommandTarget(id), Activation: activation})
 			wantLane = runtimepb.PendingWorkLane_PENDING_WORK_LANE_QUEUE
 		} else {
-			result, err = app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{Target: chatCommandTarget(id), Activation: activation})
+			result, err = app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: chatCommandTarget(id), Activation: activation})
 		}
 		if err != nil || result.GetAccepted() == nil || result.GetSession().GetSessionId() != id {
 			t.Fatalf("busy file submission = %v, %v", result, err)
@@ -245,11 +241,10 @@ func TestChatCommandFailuresRetainCreatedSessionIdentity(t *testing.T) {
 	t.Run("New Chat resolution failure", func(t *testing.T) {
 		app, _, binding, _ := newChatCommandCore(t, nil)
 		enabled := true
-		result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
-			Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_NewChat{NewChat: &chatpb.NewChatTarget{
-				ProjectId: binding.ProjectID, WorkspaceId: binding.WorkspaceID,
-				InitialSettings: &chatsettingspb.InitialChatSettings{AgentRole: "default", Supervisor: chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF, QuestionsEnabled: &enabled, AutoCompactionEnabled: &enabled},
-			}}},
+		result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_NewChat{NewChat: &chatpb.NewChatTarget{
+			ProjectId: binding.ProjectID, WorkspaceId: binding.WorkspaceID,
+			InitialSettings: &chatsettingspb.InitialChatSettings{AgentRole: "default", Supervisor: chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF, QuestionsEnabled: &enabled, AutoCompactionEnabled: &enabled},
+		}}},
 			Activation: chatCommandActivation("prompt:missing", "/prompt:missing"),
 		})
 		if err != nil || result.GetNotAccepted().GetPromptCommandNotFound() == nil {
@@ -270,7 +265,7 @@ func TestChatCommandFailuresRetainCreatedSessionIdentity(t *testing.T) {
 		if _, _, err := log.AppendRecord(nil, session.MessageRecord{Role: session.MessageRoleUser, Content: &text}); err != nil {
 			t.Fatal(err)
 		}
-		result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{Target: chatCommandTarget(source.Meta().SessionID), Activation: chatCommandActivation("prompt:init", "/init")})
+		result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: chatCommandTarget(source.Meta().SessionID), Activation: chatCommandActivation("prompt:init", "/init")})
 		if err != nil || result.GetNotAccepted() == nil {
 			t.Fatalf("child opening failure = %v, %v", result, err)
 		}

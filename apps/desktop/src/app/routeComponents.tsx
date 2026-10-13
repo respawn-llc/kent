@@ -3,7 +3,7 @@ import { lazy, Suspense, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 import { BoardRoute } from "@/features/board";
-import { ChatDestination, NewChatDestination } from "@/features/chat";
+import { ChatDestination } from "@/features/chat";
 import { createProjectTasksViewMemory, HomeRoute, ProjectTasksSurface } from "@/features/home";
 import { StartupGate } from "@/features/startup";
 import { StandaloneTaskRoute } from "@/features/task-detail";
@@ -249,16 +249,13 @@ function ChatRouteContent({
     openEditedSession: async (editedSessionID: string) =>
       appNavigation.openSessionChat({ projectID, sessionID: editedSessionID }),
   };
-  return bookmark.sessionID === null ? (
-    <NewChatDestination
-      projectID={projectID}
-      navigation={navigation}
-      onSessionDelivered={bookmark.delivered}
-      onPopOutCreated={appNavigation.back}
-    />
-  ) : (
+  return (
     <ChatDestination
-      opening={{ kind: "session", projectID, sessionID: bookmark.sessionID }}
+      opening={
+        bookmark.sessionID === null
+          ? { kind: "new_chat", projectID, workspace: null }
+          : { kind: "session", projectID, sessionID: bookmark.sessionID }
+      }
       navigation={navigation}
       onSessionDelivered={bookmark.delivered}
       onPopOutCreated={appNavigation.back}

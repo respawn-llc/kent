@@ -192,10 +192,12 @@ func (c *sessionRuntimeClient) SubmitRuntimeInput(ctx context.Context, req clien
 	if err != nil {
 		return clientui.UserTurnSubmission{}, err
 	}
+	queueItemID := runtimeids.NewQueueItemID().String()
 	resp, err := runtimeRequestCall(ctx, c, true, func(ctx context.Context) (*runtimepb.SubmitUserTurnSuccess, error) {
 		return c.controls.SubmitUserTurn(ctx, &runtimepb.SubmitUserTurnRequest{
-			SessionId: c.sessionID,
-			Input:     input,
+			QueueItemId: queueItemID,
+			SessionId:   c.sessionID,
+			Input:       input,
 		})
 	})
 	if err != nil {

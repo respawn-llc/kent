@@ -737,8 +737,7 @@ func TestSessionWorkspaceRetargeterPublishesFailureBeforeQueuedModelWorkResumes(
 			queued := make(chan queuedResult, 1)
 			go func() {
 				_, accepted, err := engine.QueueUserMessageForActiveRun(
-					context.Background(),
-					"continue after the failed move",
+					context.Background(), runtimeids.NewQueueItemID().String(), "continue after the failed move",
 					nil,
 				)
 				queued <- queuedResult{accepted: accepted, err: err}

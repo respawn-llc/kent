@@ -13,6 +13,7 @@ import {
   TranscriptThinkingStatus,
 } from "./transcriptRows";
 import { TranscriptToolSlot } from "./toolRows";
+import { useChatMessageMotion } from "./ChatMessageMotion";
 
 const estimateSize = () => 120;
 
@@ -30,12 +31,16 @@ export function ChatTranscriptContent({
   effectiveWorkdir: string | null;
 }>) {
   const { transcript } = useChatRuntimeSnapshot();
+  const motion = useChatMessageMotion();
   const neighbors = useMemo(() => messageNeighbors(transcript.items), [transcript.items]);
   return (
     <ChatTranscriptTail
       bottomInset={bottomInset}
       openingVisible={openingVisible}
       estimateSize={estimateSize}
+      ownsEntryMotion={(item) =>
+        item.kind === "user" && motion.hasSource(item.value.QueueItemIDs.map((id) => id.toJSONValue()))
+      }
       slots={{
         user: (item) => <ChatUserMessage item={item} neighbors={neighbors.get(item.key)} edit={edit} />,
         assistant: (item) => <ChatAssistantMessage item={item} neighbors={neighbors.get(item.key)} />,

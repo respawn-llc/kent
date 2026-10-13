@@ -613,7 +613,7 @@ func TestRuntimeScopedUserFlushProjectsWithoutExactStep(t *testing.T) {
 		UserMessageBatchQueuedItems: []runtime.QueuedUserMessageIdentity{{
 			QueueItemID: "10000000-0000-4000-8000-000000000020",
 		}},
-		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 1},
+		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 1, QueueItemIDs: []string{"10000000-0000-4000-8000-000000000020"}},
 	})
 	if err != nil {
 		t.Fatalf("project Runtime user flush: %v", err)
@@ -634,6 +634,9 @@ func TestRuntimeScopedUserFlushProjectsWithoutExactStep(t *testing.T) {
 	}
 	if userRow == nil || userRow.StepId != nil || flushed == nil || flushed.StepId != nil {
 		t.Fatalf("Runtime user/flush Step provenance = user:%+v flush:%+v, want absent", userRow, flushed)
+	}
+	if len(userRow.QueueItemIds) != 1 || userRow.QueueItemIds[0] != "10000000-0000-4000-8000-000000000020" {
+		t.Fatalf("delivery identity = %+v", userRow)
 	}
 }
 

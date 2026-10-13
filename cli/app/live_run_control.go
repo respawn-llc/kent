@@ -46,6 +46,7 @@ func RunLiveSteer(ctx context.Context, opts Options, targetSessionID runtimeids.
 	}
 	defer func() { _ = closeFn() }()
 	return liveClient.LiveSteer(ctx, &runtimepb.LiveSteerRequest{
+		QueueItemId:     runtimeids.NewQueueItemID().String(),
 		SessionId:       targetSessionID.String(),
 		CallerSessionId: callerSessionID,
 		Text:            trimmedText,

@@ -234,11 +234,19 @@ message QueueResult {
 message SteerRequest {
   ChatTarget target = 1 [(buf.validate.field).required = true];
   Activation activation = 2 [(buf.validate.field).required = true];
+  string queue_item_id = 3 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 }
 
 message QueueRequest {
   ChatTarget target = 1 [(buf.validate.field).required = true];
   Activation activation = 2 [(buf.validate.field).required = true];
+  string queue_item_id = 3 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 }
 
 message ManualCompactionTooSoonDetails {}

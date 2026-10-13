@@ -4,6 +4,7 @@ import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api"
 import { ApiClient } from "./client";
 import { ChatService } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import { ContractError } from "./errors";
+import { parsePendingWorkItemID } from "./pendingWork";
 
 it("reads command names and previews from the selected workspace or exact Session", async () => {
   const method = PromptCommandService.method.getCatalog;
@@ -92,12 +93,13 @@ it("accepts a server-selected child for prompt Send and Queue but rejects text a
     separatorWhitespace: " ",
     arguments: "src",
   } as const;
+  const queueItemID = parsePendingWorkItemID("323e4567-e89b-42d3-a456-426614174000");
   for (const method of [api.steer, api.queue]) {
-    await expect(method(target, command)).resolves.toMatchObject({
+    await expect(method(target, command, queueItemID)).resolves.toMatchObject({
       sessionID: child,
       outcome: { kind: "accepted" },
     });
-    await expect(method(target, { kind: "text", text: "ordinary text" })).rejects.toBeInstanceOf(
+    await expect(method(target, { kind: "text", text: "ordinary text" }, queueItemID)).rejects.toBeInstanceOf(
       ContractError,
     );
   }

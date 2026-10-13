@@ -6,6 +6,7 @@ import { Island } from "@/ui";
 import { useComposerKeyboard } from "./useComposerKeyboard";
 import type { useChatComposer } from "./useChatComposer";
 import { useChatPromptPicker } from "./useChatPromptPicker";
+import { ChatMessageMotion } from "./ChatMessageMotion";
 
 type Composer = ReturnType<typeof useChatComposer>;
 type SurfaceProps = Readonly<{ composer: Composer; children: ReactNode; enabled?: boolean }>;
@@ -24,15 +25,17 @@ export function ChatComposerSurface({ composer, children, enabled = true }: Surf
   const stoppable = activity?.activeStep !== null && activity?.activeStep !== undefined;
   const keyboard = useComposerKeyboard(composer, stoppable, observationError, enabled);
   return (
-    <ComposerSurfaceContext.Provider
-      value={{ composer, activity, stoppable, promptPicker, onEditorKeyDown: keyboard.onEditorKeyDown }}
-    >
-      <div className="h-full min-h-0 min-w-0 p-[var(--space-2)]" {...keyboard.surface}>
-        <Island className="h-full min-h-0 w-full min-w-0 overflow-hidden" unpadded>
-          {children}
-        </Island>
-      </div>
-    </ComposerSurfaceContext.Provider>
+    <ChatMessageMotion motion={composer.messageMotion}>
+      <ComposerSurfaceContext.Provider
+        value={{ composer, activity, stoppable, promptPicker, onEditorKeyDown: keyboard.onEditorKeyDown }}
+      >
+        <div className="h-full min-h-0 min-w-0 p-[var(--space-2)]" {...keyboard.surface}>
+          <Island className="h-full min-h-0 w-full min-w-0 overflow-hidden" unpadded>
+            {children}
+          </Island>
+        </div>
+      </ComposerSurfaceContext.Provider>
+    </ChatMessageMotion>
   );
 }
 

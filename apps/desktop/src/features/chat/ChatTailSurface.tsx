@@ -9,20 +9,24 @@ import { ErrorState, IconTooltipButton, InfiniteListBoundary, LoadingState, useO
 
 import "./chatTail.css";
 import { chatOperationFailureMessage } from "./chatSettingsPresentation";
+import { useChatMessageMotion } from "./ChatMessageMotion";
 
 export function ChatTranscriptTail({
   slots,
   estimateSize,
   openingVisible = true,
   bottomInset,
-}: Pick<TranscriptWindowViewProps, "slots" | "estimateSize" | "bottomInset"> &
+  ownsEntryMotion,
+}: Pick<TranscriptWindowViewProps, "slots" | "estimateSize" | "bottomInset" | "ownsEntryMotion"> &
   Readonly<{ openingVisible?: boolean }>) {
   const { t } = useTranslation();
   const owner = useChatRuntimeOwner();
   const { transcript, transcriptPresentationUpdate, jumpPending, observation } = useChatRuntimeSnapshot();
   const status = useStatusController();
+  const motion = useChatMessageMotion();
   const [scrollRequest, setScrollRequest] = useState<symbol | null>(null);
   const jump = async () => {
+    motion.dispose();
     const outcome = await owner.transcript.jumpToLatest();
     switch (outcome.kind) {
       case "tail-ready":
@@ -66,7 +70,22 @@ export function ChatTranscriptTail({
       error ?? (openingVisible ? <LoadingState title={t("chat.tail.loading")} appearanceDelayMs={0} /> : null)
     );
   return (
-    <div className="chat-transcript flex h-full min-h-0 flex-col">
+    <div
+      className="chat-transcript flex h-full min-h-0 flex-col"
+      onWheelCapture={() => {
+        motion.dispose();
+      }}
+      onTouchMoveCapture={() => {
+        motion.dispose();
+      }}
+      onPointerDownCapture={() => {
+        motion.dispose();
+      }}
+      onKeyDownCapture={(event) => {
+        if (["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "].includes(event.key))
+          motion.dispose();
+      }}
+    >
       <div className="min-h-0 flex-1">
         <TranscriptWindowView
           tailFailure={
@@ -89,6 +108,7 @@ export function ChatTranscriptTail({
           presentationUpdate={transcriptPresentationUpdate}
           scrollRequest={scrollRequest}
           slots={slots}
+          ownsEntryMotion={ownsEntryMotion}
           estimateSize={estimateSize}
           loadingLabel={t("chat.tail.loading")}
           retryLabel={t("app.retry")}

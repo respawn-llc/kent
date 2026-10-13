@@ -1,5 +1,5 @@
 import { ClockArrowRight, CornerDownRight, GitBranch, Minimize2, X } from "lucide-react";
-import { AnimatePresence } from "motion/react";
+import { AnimatePresence, useIsPresent } from "motion/react";
 import { useLayoutEffect, useRef } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { useTranslation } from "react-i18next";
@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import type { PendingWorkItem } from "@/api";
 import { AnimatedReveal, IconTooltipButton, ScrollRegion, Spinner } from "@/ui";
 import type { useComposerPendingWork } from "./useComposerPendingWork";
+import { useChatMessageMotion } from "./ChatMessageMotion";
 
 export function ComposerPendingSheet({
   pending,
@@ -43,8 +44,8 @@ export function ComposerPendingSheet({
         <div ref={content}>
           <AnimatePresence initial={false}>
             {pending.items.map((item) => (
-              <AnimatedReveal key={item.id.toJSONValue()}>
-                <PendingRow item={item} pending={pending} />
+              <AnimatedReveal key={item.id.toJSONValue()} variant="collapse-center">
+                <PendingRow item={item} pending={pending} visible={visible} />
               </AnimatedReveal>
             ))}
           </AnimatePresence>
@@ -57,11 +58,20 @@ export function ComposerPendingSheet({
 function PendingRow({
   item,
   pending,
+  visible,
 }: Readonly<{
   item: PendingWorkItem;
   pending: ReturnType<typeof useComposerPendingWork>;
+  visible: boolean;
 }>) {
   const { t } = useTranslation();
+  const motion = useChatMessageMotion();
+  const text = useRef<HTMLSpanElement>(null);
+  const id = item.id.toJSONValue();
+  const present = useIsPresent();
+  useLayoutEffect(() => {
+    if (visible && present && text.current !== null) return motion.register(id, text.current);
+  }, [motion, id, visible, present]);
   const loading = useAtomValue(pending.discardPending(item.id.toJSONValue()));
   const Icon =
     item.kind === "manual_compaction"
@@ -74,7 +84,7 @@ function PendingRow({
   return (
     <div className="chat-composer-pending-row">
       <Icon size={16} className="shrink-0 text-[var(--color-muted)]" />
-      <span className="min-w-0 flex-1 line-clamp-2 whitespace-pre-wrap break-words">
+      <span ref={text} className="min-w-0 flex-1 line-clamp-2 whitespace-pre-wrap break-words">
         {item.canonicalInput}
       </span>
       <IconTooltipButton

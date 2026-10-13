@@ -8,8 +8,6 @@ import (
 	"core/server/llm"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
-
-	"github.com/google/uuid"
 )
 
 var errInvalidQueuedUserMessage = errors.New("queued message requires a role and content")
@@ -45,7 +43,7 @@ func (s *queuedUserMessageStore) Queue(input QueuedUserInput, association ...que
 		return QueuedUserMessage{}, err
 	}
 	return s.QueueItem(QueuedUserMessage{
-		ID:                    uuid.NewString(),
+		ID:                    input.ID,
 		Message:               llm.Message{Role: llm.RoleUser, Content: textutil.Value(input.ExecutionText)},
 		CanonicalPresentation: input.CanonicalPresentation,
 	}, association...)
@@ -57,17 +55,13 @@ type queuedUserMessageAssociation struct {
 }
 
 func (s *queuedUserMessageStore) QueueItem(item QueuedUserMessage, associations ...queuedUserMessageAssociation) (QueuedUserMessage, error) {
-	item.ID = strings.TrimSpace(item.ID)
-	if item.ID == "" {
-		item.ID = uuid.NewString()
-	}
 	if item.Message.Content == nil ||
 		strings.TrimSpace(*item.Message.Content) == "" ||
 		item.Message.Role == "" ||
 		strings.TrimSpace(item.CanonicalPresentation) == "" {
 		return QueuedUserMessage{}, errInvalidQueuedUserMessage
 	}
-	if _, err := runtimeids.ParseQueueItemID(item.ID); err != nil {
+	if _, err := runtimeids.ParseCanonicalUUIDv4(item.ID, "queue_item_id"); err != nil {
 		return QueuedUserMessage{}, err
 	}
 	var association queuedUserMessageAssociation

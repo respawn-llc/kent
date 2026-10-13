@@ -5,6 +5,7 @@ import type {
   ChatInputMutationResult,
   ChatMutationTarget,
   ChatMainView,
+  PendingWorkItemID,
 } from "@/api";
 import type { QueryClient } from "@tanstack/react-query";
 import { isCompacting, queryKeys } from "@/app-facade";
@@ -66,6 +67,9 @@ export type ComposerCommandResolution =
       execution: Extract<ComposerCommand["execution"], { kind: "direct" }>;
     }>
   | Readonly<{ kind: "unknown-prompt"; token: string }>;
+export type PreparedComposerCommand =
+  | (Extract<ComposerCommandResolution, { kind: "input" }> & Readonly<{ queueItemID: PendingWorkItemID }>)
+  | Extract<ComposerCommandResolution, { kind: "direct" }>;
 
 export function tokenizeComposerCommand(text: string): ComposerCommandInvocation {
   let tokenStart = 0;
@@ -126,10 +130,11 @@ export function composerSuggestions(
 export async function dispatchComposerCommand(
   api: ChatApi,
   target: ChatMutationTarget,
-  command: Exclude<ComposerCommandResolution, { kind: "unknown-prompt" | "unavailable" }>,
+  command: PreparedComposerCommand,
   intent: "send" | "queue",
 ): Promise<ComposerCommandResult> {
-  if (command.kind === "input") return api[intent === "send" ? "steer" : "queue"](target, command.activation);
+  if (command.kind === "input")
+    return api[intent === "send" ? "steer" : "queue"](target, command.activation, command.queueItemID);
   const action =
     intent === "queue" ? (command.execution.queue ?? command.execution.send) : command.execution.send;
   return action(target, command.invocation);

@@ -5,8 +5,11 @@ import (
 	"time"
 
 	"core/shared/protoapi"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	"core/shared/runtimeids"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -16,8 +19,44 @@ const (
 	validLiveQueueItemID = "540a27aa-1e97-4696-8483-6d528ff8bbdd"
 )
 
+func TestInputSubmissionRequiresCallerUUIDV4(t *testing.T) {
+	requests := []proto.Message{
+		&runtimepb.LiveSteerRequest{SessionId: validLiveSessionID, Text: "input"},
+		&runtimepb.SubmitUserTurnRequest{
+			SessionId: validLiveSessionID,
+			Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "input"}},
+		},
+		&chatpb.SteerRequest{
+			Target:     &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{Session: &chatpb.ExistingSessionTarget{SessionId: validLiveSessionID}}},
+			Activation: &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "input"}},
+		},
+	}
+	requests = append(requests, &chatpb.QueueRequest{
+		Target:     requests[2].(*chatpb.SteerRequest).Target,
+		Activation: requests[2].(*chatpb.SteerRequest).Activation,
+	})
+	for _, request := range requests {
+		for _, id := range []string{"", "invalid", "018f3f8c-5b1a-7b72-8cb9-01af2c01a7e8", " " + validLiveQueueItemID, validLiveQueueItemID} {
+			switch req := request.(type) {
+			case *runtimepb.LiveSteerRequest:
+				req.QueueItemId = id
+			case *runtimepb.SubmitUserTurnRequest:
+				req.QueueItemId = id
+			case *chatpb.SteerRequest:
+				req.QueueItemId = id
+			case *chatpb.QueueRequest:
+				req.QueueItemId = id
+			}
+			err := protoapi.Validate(request)
+			if (err == nil) != (id == validLiveQueueItemID) {
+				t.Fatalf("%T queue identity %q: %v", request, id, err)
+			}
+		}
+	}
+}
+
 func TestRuntimeLiveSteerRequestValidateUsesUUIDV4Boundaries(t *testing.T) {
-	req := &runtimepb.LiveSteerRequest{SessionId: validLiveSessionID, Text: " steer the run "}
+	req := &runtimepb.LiveSteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: validLiveSessionID, Text: " steer the run "}
 	if err := protoapi.Validate(req); err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +78,7 @@ func TestRuntimeLiveSteerRequestValidateUsesUUIDV4Boundaries(t *testing.T) {
 
 func TestRuntimeLiveSteerRequestRejectsMalformedCallerProvenance(t *testing.T) {
 	for _, caller := range []string{"", "/invalid/session", "session-1", "  "} {
-		req := &runtimepb.LiveSteerRequest{SessionId: validLiveSessionID, Text: "text", CallerSessionId: &caller}
+		req := &runtimepb.LiveSteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: validLiveSessionID, Text: "text", CallerSessionId: &caller}
 		if err := protoapi.Validate(req); err == nil {
 			t.Fatalf("accepted caller Session %q", caller)
 		}

@@ -58,9 +58,9 @@ func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest
 		var item runtime.QueuedUserMessage
 		var accepted bool
 		if callerSessionID != nil {
-			item, accepted, err = engine.QueueAgentSteerForActiveRun(callbackCtx, agentSteer, nil)
+			item, accepted, err = engine.QueueAgentSteerForActiveRun(callbackCtx, req.QueueItemId, agentSteer, nil)
 		} else {
-			item, accepted, err = engine.QueueUserMessageForActiveRun(callbackCtx, queueText, nil)
+			item, accepted, err = engine.QueueUserMessageForActiveRun(callbackCtx, req.QueueItemId, queueText, nil)
 		}
 		if errors.Is(err, runtime.ErrNoActiveLiveRun) {
 			return serverapi.ErrRuntimeNoActiveRun

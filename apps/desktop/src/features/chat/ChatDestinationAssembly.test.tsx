@@ -478,7 +478,9 @@ it("blocks parent interaction while Edit is pending and restores its draft after
     vi.spyOn(services.api.chat, "forkEdit").mockReturnValue(response.promise);
     vi.mocked(services.api.chat.getTranscriptPage).mockResolvedValue({
       ...transcriptPage(null),
-      entries: [{ ...row(1), User: { Text: "original message", RollbackTargetID: "rollback" } }],
+      entries: [
+        { ...row(1), User: { Text: "original message", RollbackTargetID: "rollback", QueueItemIDs: [] } },
+      ],
     });
   });
   const user = userEvent.setup();
@@ -501,7 +503,7 @@ it("keeps the parent draft when child creation succeeds but departure saving fai
     vi.spyOn(services.api.chat, "forkEdit").mockResolvedValue("child-session");
     vi.mocked(services.api.chat.getTranscriptPage).mockResolvedValue({
       ...transcriptPage(null),
-      entries: [{ ...row(1), User: { Text: "original", RollbackTargetID: "rollback" } }],
+      entries: [{ ...row(1), User: { Text: "original", RollbackTargetID: "rollback", QueueItemIDs: [] } }],
     });
   });
   navigation.openParentSession.mockImplementationOnce(async (sessionID: string) =>

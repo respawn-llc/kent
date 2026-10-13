@@ -229,7 +229,14 @@
 - The composer must use 8px inner padding.
 - Composer chips must have transparent backgrounds and borders at rest and show a subtle background highlight on hover. Their text and icons must retain semantic colors.
 - Composer control icons and loading indicators must have optically balanced sizes. The Processes chip must use a terminal icon. The Goal chip must use a literal goal icon rather than a target.
-- New message, tool, and notice rows must enter with a bottom-up fade and slide. Their height must expand with ease-out motion so existing content moves smoothly.
+- New message, tool, and notice rows must enter with a bottom-up fade and slide. Their height must expand with ease-out motion so existing content moves smoothly. User-message delivery must follow the shared-text motion contract below.
+
+- When submitted composer text becomes a committed user message, its text must travel from the composer into the transcript bubble.
+- When queued or steered text becomes a committed user message, its text must travel from its Pending Work row into the transcript bubble. The source row must collapse inward vertically during delivery.
+- The bubble must enter quickly from below the composer with a slide and fade using ease-in motion. The text must travel more slowly using ease-in-out motion.
+- Text wrapping must change only once during the transition. The visual handoff must mask that change. Markdown formatting may appear during the handoff or after arrival.
+- Desktop must associate source text with committed messages using the input identity defined by [Runtime Steering](runtime-steering-loop.md), including the first message in New Chat. Identical text must not confuse delivery association.
+- Delivery motion must not replay when historical messages remount or move Chat away from the operator's scroll position. Reduced motion must remove the movement.
 - Adjacent collapsed tool and notice rows must use 70% of the standard inter-row gap. Expanded rows and message spacing must use their ordinary spacing.
 - Inline disclosure rows without a type label must use one 8px gap between the icon and summary, without reserving space for an absent label.
 - Tool rows must optically balance monospace commands, paths, and output against regular labels, using 13px monospace with 14px regular text at the default text scale.
@@ -360,7 +367,7 @@
 - Send and Queue must clear the submitted draft immediately and keep editing available. Rejection or failure must append the submitted text after any current composer text, separated by one newline when both are nonempty. Acceptance must preserve text entered after submission.
 - If a saved Session draft arrives after editing begins, the composer must place the saved draft before the newly typed text, separated by one newline when both are nonempty. Submission and draft persistence must wait for that initial draft read to complete.
 - Send starts a user turn while idle and Steers the active turn while work is running. A Steer takes effect at the next safe step boundary. Queue is a separate action that starts after active work completes; when idle, queued work starts immediately.
-- `Enter` sends or Steers, `Cmd+Enter` on macOS or `Ctrl+Enter` on other platforms Queues, and `Shift+Enter` inserts a newline. Tab keeps normal focus navigation.
+- `Enter` sends or Steers, `Cmd+Enter` on macOS or `Ctrl+Enter` on other platforms Queues, and `Shift+Enter` inserts a newline. When the command picker has a selected suggestion, unmodified Tab must complete it with a trailing space without submitting. Otherwise Tab keeps normal focus navigation.
 - `chat.steer` reuses ordinary submission admission after the server resolves the Chat target and prepares any required runtime. It maps that admission into a Chat-specific result without changing the ordinary Submit User Turn response. Its accepted result identifies the queued input without waiting for later provider, model, tool, or Runtime execution. A synchronous post-acceptance diagnostic preserves that identity. Later execution failure arrives through ordinary Runtime or transcript feedback and never rewrites the delivered mutation result. `chat.queue` delegates to the server-owned post-turn Queue operation through the same server-owned target and runtime preparation. `chat.compact` resolves the same target and then delegates to ordinary manual-compaction admission. Desktop never creates a client-local Queue.
 - Queue accepts the same typed ordinary-text or prompt/Agent-command input as Send. Desktop identifies catalog-recognized prompt or Agent commands, while the server owns command expansion, queues the resolved model input, and preserves canonical command history.
 - The server must own prompt-command conversation placement. Desktop must submit command identity, arguments, and Send/Queue intent through ordinary Chat actions and open the returned Session.

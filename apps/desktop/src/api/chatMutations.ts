@@ -32,6 +32,7 @@ import {
   parsePendingWorkItemID,
   pendingWorkRestorationSchema,
   pendingWorkSchema,
+  type PendingWorkItemID,
 } from "./pendingWork";
 import type { RpcTransport } from "./transport";
 
@@ -45,6 +46,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
     method: typeof ChatService.method.steer | typeof ChatService.method.queue,
     target: ChatMutationTarget,
     activation: ChatActivation,
+    queueItemID: PendingWorkItemID,
   ) => {
     const result =
       target.kind === "session"
@@ -54,6 +56,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
             create(method.input, {
               target: { target: { case: "session", value: { sessionId: requireChatSessionID(target) } } },
               activation: chatActivation(activation),
+              queueItemId: queueItemID.toJSONValue(),
             }),
           )
         : await transport
@@ -65,6 +68,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
                 create(method.input, {
                   target: mutationTarget(target, attachment.workspaceID),
                   activation: chatActivation(activation),
+                  queueItemId: queueItemID.toJSONValue(),
                 }),
             })
             .then((call) => {
@@ -89,19 +93,25 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
     if (success.outcome.case !== "accepted" || success.outcome.value.queueItem === undefined) {
       throw new ContractError("Chat mutation response did not match the GUI contract.");
     }
+    const acceptedID = parsePendingWorkItemID(success.outcome.value.queueItem.id);
+    if (acceptedID.toJSONValue() !== queueItemID.toJSONValue()) {
+      throw new ContractError("Chat mutation accepted a different input identity.");
+    }
     return {
       sessionID: returnedSessionID,
       outcome: {
         kind: "accepted" as const,
-        queueItemID: parsePendingWorkItemID(success.outcome.value.queueItem.id),
+        queueItemID: acceptedID,
         diagnostic: acceptedDiagnostic(success.outcome.value.diagnostic),
       },
     };
   };
 
   return {
-    steer: async (target, activation) => mutateInput(ChatService.method.steer, target, activation),
-    queue: async (target, activation) => mutateInput(ChatService.method.queue, target, activation),
+    steer: async (target, activation, queueItemID) =>
+      mutateInput(ChatService.method.steer, target, activation, queueItemID),
+    queue: async (target, activation, queueItemID) =>
+      mutateInput(ChatService.method.queue, target, activation, queueItemID),
     async compact(target, invocation) {
       const method = ChatService.method.compact;
       const result =

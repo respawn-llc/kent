@@ -1280,9 +1280,8 @@ func TestCompletedWorkflowSessionAllowsOrdinaryInteractiveContinuation(t *testin
 		WithWorkflowSessionPreparationReader(f.controller)
 	response, err := service.SubmitUserTurn(
 		context.Background(),
-		&runtimepb.SubmitUserTurnRequest{
-			SessionId: sessionID.String(),
-			Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "continue ordinary conversation"}},
+		&runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: sessionID.String(),
+			Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "continue ordinary conversation"}},
 		},
 	)
 	if err != nil {
@@ -1408,9 +1407,8 @@ func TestWorkflowMovedPastSessionAllowsOrdinaryInteractiveContinuation(t *testin
 		WithWorkflowSessionPreparationReader(f.controller)
 	response, err := service.SubmitUserTurn(
 		context.Background(),
-		&runtimepb.SubmitUserTurnRequest{
-			SessionId: sessionID.String(),
-			Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "continue the old ordinary conversation"}},
+		&runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: sessionID.String(),
+			Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "continue the old ordinary conversation"}},
 		},
 	)
 	if err != nil {
@@ -3043,9 +3041,8 @@ func TestInteractivePreparedGenerationRestoresWorkflowAssignment(t *testing.T) {
 				WithPromptHistoryStore(f.metadata).
 				WithWorkflowSessionReactivator(f.controller).
 				WithWorkflowSessionPreparationReader(f.controller)
-			if _, err := service.SubmitUserTurn(t.Context(), &runtimepb.SubmitUserTurnRequest{
-				SessionId: sessionID.String(), Input: &runtimepb.UserTurnInput{
-					Input: &runtimepb.UserTurnInput_Text{Text: "ordinary conversation"}},
+			if _, err := service.SubmitUserTurn(t.Context(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: sessionID.String(), Input: &runtimepb.UserTurnInput{
+				Input: &runtimepb.UserTurnInput_Text{Text: "ordinary conversation"}},
 			}); err != nil {
 				t.Fatal(err)
 			}

@@ -8,7 +8,7 @@ export function row(sequence: number): ChatTranscriptPayloadByKind["committed_ro
     Locator: { event_sequence: sequence, row_ordinal: 1 },
     Visibility: "ongoing",
     Integrity: 0,
-    User: { Text: `Message ${String(sequence)}` },
+    User: { Text: `Message ${String(sequence)}`, QueueItemIDs: [] },
     Assistant: null,
     Tool: null,
     ReasoningTrace: null,

@@ -18,6 +18,7 @@ import {
 
 import { FakeRpcTransport } from "@/test-support/api";
 import { ApiClient } from "./client";
+import { parsePendingWorkItemID } from "./pendingWork";
 import { ChatOperationError } from "./chatErrors";
 import type { ChatError } from "./chatErrors";
 import { ContractError } from "./errors";
@@ -899,6 +900,7 @@ describe("Chat Settings descriptor adapter", () => {
     await chat.queue(
       { ...newChatTarget, initialSettings: result.initialSettings },
       { kind: "text", text: "start" },
+      parsePendingWorkItemID("223e4567-e89b-42d3-a456-426614174000"),
     );
     expect(transport.attachedProjectDescriptorCalls[1]?.request).toEqual(
       create(ChatService.method.queue.input, {
@@ -913,6 +915,7 @@ describe("Chat Settings descriptor adapter", () => {
           },
         },
         activation: { input: { case: "text", value: "start" } },
+        queueItemId: "223e4567-e89b-42d3-a456-426614174000",
       }),
     );
   });
