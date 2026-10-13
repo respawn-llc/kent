@@ -27,7 +27,7 @@ func (s *fakeRuntimeService) ActivateSessionRuntime(_ context.Context, req serve
 		return serverapi.SessionRuntimeAttachment{}, s.activateErr
 	}
 	return serverapi.SessionRuntimeAttachment{
-			SessionID:  req.SessionID,
+			SessionID:  req.SessionID.String(),
 			Generation: uint64(len(s.activateRequests)),
 		},
 		nil
@@ -76,7 +76,7 @@ func TestActivateBuildsRequest(t *testing.T) {
 		t.Fatalf("activate requests = %d, want 1", len(service.activateRequests))
 	}
 	req := service.activateRequests[0]
-	if req.SessionID != "session-1" {
+	if req.SessionID.String() != "session-1" {
 		t.Fatalf("session id = %q, want session-1", req.SessionID)
 	}
 	if !reflect.DeepEqual(req.EnabledToolIDs, []string{"shell", "patch"}) {

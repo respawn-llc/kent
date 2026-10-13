@@ -758,6 +758,10 @@ func (e *Engine) SessionID() string {
 	return strings.TrimSpace(e.store.Meta().SessionID)
 }
 
+func (e *Engine) SessionIdentity() runtimeids.SessionIdentity {
+	return e.store.Identity()
+}
+
 func (e *Engine) ContinuationAgentRole() *string {
 	if e == nil || e.store == nil {
 		return nil

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,11 +14,54 @@ import (
 	"core/cli/app"
 	"core/shared/clientui"
 	"core/shared/config"
+	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/sessionenv"
 )
+
+func TestRunPresentationUsesShortSelectorsAndUUIDJSON(t *testing.T) {
+	t.Setenv(sessionenv.SessionIDEnv, "")
+	id := runtimeids.NewSessionID()
+	short, err := runtimeids.NewSessionShortID(123)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := runtimeids.SessionIdentity{ID: id, ShortID: &short}
+	var stdout, stderr bytes.Buffer
+	renderer := newRunProgressRenderer(&stdout, &stderr)
+	number := short.Int64()
+	renderer.PublishRunPromptProgress(&runpromptpb.ProgressEvent{
+		Payload: &runpromptpb.ProgressEvent_SessionStarted{SessionStarted: &runpromptpb.SessionStarted{SessionId: id.String(), ShortId: &number}},
+	})
+	renderer.Complete("done", nil, buildRunContinueHint(identity.String(), ""))
+	for _, output := range []string{stdout.String(), stderr.String()} {
+		if !strings.Contains(output, short.String()) || strings.Contains(output, id.String()) {
+			t.Fatalf("ordinary Session output = %q", output)
+		}
+	}
+	previousRun := runPromptApp
+	t.Cleanup(func() { runPromptApp = previousRun })
+	runPromptApp = func(context.Context, app.Options, string, time.Duration, serverapi.RunPromptProgressSink) (app.RunPromptResult, error) {
+		return app.RunPromptResult{Identity: &identity, Outcome: app.RunPromptFinalAnswer{Text: "done"}}, nil
+	}
+	code, ordinary, diagnostics := captureRunOutput(t, []string{"--quiet", "prompt"})
+	if code != 0 || len(diagnostics) != 0 || !strings.Contains(string(ordinary), short.String()) || strings.Contains(string(ordinary), id.String()) {
+		t.Fatalf("Run output = %s, %s, exit %d", ordinary, diagnostics, code)
+	}
+	code, encoded, diagnostics := captureRunOutput(t, []string{"--quiet", "--output-mode", "json", "prompt"})
+	if code != 0 || len(diagnostics) != 0 {
+		t.Fatalf("JSON Run output = %s, %s, exit %d", encoded, diagnostics, code)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded["session_id"] != id.String() || decoded["continue_id"] != id.String() {
+		t.Fatalf("JSON identities = %v", decoded)
+	}
+}
 
 func TestRunCommandReturnsPendingQuestionsInHumanAndJSONModes(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, "")
@@ -81,7 +125,8 @@ func TestRunCommandReturnsPendingQuestionsInHumanAndJSONModes(t *testing.T) {
 			{name: "json", args: []string{"--output-mode=json", "pending prompt"}, json: true},
 		} {
 			t.Run(outcome.name+"/"+mode.name, func(t *testing.T) {
-				sessionID := runtimeids.NewSessionID().String()
+				id := runtimeids.NewSessionID()
+				sessionID := id.String()
 				stdout, err := os.CreateTemp(t.TempDir(), "stdout")
 				if err != nil {
 					t.Fatal(err)
@@ -96,8 +141,8 @@ func TestRunCommandReturnsPendingQuestionsInHumanAndJSONModes(t *testing.T) {
 				os.Stdout, os.Stderr = stdout, stderr
 				runPromptApp = func(context.Context, app.Options, string, time.Duration, serverapi.RunPromptProgressSink) (app.RunPromptResult, error) {
 					return app.RunPromptResult{
-						SessionID: sessionID,
-						Outcome:   app.RunPromptPendingQuestion{Question: outcome.question},
+						Identity: &runtimeids.SessionIdentity{ID: id},
+						Outcome:  app.RunPromptPendingQuestion{Question: outcome.question},
 					}, nil
 				}
 
@@ -181,7 +226,7 @@ func TestRunErrorMessagePreservesCallerContext(t *testing.T) {
 
 func TestRunCommandEmitsLaunchFailures(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, "")
-	const sessionID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+	sessionID := "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 	for _, tc := range []struct {
 		name string
 		err  error
@@ -189,14 +234,14 @@ func TestRunCommandEmitsLaunchFailures(t *testing.T) {
 	}{
 		{
 			name: "selected attachment",
-			err:  fmt.Errorf("attach session: %w", &sessioncontract.SessionNotFoundError{SessionID: sessionID}),
+			err:  fmt.Errorf("attach session: %w", &sessioncontract.SessionNotFoundError{SessionID: &sessionID}),
 			code: "runtime",
 		},
 		{
 			name: "inherited caller",
 			err: fmt.Errorf("calling session context: %w", errors.Join(
 				&serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialCallerMissing},
-				&sessioncontract.SessionNotFoundError{SessionID: sessionID},
+				&sessioncontract.SessionNotFoundError{SessionID: &sessionID},
 			)),
 			code: "subagent_denied",
 		},
@@ -208,35 +253,16 @@ func TestRunCommandEmitsLaunchFailures(t *testing.T) {
 	} {
 		for _, mode := range []runOutputMode{runOutputModeFinalText, runOutputModeJSON} {
 			t.Run(tc.name+"/"+string(mode), func(t *testing.T) {
-				stdout, err := os.CreateTemp(t.TempDir(), "stdout")
-				if err != nil {
-					t.Fatal(err)
-				}
-				stderr, err := os.CreateTemp(t.TempDir(), "stderr")
-				if err != nil {
-					_ = stdout.Close()
-					t.Fatal(err)
-				}
-				previousStdout, previousStderr, previousRun := os.Stdout, os.Stderr, runPromptApp
-				os.Stdout, os.Stderr = stdout, stderr
+				previousRun := runPromptApp
 				runPromptApp = func(context.Context, app.Options, string, time.Duration, serverapi.RunPromptProgressSink) (app.RunPromptResult, error) {
 					return app.RunPromptResult{}, tc.err
 				}
 				t.Cleanup(func() {
-					os.Stdout, os.Stderr, runPromptApp = previousStdout, previousStderr, previousRun
-					_ = stdout.Close()
-					_ = stderr.Close()
+					runPromptApp = previousRun
 				})
-				if code := runSubcommand([]string{"--quiet", "--output-mode", string(mode), "must not dispatch"}); code != 1 {
+				code, out, diagnostics := captureRunOutput(t, []string{"--quiet", "--output-mode", string(mode), "must not dispatch"})
+				if code != 1 {
 					t.Fatalf("exit = %d, want failure", code)
-				}
-				out, err := os.ReadFile(stdout.Name())
-				if err != nil {
-					t.Fatal(err)
-				}
-				diagnostics, err := os.ReadFile(stderr.Name())
-				if err != nil {
-					t.Fatal(err)
 				}
 				if mode == runOutputModeFinalText {
 					if len(out) != 0 || string(diagnostics) != runErrorMessage(tc.err)+"\n" {
@@ -255,4 +281,31 @@ func TestRunCommandEmitsLaunchFailures(t *testing.T) {
 			})
 		}
 	}
+}
+
+func captureRunOutput(t *testing.T, args []string) (int, []byte, []byte) {
+	t.Helper()
+	stdout, err := os.CreateTemp(t.TempDir(), "stdout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdout.Close()
+	stderr, err := os.CreateTemp(t.TempDir(), "stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stderr.Close()
+	previousStdout, previousStderr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = stdout, stderr
+	defer func() { os.Stdout, os.Stderr = previousStdout, previousStderr }()
+	code := runSubcommand(args)
+	out, err := os.ReadFile(stdout.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics, err := os.ReadFile(stderr.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return code, out, diagnostics
 }

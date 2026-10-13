@@ -1,6 +1,8 @@
 package protoapi
 
 import (
+	"errors"
+	"reflect"
 	"testing"
 
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
@@ -58,7 +60,7 @@ func TestGoalSetSuccessRejectsRuntimeUnavailableDiagnostic(t *testing.T) {
 		Diagnostic: &runtimepb.GoalSetError{
 			Code: "runtime_unavailable",
 			Detail: &runtimepb.GoalSetError_RuntimeUnavailable{
-				RuntimeUnavailable: &runtimepb.RuntimeUnavailableDetails{SessionId: sessionID},
+				RuntimeUnavailable: &runtimepb.RuntimeUnavailableDetails{},
 			},
 		},
 	}
@@ -71,13 +73,58 @@ func TestGoalSetSuccessRejectsRuntimeUnavailableDiagnostic(t *testing.T) {
 func TestGoalSetErrorFromErrorIncludesRuntimeUnavailableSession(t *testing.T) {
 	sessionID := runtimeids.NewSessionID()
 
-	got := GoalSetErrorFromError(serverapi.ErrRuntimeUnavailable, sessionID)
+	got := GoalSetErrorFromError(serverapi.WithSessionTarget(serverapi.CanonicalSessionTarget{ID: sessionID}, serverapi.ErrRuntimeUnavailable))
 
 	if got.Code != "runtime_unavailable" {
 		t.Fatalf("Goal Set error code = %q, want runtime_unavailable", got.Code)
 	}
 	detail := got.GetRuntimeUnavailable()
-	if detail == nil || detail.SessionId != sessionID.String() {
+	var target *serverapi.SessionTargetError
+	if detail == nil || !errors.As(RuntimeUnavailableFromProto(detail), &target) || target.SessionID() == nil || *target.SessionID() != sessionID {
 		t.Fatalf("runtime-unavailable details = %+v, want Session %q", detail, sessionID)
+	}
+}
+
+func TestGoalSetCapturedTargetPreservesFailureIdentity(t *testing.T) {
+	id := runtimeids.NewSessionID()
+	shortID, err := runtimeids.NewSessionShortID(73)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		target  serverapi.SessionTarget
+		id      *runtimeids.SessionID
+		shortID *runtimeids.SessionShortID
+	}{
+		{target: serverapi.UnresolvedSessionTarget{}},
+		{target: serverapi.CanonicalSessionTarget{ID: id}, id: &id},
+		{target: serverapi.ProjectedSessionTarget{Identity: runtimeids.SessionIdentity{ID: id}}, id: &id},
+		{target: serverapi.ProjectedSessionTarget{Identity: runtimeids.SessionIdentity{ID: id, ShortID: &shortID}}, id: &id, shortID: &shortID},
+	} {
+		cause := serverapi.ErrRuntimeUnavailable
+		captured := serverapi.WithSessionTarget(test.target, cause)
+		if !errors.Is(captured, cause) {
+			t.Fatal("capturing target replaced original cause")
+		}
+		encoded := GoalSetErrorFromError(captured)
+		details := encoded.GetRuntimeUnavailable()
+		if details == nil {
+			t.Fatalf("original failure classification changed: %v", encoded)
+		}
+		if !errors.Is(RuntimeUnavailableFromProto(details), cause) {
+			t.Fatal("conversion replaced original failure category")
+		}
+		var unavailable *serverapi.SessionTargetError
+		if !errors.As(RuntimeUnavailableFromProto(details), &unavailable) || !reflect.DeepEqual(unavailable.Target, test.target) {
+			t.Fatal("runtime unavailable conversion lost captured target stage")
+		}
+		var roundTrip *serverapi.SessionTargetError
+		if !errors.As(InternalFailureFromProto(InternalFailureToProto(captured)), &roundTrip) {
+			t.Fatal("internal failure conversion lost target context")
+		}
+		original := captured.(*serverapi.SessionTargetError)
+		if !reflect.DeepEqual(roundTrip.Target, original.Target) {
+			t.Fatalf("failure conversion changed captured facts: %v -> %v", original.Target, roundTrip.Target)
+		}
 	}
 }

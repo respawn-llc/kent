@@ -10,7 +10,7 @@ import (
 )
 
 type SessionRuntimeActivateRequest struct {
-	SessionID                string
+	SessionID                runtimeids.SessionSelector
 	OwnerID                  string
 	ActiveSettings           config.Settings
 	EnabledToolIDs           []string
@@ -60,7 +60,10 @@ func (r SessionRuntimeActivateRequest) Validate() error {
 			return err
 		}
 	}
-	if err := validateScopedSessionID(r.SessionID); err != nil {
+	if r.SessionID == nil {
+		return errors.New("Session selector is required")
+	}
+	if _, err := runtimeids.ParseSessionSelector(r.SessionID.String()); err != nil {
 		return err
 	}
 	if r.QuestionsEnabled == nil {

@@ -44,6 +44,7 @@ const imageItem: TranscriptToolSlotItem = {
     Tool: {
       ViewedImageKind: "raster",
       AnsweredBySessionID: null,
+      AnsweredBySessionShortID: null,
       ToolCallID: "image",
       ToolName: "view_image",
       Text: "",

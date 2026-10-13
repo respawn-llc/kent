@@ -111,7 +111,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	}
 	storeOptions := metadataStore.AuthoritativeSessionStoreOptions()
 	attentionBroker := attentionnotify.NewBroker()
-	runtimeRegistry := registry.NewRuntimeRegistry().WithAttentionNotifications(attentionBroker, metadataStore.ResolveSessionNavigationBinding)
+	runtimeRegistry := registry.NewRuntimeRegistry(metadataStore).WithAttentionNotifications(attentionBroker, metadataStore.ResolveSessionNavigationBinding)
 	runtimeRegistry.WithTranscriptContractViolationPanic(cfg.Settings.Debug)
 	var workflowController *workflowexecution.CurrentNodeController
 	connectionRotation := new(launch.ConnectionRotation)
@@ -160,8 +160,8 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		return nil, fmt.Errorf("projects bundle: metadata service: %w", err)
 	}
 	capabilityFactsService := capabilityfacts.NewService(capabilityfacts.Options{Config: cfg})
-	askService := promptcontrol.NewAskViewService(runtimeRegistry)
-	approvalService := promptcontrol.NewApprovalViewService(runtimeRegistry)
+	askService := promptcontrol.NewAskViewService(runtimeRegistry, metadataStore)
+	approvalService := promptcontrol.NewApprovalViewService(runtimeRegistry, metadataStore)
 	processService := processview.NewProcessViewService(background, metadataStore)
 	background.SetBackgroundListChangeHandler(processService.BackgroundListChanged)
 	sessionRuntimeAPI := sessionruntime.NewAPI(metadataStore, runtimeAuthority, sessionruntime.APIOptions{
@@ -186,10 +186,11 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	promptControlService := promptcontrol.NewPromptControlService(
 		authorityPromptResponder{authority: runtimeAuthority},
 		metadataStore,
+		metadataStore,
 	)
 	runtimeRegistry.WithExecutionTargetResolver(metadataStore.ResolveOptionalSessionExecutionTarget)
 	runtimeRegistry.WithBackgroundProcessSnapshots(background.List)
-	runtimeControlService := runtimecontrol.NewService(runtimeAuthority).
+	runtimeControlService := runtimecontrol.NewService(runtimeAuthority, metadataStore).
 		WithRuntimeActivityResolver(runtimeRegistry).
 		WithPromptHistoryStore(metadataStore).
 		WithWorkflowTaskSessionResolver(metadataStore).
@@ -217,7 +218,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	authStatusService := authservice.NewStatusService(connections, metadataStore)
 	updateStatusService := serverstatus.NewUpdateStatusService(config.Version, cfg.Settings.Debug)
 	serverStatusService := serverstatus.NewServerStatusService(cfg, updateStatusService)
-	sessionViewService := sessionview.NewService(metadataStore, runtimeRegistry, metadataStore).
+	sessionViewService := sessionview.NewService(metadataStore, runtimeRegistry, metadataStore, metadataStore).
 		WithPromptHistoryReader(metadataStore).
 		WithChatContextWorkspaceResolver(workspaceConfigResolver).
 		WithCacheWarningMode(cfg.Settings.CacheWarningMode)
@@ -359,7 +360,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		return nil, fmt.Errorf("workflow bundle: Task Sessions: %w", err)
 	}
 	projectService.WithWorkflowExecution(workflowTaskMutations, workflowController, workflowStore)
-	workflowService, err := workflowsvc.New(workflowStore, workflowsvc.ReadModels{
+	workflowService, err := workflowsvc.New(workflowStore, metadataStore, workflowsvc.ReadModels{
 		Definitions:      workflowDefinitions,
 		Board:            workflowBoard,
 		TaskList:         workflowTaskList,
@@ -433,6 +434,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		},
 		sourceSessionLaunch,
 		runtimeRegistry,
+		metadataStore,
 	)
 	chatRuntimes := chatmutation.NewRuntimePlanner(
 		runtimeAuthority,

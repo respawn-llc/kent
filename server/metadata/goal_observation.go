@@ -51,7 +51,11 @@ func (s *Store) SubscribeGoalObservation(
 	if s == nil {
 		return nil, errors.New("metadata store is required")
 	}
-	record, err := session.ResolvePersistedSessionRecord(ctx, s, strings.TrimSpace(req.SessionId))
+	sessionID, err := s.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	record, err := session.ResolvePersistedSessionRecord(ctx, s, sessionID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +63,7 @@ func (s *Store) SubscribeGoalObservation(
 	if err != nil {
 		return nil, err
 	}
-	return s.goalObservations.subscribe(strings.TrimSpace(req.SessionId), status), nil
+	return s.goalObservations.subscribe(sessionID.String(), status), nil
 }
 
 func goalProjection(meta *session.Meta) (*runtimepb.GoalProjection, error) {

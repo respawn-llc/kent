@@ -26,6 +26,7 @@ import (
 	"core/server/transport"
 	"core/shared/client"
 	"core/shared/config"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/sessioncontract"
@@ -475,20 +476,31 @@ func TestWorktreeCommandSessionlessCreateFromDirectory(t *testing.T) {
 
 func TestWorktreeCommandCreateEnterHint(t *testing.T) {
 	f := newWorktreeCommandFixture(t)
-	for _, agent := range []bool{true, false} {
-		t.Run(fmt.Sprint(agent), func(t *testing.T) {
+	record, err := f.core.MetadataStore().ResolvePersistedSession(t.Context(), f.sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := record.ShortID.String()
+	for index, agent := range []bool{true, false, false} {
+		t.Run(fmt.Sprint(index), func(t *testing.T) {
+			if index == 2 {
+				if _, err := f.core.MetadataStore().DB().ExecContext(t.Context(), "UPDATE sessions SET short_id = NULL WHERE id = ?", f.sessionID); err != nil {
+					t.Fatal(err)
+				}
+				selector = f.sessionID
+			}
 			if agent {
 				t.Setenv("KENT_SESSION_ID", f.sessionID)
 			}
 			var out, stderr bytes.Buffer
-			root := filepath.Join(f.core.Config().Settings.Worktrees.BaseDir, fmt.Sprintf("worktree %t with ' quotes", agent))
-			args := []string{"create", "--project", f.b.ProjectID, "--session", f.sessionID, fmt.Sprintf("hint-%t", agent), root}
+			root := filepath.Join(f.core.Config().Settings.Worktrees.BaseDir, fmt.Sprintf("worktree %d with ' quotes", index))
+			args := []string{"create", "--project", f.b.ProjectID, "--session", f.sessionID, fmt.Sprintf("hint-%d", index), root}
 			if code := worktreeSubcommand(args, &out, &stderr); code != 0 {
 				t.Fatalf("create exit %d: %s", code, &stderr)
 			}
 			enter := []string{config.Command, "worktree", "enter"}
 			if !agent {
-				enter = append(enter, "--session", f.sessionID)
+				enter = append(enter, "--session", selector)
 			}
 			canonical, err := config.CanonicalWorkspaceRoot(root)
 			if err != nil {
@@ -639,7 +651,7 @@ func TestWorktreeCommandRejectedManagementLeavesStateUnchanged(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 	preview, err := remote.PreviewWorktreeDelete(context.Background(), &worktreepb.DeletePreviewRequest{
-		Scope:    worktreecontract.WorkspaceManagementScope(f.b.ProjectID, f.b.WorkspaceID, &f.sessionID),
+		Scope:    worktreecontract.WorkspaceManagementScope(f.b.ProjectID, f.b.WorkspaceID, &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: f.sessionID}}),
 		Selector: facts.Kent.WorktreeID,
 	})
 	if err != nil {

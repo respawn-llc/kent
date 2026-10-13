@@ -9,6 +9,7 @@ import (
 
 	"core/shared/client"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/sessionenv"
 )
 
@@ -45,7 +46,7 @@ func TestSessionArchiveCommandSuccess(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, "")
 	remote := &sessionCommandTestRemote{
 		archiveResponse: &sessionlaunchpb.SessionArchiveSuccess{
-			SessionId:  "session-archive",
+			SessionId:  "33333333-3333-4333-8333-333333333333",
 			OutputPath: "/tmp/session-archive.tar.zst",
 		},
 	}
@@ -56,7 +57,7 @@ func TestSessionArchiveCommandSuccess(t *testing.T) {
 			return remote, nil
 		},
 	}
-	exitCode, stdout, stderr := runSessionCommandTest(t, command, []string{"archive", "session-archive", "--output", "/tmp/session-archive.tar.zst", "--json"})
+	exitCode, stdout, stderr := runSessionCommandTest(t, command, []string{"archive", "0007", "--output", "/tmp/session-archive.tar.zst", "--json"})
 
 	if exitCode != 0 || stderr != "" {
 		t.Fatalf("exit = %d, stderr = %q", exitCode, stderr)
@@ -65,7 +66,7 @@ func TestSessionArchiveCommandSuccess(t *testing.T) {
 		t.Fatalf("contexts = dial deadline %t, archive deadline %t; want bounded dial and unbounded archive", dialDeadline, remote.archiveDeadline)
 	}
 	if len(remote.archiveRequests) != 1 ||
-		remote.archiveRequests[0].SessionId != "session-archive" ||
+		remote.archiveRequests[0].SessionId.GetShortId() != 7 ||
 		remote.archiveRequests[0].OutputPath != "/tmp/session-archive.tar.zst" {
 		t.Fatalf("archive requests = %+v", remote.archiveRequests)
 	}
@@ -74,7 +75,7 @@ func TestSessionArchiveCommandSuccess(t *testing.T) {
 		t.Fatalf("decode JSON: %v", err)
 	}
 	if envelope.Status != "ok" || envelope.Result == nil ||
-		envelope.Result.SessionID != "session-archive" ||
+		envelope.Result.SessionID != "33333333-3333-4333-8333-333333333333" ||
 		envelope.Result.OutputPath == nil ||
 		*envelope.Result.OutputPath != "/tmp/session-archive.tar.zst" {
 		t.Fatalf("envelope = %+v", envelope)
@@ -84,34 +85,35 @@ func TestSessionArchiveCommandSuccess(t *testing.T) {
 func TestSessionDeleteCommandSuccess(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, "")
 	remote := &sessionCommandTestRemote{
-		deleteResponse: &sessionlaunchpb.SessionDeleteSuccess{SessionId: "session-delete"},
+		deleteResponse: &sessionlaunchpb.SessionDeleteSuccess{SessionId: "33333333-3333-4333-8333-333333333333"},
 	}
 	command := sessionCommand{
 		openRemote: func(context.Context) (sessionCommandRemote, error) {
 			return remote, nil
 		},
 	}
-	exitCode, stdout, stderr := runSessionCommandTest(t, command, []string{"delete", "session-delete", "--confirm"})
+	exitCode, stdout, stderr := runSessionCommandTest(t, command, []string{"delete", "7", "--confirm"})
 
 	if exitCode != 0 || stderr != "" {
 		t.Fatalf("exit = %d, stdout = %q, stderr = %q", exitCode, stdout, stderr)
 	}
-	if len(remote.deleteRequests) != 1 || remote.deleteRequests[0].SessionId != "session-delete" {
+	if len(remote.deleteRequests) != 1 || remote.deleteRequests[0].SessionId.GetShortId() != 7 {
 		t.Fatalf("delete requests = %+v", remote.deleteRequests)
 	}
 }
 
-func TestSessionRemovalCommandPreflightsBeforeDial(t *testing.T) {
-	const ownSessionID = "own-session"
+func TestSessionRemovalCommandConfirmationAndServerSelfGuard(t *testing.T) {
+	const ownSessionID = "33333333-3333-4333-8333-333333333333"
 	tests := []struct {
-		name     string
-		env      string
-		args     []string
-		wantCode string
+		name      string
+		env       string
+		args      []string
+		wantCode  string
+		wantDials int
 	}{
-		{name: "archive self target", env: ownSessionID, args: []string{"archive", ownSessionID, "--output", "/tmp/own.tar.zst", "--json"}, wantCode: "self_session_forbidden"},
-		{name: "delete self target", env: ownSessionID, args: []string{"delete", ownSessionID, "--confirm", "--json"}, wantCode: "self_session_forbidden"},
-		{name: "delete confirmation", args: []string{"delete", "other-session", "--json"}, wantCode: "confirmation_required"},
+		{name: "archive self target", env: ownSessionID, args: []string{"archive", "7", "--output", "/tmp/own.tar.zst", "--json"}, wantCode: "self_session_forbidden", wantDials: 1},
+		{name: "delete self target", env: ownSessionID, args: []string{"delete", "7", "--confirm", "--json"}, wantCode: "self_session_forbidden", wantDials: 1},
+		{name: "delete confirmation", args: []string{"delete", "7", "--json"}, wantCode: "confirmation_required"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -120,15 +122,19 @@ func TestSessionRemovalCommandPreflightsBeforeDial(t *testing.T) {
 			command := sessionCommand{
 				openRemote: func(context.Context) (sessionCommandRemote, error) {
 					dials++
-					return nil, errors.New("unexpected dial")
+					detail := &sharedpb.SessionSelfTargetDetails{SessionTarget: &sharedpb.SessionTargetContext{Stage: &sharedpb.SessionTargetContext_CanonicalSessionId{CanonicalSessionId: ownSessionID}}}
+					return &sessionCommandTestRemote{
+						archiveErr: &client.SessionArchiveFailureError{Failure: &sessionlaunchpb.SessionArchiveError{Code: "self_target", Detail: &sessionlaunchpb.SessionArchiveError_SelfTarget{SelfTarget: detail}}},
+						deleteErr:  &client.SessionDeleteFailureError{Failure: &sessionlaunchpb.SessionDeleteError{Code: "self_target", Detail: &sessionlaunchpb.SessionDeleteError_SelfTarget{SelfTarget: detail}}},
+					}, nil
 				},
 			}
 			exitCode, stdout, stderr := runSessionCommandTest(t, command, test.args)
 			if exitCode != 1 {
 				t.Fatalf("exit = %d, want 1; stderr = %q", exitCode, stderr)
 			}
-			if dials != 0 {
-				t.Fatalf("dials = %d, want 0", dials)
+			if dials != test.wantDials {
+				t.Fatalf("dials = %d, want %d", dials, test.wantDials)
 			}
 			var envelope sessionRemovalJSONEnvelope
 			if err := json.Unmarshal(stdout, &envelope); err != nil {
@@ -142,9 +148,9 @@ func TestSessionRemovalCommandPreflightsBeforeDial(t *testing.T) {
 }
 
 func TestSessionRemovalFailureClassification(t *testing.T) {
-	sessionID := "session-failure"
+	sessionID := "33333333-3333-4333-8333-333333333333"
 	outputPath := "/tmp/session-failure.tar.zst"
-	notFound := &sessionlaunchpb.SessionArchiveError_SessionNotFound{SessionNotFound: &sessionlaunchpb.SessionNotFoundDetails{SessionId: sessionID}}
+	notFound := &sessionlaunchpb.SessionArchiveError_SessionNotFound{SessionNotFound: &sessionlaunchpb.SessionNotFoundDetails{SessionId: &sessionID}}
 	inUse := &sessionlaunchpb.SessionDeleteError_SessionInUse{SessionInUse: &sessionlaunchpb.SessionInUseDetails{SessionId: sessionID}}
 	invalidPath := &sessionlaunchpb.SessionArchiveError_InvalidOutputPath{InvalidOutputPath: &sessionlaunchpb.InvalidArchiveOutputPathDetails{Path: outputPath, Reason: sessionlaunchpb.InvalidArchiveOutputPathReason_INVALID_ARCHIVE_OUTPUT_PATH_REASON_NOT_ABSOLUTE}}
 	outputExists := &sessionlaunchpb.SessionArchiveError_OutputExists{OutputExists: &sessionlaunchpb.ArchiveOutputExistsDetails{Path: outputPath}}
@@ -178,6 +184,46 @@ func TestSessionRemovalFailureClassification(t *testing.T) {
 				t.Fatalf("failure message = %q, want server error %q", failure.Message, test.wantMessage)
 			}
 		})
+	}
+}
+
+func TestSessionRemovalMissingNumericJSONOmitsUUID(t *testing.T) {
+	t.Setenv(sessionenv.SessionIDEnv, "")
+	command := sessionCommand{openRemote: func(context.Context) (sessionCommandRemote, error) {
+		return &sessionCommandTestRemote{deleteErr: deleteWireFailure("session_not_found",
+			&sessionlaunchpb.SessionDeleteError_SessionNotFound{SessionNotFound: &sessionlaunchpb.SessionNotFoundDetails{}})}, nil
+	}}
+	code, output, stderr := runSessionCommandTest(t, command, []string{"delete", "7", "--confirm", "--json"})
+	if code != 1 || stderr != "" {
+		t.Fatalf("exit %d, stderr %s", code, stderr)
+	}
+	var envelope struct {
+		Error map[string]json.RawMessage `json:"error"`
+	}
+	if err := json.Unmarshal(output, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := envelope.Error["session_id"]; exists {
+		t.Fatalf("unknown UUID was included: %s", output)
+	}
+}
+
+func TestSessionRemovalInUsePresentation(t *testing.T) {
+	id := "33333333-3333-4333-8333-333333333333"
+	shortID := int64(73)
+	failure := sessionDeleteFailure(id, deleteWireFailure("session_in_use",
+		&sessionlaunchpb.SessionDeleteError_SessionInUse{SessionInUse: &sessionlaunchpb.SessionInUseDetails{
+			SessionId: id, ShortId: &shortID,
+		}}))
+	var stdout, stderr bytes.Buffer
+	if code := writeSessionRemovalOutcome(&stdout, &stderr, nil, failure, false); code != 1 {
+		t.Fatalf("exit=%d", code)
+	}
+	if bytes.Contains(stderr.Bytes(), []byte(id)) || !bytes.Contains(stderr.Bytes(), []byte("73")) {
+		t.Fatalf("human target=%s", &stderr)
+	}
+	if failure.SessionID == nil || *failure.SessionID != id {
+		t.Fatalf("JSON target=%+v", failure.SessionID)
 	}
 }
 

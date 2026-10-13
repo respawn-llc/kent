@@ -341,7 +341,7 @@ func resolvePersistedWorkflowInspection(ctx context.Context, app config.App, met
 	if err != nil {
 		return workflowrunner.PersistedWorkflowInspection{}, err
 	}
-	return workflowrunner.BuildPersistedWorkflowInspection(ctx, app, store, workflowStore, awareness)
+	return workflowrunner.BuildPersistedWorkflowInspection(ctx, metadataStore, app, store, workflowStore, awareness)
 }
 
 func resolveInspectionProviderCapabilities(active config.Settings, locked *session.LockedContract, providerOverride string) (llm.ProviderCapabilities, bool, error) {

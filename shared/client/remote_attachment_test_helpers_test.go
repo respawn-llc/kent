@@ -370,7 +370,7 @@ func remoteTestSessionAttachment(
 			ProjectId:          projectID,
 			WorkspaceId:        workspaceID,
 			WorkspaceRoot:      workspaceRoot,
-			SessionId:          request.SessionId,
+			SessionId:          request.SessionId.GetSessionId(),
 			ReattachCapability: "test-session-reattach-capability",
 		}},
 	}

@@ -14,6 +14,10 @@ func PendingAskFromQuestion(value *promptpb.Question) (clientui.PendingAsk, erro
 	if err := Validate(value); err != nil {
 		return clientui.PendingAsk{}, err
 	}
+	shortID, err := SessionShortIDFromProto(value.ShortId)
+	if err != nil {
+		return clientui.PendingAsk{}, err
+	}
 	sessionID, err := runtimeids.ParseSessionID(value.SessionId)
 	if err != nil {
 		return clientui.PendingAsk{}, err
@@ -28,6 +32,7 @@ func PendingAskFromQuestion(value *promptpb.Question) (clientui.PendingAsk, erro
 		recommended = &index
 	}
 	return clientui.PendingAsk{
+		ShortID:    shortID,
 		ToolCallID: clientui.ToolCallID(value.ToolCallId), SessionID: sessionID, StepID: stepID,
 		Question: value.Question, Suggestions: append([]string(nil), value.Suggestions...),
 		RecommendedOptionIndex: recommended, CreatedAt: value.CreatedAt.AsTime(),
@@ -39,6 +44,10 @@ func PendingApprovalFromApproval(value *promptpb.Approval) (clientui.PendingAppr
 	if err := Validate(value); err != nil {
 		return clientui.PendingApproval{}, err
 	}
+	shortID, err := SessionShortIDFromProto(value.ShortId)
+	if err != nil {
+		return clientui.PendingApproval{}, err
+	}
 	sessionID, err := runtimeids.ParseSessionID(value.SessionId)
 	if err != nil {
 		return clientui.PendingApproval{}, err
@@ -48,6 +57,7 @@ func PendingApprovalFromApproval(value *promptpb.Approval) (clientui.PendingAppr
 		return clientui.PendingApproval{}, err
 	}
 	result := clientui.PendingApproval{
+		ShortID:    shortID,
 		ToolCallID: clientui.ToolCallID(value.ToolCallId), SessionID: sessionID, StepID: stepID,
 		Question: value.GetQuestion(), AccessTargets: FileAccessTargetsFromProto(value.AccessTargets),
 		CreatedAt: value.CreatedAt.AsTime(),
@@ -65,6 +75,7 @@ func PendingApprovalFromApproval(value *promptpb.Approval) (clientui.PendingAppr
 
 func QuestionFromPendingAsk(value clientui.PendingAsk) (*promptpb.Question, error) {
 	result := &promptpb.Question{
+		ShortId:    SessionShortIDToProto(value.ShortID),
 		ToolCallId: string(value.ToolCallID), SessionId: value.SessionID.String(), StepId: value.StepID.String(),
 		Question: value.Question, Suggestions: append([]string(nil), value.Suggestions...),
 		CreatedAt: timestamppb.New(value.CreatedAt),
@@ -82,6 +93,7 @@ func QuestionFromPendingAsk(value clientui.PendingAsk) (*promptpb.Question, erro
 
 func ApprovalFromPendingApproval(value clientui.PendingApproval) (*promptpb.Approval, error) {
 	result := &promptpb.Approval{
+		ShortId:    SessionShortIDToProto(value.ShortID),
 		ToolCallId: string(value.ToolCallID), SessionId: value.SessionID.String(), StepId: value.StepID.String(),
 		Question: textutil.OptionalExactString(value.Question), AccessTargets: FileAccessTargetsToProto(value.AccessTargets),
 		CreatedAt: timestamppb.New(value.CreatedAt),

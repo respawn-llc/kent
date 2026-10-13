@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"core/internal/testharness/requestfixture"
 	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
@@ -71,7 +72,7 @@ func sessionLaunchRequestFromLifecycleResult(t *testing.T, result *sessionlaunch
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, err := sessionLaunchRequestFromIntent(intent, overrides)
+	request, err := sessionLaunchRequestFromIntent(requestfixture.LaunchIntent(t, intent), overrides)
 	if err != nil {
 		t.Fatalf("build launch request: %v", err)
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/runtime"
@@ -207,7 +208,7 @@ func TestHumanRebindPreservesExecutionAndQueuedInputAfterCallerDisconnects(t *te
 	callerCtx, disconnect := context.WithCancel(ctx)
 	targetProject := fixture.targetProject.ProjectID
 	response, err := service.RetargetSessionWorkspace(callerCtx, &sessionlaunchpb.SessionRetargetWorkspaceRequest{
-		SessionId: fixture.childID.String(), WorkspaceRoot: fixture.targetWorkspaceRoot, ProjectId: &targetProject,
+		SessionId: requestfixture.Selector(t, fixture.childID.String()), WorkspaceRoot: fixture.targetWorkspaceRoot, ProjectId: &targetProject,
 	})
 	disconnect()
 	if err != nil || response.Scheduled == nil || response.Binding != nil {

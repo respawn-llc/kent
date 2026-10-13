@@ -141,8 +141,12 @@ func (a *transcriptPromptAnswerer) submitter(
 		}
 		entry.Answer = &promptpb.AnswerBatchEntry_QuestionAnswer{QuestionAnswer: question}
 	}
+	sessionID, err := runtimeids.ParseSessionID(transcriptPromptSessionID(prompt))
+	if err != nil {
+		return nil, err
+	}
 	request := &promptpb.AnswerBatchRequest{
-		SessionId: transcriptPromptSessionID(prompt),
+		SessionId: protoapi.SessionSelectorToProto(sessionID),
 		StepId:    transcriptPromptStepID(prompt),
 		Entries:   []*promptpb.AnswerBatchEntry{entry},
 	}

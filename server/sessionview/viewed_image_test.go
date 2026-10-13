@@ -17,7 +17,7 @@ func TestOpenViewedImageOriginalResolvesRelativePath(t *testing.T) {
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
 		target: availableSessionExecutionTarget(workdir),
-	})
+	}, nil)
 	original := []byte("current original")
 	if err := os.WriteFile(filepath.Join(workdir, "original.png"), original, 0600); err != nil {
 		t.Fatal(err)
@@ -45,7 +45,7 @@ func TestOpenViewedImageOriginalRejectsUnavailableAndNonRegularSources(t *testin
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
 		target: availableSessionExecutionTarget(workdir),
-	})
+	}, nil)
 
 	tests := []struct {
 		name string
@@ -74,7 +74,7 @@ func TestOpenViewedImageOriginalOpensSourceAboveBufferedReadLimit(t *testing.T) 
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
 		target: availableSessionExecutionTarget(workdir),
-	})
+	}, nil)
 	file, err := os.Create(filepath.Join(workdir, "large.png"))
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestOpenViewedImageOriginalFollowsReadableSymlink(t *testing.T) {
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
 		target: availableSessionExecutionTarget(workdir),
-	})
+	}, nil)
 	original := []byte("current original")
 	target := filepath.Join(workdir, "target.png")
 	if err := os.WriteFile(target, original, 0600); err != nil {
@@ -131,7 +131,7 @@ func TestOpenViewedImageOriginalRejectsBrokenSymlink(t *testing.T) {
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
 		target: availableSessionExecutionTarget(workdir),
-	})
+	}, nil)
 	if err := os.Symlink(filepath.Join(workdir, "gone.png"), filepath.Join(workdir, "link.png")); err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestOpenViewedImageOriginalRejectsBrokenSymlink(t *testing.T) {
 
 func TestViewedImageOperationalFailureIsNotUnavailable(t *testing.T) {
 	want := errors.New("Session metadata unavailable")
-	service := NewService(failingPersistedSessionResolver{err: want}, nil, nil)
+	service := NewService(failingPersistedSessionResolver{err: want}, nil, nil, nil)
 	opened, err := service.OpenViewedImageOriginal(t.Context(), "session", "/image.png")
 	if !errors.Is(err, want) || opened != nil {
 		t.Fatalf("opened = %v, error = %v", opened, err)
@@ -160,7 +160,7 @@ func TestOpenViewedImageOriginalRejectsCanceledSourceResolution(t *testing.T) {
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workdir)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{
 		target: availableSessionExecutionTarget(workdir),
-	})
+	}, nil)
 	path := filepath.Join(workdir, "original.png")
 	if err := os.WriteFile(path, []byte("image"), 0600); err != nil {
 		t.Fatal(err)

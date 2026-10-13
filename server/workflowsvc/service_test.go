@@ -3261,7 +3261,7 @@ func TestNewRejectsEveryMissingReadModelCapability(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := New(service.store, tt.readModels, service.roleResolver, workflowexecution.NewTaskMutationCoordinator()); err == nil {
+			if _, err := New(service.store, metadataStore, tt.readModels, service.roleResolver, workflowexecution.NewTaskMutationCoordinator()); err == nil {
 				t.Fatal("New accepted a missing read-model capability")
 			}
 		})
@@ -3299,7 +3299,7 @@ func newWorkflowServiceTestServiceWithRoleResolver(t *testing.T, resolver workfl
 		store:                 store,
 		manualMoveAssignments: workflowServiceTestManualMoveAssignments(t, metadataStore),
 	}
-	service, err := New(store, readModels, resolver, workflowexecution.NewTaskMutationCoordinator(), WithCurrentNodeExecution(execution))
+	service, err := New(store, metadataStore, readModels, resolver, workflowexecution.NewTaskMutationCoordinator(), WithCurrentNodeExecution(execution))
 	if err != nil {
 		t.Fatalf("workflowsvc.New: %v", err)
 	}

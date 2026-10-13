@@ -172,6 +172,7 @@ export type ChatCommittedRow = Readonly<{
     Presentation?: ChatToolPresentation | null;
     QuestionAnswer?: Readonly<{ SelectedOptionNumber?: number | null; Freeform?: string | null }> | null;
     AnsweredBySessionID: string | null;
+    AnsweredBySessionShortID: bigint | null;
     WebSearch?: ChatWebSearchDetail | null;
   }> | null;
   ReasoningTrace: Readonly<{

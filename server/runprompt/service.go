@@ -18,14 +18,18 @@ type inProcessRunPromptService struct {
 	launcher *headlessPromptLauncher
 }
 
-func (s *inProcessRunPromptService) RunPrompt(ctx context.Context, req serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
-	return s.runPrompt(ctx, req, progress)
+func (s *inProcessRunPromptService) RunPrompt(ctx context.Context, req *runpromptpb.Request, progress serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
+	if s == nil || s.launcher == nil || s.launcher.boot.SessionLaunch == nil {
+		return nil, errors.New("run prompt service is not configured")
+	}
+	input, err := s.launcher.boot.SessionLaunch.ResolveRunPromptRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return s.runPrompt(ctx, input, progress)
 }
 
 func (s *inProcessRunPromptService) runPrompt(ctx context.Context, req serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (response *runpromptpb.Success, err error) {
-	if s == nil || s.launcher == nil {
-		return nil, errors.New("run prompt service is not configured")
-	}
 	req.Prompt = strings.TrimSpace(req.Prompt)
 	if err := req.Validate(); err != nil {
 		return nil, err

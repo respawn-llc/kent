@@ -315,6 +315,7 @@ func (s *SessionWorkspaceRetargeter) applyWorkspaceRetarget(
 			return metadata.SessionWorkspaceRetargetResult{}, &serverapi.SessionRetargetError{
 				Reason:        serverapi.SessionRetargetBackgroundProcess,
 				SessionID:     currentPlan.SessionID,
+				ShortID:       currentPlan.ShortID,
 				SourceProject: currentPlan.SourceProject,
 				TargetRoot:    currentPlan.TargetWorkspaceRoot,
 			}

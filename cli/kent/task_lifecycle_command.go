@@ -14,6 +14,7 @@ import (
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/protoapi"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
@@ -404,7 +405,10 @@ func taskStartSubcommand(args []string, stdout io.Writer, stderr io.Writer) int 
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		writeTaskStartResult(stdout, detail)
+		if err := writeTaskStartResult(stdout, detail); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
 		return 0
 	})
 }
@@ -607,7 +611,10 @@ func taskResumeSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 			fmt.Fprintf(stderr, "resumed task %s but failed to load task detail for output: %v\n", taskID, err)
 			return 1
 		}
-		writeTaskResumeResult(stdout, detail, resp.GetApplied())
+		if err := writeTaskResumeResult(stdout, detail, resp.GetApplied()); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
 		return 0
 	})
 }
@@ -630,6 +637,15 @@ func taskInterruptSubcommand(args []string, stdout io.Writer, stderr io.Writer) 
 		fmt.Fprintln(stderr, "--session requires a non-blank session ID")
 		return 2
 	}
+	var selectedSession *sharedpb.SessionSelector
+	if flagExplicit(fs, "session") {
+		selector, err := runtimeids.ParseSessionSelector(*sessionID)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		selectedSession = protoapi.SessionSelectorToProto(selector)
+	}
 	invokingSessionID, err := workflowTaskInvokingSessionID()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -643,10 +659,6 @@ func taskInterruptSubcommand(args []string, stdout io.Writer, stderr io.Writer) 
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		var selectedSession *string
-		if value := strings.TrimSpace(*sessionID); value != "" {
-			selectedSession = &value
-		}
 		var interruptionReason *string
 		if *reason != "" {
 			interruptionReason = reason

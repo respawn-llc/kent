@@ -11,7 +11,9 @@ import (
 	"core/shared/apicontract"
 	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
+	"core/shared/serverapi"
 )
 
 type chatSettingsService struct {
@@ -53,7 +55,7 @@ func (s chatSettingsService) PublishSessionSettings(ctx context.Context, session
 func (s chatSettingsService) ReadChatSettings(
 	ctx context.Context,
 	req *chatsettingspb.ReadRequest,
-) (*chatsettingspb.ReadSuccess, error) {
+) (response *chatsettingspb.ReadSuccess, err error) {
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
@@ -65,13 +67,15 @@ func (s chatSettingsService) ReadChatSettings(
 		}
 		return s.core.sessionLaunchServiceForProjectContext(projectCtx).NewChatSettings(ctx)
 	case *chatsettingspb.ReadRequest_Session:
-		sessionID, err := runtimeids.ParseSessionID(target.Session.SessionId)
-		if err != nil {
-			return nil, err
+		identity, resolveErr := s.sessionSettingsTarget(ctx, target.Session.SessionId)
+		if resolveErr != nil {
+			return nil, resolveErr
 		}
-		service, err := s.sessionSettingsService(ctx, sessionID.String())
-		if err != nil {
-			return nil, err
+		defer func() { err = serverapi.WithSessionTarget(serverapi.ProjectedSessionTarget{Identity: identity}, err) }()
+		sessionID := identity.ID
+		service, serviceErr := s.sessionSettingsService(ctx, sessionID.String())
+		if serviceErr != nil {
+			return nil, serviceErr
 		}
 		return service.SessionChatSettings(ctx, sessionID)
 	default:
@@ -81,15 +85,28 @@ func (s chatSettingsService) ReadChatSettings(
 func (s chatSettingsService) MutateChatSettings(
 	ctx context.Context,
 	req *chatsettingspb.MutationRequest,
-) (*chatsettingspb.MutationSuccess, error) {
+) (response *chatsettingspb.MutationSuccess, err error) {
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	sessionID, err := runtimeids.ParseSessionID(req.Session.SessionId)
+	identity, err := s.sessionSettingsTarget(ctx, req.Session.SessionId)
 	if err != nil {
 		return nil, err
 	}
-	return s.mutateSessionChatSettings(ctx, sessionID, req.Operation)
+	defer func() { err = serverapi.WithSessionTarget(serverapi.ProjectedSessionTarget{Identity: identity}, err) }()
+	return s.mutateSessionChatSettings(ctx, identity.ID, req.Operation)
+}
+
+func (s chatSettingsService) sessionSettingsTarget(ctx context.Context, selector *sharedpb.SessionSelector) (identity runtimeids.SessionIdentity, err error) {
+	var target serverapi.SessionTarget = serverapi.UnresolvedSessionTarget{}
+	defer func() { err = serverapi.WithSessionTarget(target, err) }()
+	store := s.core.MetadataStore()
+	id, err := store.ResolveSessionTarget(ctx, selector)
+	if err != nil {
+		return identity, err
+	}
+	target = serverapi.CanonicalSessionTarget{ID: id}
+	return store.SessionIdentity(ctx, id)
 }
 func (s chatSettingsService) mutateSessionChatSettings(
 	ctx context.Context,

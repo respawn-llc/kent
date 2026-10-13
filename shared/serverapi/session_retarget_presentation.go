@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"core/shared/runtimeids"
 )
 
 type presentedSessionRetargetError struct {
@@ -48,9 +50,14 @@ func SessionRetargetFailureText(commandName string, cause error) string {
 	if !errors.As(cause, &retargetErr) {
 		return cause.Error()
 	}
+	id, err := runtimeids.ParseSessionID(retargetErr.SessionID)
+	if err != nil {
+		return errors.Join(cause, err).Error()
+	}
+	selector := (runtimeids.SessionIdentity{ID: id, ShortID: retargetErr.ShortID}).String()
 	details := fmt.Sprintf(
 		"Session %s in source Project %q (%s); target path %q.",
-		retargetErr.SessionID,
+		selector,
 		retargetErr.SourceProject.Name,
 		retargetErr.SourceProject.ID,
 		retargetErr.TargetRoot,
@@ -65,9 +72,9 @@ func SessionRetargetFailureText(commandName string, cause error) string {
 	case SessionRetargetWorkflowOwned:
 		guidance = "Moving across projects during workflow makes no sense: the task would remain stuck in the old project"
 	case SessionRetargetTargetProjectRequired:
-		guidance = sessionRetargetTargetProjectRequiredGuidance(commandName, retargetErr)
+		guidance = sessionRetargetTargetProjectRequiredGuidance(commandName, selector, retargetErr)
 	case SessionRetargetTargetProjectConflict:
-		guidance = sessionRetargetTargetProjectConflictGuidance(commandName, retargetErr)
+		guidance = sessionRetargetTargetProjectConflictGuidance(commandName, selector, retargetErr)
 	}
 	if guidance == "" {
 		return cause.Error() + "\n" + details
@@ -77,6 +84,7 @@ func SessionRetargetFailureText(commandName string, cause error) string {
 
 func sessionRetargetTargetProjectRequiredGuidance(
 	commandName string,
+	selector string,
 	retargetErr *SessionRetargetError,
 ) string {
 	var guidance strings.Builder
@@ -87,20 +95,21 @@ func sessionRetargetTargetProjectRequiredGuidance(
 			"Select Project %q (%s): %s\n",
 			candidate.Name,
 			candidate.ID,
-			ShellCommand(commandName, "rebind", "--project", candidate.ID, retargetErr.SessionID, retargetErr.TargetRoot),
+			ShellCommand(commandName, "rebind", "--project", candidate.ID, selector, retargetErr.TargetRoot),
 		)
 	}
 	_, _ = fmt.Fprintf(
 		&guidance,
 		"To keep the source Project, attach the path first: %s\nThen rebind: %s",
 		ShellCommand(commandName, "attach", "--project", retargetErr.SourceProject.ID, retargetErr.TargetRoot),
-		ShellCommand(commandName, "rebind", retargetErr.SessionID, retargetErr.TargetRoot),
+		ShellCommand(commandName, "rebind", selector, retargetErr.TargetRoot),
 	)
 	return guidance.String()
 }
 
 func sessionRetargetTargetProjectConflictGuidance(
 	commandName string,
+	selector string,
 	retargetErr *SessionRetargetError,
 ) string {
 	var guidance strings.Builder
@@ -111,7 +120,7 @@ func sessionRetargetTargetProjectConflictGuidance(
 			"Use existing Project %q (%s): %s\n",
 			candidate.Name,
 			candidate.ID,
-			ShellCommand(commandName, "rebind", "--project", candidate.ID, retargetErr.SessionID, retargetErr.TargetRoot),
+			ShellCommand(commandName, "rebind", "--project", candidate.ID, selector, retargetErr.TargetRoot),
 		)
 	}
 	return strings.TrimSuffix(guidance.String(), "\n")

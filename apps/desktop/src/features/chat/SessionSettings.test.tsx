@@ -62,7 +62,7 @@ const settings: ChatSettings = {
 const initialRead: Extract<ChatSettingsRead, { kind: "session" }> = {
   kind: "session",
   settings,
-  session: { sessionID, previousSessionID: null, task: null },
+  session: { sessionID, shortID: null, previousSessionID: null, task: null },
 };
 const context: ChatContext = {
   contextWindowTokens: 100,
@@ -670,7 +670,7 @@ it("drops old Session completions after target replacement and installs the newl
       agentEditability: { kind: "workflow_lock" },
       supervisor: { ...settings.supervisor, value: "all" },
     },
-    session: { sessionID: newSessionID, previousSessionID: sessionID, task: null },
+    session: { sessionID: newSessionID, shortID: null, previousSessionID: sessionID, task: null },
   };
   await act(async () => {
     nextRead.resolve(rebased);

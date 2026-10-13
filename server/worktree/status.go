@@ -15,11 +15,15 @@ func (s *Service) GetWorktreeStatus(ctx context.Context, req *worktreepb.StatusR
 	if s == nil || s.metadata == nil || s.git == nil {
 		return nil, errors.New("worktree service dependencies are required")
 	}
-	workspaceContext, err := s.resolveSessionWorkspaceContext(ctx, req.SessionId)
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	workspaceContext, err := s.resolveSessionWorkspaceContext(ctx, id.String())
 	if err != nil {
 		return nil, fmt.Errorf(
 			"resolve worktree status target for session %q: %w",
-			strings.TrimSpace(req.SessionId),
+			id,
 			err,
 		)
 	}

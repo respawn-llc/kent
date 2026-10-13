@@ -72,6 +72,7 @@ enum AttentionRequestValidationCode {
 }
 
 message AttentionCurrentNode {
+  optional int64 short_id = 7 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string node_id = 1 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -126,6 +127,7 @@ message ApprovalQuestion {
 }
 
 message AttentionQuestionPrompt {
+  optional int64 short_id = 7 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [(buf.validate.field).string.min_len = 1];
   string step_id = 2 [
     (buf.validate.field).string.uuid = true,
@@ -535,6 +537,7 @@ message AttentionNotificationTaskFocus {
 }
 
 message WorkflowTaskAttentionTarget {
+  optional int64 session_short_id = 10 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   optional string project_id = 1 [(buf.validate.field).string.min_len = 1];
   string workflow_id = 2 [
     (buf.validate.field).string.uuid = true,
@@ -564,6 +567,7 @@ message WorkflowTaskAttentionTarget {
 }
 
 message SessionPromptAttentionTarget {
+  optional int64 short_id = 3 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [(buf.validate.field).string.min_len = 1];
   string project_id = 2 [(buf.validate.field).string.min_len = 1];
 }

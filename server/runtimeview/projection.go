@@ -154,6 +154,7 @@ func SessionViewFromRuntime(engine *runtime.Engine) (*runtimepb.SessionView, err
 	}
 	return &runtimepb.SessionView{
 		SessionId:             engine.SessionID(),
+		ShortId:               protoapi.SessionShortIDToProto(engine.SessionIdentity().ShortID),
 		SessionName:           engine.SessionName(),
 		AgentRole:             engine.ContinuationAgentRole(),
 		ConversationFreshness: ConversationFreshnessFromSession(freshness),

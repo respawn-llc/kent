@@ -91,18 +91,13 @@ func chatTargetScope[Request protoapi.ChatTargetRequest](request Request) (route
 func binaryChatFailure[Request protoapi.ChatTargetRequest](
 	_ *Gateway,
 	_ *connectionState,
-	request Request,
+	_ Request,
 	err error,
 ) proto.Message {
-	var sessionID *string
-	target, targetErr := protoapi.ChatTargetFromRequest(request)
-	if targetErr == nil && target.GetSession() != nil {
-		sessionID = &target.GetSession().SessionId
-	}
-	return binaryChatDomainFailure(sessionID, err)
+	return binaryChatDomainFailure(err)
 }
 
-func binaryChatDomainFailure(sessionID *string, err error) proto.Message {
+func binaryChatDomainFailure(err error) proto.Message {
 	var agentPreparationErr *serverapi.ChatSettingsAgentPreparationError
 	switch {
 	case errors.Is(err, serverapi.ErrServerAuthRequired):
@@ -124,9 +119,7 @@ func binaryChatDomainFailure(sessionID *string, err error) proto.Message {
 		}
 	case errors.Is(err, session.ErrSessionNotFound),
 		errors.Is(err, errSessionOutsideActiveProject):
-		if sessionID != nil {
-			return &chatsettingspb.SessionNotFoundDetails{SessionId: *sessionID}
-		}
+		return &chatsettingspb.SessionNotFoundDetails{SessionTarget: protoapi.SessionTargetErrorContext(err)}
 	}
 	return binaryInternalFailure(err)
 }

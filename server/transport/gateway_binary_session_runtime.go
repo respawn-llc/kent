@@ -19,7 +19,7 @@ func registerSessionRuntimeGatewayBinaryBindings(bindings map[string]gatewayBina
 				return &sessionlaunchpb.SessionRuntimeActivateRequest{}
 			},
 			func(request *sessionlaunchpb.SessionRuntimeActivateRequest) (routeScopeParams, error) {
-				return routeScopeParams{sessionID: request.SessionId}, nil
+				return routeScopeParams{sessionSelector: request.SessionId}, nil
 			},
 			func(g *Gateway, ctx context.Context, state *connectionState, request *sessionlaunchpb.SessionRuntimeActivateRequest) (*sessionlaunchpb.SessionRuntimeActivateSuccess, error) {
 				native, err := protoapi.SessionRuntimeActivateFromProto(request)
@@ -31,17 +31,17 @@ func registerSessionRuntimeGatewayBinaryBindings(bindings map[string]gatewayBina
 				if err != nil {
 					return nil, err
 				}
-				if err := attachment.ValidateForSession(request.SessionId); err != nil {
+				if err := attachment.Validate(); err != nil {
 					return nil, err
 				}
 				state.recordOwnedRuntime(attachment)
 				return &sessionlaunchpb.SessionRuntimeActivateSuccess{Attachment: protoapi.SessionRuntimeAttachmentToProto(attachment)}, nil
 			},
-			func(_ *Gateway, _ *connectionState, request *sessionlaunchpb.SessionRuntimeActivateRequest, err error) proto.Message {
+			func(_ *Gateway, _ *connectionState, _ *sessionlaunchpb.SessionRuntimeActivateRequest, err error) proto.Message {
 				if errors.Is(err, sessionruntime.ErrAuthorityClosed) {
 					err = errors.Join(serverapi.ErrRuntimeUnavailable, err)
 				}
-				return binaryRuntimeLifetimeFailure(request.GetSessionId(), err)
+				return binaryRuntimeLifetimeFailure(err)
 			}),
 		registerGatewayBinaryUnary(bindings, service, "Release", gatewayBinaryCoreActiveOrdinary,
 			func() *sessionlaunchpb.SessionRuntimeReleaseRequest {
@@ -62,15 +62,15 @@ func registerSessionRuntimeGatewayBinaryBindings(bindings map[string]gatewayBina
 				}
 				return response, err
 			},
-			func(_ *Gateway, _ *connectionState, request *sessionlaunchpb.SessionRuntimeReleaseRequest, err error) proto.Message {
-				return binaryRuntimeLifetimeFailure(request.GetAttachment().GetSessionId(), err)
+			func(_ *Gateway, _ *connectionState, _ *sessionlaunchpb.SessionRuntimeReleaseRequest, err error) proto.Message {
+				return binaryRuntimeLifetimeFailure(err)
 			}),
 	)
 }
 
-func binaryRuntimeLifetimeFailure(sessionID string, err error) proto.Message {
+func binaryRuntimeLifetimeFailure(err error) proto.Message {
 	if errors.Is(err, serverapi.ErrRuntimeUnavailable) {
-		return &sessionlaunchpb.SessionRuntimeUnavailableDetails{SessionId: sessionID}
+		return &sessionlaunchpb.SessionRuntimeUnavailableDetails{SessionTarget: protoapi.SessionTargetErrorContext(err)}
 	}
 	return binaryAuthReadinessFailure(err)
 }

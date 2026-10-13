@@ -17,7 +17,7 @@ it.each([false, true])("resolves a command selector before Switch, current=%s", 
   const model = createWorktreeCommandActions({
     client: new QueryClient(),
     api: services.api,
-    sessionID: "session",
+    sessionID: "33333333-3333-4333-8333-333333333333",
     roots: { open },
     focusComposer: vi.fn(),
     openSession: vi.fn(),
@@ -35,12 +35,23 @@ it.each([false, true])("resolves a command selector before Switch, current=%s", 
     expect(open).not.toHaveBeenCalled();
     expect(push).not.toHaveBeenCalled();
     expect(services.transport.descriptorCalls).toMatchObject([
-      { descriptor: fixture.methods.resolve, request: { sessionId: "session", selector: "topic" } },
-      { descriptor: fixture.methods.status, request: { sessionId: "session" } },
+      {
+        descriptor: fixture.methods.resolve,
+        request: {
+          sessionId: { value: { case: "sessionId", value: "33333333-3333-4333-8333-333333333333" } },
+          selector: "topic",
+        },
+      },
+      {
+        descriptor: fixture.methods.status,
+        request: {
+          sessionId: { value: { case: "sessionId", value: "33333333-3333-4333-8333-333333333333" } },
+        },
+      },
       {
         descriptor: fixture.methods.enter,
         request: {
-          sessionId: "session",
+          sessionId: { value: { case: "sessionId", value: "33333333-3333-4333-8333-333333333333" } },
           selector: fixture.selector,
           operationId: fixture.operationID,
           targetWorkspace: { workspaceId: "workspace", workspaceRoot: "/repo" },
@@ -59,7 +70,7 @@ it("dispatches Leave without resolving or listing targets", async () => {
   const model = createWorktreeCommandActions({
     client: new QueryClient(),
     api: services.api,
-    sessionID: "session",
+    sessionID: "33333333-3333-4333-8333-333333333333",
     roots: { open },
     focusComposer: vi.fn(),
     openSession: vi.fn(),
@@ -79,7 +90,10 @@ it("dispatches Leave without resolving or listing targets", async () => {
     expect(services.transport.descriptorCalls).toHaveLength(1);
     expect(services.transport.descriptorCalls[0]).toMatchObject({
       descriptor: fixture.methods.leave,
-      request: { sessionId: "session", operationId: fixture.operationID },
+      request: {
+        sessionId: { value: { case: "sessionId", value: "33333333-3333-4333-8333-333333333333" } },
+        operationId: fixture.operationID,
+      },
     });
   } finally {
     vi.restoreAllMocks();
@@ -109,7 +123,7 @@ it.each(["resolveWorktreeSelector", "switchWorktree"] as const)(
     const model = createWorktreeCommandActions({
       client: new QueryClient(),
       api: services.api,
-      sessionID: "session",
+      sessionID: "33333333-3333-4333-8333-333333333333",
       roots: { open: vi.fn() },
       focusComposer: vi.fn(),
       openSession: vi.fn(),
@@ -140,7 +154,9 @@ it.each(["resolveWorktreeSelector", "switchWorktree"] as const)(
       const leave = services.transport.descriptorCalls.find(
         ({ descriptor }) => descriptor === fixture.methods.leave,
       );
-      expect(leave?.request).toMatchObject({ sessionId: "session" });
+      expect(leave?.request).toMatchObject({
+        sessionId: { value: { case: "sessionId", value: "33333333-3333-4333-8333-333333333333" } },
+      });
       expect(pending.current).toBe(true);
       expect(push).not.toHaveBeenCalled();
     } finally {
@@ -160,7 +176,7 @@ it.each(["list", "create"] as const)("opens the ordinary %s destination", async 
   const model = createWorktreeCommandActions({
     client: new QueryClient(),
     api: services.api,
-    sessionID: "session",
+    sessionID: "33333333-3333-4333-8333-333333333333",
     roots: { open },
     focusComposer: vi.fn(),
     openSession: vi.fn(),
@@ -171,7 +187,11 @@ it.each(["list", "create"] as const)("opens the ordinary %s destination", async 
   });
   await model.execute({ kind });
   expect(open).toHaveBeenCalledWith(
-    expect.objectContaining({ kind: "worktree", sessionID: "session", page: kind }),
+    expect.objectContaining({
+      kind: "worktree",
+      sessionID: "33333333-3333-4333-8333-333333333333",
+      page: kind,
+    }),
   );
   expect(services.transport.descriptorCalls).toHaveLength(0);
 });
@@ -192,7 +212,7 @@ it.each([null, "topic"])(
     const model = createWorktreeCommandDelete({
       client: new QueryClient(),
       api: services.api,
-      sessionID: "session",
+      sessionID: "33333333-3333-4333-8333-333333333333",
       present,
       refreshOpenWorktreeList: vi.fn(),
       push,
@@ -241,7 +261,7 @@ it.each([
   const model = createWorktreeCommandDelete({
     client: new QueryClient(),
     api: services.api,
-    sessionID: "session",
+    sessionID: "33333333-3333-4333-8333-333333333333",
     present,
     refreshOpenWorktreeList: vi.fn(),
     push,
@@ -268,7 +288,12 @@ it.each([
     selector: selector === null ? fixture.currentRoot : fixture.selector,
   });
   expect(services.transport.descriptorCalls[2]?.request).toMatchObject({
-    scope: { scope: { case: "sessionId", value: "session" } },
+    scope: {
+      scope: {
+        case: "sessionId",
+        value: { value: { case: "sessionId", value: "33333333-3333-4333-8333-333333333333" } },
+      },
+    },
     selector: fixture.deletionSelector,
     forceFolderRemoval: true,
     branchCleanupPolicy: fixture.branchCleanup[choice],
@@ -289,7 +314,7 @@ it("dispatches a confirmed Delete independently of an earlier pending deletion",
   const model = createWorktreeCommandDelete({
     client: new QueryClient(),
     api: services.api,
-    sessionID: "session",
+    sessionID: "33333333-3333-4333-8333-333333333333",
     present,
     refreshOpenWorktreeList: vi.fn(),
     push,

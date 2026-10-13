@@ -30,20 +30,22 @@ func TestCommittedRowLocatorIsStableAcrossPageHydrationAndLiveProjection(t *test
 		sessionID,
 		textutil.Value("session"),
 		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
-		runtime.TranscriptSegmentPage{Snapshot: snapshot},
-	)
+		runtime.TranscriptSegmentPage{Snapshot: snapshot}, nil)
+
 	if err != nil {
 		t.Fatalf("project page: %v", err)
 	}
 	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
 		CommittedRows: runtime.TranscriptCommittedRowFactsFromSnapshot(snapshot),
-	})
+	}, nil)
+
 	live, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:                runtime.EventUserMessageFlushed,
 		StepID:              runtimeStepIDPointer(stepID),
 		UserMessage:         "hello",
 		CommittedProvenance: provenance,
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project live user message: %v", err)
 	}
@@ -79,7 +81,8 @@ func TestTranscriptTailSegmentProjectsRowsAndClosedOlderBoundary(t *testing.T) {
 		}}},
 		OlderCursor:  olderCursor,
 		HasMoreAbove: true,
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project nonempty tail: %v", err)
 	}
@@ -87,7 +90,7 @@ func TestTranscriptTailSegmentProjectsRowsAndClosedOlderBoundary(t *testing.T) {
 		t.Fatalf("nonempty tail = %+v", tail)
 	}
 
-	empty, err := TranscriptTailSegmentFromSegment(runtime.TranscriptSegmentPage{})
+	empty, err := TranscriptTailSegmentFromSegment(runtime.TranscriptSegmentPage{}, nil)
 	if err != nil {
 		t.Fatalf("project empty tail: %v", err)
 	}
@@ -154,7 +157,7 @@ func TestCheckedTranscriptProjectionReturnsMalformedLocatorErrors(t *testing.T) 
 			User:       &runtime.TranscriptUserRowFact{Text: "malformed"},
 		}},
 	}
-	if _, err := transcriptTailSegmentFromFactsChecked(snapshot.CommittedRows, nil, false); err == nil {
+	if _, err := transcriptTailSegmentFromFactsChecked(snapshot.CommittedRows, nil, false, nil); err == nil {
 		t.Fatal("checked hydration projection accepted malformed locator")
 	}
 
@@ -168,8 +171,8 @@ func TestCheckedTranscriptProjectionReturnsMalformedLocatorErrors(t *testing.T) 
 			Role:                "user",
 			Text:                "malformed",
 			CommittedProvenance: malformed,
-		}}}},
-	)
+		}}}}, nil)
+
 	if err == nil {
 		t.Fatal("checked page projection accepted malformed locator")
 	}
@@ -179,7 +182,8 @@ func TestCheckedTranscriptProjectionReturnsMalformedLocatorErrors(t *testing.T) 
 		StepID:              runtimeStepIDPointer(stepID),
 		UserMessage:         "malformed",
 		CommittedProvenance: malformed,
-	})
+	}, nil)
+
 	if err == nil {
 		t.Fatal("checked live projection accepted malformed locator")
 	}

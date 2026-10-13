@@ -293,7 +293,7 @@ func TestQuestionShowsFirstPendingQuestion(t *testing.T) {
 	command, openedSessions := questionCommandWithRemote(remote)
 
 	var stdout, stderr bytes.Buffer
-	exitCode := command.run([]string{"--session", sessionID}, &stdout, &stderr)
+	exitCode := command.run([]string{"--session", "0007"}, &stdout, &stderr)
 
 	if exitCode != 0 || stderr.Len() != 0 {
 		t.Fatalf("exit=%d stderr=%q", exitCode, stderr.String())
@@ -301,10 +301,10 @@ func TestQuestionShowsFirstPendingQuestion(t *testing.T) {
 	if stdout.Len() == 0 {
 		t.Fatal("question output is empty")
 	}
-	if len(*openedSessions) != 1 || (*openedSessions)[0] != sessionID {
-		t.Fatalf("opened sessions = %v, want %q", *openedSessions, sessionID)
+	if len(*openedSessions) != 1 || (*openedSessions)[0] != "7" {
+		t.Fatalf("opened sessions = %v, want normalized selector", *openedSessions)
 	}
-	if len(remote.listRequests) != 1 || remote.listRequests[0].SessionId != sessionID {
+	if len(remote.listRequests) != 1 || remote.listRequests[0].SessionId.GetShortId() != 7 {
 		t.Fatalf("list requests = %+v", remote.listRequests)
 	}
 	if len(remote.answerRequests) != 0 {
@@ -395,11 +395,11 @@ func TestQuestionAnswerSubmitsThenReconcilesWithoutWorkflowDeadline(t *testing.T
 		t.Fatalf("invoking Session ID = %v, want %q independently of target %q", request.InvokingSessionId, invokingSessionID, request.SessionId)
 	}
 	entry := requireQuestionBatchEntry(t, request)
-	if request.SessionId != sessionID || request.StepId != questionCommandStepID().String() || entry.ToolCallId != "ask-1" {
+	if request.SessionId.GetSessionId() != sessionID || request.StepId != questionCommandStepID().String() || entry.ToolCallId != "ask-1" {
 		t.Fatalf("answer target = %+v", request)
 	}
 	if len(remote.watchRequests) != 1 ||
-		remote.watchRequests[0].SessionId != request.SessionId ||
+		remote.watchRequests[0].SessionId.GetSessionId() != request.SessionId.GetSessionId() ||
 		remote.watchRequests[0].StepId != request.StepId ||
 		remote.watchRequests[0].ToolCallId != entry.ToolCallId {
 		t.Fatalf("watch request = %+v, answer request = %+v", remote.watchRequests, request)
@@ -564,7 +564,13 @@ func TestQuestionRejectsCurrentAgentSession(t *testing.T) {
 			_ = os.Unsetenv(sessionenv.SessionIDEnv)
 		}
 	})
-	remote := &stubQuestionCommandRemote{}
+	remote := &stubQuestionCommandRemote{listAsks: func(context.Context) error {
+		id, err := runtimeids.ParseSessionID(sessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &serverapi.SessionSelfTargetError{SessionID: id}
+	}}
 	command, openedSessions := questionCommandWithRemote(remote)
 
 	exitCode := command.run(
@@ -576,8 +582,8 @@ func TestQuestionRejectsCurrentAgentSession(t *testing.T) {
 	if exitCode != 2 {
 		t.Fatalf("exit=%d, want usage error", exitCode)
 	}
-	if len(*openedSessions) != 0 {
-		t.Fatalf("opened sessions = %v, want none", *openedSessions)
+	if len(*openedSessions) != 1 {
+		t.Fatalf("opened sessions = %v, want server request", *openedSessions)
 	}
 }
 
@@ -623,7 +629,7 @@ func TestQuestionAnswerByTaskSelectsUniqueSession(t *testing.T) {
 	}
 	request := remote.answerRequests[0]
 	entry := requireQuestionBatchEntry(t, request)
-	if request.SessionId != sessionID ||
+	if request.SessionId.GetSessionId() != sessionID ||
 		request.StepId != questionCommandStepID().String() ||
 		entry.ToolCallId != "ask-1" ||
 		entry.GetQuestionAnswer().Freeform == nil ||
@@ -725,7 +731,7 @@ func TestQuestionByTaskApprovalReadsSuccessorQuestion(t *testing.T) {
 		t.Fatalf("approval batch request = %+v", request)
 	}
 	entry := request.Entries[0]
-	if request.SessionId != sessionID || request.StepId != questionCommandStepID().String() ||
+	if request.SessionId.GetSessionId() != sessionID || request.StepId != questionCommandStepID().String() ||
 		entry.GetApprovalAnswer().Decision != promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE ||
 		entry.GetApprovalAnswer().Commentary != nil {
 		t.Fatalf("approval request = %+v", request)
@@ -790,7 +796,13 @@ func TestQuestionByTaskRejectsCurrentAgentSession(t *testing.T) {
 		}
 	})
 	remote := &stubQuestionTaskRemote{
-		stubQuestionCommandRemote: &stubQuestionCommandRemote{},
+		stubQuestionCommandRemote: &stubQuestionCommandRemote{listAsks: func(context.Context) error {
+			id, err := runtimeids.ParseSessionID(sessionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return &serverapi.SessionSelfTargetError{SessionID: id}
+		}},
 		task: &taskpb.TaskDetail{
 			Summary: &taskpb.TaskSummary{Id: taskID},
 		},

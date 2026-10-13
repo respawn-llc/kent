@@ -284,7 +284,7 @@ func TestSessionFeedSequencerHydrationProjectionUsesContractFailurePolicy(t *tes
 }
 
 func TestRegistryHydrationCompositionUsesContractFailurePolicy(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	registry := NewRuntimeRegistry(nil)
 	tailPage := runtime.TranscriptSegmentPage{
 		Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{
 			Role:                "user",

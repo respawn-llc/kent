@@ -6,7 +6,7 @@ import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { TaskDetail } from "@/api";
-import { errorMessage } from "@/api";
+import { errorMessage, sessionDisplayID } from "@/api";
 import {
   useAppServices,
   usePathFormatter,
@@ -110,7 +110,7 @@ function TaskSessionOpenAction({
             <TaskSessionOpenButton
               key={session.sessionID}
               sessionID={session.sessionID}
-              label={session.sessionName ?? session.sessionID}
+              label={session.sessionName ?? sessionDisplayID(session.sessionID, session.shortID)}
               className="w-full justify-start rounded-[var(--radius-s)] border-0 bg-transparent text-left font-sans text-sm hover:bg-[var(--color-island-2)]"
               onClick={() => {
                 setOpen(false);

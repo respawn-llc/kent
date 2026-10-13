@@ -12,6 +12,7 @@ import (
 
 	"core/server/metadata/sqlitegen"
 	"core/server/session"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 
 	"github.com/google/uuid"
@@ -27,6 +28,7 @@ type SessionWorkspaceRetargetRequest struct {
 
 type SessionWorkspaceRetargetPlan struct {
 	SessionID             string
+	ShortID               *runtimeids.SessionShortID
 	SourceProject         serverapi.ProjectReference
 	TargetProject         serverapi.ProjectReference
 	ExplicitProject       bool
@@ -74,6 +76,10 @@ func (s *Store) PlanSessionWorkspaceRetarget(ctx context.Context, req SessionWor
 		return SessionWorkspaceRetargetPlan{}, fmt.Errorf("get session retarget state: %w", err)
 	}
 	sourceProject := serverapi.ProjectReference{ID: state.ProjectID, Name: state.ProjectDisplayName}
+	shortID, err := sessionShortID(state.ShortID)
+	if err != nil {
+		return SessionWorkspaceRetargetPlan{}, err
+	}
 	targetProject := sourceProject
 	explicitProject := req.ProjectID != nil
 	if explicitProject {
@@ -97,6 +103,7 @@ func (s *Store) PlanSessionWorkspaceRetarget(ctx context.Context, req SessionWor
 	if !explicitProject {
 		targetProject, err = selectSessionWorkspaceRetargetProject(
 			sessionID,
+			shortID,
 			sourceProject,
 			targetRoot,
 			targetBindings,
@@ -107,6 +114,7 @@ func (s *Store) PlanSessionWorkspaceRetarget(ctx context.Context, req SessionWor
 	}
 	if err := validateSessionWorkspaceRetargetTargetBindings(
 		sessionID,
+		shortID,
 		sourceProject,
 		targetProject,
 		targetRoot,
@@ -140,6 +148,7 @@ func (s *Store) PlanSessionWorkspaceRetarget(ctx context.Context, req SessionWor
 		ctx,
 		s.queries,
 		sessionID,
+		shortID,
 		sourceProject,
 		targetRoot,
 		targetProject.ID != sourceProject.ID,
@@ -161,6 +170,7 @@ func (s *Store) PlanSessionWorkspaceRetarget(ctx context.Context, req SessionWor
 	}
 	return SessionWorkspaceRetargetPlan{
 		SessionID:             sessionID,
+		ShortID:               shortID,
 		SourceProject:         sourceProject,
 		TargetProject:         targetProject,
 		ExplicitProject:       explicitProject,
@@ -206,6 +216,7 @@ func (s *Store) CommitSessionWorkspaceRetarget(ctx context.Context, plan Session
 		ctx,
 		q,
 		plan.SessionID,
+		plan.ShortID,
 		plan.SourceProject,
 		plan.TargetWorkspaceRoot,
 		plan.CrossProject(),
@@ -219,6 +230,7 @@ func (s *Store) CommitSessionWorkspaceRetarget(ctx context.Context, plan Session
 	if !plan.ExplicitProject {
 		selectedProject, err := selectSessionWorkspaceRetargetProject(
 			plan.SessionID,
+			plan.ShortID,
 			plan.SourceProject,
 			plan.TargetWorkspaceRoot,
 			targetBindings,
@@ -232,6 +244,7 @@ func (s *Store) CommitSessionWorkspaceRetarget(ctx context.Context, plan Session
 	}
 	if err := validateSessionWorkspaceRetargetTargetBindings(
 		plan.SessionID,
+		plan.ShortID,
 		plan.SourceProject,
 		plan.TargetProject,
 		plan.TargetWorkspaceRoot,
@@ -318,6 +331,7 @@ func validateSessionWorkspaceRetargetWorkflowOwnership(
 	ctx context.Context,
 	q *sqlitegen.Queries,
 	sessionID string,
+	shortID *runtimeids.SessionShortID,
 	sourceProject serverapi.ProjectReference,
 	targetRoot string,
 	crossProject bool,
@@ -342,6 +356,7 @@ func validateSessionWorkspaceRetargetWorkflowOwnership(
 	return &serverapi.SessionRetargetError{
 		Reason:          serverapi.SessionRetargetWorkflowOwned,
 		SessionID:       sessionID,
+		ShortID:         shortID,
 		SourceProject:   sourceProject,
 		TargetRoot:      targetRoot,
 		WorkflowTaskIDs: taskIDs,
@@ -350,6 +365,7 @@ func validateSessionWorkspaceRetargetWorkflowOwnership(
 
 func validateSessionWorkspaceRetargetTargetBindings(
 	sessionID string,
+	shortID *runtimeids.SessionShortID,
 	sourceProject serverapi.ProjectReference,
 	targetProject serverapi.ProjectReference,
 	targetRoot string,
@@ -372,6 +388,7 @@ func validateSessionWorkspaceRetargetTargetBindings(
 	return &serverapi.SessionRetargetError{
 		Reason:            reason,
 		SessionID:         sessionID,
+		ShortID:           shortID,
 		SourceProject:     sourceProject,
 		TargetRoot:        targetRoot,
 		CandidateProjects: candidates,
@@ -380,6 +397,7 @@ func validateSessionWorkspaceRetargetTargetBindings(
 
 func selectSessionWorkspaceRetargetProject(
 	sessionID string,
+	shortID *runtimeids.SessionShortID,
 	sourceProject serverapi.ProjectReference,
 	targetRoot string,
 	rows []sqlitegen.ListWorkspaceBindingsByCanonicalRootRow,
@@ -399,6 +417,7 @@ func selectSessionWorkspaceRetargetProject(
 		return sourceProject, &serverapi.SessionRetargetError{
 			Reason:            serverapi.SessionRetargetTargetProjectRequired,
 			SessionID:         sessionID,
+			ShortID:           shortID,
 			SourceProject:     sourceProject,
 			TargetRoot:        targetRoot,
 			CandidateProjects: candidates,

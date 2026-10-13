@@ -5,12 +5,13 @@ import (
 
 	"core/shared/protoapi"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
 func TestSessionTranscriptPageRequestRejectsZeroCursor(t *testing.T) {
 	req := &transcriptpb.PageRequest{
-		SessionId: "session-1",
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "33333333-3333-4333-8333-333333333333"}},
 		Direction: &transcriptpb.PageRequest_Cursor{Cursor: 0},
 	}
 	if err := protoapi.Validate(req); err == nil {
@@ -25,7 +26,7 @@ func TestSessionReadRequestsRequireSessionIdentity(t *testing.T) {
 	if err := protoapi.Validate(&transcriptpb.LatestFinalAnswerRequest{}); err == nil {
 		t.Fatal("accepted latest answer request without Session")
 	}
-	if err := protoapi.Validate(&transcriptpb.LatestFinalAnswerRequest{SessionId: "session-1"}); err != nil {
+	if err := protoapi.Validate(&transcriptpb.LatestFinalAnswerRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "33333333-3333-4333-8333-333333333333"}}}); err != nil {
 		t.Fatal(err)
 	}
 }

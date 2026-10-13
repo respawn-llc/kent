@@ -142,25 +142,36 @@ func writeTaskObservation(stdout io.Writer, stderr io.Writer, response *taskpb.O
 			fmt.Fprintf(stdout, "Task %s entered Done status\n", response.TaskShortId)
 		case *taskpb.ObserveOutcome_Question:
 			detail := selected.Question
+			displayID, err := optionalSessionDisplayID(detail.SessionId, detail.ShortId)
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
 			question, err := protoapi.ObservationQuestionFromProto(detail.Question)
 			if err != nil {
 				fmt.Fprintln(stderr, err)
 				return 1
 			}
 			hintArgs := []string{"--task", response.TaskShortId}
-			if questionCount > 1 && detail.SessionId != nil {
-				hintArgs = []string{"--session", *detail.SessionId}
+			if questionCount > 1 && displayID != nil {
+				hintArgs = []string{"--session", *displayID}
 			}
 			if strings.TrimSpace(projectRef) != "" && projectRef != "." && questionCount == 1 {
 				hintArgs = append(hintArgs, "--project", projectRef)
 			}
-			writeTaskOutcomeDiscriminator(stdout, detail.SessionId, detail.ScriptPath, detail.NodeKey)
+			writeTaskOutcomeDiscriminator(stdout, displayID, detail.ScriptPath, detail.NodeKey)
 			writeObservedQuestion(stdout, question, observationQuestionHint(hintArgs, question))
 		case *taskpb.ObserveOutcome_ExecutionError:
-			writeTaskObservationFailure(stdout, selected.ExecutionError)
+			if err := writeTaskObservationFailure(stdout, selected.ExecutionError); err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
 			exitCode = 1
 		case *taskpb.ObserveOutcome_Interrupted:
-			writeTaskObservationFailure(stdout, selected.Interrupted)
+			if err := writeTaskObservationFailure(stdout, selected.Interrupted); err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
 			if exitCode == 0 {
 				exitCode = 130
 			}
@@ -172,12 +183,17 @@ func writeTaskObservation(stdout io.Writer, stderr io.Writer, response *taskpb.O
 	return exitCode
 }
 
-func writeTaskObservationFailure(stdout io.Writer, detail *taskpb.ObserveFailure) {
-	writeTaskOutcomeDiscriminator(stdout, detail.SessionId, detail.ScriptPath, detail.NodeKey)
+func writeTaskObservationFailure(stdout io.Writer, detail *taskpb.ObserveFailure) error {
+	displayID, err := optionalSessionDisplayID(detail.SessionId, detail.ShortId)
+	if err != nil {
+		return err
+	}
+	writeTaskOutcomeDiscriminator(stdout, displayID, detail.ScriptPath, detail.NodeKey)
 	fmt.Fprintln(stdout, detail.Failure.Reason)
 	if detail.Failure.Diagnostic != nil {
 		fmt.Fprintln(stdout, *detail.Failure.Diagnostic)
 	}
+	return nil
 }
 
 func writeTaskOutcomeDiscriminator(stdout io.Writer, sessionID, scriptPath, nodeKey *string) {

@@ -66,7 +66,11 @@ func statusOverlaySessionLines(snapshot uiStatusSnapshot) []statusOverlayLine {
 	if snapshot.SessionName != nil {
 		lines = append(lines, statusOverlayLine{Text: *snapshot.SessionName, Style: statusOverlayLineStyleBold})
 	}
-	lines = append(lines, statusOverlayLine{Text: "Session ID: " + statusValueOrFallback(snapshot.SessionID, "session unknown"), Style: statusOverlayLineStyleNormal})
+	sessionID := snapshot.SessionID
+	if snapshot.SessionIdentity != nil {
+		sessionID = snapshot.SessionIdentity.String()
+	}
+	lines = append(lines, statusOverlayLine{Text: "Session ID: " + statusValueOrFallback(sessionID, "session unknown"), Style: statusOverlayLineStyleNormal})
 	for _, provenanceSummary := range statusSessionProvenanceSummaries(snapshot) {
 		lines = append(lines, statusOverlayLine{Text: provenanceSummary, Style: statusOverlayLineStyleSubtle})
 	}

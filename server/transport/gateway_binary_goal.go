@@ -6,7 +6,6 @@ import (
 
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
-	"core/shared/runtimeids"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -42,14 +41,8 @@ func goalSetTargetScope(request *runtimepb.GoalSetRequest) (routeScopeParams, er
 func binaryGoalSetFailure(
 	_ *Gateway,
 	_ *connectionState,
-	request *runtimepb.GoalSetRequest,
+	_ *runtimepb.GoalSetRequest,
 	err error,
 ) proto.Message {
-	var sessionID runtimeids.SessionID
-	if request != nil {
-		if requested := request.Target.GetSession(); requested != nil {
-			sessionID, _ = runtimeids.ParseSessionID(requested.SessionId)
-		}
-	}
-	return protoapi.GoalSetErrorFromError(err, sessionID)
+	return protoapi.GoalSetErrorFromError(err)
 }

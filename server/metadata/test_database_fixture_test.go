@@ -29,8 +29,7 @@ func openInMemoryMetadataTestStore(t *testing.T, persistenceRoot string) *Store 
 
 func openLatestMetadataTestDatabase(t testing.TB) *sql.DB {
 	t.Helper()
-	db := databaseseed.OpenCurrentMetadataDatabase(t)
-	return db
+	return databaseseed.OpenCurrentMetadataDatabase(t)
 }
 
 func openEmptyMetadataTestDatabase(t testing.TB) *sql.DB {

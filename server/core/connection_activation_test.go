@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/llm"
@@ -12,6 +13,7 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -40,7 +42,7 @@ func TestConnectionReplacementIsHydratedAfterCoreActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: store.Meta().SessionID, OwnerID: "connection-notice",
+		SessionID: requestfixture.SessionID(t, store.Meta().SessionID), OwnerID: "connection-notice",
 		ActiveSettings: cfg.Settings, Source: cfg.Source,
 		QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true),
 	})
@@ -49,7 +51,7 @@ func TestConnectionReplacementIsHydratedAfterCoreActivation(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	subscription, err := app.SessionTranscriptClient().SubscribeSessionTranscript(ctx, &transcriptpb.SubscribeRequest{SessionId: store.Meta().SessionID})
+	subscription, err := app.SessionTranscriptClient().SubscribeSessionTranscript(ctx, &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}})
 	if err != nil {
 		t.Fatal(err)
 	}

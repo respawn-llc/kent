@@ -46,16 +46,18 @@ func requireRunPromptFinalAnswer(t *testing.T, result RunPromptResult) string {
 
 func (s staticRunPromptService) RunPrompt(
 	context.Context,
-	serverapi.RunPromptRequest,
+	*runpromptpb.Request,
 	serverapi.RunPromptProgressSink,
 ) (*runpromptpb.Success, error) {
 	return s.response, nil
 }
 
 func TestRunPromptCarriesTypedSelectionWarningsIntoCLIWarnings(t *testing.T) {
+	shortID := int64(123)
 	result, err := runPrompt(t.Context(), staticRunPromptService{
 		response: &runpromptpb.Success{
 			SessionId: "session-id",
+			ShortId:   &shortID,
 			Duration:  durationpb.New(time.Millisecond),
 			Outcome:   &runpromptpb.Success_FinalAnswer{FinalAnswer: "done"},
 			SelectionWarnings: []runpromptpb.RunSelectionWarning{
@@ -66,6 +68,10 @@ func TestRunPromptCarriesTypedSelectionWarningsIntoCLIWarnings(t *testing.T) {
 	}, Options{}, "", "prompt", 0, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if result.Identity == nil || result.Identity.ID.String() != "session-id" ||
+		result.Identity.ShortID == nil || result.Identity.ShortID.Int64() != shortID {
+		t.Fatalf("Run identity = %v", result.Identity)
 	}
 	if len(result.Warnings) != 2 || strings.TrimSpace(result.Warnings[0]) == "" || strings.TrimSpace(result.Warnings[1]) == "" {
 		t.Fatalf("selection warning count/content = %q", result.Warnings)
@@ -222,7 +228,7 @@ func TestRunPromptFromWorktreeUsesKentSessionWorkspaceContext(t *testing.T) {
 	if got := requireRunPromptFinalAnswer(t, result); got != "worktree reply" {
 		t.Fatalf("result = %q, want worktree reply", got)
 	}
-	if result.SessionID == parent.Meta().SessionID {
+	if result.Identity.ID.String() == parent.Meta().SessionID {
 		t.Fatal("expected worktree run to create a child run instead of continuing parent session")
 	}
 	if hits.Load() != 1 {
@@ -273,7 +279,7 @@ func TestRunPromptRejectsStaleWorkspaceContextSession(t *testing.T) {
 			_, err := RunPrompt(context.Background(), tc.options, "must not dispatch", 0, nil)
 			var missing *sessioncontract.SessionNotFoundError
 			if !errors.Is(err, sessioncontract.ErrSessionNotFound) ||
-				!errors.As(err, &missing) || missing.SessionID != missingID {
+				!errors.As(err, &missing) || missing.SessionID == nil || *missing.SessionID != missingID {
 				t.Fatalf("error = %v, want typed missing session %s", err, missingID)
 			}
 			if errors.Is(err, startupconfig.ErrWorkspaceContextSessionMissing) != tc.inherited {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	modelstub "core/internal/testharness/pty/blackbox"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/authservice"
@@ -133,7 +134,7 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 		t.Fatalf("catalog = %+v", catalog.Commands)
 	}
 
-	intent, err := protoapi.SessionLaunchIntentToProto(
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(
 		serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	)
 	if err != nil {
@@ -163,7 +164,7 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 		enabledToolIDs = append(enabledToolIDs, string(toolID))
 	}
 	attachment, err := remote.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID:             plan.Plan.SessionId,
+		SessionID:             requestfixture.SessionID(t, plan.Plan.SessionId),
 		ActiveSettings:        activeSettings,
 		EnabledToolIDs:        enabledToolIDs,
 		QuestionsEnabled:      textutil.Value(plan.Plan.QuestionsEnabled),

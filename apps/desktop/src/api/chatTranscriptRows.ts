@@ -260,15 +260,20 @@ function assistantRow(value: T.AssistantRow): NonNullable<ChatCommittedRow["Assi
   };
 }
 
+function viewedImageKind(
+  value: T.ViewedImageKind | undefined,
+): NonNullable<ChatCommittedRow["Tool"]>["ViewedImageKind"] {
+  return value === undefined
+    ? null
+    : enumValue(value, {
+        [T.ViewedImageKind.RASTER]: "raster",
+        [T.ViewedImageKind.PDF]: "pdf",
+      });
+}
+
 function toolRow(value: T.ToolRow): NonNullable<ChatCommittedRow["Tool"]> {
   return {
-    ViewedImageKind:
-      value.viewedImageKind === undefined
-        ? null
-        : enumValue(value.viewedImageKind, {
-            [T.ViewedImageKind.RASTER]: "raster",
-            [T.ViewedImageKind.PDF]: "pdf",
-          }),
+    ViewedImageKind: viewedImageKind(value.viewedImageKind),
     StepID: value.stepId ?? null,
     ToolCallID: value.toolCallId ?? null,
     ToolName: value.toolName ?? null,
@@ -278,6 +283,7 @@ function toolRow(value: T.ToolRow): NonNullable<ChatCommittedRow["Tool"]> {
     CondensedText: value.condensedText ?? null,
     Presentation: toolPresentation(value.presentation, value.toolName),
     AnsweredBySessionID: value.answeredBySessionId ?? null,
+    AnsweredBySessionShortID: value.answeredBySessionShortId ?? null,
     WebSearch: value.webSearch === undefined ? null : webSearchDetail(value.webSearch),
     QuestionAnswer:
       value.questionAnswer === undefined

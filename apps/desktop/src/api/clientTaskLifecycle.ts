@@ -51,7 +51,10 @@ export async function interruptTask(
   const method = TaskLifecycleService.method.interrupt;
   const result = await transport.callDescriptor(
     method,
-    create(method.input, { taskId: taskID, sessionId: sessionID }),
+    create(method.input, {
+      taskId: taskID,
+      ...(sessionID === undefined ? {} : { sessionId: { value: { case: "sessionId", value: sessionID } } }),
+    }),
   );
   requireUnarySuccess(method, result);
 }

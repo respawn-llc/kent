@@ -46,9 +46,11 @@ func TestObservedQuestionUsesDynamicQuestionAndAnswerTarget(t *testing.T) {
 
 func TestRunWatchApprovalHintTargetsSession(t *testing.T) {
 	sessionID := "session-1"
+	shortID := int64(123)
 	var output bytes.Buffer
 	code := writeRunWatchResponse(&output, io.Discard, &promptpb.LiveWatchSuccess{
 		SessionId: sessionID,
+		ShortId:   &shortID,
 		Outcome: &promptpb.LiveWatchOutcome{
 			Outcome: &promptpb.LiveWatchOutcome_Question{
 				Question: mustCLIObservationQuestion(t, serverapi.ObservationQuestion{Approval: &clientui.PendingApproval{
@@ -66,7 +68,7 @@ func TestRunWatchApprovalHintTargetsSession(t *testing.T) {
 	}
 	hint := commandString([]string{
 		config.Command, "question", "answer",
-		"--session", sessionID,
+		"--session", "123",
 		"--option", "<number>",
 	})
 	if !strings.Contains(output.String(), hint) {

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"core/server/metadata"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/worktreecontract"
 )
@@ -29,7 +30,7 @@ func TestDeleteWorktreeRechecksDirtyStateAfterCleanPreview(t *testing.T) {
 	env := newServiceTestEnv(t)
 	created := mustCreateWorktree(t, env, "feature/delete-preview-race-dirty")
 	preview, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
-		Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+		Scope:    worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}}),
 		Selector: created.WorktreeID,
 	})
 	if err != nil {
@@ -56,7 +57,7 @@ func TestDeleteWorktreeRechecksUnknownStateAfterCleanPreview(t *testing.T) {
 	env := newServiceTestEnv(t)
 	created := mustCreateWorktree(t, env, "feature/delete-preview-race-unknown")
 	preview, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
-		Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+		Scope:    worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}}),
 		Selector: created.WorktreeID,
 	})
 	if err != nil {
@@ -153,7 +154,7 @@ func TestMissingWorktreeDeletePreviewIsCleanAndPreservesLeftoverRoot(t *testing.
 	}
 
 	preview, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
-		Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+		Scope:    worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}}),
 		Selector: record.ID,
 	})
 	if err != nil {
@@ -166,7 +167,7 @@ func TestMissingWorktreeDeletePreviewIsCleanAndPreservesLeftoverRoot(t *testing.
 	}
 
 	result, err := env.service.DeleteWorktree(env.ctx, &worktreepb.DeleteRequest{
-		Scope:               worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+		Scope:               worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}}),
 		Selector:            preview.DeletionSelector,
 		BranchCleanupPolicy: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_RETAIN,
 	})

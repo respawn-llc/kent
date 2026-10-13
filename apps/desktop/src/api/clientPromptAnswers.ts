@@ -21,7 +21,7 @@ export async function answerPromptBatch(
 ): Promise<PromptAnswerBatchResponse> {
   const method = AnswerService.method.answerBatch;
   const request = create(method.input, {
-    sessionId: input.sessionID,
+    sessionId: { value: { case: "sessionId", value: input.sessionID } },
     stepId: input.stepID,
     entries: input.entries.map(encodeEntry),
   });

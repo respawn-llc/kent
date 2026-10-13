@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"core/shared/apicontract"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -29,7 +30,7 @@ type RuntimeControl struct {
 
 type Service struct {
 	Client         apicontract.WorktreeService
-	SessionID      string
+	SessionTarget  *sharedpb.SessionSelector
 	WorkspaceID    string
 	WorkspaceRoot  string
 	Runtime        RuntimeControl
@@ -44,7 +45,7 @@ func (s Service) List() (*worktreepb.ListSuccess, error) {
 	}
 	defer cancel()
 	return s.Client.ListWorktrees(ctx, &worktreepb.ListRequest{
-		SessionId: s.SessionID,
+		SessionId: s.SessionTarget,
 	})
 }
 
@@ -55,7 +56,7 @@ func (s Service) ResolveCreateTarget(target string) (*worktreepb.CreateTargetRes
 	ctx, cancel := s.resolveContext()
 	defer cancel()
 	return s.Client.ResolveWorktreeCreateTarget(ctx, &worktreepb.CreateTargetResolveRequest{
-		Scope:  worktreecontract.SessionManagementScope(strings.TrimSpace(s.SessionID)),
+		Scope:  worktreecontract.SessionManagementScope(s.SessionTarget),
 		Target: target,
 	})
 }
@@ -67,7 +68,7 @@ func (s Service) ResolveSelector(selector string) (*worktreepb.SelectorResolveSu
 	ctx, cancel := s.resolveContext()
 	defer cancel()
 	return s.Client.ResolveWorktreeSelector(ctx, &worktreepb.SelectorResolveRequest{
-		SessionId: strings.TrimSpace(s.SessionID),
+		SessionId: s.SessionTarget,
 		Selector:  strings.TrimSpace(selector),
 	})
 }
@@ -77,7 +78,7 @@ func (s Service) Create(req *worktreepb.CreateRequest) (*worktreepb.CreateSucces
 		req.SetupOperationId = worktreecontract.NewSetupOperationID().String()
 	}
 	return runCreateMutation(s, func(ctx context.Context) (*worktreepb.CreateSuccess, error) {
-		req.Scope = worktreecontract.SessionManagementScope(s.SessionID)
+		req.Scope = worktreecontract.SessionManagementScope(s.SessionTarget)
 		return s.Client.CreateWorktree(ctx, req)
 	})
 }
@@ -87,7 +88,7 @@ func (s Service) Enter(selector string) (*worktreepb.ScheduledAcknowledgement, e
 	return runMutation(s, func(ctx context.Context) (*worktreepb.ScheduledAcknowledgement, error) {
 		return s.Client.EnterWorktree(ctx, &worktreepb.EnterRequest{
 			OperationId: operationID.String(),
-			SessionId:   s.SessionID,
+			SessionId:   s.SessionTarget,
 			Selector:    runtimeinput.NormalizePendingWorkArgument(selector),
 			TargetWorkspace: &worktreepb.TransitionWorkspace{
 				WorkspaceId:   strings.TrimSpace(s.WorkspaceID),
@@ -102,7 +103,7 @@ func (s Service) Leave() (*worktreepb.ScheduledAcknowledgement, error) {
 	return runMutation(s, func(ctx context.Context) (*worktreepb.ScheduledAcknowledgement, error) {
 		return s.Client.LeaveWorktree(ctx, &worktreepb.LeaveRequest{
 			OperationId: operationID.String(),
-			SessionId:   s.SessionID,
+			SessionId:   s.SessionTarget,
 		})
 	})
 }
@@ -114,7 +115,7 @@ func (s Service) Delete(
 ) (*worktreepb.DeleteSuccess, error) {
 	return runMutation(s, func(ctx context.Context) (*worktreepb.DeleteSuccess, error) {
 		return s.Client.DeleteWorktree(ctx, &worktreepb.DeleteRequest{
-			Scope:               worktreecontract.SessionManagementScope(s.SessionID),
+			Scope:               worktreecontract.SessionManagementScope(s.SessionTarget),
 			Selector:            strings.TrimSpace(selector),
 			ForceFolderRemoval:  forceFolderRemoval,
 			BranchCleanupPolicy: cleanupPolicy,

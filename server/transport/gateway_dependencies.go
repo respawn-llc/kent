@@ -73,7 +73,13 @@ func (g *Gateway) resolveSessionAttachmentTargetWithCapability(
 	state *connectionState,
 	sessionID string,
 	reattachCapability *string,
-) (*worktreepb.SessionExecutionTarget, metadata.Binding, error) {
+) (result *worktreepb.SessionExecutionTarget, resultBinding metadata.Binding, err error) {
+	defer func() {
+		var captured sessionAttachmentTargetError
+		if (errors.Is(err, serverapi.ErrProjectNotFound) || errors.Is(err, serverapi.ErrWorkspaceNotRegistered)) && !errors.As(err, &captured) {
+			err = sessionAttachmentTargetError{projectID: connectionAttachmentProjectID(g, state), cause: err}
+		}
+	}()
 	trimmedSessionID := strings.TrimSpace(sessionID)
 	if trimmedSessionID == "" {
 		return &worktreepb.SessionExecutionTarget{}, metadata.Binding{}, errors.New("session id is required")
@@ -89,7 +95,7 @@ func (g *Gateway) resolveSessionAttachmentTargetWithCapability(
 	binding, err := metadataStore.LookupWorkspaceBindingByID(ctx, target.GetWorkspaceId())
 	if err != nil {
 		if errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
-			return &worktreepb.SessionExecutionTarget{}, metadata.Binding{}, sessionWorkspaceNotRegisteredError{
+			return &worktreepb.SessionExecutionTarget{}, metadata.Binding{}, sessionAttachmentTargetError{
 				projectID:     connectionAttachmentProjectID(g, state),
 				workspaceID:   target.GetWorkspaceId(),
 				workspaceRoot: target.WorkspaceRoot,
@@ -114,18 +120,18 @@ func (g *Gateway) resolveSessionAttachmentTargetWithCapability(
 	return target, binding, nil
 }
 
-type sessionWorkspaceNotRegisteredError struct {
+type sessionAttachmentTargetError struct {
 	projectID     string
 	workspaceID   string
 	workspaceRoot string
 	cause         error
 }
 
-func (e sessionWorkspaceNotRegisteredError) Error() string {
+func (e sessionAttachmentTargetError) Error() string {
 	return e.cause.Error()
 }
 
-func (e sessionWorkspaceNotRegisteredError) Unwrap() error {
+func (e sessionAttachmentTargetError) Unwrap() error {
 	return e.cause
 }
 

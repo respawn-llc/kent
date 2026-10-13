@@ -251,7 +251,7 @@ func (s *gatewayCloseRuntimeService) ActivateSessionRuntime(ctx context.Context,
 	<-ctx.Done()
 	s.tracker.canceled <- "runtime"
 	<-s.tracker.allowActivationEnd
-	return serverapi.SessionRuntimeAttachment{SessionID: req.SessionID, Generation: 1},
+	return serverapi.SessionRuntimeAttachment{SessionID: req.SessionID.String(), Generation: 1},
 		nil
 }
 

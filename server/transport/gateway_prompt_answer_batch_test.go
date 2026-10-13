@@ -3,6 +3,7 @@ package transport
 import (
 	"testing"
 
+	"core/internal/testharness/requestfixture"
 	"core/shared/protoapi"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
@@ -28,7 +29,7 @@ func TestGatewayPromptAnswerBatchMapsParentRejection(t *testing.T) {
 	answeringSessionID := runtimeids.NewSessionID()
 	questionSessionID := runtimeids.NewSessionID()
 	request := &promptpb.AnswerBatchRequest{
-		SessionId: questionSessionID.String(),
+		SessionId: requestfixture.Selector(t, questionSessionID.String()),
 		StepId:    "22222222-2222-4222-8222-222222222222",
 	}
 
@@ -72,7 +73,7 @@ func TestGatewayPromptAnswerBatchRoundTrip(t *testing.T) {
 		t.Fatalf("ParseStepID: %v", err)
 	}
 	request := &promptpb.AnswerBatchRequest{
-		SessionId: sessionID.String(),
+		SessionId: requestfixture.Selector(t, sessionID.String()),
 		StepId:    stepID.String(),
 		Entries: []*promptpb.AnswerBatchEntry{{
 			ToolCallId: "declined-1",

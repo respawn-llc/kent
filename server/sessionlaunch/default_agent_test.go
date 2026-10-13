@@ -49,7 +49,7 @@ func TestChatAgentMutationAllocatesActualMemberAndPreservesUnchangedBinding(t *t
 	service := NewService(launch.Planner{
 		Config: cfg, Rotation: rotation, ContainerDir: filepath.Join(cfg.PersistenceRoot, "projects", binding.ProjectID, "sessions"),
 		StoreOptions: db.AuthoritativeSessionStoreOptions(), PersistedSessions: db, SessionProjects: db, ManagedWorktreeRoots: db,
-	}, ChatSettingsOwner{Authority: authority, Registry: registry.NewRuntimeRegistry(), Changes: changes})
+	}, ChatSettingsOwner{Authority: authority, Registry: registry.NewRuntimeRegistry(db), Changes: changes}, db)
 	initial, err := service.PlanLaunchSession(t.Context(), PlanRequest{
 		Mode: launch.ModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	})
@@ -464,7 +464,7 @@ func TestDefaultAgentCallabilityRestrictsCreationNotContinuation(t *testing.T) {
 	service := NewService(launch.Planner{
 		Config: cfg, ContainerDir: containerDir, StoreOptions: db.AuthoritativeSessionStoreOptions(),
 		PersistedSessions: db, CallerSessions: db, ExecutionTargets: db, SessionProjects: db, ManagedWorktreeRoots: db,
-	}, ChatSettingsOwner{})
+	}, ChatSettingsOwner{}, nil)
 	removed, err := session.Create(containerDir, "removed", cfg.WorkspaceRoot, sessioncontract.SessionCategoryMain, db.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatal(err)
