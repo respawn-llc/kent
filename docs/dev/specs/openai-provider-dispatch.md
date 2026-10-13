@@ -8,6 +8,15 @@
 - Kent must not send separate provider requests to count input tokens.
 - Model-context resolution and offline request inspection send no Session identity, Codex dispatch metadata, routing hint, or provider turn state.
 
+## Provider attempt diagnostics
+
+- Each OpenAI-family generation and compaction attempt must emit an operator diagnostic when dispatch starts and another when the attempt returns. Each attempt must have its own identity, including retries.
+- Diagnostics must identify the Session, Provider Connection, model, prompt-cache key, requested and served service tiers, and authenticated account identity when available.
+- Outcomes must distinguish completed, failed, and canceled attempts. Diagnostics must include elapsed time, available HTTP status and provider request identity, and available provider-reported token usage, including usage reported by failed or incomplete responses.
+- Diagnostics must represent unreported token usage as unknown. They must distinguish a provider-reported zero from absent usage.
+- Attempt diagnostics must not contain credentials, provider turn state, request or response bodies, model output, or encrypted payloads.
+- Attempt diagnostics must not change conversation content, connection selection, credentials, retry behavior, or provider request payloads.
+
 ## ChatGPT Codex Routing
 
 - Only ChatGPT Codex OAuth dispatches send Codex turn metadata, `x-codex-routing-hint`, or `x-codex-turn-state`.
