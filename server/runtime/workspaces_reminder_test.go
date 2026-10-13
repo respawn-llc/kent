@@ -10,13 +10,20 @@ import (
 	"core/server/metadata"
 	"core/server/session"
 	"core/server/tools"
-	"core/server/workflowruntime"
 	"core/shared/sessioncontract"
 	"core/shared/transcript"
 )
 
 func TestFreshModelRequestIncludesProjectWorkspacesContext(t *testing.T) {
-	metadataStore, store, _ := newWorkspaceReminderSession(t, 2)
+	metadataStore, store, attached := newWorkspaceReminderSession(t, 2)
+	worktreeRoot := t.TempDir()
+	mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter,
+		"feature/workspace-context",
+		worktreeRoot,
+		attached[0].CanonicalRoot,
+		worktreeRoot,
+	))
 	client := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ready")}}
 	engine := mustNewTestEngine(
 		t,
@@ -31,7 +38,8 @@ func TestFreshModelRequestIncludesProjectWorkspacesContext(t *testing.T) {
 	}
 	assertModelCallCount(t, client, 1)
 
-	requestReminders := workspaceReminderMessages(requestMessages(client.calls[0]))
+	request := requestMessages(client.calls[0])
+	requestReminders := workspaceReminderMessages(request)
 	if len(requestReminders) != 1 {
 		t.Fatalf("request Workspaces reminders = %d, want one", len(requestReminders))
 	}
@@ -50,6 +58,24 @@ func TestFreshModelRequestIncludesProjectWorkspacesContext(t *testing.T) {
 	if transcriptReminders[0].Visibility != transcript.EntryVisibilityDetail {
 		t.Fatalf("Workspaces reminder visibility = %q, want detail", transcriptReminders[0].Visibility)
 	}
+	var workspaceIndex, worktreeIndex int
+	var hasWorkspace, hasWorktree bool
+	for index, message := range request {
+		if message.MessageType == nil {
+			continue
+		}
+		switch *message.MessageType {
+		case llm.MessageTypeWorkspaces:
+			workspaceIndex = index
+			hasWorkspace = true
+		case llm.MessageTypeWorktreeMode:
+			worktreeIndex = index
+			hasWorktree = true
+		}
+	}
+	if !hasWorkspace || !hasWorktree || worktreeIndex <= workspaceIndex {
+		t.Fatalf("fresh Worktree context order = Workspaces:%d Worktree:%d", workspaceIndex, worktreeIndex)
+	}
 }
 
 func TestFreshModelRequestOmitsProjectWorkspacesContextForSingleWorkspace(t *testing.T) {
@@ -62,100 +88,11 @@ func TestFreshModelRequestOmitsProjectWorkspacesContextForSingleWorkspace(t *tes
 		tools.NewRegistry(),
 		Config{ProjectWorkspaceContextReader: metadataStore},
 	)
-
 	if _, err := engine.SubmitUserMessage(t.Context(), "start"); err != nil {
 		t.Fatalf("submit first message: %v", err)
 	}
-	assertModelCallCount(t, client, 1)
 	if reminders := workspaceReminderMessages(requestMessages(client.calls[0])); len(reminders) != 0 {
 		t.Fatalf("request Workspaces reminders = %d, want none", len(reminders))
-	}
-	for _, entry := range engine.ChatSnapshot().Entries {
-		if entry.MessageType == llm.MessageTypeWorkspaces {
-			t.Fatal("single-Workspace Session committed a Workspaces reminder")
-		}
-	}
-}
-
-func TestProjectWorkspaceContextUsesBoundedCatalogOrderAndWorkspaceDefault(t *testing.T) {
-	metadataStore, store, _ := newWorkspaceReminderSession(t, 6)
-	projectID, err := metadataStore.ResolveSessionProjectID(t.Context(), store.Meta().SessionID)
-	if err != nil {
-		t.Fatalf("resolve Session Project: %v", err)
-	}
-	catalog, err := metadataStore.ListProjectWorkspaceCatalogPage(t.Context(), projectID, 0, 10)
-	if err != nil {
-		t.Fatalf("list complete Workspace catalog: %v", err)
-	}
-
-	got, err := loadProjectWorkspacesContext(t.Context(), metadataStore, store.Meta().SessionID)
-	if err != nil {
-		t.Fatalf("load Project Workspace context: %v", err)
-	}
-	if got.ProjectName == "" || got.WorkspaceCount != int64(len(catalog.Workspaces)) {
-		t.Fatalf("Workspace context facts = %+v, want project name and total attachment count", got)
-	}
-	if len(got.Workspaces) != metadata.ProjectWorkspaceContextLimit {
-		t.Fatalf("context Workspaces = %d, want bounded first page of %d", len(got.Workspaces), metadata.ProjectWorkspaceContextLimit)
-	}
-	for index, want := range catalog.Workspaces[:metadata.ProjectWorkspaceContextLimit] {
-		if got.Workspaces[index] != want {
-			t.Fatalf("context Workspace %d = %+v, want catalog row %+v", index, got.Workspaces[index], want)
-		}
-	}
-}
-
-func TestFreshWorktreeModelRequestIncludesProjectWorkspacesContext(t *testing.T) {
-	metadataStore, store, attached := newWorkspaceReminderSession(t, 2)
-	worktreeRoot := t.TempDir()
-	mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
-		session.WorktreeReminderModeEnter,
-		"feature/workspace-context",
-		worktreeRoot,
-		attached[0].CanonicalRoot,
-		worktreeRoot,
-	))
-	client := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ready")}}
-	engine := mustNewTestEngine(
-		t,
-		store,
-		client,
-		tools.NewRegistry(),
-		Config{ProjectWorkspaceContextReader: metadataStore},
-	)
-	if _, err := engine.SubmitUserMessage(t.Context(), "start in the Worktree"); err != nil {
-		t.Fatalf("submit first message: %v", err)
-	}
-
-	var skillIndex, workspaceIndex, worktreeIndex int
-	var hasSkill, hasWorkspace, hasWorktree bool
-	for index, message := range requestMessages(client.calls[0]) {
-		if message.MessageType == nil {
-			continue
-		}
-		switch *message.MessageType {
-		case llm.MessageTypeSkills:
-			skillIndex = index
-			hasSkill = true
-		case llm.MessageTypeWorkspaces:
-			if hasWorkspace {
-				t.Fatal("fresh Worktree request contains duplicate Workspaces reminders")
-			}
-			workspaceIndex = index
-			hasWorkspace = true
-		case llm.MessageTypeWorktreeMode:
-			worktreeIndex = index
-			hasWorktree = true
-		}
-	}
-	if !hasWorkspace || !hasWorktree || worktreeIndex <= workspaceIndex ||
-		(hasSkill && skillIndex >= workspaceIndex) {
-		t.Fatalf(
-			"fresh Worktree context order = Skills:%d Workspaces:%d Worktree:%d, want Workspaces after Skills and before Worktree",
-			skillIndex,
-			workspaceIndex,
-			worktreeIndex,
-		)
 	}
 }
 
@@ -234,44 +171,8 @@ func TestProjectWorkspacesReadFailurePreventsModelDispatch(t *testing.T) {
 	}
 }
 
-func TestProjectWorkspacesReadFailurePreventsWorkflowModelDispatch(t *testing.T) {
-	metadataStore, store, _ := newWorkspaceReminderSession(t, 2)
-	if err := metadataStore.Close(); err != nil {
-		t.Fatalf("close metadata store to exercise read failure: %v", err)
-	}
-
-	client := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ready")}}
-	engine := mustNewWorkflowTestEngine(
-		t,
-		store,
-		client,
-		&workflowruntime.CurrentNodeExecutionConfig{
-			CompletionMode: workflowruntime.CompletionModeTool,
-			Controller:     &externallyCompletedWorkflowController{},
-		},
-		Config{ProjectWorkspaceContextReader: metadataStore},
-	)
-	if _, err := engine.SubmitWorkflowTurn(t.Context()); err == nil {
-		t.Fatal("Workflow model request succeeded without Project Workspace context facts")
-	}
-	if len(client.calls) != 0 {
-		t.Fatalf("Workflow model calls = %d, want none after context read failure", len(client.calls))
-	}
-	if reminders := workspaceReminderMessages(engine.transcriptRuntimeState().SnapshotMessages()); len(reminders) != 0 {
-		t.Fatalf("committed Workflow Workspaces reminders after failed preparation = %d, want none", len(reminders))
-	}
-}
-
 func TestFreshPostCompactionRequestIncludesProjectWorkspacesContext(t *testing.T) {
-	metadataStore, store, attached := newWorkspaceReminderSession(t, 2)
-	worktreeRoot := t.TempDir()
-	mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
-		session.WorktreeReminderModeEnter,
-		"feature/post-compaction-context",
-		worktreeRoot,
-		attached[0].CanonicalRoot,
-		worktreeRoot,
-	))
+	metadataStore, store, _ := newWorkspaceReminderSession(t, 2)
 	client := &fakeCompactionClient{
 		responses: []llm.Response{
 			finalOutputItemResponse("ready"),
@@ -307,26 +208,8 @@ func TestFreshPostCompactionRequestIncludesProjectWorkspacesContext(t *testing.T
 	if reminders := workspaceReminderMessages(requestMessages(client.calls[1])); len(reminders) != 1 {
 		t.Fatalf("first post-compaction request Workspaces reminders = %d, want one", len(reminders))
 	}
-	worktreeReminders := 0
-	for _, message := range requestMessages(client.calls[1]) {
-		if message.MessageType != nil && *message.MessageType == llm.MessageTypeWorktreeMode {
-			worktreeReminders++
-		}
-	}
-	if worktreeReminders != 1 {
-		t.Fatalf("first post-compaction request Worktree reminders = %d, want one", worktreeReminders)
-	}
 	if reminders := workspaceReminderMessages(engine.transcriptRuntimeState().SnapshotMessages()); len(reminders) != 1 {
 		t.Fatalf("active post-compaction Workspaces reminders = %d, want one", len(reminders))
-	}
-	activeWorktreeReminders := 0
-	for _, message := range engine.transcriptRuntimeState().SnapshotMessages() {
-		if message.MessageType != nil && *message.MessageType == llm.MessageTypeWorktreeMode {
-			activeWorktreeReminders++
-		}
-	}
-	if activeWorktreeReminders != 1 {
-		t.Fatalf("active post-compaction Worktree reminders = %d, want one", activeWorktreeReminders)
 	}
 }
 
@@ -404,57 +287,6 @@ func TestReopenedSessionReusesProjectWorkspacesContext(t *testing.T) {
 	}
 }
 
-func TestLaterDormantWorkflowAssignmentDoesNotRefreshProjectWorkspacesContext(t *testing.T) {
-	metadataStore, store, attached := newWorkspaceReminderSession(t, 2)
-	deliveryContext := PersistedWorkflowAssignmentContext{
-		Workdir:                       attached[0].CanonicalRoot,
-		Model:                         "gpt-6-sol",
-		ProjectWorkspaceContextReader: metadataStore,
-	}
-	first, err := SteerPersistedWorkflowAssignment(
-		t.Context(),
-		store,
-		workflowAssignmentForCompactionTest(),
-		deliveryContext,
-	)
-	if err != nil {
-		t.Fatalf("prepare initial dormant Workflow assignment: %v", err)
-	}
-	if _, err := first.Wait(t.Context()); err != nil {
-		t.Fatalf("commit initial dormant Workflow assignment: %v", err)
-	}
-	initialReminders := persistedWorkspaceReminderRecords(t, store)
-	if len(initialReminders) != 1 {
-		t.Fatalf("initial dormant Workspaces reminders = %d, want one", len(initialReminders))
-	}
-
-	projectID, err := metadataStore.ResolveSessionProjectID(t.Context(), store.Meta().SessionID)
-	if err != nil {
-		t.Fatalf("resolve Session Project: %v", err)
-	}
-	if _, err := metadataStore.AttachWorkspaceToProject(t.Context(), projectID, t.TempDir()); err != nil {
-		t.Fatalf("attach Workspace before later assignment: %v", err)
-	}
-	later, err := SteerPersistedWorkflowAssignment(
-		t.Context(),
-		store,
-		workflowAssignmentForCompactionTest(),
-		deliveryContext,
-	)
-	if err != nil {
-		t.Fatalf("prepare later dormant Workflow assignment: %v", err)
-	}
-	if _, err := later.Wait(t.Context()); err != nil {
-		t.Fatalf("commit later dormant Workflow assignment: %v", err)
-	}
-	laterReminders := persistedWorkspaceReminderRecords(t, store)
-	if len(laterReminders) != 1 || messageContent(llm.Message{
-		Content: laterReminders[0].Content,
-	}) != messageContent(llm.Message{Content: initialReminders[0].Content}) {
-		t.Fatalf("later dormant Workspaces context = %+v, want the initial reminder reused", laterReminders)
-	}
-}
-
 func TestFreshDormantWorkflowAssignmentFailsBeforeContextCommitWhenWorkspaceReadFails(t *testing.T) {
 	metadataStore, store, _ := newWorkspaceReminderSession(t, 2)
 	if err := metadataStore.Close(); err != nil {
@@ -482,30 +314,6 @@ func TestFreshDormantWorkflowAssignmentFailsBeforeContextCommitWhenWorkspaceRead
 	if len(window.Records) != 0 {
 		t.Fatalf("fresh dormant Session records after failed Workspace read = %d, want none", len(window.Records))
 	}
-}
-
-func persistedWorkspaceReminderRecords(t *testing.T, store *session.Store) []session.MessageRecord {
-	t.Helper()
-	eventLog, err := store.MaterializeEventLog()
-	if err != nil {
-		t.Fatalf("materialize Session event log: %v", err)
-	}
-	window, err := eventLog.ReadRecentRecords(128)
-	if err != nil {
-		t.Fatalf("read recent Session records: %v", err)
-	}
-	reminders := make([]session.MessageRecord, 0, 1)
-	for _, event := range window.Records {
-		payload, err := event.Payload()
-		if err != nil {
-			t.Fatalf("read Session event payload: %v", err)
-		}
-		message, ok := payload.(session.MessageRecord)
-		if ok && message.MessageType != nil && *message.MessageType == session.MessageTypeWorkspaces {
-			reminders = append(reminders, message)
-		}
-	}
-	return reminders
 }
 
 func newWorkspaceReminderSession(

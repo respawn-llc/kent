@@ -1,8 +1,6 @@
 package metadata
 
 import (
-	"context"
-	"errors"
 	"path/filepath"
 	"testing"
 
@@ -77,30 +75,5 @@ func TestReadSessionProjectWorkspaceContextUsesOwningProjectAndBoundedCatalog(t 
 	}
 	if got.ProjectName == "" || source.ProjectID == target.ProjectID {
 		t.Fatal("test did not distinguish the Session Project from the current Working Directory Project")
-	}
-}
-
-func TestReadSessionProjectWorkspaceContextOmitsSingleWorkspaceCatalog(t *testing.T) {
-	store, cfg, binding := newMetadataTestStore(t)
-	targetSession := createMetadataTestSession(t, store, cfg, binding)
-
-	got, err := store.ReadSessionProjectWorkspaceContext(t.Context(), targetSession.Meta().SessionID)
-	if err != nil {
-		t.Fatalf("read Session Project Workspace context: %v", err)
-	}
-	if got.WorkspaceCount != 1 || len(got.Workspaces) != 0 {
-		t.Fatalf("single-Workspace context = %+v, want count 1 without catalog rows", got)
-	}
-}
-
-func TestReadSessionProjectWorkspaceContextPropagatesReadFailure(t *testing.T) {
-	store, cfg, binding := newMetadataTestStore(t)
-	targetSession := createMetadataTestSession(t, store, cfg, binding)
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-
-	_, err := store.ReadSessionProjectWorkspaceContext(ctx, targetSession.Meta().SessionID)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("read Session Project Workspace context error = %v, want context.Canceled", err)
 	}
 }

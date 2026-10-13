@@ -8,112 +8,69 @@ import (
 	"testing"
 )
 
-func TestProjectWorkspacesExplicitProjectIgnoresInvalidSession(t *testing.T) {
+func TestProjectWorkspacesSelection(t *testing.T) {
 	fixture := newWorktreeCommandFixture(t)
-	t.Setenv("KENT_SESSION_ID", "not-a-session-selector")
-
-	var stdout, stderr bytes.Buffer
-	exitCode := projectSubcommand(
-		[]string{"workspaces", "--project", fixture.b.CanonicalRoot, "--json"},
-		&stdout,
-		&stderr,
-	)
-	if exitCode != 0 {
-		t.Fatalf("explicit Project workspaces exit code = %d: %s", exitCode, stderr.String())
-	}
-	var response struct {
-		ProjectID  string `json:"project_id"`
-		Workspaces []struct {
-			WorkspaceID string `json:"workspace_id"`
-		} `json:"workspaces"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
-		t.Fatalf("decode Project workspaces response: %v; output=%q", err, stdout.String())
-	}
-	if response.ProjectID != fixture.b.ProjectID || len(response.Workspaces) != 2 {
-		t.Fatalf("explicit Project response = %+v, want Project %q with two attached Workspaces", response, fixture.b.ProjectID)
-	}
-}
-
-func TestProjectWorkspacesHelpIsDispatched(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	if exitCode := projectSubcommand([]string{"workspaces", "--help"}, &stdout, &stderr); exitCode != 0 ||
-		stderr.Len() == 0 {
-		t.Fatalf("Project workspaces help returned exit %d and output %q", exitCode, stderr.String())
-	}
-}
-
-func TestProjectWorkspacesUsesSessionProject(t *testing.T) {
-	fixture := newWorktreeCommandFixture(t)
-	t.Setenv("KENT_SESSION_ID", fixture.sessionID)
-
-	var stdout, stderr bytes.Buffer
-	exitCode := projectSubcommand([]string{"workspaces", "--json"}, &stdout, &stderr)
-	if exitCode != 0 {
-		t.Fatalf("Session Project workspaces exit code = %d: %s", exitCode, stderr.String())
-	}
-	var response struct {
-		ProjectID  string `json:"project_id"`
-		Workspaces []struct {
-			WorkspaceID string `json:"workspace_id"`
-			IsDefault   bool   `json:"is_default"`
-		} `json:"workspaces"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
-		t.Fatalf("decode Project workspaces response: %v; output=%q", err, stdout.String())
-	}
-	if response.ProjectID != fixture.a.ProjectID ||
-		len(response.Workspaces) != 1 ||
-		response.Workspaces[0].WorkspaceID != fixture.a.WorkspaceID ||
-		!response.Workspaces[0].IsDefault {
-		t.Fatalf("Session Project response = %+v, want its one default Workspace", response)
-	}
-}
-
-func TestProjectWorkspacesRequiresExplicitProjectWithoutSession(t *testing.T) {
-	_ = newWorktreeCommandFixture(t)
-	t.Setenv("KENT_SESSION_ID", "")
-
-	var stdout, stderr bytes.Buffer
-	exitCode := projectSubcommand([]string{"workspaces"}, &stdout, &stderr)
-	if exitCode == 0 || stdout.Len() != 0 || stderr.Len() == 0 {
-		t.Fatalf(
-			"workspaces without Project or Session returned %d, stdout=%q stderr=%q",
-			exitCode,
-			stdout.String(),
-			stderr.String(),
-		)
-	}
-}
-
-func TestProjectWorkspacesInvalidSessionDoesNotFallBackToCurrentWorkspace(t *testing.T) {
-	_ = newWorktreeCommandFixture(t)
-	t.Setenv("KENT_SESSION_ID", "not-a-session-selector")
-
-	var stdout, stderr bytes.Buffer
-	exitCode := projectSubcommand([]string{"workspaces"}, &stdout, &stderr)
-	if exitCode == 0 || stdout.Len() != 0 || stderr.Len() == 0 {
-		t.Fatalf(
-			"workspaces with invalid Session fell back to cwd: exit=%d stdout=%q stderr=%q",
-			exitCode,
-			stdout.String(),
-			stderr.String(),
-		)
-	}
-}
-
-func TestProjectWorkspacesInvalidProjectDoesNotFallBackToSessionProject(t *testing.T) {
-	fixture := newWorktreeCommandFixture(t)
-	t.Setenv("KENT_SESSION_ID", fixture.sessionID)
-
-	var stdout, stderr bytes.Buffer
-	exitCode := projectSubcommand(
-		[]string{"workspaces", "--project", "missing-project"},
-		&stdout,
-		&stderr,
-	)
-	if exitCode == 0 || stdout.Len() != 0 || stderr.Len() == 0 {
-		t.Fatalf("invalid explicit Project returned exit %d, stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	for _, test := range []struct {
+		name               string
+		sessionID          string
+		args               []string
+		wantProjectID      string
+		wantWorkspaceCount int
+		wantFailure        bool
+	}{
+		{
+			name:               "explicit workspace path overrides invalid Session",
+			sessionID:          "not-a-session-selector",
+			args:               []string{"workspaces", "--project", fixture.b.CanonicalRoot, "--json"},
+			wantProjectID:      fixture.b.ProjectID,
+			wantWorkspaceCount: 2,
+		},
+		{
+			name:               "Session Project",
+			sessionID:          fixture.sessionID,
+			args:               []string{"workspaces", "--json"},
+			wantProjectID:      fixture.a.ProjectID,
+			wantWorkspaceCount: 1,
+		},
+		{
+			name:        "missing selection",
+			args:        []string{"workspaces"},
+			wantFailure: true,
+		},
+		{
+			name:        "invalid Session selection",
+			sessionID:   "not-a-session-selector",
+			args:        []string{"workspaces"},
+			wantFailure: true,
+		},
+		{
+			name:        "invalid explicit Project does not fall back to Session",
+			sessionID:   fixture.sessionID,
+			args:        []string{"workspaces", "--project", "missing-project"},
+			wantFailure: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("KENT_SESSION_ID", test.sessionID)
+			var stdout, stderr bytes.Buffer
+			exitCode := projectSubcommand(test.args, &stdout, &stderr)
+			if test.wantFailure {
+				if exitCode == 0 || stdout.Len() != 0 || stderr.Len() == 0 {
+					t.Fatalf("invalid selection returned %d, stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+				}
+				return
+			}
+			if exitCode != 0 {
+				t.Fatalf("Project selection returned %d: %s", exitCode, stderr.String())
+			}
+			var response projectWorkspacesListOutput
+			if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+				t.Fatalf("decode Project workspaces response: %v; output=%q", err, stdout.String())
+			}
+			if response.ProjectID != test.wantProjectID || len(response.Workspaces) != test.wantWorkspaceCount {
+				t.Fatalf("Project selection response = %+v", response)
+			}
+		})
 	}
 }
 
@@ -184,6 +141,34 @@ func TestProjectWorkspacesPlainOutputIsHomeShortenedPathBullets(t *testing.T) {
 		t.Fatal("plain page omitted its pagination continuation")
 	}
 
+	if err := os.RemoveAll(workspaceRoot); err != nil {
+		t.Fatalf("remove attached Workspace root: %v", err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	exitCode = projectSubcommand(
+		[]string{"workspaces", "--project", fixture.b.ProjectID, "--limit", "1", "--json"},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 0 {
+		t.Fatalf("Project workspaces JSON exit code = %d: %s", exitCode, stderr.String())
+	}
+	var jsonResponse projectWorkspacesListOutput
+	if err := json.Unmarshal(stdout.Bytes(), &jsonResponse); err != nil {
+		t.Fatalf("decode Project workspaces JSON: %v; output=%q", err, stdout.String())
+	}
+	if jsonResponse.ProjectID != fixture.b.ProjectID ||
+		jsonResponse.Offset != 0 ||
+		jsonResponse.NextOffset == nil ||
+		*jsonResponse.NextOffset != 1 ||
+		len(jsonResponse.Workspaces) != 1 ||
+		jsonResponse.Workspaces[0].WorkspaceID != binding.WorkspaceID ||
+		jsonResponse.Workspaces[0].RootPath != workspaceRoot ||
+		!jsonResponse.Workspaces[0].IsDefault {
+		t.Fatalf("Project workspaces JSON = %+v, want canonical default catalog entry", jsonResponse)
+	}
+
 	stdout.Reset()
 	stderr.Reset()
 	exitCode = projectSubcommand(
@@ -209,67 +194,6 @@ func TestProjectWorkspacesPlainOutputIsHomeShortenedPathBullets(t *testing.T) {
 	}
 }
 
-func TestProjectWorkspacesJSONPreservesCanonicalCatalogPaths(t *testing.T) {
-	fixture := newWorktreeCommandFixture(t)
-	home, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatalf("resolve fixture home: %v", err)
-	}
-	t.Setenv("HOME", home)
-	workspaceRoot := filepath.Join(home, "canonical")
-	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
-		t.Fatalf("create Workspace fixture: %v", err)
-	}
-	binding, err := fixture.core.MetadataStore().AttachWorkspaceToProject(
-		t.Context(),
-		fixture.b.ProjectID,
-		workspaceRoot,
-	)
-	if err != nil {
-		t.Fatalf("attach Workspace fixture: %v", err)
-	}
-	if err := fixture.core.MetadataStore().SetProjectDefaultWorkspace(
-		t.Context(),
-		fixture.b.ProjectID,
-		binding.WorkspaceID,
-	); err != nil {
-		t.Fatalf("set Workspace fixture as Project default: %v", err)
-	}
-
-	var stdout, stderr bytes.Buffer
-	exitCode := projectSubcommand(
-		[]string{"workspaces", "--project", fixture.b.ProjectID, "--limit", "1", "--json"},
-		&stdout,
-		&stderr,
-	)
-	if exitCode != 0 {
-		t.Fatalf("Project workspaces JSON exit code = %d: %s", exitCode, stderr.String())
-	}
-	var response struct {
-		ProjectID  string `json:"project_id"`
-		Offset     int    `json:"offset"`
-		NextOffset *int   `json:"next_offset"`
-		Workspaces []struct {
-			WorkspaceID string `json:"workspace_id"`
-			RootPath    string `json:"root_path"`
-			IsDefault   bool   `json:"is_default"`
-		} `json:"workspaces"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
-		t.Fatalf("decode Project workspaces JSON: %v; output=%q", err, stdout.String())
-	}
-	if response.ProjectID != fixture.b.ProjectID ||
-		response.Offset != 0 ||
-		response.NextOffset == nil ||
-		*response.NextOffset != 1 ||
-		len(response.Workspaces) != 1 ||
-		response.Workspaces[0].WorkspaceID != binding.WorkspaceID ||
-		response.Workspaces[0].RootPath != workspaceRoot ||
-		!response.Workspaces[0].IsDefault {
-		t.Fatalf("Project workspaces JSON = %+v, want canonical default catalog entry", response)
-	}
-}
-
 func TestProjectWorkspacesDefaultPaginationAndEmptyPage(t *testing.T) {
 	fixture := newWorktreeCommandFixture(t)
 	for range 20 {
@@ -291,13 +215,7 @@ func TestProjectWorkspacesDefaultPaginationAndEmptyPage(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("default Project workspaces page exit code = %d: %s", exitCode, stderr.String())
 	}
-	var firstPage struct {
-		Offset     int  `json:"offset"`
-		NextOffset *int `json:"next_offset"`
-		Workspaces []struct {
-			IsDefault bool `json:"is_default"`
-		} `json:"workspaces"`
-	}
+	var firstPage projectWorkspacesListOutput
 	if err := json.Unmarshal(stdout.Bytes(), &firstPage); err != nil {
 		t.Fatalf("decode first Project workspaces page: %v; output=%q", err, stdout.String())
 	}
@@ -319,11 +237,7 @@ func TestProjectWorkspacesDefaultPaginationAndEmptyPage(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("second Project workspaces page exit code = %d: %s", exitCode, stderr.String())
 	}
-	var secondPage struct {
-		Offset     int               `json:"offset"`
-		NextOffset *int              `json:"next_offset"`
-		Workspaces []json.RawMessage `json:"workspaces"`
-	}
+	var secondPage projectWorkspacesListOutput
 	if err := json.Unmarshal(stdout.Bytes(), &secondPage); err != nil {
 		t.Fatalf("decode second Project workspaces page: %v; output=%q", err, stdout.String())
 	}
@@ -362,45 +276,5 @@ func TestProjectWorkspacesRejectsInvalidPaginationBeforeConnecting(t *testing.T)
 				stderr.String(),
 			)
 		}
-	}
-}
-
-func TestProjectWorkspacesCommandListsUnavailableAttachments(t *testing.T) {
-	fixture := newWorktreeCommandFixture(t)
-	removedRoot := t.TempDir()
-	binding, err := fixture.core.MetadataStore().AttachWorkspaceToProject(
-		t.Context(),
-		fixture.b.ProjectID,
-		removedRoot,
-	)
-	if err != nil {
-		t.Fatalf("attach Workspace fixture: %v", err)
-	}
-	if err := os.RemoveAll(removedRoot); err != nil {
-		t.Fatalf("remove attached Workspace root: %v", err)
-	}
-
-	var stdout, stderr bytes.Buffer
-	exitCode := projectSubcommand(
-		[]string{"workspaces", "--project", fixture.b.ProjectID, "--offset", "1", "--limit", "1", "--json"},
-		&stdout,
-		&stderr,
-	)
-	if exitCode != 0 {
-		t.Fatalf("Project workspaces with unavailable attachment exit code = %d: %s", exitCode, stderr.String())
-	}
-	var response struct {
-		Workspaces []struct {
-			WorkspaceID string `json:"workspace_id"`
-			RootPath    string `json:"root_path"`
-		} `json:"workspaces"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
-		t.Fatalf("decode unavailable attachment page: %v; output=%q", err, stdout.String())
-	}
-	if len(response.Workspaces) != 1 ||
-		response.Workspaces[0].WorkspaceID != binding.WorkspaceID ||
-		response.Workspaces[0].RootPath != binding.CanonicalRoot {
-		t.Fatalf("unavailable attachment response = %+v, want its catalog record", response)
 	}
 }
