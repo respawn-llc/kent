@@ -170,7 +170,7 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			if provenanceErr != nil {
 				return fmt.Errorf("restore session cache warning provenance: %w", provenanceErr)
 			}
-			applyPersistedCacheWarningToTranscript(e.transcriptRuntimeState(), payload, e.cfg.CacheWarningMode, &provenance)
+			applyPersistedCacheWarningToTranscript(e.transcriptRuntimeState(), stepIDPointer, payload, e.cfg.CacheWarningMode, &provenance)
 		case session.CacheRequestObservationRecord:
 			// Cache requests are observational. The following response record
 			// reconstructs the cache tracker state.
