@@ -580,6 +580,7 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 		Settings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
 			Model:        "gpt-6-sol",
 			EnabledTools: map[toolspec.ID]bool{toolspec.ToolPatch: true},
+			Reviewer:     config.ReviewerSettings{Frequency: "off"},
 			Shell:        config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}, provider.URL)),
 	}
