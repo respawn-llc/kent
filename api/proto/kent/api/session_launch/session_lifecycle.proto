@@ -18,7 +18,7 @@ import "kent/api/session_retarget/session_retarget.proto";
 option go_package = "core/shared/protoapi/gen/kent/api/session_launch;sessionlaunchpb";
 
 message SessionPromoteRequest {
-  string session_id = 1 [(buf.validate.field).string.(scoped_session_id) = true];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
 }
 
 message SessionPromoteError {

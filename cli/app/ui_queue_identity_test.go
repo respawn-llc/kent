@@ -46,7 +46,8 @@ func applyFirstInjectedQueueCreateDoneForTest(t *testing.T, m *uiModel, cmd tea.
 }
 
 func TestBusyEnterUsesAuthoritativeSubmitPath(t *testing.T) {
-	client := &runtimeControlFakeClient{submitQueuedID: "busy-submit-queue"}
+	disableTransientStatusClearForTest(t)
+	client := &runtimeControlFakeClient{submitQueuedID: "busy-submit-queue", submitDiagnostic: errors.New("history persistence failed")}
 	model := newProjectedTestUIModel(client)
 	model.setRuntimeActivityBusyForTest(true)
 	submittedText := "  steer while\nthinking  "
@@ -66,6 +67,16 @@ func TestBusyEnterUsesAuthoritativeSubmitPath(t *testing.T) {
 	}
 	if client.submitCalls != 1 {
 		t.Fatalf("authoritative submit calls = %d, want 1", client.submitCalls)
+	}
+	if testMainInput(model) != "" {
+		t.Fatal("accepted steering was restored for resend")
+	}
+	if len(model.injectedQueue) != 1 || model.injectedQueue[0].ServerID != client.submitQueuedID ||
+		model.injectedQueue[0].State != injectedRuntimeQueueEnqueued {
+		t.Fatalf("accepted Queue Item tracking lost: %+v", model.injectedQueue)
+	}
+	if model.transientStatus == "" {
+		t.Fatal("accepted diagnostic was not surfaced")
 	}
 }
 

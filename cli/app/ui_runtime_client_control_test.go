@@ -13,6 +13,7 @@ import (
 	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -24,6 +25,7 @@ type shellPreparationClient struct {
 	inputs            []*chatpb.SteerRequest
 	compactions       []*chatpb.CompactRequest
 	selectedSessionID *string
+	diagnostic        *chatpb.AcceptedDiagnostic
 }
 
 func (c *shellPreparationClient) Compact(_ context.Context, request *chatpb.CompactRequest) (*chatpb.CompactionMutationSuccess, error) {
@@ -45,7 +47,8 @@ func (c *shellPreparationClient) Steer(_ context.Context, request *chatpb.SteerR
 	return &chatpb.InputMutationSuccess{
 		Session: &chatpb.ExistingSessionTarget{SessionId: id},
 		Outcome: &chatpb.InputMutationSuccess_Accepted{Accepted: &chatpb.InputAccepted{
-			QueueItem: &chatpb.QueueItemIdentity{Id: runtimeids.NewQueueItemID().String()},
+			QueueItem:  &chatpb.QueueItemIdentity{Id: runtimeids.NewQueueItemID().String()},
+			Diagnostic: c.diagnostic,
 		}},
 	}, nil
 }
@@ -172,7 +175,9 @@ func TestRuntimeClientInputMakesOneExplicitCall(t *testing.T) {
 	controls := &reconnectRetryRuntimeControlClient{}
 	runtimeClient := newUIRuntimeClientWithReads(ongoingTestSessionID().String(), &countingSessionViewClient{}, controls, controls, nil).(*sessionRuntimeClient)
 	selected := runtimeids.NewSessionID().String()
-	chat := &shellPreparationClient{selectedSessionID: &selected}
+	chat := &shellPreparationClient{selectedSessionID: &selected, diagnostic: &chatpb.AcceptedDiagnostic{
+		Detail: &chatpb.AcceptedDiagnostic_PromptHistoryFailure{PromptHistoryFailure: &sharedpb.InternalFailureDetails{}},
+	}}
 	runtimeClient.chatMutations = chat
 
 	submission, err := runtimeClient.SubmitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
@@ -183,6 +188,9 @@ func TestRuntimeClientInputMakesOneExplicitCall(t *testing.T) {
 	}
 	if submission.SessionID == nil || *submission.SessionID != selected {
 		t.Fatalf("selected Session = %v", submission.SessionID)
+	}
+	if submission.Diagnostic == nil || submission.Queued.ID == "" {
+		t.Fatalf("accepted identity or diagnostic lost: %+v", submission)
 	}
 	if len(chat.inputs) != 1 {
 		t.Fatalf("submit calls = %d, want 1", len(chat.inputs))

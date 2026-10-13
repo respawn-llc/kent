@@ -59,6 +59,7 @@ type runtimeControlFakeClient struct {
 	err                   error
 	appendErr             error
 	submitErr             error
+	submitDiagnostic      error
 	interruptErr          error
 	collaborative         bool
 }
@@ -228,7 +229,7 @@ func (f *runtimeControlFakeClient) AppendCommittedEntryWithNoticeID(role, text, 
 }
 func (f *runtimeControlFakeClient) submitUserMessage(_ context.Context, text string) (clientui.UserTurnSubmission, error) {
 	f.submitText = text
-	result := clientui.UserTurnSubmission{Message: textutil.Value(f.submitResult)}
+	result := clientui.UserTurnSubmission{Message: textutil.Value(f.submitResult), Diagnostic: f.submitDiagnostic}
 	if f.submitErr != nil {
 		return result, f.submitErr
 	}

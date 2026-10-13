@@ -118,7 +118,11 @@ func (s *SessionLifecycleService) Promote(ctx context.Context, req *sessionlaunc
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	err := s.withStore(ctx, req.SessionId, func(_ context.Context, store *session.Store) error {
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	err = s.withStore(ctx, id.String(), func(_ context.Context, store *session.Store) error {
 		_, err := store.PromoteSubagentToMain()
 		return err
 	})

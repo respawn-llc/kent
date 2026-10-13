@@ -26,6 +26,7 @@ const (
 )
 
 type UserTurnSubmission struct {
+	Diagnostic error
 	SessionID  *string
 	Message    *string
 	ResultKind UserTurnResultKind

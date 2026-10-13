@@ -236,6 +236,7 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	}
 
 	for _, method := range []protoreflect.MethodDescriptor{
+		sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionLifecycleService").Methods().ByName("Promote"),
 		sessionpb.File_kent_api_session_session_proto.Services().ByName("ReadService").Methods().ByName("GetMainView"),
 		transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("ReadService").Methods().ByName("GetPage"),
 		transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("ReadService").Methods().ByName("GetLatestFinalAnswer"),

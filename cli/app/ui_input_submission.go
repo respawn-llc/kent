@@ -122,6 +122,7 @@ func (c uiInputController) submitCmd(text string, input runtimeinput.Input, queu
 		})
 		if submission.SessionID != nil && *submission.SessionID != sessionID.String() {
 			done := doneMessage("", err)
+			done.diagnostic = submission.Diagnostic
 			done.selectedSessionID = submission.SessionID
 			return done
 		}
@@ -136,6 +137,7 @@ func (c uiInputController) submitCmd(text string, input runtimeinput.Input, queu
 			message = *submission.Message
 		}
 		done := doneMessage(message, nil)
+		done.diagnostic = submission.Diagnostic
 		done.selectedSessionID = submission.SessionID
 		done.queued = submission.Queued
 		resultKind := submission.ResultKind
@@ -291,11 +293,12 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 	if msg.selectedSessionID != nil && *msg.selectedSessionID != m.sessionID {
 		m.nextSessionID = *msg.selectedSessionID
 		m.exitAction = UIActionOpenSession
-		if msg.err != nil {
-			return m, tea.Sequence(m.appendLocalEntryWithNoticeID("error", msg.err.Error(), ""), tea.Quit)
+		if msg.diagnostic != nil {
+			return m, tea.Sequence(m.appendLocalEntryWithNoticeID("error", msg.diagnostic.Error(), ""), tea.Quit)
 		}
 		return m, tea.Quit
 	}
+	pendingWorkRefreshCmd = tea.Batch(pendingWorkRefreshCmd, m.acceptedSubmissionDiagnosticCmd(msg.diagnostic))
 	m.observeRuntimeRequestResult(msg.err)
 	restoreSubmittedText := msg.err != nil && (msg.token == 0 || m.shouldRestoreSubmittedTextOnSubmitError(msg.err))
 	activeQueuedID := m.activeSubmit.queuedID
@@ -374,6 +377,14 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 	c.notifyTurnQueueDrainedIfIdle()
 	m.layout().syncViewport()
 	return m, tea.Batch(queuedStateCmd, pendingWorkRefreshCmd)
+}
+
+func (m *uiModel) acceptedSubmissionDiagnosticCmd(diagnostic error) tea.Cmd {
+	if diagnostic == nil {
+		return nil
+	}
+	m.logf("submission.accepted diagnostic=%q", diagnostic.Error())
+	return m.sendTransientStatusWithNoticeID(diagnostic.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 }
 
 func (c uiInputController) handleSpinnerTick(msg spinnerTickMsg) (tea.Model, tea.Cmd) {

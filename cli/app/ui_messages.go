@@ -17,6 +17,7 @@ import (
 )
 
 type submitDoneMsg struct {
+	diagnostic        error
 	selectedSessionID *string
 	token             uint64
 	sessionID         runtimeids.SessionID
@@ -102,12 +103,13 @@ type chatSettingsDoneMsg struct {
 }
 
 type injectedQueueCreateDoneMsg struct {
-	token     uint64
-	sessionID runtimeids.SessionID
-	localID   string
-	item      clientui.QueuedUserMessage
-	completed bool
-	err       error
+	diagnostic error
+	token      uint64
+	sessionID  runtimeids.SessionID
+	localID    string
+	item       clientui.QueuedUserMessage
+	completed  bool
+	err        error
 }
 
 type injectedQueueDiscardDoneMsg struct {

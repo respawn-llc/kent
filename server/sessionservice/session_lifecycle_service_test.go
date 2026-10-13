@@ -19,6 +19,7 @@ import (
 	"core/server/session"
 	sessionruntime "core/server/sessionruntime"
 	"core/shared/config"
+	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/rollbacktarget"
@@ -297,8 +298,15 @@ func TestPromoteDormantSubagentWithoutRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for range 2 {
-		if _, err := service.Promote(t.Context(), &sessionlaunchpb.SessionPromoteRequest{SessionId: id.String()}); err != nil {
+	identity, err := persistence.SessionIdentity(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.ShortID == nil {
+		t.Fatal("persisted Session has no Short ID")
+	}
+	for _, selector := range []runtimeids.SessionSelector{*identity.ShortID, id} {
+		if _, err := service.Promote(t.Context(), &sessionlaunchpb.SessionPromoteRequest{SessionId: protoapi.SessionSelectorToProto(selector)}); err != nil {
 			t.Fatal(err)
 		}
 	}

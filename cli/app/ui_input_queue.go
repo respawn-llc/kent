@@ -188,29 +188,19 @@ func (m *uiModel) enqueueInjectedInput(text string) tea.Cmd {
 	client := m.runtimeClient()
 	sessionID := m.pendingWorkRefresh.sessionID
 	return func() tea.Msg {
-		item, completed, err := submitRuntimeSteering(client, text)
+		submission, err := client.SubmitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
+			Input: runtimeinput.Text(text),
+		})
 		return injectedQueueCreateDoneMsg{
-			token:     token,
-			sessionID: sessionID,
-			localID:   localID,
-			item:      item,
-			completed: completed,
-			err:       err,
+			token:      token,
+			sessionID:  sessionID,
+			localID:    localID,
+			item:       submission.Queued,
+			completed:  submission.Queued.ID == "",
+			diagnostic: submission.Diagnostic,
+			err:        err,
 		}
 	}
-}
-
-func submitRuntimeSteering(client clientui.RuntimeClient, text string) (clientui.QueuedUserMessage, bool, error) {
-	submission, err := client.SubmitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
-		Input: runtimeinput.Text(text),
-	})
-	if err != nil {
-		return clientui.QueuedUserMessage{}, false, err
-	}
-	if strings.TrimSpace(submission.Queued.ID) == "" {
-		return clientui.QueuedUserMessage{}, true, nil
-	}
-	return submission.Queued, false, nil
 }
 
 func (m *uiModel) queueInjectedInput(text string) tea.Cmd {
@@ -630,6 +620,7 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 	if item.CreateToken != msg.token {
 		return m, pendingWorkRefreshCmd
 	}
+	pendingWorkRefreshCmd = tea.Batch(pendingWorkRefreshCmd, m.acceptedSubmissionDiagnosticCmd(msg.diagnostic))
 	m.observeRuntimeRequestResult(msg.err)
 	if msg.err != nil {
 		m.injectedQueue[index].State = injectedRuntimeQueueCreateFailed
