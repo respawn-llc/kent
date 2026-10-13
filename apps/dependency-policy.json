@@ -15,6 +15,7 @@
         "@app/server-api-contract",
         "@app/ui-kit",
         "@effect/atom-react",
+        "@floating-ui/react",
         "@fontsource-variable/montserrat",
         "@hookform/resolvers",
         "@radix-ui/react-checkbox",

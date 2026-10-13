@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
+import type { ComponentPropsWithRef, HTMLAttributes, ReactNode } from "react";
 
 import { cn, cx } from "./classes";
 
@@ -12,7 +12,7 @@ type ChipAppearanceProps = Readonly<{
 export type ChipProps = ChipAppearanceProps & HTMLAttributes<HTMLSpanElement>;
 
 export type InteractiveChipProps = ChipAppearanceProps &
-  ButtonHTMLAttributes<HTMLButtonElement> &
+  ComponentPropsWithRef<"button"> &
   Readonly<{ variant?: "filled" | "ghost" }>;
 
 export type InteractiveChipSize = "compact" | "default" | "label";

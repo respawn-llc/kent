@@ -161,5 +161,6 @@ it("matches names case-insensitively and ranks by position, length, then name li
     "/areview",
     "/prompt:review",
   ]);
-  expect(composerSuggestions("/review", [commands[0]!])).toEqual([commands[0]]);
+  const review = commands.slice(0, 1);
+  expect(composerSuggestions("/review", review)).toEqual(review);
 });

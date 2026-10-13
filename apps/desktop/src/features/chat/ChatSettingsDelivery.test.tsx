@@ -61,13 +61,16 @@ it.each(["unavailable", "registered_idle"] as const)(
     });
     await deliver(false);
     for (const button of screen.getAllByRole("button", { name: appI18n.t("chatSettings.open") })) {
-      await userEvent.setup().click(button);
+      await userEvent.setup().hover(button);
       expect(
         within(screen.getByRole("dialog")).getByRole("switch", {
           name: appI18n.t("chatSettings.questions"),
         }),
       ).not.toBeChecked();
       await userEvent.setup().keyboard("{Escape}");
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      });
     }
     name = null;
     await deliver(false);

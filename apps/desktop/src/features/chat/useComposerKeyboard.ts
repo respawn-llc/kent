@@ -126,7 +126,7 @@ export function useComposerKeyboard(
 }
 
 function historyDirection(event: KeyboardEvent<HTMLTextAreaElement>): -1 | 1 | null {
-  if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return null;
+  if (!unmodified(event)) return null;
   if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return null;
   const direction = event.key === "ArrowUp" ? -1 : 1;
   const editor = event.currentTarget;
@@ -134,6 +134,10 @@ function historyDirection(event: KeyboardEvent<HTMLTextAreaElement>): -1 | 1 | n
   return editor.selectionStart === editor.selectionEnd && editor.selectionStart === boundary
     ? direction
     : null;
+}
+
+function unmodified(event: KeyboardEvent): boolean {
+  return !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
 }
 
 function handled(event: KeyboardEvent): boolean {
@@ -152,14 +156,7 @@ function handlePickerKey(composer: ReturnType<typeof useChatComposer>, event: Ke
     event.stopPropagation();
     return true;
   }
-  if (
-    event.key === "Tab" &&
-    !event.shiftKey &&
-    !event.altKey &&
-    !event.metaKey &&
-    !event.ctrlKey &&
-    composer.selectedCommand !== null
-  ) {
+  if (event.key === "Tab" && unmodified(event) && composer.selectedCommand !== null) {
     composer.edit(`${composer.selectedCommand.token} `);
     event.preventDefault();
     return true;

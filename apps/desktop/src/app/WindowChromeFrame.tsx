@@ -27,9 +27,9 @@ export function WindowChromeFrame({
   const titleSync = useMemo(
     () =>
       Atom.make(
-        Effect.tryPromise(() => nativeBridge.window.setTitle(nativeTitle)).pipe(
+        Effect.tryPromise(async () => nativeBridge.window.setTitle(nativeTitle)).pipe(
           Effect.catch((error) =>
-            Effect.promise(() =>
+            Effect.promise(async () =>
               logger.append("warn", "Native window title update failed.", { error: String(error.cause) }),
             ),
           ),
