@@ -1,10 +1,8 @@
-export type TextMotionSnapshot = Readonly<{ element: HTMLElement; rect: DOMRect }>;
-
 // A visual snapshot is deliberately bounded; very large messages render normally.
 const maximumTextLength = 32_768;
 const maximumElements = 128;
 
-export function textMotionSnapshot(element: HTMLElement): TextMotionSnapshot | null {
+export function textMotionSnapshot(element: HTMLElement): HTMLElement | null {
   const rect = visibleTextRect(element);
   if (rect === null) return null;
   const textarea = element instanceof HTMLTextAreaElement;
@@ -45,7 +43,7 @@ export function textMotionSnapshot(element: HTMLElement): TextMotionSnapshot | n
     });
   }
   copy.append(layout);
-  return { element: copy, rect };
+  return copy;
 }
 
 function copyStyles(source: HTMLElement, target: HTMLElement) {
@@ -54,19 +52,16 @@ function copyStyles(source: HTMLElement, target: HTMLElement) {
   target.removeAttribute("id");
 }
 
-type MovingBubble = Readonly<{ element: HTMLElement; offset: number }>;
-
-export function visibleTextRect(element: HTMLElement, movingBubble?: MovingBubble): DOMRect | null {
+function visibleTextRect(element: HTMLElement): DOMRect | null {
   if (!element.isConnected) return null;
   const bounds = element.getBoundingClientRect();
-  const translation = movingBubble === undefined ? 0 : movingBubble.offset;
   let left = Math.max(0, bounds.left);
-  let top = Math.max(0, bounds.top - translation);
+  let top = Math.max(0, bounds.top);
   let right = Math.min(window.innerWidth, bounds.right);
-  let bottom = Math.min(window.innerHeight, bounds.bottom - translation);
+  let bottom = Math.min(window.innerHeight, bounds.bottom);
   for (let ancestor: HTMLElement | null = element; ancestor !== null; ancestor = ancestor.parentElement) {
     const style = getComputedStyle(ancestor);
-    if (hidden(ancestor, style, element, movingBubble)) return null;
+    if (style.display === "none" || style.opacity === "0" || style.visibility === "hidden") return null;
     if (ancestor === element) continue;
     const clip = ancestor.getBoundingClientRect();
     if (["auto", "scroll", "hidden", "clip"].includes(style.overflowX)) {
@@ -74,21 +69,9 @@ export function visibleTextRect(element: HTMLElement, movingBubble?: MovingBubbl
       right = Math.min(right, clip.right);
     }
     if (["auto", "scroll", "hidden", "clip"].includes(style.overflowY)) {
-      const offset = movingBubble?.element.contains(ancestor) === true ? movingBubble.offset : 0;
-      top = Math.max(top, clip.top - offset);
-      bottom = Math.min(bottom, clip.bottom - offset);
+      top = Math.max(top, clip.top);
+      bottom = Math.min(bottom, clip.bottom);
     }
   }
   return right > left && bottom > top ? new DOMRect(left, top, right - left, bottom - top) : null;
-}
-
-function hidden(
-  ancestor: HTMLElement,
-  style: CSSStyleDeclaration,
-  text: HTMLElement,
-  bubble: MovingBubble | undefined,
-) {
-  if (style.display === "none") return true;
-  if (style.opacity === "0" && ancestor !== bubble?.element) return true;
-  return style.visibility === "hidden" && !(ancestor === text && bubble !== undefined);
 }

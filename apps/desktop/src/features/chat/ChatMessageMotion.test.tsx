@@ -5,13 +5,14 @@ import { catalog, opening, sessionWithPrompts } from "@/test-support/chat-destin
 import { installAnimatedHeightGeometry } from "@/test-support/resize-observer";
 import { row } from "@/test-support/transcript-window";
 
-it.each(["new-chat", "existing-session"] as const)(
-  "carries composer text into committed %s content",
-  async (kind) => {
+it.each([
+  ["new-chat", false],
+  ["existing-session", false],
+  ["existing-session", true],
+] as const)(
+  "carries composer text into committed %s content with scroll interruption=%s",
+  async (kind, interrupt) => {
     const geometry = installAnimatedHeightGeometry(80);
-    // The DOM harness models layout, not compositor transforms. Keep the bubble
-    // instantaneous here while exercising the slower shared-text lifetime.
-    document.documentElement.style.setProperty("--motion-fast", "0ms");
     let committed: ReturnType<typeof row> | null = null;
     const view = sessionWithPrompts(
       (services) => {
@@ -79,15 +80,15 @@ it.each(["new-chat", "existing-session"] as const)(
       });
       const list = await screen.findByRole("list");
       const text = within(list).getByText("First message");
-      // The committed text is masked while the two fixed-layout visual copies travel.
+      // Text reappears inside the ordinary expanding bubble, not a clipped copy.
       await waitFor(
         () => {
           expect(text).not.toBeVisible();
         },
         { interval: 1 },
       );
-      expect(screen.getAllByText("First message")).toHaveLength(3);
-      fireEvent.wheel(list, { deltaY: -100 });
+      expect(screen.getAllByText("First message")).toHaveLength(2);
+      if (interrupt) fireEvent.wheel(list, { deltaY: -100 });
       await waitFor(() => {
         expect(text).toBeVisible();
       });
@@ -95,7 +96,6 @@ it.each(["new-chat", "existing-session"] as const)(
     } finally {
       view.unmount();
       geometry.restore();
-      document.documentElement.style.removeProperty("--motion-fast");
     }
   },
 );

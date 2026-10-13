@@ -16,8 +16,7 @@ export function ChatTranscriptTail({
   estimateSize,
   openingVisible = true,
   bottomInset,
-  ownsEntryMotion,
-}: Pick<TranscriptWindowViewProps, "slots" | "estimateSize" | "bottomInset" | "ownsEntryMotion"> &
+}: Pick<TranscriptWindowViewProps, "slots" | "estimateSize" | "bottomInset"> &
   Readonly<{ openingVisible?: boolean }>) {
   const { t } = useTranslation();
   const owner = useChatRuntimeOwner();
@@ -108,7 +107,6 @@ export function ChatTranscriptTail({
           presentationUpdate={transcriptPresentationUpdate}
           scrollRequest={scrollRequest}
           slots={slots}
-          ownsEntryMotion={ownsEntryMotion}
           estimateSize={estimateSize}
           loadingLabel={t("chat.tail.loading")}
           retryLabel={t("app.retry")}

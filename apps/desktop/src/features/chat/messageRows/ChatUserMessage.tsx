@@ -26,11 +26,9 @@ export function ChatUserMessage({
   const { t } = useTranslation();
   const motion = useChatMessageMotion();
   const text = useRef<HTMLDivElement>(null);
-  const bubble = useRef<HTMLDivElement>(null);
   const sources = item.value.QueueItemIDs;
   useLayoutEffect(() => {
-    if (text.current !== null && bubble.current !== null)
-      motion.arrive(sources, text.current, bubble.current);
+    if (text.current !== null) motion.arrive(sources, text.current);
   }, [motion, sources]);
   return (
     <div
@@ -38,7 +36,7 @@ export function ChatUserMessage({
       data-previous={neighbors?.previous}
       data-next={neighbors?.next}
     >
-      <div className="chat-message-width" ref={bubble}>
+      <div className="chat-message-width">
         <Island className="chat-message-island" level={1} radius="l" unpadded>
           <AnimatedSize className="justify-start">
             <div className="chat-message-content">

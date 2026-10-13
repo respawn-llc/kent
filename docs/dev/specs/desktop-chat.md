@@ -230,9 +230,10 @@
 - Composer control icons and loading indicators must have optically balanced sizes. The Processes chip must use a terminal icon. The Goal chip must use a literal goal icon rather than a target.
 - New message, tool, and notice rows must enter with a bottom-up fade and slide. Their height must expand with ease-out motion so existing content moves smoothly. User-message delivery must follow the shared-text motion contract below.
 
-- When submitted composer text becomes a committed user message, its text must travel from the composer into the transcript bubble.
-- When queued or steered text becomes a committed user message, its text must travel from its Pending Work row into the transcript bubble. The source row must collapse inward vertically during delivery.
-- The bubble must enter quickly from below the composer with a slide and fade using ease-in motion. The text must travel more slowly using ease-in-out motion.
+- When submitted composer text becomes a committed user message, its text must progressively blur, shrink, and fade near the composer, then reappear near the transcript bubble.
+- When queued or steered text becomes a committed user message, its text must use the same handoff from its Pending Work row. The source row must collapse inward vertically during delivery.
+- Every text handoff must use ease-in-out motion and finish within 350 milliseconds. Text must not visibly travel the full distance between source and destination.
+- The user-message bubble must use the same bottom-up slide, fade, and ease-out height expansion as other new messages.
 - Text wrapping must change only once during the transition. The visual handoff must mask that change. Markdown formatting may appear during the handoff or after arrival.
 - Desktop must associate source text with committed messages using the input identity defined by [Runtime Steering](runtime-steering-loop.md), including the first message in New Chat. Identical text must not confuse delivery association.
 - Delivery motion must not replay when historical messages remount or move Chat away from the operator's scroll position. Reduced motion must remove the movement.

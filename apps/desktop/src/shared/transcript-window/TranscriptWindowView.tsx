@@ -32,7 +32,6 @@ export type TranscriptWindowViewProps = Readonly<{
   bottomInset?: number | undefined;
   overlay?: ((following: boolean) => ReactNode) | undefined;
   tailFailure?: ReactElement | undefined;
-  ownsEntryMotion?: ((item: TranscriptRenderItem) => boolean) | undefined;
 }>;
 
 type ViewItem =
@@ -56,7 +55,6 @@ export function TranscriptWindowView({
   overlay,
   bottomInset = 0,
   tailFailure,
-  ownsEntryMotion,
 }: TranscriptWindowViewProps) {
   const [atEnd, setAtEnd] = useState(false);
   const [arrivals, setArrivals] = useState(() => ({
@@ -159,13 +157,7 @@ export function TranscriptWindowView({
         previousBoundary={previousBoundary}
         previousLoadKey={olderPage.key}
         renderItem={(item) => (
-          <AnimatedReveal
-            className={transcriptContentClassName}
-            enter={
-              entering.has(item.key) &&
-              (item.kind === "status" || item.kind === "failure" || ownsEntryMotion?.(item) !== true)
-            }
-          >
+          <AnimatedReveal className={transcriptContentClassName} enter={entering.has(item.key)}>
             {item.kind === "failure" ? (
               tailFailure
             ) : item.kind === "status" ? (
