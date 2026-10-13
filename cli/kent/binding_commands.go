@@ -41,6 +41,8 @@ func projectSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			return detachSubcommand(args[1:], stdout, stderr)
 		case "delete":
 			return projectDeleteSubcommand(args[1:], stdout, stderr)
+		case "workspaces":
+			return projectWorkspacesSubcommand(args[1:], stdout, stderr)
 		}
 	}
 	fs := newCommandFlagSet(config.Command+" project", stderr, projectUsage)

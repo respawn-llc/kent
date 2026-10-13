@@ -1180,6 +1180,102 @@ func TestCurrentNodeAgentStartsFreshSessionWithLatestRoleAndCompletionContract(t
 	}
 }
 
+func TestCurrentNodeAgentSeedsProjectWorkspacesBeforeFirstRestoredRequest(t *testing.T) {
+	f := newCurrentNodeRunnerFixture(t, ScriptedFinalAnswer(`{"commentary":"done"}`))
+	if _, err := f.metadata.AttachWorkspaceToProject(context.Background(), f.projectID, t.TempDir()); err != nil {
+		t.Fatalf("attach second Project Workspace: %v", err)
+	}
+	workflowID := createCurrentNodeAgentWorkflow(t, f.store)
+	task := f.createTask(t, workflowID)
+	currentNode := f.startTask(t, task)
+
+	f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
+		return len(nodes) == 1 && nodes[0].Scheduling == nil
+	})
+	requests := f.client.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("model requests = %d, want one Workflow turn", len(requests))
+	}
+	var workspaceReminderCount int
+	var workspaceReminderIndex, assignmentIndex int
+	var hasWorkspaceReminder, hasAssignment bool
+	for index, item := range requests[0].Items {
+		if item.Type != llm.ResponseItemTypeMessage ||
+			item.Role == nil ||
+			*item.Role != llm.RoleDeveloper ||
+			item.MessageType == nil {
+			continue
+		}
+		switch *item.MessageType {
+		case llm.MessageTypeWorkspaces:
+			workspaceReminderCount++
+			workspaceReminderIndex = index
+			hasWorkspaceReminder = true
+		case llm.MessageTypeWorkflowMode:
+			assignmentIndex = index
+			hasAssignment = true
+		}
+	}
+	if workspaceReminderCount != 1 || !hasAssignment || !hasWorkspaceReminder ||
+		assignmentIndex <= workspaceReminderIndex {
+		t.Fatalf(
+			"first Workflow request Workspaces reminder/assignment = %d/%d/%d, want one reminder before assignment",
+			workspaceReminderCount,
+			workspaceReminderIndex,
+			assignmentIndex,
+		)
+	}
+
+	association, err := f.store.LatestTaskSessionForNode(context.Background(), currentNode)
+	if err != nil {
+		t.Fatalf("resolve Current Node Session: %v", err)
+	}
+	record, err := f.metadata.ResolvePersistedSession(context.Background(), association.SessionID.String())
+	if err != nil {
+		t.Fatalf("resolve persisted Workflow Session: %v", err)
+	}
+	persisted, err := session.Open(record.SessionDir, f.metadata.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatalf("open persisted Workflow Session: %v", err)
+	}
+	eventLog, err := persisted.MaterializeEventLog()
+	if err != nil {
+		t.Fatalf("materialize Workflow Session event log: %v", err)
+	}
+	window, err := eventLog.ReadRecentRecords(128)
+	if err != nil {
+		t.Fatalf("read Workflow Session context records: %v", err)
+	}
+	var workspaceSequence, assignmentSequence *int64
+	for _, event := range window.Records {
+		payload, err := event.Payload()
+		if err != nil {
+			t.Fatalf("read Workflow Session event: %v", err)
+		}
+		message, ok := payload.(session.MessageRecord)
+		if !ok || message.MessageType == nil {
+			continue
+		}
+		switch *message.MessageType {
+		case session.MessageTypeWorkspaces:
+			if workspaceSequence != nil {
+				t.Fatal("persisted Workflow Session contains duplicate Workspaces reminders")
+			}
+			sequence := event.Seq()
+			workspaceSequence = &sequence
+		case session.MessageTypeWorkflowMode:
+			if assignmentSequence == nil {
+				sequence := event.Seq()
+				assignmentSequence = &sequence
+			}
+		}
+	}
+	if workspaceSequence == nil || assignmentSequence == nil ||
+		*assignmentSequence <= *workspaceSequence {
+		t.Fatalf("persisted Workspaces/assignment sequence = %v/%v, want context seeded first", workspaceSequence, assignmentSequence)
+	}
+}
+
 func TestCompletedWorkflowSessionAllowsOrdinaryHeadlessContinuation(t *testing.T) {
 	f := newCurrentNodeRunnerFixture(
 		t,

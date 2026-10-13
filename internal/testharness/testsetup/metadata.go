@@ -10,6 +10,7 @@ import (
 
 	"core/internal/testharness/databaseseed"
 	"core/server/metadata"
+	"core/server/session"
 )
 
 type metadataPersistenceRootLock struct {
@@ -38,6 +39,24 @@ func OpenStore(t testing.TB, persistenceRoot string) *metadata.Store {
 		}
 	})
 	return store
+}
+
+func ImportSessionProjectWorkspaceContext(
+	t testing.TB,
+	store *metadata.Store,
+	sessionStore *session.Store,
+) {
+	t.Helper()
+	if _, err := store.RegisterWorkspaceBinding(t.Context(), sessionStore.Meta().WorkspaceRoot); err != nil {
+		t.Fatalf("register Session Project Workspace: %v", err)
+	}
+	if err := store.ImportSessionSnapshot(t.Context(), session.PersistedStoreSnapshot{
+		SessionDir:   sessionStore.Dir(),
+		Meta:         sessionStore.Meta(),
+		ContextFacts: sessionStore.ContextFacts(),
+	}); err != nil {
+		t.Fatalf("import Session Project Workspace context: %v", err)
+	}
 }
 
 func PrepareMetadataPersistenceRoot(t testing.TB, persistenceRoot string) {

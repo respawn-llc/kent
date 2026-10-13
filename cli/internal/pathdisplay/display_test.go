@@ -54,6 +54,25 @@ func TestCompactDisplayUsesCurrentWorkingDirectory(t *testing.T) {
 	}
 }
 
+func TestCompactHomeDisplayDoesNotUseCurrentWorkingDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cwd := filepath.Join(home, "project")
+	if err := os.Mkdir(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(cwd)
+
+	insideHome := filepath.Join(cwd, "file")
+	if got := pathdisplay.CompactHome(insideHome); got != "~/project/file" {
+		t.Fatalf("home-only display = %q, want ~/project/file", got)
+	}
+	outsideHome := filepath.Join(t.TempDir(), "external")
+	if got := pathdisplay.CompactHome(outsideHome); got != outsideHome {
+		t.Fatalf("external path display = %q, want %q", got, outsideHome)
+	}
+}
+
 func TestMissingHomeStillCompactsWorkingDirectory(t *testing.T) {
 	t.Setenv("HOME", "")
 	cwd := t.TempDir()

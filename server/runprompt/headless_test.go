@@ -311,11 +311,13 @@ func newTestHeadlessRuntimeAuthority(root string, authManager *auth.Manager, bac
 func newObservedTestHeadlessRuntimeAuthority(
 	t *testing.T,
 	root string,
+	sessionStore *session.Store,
+	metadataStore *metadata.Store,
 	authManager *auth.Manager,
 	background *shelltool.Manager,
 	storeOptions ...session.StoreOption,
 ) (*sessionruntime.Authority, *runtimecontrol.Service) {
-	observed := newObservedTestHeadlessRuntime(t, root, authManager, background, storeOptions...)
+	observed := newObservedTestHeadlessRuntime(t, root, sessionStore, metadataStore, authManager, background, storeOptions...)
 	return observed.authority, observed.observer
 }
 
@@ -332,29 +334,42 @@ func (emptyRunPromptWorkspaceMembership) FindContainingProjectWorkspace(
 type observedHeadlessTestRuntime struct {
 	authority         *sessionruntime.Authority
 	observer          *runtimecontrol.Service
+	metadataStore     *metadata.Store
 	initialPromptRead <-chan struct{}
 }
 
 func newObservedTestHeadlessRuntime(
 	t *testing.T,
 	root string,
+	sessionStore *session.Store,
+	metadataStore *metadata.Store,
 	authManager *auth.Manager,
 	background *shelltool.Manager,
 	storeOptions ...session.StoreOption,
 ) observedHeadlessTestRuntime {
-	db := testsetup.OpenStore(t, root)
-	runtimeRegistry := registry.NewRuntimeRegistry(db).WithAttentionNotifications(
+	if metadataStore == nil {
+		metadataRoot := root
+		if sessionStore != nil {
+			metadataRoot = filepath.Dir(sessionStore.Dir())
+		}
+		metadataStore = testsetup.OpenStore(t, metadataRoot)
+	}
+	if sessionStore != nil {
+		testsetup.ImportSessionProjectWorkspaceContext(t, metadataStore, sessionStore)
+	}
+	runtimeRegistry := registry.NewRuntimeRegistry(metadataStore).WithAttentionNotifications(
 		attentionnotify.NewBroker(),
 		testsetup.SessionNavigationBinding,
 	)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot:     root,
-		AuthManager:         authManager,
-		Background:          background,
-		StoreOptions:        storeOptions,
-		WorkspaceMembership: emptyRunPromptWorkspaceMembership{},
-		ResourceLifecycle:   runtimeRegistry,
-		PromptFeed:          runtimeRegistry,
+		PersistenceRoot:               root,
+		AuthManager:                   authManager,
+		Background:                    background,
+		StoreOptions:                  storeOptions,
+		WorkspaceMembership:           emptyRunPromptWorkspaceMembership{},
+		ProjectWorkspaceContextReader: metadataStore,
+		ResourceLifecycle:             runtimeRegistry,
+		PromptFeed:                    runtimeRegistry,
 		EventFeed: func(ref runtimeids.SessionResourceRef, event runtime.Event) {
 			if err := runtimeRegistry.PublishAuthorityRuntimeEvent(ref, event); err != nil {
 				panic(err)
@@ -365,11 +380,12 @@ func newObservedTestHeadlessRuntime(
 		registry:    runtimeRegistry,
 		initialRead: make(chan struct{}),
 	}
-	observer := runtimecontrol.NewService(authority, db).
+	observer := runtimecontrol.NewService(authority, metadataStore).
 		WithLiveWatchPromptSources(pendingPrompts, runtimeRegistry)
 	return observedHeadlessTestRuntime{
 		authority:         authority,
 		observer:          observer,
+		metadataStore:     metadataStore,
 		initialPromptRead: pendingPrompts.initialRead,
 	}
 }
@@ -477,7 +493,7 @@ func newSelectedRunPromptFixture(
 		t.Fatalf("EnsureDurable: %v", err)
 	}
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
-	observed := newObservedTestHeadlessRuntime(t, root, authManager, nil, persistence.Options()...)
+	observed := newObservedTestHeadlessRuntime(t, root, store, nil, authManager, nil, persistence.Options()...)
 
 	if len(enabledTools) == 0 {
 		enabledTools = []toolspec.ID{toolspec.ToolAskQuestion}
@@ -567,7 +583,7 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 			Shell:        config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}, provider.URL)),
 	}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, store, meta, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:            cfg,
@@ -726,7 +742,7 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 	cfg.Settings.Worktrees = config.WorktreeSettings{BaseDir: managedBase}
 	cfg.Settings.ShellOutputMaxChars = 16_000
 	cfg.Settings.Shell.PostprocessingMode = config.ShellPostprocessingModeBuiltin
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, parent, meta, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:            cfg,
@@ -1114,7 +1130,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 			AgentCallable: true,
 		},
 	}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, parent, meta, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:            cfg,
@@ -1310,7 +1326,7 @@ func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 	}
 	testsetup.WriteProviderSettings(t, root, cfg.Settings)
 	history := &recordingPromptHistoryStore{}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, store, nil, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
@@ -1966,7 +1982,7 @@ func TestInProcessRunPromptClientUsesActiveShellPostprocessorWithSuppliedBackgro
 			},
 		}, server.URL)),
 	}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, background, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, store, nil, authManager, background, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
@@ -2130,7 +2146,7 @@ func TestInProcessRunPromptClientRejectsSelectedSessionWithGoal(t *testing.T) {
 		Settings:        testsetup.WriteProviderSettings(t, root, config.Settings{Model: "gpt-6-sol"}),
 	}
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, store, nil, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
@@ -2185,7 +2201,7 @@ func TestInProcessRunPromptClientUnregistersRuntimeAfterCompletion(t *testing.T)
 			Shell:         config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}, server.URL)),
 	}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, store, nil, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
@@ -2266,7 +2282,7 @@ func TestHeadlessRunPromptOverridesRespectLockedModelContract(t *testing.T) {
 	cfg.Settings.Model = "base-model"
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, server.URL))
 	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolPatch: true}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, store, nil, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,

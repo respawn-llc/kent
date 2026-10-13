@@ -9,6 +9,29 @@ import { committedRow } from "./chatTranscriptRows";
 
 const stepId = "123e4567-e89b-42d3-a456-426614174000";
 
+it("preserves the typed Workspaces notice through the generated contract and Chat adaptation", () => {
+  const detail = "Workspace context";
+  const row = create(T.CommittedRowSchema, {
+    visibility: T.EntryVisibility.DETAIL,
+    integrity: T.RowIntegrity.VALID,
+    locator: { eventSequence: 1n, rowOrdinal: 1 },
+    row: {
+      case: "notice",
+      value: {
+        reason: T.NoticeReason.RUNTIME_DIAGNOSTIC,
+        severity: T.NoticeSeverity.INFO,
+        messageType: T.NoticeMessageType.WORKSPACES,
+        diagnostic: { code: "workspaces", detail },
+      },
+    },
+  });
+
+  const adapted = committedRow(decode(T.CommittedRowSchema, encode(T.CommittedRowSchema, row)));
+  expect(adapted.Visibility).toBe("detail");
+  expect(adapted.Notice?.MessageType).toBe("workspaces");
+  expect(adapted.Notice?.Diagnostic?.Detail).toBe(detail);
+});
+
 describe("committed Thinking notices", () => {
   it("preserves the selected effort on a detail-visible configuration row", () => {
     const row = committedRow(decode(T.CommittedRowSchema, encode(T.CommittedRowSchema, thinkingRow("high"))));

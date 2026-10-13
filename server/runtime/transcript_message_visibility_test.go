@@ -18,6 +18,7 @@ func TestMessageTypeTranscriptVisibilityMatrix(t *testing.T) {
 		want        transcript.EntryVisibility
 	}{
 		{name: "subagents", messageType: llm.MessageTypeSubagents, want: transcript.EntryVisibilityDetail},
+		{name: "workspaces", messageType: llm.MessageTypeWorkspaces, want: transcript.EntryVisibilityDetail},
 		{name: "workflow mode", messageType: llm.MessageTypeWorkflowMode, want: transcript.EntryVisibilityOngoingCollapsed},
 		{name: "worktree mode", messageType: llm.MessageTypeWorktreeMode, want: transcript.EntryVisibilityOngoing},
 		{name: "worktree exit", messageType: llm.MessageTypeWorktreeModeExit, want: transcript.EntryVisibilityOngoing},

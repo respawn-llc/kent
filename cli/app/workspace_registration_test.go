@@ -206,6 +206,11 @@ func newAppRuntimeEngineWithStore(t *testing.T, store *session.Store, client llm
 	if cfg.GlobalConfigDir == "" {
 		cfg.GlobalConfigDir = t.TempDir()
 	}
+	if cfg.ProjectWorkspaceContextReader == nil {
+		metadataStore := testsetup.OpenStore(t, filepath.Dir(store.Dir()))
+		testsetup.ImportSessionProjectWorkspaceContext(t, metadataStore, store)
+		cfg.ProjectWorkspaceContextReader = metadataStore
+	}
 	eventLog, err := store.MaterializeEventLog()
 	if err != nil {
 		t.Fatalf("materialize event log: %v", err)

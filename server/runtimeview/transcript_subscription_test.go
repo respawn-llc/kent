@@ -1447,6 +1447,32 @@ func TestTranscriptWorktreeNoticeKeepsMissingBranchNullable(t *testing.T) {
 	}
 }
 
+func TestTranscriptWorkspacesNoticePreservesTypedMessageAndVisibility(t *testing.T) {
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
+		Kind: runtime.EventConversationUpdated,
+		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{
+			EventSequence: 3,
+		},
+		Message: llm.Message{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeWorkspaces),
+			Content:     textutil.Value("project workspace context"),
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("project Workspaces notice: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("messages = %d, want one Workspaces notice", len(messages))
+	}
+	row := messages[0].GetCommittedRow()
+	if row.GetNotice() == nil ||
+		row.GetNotice().GetMessageType() != transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKSPACES ||
+		row.Visibility != transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL {
+		t.Fatalf("Workspaces notice projection = %+v, want typed detail notice", row)
+	}
+}
+
 func TestTranscriptBackgroundActivityRejectsMissingRuntimeActivityID(t *testing.T) {
 	_, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:   runtime.EventBackgroundUpdated,

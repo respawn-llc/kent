@@ -242,8 +242,16 @@ var (
 	projectDefaultUsage     = commandUsage{helpFile: "project_default.txt", includeEmbeddedFlags: true}
 	detachUsage             = commandUsage{helpFile: "detach.txt", includeEmbeddedFlags: true}
 	projectListUsage        = commandUsage{helpFile: "project_list.txt"}
-	projectCreateUsage      = commandUsage{helpFile: "project_create.txt", includeEmbeddedFlags: true}
-	projectDeleteUsage      = leafCommandUsage(
+	projectWorkspacesUsage  = leafCommandUsage(
+		config.Command+" project workspaces [--project <id-or-workspace-path>] [--offset <n>] [--limit <n>] [--json]",
+		"List attached Workspaces in catalog order.",
+		"",
+		"Without --project, use the current Session's Project. Outside a Session, --project is required.",
+		"Returns one bounded page. Use the reported next offset to request the next page.",
+		"Plain output shortens paths under home. JSON includes canonical catalog paths.",
+	)
+	projectCreateUsage = commandUsage{helpFile: "project_create.txt", includeEmbeddedFlags: true}
+	projectDeleteUsage = leafCommandUsage(
 		config.Command+" project delete <project-id> [--confirm] [--json]",
 		"Delete a Project by canonical ID.",
 		"",

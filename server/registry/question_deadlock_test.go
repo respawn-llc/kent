@@ -171,8 +171,10 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 	}
 	registry := NewRuntimeRegistry(nil).WithExecutionTargetResolver(persistence.ResolveOptionalSessionExecutionTarget)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: root, StoreOptions: persistence.AuthoritativeSessionStoreOptions(),
-		ResourceLifecycle: registry, PromptFeed: registry,
+		PersistenceRoot:               root,
+		StoreOptions:                  persistence.AuthoritativeSessionStoreOptions(),
+		ProjectWorkspaceContextReader: persistence,
+		ResourceLifecycle:             registry, PromptFeed: registry,
 		StepLifecycle: questionDeadlockStepLifecycle{registry: registry},
 		EventFeed: func(ref runtimeids.SessionResourceRef, event runtime.Event) {
 			if event.LocalEntry != nil && event.LocalEntry.ReviewerError != nil {
