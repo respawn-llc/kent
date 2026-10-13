@@ -230,11 +230,12 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 	connectionRotation := new(launch.ConnectionRotation)
 	var controller *workflowexecution.CurrentNodeController
 	fixture.authority = sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		ConnectionRotation:  connectionRotation,
-		WorkspaceMembership: fixture.metadata,
-		PersistenceRoot:     cfg.PersistenceRoot,
-		StoreOptions:        storeOptions,
-		PromptFeed:          fixture.runtimes,
+		ConnectionRotation:            connectionRotation,
+		WorkspaceMembership:           fixture.metadata,
+		ProjectWorkspaceContextReader: fixture.metadata,
+		PersistenceRoot:               cfg.PersistenceRoot,
+		StoreOptions:                  storeOptions,
+		PromptFeed:                    fixture.runtimes,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event agentruntime.Event) {
 			fixture.runtimes.PublishAuthorityRuntimeEvent(resource, event)
 		},
@@ -490,10 +491,11 @@ func (f *currentNodeRunnerFixture) restartRuntime(t *testing.T) {
 	f.runtimes = registry.NewRuntimeRegistry(nil)
 	storeOptions := f.metadata.AuthoritativeSessionStoreOptions()
 	f.authority = sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		WorkspaceMembership: f.metadata,
-		PersistenceRoot:     f.cfg.PersistenceRoot,
-		StoreOptions:        storeOptions,
-		PromptFeed:          f.runtimes,
+		WorkspaceMembership:           f.metadata,
+		ProjectWorkspaceContextReader: f.metadata,
+		PersistenceRoot:               f.cfg.PersistenceRoot,
+		StoreOptions:                  storeOptions,
+		PromptFeed:                    f.runtimes,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event agentruntime.Event) {
 			f.runtimes.PublishAuthorityRuntimeEvent(resource, event)
 		},

@@ -1743,9 +1743,10 @@ func TestAgentExecutionBindsAndClearsShellCorrelation(t *testing.T) {
 		t.Fatalf("new runtime plan: %v", err)
 	}
 	authority := NewAuthority(AuthorityOptions{
-		PersistenceRoot: fixture.config.PersistenceRoot,
-		StoreOptions:    fixture.metadata.AuthoritativeSessionStoreOptions(),
-		Background:      manager,
+		PersistenceRoot:               fixture.config.PersistenceRoot,
+		ProjectWorkspaceContextReader: fixture.metadata,
+		StoreOptions:                  fixture.metadata.AuthoritativeSessionStoreOptions(),
+		Background:                    manager,
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {

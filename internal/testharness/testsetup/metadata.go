@@ -41,6 +41,13 @@ func OpenStore(t testing.TB, persistenceRoot string) *metadata.Store {
 	return store
 }
 
+func OpenSessionProjectWorkspaceContextReader(t testing.TB, sessionStore *session.Store) *metadata.Store {
+	t.Helper()
+	store := OpenStore(t, filepath.Dir(sessionStore.Dir()))
+	ImportSessionProjectWorkspaceContext(t, store, sessionStore)
+	return store
+}
+
 func ImportSessionProjectWorkspaceContext(
 	t testing.TB,
 	store *metadata.Store,

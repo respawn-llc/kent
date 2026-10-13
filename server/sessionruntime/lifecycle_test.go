@@ -499,9 +499,10 @@ func TestOwnerlessRuntimeStepPublishesResourceLifecycle(t *testing.T) {
 		ended: make(chan runtime.StepLifecycleSnapshot, 1),
 	}
 	authority := NewAuthority(AuthorityOptions{
-		PersistenceRoot: fixture.config.PersistenceRoot,
-		StoreOptions:    fixture.metadata.AuthoritativeSessionStoreOptions(),
-		StepLifecycle:   probe,
+		PersistenceRoot:               fixture.config.PersistenceRoot,
+		ProjectWorkspaceContextReader: fixture.metadata,
+		StoreOptions:                  fixture.metadata.AuthoritativeSessionStoreOptions(),
+		StepLifecycle:                 probe,
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {

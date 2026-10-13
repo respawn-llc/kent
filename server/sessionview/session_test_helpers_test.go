@@ -65,6 +65,7 @@ func newSessionViewRuntimeFixture(t *testing.T, store *session.Store, client llm
 	if err != nil {
 		t.Fatalf("parse session id: %v", err)
 	}
+	metadataStore := testsetup.OpenSessionProjectWorkspaceContextReader(t, store)
 	settings := config.DefaultOnboardingSettings()
 	root := t.TempDir()
 	settings = testsetup.WriteProviderSettings(t, root, settings)
@@ -89,9 +90,10 @@ func newSessionViewRuntimeFixture(t *testing.T, store *session.Store, client llm
 	}
 	activity := registry.NewRuntimeRegistry(nil)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot:   root,
-		StoreOptions:      sessionViewTestPersistence.Options(),
-		ResourceLifecycle: activity,
+		PersistenceRoot:               root,
+		ProjectWorkspaceContextReader: metadataStore,
+		StoreOptions:                  sessionViewTestPersistence.Options(),
+		ResourceLifecycle:             activity,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event runtime.Event) {
 			activity.PublishAuthorityRuntimeEvent(resource, event)
 		},
