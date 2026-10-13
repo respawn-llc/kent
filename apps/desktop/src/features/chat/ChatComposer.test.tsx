@@ -21,6 +21,49 @@ import * as ui from "@/ui";
 beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
 afterEach(() => vi.unstubAllGlobals());
 
+it("completes the selected slash command with Tab without submitting work", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "/review", protectedInput: null });
+  vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+  const steer = vi.spyOn(services.api.chat, "steer");
+  const queue = vi.spyOn(services.api.chat, "queue");
+  const commands = ["prompt:review", "prompt:review-all"].map((name) => ({
+    token: `/${name}`,
+    aliases: [],
+    description: null,
+    preview: null,
+    execution: { kind: "prompt", catalogIdentity: name } as const,
+  }));
+  function Probe() {
+    const composer = useChatComposer({ ...target, commands });
+    const keyboard = useComposerKeyboard(composer, false, null);
+    return (
+      <textarea
+        data-testid="completion-editor"
+        value={composer.text}
+        onChange={(event) => composer.edit(event.target.value)}
+        onKeyDown={keyboard.onEditorKeyDown}
+      />
+    );
+  }
+  render(
+    <TestAppProviders services={services}>
+      <Probe />
+    </TestAppProviders>,
+  );
+  const editor = screen.getByTestId<HTMLTextAreaElement>("completion-editor");
+  await waitFor(() => expect(editor).toHaveValue("/review"));
+  expect(fireEvent.keyDown(editor, { key: "Tab", shiftKey: true })).toBe(true);
+  expect(editor).toHaveValue("/review");
+  fireEvent.keyDown(editor, { key: "ArrowDown" });
+  expect(fireEvent.keyDown(editor, { key: "Tab" })).toBe(false);
+  expect(editor).toHaveValue("/prompt:review-all ");
+  expect(editor.selectionStart).toBe(editor.value.length);
+  expect(fireEvent.keyDown(editor, { key: "Tab" })).toBe(true);
+  expect(steer).not.toHaveBeenCalled();
+  expect(queue).not.toHaveBeenCalled();
+});
+
 it.each([
   ["older", "prompt B"],
   ["prompt B", "prompt B"],

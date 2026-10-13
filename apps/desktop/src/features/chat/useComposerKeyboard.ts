@@ -152,6 +152,18 @@ function handlePickerKey(composer: ReturnType<typeof useChatComposer>, event: Ke
     event.stopPropagation();
     return true;
   }
+  if (
+    event.key === "Tab" &&
+    !event.shiftKey &&
+    !event.altKey &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    composer.selectedCommand !== null
+  ) {
+    composer.edit(`${composer.selectedCommand.token} `);
+    event.preventDefault();
+    return true;
+  }
   if (composer.suggestions.length > 0 && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
     composer.moveCommand(event.key === "ArrowUp" ? -1 : 1);
     event.preventDefault();
