@@ -33,6 +33,8 @@ import (
 
 type staticRunPromptService struct {
 	response *runpromptpb.Success
+	progress []*runpromptpb.ProgressEvent
+	err      error
 }
 
 func requireRunPromptFinalAnswer(t *testing.T, result RunPromptResult) string {
@@ -45,11 +47,35 @@ func requireRunPromptFinalAnswer(t *testing.T, result RunPromptResult) string {
 }
 
 func (s staticRunPromptService) RunPrompt(
-	context.Context,
-	*runpromptpb.Request,
-	serverapi.RunPromptProgressSink,
+	_ context.Context,
+	_ *runpromptpb.Request,
+	sink serverapi.RunPromptProgressSink,
 ) (*runpromptpb.Success, error) {
-	return s.response, nil
+	for _, event := range s.progress {
+		sink.PublishRunPromptProgress(event)
+	}
+	return s.response, s.err
+}
+
+func TestRunPromptCollectsAdmissionWarningsOnSuccessAndTerminalFailure(t *testing.T) {
+	accepted := &runpromptpb.ActiveSteerAccepted{IgnoredSettings: []runpromptpb.IgnoredRunSetting{
+		runpromptpb.IgnoredRunSetting_IGNORED_RUN_SETTING_AGENT,
+		runpromptpb.IgnoredRunSetting_IGNORED_RUN_SETTING_MODEL_TIMEOUT,
+	}}
+	id := runtimeids.NewSessionID().String()
+	for _, service := range []staticRunPromptService{
+		{err: context.DeadlineExceeded},
+		{response: &runpromptpb.Success{
+			SessionId: id, Duration: durationpb.New(time.Millisecond),
+			Outcome: &runpromptpb.Success_FinalAnswer{FinalAnswer: "done"},
+		}},
+	} {
+		service.progress = []*runpromptpb.ProgressEvent{{Payload: &runpromptpb.ProgressEvent_ActiveSteerAccepted{ActiveSteerAccepted: accepted}}}
+		result, err := runPrompt(t.Context(), service, Options{}, id, "redirect", 0, nil)
+		if !errors.Is(err, service.err) || len(result.AdmissionWarnings) != 2 || len(result.AllWarnings()) != 2 || len(result.Warnings) != 0 {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+	}
 }
 
 func TestRunPromptCarriesTypedSelectionWarningsIntoCLIWarnings(t *testing.T) {

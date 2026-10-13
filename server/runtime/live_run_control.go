@@ -59,6 +59,7 @@ type LiveRunWaitHandle struct {
 	group       *liveRunGroup
 	done        <-chan struct{}
 	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 type liveRunCoordinator struct {
@@ -232,18 +233,47 @@ func (t *goalLoopInterruptTracker) resolve(err error, snapshot *RunSnapshot) {
 }
 
 func (e *Engine) QueueUserMessageForActiveRun(ctx context.Context, text string, beforeQueue func() error) (QueuedUserMessage, bool, error) {
-	return e.queueMessageForActiveRun(ctx, llm.Message{Role: llm.RoleUser, Content: textutil.Value(text)}, nil, beforeQueue, nil)
+	return e.queueMessageForActiveRun(ctx, llm.Message{Role: llm.RoleUser, Content: textutil.Value(text)}, nil, beforeQueue, nil, nil)
 }
 
 func (e *Engine) QueueUserMessageForActiveRunWithAcceptance(ctx context.Context, text string, accept CommandAcceptance) (QueuedUserMessage, bool, error) {
-	return e.queueMessageForActiveRun(ctx, llm.Message{Role: llm.RoleUser, Content: textutil.Value(text)}, nil, nil, accept)
+	return e.queueMessageForActiveRun(ctx, llm.Message{Role: llm.RoleUser, Content: textutil.Value(text)}, nil, nil, accept, nil)
 }
 
 func (e *Engine) QueueAgentSteerForActiveRun(ctx context.Context, steer AgentSteer, beforeQueue func() error) (QueuedUserMessage, bool, error) {
-	return e.queueMessageForActiveRun(ctx, steer.Message(), nil, beforeQueue, nil)
+	return e.queueMessageForActiveRun(ctx, steer.Message(), nil, beforeQueue, nil, nil)
 }
 
-func (e *Engine) queueMessageForActiveRun(ctx context.Context, message llm.Message, onActive func(), beforeQueue func() error, accept CommandAcceptance) (QueuedUserMessage, bool, error) {
+func (e *Engine) QueueUserMessageForActiveRunWithObservation(ctx context.Context, text string, observerCtx context.Context, accept CommandAcceptance) (QueuedUserMessage, *LiveRunWaitHandle, bool, error) {
+	return e.queueMessageWithObservation(ctx, llm.Message{Role: llm.RoleUser, Content: textutil.Value(text)}, observerCtx, accept)
+}
+
+func (e *Engine) QueueAgentSteerForActiveRunWithObservation(ctx context.Context, steer AgentSteer, observerCtx context.Context, accept CommandAcceptance) (QueuedUserMessage, *LiveRunWaitHandle, bool, error) {
+	return e.queueMessageWithObservation(ctx, steer.Message(), observerCtx, accept)
+}
+
+func (e *Engine) queueMessageWithObservation(ctx context.Context, message llm.Message, observerCtx context.Context, accept CommandAcceptance) (QueuedUserMessage, *LiveRunWaitHandle, bool, error) {
+	if observerCtx == nil {
+		item, accepted, err := e.queueMessageForActiveRun(ctx, message, nil, nil, accept, nil)
+		return item, nil, accepted, err
+	}
+	waitCtx, cancel := context.WithCancel(observerCtx)
+	var handle *LiveRunWaitHandle
+	item, accepted, err := e.queueMessageForActiveRun(ctx, message, nil, nil, accept, func(admission liveRunAdmission) {
+		handle = e.liveRun.captureGroupWait(waitCtx, admission.group)
+		handle.cancel = cancel
+	})
+	if !accepted {
+		cancel()
+		if handle != nil {
+			_, _ = handle.Wait()
+		}
+		return item, nil, false, err
+	}
+	return item, handle, true, err
+}
+
+func (e *Engine) queueMessageForActiveRun(ctx context.Context, message llm.Message, onActive func(), beforeQueue func() error, accept CommandAcceptance, observe func(liveRunAdmission)) (QueuedUserMessage, bool, error) {
 	if e == nil {
 		return QueuedUserMessage{}, false, ErrNoActiveLiveRun
 	}
@@ -269,6 +299,9 @@ func (e *Engine) queueMessageForActiveRun(ctx context.Context, message llm.Messa
 	}
 	if onActive != nil {
 		onActive()
+	}
+	if observe != nil {
+		observe(admission)
 	}
 	committed := false
 	defer func() {
@@ -308,16 +341,16 @@ func (e *Engine) queueMessageForActiveRun(ctx context.Context, message llm.Messa
 			e.completeQueuedUserMessages(map[string]struct{}{item.ID: {}})
 			return false, queueErr
 		}
+		queueItemID := mustQueueItemID(item.ID)
+		if e.liveRun.finishQueueItemPublication(queueItemID) {
+			e.failStoppedLiveRunQueueItems(map[runtimeids.QueueItemID]struct{}{queueItemID: {}})
+		} else {
+			e.scheduleQueuedUserInjections()
+		}
 		return true, nil
 	})
 	if err := commandAcceptanceResult(accepted, err); err != nil {
 		return QueuedUserMessage{}, false, err
-	}
-	queueItemID := mustQueueItemID(item.ID)
-	if e.liveRun.finishQueueItemPublication(queueItemID) {
-		e.failStoppedLiveRunQueueItems(map[runtimeids.QueueItemID]struct{}{queueItemID: {}})
-	} else {
-		e.scheduleQueuedUserInjections()
 	}
 	return item, true, nil
 }
@@ -788,15 +821,23 @@ func (c *liveRunCoordinator) captureWait(ctx context.Context) (*LiveRunWaitHandl
 		c.mu.Unlock()
 		return nil, ErrNoActiveLiveRun
 	}
-	group.waiters++
-	done := group.done
 	c.mu.Unlock()
-	return &LiveRunWaitHandle{coordinator: c, group: group, done: done, ctx: ctx}, nil
+	return c.captureGroupWait(ctx, group), nil
+}
+
+func (c *liveRunCoordinator) captureGroupWait(ctx context.Context, group *liveRunGroup) *LiveRunWaitHandle {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	group.waiters++
+	return &LiveRunWaitHandle{coordinator: c, group: group, done: group.done, ctx: ctx}
 }
 
 func (h *LiveRunWaitHandle) Wait() (LiveRunResult, error) {
 	if h == nil || h.coordinator == nil || h.group == nil || h.done == nil {
 		return LiveRunResult{}, ErrNoActiveLiveRun
+	}
+	if h.cancel != nil {
+		defer h.cancel()
 	}
 	ctx := h.ctx
 	if ctx == nil {

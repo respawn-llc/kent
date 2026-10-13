@@ -56,12 +56,105 @@ import (
 )
 
 type recordingPromptHistoryStore struct {
-	entries []metadata.PromptHistoryEntry
+	entries  []metadata.PromptHistoryEntry
+	mu       sync.Mutex
+	recorded chan metadata.PromptHistoryEntry
 }
 
 func (s *recordingPromptHistoryStore) RecordPromptHistoryEntry(_ context.Context, entry metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, error) {
+	s.mu.Lock()
 	s.entries = append(s.entries, entry)
+	s.mu.Unlock()
+	if s.recorded != nil {
+		s.recorded <- entry
+	}
 	return metadata.PromptHistoryRecord{}, nil
+}
+
+func TestRunPromptActiveContinuationWaitsForAcceptingExecution(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	var first sync.Once
+	var calls atomic.Int32
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		first.Do(func() { close(started); <-release })
+		modelstub.WriteCompletedResponseStream(w, "done", 1, 1)
+	}))
+	defer provider.Close()
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblock()
+	history := &recordingPromptHistoryStore{recorded: make(chan metadata.PromptHistoryEntry, 2)}
+	fixture := newSelectedRunPromptFixture(t, provider.URL, history)
+	id := mustRunPromptSessionID(t, fixture.store.Meta().SessionID)
+	type outcome struct {
+		response *runpromptpb.Success
+		err      error
+	}
+	run := func(prompt string, done chan<- outcome) {
+		response, err := fixture.client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+			Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: prompt,
+		}), nil)
+		done <- outcome{response, err}
+	}
+	original, continued := make(chan outcome, 1), make(chan outcome, 1)
+	progressEvents := make(chan *runpromptpb.ProgressEvent, 8)
+	progress := serverapi.RunPromptProgressFunc(func(event *runpromptpb.ProgressEvent) { progressEvents <- event })
+	go run("start", original)
+	<-started
+	<-history.recorded
+	self := id.String()
+	_, err := fixture.client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+		Intent: serverapi.OpenExistingSessionLaunchIntent(id), CallerSessionID: &self, Prompt: "self target",
+	}), nil)
+	var selfTarget *serverapi.SessionSelfTargetError
+	if !errors.As(err, &selfTarget) {
+		t.Fatalf("self-target error = %v", err)
+	}
+	_, err = fixture.client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+		Intent: serverapi.OpenExistingSessionLaunchIntent(runtimeids.NewSessionID()), Prompt: "missing target",
+	}), nil)
+	if !errors.Is(err, session.ErrSessionNotFound) {
+		t.Fatalf("missing-target error = %v", err)
+	}
+	go func() {
+		response, err := fixture.client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+			Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "redirect",
+		}), progress)
+		continued <- outcome{response, err}
+	}()
+	select {
+	case got := <-continued:
+		t.Fatalf("continuation finished before acceptance/outcome: %+v", got)
+	case <-history.recorded:
+	case <-time.After(10 * time.Second):
+		t.Fatal("continuation not accepted")
+	}
+	select {
+	case got := <-continued:
+		t.Fatalf("continuation finished before the execution: %+v", got)
+	default:
+	}
+	unblock()
+	for _, done := range []<-chan outcome{original, continued} {
+		got := <-done
+		if got.err != nil || got.response.SessionId != id.String() || got.response.GetFinalAnswer() != "done" {
+			t.Fatalf("outcome = %+v", got)
+		}
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("provider calls = %d, want initial and one steered turn", calls.Load())
+	}
+	close(progressEvents)
+	finals := 0
+	for event := range progressEvents {
+		if message := event.GetAssistantMessage(); message != nil && message.Phase == runpromptpb.MessagePhase_MESSAGE_PHASE_FINAL {
+			finals++
+		}
+	}
+	if finals != 2 {
+		t.Fatalf("subsequent Final progress messages = %d, want both accepting-run steps", finals)
+	}
 }
 
 type gatedPromptHistoryStore struct {

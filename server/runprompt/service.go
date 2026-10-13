@@ -49,7 +49,7 @@ func (s *inProcessRunPromptService) runPrompt(ctx context.Context, req serverapi
 	}()
 
 	startedAt := time.Now()
-	if history := s.launcher.boot.PromptHistory; history != nil {
+	if history := s.launcher.boot.PromptHistory; history != nil && !runtimeHandle.plan.joined {
 		_, err := history.RecordPromptHistoryEntry(ctx, metadata.PromptHistoryEntry{
 			SessionID: runtimeHandle.plan.sessionID,
 			Text:      runtimeHandle.plan.PromptHistoryText(req.Prompt),

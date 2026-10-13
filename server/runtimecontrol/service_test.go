@@ -7,6 +7,7 @@ import (
 	"core/internal/testharness/testsetup"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -1348,6 +1349,39 @@ func TestServiceLiveSteerRecordsHistoryAfterActiveAdmission(t *testing.T) {
 	waitForRuntimeControlPromptHistoryCount(t, runtimeControlPromptHistoryStoresLoad(t, store.Meta().SessionID), "steer live", 1)
 	waitForRuntimeControlAssistantFinal(t, engine, "done")
 	waitForRuntimeControlIdle(t, engine)
+}
+
+func TestPreparedLiveSteerObservationAndHistory(t *testing.T) {
+	for _, attributed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("agent=%t", attributed), func(t *testing.T) {
+			client := newCancelObservingRuntimeControlClient()
+			store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
+			_, err := service.SubmitUserTurn(t.Context(), runtimeControlUserTurnRequest(store, "initial", "start"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			<-client.started
+			var caller *string
+			if attributed {
+				id := runtimeids.NewSessionID().String()
+				caller = &id
+			}
+			prepared, err := service.PrepareLiveSteer(t.Context(), requestfixture.Selector(t, store.Meta().SessionID), caller, "redirect")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, handle, accepted, err := service.SubmitLiveSteer(t.Context(), prepared, engine, t.Context(), nil)
+			if err != nil || !accepted || handle == nil {
+				t.Fatalf("acceptance = %t, handle=%v, err=%v", accepted, handle, err)
+			}
+			close(client.release)
+			outcome, err := handle.Wait()
+			if err != nil || outcome.Status != runtime.RunStatusCompleted {
+				t.Fatalf("outcome = %+v, err=%v", outcome, err)
+			}
+			waitForRuntimeControlPromptHistoryCount(t, runtimeControlPromptHistoryStoresLoad(t, store.Meta().SessionID), prepared.HistoryText(), 1)
+		})
+	}
 }
 
 func TestServiceLiveSteerAgentCallerUsesOneWrappedDeveloperMessage(t *testing.T) {
