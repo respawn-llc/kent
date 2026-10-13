@@ -86,6 +86,7 @@ type storedToolCompletion struct {
 	CallID              string                   `json:"call_id"`
 	Name                string                   `json:"name"`
 	IsError             bool                     `json:"is_error"`
+	ProviderItemOnly    bool                     `json:"provider_item_only,omitempty"`
 	Output              json.RawMessage          `json:"output"`
 	Summary             *string                  `json:"summary,omitempty"`
 	CondensedText       *string                  `json:"condensed_text,omitempty"`
@@ -202,10 +203,16 @@ func (s *chatStore) appendMessage(stepID *string, msg llm.Message, provenances .
 	if err := s.validateMessageLocked(stepID, msg); err != nil {
 		return err
 	}
+	providerItems := llm.ItemsFromMessages([]llm.Message{msg})
+	if msg.Role == llm.RoleTool && msg.ToolCallID != nil {
+		if completion, ok := s.toolCompletions[*msg.ToolCallID]; ok && completion.ProviderItemOnly {
+			providerItems = nil
+		}
+	}
 	s.messageRecords = append(s.messageRecords, chatMessageRecord{
 		StepID:        textutil.Pointer(stepID),
 		Message:       textutil.Value(cloneChatStoreMessage(msg)),
-		ProviderItems: llm.ItemsFromMessages([]llm.Message{msg}),
+		ProviderItems: providerItems,
 		Provenance:    cloneTranscriptCommittedRowProvenance(provenance),
 	})
 	s.applyMessageStatsLocked(stepID, msg)
@@ -406,6 +413,7 @@ func (s *chatStore) restoreToolCompletionRecord(record session.ToolCompletionRec
 		CallID:              completion.CallID,
 		Name:                toolspec.ID(completion.Name),
 		IsError:             completion.IsError,
+		ProviderItemOnly:    completion.ProviderItemOnly,
 		Output:              completion.Output,
 		Summary:             completion.Summary,
 		CondensedText:       completion.CondensedText,
@@ -858,6 +866,7 @@ func cloneChatStoreMessage(msg llm.Message) llm.Message {
 		for index := range cloned.ToolCalls {
 			cloned.ToolCalls[index].Presentation = append(json.RawMessage(nil), msg.ToolCalls[index].Presentation...)
 			cloned.ToolCalls[index].Input = append(json.RawMessage(nil), msg.ToolCalls[index].Input...)
+			cloned.ToolCalls[index].ProviderItem = append(json.RawMessage(nil), msg.ToolCalls[index].ProviderItem...)
 			cloned.ToolCalls[index].CustomInput = textutil.Pointer(msg.ToolCalls[index].CustomInput)
 		}
 	}
@@ -1108,6 +1117,9 @@ func (s *chatStore) deliverySnapshot() transcriptDeliverySnapshot {
 	defer s.mu.RUnlock()
 
 	materializedToolResults := collectMaterializedToolCalls(s.activeProviderItemsLocked())
+	for callID := range s.materializedToolResults {
+		materializedToolResults[callID] = struct{}{}
+	}
 	streamIDsByEntry := make(map[int]uuid.UUID, len(s.assistantStreamIDsByEntry))
 	for entryIndex, streamID := range s.assistantStreamIDsByEntry {
 		streamIDsByEntry[entryIndex] = streamID

@@ -82,6 +82,7 @@ func sessionMessageRecordFromLLM(message llm.Message) (session.MessageRecord, er
 				Presentation: append(json.RawMessage(nil), call.Presentation...),
 				Input:        input,
 				CustomInput:  textutil.Pointer(call.CustomInput),
+				ProviderItem: append(json.RawMessage(nil), call.ProviderItem...),
 			})
 		}
 	}
@@ -134,6 +135,7 @@ func llmMessageFromSessionRecord(record session.MessageRecord) (llm.Message, err
 				Input:        append(json.RawMessage(nil), call.Input...),
 				Custom:       call.Kind == session.ToolCallKindCustom,
 				CustomInput:  textutil.Pointer(call.CustomInput),
+				ProviderItem: append(json.RawMessage(nil), call.ProviderItem...),
 			})
 		}
 	}
@@ -154,9 +156,15 @@ func sessionToolCompletionRecordFromRuntime(
 	result tools.Result,
 	providerItems []llm.ResponseItem,
 ) (session.ToolCompletionRecord, error) {
-	outputKind, err := sessionToolOutputKind(providerItems)
-	if err != nil {
-		return session.ToolCompletionRecord{}, err
+	outputKind := session.ToolOutputKindProviderItemOnly
+	if !result.ProviderItemOnly {
+		var err error
+		outputKind, err = sessionToolOutputKind(providerItems)
+		if err != nil {
+			return session.ToolCompletionRecord{}, err
+		}
+	} else if len(providerItems) != 0 {
+		return session.ToolCompletionRecord{}, errors.New("provider-hosted completion cannot contain tool output items")
 	}
 	record := session.ToolCompletionRecord{
 		CallID:              result.CallID,
@@ -257,6 +265,7 @@ func storedToolCompletionFromSessionRecord(
 		CallID:              record.CallID,
 		Name:                record.Name,
 		IsError:             record.IsError,
+		ProviderItemOnly:    record.OutputKind == session.ToolOutputKindProviderItemOnly,
 		Output:              append(json.RawMessage(nil), record.Output...),
 		Summary:             textutil.Pointer(record.Summary),
 		CondensedText:       textutil.Pointer(record.CondensedText),
@@ -274,6 +283,7 @@ func sessionToolCompletionRecordFromStored(
 		CallID:              completion.CallID,
 		Name:                toolspec.ID(completion.Name),
 		IsError:             completion.IsError,
+		ProviderItemOnly:    completion.ProviderItemOnly,
 		Output:              append(json.RawMessage(nil), completion.Output...),
 		Summary:             completion.Summary,
 		CondensedText:       completion.CondensedText,

@@ -541,9 +541,10 @@ func hostedToolExecutionsFromOutputItems(items []llm.ResponseItem, defs []tools.
 		for _, execution := range decoded {
 			out = append(out, hostedToolExecution{
 				Call: llm.ToolCall{
-					ID:    execution.Call.ID,
-					Name:  string(execution.Call.Name),
-					Input: execution.Call.Input,
+					ID:           execution.Call.ID,
+					Name:         string(execution.Call.Name),
+					Input:        execution.Call.Input,
+					ProviderItem: append(json.RawMessage(nil), execution.Call.ProviderItem...),
 				},
 				Result:         execution.Result,
 				outputPosition: position,

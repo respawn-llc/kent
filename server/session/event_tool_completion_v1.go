@@ -15,8 +15,9 @@ import (
 type ToolOutputKind string
 
 const (
-	ToolOutputKindFunction ToolOutputKind = "function"
-	ToolOutputKindCustom   ToolOutputKind = "custom"
+	ToolOutputKindFunction         ToolOutputKind = "function"
+	ToolOutputKindCustom           ToolOutputKind = "custom"
+	ToolOutputKindProviderItemOnly ToolOutputKind = "provider_item_only"
 )
 
 type ProviderInputItemType string
@@ -120,6 +121,10 @@ func normalizeToolCompletionRecord(record ToolCompletionRecord) (ToolCompletionR
 	}
 	switch record.OutputKind {
 	case ToolOutputKindFunction, ToolOutputKindCustom:
+	case ToolOutputKindProviderItemOnly:
+		if len(record.ProviderItems) != 0 {
+			return ToolCompletionRecord{}, fmt.Errorf("provider-hosted completion cannot contain tool output items")
+		}
 	default:
 		return ToolCompletionRecord{}, fmt.Errorf("unsupported tool output kind %q", record.OutputKind)
 	}

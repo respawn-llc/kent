@@ -216,6 +216,10 @@ func ItemsFromMessages(messages []Message) []ResponseItem {
 				if callID == "" && strings.TrimSpace(tc.Name) == "" {
 					continue
 				}
+				if len(tc.ProviderItem) > 0 {
+					out = append(out, ResponseItem{Type: ResponseItemTypeOther, CallID: textutil.Value(callID), Raw: append(json.RawMessage(nil), tc.ProviderItem...)})
+					continue
+				}
 				if tc.Custom {
 					customInput := textutil.Pointer(tc.CustomInput)
 					if customInput == nil || strings.TrimSpace(*customInput) == "" {
@@ -458,6 +462,7 @@ type ToolCall struct {
 	Input        json.RawMessage `json:"input"`
 	Custom       bool            `json:"custom,omitempty"`
 	CustomInput  *string         `json:"custom_input,omitempty"`
+	ProviderItem json.RawMessage `json:"provider_item,omitempty"`
 }
 
 type ToolResult struct {
