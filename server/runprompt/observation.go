@@ -17,14 +17,19 @@ type runCompletion interface {
 }
 
 type observationScope struct {
-	ctx    context.Context
-	cancel context.CancelCauseFunc
-	timer  *time.Timer
+	ctx          context.Context
+	cancel       context.CancelCauseFunc
+	timer        *time.Timer
+	observerCtx  context.Context
+	stopObserver context.CancelFunc
 }
 
 func newObservationScope(ctx context.Context) *observationScope {
 	ctx, cancel := context.WithCancelCause(ctx)
-	return &observationScope{ctx: ctx, cancel: cancel}
+	// The live observer cancels its waiters on return, but idle Run may still
+	// need this completion deadline while scheduled model work finishes.
+	observerCtx, stopObserver := context.WithCancel(ctx)
+	return &observationScope{ctx: ctx, cancel: cancel, observerCtx: observerCtx, stopObserver: stopObserver}
 }
 
 func (s *observationScope) armTimeout(timeout time.Duration) {
@@ -38,6 +43,7 @@ func (s *observationScope) close() {
 		s.timer.Stop()
 	}
 	s.cancel(context.Canceled)
+	s.stopObserver()
 }
 
 type runObservation struct {
@@ -50,12 +56,12 @@ type runObservation struct {
 }
 
 func (o *runObservation) Complete(timeout time.Duration) (*runpromptpb.Success, error) {
+	defer o.scope.close()
 	o.scope.armTimeout(timeout)
 	return o.observe()
 }
 
 func (o *runObservation) observe() (*runpromptpb.Success, error) {
-	defer o.scope.close()
 	if o.stopProgress != nil {
 		defer o.stopProgress()
 	}
@@ -64,7 +70,7 @@ func (o *runObservation) observe() (*runpromptpb.Success, error) {
 		_, _ = o.handle.Wait()
 		return o.response, errors.New("headless live run observer is required")
 	}
-	observed, err := o.observer.ObserveLiveRun(o.scope.ctx, func() { o.scope.cancel(context.Canceled) }, o.identity.ID, o.handle)
+	observed, err := o.observer.ObserveLiveRun(o.scope.observerCtx, o.scope.stopObserver, o.identity.ID, o.handle)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			if cause := context.Cause(o.scope.ctx); cause != nil {

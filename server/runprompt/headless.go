@@ -193,7 +193,7 @@ func (l *headlessPromptLauncher) prepareActiveContinuation(ctx context.Context, 
 			if err != nil {
 				return false, err
 			}
-			_, observer, accepted, err := l.steering.SubmitLiveSteer(joinCtx, steer, engine, scope.ctx, func(commit func() (bool, error)) (bool, error) {
+			_, observer, accepted, err := l.steering.SubmitLiveSteer(joinCtx, steer, engine, scope.observerCtx, func(commit func() (bool, error)) (bool, error) {
 				return accept(func() (bool, error) {
 					accepted, err := commit()
 					if accepted && progress != nil {
@@ -396,7 +396,7 @@ func (l *headlessPromptLauncher) runtimeLaunchRequest(plan launch.SessionPlan, p
 				submit := func() error {
 					onActive := func() {
 						waitHandle, waitStartErr = engine.CaptureActiveRunResult(engineCtx)
-						observerHandle, observerErr := engine.CaptureActiveRunResult(submission.scope.ctx)
+						observerHandle, observerErr := engine.CaptureActiveRunResult(submission.scope.observerCtx)
 						prepared.activeRun <- activeRunCapture{
 							observerHandle: observerHandle,
 							sessionName:    engine.SessionName(),
@@ -515,7 +515,7 @@ func (r *headlessPromptRuntime) submitUserMessage(scope *observationScope) (*run
 	observation := &runObservation{identity: r.identity, handle: active.observerHandle, scope: scope, observer: r.liveRunObserver, response: response}
 	response, err = observation.observe()
 	if err == nil && response.GetQuestion() == nil {
-		_, err = r.plan.handle.Wait(r.ctx)
+		_, err = r.plan.handle.Wait(ctx)
 	}
 	return response, err
 }

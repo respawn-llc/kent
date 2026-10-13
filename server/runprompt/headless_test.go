@@ -1473,6 +1473,72 @@ func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 }
 
 func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
+	t.Run("post-final queued model work", func(t *testing.T) {
+		firstStarted, releaseFirst := make(chan struct{}), make(chan struct{})
+		queuedStarted, releaseQueued := make(chan struct{}), make(chan struct{})
+		var calls atomic.Int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if calls.Add(1) == 1 {
+				close(firstStarted)
+				<-releaseFirst
+			} else {
+				close(queuedStarted)
+				<-releaseQueued
+			}
+			modelstub.WriteCompletedResponseStream(w, "done", 1, 1)
+		}))
+		var firstOnce sync.Once
+		unblockFirst := func() { firstOnce.Do(func() { close(releaseFirst) }) }
+		defer func() {
+			unblockFirst()
+			close(releaseQueued)
+			server.Close()
+		}()
+		fixture := newSelectedRunPromptFixture(t, server.URL, nil)
+		id := mustRunPromptSessionID(t, fixture.store.Meta().SessionID)
+		done := make(chan error, 1)
+		go func() {
+			_, err := fixture.client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+				Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "start", Timeout: 2 * time.Second,
+			}), nil)
+			done <- err
+		}()
+		select {
+		case <-firstStarted:
+		case <-time.After(10 * time.Second):
+			t.Fatal("first provider request did not start")
+		}
+		descriptor, err := session.NewScopedOpenSessionDescriptor(id, filepath.Dir(fixture.store.Dir()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = fixture.authority.RunCurrentTurn(t.Context(), descriptor,
+			func(commit func() (bool, error)) (bool, error) { return commit() },
+			func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
+				_, err := engine.QueueUserInputWithAcceptance(ctx, runtime.QueuedUserInput{
+					ExecutionText: "later", CanonicalPresentation: "later",
+				}, accept)
+				return err
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		unblockFirst()
+		select {
+		case <-queuedStarted:
+		case <-time.After(10 * time.Second):
+			t.Fatal("queued provider request did not start")
+		}
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("RunPrompt error = %v, want deadline exceeded", err)
+			}
+		case <-time.After(4 * time.Second):
+			t.Fatal("RunPrompt lost its completion timeout while waiting for queued model work")
+		}
+	})
+
 	t.Run("prompt history", func(t *testing.T) {
 		var providerCalls atomic.Int32
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
