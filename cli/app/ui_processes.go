@@ -6,7 +6,9 @@ import processpb "core/shared/protoapi/gen/kent/api/process"
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -334,13 +336,15 @@ func (m *uiModel) applyProcessActionDone(msg processActionDoneMsg) tea.Cmd {
 	case "logs":
 		statusCmd := c.model.sendTransientStatusWithNoticeID("Opened logs", uiStatusNoticeInfo, transientStatusDuration, uiStatusNoticeReplace, "")
 		if msg.editorCmd != nil {
-			execCmd := tea.ExecProcess(msg.editorCmd, func(runErr error) tea.Msg {
-				return openProcessLogsDoneMsg{err: runErr}
-			})
+			editorCmd := terminalEditorCommand(m.keyboardReporting, msg.editorCmd)
 			if m.processList.open && msg.surfaceGeneration == m.processList.surfaceGeneration {
-				return tea.Batch(c.stopProcessListFlowCmd(), statusCmd, execCmd, c.resumeQueuedInputsAfterIdleRuntime())
+				surfaceCmd, incidentalCmd := c.stopProcessListFlow()
+				return tea.Batch(
+					sequenceCmds(surfaceCmd, statusCmd, editorCmd),
+					incidentalCmd,
+				)
 			}
-			return tea.Batch(statusCmd, execCmd, c.resumeQueuedInputsAfterIdleRuntime())
+			return sequenceCmds(statusCmd, editorCmd)
 		}
 		if m.processList.open && msg.surfaceGeneration == m.processList.surfaceGeneration {
 			return tea.Batch(c.stopProcessListFlowCmd(), statusCmd, c.resumeQueuedInputsAfterIdleRuntime())
@@ -349,6 +353,60 @@ func (m *uiModel) applyProcessActionDone(msg processActionDoneMsg) tea.Cmd {
 	default:
 		return nil
 	}
+}
+
+func terminalEditorCommand(keyboardReporting *uiTerminalKeyboardReportingOwner, editorCmd *exec.Cmd) tea.Cmd {
+	return tea.Exec(
+		terminalEditorExecCommand{Cmd: editorCmd, keyboardReporting: keyboardReporting},
+		func(err error) tea.Msg { return openProcessLogsDoneMsg{err: err} },
+	)
+}
+
+type terminalEditorExecCommand struct {
+	*exec.Cmd
+	keyboardReporting *uiTerminalKeyboardReportingOwner
+}
+
+func (c terminalEditorExecCommand) Run() error {
+	if c.keyboardReporting != nil {
+		if err := c.keyboardReporting.Suspend(); err != nil {
+			return fmt.Errorf("release terminal keyboard reporting: %w", err)
+		}
+	}
+	return c.Cmd.Run()
+}
+
+func (c terminalEditorExecCommand) SetStdin(reader io.Reader) {
+	if c.Cmd.Stdin == nil {
+		c.Cmd.Stdin = reader
+	}
+}
+
+func (c terminalEditorExecCommand) SetStdout(writer io.Writer) {
+	if c.Cmd.Stdout == nil {
+		c.Cmd.Stdout = writer
+	}
+}
+
+func (c terminalEditorExecCommand) SetStderr(writer io.Writer) {
+	if c.Cmd.Stderr == nil {
+		c.Cmd.Stderr = writer
+	}
+}
+
+func (m *uiModel) applyProcessLogsDone(msg openProcessLogsDoneMsg) tea.Cmd {
+	if m.keyboardReporting != nil {
+		if err := m.keyboardReporting.Resume(); err != nil {
+			msg.err = errors.Join(msg.err, fmt.Errorf("restore terminal keyboard reporting: %w", err))
+		}
+	}
+	if msg.err != nil {
+		return tea.Batch(
+			m.sendTransientStatusWithNoticeID(msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""),
+			m.inputController().resumeQueuedInputsAfterIdleRuntime(),
+		)
+	}
+	return m.inputController().resumeQueuedInputsAfterIdleRuntime()
 }
 
 func (c uiInputController) handleProcessListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

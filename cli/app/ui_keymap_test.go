@@ -60,7 +60,7 @@ func TestNormalizeKeyMsgRecognizesShiftEnterCSIUVariants(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			msg := adaptCustomKeyMsg(testBubbleTeaUnknownCSISequence(tc.seq))
+			msg := adaptTerminalKeyMsg(testBubbleTeaUnknownCSISequence(tc.seq))
 			normalized, ok := normalizeKeyMsg(msg)
 			if !ok {
 				t.Fatal("expected shift+enter csi sequence to normalize")
@@ -84,7 +84,7 @@ func TestNormalizeKeyMsgRecognizesHelpCSIUVariants(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			msg := adaptCustomKeyMsg(testBubbleTeaUnknownCSISequence(tc.seq))
+			msg := adaptTerminalKeyMsg(testBubbleTeaUnknownCSISequence(tc.seq))
 			normalized, ok := normalizeKeyMsg(msg)
 			if !ok {
 				t.Fatal("expected help csi sequence to normalize")
@@ -120,9 +120,9 @@ func TestIsHelpKeyRecognizesPrimaryAndFallbackBindings(t *testing.T) {
 	}
 }
 
-func TestAdaptCustomKeyMsgLeavesNonCustomUnknownCSIUntouched(t *testing.T) {
+func TestTerminalKeyAdapterLeavesUnrecognizedCSIUntouched(t *testing.T) {
 	msg := testBubbleTeaUnknownCSISequence("\x1b[1;9A")
-	adapted := adaptCustomKeyMsg(msg)
+	adapted := adaptTerminalKeyMsg(msg)
 	if reflect.TypeOf(adapted) != reflect.TypeOf(msg) {
 		t.Fatalf("expected non-custom unknown csi to remain untouched, got %T", adapted)
 	}

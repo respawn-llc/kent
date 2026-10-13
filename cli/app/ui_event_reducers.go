@@ -193,11 +193,9 @@ func (m *uiModel) reduceProcessMessage(msg tea.Msg) uiFeatureUpdateResult {
 		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
 	case openProcessLogsDoneMsg:
+		cmd := m.applyProcessLogsDone(msg)
 		m.layout().syncViewport()
-		if msg.err != nil {
-			return handledUIFeatureUpdate(m, m.sendTransientStatusWithNoticeID(msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""))
-		}
-		return handledUIFeatureUpdate(m, nil)
+		return handledUIFeatureUpdate(m, cmd)
 	}
 	return uiFeatureUpdateResult{}
 }

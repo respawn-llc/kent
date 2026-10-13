@@ -216,6 +216,7 @@ type uiKeyboardFeatureState struct {
 	lastEscAt              time.Time
 	pendingCSIShiftEnterAt time.Time
 	pendingCSIShiftEnter   bool
+	keyboardReporting      *uiTerminalKeyboardReportingOwner
 }
 
 type uiRollbackFeatureState struct {
