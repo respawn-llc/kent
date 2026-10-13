@@ -173,8 +173,8 @@ func TestNonStaleContentCompleteHydrationAppliesWholeEvent(t *testing.T) {
 	if m.reasoningStatusHeader != "reasoning" {
 		t.Fatalf("reasoning status = %q, want reasoning", m.reasoningStatusHeader)
 	}
-	if m.currentRunID == "" || m.currentStepID == "" || !m.runtimeActivityBusy() {
-		t.Fatalf("hydrated running state missing: activity=%+v run=%q step=%q", m.runtimeActivityProjection, m.currentRunID, m.currentStepID)
+	if m.currentStepID == "" || !m.runtimeActivityBusy() {
+		t.Fatalf("hydrated running state missing: activity=%+v step=%q", m.runtimeActivityProjection, m.currentStepID)
 	}
 	if len(m.injectedQueue) != 0 {
 		t.Fatalf("foreign hydrated queue created local restoration ownership: %+v", m.injectedQueue)
@@ -207,7 +207,6 @@ func TestHydrationReplacesStaleBackgroundProcessEntries(t *testing.T) {
 	payload.BackgroundActivities = []*transcriptpb.BackgroundActivity{{
 		ActivityId:  runtimeids.NewBackgroundActivityID().String(),
 		ProcessId:   "still-running",
-		OwnerRunId:  ongoingTestRunID().String(),
 		OwnerStepId: ongoingTestStepID().String(),
 		Lifecycle:   transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_BACKGROUNDED,
 		Command:     "sleep 10",
@@ -471,9 +470,7 @@ func runtimeTupleTestRichHydration(runtimeSequence uint64) *transcriptpb.Message
 	)
 	hydration := message.Event.GetHydration()
 	stepID := ongoingTestStepID()
-	runID := ongoingTestRunID()
 	hydration.RuntimeReadModelUpdate.Activity.ActiveStep = &runtimepb.ActiveStep{
-		RunId:      runID.String(),
 		StepId:     stepID.String(),
 		ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN,
 	}
@@ -504,7 +501,6 @@ func runtimeTupleTestRichHydration(runtimeSequence uint64) *transcriptpb.Message
 		Text:        "reasoning body",
 	}}
 	hydration.ActiveStep = &transcriptpb.StepState{
-		RunId:      runID.String(),
 		StepId:     stepID.String(),
 		Lifecycle:  transcriptpb.StepLifecycle_STEP_LIFECYCLE_STARTED,
 		ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN,

@@ -54,11 +54,11 @@
 
 ## Interrupts And Exit
 
-- The server-published Run lifecycle and the current server-published pending Question or Approval are the TUI liveness authorities for `Ctrl+C`. While either identifies live work, the TUI sends Interrupt. A second `Ctrl+C` while Interrupt is still pending for that same execution exits locally; a different Running Run or Step sends a new Interrupt.
+- The server-published Live Execution lifecycle and the current server-published pending Question or Approval are the TUI liveness authorities for `Ctrl+C`. While either identifies live work, the TUI sends Interrupt. A second `Ctrl+C` while Interrupt is still pending for that same execution exits locally; a different running Live Execution, identified by its Step ID, sends a new Interrupt.
 - The server accepts Interrupt only for an active Agent execution, including one waiting for a Question or Approval. An accepted Interrupt stops its current Agent Step or prompt wait and active tool, keeps the Session available, adds the Detail Mode control message `User interrupted you`, returns to idle with input ready, and requires explicit user text to resume.
 - `Ctrl+C` does not cancel a submission before its Agent Turn starts.
 - When the live TUI observes the interruption event, it restores the stopped execution's pending human messages into the main input so the user can edit or resend them.
-- `Ctrl+C` exits the TUI only when the Run lifecycle is not Running and no current pending Question or Approval identifies live work. A submission already sent to the server may start or continue after the client detaches.
+- `Ctrl+C` exits the TUI only when the Live Execution lifecycle is not Running and no current pending Question or Approval identifies live work. A submission already sent to the server may start or continue after the client detaches.
 - Graceful exit through `Ctrl+C` or `/exit` saves the current composer draft before releasing the Session attachment.
 - `/exit` detaches the client and does not interrupt the Active Session Runtime. Active work continues after this TUI releases its attachment.
 - Session-navigation commands persist the outgoing draft, resolve the typed transition, release the originating attachment, and only then plan or attach the destination. A release failure aborts navigation before destination attachment; an `/exit` release failure is reported after terminal teardown and exits nonzero.

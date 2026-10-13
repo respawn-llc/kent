@@ -50,7 +50,6 @@ func (m *uiModel) applyRuntimeActivityProjection(activity *runtimepb.Activity) e
 	if !protoapi.RuntimeActivityActiveForControl(activity) {
 		m.runtimeLifecycle.Run = clientui.IdleRunLifecycle()
 		m.activity = uiActivityIdle
-		m.currentRunID = ""
 		m.currentStepID = ""
 		return nil
 	}
@@ -65,10 +64,8 @@ func (m *uiModel) applyRuntimeActivityProjection(activity *runtimepb.Activity) e
 		m.activity = uiActivityRunning
 	}
 	if activity.ActiveStep != nil {
-		m.currentRunID = activity.ActiveStep.RunId
 		m.currentStepID = activity.ActiveStep.StepId
 	} else {
-		m.currentRunID = ""
 		m.currentStepID = ""
 	}
 	return nil
@@ -125,17 +122,9 @@ func (m *uiModel) setPendingInterrupt(pending bool) {
 	}
 	if pending {
 		m.interruptLifecycle = uiInterruptPending
-		m.interruptRunID = strings.TrimSpace(m.currentRunID)
 		m.interruptStepID = strings.TrimSpace(m.currentStepID)
-		m.completedRunID = ""
-		m.completedStepID = ""
 		return
 	}
-	if strings.TrimSpace(m.interruptRunID) != "" && strings.TrimSpace(m.interruptStepID) != "" {
-		m.completedRunID = strings.TrimSpace(m.interruptRunID)
-		m.completedStepID = strings.TrimSpace(m.interruptStepID)
-	}
 	m.interruptLifecycle = uiInterruptIdle
-	m.interruptRunID = ""
 	m.interruptStepID = ""
 }

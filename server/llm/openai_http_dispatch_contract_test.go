@@ -103,7 +103,7 @@ func TestOAuthGenerateSendsCanonicalCodexIdentityAuthAndRoutingTiers(t *testing.
 
 	dispatch, err := NewCodexDispatchContext(CodexDispatchFacts{
 		SessionID:            "session-1",
-		RunID:                "run-1",
+		StepID:               "step-1",
 		CompactionGeneration: 2,
 		RequestKind:          CodexRequestKindTurn.Optional(),
 	})
@@ -203,7 +203,7 @@ func assertCanonicalGenerationMetadata(t *testing.T, body map[string]any) {
 	t.Helper()
 	metadata := requireCodexTurnMetadata(t, body)
 	if metadata["session_id"] != "session-1" || metadata["thread_id"] != "session-1" ||
-		metadata["turn_id"] != "run-1" || metadata["window_id"] != "session-1:2" ||
+		metadata["turn_id"] != "step-1" || metadata["window_id"] != "session-1:2" ||
 		metadata["request_kind"] != "turn" {
 		t.Fatalf("turn metadata = %#v, want canonical identity", metadata)
 	}
@@ -246,7 +246,7 @@ func TestOAuthDispatchRejectsUnrepresentableRoutingModelBeforeProviderHTTP(t *te
 			t.Run(methodName+"/"+invalidName, func(t *testing.T) {
 				dispatch, err := NewCodexDispatchContext(CodexDispatchFacts{
 					SessionID:   "session-1",
-					RunID:       "run-1",
+					StepID:      "step-1",
 					RequestKind: CodexRequestKindTurn.Optional(),
 				})
 				if err != nil {

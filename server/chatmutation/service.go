@@ -189,10 +189,6 @@ func (s *Service) invokeGoal(
 		Actor:           strings.TrimSpace(request.Actor),
 		ExecutionPolicy: request.ExecutionPolicy,
 	}
-	if request.RunId != nil {
-		value := strings.TrimSpace(request.GetRunId())
-		resolvedRequest.RunId = &value
-	}
 	if request.StepId != nil {
 		value := strings.TrimSpace(request.GetStepId())
 		resolvedRequest.StepId = &value

@@ -15,11 +15,11 @@
 - Only ChatGPT Codex OAuth dispatches send Codex turn metadata, `x-codex-routing-hint`, or `x-codex-turn-state`.
 - Codex turn metadata is one object at `client_metadata["x-codex-turn-metadata"]`.
 - Codex turn metadata contains `session_id`, `thread_id`, `turn_id`, and `window_id`. It contains `request_kind` only when the operation has a supported request kind.
-- A main-agent or subagent dispatch maps its own Kent Session ID to `session_id` and `thread_id`, its live Agent Turn Run ID to `turn_id`, and `<Session ID>:<compaction generation>` to `window_id`.
+- A main-agent or subagent dispatch maps its own Kent Session ID to `session_id` and `thread_id`, its Live Execution's Step ID to `turn_id`, and `<Session ID>:<compaction generation>` to `window_id`.
 - Each subagent sends only its own Session and Agent Turn identities.
-- A Reviewer dispatch maps `<Kent Session ID>/supervisor` to `session_id` and `thread_id`, copies the enclosing main Agent Turn Run ID to `turn_id`, and maps `<Kent Session ID>/supervisor:<main compaction generation>` to `window_id`.
+- A Reviewer dispatch maps `<Kent Session ID>/supervisor` to `session_id` and `thread_id`, copies the enclosing main Live Execution's Step ID to `turn_id`, and maps `<Kent Session ID>/supervisor:<main compaction generation>` to `window_id`.
 - Ordinary main-agent, subagent, and Reviewer generation uses request kind `turn`. Responses compaction uses `compaction`. Local generation-based compaction omits request kind.
-- Inline compaction uses the enclosing Agent Turn Run ID. Standalone compaction uses its live exclusive Run ID.
+- Inline compaction uses the enclosing Live Execution's Step ID. Standalone compaction uses its own Live Execution's Step ID.
 - A compaction dispatch uses the pre-compaction window. The compaction generation advances only after successful compaction.
 - `x-codex-routing-hint` is `model=<selected model>` and adds `;tier=<effective service tier>` only when the request uses a service tier.
 - The routing model must be nonempty, must have no leading or trailing space or horizontal tab, must contain no semicolon, and must produce a valid outbound HTTP header value.

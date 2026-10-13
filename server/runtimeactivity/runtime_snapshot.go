@@ -12,7 +12,6 @@ func ActiveStepFromRuntimeSnapshot(snapshot *runtime.RunSnapshot) *ActiveStepSna
 		return nil
 	}
 	return &ActiveStepSnapshot{
-		RunID:      snapshot.RunID,
 		StepID:     snapshot.StepID,
 		ActiveKind: MustClientActiveKindFromRuntime(snapshot.ActiveKind),
 	}

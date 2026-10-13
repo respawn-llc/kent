@@ -25,7 +25,6 @@ func TestActiveStepSnapshotProjectsAuthoritativeCompactionActivity(t *testing.T)
 			}
 			active := engine.ActiveStepSnapshot()
 			if active == nil ||
-				active.RunID != baseline.RunID ||
 				active.StepID != stepID ||
 				active.ActiveKind != activeKind {
 				t.Fatalf("projected %s activity = %+v, baseline %+v", activeKind, active, baseline)

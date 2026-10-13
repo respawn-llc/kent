@@ -13,7 +13,6 @@ import (
 )
 
 const (
-	stepLifecycleTestRunID  = "11111111-1111-4111-8111-111111111111"
 	stepLifecycleTestStepID = "22222222-2222-4222-8222-222222222222"
 )
 
@@ -50,7 +49,6 @@ func TestStepLifecycleSinkPublishesVersionedRunningThenIdleActivity(t *testing.T
 	startedAt := time.Now().UTC()
 	if err := sink.StepBegan(context.Background(), runtime.StepLifecycleSnapshot{
 		SessionID:  "session-1",
-		RunID:      stepLifecycleTestRunID,
 		StepID:     stepLifecycleTestStepID,
 		ActiveKind: runtime.ActiveKindGoalLoop,
 		StartedAt:  startedAt,
@@ -59,7 +57,6 @@ func TestStepLifecycleSinkPublishesVersionedRunningThenIdleActivity(t *testing.T
 	}
 	if err := sink.StepEnded(context.Background(), runtime.StepLifecycleSnapshot{
 		SessionID:  "session-1",
-		RunID:      stepLifecycleTestRunID,
 		StepID:     stepLifecycleTestStepID,
 		ActiveKind: runtime.ActiveKindGoalLoop,
 		StartedAt:  startedAt,
@@ -94,7 +91,6 @@ func TestStepLifecycleSinkPublishesAuxiliaryRuntimeActivityKinds(t *testing.T) {
 			sink := NewStepLifecycleSink("session-auxiliary", publisher)
 			if err := sink.StepBegan(context.Background(), runtime.StepLifecycleSnapshot{
 				SessionID:  "session-auxiliary",
-				RunID:      stepLifecycleTestRunID,
 				StepID:     stepLifecycleTestStepID,
 				ActiveKind: kind,
 				StartedAt:  time.Now().UTC(),
@@ -116,7 +112,6 @@ func TestStepLifecycleSinkUsesPublisherRegistrySnapshotForTerminalActivity(t *te
 
 	if err := sink.StepEnded(context.Background(), runtime.StepLifecycleSnapshot{
 		SessionID:  "session-draining",
-		RunID:      stepLifecycleTestRunID,
 		StepID:     stepLifecycleTestStepID,
 		ActiveKind: runtime.ActiveKindUserTurn,
 	}); err != nil {
@@ -144,7 +139,6 @@ func TestStepLifecycleSinkPanicsOnPublicationInvariantFailureInPanicMode(t *test
 	}()
 	_ = sink.StepEnded(context.Background(), runtime.StepLifecycleSnapshot{
 		SessionID:  "session-panic",
-		RunID:      stepLifecycleTestRunID,
 		StepID:     stepLifecycleTestStepID,
 		ActiveKind: runtime.ActiveKindGoalLoop,
 	})

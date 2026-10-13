@@ -26,7 +26,7 @@ func (k CodexRequestKind) Optional() *CodexRequestKind {
 
 type CodexDispatchFacts struct {
 	SessionID            string
-	RunID                string
+	StepID               string
 	CompactionGeneration int
 	RequestKind          *CodexRequestKind
 }
@@ -85,7 +85,7 @@ func (c *CodexDispatchContext) TurnMetadataJSON() (string, error) {
 	payload, err := json.Marshal(codexTurnMetadata{
 		SessionID:   c.facts.SessionID,
 		ThreadID:    c.facts.SessionID,
-		TurnID:      c.facts.RunID,
+		TurnID:      c.facts.StepID,
 		WindowID:    fmt.Sprintf("%s:%d", c.facts.SessionID, c.facts.CompactionGeneration),
 		RequestKind: c.facts.RequestKind,
 	})
@@ -301,8 +301,8 @@ func (f CodexDispatchFacts) validate() error {
 	if strings.TrimSpace(f.SessionID) == "" {
 		return fmt.Errorf("%w: Codex session ID is required", ErrInvalidRequest)
 	}
-	if strings.TrimSpace(f.RunID) == "" {
-		return fmt.Errorf("%w: Codex run ID is required", ErrInvalidRequest)
+	if strings.TrimSpace(f.StepID) == "" {
+		return fmt.Errorf("%w: Codex Step ID is required", ErrInvalidRequest)
 	}
 	if f.CompactionGeneration < 0 {
 		return fmt.Errorf("%w: Codex compaction generation must be >= 0", ErrInvalidRequest)

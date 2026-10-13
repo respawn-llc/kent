@@ -8,7 +8,6 @@ import (
 )
 
 const (
-	runtimeActivityTestRunID  = "11111111-1111-4111-8111-111111111111"
 	runtimeActivityTestStepID = "22222222-2222-4222-8222-222222222222"
 )
 
@@ -30,7 +29,7 @@ func TestResolveRuntimeActivityUsesOnlyLiveResolverInputs(t *testing.T) {
 			name: "running copies runtime-owned active kind",
 			snapshot: ResolverSnapshot{
 				Registry: RegistrySnapshot{Registered: true, QueueAccepting: true},
-				Active:   &ActiveStepSnapshot{RunID: runtimeActivityTestRunID, StepID: runtimeActivityTestStepID, ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_GOAL_LOOP},
+				Active:   &ActiveStepSnapshot{StepID: runtimeActivityTestStepID, ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_GOAL_LOOP},
 			},
 			want:     runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING,
 			wantKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_GOAL_LOOP,
@@ -62,6 +61,9 @@ func TestResolveRuntimeActivityUsesOnlyLiveResolverInputs(t *testing.T) {
 			if got := runtimeActivityKind(activity); got != test.wantKind {
 				t.Fatalf("active kind = %q, want %q", got, test.wantKind)
 			}
+			if test.snapshot.Active != nil && activity.ActiveStep.GetStepId() != test.snapshot.Active.StepID {
+				t.Fatalf("active Step ID = %q, want %q", activity.ActiveStep.GetStepId(), test.snapshot.Active.StepID)
+			}
 			if got := protoapi.RuntimeActivityActiveForControl(activity); got != test.active {
 				t.Fatalf("active = %t, want %t", got, test.active)
 			}
@@ -91,7 +93,7 @@ func TestResolveRuntimeActivityCopiesEveryRuntimeOwnedActiveKind(t *testing.T) {
 		t.Run(kind.String(), func(t *testing.T) {
 			activity, err := ResolveRuntimeActivity(ResolverSnapshot{
 				Registry: RegistrySnapshot{Registered: true, QueueAccepting: true},
-				Active:   &ActiveStepSnapshot{RunID: runtimeActivityTestRunID, StepID: runtimeActivityTestStepID, ActiveKind: kind},
+				Active:   &ActiveStepSnapshot{StepID: runtimeActivityTestStepID, ActiveKind: kind},
 			})
 			if err != nil {
 				t.Fatalf("ResolveRuntimeActivity: %v", err)
@@ -109,7 +111,7 @@ func TestResolveRuntimeActivityCopiesEveryRuntimeOwnedActiveKind(t *testing.T) {
 func TestResolveRuntimeActivityProjectsPromptWaitFromExplicitFact(t *testing.T) {
 	activity, err := ResolveRuntimeActivity(ResolverSnapshot{
 		Registry:   RegistrySnapshot{Registered: true},
-		Active:     &ActiveStepSnapshot{RunID: runtimeActivityTestRunID, StepID: runtimeActivityTestStepID, ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN},
+		Active:     &ActiveStepSnapshot{StepID: runtimeActivityTestStepID, ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN},
 		PromptWait: true,
 	})
 	if err != nil {

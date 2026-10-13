@@ -150,7 +150,6 @@ export type ChatRuntimeActivity = Readonly<{
   state:
     "unavailable" | "registered_idle" | "starting" | "running" | "awaiting_prompt" | "draining" | "closing";
   activeStep: Readonly<{
-    runID: string;
     stepID: string;
     activeKind: NonNullable<
       ChatTranscriptPayloadByKind["runtime_read_model_update"]["Activity"]["ActiveStep"]

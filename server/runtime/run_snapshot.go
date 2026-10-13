@@ -12,7 +12,6 @@ const (
 )
 
 type RunSnapshot struct {
-	RunID      string
 	StepID     string
 	Status     RunStatus
 	ActiveKind ActiveKind

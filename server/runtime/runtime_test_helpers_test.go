@@ -36,6 +36,27 @@ func newTestToolRegistry(t testing.TB, registrations ...tools.HandlerRegistratio
 	return toolfixture.NewRegistry(t, registrations...)
 }
 
+func codexTurnIDForDispatch(t testing.TB, dispatch *llm.CodexDispatchContext) string {
+	t.Helper()
+	if dispatch == nil {
+		t.Fatal("provider request omitted Codex dispatch identity")
+	}
+	encoded, err := dispatch.TurnMetadataJSON()
+	if err != nil {
+		t.Fatalf("encode Codex turn metadata: %v", err)
+	}
+	var metadata struct {
+		TurnID string `json:"turn_id"`
+	}
+	if err := json.Unmarshal([]byte(encoded), &metadata); err != nil {
+		t.Fatalf("decode Codex turn metadata: %v", err)
+	}
+	if metadata.TurnID == "" {
+		t.Fatal("Codex turn metadata omitted execution identity")
+	}
+	return metadata.TurnID
+}
+
 func mustReviewerSuggestionsContract(t testing.TB) jsoncontract.Structured {
 	t.Helper()
 	contract, err := prepareReviewerSuggestionsContract(jsoncontract.NewPreparer(false))
@@ -428,7 +449,6 @@ func setTestActiveStep(engine *Engine, stepID string) func() {
 	engine.stepLifecycle = &stubExclusiveStepLifecycle{
 		activeStepID: stepID,
 		snapshot: &RunSnapshot{
-			RunID:      "11111111-1111-4111-8111-111111111111",
 			StepID:     stepID,
 			ActiveKind: ActiveKindUserTurn,
 		},

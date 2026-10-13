@@ -93,7 +93,6 @@ export function hydration(): ChatTranscriptPayloadByKind["hydration"] {
       Activity: {
         State: "running",
         ActiveStep: {
-          RunID: "223e4567-e89b-42d3-a456-426614174000",
           StepID: "323e4567-e89b-42d3-a456-426614174000",
           ActiveKind: "user_turn",
         },
@@ -167,7 +166,6 @@ export function runtimeUpdate(
         ActiveStep:
           state === "running"
             ? {
-                RunID: "223e4567-e89b-42d3-a456-426614174000",
                 StepID: "323e4567-e89b-42d3-a456-426614174000",
                 ActiveKind: "user_turn" as const,
               }

@@ -204,8 +204,8 @@ func (s *Service) LiveWait(ctx context.Context, req *runtimepb.LiveWaitRequest) 
 			AssistantFinalAnswer: &runtimepb.LiveWaitAssistantFinalAnswer{Result: *result.AssistantMessage.Content},
 		},
 		Duration:       durationpb.New(result.FinishedAt.Sub(result.StartedAt)),
-		LiveRunGroupId: result.GroupID.String(), TerminalRunId: result.RunID.String(),
-		TerminalStepId: result.StepID.String(), TerminalStatus: string(result.Status),
+		LiveRunGroupId: result.GroupID.String(), TerminalStepId: result.StepID.String(),
+		TerminalStatus: string(result.Status),
 	}
 	return resp, err
 }

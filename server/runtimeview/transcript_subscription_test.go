@@ -323,7 +323,6 @@ func TestTranscriptHydrationPreservesDeletionDispositionPresence(t *testing.T) {
 }
 
 const (
-	transcriptProjectionRunID  = "10000000-0000-4000-8000-000000000011"
 	transcriptProjectionStepID = "10000000-0000-4000-8000-000000000012"
 )
 
@@ -1257,7 +1256,6 @@ func TestTranscriptBackgroundActivityUsesRuntimeActivityID(t *testing.T) {
 			Type:        runtime.BackgroundShellEventBackgrounded,
 			ID:          uuid.NewString(),
 			ActivityID:  activityID,
-			OwnerRunID:  transcriptProjectionRunID,
 			OwnerStepID: transcriptProjectionStepID,
 			State:       "running",
 			Command:     "go test ./...",
@@ -1275,6 +1273,9 @@ func TestTranscriptBackgroundActivityUsesRuntimeActivityID(t *testing.T) {
 	background := messages[0].GetBackgroundActivity()
 	if got := background.ActivityId; got != activityID.String() {
 		t.Fatalf("background transcript id = %q, want activity id %q", got, activityID)
+	}
+	if background.OwnerStepId != transcriptProjectionStepID {
+		t.Fatalf("background owner Step = %q, want %q", background.OwnerStepId, transcriptProjectionStepID)
 	}
 }
 
@@ -1299,7 +1300,6 @@ func TestTranscriptBackgroundActivityLifecycleIgnoresPreviewTruncation(t *testin
 					Type:              tt.eventType,
 					ID:                uuid.NewString(),
 					ActivityID:        uuid.New(),
-					OwnerRunID:        transcriptProjectionRunID,
 					OwnerStepID:       transcriptProjectionStepID,
 					State:             string(tt.eventType),
 					Command:           "sleep 2",
@@ -1454,7 +1454,6 @@ func TestTranscriptBackgroundActivityRejectsMissingRuntimeActivityID(t *testing.
 		Background: &runtime.BackgroundShellEvent{
 			Type:        runtime.BackgroundShellEventBackgrounded,
 			ID:          uuid.NewString(),
-			OwnerRunID:  transcriptProjectionRunID,
 			OwnerStepID: transcriptProjectionStepID,
 			State:       "running",
 			Command:     "go test ./...",

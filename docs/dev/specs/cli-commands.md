@@ -560,7 +560,7 @@
 ### Task completion
 
 - `shell_command` Workflow completion instructs an agent to run `kent task complete`.
-- In an agent Session, Task complete resolves the assigned Task and Current Node from the current Session and requires the matching Exact Execution Scope, Run, and Agent Step from the Kent execution environment.
+- In an agent Session, Task complete resolves the assigned Task and Current Node from the current Session and requires the matching Exact Execution Scope and Live Execution's Step ID from the Kent execution environment.
 - Outside an agent Session, Task complete requires `--force` plus a Session or Task selector. It does not select an idle completion authority.
 - Human `kent task complete --force` composes Workflow operations: Interrupt the selected Task's live execution, wait until that Interrupt completes, then invoke the same Manual Move owner with the selected outgoing Transition, commentary, and Parameter values.
 - Forced Task complete may begin while the selected Task is executing. It adds no completion-specific gate, fallback, or lifecycle state.

@@ -241,7 +241,6 @@ func gatewayTaskBatchAskRequest(askID string, projectID string, taskID string, s
 		Question:   "Task question?",
 		QuestionBatch: &askquestion.AskQuestionBatchMetadata{
 			Origin:              askquestion.AskQuestionOriginModelTool,
-			RunID:               "run-" + taskID,
 			StepID:              gatewayAttentionStepID,
 			ToolCallID:          askID,
 			BatchToolCallIDs:    []string{askID},

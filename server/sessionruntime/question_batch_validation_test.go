@@ -16,13 +16,8 @@ func TestQuestionBatchMetadataValidationIsIdenticalForDirectAndObservedResolutio
 	}{
 		{name: "metadata origin", mutate: func(request *tools.AskQuestionRequest) { request.QuestionBatch.Origin = "invalid" }},
 		{name: "request origin agreement", mutate: func(request *tools.AskQuestionRequest) { request.Origin = "" }},
-		{name: "blank run identity", mutate: func(request *tools.AskQuestionRequest) { request.RunID, request.QuestionBatch.RunID = "", "" }},
-		{name: "non-normalized run identity", mutate: func(request *tools.AskQuestionRequest) {
-			request.RunID, request.QuestionBatch.RunID = " run-1 ", " run-1 "
-		}},
 		{name: "blank step identity", mutate: func(request *tools.AskQuestionRequest) { request.QuestionBatch.StepID = "" }},
 		{name: "non-normalized step identity", mutate: func(request *tools.AskQuestionRequest) { request.QuestionBatch.StepID = " " + request.StepID + " " }},
-		{name: "request run mismatch", mutate: func(request *tools.AskQuestionRequest) { request.QuestionBatch.RunID = "run-other" }},
 		{name: "request step mismatch", mutate: func(request *tools.AskQuestionRequest) { request.QuestionBatch.StepID = "step-other" }},
 		{name: "metadata tool call identity", mutate: func(request *tools.AskQuestionRequest) { request.QuestionBatch.ToolCallID = "other" }},
 		{name: "prepared count", mutate: func(request *tools.AskQuestionRequest) { request.QuestionBatch.PreparedPromptCount = 3 }},
