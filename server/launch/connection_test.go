@@ -70,6 +70,72 @@ func TestConnectionRotationConcurrentSelection(t *testing.T) {
 	}
 }
 
+func TestConnectionAllocationUsesGlobalLRUAcrossAllowedSets(t *testing.T) {
+	settings := config.Settings{
+		ConnectionOrder: []config.ConnectionID{"z", "a", "b"},
+		Connections: map[config.ConnectionID]config.ProviderConnection{
+			"z": {Protocol: config.ConnectionChatGPT},
+			"a": {Protocol: config.ConnectionChatGPT},
+			"b": {Protocol: config.ConnectionChatGPT},
+		},
+	}
+	allocator := new(ConnectionRotation)
+	for index, step := range []struct {
+		allowed config.ConnectionSelection
+		want    config.ConnectionID
+	}{
+		{config.ConnectionSelection{"a", "z"}, "z"},
+		{config.ConnectionSelection{"z"}, "z"},
+		{config.ConnectionSelection{"b", "a"}, "a"},
+		{config.ConnectionSelection{"z", "a"}, "z"},
+		{config.ConnectionSelection{"a", "b", "z"}, "b"},
+		{config.ConnectionSelection{"a", "z"}, "a"},
+	} {
+		settings.Connection = &step.allowed
+		got, err := allocator.Prepare(settings, true)
+		if err != nil || got != step.want {
+			t.Fatalf("allocation %d for %v = %q, %v; want %q", index, step.allowed, got, err, step.want)
+		}
+	}
+	selection := config.ConnectionSelection{"a", "b", "z"}
+	settings.Connection = &selection
+	restarted := new(ConnectionRotation)
+	got, err := restarted.Prepare(settings, true)
+	if err != nil || got != "z" {
+		t.Fatalf("first allocation after restart = %q, %v; want declaration-order z", got, err)
+	}
+}
+
+func TestBindingOneAllowedConnectionParticipatesInGlobalLRU(t *testing.T) {
+	app := loadLaunchConfig(t, t.TempDir(),
+		`connection = "a"`,
+		`[connections.a]`,
+		`protocol = "chatgpt-codex"`,
+		`[connections.b]`,
+		`protocol = "chatgpt-codex"`,
+	)
+	allocator := new(ConnectionRotation)
+	persistence := sessiontest.NewPersistence()
+	store := createTestSessionInContainer(t, t.TempDir(), "sessions", app.WorkspaceRoot, persistence.Options()...)
+	if _, err := allocator.BindSessionConnection(store, &app.Settings, app.Source.Sources); err != nil {
+		t.Fatal(err)
+	}
+	selection := config.ConnectionSelection{"a", "b"}
+	app.Settings.Connection = &selection
+	got, err := allocator.Prepare(app.Settings, true)
+	if err != nil || got != "b" {
+		t.Fatalf("allocation after binding a = %q, %v; want b", got, err)
+	}
+	if _, err := allocator.BindSessionConnection(store, &app.Settings, app.Source.Sources); err != nil {
+		t.Fatal(err)
+	}
+	app.Settings.Connection = &selection
+	got, err = allocator.Prepare(app.Settings, true)
+	if err != nil || got != "a" {
+		t.Fatalf("allocation after resuming a = %q, %v; want a", got, err)
+	}
+}
+
 func TestAllocatedMemberCapabilitiesPreserveAuthoredModelAndPrompt(t *testing.T) {
 	app := loadLaunchConfig(t, t.TempDir(),
 		`connection = ["a", "b"]`,

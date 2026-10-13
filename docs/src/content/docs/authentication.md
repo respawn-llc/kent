@@ -100,6 +100,8 @@ protocol = "chatgpt-codex"
 protocol = "chatgpt-codex"
 ```
 
-New sessions alternate between the defined members in their global declaration order, regardless of array order. The same member set shares one rotation across roles and workspaces.
+Each new session selects the connection with the oldest last assignment allowed by its role's `connection` setting, or by the inherited selector when the role omits it. All session types and roles share this assignment order, including roles with overlapping sets or a single allowed connection. The selected connection is sticky for that session.
+
+Server restart resets the assignment order. Connections without an assignment take priority, in global declaration order. Array order has no effect. Assignment counts balance session starts, not token usage or account quotas.
 
 `reviewer.connection` is an exclusion - it only accepts one connection. When omitted, the supervisor uses the main session's connection.

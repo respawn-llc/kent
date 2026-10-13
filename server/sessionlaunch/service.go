@@ -344,14 +344,6 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req PlanRequest) (PlanR
 		return PlanResult{}, err
 	}
 	preparation := launch.RunPromptPreparationContext{Mode: req.Mode, Rotation: planner.Rotation, AllocateConnection: true}
-	if origin, present := req.Intent.CreateOrigin(); present && origin.Kind() == serverapi.SessionCreateOriginPreviousSession {
-		sourceID, _ := origin.SessionID()
-		record, err := session.ResolvePersistedSessionRecord(ctx, planner.PersistedSessions, sourceID.String())
-		if err != nil {
-			return PlanResult{}, err
-		}
-		preparation.ConnectionID = record.Meta.ConnectionID
-	}
 	preparedOverrides, err := launch.PrepareRunPromptOverridesWithContext(planner.Config, req.Overrides, preparation)
 	if err != nil {
 		return PlanResult{}, err

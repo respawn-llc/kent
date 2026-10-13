@@ -6,7 +6,6 @@ import (
 	"maps"
 	"slices"
 	"sync"
-	"sync/atomic"
 
 	"core/server/llm"
 	"core/server/session"
@@ -14,7 +13,9 @@ import (
 )
 
 type ConnectionRotation struct {
-	counters sync.Map
+	mu           sync.Mutex
+	lastAssigned map[config.ConnectionID]uint64
+	sequence     uint64
 }
 
 func ConnectionMembership(settings config.Settings) ([]config.ConnectionID, string, error) {
@@ -32,7 +33,7 @@ func ConnectionMembership(settings config.Settings) ([]config.ConnectionID, stri
 }
 
 func (r *ConnectionRotation) Prepare(settings config.Settings, allocate bool) (config.ConnectionID, error) {
-	members, key, err := ConnectionMembership(settings)
+	members, err := settings.ConnectionMembers()
 	if err != nil {
 		return "", err
 	}
@@ -45,9 +46,33 @@ func (r *ConnectionRotation) Prepare(settings config.Settings, allocate bool) (c
 		}
 		return "", fmt.Errorf("server connection rotation is required for allocating a connection set")
 	}
-	counter, _ := r.counters.LoadOrStore(key, new(atomic.Uint64))
-	index := counter.(*atomic.Uint64).Add(1) - 1
-	return members[index%uint64(len(members))], nil
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.lastAssigned == nil {
+		r.lastAssigned = make(map[config.ConnectionID]uint64)
+	}
+	maps.DeleteFunc(r.lastAssigned, func(id config.ConnectionID, _ uint64) bool {
+		_, configured := settings.Connections[id]
+		return !configured
+	})
+	selected := r.leastRecentlyAssigned(members)
+	r.sequence++
+	r.lastAssigned[selected] = r.sequence
+	return selected, nil
+}
+
+func (r *ConnectionRotation) leastRecentlyAssigned(members []config.ConnectionID) config.ConnectionID {
+	selected := members[0]
+	for _, member := range members {
+		sequence, assigned := r.lastAssigned[member]
+		if !assigned {
+			return member
+		}
+		if sequence < r.lastAssigned[selected] {
+			selected = member
+		}
+	}
+	return selected
 }
 
 func (p RunPromptPreparationContext) prepareConnection(settings *config.Settings, source config.SourceReport) error {
@@ -104,7 +129,7 @@ func BindSessionConnection(store *session.Store, settings *config.Settings, sour
 
 func (r *ConnectionRotation) BindSessionConnection(store *session.Store, settings *config.Settings, sources map[string]config.Origin) (*config.ConnectionReplacement, error) {
 	saved := store.Meta().ConnectionID
-	selected, replacement, err := r.ResolveSessionConnection(*settings, saved, settings.Connection != nil && len(*settings.Connection) > 1)
+	selected, replacement, err := r.ResolveSessionConnection(*settings, saved, true)
 	if err != nil {
 		return nil, err
 	}

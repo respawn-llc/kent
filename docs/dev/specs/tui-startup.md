@@ -21,6 +21,7 @@ Kent must process the following gates in order. It must skip a gate only when it
 6. **Workspace-change prompt.** This prompt appears when the selected Session's available workspace root differs from the current root.
 7. **Lazy open and handoff.** Kent creates and initializes the Session only when the first user message or another Agent Turn trigger requires it.
 
+- Opening or abandoning an empty New Session, repeated `/new`, and picker navigation must not assign a Provider Connection or change the global connection assignment order. The first Agent-Turn-starting action must claim exactly one connection through ordinary Session creation.
 - `Esc` on a startup surface navigates back one gate where a previous gate exists. On the first visible surface it exits the TUI cleanly. The session picker is an explicit exception: its `Esc` key is a no-op.
 
 ## Auth gate

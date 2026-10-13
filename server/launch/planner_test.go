@@ -638,7 +638,7 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 		t.Fatalf("child reviewer prompt lock = %+v, want parent interactive reviewer prompt", childMeta.Locked)
 	}
 	if childMeta.ConnectionID == nil || *childMeta.ConnectionID != "test" || plan.ActiveSettings.Connection == nil || !reflect.DeepEqual(plan.ActiveSettings.Connection, config.SingleConnection("test")) {
-		t.Fatal("direct continuation did not retain the parent binding")
+		t.Fatal("direct continuation did not select the configured connection")
 	}
 	if plan.ActiveSettings.Model != "locked-parent-model" {
 		t.Fatalf("plan model = %q, want locked-parent-model", plan.ActiveSettings.Model)
@@ -849,7 +849,7 @@ func TestPlannerNewChildSessionResolvesPreviousSessionAcrossProjectContainers(t 
 		t.Fatalf("locked contract = %+v, want source session lock copied", childMeta.Locked)
 	}
 	if childMeta.ConnectionID == nil || *childMeta.ConnectionID != "test" {
-		t.Fatal("source Session connection binding was not copied")
+		t.Fatal("child Session did not select the configured connection")
 	}
 }
 
@@ -874,8 +874,8 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 				if meta.Locked == nil || meta.Locked.Model != "source-model" {
 					t.Fatalf("locked contract = %+v, want source model", meta.Locked)
 				}
-				if meta.ConnectionID == nil || *meta.ConnectionID != "test" {
-					t.Fatal("source connection binding was not retained")
+				if meta.ConnectionID == nil || *meta.ConnectionID != "a" {
+					t.Fatalf("fresh child binding = %v, want a", meta.ConnectionID)
 				}
 			},
 		},
@@ -958,10 +958,7 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 			}
 			test.assertMeta(t, childMeta, sourceID)
 			next, err := planner.Rotation.Prepare(planner.Config.Settings, true)
-			want := config.ConnectionID("a")
-			if test.name == "parent agent" {
-				want = "test"
-			}
+			want := config.ConnectionID("test")
 			if err != nil || next != want {
 				t.Fatalf("next allocation = %v, %v; want %v", next, err, want)
 			}
