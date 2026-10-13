@@ -967,8 +967,8 @@ it.each(["send", "queue"] as const)(
           submission: { kind: "ready" },
           commands: [
             {
-              token: "/review",
-              aliases: ["/r"],
+              token: "/prompt:review",
+              aliases: ["/review"],
               description: null,
               preview: null,
               execution: { kind: "prompt", catalogIdentity: "prompt:review" },
@@ -982,13 +982,15 @@ it.each(["send", "queue"] as const)(
     await waitFor(() => {
       expect(result.current.draft.kind).toBe("ready");
     });
+    expect(result.current.pickerOpen).toBe(true);
+    expect(result.current.selectedCommand?.token).toBe("/prompt:review");
     await act(async () => {
       result.current.submit(intent);
     });
     expect(queue).toHaveBeenCalledWith(target, {
       kind: "command",
       catalogIdentity: "prompt:review",
-      token: "/review",
+      token: "/prompt:review",
       separatorWhitespace: "",
       arguments: "",
     });

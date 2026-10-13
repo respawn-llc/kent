@@ -108,10 +108,19 @@ export function composerSuggestions(
 ): readonly ComposerCommand[] {
   const invocation = tokenizeComposerCommand(text);
   if (!invocation.token.startsWith("/") || invocation.separatorWhitespace.length > 0) return [];
-  if (commands.some((command) => command.aliases.includes(invocation.token))) return [];
-  return commands.filter(
-    (command) => command.execution.kind !== "unavailable" && command.token.startsWith(invocation.token),
-  );
+  const query = invocation.token.slice(1).toLowerCase();
+  // Match the TUI registry: earliest occurrence, shortest name, then lexical order.
+  return commands
+    .filter((command) => command.execution.kind !== "unavailable")
+    .map((command) => ({ command, index: command.token.slice(1).indexOf(query) }))
+    .filter(({ index }) => index >= 0)
+    .sort(
+      (a, b) =>
+        a.index - b.index ||
+        a.command.token.length - b.command.token.length ||
+        (a.command.token < b.command.token ? -1 : a.command.token > b.command.token ? 1 : 0),
+    )
+    .map(({ command }) => command);
 }
 
 export async function dispatchComposerCommand(
