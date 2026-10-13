@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"core/server/metadata"
 	servicecontract "core/shared/apicontract"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/serverapi"
@@ -41,37 +40,12 @@ func (s *inProcessRunPromptService) runPrompt(ctx context.Context, req serverapi
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if err == nil && response != nil && response.GetQuestion() != nil {
-			return
-		}
-		err = errors.Join(err, runtimeHandle.plan.CloseWithFailure(err != nil))
-	}()
-
 	startedAt := time.Now()
-	if history := s.launcher.boot.PromptHistory; history != nil && !runtimeHandle.plan.joined {
-		_, err := history.RecordPromptHistoryEntry(ctx, metadata.PromptHistoryEntry{
-			SessionID: runtimeHandle.plan.sessionID,
-			Text:      runtimeHandle.plan.PromptHistoryText(req.Prompt),
-		})
-		if err != nil {
-			return nil, err
-		}
+	response, err = runtimeHandle.Complete(req.Timeout)
+	if response != nil {
+		response.Duration = durationpb.New(time.Since(startedAt))
 	}
-
-	runCtx := ctx
-	if req.Timeout > 0 {
-		var cancel context.CancelFunc
-		runCtx, cancel = context.WithTimeout(ctx, req.Timeout)
-		defer cancel()
-	}
-
-	response, runErr := runtimeHandle.submitUserMessage(runCtx, req.Prompt)
-	response.Duration = durationpb.New(time.Since(startedAt))
-	if runErr != nil {
-		return response, runErr
-	}
-	return response, nil
+	return response, err
 }
 
 var _ servicecontract.RunPromptService = (*inProcessRunPromptService)(nil)

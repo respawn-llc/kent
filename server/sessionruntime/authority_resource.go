@@ -969,14 +969,36 @@ func (a *Authority) admitCurrentTurn(ctx context.Context, sessionID runtimeids.S
 // ContinueAgentExecution chooses active steering or idle launch at the same
 // boundary as RunCurrentTurn. changed asks the caller to refresh preparation
 // outside the joining locks; no input has been accepted in that case.
-func (a *Authority) ContinueAgentExecution(
-	ctx context.Context,
-	request AgentExecutionRequest,
-	preparedResource *runtimeids.SessionResourceRef,
-	join func(context.Context, *runtime.Engine, runtime.CommandAcceptance) (bool, error),
-) (handle ExecutionHandle, changed bool, err error) {
+type ContinuationCandidate interface {
+	continuationCandidate()
+}
+
+type ActiveContinuation struct {
+	Descriptor session.SessionDescriptor
+	Resource   runtimeids.SessionResourceRef
+	Join       func(context.Context, *runtime.Engine, runtime.CommandAcceptance) (bool, error)
+}
+
+func (ActiveContinuation) continuationCandidate() {}
+
+type IdleContinuation struct{ Request AgentExecutionRequest }
+
+func (IdleContinuation) continuationCandidate() {}
+
+func (a *Authority) ContinueAgentExecution(ctx context.Context, candidate ContinuationCandidate) (handle ExecutionHandle, changed bool, err error) {
 	if a == nil {
 		return nil, false, errors.New("session runtime authority is required")
+	}
+	var request AgentExecutionRequest
+	var preparedResource *runtimeids.SessionResourceRef
+	var join func(context.Context, *runtime.Engine, runtime.CommandAcceptance) (bool, error)
+	switch candidate := candidate.(type) {
+	case ActiveContinuation:
+		request.Descriptor, preparedResource, join = candidate.Descriptor, &candidate.Resource, candidate.Join
+	case IdleContinuation:
+		request = candidate.Request
+	default:
+		return nil, false, errors.New("continuation candidate is required")
 	}
 	if err := request.Descriptor.Validate(); err != nil {
 		return nil, false, err
@@ -1041,8 +1063,14 @@ func (a *Authority) ContinueAgentExecution(
 		resource.mu.Lock()
 		notification := resource.changed
 		resource.mu.Unlock()
+		var unavailable *runtime.LiveRunAdmissionUnavailable
+		var ready <-chan struct{}
+		if errors.As(err, &unavailable) {
+			ready = unavailable.Ready
+		}
 		admission.release()
 		select {
+		case <-ready:
 		case <-notification:
 		case <-current.done:
 		case <-ctx.Done():

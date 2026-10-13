@@ -17,6 +17,15 @@ import (
 
 var ErrNoActiveLiveRun = errors.New("no active live run")
 
+// LiveRunAdmissionUnavailable carries the live-group owner's next readiness
+// notification captured together with an unsuccessful admission.
+type LiveRunAdmissionUnavailable struct {
+	Ready <-chan struct{}
+}
+
+func (*LiveRunAdmissionUnavailable) Error() string { return ErrNoActiveLiveRun.Error() }
+func (*LiveRunAdmissionUnavailable) Unwrap() error { return ErrNoActiveLiveRun }
+
 var ErrLiveRunNoFinalAnswer = errors.New("live run completed without a final answer")
 
 type LiveRunResultKind string
@@ -68,6 +77,7 @@ type liveRunCoordinator struct {
 	stoppedQueueItems           map[runtimeids.QueueItemID]struct{}
 	stoppedPublishingQueueItems map[runtimeids.QueueItemID]struct{}
 	onCompleted                 func(LiveRunResult)
+	readinessChanged            chan struct{}
 }
 
 type liveRunGroup struct {
@@ -102,7 +112,7 @@ type liveRunAdmission struct {
 }
 
 func newLiveRunCoordinator(onCompleted ...func(LiveRunResult)) *liveRunCoordinator {
-	coordinator := &liveRunCoordinator{}
+	coordinator := &liveRunCoordinator{readinessChanged: make(chan struct{})}
 	if len(onCompleted) > 0 {
 		coordinator.onCompleted = onCompleted[0]
 	}
@@ -293,9 +303,9 @@ func (e *Engine) queueMessageForActiveRun(ctx context.Context, message llm.Messa
 	if err := e.requirePendingWorkCapacity(); err != nil {
 		return QueuedUserMessage{}, false, err
 	}
-	admission, admitted := e.liveRun.beginAdmission()
+	admission, ready, admitted := e.liveRun.beginAdmission()
 	if !admitted {
-		return QueuedUserMessage{}, false, ErrNoActiveLiveRun
+		return QueuedUserMessage{}, false, &LiveRunAdmissionUnavailable{Ready: ready}
 	}
 	if onActive != nil {
 		onActive()
@@ -446,6 +456,10 @@ func (c *liveRunCoordinator) hasActive() bool {
 func (c *liveRunCoordinator) beginStep(snapshot *RunSnapshot) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	defer func() {
+		close(c.readinessChanged)
+		c.readinessChanged = make(chan struct{})
+	}()
 	if c.current != nil {
 		c.current.runID = mustRunID(snapshot.RunID)
 		c.current.stepID = mustStepID(snapshot.StepID)
@@ -602,17 +616,17 @@ func (c *liveRunCoordinator) takeStepResult(stepID string) (LiveRunResultKind, l
 	return c.current.stepResultKind, c.current.stepAssistant, true
 }
 
-func (c *liveRunCoordinator) beginAdmission() (liveRunAdmission, bool) {
+func (c *liveRunCoordinator) beginAdmission() (liveRunAdmission, <-chan struct{}, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.current == nil {
-		return liveRunAdmission{}, false
+		return liveRunAdmission{}, c.readinessChanged, false
 	}
 	if c.current.status == RunStatusFailed || c.current.status == RunStatusInterrupted {
-		return liveRunAdmission{}, false
+		return liveRunAdmission{}, c.readinessChanged, false
 	}
 	c.current.reservations++
-	return liveRunAdmission{group: c.current}, true
+	return liveRunAdmission{group: c.current}, nil, true
 }
 
 func (c *liveRunCoordinator) finishAdmission(admission liveRunAdmission, queueItemID runtimeids.QueueItemID) bool {
