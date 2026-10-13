@@ -423,6 +423,8 @@ export const englishResources = {
       contextSelectionRequired:
         "Move this Task and choose its context to continue. Move replaces all parallel positions and Join progress; existing conversations and files are preserved.",
       accessApprovalIntro: "Agent wants to access a batch of files, but {{count}} are outside workspace dir:",
+      accessApprovalSingle: "Agent wants to access a file {{path}}.",
+      accessApprovalSingleQuestion: "Allow?",
       accessApprovalQuestion: "Allow this access?",
       sessionStarted: "Session started",
       title: "Task",
@@ -527,7 +529,7 @@ export const englishResources = {
       recommendedByAgent: "Recommended by the agent",
       neitherOption: "Neither",
       approvalDecisionAllowOnce: "Allow once",
-      approvalDecisionAllowSession: "Allow for this session",
+      approvalDecisionAllowSession: "Allow all access for session",
       approvalDecisionDeny: "Deny",
       approval: "Approval",
       approve: "Approve",

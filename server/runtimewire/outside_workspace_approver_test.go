@@ -43,7 +43,14 @@ func TestOutsideWorkspaceApprovalDecisionAndCache(t *testing.T) {
 					}
 					approver := NewOutsideWorkspaceApprover(broker)
 					for call := 1; call <= 2; call++ {
-						result, err := approver.Approve(outsideWorkspaceApprovalContext(), outsideWorkspaceApprovalRequest())
+						request := outsideWorkspaceApprovalRequest()
+						if call == 2 {
+							request.Targets = []askquestion.FileAccessTarget{{
+								RequestedPath: "/different/outside/file",
+								ResolvedPath:  "/different/outside/file",
+							}}
+						}
+						result, err := approver.Approve(outsideWorkspaceApprovalContext(), request)
 						want := askquestion.FileAccessApproval{Kind: decision.kind, Commentary: &commentary}
 						wantCalls := call
 						if call == 2 && decision.kind == askquestion.FileAccessApprovalAllowSession {
