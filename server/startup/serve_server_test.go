@@ -331,6 +331,43 @@ func TestServeWaitsForContextCancellation(t *testing.T) {
 	}
 }
 
+func TestServeShutdownDisconnectsEstablishedClients(t *testing.T) {
+	workspace := newServeWorkspace(t)
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	served := make(chan error, 1)
+	go func() {
+		releaseServeTestPortForConfig(server.Config())
+		served <- server.Serve(ctx)
+	}()
+	response := waitForServeResponse(t, http.DefaultClient, config.ServerHTTPBaseURL(server.Config())+protocol.HealthPath)
+	_ = response.Body.Close()
+	remote, err := client.DialRemoteURL(t.Context(), config.ServerRPCURL(server.Config()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = remote.Close() }()
+	if _, err := remote.GetReadiness(t.Context(), &emptypb.Empty{}); err != nil {
+		t.Fatalf("read readiness before shutdown: %v", err)
+	}
+
+	cancel()
+	if err := <-served; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Serve error = %v, want context cancellation", err)
+	}
+	requestCtx, requestCancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer requestCancel()
+	_, err = remote.GetReadiness(requestCtx, &emptypb.Empty{})
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		t.Fatalf("request waited for its own cancellation instead of observing shutdown: %v", err)
+	}
+	var networkError net.Error
+	if !errors.Is(err, io.EOF) && !errors.As(err, &networkError) {
+		t.Fatalf("request after shutdown = %v, want a disconnected transport", err)
+	}
+}
+
 func TestStartServeServerLeavesAdmittedCurrentNodeUntouchedOnRestart(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	request := Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}

@@ -177,12 +177,14 @@ func (s *ServeServer) close() {
 // runningRPC tracks the HTTP servers exposing a Core's control endpoints over
 // the bound loopback listeners so they can be shut down together.
 type runningRPC struct {
+	gateway     *transport.Gateway
 	httpServers []*http.Server
 	errCh       chan error
 	count       int
 }
 
 func (r *runningRPC) shutdown() {
+	r.gateway.Close()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for _, httpServer := range r.httpServers {
@@ -250,7 +252,7 @@ func startGatewayRPC(deps transport.GatewayDependencies, listenCfg config.App) (
 			errCh <- serveErr
 		}(httpServer, listener)
 	}
-	return &runningRPC{httpServers: httpServers, errCh: errCh, count: len(listeners)}, nil
+	return &runningRPC{gateway: gateway, httpServers: httpServers, errCh: errCh, count: len(listeners)}, nil
 }
 
 // newServerIdentity builds the protocol identity stamped on every handshake. The
