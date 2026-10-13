@@ -407,7 +407,7 @@ function ProjectTasksContent({
             </Button>
           }
           body={t("home.prototype.noLinkedWorkflowsBody")}
-          fullPage={false}
+          surface="plain"
           title={t("home.prototype.noLinkedWorkflowsTitle")}
         />
       ) : countsBoundary?.state === "error" && taskCount === null ? (
@@ -420,7 +420,7 @@ function ProjectTasksContent({
             </Button>
           }
           body={t("home.prototype.noTasksBody")}
-          fullPage={false}
+          surface="plain"
           title={t("home.prototype.noTasksTitle")}
         />
       ) : (
