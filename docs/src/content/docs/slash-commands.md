@@ -31,6 +31,8 @@ description: Built-in slash commands and file-backed custom prompts.
 | `/init <instructions>`                                                                  | optional free-form text      | Run repository initialization. Uses the empty session or starts a fresh child session.                                                                             |
 | `/prompt:<name>`                                                                        | optional trailing arguments  | Run a server-owned custom prompt command.                                                                                                                          |
 
+After `/resume`, press `Shift+Tab` to read saved history in Detail mode.
+
 ## File-backed prompt commands
 
 Custom prompt commands come from Markdown files on the connected server.
@@ -44,4 +46,4 @@ The effective roots, in descending precedence, are:
 - `<persistence-root>/.generated/prompts`
 - `<persistence-root>/.generated/commands`
 
-If the exact `$ARGUMENTS` token appears in the body, Kent replaces every occurrence with trimmed trailing arguments. Otherwise, Kent appends non-empty trailing arguments after one blank line.
+Each exact `$ARGUMENTS` token expands to the trimmed trailing arguments. When the prompt has no `$ARGUMENTS` token, Kent appends non-empty trailing arguments after one blank line.

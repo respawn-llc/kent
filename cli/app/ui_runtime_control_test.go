@@ -63,23 +63,6 @@ type runtimeControlFakeClient struct {
 	collaborative         bool
 }
 
-func TestUserTurnSubmissionFromResponsePreservesMessagePresence(t *testing.T) {
-	t.Parallel()
-	blank := ""
-	withBlank := userTurnSubmissionFromResponse(&runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_SilentFinal{SilentFinal: &runtimepb.SubmitUserTurnSilentFinal{Message: blank}}}, "turn")
-	if withBlank.Message == nil || *withBlank.Message != "" {
-		t.Fatalf("blank submission message = %v, want present empty message", withBlank.Message)
-	}
-	if withBlank.ResultKind != clientui.UserTurnResultKindSilentFinal {
-		t.Fatalf("blank submission result kind = %v, want silent final", withBlank.ResultKind)
-	}
-
-	withoutMessage := userTurnSubmissionFromResponse(&runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_NoFinal{NoFinal: &runtimepb.SubmitUserTurnNoFinal{}}}, "turn")
-	if withoutMessage.Message != nil {
-		t.Fatalf("omitted submission message = %v, want absent", withoutMessage.Message)
-	}
-}
-
 type timeoutNetError struct{}
 
 func (timeoutNetError) Error() string   { return "timeout" }

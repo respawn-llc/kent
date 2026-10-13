@@ -2,6 +2,7 @@ package worktreeui
 
 import (
 	"context"
+	"errors"
 	"io"
 	"testing"
 	"time"
@@ -13,7 +14,6 @@ import (
 	"core/shared/worktreecontract"
 
 	"github.com/google/uuid"
-	"google.golang.org/protobuf/proto"
 )
 
 type testWorktreeClient struct {
@@ -138,26 +138,18 @@ func TestListUsesSession(t *testing.T) {
 	}
 }
 
-func TestMutationRetriesAfterRecoverableError(t *testing.T) {
+func TestMutationDoesNotReplayUnavailableRuntime(t *testing.T) {
 	client := &testWorktreeClient{
 		errs: []error{serverapi.ErrRuntimeUnavailable, nil},
 	}
-	recoverCalls := 0
 	service := newTestService(client)
-	service.Runtime.RecoverRuntimeConnection = func(context.Context, error, bool) error {
-		recoverCalls++
-		return nil
-	}
 
 	_, err := service.Enter("feature")
-	if err != nil {
-		t.Fatalf("Enter: %v", err)
+	if !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+		t.Fatalf("Enter error = %v, want unavailable", err)
 	}
-	if recoverCalls != 1 {
-		t.Fatalf("recover calls = %d, want 1", recoverCalls)
-	}
-	if len(client.enterRequests) != 2 || !proto.Equal(client.enterRequests[0], client.enterRequests[1]) {
-		t.Fatalf("enter requests = %+v, want identical retry", client.enterRequests)
+	if len(client.enterRequests) != 1 {
+		t.Fatalf("enter requests = %+v, want one attempt", client.enterRequests)
 	}
 }
 
@@ -282,7 +274,6 @@ func newTestService(client *testWorktreeClient) Service {
 			Context: func() (context.Context, context.CancelFunc) {
 				return context.WithTimeout(context.Background(), time.Second)
 			},
-			RecoverRuntimeConnection: func(context.Context, error, bool) error { return nil },
 		},
 		NewOperationID: func() worktreecontract.OperationID { return testWorktreeOperationID(nil) },
 	}

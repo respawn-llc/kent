@@ -15,14 +15,15 @@ func (m *uiModel) reduceRuntimeMessage(msg tea.Msg) uiFeatureUpdateResult {
 		m.observeRuntimeRequestResult(msg.err)
 		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, waitRuntimeConnectionStateChange(m.runtimeConnectionEvents))
-	case runtimeReconnectWarningMsg:
-		cmd := m.sendTransientStatusWithNoticeID(msg.text, uiStatusNoticeWarning, transientStatusDuration, uiStatusNoticeReplace, "")
-		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, m.batchWithNativeOngoingRepaint(sequenceCmds(cmd, waitRuntimeReconnectWarning(m.runtimeReconnectWarning))))
 	case runtimeMainViewRefreshedMsg:
 		cmd := m.handleRuntimeMainViewRefreshed(msg)
 		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
+	case runtimeMainViewRetryMsg:
+		if msg.token != m.runtimeMainViewToken || !m.runtimeDisconnectStatusVisible() {
+			return handledUIFeatureUpdate(m, nil)
+		}
+		return handledUIFeatureUpdate(m, m.startRuntimeMainViewRefresh(nil))
 	case detailTranscriptLoadMsg:
 		cmd := m.handleDetailTranscriptLoad(msg)
 		m.layout().syncViewport()

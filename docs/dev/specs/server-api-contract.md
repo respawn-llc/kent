@@ -67,7 +67,8 @@
 - Missing repeated and map fields represent empty collections.
 - Optional wrapper messages are reserved for semantics where absence differs from present-empty.
 - Operations with no request content or no success data must use `google.protobuf.Empty`.
-- Successful Runtime activation returns the Session ID and Runtime generation used by Runtime Release. Clients observe Runtime state through server-owned reads and subscriptions.
+- Successful Runtime activation must return an empty success payload. Clients observe Runtime state through server-owned reads and subscriptions.
+- Chat actions must share one typed representation for invocation preparation choices. Foreground user shell must be a separate Chat request using the same Session target and server-owned preparation rather than a second public preparation approach.
 - API instants must use `google.protobuf.Timestamp`.
 - API elapsed amounts must use `google.protobuf.Duration`.
 - Raw numeric time representations are permitted only when an external system owns that representation.

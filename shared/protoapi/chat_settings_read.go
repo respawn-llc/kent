@@ -6,36 +6,48 @@ import (
 	pb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
+
+	"google.golang.org/protobuf/proto"
 )
 
-func ChatSettingsErrorFromProto(value *pb.ReadError) error {
+type ChatPreparationFailure interface {
+	proto.Message
+	GetCode() string
+	GetWorkspaceNotRegistered() *pb.WorkspaceNotRegisteredDetails
+	GetSessionNotFound() *pb.SessionNotFoundDetails
+	GetChatSettingsAgentPreparation() *pb.AgentPreparationDetails
+}
+
+func ChatSettingsErrorFromProto[T ChatPreparationFailure](value T) error {
 	if err := Validate(value); err != nil {
 		return err
 	}
-	switch detail := value.Detail.(type) {
-	case *pb.ReadError_WorkspaceNotRegistered:
+	switch {
+	case value.GetWorkspaceNotRegistered() != nil:
 		return serverapi.ErrWorkspaceNotRegistered
-	case *pb.ReadError_SessionNotFound:
+	case value.GetSessionNotFound() != nil:
+		detail := value.GetSessionNotFound()
 		cause := &sessioncontract.SessionNotFoundError{}
-		if detail.SessionNotFound.SessionTarget == nil {
+		if detail.SessionTarget == nil {
 			return cause
 		}
-		captured := SessionTargetContextErrorFromProto(detail.SessionNotFound.SessionTarget, cause)
+		captured := SessionTargetContextErrorFromProto(detail.SessionTarget, cause)
 		var target *serverapi.SessionTargetError
 		if errors.As(captured, &target) {
 			cause.SessionID = OptionalSessionIDToProto(target.SessionID())
 		}
 		return captured
-	case *pb.ReadError_ChatSettingsAgentPreparation:
+	case value.GetChatSettingsAgentPreparation() != nil:
+		detail := value.GetChatSettingsAgentPreparation()
 		return &serverapi.ChatSettingsAgentPreparationError{
-			Agent: detail.ChatSettingsAgentPreparation.Agent,
+			Agent: detail.Agent,
 			Category: map[pb.AgentPreparationCategory]serverapi.ChatSettingsAgentPreparationCategory{
 				pb.AgentPreparationCategory_AGENT_PREPARATION_CATEGORY_INVALID_CONFIGURATION: serverapi.ChatSettingsAgentInvalidConfiguration,
 				pb.AgentPreparationCategory_AGENT_PREPARATION_CATEGORY_PROVIDER_UNAVAILABLE:  serverapi.ChatSettingsAgentProviderUnavailable,
 				pb.AgentPreparationCategory_AGENT_PREPARATION_CATEGORY_INTERNAL_PREPARATION:  serverapi.ChatSettingsAgentInternalPreparation,
-			}[detail.ChatSettingsAgentPreparation.Category],
+			}[detail.Category],
 		}
 	default:
-		return errors.New(value.Code)
+		return errors.New(value.GetCode())
 	}
 }

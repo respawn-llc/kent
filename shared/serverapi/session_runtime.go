@@ -2,7 +2,6 @@ package serverapi
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"core/shared/config"
@@ -10,8 +9,11 @@ import (
 )
 
 type SessionRuntimeActivateRequest struct {
-	SessionID                runtimeids.SessionSelector
-	OwnerID                  string
+	SessionID runtimeids.SessionSelector
+	SessionRuntimePreparationOptions
+}
+
+type SessionRuntimePreparationOptions struct {
 	ActiveSettings           config.Settings
 	EnabledToolIDs           []string
 	QuestionsEnabled         *bool
@@ -35,36 +37,21 @@ type SessionRuntimeChatSettings struct {
 	AutoCompaction bool
 }
 
-type SessionRuntimeAttachment struct {
-	SessionID  string
-	Generation uint64
-}
-
-type SessionRuntimeReleaseRequest struct {
-	Attachment  SessionRuntimeAttachment
-	DropOwner   bool
-	ClosePolicy SessionRuntimeReleaseClosePolicy
-	OwnerID     string
-}
-
-type SessionRuntimeReleaseClosePolicy string
-
-const (
-	SessionRuntimeReleaseClosePolicyCloseIfIdle SessionRuntimeReleaseClosePolicy = "close_if_idle"
-	SessionRuntimeReleaseClosePolicyDetachOnly  SessionRuntimeReleaseClosePolicy = "detach_only"
-)
-
 func (r SessionRuntimeActivateRequest) Validate() error {
-	if r.ExplicitToolSelection != nil {
-		if err := r.ExplicitToolSelection.Validate(); err != nil {
-			return err
-		}
-	}
 	if r.SessionID == nil {
 		return errors.New("Session selector is required")
 	}
 	if _, err := runtimeids.ParseSessionSelector(r.SessionID.String()); err != nil {
 		return err
+	}
+	return r.SessionRuntimePreparationOptions.Validate()
+}
+
+func (r SessionRuntimePreparationOptions) Validate() error {
+	if r.ExplicitToolSelection != nil {
+		if err := r.ExplicitToolSelection.Validate(); err != nil {
+			return err
+		}
 	}
 	if r.QuestionsEnabled == nil {
 		return errors.New("questions_enabled is required")
@@ -84,46 +71,4 @@ func (r SessionRuntimeActivateRequest) Validate() error {
 		}
 	}
 	return nil
-}
-
-func (a SessionRuntimeAttachment) Validate() error {
-	if err := validateScopedSessionID(a.SessionID); err != nil {
-		return err
-	}
-	return runtimeids.ResourceGeneration(a.Generation).Validate()
-}
-
-func (r SessionRuntimeAttachment) ValidateForSession(sessionID string) error {
-	if err := r.Validate(); err != nil {
-		return fmt.Errorf("validate session runtime activation response: %w", err)
-	}
-	expected := strings.TrimSpace(sessionID)
-	if r.SessionID != expected {
-		return fmt.Errorf(
-			"session runtime activation returned attachment for session %q, want %q",
-			r.SessionID,
-			expected,
-		)
-	}
-	return nil
-}
-
-func (r SessionRuntimeReleaseRequest) Validate() error {
-	if err := r.Attachment.Validate(); err != nil {
-		return err
-	}
-	switch r.ClosePolicy {
-	case "", SessionRuntimeReleaseClosePolicyCloseIfIdle:
-	case SessionRuntimeReleaseClosePolicyDetachOnly:
-		if !r.DropOwner {
-			return errors.New("detach_only release requires drop_owner")
-		}
-	default:
-		return errors.New("invalid session runtime release close_policy")
-	}
-	return nil
-}
-
-func (r SessionRuntimeReleaseRequest) EffectiveClosePolicy() SessionRuntimeReleaseClosePolicy {
-	return r.ClosePolicy
 }

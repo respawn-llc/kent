@@ -94,10 +94,9 @@ func TestConnectionDispatchPreservesEstablishedGenerationContract(t *testing.T) 
 			}); err != nil {
 				t.Fatal(err)
 			}
-			_, err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-				SessionID: requestfixture.SessionID(t, store.Meta().SessionID), OwnerID: "contract-test",
-				ActiveSettings: cfg.Settings, Source: cfg.Source,
-				QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(false),
+			err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
+				SessionID: requestfixture.SessionID(t, store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: cfg.Settings, Source: cfg.Source,
+					QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(false)},
 			})
 			if err != nil {
 				t.Fatal(err)

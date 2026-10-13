@@ -6,6 +6,10 @@
 - A durable Session may have no Active Session Runtime or one Active Session Runtime.
 - Interactive startup, a Headless Run, Workflow Execution, or an interactive Chat mutation may open an Active Session Runtime when the server has the complete activation context.
 - Interactive Chat mutations prepare and open their required Active Session Runtime inside the server before mutation acceptance.
+- Desktop and TUI must use one action-attached Runtime preparation approach. When an action supplies invocation preparation choices, the server must validate and apply them. When those choices are absent, the server must use the saved Session choices.
+- TUI invocation preparation must preserve the selected Agent and explicit Thinking and tool choices supported by Session launch.
+- An explicit Thinking choice must apply to an already-loaded Engine during preparation. Applying that choice may wait for the current Agent Step but must not wait for the whole Agent Turn.
+- A foreground user-shell action must use the same server-owned preparation while remaining a separate request. It must work as the first action on a dormant existing Session without a preceding Send. It must execute without a model invocation and report its result at the command boundary.
 - Clients never activate, own, release, or otherwise manage an Active Session Runtime as a prerequisite for a Chat mutation.
 - The Active Session Runtime is authoritative for its live model, transcript, Pending Work, and Session-setting state.
 - Every model-executing Agent Turn, including Goal-started work, must belong to a live Exact Execution Scope before its first Agent Step and until its model work finishes.
@@ -72,9 +76,7 @@
 - Interactive submission is accepted against one current Active Session Runtime.
 - If an interactive Chat mutation, including submission, Queue, or manual compaction, targets a Session without an Active Session Runtime, the server prepares and opens one before admission.
 - The server owns Runtime preparation; clients never activate or release it.
-- If Chat admission definitely does not accept work, Kent releases its preparation attachment through the existing close-if-idle policy.
-- After Chat admission accepts work, Kent releases its preparation attachment through the existing detach-and-retain policy so the accepted work remains Session-owned.
-- The Chat Operation outcome selects the attachment-release policy. Caller cancellation, disconnection, timeout, or response-delivery failure never selects or changes that policy.
+- Prepared Runtime lifetime follows the server-owned idle policy in [Core Runtime And Tools](core-runtime-tools.md), whether or not Chat admission accepts the requested work.
 - If Runtime replacement wins before acceptance, Kent resolves the replacement and retries admission without requiring another user submission.
 - Authentication, metadata, execution-target, filesystem, tool, validation, Runtime-opening, or Runtime-publication failure before acceptance is terminal for that submission and creates no Pending Work or Queue Item.
 - Core shutdown may cancel a Chat Operation before acceptance. That cancellation creates no Pending Work or Queue Item. A Session already committed during New Chat target resolution remains discoverable.
@@ -89,6 +91,7 @@
 - Each item carries a concrete typed operation rather than a generic command.
 - A human-message item presents its exact submitted text.
 - Manual compaction has canonical presentation `/compact` followed by its normalized guidance when guidance is present.
+- Each Chat manual-compaction request must carry a caller-generated UUID v4. Acceptance and progress events must use that identity so clients can match progress received before the request returns.
 - Worktree enter has canonical presentation `/wt switch <selector>`.
 - Worktree leave has canonical presentation `/wt leave`.
 - Canonical presentation is independent of command alias, capitalization, spacing, or whether a control or typed command initiated the action.

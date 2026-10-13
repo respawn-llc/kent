@@ -34,15 +34,6 @@ func NewProjectedUIModel(runtimeClient clientui.RuntimeClient, opts ...UIOption)
 			enqueueRuntimeConnectionStateChange(runtimeConnectionEvents, err)
 		})
 	}
-	if configurable, ok := m.engine.(interface {
-		SetRuntimeReconnectWarningObserver(func(string, clientui.EntryVisibility))
-	}); ok {
-		runtimeReconnectWarning := make(chan runtimeReconnectWarningMsg, 1)
-		m.runtimeReconnectWarning = runtimeReconnectWarning
-		configurable.SetRuntimeReconnectWarningObserver(func(text string, visibility clientui.EntryVisibility) {
-			enqueueRuntimeReconnectWarning(runtimeReconnectWarning, text, visibility)
-		})
-	}
 	if gitStartupCmd := m.statusLineGitRefreshCmd(); gitStartupCmd != nil {
 		m.statusGitBackgroundInFlight = true
 		m.startupCmds = append(m.startupCmds, gitStartupCmd)
@@ -64,15 +55,13 @@ func (m *uiModel) Init() tea.Cmd {
 		tea.SetWindowTitle(sessionTitle(m.sessionName)),
 		tea.WindowSize(),
 		m.loadPromptHistoryCmd(),
+		m.startRuntimeMainViewRefresh(nil),
 	}
 	if cmd := m.reconcileOngoingOwnership(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	if m.runtimeConnectionEvents != nil {
 		cmds = append(cmds, waitRuntimeConnectionStateChange(m.runtimeConnectionEvents))
-	}
-	if m.runtimeReconnectWarning != nil {
-		cmds = append(cmds, waitRuntimeReconnectWarning(m.runtimeReconnectWarning))
 	}
 	cmds = append([]tea.Cmd{tea.ClearScreen}, cmds...)
 	if startupSubmitCmd := m.startupSubmitCmd(); startupSubmitCmd != nil {

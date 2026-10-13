@@ -192,34 +192,14 @@ func TestPersistSessionDraftIncludesOnlyComposerInput(t *testing.T) {
 	}
 }
 
-func TestRuntimeReleaseUsesFinalModelPolicyAndPreservesErrors(t *testing.T) {
-	t.Run("normal release after UI loop", func(t *testing.T) {
-		releaseErr := errors.New("release failed")
-		uiLoopReturned := false
-		plan := &runtimeLaunchPlan{close: func() error {
-			if !uiLoopReturned {
-				t.Fatal("runtime release ran before UI loop returned")
-			}
-			return releaseErr
-		}}
-		uiLoopReturned = true
-		if err := closeRuntimePlanAfterUIExit(plan, &uiModel{}); !errors.Is(err, releaseErr) {
-			t.Fatalf("close error = %v, want release failure", err)
-		}
-	})
-
-	t.Run("forced exit detaches and joins draft error", func(t *testing.T) {
-		persistErr := errors.New("persist draft failed")
-		detachErr := errors.New("detach failed")
-		plan := &runtimeLaunchPlan{
-			close:       func() error { t.Fatal("normal close must not run"); return nil },
-			detachClose: func() error { return detachErr },
-		}
-		err := releaseRuntimePlanAfterUIResult(plan, projectionFailureFinalModel(t), persistErr)
-		if !errors.Is(err, persistErr) || !errors.Is(err, detachErr) {
-			t.Fatalf("release error = %v, want persistence and detach failures", err)
-		}
-	})
+func TestRuntimeCloseStopsObservationOnce(t *testing.T) {
+	stops := 0
+	plan := &runtimeLaunchPlan{stopEventStreams: func() { stops++ }}
+	plan.Close()
+	plan.Close()
+	if stops != 1 {
+		t.Fatalf("observation stops = %d, want one", stops)
+	}
 }
 
 func TestReopenRetargetedSessionPersistsDraftBeforeReleasingSourceRuntime(t *testing.T) {
@@ -246,12 +226,11 @@ func TestReopenRetargetedSessionPersistsDraftBeforeReleasingSourceRuntime(t *tes
 			return nil
 		},
 	}
-	runtimePlan := &runtimeLaunchPlan{close: func() error {
+	runtimePlan := &runtimeLaunchPlan{stopEventStreams: func() {
 		if !sourceRemoteOpen {
-			return errors.New("source remote is closed")
+			t.Error("source remote closed before observation stopped")
 		}
 		released = true
-		return nil
 	}}
 	sessionID := "11111111-1111-4111-8111-111111111111"
 	model := newUIModelDefaults(nil)
@@ -293,9 +272,8 @@ func TestReopenRetargetedSessionPreservesDraftWhenDestinationReattachmentFails(t
 		},
 	}
 	released := false
-	runtimePlan := &runtimeLaunchPlan{close: func() error {
+	runtimePlan := &runtimeLaunchPlan{stopEventStreams: func() {
 		released = true
-		return nil
 	}}
 	model := newUIModelDefaults(nil)
 	testSetMainInput(model, "draft survives failed reattachment")

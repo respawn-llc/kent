@@ -321,7 +321,7 @@
 - `/name`, `/thinking`, `/fast`, `/supervisor`, `/questions`, and `/autocompaction` follow the [Runtime Steering And Model Loop](runtime-steering-loop.md) Session-setting contract.
 - `/compact` and Active-Runtime `/worktree switch`, `/wt switch`, `/worktree leave`, and `/wt leave` enter typed operational Pending Work while an Agent Step or another boundary-owning Runtime operation is active.
 - Goal follows its Goal owner. Client-local navigation, overlays, reads, detach actions, and direct Worktree management reach their direct owners while an Agent Turn is active.
-- `/resume` always enters the session picker, including when no other session exists. The originating attachment is released before the picker opens. A picker `Ctrl+C` leaves that run ownerless; it issues no second release and no interrupt.
+- `/resume` always enters the session picker, including when no other session exists. The originating Session observation must stop before the picker opens. A picker `Ctrl+C` must not interrupt server-owned work.
 - `/copy` is always visible and reads the newest committed assistant final answer from the active transcript segment. It never uses client status or rendered terminal output as a fallback.
 - The durable final-answer read walks backward only within the active transcript segment and stops at the newest committed assistant final answer or a valid compaction boundary, whichever appears first. A valid boundary returns true absence and its carried pre-compaction answer is not reused.
 - `/copy` and `/back` allow only one final-answer lookup at a time. The lookup has a one-second limit. While it runs, the main input accepts no second lookup or navigation action.

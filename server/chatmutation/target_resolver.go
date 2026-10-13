@@ -37,9 +37,10 @@ type TargetResolutionRequest struct {
 }
 
 type ResolvedTarget struct {
-	SessionID runtimeids.SessionID
-	ShortID   *runtimeids.SessionShortID
-	Created   bool
+	SessionID   runtimeids.SessionID
+	ShortID     *runtimeids.SessionShortID
+	Created     bool
+	Preparation *serverapi.SessionRuntimePreparationOptions
 }
 
 type TargetResolver struct {
@@ -101,7 +102,10 @@ func (r *TargetResolver) SelectPlacement(ctx context.Context, target ResolvedTar
 	if err != nil {
 		return target, err
 	}
-	return ResolvedTarget{SessionID: planned.Plan.Descriptor.SessionID(), ShortID: planned.Identity.ShortID, Created: true}, nil
+	return ResolvedTarget{
+		SessionID: planned.Plan.Descriptor.SessionID(), ShortID: planned.Identity.ShortID, Created: true,
+		Preparation: target.Preparation,
+	}, nil
 }
 
 func (r *TargetResolver) Resolve(
@@ -135,7 +139,15 @@ func (r *TargetResolver) Resolve(
 		if err != nil {
 			return ResolvedTarget{}, err
 		}
-		return ResolvedTarget{SessionID: sessionID, ShortID: record.ShortID}, nil
+		target := ResolvedTarget{SessionID: sessionID, ShortID: record.ShortID}
+		if sessionTarget.Preparation != nil {
+			options, err := protoapi.SessionRuntimePreparationFromProto(sessionTarget.Preparation)
+			if err != nil {
+				return target, err
+			}
+			target.Preparation = &options
+		}
+		return target, nil
 	}
 	newChat := request.Target.GetNewChat()
 	if newChat == nil {

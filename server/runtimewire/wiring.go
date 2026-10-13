@@ -60,7 +60,8 @@ type RuntimeWiringOptions struct {
 	ProviderCapabilitiesOverride        *llm.ProviderCapabilities
 	SkipContinuationAgentRoleValidation bool
 	StepLifecycle                       runtime.StepLifecycleSink
-	LifecycleTaskFinished               func() error
+	LifecycleTaskFinished               func()
+	RuntimeWriteAccepted                func()
 	LifecycleRuntimeAbort               func() error
 	SubmitAgentSteer                    func(context.Context, runtime.AgentSteer) error
 	DurabilityObserver                  runtime.ResultGroupDurabilityObserver
@@ -276,6 +277,7 @@ func NewRuntimeWiringWithBackground(
 		OnEvent:               opts.OnEvent,
 		StepLifecycle:         opts.StepLifecycle,
 		LifecycleTaskFinished: opts.LifecycleTaskFinished,
+		RuntimeWriteAccepted:  opts.RuntimeWriteAccepted,
 		LifecycleRuntimeAbort: opts.LifecycleRuntimeAbort,
 		SubmitAgentSteer:      opts.SubmitAgentSteer,
 		DurabilityObserver:    opts.DurabilityObserver,

@@ -94,7 +94,7 @@ func TestTransitionSelectedQuestionsSurviveRetainedToolsAndCompaction(t *testing
 	if before.Meta.RetainedToolSelection == nil || !reflect.DeepEqual(before.Meta.RetainedToolSelection.Tools, []toolspec.ID{toolspec.ToolExecCommand}) {
 		t.Fatal("execution-required Questions changed the original saved list")
 	}
-	attachment := f.openRetainedRuntime(t, id)
+	f.openRetainedRuntime(t, id)
 	if err := f.authority.WithCurrentRuntime(t.Context(), id, func(ctx context.Context, engine *agentruntime.Engine) error {
 		if err := engine.CompactContext(ctx, ""); err != nil {
 			return err
@@ -108,9 +108,6 @@ func TestTransitionSelectedQuestionsSurviveRetainedToolsAndCompaction(t *testing
 		}
 		return nil
 	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := attachment.Release(t.Context(), sessionruntime.RuntimeReleaseClose); err != nil {
 		t.Fatal(err)
 	}
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative

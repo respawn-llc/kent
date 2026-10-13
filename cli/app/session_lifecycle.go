@@ -197,13 +197,15 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 		}
 		finalModel, runErr := runUILoop(request)
 		if runErr != nil {
-			return releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, runErr)
+			runtimePlan.Close()
+			return runErr
 		}
 		transition := extractUITransition(finalModel)
 		if transition.SessionRetargeted {
 			reattacher, ok := server.(sessionReattachServer)
 			if !ok {
-				return releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, errors.New("Session rebind requires a Remote server"))
+				runtimePlan.Close()
+				return errors.New("Session rebind requires a Remote server")
 			}
 			next, err = reopenRetargetedSession(ctx, reattacher, runtimePlan, plan.SessionID, finalModel)
 			if err != nil {
@@ -212,11 +214,13 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 			continue
 		}
 		if err := persistSessionDraftToServer(ctx, server, plan.SessionID, finalModel); err != nil {
-			return releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, err)
+			runtimePlan.Close()
+			return err
 		}
 
 		if transition.Exit {
-			return releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, nil)
+			runtimePlan.Close()
+			return nil
 		}
 		resolved, err := resolveAndReleaseSessionAction(ctx, server, interactor, plan.SessionID, transition, runtimePlan, finalModel)
 		if err != nil {
@@ -233,19 +237,15 @@ func reopenRetargetedSession(
 	rawSessionID string,
 	finalModel any,
 ) (*sessionlaunchpb.SessionDirective, error) {
+	defer runtimePlan.Close()
 	sessionID, err := runtimeids.ParseSessionID(rawSessionID)
 	if err != nil {
-		return &sessionlaunchpb.SessionDirective{}, releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, err)
-	}
-	if err := persistSessionDraftToServer(ctx, server, rawSessionID, finalModel); err != nil {
-		return &sessionlaunchpb.SessionDirective{}, releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, err)
-	}
-	if runtimePlan.stopEventStreams != nil {
-		runtimePlan.stopEventStreams()
-	}
-	if err := runtimePlan.Close(); err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
+	if err := persistSessionDraftToServer(ctx, server, rawSessionID, finalModel); err != nil {
+		return &sessionlaunchpb.SessionDirective{}, err
+	}
+	runtimePlan.Close()
 	if err := server.ReattachSession(ctx, rawSessionID); err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
@@ -285,8 +285,9 @@ func resolveAndReleaseSessionAction(
 	finalModel any,
 ) (*sessionlaunchpb.SessionDirective, error) {
 	resolved, err := resolveSessionAction(ctx, server, interactor, sessionID, transition)
-	if releaseErr := releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, err); releaseErr != nil {
-		return &sessionlaunchpb.SessionDirective{}, releaseErr
+	runtimePlan.Close()
+	if err != nil {
+		return &sessionlaunchpb.SessionDirective{}, err
 	}
 	return resolved, nil
 }
@@ -339,7 +340,8 @@ func prepareSessionUIRun(
 		overrideStoredDraft,
 	)
 	if err != nil {
-		return nil, uiLoopRequest{}, closeRuntimePlanAfterPreparationFailure(runtimePlan, err)
+		runtimePlan.Close()
+		return nil, uiLoopRequest{}, err
 	}
 	return runtimePlan, uiLoopRequest{
 		ctx:                          ctx,
@@ -360,30 +362,6 @@ func prepareSessionUIRun(
 	}, nil
 }
 
-func closeRuntimePlanAfterPreparationFailure(runtimePlan *runtimeLaunchPlan, preparationErr error) error {
-	if closeErr := runtimePlan.Close(); closeErr != nil {
-		return errors.Join(preparationErr, closeErr)
-	}
-	return preparationErr
-}
-
-func closeRuntimePlanAfterUIExit(runtimePlan *runtimeLaunchPlan, finalModel any) error {
-	if ui, ok := finalModel.(*uiModel); ok && ui != nil && ui.forcedLocalExit {
-		return runtimePlan.DetachOnlyClose()
-	}
-	return runtimePlan.Close()
-}
-
-func releaseRuntimePlanAfterUIResult(runtimePlan *runtimeLaunchPlan, finalModel any, primaryErr error) error {
-	releaseErr := closeRuntimePlanAfterUIExit(runtimePlan, finalModel)
-	if primaryErr != nil && releaseErr != nil {
-		return errors.Join(primaryErr, releaseErr)
-	}
-	if primaryErr != nil {
-		return primaryErr
-	}
-	return releaseErr
-}
 func shouldCloseReboundServer(original, rebound interactiveSessionServer) bool {
 	return original != nil && rebound != nil && original != rebound
 }

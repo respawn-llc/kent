@@ -9,12 +9,73 @@ import (
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/clientui"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
+	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
-
-	"google.golang.org/protobuf/proto"
 )
+
+type shellPreparationClient struct {
+	apicontract.ChatMutationService
+	requests    []*chatshellpb.ShellCommandRequest
+	inputs      []*chatpb.SteerRequest
+	compactions []*chatpb.CompactRequest
+}
+
+func (c *shellPreparationClient) Compact(_ context.Context, request *chatpb.CompactRequest) (*chatpb.CompactionMutationSuccess, error) {
+	c.compactions = append(c.compactions, request)
+	return &chatpb.CompactionMutationSuccess{
+		Session: &chatpb.ExistingSessionTarget{SessionId: request.Target.GetSession().SessionId.GetSessionId()},
+		Outcome: &chatpb.CompactionMutationSuccess_Accepted{Accepted: &chatpb.CompactionAccepted{
+			Request: &chatpb.CompactionRequestIdentity{Id: request.RequestId},
+		}},
+	}, nil
+}
+
+func (c *shellPreparationClient) Steer(_ context.Context, request *chatpb.SteerRequest) (*chatpb.InputMutationSuccess, error) {
+	c.inputs = append(c.inputs, request)
+	return &chatpb.InputMutationSuccess{
+		Session: &chatpb.ExistingSessionTarget{SessionId: request.Target.GetSession().SessionId.GetSessionId()},
+		Outcome: &chatpb.InputMutationSuccess_Accepted{Accepted: &chatpb.InputAccepted{
+			QueueItem: &chatpb.QueueItemIdentity{Id: runtimeids.NewQueueItemID().String()},
+		}},
+	}, nil
+}
+
+func (c *shellPreparationClient) SubmitUserShellCommand(_ context.Context, request *chatshellpb.ShellCommandRequest) error {
+	c.requests = append(c.requests, request)
+	if len(c.requests) == 1 {
+		return serverapi.ErrRuntimeUnavailable
+	}
+	return nil
+}
+
+func TestRuntimeClientConsumesLaunchIntentOnFailedFirstDispatch(t *testing.T) {
+	client := newTestSessionRuntimeClientWithControls(&reconnectRetryRuntimeControlClient{})
+	client.sessionID = ongoingTestSessionID().String()
+	chat := &shellPreparationClient{}
+	client.chatMutations = chat
+	client.preparation = &sessionlaunchpb.SessionRuntimePreparationOptions{ThinkingOverrideExplicit: true}
+	request := clientui.RuntimeShellRequest{Command: "pwd"}
+	if err := client.RunUserShell(t.Context(), request); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+		t.Fatalf("first shell error = %v", err)
+	}
+	id := runtimeids.NewCompactionRequestID()
+	if err := client.CompactRuntime(t.Context(), clientui.RuntimeCompactRequest{RequestID: id}); err != nil {
+		t.Fatal(err)
+	}
+	if len(chat.requests) != 1 || len(chat.compactions) != 1 ||
+		chat.requests[0].Target.GetSession().Preparation == nil ||
+		chat.compactions[0].Target.GetSession().Preparation != nil {
+		t.Fatalf("launch choices must be consumed even when first dispatch fails: %+v", chat.requests)
+	}
+	if chat.compactions[0].RequestId != id.String() {
+		t.Fatal("compaction must dispatch its pre-registered progress identity")
+	}
+}
 
 type goalRuntimeControlClient struct {
 	apicontract.RuntimeControlService
@@ -86,93 +147,34 @@ func TestRuntimeGoalCallsHaveGoalBudgetAndPresentTimeout(t *testing.T) {
 	}
 }
 
-func TestRuntimeGoalReadRecoversUnavailableConnection(t *testing.T) {
+func TestRuntimeGoalReadDoesNotActivateUnavailableRuntime(t *testing.T) {
 	goal := &runtimepb.Goal{Id: "goal-1", Objective: "finish the task", Status: runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE}
 	controls := &reconnectRetryRuntimeControlClient{
 		showGoalErr:  serverapi.ErrRuntimeUnavailable,
 		showGoalResp: runtimeClientTestShowResponse(goal),
 	}
 	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
-	reactivator := newRuntimeReactivator()
-	recovered := false
-	reactivator.SetReactivateFunc(func(context.Context) error {
-		recovered = true
-		return nil
-	})
-	runtimeClient.SetRuntimeReactivator(reactivator)
-	result, err := runtimeClient.ShowGoal()
-	if err != nil {
-		t.Fatalf("show goal after connection recovery: %v", err)
+	_, err := runtimeClient.ShowGoal()
+	if !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+		t.Fatalf("ShowGoal error = %v, want unavailable", err)
 	}
-	if !recovered || result == nil || result.Goal == nil || !proto.Equal(result.Goal, goal) {
-		t.Fatalf("goal was not restored after connection recovery: %+v", result)
+	if controls.showGoalCalls != 1 {
+		t.Fatalf("ShowGoal calls = %d, want one read without replay", controls.showGoalCalls)
 	}
 }
 
 func TestRuntimeClientInputMakesOneExplicitCall(t *testing.T) {
 	controls := &reconnectRetryRuntimeControlClient{}
-	runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls, controls, nil).(*sessionRuntimeClient)
+	runtimeClient := newUIRuntimeClientWithReads(ongoingTestSessionID().String(), &countingSessionViewClient{}, controls, controls, nil).(*sessionRuntimeClient)
+	chat := &shellPreparationClient{}
+	runtimeClient.chatMutations = chat
 
 	if _, err := runtimeClient.SubmitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
 		Input: runtimeinput.Text("hello"),
 	}); err != nil {
 		t.Fatalf("SubmitRuntimeInput: %v", err)
 	}
-	if controls.submitCalls != 1 {
-		t.Fatalf("submit calls = %d, want 1", controls.submitCalls)
-	}
-}
-
-func TestRuntimeClientProjectsUserTurnOutcomes(t *testing.T) {
-	tests := []struct {
-		name     string
-		response *runtimepb.SubmitUserTurnSuccess
-		kind     clientui.UserTurnResultKind
-		message  *string
-		queued   clientui.QueuedUserMessage
-	}{
-		{
-			name:     "steered queue",
-			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_Queued{Queued: &runtimepb.SubmitUserTurnQueued{QueueItemId: "queue-1", Steered: true}}},
-			kind:     clientui.UserTurnResultKindQueued,
-			queued:   clientui.QueuedUserMessage{ID: "queue-1", Text: "input"},
-		},
-		{
-			name:     "admitted queue",
-			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_Queued{Queued: &runtimepb.SubmitUserTurnQueued{QueueItemId: "queue-1"}}},
-			kind:     clientui.UserTurnResultKindQueued,
-		},
-		{
-			name:     "no final",
-			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_NoFinal{NoFinal: &runtimepb.SubmitUserTurnNoFinal{}}},
-			kind:     clientui.UserTurnResultKindNoFinal,
-		},
-		{
-			name:     "assistant final",
-			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_AssistantFinal{AssistantFinal: &runtimepb.SubmitUserTurnAssistantFinal{Message: "answer"}}},
-			kind:     clientui.UserTurnResultKindAssistantFinal,
-			message:  proto.String("answer"),
-		},
-		{
-			name:     "silent final",
-			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_SilentFinal{SilentFinal: &runtimepb.SubmitUserTurnSilentFinal{Message: "answer"}}},
-			kind:     clientui.UserTurnResultKindSilentFinal,
-			message:  proto.String("answer"),
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got := userTurnSubmissionFromResponse(test.response, "input")
-			if got.ResultKind != test.kind || got.Queued != test.queued {
-				t.Fatalf("submission = %+v", got)
-			}
-			if test.message == nil {
-				if got.Message != nil {
-					t.Fatalf("unexpected final message: %q", *got.Message)
-				}
-			} else if got.Message == nil || *got.Message != *test.message {
-				t.Fatalf("final message = %v, want %q", got.Message, *test.message)
-			}
-		})
+	if len(chat.inputs) != 1 {
+		t.Fatalf("submit calls = %d, want 1", len(chat.inputs))
 	}
 }

@@ -397,15 +397,12 @@ func (s *Service) AppendSessionEntry(ctx context.Context, sessionID string, role
 	})
 }
 
-func (s *Service) SubmitUserShellCommand(ctx context.Context, req *runtimepb.ShellCommandRequest) error {
-	if err := protoapi.Validate(req); err != nil {
-		return err
-	}
+func (s *Service) AdmitUserShellCommand(ctx context.Context, sessionID runtimeids.SessionID, command string) error {
 	_, err := runRuntimeCommand(ctx, func(ctx context.Context) (struct{}, bool, error) {
 		attempt := newRuntimeCommandAttempt(ctx)
 		defer attempt.Finish()
-		commandErr := s.runAgentExecution(attempt.Context(), req.SessionId, func(runCtx context.Context, engine *runtime.Engine) error {
-			_, err := engine.SubmitUserShellCommandWithAcceptance(runCtx, req.Command, attempt.Accept)
+		commandErr := s.runAgentExecution(attempt.Context(), sessionID.String(), func(runCtx context.Context, engine *runtime.Engine) error {
+			_, err := engine.SubmitUserShellCommandWithAcceptance(runCtx, command, attempt.Accept)
 			return err
 		})
 		return struct{}{}, attempt.Accepted(), commandErr

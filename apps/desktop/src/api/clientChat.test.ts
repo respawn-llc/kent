@@ -17,7 +17,6 @@ import { ChatService, QueueRequestSchema } from "@app/server-api-contract/gen/ke
 import {
   SessionRuntimeService,
   SessionRuntimeActivateResultSchema,
-  SessionRuntimeReleaseResultSchema,
 } from "@app/server-api-contract/gen/kent/api/session_launch/session_lifecycle_pb";
 import {
   AgentPreparationCategory,
@@ -420,30 +419,19 @@ describe("Desktop Chat read client", () => {
         {
           descriptor: SessionRuntimeService.method.activate,
           result: create(SessionRuntimeActivateResultSchema, {
-            outcome: { case: "success", value: { attachment: { sessionId: sessionID, generation: 7n } } },
-          }),
-        },
-        {
-          descriptor: SessionRuntimeService.method.release,
-          result: create(SessionRuntimeReleaseResultSchema, {
-            outcome: { case: "success", value: { released: true, active: false } },
+            outcome: { case: "success", value: {} },
           }),
         },
       ]);
       const activationClient = new ApiClient(activationTransport, unexpectedProjectOverflow);
-      await expect(activationClient.chat.activateRuntime(target)).resolves.toEqual({
-        sessionID,
-        generation: 7,
-      });
+      await expect(activationClient.chat.activateRuntime(target)).resolves.toBeUndefined();
       if (selection === undefined) {
-        expect(activationTransport.descriptorCalls[1]?.request).not.toHaveProperty("agentSelection");
+        expect(activationTransport.descriptorCalls[1]?.request).not.toHaveProperty("options.agentSelection");
       } else {
-        expect(activationTransport.descriptorCalls[1]?.request).toMatchObject({ agentSelection: selection });
+        expect(activationTransport.descriptorCalls[1]?.request).toMatchObject({
+          options: { agentSelection: selection },
+        });
       }
-      await expect(activationClient.chat.releaseRuntime({ sessionID, generation: 7 })).resolves.toEqual({
-        released: true,
-        active: false,
-      });
     }
 
     const mismatchedPlanClient = new ApiClient(

@@ -200,8 +200,6 @@ export type ChatGoalObservationHandler = Readonly<{
   onComplete(code: StreamFailureCode | null, message: string | null): void;
   onError(error: Error): void;
 }>;
-export type ChatRuntimeAttachment = Readonly<{ sessionID: string; generation: number }>;
-export type ChatRuntimeRelease = Readonly<{ released: boolean; active: boolean }>;
 export type ChatSessionNameMutation = Readonly<{ kind: "set"; name: string }> | Readonly<{ kind: "clear" }>;
 export type ChatSettingsSnapshot = Readonly<{
   sessionName: string | null;
@@ -253,8 +251,7 @@ export type ChatApi = Readonly<{
     target: ChatSessionTarget,
     cursor?: Readonly<{ direction: "older" | "newer"; value: number }>,
   ): Promise<ChatTranscriptPage>;
-  activateRuntime(target: ChatSessionTarget): Promise<ChatRuntimeAttachment>;
-  releaseRuntime(attachment: ChatRuntimeAttachment): Promise<ChatRuntimeRelease>;
+  activateRuntime(target: ChatSessionTarget): Promise<void>;
   subscribeTranscript(target: ChatSessionTarget, handler: ChatTranscriptHandler): ApiSubscription;
   subscribeGoal(target: ChatSessionTarget, handler: ChatGoalObservationHandler): ApiSubscription;
 }>;

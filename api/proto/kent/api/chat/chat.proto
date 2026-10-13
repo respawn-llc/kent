@@ -12,6 +12,7 @@ import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
 import "kent/api/shared/session_selector.proto";
+import "kent/api/session_launch/session_launch.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/chat;chatpb";
 
@@ -24,6 +25,7 @@ message ExistingSessionTarget {
 
 message ExistingSessionRequestTarget {
   kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
+  optional kent.api.session_launch.SessionRuntimePreparationOptions preparation = 2;
 }
 
 message NewChatTarget {
@@ -297,6 +299,10 @@ message CompactResult {
 message CompactRequest {
   ChatTarget target = 1 [(buf.validate.field).required = true];
   CompactionInvocation invocation = 2 [(buf.validate.field).required = true];
+  string request_id = 3 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 }
 
 service ChatService {

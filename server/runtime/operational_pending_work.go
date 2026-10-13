@@ -62,6 +62,7 @@ func (e *Engine) scheduleOperationalPendingWork(ctx context.Context, request ope
 			return false, err
 		}
 		e.publishPendingWorkChanged()
+		e.runtimeWriteAccepted()
 		return true, nil
 	})
 	if err := commandAcceptanceResult(committed, acceptErr); err != nil {

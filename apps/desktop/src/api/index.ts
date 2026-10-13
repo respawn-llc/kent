@@ -39,8 +39,6 @@ export type {
   ChatNotAcceptedReason,
   ChatProjectTarget,
   ChatRuntimeActivity,
-  ChatRuntimeAttachment,
-  ChatRuntimeRelease,
   ChatSessionTarget,
   ChatSessionNameMutation,
   ChatSettingsSnapshot,

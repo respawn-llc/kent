@@ -9,6 +9,7 @@ import (
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatcontextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	processpb "core/shared/protoapi/gen/kent/api/process"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
@@ -63,6 +64,7 @@ type ChatContextService interface {
 }
 
 type ChatMutationService interface {
+	SubmitUserShellCommand(ctx context.Context, req *chatshellpb.ShellCommandRequest) error
 	Steer(ctx context.Context, req *chatpb.SteerRequest) (*chatpb.InputMutationSuccess, error)
 	Queue(ctx context.Context, req *chatpb.QueueRequest) (*chatpb.InputMutationSuccess, error)
 	Compact(ctx context.Context, req *chatpb.CompactRequest) (*chatpb.CompactionMutationSuccess, error)
@@ -137,7 +139,6 @@ type RuntimeControlService interface {
 	SetSessionName(ctx context.Context, req *runtimepb.SetSessionNameRequest) error
 	AppendCommittedEntry(ctx context.Context, req *transcriptpb.AppendCommittedEntryRequest) error
 	SubmitUserTurn(ctx context.Context, req *runtimepb.SubmitUserTurnRequest) (*runtimepb.SubmitUserTurnSuccess, error)
-	SubmitUserShellCommand(ctx context.Context, req *runtimepb.ShellCommandRequest) error
 	CompactContext(ctx context.Context, req *runtimepb.CompactContextRequest) error
 	Interrupt(ctx context.Context, req *runtimepb.InterruptRequest) (*runtimepb.ReadModelUpdate, error)
 	RecordPromptHistory(ctx context.Context, req *promptpb.RecordHistoryRequest) error
@@ -193,8 +194,7 @@ type SessionLifecycleService interface {
 }
 
 type SessionRuntimeService interface {
-	ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error)
-	ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error)
+	ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) error
 }
 
 type SessionViewService interface {

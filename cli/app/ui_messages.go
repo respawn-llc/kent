@@ -183,17 +183,16 @@ type runtimeConnectionStateChangedMsg struct {
 	err error
 }
 
-type runtimeReconnectWarningMsg struct {
-	text       string
-	visibility clientui.EntryVisibility
-}
-
 type runtimeMainViewRefreshedMsg struct {
 	token                    uint64
 	interruptedSubmitToken   *uint64
 	metadataBaselineRevision *uint64
 	view                     *runtimepb.MainView
 	err                      error
+}
+
+type runtimeMainViewRetryMsg struct {
+	token uint64
 }
 
 type detailTranscriptLoadMsg struct {

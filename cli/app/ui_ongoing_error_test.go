@@ -85,6 +85,30 @@ func TestOngoingTranscriptTransportOpenFailureKeepsTUIAndShowsDisconnect(t *test
 	}
 }
 
+func TestDormantTranscriptReconnectReadsMainViewWithoutHydration(t *testing.T) {
+	controller := newNoopOngoingTranscriptController(&ongoingSurfaceSpy{}, ongoingTestFrameProvider)
+	m := newProjectedTestUIModel(&runtimeControlFakeClient{}, withUIOngoingTranscriptController(controller))
+	connectionErr := &net.OpError{Err: errors.New("connection refused")}
+	cmd := m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventFailure, Err: connectionErr})
+	if !m.runtimeMainViewBusy || cmd == nil {
+		t.Fatal("transport recovery must read Session state while transcript hydration waits")
+	}
+	token := m.runtimeMainViewToken
+	retry := m.handleRuntimeMainViewRefreshed(runtimeMainViewRefreshedMsg{token: token, err: connectionErr})
+	if retry == nil {
+		t.Fatal("failed reconnect read did not schedule another read")
+	}
+	m.reduceRuntimeMessage(retry())
+	if !m.runtimeMainViewBusy {
+		t.Fatal("retry did not start a read")
+	}
+	view := m.runtimeClient().MainView()
+	m.handleRuntimeMainViewRefreshed(runtimeMainViewRefreshedMsg{token: m.runtimeMainViewToken, view: view})
+	if m.runtimeDisconnectStatusVisible() {
+		t.Fatal("successful read must restore reachability without transcript hydration")
+	}
+}
+
 func TestRecoveredTranscriptHydrationClearsDisconnectStatusLine(t *testing.T) {
 	surface := &ongoingSurfaceSpy{}
 	m := newProjectedTestUIModel(

@@ -277,8 +277,8 @@ func newProjectedAuthorityRuntime(
 	})
 	if _, err := authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{
 		SessionID: sessionID,
-		OwnerID:   "projected-ui-test",
-		Runtime:   &plan,
+
+		Runtime: &plan,
 	}); err != nil {
 		t.Fatalf("open projected runtime: %v", err)
 	}

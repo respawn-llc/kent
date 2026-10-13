@@ -46,7 +46,6 @@ type uiRuntimeFeatureState struct {
 
 	pathReferenceEvents        <-chan uiPathReferenceSearchEvent
 	runtimeConnectionEvents    chan runtimeConnectionStateChangedMsg
-	runtimeReconnectWarning    <-chan runtimeReconnectWarningMsg
 	runtimeContextUsage        *runtimepb.ContextUsage
 	runtimeContextUsageSession string
 	runtimeActivityProjection  *runtimepb.Activity

@@ -7,6 +7,13 @@
 - The editor determines its rendered lines and cursor position.
 - Kent can use a drawn cursor only when native cursor placement cannot avoid verified cursor drift, wrap mismatch, or Alternate Screen corruption.
 
+## Launch choices
+
+- A TUI Session opening must supply its invocation preparation choices only with its first explicit Chat action. An initial prompt counts as that action.
+- The TUI must consume those choices when dispatching the action, including when the request fails or admission rejects it. Later actions must use current Session settings.
+- Reconnecting observation must not restore consumed launch choices or activate a Runtime.
+- While a dormant Session's transcript observation waits, the TUI must retry read-only Session state after transport loss. A successful read must clear the disconnected state without waiting for transcript hydration.
+
 ## Editing Model
 
 - Movement: `Left`/`Right` by grapheme cluster; `Ctrl+Left`/`Ctrl+Right` and `Option+Left`/`Option+Right` by word; `Home`/`Ctrl+A` to line start; `End`/`Ctrl+E`/`Ctrl+End` to line end. At the typed terminal-input boundary, an Alt-modified single-rune `b`/`f` event is a compatibility encoding for previous-word/next-word movement rather than inserted text. `Up`/`Down` move across wrapped/multiline content when the cursor is not at a whole-buffer boundary (boundary behavior is prompt history, below).
@@ -59,9 +66,9 @@
 - `Ctrl+C` does not cancel a submission before its Agent Turn starts.
 - When the live TUI observes the interruption event, it restores the stopped execution's pending human messages into the main input so the user can edit or resend them.
 - `Ctrl+C` exits the TUI only when the Live Execution lifecycle is not Running and no current pending Question or Approval identifies live work. A submission already sent to the server may start or continue after the client detaches.
-- Graceful exit through `Ctrl+C` or `/exit` saves the current composer draft before releasing the Session attachment.
-- `/exit` detaches the client and does not interrupt the Active Session Runtime. Active work continues after this TUI releases its attachment.
-- Session-navigation commands persist the outgoing draft, resolve the typed transition, release the originating attachment, and only then plan or attach the destination. A release failure aborts navigation before destination attachment; an `/exit` release failure is reported after terminal teardown and exits nonzero.
+- Graceful exit through `Ctrl+C` or `/exit` must save the current composer draft before stopping Session observation.
+- `/exit` must stop client observation without interrupting the Active Session Runtime. Runtime lifetime follows [Core Runtime And Tools](core-runtime-tools.md).
+- Session-navigation commands must persist the outgoing draft, resolve the typed transition, stop the originating observation, and only then plan or observe the destination.
 - In the rollback picker, `Ctrl+C` closes the overlay before it applies the same busy-interrupt or idle-exit behavior as the main transcript.
 - `Shift+Tab` and `Ctrl+T` toggle between Ongoing Mode and Detail Mode. The selected mode is not saved.
 - Arming the rollback flow requires two consecutive `Esc` presses on empty idle input within a short window (Esc-Esc); a single `Esc` does nothing visible. Rollback behavior itself is owned by its own family spec.

@@ -8,21 +8,90 @@ import (
 	"reflect"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"core/internal/testharness/testsetup"
 	"core/server/launch"
 	"core/server/metadata"
 	"core/server/registry"
+	"core/server/runtime"
 	"core/server/runtimewire"
 	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionservice"
 	"core/shared/config"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 )
+
+func TestChatSettingsRefreshOnlyWhenAppliedToLiveRuntime(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		cfg, service, db, id := agentReplacementFixture(t)
+		lifecycle := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, service.settingsOwner.Authority, nil, db)
+		saveDraft := func() {
+			t.Helper()
+			if _, err := lifecycle.PersistInputDraft(t.Context(), &sessionlaunchpb.SessionPersistInputDraftRequest{
+				SessionId: id.String(), Input: "unfinished input",
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		read := func() error {
+			return service.settingsOwner.Authority.WithCurrentRuntime(t.Context(), id, func(context.Context, *runtime.Engine) error { return nil })
+		}
+		changeQuestions := func(enabled bool) {
+			t.Helper()
+			result, err := service.MutateChatSettings(t.Context(), id, &chatsettingspb.MutationOperation{
+				Operation: &chatsettingspb.MutationOperation_QuestionsEnabled{QuestionsEnabled: enabled},
+			})
+			if err != nil || result.GetApplied() == nil {
+				t.Fatalf("settings mutation = %v, %v", result, err)
+			}
+		}
+		changeQuestions(false)
+		saveDraft()
+		if err := read(); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+			t.Fatalf("dormant settings activated Runtime: %v", err)
+		}
+		filesystem, err := runtimewire.NewFilesystemContext(cfg.WorkspaceRoot, cfg.WorkspaceRoot, "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		settings := cfg.Settings
+		settings.Connection = config.SingleConnection("a")
+		plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+			MainWorkspaceRoot: cfg.WorkspaceRoot, Settings: settings, Sources: cfg.Source.Sources,
+			FilesystemContext: filesystem, Client: sessionLaunchRuntimeClient{},
+			QuestionsEnabled: textutil.Value(false), AutoCompactionEnabled: textutil.Value(true),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.settingsOwner.Authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{
+			SessionID: id, Runtime: &plan,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(2 * time.Minute)
+		changeQuestions(true)
+		synctest.Wait()
+		time.Sleep(2 * time.Minute)
+		if err := read(); err != nil {
+			t.Fatalf("live settings did not refresh Runtime: %v", err)
+		}
+		changeQuestions(true)
+		saveDraft()
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		if err := read(); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+			t.Fatalf("unchanged settings refreshed Runtime: %v", err)
+		}
+	})
+}
 
 func agentReplacementFixture(t *testing.T) (config.App, *Service, *metadata.Store, runtimeids.SessionID) {
 	t.Helper()

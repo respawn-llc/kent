@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"core/shared/protoapi"
+	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -90,9 +91,12 @@ func (c *Remote) SubmitUserTurn(ctx context.Context, request *runtimepb.SubmitUs
 		func(failure *runtimepb.SubmitUserTurnError) error { return runtimeControlGeneratedError(failure) })
 }
 
-func (c *Remote) SubmitUserShellCommand(ctx context.Context, request *runtimepb.ShellCommandRequest) error {
-	_, err := callGeneratedBinary(c, ctx, bootstrapMethod(runtimepb.File_kent_api_runtime_runtime_proto, "TurnService", "SubmitUserShellCommand"), request, &runtimepb.SubmitUserShellCommandResult{},
-		func(failure *runtimepb.SubmitUserShellCommandError) error {
+func (c *Remote) SubmitUserShellCommand(ctx context.Context, request *chatshellpb.ShellCommandRequest) error {
+	_, err := callGeneratedBinary(c, ctx, bootstrapMethod(chatshellpb.File_kent_api_chat_shell_chat_shell_proto, "ShellService", "SubmitUserShellCommand"), request, &chatshellpb.SubmitUserShellCommandResult{},
+		func(failure *chatshellpb.SubmitUserShellCommandError) error {
+			if failure.GetSessionNotFound() != nil || failure.GetWorkspaceNotRegistered() != nil || failure.GetChatSettingsAgentPreparation() != nil {
+				return protoapi.ChatSettingsErrorFromProto(failure)
+			}
 			return runtimeControlGeneratedError(failure)
 		})
 	return err
