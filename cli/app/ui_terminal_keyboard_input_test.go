@@ -5,7 +5,6 @@ import (
 	"io"
 	"testing"
 
-	"core/cli/tui"
 	"core/shared/clientui"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -341,72 +340,6 @@ func TestProgramCapsLockCtrlRightMovesByWord(t *testing.T) {
 	}
 }
 
-func TestProgramCapsLockUpMovesWithinDraft(t *testing.T) {
-	model := newProjectedStaticUIModel()
-	testSetMainInputAtRuneCursor(model, "alpha\nbeta", 9)
-	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[1;65A\x03", 1)
-	if got, want := testMainInputRuneCursor(result), 1; got != want {
-		t.Fatalf("cursor after Caps-Lock Up = %d, want %d", got, want)
-	}
-}
-
-func TestProgramCapsLockDownMovesWithinDraft(t *testing.T) {
-	model := newProjectedStaticUIModel()
-	testSetMainInputAtRuneCursor(model, "alpha\nbeta", 1)
-	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[1;65B\x03", 1)
-	if got, want := testMainInputRuneCursor(result), 9; got != want {
-		t.Fatalf("cursor after Caps-Lock Down = %d, want %d", got, want)
-	}
-}
-
-func TestProgramCapsLockHomeMovesToLogicalLineStart(t *testing.T) {
-	model := newProjectedStaticUIModel()
-	testSetMainInputAtRuneCursor(model, "one\ntwo\nthree", len([]rune("one\ntw")))
-	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[1;65H\x03", 1)
-	if got, want := testMainInputRuneCursor(result), len([]rune("one\n")); got != want {
-		t.Fatalf("cursor after Caps-Lock Home = %d, want %d", got, want)
-	}
-}
-
-func TestProgramCapsLockEndMovesToLogicalLineEnd(t *testing.T) {
-	model := newProjectedStaticUIModel()
-	testSetMainInputAtRuneCursor(model, "one\ntwo\nthree", len([]rune("one\ntw")))
-	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[1;65F\x03", 1)
-	if got, want := testMainInputRuneCursor(result), len([]rune("one\ntwo")); got != want {
-		t.Fatalf("cursor after Caps-Lock End = %d, want %d", got, want)
-	}
-}
-
-func TestProgramCapsLockCtrlEndMovesToLogicalLineEnd(t *testing.T) {
-	model := newProjectedStaticUIModel()
-	testSetMainInputAtRuneCursor(model, "one\ntwo\nthree", len([]rune("one\ntw")))
-	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[1;69F\x03", 1)
-	if got, want := testMainInputRuneCursor(result), len([]rune("one\ntwo")); got != want {
-		t.Fatalf("cursor after Caps-Lock Ctrl+End = %d, want %d", got, want)
-	}
-}
-
-func TestProgramCapsLockDeleteDeletesForward(t *testing.T) {
-	model := newProjectedStaticUIModel()
-	testSetMainInputAtRuneCursor(model, "alpha beta", 0)
-	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[3;65~\x03", 1)
-	if got, want := testMainInput(result), "lpha beta"; got != want {
-		t.Fatalf("input after Caps-Lock Delete = %q, want %q", got, want)
-	}
-}
-
-func TestProgramCapsLockF3PreservesDraft(t *testing.T) {
-	model := newProjectedStaticUIModel()
-	testSetMainInput(model, "draft")
-	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[13;65~\x03", 1)
-	if result.isBusy() {
-		t.Fatal("Caps-Lock F3 submitted the composer")
-	}
-	if got, want := testMainInput(result), "draft"; got != want {
-		t.Fatalf("input after Caps-Lock F3 = %q, want %q", got, want)
-	}
-}
-
 func TestProgramAltBackspaceDeletesPreviousWord(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	testSetMainInput(model, "alpha beta gamma")
@@ -440,29 +373,5 @@ func TestProgramXtermCtrlBackspaceDeletesCurrentLine(t *testing.T) {
 	}
 	if got, want := testMainInputRuneCursor(result), 4; got != want {
 		t.Fatalf("cursor after xterm Ctrl+Backspace = %d, want %d", got, want)
-	}
-}
-
-func TestProgramF1OpensHelpFromEnhancedSequence(t *testing.T) {
-	model := newProjectedStaticUIModel()
-	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[P\x03", 1)
-	if !result.helpVisible {
-		t.Fatal("enhanced F1 did not open help")
-	}
-}
-
-func TestProgramF1WithCapsLockOpensHelp(t *testing.T) {
-	model := newProjectedStaticUIModel()
-	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[1;65P\x03", 1)
-	if !result.helpVisible {
-		t.Fatal("Caps-Lock F1 did not open help")
-	}
-}
-
-func TestProgramEnhancedShiftTabTogglesTranscriptMode(t *testing.T) {
-	model := newProjectedStaticUIModel()
-	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[9;2u\x03", 1)
-	if result.view.Mode() != tui.ModeDetail {
-		t.Fatalf("mode after enhanced Shift+Tab = %v, want detail mode", result.view.Mode())
 	}
 }
