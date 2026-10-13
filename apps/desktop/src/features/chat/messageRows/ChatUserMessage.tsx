@@ -30,6 +30,7 @@ export function ChatUserMessage(
   const { t } = useTranslation();
   const motion = useChatMessageMotion();
   const text = useRef<HTMLDivElement>(null);
+  const row = useRef<HTMLDivElement>(null);
   const previewID = preview?.inputID.toJSONValue() ?? null;
   const sources = useMemo(
     () => (item !== null ? item.value.QueueItemIDs : previewID === null ? [] : [previewID]),
@@ -43,13 +44,14 @@ export function ChatUserMessage(
   }, [motion, sources, previewID]);
   return (
     <div
+      ref={row}
       className="chat-message-row chat-message-user"
       data-previous={neighbors?.previous}
       data-next={neighbors?.next}
     >
       <div className="chat-message-width">
         <Island className="chat-message-island" level={1} radius="l" unpadded>
-          <AnimatedSize className="justify-start">
+          <AnimatedSize className="justify-start" reflowRef={row}>
             <div className="chat-message-content">
               <div ref={text}>
                 <StaticMarkdown value={value} />

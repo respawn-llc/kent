@@ -27,7 +27,7 @@ it("keeps the full initial layout height during ancestor entrance scaling", asyn
   }
 });
 
-it("grows a streaming bubble smoothly without replacing already rendered characters", async () => {
+it("animates streaming growth in both dimensions without replacing rendered characters", async () => {
   const geometry = installAnimatedHeightGeometry(80);
   const services = createTestServices([]);
   const content = (text: string) => (
@@ -39,12 +39,14 @@ it("grows a streaming bubble smoothly without replacing already rendered charact
   try {
     const bubble = screen.getByText(() => true, { selector: "section" });
     const firstCharacter = screen.getByText("F", { exact: true });
+    const chatRow = screen.getByText(() => true, { selector: ".chat-message-row" });
+    vi.spyOn(chatRow, "offsetWidth", "get").mockReturnValue(320);
     expect(bubble.getBoundingClientRect().height).toBe(80);
     await flushAnimationFrames();
 
     view.rerender(content("First line\nSecond line"));
     act(() => {
-      geometry.resize(160);
+      geometry.resize(160, 480);
     });
 
     expect(bubble.getBoundingClientRect().height).toBeLessThan(160);
@@ -56,13 +58,55 @@ it("grows a streaming bubble smoothly without replacing already rendered charact
     expect(intermediateHeight).toBeLessThan(160);
     view.rerender(content("First line\nSecond line\nThird line"));
     act(() => {
-      geometry.resize(240);
+      geometry.resize(240, 560);
     });
     expect(bubble.getBoundingClientRect().height).toBeCloseTo(intermediateHeight);
     await waitFor(() => {
       expect(bubble.getBoundingClientRect().height).toBeCloseTo(240);
     });
     expect(screen.getByText("F", { exact: true })).toBe(firstCharacter);
+  } finally {
+    view.unmount();
+    geometry.restore();
+  }
+});
+
+it("interrupts streaming height motion for Chat reflow and animates subsequent content growth", async () => {
+  const geometry = installAnimatedHeightGeometry(80);
+  const view = render(
+    <TestAppProviders services={createTestServices([])}>
+      <ChatAssistantMessage item={liveAssistant("A streaming response")} />
+    </TestAppProviders>,
+  );
+  try {
+    const bubble = screen.getByText(() => true, { selector: "section" });
+    const chatRow = screen.getByText(() => true, { selector: ".chat-message-row" });
+    const width = vi.spyOn(chatRow, "offsetWidth", "get").mockReturnValue(320);
+    await flushAnimationFrames();
+    act(() => {
+      geometry.resize(240, 480);
+    });
+    await waitFor(() => {
+      expect(bubble.getBoundingClientRect().height).toBeGreaterThan(80);
+    });
+    act(() => {
+      width.mockReturnValue(240);
+      geometry.resize(160, 240);
+    });
+    await flushAnimationFrames();
+    expect(bubble.getBoundingClientRect().height).toBe(160);
+    act(() => {
+      geometry.resize(240, 280);
+    });
+    const intermediateHeight = await waitFor(() => {
+      const height = bubble.getBoundingClientRect().height;
+      expect(height).toBeGreaterThan(160);
+      return height;
+    });
+    expect(intermediateHeight).toBeLessThan(240);
+    await waitFor(() => {
+      expect(bubble.getBoundingClientRect().height).toBeCloseTo(240);
+    });
   } finally {
     view.unmount();
     geometry.restore();
