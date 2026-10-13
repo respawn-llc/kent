@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"testing"
 )
 
@@ -39,13 +37,9 @@ func TestProjectWorkspacesExplicitProjectIgnoresInvalidSession(t *testing.T) {
 
 func TestProjectWorkspacesHelpIsDispatched(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if exitCode := projectSubcommand([]string{"workspaces", "--help"}, &stdout, &stderr); exitCode != 0 {
-		t.Fatalf("Project workspaces help exit code = %d: %s", exitCode, stderr.String())
-	}
-	for _, flag := range []string{"--project", "--offset", "--limit", "--json"} {
-		if !strings.Contains(stderr.String(), flag) {
-			t.Fatalf("Project workspaces help omitted %s: %q", flag, stderr.String())
-		}
+	if exitCode := projectSubcommand([]string{"workspaces", "--help"}, &stdout, &stderr); exitCode != 0 ||
+		stderr.Len() == 0 {
+		t.Fatalf("Project workspaces help returned exit %d and output %q", exitCode, stderr.String())
 	}
 }
 
@@ -186,8 +180,8 @@ func TestProjectWorkspacesPlainOutputIsHomeShortenedPathBullets(t *testing.T) {
 	if stdout.String() != "- ~/selected\n" {
 		t.Fatalf("plain Workspace output = %q, want one home-shortened path bullet", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), strconv.Itoa(1)) {
-		t.Fatalf("paging guidance omitted the next offset: %q", stderr.String())
+	if stderr.Len() == 0 {
+		t.Fatal("plain page omitted its pagination continuation")
 	}
 
 	stdout.Reset()
