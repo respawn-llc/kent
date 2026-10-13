@@ -1,4 +1,8 @@
-import type { PointerEvent, ReactNode } from "react";
+import { useMemo, type PointerEvent, type ReactNode } from "react";
+import { useAtomMount } from "@effect/atom-react";
+import * as Atom from "effect/reactivity/Atom";
+import * as Effect from "effect/Effect";
+import { useTranslation } from "react-i18next";
 import { useAppServices, useCurrentWindowChromeTitle } from "@/app-facade";
 import { appChromeTopTreatmentForPlatform } from "./appChromeStyles";
 import { WindowChromeTitle } from "./WindowChromeTitle";
@@ -7,11 +11,33 @@ export function WindowChromeFrame({
   children,
   controls,
   floatingControls,
-}: Readonly<{ children: ReactNode; controls?: ReactNode; floatingControls?: ReactNode }>) {
-  const { nativeBridge } = useAppServices();
+  defaultTitle,
+}: Readonly<{
+  children: ReactNode;
+  controls?: ReactNode;
+  floatingControls?: ReactNode;
+  defaultTitle?: string;
+}>) {
+  const { nativeBridge, logger } = useAppServices();
+  const { t } = useTranslation();
   const macOS = nativeBridge.capabilities.platform === "macos";
   const topTreatment = appChromeTopTreatmentForPlatform(nativeBridge.capabilities.platform);
   const title = useCurrentWindowChromeTitle();
+  const nativeTitle = title ?? defaultTitle ?? t("app.title");
+  const titleSync = useMemo(
+    () =>
+      Atom.make(
+        Effect.tryPromise(() => nativeBridge.window.setTitle(nativeTitle)).pipe(
+          Effect.catch((error) =>
+            Effect.promise(() =>
+              logger.append("warn", "Native window title update failed.", { error: String(error.cause) }),
+            ),
+          ),
+        ),
+      ),
+    [nativeBridge, logger, nativeTitle],
+  );
+  useAtomMount(titleSync);
   return (
     <main className="window-glass-fill grid h-screen w-screen overflow-hidden pt-[var(--native-titlebar-height)]">
       <div
