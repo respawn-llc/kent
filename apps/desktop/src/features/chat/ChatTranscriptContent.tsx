@@ -38,9 +38,7 @@ export function ChatTranscriptContent({
       bottomInset={bottomInset}
       openingVisible={openingVisible}
       estimateSize={estimateSize}
-      ownsEntryMotion={(item) =>
-        item.kind === "user" && motion.hasSource(item.value.QueueItemIDs.map((id) => id.toJSONValue()))
-      }
+      ownsEntryMotion={(item) => item.kind === "user" && motion.hasSource(item.value.QueueItemIDs)}
       slots={{
         user: (item) => <ChatUserMessage item={item} neighbors={neighbors.get(item.key)} edit={edit} />,
         assistant: (item) => <ChatAssistantMessage item={item} neighbors={neighbors.get(item.key)} />,

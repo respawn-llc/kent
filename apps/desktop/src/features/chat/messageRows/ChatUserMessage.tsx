@@ -30,11 +30,7 @@ export function ChatUserMessage({
   const sources = item.value.QueueItemIDs;
   useLayoutEffect(() => {
     if (text.current !== null && bubble.current !== null)
-      motion.arrive(
-        sources.map((id) => id.toJSONValue()),
-        text.current,
-        bubble.current,
-      );
+      motion.arrive(sources, text.current, bubble.current);
   }, [motion, sources]);
   return (
     <div

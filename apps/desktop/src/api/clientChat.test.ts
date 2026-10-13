@@ -637,15 +637,12 @@ describe("Desktop Chat read client", () => {
         {
           Kind: "user",
           User: {
-            QueueItemIDs: [
-              parsePendingWorkItemID("223e4567-e89b-42d3-a456-426614174000"),
-              parsePendingWorkItemID("323e4567-e89b-42d3-a456-426614174000"),
-            ],
+            QueueItemIDs: ["223e4567-e89b-42d3-a456-426614174000", "323e4567-e89b-42d3-a456-426614174000"],
           },
         },
       ],
     });
-    expect(older.entries[1]?.User?.QueueItemIDs.map((id) => id.toJSONValue())).toEqual([
+    expect(older.entries[1]?.User?.QueueItemIDs).toEqual([
       "223e4567-e89b-42d3-a456-426614174000",
       "323e4567-e89b-42d3-a456-426614174000",
     ]);

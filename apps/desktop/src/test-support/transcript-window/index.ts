@@ -1,4 +1,5 @@
 import type { ChatTranscriptPage, ChatTranscriptPayloadByKind } from "@/api";
+export { readWireUser } from "./wireUser";
 
 import type { TranscriptPageRequest, TranscriptWindow } from "@/app-facade";
 

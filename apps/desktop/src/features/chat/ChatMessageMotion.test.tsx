@@ -25,7 +25,7 @@ it.each(["new-chat", "existing-session"] as const)(
         vi.spyOn(services.api.chat, "steer").mockImplementation(async (_, __, id) => {
           committed = {
             ...row(1),
-            User: { Text: "First message", QueueItemIDs: [id] },
+            User: { Text: "First message", QueueItemIDs: [id.toJSONValue()] },
           };
           return {
             sessionID: target.sessionID,

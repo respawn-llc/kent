@@ -246,7 +246,7 @@ function userRow(value: T.UserRow): NonNullable<ChatCommittedRow["User"]> {
     Text: value.text,
     CondensedText: value.condensedText ?? null,
     RollbackTargetID: value.rollbackTargetId ?? null,
-    QueueItemIDs: value.queueItemIds.map(parsePendingWorkItemID),
+    QueueItemIDs: value.queueItemIds.map((id) => parsePendingWorkItemID(id).toJSONValue()),
     committed_at_unix_ms: value.committedAt === undefined ? null : timestampMillis(value.committedAt),
   };
 }
