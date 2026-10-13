@@ -59,7 +59,10 @@ export function HoverPopover({
       }),
     ],
   });
-  const hover = useHover(context, { mouseOnly: true, handleClose: safePolygon() });
+  const hover = useHover(context, {
+    mouseOnly: true,
+    handleClose: safePolygon({ requireIntent: false }),
+  });
   const dismiss = useDismiss(context);
   const { getReferenceProps, getFloatingProps } = useInteractions([hover, dismiss]);
   const { isMounted } = useTransitionStatus(context, {

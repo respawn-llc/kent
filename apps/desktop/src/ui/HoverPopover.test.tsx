@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { HoverPopover } from "./HoverPopover";
@@ -61,4 +61,55 @@ it("opens tooltips from hover but not keyboard focus", async () => {
   expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   await user.hover(trigger);
   expect(await screen.findByRole("tooltip")).toBeInTheDocument();
+});
+
+it("keeps slow leftward movement inside the context popup safe area open", async () => {
+  function Example() {
+    const [open, setOpen] = useState(false);
+    return (
+      <HoverPopover
+        open={open}
+        onOpenChange={setOpen}
+        side="top"
+        align="end"
+        trigger={(props) => <button {...props}>Context</button>}
+      >
+        <button>Compact</button>
+      </HoverPopover>
+    );
+  }
+  const user = userEvent.setup();
+  render(<Example />);
+  const trigger = screen.getByRole("button", { name: "Context" });
+  await user.hover(trigger);
+  const popup = await screen.findByRole("dialog");
+  const referenceBounds = vi
+    .spyOn(trigger, "getBoundingClientRect")
+    .mockReturnValue(new DOMRect(400, 400, 60, 28));
+  const popupBounds = vi
+    .spyOn(popup, "getBoundingClientRect")
+    .mockReturnValue(new DOMRect(140, 180, 320, 212));
+  vi.useFakeTimers();
+  try {
+    fireEvent.mouseLeave(trigger, { clientX: 400, clientY: 410 });
+    fireEvent.mouseMove(document, { clientX: 350, clientY: 403 });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(popup).toBeInTheDocument();
+    fireEvent.mouseMove(document, { clientX: 349, clientY: 402 });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(popup).toBeInTheDocument();
+    fireEvent.mouseMove(document, { clientX: 100, clientY: 450 });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(popup).not.toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+    referenceBounds.mockRestore();
+    popupBounds.mockRestore();
+  }
 });
