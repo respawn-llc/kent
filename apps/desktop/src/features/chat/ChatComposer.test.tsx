@@ -137,6 +137,7 @@ const accepted: ChatInputMutationResult = {
   outcome: {
     kind: "accepted",
     queueItemID: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
+    disposition: "started_turn",
     diagnostic: null,
   },
 };
@@ -860,6 +861,7 @@ it("restores a failed request but does not restore an accepted input with a diag
       outcome: {
         ...accepted.outcome,
         kind: "accepted",
+        disposition: "started_turn",
         queueItemID: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
         diagnostic: { kind: "prompt_history_failure", operation: null, cause: null },
       },

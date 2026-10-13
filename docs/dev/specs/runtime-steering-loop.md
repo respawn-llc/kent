@@ -68,6 +68,9 @@
 - A validation failure before acceptance creates no Pending Work or Queue Item.
 - A typed domain failure after acceptance completes only that operation and leaves unrelated later mutations accepted.
 - Interactive submission is accepted against one current Active Session Runtime.
+- Accepted Chat Send and Queue must return the input identity and a typed admission disposition: started turn, pending Steer, or pending Queue.
+- The Runtime must determine this disposition at admission, including work already scheduled but not yet executing. The response must not infer it from a later activity read or wait for model output or client transcript hydration.
+- Queue accepted while idle must report a started turn while retaining its explicit Queue intent.
 - If an interactive Chat mutation, including submission, Queue, or manual compaction, targets a Session without an Active Session Runtime, the server prepares and opens one before admission.
 - The server owns Runtime preparation. Clients never activate or release it.
 - If Chat admission definitely accepts no work, Kent releases its preparation attachment through the close-if-idle policy.

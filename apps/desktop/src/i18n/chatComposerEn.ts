@@ -1,4 +1,5 @@
 export const chatComposerEnglish = {
+  awaitingConfirmation: "Awaiting confirmation",
   pasteFailed: "Could not paste from clipboard",
   connectionReplaced: "Provider connection changed",
   connectionReplacedBody: "{{previous}} is unavailable; using {{current}}.",

@@ -489,6 +489,16 @@ func (s *Service) mutateInput(
 	acceptedResult := &chatpb.InputAccepted{
 		QueueItem: &chatpb.QueueItemIdentity{Id: admissionResult.QueueItemID.String()},
 	}
+	switch admissionResult.Disposition {
+	case runtimeinput.InputAdmissionStartedTurn:
+		acceptedResult.Disposition = chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_STARTED_TURN
+	case runtimeinput.InputAdmissionPendingSteer:
+		acceptedResult.Disposition = chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_PENDING_STEER
+	case runtimeinput.InputAdmissionPendingQueue:
+		acceptedResult.Disposition = chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_PENDING_QUEUE
+	default:
+		return nil, fmt.Errorf("accepted Chat %s admission disposition is invalid: %q", operation, admissionResult.Disposition)
+	}
 	switch {
 	case releaseErr != nil:
 		acceptedResult.Diagnostic = acceptedDiagnostic(

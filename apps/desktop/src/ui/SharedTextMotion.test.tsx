@@ -21,7 +21,7 @@ async function layoutSettled() {
   await new Promise(requestAnimationFrame);
 }
 
-it.each([300, 900])("caps a tall-chat handoff at 350ms with a %ims theme duration", async (duration) => {
+it.each([50, 900])("keeps a tall-chat flight at 350ms with a %ims theme duration", async (duration) => {
   document.documentElement.style.setProperty("--motion-text-handoff", `${String(duration)}ms`);
   const motion = new SharedTextMotion();
   const source = textElement(window.innerHeight - 60);
@@ -30,7 +30,9 @@ it.each([300, 900])("caps a tall-chat handoff at 350ms with a %ims theme duratio
   source.remove();
   expect(motion.arrive(["first"], target)).toBe(true);
   expect(target).not.toBeVisible();
-  await new Promise((resolve) => setTimeout(resolve, 380));
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  expect(target).not.toBeVisible();
+  await new Promise((resolve) => setTimeout(resolve, 150));
   expect(target).toBeVisible();
   expect(document.body.children).toHaveLength(1);
   motion.dispose();

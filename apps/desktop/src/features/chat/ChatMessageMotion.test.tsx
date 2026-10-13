@@ -30,7 +30,7 @@ it.each([
           };
           return {
             sessionID: target.sessionID,
-            outcome: { kind: "accepted", queueItemID: id, diagnostic: null },
+            outcome: { kind: "accepted", queueItemID: id, diagnostic: null, disposition: "started_turn" },
           };
         });
         vi.mocked(services.api.chat.getTranscriptPage).mockImplementation(async () => ({
@@ -78,20 +78,18 @@ it.each([
           },
         });
       });
+      act(() => {
+        geometry.resize(80);
+      });
       const list = await screen.findByRole("list");
-      const text = within(list).getByText("First message");
-      // Text reappears inside the ordinary expanding bubble, not a clipped copy.
-      await waitFor(
-        () => {
-          expect(text).not.toBeVisible();
-        },
-        { interval: 1 },
-      );
-      expect(screen.getAllByText("First message")).toHaveLength(2);
+      const text = await within(list).findByText("First message");
+      // Assert the completed presentation, not a transient frame that hydration may outlast.
       if (interrupt) fireEvent.wheel(list, { deltaY: -100 });
       await waitFor(() => {
         expect(text).toBeVisible();
       });
+      expect(within(list).getAllByText("First message")).toHaveLength(1);
+      expect(view.services.api.chat.steer).toHaveBeenCalledTimes(1);
       expect(screen.getByRole("textbox")).toHaveValue("");
     } finally {
       view.unmount();

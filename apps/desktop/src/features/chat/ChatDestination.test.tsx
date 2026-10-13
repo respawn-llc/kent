@@ -152,6 +152,7 @@ it("hides Processes discovery until adoption while rejecting typed activation wi
     sessionID: "created-session",
     outcome: {
       kind: "accepted",
+      disposition: "started_turn",
       queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
@@ -316,6 +317,7 @@ it("keeps the current catalog and ready settings on same-Session prompt success"
     sessionID: selected.sessionID,
     outcome: {
       kind: "accepted",
+      disposition: "started_turn",
       queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
@@ -383,6 +385,7 @@ it("opens an accepted child with new typing and preserves an independently saved
       sessionID: "child-session",
       outcome: {
         kind: "accepted",
+        disposition: "started_turn",
         queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
         diagnostic: null,
       },
@@ -501,6 +504,7 @@ it("applies an existing-Session command's late result against the currently disp
     sessionID,
     outcome: {
       kind: "accepted",
+      disposition: "started_turn",
       queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
@@ -723,6 +727,7 @@ it("adopts accepted Send in place and saves only the visible unsent editor to it
       sessionID: "session-created",
       outcome: {
         kind: "accepted",
+        disposition: "started_turn",
         queueItemID: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
         diagnostic: null,
       },
@@ -898,6 +903,7 @@ it("restores a late creation failure into the Session already adopted by another
       sessionID: "second",
       outcome: {
         kind: "accepted",
+        disposition: "started_turn",
         queueItemID: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
         diagnostic: null,
       },

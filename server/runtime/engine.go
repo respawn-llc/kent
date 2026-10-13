@@ -547,6 +547,7 @@ type QueuedUserMessage struct {
 	ID                    string
 	Message               llm.Message
 	CanonicalPresentation string
+	Disposition           runtimeinput.InputAdmissionDisposition
 }
 
 type QueuedUserInput struct {
@@ -711,9 +712,11 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 	}
 	e.outputMutationMu.Lock()
 	association := queuedUserMessageAssociation{autoStart: autoStart}
+	disposition := runtimeinput.InputAdmissionPendingQueue
 	switch lane {
 	case runtimeinput.PendingWorkLaneQueue:
 	case runtimeinput.PendingWorkLaneSteer:
+		disposition = runtimeinput.InputAdmissionPendingSteer
 		// Pending Work order and delivery order share this admission boundary.
 		association.steerAdmission = e.nextPendingWorkSteerAdmission()
 	default:
@@ -721,7 +724,11 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 		e.lifecycleMu.Unlock()
 		return QueuedUserMessage{}, fmt.Errorf("invalid pending message lane %q", lane)
 	}
+	if autoStart && !e.stepLifecycle.IsBusy() && !e.HasScheduledQueuedUserWork() {
+		disposition = runtimeinput.InputAdmissionStartedTurn
+	}
 	queued, err := e.messageFlow.QueueUserMessageWithID(item, association)
+	queued.Disposition = disposition
 	e.lifecycleMu.Unlock()
 	if err == nil {
 		if association.steerAdmission != nil {

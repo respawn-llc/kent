@@ -205,12 +205,15 @@ export function createComposerDraftViewModel({
     { concurrent: true },
   );
   const retry = Atom.fn(() => Effect.promise(async () => observer.refetch()), { concurrent: true });
+  function handoff(get: Atom.FnContext) {
+    if (get(target)?.kind === "session") return;
+    persistLocal(get(text));
+    get.set(persistence, "destination-owned");
+  }
   const begin = Atom.fn<undefined>()(
     (_, get) =>
       Effect.sync(() => {
-        if (get(target)?.kind === "session") return;
-        persistLocal(get(text));
-        get.set(persistence, "destination-owned");
+        handoff(get);
       }),
     { concurrent: true },
   );
@@ -243,15 +246,15 @@ export function createComposerDraftViewModel({
       }),
     { concurrent: true },
   );
-  const submit = Atom.fn<undefined>()(
-    (_, get) =>
-      Effect.gen(function* () {
-        yield* get.setResult(begin, undefined);
-        get.set(selection, null);
-        get.set(editor, { ...get(value), kind: "editing", text: "" });
-      }),
-    { concurrent: true },
-  );
+  const submit = Atom.fnSync<readonly string[] | undefined>()((restorations, get) => {
+    handoff(get);
+    get.set(selection, null);
+    const text = (restorations ?? []).reduce(
+      (current, incoming) => mergeComposerText(current, incoming, "append"),
+      "",
+    );
+    get.set(editor, { ...get(value), kind: "editing", text });
+  });
   const flush = Atom.fn<undefined>()(
     (_, get) =>
       Effect.gen(function* () {

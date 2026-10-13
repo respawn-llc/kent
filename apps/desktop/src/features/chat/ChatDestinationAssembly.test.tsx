@@ -211,6 +211,7 @@ it("clears submitted text immediately while compaction and steering delivery rem
       sessionID: sessionTarget.sessionID,
       outcome: {
         kind: "accepted",
+        disposition: "pending_steer",
         queueItemID: parsePendingWorkItemID(crypto.randomUUID()),
         diagnostic: null,
       },
@@ -556,6 +557,7 @@ it("preserves focus, selection and continued typing across successive deliveries
     sessionID,
     outcome: {
       kind: "accepted",
+      disposition: "started_turn",
       queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },

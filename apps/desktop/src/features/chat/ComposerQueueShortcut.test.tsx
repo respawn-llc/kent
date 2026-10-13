@@ -25,6 +25,7 @@ it.each([
     sessionID: target.sessionID,
     outcome: {
       kind: "accepted",
+      disposition: "started_turn",
       queueItemID: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
       diagnostic: null,
     },
