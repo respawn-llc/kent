@@ -65,10 +65,7 @@ func SessionRetargetErrorFromProto(failure *sessionretargetpb.SessionRetargetWor
 	default:
 		return fmt.Errorf("Session retarget failed with code %q", failure.Code)
 	}
-	shortID, err := SessionShortIDFromProto(facts.ShortId)
-	if err != nil {
-		return err
-	}
+	shortID := SessionShortIDFromProto(facts.ShortId)
 	result := &serverapi.SessionRetargetError{
 		ShortID: shortID,
 		Reason:  reason, SessionID: facts.SessionId, TargetRoot: facts.TargetRoot,

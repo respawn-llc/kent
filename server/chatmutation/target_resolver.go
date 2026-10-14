@@ -175,9 +175,6 @@ func (r *TargetResolver) Resolve(
 		return ResolvedTarget{}, fmt.Errorf("ordinary Session creation result: %w", err)
 	}
 	captured = serverapi.CanonicalSessionTarget{ID: sessionID}
-	shortID, err := protoapi.SessionShortIDFromProto(response.Plan.ShortId)
-	if err != nil {
-		return ResolvedTarget{}, err
-	}
+	shortID := protoapi.SessionShortIDFromProto(response.Plan.ShortId)
 	return ResolvedTarget{SessionID: sessionID, ShortID: shortID, Created: true}, nil
 }

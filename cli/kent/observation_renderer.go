@@ -20,10 +20,7 @@ func optionalSessionDisplayID(id *string, shortID *int64) (*string, error) {
 		}
 		return nil, nil
 	}
-	identity, err := protoapi.SessionIdentityFromProto(*id, shortID)
-	if err != nil {
-		return nil, err
-	}
+	identity := protoapi.SessionIdentityFromProto(*id, shortID)
 	display := identity.String()
 	return &display, nil
 }
@@ -73,11 +70,7 @@ func writeRunWatchResponse(w io.Writer, stderr io.Writer, response *promptpb.Liv
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	identity, err := protoapi.SessionIdentityFromProto(response.SessionId, response.ShortId)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
+	identity := protoapi.SessionIdentityFromProto(response.SessionId, response.ShortId)
 	var failure *promptpb.LiveWatchFailure
 	code := 1
 	switch outcome := response.Outcome.Outcome.(type) {

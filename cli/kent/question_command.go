@@ -695,10 +695,7 @@ func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessio
 		if err != nil {
 			return nil, err
 		}
-		shortID, err := protoapi.SessionShortIDFromProto(prompt.ShortId)
-		if err != nil {
-			return nil, err
-		}
+		shortID := protoapi.SessionShortIDFromProto(prompt.ShortId)
 		stepID, err := runtimeids.ParseStepID(prompt.StepId)
 		if err != nil {
 			return nil, err

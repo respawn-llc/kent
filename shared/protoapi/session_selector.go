@@ -63,19 +63,12 @@ func SessionTargetErrorFromProto(value *sharedpb.SessionIdentity, cause error) e
 	if err := Validate(value); err != nil {
 		return err
 	}
-	identity, err := SessionIdentityFromProto(value.SessionId, value.ShortId)
-	if err != nil {
-		return err
-	}
+	identity := SessionIdentityFromProto(value.SessionId, value.ShortId)
 	return serverapi.WithSessionTarget(serverapi.ProjectedSessionTarget{Identity: identity}, cause)
 }
 
-func SessionIdentityFromProto(id string, short *int64) (runtimeids.SessionIdentity, error) {
-	shortID, err := SessionShortIDFromProto(short)
-	if err != nil {
-		return runtimeids.SessionIdentity{}, err
-	}
-	return runtimeids.SessionIdentity{ID: runtimeids.SessionIDFromProto(id), ShortID: shortID}, nil
+func SessionIdentityFromProto(id string, short *int64) runtimeids.SessionIdentity {
+	return runtimeids.SessionIdentity{ID: runtimeids.SessionIDFromProto(id), ShortID: SessionShortIDFromProto(short)}
 }
 
 func SessionShortIDToProto(value *runtimeids.SessionShortID) *int64 {
@@ -86,15 +79,12 @@ func SessionShortIDToProto(value *runtimeids.SessionShortID) *int64 {
 	return &number
 }
 
-func SessionShortIDFromProto(value *int64) (*runtimeids.SessionShortID, error) {
+func SessionShortIDFromProto(value *int64) *runtimeids.SessionShortID {
 	if value == nil {
-		return nil, nil
+		return nil
 	}
-	number, err := runtimeids.NewSessionShortID(*value)
-	if err != nil {
-		return nil, err
-	}
-	return &number, nil
+	number := runtimeids.SessionShortIDFromProto(*value)
+	return &number
 }
 
 func SessionSelectorFromProto(value *sharedpb.SessionSelector) (runtimeids.SessionSelector, error) {

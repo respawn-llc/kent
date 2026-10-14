@@ -27,11 +27,7 @@ func (r *runProgressRenderer) PublishRunPromptProgress(progress *runpromptpb.Pro
 	}
 	switch event := progress.GetPayload().(type) {
 	case *runpromptpb.ProgressEvent_SessionStarted:
-		identity, err := protoapi.SessionIdentityFromProto(event.SessionStarted.SessionId, event.SessionStarted.ShortId)
-		if err != nil {
-			fmt.Fprintln(r.stderr, err)
-			return
-		}
+		identity := protoapi.SessionIdentityFromProto(event.SessionStarted.SessionId, event.SessionStarted.ShortId)
 		_, _ = fmt.Fprintf(
 			r.stderr,
 			"Started a new session, `%s run steer %s \"prompt\"` to send messages while it runs\n",

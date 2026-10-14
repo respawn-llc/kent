@@ -204,10 +204,7 @@ func writeTaskDetailWithLabelNames(stdout io.Writer, task *taskpb.TaskDetail, la
 		fmt.Fprintf(stdout, "Worktree: %s\n", *task.WorktreePath)
 	}
 	for _, session := range task.LiveSessions {
-		identity, err := protoapi.SessionIdentityFromProto(session.SessionId, session.ShortId)
-		if err != nil {
-			return err
-		}
+		identity := protoapi.SessionIdentityFromProto(session.SessionId, session.ShortId)
 		fmt.Fprintf(stdout, "Current session: %s\n", identity.String())
 	}
 	fmt.Fprintf(stdout, "Retained sessions: %d\n", task.RetainedSessionCount)

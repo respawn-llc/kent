@@ -118,11 +118,7 @@ func writeTaskSessionsResponse(
 			return 1
 		}
 		humanLabel := taskSessionHumanField(label)
-		identity, err := protoapi.SessionIdentityFromProto(item.SessionId, item.ShortId)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+		identity := protoapi.SessionIdentityFromProto(item.SessionId, item.ShortId)
 		humanSessionID := taskSessionHumanField(identity.String())
 		var writeErr error
 		if label == item.SessionId {

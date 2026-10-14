@@ -284,11 +284,7 @@ func worktreeCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 	}
 	enter := []string{config.Command, "worktree", "enter"}
 	if _, agent := sessionenv.LookupSessionID(os.LookupEnv); !agent {
-		identity, err := protoapi.SessionIdentityFromProto(response.Session.SessionId, response.Session.ShortId)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+		identity := protoapi.SessionIdentityFromProto(response.Session.SessionId, response.Session.ShortId)
 		enter = append(enter, "--session", identity.String())
 	}
 	enter = append(enter, registered.GetGit().GetCanonicalRoot())
@@ -493,11 +489,7 @@ func writeWorktreeDeleteError(stderr io.Writer, err error) {
 		if session.Name != nil {
 			name = *session.Name
 		}
-		identity, err := protoapi.SessionIdentityFromProto(session.SessionId, session.ShortId)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return
-		}
+		identity := protoapi.SessionIdentityFromProto(session.SessionId, session.ShortId)
 		fmt.Fprintf(stderr, "- %s (%s)\n", name, identity.String())
 	}
 	if details.HasMore {

@@ -116,10 +116,7 @@ func sessionAgentAuthorID(ctx context.Context, remote apicontract.SessionViewSer
 	if sessionName := strings.TrimSpace(resp.MainView.Session.GetSessionName()); sessionName != "" {
 		return fmt.Sprintf("Session %s agent", sessionName), nil
 	}
-	identity, err := protoapi.SessionIdentityFromProto(resp.MainView.Session.SessionId, resp.MainView.Session.ShortId)
-	if err != nil {
-		return "", err
-	}
+	identity := protoapi.SessionIdentityFromProto(resp.MainView.Session.SessionId, resp.MainView.Session.ShortId)
 	return fmt.Sprintf("Session %s agent", identity.String()), nil
 }
 
