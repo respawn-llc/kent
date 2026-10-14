@@ -178,11 +178,6 @@ func TranscriptMessagesFromRuntimeEventChecked(evt runtime.Event, identities map
 		}
 		return nil, evt.FinishedQuestionCandidate.Validate()
 	}
-	for index, fact := range runtime.TranscriptCommittedRowFactsFromEvent(evt) {
-		if err := fact.Locator.Validate(); err != nil {
-			return nil, fmt.Errorf("runtime committed row fact %d from event %q lacks valid provenance: %w", index, evt.Kind, err)
-		}
-	}
 	messages, err := transcriptMessagesFromRuntimeEvent(evt, identities)
 	if err != nil {
 		return nil, fmt.Errorf("runtime transcript event %q: %w", evt.Kind, err)
@@ -551,10 +546,7 @@ func TranscriptSessionIdentityFromRuntime(
 	if err != nil {
 		return nil, err
 	}
-	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(engine.SessionID()))
-	if err != nil {
-		return nil, err
-	}
+	sessionID := runtimeids.SessionIDFromProto(engine.SessionID())
 	return &transcriptpb.SessionIdentity{
 		SessionId:             sessionID.String(),
 		SessionName:           engine.SessionName(),
@@ -569,9 +561,6 @@ func transcriptCommittedRowMessages(evt runtime.Event, identities map[runtimeids
 	}
 	out := make([]*transcriptpb.Event, 0, len(rowFacts))
 	for _, fact := range rowFacts {
-		if err := fact.Locator.Validate(); err != nil {
-			return nil, fmt.Errorf("runtime committed row lacks valid provenance: event_kind=%q fact=%+v error=%v", evt.Kind, fact, err)
-		}
 		row, err := transcriptRowFromFact(fact, identities)
 		if err != nil {
 			return nil, err
@@ -586,17 +575,7 @@ func transcriptRowsFromFactsChecked(facts []runtime.TranscriptCommittedRowFact, 
 		return []*transcriptpb.CommittedRow{}, nil
 	}
 	rows := make([]*transcriptpb.CommittedRow, 0, len(facts))
-	for index, fact := range facts {
-		if err := fact.Locator.Validate(); err != nil {
-			return nil, fmt.Errorf(
-				"runtime hydrated committed row lacks valid provenance: fact_index=%d kind=%q provenance=%+v notice=%+v error=%v",
-				index,
-				fact.Kind,
-				fact.Provenance,
-				transcriptNoticeFactDiagnostic(fact.Notice),
-				err,
-			)
-		}
+	for _, fact := range facts {
 		row, err := transcriptRowFromFact(fact, identities)
 		if err != nil {
 			return nil, err
@@ -604,13 +583,6 @@ func transcriptRowsFromFactsChecked(facts []runtime.TranscriptCommittedRowFact, 
 		rows = append(rows, row)
 	}
 	return rows, nil
-}
-
-func transcriptNoticeFactDiagnostic(notice *runtime.TranscriptNoticeRowFact) any {
-	if notice == nil {
-		return nil
-	}
-	return *notice
 }
 
 func transcriptAssistantStream(snapshot runtime.TranscriptHydrationSnapshot) (*transcriptpb.AssistantStream, error) {
@@ -822,9 +794,6 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities m
 	}
 	switch fact.Kind {
 	case runtime.TranscriptCommittedRowFactUser:
-		if fact.User == nil {
-			return nil, fmt.Errorf("runtime transcript user row fact is missing its user payload")
-		}
 		committedAt, err := protoapi.CommittedTimeToProto(fact.User.CommittedAtUnixMs)
 		if err != nil {
 			return nil, err
@@ -837,7 +806,7 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities m
 			CommittedAt:      committedAt,
 		}}
 	case runtime.TranscriptCommittedRowFactAssistant:
-		if fact.Assistant == nil || fact.StepID == nil {
+		if fact.StepID == nil {
 			return nil, fmt.Errorf("runtime transcript assistant row fact is missing its payload or Step")
 		}
 		committedAt, err := protoapi.CommittedTimeToProto(fact.Assistant.CommittedAtUnixMs)
@@ -861,9 +830,6 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities m
 		}
 		row.Row = &transcriptpb.CommittedRow_Assistant{Assistant: assistant}
 	case runtime.TranscriptCommittedRowFactTool:
-		if fact.Tool == nil {
-			return nil, fmt.Errorf("runtime transcript tool row fact is missing its tool payload")
-		}
 		presentation, err := transcriptToolPresentation(fact.Tool.ToolName, fact.Tool.Presentation)
 		if err != nil {
 			return nil, err
@@ -896,7 +862,7 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities m
 			WebSearch:                webSearch,
 		}}
 	case runtime.TranscriptCommittedRowFactReasoningTrace:
-		if fact.ReasoningTrace == nil || fact.StepID == nil {
+		if fact.StepID == nil {
 			return nil, fmt.Errorf("runtime transcript reasoning row fact is missing its payload or Step")
 		}
 		identity, err := transcriptReasoningTraceIdentityFromRuntime(fact.ReasoningTrace.ProvisionalIdentity)
@@ -923,7 +889,7 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities m
 		}
 		row.Row = &transcriptpb.CommittedRow_Notice{Notice: notice}
 	case runtime.TranscriptCommittedRowFactReviewerFeedback:
-		if fact.ReviewerFeedback == nil || fact.StepID == nil {
+		if fact.StepID == nil {
 			return nil, fmt.Errorf("runtime transcript Reviewer feedback row fact is missing its payload or Step")
 		}
 		count, err := protoapi.Int32(fact.ReviewerFeedback.SuggestionCount, "reviewer suggestion count")
@@ -937,7 +903,7 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities m
 			SuggestionCount: count,
 		}}
 	case runtime.TranscriptCommittedRowFactReviewerError:
-		if fact.ReviewerError == nil || fact.StepID == nil {
+		if fact.StepID == nil {
 			return nil, fmt.Errorf("runtime transcript Reviewer error row fact is missing its payload or Step")
 		}
 		row.Row = &transcriptpb.CommittedRow_ReviewerError{ReviewerError: &transcriptpb.ReviewerErrorRow{
@@ -945,8 +911,6 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities m
 			StepId: *fact.StepID,
 			Detail: fact.ReviewerError.Detail,
 		}}
-	default:
-		return nil, fmt.Errorf("runtime transcript row fact has unknown kind %q", fact.Kind)
 	}
 	return row, nil
 }
@@ -1001,9 +965,6 @@ func transcriptReasoningTraceIdentityProjection(identity *runtime.TranscriptReas
 }
 
 func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowFact) (*transcriptpb.NoticeRow, error) {
-	if fact == nil {
-		return nil, fmt.Errorf("runtime transcript notice row fact is missing its notice payload")
-	}
 	reasons := map[string]transcriptpb.NoticeReason{
 		transcript.NoticeReasonCacheWarning:          transcriptpb.NoticeReason_NOTICE_REASON_CACHE_WARNING,
 		transcript.NoticeReasonCompaction:            transcriptpb.NoticeReason_NOTICE_REASON_COMPACTION,

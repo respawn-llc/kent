@@ -467,9 +467,6 @@ func transcriptCommittedRowFactFromChatEntryUnlocated(entry ChatEntry) (Transcri
 		if strings.TrimSpace(text) == "" {
 			text = firstNonBlankTranscriptValue(entry.CondensedText, entry.CompactLabel)
 		}
-		if entry.RollbackTargetID != nil && strings.TrimSpace(*entry.RollbackTargetID) == "" {
-			panic("transcript user entry has a present but empty rollback target id")
-		}
 		return TranscriptCommittedRowFact{
 			StepID: entry.StepID,
 			Kind:   TranscriptCommittedRowFactUser,

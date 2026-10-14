@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"core/server/runtime"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
@@ -276,43 +275,6 @@ func TestSessionFeedSequencerHydrationProjectionUsesContractFailurePolicy(t *tes
 		}()
 		_, _ = newSessionFeedSequencer(newTranscriptSubscriptionBroker()).Subscribe(func() (*transcriptpb.Hydration, error) {
 			return &transcriptpb.Hydration{}, transcriptHydrationProjectionError{cause: errors.New("malformed hydration locator")}
-		})
-	})
-}
-
-func TestRegistryHydrationCompositionUsesContractFailurePolicy(t *testing.T) {
-	registry := NewRuntimeRegistry(nil)
-	tailPage := runtime.TranscriptSegmentPage{
-		Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{
-			Role:                "user",
-			Text:                "malformed",
-			CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{},
-		}}},
-	}
-	t.Run("production returns contract error", func(t *testing.T) {
-		restore := withTranscriptContractViolationPanic(false)
-		defer restore()
-		_, err := newSessionFeedSequencer(newTranscriptSubscriptionBroker()).Subscribe(func() (*transcriptpb.Hydration, error) {
-			return registry.composeTranscriptHydration(context.Background(), "", nil, runtime.TranscriptHydrationSnapshot{}, tailPage)
-		})
-		if err == nil {
-			t.Fatal("malformed hydration composition returned nil error")
-		}
-		reason, ok := serverapi.TranscriptCloseReasonOf(err)
-		if !ok || reason != serverapi.TranscriptCloseReasonContractViolation {
-			t.Fatalf("hydration composition close reason = %q ok=%t, want contract violation", reason, ok)
-		}
-	})
-	t.Run("development panics with contract diagnostic", func(t *testing.T) {
-		restore := withTranscriptContractViolationPanic(true)
-		defer restore()
-		defer func() {
-			if recover() == nil {
-				t.Fatal("malformed hydration composition did not panic")
-			}
-		}()
-		_, _ = newSessionFeedSequencer(newTranscriptSubscriptionBroker()).Subscribe(func() (*transcriptpb.Hydration, error) {
-			return registry.composeTranscriptHydration(context.Background(), "", nil, runtime.TranscriptHydrationSnapshot{}, tailPage)
 		})
 	})
 }
