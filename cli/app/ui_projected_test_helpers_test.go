@@ -141,6 +141,9 @@ func newRecordingPromptControl() *recordingPromptControl {
 }
 
 func (c *recordingPromptControl) AnswerPromptBatch(_ context.Context, request *promptpb.AnswerBatchRequest) (*promptpb.AnswerBatchSuccess, error) {
+	if err := protoapi.Validate(request); err != nil {
+		return nil, err
+	}
 	c.batchRequests <- request
 	return resolvedPromptBatchResponse(request), nil
 }
