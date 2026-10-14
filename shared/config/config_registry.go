@@ -127,7 +127,6 @@ type subagentRoleApplicableSetting interface {
 type subagentRoleValueSetting interface {
 	subagentRoleKey() string
 	applySubagentRoleValue(*settingsState, settingsState)
-	subagentRoleValueDiffers(settingsState, settingsState) bool
 }
 
 type rootOnlySetting[T any] struct {
@@ -164,10 +163,6 @@ func (s scalarSetting[T]) applySubagentRoleValue(target *settingsState, role set
 	s.apply(target, s.get(role))
 }
 
-func (s scalarSetting[T]) subagentRoleValueDiffers(base settingsState, role settingsState) bool {
-	return !s.equal(s.get(base), s.get(role))
-}
-
 func (s optionalStringSetting) subagentRoleKey() string {
 	return s.key
 }
@@ -179,15 +174,6 @@ func (s optionalStringSetting) applySubagentRoleValue(target *settingsState, rol
 		value = &copied
 	}
 	s.apply(target, value)
-}
-
-func (s optionalStringSetting) subagentRoleValueDiffers(base settingsState, role settingsState) bool {
-	left := s.get(base)
-	right := s.get(role)
-	if left == nil || right == nil {
-		return left != right
-	}
-	return strings.TrimSpace(*left) != strings.TrimSpace(*right)
 }
 
 type clientSettingDefinitions struct {

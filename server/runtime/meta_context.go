@@ -453,7 +453,7 @@ func (b metaContextBuilder) renderableSubagentRoles(context config.SubagentInvoc
 	for _, name := range names {
 		role := settings.Subagents[name]
 		caller := b.subagentCaller(context)
-		if subagentpolicy.Authorize(settings, caller, subagentpolicy.Target{Kind: subagentpolicy.TargetNamed, Selector: name}) != nil || !config.SubagentRoleHasMeaningfulDiff(settings, role) {
+		if subagentpolicy.Authorize(settings, caller, subagentpolicy.Target{Kind: subagentpolicy.TargetNamed, Selector: name}) != nil {
 			continue
 		}
 		effective, _, err := config.OverlaySubagentRoleSettings(b.subagentConfig, role, true)
