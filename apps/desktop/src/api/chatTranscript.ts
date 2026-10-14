@@ -134,7 +134,7 @@ function background(value: T.BackgroundActivity): Payloads["background_activity"
   };
 }
 
-function prompt(value: T.Prompt): Payloads["prompt"] {
+function prompt(value: T.PromptValid): Payloads["prompt"] {
   const branch = value.prompt;
   if (branch.case === undefined) throw new ContractError("Transcript prompt is missing.");
   if (value.status === T.PromptStatus.RESOLVED) {

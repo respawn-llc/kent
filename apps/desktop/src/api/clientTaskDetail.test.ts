@@ -22,7 +22,7 @@ describe("ApiClient Task Activity pagination", () => {
                   updatedAt: { seconds: 0n, nanos: 2_000_000 },
                   activity: {
                     case: "sessionStarted",
-                    value: { sessionId: "session-1", name: "Implementation" },
+                    value: { sessionId: "11111111-1111-4111-8111-111111111111", name: "Implementation" },
                   },
                 },
               ],
@@ -35,7 +35,7 @@ describe("ApiClient Task Activity pagination", () => {
     const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(client.listTaskActivity("task-1", 0)).resolves.toMatchObject({
-      items: [{ id: "activity-1", sessionID: "session-1" }],
+      items: [{ id: "activity-1", sessionID: "11111111-1111-4111-8111-111111111111" }],
       nextOffset: 50,
     });
     expect(transport.descriptorCalls).toContainEqual({
@@ -59,7 +59,7 @@ describe("ApiClient Task Activity pagination", () => {
                     updatedAt: { seconds: 0n, nanos: 2_000_000 },
                     activity: {
                       case: "sessionStarted",
-                      value: { sessionId: "session-1", name: "Implementation" },
+                      value: { sessionId: "11111111-1111-4111-8111-111111111111", name: "Implementation" },
                     },
                   },
                 ],

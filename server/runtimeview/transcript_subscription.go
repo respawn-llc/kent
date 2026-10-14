@@ -1,7 +1,6 @@
 package runtimeview
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -170,13 +169,7 @@ func transcriptToolStartsFromRuntime(starts []runtime.TranscriptLiveToolStart) (
 
 func TranscriptMessagesFromRuntimeEventChecked(evt runtime.Event, identities map[runtimeids.SessionID]runtimeids.SessionIdentity) ([]*transcriptpb.Event, error) {
 	if evt.Kind == runtime.EventQuestionCandidateFinished {
-		if evt.StepID == nil || evt.FinishedQuestionCandidate == nil {
-			return nil, errors.New("finished Question candidate has no Step or tool call identity")
-		}
-		if _, err := runtimeids.ParseStepID(*evt.StepID); err != nil {
-			return nil, err
-		}
-		return nil, evt.FinishedQuestionCandidate.Validate()
+		return nil, nil
 	}
 	messages, err := transcriptMessagesFromRuntimeEvent(evt, identities)
 	if err != nil {
@@ -211,10 +204,7 @@ func transcriptMessagesFromRuntimeEvent(evt runtime.Event, identities map[runtim
 		if err != nil {
 			return nil, err
 		}
-		abortReason, err := transcriptAssistantAbortReason(reason)
-		if err != nil {
-			return nil, err
-		}
+		abortReason := transcriptAssistantAbortReason(reason)
 		abort := &transcriptpb.AssistantStreamAbort{
 			StepId: stepID, StreamId: evt.AssistantTranscriptStreamID.String(), Reason: abortReason,
 		}
@@ -285,9 +275,6 @@ func transcriptMessagesFromRuntimeEvent(evt runtime.Event, identities map[runtim
 	case runtime.EventLiveRunFinished:
 		return transcriptLiveRunFinishedMessages(evt)
 	case runtime.EventConnectionReplaced:
-		if evt.ConnectionReplacement == nil {
-			return nil, errors.New("connection replacement event has no binding change")
-		}
 		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_ConnectionReplaced{ConnectionReplaced: transcriptConnectionReplacement(evt.ConnectionReplacement)}}}, nil
 	case runtime.EventSleepGuardFailed,
 		runtime.EventPromptHistoryPersistFailed,
@@ -333,16 +320,12 @@ func transcriptLiveRunFinishedMessages(evt runtime.Event) ([]*transcriptpb.Event
 		projected.Status = transcriptpb.LiveRunStatus_LIVE_RUN_STATUS_INTERRUPTED
 	case runtime.RunStatusFailed:
 		projected.Status = transcriptpb.LiveRunStatus_LIVE_RUN_STATUS_FAILED
-	default:
-		return nil, fmt.Errorf("unknown live run status %q", result.Status)
 	}
 	switch result.ResultKind {
 	case runtime.LiveRunResultAssistantFinalAnswer:
 		projected.ResultKind = transcriptpb.LiveRunResultKind_LIVE_RUN_RESULT_KIND_ASSISTANT_FINAL_ANSWER
 	case runtime.LiveRunResultNoFinalAnswer:
 		projected.ResultKind = transcriptpb.LiveRunResultKind_LIVE_RUN_RESULT_KIND_NO_FINAL_ANSWER
-	default:
-		return nil, fmt.Errorf("unknown live run result kind %q", result.ResultKind)
 	}
 	if result.ResultKind == runtime.LiveRunResultAssistantFinalAnswer {
 		if result.AssistantMessage.Content != nil {
@@ -628,17 +611,12 @@ func transcriptToolStartMessages(starts []runtime.TranscriptLiveToolStart) ([]*t
 }
 
 func transcriptToolAbortMessages(evt runtime.Event) ([]*transcriptpb.Event, error) {
-	if evt.ToolCall == nil {
-		return nil, fmt.Errorf("runtime tool abort is missing its tool call identity")
-	}
 	var reason transcriptpb.ToolAbortReason
 	switch strings.TrimSpace(evt.ToolAbortReason) {
 	case "", "interrupted", "canceled":
 		reason = transcriptpb.ToolAbortReason_TOOL_ABORT_REASON_CANCELED
 	case "failed":
 		reason = transcriptpb.ToolAbortReason_TOOL_ABORT_REASON_FAILED
-	default:
-		return nil, fmt.Errorf("unknown tool abort reason %q", evt.ToolAbortReason)
 	}
 	stepID, err := transcriptRequiredStepID(evt.StepID)
 	if err != nil {
@@ -672,18 +650,13 @@ func transcriptQueuedMessageStateMessages(evt runtime.Event) ([]*transcriptpb.Ev
 		state.Text = textutil.OptionalTrimmedString(status.Text)
 	case runtime.QueuedUserMessageFailed:
 		state.Status = transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_FAILED
-		reason, err := transcriptQueuedFailureReason(status.FailureReason)
-		if err != nil {
-			return nil, err
-		}
+		reason := transcriptQueuedFailureReason(status.FailureReason)
 		state.FailureReason = &reason
 		state.Text = textutil.OptionalTrimmedString(status.Text)
 	case runtime.QueuedUserMessageSubmitted:
 		state.Status = transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_SUBMITTED
 	case runtime.QueuedUserMessageDiscarded:
 		state.Status = transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_DISCARDED
-	default:
-		return nil, fmt.Errorf("runtime queued-message event has unknown status %q", status.Status)
 	}
 	return []*transcriptpb.Event{{Payload: &transcriptpb.Event_QueuedMessageState{QueuedMessageState: state}}}, nil
 }
@@ -705,11 +678,6 @@ func transcriptHumanInputInterruptedMessages(evt runtime.Event) ([]*transcriptpb
 func transcriptUserMessageFlushedMessages(evt runtime.Event) ([]*transcriptpb.Event, error) {
 	if len(evt.UserMessageBatchQueuedItems) == 0 {
 		return nil, nil
-	}
-	for index, item := range evt.UserMessageBatchQueuedItems {
-		if _, err := runtimeids.ParseQueueItemID(strings.TrimSpace(item.QueueItemID)); err != nil {
-			return nil, fmt.Errorf("flushed queued message %d: %w", index, err)
-		}
 	}
 	flushed := &transcriptpb.UserMessageFlushed{
 		StepId: textutil.Pointer(evt.StepID),
@@ -743,16 +711,12 @@ func transcriptStepStateMessages(evt runtime.Event) ([]*transcriptpb.Event, erro
 		state.Status = transcriptpb.RunStatus_RUN_STATUS_INTERRUPTED
 	case runtime.RunStatusFailed:
 		state.Status = transcriptpb.RunStatus_RUN_STATUS_FAILED
-	default:
-		return nil, fmt.Errorf("unknown run status %q", evt.RunState.Status)
 	}
 	switch evt.RunState.Lifecycle.Phase {
 	case runtime.RunLifecycleRunning:
 		state.Lifecycle = transcriptpb.StepLifecycle_STEP_LIFECYCLE_STARTED
 	case runtime.RunLifecycleFinished:
 		state.Lifecycle = transcriptpb.StepLifecycle_STEP_LIFECYCLE_FINISHED
-	default:
-		return nil, fmt.Errorf("runtime run state has unknown lifecycle phase %q", evt.RunState.Lifecycle.Phase)
 	}
 	return []*transcriptpb.Event{{Payload: &transcriptpb.Event_StepState{StepState: state}}}, nil
 }
@@ -768,8 +732,6 @@ func transcriptOperationalDiagnosticMessages(evt runtime.Event) ([]*transcriptpb
 		diagnostic.Code = transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_CONTEXT_FACTS_PERSIST_FAILED
 	case runtime.EventInFlightClearFailed:
 		diagnostic.Code = transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_IN_FLIGHT_CLEAR_FAILED
-	default:
-		return nil, fmt.Errorf("runtime event %q is not an operational diagnostic", evt.Kind)
 	}
 	return []*transcriptpb.Event{{Payload: &transcriptpb.Event_OperationalDiagnostic{OperationalDiagnostic: diagnostic}}}, nil
 }
@@ -975,19 +937,13 @@ func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowF
 		transcript.NoticeReasonThinkingUpdate:        transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE,
 		transcript.NoticeReasonReasoningOmission:     transcriptpb.NoticeReason_NOTICE_REASON_REASONING_OMISSION,
 	}
-	reason, ok := reasons[strings.TrimSpace(fact.Reason)]
-	if !ok {
-		return nil, fmt.Errorf("invalid notice reason %q", fact.Reason)
-	}
+	reason := reasons[strings.TrimSpace(fact.Reason)]
 	severities := map[string]transcriptpb.NoticeSeverity{
 		transcript.NoticeSeverityInfo:    transcriptpb.NoticeSeverity_NOTICE_SEVERITY_INFO,
 		transcript.NoticeSeverityWarning: transcriptpb.NoticeSeverity_NOTICE_SEVERITY_WARNING,
 		transcript.NoticeSeverityError:   transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR,
 	}
-	severity, ok := severities[strings.TrimSpace(fact.Severity)]
-	if !ok {
-		return nil, fmt.Errorf("invalid notice severity %q", fact.Severity)
-	}
+	severity := severities[strings.TrimSpace(fact.Severity)]
 	worktree, err := transcriptWorktreeContext(fact.MessageType, fact.WorktreeContext)
 	if err != nil {
 		return nil, err
@@ -1066,14 +1022,6 @@ func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowF
 	diagnosticCode := strings.TrimSpace(fact.DiagnosticCode)
 	diagnosticDetail := fact.DiagnosticDetail
 	if diagnosticCode != "" || strings.TrimSpace(diagnosticDetail) != "" {
-		if diagnosticCode == "" || strings.TrimSpace(diagnosticDetail) == "" {
-			return nil, fmt.Errorf(
-				"runtime transcript notice has partial diagnostic facts: code=%q detail_present=%t reason=%q",
-				diagnosticCode,
-				diagnosticDetail != "",
-				fact.Reason,
-			)
-		}
 		notice.Diagnostic = &transcriptpb.Diagnostic{
 			Code:   diagnosticCode,
 			Detail: diagnosticDetail,
@@ -1082,13 +1030,6 @@ func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowF
 	activityID := strings.TrimSpace(fact.BackgroundActivityID)
 	processID := strings.TrimSpace(fact.BackgroundProcessID)
 	if activityID != "" || processID != "" {
-		if activityID == "" || processID == "" {
-			return nil, fmt.Errorf(
-				"runtime transcript background notice has partial identity: activity_id=%q process_id=%q",
-				activityID,
-				processID,
-			)
-		}
 		notice.Background = &transcriptpb.BackgroundNoticeIdentity{
 			ActivityId: activityID,
 			ProcessId:  processID,
@@ -1129,17 +1070,13 @@ func transcriptWorktreeContext(messageType llm.MessageType, context *session.Wor
 	}, nil
 }
 
-func transcriptAssistantAbortReason(reason string) (transcriptpb.AssistantAbortReason, error) {
-	switch strings.TrimSpace(reason) {
-	case string(runtime.AssistantStreamAbortSuperseded):
-		return transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_SUPERSEDED, nil
-	case "interrupted", "canceled":
-		return transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_INTERRUPTED, nil
-	case "failed":
-		return transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_FAILED, nil
-	default:
-		return transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_UNSPECIFIED, fmt.Errorf("runtime assistant stream abort has unknown reason %q", reason)
-	}
+func transcriptAssistantAbortReason(reason string) transcriptpb.AssistantAbortReason {
+	return map[string]transcriptpb.AssistantAbortReason{
+		string(runtime.AssistantStreamAbortSuperseded): transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_SUPERSEDED,
+		"interrupted": transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_INTERRUPTED,
+		"canceled":    transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_INTERRUPTED,
+		"failed":      transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_FAILED,
+	}[strings.TrimSpace(reason)]
 }
 
 func optionalNonBlankString(value string) *string {
