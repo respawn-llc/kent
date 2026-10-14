@@ -17,9 +17,6 @@ import (
 )
 
 func SessionPlanErrorFromProto(failure *sessionlaunchpb.SessionPlanError) error {
-	if err := Validate(failure); err != nil {
-		return err
-	}
 	switch detail := failure.Detail.(type) {
 	case *sessionlaunchpb.SessionPlanError_WorkspaceNotRegistered:
 		return serverapi.ErrWorkspaceNotRegistered
@@ -117,9 +114,6 @@ func SessionPlanErrorToProto(
 }
 
 func SubagentLaunchDeniedFromProto(details *sessionlaunchpb.SubagentLaunchDeniedDetails) error {
-	if err := Validate(details); err != nil {
-		return err
-	}
 	kind, err := subagentLaunchDenialKindFromProto(details.Kind)
 	if err != nil {
 		return err
@@ -147,33 +141,24 @@ func SessionLaunchIntentToProto(intent serverapi.SessionLaunchIntent) (*sessionl
 	message := &sessionlaunchpb.SessionLaunchIntent{}
 	switch intent.Kind() {
 	case serverapi.SessionLaunchIntentCreateNew:
-		origin, present := intent.CreateOrigin()
-		if !present {
-			return nil, errors.New("session launch create origin is required")
-		}
+		origin, _ := intent.CreateOrigin()
 		converted, err := sessionCreateOriginToProto(origin)
 		if err != nil {
 			return nil, err
 		}
 		message.Intent = &sessionlaunchpb.SessionLaunchIntent_CreateNew{CreateNew: converted}
 	case serverapi.SessionLaunchIntentOpenExisting:
-		sessionID, present := intent.SessionID()
-		if !present {
-			return nil, errors.New("open-existing session id is required")
-		}
+		sessionID, _ := intent.SessionID()
 		message.Intent = &sessionlaunchpb.SessionLaunchIntent_OpenExistingSessionId{
 			OpenExistingSessionId: sessionID.String(),
 		}
 	default:
 		return nil, fmt.Errorf("session launch intent kind %q is unsupported", intent.Kind())
 	}
-	return message, Validate(message)
+	return message, nil
 }
 
 func SessionLaunchIntentFromProto(message *sessionlaunchpb.SessionLaunchIntent) (serverapi.SessionLaunchIntent, error) {
-	if message == nil {
-		return serverapi.SessionLaunchIntent{}, errors.New("generated Session launch intent is required")
-	}
 	switch intent := message.Intent.(type) {
 	case *sessionlaunchpb.SessionLaunchIntent_CreateNew:
 		origin, err := sessionCreateOriginFromProto(intent.CreateNew)
@@ -195,10 +180,7 @@ func sessionCreateOriginToProto(origin serverapi.SessionCreateOrigin) (*sessionl
 	case serverapi.SessionCreateOriginIndependent:
 		message.Origin = &sessionlaunchpb.SessionCreateOrigin_Independent{Independent: &emptypb.Empty{}}
 	case serverapi.SessionCreateOriginPreviousSession, serverapi.SessionCreateOriginParentAgent:
-		sessionID, present := origin.SessionID()
-		if !present {
-			return nil, fmt.Errorf("%s session create origin id is required", origin.Kind())
-		}
+		sessionID, _ := origin.SessionID()
 		if origin.Kind() == serverapi.SessionCreateOriginPreviousSession {
 			message.Origin = &sessionlaunchpb.SessionCreateOrigin_PreviousSessionId{PreviousSessionId: sessionID.String()}
 		} else {
@@ -207,7 +189,7 @@ func sessionCreateOriginToProto(origin serverapi.SessionCreateOrigin) (*sessionl
 	default:
 		return nil, fmt.Errorf("session create origin kind %q is unsupported", origin.Kind())
 	}
-	return message, Validate(message)
+	return message, nil
 }
 
 func sessionCreateOriginFromProto(message *sessionlaunchpb.SessionCreateOrigin) (serverapi.SessionCreateOrigin, error) {
@@ -241,7 +223,7 @@ func RunPromptOverridesToProto(overrides serverapi.RunPromptOverrides) (*session
 		}
 		message.ModelTimeoutSeconds = &value
 	}
-	return message, Validate(message)
+	return message, nil
 }
 
 func RunPromptOverridesFromProto(message *sessionlaunchpb.RunPromptOverrides) (serverapi.RunPromptOverrides, error) {
@@ -274,9 +256,6 @@ func SessionRuntimeAgentSelectionFromProto(
 ) (*serverapi.SessionRuntimeAgentSelection, error) {
 	if message == nil {
 		return nil, nil
-	}
-	if err := Validate(message); err != nil {
-		return nil, err
 	}
 	return &serverapi.SessionRuntimeAgentSelection{
 		AgentRole: clonePointer(message.AgentRole),

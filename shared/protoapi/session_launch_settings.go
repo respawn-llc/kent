@@ -163,7 +163,7 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 		}
 		message.Workflow.PreCompactionTokens = &value
 	}
-	return message, Validate(message)
+	return message, nil
 }
 
 func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Settings, error) {
@@ -203,10 +203,7 @@ func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Setting
 	if err != nil {
 		return config.Settings{}, err
 	}
-	skillToggles, err := booleanFactsFromProto(message.SkillToggles)
-	if err != nil {
-		return config.Settings{}, err
-	}
+	skillToggles := booleanFactsFromProto(message.SkillToggles)
 	subagents, err := subagentRolesFromProto(message.Subagents)
 	if err != nil {
 		return config.Settings{}, err
@@ -215,10 +212,7 @@ func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Setting
 	if err != nil {
 		return config.Settings{}, err
 	}
-	connection, err := connectionIDFromProto(message.Connection)
-	if err != nil {
-		return config.Settings{}, err
-	}
+	connection := connectionIDFromProto(message.Connection)
 	settings := config.Settings{
 		Connection:                       connection,
 		Model:                            message.Model,
@@ -309,10 +303,7 @@ func reviewerSettingsFromProto(message *sessionlaunchpb.ReviewerSettings) (confi
 	if err != nil {
 		return config.ReviewerSettings{}, err
 	}
-	connection, err := connectionIDFromProto(message.Connection)
-	if err != nil {
-		return config.ReviewerSettings{}, err
-	}
+	connection := connectionIDFromProto(message.Connection)
 	return config.ReviewerSettings{
 		Frequency: message.Frequency, Model: message.Model, ThinkingLevel: message.ThinkingLevel,
 		ModelVerbosity: verbosity, Connection: connection,
@@ -335,15 +326,12 @@ func connectionIDToProto(selection *config.ConnectionSelection) (*string, error)
 	return &value, nil
 }
 
-func connectionIDFromProto(raw *string) (*config.ConnectionSelection, error) {
+func connectionIDFromProto(raw *string) *config.ConnectionSelection {
 	if raw == nil {
-		return nil, nil
+		return nil
 	}
-	id, err := config.ParseConnectionID(*raw)
-	if err != nil {
-		return nil, err
-	}
-	return config.SingleConnection(id), nil
+	id := config.ConnectionID(*raw)
+	return config.SingleConnection(id)
 }
 
 func modelCapabilitiesToProto(value config.ModelCapabilitiesOverride) *sessionlaunchpb.ModelCapabilitiesOverride {
@@ -430,9 +418,6 @@ func enabledToolFactsFromProto(values []*sessionlaunchpb.ToolEnabledFact) (map[t
 		if err != nil {
 			return nil, err
 		}
-		if _, exists := result[toolID]; exists {
-			return nil, fmt.Errorf("duplicate enabled tool fact %q", toolID)
-		}
 		result[toolID] = value.Enabled
 	}
 	return result, nil
@@ -447,15 +432,12 @@ func booleanFactsToProto(values map[string]bool) []*sessionlaunchpb.BooleanFact 
 	return result
 }
 
-func booleanFactsFromProto(values []*sessionlaunchpb.BooleanFact) (map[string]bool, error) {
+func booleanFactsFromProto(values []*sessionlaunchpb.BooleanFact) map[string]bool {
 	result := make(map[string]bool, len(values))
 	for _, value := range values {
-		if _, exists := result[value.Key]; exists {
-			return nil, fmt.Errorf("duplicate boolean fact %q", value.Key)
-		}
 		result[value.Key] = value.Value
 	}
-	return result, nil
+	return result
 }
 
 func subagentRolesToProto(base config.Settings) ([]*sessionlaunchpb.NamedSubagentRole, error) {
@@ -490,15 +472,9 @@ func subagentRolesToProto(base config.Settings) ([]*sessionlaunchpb.NamedSubagen
 func subagentRolesFromProto(values []*sessionlaunchpb.NamedSubagentRole) (map[string]config.SubagentRole, error) {
 	result := make(map[string]config.SubagentRole, len(values))
 	for _, value := range values {
-		if _, exists := result[value.Name]; exists {
-			return nil, fmt.Errorf("duplicate subagent role %q", value.Name)
-		}
 		settings, err := SessionSettingsFromProto(value.Role.Settings)
 		if err != nil {
 			return nil, fmt.Errorf("subagent %q settings: %w", value.Name, err)
-		}
-		if settings.Connection != nil {
-			return nil, fmt.Errorf("subagent %q must use its configured connection selection", value.Name)
 		}
 		settings.Connection, err = ConnectionSelectionFromProto(value.Role.ConnectionSelection)
 		if err != nil {
@@ -535,7 +511,7 @@ func SessionSourceReportToProto(source config.SourceReport) (*sessionlaunchpb.So
 			Exists: file.Exists, Enabled: file.Enabled, Applied: file.Applied,
 		})
 	}
-	return message, Validate(message)
+	return message, nil
 }
 
 func SessionSourceReportFromProto(message *sessionlaunchpb.SourceReport) (config.SourceReport, error) {

@@ -47,7 +47,7 @@ func configOriginToProto(origin config.Origin) (*sessionlaunchpb.ConfigOrigin, e
 	default:
 		return nil, fmt.Errorf("unknown configuration origin kind %q", origin.Kind)
 	}
-	return message, Validate(message)
+	return message, nil
 }
 
 func configOriginFromProto(message *sessionlaunchpb.ConfigOrigin) (config.Origin, error) {
@@ -99,15 +99,12 @@ func ToolSelectionToProto(selection *config.ToolSelection) (*sessionlaunchpb.Too
 		}
 		message.Tools = append(message.Tools, tool)
 	}
-	return message, Validate(message)
+	return message, nil
 }
 
 func ToolSelectionFromProto(message *sessionlaunchpb.ToolSelection) (*config.ToolSelection, error) {
 	if message == nil {
 		return nil, nil
-	}
-	if err := Validate(message); err != nil {
-		return nil, err
 	}
 	origin, err := configOriginFromProto(message.Origin)
 	if err != nil {
@@ -121,7 +118,7 @@ func ToolSelectionFromProto(message *sessionlaunchpb.ToolSelection) (*config.Too
 		}
 		selection.Tools = append(selection.Tools, tool)
 	}
-	return selection, selection.Validate()
+	return selection, nil
 }
 
 func configFileLayerToProto(layer config.FileLayer) (sessionlaunchpb.ConfigFileLayer, error) {

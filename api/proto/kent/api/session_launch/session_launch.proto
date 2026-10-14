@@ -200,13 +200,18 @@ message ReviewerSettings {
   ModelVerbosity model_verbosity = 4 [(buf.validate.field).enum.defined_only = true];
   ModelCapabilitiesOverride model_capabilities = 7 [(buf.validate.field).required = true];
   int32 model_context_window = 9 [(buf.validate.field).int32.gte = 40000];
-  optional string connection = 15 [(buf.validate.field).string.min_len = 1];
+  optional string connection = 15 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
   optional string system_prompt_file = 14 [(buf.validate.field).string.min_len = 1];
   int32 timeout_seconds = 12 [(buf.validate.field).int32.gt = 0];
   bool verbose_output = 13;
 }
 
 message SubagentRole {
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.subagent_role_connection_selection"
+    message: "subagent connections must use the role connection selection"
+    expression: "!has(this.settings.connection)"
+  };
   Settings settings = 1 [(buf.validate.field).required = true];
   repeated SourceFact sources = 8;
   option (buf.validate.message).cel = {
@@ -307,6 +312,21 @@ message ToolEnabledFact {
 
 message Settings {
   option (buf.validate.message).cel = {
+    id: "kent.session_launch.settings_unique_subagent_names"
+    message: "subagent names must be unique"
+    expression: "this.subagents.map(role, role.name).unique()"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.settings_unique_skill_toggles"
+    message: "skill keys must be unique"
+    expression: "this.skill_toggles.map(fact, fact.key).unique()"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.settings_unique_enabled_tools"
+    message: "enabled tool IDs must be unique"
+    expression: "this.enabled_tools.map(fact, fact.tool_id).unique()"
+  };
+  option (buf.validate.message).cel = {
     id: "kent.session_launch.compaction_threshold_below_model_window"
     message: "context_compaction_threshold_tokens must be less than model_context_window"
     expression: "this.context_compaction_threshold_tokens < this.model_context_window"
@@ -334,7 +354,7 @@ message Settings {
   ];
   string web_search = 14;
   string provider_identifier = 16;
-  optional string connection = 40 [(buf.validate.field).string.min_len = 1];
+  optional string connection = 40 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
   bool store = 19;
   bool allow_non_cwd_edits = 20;
   int32 model_context_window = 21 [(buf.validate.field).int32.gte = 40000];
