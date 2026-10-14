@@ -2828,10 +2828,8 @@ func TestPendingPromptKeepsExactExecutionInterruptibleWithoutActiveRuntimeStep(t
 func TestPromptStoreMutationsDoNotRequireAuthorityLock(t *testing.T) {
 	authority := NewAuthority(AuthorityOptions{})
 	sessionID := runtimeids.NewSessionID()
-	resource, err := runtimeids.NewSessionResourceRef(sessionID, 1)
-	if err != nil {
-		t.Fatalf("new session resource ref: %v", err)
-	}
+	resource := runtimeids.NewSessionResourceRef(sessionID, 1)
+
 	workflowRef := workflowExecutionRefForTest(t, "task-prompt-lock", "node-prompt-lock", nil)
 	scope := newAgentExecutionScope(
 		runtimeids.NewExecutionScopeID(),

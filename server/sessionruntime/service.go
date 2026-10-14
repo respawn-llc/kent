@@ -269,10 +269,7 @@ func (s *API) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRu
 	}
 	sessionID := runtimeids.SessionIDFromProto(req.Attachment.SessionID)
 	defer func() { err = serverapi.WithSessionTarget(serverapi.CanonicalSessionTarget{ID: sessionID}, err) }()
-	resource, err := runtimeids.NewSessionResourceRef(sessionID, runtimeids.ResourceGeneration(req.Attachment.Generation))
-	if err != nil {
-		return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, err
-	}
+	resource := runtimeids.NewSessionResourceRef(sessionID, runtimeids.ResourceGeneration(req.Attachment.Generation))
 	var policy RuntimeReleasePolicy
 	switch req.EffectiveClosePolicy() {
 	case "":

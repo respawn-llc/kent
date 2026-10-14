@@ -571,9 +571,6 @@ func (a *Authority) ReleaseRuntime(ctx context.Context, request RuntimeReleaseRe
 	if err := context.Cause(ctx); err != nil {
 		return RuntimeReleaseResult{}, err
 	}
-	if err := request.Resource.Validate(); err != nil {
-		return RuntimeReleaseResult{}, err
-	}
 	ownerID := strings.TrimSpace(request.OwnerID)
 	if ownerID == "" {
 		return RuntimeReleaseResult{}, errors.New("runtime attachment owner id is required")

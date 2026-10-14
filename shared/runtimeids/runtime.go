@@ -33,14 +33,8 @@ type SessionResourceRef struct {
 	generation ResourceGeneration
 }
 
-func NewSessionResourceRef(sessionID SessionID, generation ResourceGeneration) (SessionResourceRef, error) {
-	if sessionID.IsZero() {
-		return SessionResourceRef{}, fmt.Errorf("session resource session_id is required")
-	}
-	if err := generation.Validate(); err != nil {
-		return SessionResourceRef{}, err
-	}
-	return SessionResourceRef{sessionID: sessionID, generation: generation}, nil
+func NewSessionResourceRef(sessionID SessionID, generation ResourceGeneration) SessionResourceRef {
+	return SessionResourceRef{sessionID: sessionID, generation: generation}
 }
 
 func (r SessionResourceRef) SessionID() SessionID {

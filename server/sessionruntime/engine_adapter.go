@@ -227,10 +227,7 @@ func (a *Authority) buildAgentResource(
 		panic("session runtime resource generation overflow")
 	}
 	a.mu.Unlock()
-	ref, err := runtimeids.NewSessionResourceRef(sessionID, generation)
-	if err != nil {
-		return nil, err
-	}
+	ref := runtimeids.NewSessionResourceRef(sessionID, generation)
 	resourceContext, cancel := context.WithCancel(context.Background())
 	resource := &agentResource{
 		authority:            a,

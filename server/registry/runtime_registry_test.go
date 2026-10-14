@@ -75,10 +75,8 @@ func registryTestResourceRef(sessionID string) runtimeids.SessionResourceRef {
 	if err != nil {
 		panic(err)
 	}
-	ref, err := runtimeids.NewSessionResourceRef(id, 1)
-	if err != nil {
-		panic(err)
-	}
+	ref := runtimeids.NewSessionResourceRef(id, 1)
+
 	return ref
 }
 
@@ -530,10 +528,8 @@ func TestSessionTranscriptSubscriptionWaitsForReplacementRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse runtime Session ID: %v", err)
 	}
-	firstRef, err := runtimeids.NewSessionResourceRef(sessionID, 1)
-	if err != nil {
-		t.Fatalf("first resource reference: %v", err)
-	}
+	firstRef := runtimeids.NewSessionResourceRef(sessionID, 1)
+
 	registerResource(t, registry, firstRef, engine)
 	first := subscribeTranscriptForTest(t, registry, engine.SessionID())
 	_ = nextTranscriptMessage(t, first)
@@ -569,10 +565,8 @@ func TestSessionTranscriptSubscriptionWaitsForReplacementRuntime(t *testing.T) {
 	case <-time.After(25 * time.Millisecond):
 	}
 
-	secondRef, err := runtimeids.NewSessionResourceRef(sessionID, 2)
-	if err != nil {
-		t.Fatalf("second resource reference: %v", err)
-	}
+	secondRef := runtimeids.NewSessionResourceRef(sessionID, 2)
+
 	registerResource(t, registry, secondRef, engine)
 	t.Cleanup(func() {
 		_ = registry.ResourceDraining(context.Background(), registryTestResource(secondRef))
@@ -719,10 +713,8 @@ func TestAuthorityEventFeedProjectsExactResourceGeneration(t *testing.T) {
 	t.Cleanup(func() { _ = sub.Close() })
 	_ = nextTranscriptMessage(t, sub)
 
-	staleRef, err := runtimeids.NewSessionResourceRef(ref.SessionID(), ref.Generation()+1)
-	if err != nil {
-		t.Fatalf("new stale authority resource ref: %v", err)
-	}
+	staleRef := runtimeids.NewSessionResourceRef(ref.SessionID(), ref.Generation()+1)
+
 	registry.PublishAuthorityRuntimeEvent(staleRef, runtime.Event{
 		Kind:                       runtime.EventAssistantMessage,
 		StepID:                     textutil.Value(registryTestStepID),
@@ -879,10 +871,8 @@ func TestExecutionPromptProjectionRetainsExactAuthorityGeneration(t *testing.T) 
 	registry := NewRuntimeRegistry(nil)
 	sessionID := runtimeids.NewSessionID()
 	predecessor := registryTestResourceRef(sessionID.String())
-	successor, err := runtimeids.NewSessionResourceRef(sessionID, 2)
-	if err != nil {
-		t.Fatalf("successor resource: %v", err)
-	}
+	successor := runtimeids.NewSessionResourceRef(sessionID, 2)
+
 	predecessorScope := runtimeids.NewExecutionScopeID()
 	successorScope := runtimeids.NewExecutionScopeID()
 	request := askquestion.AskQuestionRequest{ToolCallID: "ask-1", StepID: registryTestStepID, Question: "Proceed?"}

@@ -66,7 +66,7 @@ func TestRuntimeAttachmentRequiresTranscriptServiceAndReleasesRuntime(t *testing
 			},
 			release: func(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
 				releaseCount++
-				if req.Attachment.SessionID != "session-1" || req.Attachment.Generation != 1 {
+				if req.Attachment.SessionID != "550e8400-e29b-41d4-a716-446655440000" || req.Attachment.Generation != 1 {
 					t.Fatalf("unexpected release request: %+v", req)
 				}
 				deadline, ok := ctx.Deadline()
@@ -81,7 +81,7 @@ func TestRuntimeAttachmentRequiresTranscriptServiceAndReleasesRuntime(t *testing
 		},
 	}
 
-	_, err := prepareSharedRuntime(context.Background(), server, sessionLaunchPlan{SessionID: "session-1"}, io.Discard, "test")
+	_, err := prepareSharedRuntime(context.Background(), server, sessionLaunchPlan{SessionID: "550e8400-e29b-41d4-a716-446655440000"}, io.Discard, "test")
 	if err == nil {
 		t.Fatal("expected missing transcript service error")
 	}
@@ -108,7 +108,7 @@ func TestRuntimeAttachmentUsesTranscriptBellHook(t *testing.T) {
 		runtimeControl:    &reconnectRetryRuntimeControlClient{},
 	}
 
-	plan, err := prepareSharedRuntime(context.Background(), server, sessionLaunchPlan{SessionID: "session-1"}, io.Discard, "test")
+	plan, err := prepareSharedRuntime(context.Background(), server, sessionLaunchPlan{SessionID: "550e8400-e29b-41d4-a716-446655440000"}, io.Discard, "test")
 	if err != nil {
 		t.Fatalf("prepareSharedRuntime: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestRuntimeAttachmentReactivationUsesActivation(t *testing.T) {
 		runtime: &recordingSessionRuntimeClient{
 			activate: func(_ context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error) {
 				activateCalls++
-				if req.SessionID.String() != "session-recover" || req.ActiveSettings.Model != "gpt-test" {
+				if req.SessionID.String() != "550e8400-e29b-41d4-a716-446655440001" || req.ActiveSettings.Model != "gpt-test" {
 					t.Fatalf("unexpected activation request: %+v", req)
 				}
 				return sessionRuntimeActivateResponse(req.SessionID.String(), uint64(activateCalls)), nil
@@ -181,7 +181,7 @@ func TestRuntimeAttachmentReactivationUsesActivation(t *testing.T) {
 		},
 	}
 	reactivator, lease, err := activateSharedRuntime(context.Background(), server.RuntimeAttachmentClients(), sessionLaunchPlan{
-		SessionID:      "session-recover",
+		SessionID:      "550e8400-e29b-41d4-a716-446655440001",
 		ActiveSettings: config.Settings{Model: "gpt-test"},
 	})
 	if err != nil {
@@ -196,7 +196,7 @@ func TestRuntimeAttachmentReactivationUsesActivation(t *testing.T) {
 	if err := lease.Release(); err != nil {
 		t.Fatalf("release: %v", err)
 	}
-	if released.SessionID != "session-recover" || released.Generation != 2 {
+	if released.SessionID != "550e8400-e29b-41d4-a716-446655440001" || released.Generation != 2 {
 		t.Fatalf("released attachment = %+v, want reactivated generation 2", released)
 	}
 }
