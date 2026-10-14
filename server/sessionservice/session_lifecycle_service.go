@@ -213,18 +213,12 @@ func (s *SessionLifecycleService) resolveTransitionOnce(ctx context.Context, req
 		}
 		return s.authorizeNavigationTransition(ctx, meta, resolved)
 	}
-	transition, err := sessionTransitionFromProto(req.Transition)
-	if err != nil {
-		return nil, err
-	}
+	transition := sessionTransitionFromProto(req.Transition)
 	return resolveSessionTransition(ctx, sessionTransitionResolveRequest{Transition: transition})
 }
 
 func (s *SessionLifecycleService) resolveForkRollbackTransition(ctx context.Context, req *sessionlaunchpb.SessionResolveTransitionRequest, store *session.Store) (*sessionlaunchpb.SessionDirective, error) {
-	transition, err := sessionTransitionFromProto(req.Transition)
-	if err != nil {
-		return nil, err
-	}
+	transition := sessionTransitionFromProto(req.Transition)
 	forkUserMessageSeq, err := rollbacktarget.DecodeUserMessageSeq(req.Transition.GetForkRollbackTargetId())
 	if err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err

@@ -33,20 +33,17 @@ type sessionTransitionResolveRequest struct {
 	ForkTarget launch.InteractiveForkTarget
 }
 
-func sessionTransitionFromProto(value *sessionlaunchpb.SessionTransition) (sessionTransition, error) {
+func sessionTransitionFromProto(value *sessionlaunchpb.SessionTransition) sessionTransition {
 	transition := sessionTransition{
 		Action: value.Action, InitialPrompt: value.InitialPrompt,
 		InitialPromptHistoryRecorded: value.InitialPromptHistoryRecorded,
 		InitialInput:                 value.InitialInput, TargetSessionID: value.GetTargetSessionId(),
 	}
 	if value.PreviousSessionId != nil {
-		id, err := runtimeids.ParseSessionID(*value.PreviousSessionId)
-		if err != nil {
-			return sessionTransition{}, err
-		}
+		id := runtimeids.SessionIDFromProto(*value.PreviousSessionId)
 		transition.PreviousSessionID = &id
 	}
-	return transition, nil
+	return transition
 }
 
 func initialSessionInput(meta session.Meta, transitionInput string) string {
@@ -76,10 +73,7 @@ func resolveSessionTransition(_ context.Context, req sessionTransitionResolveReq
 			SelectSession: &sessionlaunchpb.SessionSelectDirective{Auth: sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_KEEP_CURRENT_AUTH},
 		}}, nil
 	case sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_OPEN_SESSION:
-		targetID, err := runtimeids.ParseSessionID(strings.TrimSpace(req.Transition.TargetSessionID))
-		if err != nil {
-			return &sessionlaunchpb.SessionDirective{}, err
-		}
+		targetID := runtimeids.SessionIDFromProto(req.Transition.TargetSessionID)
 		return protoapi.SessionLaunchDirectiveToProto(
 			serverapi.OpenExistingSessionLaunchIntent(targetID),
 			sessionLaunchPreparation(nil, req.Transition.InitialInput, sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_KEEP_CURRENT_AUTH),
