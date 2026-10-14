@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	"core/shared/serverapi"
 
@@ -171,8 +170,5 @@ func projectNotFoundGeneratedError(
 }
 
 func projectNotFoundError(details *projectpb.ProjectNotFoundDetails) error {
-	if err := protoapi.Validate(details); err != nil {
-		return fmt.Errorf("decode project_not_found details: %w", err)
-	}
 	return fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, details.ProjectId)
 }

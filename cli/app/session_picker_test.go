@@ -88,7 +88,7 @@ func newTestSessionPickerModel(t *testing.T, summaries []clientui.SessionSummary
 func newUninitializedTestSessionPickerModel(t *testing.T, summaries []clientui.SessionSummary, header sessionPickerHeaderInfo) *sessionPickerModel {
 	t.Helper()
 	if summaries == nil {
-		summaries = []clientui.SessionSummary{pickerTestSummary(t, "test-session", time.Now().UTC())}
+		summaries = []clientui.SessionSummary{pickerTestSummary(t, "20000000-0000-4000-8000-000000000008", time.Now().UTC())}
 	}
 	loader := &recordingSessionPageLoader{responses: func(request sessionPageRequest) sessionPageLoadResult {
 		response := pickerPageResponse(t, request)
@@ -117,7 +117,7 @@ func TestSessionPickerScrollsAndSelects(t *testing.T) {
 	now := time.Date(2026, time.February, 8, 12, 0, 0, 0, time.UTC)
 	summaries := make([]clientui.SessionSummary, 0, 20)
 	for i := 0; i < 20; i++ {
-		summaries = append(summaries, pickerTestSummary(t, fmt.Sprintf("s-%02d", i), now.Add(-time.Duration(i)*time.Minute)))
+		summaries = append(summaries, pickerTestSummary(t, fmt.Sprintf("10000000-0000-4000-8000-%012d", i), now.Add(-time.Duration(i)*time.Minute)))
 	}
 
 	m := newTestSessionPickerModel(t, summaries, sessionPickerHeaderInfo{})
@@ -148,7 +148,7 @@ func TestSessionPickerPageKeysMoveByVisibleWindow(t *testing.T) {
 	now := time.Date(2026, time.February, 8, 12, 0, 0, 0, time.UTC)
 	summaries := make([]clientui.SessionSummary, 0, 20)
 	for i := 0; i < 20; i++ {
-		summaries = append(summaries, pickerTestSummary(t, fmt.Sprintf("page-%02d", i), now.Add(-time.Duration(i)*time.Minute)))
+		summaries = append(summaries, pickerTestSummary(t, fmt.Sprintf("10000000-0000-4000-8000-%012d", i), now.Add(-time.Duration(i)*time.Minute)))
 	}
 	model := newTestSessionPickerModel(t, summaries, sessionPickerHeaderInfo{})
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 12})
@@ -190,7 +190,7 @@ func TestSessionPickerNewHotkeyAndExitKeys(t *testing.T) {
 		{Type: tea.KeyEsc},
 		{Type: tea.KeyRunes, Runes: []rune{'q'}},
 	} {
-		m = newTestSessionPickerModel(t, []clientui.SessionSummary{pickerTestSummary(t, "s-1", time.Now().UTC())}, sessionPickerHeaderInfo{})
+		m = newTestSessionPickerModel(t, []clientui.SessionSummary{pickerTestSummary(t, "20000000-0000-4000-8000-000000000009", time.Now().UTC())}, sessionPickerHeaderInfo{})
 		next, cmd := m.Update(key)
 		m = next.(*sessionPickerModel)
 		if cmd != nil {
@@ -250,7 +250,7 @@ func TestSessionPickerHeaderFailureDoesNotBlockSessionOpening(t *testing.T) {
 	failure := errors.New("settings unavailable")
 	summaries := make([]clientui.SessionSummary, 20)
 	for i := range summaries {
-		summaries[i] = pickerTestSummary(t, fmt.Sprintf("retry-session-%d", i), time.Now().UTC())
+		summaries[i] = pickerTestSummary(t, fmt.Sprintf("10000000-0000-4000-8000-%012d", i), time.Now().UTC())
 	}
 	m := newTestSessionPickerModel(t, summaries, sessionPickerHeaderInfo{
 		loadHeaderFacts: func(context.Context) (*sessionPickerHeaderFacts, error) {
@@ -287,7 +287,7 @@ func TestSessionPickerListFailureKeepsRetryPriorityOverHeaderFailure(t *testing.
 		}
 		response := pickerPageResponse(t, request)
 		if request.Category == sessioncontract.SessionCategoryMain {
-			response.Sessions = []clientui.SessionSummary{pickerTestSummary(t, "recovered-session", time.Now().UTC())}
+			response.Sessions = []clientui.SessionSummary{pickerTestSummary(t, "20000000-0000-4000-8000-000000000010", time.Now().UTC())}
 		}
 		return sessionPageLoadResult{response: response}
 	}}
@@ -432,7 +432,7 @@ func TestSessionPickerHeaderRendersMissingRemoteAddressFallback(t *testing.T) {
 }
 
 func TestSessionPickerHeaderTinyWidthKeepsRowsVisible(t *testing.T) {
-	m := newTestSessionPickerModel(t, []clientui.SessionSummary{pickerTestSummary(t, "s-1", time.Now().UTC())}, sessionPickerHeaderInfo{
+	m := newTestSessionPickerModel(t, []clientui.SessionSummary{pickerTestSummary(t, "20000000-0000-4000-8000-000000000009", time.Now().UTC())}, sessionPickerHeaderInfo{
 		Version:       "1.2.3",
 		CWD:           "~/very/long/path/to/repo",
 		Branch:        "feature/very-long-branch",

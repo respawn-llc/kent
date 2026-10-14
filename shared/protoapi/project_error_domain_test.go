@@ -91,6 +91,9 @@ func TestProjectErrorDecoding(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			if err := Validate(tt.details); err != nil {
+				t.Fatal(err)
+			}
 			err := tt.decode()
 			if !errors.Is(err, tt.sentinel) {
 				t.Fatalf("decoded error = %v, want category %v", err, tt.sentinel)
@@ -99,8 +102,8 @@ func TestProjectErrorDecoding(t *testing.T) {
 				t.Fatalf("decoded error = %#v, want %#v", err, tt.expected)
 			}
 			proto.Reset(tt.details)
-			if err := tt.decode(); err == nil || errors.Is(err, tt.sentinel) {
-				t.Fatalf("invalid details decoded as domain error: %v", err)
+			if err := Validate(tt.details); err == nil {
+				t.Fatal("invalid details accepted at the contract boundary")
 			}
 		})
 	}

@@ -58,10 +58,7 @@ func SessionSummaryFromProto(session *projectpb.SessionSummary) (clientui.Sessio
 	if err != nil {
 		return clientui.SessionSummary{}, err
 	}
-	sessionID, err := runtimeids.ParseSessionID(session.SessionId)
-	if err != nil {
-		return clientui.SessionSummary{}, err
-	}
+	sessionID := runtimeids.SessionIDFromProto(session.SessionId)
 	category, err := protoapi.SessionCategoryFromProto(session.Category)
 	if err != nil {
 		return clientui.SessionSummary{}, err

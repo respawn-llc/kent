@@ -20,9 +20,6 @@ func WorkspaceBindingAmbiguousToProto(value serverapi.WorkspaceBindingAmbiguousE
 }
 
 func WorkspaceBindingAmbiguousFromProto(details *projectpb.WorkspaceBindingAmbiguousDetails) (serverapi.WorkspaceBindingAmbiguousError, error) {
-	if err := Validate(details); err != nil {
-		return serverapi.WorkspaceBindingAmbiguousError{}, fmt.Errorf("convert ambiguous workspace binding from protobuf: %w", err)
-	}
 	return serverapi.WorkspaceBindingAmbiguousError{
 		CanonicalRoot: details.CanonicalRoot,
 		ProjectIDs:    append([]string(nil), details.ProjectIds...),
@@ -46,9 +43,6 @@ func ProjectUnavailableToProto(value serverapi.ProjectUnavailableError) (*projec
 }
 
 func ProjectUnavailableFromProto(details *projectpb.ProjectUnavailableDetails) (serverapi.ProjectUnavailableError, error) {
-	if err := Validate(details); err != nil {
-		return serverapi.ProjectUnavailableError{}, fmt.Errorf("convert unavailable project from protobuf: %w", err)
-	}
 	availability, err := ProjectAvailabilityFromProto(details.Availability)
 	if err != nil {
 		return serverapi.ProjectUnavailableError{}, err
@@ -61,37 +55,22 @@ func ProjectUnavailableFromProto(details *projectpb.ProjectUnavailableDetails) (
 }
 
 func WorkspaceNotRegisteredFromProto(details *projectpb.WorkspaceNotRegisteredDetails) error {
-	if err := Validate(details); err != nil {
-		return err
-	}
 	return serverapi.ErrWorkspaceNotRegistered
 }
 
 func WorkspacePathIdentityFromProto(details *projectpb.WorkspacePathIdentityDetails) error {
-	if err := Validate(details); err != nil {
-		return err
-	}
 	return serverapi.WorkspacePathIdentityError{WorkspaceRoot: details.WorkspaceRoot}
 }
 
 func WorkspaceMutationFromProto(details *projectpb.WorkspaceMutationDetails) error {
-	if err := Validate(details); err != nil {
-		return err
-	}
 	return &serverapi.WorkspaceMutationError{ProjectID: details.ProjectId, WorkspaceID: details.WorkspaceId}
 }
 
 func WorkspaceDetachConflictFromProto(details *projectpb.WorkspaceDetachConflictDetails) error {
-	if err := Validate(details); err != nil {
-		return err
-	}
 	return &serverapi.WorkspaceDetachConflictError{ProjectID: details.ProjectId, WorkspaceID: details.WorkspaceId}
 }
 
 func WorkspaceBindingAmbiguousMutationFromProto(details *projectpb.WorkspaceBindingAmbiguousMutationDetails) error {
-	if err := Validate(details); err != nil {
-		return err
-	}
 	return serverapi.WorkspaceBindingAmbiguousError{ProjectIDs: append([]string(nil), details.ProjectIds...)}
 }
 

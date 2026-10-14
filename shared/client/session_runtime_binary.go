@@ -24,7 +24,7 @@ func (c *Remote) ActivateSessionRuntime(ctx context.Context, request serverapi.S
 		return serverapi.SessionRuntimeAttachment{}, err
 	}
 	attachment := protoapi.SessionRuntimeAttachmentFromProto(success.Attachment)
-	return attachment, attachment.Validate()
+	return attachment, nil
 }
 
 func (c *Remote) ReleaseSessionRuntime(ctx context.Context, request serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
