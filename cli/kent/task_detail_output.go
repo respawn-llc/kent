@@ -55,10 +55,7 @@ type taskSourceWorkspaceJSON struct {
 }
 
 func taskSourceWorkspaceOutput(value *taskpb.TaskSourceWorkspace) (taskSourceWorkspaceJSON, error) {
-	availability, err := protoapi.ProjectAvailabilityFromProto(value.Availability)
-	if err != nil {
-		return taskSourceWorkspaceJSON{}, err
-	}
+	availability := protoapi.ProjectAvailabilityFromProto(value.Availability)
 	out := taskSourceWorkspaceJSON{
 		WorkspaceID: value.WorkspaceId, DisplayName: value.DisplayName, RootPath: value.RootPath,
 		Availability: string(availability), IsPrimary: value.IsPrimary,

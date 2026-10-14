@@ -35,9 +35,9 @@ func TestSessionSummariesFromProtoCategoryValidation(t *testing.T) {
 		if err := protoapi.Validate(wire); err != nil {
 			t.Fatal(err)
 		}
-		summaries, err := client.SessionSummariesFromProto([]*projectpb.SessionSummary{wire})
-		if err != nil || len(summaries) != 1 || summaries[0].Category != tt.category {
-			t.Fatalf("category %v: got %v, %v", tt.wire, summaries, err)
+		summaries := client.SessionSummariesFromProto([]*projectpb.SessionSummary{wire})
+		if len(summaries) != 1 || summaries[0].Category != tt.category {
+			t.Fatalf("category %v: got %v", tt.wire, summaries)
 		}
 	}
 }

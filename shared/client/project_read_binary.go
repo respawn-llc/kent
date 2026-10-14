@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	"core/shared/serverapi"
 
@@ -42,7 +43,7 @@ func (c *Remote) ResolveProjectPath(ctx context.Context, request *projectpb.Reso
 		func(failure *projectpb.ResolvePathError) error {
 			switch failure.Code {
 			case "workspace_binding_ambiguous":
-				return workspaceBindingAmbiguousError(failure.GetWorkspaceBindingAmbiguous())
+				return protoapi.WorkspaceBindingAmbiguousFromProto(failure.GetWorkspaceBindingAmbiguous())
 			default:
 				return generatedOperationFailure(failure.Code)
 			}

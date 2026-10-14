@@ -116,16 +116,10 @@ func EnsureInteractive[T any](ctx context.Context, req Request[T]) (T, error) {
 		}
 		return bound, nil
 	case projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_SERVER_WORKSPACE_SELECTION:
-		projects, err := client.ProjectSummariesFromProto(plan.Projects)
-		if err != nil {
-			return zero, err
-		}
+		projects := client.ProjectSummariesFromProto(plan.Projects)
 		return ensureServerBrowsingBinding(ctx, req, projects)
 	case projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_LOCAL_UNBOUND:
-		projects, err := client.ProjectSummariesFromProto(plan.Projects)
-		if err != nil {
-			return zero, err
-		}
+		projects := client.ProjectSummariesFromProto(plan.Projects)
 		return ensureLocalPathBinding(ctx, req, workspaceRoot, projects)
 	default:
 		return zero, fmt.Errorf("unsupported interactive project binding plan %q", plan.Kind)

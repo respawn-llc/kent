@@ -179,22 +179,6 @@ func projectWorkspaceMutationGeneratedError(
 	}
 }
 
-func workspaceBindingAmbiguousError(details *projectpb.WorkspaceBindingAmbiguousDetails) error {
-	value, err := protoapi.WorkspaceBindingAmbiguousFromProto(details)
-	if err != nil {
-		return err
-	}
-	return value
-}
-
-func projectUnavailableError(details *projectpb.ProjectUnavailableDetails) error {
-	value, err := protoapi.ProjectUnavailableFromProto(details)
-	if err != nil {
-		return err
-	}
-	return value
-}
-
 func projectKeyConflictError(details *projectpb.ProjectKeyConflictDetails) error {
 	return serverapi.ProjectKeyConflictError{ProjectKey: details.ProjectKey}
 }

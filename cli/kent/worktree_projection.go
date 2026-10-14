@@ -214,16 +214,10 @@ func worktreeDeleteJSON(success *worktreepb.DeleteSuccess) (worktreeDeleteJSONOu
 }
 
 func worktreeExecutionTargetJSON(target *worktreepb.SessionExecutionTarget) (worktreeExecutionTargetOutput, error) {
-	availability, err := protoapi.ProjectAvailabilityFromProto(target.WorkspaceAvailability)
-	if err != nil {
-		return worktreeExecutionTargetOutput{}, err
-	}
+	availability := protoapi.ProjectAvailabilityFromProto(target.WorkspaceAvailability)
 	var worktree *worktreeExecutionTargetItem
 	if value := target.Worktree; value != nil {
-		availability, err := protoapi.ProjectAvailabilityFromProto(value.Availability)
-		if err != nil {
-			return worktreeExecutionTargetOutput{}, err
-		}
+		availability := protoapi.ProjectAvailabilityFromProto(value.Availability)
 		worktree = &worktreeExecutionTargetItem{ID: value.Id, Name: value.Name, Root: value.Root, Availability: string(availability)}
 	}
 	return worktreeExecutionTargetOutput{

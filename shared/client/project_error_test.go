@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"core/shared/clientui"
+	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	"core/shared/serverapi"
 )
@@ -30,7 +31,7 @@ func TestAmbiguousProjectErrorOwnsProjectIDs(t *testing.T) {
 	details := &projectpb.WorkspaceBindingAmbiguousDetails{
 		CanonicalRoot: "/workspace", ProjectIds: []string{"first", "second"},
 	}
-	err := workspaceBindingAmbiguousError(details)
+	var err error = protoapi.WorkspaceBindingAmbiguousFromProto(details)
 	var ambiguous serverapi.WorkspaceBindingAmbiguousError
 	if !errors.Is(err, serverapi.ErrWorkspaceBindingAmbiguous) || !errors.As(err, &ambiguous) {
 		t.Fatalf("binding error = %v, want typed ambiguous binding", err)

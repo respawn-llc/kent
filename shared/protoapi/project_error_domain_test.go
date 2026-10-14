@@ -43,11 +43,7 @@ func TestProjectErrorDecoding(t *testing.T) {
 		{
 			"ambiguous binding", ambiguous,
 			func() error {
-				value, err := WorkspaceBindingAmbiguousFromProto(ambiguous)
-				if err != nil {
-					return err
-				}
-				return value
+				return WorkspaceBindingAmbiguousFromProto(ambiguous)
 			},
 			serverapi.WorkspaceBindingAmbiguousError{CanonicalRoot: "/project", ProjectIDs: []string{"first", "second"}},
 			serverapi.ErrWorkspaceBindingAmbiguous,
@@ -61,11 +57,7 @@ func TestProjectErrorDecoding(t *testing.T) {
 		{
 			"unavailable", unavailable,
 			func() error {
-				value, err := ProjectUnavailableFromProto(unavailable)
-				if err != nil {
-					return err
-				}
-				return value
+				return ProjectUnavailableFromProto(unavailable)
 			},
 			serverapi.ProjectUnavailableError{
 				ProjectID: "project", RootPath: "/project", Availability: clientui.ProjectAvailabilityMissing,

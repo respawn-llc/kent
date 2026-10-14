@@ -214,7 +214,7 @@ func attachSessionGeneratedError(failure *connectionpb.AttachSessionError) error
 		details := failure.GetWorkspaceNotRegistered()
 		return fmt.Errorf("%w: session %q", serverapi.ErrWorkspaceNotRegistered, details.SessionId)
 	case "project_unavailable":
-		return projectUnavailableError(failure.GetProjectUnavailable())
+		return protoapi.ProjectUnavailableFromProto(failure.GetProjectUnavailable())
 	case "server_not_ready":
 		return protoapi.ServerNotReadyFromProto(failure.GetServerNotReady())
 	case "internal_failure":
@@ -238,7 +238,7 @@ func connectionAttachmentGeneratedError(
 	case "workspace_not_registered":
 		return protoapi.WorkspaceNotRegisteredFromProto(notRegistered)
 	case "project_unavailable":
-		return projectUnavailableError(unavailable)
+		return protoapi.ProjectUnavailableFromProto(unavailable)
 	case "server_not_ready":
 		return protoapi.ServerNotReadyFromProto(notReady)
 	case "internal_failure":

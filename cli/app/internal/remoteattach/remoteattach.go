@@ -214,8 +214,8 @@ func resolveInteractiveBinding(ctx context.Context, projectViews apicontract.Pro
 	if resp.Kind != projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_BOUND {
 		return nil, nil
 	}
-	binding, err := client.ProjectBindingFromProto(resp.Binding)
-	return &binding, err
+	binding := client.ProjectBindingFromProto(resp.Binding)
+	return &binding, nil
 }
 
 func dialWorkspaceWithTimeout(ctx context.Context, cfg config.Connection, timeout time.Duration, dial DialWorkspace, projectID string, workspaceID string) (*client.Remote, error) {

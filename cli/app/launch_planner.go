@@ -164,10 +164,7 @@ func (l projectScopedSessionPageLoader) ListSessionPage(ctx context.Context, req
 		return sessionPageResponse{}, err
 	}
 	responseCategory := protoapi.SessionCategoryFromProto(response.Category)
-	sessions, err := client.SessionSummariesFromProto(response.Sessions)
-	if err != nil {
-		return sessionPageResponse{}, err
-	}
+	sessions := client.SessionSummariesFromProto(response.Sessions)
 	page := sessionPageResponse{
 		ProjectID: response.ProjectId,
 		Category:  responseCategory,

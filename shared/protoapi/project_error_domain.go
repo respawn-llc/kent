@@ -19,11 +19,11 @@ func WorkspaceBindingAmbiguousToProto(value serverapi.WorkspaceBindingAmbiguousE
 	return details, nil
 }
 
-func WorkspaceBindingAmbiguousFromProto(details *projectpb.WorkspaceBindingAmbiguousDetails) (serverapi.WorkspaceBindingAmbiguousError, error) {
+func WorkspaceBindingAmbiguousFromProto(details *projectpb.WorkspaceBindingAmbiguousDetails) serverapi.WorkspaceBindingAmbiguousError {
 	return serverapi.WorkspaceBindingAmbiguousError{
 		CanonicalRoot: details.CanonicalRoot,
 		ProjectIDs:    append([]string(nil), details.ProjectIds...),
-	}, nil
+	}
 }
 
 func ProjectUnavailableToProto(value serverapi.ProjectUnavailableError) (*projectpb.ProjectUnavailableDetails, error) {
@@ -42,16 +42,13 @@ func ProjectUnavailableToProto(value serverapi.ProjectUnavailableError) (*projec
 	return details, nil
 }
 
-func ProjectUnavailableFromProto(details *projectpb.ProjectUnavailableDetails) (serverapi.ProjectUnavailableError, error) {
-	availability, err := ProjectAvailabilityFromProto(details.Availability)
-	if err != nil {
-		return serverapi.ProjectUnavailableError{}, err
-	}
+func ProjectUnavailableFromProto(details *projectpb.ProjectUnavailableDetails) serverapi.ProjectUnavailableError {
+	availability := ProjectAvailabilityFromProto(details.Availability)
 	return serverapi.ProjectUnavailableError{
 		ProjectID:    details.ProjectId,
 		RootPath:     details.RootPath,
 		Availability: availability,
-	}, nil
+	}
 }
 
 func WorkspaceNotRegisteredFromProto(details *projectpb.WorkspaceNotRegisteredDetails) error {
@@ -74,32 +71,22 @@ func WorkspaceBindingAmbiguousMutationFromProto(details *projectpb.WorkspaceBind
 	return serverapi.WorkspaceBindingAmbiguousError{ProjectIDs: append([]string(nil), details.ProjectIds...)}
 }
 
-func ProjectAvailabilityToProto(value clientui.ProjectAvailability) (projectpb.ProjectAvailability, error) {
-	switch value {
-	case clientui.ProjectAvailabilityAvailable:
-		return projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE, nil
-	case clientui.ProjectAvailabilityMissing:
-		return projectpb.ProjectAvailability_PROJECT_AVAILABILITY_MISSING, nil
-	case clientui.ProjectAvailabilityInaccessible:
-		return projectpb.ProjectAvailability_PROJECT_AVAILABILITY_INACCESSIBLE, nil
-	case clientui.ProjectAvailabilityUnlinked:
-		return projectpb.ProjectAvailability_PROJECT_AVAILABILITY_UNLINKED, nil
-	default:
-		return projectpb.ProjectAvailability_PROJECT_AVAILABILITY_UNSPECIFIED, fmt.Errorf("project availability %q is unsupported", value)
-	}
+var projectAvailabilityValues = map[projectpb.ProjectAvailability]clientui.ProjectAvailability{
+	projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE:    clientui.ProjectAvailabilityAvailable,
+	projectpb.ProjectAvailability_PROJECT_AVAILABILITY_MISSING:      clientui.ProjectAvailabilityMissing,
+	projectpb.ProjectAvailability_PROJECT_AVAILABILITY_INACCESSIBLE: clientui.ProjectAvailabilityInaccessible,
+	projectpb.ProjectAvailability_PROJECT_AVAILABILITY_UNLINKED:     clientui.ProjectAvailabilityUnlinked,
 }
 
-func ProjectAvailabilityFromProto(value projectpb.ProjectAvailability) (clientui.ProjectAvailability, error) {
-	switch value {
-	case projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE:
-		return clientui.ProjectAvailabilityAvailable, nil
-	case projectpb.ProjectAvailability_PROJECT_AVAILABILITY_MISSING:
-		return clientui.ProjectAvailabilityMissing, nil
-	case projectpb.ProjectAvailability_PROJECT_AVAILABILITY_INACCESSIBLE:
-		return clientui.ProjectAvailabilityInaccessible, nil
-	case projectpb.ProjectAvailability_PROJECT_AVAILABILITY_UNLINKED:
-		return clientui.ProjectAvailabilityUnlinked, nil
-	default:
-		return "", fmt.Errorf("protobuf project availability %v is unsupported", value)
+func ProjectAvailabilityToProto(value clientui.ProjectAvailability) (projectpb.ProjectAvailability, error) {
+	for wire, native := range projectAvailabilityValues {
+		if native == value {
+			return wire, nil
+		}
 	}
+	return projectpb.ProjectAvailability_PROJECT_AVAILABILITY_UNSPECIFIED, fmt.Errorf("project availability %q is unsupported", value)
+}
+
+func ProjectAvailabilityFromProto(value projectpb.ProjectAvailability) clientui.ProjectAvailability {
+	return projectAvailabilityValues[value]
 }

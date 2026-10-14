@@ -286,10 +286,7 @@ func listProjects(ctx context.Context) ([]clientui.ProjectSummary, error) {
 	}
 	projects := make([]clientui.ProjectSummary, 0, len(resp.Projects))
 	for _, project := range resp.Projects {
-		summary, err := client.ProjectSummaryFromProto(project)
-		if err != nil {
-			return nil, err
-		}
+		summary := client.ProjectSummaryFromProto(project)
 		projects = append(projects, summary)
 	}
 	return projects, nil
@@ -380,7 +377,7 @@ func resolveWorkspaceBinding(ctx context.Context, projectViews apicontract.Proje
 	if resp.Binding == nil {
 		return serverapi.ProjectBinding{}, errWorkspaceNotRegistered
 	}
-	return client.ProjectBindingFromProto(resp.Binding)
+	return client.ProjectBindingFromProto(resp.Binding), nil
 }
 
 func loadBindingCommandConfig(path string) (config.Connection, error) {
