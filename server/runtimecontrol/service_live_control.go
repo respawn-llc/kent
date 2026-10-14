@@ -48,10 +48,7 @@ func (s *Service) liveTarget(ctx context.Context, target *sharedpb.SessionSelect
 	}
 	captured = serverapi.ProjectedSessionTarget{Identity: identity}
 	if caller != nil {
-		source, err := runtimeids.ParseSessionID(*caller)
-		if err != nil {
-			return identity, err
-		}
+		source := runtimeids.SessionIDFromProto(*caller)
 		if source == id {
 			return identity, &serverapi.SessionSelfTargetError{SessionID: id}
 		}
@@ -67,9 +64,6 @@ func (s *Service) withLiveExecutionRuntime(ctx context.Context, id runtimeids.Se
 }
 
 func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest) (resp *runtimepb.LiveSteerSuccess, err error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	identity, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
 	if err != nil {
 		return nil, err
@@ -81,10 +75,7 @@ func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest
 	queueText := text
 	var agentSteer runtime.AgentSteer
 	if callerSessionID != nil {
-		callerID, parseErr := runtimeids.ParseSessionID(*callerSessionID)
-		if parseErr != nil {
-			return nil, parseErr
-		}
+		callerID := runtimeids.SessionIDFromProto(*callerSessionID)
 		source, err := s.metadata.SessionIdentity(ctx, callerID)
 		if err != nil {
 			return nil, err
@@ -131,9 +122,6 @@ func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest
 }
 
 func (s *Service) LiveStop(ctx context.Context, req *runtimepb.LiveStopRequest) (response *runtimepb.LiveStopSuccess, err error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	identity, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
 	if errors.Is(err, session.ErrSessionNotFound) {
 		return &runtimepb.LiveStopSuccess{Status: runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_IDLE}, nil
@@ -174,9 +162,6 @@ func (s *Service) captureLiveRun(ctx context.Context, id runtimeids.SessionID) (
 }
 
 func (s *Service) LiveWait(ctx context.Context, req *runtimepb.LiveWaitRequest) (resp *runtimepb.LiveWaitSuccess, err error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	identity, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
 	if err != nil {
 		return nil, err
@@ -252,9 +237,6 @@ func liveWatchQuestionResult(id runtimeids.SessionID, question *serverapi.Observ
 }
 
 func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest) (response *promptpb.LiveWatchSuccess, err error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	identity, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
 	if err != nil {
 		return nil, err
