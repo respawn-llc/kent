@@ -360,13 +360,8 @@ message CompactContextRequest {
 message ManualCompactionAdmission {
   optional string guidance = 1 [
     (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.(kent.api.shared.pending_work_argument) = true
   ];
-  option (buf.validate.message).cel = {
-    id: "kent.runtime.manual_compaction_guidance_normalized"
-    message: "guidance must be normalized"
-    expression: "!has(this.guidance) || this.guidance == this.guidance.trim()"
-  };
 }
 
 message InterruptRequest {
@@ -546,13 +541,13 @@ message PendingWorkWorktreeTransition {
   }];
   optional string selector = 2 [
     (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.(kent.api.shared.pending_work_argument) = true
   ];
   option (buf.validate.message).cel = {
     id: "kent.runtime.pending_work_worktree_transition_payload"
     message: "Worktree enter requires a normalized selector and leave forbids one"
     expression:
-      "(this.transition == 1 && has(this.selector) && this.selector == this.selector.trim()) || "
+      "(this.transition == 1 && has(this.selector)) || "
       "(this.transition == 2 && !has(this.selector))"
   };
 }

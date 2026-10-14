@@ -9,6 +9,7 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 )
 
 func TestPendingWorkMessageFEFFBlankContract(t *testing.T) {
@@ -28,6 +29,23 @@ func TestPendingWorkMessageFEFFBlankContract(t *testing.T) {
 	}
 }
 
+func TestWorktreeEnterSelectorAcceptsNormalizableFEFFButRejectsBlank(t *testing.T) {
+	id := "11111111-1111-4111-8111-111111111111"
+	request := &worktreepb.EnterRequest{
+		OperationId:     id,
+		SessionId:       &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id}},
+		TargetWorkspace: &worktreepb.TransitionWorkspace{WorkspaceId: "workspace", WorkspaceRoot: "/workspace"},
+		Selector:        "\uFEFFfeature\uFEFF branch\uFEFF",
+	}
+	if err := protoapi.Validate(request); err != nil {
+		t.Fatalf("normalizable selector rejected: %v", err)
+	}
+	request.Selector = "\uFEFF \t"
+	if err := protoapi.Validate(request); err == nil {
+		t.Fatal("normalized-blank selector accepted")
+	}
+}
+
 func TestRunPromptFEFFBlankRestrictionDoesNotAffectCallerBearingPrompt(t *testing.T) {
 	id := "11111111-1111-4111-8111-111111111111"
 	request := &runpromptpb.Request{
@@ -43,6 +61,45 @@ func TestRunPromptFEFFBlankRestrictionDoesNotAffectCallerBearingPrompt(t *testin
 	request.CallerSessionId = nil
 	if err := protoapi.Validate(request); err == nil {
 		t.Fatal("caller-absent FEFF-only prompt accepted")
+	}
+}
+
+func TestPendingWorkCompactionGuidanceCanonicalSpacing(t *testing.T) {
+	for _, tc := range []struct {
+		guidance string
+		valid    bool
+	}{
+		{"keep 日本語 details", true},
+		{"keep  details", false},
+		{"keep\uFEFFdetails", false},
+		{"keep\u0085details", false},
+	} {
+		err := protoapi.Validate(&runtimepb.ManualCompactionAdmission{Guidance: &tc.guidance})
+		if (err == nil) != tc.valid {
+			t.Fatalf("guidance %q validation = %v, want valid=%t", tc.guidance, err, tc.valid)
+		}
+	}
+}
+
+func TestPendingWorkSelectorCanonicalSpacing(t *testing.T) {
+	for _, tc := range []struct {
+		selector string
+		valid    bool
+	}{
+		{"feature 日本語", true},
+		{"feature  branch", false},
+		{"feature\uFEFFbranch", false},
+		{"feature\u0085branch", false},
+	} {
+		t.Run(tc.selector, func(t *testing.T) {
+			err := protoapi.Validate(&runtimepb.PendingWorkWorktreeTransition{
+				Transition: runtimepb.PendingWorkWorktreeTransitionKind_PENDING_WORK_WORKTREE_TRANSITION_KIND_ENTER,
+				Selector:   &tc.selector,
+			})
+			if (err == nil) != tc.valid {
+				t.Fatalf("validation = %v, want valid=%t", err, tc.valid)
+			}
+		})
 	}
 }
 

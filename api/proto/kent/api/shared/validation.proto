@@ -7,6 +7,13 @@ import "buf/validate/validate.proto";
 option go_package = "core/shared/protoapi/gen/kent/api/shared;sharedpb";
 
 extend buf.validate.StringRules {
+  optional bool pending_work_argument = 50008 [(buf.validate.predefined).cel = {
+    id: "kent.shared.pending_work_argument"
+    message: "Pending Work argument must have canonical single-space word separation"
+    expression:
+      "!rule || this.split(' ').all(word, word != '' && "
+      "word.split('').all(character, character != '\\uFEFF' && character.trim() != ''))"
+  }];
   optional bool pending_work_nonblank = 50007 [(buf.validate.predefined).cel = {
     id: "kent.shared.pending_work_nonblank"
     message: "Pending Work text must not be blank"

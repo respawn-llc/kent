@@ -895,7 +895,7 @@ message EnterRequest {
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   kent.api.shared.SessionSelector session_id = 2 [(buf.validate.field).required = true];
-  string selector = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  string selector = 3 [(buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true];
   TransitionWorkspace target_workspace = 4 [(buf.validate.field).required = true];
   optional TransitionRuntimeStepOrigin origin = 5;
 }
