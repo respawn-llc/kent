@@ -30,17 +30,9 @@ func ParentQuestionAnswerRejectedFromProto(
 	if err := Validate(details); err != nil {
 		return nil, fmt.Errorf("validate parent Question-answer rejection: %w", err)
 	}
-	answeringSessionID, err := runtimeids.ParseSessionID(details.AnsweringSessionId)
-	if err != nil {
-		return nil, fmt.Errorf("parse answering Session ID: %w", err)
-	}
-	questionSessionID, err := runtimeids.ParseSessionID(details.QuestionSessionId)
-	if err != nil {
-		return nil, fmt.Errorf("parse Question Session ID: %w", err)
-	}
 	return &serverapi.ParentQuestionAnswerRejectedError{
-		AnsweringSessionID: answeringSessionID,
-		QuestionSessionID:  questionSessionID,
+		AnsweringSessionID: runtimeids.SessionIDFromProto(details.AnsweringSessionId),
+		QuestionSessionID:  runtimeids.SessionIDFromProto(details.QuestionSessionId),
 	}, nil
 }
 

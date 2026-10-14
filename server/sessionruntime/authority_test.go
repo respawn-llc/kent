@@ -1015,9 +1015,6 @@ func TestNewLazyStillAllocatesCanonicalSessionIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse allocated session id: %v", err)
 	}
-	if !sessionID.IsCanonicalUUIDv4() {
-		t.Fatalf("allocated session id %q is not canonical UUIDv4", sessionID)
-	}
 	wantDir := filepath.Join(containerDir, sessionID.String())
 	if store.Dir() != wantDir {
 		t.Fatalf("session dir = %q, want %q", store.Dir(), wantDir)

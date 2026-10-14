@@ -59,9 +59,6 @@ func ParseSessionSelector(raw string) (SessionSelector, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !id.IsCanonicalUUIDv4() {
-		return nil, fmt.Errorf("session selector must be a positive number or canonical UUIDv4")
-	}
 	return id, nil
 }
 

@@ -38,10 +38,7 @@ func SessionTargetContextErrorFromProto(value *sharedpb.SessionTargetContext, ca
 	case *sharedpb.SessionTargetContext_Unresolved:
 		return serverapi.WithSessionTarget(serverapi.UnresolvedSessionTarget{}, cause)
 	case *sharedpb.SessionTargetContext_CanonicalSessionId:
-		id, err := runtimeids.ParseSessionID(stage.CanonicalSessionId)
-		if err != nil {
-			return err
-		}
+		id := runtimeids.SessionIDFromProto(stage.CanonicalSessionId)
 		return serverapi.WithSessionTarget(serverapi.CanonicalSessionTarget{ID: id}, cause)
 	case *sharedpb.SessionTargetContext_Projected:
 		return SessionTargetErrorFromProto(stage.Projected, cause)
@@ -74,15 +71,11 @@ func SessionTargetErrorFromProto(value *sharedpb.SessionIdentity, cause error) e
 }
 
 func SessionIdentityFromProto(id string, short *int64) (runtimeids.SessionIdentity, error) {
-	sessionID, err := runtimeids.ParseSessionID(id)
-	if err != nil {
-		return runtimeids.SessionIdentity{}, err
-	}
 	shortID, err := SessionShortIDFromProto(short)
 	if err != nil {
 		return runtimeids.SessionIdentity{}, err
 	}
-	return runtimeids.SessionIdentity{ID: sessionID, ShortID: shortID}, nil
+	return runtimeids.SessionIdentity{ID: runtimeids.SessionIDFromProto(id), ShortID: shortID}, nil
 }
 
 func SessionShortIDToProto(value *runtimeids.SessionShortID) *int64 {

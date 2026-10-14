@@ -186,9 +186,9 @@ message Status {
     defined_only: true
     not_in: [0]
   }];
-  optional string previous_session_id = 8 [(buf.validate.field).string.min_len = 1];
-  optional string parent_agent_session_id = 9 [(buf.validate.field).string.min_len = 1];
-  optional string navigation_target_session_id = 10 [(buf.validate.field).string.min_len = 1];
+  optional string previous_session_id = 8 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  optional string parent_agent_session_id = 9 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  optional string navigation_target_session_id = 10 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string thinking_level = 12 [(buf.validate.field).string.min_len = 1];
   string compaction_mode = 13 [(buf.validate.field).string = {
     in: [
@@ -210,7 +210,7 @@ message Status {
 }
 
 message SessionView {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
   optional string agent_role = 3 [(buf.validate.field).string.min_len = 1];
   ConversationFreshness conversation_freshness = 4 [(buf.validate.field).enum = {
@@ -259,8 +259,8 @@ message SessionNameMutation {
 
 message SetSessionNameRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   SessionNameMutation mutation = 2 [(buf.validate.field).required = true];
 }
@@ -287,12 +287,8 @@ message UserTurnInput {
 
 message SubmitUserTurnRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.runtime.submit_user_turn_session_id_nonblank"
-      message: "session_id must not be blank"
-      expression: "this.trim() != ''"
-    }
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   UserTurnInput input = 2 [(buf.validate.field).required = true];
 }
@@ -340,8 +336,8 @@ message SubmitUserTurnSuccess {
 
 message ShellCommandRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string command = 2 [
     (buf.validate.field).string.min_len = 1,
@@ -355,8 +351,8 @@ message ShellCommandRequest {
 
 message CompactContextRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string request_id = 2 [
     (buf.validate.field).string.uuid = true,
@@ -379,8 +375,8 @@ message ManualCompactionAdmission {
 
 message InterruptRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
 }
 
@@ -613,8 +609,8 @@ message PendingWork {
 
 message ListPendingWorkRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
 }
 
@@ -624,8 +620,8 @@ message ListPendingWorkSuccess {
 
 message RemovePendingWorkRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string item_id = 2 [
     (buf.validate.field).string.uuid = true,

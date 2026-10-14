@@ -91,7 +91,7 @@ func sessionShortID(value sql.NullInt64) (*runtimeids.SessionShortID, error) {
 func (s *Store) ResolveSessionSelector(ctx context.Context, selector runtimeids.SessionSelector) (runtimeids.SessionID, error) {
 	switch value := selector.(type) {
 	case runtimeids.SessionID:
-		if !value.IsCanonicalUUIDv4() {
+		if value.IsZero() {
 			return runtimeids.SessionID{}, errors.New("Session selector requires a canonical UUIDv4")
 		}
 		return value, nil

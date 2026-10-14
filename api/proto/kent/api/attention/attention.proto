@@ -86,7 +86,7 @@ message Notification {
     gte: 1
     lte: 9007199254740991
   }];
-  string session_id = 5 [(buf.validate.field).string.min_len = 1];
+  string session_id = 5 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   oneof state {
     option (buf.validate.oneof).required = true;
     QuestionState question = 6;
@@ -124,12 +124,8 @@ message NotificationEvent {
 
 message SubscribeRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.attention.subscribe_session_id_nonblank"
-      message: "session ID must be non-blank"
-      expression: "this.trim() != ''"
-    }
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
 }
 

@@ -31,17 +31,10 @@ func SessionPlanErrorFromProto(failure *sessionlaunchpb.SessionPlanError) error 
 			int(detail.MaxDepthExceeded.MaxDepth),
 		)
 	case *sessionlaunchpb.SessionPlanError_LineageCorrupt:
-		repeated, err := runtimeids.ParseSessionID(detail.LineageCorrupt.RepeatedSessionId)
-		if err != nil {
-			return err
-		}
+		repeated := runtimeids.SessionIDFromProto(detail.LineageCorrupt.RepeatedSessionId)
 		visited := make([]runtimeids.SessionID, 0, len(detail.LineageCorrupt.VisitedSessionIds))
 		for _, raw := range detail.LineageCorrupt.VisitedSessionIds {
-			sessionID, parseErr := runtimeids.ParseSessionID(raw)
-			if parseErr != nil {
-				return parseErr
-			}
-			visited = append(visited, sessionID)
+			visited = append(visited, runtimeids.SessionIDFromProto(raw))
 		}
 		return protocol.NewLineageCorruptSubagentLaunchPolicyError(repeated, visited)
 	default:
@@ -192,10 +185,7 @@ func SessionLaunchIntentFromProto(message *sessionlaunchpb.SessionLaunchIntent) 
 		}
 		return serverapi.CreateNewSessionLaunchIntent(origin), nil
 	case *sessionlaunchpb.SessionLaunchIntent_OpenExistingSessionId:
-		sessionID, err := runtimeids.ParseSessionID(intent.OpenExistingSessionId)
-		if err != nil {
-			return serverapi.SessionLaunchIntent{}, err
-		}
+		sessionID := runtimeids.SessionIDFromProto(intent.OpenExistingSessionId)
 		return serverapi.OpenExistingSessionLaunchIntent(sessionID), nil
 	default:
 		return serverapi.SessionLaunchIntent{}, fmt.Errorf("protobuf session launch intent %T is unsupported", message.Intent)
@@ -231,16 +221,10 @@ func sessionCreateOriginFromProto(message *sessionlaunchpb.SessionCreateOrigin) 
 	case *sessionlaunchpb.SessionCreateOrigin_Independent:
 		return serverapi.IndependentSessionCreateOrigin(), nil
 	case *sessionlaunchpb.SessionCreateOrigin_PreviousSessionId:
-		sessionID, err := runtimeids.ParseSessionID(origin.PreviousSessionId)
-		if err != nil {
-			return serverapi.SessionCreateOrigin{}, err
-		}
+		sessionID := runtimeids.SessionIDFromProto(origin.PreviousSessionId)
 		return serverapi.PreviousSessionCreateOrigin(sessionID), nil
 	case *sessionlaunchpb.SessionCreateOrigin_ParentAgentSessionId:
-		sessionID, err := runtimeids.ParseSessionID(origin.ParentAgentSessionId)
-		if err != nil {
-			return serverapi.SessionCreateOrigin{}, err
-		}
+		sessionID := runtimeids.SessionIDFromProto(origin.ParentAgentSessionId)
 		return serverapi.ParentAgentSessionCreateOrigin(sessionID), nil
 	default:
 		return serverapi.SessionCreateOrigin{}, fmt.Errorf("protobuf session create origin %T is unsupported", message.Origin)

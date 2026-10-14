@@ -18,10 +18,7 @@ func PendingAskFromQuestion(value *promptpb.Question) (clientui.PendingAsk, erro
 	if err != nil {
 		return clientui.PendingAsk{}, err
 	}
-	sessionID, err := runtimeids.ParseSessionID(value.SessionId)
-	if err != nil {
-		return clientui.PendingAsk{}, err
-	}
+	sessionID := runtimeids.SessionIDFromProto(value.SessionId)
 	stepID, err := runtimeids.ParseStepID(value.StepId)
 	if err != nil {
 		return clientui.PendingAsk{}, err
@@ -48,10 +45,7 @@ func PendingApprovalFromApproval(value *promptpb.Approval) (clientui.PendingAppr
 	if err != nil {
 		return clientui.PendingApproval{}, err
 	}
-	sessionID, err := runtimeids.ParseSessionID(value.SessionId)
-	if err != nil {
-		return clientui.PendingApproval{}, err
-	}
+	sessionID := runtimeids.SessionIDFromProto(value.SessionId)
 	stepID, err := runtimeids.ParseStepID(value.StepId)
 	if err != nil {
 		return clientui.PendingApproval{}, err

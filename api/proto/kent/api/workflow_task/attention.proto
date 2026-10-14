@@ -89,7 +89,7 @@ message AttentionCurrentNode {
       expression: "this == this.trim()"
     }
   ];
-  optional string session_id = 3 [(buf.validate.field).string.min_len = 1];
+  optional string session_id = 3 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string effective_assignee = 4 [(buf.validate.field).string.min_len = 1];
   optional string effective_thinking = 5 [(buf.validate.field).string.min_len = 1];
   optional string node_display_name = 6 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
@@ -128,7 +128,7 @@ message ApprovalQuestion {
 
 message AttentionQuestionPrompt {
   optional int64 short_id = 7 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string step_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -351,12 +351,8 @@ message InterruptedAttention {
   ];
   AttentionCurrentNode current_node = 2 [(buf.validate.field).required = true];
   optional string session_id = 3 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_task.interrupted_attention_session_id_nonblank"
-      message: "session_id must be non-blank"
-      expression: "this.trim() != ''"
-    }
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   optional InterruptedCurrentNodeDetails details = 4;
 }
@@ -546,7 +542,7 @@ message WorkflowTaskAttentionTarget {
   string task_id = 3 [(buf.validate.field).string.min_len = 1];
   optional string task_short_id = 4 [(buf.validate.field).string.min_len = 1];
   optional string task_title = 5 [(buf.validate.field).string.min_len = 1];
-  optional string session_id = 6 [(buf.validate.field).string.min_len = 1];
+  optional string session_id = 6 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string current_node_id = 7 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -568,7 +564,7 @@ message WorkflowTaskAttentionTarget {
 
 message SessionPromptAttentionTarget {
   optional int64 short_id = 3 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string project_id = 2 [(buf.validate.field).string.min_len = 1];
 }
 

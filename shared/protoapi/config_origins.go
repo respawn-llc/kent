@@ -56,10 +56,7 @@ func configOriginFromProto(message *sessionlaunchpb.ConfigOrigin) (config.Origin
 	}
 	origin := config.Origin{Property: config.PropertyAddress{Key: message.Property.Key, Role: message.Property.Role}}
 	if message.RetainedSessionId != nil {
-		id, err := runtimeids.ParseSessionID(*message.RetainedSessionId)
-		if err != nil {
-			return config.Origin{}, err
-		}
+		id := runtimeids.SessionIDFromProto(*message.RetainedSessionId)
 		origin.RetainedSessionID = &id
 	}
 	switch source := message.Source.(type) {

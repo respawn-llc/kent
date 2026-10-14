@@ -293,12 +293,8 @@ message ToolRow {
   optional kent.api.prompt.QuestionAnswer question_answer = 9;
   optional WebSearchDetail web_search = 10;
   optional string answered_by_session_id = 11 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.transcript.tool_row_answerer_nonblank"
-      message: "answered-by Session ID must be non-blank"
-      expression: "this.trim() != ''"
-    }
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   optional ViewedImageKind viewed_image_kind = 12 [(buf.validate.field).enum = {defined_only: true not_in: [0]}];
   option (buf.validate.message).cel = {
@@ -565,7 +561,7 @@ message CommittedRow {
 }
 
 message SessionIdentity {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
   kent.api.runtime.ConversationFreshness conversation_freshness = 3 [(buf.validate.field).enum = {
     defined_only: true
@@ -604,9 +600,9 @@ message SessionStatus {
     ]
   }];
   int32 compaction_count = 9 [(buf.validate.field).int32.gte = 0];
-  optional string previous_session_id = 10 [(buf.validate.field).string.min_len = 1];
-  optional string parent_agent_session_id = 11 [(buf.validate.field).string.min_len = 1];
-  optional string navigation_target_session_id = 12 [(buf.validate.field).string.min_len = 1];
+  optional string previous_session_id = 10 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  optional string parent_agent_session_id = 11 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  optional string navigation_target_session_id = 12 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional kent.api.runtime.WorkflowSessionStatus workflow = 13;
   option (buf.validate.message).cel = {
     id: "kent.transcript.fast_mode_availability"
@@ -1285,7 +1281,7 @@ message RollbackCandidate {
 }
 
 message Page {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
   kent.api.runtime.ConversationFreshness conversation_freshness = 3 [(buf.validate.field).enum = {
     defined_only: true
@@ -1341,12 +1337,8 @@ message SubscribeRequest {
 }
 message AppendCommittedEntryRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.transcript.append_entry_session_id_nonblank"
-      message: "session ID must be non-blank"
-      expression: "this.trim() != ''"
-    }
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string role = 2;
   string text = 3;

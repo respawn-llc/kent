@@ -66,9 +66,6 @@ func LiveSteerCallerSessionID() (*string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid invoking Session ID %q: %w", raw, err)
 	}
-	if !sessionID.IsCanonicalUUIDv4() {
-		return nil, fmt.Errorf("invalid invoking Session ID %q: canonical UUIDv4 required", raw)
-	}
 	value := sessionID.String()
 	return &value, nil
 }

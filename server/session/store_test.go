@@ -558,10 +558,7 @@ func TestMetaSnapshotDeepCopiesSessionProvenance(t *testing.T) {
 		t.Fatal("snapshot parent-agent session id is nil")
 	}
 	original := *snapshot.ParentAgentSessionID
-	mutated, err := runtimeids.ParseSessionID("mutated-snapshot")
-	if err != nil {
-		t.Fatalf("ParseSessionID mutated snapshot: %v", err)
-	}
+	mutated := runtimeids.NewSessionID()
 	*snapshot.ParentAgentSessionID = mutated
 
 	if got := store.Meta().ParentAgentSessionID; got == nil || *got != original {
