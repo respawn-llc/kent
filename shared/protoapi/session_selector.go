@@ -31,9 +31,6 @@ func SessionTargetErrorContext(err error) *sharedpb.SessionTargetContext {
 }
 
 func SessionTargetContextErrorFromProto(value *sharedpb.SessionTargetContext, cause error) error {
-	if err := Validate(value); err != nil {
-		return err
-	}
 	switch stage := value.Stage.(type) {
 	case *sharedpb.SessionTargetContext_Unresolved:
 		return serverapi.WithSessionTarget(serverapi.UnresolvedSessionTarget{}, cause)
@@ -60,9 +57,6 @@ func SessionTargetErrorIdentity(err error) (*sharedpb.SessionIdentity, error) {
 }
 
 func SessionTargetErrorFromProto(value *sharedpb.SessionIdentity, cause error) error {
-	if err := Validate(value); err != nil {
-		return err
-	}
 	identity := SessionIdentityFromProto(value.SessionId, value.ShortId)
 	return serverapi.WithSessionTarget(serverapi.ProjectedSessionTarget{Identity: identity}, cause)
 }
