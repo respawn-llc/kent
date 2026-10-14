@@ -109,10 +109,7 @@ func ToolSelectionFromProto(message *sessionlaunchpb.ToolSelection) (*config.Too
 	}
 	selection := &config.ToolSelection{Origin: origin, Tools: make([]toolspec.ID, 0, len(message.Tools))}
 	for _, id := range message.Tools {
-		tool, err := SessionToolIDFromProto(id)
-		if err != nil {
-			return nil, err
-		}
+		tool := SessionToolIDFromProto(id)
 		selection.Tools = append(selection.Tools, tool)
 	}
 	return selection, nil

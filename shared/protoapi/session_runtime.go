@@ -59,10 +59,7 @@ func SessionRuntimeActivateFromProto(request *sessionlaunchpb.SessionRuntimeActi
 		return serverapi.SessionRuntimeActivateRequest{}, err
 	}
 	for _, id := range request.EnabledToolIds {
-		tool, err := SessionToolIDFromProto(id)
-		if err != nil {
-			return serverapi.SessionRuntimeActivateRequest{}, err
-		}
+		tool := SessionToolIDFromProto(id)
 		result.EnabledToolIDs = append(result.EnabledToolIDs, string(tool))
 	}
 	return result, nil

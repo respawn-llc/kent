@@ -111,10 +111,7 @@ func SessionPlanErrorToProto(
 }
 
 func SubagentLaunchDeniedFromProto(details *sessionlaunchpb.SubagentLaunchDeniedDetails) error {
-	kind, err := subagentLaunchDenialKindFromProto(details.Kind)
-	if err != nil {
-		return err
-	}
+	kind := subagentLaunchDenialKindValues[details.Kind]
 	return &serverapi.SubagentLaunchDeniedError{
 		Kind:           kind,
 		Target:         clonePointer(details.Target),
@@ -224,9 +221,6 @@ func RunPromptOverridesToProto(overrides serverapi.RunPromptOverrides) (*session
 }
 
 func RunPromptOverridesFromProto(message *sessionlaunchpb.RunPromptOverrides) (serverapi.RunPromptOverrides, error) {
-	if message == nil {
-		return serverapi.RunPromptOverrides{}, errors.New("generated Run Prompt overrides are required")
-	}
 	overrides := serverapi.RunPromptOverrides{
 		AgentRole:     clonePointer(message.AgentRole),
 		Model:         dereference(message.Model),
@@ -283,85 +277,33 @@ func SessionRuntimeAgentSelectionToProto(selection *serverapi.SessionRuntimeAgen
 }
 
 func SessionToolIDToProto(toolID toolspec.ID) (sessionlaunchpb.ToolID, error) {
-	switch toolID {
-	case toolspec.ToolExecCommand:
-		return sessionlaunchpb.ToolID_TOOL_ID_EXEC_COMMAND, nil
-	case toolspec.ToolWriteStdin:
-		return sessionlaunchpb.ToolID_TOOL_ID_WRITE_STDIN, nil
-	case toolspec.ToolViewImage:
-		return sessionlaunchpb.ToolID_TOOL_ID_VIEW_IMAGE, nil
-	case toolspec.ToolPatch:
-		return sessionlaunchpb.ToolID_TOOL_ID_PATCH, nil
-	case toolspec.ToolEdit:
-		return sessionlaunchpb.ToolID_TOOL_ID_EDIT, nil
-	case toolspec.ToolAskQuestion:
-		return sessionlaunchpb.ToolID_TOOL_ID_ASK_QUESTION, nil
-	case toolspec.ToolCompleteNode:
-		return sessionlaunchpb.ToolID_TOOL_ID_COMPLETE_NODE, nil
-	case toolspec.ToolTriggerHandoff:
-		return sessionlaunchpb.ToolID_TOOL_ID_TRIGGER_HANDOFF, nil
-	case toolspec.ToolWebSearch:
-		return sessionlaunchpb.ToolID_TOOL_ID_WEB_SEARCH, nil
-	default:
-		return 0, fmt.Errorf("tool id %q is unsupported", toolID)
-	}
+	return enumToProto(sessionToolIDValues, toolID, "tool id")
 }
 
-func SessionToolIDFromProto(toolID sessionlaunchpb.ToolID) (toolspec.ID, error) {
-	switch toolID {
-	case sessionlaunchpb.ToolID_TOOL_ID_EXEC_COMMAND:
-		return toolspec.ToolExecCommand, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_WRITE_STDIN:
-		return toolspec.ToolWriteStdin, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_VIEW_IMAGE:
-		return toolspec.ToolViewImage, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_PATCH:
-		return toolspec.ToolPatch, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_EDIT:
-		return toolspec.ToolEdit, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_ASK_QUESTION:
-		return toolspec.ToolAskQuestion, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_COMPLETE_NODE:
-		return toolspec.ToolCompleteNode, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_TRIGGER_HANDOFF:
-		return toolspec.ToolTriggerHandoff, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_WEB_SEARCH:
-		return toolspec.ToolWebSearch, nil
-	default:
-		return "", fmt.Errorf("protobuf tool id %v is unsupported", toolID)
-	}
+func SessionToolIDFromProto(toolID sessionlaunchpb.ToolID) toolspec.ID {
+	return sessionToolIDValues[toolID]
+}
+
+var sessionToolIDValues = map[sessionlaunchpb.ToolID]toolspec.ID{
+	sessionlaunchpb.ToolID_TOOL_ID_EXEC_COMMAND:    toolspec.ToolExecCommand,
+	sessionlaunchpb.ToolID_TOOL_ID_WRITE_STDIN:     toolspec.ToolWriteStdin,
+	sessionlaunchpb.ToolID_TOOL_ID_VIEW_IMAGE:      toolspec.ToolViewImage,
+	sessionlaunchpb.ToolID_TOOL_ID_PATCH:           toolspec.ToolPatch,
+	sessionlaunchpb.ToolID_TOOL_ID_EDIT:            toolspec.ToolEdit,
+	sessionlaunchpb.ToolID_TOOL_ID_ASK_QUESTION:    toolspec.ToolAskQuestion,
+	sessionlaunchpb.ToolID_TOOL_ID_COMPLETE_NODE:   toolspec.ToolCompleteNode,
+	sessionlaunchpb.ToolID_TOOL_ID_TRIGGER_HANDOFF: toolspec.ToolTriggerHandoff,
+	sessionlaunchpb.ToolID_TOOL_ID_WEB_SEARCH:      toolspec.ToolWebSearch,
 }
 
 func subagentLaunchDenialKindToProto(kind serverapi.SubagentLaunchDenialKind) (sessionlaunchpb.SubagentLaunchDenialKind, error) {
-	switch kind {
-	case serverapi.SubagentLaunchDenialInvalidTarget:
-		return sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_INVALID_TARGET, nil
-	case serverapi.SubagentLaunchDenialTargetMissing:
-		return sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_TARGET_MISSING, nil
-	case serverapi.SubagentLaunchDenialNotCallable:
-		return sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_NOT_CALLABLE, nil
-	case serverapi.SubagentLaunchDenialCallerMissing:
-		return sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_CALLER_MISSING, nil
-	case serverapi.SubagentLaunchDenialParentMissing:
-		return sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_PARENT_MISSING, nil
-	default:
-		return 0, fmt.Errorf("subagent launch denial kind %q is unsupported", kind)
-	}
+	return enumToProto(subagentLaunchDenialKindValues, kind, "subagent launch denial kind")
 }
 
-func subagentLaunchDenialKindFromProto(kind sessionlaunchpb.SubagentLaunchDenialKind) (serverapi.SubagentLaunchDenialKind, error) {
-	switch kind {
-	case sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_INVALID_TARGET:
-		return serverapi.SubagentLaunchDenialInvalidTarget, nil
-	case sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_TARGET_MISSING:
-		return serverapi.SubagentLaunchDenialTargetMissing, nil
-	case sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_NOT_CALLABLE:
-		return serverapi.SubagentLaunchDenialNotCallable, nil
-	case sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_CALLER_MISSING:
-		return serverapi.SubagentLaunchDenialCallerMissing, nil
-	case sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_PARENT_MISSING:
-		return serverapi.SubagentLaunchDenialParentMissing, nil
-	default:
-		return "", fmt.Errorf("protobuf subagent launch denial kind %v is unsupported", kind)
-	}
+var subagentLaunchDenialKindValues = map[sessionlaunchpb.SubagentLaunchDenialKind]serverapi.SubagentLaunchDenialKind{
+	sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_INVALID_TARGET: serverapi.SubagentLaunchDenialInvalidTarget,
+	sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_TARGET_MISSING: serverapi.SubagentLaunchDenialTargetMissing,
+	sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_NOT_CALLABLE:   serverapi.SubagentLaunchDenialNotCallable,
+	sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_CALLER_MISSING: serverapi.SubagentLaunchDenialCallerMissing,
+	sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_PARENT_MISSING: serverapi.SubagentLaunchDenialParentMissing,
 }

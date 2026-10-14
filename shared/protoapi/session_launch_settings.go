@@ -387,10 +387,7 @@ func enabledToolFactsToProto(values map[toolspec.ID]bool) ([]*sessionlaunchpb.To
 func enabledToolFactsFromProto(values []*sessionlaunchpb.ToolEnabledFact) (map[toolspec.ID]bool, error) {
 	result := make(map[toolspec.ID]bool, len(values))
 	for _, value := range values {
-		toolID, err := SessionToolIDFromProto(value.ToolId)
-		if err != nil {
-			return nil, err
-		}
+		toolID := SessionToolIDFromProto(value.ToolId)
 		result[toolID] = value.Enabled
 	}
 	return result, nil

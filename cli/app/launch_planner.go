@@ -223,10 +223,7 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	}
 	enabledTools := make([]toolspec.ID, 0, len(resp.Plan.EnabledToolIds))
 	for _, generated := range resp.Plan.EnabledToolIds {
-		id, err := protoapi.SessionToolIDFromProto(generated)
-		if err != nil {
-			return sessionLaunchPlan{}, err
-		}
+		id := protoapi.SessionToolIDFromProto(generated)
 		enabledTools = append(enabledTools, id)
 	}
 	cfg := p.server.Connection()
