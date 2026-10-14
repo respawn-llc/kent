@@ -827,9 +827,6 @@ func (s *Store) AttachWorkspaceToProjectWithResult(ctx context.Context, projectI
 		return ProjectWorkspaceAttachResult{}, errors.New("metadata store is required")
 	}
 	trimmedProjectID := strings.TrimSpace(projectID)
-	if trimmedProjectID == "" {
-		return ProjectWorkspaceAttachResult{}, errors.New("project id is required")
-	}
 	canonicalRoot, err := config.CanonicalWorkspaceRoot(workspaceRoot)
 	if err != nil {
 		return ProjectWorkspaceAttachResult{}, err
@@ -919,12 +916,6 @@ func (s *Store) SetProjectDefaultWorkspaceAndGetSummary(ctx context.Context, pro
 	}
 	trimmedProjectID := strings.TrimSpace(projectID)
 	trimmedWorkspaceID := strings.TrimSpace(workspaceID)
-	if trimmedProjectID == "" {
-		return serverapi.ProjectHomeSummary{}, errors.New("project id is required")
-	}
-	if trimmedWorkspaceID == "" {
-		return serverapi.ProjectHomeSummary{}, errors.New("workspace id is required")
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return serverapi.ProjectHomeSummary{}, fmt.Errorf("begin default workspace tx: %w", err)
@@ -996,12 +987,6 @@ func (s *Store) UnlinkProjectWorkspaceWithRuntimeBlockers(ctx context.Context, p
 	}
 	trimmedProjectID := strings.TrimSpace(projectID)
 	trimmedWorkspaceID := strings.TrimSpace(workspaceID)
-	if trimmedProjectID == "" {
-		return nil, errors.New("project id is required")
-	}
-	if trimmedWorkspaceID == "" {
-		return nil, errors.New("workspace id is required")
-	}
 	if _, err := s.queries.GetProjectDisplayName(ctx, trimmedProjectID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, serverapi.ErrProjectNotFound
