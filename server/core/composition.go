@@ -751,20 +751,11 @@ func (s workflowViewPendingPromptSource) ListPendingPrompts(sessionID string) ([
 	out := make([]workflowview.PendingPromptSnapshot, 0, len(items))
 	for _, item := range items {
 		toolCallID := clientui.ToolCallID(item.Request.ToolCallID)
-		stepID, err := runtimeids.ParseStepID(item.Request.StepID)
+		stepID, err := runtimeids.StepIDFromProto(item.Request.StepID)
 		if err != nil {
 			return nil, fmt.Errorf("session %q pending prompt %q step identity: %w", sessionID, item.Request.ToolCallID, err)
 		}
-		if err := toolCallID.Validate(); err != nil {
-			return nil, fmt.Errorf("session %q pending prompt identity: %w", sessionID, err)
-		}
-		recommendedOptionIndex, err := registry.DecodeLegacyRecommendedOptionIndex(
-			item.Request.RecommendedOptionIndex,
-			len(item.Request.Suggestions),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("session %q pending prompt %q: %w", sessionID, item.Request.ToolCallID, err)
-		}
+		recommendedOptionIndex := registry.RecommendedOptionIndexFromSnapshot(item.Request.RecommendedOptionIndex)
 		decisions := make([]clientui.ApprovalDecision, 0, len(item.Request.ApprovalOptions))
 		for _, option := range item.Request.ApprovalOptions {
 			decisions = append(decisions, clientui.ApprovalDecision(option.Decision))

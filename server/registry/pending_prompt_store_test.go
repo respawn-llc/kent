@@ -28,7 +28,7 @@ func TestPendingPromptStepGroupsAreChronological(t *testing.T) {
 
 func TestPendingPromptsRetainOriginalBatchReadinessAcrossExternalAnswers(t *testing.T) {
 	store := &pendingPromptStore{}
-	resource := registryTestResourceRef("batch-session")
+	resource := registryTestResourceRef("22222222-2222-4222-8222-222222222222")
 	scope := runtimeids.NewExecutionScopeID()
 	ids := []string{"first", "second", "third", "fourth", "fifth"}
 	if err := store.Prepare(resource, registryTestStepID, ids); err != nil {
@@ -46,27 +46,27 @@ func TestPendingPromptsRetainOriginalBatchReadinessAcrossExternalAnswers(t *test
 	}
 	check := func(want uint32) {
 		t.Helper()
-		for _, prompt := range store.List("batch-session") {
+		for _, prompt := range store.List("22222222-2222-4222-8222-222222222222") {
 			if prompt.Batch == nil || prompt.Batch.UnmaterializedCount != want || !slices.Equal(prompt.Batch.ToolCallIDs, ids) {
 				t.Fatalf("batch = %+v, want original IDs %v and %d unmaterialized", prompt.Batch, ids, want)
 			}
 		}
 	}
-	store.Begin("batch-session", resource, scope, askquestion.AskQuestionRequest{
+	store.Begin("22222222-2222-4222-8222-222222222222", resource, scope, askquestion.AskQuestionRequest{
 		ToolCallID: "approval", StepID: registryTestStepID, Approval: true,
 	}, time.Now())
 	check(5)
-	store.Begin("batch-session", resource, scope, request(0), time.Now())
+	store.Begin("22222222-2222-4222-8222-222222222222", resource, scope, request(0), time.Now())
 	check(4)
-	store.Complete("batch-session", resource, scope, ids[0])
+	store.Complete("22222222-2222-4222-8222-222222222222", resource, scope, ids[0])
 	check(4)
 	for index := 1; index < len(ids); index++ {
-		store.Begin("batch-session", resource, scope, request(index), time.Now().Add(-time.Duration(index)*time.Second))
+		store.Begin("22222222-2222-4222-8222-222222222222", resource, scope, request(index), time.Now().Add(-time.Duration(index)*time.Second))
 		check(uint32(len(ids) - index - 1))
-		store.Complete("batch-session", resource, scope, ids[index])
+		store.Complete("22222222-2222-4222-8222-222222222222", resource, scope, ids[index])
 		check(uint32(len(ids) - index - 1))
 	}
-	pending := store.List("batch-session")
+	pending := store.List("22222222-2222-4222-8222-222222222222")
 	if len(pending) != 1 || pending[0].Request.ToolCallID != "approval" {
 		t.Fatalf("pending = %+v, want only Approval", pending)
 	}
@@ -78,9 +78,9 @@ func TestPendingPromptsRetainOriginalBatchReadinessAcrossExternalAnswers(t *test
 func TestQuestionBatchReadinessUpdatesExistingPendingPromptSubscriptions(t *testing.T) {
 	registry := NewRuntimeRegistry(nil)
 	engine := &runtime.Engine{}
-	registerReady(t, registry, "session-1", engine)
-	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
-	resource := registryTestResourceRef("session-1")
+	registerReady(t, registry, "11111111-1111-4111-8111-111111111111", engine)
+	t.Cleanup(func() { closeRuntime(registry, "11111111-1111-4111-8111-111111111111", engine) })
+	resource := registryTestResourceRef("11111111-1111-4111-8111-111111111111")
 	entry := registry.authorityEntryByRef(resource)
 	sub, err := entry.sessionFeed.broker.Subscribe(transcriptBrokerHydration(t))
 	if err != nil {
@@ -100,13 +100,13 @@ func TestQuestionBatchReadinessUpdatesExistingPendingPromptSubscriptions(t *test
 		t.Fatal(err)
 	}
 	scope := runtimeids.NewExecutionScopeID()
-	snapshot, admitted := registry.pendingPrompts.Begin("session-1", resource, scope, askquestion.AskQuestionRequest{
+	snapshot, admitted := registry.pendingPrompts.Begin("11111111-1111-4111-8111-111111111111", resource, scope, askquestion.AskQuestionRequest{
 		ToolCallID: "first", StepID: stepID, Question: "Proceed?", QuestionBatch: batch,
 	}, time.Now())
 	if !admitted {
 		t.Fatal("prepared Question was not admitted")
 	}
-	publishPendingPrompt(entry.sessionFeed, "session-1", snapshot, pendingPromptEventPending)
+	publishPendingPrompt(entry.sessionFeed, "11111111-1111-4111-8111-111111111111", snapshot, pendingPromptEventPending)
 	initial, err := sub.Next(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -134,19 +134,19 @@ func TestQuestionBatchReadinessUpdatesExistingPendingPromptSubscriptions(t *test
 
 func TestPendingPromptsOrderQuestionsByOriginalCallsNotRegistrationTime(t *testing.T) {
 	store := &pendingPromptStore{}
-	resource := registryTestResourceRef("batch-session")
+	resource := registryTestResourceRef("22222222-2222-4222-8222-222222222222")
 	scope := runtimeids.NewExecutionScopeID()
 	ids := []string{"first", "second", "third"}
 	if err := store.Prepare(resource, registryTestStepID, ids); err != nil {
 		t.Fatal(err)
 	}
 	for index := len(ids) - 1; index >= 0; index-- {
-		store.Begin("batch-session", resource, scope, askquestion.AskQuestionRequest{
+		store.Begin("22222222-2222-4222-8222-222222222222", resource, scope, askquestion.AskQuestionRequest{
 			ToolCallID: ids[index], StepID: registryTestStepID,
 			QuestionBatch: &askquestion.AskQuestionBatchMetadata{BatchToolCallIDs: ids, CandidateOrdinal: index},
 		}, time.Now())
 	}
-	for index, pending := range store.List("batch-session") {
+	for index, pending := range store.List("22222222-2222-4222-8222-222222222222") {
 		if pending.Request.ToolCallID != ids[index] {
 			t.Fatalf("Question %d = %s, want %s", index, pending.Request.ToolCallID, ids[index])
 		}
@@ -155,20 +155,20 @@ func TestPendingPromptsOrderQuestionsByOriginalCallsNotRegistrationTime(t *testi
 
 func TestPendingQuestionBatchCompletesSkippedCandidatesWithoutWaitingForPrompts(t *testing.T) {
 	store := &pendingPromptStore{}
-	resource := registryTestResourceRef("batch-session")
+	resource := registryTestResourceRef("22222222-2222-4222-8222-222222222222")
 	scope := runtimeids.NewExecutionScopeID()
 	ids := []string{"skipped", "pending"}
 	if err := store.Prepare(resource, registryTestStepID, ids); err != nil {
 		t.Fatal(err)
 	}
-	store.Begin("batch-session", resource, scope, askquestion.AskQuestionRequest{
+	store.Begin("22222222-2222-4222-8222-222222222222", resource, scope, askquestion.AskQuestionRequest{
 		ToolCallID: "approval", StepID: registryTestStepID, Approval: true,
 	}, time.Now())
 	ids[0] = "mutated"
 	if !store.Finished(resource, registryTestStepID, "skipped") {
 		t.Fatal("skipped candidate was not recognized as no longer future")
 	}
-	first := store.List("batch-session")[0]
+	first := store.List("22222222-2222-4222-8222-222222222222")[0]
 	if first.Batch.UnmaterializedCount != 1 || first.Batch.ToolCallIDs[0] != "skipped" {
 		t.Fatalf("batch after skipped candidate = %+v", first.Batch)
 	}
@@ -176,11 +176,11 @@ func TestPendingQuestionBatchCompletesSkippedCandidatesWithoutWaitingForPrompts(
 		t.Fatal("duplicate completion changed readiness")
 	}
 	store.Finished(resource, registryTestStepID, "pending")
-	if got := store.List("batch-session")[0].Batch.UnmaterializedCount; got != 0 {
+	if got := store.List("22222222-2222-4222-8222-222222222222")[0].Batch.UnmaterializedCount; got != 0 {
 		t.Fatalf("unmaterialized count = %d, want 0", got)
 	}
 	first.Batch.ToolCallIDs[0] = "mutated snapshot"
-	if got := store.List("batch-session")[0].Batch.ToolCallIDs[0]; got != "skipped" {
+	if got := store.List("22222222-2222-4222-8222-222222222222")[0].Batch.ToolCallIDs[0]; got != "skipped" {
 		t.Fatalf("snapshot mutation changed original batch: %s", got)
 	}
 }
