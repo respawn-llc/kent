@@ -383,6 +383,7 @@ func (e *execution) cleanup() error {
 	if resource.localTools != nil {
 		cleanupErr = errors.Join(cleanupErr, resource.localTools.BindExecutionCorrelation(nil))
 	}
+	resource.removeExecutionEventObservers(e.scope.ID())
 	resource.current = nil
 	resource.signalLocked()
 	return cleanupErr
