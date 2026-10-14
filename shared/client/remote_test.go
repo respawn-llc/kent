@@ -189,6 +189,10 @@ func TestRemotePreviewWorktreeDeleteSendsRouteAndDecodesEveryCleanlinessVariant(
 				sendRemoteGeneratedResult(t, ws, call, &worktreepb.DeletePreviewResult{
 					Outcome: &worktreepb.DeletePreviewResult_Success{Success: response},
 				})
+				var frame []byte
+				if err := websocket.Message.Receive(ws, &frame); !errors.Is(err, io.EOF) {
+					t.Errorf("remote close after response = %v, want EOF", err)
+				}
 			})
 			remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
 			if err != nil {
