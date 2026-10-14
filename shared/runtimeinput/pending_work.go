@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"core/shared/runtimeids"
 )
@@ -273,5 +274,7 @@ func (r PendingWorkTechnicalRestoration) Validate() error {
 }
 
 func NormalizePendingWorkArgument(value string) string {
-	return strings.Join(strings.Fields(value), " ")
+	return strings.Join(strings.FieldsFunc(value, func(character rune) bool {
+		return unicode.IsSpace(character) || character == '\uFEFF'
+	}), " ")
 }
