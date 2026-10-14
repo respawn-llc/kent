@@ -5,6 +5,7 @@ import {
   encode,
   encodeEnvelope,
   operationName,
+  validateResultErrorDetail,
   type DescMethod,
   type MessageShape,
 } from "@app/server-api-contract";
@@ -91,9 +92,11 @@ export function completeDescriptorResponse<Method extends DescMethod>(
     throw new TransportError(`${operation} result payload is required.`);
   }
   try {
-    return decode<Method["output"]>(method.output, response.result.payload);
-  } catch {
-    throw new ContractError(`${operation} response did not match GUI contract.`);
+    const result = decode<Method["output"]>(method.output, response.result.payload);
+    validateResultErrorDetail(method.output, result);
+    return result;
+  } catch (cause) {
+    throw new ContractError(`${operation} response did not match GUI contract.`, [], 0, { cause });
   }
 }
 

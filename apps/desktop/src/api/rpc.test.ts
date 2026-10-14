@@ -113,6 +113,31 @@ describe("RpcWebSocketTransport", () => {
     vi.unstubAllGlobals();
   });
 
+  it("rejects a known error with mismatched detail before returning a decoded result", async () => {
+    const transport = createRpcTransport("ws://127.0.0.1:53082/rpc");
+    const method = QuestionService.method.listPending;
+    const response = transport.callDescriptor(
+      method,
+      create(method.input, {
+        sessionId: { value: { case: "sessionId", value: "33333333-3333-4333-8333-333333333333" } },
+      }),
+    );
+    const socket = sockets[0] ?? failTest("socket missing");
+    await socket.setup();
+    binaryAck(socket, 1, method, {
+      result: create(method.output, {
+        outcome: {
+          case: "error",
+          value: { code: "self_target", detail: { case: "internalFailure", value: {} } },
+        },
+      }),
+    });
+    const failure = await response.catch((cause: unknown) => cause);
+    expect(failure).toBeInstanceOf(ContractError);
+    if (!(failure instanceof ContractError)) throw failure;
+    expect(failure.cause).toBeInstanceOf(Error);
+  });
+
   it("rejects pending mutations on disconnect and does not replay them on reconnect", async () => {
     const transport = createRpcTransport("ws://127.0.0.1:53082/rpc");
     const mutation = callReadiness(transport);

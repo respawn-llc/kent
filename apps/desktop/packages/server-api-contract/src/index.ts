@@ -9,4 +9,8 @@ export {
   type SubscriptionAssociations,
   type UnaryConnectionPolicy,
 } from "./method.js";
-export { classifyResultFailure, type ResultFailureClassification } from "./result.js";
+export {
+  classifyResultFailure,
+  validateResultErrorDetail,
+  type ResultFailureClassification,
+} from "./result.js";

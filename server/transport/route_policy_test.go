@@ -138,12 +138,23 @@ func TestChatResultClassification(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			classified, err := protoapi.ClassifyResult(test.result)
+			encoded, err := protoapi.Encode(test.result)
 			if (err != nil) != test.wantErr {
-				t.Fatalf("ClassifyResult error = %v, want error %t", err, test.wantErr)
+				t.Fatalf("result encoding error = %v, want error %t", err, test.wantErr)
 			}
 			if test.wantErr {
 				return
+			}
+			decoded := &chatpb.SteerResult{}
+			if err := protoapi.Decode(encoded, decoded); err != nil {
+				t.Fatal(err)
+			}
+			if err := protoapi.ValidateResultErrorDetail(decoded); err != nil {
+				t.Fatal(err)
+			}
+			classified, err := protoapi.ClassifyResult(decoded)
+			if err != nil {
+				t.Fatal(err)
 			}
 			if classified.Outcome != test.wantOutcome {
 				t.Fatalf("outcome = %v, want %v", classified.Outcome, test.wantOutcome)

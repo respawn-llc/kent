@@ -93,11 +93,7 @@ func decodeGeneratedResult[
 	if classified.Outcome == protoapi.OperationGenericFailure {
 		return zeroSuccess, generatedOperationFailure(classified.Failure.Code)
 	}
-	var zeroFailure Failure
 	failure := result.GetError()
-	if failure == zeroFailure {
-		return zeroSuccess, fmt.Errorf("%s classified a failure without an error value", method.FullName())
-	}
 	if err, matched := generatedPlatformFailure(failure); matched {
 		return zeroSuccess, err
 	}
@@ -253,9 +249,6 @@ func callBinaryRPC(
 		if err := decodeBinaryResponse(operation, requestID, response, result); err != nil {
 			return err
 		}
-		if _, err := protoapi.ClassifyResult(result); err != nil {
-			return fmt.Errorf("classify %s result: %w", operation.Name, err)
-		}
 		return nil
 	}
 }
@@ -383,6 +376,9 @@ func decodeBinaryResponse(
 	}
 	if err := protoapi.Decode(response.result.Payload, result); err != nil {
 		return invalidResponseError(operation.Name, err)
+	}
+	if err := protoapi.ValidateResultErrorDetail(result); err != nil {
+		return fmt.Errorf("classify %s result: %w", operation.Name, err)
 	}
 	return nil
 }

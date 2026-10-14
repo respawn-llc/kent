@@ -240,10 +240,11 @@ export class ContractError extends Error {
     message: string,
     diagnostics: readonly ContractIssueDiagnostic[] = [],
     totalDiagnosticCount = diagnostics.length,
+    options?: ErrorOptions,
   ) {
     const retainedDiagnostics = diagnostics.slice(0, 8);
     const completeDiagnosticCount = Math.max(totalDiagnosticCount, diagnostics.length);
-    super(contractErrorMessage(message, retainedDiagnostics, completeDiagnosticCount));
+    super(contractErrorMessage(message, retainedDiagnostics, completeDiagnosticCount), options);
     this.name = "ContractError";
     this.diagnostics = retainedDiagnostics;
     this.totalDiagnosticCount = completeDiagnosticCount;
