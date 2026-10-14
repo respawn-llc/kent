@@ -253,12 +253,8 @@ func (e *Engine) setGoalStatusRaw(status session.GoalStatus, actor session.GoalA
 	return result, errors.Join(noticeErr, e.startGoalLoop(noticeAccepted))
 }
 
-func (e *Engine) ApplyGoalForStep(stepID string, operation CurrentGoalOperation) (GoalCommandResult, error) {
-	identity, err := runtimeids.ParseStepID(stepID)
-	if err != nil {
-		return GoalCommandResult{}, err
-	}
-	result, _, err := e.applyGoalForActiveStep(&identity, operation)
+func (e *Engine) ApplyGoalForStep(stepID runtimeids.StepID, operation CurrentGoalOperation) (GoalCommandResult, error) {
+	result, _, err := e.applyGoalForActiveStep(&stepID, operation)
 	return result, err
 }
 

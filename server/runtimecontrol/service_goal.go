@@ -245,7 +245,7 @@ func (s *Service) applyExactAgentGoalMutation(
 			return errors.New("agent Goal mutation kind is invalid")
 		}
 		var err error
-		result, err = engine.ApplyGoalForStep(stepID.String(), operation)
+		result, err = engine.ApplyGoalForStep(stepID, operation)
 		return err
 	})
 	return result, err

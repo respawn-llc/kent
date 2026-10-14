@@ -1086,18 +1086,12 @@ func prepareActiveGoalState(
 	now time.Time,
 ) (GoalState, error) {
 	goal.Objective = strings.TrimSpace(goal.Objective)
-	if goal.Objective == "" {
-		return GoalState{}, errors.New("goal objective is required")
-	}
 	goal.ID = strings.TrimSpace(goal.ID)
 	if goal.ID == "" {
 		goal.ID = uuid.NewString()
 	}
 	goal.Status = GoalStatusActive
-	normalizedActor, err := normalizeGoalActor(actor)
-	if err != nil {
-		return GoalState{}, err
-	}
+	normalizedActor := normalizeGoalActor(actor)
 	current = cloneGoalState(current)
 	if normalizedActor == GoalActorAgent && current != nil && current.Status != GoalStatusComplete {
 		return GoalState{}, GoalAgentOverwriteBlockedError{Goal: *current}
@@ -1124,9 +1118,6 @@ func prepareGoalStatusState(
 	if err != nil {
 		return GoalState{}, false, err
 	}
-	if _, err := normalizeGoalActor(actor); err != nil {
-		return GoalState{}, false, err
-	}
 	current = cloneGoalState(current)
 	if current == nil {
 		if allow != nil {
@@ -1143,9 +1134,6 @@ func prepareGoalStatusState(
 }
 
 func prepareGoalClearState(current *GoalState, actor GoalActor) (GoalState, error) {
-	if _, err := normalizeGoalActor(actor); err != nil {
-		return GoalState{}, err
-	}
 	current = cloneGoalState(current)
 	if current == nil {
 		return GoalState{}, errors.New("goal is not set")
