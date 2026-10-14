@@ -874,6 +874,7 @@ func TestGenerateWithRetryClient_CompactionPreservesMetadataChangeEvidence(t *te
 		retainPrefix     bool
 		changeSchema     bool
 		removeSchema     bool
+		changeModel      bool
 		cachedTokens     *int
 		mode             config.CacheWarningMode
 		wantWarning      bool
@@ -889,6 +890,8 @@ func TestGenerateWithRetryClient_CompactionPreservesMetadataChangeEvidence(t *te
 		{name: "stable metadata immediately after boundary reopen", reopen: true, reopenAtBoundary: true, cachedTokens: textutil.Value(1)},
 		{name: "stable retained prefix", retainPrefix: true, cachedTokens: textutil.Value(1)},
 		{name: "off suppresses metadata warning", changeSchema: true, mode: config.CacheWarningModeOff, cachedTokens: textutil.Value(0)},
+		{name: "model change after compaction", changeModel: true, wantWarning: true},
+		{name: "model change immediately after boundary reopen", changeModel: true, reopen: true, reopenAtBoundary: true, wantWarning: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -948,6 +951,9 @@ func TestGenerateWithRetryClient_CompactionPreservesMetadataChangeEvidence(t *te
 			}
 			after := before
 			after.Items = items
+			if tt.changeModel {
+				after.Model = "gpt-6-astra"
+			}
 			if tt.changeSchema {
 				changed, err := jsoncontract.NewPreparer(true).Structured("changed cache test", struct {
 					Summary string `json:"summary"`
