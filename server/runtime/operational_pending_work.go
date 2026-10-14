@@ -33,9 +33,6 @@ func (e *Engine) scheduleOperationalPendingWork(ctx context.Context, request ope
 	if err := e.requirePendingWorkCapacity(); err != nil {
 		return err
 	}
-	if err := request.item.Validate(); err != nil {
-		return err
-	}
 	if request.item.Kind == runtimeinput.PendingWorkItemKindManualCompaction {
 		if err := e.manualCompactionAdmissionError(); err != nil {
 			return err

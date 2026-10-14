@@ -71,9 +71,6 @@ func PendingWorkKindFromProto(kind runtimepb.PendingWorkItemKind) (runtimeinput.
 }
 
 func PendingWorkToProto(work runtimeinput.PendingWork) (*runtimepb.PendingWork, error) {
-	if err := work.Validate(); err != nil {
-		return nil, err
-	}
 	result := &runtimepb.PendingWork{Items: make([]*runtimepb.PendingWorkItem, 0, len(work.Items))}
 	for _, item := range work.Items {
 		kind, err := PendingWorkKindToProto(item.Kind)
@@ -150,5 +147,5 @@ func PendingWorkFromProto(work *runtimepb.PendingWork) (runtimeinput.PendingWork
 		}
 		result.Items = append(result.Items, value)
 	}
-	return result, result.Validate()
+	return result, nil
 }
