@@ -11,12 +11,9 @@ import (
 )
 
 func PendingAskFromQuestion(value *promptpb.Question) (clientui.PendingAsk, error) {
-	if err := Validate(value); err != nil {
-		return clientui.PendingAsk{}, err
-	}
 	shortID := SessionShortIDFromProto(value.ShortId)
 	sessionID := runtimeids.SessionIDFromProto(value.SessionId)
-	stepID, err := runtimeids.ParseStepID(value.StepId)
+	stepID, err := runtimeids.StepIDFromProto(value.StepId)
 	if err != nil {
 		return clientui.PendingAsk{}, err
 	}
@@ -35,12 +32,9 @@ func PendingAskFromQuestion(value *promptpb.Question) (clientui.PendingAsk, erro
 }
 
 func PendingApprovalFromApproval(value *promptpb.Approval) (clientui.PendingApproval, error) {
-	if err := Validate(value); err != nil {
-		return clientui.PendingApproval{}, err
-	}
 	shortID := SessionShortIDFromProto(value.ShortId)
 	sessionID := runtimeids.SessionIDFromProto(value.SessionId)
-	stepID, err := runtimeids.ParseStepID(value.StepId)
+	stepID, err := runtimeids.StepIDFromProto(value.StepId)
 	if err != nil {
 		return clientui.PendingApproval{}, err
 	}
@@ -76,7 +70,7 @@ func QuestionFromPendingAsk(value clientui.PendingAsk) (*promptpb.Question, erro
 		}
 		result.RecommendedOptionIndex = &index
 	}
-	return result, Validate(result)
+	return result, nil
 }
 
 func ApprovalFromPendingApproval(value clientui.PendingApproval) (*promptpb.Approval, error) {
@@ -94,7 +88,7 @@ func ApprovalFromPendingApproval(value clientui.PendingApproval) (*promptpb.Appr
 		}
 		result.Options = append(result.Options, &promptpb.ApprovalOption{Decision: decision})
 	}
-	return result, Validate(result)
+	return result, nil
 }
 
 func questionBatchFromProto(value *promptpb.QuestionBatch) *clientui.QuestionBatch {

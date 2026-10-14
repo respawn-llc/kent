@@ -584,8 +584,7 @@ func readPendingSessionPromptByKey(
 			if ask.SessionID == expected.SessionID &&
 				ask.StepID == expected.StepID &&
 				ask.ToolCallID == expected.ToolCallID {
-				question, err := pendingSessionQuestion(ask)
-				return question, err == nil, err
+				return pendingSessionQuestion(ask), true, nil
 			}
 		}
 		return questionCommandPendingQuestion{}, false, nil
@@ -594,7 +593,7 @@ func readPendingSessionPromptByKey(
 		if approval.SessionID == expected.SessionID &&
 			approval.StepID == expected.StepID &&
 			approval.ToolCallID == expected.ToolCallID {
-			return pendingSessionApproval(approval)
+			return pendingSessionApproval(approval), true, nil
 		}
 	}
 	return questionCommandPendingQuestion{}, false, nil
@@ -604,11 +603,10 @@ func pendingQuestionFromObservation(
 	question serverapi.ObservationQuestion,
 ) (questionCommandPendingQuestion, bool, error) {
 	if question.Ask != nil {
-		pending, err := pendingSessionQuestion(*question.Ask)
-		return pending, err == nil, err
+		return pendingSessionQuestion(*question.Ask), true, nil
 	}
 	if question.Approval != nil {
-		return pendingSessionApproval(*question.Approval)
+		return pendingSessionApproval(*question.Approval), true, nil
 	}
 	return questionCommandPendingQuestion{}, false, errors.New("pending prompt has no Question or Approval")
 }
@@ -882,22 +880,7 @@ func openConfiguredSessionRemote(ctx context.Context, sessionID string) (*client
 	return remote, nil
 }
 
-func pendingSessionQuestion(ask clientui.PendingAsk) (questionCommandPendingQuestion, error) {
-	if err := ask.ToolCallID.Validate(); err != nil {
-		return questionCommandPendingQuestion{}, err
-	}
-	if ask.SessionID.IsZero() || ask.StepID.IsZero() {
-		return questionCommandPendingQuestion{}, errors.New("pending question has incomplete batch identity")
-	}
-	if ask.RecommendedOptionIndex != nil &&
-		(*ask.RecommendedOptionIndex < 1 || *ask.RecommendedOptionIndex > len(ask.Suggestions)) {
-		return questionCommandPendingQuestion{}, fmt.Errorf(
-			"pending question %q recommended option index %d is outside suggestions 1..%d",
-			ask.ToolCallID,
-			*ask.RecommendedOptionIndex,
-			len(ask.Suggestions),
-		)
-	}
+func pendingSessionQuestion(ask clientui.PendingAsk) questionCommandPendingQuestion {
 	return questionCommandPendingQuestion{
 		ToolCallID:             ask.ToolCallID,
 		SessionID:              ask.SessionID,
@@ -907,15 +890,12 @@ func pendingSessionQuestion(ask clientui.PendingAsk) (questionCommandPendingQues
 		Question:               ask.Question,
 		Suggestions:            append([]string(nil), ask.Suggestions...),
 		RecommendedOptionIndex: textutil.Pointer(ask.RecommendedOptionIndex),
-	}, nil
+	}
 }
 
 func pendingSessionApproval(
 	approval clientui.PendingApproval,
-) (questionCommandPendingQuestion, bool, error) {
-	if err := (serverapi.ObservationQuestion{Approval: &approval}).Validate(); err != nil {
-		return questionCommandPendingQuestion{}, false, err
-	}
+) questionCommandPendingQuestion {
 	cloned := approval
 	cloned.Options = append([]clientui.ApprovalOption(nil), approval.Options...)
 	cloned.AccessTargets = append([]clientui.FileAccessTarget(nil), approval.AccessTargets...)
@@ -927,7 +907,7 @@ func pendingSessionApproval(
 		Kind:       taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL,
 		Question:   approval.Question,
 		Approval:   &cloned,
-	}, true, nil
+	}
 }
 
 func writePendingQuestion(stdout io.Writer, ask questionCommandPendingQuestion, next bool) {

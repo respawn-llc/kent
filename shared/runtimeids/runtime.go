@@ -117,6 +117,11 @@ func ParseRunID(raw string) (RunID, error) {
 
 type StepID struct{ uuidv4Value }
 
+func StepIDFromProto(raw string) (StepID, error) {
+	id, err := uuidv4ValueFromProto(raw)
+	return StepID{uuidv4Value: id}, err
+}
+
 func ParseStepID(raw string) (StepID, error) {
 	id, err := parseUUIDv4Value(raw, "step_id")
 	return StepID{uuidv4Value: id}, err
