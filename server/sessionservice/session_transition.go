@@ -89,9 +89,6 @@ func resolveForkRollback(req sessionTransitionResolveRequest) (*sessionlaunchpb.
 	if req.Store == nil {
 		return &sessionlaunchpb.SessionDirective{}, errors.New("current store is required for rollback fork")
 	}
-	if req.Transition.ForkUserMessageSeq <= 0 {
-		return &sessionlaunchpb.SessionDirective{}, errors.New("rollback fork user message seq must be > 0")
-	}
 	parentMeta := req.Store.Meta()
 	baseName := parentMeta.SessionID
 	if parentMeta.Name != nil {
@@ -111,10 +108,7 @@ func resolveForkRollback(req sessionTransitionResolveRequest) (*sessionlaunchpb.
 	if err := forkedStore.SetName(textutil.Value(strings.TrimSpace(baseName + " \u2192 edit u" + strconv.Itoa(forkOrdinal)))); err != nil {
 		return &sessionlaunchpb.SessionDirective{}, errors.Join(err, forkedStore.RemoveDurable())
 	}
-	forkID, err := runtimeids.ParseSessionID(forkedStore.Meta().SessionID)
-	if err != nil {
-		return &sessionlaunchpb.SessionDirective{}, errors.Join(err, forkedStore.RemoveDurable())
-	}
+	forkID := runtimeids.SessionIDFromProto(forkedStore.Meta().SessionID)
 	prompt, err := sessionInitialPromptMetadata(req.Transition.InitialPrompt, req.Transition.InitialPromptHistoryRecorded)
 	if err != nil {
 		return &sessionlaunchpb.SessionDirective{}, errors.Join(err, forkedStore.RemoveDurable())

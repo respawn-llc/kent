@@ -91,10 +91,7 @@ func (s *SessionLifecycleService) Archive(
 	if s.metadata == nil {
 		return errors.New("Session removal metadata is required")
 	}
-	id, err := runtimeids.ParseSessionID(sessionID)
-	if err != nil {
-		return err
-	}
+	id := runtimeids.SessionIDFromProto(sessionID)
 	if invocationCtx == nil {
 		invocationCtx = context.Background()
 	}
@@ -117,10 +114,7 @@ func (s *SessionLifecycleService) Delete(invocationCtx context.Context, sessionI
 	if s.metadata == nil {
 		return errors.New("Session removal metadata is required")
 	}
-	id, err := runtimeids.ParseSessionID(sessionID)
-	if err != nil {
-		return err
-	}
+	id := runtimeids.SessionIDFromProto(sessionID)
 	if invocationCtx == nil {
 		invocationCtx = context.Background()
 	}

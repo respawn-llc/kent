@@ -111,10 +111,7 @@ func (s *SessionWorkspaceRetargeter) retargetWorkspaceResolution(
 	if resolve == nil {
 		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, errors.New("session workspace retarget resolver is required")
 	}
-	parsedSessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(request.SessionID))
-	if err != nil {
-		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
-	}
+	parsedSessionID := runtimeids.SessionIDFromProto(request.SessionID)
 	sessionID := parsedSessionID.String()
 	if err := context.Cause(ctx); err != nil {
 		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
@@ -276,10 +273,7 @@ func (s *SessionWorkspaceRetargeter) blockSessionStarts(
 	ctx context.Context,
 	sessionID string,
 ) (sessionruntime.SessionStartBlockRelease, context.Context, error) {
-	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
-	if err != nil {
-		return nil, nil, err
-	}
+	id := runtimeids.SessionIDFromProto(sessionID)
 	release, err := s.authority.BlockSessionStarts(
 		ctx,
 		[]runtimeids.SessionID{id},
@@ -447,10 +441,7 @@ func (s *SessionWorkspaceRetargeter) persistRebindFailure(
 	workingDirectory string,
 	cause error,
 ) error {
-	sessionID, err := runtimeids.ParseSessionID(plan.SessionID)
-	if err != nil {
-		return err
-	}
+	sessionID := runtimeids.SessionIDFromProto(plan.SessionID)
 	descriptor, err := session.NewOpenSessionDescriptor(sessionID)
 	if err != nil {
 		return err
