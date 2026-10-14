@@ -377,6 +377,11 @@ it("opens an accepted child with new typing and preserves an independently saved
   await act(async () => {
     view.result.current.composer.submit("send");
   });
+  expect(view.result.current.composer.text).toBe("/review args");
+  expect(view.result.current.composer.interactionRestricted).toBe(true);
+  await waitFor(() => expect(view.result.current.composer.interactionRestricted).toBe(false), {
+    timeout: 3000,
+  });
   act(() => {
     view.result.current.composer.edit("new typing");
   });
@@ -421,6 +426,11 @@ it("opens a rejected child after restoring exact command text and preserves the 
   });
   await act(async () => {
     view.result.current.composer.submit("queue");
+  });
+  expect(view.result.current.composer.text).toBe(command);
+  expect(view.result.current.composer.interactionRestricted).toBe(true);
+  await waitFor(() => expect(view.result.current.composer.interactionRestricted).toBe(false), {
+    timeout: 3000,
   });
   act(() => {
     view.result.current.composer.edit("new typing");
@@ -498,6 +508,9 @@ it("applies an existing-Session command's late result against the currently disp
     });
     await act(async () => {
       view.result.current.composer.submit("send");
+    });
+    await waitFor(() => expect(view.result.current.composer.interactionRestricted).toBe(false), {
+      timeout: 3000,
     });
   }
   const accepted = (sessionID: string): ChatInputMutationResult => ({
@@ -687,13 +700,17 @@ it.each(["registered", "compact"])("adopts the identified rejection of a %s comm
   });
   expect(view.result.current.composer.text).toBe(text);
   if (kind === "registered")
-    expect(view.steer).toHaveBeenCalledWith(expect.objectContaining({ kind: "new_chat" }), {
-      kind: "command",
-      catalogIdentity: "test:review",
-      token: "/custom-review",
-      separatorWhitespace: "\t",
-      arguments: "changes",
-    });
+    expect(view.steer).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "new_chat" }),
+      {
+        kind: "command",
+        catalogIdentity: "test:review",
+        token: "/custom-review",
+        separatorWhitespace: "\t",
+        arguments: "changes",
+      },
+      expect.anything(),
+    );
   else
     expect(view.compact).toHaveBeenCalledWith(expect.objectContaining({ kind: "new_chat" }), {
       token: "/compact",
@@ -717,6 +734,11 @@ it("adopts accepted Send in place and saves only the visible unsent editor to it
   });
   act(() => {
     view.result.current.composer.submit("send");
+  });
+  expect(view.result.current.composer.text).toBe("submitted");
+  expect(view.result.current.composer.interactionRestricted).toBe(true);
+  await waitFor(() => expect(view.result.current.composer.interactionRestricted).toBe(false), {
+    timeout: 3000,
   });
   expect(view.result.current.composer.text).toBe("");
   act(() => {
@@ -762,6 +784,11 @@ it("adopts an identified rejection and restores submitted text once without comp
   act(() => {
     view.result.current.composer.submit("queue");
   });
+  expect(view.result.current.composer.text).toBe("repeat");
+  expect(view.result.current.composer.interactionRestricted).toBe(true);
+  await waitFor(() => expect(view.result.current.composer.interactionRestricted).toBe(false), {
+    timeout: 3000,
+  });
   act(() => {
     view.result.current.composer.edit("repeat");
   });
@@ -799,6 +826,10 @@ it.each(["creation failed", "response lost"])(
       view.result.current.composer.submit("send");
     });
     expect(readBrowserStorage("local", "desktop.newChatDraft")).toEqual({ ok: true, value: "original" });
+    expect(view.result.current.composer.interactionRestricted).toBe(true);
+    await waitFor(() => expect(view.result.current.composer.interactionRestricted).toBe(false), {
+      timeout: 3000,
+    });
     act(() => {
       view.result.current.composer.edit("later");
     });
@@ -834,11 +865,17 @@ it("applies concurrent results in delivery order while draft writes retain captu
   act(() => {
     view.result.current.composer.submit("send");
   });
+  await waitFor(() => expect(view.result.current.composer.interactionRestricted).toBe(false), {
+    timeout: 3000,
+  });
   act(() => {
     view.result.current.composer.edit("second");
   });
   act(() => {
     view.result.current.composer.submit("queue");
+  });
+  await waitFor(() => expect(view.result.current.composer.interactionRestricted).toBe(false), {
+    timeout: 3000,
   });
   act(() => {
     view.result.current.composer.edit("during");
@@ -891,6 +928,9 @@ it("restores a late creation failure into the Session already adopted by another
   });
   act(() => {
     view.result.current.composer.submit("send");
+  });
+  await waitFor(() => expect(view.result.current.composer.interactionRestricted).toBe(false), {
+    timeout: 3000,
   });
   act(() => {
     view.result.current.composer.edit("second");
@@ -967,6 +1007,7 @@ it("keeps text but replaces edited settings when selecting another workspace bef
         initialSettings: changed,
       },
       { kind: "text", text: "keep me" },
+      expect.anything(),
     );
   });
 });
