@@ -2,7 +2,6 @@ package runtimewire
 
 import (
 	"context"
-	"core/shared/protoapi"
 	"fmt"
 	"strings"
 
@@ -128,8 +127,5 @@ func terminalRecoverySnapshot(sessionID string, registry runtimeactivity.Registr
 		return &runtimepb.ReadModelUpdate{}, err
 	}
 	update.Activity.DiagnosticRecovery = true
-	if err := protoapi.Validate(update); err != nil {
-		return &runtimepb.ReadModelUpdate{}, err
-	}
 	return update, nil
 }

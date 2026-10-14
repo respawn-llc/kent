@@ -1066,8 +1066,8 @@ func publishRunState(registry *RuntimeRegistry, sessionID string, running bool) 
 
 func TestActiveRuntimeActivitySnapshotsExcludeRegisteredIdlePopulation(t *testing.T) {
 	registry := NewRuntimeRegistry(nil)
-	for index := range 500 {
-		sessionID := fmt.Sprintf("idle-session-%03d", index)
+	for range 500 {
+		sessionID := runtimeids.NewSessionID().String()
 		registerReady(t, registry, sessionID, &runtime.Engine{})
 	}
 	runningEngine, runningDone := startRegistryBlockingRuntime(t, registry)

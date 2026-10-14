@@ -25,13 +25,6 @@ func MainViewFromRuntimeActivity(
 	if err != nil {
 		return &runtimepb.MainView{}, err
 	}
-	if err := protoapi.Validate(activity); err != nil {
-		activity = &runtimepb.Activity{
-			State:              runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE,
-			Reviewer:           runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
-			DiagnosticRecovery: true,
-		}
-	}
 	return &runtimepb.MainView{
 		Version:  version,
 		Status:   status,

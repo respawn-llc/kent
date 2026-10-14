@@ -604,9 +604,6 @@ func (r *RuntimeRegistry) PublishRuntimeReadModelUpdate(sessionID string, update
 	if entry == nil {
 		return
 	}
-	if err := protoapi.Validate(update); err != nil {
-		panic(fmt.Sprintf("publish invalid canonical runtime read-model update: %+v: %v", update, err))
-	}
 	entry.publicationMu.Lock()
 	defer entry.publicationMu.Unlock()
 	current := entry.mainView.Load()

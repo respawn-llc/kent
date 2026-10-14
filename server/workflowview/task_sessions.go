@@ -177,9 +177,6 @@ func (s *TaskSessions) activeTaskSessions(ctx context.Context, taskID string) ([
 }
 
 func taskSessionStatus(activity *runtimepb.Activity) (taskpb.SessionStatus, error) {
-	if err := protoapi.Validate(activity); err != nil {
-		return taskpb.SessionStatus_SESSION_STATUS_UNSPECIFIED, err
-	}
 	switch activity.State {
 	case runtimepb.ActivityState_RUNTIME_ACTIVITY_AWAITING_PROMPT:
 		return taskpb.SessionStatus_SESSION_STATUS_QUESTION, nil
