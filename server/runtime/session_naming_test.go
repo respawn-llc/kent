@@ -9,6 +9,7 @@ import (
 	"core/server/session"
 	"core/server/tools"
 	"core/shared/config"
+	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
@@ -114,7 +115,11 @@ func TestNamingWorkflowAgentExcludedButSubagentAllowed(t *testing.T) {
 					completeNodeCall("complete", json.RawMessage(`{"commentary":"complete","summary":"done"}`)))}
 				publishTestWorkflowExecution(t, engine, testWorkflowConfig(&externallyCompletedWorkflowController{}, config.WorkflowCompletionModeTool))
 			}
-			if _, err := engine.SubmitUserMessage(t.Context(), "Fix invoices"); err != nil {
+			steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "Fix invoices")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := engine.SubmitAgentSteerWithHooks(t.Context(), steer, nil, nil); err != nil {
 				t.Fatal(err)
 			}
 			select {

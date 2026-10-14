@@ -429,8 +429,22 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		func(ctx context.Context, id string, cause error) {
 			binding, err := metadataStore.ResolveSessionNavigationBinding(ctx, id)
 			if err == nil {
+				sessionID, identityErr := runtimeids.ParseSessionID(id)
+				if identityErr != nil {
+					slog.ErrorContext(ctx, "Session-naming failure identity parsing failed", "session_id", id, "error", identityErr)
+					return
+				}
+				identity, identityErr := metadataStore.SessionIdentity(ctx, sessionID)
+				if identityErr != nil {
+					slog.ErrorContext(ctx, "Session-naming failure identity resolution failed", "session_id", id, "error", identityErr)
+					return
+				}
+				var shortID *int64
+				if identity.ShortID != nil {
+					shortID = textutil.Value(identity.ShortID.Int64())
+				}
 				err = attentionBroker.PublishSessionNamingFailure(&attentionpb.SessionNamingFailure{
-					ProjectId: binding.ProjectId, SessionId: id,
+					ProjectId: binding.ProjectId, SessionId: id, ShortId: shortID,
 					Error: &sharedpb.InternalFailureDetails{Cause: textutil.Value(cause.Error())},
 				})
 			}

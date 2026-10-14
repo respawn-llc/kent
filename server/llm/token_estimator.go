@@ -231,5 +231,14 @@ func EstimateRequestTokens(estimator TokenEstimator, request Request) (int, erro
 	if err != nil {
 		return 0, err
 	}
-	return total + estimator.EstimateText(string(schemas)), nil
+	total += estimator.EstimateText(string(schemas))
+	for _, tool := range request.Tools {
+		if tool.Custom == nil {
+			total += estimator.EstimateText(string(tool.Schema.JSON()))
+		}
+	}
+	if request.StructuredOutput != nil {
+		total += estimator.EstimateText(string(request.StructuredOutput.Schema.JSON()))
+	}
+	return total, nil
 }

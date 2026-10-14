@@ -69,6 +69,7 @@ function attentionEvent(event: pb.AttentionNotificationEvent): AttentionNotifica
       return {
         type: "session_naming_failure",
         sequence,
+        shortID: failure.shortId === undefined ? null : Number(failure.shortId),
         target: { kind: "session_prompt", projectID: failure.projectId, sessionID: failure.sessionId },
         error: { cause: required(failure.error).cause ?? null },
       };

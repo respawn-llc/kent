@@ -22,7 +22,7 @@ var attentionEventValidators = map[clientui.AttentionNotificationEventType]atten
 func validateSessionNamingFailure(event clientui.AttentionNotificationEvent) error {
 	failure := event.SessionNamingFailure
 	if event.Pending != nil || event.ID != nil || event.OccurredAt != nil || event.Kind != "" ||
-		failure == nil || strings.TrimSpace(failure.ProjectId) == "" || strings.TrimSpace(failure.SessionId) == "" || failure.Error == nil {
+		failure == nil {
 		return errors.New("Session-naming failure requires one transient Session target and error")
 	}
 	return nil

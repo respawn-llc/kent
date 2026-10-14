@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -228,6 +229,46 @@ func TestNanoOversizedInputRejected(t *testing.T) {
 	})
 	if !errors.Is(err, llm.ErrInvalidRequest) || calls.Load() != 0 {
 		t.Fatalf("oversized input: %v, calls = %d", err, calls.Load())
+	}
+}
+
+func TestNanoOversizedSchemasRejected(t *testing.T) {
+	for _, tool := range []bool{true, false} {
+		t.Run(fmt.Sprintf("tool=%t", tool), func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1) }))
+			defer server.Close()
+			settings, resolver := nanoTestConfig(t, server.URL+"/v1")
+			service, err := NewService(5, &launch.ConnectionRotation{}, resolver, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			invoke, err := service.Admit()
+			if err != nil {
+				t.Fatal(err)
+			}
+			document, err := json.Marshal(map[string]any{"type": "object", "properties": map[string]any{"value": map[string]any{"type": "string", "description": strings.Repeat("large schema content ", 3000)}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = invoke(t.Context(), settings, func(target llm.NanoTarget) (llm.Request, error) {
+				request, err := nanoTestRequest(target)
+				if err != nil {
+					return request, err
+				}
+				if tool {
+					schema, err := jsoncontract.NewPreparer(false).FunctionDocument("choose", document)
+					request.Tools = []llm.Tool{{Name: "choose", Schema: schema}}
+					return request, err
+				}
+				schema, err := jsoncontract.NewPreparer(false).StructuredDocument("choice", document)
+				request.StructuredOutput = &llm.StructuredOutput{Name: "choice", Schema: schema}
+				return request, err
+			})
+			if !errors.Is(err, llm.ErrInvalidRequest) || calls.Load() != 0 {
+				t.Fatalf("oversized schema: %v, calls = %d", err, calls.Load())
+			}
+		})
 	}
 }
 

@@ -73,6 +73,7 @@ export type AttentionNotificationEvent =
   | Readonly<{
       type: "session_naming_failure";
       sequence: number;
+      shortID: number | null;
       target: Readonly<{ kind: "session_prompt"; projectID: string; sessionID: string }>;
       error: Readonly<{ cause: string | null }>;
     }>

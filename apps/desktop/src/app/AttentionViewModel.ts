@@ -16,6 +16,7 @@ import {
   type AppNavigation,
   type SidebarRootController,
   type StatusController,
+  recoverOrThrowDebugFailure,
 } from "@/app-facade";
 import {
   advancesAttentionNotificationRevision,
@@ -244,14 +245,27 @@ export function createAttentionViewModel({
             body: event.error.cause ?? t("app.attention.sessionNamingFailed"),
             target: event.target,
           };
-          if (inputs().focused === true || !bridge.capabilities.notifications.basic) {
+          const showFailure = () => {
             status.push({ ...notification, tone: "danger" });
+          };
+          if (inputs().focused === true || !bridge.capabilities.notifications.basic) {
+            showFailure();
           } else {
-            yield* Effect.tryPromise(async () => bridge.notifications.notify(notification)).pipe(
+            yield* Effect.tryPromise(async () => {
+              if ((await bridge.notifications.permissionState()) !== "granted") {
+                showFailure();
+                return;
+              }
+              await bridge.notifications.notify(notification);
+            }).pipe(
               Effect.catch((error) =>
                 Effect.promise(async () =>
-                  logger.append("warn", "Delivering Session-naming notification failed.", {
-                    error: errorMessage(error.cause),
+                  recoverOrThrowDebugFailure({
+                    context: { sessionID: event.target.sessionID },
+                    error: error.cause,
+                    logger,
+                    message: "Delivering Session-naming notification failed.",
+                    recover: showFailure,
                   }),
                 ),
               ),

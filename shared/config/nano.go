@@ -142,10 +142,10 @@ func validateNano(state settingsState, sources map[string]Origin) error {
 	if len(*n.Connection) == 0 {
 		return fmt.Errorf("nano.connection must contain at least one connection")
 	}
-	for _, id := range *n.Connection {
-		if _, exists := state.Settings.Connections[id]; !exists {
-			return &ConnectionReferenceError{Connection: &id}
-		}
+	selected := state.Settings
+	selected.Connection = n.Connection
+	if _, err := selected.ConnectionMembers(); err != nil {
+		return err
 	}
 	if n.ModelContextWindow != nil && *n.ModelContextWindow < 2500 {
 		return configurationValidationError(fmt.Errorf("nano.model_context_window must be at least 2500"), sources, "nano.model_context_window")

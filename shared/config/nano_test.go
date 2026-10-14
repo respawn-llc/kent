@@ -45,6 +45,7 @@ func TestNanoConfigurationInvalid(t *testing.T) {
 		"[nano]\nconnection = \"local\"\n",
 		"[nano]\nconnection = \"missing\"\nmodel = \"local\"\n",
 		"[nano]\nconnection = []\nmodel = \"local\"\n",
+		"[nano]\nconnection = [\"missing\", \"removed\"]\nmodel = \"local\"\n",
 		"[nano]\nconnection = \"local\"\nmodel = \"\"\n",
 		"[nano]\nconnection = \"local\"\nmodel = \"local\"\nmodel_context_window = 2499\n",
 		"[nano]\nconnection = \"local\"\nmodel = \"local\"\ntimeout_seconds = 0\n",
@@ -71,5 +72,15 @@ func TestNanoConfigurationDefaults(t *testing.T) {
 	}
 	if n.ThinkingLevel != nil || n.ModelVerbosity != nil || n.SupportsReasoningEffort != nil || n.SupportsVisionInputs != nil {
 		t.Fatal("nano inherited main generation controls")
+	}
+}
+
+func TestNanoConnectionSetIgnoresUnknownMembers(t *testing.T) {
+	_, _, app := loadConfigTestFileApp(t, nanoConnection+"[nano]\nconnection = [\"local\", \"removed\"]\nmodel = \"local-model\"\nmodel_context_window = 2500\n", LoadOptions{})
+	selected := app.Settings
+	selected.Connection = selected.Nano.Connection
+	members, err := selected.ConnectionMembers()
+	if err != nil || len(members) != 1 || members[0] != ConnectionID("local") {
+		t.Fatalf("effective nano connections = %v, error = %v", members, err)
 	}
 }
