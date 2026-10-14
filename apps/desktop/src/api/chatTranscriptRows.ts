@@ -22,13 +22,13 @@ export function assistantPhase(value: T.AssistantPhase): "commentary" | "final_a
   });
 }
 
-export function reasoningIdentity(value: T.ReasoningTraceIdentity): ChatReasoningIdentity {
+export function reasoningIdentity(value: T.ReasoningTraceIdentityValid): ChatReasoningIdentity {
   switch (value.identity.case) {
     case "provider":
       return {
         Provider: {
           ItemID: value.identity.value.itemId,
-          SummaryIndex: safeNumber(required(value.identity.value.summaryIndex)),
+          SummaryIndex: safeNumber(value.identity.value.summaryIndex),
         },
         Kent: null,
       };
@@ -167,8 +167,8 @@ function noticeDiagnostics(
   };
 }
 
-export function committedRow(value: T.CommittedRow): ChatCommittedRow {
-  const locator = required(value.locator);
+export function committedRow(value: T.CommittedRowValid): ChatCommittedRow {
+  const locator = value.locator;
   const base = {
     Visibility: visibility(value.visibility),
     Integrity: enumValue(value.integrity, {
@@ -327,7 +327,7 @@ function webSearchAction(value: T.WebSearchDetail): ChatWebSearchDetail["action"
   }
 }
 
-function reasoningRow(value: T.ReasoningTraceRow): NonNullable<ChatCommittedRow["ReasoningTrace"]> {
+function reasoningRow(value: T.ReasoningTraceRowValid): NonNullable<ChatCommittedRow["ReasoningTrace"]> {
   return {
     StepID: value.stepId,
     CompactText: value.compactText,

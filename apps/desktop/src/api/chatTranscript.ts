@@ -56,10 +56,10 @@ function thinking(value: T.ThinkingStatusUpdate): Payloads["thinking_status_upda
   return { StepID: value.stepId, Text: value.text };
 }
 
-function reasoning(value: T.ReasoningTraceUpdate): Payloads["reasoning_trace_update"] {
+function reasoning(value: T.ReasoningTraceUpdateValid): Payloads["reasoning_trace_update"] {
   return {
     StepID: value.stepId,
-    Identity: reasoningIdentity(required(value.identity)),
+    Identity: reasoningIdentity(value.identity),
     CompactText: value.compactText,
     Text: value.text,
   };
@@ -151,13 +151,13 @@ function connectionReplacement(value: T.ConnectionReplacement): Payloads["connec
 }
 
 function hydration(value: T.HydrationValid): Payloads["hydration"] {
-  const tail = required(value.tailSegment);
+  const tail = value.tailSegment;
   return {
     ConnectionReplacement:
       value.connectionReplacement === undefined ? null : connectionReplacement(value.connectionReplacement),
-    SessionIdentity: sessionIdentity(required(value.sessionIdentity)),
-    SessionStatus: sessionStatus(required(value.sessionStatus)),
-    RuntimeReadModelUpdate: readModelUpdate(required(value.runtimeReadModelUpdate)),
+    SessionIdentity: sessionIdentity(value.sessionIdentity),
+    SessionStatus: sessionStatus(value.sessionStatus),
+    RuntimeReadModelUpdate: readModelUpdate(value.runtimeReadModelUpdate),
     TailSegment: {
       OlderCursor: tail.olderCursor === undefined ? null : safeNumber(tail.olderCursor),
       HasMoreAbove: tail.hasMoreAbove,
@@ -238,10 +238,8 @@ function worktreeOutcome(value: T.WorktreeTransitionOutcome): Payloads["worktree
 }
 
 export function transcriptMessage(value: T.MessageValid, sessionID: string): ChatTranscriptMessage {
-  const event = required(value.event).payload;
+  const event = value.event.payload;
   const sequence = safeNumber(value.sequence);
-  if ((event.case === "hydration" && sequence !== 1) || (event.case !== "hydration" && sequence < 2))
-    throw new ContractError("Transcript sequence does not match event kind.");
   if (event.case === undefined) throw new ContractError("Transcript event payload is missing.");
   return projectEvent(event, sequence, sessionID);
 }
@@ -268,7 +266,7 @@ const eventProjections: {
   ) => ChatTranscriptMessage;
 } = {
   hydration: (value, sequence, sessionID) => {
-    if (required(value.sessionIdentity).sessionId !== sessionID)
+    if (value.sessionIdentity.sessionId !== sessionID)
       throw new ContractError("Transcript hydration does not match the requested Session.");
     return { sequence, kind: "hydration", payload: hydration(value) };
   },
@@ -470,7 +468,7 @@ const eventProjections: {
   }),
 };
 
-export function transcriptPage(value: T.Page, sessionID: string): ChatTranscriptPage {
+export function transcriptPage(value: T.PageValid, sessionID: string): ChatTranscriptPage {
   if (value.sessionId !== sessionID)
     throw new ContractError("Transcript page does not match the requested Session.");
   return {

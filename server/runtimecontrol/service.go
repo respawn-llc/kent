@@ -356,9 +356,6 @@ func (s *Service) SetSessionName(ctx context.Context, req *runtimepb.SetSessionN
 }
 
 func (s *Service) AppendCommittedEntry(ctx context.Context, req *transcriptpb.AppendCommittedEntryRequest) error {
-	if err := protoapi.Validate(req); err != nil {
-		return err
-	}
 	visibility, err := protoapi.AppendVisibilityFromProto(req.Visibility)
 	if err != nil {
 		return err
