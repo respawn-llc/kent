@@ -596,6 +596,14 @@ message PendingWork {
     message: "Pending Work item identities must be unique"
     expression: "this.items.map(item, item.id).unique()"
   };
+  option (buf.validate.message).cel = {
+    id: "kent.runtime.pending_work_lane_order"
+    message: "Pending Work Queue items must precede Steer items"
+    expression:
+      "this.items.map(item, item.lane) == "
+      "this.items.filter(item, item.lane == 2).map(item, item.lane) + "
+      "this.items.filter(item, item.lane == 1).map(item, item.lane)"
+  };
 }
 
 message ListPendingWorkRequest {

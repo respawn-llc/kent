@@ -140,17 +140,11 @@ export type { TaskSearchErrorReason } from "./errors";
 export { ChatOperationError } from "./chatErrors";
 export type { ChatError } from "./chatErrors";
 export { guiTaskCommentAuthor } from "./client";
-export { newSetupOperationID, parseSetupOperationID, SetupOperationID } from "./setupOperationID";
+export { newSetupOperationID, SetupOperationID } from "./setupOperationID";
 export {
-  parseCompactionRequestID,
-  parsePendingWorkItemID,
-  parseWorktreeOperationID,
-  pendingWorkItemSchema,
-  pendingWorkChangedEventSchema,
-  pendingWorkRestorationSchema,
-  pendingWorkSchema,
-  pendingWorkTechnicalRestorationEventSchema,
-  sessionSettingFeedbackSchema,
+  compactionRequestIDFromProto,
+  pendingWorkItemIDFromProto,
+  worktreeOperationIDFromProto,
 } from "./pendingWork";
 export type {
   CompactionRequestID,
@@ -159,9 +153,6 @@ export type {
   PendingWorkItem,
   PendingWorkItemID,
   PendingWorkRestoration,
-  PendingWorkChangedEvent,
-  PendingWorkTechnicalRestorationEvent,
-  SessionSettingFeedback,
 } from "./pendingWork";
 export type * from "./schemas/worktree";
 export {

@@ -13,7 +13,7 @@ import {
   PendingWorkLane,
   PendingWorkWorktreeTransitionKind,
   TurnService,
-  type PendingWork as WirePendingWork,
+  type PendingWorkValid as WirePendingWork,
 } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import {
   SessionLifecycleService,
@@ -24,13 +24,14 @@ import { requireProjectAttachment } from "./chatAttachment";
 import { requireChatSuccess } from "./chatErrors";
 import { initialChatSettingsToWire } from "./chatSettings";
 import { requireChatProjectTarget, requireChatSessionID } from "./chatTarget";
+import { required } from "./chatWire";
 import type { ChatActivation, ChatApi, ChatMutationTarget } from "./chatTypes";
 import { ContractError } from "./errors";
 import {
-  parseCompactionRequestID,
-  parsePendingWorkItemID,
-  pendingWorkRestorationSchema,
-  pendingWorkSchema,
+  compactionRequestIDFromProto,
+  pendingWorkItemIDFromProto,
+  worktreeOperationIDFromProto,
+  type PendingWork,
 } from "./pendingWork";
 import type { RpcTransport } from "./transport";
 
@@ -97,7 +98,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
       sessionID: returnedSessionID,
       outcome: {
         kind: "accepted" as const,
-        queueItemID: parsePendingWorkItemID(success.outcome.value.queueItem.id),
+        queueItemID: pendingWorkItemIDFromProto(success.outcome.value.queueItem.id),
         diagnostic: acceptedDiagnostic(success.outcome.value.diagnostic),
       },
     };
@@ -162,7 +163,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
         sessionID: returnedSessionID,
         outcome: {
           kind: "accepted",
-          requestID: parseCompactionRequestID(success.outcome.value.request.id),
+          requestID: compactionRequestIDFromProto(success.outcome.value.request.id),
           diagnostic: acceptedDiagnostic(success.outcome.value.diagnostic),
         },
       };
@@ -232,10 +233,10 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
         }),
       );
       const success = requireChatSuccess(method, result);
-      return pendingWorkRestorationSchema.parse({
+      return {
         kind: pendingWorkKind(success.restoration.kind),
-        canonical_input: success.restoration.canonicalInput,
-      });
+        canonicalInput: success.restoration.canonicalInput,
+      };
     },
   };
 }
@@ -363,38 +364,46 @@ function compactionNotAccepted(reason: CompactionNotAccepted["reason"]) {
   }
 }
 
-function pendingWorkFromWire(input: WirePendingWork) {
-  return pendingWorkSchema.parse({
+function pendingWorkFromWire(input: WirePendingWork): PendingWork {
+  return {
     items: input.items.map((item) => {
       const shared = {
-        id: item.id,
-        lane: pendingWorkLane(item.lane),
-        kind: pendingWorkKind(item.kind),
         state: pendingWorkState(item.state),
-        canonical_input: item.canonicalInput,
+        canonicalInput: item.canonicalInput,
       };
       switch (item.payload.case) {
         case "message":
-          return { ...shared, message: { text: item.payload.value.text } };
+          return {
+            ...shared,
+            id: pendingWorkItemIDFromProto(item.id),
+            lane: pendingWorkLane(item.lane),
+            kind: "message",
+            message: { text: item.payload.value.text },
+          };
         case "manualCompaction":
           return {
             ...shared,
-            manual_compaction:
-              item.payload.value.guidance === undefined ? {} : { guidance: item.payload.value.guidance },
+            id: compactionRequestIDFromProto(item.id),
+            lane: "steer",
+            kind: "manual_compaction",
+            manualCompaction: { guidance: item.payload.value.guidance ?? null },
           };
         case "worktreeTransition":
           return {
             ...shared,
-            worktree_transition: {
-              transition: pendingWorkTransition(item.payload.value.transition),
-              ...(item.payload.value.selector === undefined ? {} : { selector: item.payload.value.selector }),
-            },
+            id: worktreeOperationIDFromProto(item.id),
+            lane: "steer",
+            kind: "worktree_transition",
+            worktreeTransition:
+              pendingWorkTransition(item.payload.value.transition) === "enter"
+                ? { kind: "enter", selector: required(item.payload.value.selector) }
+                : { kind: "leave", selector: null },
           };
         case undefined:
           throw new ContractError("Pending Work item returned no payload.");
       }
     }),
-  });
+  };
 }
 
 function pendingWorkLane(value: PendingWorkLane): "steer" | "queue" {

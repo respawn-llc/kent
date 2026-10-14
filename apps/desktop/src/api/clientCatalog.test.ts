@@ -137,7 +137,6 @@ describe("ApiClient catalog boundary", () => {
       method: "kent.api.project.project_catalog_service.list_workspaces",
       data: { code: "project_not_found" },
     });
-
   });
 });
 
