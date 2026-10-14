@@ -22,8 +22,6 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
-
-	"github.com/google/uuid"
 )
 
 var ErrHeadlessGoalSession = errors.New("headless runs cannot continue sessions with goals; clear the goal first")
@@ -103,12 +101,7 @@ func (l *headlessPromptLauncher) prepareHeadlessPrompt(ctx context.Context, req 
 	}
 	var sessionStarted *runpromptpb.SessionStarted
 	if req.Intent.Kind() == serverapi.SessionLaunchIntentCreateNew {
-		sessionID, err := uuid.Parse(runtimePlan.sessionID)
-		if err != nil || sessionID.Version() != 4 {
-			runtimePlan.CloseWithFailure(true)
-			return nil, fmt.Errorf("new headless session id %q is not a UUIDv4", runtimePlan.sessionID)
-		}
-		sessionStarted = &runpromptpb.SessionStarted{SessionId: sessionID.String(), ShortId: protoapi.SessionShortIDToProto(result.Identity.ShortID)}
+		sessionStarted = &runpromptpb.SessionStarted{SessionId: runtimePlan.sessionID, ShortId: protoapi.SessionShortIDToProto(result.Identity.ShortID)}
 	}
 	return &headlessPromptRuntime{
 		identity:          result.Identity,
@@ -125,10 +118,7 @@ func (l *headlessPromptLauncher) agentSteerForRunPrompt(ctx context.Context, req
 	if req.CallerSessionID == nil {
 		return nil, nil
 	}
-	sourceID, err := runtimeids.ParseSessionID(*req.CallerSessionID)
-	if err != nil {
-		return nil, err
-	}
+	sourceID := runtimeids.SessionIDFromProto(*req.CallerSessionID)
 	source, err := l.boot.Metadata.SessionIdentity(ctx, sourceID)
 	if err != nil {
 		return nil, err
@@ -321,10 +311,7 @@ func (r *headlessPromptRuntime) submitUserMessage(ctx context.Context, prompt st
 	if r.plan == nil || r.plan.handle == nil {
 		return &runpromptpb.Success{}, errors.Join(serverapi.ErrRuntimeUnavailable, errors.New("headless runtime is unavailable"))
 	}
-	sessionID, err := runtimeids.ParseSessionID(r.plan.sessionID)
-	if err != nil {
-		return &runpromptpb.Success{}, err
-	}
+	sessionID := runtimeids.SessionIDFromProto(r.plan.sessionID)
 	observerCtx, cancelObserver := context.WithCancel(ctx)
 	defer cancelObserver()
 	response := &runpromptpb.Success{
@@ -340,6 +327,7 @@ func (r *headlessPromptRuntime) submitUserMessage(ctx context.Context, prompt st
 	var (
 		active    activeRunCapture
 		hasActive bool
+		err       error
 	)
 	select {
 	case r.plan.submission <- headlessPromptSubmission{

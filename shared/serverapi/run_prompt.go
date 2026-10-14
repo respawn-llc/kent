@@ -71,13 +71,6 @@ func CanonicalOptionalString(value *string) OptionalStringKey {
 	return OptionalStringKey{Present: true, Value: strings.TrimSpace(*value)}
 }
 
-func (r RunPromptRequest) Validate() error {
-	if strings.TrimSpace(r.Prompt) == "" {
-		return errors.New("prompt is required")
-	}
-	return r.Overrides.ValidateAgentRoleOverride()
-}
-
 type RunPromptOverrides struct {
 	AgentRole           *string `json:"agent_role,omitempty"`
 	Model               string  `json:"model"`

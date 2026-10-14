@@ -31,9 +31,6 @@ func (s *inProcessRunPromptService) RunPrompt(ctx context.Context, req *runpromp
 
 func (s *inProcessRunPromptService) runPrompt(ctx context.Context, req serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (response *runpromptpb.Success, err error) {
 	req.Prompt = strings.TrimSpace(req.Prompt)
-	if err := req.Validate(); err != nil {
-		return nil, err
-	}
 
 	delivery := newRunPromptProgressDelivery(progress)
 	defer delivery.Close()

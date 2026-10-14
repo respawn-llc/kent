@@ -855,7 +855,7 @@ func TestRemoteWorkflowProjectSubscriptionRejectsInvalidResourceActionCombinatio
 
 func TestRemoteDeleteWorktreePreservesPartialProgressAndBlockers(t *testing.T) {
 	blocked := &worktreepb.BlockedDetails{ActiveSessions: &worktreepb.ActiveSessionBlockers{
-		Sessions: []*worktreepb.BlockingSession{{SessionId: "active-session"}},
+		Sessions: []*worktreepb.BlockingSession{{SessionId: "11111111-1111-4111-8111-111111111111"}},
 	}}
 	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 		acceptRemoteHandshake(t, ws)
