@@ -522,9 +522,6 @@ func (r *RuntimeRegistry) PublishSessionSettingFeedback(
 	if r == nil {
 		return nil
 	}
-	if err := protoapi.Validate(feedback); err != nil {
-		return err
-	}
 	id := strings.TrimSpace(sessionID)
 	entry := r.authorityEntryBySession(id)
 	if entry == nil {

@@ -221,8 +221,5 @@ func transcriptSessionSettingFeedback(
 	default:
 		return nil, false, errors.New("applied Chat settings operation kind is invalid")
 	}
-	if err := protoapi.Validate(feedback); err != nil {
-		return nil, false, err
-	}
 	return feedback, true, nil
 }

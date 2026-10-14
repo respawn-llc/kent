@@ -23,8 +23,7 @@ import {
 import { requireProjectAttachment } from "./chatAttachment";
 import { requireChatSuccess } from "./chatErrors";
 import { initialChatSettingsToWire } from "./chatSettings";
-import { nonBlank } from "./chatSchemas";
-import { isValidChatSessionID, requireChatProjectTarget, requireChatSessionID } from "./chatTarget";
+import { requireChatProjectTarget, requireChatSessionID } from "./chatTarget";
 import type { ChatActivation, ChatApi, ChatMutationTarget } from "./chatTypes";
 import { ContractError } from "./errors";
 import {
@@ -79,7 +78,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
     const success = requireChatSuccess(method, result);
     const returnedSessionID = mutationSessionID(
       target.kind === "session" && activation.kind === "text" ? target.sessionID : null,
-      success.session?.sessionId,
+      success.session.sessionId,
       "Chat mutation",
     );
     if (success.outcome.case === "notAccepted") {
@@ -91,7 +90,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
         },
       };
     }
-    if (success.outcome.case !== "accepted" || success.outcome.value.queueItem === undefined) {
+    if (success.outcome.case !== "accepted") {
       throw new ContractError("Chat mutation response did not match the GUI contract.");
     }
     return {
@@ -144,7 +143,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
       const success = requireChatSuccess(method, result);
       const returnedSessionID = mutationSessionID(
         target.kind === "session" ? target.sessionID : null,
-        success.session?.sessionId,
+        success.session.sessionId,
         "Chat compaction",
       );
       if (success.outcome.case === "notAccepted") {
@@ -156,7 +155,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
           },
         };
       }
-      if (success.outcome.case !== "accepted" || success.outcome.value.request === undefined) {
+      if (success.outcome.case !== "accepted") {
         throw new ContractError("Chat compaction response did not match the GUI contract.");
       }
       return {
@@ -188,9 +187,6 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
     },
     async forkEdit(target, input) {
       const requestedSessionID = requireChatSessionID(target);
-      if (!nonBlank.safeParse(input.rollbackTargetID).success) {
-        throw new TypeError("Rollback target ID is required.");
-      }
       const method = SessionLifecycleService.method.resolveTransition;
       const result = await transport.callDescriptorAttachedSession(
         target,
@@ -207,8 +203,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
       const directive = requireChatSuccess(method, result);
       if (
         directive.directive.case !== "launch" ||
-        directive.directive.value.intent?.intent.case !== "openExistingSessionId" ||
-        !nonBlank.safeParse(directive.directive.value.intent.intent.value).success
+        directive.directive.value.intent.intent.case !== "openExistingSessionId"
       ) {
         throw new ContractError("Session Edit response did not identify the child Session.");
       }
@@ -223,9 +218,6 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
         create(method.input, { sessionId: requestedSessionID }),
       );
       const success = requireChatSuccess(method, result);
-      if (success.pendingWork === undefined) {
-        throw new ContractError("Pending Work list response omitted its collection.");
-      }
       return pendingWorkFromWire(success.pendingWork);
     },
     async removePendingWork(target, itemID) {
@@ -240,9 +232,6 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
         }),
       );
       const success = requireChatSuccess(method, result);
-      if (success.restoration === undefined) {
-        throw new ContractError("Pending Work removal response omitted its restoration.");
-      }
       return pendingWorkRestorationSchema.parse({
         kind: pendingWorkKind(success.restoration.kind),
         canonical_input: success.restoration.canonicalInput,
@@ -279,14 +268,10 @@ function mutationTarget(
 
 function mutationSessionID(
   expectedSessionID: string | null,
-  returnedSessionID: string | undefined,
+  returnedSessionID: string,
   operation: string,
 ): string {
-  if (
-    returnedSessionID === undefined ||
-    !isValidChatSessionID(returnedSessionID) ||
-    (expectedSessionID !== null && returnedSessionID !== expectedSessionID)
-  ) {
+  if (expectedSessionID !== null && returnedSessionID !== expectedSessionID) {
     throw new ContractError(`${operation} response Session does not match the request.`);
   }
   return returnedSessionID;
