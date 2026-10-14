@@ -691,6 +691,15 @@ message GoalMutationRequest {
   ];
   optional string run_id = 3 [(buf.validate.field).string.min_len = 1];
   optional string step_id = 4 [(buf.validate.field).string.min_len = 1];
+
+  option (buf.validate.message).cel = {
+    id: "kent.runtime.goal_mutation_execution_identity"
+    message: "nonblank execution identity requires an agent with both run_id and step_id"
+    expression:
+      "(this.actor.trim() == 'agent' && has(this.step_id) && this.step_id.trim() != '') "
+      "? (has(this.run_id) && this.run_id.trim() != '') "
+      ": ((!has(this.run_id) || this.run_id.trim() == '') && (!has(this.step_id) || this.step_id.trim() == ''))"
+  };
 }
 
 message GoalSetRequest {

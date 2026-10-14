@@ -153,9 +153,6 @@ func (s *Service) mutateGoal(
 	}
 	runText, stepText := strings.TrimSpace(rawRunID), strings.TrimSpace(rawStepID)
 	if mutation.Actor == session.GoalActorAgent && stepText != "" {
-		if runText == "" {
-			return runtime.GoalCommandResult{}, runtime.ErrAgentGoalStepInactive
-		}
 		runID, err := runtimeids.ParseRunID(runText)
 		if err != nil {
 			return runtime.GoalCommandResult{}, err
@@ -166,9 +163,6 @@ func (s *Service) mutateGoal(
 		}
 		result, err := s.applyExactAgentGoalMutation(ctx, sessionID, runID, stepID, mutation)
 		return result, goalMutationError(err)
-	}
-	if runText != "" || stepText != "" {
-		return runtime.GoalCommandResult{}, errors.New("Goal execution identity requires an agent Step")
 	}
 	descriptor, err := session.NewOpenSessionDescriptor(sessionID)
 	if err != nil {
