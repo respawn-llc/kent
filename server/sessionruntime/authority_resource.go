@@ -136,28 +136,29 @@ type agentResource struct {
 
 	// Turn admission and completion share this lock. Resource replacement
 	// uses the Session gate and may wait for execution completion.
-	turnMu            sync.Mutex
-	mu                sync.Mutex
-	changed           chan struct{}
-	state             AgentResourceState
-	store             *session.Store
-	engine            *runtime.Engine
-	logger            *runlog.RunLogger
-	localTools        *runtimewire.LocalToolRegistryBinding
-	askBroker         *tools.AskQuestionBroker
-	close             func() error
-	backgroundLimit   int
-	backgroundMode    shelltool.BackgroundOutputMode
-	current           *execution
-	eventMu           sync.Mutex
-	eventObservers    []*resourceEventObserver
-	pins              int
-	callbacks         int
-	steps             int
-	lifecycleReady    bool
-	lifecycleDraining bool
-	idleDeadline      *time.Time
-	observers         int
+	turnMu             sync.Mutex
+	mu                 sync.Mutex
+	changed            chan struct{}
+	state              AgentResourceState
+	store              *session.Store
+	engine             *runtime.Engine
+	logger             *runlog.RunLogger
+	localTools         *runtimewire.LocalToolRegistryBinding
+	askBroker          *tools.AskQuestionBroker
+	close              func() error
+	backgroundLimit    int
+	backgroundMode     shelltool.BackgroundOutputMode
+	current            *execution
+	eventMu            sync.Mutex
+	eventObservers     []*resourceEventObserver
+	pins               int
+	callbacks          int
+	steps              int
+	lifecycleReady     bool
+	lifecycleDraining  bool
+	idleDeadline       *time.Time
+	pendingWorkChanged chan struct{}
+	observers          int
 }
 
 func (r *agentResource) descriptorLocked() AgentResourceDescriptor {

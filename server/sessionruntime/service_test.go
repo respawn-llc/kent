@@ -37,14 +37,14 @@ import (
 )
 
 func TestSyncExecutionTargetAfterCompactionDeliversSwitch(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		previousSwitch, previousCompaction := prompts.WorktreeModePrompt, prompts.WorktreePostCompactionPrompt
-		prompts.WorktreeModePrompt, prompts.WorktreePostCompactionPrompt = "{{branch}}", "{{cwd}}"
-		t.Cleanup(func() {
-			prompts.WorktreeModePrompt, prompts.WorktreePostCompactionPrompt = previousSwitch, previousCompaction
-		})
-		for _, dormant := range []bool{false, true} {
-			t.Run(fmt.Sprint(dormant), func(t *testing.T) {
+	previousSwitch, previousCompaction := prompts.WorktreeModePrompt, prompts.WorktreePostCompactionPrompt
+	prompts.WorktreeModePrompt, prompts.WorktreePostCompactionPrompt = "{{branch}}", "{{cwd}}"
+	t.Cleanup(func() {
+		prompts.WorktreeModePrompt, prompts.WorktreePostCompactionPrompt = previousSwitch, previousCompaction
+	})
+	for _, dormant := range []bool{false, true} {
+		t.Run(fmt.Sprint(dormant), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
 				fixture := newSessionRuntimeFixture(t)
 				initial := &session.WorktreeReminderState{
 					Mode: session.WorktreeReminderModeEnter,
@@ -145,8 +145,8 @@ func TestSyncExecutionTargetAfterCompactionDeliversSwitch(t *testing.T) {
 					t.Fatalf("worktree contexts = %d, want one", count)
 				}
 			})
-		}
-	})
+		})
+	}
 }
 
 func TestLaunchRetainsFirstExplicitToolListAcrossReopening(t *testing.T) {

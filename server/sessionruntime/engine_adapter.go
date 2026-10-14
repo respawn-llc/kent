@@ -235,13 +235,14 @@ func (a *Authority) buildAgentResource(
 	}
 	resourceContext, cancel := context.WithCancel(context.Background())
 	resource := &agentResource{
-		authority: a,
-		ref:       ref,
-		ctx:       resourceContext,
-		cancel:    cancel,
-		changed:   make(chan struct{}),
-		state:     AgentResourceBuilding,
-		store:     store,
+		authority:          a,
+		ref:                ref,
+		ctx:                resourceContext,
+		cancel:             cancel,
+		changed:            make(chan struct{}),
+		pendingWorkChanged: make(chan struct{}, 1),
+		state:              AgentResourceBuilding,
+		store:              store,
 	}
 	logger, err := runlog.NewRunLogger(store.Dir(), func(diag runlog.RunLoggerDiagnostic) {
 		if plan.options.OnLoggingFailure != nil {
@@ -344,9 +345,10 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 		},
 		OnEvent: func(event runtime.Event) {
 			if event.Kind == runtime.EventPendingWorkChanged {
-				resource.mu.Lock()
-				resource.signalLocked()
-				resource.mu.Unlock()
+				select {
+				case resource.pendingWorkChanged <- struct{}{}:
+				default:
+				}
 			}
 			logger.Logf("%s", runlog.FormatRuntimeEvent(event))
 			if transcriptdiag.Enabled(options.Settings.Debug, os.Getenv) {

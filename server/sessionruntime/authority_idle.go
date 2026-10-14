@@ -64,6 +64,7 @@ func (r *agentResource) runIdleRetirement(ctx context.Context) {
 		case <-r.ctx.Done():
 			return
 		case <-changed:
+		case <-r.pendingWorkChanged:
 		case <-expiry:
 			if err := r.authority.closeIdleResource(ctx, r); err != nil {
 				slog.Error("retire idle Session Runtime", "session_id", r.ref.SessionID(), "error", err)
