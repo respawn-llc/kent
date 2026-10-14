@@ -1634,8 +1634,8 @@ func TestGatewayAllowsOptionalSessionLifecycleRequestsWithoutSessionID(t *testin
 	if err != nil {
 		t.Fatalf("ResolveTransition: %v", err)
 	}
-	intent, err := protoapi.SessionLaunchIntentFromProto(resolvedTransition.GetLaunch().GetIntent())
-	if err != nil || intent.Kind() != serverapi.SessionLaunchIntentCreateNew {
+	intent := protoapi.SessionLaunchIntentFromProto(resolvedTransition.GetLaunch().GetIntent())
+	if intent.Kind() != serverapi.SessionLaunchIntentCreateNew {
 		t.Fatalf("unexpected transition response: %+v", resolvedTransition)
 	}
 	preparation := resolvedTransition.GetLaunch().GetPreparation()

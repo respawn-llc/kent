@@ -129,10 +129,7 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 				return errors.New("session lifecycle returned no result")
 			}
 
-			canonicalIntent, err := protoapi.SessionLaunchIntentFromProto(next.GetLaunch().Intent)
-			if err != nil {
-				return err
-			}
+			canonicalIntent := protoapi.SessionLaunchIntentFromProto(next.GetLaunch().Intent)
 			intent, err = protoapi.SessionLaunchRequestIntentToProto(canonicalIntent)
 			if err != nil {
 				return err

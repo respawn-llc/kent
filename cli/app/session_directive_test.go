@@ -35,8 +35,8 @@ func requireSessionPickerDestination(t *testing.T, result *sessionlaunchpb.Sessi
 func requireSessionOpenDestination(t *testing.T, result *sessionlaunchpb.SessionDirective) string {
 	t.Helper()
 	result = requireSessionLifecycleResult(t, result)
-	intent, err := protoapi.SessionLaunchIntentFromProto(result.GetLaunch().GetIntent())
-	if err != nil || intent.Kind() != serverapi.SessionLaunchIntentOpenExisting {
+	intent := protoapi.SessionLaunchIntentFromProto(result.GetLaunch().GetIntent())
+	if intent.Kind() != serverapi.SessionLaunchIntentOpenExisting {
 		t.Fatalf("launch intent = %+v, want existing session", intent)
 	}
 	sessionID, present := intent.SessionID()
@@ -49,8 +49,8 @@ func requireSessionOpenDestination(t *testing.T, result *sessionlaunchpb.Session
 func requireSessionCreateDestination(t *testing.T, result *sessionlaunchpb.SessionDirective) *string {
 	t.Helper()
 	result = requireSessionLifecycleResult(t, result)
-	intent, err := protoapi.SessionLaunchIntentFromProto(result.GetLaunch().GetIntent())
-	if err != nil || intent.Kind() != serverapi.SessionLaunchIntentCreateNew {
+	intent := protoapi.SessionLaunchIntentFromProto(result.GetLaunch().GetIntent())
+	if intent.Kind() != serverapi.SessionLaunchIntentCreateNew {
 		t.Fatalf("launch intent = %+v, want new session", intent)
 	}
 	origin, present := intent.CreateOrigin()
@@ -68,10 +68,7 @@ func requireSessionCreateDestination(t *testing.T, result *sessionlaunchpb.Sessi
 func sessionLaunchRequestFromLifecycleResult(t *testing.T, result *sessionlaunchpb.SessionDirective, overrides serverapi.RunPromptOverrides) sessionLaunchRequest {
 	t.Helper()
 	result = requireSessionLifecycleResult(t, result)
-	intent, err := protoapi.SessionLaunchIntentFromProto(result.GetLaunch().GetIntent())
-	if err != nil {
-		t.Fatal(err)
-	}
+	intent := protoapi.SessionLaunchIntentFromProto(result.GetLaunch().GetIntent())
 	request, err := sessionLaunchRequestFromIntent(requestfixture.LaunchIntent(t, intent), overrides)
 	if err != nil {
 		t.Fatalf("build launch request: %v", err)
@@ -240,10 +237,7 @@ func TestSessionTransitionInitialInputPreservesOpenSessionOmission(t *testing.T)
 
 func requireAppLifecycleLaunch(t *testing.T, result *sessionlaunchpb.SessionDirective) (serverapi.SessionLaunchIntent, *sessionlaunchpb.SessionLaunchPreparation) {
 	t.Helper()
-	intent, err := protoapi.SessionLaunchIntentFromProto(result.GetLaunch().GetIntent())
-	if err != nil {
-		t.Fatal(err)
-	}
+	intent := protoapi.SessionLaunchIntentFromProto(result.GetLaunch().GetIntent())
 	preparation := result.GetLaunch().GetPreparation()
 	if preparation == nil {
 		t.Fatal("launch result omitted preparation")
