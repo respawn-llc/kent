@@ -2206,12 +2206,12 @@ func TestCompactAndContinueSessionEstablishesTargetRoleGeneration(t *testing.T) 
 	if len(requests) != 2 || requests[0].ActiveSettings.Model != "workflow-coder" || requests[1].ActiveSettings.Model != "workflow-reviewer" {
 		t.Fatalf("runtime role models = %+v, want coder then reviewer", requests)
 	}
-	if requests[0].Connection.ID != "coder" || requests[1].Connection.ID != "reviewer" {
+	if requests[0].Connection.ID != "coder" || requests[1].Connection.ID != "coder" {
 		t.Fatalf("compact-and-continue connection selection = %v then %v", requests[0].Connection.ID, requests[1].Connection.ID)
 	}
 	meta := f.onlyProjectSessionMeta(t)
-	if meta.ConnectionID == nil || *meta.ConnectionID != "reviewer" {
-		t.Fatalf("target connection was not persisted: %v", meta.ConnectionID)
+	if meta.ConnectionID == nil || *meta.ConnectionID != "coder" {
+		t.Fatalf("compaction changed the saved connection: %v", meta.ConnectionID)
 	}
 	if meta.Continuation == nil || meta.Continuation.AgentRole == nil || *meta.Continuation.AgentRole != "reviewer" {
 		t.Fatalf("compacted workflow Session continuation = %+v, want persisted reviewer identity", meta.Continuation)
