@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"core/server/metadata"
+	"core/server/session"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/worktreecontract"
 )
@@ -112,6 +113,10 @@ func (s *Service) projectWorktreeList(ctx context.Context, entries []*worktreepb
 	activeWorktrees := make(map[string]struct{}, len(activeSessions))
 	for _, snapshot := range activeSessions {
 		target, err := s.metadata.ResolveOptionalSessionExecutionTarget(ctx, snapshot.SessionID)
+		if errors.Is(err, session.ErrSessionNotFound) {
+			// Runtime activity and persisted Session targets are read independently.
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}

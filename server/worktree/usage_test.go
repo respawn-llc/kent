@@ -14,6 +14,7 @@ import (
 	"core/server/metadata"
 	"core/server/registry"
 	"core/server/runtime"
+	"core/server/runtimeactivity"
 	"core/server/sessionruntime"
 	"core/server/workflowstore"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -78,6 +79,20 @@ func TestListWorktreesDoesNotMarkWorktreeWithoutTasksInUse(t *testing.T) {
 	entry := listEntryForWorktreeID(t, mustListWorktrees(t, env).Worktrees, worktree.WorktreeID)
 	if entry.GetProjection().GetIsInUse() {
 		t.Fatalf("Worktree projection = %+v, want unused", entry.GetProjection())
+	}
+}
+
+func TestListWorktreesIgnoresMissingSessionFromStaleRuntimeSnapshot(t *testing.T) {
+	env := newServiceTestEnv(t)
+	worktree := mustCreateWorktree(t, env, "feature/stale-runtime-session")
+	env.service.runtimeActivitySnapshotReader = fixedRuntimeActivitySnapshotReader{{
+		SessionID: uuid.NewString(),
+		Activity:  &runtimepb.Activity{State: runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING},
+	}}
+
+	entry := listEntryForWorktreeID(t, mustListWorktrees(t, env).Worktrees, worktree.WorktreeID)
+	if entry.GetProjection().GetIsInUse() {
+		t.Fatalf("Worktree projection = %+v, want unused without a persisted Session target", entry.GetProjection())
 	}
 }
 
@@ -322,6 +337,12 @@ func listEntryForWorktreeID(t *testing.T, entries []*worktreepb.ListEntry, workt
 	}
 	t.Fatalf("Worktree %q not found in %+v", worktreeID, entries)
 	return nil
+}
+
+type fixedRuntimeActivitySnapshotReader []runtimeactivity.ActiveSessionSnapshot
+
+func (r fixedRuntimeActivitySnapshotReader) ActiveRuntimeActivitySnapshots(context.Context) ([]runtimeactivity.ActiveSessionSnapshot, error) {
+	return r, nil
 }
 
 func completeWorktreeTask(t *testing.T, env *serviceTestEnv, task workflowstore.TaskRecord) {
