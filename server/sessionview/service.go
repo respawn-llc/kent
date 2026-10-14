@@ -3,7 +3,6 @@ package sessionview
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"core/server/chatcontext"
@@ -15,7 +14,6 @@ import (
 	servicecontract "core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
-	"core/shared/invariant"
 	"core/shared/protoapi"
 	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -296,26 +294,7 @@ func (s *Service) GetSessionTranscriptPage(ctx context.Context, req *transcriptp
 		return nil, err
 	}
 	response := &transcriptpb.PageSuccess{Transcript: page}
-	if err := validateSessionTranscriptPageResponse(response); err != nil {
-		return nil, err
-	}
 	return response, nil
-}
-
-func validateSessionTranscriptPageResponse(response *transcriptpb.PageSuccess) error {
-	if err := protoapi.Validate(response); err != nil {
-		invariant.NewPolicy().Check(false, invariant.ReadModelPublicationDiagnostic(
-			invariant.ReadModelPublicationDiagnosticInput{
-				Operation:        "session_view.transcript_page",
-				SessionID:        response.GetTranscript().GetSessionId(),
-				PublicationCause: err.Error(),
-				OwnerSnapshots:   "canonical_transcript_page",
-				ResolverInputs:   "session_transcript_page",
-			},
-		))
-		return fmt.Errorf("validate session transcript page response: %w", err)
-	}
-	return nil
 }
 
 func (s *Service) GetLatestCommittedAssistantFinalAnswer(ctx context.Context, req *transcriptpb.LatestFinalAnswerRequest) (*transcriptpb.LatestFinalAnswerSuccess, error) {
