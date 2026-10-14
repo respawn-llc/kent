@@ -3,8 +3,10 @@ package app
 import (
 	"core/cli/tui/ongoing"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/serverapi"
 	"errors"
 	tea "github.com/charmbracelet/bubbletea"
+	"io"
 	"net"
 	"reflect"
 	"strings"
@@ -88,7 +90,7 @@ func TestOngoingTranscriptTransportOpenFailureKeepsTUIAndShowsDisconnect(t *test
 func TestDormantTranscriptReconnectReadsMainViewWithoutHydration(t *testing.T) {
 	controller := newNoopOngoingTranscriptController(&ongoingSurfaceSpy{}, ongoingTestFrameProvider)
 	m := newProjectedTestUIModel(&runtimeControlFakeClient{}, withUIOngoingTranscriptController(controller))
-	connectionErr := &net.OpError{Err: errors.New("connection refused")}
+	connectionErr := errors.Join(serverapi.ErrStreamFailed, io.EOF)
 	cmd := m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventFailure, Err: connectionErr})
 	if !m.runtimeMainViewBusy || cmd == nil {
 		t.Fatal("transport recovery must read Session state while transcript hydration waits")

@@ -5,6 +5,7 @@ import (
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/serverapi"
 	"errors"
+	"io"
 	"net"
 	"reflect"
 	"testing"
@@ -117,7 +118,7 @@ func TestStartSessionTranscriptEventsRetriesTransportFailureUntilServerReturns(t
 	recovered := &scriptedTranscriptSubscription{
 		messages: []*transcriptpb.Message{ongoingHydrationMessage(1)}}
 	attempt := 0
-	connectionFailure := &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
+	connectionFailure := errors.Join(serverapi.ErrStreamFailed, io.EOF)
 	stream := startSessionTranscriptEvents(
 		context.Background(),
 		"session-1",
