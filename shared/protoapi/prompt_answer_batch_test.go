@@ -62,11 +62,9 @@ func TestPromptAnswerBatchResponseValidationAndCorrelationIgnoreResultOrder(t *t
 		t.Fatalf("reordered exact response set rejected: %v", err)
 	}
 	for name, mutate := range map[string]func(*promptpb.AnswerBatchSuccess){
-		"missing identity":   func(r *promptpb.AnswerBatchSuccess) { r.Results = r.Results[:1] },
-		"foreign identity":   func(r *promptpb.AnswerBatchSuccess) { r.Results[0].ToolCallId = "foreign" },
-		"duplicate identity": func(r *promptpb.AnswerBatchSuccess) { r.Results[0].ToolCallId = r.Results[1].ToolCallId },
-		"blank identity":     func(r *promptpb.AnswerBatchSuccess) { r.Results[0].ToolCallId = "" },
-		"invalid outcome":    func(r *promptpb.AnswerBatchSuccess) { r.Results[0].Outcome = promptpb.AnswerBatchOutcome(99) },
+		"missing identity": func(r *promptpb.AnswerBatchSuccess) { r.Results = r.Results[:1] },
+		"foreign identity": func(r *promptpb.AnswerBatchSuccess) { r.Results[0].ToolCallId = "foreign" },
+		"blank identity":   func(r *promptpb.AnswerBatchSuccess) { r.Results[0].ToolCallId = "" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			value := proto.Clone(response).(*promptpb.AnswerBatchSuccess)

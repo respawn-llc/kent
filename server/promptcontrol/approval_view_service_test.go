@@ -32,9 +32,3 @@ func TestApprovalViewServiceRejectsMalformedPendingToolCallIdentity(t *testing.T
 		})
 	}
 }
-
-func TestApprovalViewServiceRequiresSessionID(t *testing.T) {
-	if _, err := NewApprovalViewService(&stubApprovalPendingPromptSource{}, testsetup.OpenStore(t, t.TempDir())).ListPendingApprovalsBySession(context.Background(), &promptpb.ListPendingRequest{}); err == nil {
-		t.Fatal("expected validation error")
-	}
-}

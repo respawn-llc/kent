@@ -1,6 +1,7 @@
 package protoapi
 
 import (
+	"errors"
 	"fmt"
 
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
@@ -10,8 +11,8 @@ import (
 )
 
 func PromptCommandErrorToProto(err *serverapi.PromptCommandError) (proto.Message, error) {
-	if validationErr := err.Validate(); validationErr != nil {
-		return nil, validationErr
+	if (err.Kind == serverapi.PromptCommandErrorKindCommandNotFound || err.Kind == serverapi.PromptCommandErrorKindCommandRead) && err.Command == nil {
+		return nil, errors.New("command-specific prompt command error requires command")
 	}
 	switch err.Kind {
 	case serverapi.PromptCommandErrorKindCatalogRead:
@@ -26,9 +27,6 @@ func PromptCommandErrorToProto(err *serverapi.PromptCommandError) (proto.Message
 }
 
 func PromptCommandErrorFromProto(details proto.Message) error {
-	if err := Validate(details); err != nil {
-		return err
-	}
 	switch selected := details.(type) {
 	case *promptcommandpb.CatalogReadDetails:
 		return &serverapi.PromptCommandError{Kind: serverapi.PromptCommandErrorKindCatalogRead, Command: textutil.Pointer(selected.Command)}

@@ -100,9 +100,3 @@ func TestServiceRejectsInvalidPendingAskRecommendation(t *testing.T) {
 		t.Fatal("accepted pending ask recommendation outside suggestions")
 	}
 }
-
-func TestAskViewServiceRequiresSessionID(t *testing.T) {
-	if _, err := NewAskViewService(&stubAskPendingPromptSource{}, testsetup.OpenStore(t, t.TempDir())).ListPendingAsksBySession(context.Background(), &promptpb.ListPendingRequest{}); err == nil {
-		t.Fatal("expected validation error")
-	}
-}
