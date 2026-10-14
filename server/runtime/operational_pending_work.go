@@ -96,10 +96,7 @@ func (e *Engine) scheduleOperationalPendingWork(ctx context.Context, request ope
 }
 
 func manualCompactionPendingWorkItem(id runtimeids.CompactionRequestID, payload runtimeinput.ManualCompactionAdmission) (runtimeinput.PendingWorkItem, error) {
-	itemID, err := serverapi.PendingWorkItemIDFromCompactionRequest(id)
-	if err != nil {
-		return runtimeinput.PendingWorkItem{}, err
-	}
+	itemID := runtimeids.QueueItemIDFromCompactionRequest(id)
 	if payload.Guidance != nil {
 		guidance := *payload.Guidance
 		payload.Guidance = &guidance

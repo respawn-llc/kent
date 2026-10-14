@@ -38,7 +38,7 @@ func (s *Service) AdmitChatQueuedUserInput(
 	if !attempt.Accepted() {
 		return serverapi.ChatInputAdmissionResult{}, err
 	}
-	queueItemID, parseErr := runtimeids.ParseQueueItemID(queued.ID)
+	queueItemID, parseErr := runtimeids.QueueItemIDFromProto(queued.ID)
 	if parseErr != nil {
 		return serverapi.ChatInputAdmissionResult{Accepted: true}, errors.Join(err, parseErr)
 	}

@@ -95,7 +95,7 @@ func (s *Service) AdmitChatUserTurn(
 	if !accepted {
 		return serverapi.ChatInputAdmissionResult{}, commandErr
 	}
-	queueItemID, parseErr := runtimeids.ParseQueueItemID(response.GetQueued().GetQueueItemId())
+	queueItemID, parseErr := runtimeids.QueueItemIDFromProto(response.GetQueued().GetQueueItemId())
 	return serverapi.ChatInputAdmissionResult{
 		QueueItemID:          queueItemID,
 		Accepted:             true,

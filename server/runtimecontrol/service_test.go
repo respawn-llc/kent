@@ -2772,10 +2772,7 @@ func TestServiceAdmitManualCompactionQueuesBehindActiveAgentStep(t *testing.T) {
 	if !accepted {
 		t.Fatal("manual compaction behind an active Agent Step was not accepted")
 	}
-	itemID, err := serverapi.PendingWorkItemIDFromCompactionRequest(requestID)
-	if err != nil {
-		t.Fatalf("Pending Work identity: %v", err)
-	}
+	itemID := runtimeids.QueueItemIDFromCompactionRequest(requestID)
 	pending, err := engine.PendingWorkSnapshot()
 	if err != nil {
 		t.Fatalf("Pending Work: %v", err)

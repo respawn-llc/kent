@@ -8,7 +8,6 @@ import (
 	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
-	"core/shared/serverapi"
 	"core/shared/textutil"
 )
 
@@ -152,8 +151,7 @@ func schedulePendingManualCompaction(t *testing.T, engine *Engine) (runtimeids.C
 	_, err := engine.CompactContextAdmissionForRequestWithAcceptance(
 		t.Context(), requestID, runtimeinput.ManualCompactionAdmission{}, nil)
 	pendingWorkTestNoError(t, err)
-	itemID, err := serverapi.PendingWorkItemIDFromCompactionRequest(requestID)
-	pendingWorkTestNoError(t, err)
+	itemID := runtimeids.QueueItemIDFromCompactionRequest(requestID)
 	return requestID, itemID
 }
 

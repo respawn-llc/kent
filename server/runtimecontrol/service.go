@@ -523,7 +523,7 @@ func (s *Service) ListPendingWork(ctx context.Context, req *runtimepb.ListPendin
 }
 
 func (s *Service) RemovePendingWork(ctx context.Context, req *runtimepb.RemovePendingWorkRequest) (*runtimepb.RemovePendingWorkSuccess, error) {
-	itemID, err := runtimeids.ParseQueueItemID(req.ItemId)
+	itemID, err := runtimeids.QueueItemIDFromProto(req.ItemId)
 	if err != nil {
 		return nil, err
 	}

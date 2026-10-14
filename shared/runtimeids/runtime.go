@@ -89,6 +89,15 @@ func ParseQueueItemID(raw string) (QueueItemID, error) {
 	return QueueItemID{uuidv4Value: id}, err
 }
 
+func QueueItemIDFromProto(raw string) (QueueItemID, error) {
+	id, err := uuidv4ValueFromProto(raw)
+	return QueueItemID{uuidv4Value: id}, err
+}
+
+func QueueItemIDFromCompactionRequest(id CompactionRequestID) QueueItemID {
+	return QueueItemID{uuidv4Value: id.uuidv4Value}
+}
+
 func NewQueueItemID() QueueItemID {
 	return QueueItemID{uuidv4Value: newUUIDv4Value()}
 }

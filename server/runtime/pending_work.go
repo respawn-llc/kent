@@ -182,7 +182,7 @@ func (s *defaultExclusiveStepLifecycle) removePendingOperationalWork(id runtimei
 }
 
 func pendingWorkMessage(message queuedUserMessage) (runtimeinput.PendingWorkItem, error) {
-	id, err := runtimeids.ParseQueueItemID(message.message.ID)
+	id, err := runtimeids.QueueItemIDFromProto(message.message.ID)
 	if err != nil {
 		return runtimeinput.PendingWorkItem{}, err
 	}
