@@ -53,9 +53,6 @@ func (r PlanRequest) Validate() error {
 	default:
 		return fmt.Errorf("Session launch mode %q is invalid", r.Mode)
 	}
-	if err := r.Intent.Validate(); err != nil {
-		return fmt.Errorf("Session launch intent: %w", err)
-	}
 	if err := serverapi.ValidateOptionalIdentifier("caller_session_id", r.CallerSessionID); err != nil {
 		return err
 	}

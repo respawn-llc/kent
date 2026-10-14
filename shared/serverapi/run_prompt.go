@@ -85,9 +85,6 @@ func (r RunPromptRequest) Validate() error {
 	if strings.TrimSpace(r.Prompt) == "" {
 		return errors.New("prompt is required")
 	}
-	if err := r.Intent.Validate(); err != nil {
-		return fmt.Errorf("intent: %w", err)
-	}
 	if err := ValidateOptionalIdentifier("caller_session_id", r.CallerSessionID); err != nil {
 		return err
 	}

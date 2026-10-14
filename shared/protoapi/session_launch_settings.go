@@ -167,9 +167,6 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 }
 
 func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Settings, error) {
-	if err := Validate(message); err != nil {
-		return config.Settings{}, err
-	}
 	modelVerbosity, err := modelVerbosityFromProto(message.ModelVerbosity)
 	if err != nil {
 		return config.Settings{}, err
@@ -542,9 +539,6 @@ func SessionSourceReportToProto(source config.SourceReport) (*sessionlaunchpb.So
 }
 
 func SessionSourceReportFromProto(message *sessionlaunchpb.SourceReport) (config.SourceReport, error) {
-	if err := Validate(message); err != nil {
-		return config.SourceReport{}, err
-	}
 	sources, err := sourceFactsFromProto(message.Sources)
 	if err != nil {
 		return config.SourceReport{}, err

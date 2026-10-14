@@ -144,9 +144,6 @@ func SubagentLaunchDeniedToProto(denied *serverapi.SubagentLaunchDeniedError) (*
 }
 
 func SessionLaunchIntentToProto(intent serverapi.SessionLaunchIntent) (*sessionlaunchpb.SessionLaunchIntent, error) {
-	if err := intent.Validate(); err != nil {
-		return nil, err
-	}
 	message := &sessionlaunchpb.SessionLaunchIntent{}
 	switch intent.Kind() {
 	case serverapi.SessionLaunchIntentCreateNew:
@@ -193,9 +190,6 @@ func SessionLaunchIntentFromProto(message *sessionlaunchpb.SessionLaunchIntent) 
 }
 
 func sessionCreateOriginToProto(origin serverapi.SessionCreateOrigin) (*sessionlaunchpb.SessionCreateOrigin, error) {
-	if err := origin.Validate(); err != nil {
-		return nil, err
-	}
 	message := &sessionlaunchpb.SessionCreateOrigin{}
 	switch origin.Kind() {
 	case serverapi.SessionCreateOriginIndependent:

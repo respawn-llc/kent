@@ -1,11 +1,6 @@
 package serverapi
 
-import (
-	"errors"
-	"fmt"
-
-	"core/shared/runtimeids"
-)
+import "core/shared/runtimeids"
 
 const SessionPromptHistoryMaxEntries = 100
 
@@ -63,22 +58,6 @@ func (o SessionCreateOrigin) Equal(other SessionCreateOrigin) bool {
 	return leftPresent == rightPresent && (!leftPresent || left == right)
 }
 
-func (o SessionCreateOrigin) Validate() error {
-	switch o.kind {
-	case SessionCreateOriginIndependent:
-		if o.sessionID != nil {
-			return errors.New("independent session create origin cannot contain session_id")
-		}
-	case SessionCreateOriginPreviousSession, SessionCreateOriginParentAgent:
-		if o.sessionID == nil || o.sessionID.IsZero() {
-			return fmt.Errorf("%s session create origin requires session_id", o.kind)
-		}
-	default:
-		return errors.New("session create origin kind is invalid")
-	}
-	return nil
-}
-
 type SessionLaunchIntent struct {
 	kind      SessionLaunchIntentKind
 	origin    *SessionCreateOrigin
@@ -128,29 +107,4 @@ func (i SessionLaunchIntent) Equal(other SessionLaunchIntent) bool {
 	leftSession, leftHasSession := i.SessionID()
 	rightSession, rightHasSession := other.SessionID()
 	return leftHasSession == rightHasSession && (!leftHasSession || leftSession == rightSession)
-}
-
-func (i SessionLaunchIntent) Validate() error {
-	switch i.kind {
-	case SessionLaunchIntentCreateNew:
-		if i.sessionID != nil {
-			return errors.New("create_new session launch intent cannot contain session_id")
-		}
-		if i.origin == nil {
-			return errors.New("create_new session launch intent requires origin")
-		}
-		if err := i.origin.Validate(); err != nil {
-			return fmt.Errorf("create_new session launch intent origin: %w", err)
-		}
-	case SessionLaunchIntentOpenExisting:
-		if i.origin != nil {
-			return errors.New("open_existing session launch intent cannot contain origin")
-		}
-		if i.sessionID == nil || i.sessionID.IsZero() {
-			return errors.New("open_existing session launch intent requires session_id")
-		}
-	default:
-		return errors.New("session launch intent kind is invalid")
-	}
-	return nil
 }
