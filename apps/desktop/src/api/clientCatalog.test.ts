@@ -1,6 +1,6 @@
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { describe, expect, it } from "vitest";
-import { create } from "@app/server-api-contract";
+import { create, encode } from "@app/server-api-contract";
 import {
   ProjectAvailability,
   ProjectCatalogService,
@@ -14,6 +14,20 @@ import { ApiClient } from "./client";
 import { isProjectMissingError, RpcError } from "./index";
 
 describe("ApiClient catalog boundary", () => {
+  it.each([
+    ["0", true],
+    ["+0001", true],
+    ["9223372036854775807", true],
+    ["-1", false],
+    ["invalid", false],
+    ["9223372036854775808", false],
+  ])("validates Project Home page token %s", (pageToken, valid) => {
+    const schema = ProjectCatalogService.method.listHome.input;
+    const encodeRequest = () => encode(schema, create(schema, { pageToken }));
+    if (valid) expect(encodeRequest).not.toThrow();
+    else expect(encodeRequest).toThrow();
+  });
+
   it.each([
     { category: SessionCategory.MAIN, expected: "main" as const },
     { category: SessionCategory.SUBAGENT, expected: "subagent" as const },

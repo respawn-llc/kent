@@ -413,6 +413,11 @@ message ProjectHomeListRequest {
       id: "project_home_list.page_token.trimmed"
       message: "page_token must not have surrounding whitespace"
       expression: "this == this.trim()"
+    },
+    (buf.validate.field).cel = {
+      id: "project_home_list.page_token.offset"
+      message: "page_token must be a nonnegative integer offset"
+      expression: "int(this) >= 0"
     }
   ];
 }

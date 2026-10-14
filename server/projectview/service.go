@@ -102,9 +102,13 @@ func (s *Service) ListProjectHome(ctx context.Context, req *projectpb.ProjectHom
 	if pageSize > maxProjectHomePageSize {
 		pageSize = maxProjectHomePageSize
 	}
-	offset, err := parseProjectHomePageToken(req.GetPageToken())
-	if err != nil {
-		return nil, err
+	offset := 0
+	if req.PageToken != nil {
+		var err error
+		offset, err = strconv.Atoi(*req.PageToken)
+		if err != nil {
+			return nil, errors.New("page_token is invalid")
+		}
 	}
 	summaries, err := s.metadata.ListProjectHomeSummaries(ctx, pageSize+1, offset)
 	if err != nil {
@@ -663,18 +667,6 @@ func (s *Service) ListSessionPage(ctx context.Context, req *projectpb.SessionPag
 		return nil, err
 	}
 	return sessionPageToGenerated(page)
-}
-
-func parseProjectHomePageToken(token string) (int, error) {
-	trimmed := strings.TrimSpace(token)
-	if trimmed == "" {
-		return 0, nil
-	}
-	offset, err := strconv.Atoi(trimmed)
-	if err != nil || offset < 0 {
-		return 0, errors.New("page_token is invalid")
-	}
-	return offset, nil
 }
 
 func availabilityForProjectPath(path string) string {
