@@ -688,10 +688,7 @@ func (s *Service) ListSessionPage(ctx context.Context, req *projectpb.SessionPag
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
-	category, err := protoapi.SessionCategoryFromProto(req.Category)
-	if err != nil {
-		return nil, err
-	}
+	category := protoapi.SessionCategoryFromProto(req.Category)
 	offset := 0
 	if req.Offset != nil {
 		offset = int(*req.Offset)

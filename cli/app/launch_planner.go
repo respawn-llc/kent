@@ -163,10 +163,7 @@ func (l projectScopedSessionPageLoader) ListSessionPage(ctx context.Context, req
 	if err != nil {
 		return sessionPageResponse{}, err
 	}
-	responseCategory, err := protoapi.SessionCategoryFromProto(response.Category)
-	if err != nil {
-		return sessionPageResponse{}, err
-	}
+	responseCategory := protoapi.SessionCategoryFromProto(response.Category)
 	sessions, err := client.SessionSummariesFromProto(response.Sessions)
 	if err != nil {
 		return sessionPageResponse{}, err

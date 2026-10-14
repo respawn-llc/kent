@@ -59,10 +59,7 @@ func SessionSummaryFromProto(session *projectpb.SessionSummary) (clientui.Sessio
 		return clientui.SessionSummary{}, err
 	}
 	sessionID := runtimeids.SessionIDFromProto(session.SessionId)
-	category, err := protoapi.SessionCategoryFromProto(session.Category)
-	if err != nil {
-		return clientui.SessionSummary{}, err
-	}
+	category := protoapi.SessionCategoryFromProto(session.Category)
 	return clientui.SessionSummary{
 		SessionID:          sessionID,
 		ShortID:            shortID,
