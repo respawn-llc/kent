@@ -553,13 +553,13 @@ it("preserves focus, selection and continued typing across successive deliveries
   });
   await user.click(send());
   expect(screen.getByRole("textbox")).toHaveAttribute("readonly");
-  await waitFor(() => expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly"), {
+  await waitFor(() => { expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly"); }, {
     timeout: 3000,
   });
   await user.type(screen.getByRole("textbox"), "/init two");
   await user.click(send());
   expect(screen.getByRole("textbox")).toHaveAttribute("readonly");
-  await waitFor(() => expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly"), {
+  await waitFor(() => { expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly"); }, {
     timeout: 3000,
   });
   await user.type(screen.getByRole("textbox"), "continuing");
