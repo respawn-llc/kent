@@ -256,6 +256,28 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Transcript order is immutable for prompt-cache stability. A pre-commit Result Group persistence failure ends the Exact Execution Scope and makes no committed transcript change. Kent does not replay or reconcile a lost Session operation; a later explicit invocation is a new operation. Process death may lose the current Agent Step and process-local pending Steering as defined by the Runtime Steering specification.
 - An explicit confirmed Agent replacement is an exception to the frozen Session Contract. The server must reject unavailable or known incompatible targets before stopping where possible, apply ordinary Stop semantics including input restoration, wait for execution shutdown, and revalidate before replacing the Agent with its complete baseline. New execution must not start during replacement. The server must rebuild the runtime configuration without rewriting historical content, changing the Session ID, forcing compaction, or automatically resuming. Workflow-controlled Agents must remain locked. Accepted replacement must survive client disconnection.
 
+## Automatic Session Naming
+
+- When nano is configured and `nano.features.session_naming` is true, Kent must automatically name unnamed interactive main Sessions, headless Sessions, and subagent Sessions, including subagents launched by Workflow agents.
+- Kent must not automatically rename the Workflow agent Session whose execution was started by the Workflow.
+- Unnamed subagents must display as `Subagent <short_id>`, using the existing Session Short ID. When nano returns a subagent summary, Kent must construct and save the complete name as `Subagent <short_id>: <summary>`.
+- Clients must display saved names exactly as saved, including manually entered names. They must not add generated-title prefixes at display time. The server may use the fixed prefix when creating persisted generated names.
+- New subagents must not save synthetic placeholder names. Kent must treat every existing saved name as named, including synthetic names, without migration or text-based classification.
+- For a new Session, naming must start in parallel after the first completed Agent Step following its first contentful input, including that Step's caused tools and committed results. Kent must not wait for the Turn to finish.
+- Contentful input must mean the first nonblank user input or initial subagent assignment or Goal. Tool output, reminders, and other server-generated context must not qualify.
+- Naming must include commentary from that Step when present. A tool-calling Step without commentary must qualify.
+- Kent must name an existing unnamed Session only when the user submits further input, after the continuation's first completed Agent Step. Opening a Session or restarting the server must not trigger historical naming.
+- Continued Sessions must use the existing first-prompt preview, limited to its first nonblank line and 120 characters, plus commentary from the continuation's first Step when present. Naming must not add a historical transcript read.
+- Naming must use text input and text output through one nano Step. Its work must have a server-wide lifetime with the nano inference timeout.
+- Naming must use at most 85% of the configured nano context window for its input, including prompt overhead, leaving room for output. Kent must middle-truncate the initial input and optional commentary as necessary, retaining their beginning and ending without changing Session history.
+- If the minimal naming prompt cannot fit, Kent must report a naming failure.
+- The naming prompt must be a template under `prompts/`, with initial user-turn or Goal text in one placeholder and optional model commentary in an `{{-if }}` block.
+- The prompt must request a specific problem or question in two to six words, in the input's language. It must exclude generic phrases such as “Discussion about”, “Exploring”, and “Understanding”, and adjectives such as “comprehensive”, “detailed”, and “interesting”.
+- Kent must reject blank or multiline titles. The prompt must instruct word count and style without result rewriting or additional model Steps.
+- Kent must save a generated title only if the Session is unnamed at save time. Manual names must win, including when entered during inference. Kent must not automatically replace an existing generated title.
+- Naming failures must appear as desktop attention broadcasts that produce notifications and as short interactive TUI status-line errors plus log lines in debug and release. Headless CLI naming failures must use diagnostic logs only.
+- Naming failure broadcasts must be transient typed events. They must not create pending Questions, persistent attention items, or Retry actions.
+
 ## Authentication And Configuration
 
 - TUI and headless startup, and goal, binding, question and worktree CLI commands, must use global/shared configuration and environment/CLI overrides for connection discovery. Initial targeting must use the current or explicitly selected workspace. Clients must not open the server metadata database locally. The connected server must resolve Session and caller-context lookups, including the Session's workspace. Main Workspace private ownership and operational settings must resolve in the running server after connection. A private-only endpoint override must not control pre-connection discovery.

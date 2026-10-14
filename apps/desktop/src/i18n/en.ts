@@ -48,6 +48,7 @@ export const englishResources = {
       expand: "Expand",
       loadingMore: "Loading more",
       attention: {
+        sessionNamingFailed: "Session naming failed",
         listenerFailed: "Live attention updates stopped",
         open: "Open",
         questionTitle: "Question",
@@ -180,6 +181,7 @@ export const englishResources = {
       detailLabel: "Connection error",
     },
     home: {
+      subagentTitle: "Subagent {{id}}",
       title: "Projects",
       emptyTitle: "No projects yet",
       emptyBody: "Create or attach a workspace to start tracking workflow tasks.",

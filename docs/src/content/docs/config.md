@@ -177,6 +177,27 @@ A session's Thinking override takes precedence over its agent configuration and 
 | `workflow.use_required_tool_calls`         | bool   | `true`                                                       |                                                 | Uses provider-required tool selection for `tool` and `shell_command` workflow completion modes. Set to `false` to use automatic tool selection while preserving Kent's workflow completion validation. |
 | `workflow.subagents`                       | bool   | `false`                                                      |                                                 | Allows workflow agents to delegate to eligible roles, including `default` and `fast`.                                                                                                                  |
 
+### Nano inference
+
+Configure `[nano]` to enable automatic session naming. Set an explicit connection and model. Nano uses the selected connection's endpoint and authentication, with independent model controls.
+
+```toml
+[nano]
+connection = ["subscription"]
+model = "gpt-6-luna"
+timeout_seconds = 120
+concurrency = 5
+
+[nano.features]
+session_naming = true # Set false to disable automatic naming.
+```
+
+`connection` accepts one connection ID or an array of equivalent connections. Arrays share the normal connection rotation. Put `nano.concurrency` in the global configuration only. It limits simultaneous nano calls across all workspaces. Calls wait for a slot, with at most 100 waiting calls. `timeout_seconds` starts after admission and includes retries.
+
+For models with an unknown context window, set `nano.model_context_window` to the provider's actual token limit. The minimum is 2,500 tokens. An unknown window without an override is a configuration error.
+
+Optional controls are `nano.thinking_level`, `nano.model_verbosity`, and `nano.model_capabilities.supports_reasoning_effort` / `supports_vision_inputs`. Omitted thinking uses the model catalog default, or `medium` when the catalog has none. Omitted verbosity uses the provider default.
+
 ### Supervisor
 
 Configure the supervisor agent that reviews model changes.

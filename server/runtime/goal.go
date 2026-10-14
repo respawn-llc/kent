@@ -168,6 +168,9 @@ func (e *Engine) setGoalRaw(objective string, actor session.GoalActor, startLoop
 		return result, err
 	}
 	metadataErr := err
+	e.outputMutationMu.Lock()
+	e.captureSessionNamingRaw(objective)
+	e.outputMutationMu.Unlock()
 	msg, noticeBuildErr := goalNoticeMessage(GoalNoticeSet, &goal)
 	if noticeBuildErr != nil {
 		if !startLoop {

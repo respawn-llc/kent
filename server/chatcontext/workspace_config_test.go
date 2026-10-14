@@ -32,6 +32,37 @@ func TestResolveMainWorkspaceRootWithoutDatabaseDoesNotCreateStorage(t *testing.
 	}
 }
 
+func TestWorkspaceNanoUnknownContextRejectedBeforeUse(t *testing.T) {
+	root, workspace := t.TempDir(), t.TempDir()
+	store := testsetup.OpenStore(t, root)
+	if _, err := store.RegisterWorkspaceBinding(t.Context(), workspace); err != nil {
+		t.Fatal(err)
+	}
+	global := "[connections.local]\nprotocol = \"responses\"\nendpoint = \"http://localhost:1234/v1\"\n"
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(global), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(workspace, ".kent"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "[nano]\nconnection = \"local\"\nmodel = \"unknown-local\"\n[nano.features]\nsession_naming = false\n"
+	path := filepath.Join(workspace, ".kent", "config.toml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	resolver := NewFixedRootWorkspaceResolver(store, "", config.LoadOptions{})
+	if _, err := resolver.Resolve(workspace); err == nil {
+		t.Fatal("unknown nano context accepted with naming disabled")
+	}
+	body = "[nano]\nconnection = \"local\"\nmodel = \"unknown-local\"\nmodel_context_window = 2500\n[nano.features]\nsession_naming = false\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.Resolve(workspace); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestFixedRootWorkspaceResolverUsesMainWorkspacePrivateConfigForManagedWorktree(t *testing.T) {
 	root, main, worktree := t.TempDir(), t.TempDir(), t.TempDir()
 	store := testsetup.OpenStore(t, root)

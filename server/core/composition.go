@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"core/server/chatmutation"
 	"core/server/launch"
 	"core/server/metadata"
+	"core/server/nano"
 
 	"core/server/processview"
 	"core/server/projectview"
@@ -27,6 +29,7 @@ import (
 	"core/server/runtimewire"
 	"core/server/serverstatus"
 	"core/server/sessionlaunch"
+	"core/server/sessionnaming"
 	"core/server/sessionruntime"
 	"core/server/sessionservice"
 	"core/server/sessionview"
@@ -42,9 +45,12 @@ import (
 	"core/server/worktree"
 	"core/shared/clientui"
 	"core/shared/config"
+	attentionpb "core/shared/protoapi/gen/kent/api/attention"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 	"core/shared/toolspec"
 )
 
@@ -115,7 +121,18 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	runtimeRegistry.WithTranscriptContractViolationPanic(cfg.Settings.Debug)
 	var workflowController *workflowexecution.CurrentNodeController
 	connectionRotation := new(launch.ConnectionRotation)
+	connections := authservice.NewConnectionResolver(cfg.PersistenceRoot, authSupport.AuthManager, authSupport.Environment)
+	nanoInference, err := nano.NewService(cfg.Settings.NanoConcurrency, connectionRotation, connections, opts.RuntimeClientFactory)
+	if err != nil {
+		closeRootLeaseOnFailure()
+		_ = metadataStore.Close()
+		return nil, err
+	}
+	var namingConsumer *sessionnaming.Service
 	runtimeAuthority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
+		SubmitSessionNaming: func(id runtimeids.SessionID, settings config.Settings, input runtime.SessionNamingInput) {
+			namingConsumer.Submit(id, settings, input)
+		},
 		ConnectionRotation:  connectionRotation,
 		Environment:         authSupport.Environment,
 		WorkspaceMembership: metadataStore,
@@ -213,7 +230,6 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		},
 	})
 	projectViews := projectService
-	connections := authservice.NewConnectionResolver(cfg.PersistenceRoot, authSupport.AuthManager, authSupport.Environment)
 	authBootstrapService := authSupport.Connections
 	authStatusService := authservice.NewStatusService(connections, metadataStore)
 	updateStatusService := serverstatus.NewUpdateStatusService(config.Version, cfg.Settings.Debug)
@@ -409,6 +425,19 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		chatOperationOwner:      chatOperationOwner,
 	})}
 	runtimeControlService.WithSessionSettingsPublisher(chatSettingsService{core: core})
+	namingConsumer = sessionnaming.NewService(nanoInference, runtimeAuthority, chatSettingsService{core: core}.PublishSessionSettings,
+		func(ctx context.Context, id string, cause error) {
+			binding, err := metadataStore.ResolveSessionNavigationBinding(ctx, id)
+			if err == nil {
+				err = attentionBroker.PublishSessionNamingFailure(&attentionpb.SessionNamingFailure{
+					ProjectId: binding.ProjectId, SessionId: id,
+					Error: &sharedpb.InternalFailureDetails{Cause: textutil.Value(cause.Error())},
+				})
+			}
+			if err != nil {
+				slog.ErrorContext(ctx, "Session-naming failure notification delivery failed", "session_id", id, "error", err)
+			}
+		})
 	sourceSessionLaunch := func(
 		ctx context.Context,
 		sessionID runtimeids.SessionID,

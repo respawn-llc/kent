@@ -1,6 +1,9 @@
 import { useContext, useSyncExternalStore } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { skipToken, useQuery } from "@tanstack/react-query";
 import type { ChatMainView } from "@/api";
+import { sessionDisplayTitle } from "@/api";
 
 import { ChatRuntimeContext } from "./chatRuntimeContext";
 import type { ChatRuntimeOwner, ChatRuntimeOwnerSnapshot } from "./chatRuntime";
@@ -49,7 +52,17 @@ function processCount(snapshot: ChatRuntimeOwnerSnapshot | null): number {
   return snapshot === null ? 0 : snapshot.activeProcessCount;
 }
 
+function presentationTitle(view: ChatMainView | undefined, t: TFunction): string | null {
+  if (view === undefined) return null;
+  if (view.sessionName !== null || view.category === "main") return view.sessionName;
+  return sessionDisplayTitle(
+    { name: view.sessionName, id: view.sessionID, shortID: view.shortID, category: view.category },
+    (id) => t("home.subagentTitle", { id }),
+  );
+}
+
 export function useChatRuntimePresentation() {
+  const { t } = useTranslation();
   const owner = useContext(ChatRuntimeContext);
   const snapshot = useSyncExternalStore(
     (listener) => owner?.subscribe(listener) ?? (() => undefined),
@@ -65,7 +78,7 @@ export function useChatRuntimePresentation() {
   return {
     activeProcessCount: processCount(snapshot),
     activity: query.data?.activity ?? null,
-    sessionName: query.data?.sessionName ?? null,
+    sessionName: presentationTitle(query.data, t),
     goal: snapshot?.goal.kind === "observed" ? snapshot.goal.value : null,
     observationError: snapshot?.observation.kind === "error" ? snapshot.observation.error : null,
     mainView:

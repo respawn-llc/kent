@@ -3,12 +3,13 @@
 ## Dispatch Identity
 
 - Every OpenAI-family generation and compaction dispatch sends `originator`, `User-Agent`, and `session-id`, including a dispatch to an explicit custom OpenAI-compatible endpoint without authentication.
-- `session-id` is the dispatch's Kent Session identity. It must be nonempty, must have no leading or trailing space or horizontal tab, and must be valid as an outbound HTTP header value.
+- `session-id` is the dispatch's Kent Session identity, except for nano's ephemeral invocation identity defined below. It must be nonempty, must have no leading or trailing space or horizontal tab, and must be valid as an outbound HTTP header value.
 - Kent rejects a missing or invalid dispatch Session identity before authentication resolution, credential refresh, or any network request.
 - Authenticated dispatches retain their `Authorization` and ChatGPT account-identity headers. An explicit custom OpenAI-compatible endpoint may remain anonymous and sends the common identity headers without `Authorization`.
 - Kent sends no `session_id` header.
 - Kent must not send separate provider requests to count input tokens.
 - Model-context resolution and offline request inspection send no Session identity, Codex dispatch metadata, routing hint, or provider turn state.
+- Every nano invocation must use one ephemeral UUID v4 as its provider dispatch identity, whether or not it has a parent Session. Nano must not create a Kent Session or persist this identity. The identity must be unchanged across retries of the invocation.
 
 ## ChatGPT Codex Routing
 
@@ -18,6 +19,7 @@
 - A main-agent or subagent dispatch maps its own Kent Session ID to `session_id` and `thread_id`, its live Agent Turn Run ID to `turn_id`, and `<Session ID>:<compaction generation>` to `window_id`.
 - Each subagent sends only its own Session and Agent Turn identities.
 - A Reviewer dispatch maps `<Kent Session ID>/supervisor` to `session_id` and `thread_id`, copies the enclosing main Agent Turn Run ID to `turn_id`, and maps `<Kent Session ID>/supervisor:<main compaction generation>` to `window_id`.
+- A nano dispatch must map its invocation UUID to `session_id`, `thread_id`, and `turn_id`, and `<invocation UUID>:0` to `window_id`, with request kind `turn`. Nano must prepare these facts once and use the same facts through retries without looking up an active parent Turn or compaction state.
 - Ordinary main-agent, subagent, and Reviewer generation uses request kind `turn`. Responses compaction uses `compaction`. Local generation-based compaction omits request kind.
 - Inline compaction uses the enclosing Agent Turn Run ID. Standalone compaction uses its live exclusive Run ID.
 - A compaction dispatch uses the pre-compaction window. The compaction generation advances only after successful compaction.

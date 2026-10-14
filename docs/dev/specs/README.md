@@ -10,6 +10,7 @@ Area specs:
 
 - `core-runtime-tools.md`: product scope, sessions, authentication, configuration, tools, runtime control, and compaction.
 - `provider-connections.md`: named provider access, connection selection, credentials, Session binding, terminal login, and configuration cutover.
+- `nano-inference.md`: small-model inference configuration, invocation, concurrency, and feature switches.
 - `runtime-steering-loop.md`: Active Session Runtime mutation ownership, accepted mutation order, protected Agent Steps, Step Boundaries, and next-Step selection.
 - `cli-commands.md`: CLI command behavior, accepted inputs, human output, machine-readable output, and exit codes.
 - `project-workspaces.md`: Project-workspace relationships, detach safety, and API selection.

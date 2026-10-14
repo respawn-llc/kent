@@ -20,7 +20,6 @@ import (
 	"core/shared/config"
 	"core/shared/jsoncontract"
 	"core/shared/modelcontract"
-	"core/shared/rpcwire"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/textutil"
@@ -72,6 +71,7 @@ func normalizeCacheWarningMode(mode config.CacheWarningMode) (config.CacheWarnin
 }
 
 type Config struct {
+	SessionNaming                   *SessionNamingConfig
 	Model                           string
 	TokenEstimator                  llm.TokenEstimator
 	Debug                           bool
@@ -138,6 +138,7 @@ type ContextUsage struct {
 }
 
 type Engine struct {
+	sessionNaming    *pendingSessionNaming
 	mu               sync.Mutex
 	workflowTerminal WorkflowTerminalState
 
@@ -288,6 +289,13 @@ func New(
 		modelRequestsState:          newModelRequestRuntimeState(),
 		currentNodeExecution:        newCurrentNodeExecutionState(),
 		compactionPlanner:           newCompactionPlanner(),
+	}
+	if cfg.SessionNaming != nil {
+		if cfg.SessionNaming.MaxInputRunes < 3 || cfg.SessionNaming.Submit == nil {
+			return nil, errors.New("Session naming requires a bounded input and submission callback")
+		}
+		eng.sessionNaming = &pendingSessionNaming{config: *cfg.SessionNaming}
+		eng.cfg.SessionNaming = nil
 	}
 	eng.transcriptState.chatProjection().bindTokenEstimator(cfg.TokenEstimator)
 	eng.compactionRuntimeState().SetContextFacts(store.ContextFacts())
@@ -713,6 +721,9 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 	queued, err := e.messageFlow.QueueUserMessageWithID(item, association)
 	e.lifecycleMu.Unlock()
 	if err == nil {
+		if queued.Message.Role == llm.RoleUser && queued.Message.Content != nil {
+			e.captureSessionNamingRaw(*queued.Message.Content)
+		}
 		if association.steerAdmission != nil {
 			e.markSupervisorSteerRaw(queued.Message)
 		}
@@ -1213,97 +1224,22 @@ func generateWithRetryClient(
 	onAttemptReset func(),
 	onAttemptFinished func(),
 ) (llm.Response, error) {
-	var lastErr error
-	for i := 0; ; i++ {
-		var (
-			resp                    llm.Response
-			attemptErr              error
-			attemptEmitted          bool
-			reasoningEmitted        bool
-			attemptOnDelta          func(llm.AssistantDelta)
-			attemptOnReasoningDelta func(llm.ReasoningSummaryDelta)
-			attemptDone             atomic.Bool
-		)
-		if onDelta != nil {
-			attemptOnDelta = func(delta llm.AssistantDelta) {
-				if attemptDone.Load() {
-					return
-				}
-				if delta.Text == "" {
-					return
-				}
-				attemptEmitted = true
-				onDelta(delta)
-			}
-		}
-		if onReasoningDelta != nil {
-			attemptOnReasoningDelta = func(delta llm.ReasoningSummaryDelta) {
-				if attemptDone.Load() {
-					return
-				}
-				if strings.TrimSpace(delta.Text) == "" {
-					return
-				}
-				reasoningEmitted = true
-				onReasoningDelta(delta)
-			}
-		}
-		resp, attemptErr = client.generateObserved(
-			ctx,
-			observed,
-			llm.StreamCallbacks{
-				OnAssistantDelta:        attemptOnDelta,
-				OnReasoningSummaryDelta: attemptOnReasoningDelta,
+	return llm.GenerateWithRetry(ctx,
+		func(ctx context.Context, callbacks llm.StreamCallbacks, finished func()) (llm.Response, error) {
+			return client.generateObserved(ctx, observed, callbacks, finished)
+		},
+		llm.GenerationRetryOptions{
+			Schedule: llm.GenerationRetrySchedule{
+				Failures: retryPolicy.delays(generateRetryDelays), StreamStalls: retryPolicy.delays(idleStallRetryDelays),
 			},
-			func() {
-				attemptDone.Store(true)
-				if onAttemptFinished != nil {
-					onAttemptFinished()
-				}
+			SingleAttempt: retryPolicy == modelRequestSingleAttempt,
+			NonRetryable: func(err error) bool {
+				var observationErr *cacheObservationDispatchError
+				return errors.As(err, &observationErr)
 			},
-		)
-		if attemptErr != nil && ctx.Err() != nil {
-			return llm.Response{}, ctx.Err()
-		}
-		if attemptErr == nil {
-			return resp, nil
-		}
-		var observationErr *cacheObservationDispatchError
-		if errors.As(attemptErr, &observationErr) {
-			return llm.Response{}, attemptErr
-		}
-		resetAttempt := func() {
-			if (attemptEmitted || reasoningEmitted) && onAttemptReset != nil {
-				onAttemptReset()
-			}
-		}
-		if errors.Is(attemptErr, context.Canceled) || errors.Is(attemptErr, context.DeadlineExceeded) {
-			resetAttempt()
-			return llm.Response{}, attemptErr
-		}
-		if llm.IsNonRetriableModelError(attemptErr) || llm.IsContextLengthOverflowError(attemptErr) {
-			if !llm.HasHTTPStatus(attemptErr, 400) {
-				resetAttempt()
-			}
-			return llm.Response{}, attemptErr
-		}
-		resetAttempt()
-		lastErr = attemptErr
-		delays := retryPolicy.delays(generateRetryDelays)
-		if errors.Is(attemptErr, llm.ErrModelStreamStalled) {
-			delays = retryPolicy.delays(idleStallRetryDelays)
-		}
-		if i >= len(delays) {
-			if retryPolicy == modelRequestSingleAttempt {
-				return llm.Response{}, attemptErr
-			}
-			break
-		}
-		if err := rpcwire.WaitForRetry(ctx, delays[i]); err != nil {
-			return llm.Response{}, err
-		}
-	}
-	return llm.Response{}, fmt.Errorf("model generation failed after retries: %w", lastErr)
+			OnDelta: onDelta, OnReasoningDelta: onReasoningDelta,
+			OnAttemptReset: onAttemptReset, OnAttemptFinished: onAttemptFinished,
+		})
 }
 
 func (e *Engine) executeToolCalls(ctx context.Context, stepID string, calls []llm.ToolCall) ([]tools.Result, error) {

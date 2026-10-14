@@ -39,6 +39,7 @@ func (w *RuntimeWiring) Close() error {
 }
 
 type RuntimeWiringOptions struct {
+	SubmitSessionNaming                 func(runtime.SessionNamingInput)
 	Environment                         func(string) (string, bool)
 	WorkspaceMembership                 WorkspaceMembership
 	MainWorkspaceRoot                   string
@@ -226,7 +227,24 @@ func NewRuntimeWiringWithBackground(
 	if len(opts.RequiredTools) != 0 {
 		promptReloader = requiredToolsSnapshotReloader{base: promptReloader, required: append([]toolspec.ID(nil), opts.RequiredTools...)}
 	}
+	var namingConfig *runtime.SessionNamingConfig
+	meta := store.Meta()
+	if opts.SubmitSessionNaming != nil && meta.Name == nil && active.Nano != nil && active.Nano.SessionNaming {
+		targets, err := llm.ResolveNanoTargets(active)
+		if err != nil {
+			return nil, err
+		}
+		window := 0
+		for _, target := range targets {
+			window = max(window, target.Settings.ModelContextWindow)
+		}
+		namingConfig = &runtime.SessionNamingConfig{MaxInputRunes: window * 4, Submit: opts.SubmitSessionNaming}
+		if strings.TrimSpace(meta.FirstPromptPreview) != "" {
+			namingConfig.ResumeTask = textutil.Value(meta.FirstPromptPreview)
+		}
+	}
 	eng, err = runtime.New(store, eventLog, client, toolRegistry, runtime.Config{
+		SessionNaming:                   namingConfig,
 		Model:                           active.Model,
 		TokenEstimator:                  tokenEstimator,
 		Debug:                           active.Debug,

@@ -64,6 +64,15 @@ function attentionID(value: pb.AttentionNotificationID): AttentionNotificationID
 function attentionEvent(event: pb.AttentionNotificationEvent): AttentionNotificationEvent {
   const sequence = Number(event.sequence);
   switch (event.payload.case) {
+    case "sessionNamingFailure": {
+      const failure = event.payload.value;
+      return {
+        type: "session_naming_failure",
+        sequence,
+        target: { kind: "session_prompt", projectID: failure.projectId, sessionID: failure.sessionId },
+        error: { cause: required(failure.error).cause ?? null },
+      };
+    }
     case "pending":
       return { type: "pending", sequence, pending: attentionNotification(event.payload.value) };
     case "resolved": {

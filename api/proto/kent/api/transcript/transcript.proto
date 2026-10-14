@@ -8,6 +8,7 @@ import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "kent/api/auth/auth.proto";
 import "kent/api/prompt/prompt.proto";
+import "kent/api/project/session_catalog.proto";
 import "kent/api/runtime/runtime.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
@@ -565,6 +566,11 @@ message CommittedRow {
 }
 
 message SessionIdentity {
+  kent.api.project.SessionCategory category = 5 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  optional int64 short_id = 6 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [(buf.validate.field).string.min_len = 1];
   optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
   kent.api.runtime.ConversationFreshness conversation_freshness = 3 [(buf.validate.field).enum = {

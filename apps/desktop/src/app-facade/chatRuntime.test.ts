@@ -214,6 +214,8 @@ describe("Chat Main View admission", () => {
         sequence: 2,
         kind: "session_identity",
         payload: {
+          Category: "main",
+          ShortID: null,
           SessionID: view.sessionID,
           SessionName: "newer",
           ConversationFreshness: 1,

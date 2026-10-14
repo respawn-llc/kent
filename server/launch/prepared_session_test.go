@@ -67,7 +67,7 @@ func TestPlanPreparedRetainedSessionLeavesMetadataUnchanged(t *testing.T) {
 	}
 }
 
-func TestHeadlessNameUsesCommittedNumberAndPreservesAuthoredName(t *testing.T) {
+func TestSubagentCreationLeavesNameAbsentAndAllowsAuthoredName(t *testing.T) {
 	root, workspace := t.TempDir(), t.TempDir()
 	persistence, err := metadata.Open(root)
 	if err != nil {
@@ -85,16 +85,10 @@ func TestHeadlessNameUsesCommittedNumberAndPreservesAuthoredName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := EnsureSubagentSessionName(store); err != nil {
-		t.Fatal(err)
-	}
-	if store.Meta().Name == nil || *store.Meta().Name != store.Identity().String()+" "+SubagentSessionSuffix || store.Identity().ShortID == nil {
-		t.Fatalf("generated name did not use committed number: %v", store.Meta().Name)
+	if store.Meta().Name != nil || store.Identity().ShortID == nil {
+		t.Fatalf("new subagent name/identity = %v, %v", store.Meta().Name, store.Identity())
 	}
 	if err := store.SetName(textutil.Value("authored name")); err != nil {
-		t.Fatal(err)
-	}
-	if err := EnsureSubagentSessionName(store); err != nil {
 		t.Fatal(err)
 	}
 	if store.Meta().Name == nil || *store.Meta().Name != "authored name" {

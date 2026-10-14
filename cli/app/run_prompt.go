@@ -17,8 +17,6 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-const subagentSessionSuffix = "subagent"
-
 type RunPromptResult struct {
 	Identity    *runtimeids.SessionIdentity
 	SessionName *string

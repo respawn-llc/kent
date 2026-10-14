@@ -2,6 +2,7 @@ package app
 
 import (
 	"core/cli/tui"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
@@ -20,6 +21,7 @@ func TestTranscriptIdentityDoesNotRetargetForAnEqualWorkspaceID(t *testing.T) {
 		WorkspaceId: &firstID, WorkspaceRoot: "/workspace", EffectiveWorkdir: "/workspace",
 	}
 	model.applyTranscriptSessionIdentity(&transcriptpb.SessionIdentity{
+		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 		SessionId:             detailTestSessionID,
 		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		ExecutionTarget: &worktreepb.SessionExecutionTarget{
@@ -453,6 +455,7 @@ func applyDetailTestSessionReplacement(t *testing.T, model *uiModel, rawSessionI
 		t.Fatalf("parse replacement session ID: %v", err)
 	}
 	return model.applyAdmittedTranscriptMessageState(transcriptTestMessage(0, &transcriptpb.SessionIdentity{SessionId: sessionID.String(),
+		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED}), runtimeTupleMergeResult{})
 }
 

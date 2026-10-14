@@ -21,6 +21,7 @@ const (
 	RuntimeClientPurposeMain RuntimeClientPurpose = iota + 1
 	RuntimeClientPurposeReviewer
 	RuntimeClientPurposeWorkflow
+	RuntimeClientPurposeNano
 )
 
 type RuntimeClientRequest struct {

@@ -15,6 +15,7 @@ import (
 	"core/shared/config"
 	"core/shared/rollbacktarget"
 	"core/shared/runtimeids"
+	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/transcript"
 )
@@ -760,6 +761,14 @@ func (e *Engine) SessionID() string {
 
 func (e *Engine) SessionIdentity() runtimeids.SessionIdentity {
 	return e.store.Identity()
+}
+
+func (e *Engine) SessionCategory() (sessioncontract.SessionCategory, error) {
+	category := e.store.Meta().Category
+	if category == nil {
+		return "", errors.New("Session category is required")
+	}
+	return *category, nil
 }
 
 func (e *Engine) ContinuationAgentRole() *string {

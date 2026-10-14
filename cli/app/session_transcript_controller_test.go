@@ -3,6 +3,7 @@ package app
 import (
 	"core/cli/tui/ongoing"
 	"core/cli/tui/transcriptrender"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
@@ -443,6 +444,7 @@ func assertTerminalSafeFrameLines(t *testing.T, lines []string) {
 func ongoingHydrationMessage(sequence uint64) *transcriptpb.Message {
 	return transcriptTestMessage(sequence, &transcriptpb.Hydration{
 		SessionIdentity: &transcriptpb.SessionIdentity{SessionId: ongoingTestSessionID().String(),
+			Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH},
 		SessionStatus: &transcriptpb.SessionStatus{
 			ReviewerFrequency: "off",
@@ -490,6 +492,7 @@ func ongoingTranscriptMessage(sequence uint64, kind reflect.Type) *transcriptpb.
 	case reflect.TypeFor[*transcriptpb.Event_SessionIdentity]():
 		sessionName := "KENT-196"
 		payload = &transcriptpb.SessionIdentity{SessionId: ongoingTestSessionID().String(),
+			Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 			SessionName:           &sessionName,
 			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED}
 	case reflect.TypeFor[*transcriptpb.Event_CompactionStatus]():
