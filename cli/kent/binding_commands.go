@@ -294,9 +294,6 @@ func listProjects(ctx context.Context) ([]clientui.ProjectSummary, error) {
 
 func createProject(ctx context.Context, displayName string, workspaceRoot string) (*projectpb.ProjectMutationBinding, error) {
 	trimmedDisplayName := strings.TrimSpace(displayName)
-	if trimmedDisplayName == "" {
-		return nil, errors.New("project name is required")
-	}
 	normalizedWorkspaceRoot, err := normalizeBindingCommandPath(workspaceRoot)
 	if err != nil {
 		return nil, err

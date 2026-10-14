@@ -7,18 +7,10 @@ import {
 } from "@bufbuild/protobuf";
 import { createValidator } from "@bufbuild/protovalidate";
 import { canonical_name } from "./gen/kent/api/prompt_command/validation_pb.js";
-import { scoped_session_id } from "./gen/kent/api/session_launch/validation_pb.js";
 import { canonical_uuid_v4, nonblank, trimmed, workflow_key } from "./gen/kent/api/shared/validation_pb.js";
 
 const validator = createValidator({
-  registry: createRegistry(
-    canonical_name,
-    scoped_session_id,
-    canonical_uuid_v4,
-    nonblank,
-    trimmed,
-    workflow_key,
-  ),
+  registry: createRegistry(canonical_name, canonical_uuid_v4, nonblank, trimmed, workflow_key),
 });
 
 export function decode<Descriptor extends DescMessage>(
