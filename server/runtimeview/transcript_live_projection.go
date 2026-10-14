@@ -80,7 +80,7 @@ func transcriptCompactionProjection(
 		value := requestID.String()
 		projected.RequestId = &value
 	}
-	return projected, protoapi.Validate(projected)
+	return projected, nil
 }
 
 func transcriptQueuedFailureReason(reason runtime.QueuedUserMessageFailureReason) (transcriptpb.QueuedMessageFailureReason, error) {

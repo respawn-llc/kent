@@ -101,9 +101,6 @@ func ToolPresentationToProto(meta *transcript.ToolCallMeta) (*transcriptpb.ToolP
 		}
 		out.PatchPresentation = patch
 	}
-	if err := protoapi.Validate(out); err != nil {
-		return nil, fmt.Errorf("tool presentation: %w", err)
-	}
 	return out, nil
 }
 

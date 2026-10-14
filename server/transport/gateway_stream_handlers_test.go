@@ -156,6 +156,25 @@ func TestSessionTranscriptSubscriptionPublishesLiveRunFinishedWithoutRewritingSe
 
 type gatewayTranscriptServiceFunc func(context.Context, *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error)
 
+func TestDeliveredInvalidTranscriptPanicsInProduction(t *testing.T) {
+	t.Setenv("KENT_INVARIANT_MODE", "diagnostic")
+	method := transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("StreamService").Methods().ByName("Subscribe")
+	operations, err := protoapi.ResolveSubscriptionOperations(method)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := &recordingGatewayConn{}
+	defer func() {
+		if recover() == nil {
+			t.Error("invalid delivered Transcript did not panic")
+		}
+		if len(conn.frames) != 0 {
+			t.Error("invalid delivered Transcript was sent")
+		}
+	}()
+	_ = sendBinaryNotification(t.Context(), conn, operations.Event, &transcriptpb.Message{})
+}
+
 func (f gatewayTranscriptServiceFunc) SubscribeSessionTranscript(ctx context.Context, req *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
 	return f(ctx, req)
 }

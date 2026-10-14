@@ -6,7 +6,6 @@ import (
 
 	"core/server/runtime"
 	"core/server/runtimeview"
-	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
@@ -62,11 +61,6 @@ func (r *RuntimeRegistry) composeTranscriptHydration(
 	hydration.BackgroundActivities, err = r.backgroundActivitiesForSession(sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("build transcript background activities: %w", err)
-	}
-	if err := protoapi.Validate(hydration); err != nil {
-		return nil, transcriptHydrationProjectionError{
-			cause: fmt.Errorf("validate canonical transcript hydration: %w", err),
-		}
 	}
 	return hydration, nil
 }

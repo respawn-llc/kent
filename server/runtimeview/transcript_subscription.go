@@ -40,9 +40,6 @@ func TranscriptHydrationFromSnapshotChecked(
 	if tailSegment == nil {
 		return nil, fmt.Errorf("transcript hydration tail segment is required")
 	}
-	if err := protoapi.Validate(tailSegment); err != nil {
-		return nil, fmt.Errorf("validate transcript hydration tail segment: %w", err)
-	}
 	assistant, err := transcriptAssistantStream(runtimeSnapshot)
 	if err != nil {
 		return nil, err
@@ -69,13 +66,6 @@ func TranscriptHydrationFromSnapshotChecked(
 	hydration.GoalStatus, err = transcriptGoalStatusFromRuntime(runtimeSnapshot.Goal, runtimeSnapshot.GoalSuspended)
 	if err != nil {
 		return nil, err
-	}
-	// The registry supplies Session identity/status and the canonical read model
-	// before validating the complete hydration and its ownership constraints.
-	if hydration.ActiveThinkingStatus != nil {
-		if err := protoapi.Validate(hydration.ActiveThinkingStatus); err != nil {
-			return nil, err
-		}
 	}
 	return hydration, nil
 }
@@ -106,9 +96,6 @@ func transcriptReasoningTracesFromRuntime(states []runtime.TranscriptReasoningTr
 			Identity:    identity,
 			CompactText: presentation.CompactText,
 			Text:        presentation.Text,
-		}
-		if err := protoapi.Validate(trace); err != nil {
-			return nil, err
 		}
 		out = append(out, trace)
 	}
@@ -145,7 +132,7 @@ func transcriptContextUsageFromRuntime(usage *runtime.ContextUsage) (*runtimepb.
 		}
 		projected.CacheHitPercent = &cacheHitPercent
 	}
-	return projected, protoapi.Validate(projected)
+	return projected, nil
 }
 
 func transcriptGoalStatusFromRuntime(goal *session.GoalState, suspended bool) (*runtimepb.GoalView, error) {
@@ -157,7 +144,7 @@ func transcriptGoalStatusFromRuntime(goal *session.GoalState, suspended bool) (*
 		return nil, err
 	}
 	projected := &runtimepb.GoalView{Goal: core, Suspended: suspended}
-	return projected, protoapi.Validate(projected)
+	return projected, nil
 }
 
 func transcriptToolStartsFromRuntime(starts []runtime.TranscriptLiveToolStart) ([]*transcriptpb.ToolStart, error) {
@@ -175,9 +162,6 @@ func transcriptToolStartsFromRuntime(starts []runtime.TranscriptLiveToolStart) (
 			ToolCallId:   strings.TrimSpace(start.ToolCallID),
 			ToolName:     strings.TrimSpace(start.ToolName),
 			Presentation: presentation,
-		}
-		if err := protoapi.Validate(projected); err != nil {
-			return nil, fmt.Errorf("in-flight tool %d: %w", index, err)
 		}
 		out = append(out, projected)
 	}
@@ -202,16 +186,6 @@ func TranscriptMessagesFromRuntimeEventChecked(evt runtime.Event, identities map
 	messages, err := transcriptMessagesFromRuntimeEvent(evt, identities)
 	if err != nil {
 		return nil, fmt.Errorf("runtime transcript event %q: %w", evt.Kind, err)
-	}
-	for index := range messages {
-		if err := protoapi.Validate(messages[index]); err != nil {
-			return nil, fmt.Errorf(
-				"runtime transcript event %q projection %d violates contract: %w",
-				evt.Kind,
-				index,
-				err,
-			)
-		}
 	}
 	return messages, nil
 }
@@ -484,7 +458,7 @@ func transcriptBackgroundActivityFromFacts(facts transcriptBackgroundActivityFac
 		UserRequestedKill: facts.userRequestedKill,
 		NoticeSuppressed:  facts.noticeSuppressed,
 	}
-	return projected, protoapi.Validate(projected)
+	return projected, nil
 }
 
 func transcriptBackgroundActivity(evt runtime.BackgroundShellEvent) (*transcriptpb.BackgroundActivity, error) {
@@ -627,15 +601,6 @@ func transcriptRowsFromFactsChecked(facts []runtime.TranscriptCommittedRowFact, 
 		if err != nil {
 			return nil, err
 		}
-		if row.GetTool() != nil {
-			if err := protoapi.Validate(row.GetTool()); err != nil {
-				return nil, fmt.Errorf(
-					"runtime hydrated committed tool row %d violates transcript contract: %w",
-					index,
-					err,
-				)
-			}
-		}
 		rows = append(rows, row)
 	}
 	return rows, nil
@@ -671,7 +636,7 @@ func transcriptAssistantStream(snapshot runtime.TranscriptHydrationSnapshot) (*t
 		Text:     text,
 		Phase:    phase,
 	}
-	return projected, protoapi.Validate(projected)
+	return projected, nil
 }
 
 func transcriptToolStartMessages(starts []runtime.TranscriptLiveToolStart) ([]*transcriptpb.Event, error) {
@@ -1032,7 +997,7 @@ func transcriptReasoningTraceIdentityProjection(identity *runtime.TranscriptReas
 	case identity.Kent != nil:
 		projected.Identity = &transcriptpb.ReasoningTraceIdentity_KentTraceId{KentTraceId: identity.Kent.String()}
 	}
-	return projected, protoapi.Validate(projected)
+	return projected, nil
 }
 
 func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowFact) (*transcriptpb.NoticeRow, error) {

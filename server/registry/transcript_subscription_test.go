@@ -317,53 +317,6 @@ func TestRegistryHydrationCompositionUsesContractFailurePolicy(t *testing.T) {
 	})
 }
 
-func TestTranscriptBrokerRejectsUninitializedEventWithoutSequenceOrDelivery(t *testing.T) {
-	restore := withTranscriptContractViolationPanic(false)
-	defer restore()
-	broker := newTranscriptSubscriptionBroker()
-	sub, err := broker.Subscribe(transcriptBrokerHydration(t))
-	if err != nil {
-		t.Fatalf("Subscribe: %v", err)
-	}
-	_ = nextTranscriptMessage(t, sub)
-	broker.Publish([]*transcriptpb.Event{{}})
-	_, err = nextTranscriptMessageTimeout(sub, time.Second)
-	if err == nil {
-		t.Fatal("uninitialized event was delivered")
-	}
-	reason, ok := serverapi.TranscriptCloseReasonOf(err)
-	if !ok || reason != serverapi.TranscriptCloseReasonContractViolation {
-		t.Fatalf("close reason = %q ok=%t, want contract violation", reason, ok)
-	}
-}
-
-func TestTranscriptSubscriptionBrokerClosesOnContractViolationWhenPanicDisabled(t *testing.T) {
-	restore := withTranscriptContractViolationPanic(false)
-	defer restore()
-
-	broker := newTranscriptSubscriptionBroker()
-	sub, err := broker.Subscribe(transcriptBrokerHydration(t))
-	if err != nil {
-		t.Fatalf("Subscribe: %v", err)
-	}
-	_ = nextTranscriptMessage(t, sub)
-
-	broker.Publish([]*transcriptpb.Event{{Payload: &transcriptpb.Event_CommittedRow{CommittedRow: &transcriptpb.CommittedRow{
-		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL,
-		Row: &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
-			StepId: textutil.Value(mustRegistryStepID(t).String()),
-		}},
-	}}}})
-	_, err = sub.Next(context.Background())
-	if err == nil {
-		t.Fatal("contract-invalid tool completion was delivered")
-	}
-	reason, ok := serverapi.TranscriptCloseReasonOf(err)
-	if !ok || reason != serverapi.TranscriptCloseReasonContractViolation {
-		t.Fatalf("contract violation reason = %q ok=%t, want contract_violation; err=%v", reason, ok, err)
-	}
-}
-
 func TestTranscriptSubscriptionBoundaryValidatesCommittedRowIntegrity(t *testing.T) {
 	valid := &transcriptpb.CommittedRow{
 		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL,
@@ -373,7 +326,7 @@ func TestTranscriptSubscriptionBoundaryValidatesCommittedRowIntegrity(t *testing
 			StepId: textutil.Value(mustRegistryStepID(t).String()), Text: "valid",
 		}},
 	}
-	if err := validateCommittedRow(valid); err != nil {
+	if err := protoapi.Validate(valid); err != nil {
 		t.Fatalf("valid integrity was rejected: %v", err)
 	}
 
@@ -381,13 +334,9 @@ func TestTranscriptSubscriptionBoundaryValidatesCommittedRowIntegrity(t *testing
 	invalidRows[0].Integrity = transcriptpb.RowIntegrity(255)
 	invalidRows[1].Visibility = transcriptpb.EntryVisibility_ENTRY_VISIBILITY_UNSPECIFIED
 	for _, invalid := range invalidRows {
-		err := validateCommittedRow(invalid)
+		err := protoapi.Validate(invalid)
 		if err == nil {
 			t.Fatalf("invalid committed row was accepted: %#v", invalid)
-		}
-		var violation transcriptContractViolation
-		if !errors.As(err, &violation) {
-			t.Fatalf("broker validation error = %T, want transcript contract violation", err)
 		}
 	}
 }
