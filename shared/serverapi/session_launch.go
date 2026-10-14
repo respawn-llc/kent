@@ -1,11 +1,9 @@
 package serverapi
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 
-	"core/shared/protocol"
 	"core/shared/runtimeids"
 )
 
@@ -78,33 +76,6 @@ func (o SessionCreateOrigin) Validate() error {
 	default:
 		return errors.New("session create origin kind is invalid")
 	}
-	return nil
-}
-
-func (o SessionCreateOrigin) MarshalJSON() ([]byte, error) {
-	if err := o.Validate(); err != nil {
-		return nil, err
-	}
-	type wire struct {
-		Kind      SessionCreateOriginKind `json:"kind"`
-		SessionID *runtimeids.SessionID   `json:"session_id,omitempty"`
-	}
-	return json.Marshal(wire{Kind: o.kind, SessionID: o.sessionID})
-}
-
-func (o *SessionCreateOrigin) UnmarshalJSON(data []byte) error {
-	var wire struct {
-		Kind      SessionCreateOriginKind `json:"kind"`
-		SessionID *runtimeids.SessionID   `json:"session_id"`
-	}
-	if err := protocol.DecodeStrictJSON(data, &wire); err != nil {
-		return err
-	}
-	decoded := SessionCreateOrigin{kind: wire.Kind, sessionID: wire.SessionID}
-	if err := decoded.Validate(); err != nil {
-		return err
-	}
-	*o = decoded
 	return nil
 }
 
@@ -181,42 +152,5 @@ func (i SessionLaunchIntent) Validate() error {
 	default:
 		return errors.New("session launch intent kind is invalid")
 	}
-	return nil
-}
-
-func (i SessionLaunchIntent) MarshalJSON() ([]byte, error) {
-	if err := i.Validate(); err != nil {
-		return nil, err
-	}
-	type wire struct {
-		Kind      SessionLaunchIntentKind `json:"kind"`
-		Origin    *SessionCreateOrigin    `json:"origin,omitempty"`
-		SessionID *runtimeids.SessionID   `json:"session_id,omitempty"`
-	}
-	return json.Marshal(wire{
-		Kind:      i.kind,
-		Origin:    i.origin,
-		SessionID: i.sessionID,
-	})
-}
-
-func (i *SessionLaunchIntent) UnmarshalJSON(data []byte) error {
-	var wire struct {
-		Kind      SessionLaunchIntentKind `json:"kind"`
-		Origin    *SessionCreateOrigin    `json:"origin"`
-		SessionID *runtimeids.SessionID   `json:"session_id"`
-	}
-	if err := protocol.DecodeStrictJSON(data, &wire); err != nil {
-		return err
-	}
-	decoded := SessionLaunchIntent{
-		kind:      wire.Kind,
-		origin:    wire.Origin,
-		sessionID: wire.SessionID,
-	}
-	if err := decoded.Validate(); err != nil {
-		return err
-	}
-	*i = decoded
 	return nil
 }
