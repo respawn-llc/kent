@@ -3,6 +3,7 @@ Usage of kent project:
   kent project list
   kent project create --path <server-path> --name <project-name>
   kent project delete <project-id> [--confirm] [--json]
+  kent project workspaces [--project <id-or-workspace-path>] [--offset <n>] [--limit <n>] [--json]
 
 Find or create projects and their workspace attachments.
 
@@ -27,7 +28,15 @@ Commands:
   kent project delete <project-id> [--confirm] [--json]
     Delete a Project by canonical ID. Requires `--confirm`; workspace files are not deleted.
 
+  kent project workspaces [--project <id-or-workspace-path>] [--offset <n>] [--limit <n>] [--json]
+    List one page of attached Workspaces in catalog order. The default limit is
+    20 rows. --limit accepts at most 100.
+    Without `--project`, uses the current Session's Project. Outside a Session,
+    pass `--project`.
+    Plain paths under home use `~`. JSON includes canonical catalog paths.
+
 Examples:
   kent project
   kent project list
   kent project create --path /srv/repos/app --name app
+  kent project workspaces --limit 10

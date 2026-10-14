@@ -63,6 +63,7 @@
 
 ## Transcript
 
+- Workspaces reminders must appear wherever Desktop displays the transcript, using the Subagents context presentation and the collapsed label `Project workspaces`.
 - Collapsed context labels are shared with the Go TUI: `Available subagents`, `Available skills`, and the compact AGENTS.md path followed by `content`. CWD-relative display paths must begin with `./`. Paths elsewhere under the account home use `~/`.
 - Worktree-switch reminder icons use the primary accent. Background shell completion reminders use the Hourglass icon.
 - Background shell completion icons use success color for exit code zero and error color otherwise. Backgrounded tool-call icons use the neutral gray tone.

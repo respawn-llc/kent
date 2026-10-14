@@ -69,6 +69,9 @@ func newTestRuntimeWiringWithBackground(t *testing.T, store *session.Store, even
 	if options.GlobalConfigDir == "" {
 		options.GlobalConfigDir = t.TempDir()
 	}
+	if store != nil && options.ProjectWorkspaceContextReader == nil {
+		options.ProjectWorkspaceContextReader = testsetup.OpenSessionProjectWorkspaceContextReader(t, store)
+	}
 	active = testsetup.WriteProviderSettings(t, options.GlobalConfigDir, active)
 	config.InheritReviewerSettings(&active, options.Sources)
 	return NewRuntimeWiringWithBackground(store, eventLog, active, enabled, manager, logger, background, options)

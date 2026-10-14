@@ -161,8 +161,9 @@ func newStructuredTaskDeletionEnv(t *testing.T) *serviceTestEnv {
 	}
 	sess := createServiceTestSession(t, store, cfg, binding)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: cfg.PersistenceRoot,
-		StoreOptions:    store.AuthoritativeSessionStoreOptions(),
+		PersistenceRoot:               cfg.PersistenceRoot,
+		ProjectWorkspaceContextReader: store,
+		StoreOptions:                  store.AuthoritativeSessionStoreOptions(),
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {

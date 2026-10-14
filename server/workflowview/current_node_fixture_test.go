@@ -397,8 +397,9 @@ WHERE task_id = ? AND node_id = ? AND transition_branch_key IS NULL`,
 func (f currentNodeViewFixture) newAgentAuthority(t *testing.T) (*sessionruntime.Authority, sessionruntime.AgentRuntimePlan) {
 	t.Helper()
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: f.cfg.PersistenceRoot,
-		StoreOptions:    f.metadata.AuthoritativeSessionStoreOptions(),
+		PersistenceRoot:               f.cfg.PersistenceRoot,
+		ProjectWorkspaceContextReader: f.metadata,
+		StoreOptions:                  f.metadata.AuthoritativeSessionStoreOptions(),
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {

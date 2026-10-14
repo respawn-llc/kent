@@ -785,9 +785,10 @@ func newCurrentNodeQuestionFixtureWithPromptFeed(
 	store := &currentNodeControllerStore{}
 	var controller *CurrentNodeController
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: appCfg.PersistenceRoot,
-		StoreOptions:    metadataStore.AuthoritativeSessionStoreOptions(),
-		PromptFeed:      promptFeed,
+		PersistenceRoot:               appCfg.PersistenceRoot,
+		ProjectWorkspaceContextReader: metadataStore,
+		StoreOptions:                  metadataStore.AuthoritativeSessionStoreOptions(),
+		PromptFeed:                    promptFeed,
 	})
 	controller = newCurrentNodeControllerForTest(t, store, &countingCurrentNodeRunner{}, authority, 1)
 	t.Cleanup(func() {

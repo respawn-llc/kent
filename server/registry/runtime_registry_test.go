@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -335,6 +336,11 @@ func newRegistryTestRuntime(t *testing.T, onEvent func(runtime.Event)) *runtime.
 func newRegistryRuntime(t *testing.T, client llm.Client, toolRegistry *askquestion.Registry, cfg runtime.Config, onEvent func(*runtime.Engine, runtime.Event)) *runtime.Engine {
 	t.Helper()
 	store := newRegistryTestSession(t, t.TempDir(), "workspace", t.TempDir())
+	if cfg.ProjectWorkspaceContextReader == nil {
+		metadataStore := testharness.OpenStore(t, filepath.Dir(store.Dir()))
+		testharness.ImportSessionProjectWorkspaceContext(t, metadataStore, store)
+		cfg.ProjectWorkspaceContextReader = metadataStore
+	}
 	eventLog, err := store.MaterializeEventLog()
 	if err != nil {
 		t.Fatalf("materialize event log: %v", err)

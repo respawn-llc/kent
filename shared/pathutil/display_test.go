@@ -1,6 +1,7 @@
 package pathutil_test
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -51,6 +52,30 @@ func TestCompactHomeBoundaries(t *testing.T) {
 	other := home + "-other/file.md"
 	if got := pathutil.Compact(other, &home, nil); got != filepath.ToSlash(other) {
 		t.Fatalf("home prefix collision shortened to %q", got)
+	}
+}
+
+func TestCompactHomeIgnoresWorkingDirectory(t *testing.T) {
+	home := t.TempDir()
+	cwd := filepath.Join(home, "project")
+	if err := os.Mkdir(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(cwd)
+
+	for _, test := range []struct {
+		path string
+		want string
+	}{
+		{path: filepath.Join(cwd, "file"), want: "~/project/file"},
+		{path: filepath.Join(home, "other", "file"), want: "~/other/file"},
+		{path: home, want: "~"},
+		{path: home + "-external/file", want: home + "-external/file"},
+		{path: "relative/file", want: "relative/file"},
+	} {
+		if got := pathutil.CompactHome(test.path, &home); got != filepath.ToSlash(test.want) {
+			t.Fatalf("CompactHome(%q) = %q, want %q", test.path, got, filepath.ToSlash(test.want))
+		}
 	}
 }
 
