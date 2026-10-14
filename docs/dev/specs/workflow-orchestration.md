@@ -17,6 +17,8 @@
 - An executable current Node owns only its current execution state and optional Session binding. Script Nodes have no Session.
 - Leaving a Node removes that current execution state. Kent does not retain completed Node execution, execution-attempt, or workflow-movement records as hidden history.
 - Task creation creates a durable Task at the Workflow's Start Node.
+- Task description previews must contain at most the first 96 Unicode code points after trimming surrounding whitespace.
+- Preview generation must leave the full Task description unchanged.
 - Automation must start only through explicit Task Start, which applies the Start Node's outgoing Transition and adds every selected executable Current Node.
 - Task Start must be idempotent. Concurrent Start requests must wait for the accepted Start to finish. If the Task has already left its Start Node, Start must succeed with its existing Current Nodes without preparing an Execution Target, starting execution again, or changing the Task. An unsuccessful Start must not make another Start report success.
 - Automation continues through automatic Nodes until terminal or blocked by a Question, Approval/manual gate, error, capacity, interruption, or validation.
