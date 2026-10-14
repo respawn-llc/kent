@@ -71,11 +71,7 @@ func subscribePreparedSessionBinary[
 	case string:
 		target = runtimeids.SessionIDFromProto(value)
 	case *sharedpb.SessionSelector:
-		selector, err := protoapi.SessionSelectorFromProto(value)
-		if err != nil {
-			return nil, err
-		}
-		target = selector
+		target = protoapi.SessionSelectorFromProto(value)
 	}
 	attachment := c.subscriptionAttachment(target)
 	return subscribePreparedBinary(c, ctx, operations, frame, result, decodeFailure, newEvent,
@@ -93,10 +89,7 @@ func (c *Remote) SubscribeSessionTranscript(ctx context.Context, request *transc
 	if err != nil {
 		return nil, err
 	}
-	target, err := protoapi.SessionSelectorFromProto(request.GetSessionId())
-	if err != nil {
-		return nil, err
-	}
+	target := protoapi.SessionSelectorFromProto(request.GetSessionId())
 	handoff, installHandoff, err := c.prepareDraftHandoff(ctx, target)
 	if err != nil {
 		return nil, err

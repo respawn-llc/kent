@@ -36,10 +36,7 @@ func SessionRuntimeActivateToProto(request serverapi.SessionRuntimeActivateReque
 }
 
 func SessionRuntimeActivateFromProto(request *sessionlaunchpb.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateRequest, error) {
-	selector, err := SessionSelectorFromProto(request.SessionId)
-	if err != nil {
-		return serverapi.SessionRuntimeActivateRequest{}, err
-	}
+	selector := SessionSelectorFromProto(request.SessionId)
 	settings, err := SessionSettingsFromProto(request.ActiveSettings)
 	if err != nil {
 		return serverapi.SessionRuntimeActivateRequest{}, err

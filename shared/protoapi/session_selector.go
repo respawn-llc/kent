@@ -2,7 +2,6 @@ package protoapi
 
 import (
 	"errors"
-	"fmt"
 
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
@@ -81,14 +80,12 @@ func SessionShortIDFromProto(value *int64) *runtimeids.SessionShortID {
 	return &number
 }
 
-func SessionSelectorFromProto(value *sharedpb.SessionSelector) (runtimeids.SessionSelector, error) {
+func SessionSelectorFromProto(value *sharedpb.SessionSelector) runtimeids.SessionSelector {
 	switch selected := value.Value.(type) {
 	case *sharedpb.SessionSelector_SessionId:
-		return runtimeids.SessionIDFromProto(selected.SessionId), nil
-	case *sharedpb.SessionSelector_ShortId:
-		return runtimeids.SessionShortIDFromProto(selected.ShortId), nil
+		return runtimeids.SessionIDFromProto(selected.SessionId)
 	default:
-		return nil, fmt.Errorf("Session selector is required")
+		return runtimeids.SessionShortIDFromProto(value.Value.(*sharedpb.SessionSelector_ShortId).ShortId)
 	}
 }
 
