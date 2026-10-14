@@ -11,6 +11,17 @@
 
 ## Project And Workspace Commands
 
+### Project Workspaces
+
+- `kent project workspaces` must list one bounded page of the selected Project's attached Workspaces in the catalog order defined in [Projects And Workspaces](project-workspaces.md#api).
+- Explicit `--project` must accept a canonical Project ID or an attached Workspace path. It must override the issuing agent Session's Project. Without explicit `--project`, the command must derive its Project from the issuing agent Session. Without either, it must require `--project` rather than infer a Project from the current directory.
+- Invalid explicit Project or Session selection must fail without selecting a different Project. Project or catalog read failures must fail visibly with a nonzero exit status.
+- `--offset` must default to zero. `--limit` must default to 20 and accept at most 100 rows. The command must validate pagination and provide standard next-offset guidance when another page exists.
+- Plain output must show a bullet list of paths without Workspace names, default markers, or blank-line separators. An empty page must show no Workspace bullets.
+- Plain paths under home must use `~` shortening rather than current-directory-relative shortening. Paths outside home must be absolute.
+- `--json` must include the catalog response facts, including canonical paths, Workspace IDs, default flags, and paging metadata, without path shortening.
+- The command must list stored attachments even when their filesystem paths are missing or unavailable.
+
 ### Project deletion
 
 - `kent project delete <project-id>` selects a Project only by its canonical Project ID.

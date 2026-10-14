@@ -21,6 +21,7 @@
 - A user message carried across compaction must not become a new user turn in Ongoing Mode.
 - Transcript display reads bounded pages or a recent tail. Neither the TUI nor Kent keeps the complete transcript in memory for display.
 - Detail Mode can page across compaction boundaries.
+- Workspace reminders appear only in Detail Mode.
 - Rollback/fork immediately materializes and opens a durable child Session whose copied history ends before the selected user message. The selected message becomes the child composer draft. Rollback must not change the parent Session or mutate its transcript.
 - **Assistant streaming in ongoing mode uses source-backed Markdown promotion. Stable rendered assistant lines append during streaming after being styled as Markdown. The volatile tail that cannot be styled deterministically stays in the mutable area until it can be promoted into immutable scrollback.**
 - Kent commits every control-feedback transcript row. The TUI must not show an optimistic copy or create a local fallback row.
@@ -55,6 +56,7 @@
 - A backgrounded shell invocation stays compact while Detail is collapsed. Expanding it reveals its full command input and any tool output committed by the server.
 - Ask-question entries show only the question when collapsed.
 - Known developer/context reminders, including worktree reminders, use typed compact labels when collapsed.
+- Workspace reminders use the Subagents context presentation with the collapsed label `Project workspaces`.
 - A successful Session rebind appears as a typed, collapsed developer/context row labeled `Session moved`. The client derives this label from the typed message without server-authored display copy.
 - Expanding a known developer/context reminder reveals its full model-visible entry content verbatim.
 - Expanding must not change the current camera position. New entry content grows below its collapsed preview.

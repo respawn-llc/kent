@@ -26,6 +26,20 @@
 - Active Session Runtime mutation and model-loop ownership follow the [Runtime Steering And Model Loop](runtime-steering-loop.md) specification. Concrete domain owners own dormant Session mutations and long-running operations.
 - Transport may correlate one request with one response, sequence connection setup, bound concurrent handling on one connection, apply socket backpressure, and stop connection-bound waiting and delivery when that connection closes. It never cancels a Chat Operation, rolls back a committed Session, or changes accepted work. Transport correlation is not a product identity, replay key, domain order, or server-work owner.
 
+## Workspaces Reminder
+
+- When a Project has more than one attached Workspace, Kent must include a typed Workspaces reminder in fresh Session context and in fresh post-compaction context before model work. This requirement includes Workflow Sessions and Sessions targeting Worktrees.
+- Reopening a Session, retrying a prepared request, or changing attachments during the current context must not add another Workspaces reminder or rewrite historical context.
+- The reminder must use the Project Workspace catalog order defined in [Projects And Workspaces](project-workspaces.md#api).
+- The reminder must consider only the first five catalog rows. Kent must check only those paths for availability and omit a row when its path is missing, is not a directory, or its directory lookup fails. Kent must not backfill omitted rows or inspect directory contents, Git, or read/write access.
+- The reminder must report the total attached Workspace count even when it omits unavailable paths. Availability filtering must not change the Workspace catalog or command listings.
+- The reminder heading must be `This project <ProjectName> has <WorkspaceCount> workspaces:`.
+- Each included Workspace must appear as a path bullet. The Project default Workspace must have the suffix ` (default)`, independently of the Session's Main Workspace or Worktree.
+- Reminder paths under home must use `~` shortening. Reminder paths must not use Working Directory-relative shortening. Paths outside home must be absolute.
+- When more than five Workspaces are attached, the reminder must end with the bullet ``<WorkspaceCount minus 5> more. `kent project workspaces` to list all``. Otherwise it must omit that bullet.
+- A Project or catalog read failure must prevent request preparation and surface the failure for explicit retry. An individual directory lookup failure must only omit that Workspace.
+- Client presentation is defined in [TUI Transcript](tui-transcript.md) and [Desktop Chat](desktop-chat.md).
+
 ## Skills And Generated Assets
 
 - Kent must inject each `AGENTS.md` as Markdown with the H1 header `# Authoritative instructions, rules, and important context from the <path> file:`, a blank line, and the full unmodified file content. Kent must not wrap that content in a code fence or add a separate `source:` line.

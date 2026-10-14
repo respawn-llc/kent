@@ -81,8 +81,9 @@ func userMessageSeqAt(t *testing.T, store *session.Store, n int) int64 {
 
 func newTestSessionLifecycleService(root string, authManager *auth.Manager, owner *metadata.Store) *SessionLifecycleService {
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: root,
-		StoreOptions:    owner.AuthoritativeSessionStoreOptions(),
+		PersistenceRoot:               root,
+		ProjectWorkspaceContextReader: owner,
+		StoreOptions:                  owner.AuthoritativeSessionStoreOptions(),
 	})
 	return NewGlobalSessionLifecycleService(root, authority, authManager, owner)
 }

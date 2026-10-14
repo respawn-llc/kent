@@ -234,9 +234,10 @@ func newRealSessionRetargetFixture(t *testing.T, useBlockingObserver bool, sourc
 		t.Fatalf("ParseSessionID child: %v", err)
 	}
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		WorkspaceMembership: metadataStore,
-		PersistenceRoot:     persistenceRoot,
-		StoreOptions:        storeOptions,
+		WorkspaceMembership:           metadataStore,
+		ProjectWorkspaceContextReader: metadataStore,
+		PersistenceRoot:               persistenceRoot,
+		StoreOptions:                  storeOptions,
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {

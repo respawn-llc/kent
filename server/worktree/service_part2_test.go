@@ -217,9 +217,10 @@ func newServiceTestEnvWithResourceLifecycle(t *testing.T, lifecycle sessionrunti
 	}
 	sess := createServiceTestSession(t, store, cfg, binding)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot:   cfg.PersistenceRoot,
-		StoreOptions:      store.AuthoritativeSessionStoreOptions(),
-		ResourceLifecycle: lifecycle,
+		PersistenceRoot:               cfg.PersistenceRoot,
+		ProjectWorkspaceContextReader: store,
+		StoreOptions:                  store.AuthoritativeSessionStoreOptions(),
+		ResourceLifecycle:             lifecycle,
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {

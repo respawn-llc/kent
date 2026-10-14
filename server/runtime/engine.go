@@ -104,6 +104,7 @@ type Config struct {
 	ToolPreambles                   bool
 	CurrentNodeExecution            *workflowruntime.CurrentNodeExecutionConfig
 	WorkflowPrompt                  *workflowruntime.PromptContract
+	ProjectWorkspaceContextReader   ProjectWorkspaceContextReader
 	BackgroundShellManager          *shelltool.Manager
 	AskQuestionBatchSkipped         func(tools.AskQuestionBatchMetadata)
 	TranscriptWorkingDir            string

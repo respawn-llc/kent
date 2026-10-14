@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"core/internal/testharness/filemode"
+	"core/internal/testharness/testsetup"
 	"core/internal/testharness/toolfixture"
 	"core/server/llm"
+	"core/server/metadata"
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/server/tools"
@@ -294,6 +296,31 @@ func mustCreateTestSession(t *testing.T, workspaceRoot ...string) *session.Store
 
 var runtimeTestSessionPersistence = sessiontest.NewPersistence()
 
+type runtimeTestProjectWorkspaceContextReader struct {
+	sessionID     string
+	metadataStore *metadata.Store
+}
+
+func newRuntimeTestProjectWorkspaceContextReader(t *testing.T, sessionStore *session.Store) *runtimeTestProjectWorkspaceContextReader {
+	t.Helper()
+	metadataStore := testsetup.OpenStore(t, filepath.Dir(sessionStore.Dir()))
+	testsetup.ImportSessionProjectWorkspaceContext(t, metadataStore, sessionStore)
+	return &runtimeTestProjectWorkspaceContextReader{
+		sessionID:     sessionStore.Meta().SessionID,
+		metadataStore: metadataStore,
+	}
+}
+
+func (r *runtimeTestProjectWorkspaceContextReader) ReadSessionProjectWorkspaceContext(
+	ctx context.Context,
+	sessionID string,
+) (metadata.SessionProjectWorkspaceContext, error) {
+	if sessionID != r.sessionID {
+		return metadata.SessionProjectWorkspaceContext{}, errors.New("test Workspace context requested for a different Session")
+	}
+	return r.metadataStore.ReadSessionProjectWorkspaceContext(ctx, sessionID)
+}
+
 type testPersistenceObserver struct {
 	observer   session.PersistenceObserver
 	reconciler *sessiontest.Persistence
@@ -404,6 +431,9 @@ func mustOpenTestSession(t *testing.T, dir string) *session.Store {
 
 func mustNewTestEngine(t *testing.T, store *session.Store, client llm.Client, registry *tools.Registry, cfg Config) *Engine {
 	t.Helper()
+	if cfg.ProjectWorkspaceContextReader == nil {
+		cfg.ProjectWorkspaceContextReader = newRuntimeTestProjectWorkspaceContextReader(t, store)
+	}
 	if cfg.Model == "" {
 		cfg.Model = "gpt-6-sol"
 	}

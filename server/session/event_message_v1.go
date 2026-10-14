@@ -33,6 +33,7 @@ const (
 	MessageTypeHeadlessModeExit               MessageType = "headless_mode_exit"
 	MessageTypeWorkflowMode                   MessageType = "workflow_mode"
 	MessageTypeWorkflowModeExit               MessageType = "workflow_mode_exit"
+	MessageTypeWorkspaces                     MessageType = "workspaces"
 	MessageTypeWorktreeMode                   MessageType = "worktree_mode"
 	MessageTypeWorktreeModeExit               MessageType = "worktree_mode_exit"
 	MessageTypeSessionRebind                  MessageType = "session_rebind"
@@ -231,7 +232,7 @@ func normalizeOptionalMessageType(messageType *MessageType) (*MessageType, error
 		MessageTypeCompactionSoonReminder, MessageTypeHandoffFutureMessage,
 		MessageTypeReviewerFeedback, MessageTypeBackgroundNotice, MessageTypeUserShellCommand, MessageTypeCustomToolCallOutput,
 		MessageTypeCompactionPreservedUserMessage, MessageTypeHeadlessMode, MessageTypeHeadlessModeExit,
-		MessageTypeWorkflowMode, MessageTypeWorkflowModeExit, MessageTypeWorktreeMode, MessageTypeWorktreeModeExit, MessageTypeSessionRebind,
+		MessageTypeWorkflowMode, MessageTypeWorkflowModeExit, MessageTypeWorkspaces, MessageTypeWorktreeMode, MessageTypeWorktreeModeExit, MessageTypeSessionRebind,
 		MessageTypeGoal, MessageTypeActiveGoalContinuation, MessageTypeAgentSteer:
 		value := *messageType
 		return &value, nil

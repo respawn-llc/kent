@@ -621,7 +621,7 @@ func (fakeShellHandler) Call(_ context.Context, call tools.Call) (tools.Result, 
 
 var runtimeControlTestSessionPersistence = sessiontest.NewPersistence()
 
-func newRuntimeControlTestEngine(t *testing.T, client llm.Client, registry *tools.Registry, cfg runtime.Config, opts ...session.StoreOption) (*session.Store, *runtime.Engine) {
+func newRuntimeControlTestEngine(t *testing.T, client llm.Client, registry *tools.Registry, cfg runtime.Config, opts ...session.StoreOption) (*session.Store, *runtime.Engine, runtime.ProjectWorkspaceContextReader) {
 	t.Helper()
 	workspace := t.TempDir()
 	store, err := session.Create(
@@ -640,6 +640,9 @@ func newRuntimeControlTestEngine(t *testing.T, client llm.Client, registry *tool
 	if registry == nil {
 		registry = tools.NewRegistry()
 	}
+	if cfg.ProjectWorkspaceContextReader == nil {
+		cfg.ProjectWorkspaceContextReader = testsetup.OpenSessionProjectWorkspaceContextReader(t, store)
+	}
 	if cfg.Model == "" {
 		cfg.Model = "gpt-6-sol"
 	}
@@ -652,7 +655,7 @@ func newRuntimeControlTestEngine(t *testing.T, client llm.Client, registry *tool
 		t.Fatalf("create runtime engine: %v", err)
 	}
 	t.Cleanup(func() { _ = engine.Close() })
-	return store, engine
+	return store, engine, cfg.ProjectWorkspaceContextReader
 }
 
 func runtimeControlExactExecution(t *testing.T) *workflowruntime.CurrentNodeExecutionConfig {
@@ -694,7 +697,7 @@ func newRuntimeControlTestServiceWithFeeds(
 	opts ...session.StoreOption,
 ) (*session.Store, *runtime.Engine, *Service) {
 	t.Helper()
-	store, _ := newRuntimeControlTestEngine(t, client, registry, cfg, opts...)
+	store, _, contextReader := newRuntimeControlTestEngine(t, client, registry, cfg, opts...)
 	if client == nil {
 		client = &runtimeControlFakeClient{}
 	}
@@ -746,10 +749,11 @@ func newRuntimeControlTestServiceWithFeeds(
 		t.Fatalf("new authority runtime plan: %v", err)
 	}
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: root,
-		StoreOptions:    append(runtimeControlTestSessionPersistence.Options(), opts...),
-		EventFeed:       eventFeed,
-		PromptFeed:      promptFeed,
+		PersistenceRoot:               root,
+		ProjectWorkspaceContextReader: contextReader,
+		StoreOptions:                  append(runtimeControlTestSessionPersistence.Options(), opts...),
+		EventFeed:                     eventFeed,
+		PromptFeed:                    promptFeed,
 	})
 	sessionID, err := runtimeids.ParseSessionID(store.Meta().SessionID)
 	if err != nil {
@@ -1784,7 +1788,7 @@ func TestGoalResponseFromRuntimeResultRejectsImpossibleProducerCombinations(t *t
 }
 
 func TestServiceShowGoalReturnsPersistedGoalWithoutRuntime(t *testing.T) {
-	store, _ := newRuntimeControlTestEngine(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	store, _, _ := newRuntimeControlTestEngine(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	goal, _, err := store.SetGoal("inspect dormant goals", session.GoalActorUser)
 	if err != nil {
 		t.Fatalf("SetGoal: %v", err)
@@ -1813,7 +1817,7 @@ func TestServiceShowGoalReturnsPersistedGoalWithoutRuntime(t *testing.T) {
 }
 
 func TestServiceShowGoalReturnsEmptyResponseForPersistedSessionWithoutGoal(t *testing.T) {
-	store, _ := newRuntimeControlTestEngine(t, nil, nil, runtime.Config{})
+	store, _, _ := newRuntimeControlTestEngine(t, nil, nil, runtime.Config{})
 	sessionID := store.Meta().SessionID
 	service := NewService(nil, nil).WithPersistedSessionResolver(runtimeControlTestSessionPersistence)
 
