@@ -190,9 +190,6 @@ func (c *sessionRuntimeClient) AppendCommittedEntryWithNoticeID(role, text, noti
 }
 
 func (c *sessionRuntimeClient) SubmitRuntimeInput(ctx context.Context, req clientui.RuntimeSubmitRequest) (clientui.UserTurnSubmission, error) {
-	if err := req.Validate(); err != nil {
-		return clientui.UserTurnSubmission{}, err
-	}
 	input, err := protoapi.UserTurnInputToProto(req.Input)
 	if err != nil {
 		return clientui.UserTurnSubmission{}, err
@@ -213,11 +210,7 @@ func (c *sessionRuntimeClient) SubmitRuntimeInput(ctx context.Context, req clien
 }
 
 func runtimeSubmitInputText(input clientui.RuntimeSubmitRequest) string {
-	text, err := input.Input.CanonicalHistoryText()
-	if err != nil {
-		panic("runtime submit input must validate before projection: " + err.Error())
-	}
-	return text
+	return input.Input.CanonicalHistoryText()
 }
 
 func userTurnSubmissionFromResponse(resp *runtimepb.SubmitUserTurnSuccess, text string) clientui.UserTurnSubmission {
@@ -243,9 +236,6 @@ func userTurnSubmissionFromResponse(resp *runtimepb.SubmitUserTurnSuccess, text 
 }
 
 func (c *sessionRuntimeClient) RunUserShell(ctx context.Context, req clientui.RuntimeShellRequest) error {
-	if err := req.Validate(); err != nil {
-		return err
-	}
 	return runtimeRequestCallNoResult(ctx, c, func(ctx context.Context) error {
 		return c.controls.SubmitUserShellCommand(ctx, &runtimepb.ShellCommandRequest{SessionId: c.sessionID, Command: req.Command})
 	})

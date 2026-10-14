@@ -558,9 +558,6 @@ func (i QueuedUserInput) Validate() error {
 	if strings.TrimSpace(i.ExecutionText) == "" {
 		return errors.New("queued user input requires execution text")
 	}
-	if strings.TrimSpace(i.CanonicalPresentation) == "" {
-		return errors.New("queued user input requires canonical presentation")
-	}
 	return nil
 }
 

@@ -2801,10 +2801,7 @@ func TestServiceAdmitQueuedPromptCommandUsesExpandedExecutionAndCanonicalPresent
 	request := runtimeControlUserTurnRequest(store, "chat-queue-command", "unused")
 	request.Input = &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: runtimeinput.PromptCommandReviewName, Arguments: "src"}}}
 
-	input, err := protoapi.UserTurnInputFromProto(request.Input)
-	if err != nil {
-		t.Fatal(err)
-	}
+	input := protoapi.UserTurnInputFromProto(request.Input)
 	prepared, err := service.PrepareUserTurn(t.Context(), request.SessionId, input)
 	if err != nil {
 		t.Fatal(err)

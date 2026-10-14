@@ -10,9 +10,6 @@ import (
 )
 
 func UserTurnInputToProto(input runtimeinput.Input) (*runtimepb.UserTurnInput, error) {
-	if err := input.Validate(); err != nil {
-		return nil, err
-	}
 	switch input.Kind {
 	case runtimeinput.KindText:
 		return &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: *input.Text}}, nil
@@ -25,14 +22,13 @@ func UserTurnInputToProto(input runtimeinput.Input) (*runtimepb.UserTurnInput, e
 	}
 }
 
-func UserTurnInputFromProto(input *runtimepb.UserTurnInput) (runtimeinput.Input, error) {
-	switch selected := input.GetInput().(type) {
+func UserTurnInputFromProto(input *runtimepb.UserTurnInput) runtimeinput.Input {
+	switch selected := input.Input.(type) {
 	case *runtimepb.UserTurnInput_Text:
-		return runtimeinput.Text(selected.Text), nil
-	case *runtimepb.UserTurnInput_PromptCommand:
-		return runtimeinput.Command(selected.PromptCommand.Name, selected.PromptCommand.Arguments), nil
+		return runtimeinput.Text(selected.Text)
 	default:
-		return runtimeinput.Input{}, fmt.Errorf("user input selection is required")
+		command := input.Input.(*runtimepb.UserTurnInput_PromptCommand).PromptCommand
+		return runtimeinput.Command(command.Name, command.Arguments)
 	}
 }
 

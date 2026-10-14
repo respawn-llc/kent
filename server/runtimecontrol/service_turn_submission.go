@@ -64,19 +64,13 @@ func (s *Service) PrepareUserTurn(ctx context.Context, sessionID string, input r
 	if err != nil {
 		return PreparedUserTurn{}, err
 	}
-	history, err := input.CanonicalHistoryText()
-	if err != nil {
-		return PreparedUserTurn{}, err
-	}
+	history := input.CanonicalHistoryText()
 	return PreparedUserTurn{Input: input, Placement: placement, ExecutionText: execution, HistoryText: history}, nil
 }
 
 func (s *Service) SubmitUserTurn(ctx context.Context, req *runtimepb.SubmitUserTurnRequest) (*runtimepb.SubmitUserTurnSuccess, error) {
 	return runRuntimeCommand(ctx, func(ctx context.Context) (*runtimepb.SubmitUserTurnSuccess, bool, error) {
-		input, err := protoapi.UserTurnInputFromProto(req.Input)
-		if err != nil {
-			return nil, false, err
-		}
+		input := protoapi.UserTurnInputFromProto(req.Input)
 		prepared, err := s.PrepareUserTurn(ctx, req.SessionId, input)
 		if err != nil {
 			return nil, false, err
