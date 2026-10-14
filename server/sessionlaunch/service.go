@@ -53,7 +53,7 @@ func (r PlanRequest) Validate() error {
 			return err
 		}
 	}
-	return r.Overrides.ValidateAgentRoleOverride()
+	return nil
 }
 
 func NewService(planner launch.Planner, settingsOwner ChatSettingsOwner, metadataStore *metadata.Store) *Service {
@@ -235,9 +235,6 @@ func (s *Service) chatSettingsTaskIdentity(
 	}
 	if identity == nil {
 		return nil, nil
-	}
-	if err := identity.Validate(); err != nil {
-		return nil, err
 	}
 	return identity, nil
 }

@@ -9,9 +9,6 @@ import (
 )
 
 func InitialChatSettingsFromProto(value *pb.InitialChatSettings) (serverapi.InitialChatSettings, error) {
-	if err := Validate(value); err != nil {
-		return serverapi.InitialChatSettings{}, err
-	}
 	supervisor, err := ChatSettingsSupervisorFromProto(value.Supervisor)
 	if err != nil {
 		return serverapi.InitialChatSettings{}, err
@@ -21,7 +18,7 @@ func InitialChatSettingsFromProto(value *pb.InitialChatSettings) (serverapi.Init
 		Thinking: textutil.Pointer(value.Thinking), Fast: textutil.Pointer(value.Fast),
 		QuestionsEnabled: *value.QuestionsEnabled, AutoCompactionEnabled: *value.AutoCompactionEnabled,
 	}
-	return result, result.Validate()
+	return result, nil
 }
 
 func ChatSettingsSupervisorToProto(value string) (pb.SupervisorValue, error) {

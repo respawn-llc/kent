@@ -25,9 +25,6 @@ func initialChatCreationFromGenerated(
 	inputDraft *string,
 ) (*InitialChatCreation, error) {
 	if settings == nil {
-		if inputDraft != nil {
-			return nil, errors.New("initial Chat input draft requires settings")
-		}
 		return nil, nil
 	}
 	selection, err := protoapi.InitialChatSettingsFromProto(settings)
@@ -42,10 +39,7 @@ func initialChatCreationFromGenerated(
 }
 
 func (c InitialChatCreation) Validate(mode launch.Mode, intent serverapi.SessionLaunchIntent) error {
-	if err := launch.ValidateInitialChatCreationTarget(mode, intent); err != nil {
-		return err
-	}
-	return c.Settings.Validate()
+	return launch.ValidateInitialChatCreationTarget(mode, intent)
 }
 
 func (s *Service) prepareInitialChatCreation(
