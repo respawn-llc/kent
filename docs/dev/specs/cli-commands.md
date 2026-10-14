@@ -137,9 +137,9 @@
 - Delete and archive never remove unknown files or directories from a Session directory.
 - Kent removes the Session directory only when it is empty; a non-empty directory remains without making the removed Session visible or resumable.
 - A missing Session fails with a readable message.
-- A connected archive caller waits without a fixed mutation deadline.
-- After caller cancellation or disconnection, an accepted archive continues under the Kent server lifetime for at most five additional minutes.
-- Kent cancels an archive that remains after that grace period.
+- An accepted archive has an overall five-minute timeout under the Kent server lifetime.
+- Caller cancellation or disconnection stops only that caller's waiting and delivery and must not change the archive timeout.
+- Kent cancels an archive that exceeds its timeout, logs the failure, and fails fast in debug mode.
 - Detached archive work has no durable job status, reconnectable outcome, retry, or restart recovery.
 - Caller cancellation or disconnection after delete acceptance stops only that caller's waiting and delivery. The accepted delete continues until completion or server shutdown.
 - Successful plain output is exactly `done`.
