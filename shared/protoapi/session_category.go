@@ -1,8 +1,6 @@
 package protoapi
 
 import (
-	"fmt"
-
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	"core/shared/sessioncontract"
 )
@@ -13,12 +11,7 @@ var sessionCategoryValues = map[projectpb.SessionCategory]sessioncontract.Sessio
 }
 
 func SessionCategoryToProto(category sessioncontract.SessionCategory) (projectpb.SessionCategory, error) {
-	for wire, native := range sessionCategoryValues {
-		if native == category {
-			return wire, nil
-		}
-	}
-	return projectpb.SessionCategory_SESSION_CATEGORY_UNSPECIFIED, fmt.Errorf("unsupported Session category %q", category)
+	return enumToProto(sessionCategoryValues, category, "Session category")
 }
 
 func SessionCategoryFromProto(category projectpb.SessionCategory) sessioncontract.SessionCategory {

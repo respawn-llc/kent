@@ -60,10 +60,7 @@ func configOriginFromProto(message *sessionlaunchpb.ConfigOrigin) (config.Origin
 	case *sessionlaunchpb.ConfigOrigin_DefaultValue:
 		origin.Kind = config.SourceDefault
 	case *sessionlaunchpb.ConfigOrigin_File:
-		layer, err := configFileLayerFromProto(source.File.Layer)
-		if err != nil {
-			return config.Origin{}, err
-		}
+		layer := configFileLayerFromProto(source.File.Layer)
 		origin.Kind = config.SourceFileKind
 		origin.File = &config.SourceFile{Layer: layer, Path: source.File.Path}
 	case *sessionlaunchpb.ConfigOrigin_Environment:
@@ -121,30 +118,18 @@ func ToolSelectionFromProto(message *sessionlaunchpb.ToolSelection) (*config.Too
 	return selection, nil
 }
 
-func configFileLayerToProto(layer config.FileLayer) (sessionlaunchpb.ConfigFileLayer, error) {
-	switch layer {
-	case config.FileGlobal:
-		return sessionlaunchpb.ConfigFileLayer_CONFIG_FILE_LAYER_GLOBAL, nil
-	case config.FileWorkspace:
-		return sessionlaunchpb.ConfigFileLayer_CONFIG_FILE_LAYER_WORKSPACE, nil
-	case config.FilePrivate:
-		return sessionlaunchpb.ConfigFileLayer_CONFIG_FILE_LAYER_PRIVATE, nil
-	default:
-		return 0, fmt.Errorf("unknown configuration file layer %q", layer)
-	}
+var configFileLayerValues = map[sessionlaunchpb.ConfigFileLayer]config.FileLayer{
+	sessionlaunchpb.ConfigFileLayer_CONFIG_FILE_LAYER_GLOBAL:    config.FileGlobal,
+	sessionlaunchpb.ConfigFileLayer_CONFIG_FILE_LAYER_WORKSPACE: config.FileWorkspace,
+	sessionlaunchpb.ConfigFileLayer_CONFIG_FILE_LAYER_PRIVATE:   config.FilePrivate,
 }
 
-func configFileLayerFromProto(layer sessionlaunchpb.ConfigFileLayer) (config.FileLayer, error) {
-	switch layer {
-	case sessionlaunchpb.ConfigFileLayer_CONFIG_FILE_LAYER_GLOBAL:
-		return config.FileGlobal, nil
-	case sessionlaunchpb.ConfigFileLayer_CONFIG_FILE_LAYER_WORKSPACE:
-		return config.FileWorkspace, nil
-	case sessionlaunchpb.ConfigFileLayer_CONFIG_FILE_LAYER_PRIVATE:
-		return config.FilePrivate, nil
-	default:
-		return "", fmt.Errorf("unknown configuration file layer %v", layer)
-	}
+func configFileLayerToProto(layer config.FileLayer) (sessionlaunchpb.ConfigFileLayer, error) {
+	return enumToProto(configFileLayerValues, layer, "configuration file layer")
+}
+
+func configFileLayerFromProto(layer sessionlaunchpb.ConfigFileLayer) config.FileLayer {
+	return configFileLayerValues[layer]
 }
 
 func sourceFactsToProto(sources map[string]config.Origin) ([]*sessionlaunchpb.SourceFact, error) {

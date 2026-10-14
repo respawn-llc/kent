@@ -167,34 +167,13 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 }
 
 func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Settings, error) {
-	modelVerbosity, err := modelVerbosityFromProto(message.ModelVerbosity)
-	if err != nil {
-		return config.Settings{}, err
-	}
-	compactionMode, err := compactionModeFromProto(message.CompactionMode)
-	if err != nil {
-		return config.Settings{}, err
-	}
-	backgroundOutput, err := backgroundShellOutputFromProto(message.BgShellsOutput)
-	if err != nil {
-		return config.Settings{}, err
-	}
-	shellMode, err := shellPostprocessingModeFromProto(message.Shell.PostprocessingMode)
-	if err != nil {
-		return config.Settings{}, err
-	}
-	cacheWarningMode, err := cacheWarningModeFromProto(message.CacheWarningMode)
-	if err != nil {
-		return config.Settings{}, err
-	}
-	workflowMode, err := workflowCompletionModeFromProto(message.Workflow.CompletionMode)
-	if err != nil {
-		return config.Settings{}, err
-	}
-	sleepMode, err := sleepPreventionModeFromProto(message.PreventSleep)
-	if err != nil {
-		return config.Settings{}, err
-	}
+	modelVerbosity := modelVerbosityFromProto(message.ModelVerbosity)
+	compactionMode := compactionModeFromProto(message.CompactionMode)
+	backgroundOutput := backgroundShellOutputFromProto(message.BgShellsOutput)
+	shellMode := shellPostprocessingModeFromProto(message.Shell.PostprocessingMode)
+	cacheWarningMode := cacheWarningModeFromProto(message.CacheWarningMode)
+	workflowMode := workflowCompletionModeFromProto(message.Workflow.CompletionMode)
+	sleepMode := sleepPreventionModeFromProto(message.PreventSleep)
 	systemPromptFile, err := systemPromptFileFromProto(message.SystemPromptFile)
 	if err != nil {
 		return config.Settings{}, err
@@ -299,10 +278,7 @@ func reviewerSettingsToProto(settings config.ReviewerSettings) (*sessionlaunchpb
 }
 
 func reviewerSettingsFromProto(message *sessionlaunchpb.ReviewerSettings) (config.ReviewerSettings, error) {
-	verbosity, err := modelVerbosityFromProto(message.ModelVerbosity)
-	if err != nil {
-		return config.ReviewerSettings{}, err
-	}
+	verbosity := modelVerbosityFromProto(message.ModelVerbosity)
 	connection := connectionIDFromProto(message.Connection)
 	return config.ReviewerSettings{
 		Frequency: message.Frequency, Model: message.Model, ThinkingLevel: message.ThinkingLevel,
@@ -387,10 +363,7 @@ func systemPromptFileFromProto(value *sessionlaunchpb.SystemPromptFile) (*config
 	if value == nil {
 		return nil, nil
 	}
-	scope, err := systemPromptFileScopeFromProto(value.Scope)
-	if err != nil {
-		return nil, err
-	}
+	scope := systemPromptFileScopeFromProto(value.Scope)
 	return &config.SystemPromptFile{Path: value.Path, Scope: scope}, nil
 }
 
@@ -521,10 +494,7 @@ func SessionSourceReportFromProto(message *sessionlaunchpb.SourceReport) (config
 	}
 	report := config.SourceReport{CreatedDefaultConfig: message.CreatedDefaultConfig, Sources: sources}
 	for _, file := range message.Files {
-		layer, err := configFileLayerFromProto(file.File.Layer)
-		if err != nil {
-			return config.SourceReport{}, err
-		}
+		layer := configFileLayerFromProto(file.File.Layer)
 		report.Files = append(report.Files, config.ConfigFileReport{
 			SourceFile: config.SourceFile{Layer: layer, Path: file.File.Path},
 			Exists:     file.Exists, Enabled: file.Enabled, Applied: file.Applied,

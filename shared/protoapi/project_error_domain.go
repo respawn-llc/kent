@@ -1,8 +1,6 @@
 package protoapi
 
 import (
-	"fmt"
-
 	"core/shared/clientui"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	"core/shared/serverapi"
@@ -72,12 +70,7 @@ var projectAvailabilityValues = map[projectpb.ProjectAvailability]clientui.Proje
 }
 
 func ProjectAvailabilityToProto(value clientui.ProjectAvailability) (projectpb.ProjectAvailability, error) {
-	for wire, native := range projectAvailabilityValues {
-		if native == value {
-			return wire, nil
-		}
-	}
-	return projectpb.ProjectAvailability_PROJECT_AVAILABILITY_UNSPECIFIED, fmt.Errorf("project availability %q is unsupported", value)
+	return enumToProto(projectAvailabilityValues, value, "project availability")
 }
 
 func ProjectAvailabilityFromProto(value projectpb.ProjectAvailability) clientui.ProjectAvailability {
