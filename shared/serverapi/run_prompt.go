@@ -71,22 +71,9 @@ func CanonicalOptionalString(value *string) OptionalStringKey {
 	return OptionalStringKey{Present: true, Value: strings.TrimSpace(*value)}
 }
 
-func ValidateOptionalIdentifier(field string, value *string) error {
-	if value == nil {
-		return nil
-	}
-	if strings.TrimSpace(*value) == "" {
-		return fmt.Errorf("%s must not be empty", field)
-	}
-	return nil
-}
-
 func (r RunPromptRequest) Validate() error {
 	if strings.TrimSpace(r.Prompt) == "" {
 		return errors.New("prompt is required")
-	}
-	if err := ValidateOptionalIdentifier("caller_session_id", r.CallerSessionID); err != nil {
-		return err
 	}
 	return r.Overrides.ValidateAgentRoleOverride()
 }

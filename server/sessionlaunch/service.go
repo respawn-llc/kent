@@ -48,14 +48,6 @@ type PlanRequest struct {
 }
 
 func (r PlanRequest) Validate() error {
-	switch r.Mode {
-	case launch.ModeInteractive, launch.ModeHeadless:
-	default:
-		return fmt.Errorf("Session launch mode %q is invalid", r.Mode)
-	}
-	if err := serverapi.ValidateOptionalIdentifier("caller_session_id", r.CallerSessionID); err != nil {
-		return err
-	}
 	if r.InitialChat != nil {
 		if err := r.InitialChat.Validate(r.Mode, r.Intent); err != nil {
 			return err
@@ -69,9 +61,6 @@ func NewService(planner launch.Planner, settingsOwner ChatSettingsOwner, metadat
 }
 
 func (s *Service) ResolveRunPromptRequest(ctx context.Context, request *runpromptpb.Request) (serverapi.RunPromptRequest, error) {
-	if err := protoapi.Validate(request); err != nil {
-		return serverapi.RunPromptRequest{}, err
-	}
 	intent, err := s.metadataStore.ResolveSessionLaunchIntent(ctx, request.Intent)
 	if err != nil {
 		return serverapi.RunPromptRequest{}, err
@@ -314,8 +303,8 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req PlanRequest) (PlanR
 			}
 			caller = &resolved
 			if parentAgentSessionID != nil {
-				callerSessionID, parseErr := runtimeids.ParseSessionID(*req.CallerSessionID)
-				if parseErr != nil || *parentAgentSessionID != callerSessionID {
+				callerSessionID := runtimeids.SessionIDFromProto(*req.CallerSessionID)
+				if *parentAgentSessionID != callerSessionID {
 					return PlanResult{}, &serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialInvalidTarget}
 				}
 			}
@@ -532,18 +521,10 @@ func (s *Service) finalizeLaunchPlan(
 }
 
 func (s *Service) sessionPlanRequestFromGenerated(ctx context.Context, request *sessionlaunchpb.SessionPlanRequest) (PlanRequest, error) {
-	if request == nil {
-		return PlanRequest{}, errors.New("Session plan request is required")
-	}
-	var mode launch.Mode
-	switch request.Mode {
-	case sessionlaunchpb.SessionLaunchMode_SESSION_LAUNCH_MODE_INTERACTIVE:
-		mode = launch.ModeInteractive
-	case sessionlaunchpb.SessionLaunchMode_SESSION_LAUNCH_MODE_HEADLESS:
-		mode = launch.ModeHeadless
-	default:
-		return PlanRequest{}, fmt.Errorf("generated Session launch mode %v is invalid", request.Mode)
-	}
+	mode := map[sessionlaunchpb.SessionLaunchMode]launch.Mode{
+		sessionlaunchpb.SessionLaunchMode_SESSION_LAUNCH_MODE_INTERACTIVE: launch.ModeInteractive,
+		sessionlaunchpb.SessionLaunchMode_SESSION_LAUNCH_MODE_HEADLESS: launch.ModeHeadless,
+	}[request.Mode]
 	intent, err := s.metadataStore.ResolveSessionLaunchIntent(ctx, request.Intent)
 	if err != nil {
 		return PlanRequest{}, err
@@ -569,7 +550,7 @@ func (s *Service) sessionPlanRequestFromGenerated(ctx context.Context, request *
 		Overrides:       overrides,
 		InitialChat:     initialChat,
 	}
-	return internal, internal.Validate()
+	return internal, nil
 }
 
 func sessionPlanSuccessFromResult(result PlanResult) (*sessionlaunchpb.SessionPlanSuccess, error) {
@@ -616,9 +597,6 @@ func sessionPlanSuccessFromResult(result PlanResult) (*sessionlaunchpb.SessionPl
 	success := &sessionlaunchpb.SessionPlanSuccess{
 		Plan:     plan,
 		Warnings: append([]string(nil), result.Warnings...),
-	}
-	if err := protoapi.Validate(success); err != nil {
-		return nil, err
 	}
 	return success, nil
 }
