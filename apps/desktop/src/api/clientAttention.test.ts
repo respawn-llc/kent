@@ -44,7 +44,7 @@ it("allows absent attention text only for a structured access Approval", async (
   const question = create(pb.QuestionAttentionSchema, {
     currentNode: { nodeId: "node-1" },
     question: {
-      sessionId: "session-1",
+      sessionId: "11111111-1111-4111-8111-111111111111",
       stepId: "22222222-2222-4222-8222-222222222222",
       toolCallId: "ask-1",
       kind: pb.AttentionQuestionKind.APPROVAL,
@@ -72,7 +72,7 @@ it("allows absent attention text only for a structured access Approval", async (
   const withoutTargets = create(pb.QuestionAttentionSchema, {
     currentNode: question.currentNode,
     question: {
-      sessionId: "session-1",
+      sessionId: "11111111-1111-4111-8111-111111111111",
       stepId: "22222222-2222-4222-8222-222222222222",
       toolCallId: "ask-1",
       kind: pb.AttentionQuestionKind.APPROVAL,

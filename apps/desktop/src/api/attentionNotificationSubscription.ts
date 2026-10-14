@@ -9,7 +9,7 @@ import type {
   AttentionNotificationTarget,
   AttentionNotificationTaskDetailFocus,
 } from "./attentionNotifications";
-import { enumValue, required } from "./chatWire";
+import { enumValue } from "./chatWire";
 import { interruptionDiagnosticJSON } from "./clientAttention";
 import { timestampMillis } from "./clientTime";
 import { ContractError } from "./errors";
@@ -61,20 +61,20 @@ function attentionID(value: pb.AttentionNotificationID): AttentionNotificationID
   };
 }
 
-function attentionEvent(event: pb.AttentionNotificationEvent): AttentionNotificationEvent {
+function attentionEvent(event: pb.AttentionNotificationEventValid): AttentionNotificationEvent {
   const sequence = Number(event.sequence);
   switch (event.payload.case) {
     case "pending":
       return { type: "pending", sequence, pending: attentionNotification(event.payload.value) };
     case "resolved": {
       const value = event.payload.value;
-      const id = attentionID(required(value.id));
+      const id = attentionID(value.id);
       return {
         type: "resolved",
         sequence,
         id,
         kind: id.kind,
-        occurredAt: new Date(timestampMillis(required(value.occurredAt))).toISOString(),
+        occurredAt: new Date(timestampMillis(value.occurredAt)).toISOString(),
       };
     }
     case undefined:
@@ -82,14 +82,14 @@ function attentionEvent(event: pb.AttentionNotificationEvent): AttentionNotifica
   }
 }
 
-function attentionNotification(value: pb.AttentionNotification): AttentionNotification {
-  const id = attentionID(required(value.id));
+function attentionNotification(value: pb.AttentionNotificationValid): AttentionNotification {
+  const id = attentionID(value.id);
   const base: AttentionNotification = {
     id,
     kind: id.kind,
-    occurredAt: new Date(timestampMillis(required(value.occurredAt))).toISOString(),
+    occurredAt: new Date(timestampMillis(value.occurredAt)).toISOString(),
     revision: Number(value.revision),
-    target: attentionTarget(required(value.target)),
+    target: attentionTarget(value.target),
     question: null,
     approval: null,
     workflowApproval: null,
@@ -146,7 +146,7 @@ function attentionNotification(value: pb.AttentionNotification): AttentionNotifi
   }
 }
 
-function attentionTarget(value: pb.AttentionNotificationTarget): AttentionNotificationTarget {
+function attentionTarget(value: pb.AttentionNotificationTargetValid): AttentionNotificationTarget {
   switch (value.target.case) {
     case "sessionPrompt":
       return {
@@ -166,7 +166,7 @@ function attentionTarget(value: pb.AttentionNotificationTarget): AttentionNotifi
         sessionID: target.sessionId,
         currentNodeID: target.currentNodeId,
         currentNodeBranchKey: target.currentNodeBranchKey,
-        focus: attentionFocus(required(target.focus)),
+        focus: attentionFocus(target.focus),
       };
     }
     case undefined:
