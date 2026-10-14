@@ -38,7 +38,7 @@ func TestContinuationWakesWhenStartingLiveGroupBecomesReady(t *testing.T) {
 	unblockProvider := sync.OnceFunc(func() { close(client.releaseFirst) })
 	defer unblockProvider()
 	plan := authorityTestRuntimePlan(t, fixture, client)
-	attachment := openLifecycleRuntime(t, fixture.authority, id, "owner", &plan)
+	ref := openLifecycleRuntime(t, fixture.authority, id, &plan)
 	original, err := fixture.authority.StartAgentExecution(t.Context(), AgentExecutionRequest{
 		Descriptor: mustOpenSessionDescriptor(t, id), Resource: CurrentAgentResource{},
 		Runner: func(ctx context.Context, _ ExecutionScope, bridge AgentRuntimeBridge) error {
@@ -56,7 +56,6 @@ func TestContinuationWakesWhenStartingLiveGroupBecomesReady(t *testing.T) {
 	var attemptedOnce sync.Once
 	var observer *runtime.LiveRunWaitHandle
 	done := make(chan error, 1)
-	ref := attachment.Resource()
 	go func() {
 		joined, changed, err := fixture.authority.ContinueAgentExecution(t.Context(), ActiveContinuation{
 			Descriptor: mustOpenSessionDescriptor(t, id),
@@ -110,7 +109,7 @@ func TestContinuationReservationPrecedesExecutionFinalization(t *testing.T) {
 	id := lifecycleSessionID(t, fixture)
 	client := &ownerlessRetirementLLMClient{firstStarted: make(chan struct{}), releaseFirst: make(chan struct{})}
 	plan := authorityTestRuntimePlan(t, fixture, client)
-	attachment := openLifecycleRuntime(t, fixture.authority, id, "owner", &plan)
+	ref := openLifecycleRuntime(t, fixture.authority, id, &plan)
 	finishAttempt := make(chan struct{})
 	original, err := fixture.authority.StartAgentExecution(t.Context(), AgentExecutionRequest{
 		Descriptor: mustOpenSessionDescriptor(t, id), Resource: CurrentAgentResource{},
@@ -127,7 +126,6 @@ func TestContinuationReservationPrecedesExecutionFinalization(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-client.firstStarted
-	ref := attachment.Resource()
 	var observer *runtime.LiveRunWaitHandle
 	joined, changed, err := fixture.authority.ContinueAgentExecution(t.Context(), ActiveContinuation{
 		Descriptor: mustOpenSessionDescriptor(t, id),
@@ -166,7 +164,7 @@ func TestContinuationAfterFinalizationChoosesIdleLaunch(t *testing.T) {
 	id := lifecycleSessionID(t, fixture)
 	client := &ownerlessRetirementLLMClient{firstStarted: make(chan struct{}), releaseFirst: make(chan struct{})}
 	plan := authorityTestRuntimePlan(t, fixture, client)
-	attachment := openLifecycleRuntime(t, fixture.authority, id, "owner", &plan)
+	ref := openLifecycleRuntime(t, fixture.authority, id, &plan)
 	request := AgentExecutionRequest{
 		Descriptor: mustOpenSessionDescriptor(t, id), Resource: CurrentAgentResource{},
 		Runner: func(ctx context.Context, _ ExecutionScope, bridge AgentRuntimeBridge) error {
@@ -185,7 +183,6 @@ func TestContinuationAfterFinalizationChoosesIdleLaunch(t *testing.T) {
 	if _, err := original.Wait(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	ref := attachment.Resource()
 	_, changed, err := fixture.authority.ContinueAgentExecution(t.Context(), ActiveContinuation{Descriptor: request.Descriptor, Resource: ref,
 		Join: func(context.Context, *runtime.Engine, runtime.CommandAcceptance) (bool, error) {
 			t.Fatal("finished execution accepted input")
@@ -220,7 +217,7 @@ func TestContinuationCompetingStartRetainsAcceptingResource(t *testing.T) {
 	id := lifecycleSessionID(t, fixture)
 	client := &ownerlessRetirementLLMClient{firstStarted: make(chan struct{}), releaseFirst: make(chan struct{})}
 	plan := authorityTestRuntimePlan(t, fixture, client)
-	attachment := openLifecycleRuntime(t, fixture.authority, id, "owner", &plan)
+	ref := openLifecycleRuntime(t, fixture.authority, id, &plan)
 	request := AgentExecutionRequest{
 		Descriptor: mustOpenSessionDescriptor(t, id), Resource: CurrentAgentResource{},
 		Runner: func(ctx context.Context, _ ExecutionScope, bridge AgentRuntimeBridge) error {
@@ -243,7 +240,6 @@ func TestContinuationCompetingStartRetainsAcceptingResource(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("refresh = %t, err=%v", changed, err)
 	}
-	ref := attachment.Resource()
 	var observer *runtime.LiveRunWaitHandle
 	joined, changed, err := fixture.authority.ContinueAgentExecution(t.Context(), ActiveContinuation{Descriptor: request.Descriptor, Resource: ref,
 		Join: func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) (bool, error) {

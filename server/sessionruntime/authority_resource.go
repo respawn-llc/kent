@@ -772,6 +772,7 @@ func (a *turnAdmission) acceptance(accept runtime.CommandAcceptance, onAccepted 
 	return func(commit func() (bool, error)) (bool, error) {
 		committed, err := accept(commit)
 		if committed {
+			a.resource.acceptRuntimeWrite()
 			a.release()
 			if onAccepted != nil {
 				onAccepted()
@@ -872,7 +873,7 @@ func (a *Authority) ContinueAgentExecution(ctx context.Context, candidate Contin
 				admission.release()
 				return nil, true, nil
 			}
-			handle, err := a.startAgentExecutionUnderAdmission(ctx, admission.gate, request)
+			handle, err := a.startAgentExecutionUnderAdmission(ctx, admission.gate, request, executionAccepted)
 			admission.release()
 			return handle, false, err
 		}
@@ -957,7 +958,6 @@ func (a *Authority) RunCurrentTurn(
 	accepted := make(chan struct{})
 	var acceptedOnce sync.Once
 	admit := admission.acceptance(accept, func() {
-		resource.acceptRuntimeWrite()
 		acceptedOnce.Do(func() { close(accepted) })
 	})
 
