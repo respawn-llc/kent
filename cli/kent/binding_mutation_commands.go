@@ -169,8 +169,7 @@ func writeBindingMutationPlainResult(stdout io.Writer, stderr io.Writer, result 
 
 func bindingMutationSelector(cfg config.Connection, arguments bindingMutationArguments) (serverapi.ProjectWorkspaceSelector, error) {
 	if arguments.WorkspaceID != nil {
-		selector, err := serverapi.NewProjectWorkspaceSelectorForID(*arguments.WorkspaceID)
-		return selector, err
+		return serverapi.NewProjectWorkspaceSelectorForID(*arguments.WorkspaceID), nil
 	}
 	path := arguments.Workspace
 	if path == "." {
@@ -180,8 +179,7 @@ func bindingMutationSelector(cfg config.Connection, arguments bindingMutationArg
 	if err != nil {
 		return serverapi.ProjectWorkspaceSelector{}, err
 	}
-	selector, err := serverapi.NewProjectWorkspaceSelectorForRoot(normalizedPath)
-	return selector, err
+	return serverapi.NewProjectWorkspaceSelectorForRoot(normalizedPath), nil
 }
 
 type bindingMutationResult struct {

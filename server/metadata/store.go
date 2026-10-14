@@ -374,13 +374,7 @@ func (s *Store) ResolveProjectWorkspaceSelector(ctx context.Context, projectID s
 	if s == nil || s.queries == nil {
 		return Binding{}, errors.New("metadata store is required")
 	}
-	if err := selector.Validate(); err != nil {
-		return Binding{}, err
-	}
 	trimmedProjectID := strings.TrimSpace(projectID)
-	if trimmedProjectID == "" {
-		return Binding{}, errors.New("project id is required")
-	}
 	if _, err := s.queries.GetProjectDisplayName(ctx, trimmedProjectID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Binding{}, fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, trimmedProjectID)
@@ -398,9 +392,6 @@ func (s *Store) ResolveProjectWorkspaceSelector(ctx context.Context, projectID s
 		return binding, nil
 	}
 	workspaceRootValue := selector.WorkspaceRootValue()
-	if workspaceRootValue == nil {
-		return Binding{}, errors.New("workspace root selector is required")
-	}
 	workspaceRoot := *workspaceRootValue
 	absoluteRoot, absErr := filepath.Abs(filepath.Clean(workspaceRoot))
 	lookupByRoot := func(root string) (Binding, error) {
@@ -2074,11 +2065,8 @@ func (s *Store) ProjectWorkspaceAttached(ctx context.Context, projectID string, 
 	if projectID == "" {
 		return false, errors.New("project id is required")
 	}
-	selector, err := serverapi.NewProjectWorkspaceSelectorForRoot(root)
-	if err != nil {
-		return false, err
-	}
-	_, err = s.ResolveProjectWorkspaceSelector(ctx, projectID, selector)
+	selector := serverapi.NewProjectWorkspaceSelectorForRoot(root)
+	_, err := s.ResolveProjectWorkspaceSelector(ctx, projectID, selector)
 	if errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
 		return false, nil
 	}

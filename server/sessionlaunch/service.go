@@ -523,7 +523,7 @@ func (s *Service) finalizeLaunchPlan(
 func (s *Service) sessionPlanRequestFromGenerated(ctx context.Context, request *sessionlaunchpb.SessionPlanRequest) (PlanRequest, error) {
 	mode := map[sessionlaunchpb.SessionLaunchMode]launch.Mode{
 		sessionlaunchpb.SessionLaunchMode_SESSION_LAUNCH_MODE_INTERACTIVE: launch.ModeInteractive,
-		sessionlaunchpb.SessionLaunchMode_SESSION_LAUNCH_MODE_HEADLESS: launch.ModeHeadless,
+		sessionlaunchpb.SessionLaunchMode_SESSION_LAUNCH_MODE_HEADLESS:    launch.ModeHeadless,
 	}[request.Mode]
 	intent, err := s.metadataStore.ResolveSessionLaunchIntent(ctx, request.Intent)
 	if err != nil {

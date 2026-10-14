@@ -570,10 +570,7 @@ func (s *Service) GetProjectWorkspace(ctx context.Context, req *projectpb.GetPro
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
-	selector, err := projectWorkspaceGetSelectorFromGenerated(req)
-	if err != nil {
-		return nil, err
-	}
+	selector := projectWorkspaceGetSelectorFromGenerated(req)
 	workspace, err := s.metadata.GetProjectWorkspaceCatalogRow(ctx, req.ProjectId, selector)
 	if errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
 		return &projectpb.GetProjectWorkspaceSuccess{

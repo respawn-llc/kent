@@ -828,7 +828,7 @@ message ProjectWorkspaceSelector {
 }
 
 message SetDefaultWorkspaceRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   ProjectWorkspaceSelector workspace = 2 [(buf.validate.field).required = true];
 }
 
@@ -1023,7 +1023,7 @@ message GetProjectWorkspaceResult {
 }
 
 message UnlinkWorkspaceRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   ProjectWorkspaceSelector workspace = 2 [(buf.validate.field).required = true];
 }
 

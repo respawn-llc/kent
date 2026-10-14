@@ -34,3 +34,17 @@ func TestWorkspaceUnlinkRequiresNonblankIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkspaceMutationsRequireNonblankProject(t *testing.T) {
+	workspace := &projectpb.ProjectWorkspaceSelector{
+		Selector: &projectpb.ProjectWorkspaceSelector_WorkspaceId{WorkspaceId: "workspace"},
+	}
+	for _, project := range []string{"project", " project ", " \t "} {
+		valid := project != " \t "
+		unlinkErr := protoapi.Validate(&projectpb.UnlinkWorkspaceRequest{ProjectId: project, Workspace: workspace})
+		defaultErr := protoapi.Validate(&projectpb.SetDefaultWorkspaceRequest{ProjectId: project, Workspace: workspace})
+		if (unlinkErr == nil) != valid || (defaultErr == nil) != valid {
+			t.Fatalf("workspace mutation Project acceptance = %v, %v, want valid=%t", unlinkErr, defaultErr, valid)
+		}
+	}
+}
