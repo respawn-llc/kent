@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"core/server/chatcontext"
@@ -72,9 +71,6 @@ func (s *Service) WithPromptHistoryReader(reader promptHistoryReader) *Service {
 }
 
 func (s *Service) GetPromptHistory(ctx context.Context, req *sessionpb.PromptHistoryRequest) (*sessionpb.PromptHistorySuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
 	if err != nil {
 		return nil, err
@@ -115,9 +111,6 @@ func (s *Service) SubscribeQuestionHistory(
 	ctx context.Context,
 	req *sessionpb.QuestionHistorySubscribeRequest,
 ) (serverapi.QuestionHistorySubscription, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if s == nil || s.persisted == nil {
 		return nil, session.ErrPersistedSessionResolverRequired
 	}
@@ -253,9 +246,6 @@ func normalizeServiceCacheWarningMode(mode config.CacheWarningMode) config.Cache
 }
 
 func (s *Service) GetSessionIdentityLocation(ctx context.Context, req *sessionpb.IdentityLocationRequest) (*sessionpb.IdentityLocationSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
 	if err != nil {
 		return nil, err
@@ -265,9 +255,6 @@ func (s *Service) GetSessionIdentityLocation(ctx context.Context, req *sessionpb
 		return nil, err
 	}
 	logPath := session.RunLogPath(record.SessionDir)
-	if !filepath.IsAbs(logPath) {
-		return nil, errors.New("Session log path must be absolute")
-	}
 	return &sessionpb.IdentityLocationSuccess{
 		SessionId: id.String(),
 		ShortId:   protoapi.SessionShortIDToProto(record.ShortID),
@@ -276,9 +263,6 @@ func (s *Service) GetSessionIdentityLocation(ctx context.Context, req *sessionpb
 }
 
 func (s *Service) GetSessionMainView(ctx context.Context, req *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
 	if err != nil {
 		return nil, err
@@ -291,9 +275,6 @@ func (s *Service) GetSessionMainView(ctx context.Context, req *sessionpb.MainVie
 }
 
 func (s *Service) SessionTranscriptTailEntries(ctx context.Context, sessionID string) ([]runtime.ChatEntry, error) {
-	if strings.TrimSpace(sessionID) == "" {
-		return nil, serverapi.ErrSessionIDRequired
-	}
 	view, err := session.ResolvePersistedSessionView(ctx, s.persisted, sessionID)
 	if err != nil {
 		return nil, err
@@ -302,9 +283,6 @@ func (s *Service) SessionTranscriptTailEntries(ctx context.Context, sessionID st
 }
 
 func (s *Service) GetSessionTranscriptPage(ctx context.Context, req *transcriptpb.PageRequest) (*transcriptpb.PageSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
 	if err != nil {
 		return nil, err
@@ -341,9 +319,6 @@ func validateSessionTranscriptPageResponse(response *transcriptpb.PageSuccess) e
 }
 
 func (s *Service) GetLatestCommittedAssistantFinalAnswer(ctx context.Context, req *transcriptpb.LatestFinalAnswerRequest) (*transcriptpb.LatestFinalAnswerSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if s == nil {
 		return nil, session.ErrPersistedSessionResolverRequired
 	}
@@ -358,9 +333,6 @@ func (s *Service) GetLatestCommittedAssistantFinalAnswer(ctx context.Context, re
 	answer, err := runtime.LatestCommittedAssistantFinalAnswerFromEventLog(view)
 	if err != nil {
 		return nil, err
-	}
-	if answer != nil && strings.TrimSpace(*answer) == "" {
-		return nil, errors.New("latest committed assistant final answer must not be blank")
 	}
 	return &transcriptpb.LatestFinalAnswerSuccess{Answer: answer}, nil
 }

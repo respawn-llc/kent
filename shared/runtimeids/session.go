@@ -12,7 +12,7 @@ type SessionID struct {
 }
 
 // SessionIDFromProto converts an identity whose canonical UUID-v4 constraints
-// have already been checked at the Protobuf boundary.
+// have already been checked at the wire or independent source boundary.
 func SessionIDFromProto(raw string) SessionID {
 	return SessionID{value: raw}
 }
