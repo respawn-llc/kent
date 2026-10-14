@@ -51,7 +51,7 @@ func TestActivateBuildsRequest(t *testing.T) {
 		},
 	}
 	_, err := Activate(context.Background(), service, Request{
-		SessionID:                "session-1",
+		SessionID:                "550e8400-e29b-41d4-a716-446655440000",
 		EnabledTools:             []toolspec.ID{"shell", "patch"},
 		ActiveSettings:           config.Settings{Model: "gpt-test"},
 		ThinkingOverrideExplicit: true,
@@ -65,8 +65,8 @@ func TestActivateBuildsRequest(t *testing.T) {
 		t.Fatalf("activate requests = %d, want 1", len(service.activateRequests))
 	}
 	req := service.activateRequests[0]
-	if req.SessionID.String() != "session-1" {
-		t.Fatalf("session id = %q, want session-1", req.SessionID)
+	if req.SessionID.String() != "550e8400-e29b-41d4-a716-446655440000" {
+		t.Fatalf("session id = %q, want 550e8400-e29b-41d4-a716-446655440000", req.SessionID)
 	}
 	if !reflect.DeepEqual(req.EnabledToolIDs, []string{"shell", "patch"}) {
 		t.Fatalf("enabled tools = %#v, want shell/patch", req.EnabledToolIDs)
@@ -85,7 +85,7 @@ func TestActivateBuildsRequest(t *testing.T) {
 func TestActivateReactivatesRuntimeWithStableOwner(t *testing.T) {
 	service := &fakeRuntimeService{}
 	lease, err := Activate(context.Background(), service, Request{
-		SessionID: "session-1",
+		SessionID: "550e8400-e29b-41d4-a716-446655440000",
 	})
 	if err != nil {
 		t.Fatalf("Activate: %v", err)
@@ -103,7 +103,7 @@ func TestActivateReactivatesRuntimeWithStableOwner(t *testing.T) {
 	if err := lease.Release(); err != nil {
 		t.Fatalf("Release: %v", err)
 	}
-	if got := service.releaseRequests[0].Attachment; got.SessionID != "session-1" || got.Generation != 2 {
+	if got := service.releaseRequests[0].Attachment; got.SessionID != "550e8400-e29b-41d4-a716-446655440000" || got.Generation != 2 {
 		t.Fatalf("released attachment = %+v, want reactivated generation 2", got)
 	}
 }
@@ -114,7 +114,7 @@ func TestFailedReactivationPreservesAttachment(t *testing.T) {
 		activateErr:      errors.New("reactivation failed"),
 		releaseErr:       errors.New("release failed"),
 	}
-	lease, err := Activate(context.Background(), service, Request{SessionID: "session-1"})
+	lease, err := Activate(context.Background(), service, Request{SessionID: "550e8400-e29b-41d4-a716-446655440000"})
 	if err != nil {
 		t.Fatalf("Activate: %v", err)
 	}
@@ -128,14 +128,14 @@ func TestFailedReactivationPreservesAttachment(t *testing.T) {
 		t.Fatalf("release requests = %d, want 1", len(service.releaseRequests))
 	}
 	req := service.releaseRequests[0]
-	if req.Attachment.SessionID != "session-1" || req.Attachment.Generation != 1 || !req.DropOwner || req.OwnerID == "" {
+	if req.Attachment.SessionID != "550e8400-e29b-41d4-a716-446655440000" || req.Attachment.Generation != 1 || !req.DropOwner || req.OwnerID == "" {
 		t.Fatalf("release request = %+v, want exact attachment and owner", req)
 	}
 }
 
 func TestReleaseWithDetachOnlyUsesOwnerDropClosePolicy(t *testing.T) {
 	service := &fakeRuntimeService{}
-	lease, err := Activate(context.Background(), service, Request{SessionID: "session-1"})
+	lease, err := Activate(context.Background(), service, Request{SessionID: "550e8400-e29b-41d4-a716-446655440000"})
 	if err != nil {
 		t.Fatalf("Activate: %v", err)
 	}
