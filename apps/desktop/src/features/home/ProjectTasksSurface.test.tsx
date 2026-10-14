@@ -287,7 +287,8 @@ describe("ProjectTasksSurface", () => {
     expect(getSortRadio(screen.getByRole("dialog"), "desc")).toBeChecked();
   });
 
-  it("opens the server-defined Status legend from keyboard focus", async () => {
+  it("opens the server-defined Status legend from hover, not keyboard focus", async () => {
+    const user = userEvent.setup();
     renderSurface();
 
     const statusLegendTriggers = screen.getAllByRole("button", { name: appI18n.t("task.status") });
@@ -296,7 +297,8 @@ describe("ProjectTasksSurface", () => {
       throw new Error("Expected a Task Status legend trigger.");
     }
     fireEvent.focus(statusLegendTrigger);
-
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    await user.hover(statusLegendTrigger);
     expect(await screen.findByRole("tooltip")).toBeVisible();
   });
 

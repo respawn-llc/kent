@@ -22,6 +22,8 @@ describe("BoardDependencyProgressChip", () => {
     const chip = screen.getByRole("button");
     await user.tab();
     expect(chip).toHaveFocus();
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    await user.hover(chip);
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip).not.toBeEmptyDOMElement();
 

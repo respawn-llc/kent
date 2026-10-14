@@ -226,6 +226,8 @@ describe("TaskDependenciesArea", () => {
     });
     await user.tab();
     expect(chip).toHaveFocus();
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    await user.hover(chip);
     expect(await screen.findByRole("tooltip")).not.toBeEmptyDOMElement();
 
     await user.click(screen.getByTestId("dependency-row-task-2"));

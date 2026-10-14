@@ -131,13 +131,13 @@ it("requires confirmation before switching a cached Session Agent", async () => 
   });
   const pending = deferred<ChatSettingsMutationResponse>();
   const mutate = vi.spyOn(services.api.chat, "mutateSettings").mockReturnValue(pending.promise);
-  const user = userEvent.setup();
+  const user = userEvent.setup({ skipHover: true });
   render(
     <TestAppProviders services={services}>
       <SessionSettingsChipHost />
     </TestAppProviders>,
   );
-  await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await user.hover(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
   await user.click(screen.getByText("default"));
   await user.click(await screen.findByText("reviewer"));
   expect(mutate).not.toHaveBeenCalled();
@@ -146,7 +146,7 @@ it("requires confirmation before switching a cached Session Agent", async () => 
   await user.keyboard("{Enter}");
   expect(dialog).not.toBeInTheDocument();
   expect(mutate).not.toHaveBeenCalled();
-  await user.click(screen.getByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await user.hover(screen.getByRole("button", { name: appI18n.t("chatSettings.open") }));
   await user.click(screen.getByText("default"));
   await user.click(await screen.findByText("reviewer"));
   dialog = await screen.findByRole("dialog", { name: appI18n.t("chatSettings.switchAgent") });
@@ -176,8 +176,8 @@ it.each(["subscription", "api_key", "no_auth"] as const)(
     render(<SessionSettingsChipHost />, {
       wrapper: ({ children }) => <TestAppProviders services={services}>{children}</TestAppProviders>,
     });
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+    const user = userEvent.setup({ skipHover: true });
+    await user.hover(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
     expect(
       await screen.findByText(
         appI18n.t("chatSettings.sessionConnection", {
@@ -195,7 +195,7 @@ it("omits the Session Connection row when the server does not project it", async
   render(<SessionSettingsChipHost />, {
     wrapper: ({ children }) => <TestAppProviders services={services}>{children}</TestAppProviders>,
   });
-  await userEvent.setup().click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await userEvent.setup().hover(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
   expect(
     screen.queryByText(
       appI18n.t("chatSettings.sessionConnection", {
@@ -228,16 +228,16 @@ it("keeps Auto-compaction changes and rollback in Settings, outside Context", as
       </>
     );
   }
-  const user = userEvent.setup();
+  const user = userEvent.setup({ skipHover: true });
   render(
     <TestAppProviders services={services}>
       <Host />
     </TestAppProviders>,
   );
   await screen.findByRole("button", { name: appI18n.t("chatSettings.open") });
-  await user.click(screen.getByRole("button", { name: "20%" }));
+  await user.hover(screen.getByRole("button", { name: "20%" }));
   expect(screen.queryByRole("switch")).not.toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await user.hover(screen.getByRole("button", { name: appI18n.t("chatSettings.open") }));
   const toggle = screen.getByRole("switch", { name: appI18n.t("chatSettings.autoCompaction") });
   expect(toggle).toBeChecked();
   await user.click(toggle);
@@ -256,13 +256,13 @@ it("activates nested Settings controls once", async () => {
   const services = createTestServices([]);
   vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(initialRead);
   const mutate = vi.spyOn(services.api.chat, "mutateSettings").mockResolvedValue(response());
-  const user = userEvent.setup();
+  const user = userEvent.setup({ skipHover: true });
   render(
     <TestAppProviders services={services}>
       <SessionSettingsChipHost />
     </TestAppProviders>,
   );
-  await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await user.hover(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
   const popover = screen.getByRole("dialog");
   await user.click(within(popover).getByRole("radio", { name: appI18n.t("chatSettings.supervisorAlways") }));
   expect(mutate).toHaveBeenCalledExactlyOnceWith(target, { kind: "supervisor", value: "all" });
@@ -309,13 +309,13 @@ it.each([
     ...initialRead,
     settings: { ...settings, autoCompaction },
   });
-  const user = userEvent.setup();
+  const user = userEvent.setup({ skipHover: true });
   render(
     <TestAppProviders services={services}>
       <SessionSettingsChipHost />
     </TestAppProviders>,
   );
-  await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await user.hover(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
   const control = within(screen.getByRole("dialog")).getByRole("switch", {
     name: appI18n.t("chatSettings.autoCompaction"),
   });
@@ -332,13 +332,13 @@ it("sends repeated Supervisor segment activations while an earlier request is pe
     .spyOn(services.api.chat, "mutateSettings")
     .mockReturnValueOnce(first.promise)
     .mockReturnValueOnce(second.promise);
-  const user = userEvent.setup();
+  const user = userEvent.setup({ skipHover: true });
   render(
     <TestAppProviders services={services}>
       <SessionSettingsChipHost />
     </TestAppProviders>,
   );
-  await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await user.hover(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
   const always = within(screen.getByRole("dialog")).getByRole("radio", {
     name: appI18n.t("chatSettings.supervisorAlways"),
   });
@@ -376,13 +376,13 @@ it("omits Thinking when the Agent offers only one level", async () => {
   const mutate = vi
     .spyOn(services.api.chat, "mutateSettings")
     .mockResolvedValue(response(singleValueThinking));
-  const user = userEvent.setup();
+  const user = userEvent.setup({ skipHover: true });
   render(
     <TestAppProviders services={services}>
       <SessionSettingsChipHost />
     </TestAppProviders>,
   );
-  await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await user.hover(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
   const popover = screen.getByRole("dialog");
   expect(within(popover).queryByRole("slider")).not.toBeInTheDocument();
   expect(within(popover).queryByText(appI18n.t("chatSettings.thinking"))).not.toBeInTheDocument();
