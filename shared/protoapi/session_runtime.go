@@ -1,8 +1,6 @@
 package protoapi
 
 import (
-	"fmt"
-
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
@@ -86,16 +84,19 @@ func SessionRuntimeReleaseToProto(request serverapi.SessionRuntimeReleaseRequest
 		Attachment: SessionRuntimeAttachmentToProto(request.Attachment),
 		DropOwner:  request.DropOwner,
 	}
-	switch request.ClosePolicy {
-	case "":
-	case serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle:
-		result.ClosePolicy = sessionlaunchpb.SessionRuntimeReleaseClosePolicy_SESSION_RUNTIME_RELEASE_CLOSE_POLICY_CLOSE_IF_IDLE.Enum()
-	case serverapi.SessionRuntimeReleaseClosePolicyDetachOnly:
-		result.ClosePolicy = sessionlaunchpb.SessionRuntimeReleaseClosePolicy_SESSION_RUNTIME_RELEASE_CLOSE_POLICY_DETACH_ONLY.Enum()
-	default:
-		return nil, fmt.Errorf("invalid Runtime release close policy %q", request.ClosePolicy)
+	if request.ClosePolicy != "" {
+		policy, err := enumToProto(releaseClosePolicyValues, request.ClosePolicy, "Runtime release close policy")
+		if err != nil {
+			return nil, err
+		}
+		result.ClosePolicy = policy.Enum()
 	}
 	return result, nil
+}
+
+var releaseClosePolicyValues = map[sessionlaunchpb.SessionRuntimeReleaseClosePolicy]serverapi.SessionRuntimeReleaseClosePolicy{
+	sessionlaunchpb.SessionRuntimeReleaseClosePolicy_SESSION_RUNTIME_RELEASE_CLOSE_POLICY_CLOSE_IF_IDLE: serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle,
+	sessionlaunchpb.SessionRuntimeReleaseClosePolicy_SESSION_RUNTIME_RELEASE_CLOSE_POLICY_DETACH_ONLY:   serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
 }
 
 func SessionRuntimeReleaseFromProto(request *sessionlaunchpb.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseRequest, error) {
@@ -104,14 +105,7 @@ func SessionRuntimeReleaseFromProto(request *sessionlaunchpb.SessionRuntimeRelea
 		DropOwner:  request.DropOwner,
 	}
 	if request.ClosePolicy != nil {
-		switch *request.ClosePolicy {
-		case sessionlaunchpb.SessionRuntimeReleaseClosePolicy_SESSION_RUNTIME_RELEASE_CLOSE_POLICY_CLOSE_IF_IDLE:
-			result.ClosePolicy = serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle
-		case sessionlaunchpb.SessionRuntimeReleaseClosePolicy_SESSION_RUNTIME_RELEASE_CLOSE_POLICY_DETACH_ONLY:
-			result.ClosePolicy = serverapi.SessionRuntimeReleaseClosePolicyDetachOnly
-		default:
-			return serverapi.SessionRuntimeReleaseRequest{}, fmt.Errorf("invalid Runtime release close policy %v", *request.ClosePolicy)
-		}
+		result.ClosePolicy = releaseClosePolicyValues[*request.ClosePolicy]
 	}
 	return result, nil
 }

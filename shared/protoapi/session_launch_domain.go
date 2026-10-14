@@ -107,9 +107,6 @@ func SessionPlanErrorToProto(
 			return nil, true, fmt.Errorf("subagent launch policy kind %q is unsupported", policy.Kind)
 		}
 	}
-	if validationErr := Validate(failure); validationErr != nil {
-		return nil, true, validationErr
-	}
 	return failure, true, nil
 }
 
@@ -134,7 +131,7 @@ func SubagentLaunchDeniedToProto(denied *serverapi.SubagentLaunchDeniedError) (*
 		Kind: kind, Target: clonePointer(denied.Target),
 		AvailableRoles: append([]string(nil), denied.AvailableRoles...),
 	}
-	return details, Validate(details)
+	return details, nil
 }
 
 func SessionLaunchIntentToProto(intent serverapi.SessionLaunchIntent) (*sessionlaunchpb.SessionLaunchIntent, error) {
