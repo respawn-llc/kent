@@ -10,7 +10,68 @@ import (
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+func TestSourceReportRequiresUniqueSourceKeys(t *testing.T) {
+	fact := testConfigSourceFact()
+	report := &sessionlaunchpb.SourceReport{Sources: []*sessionlaunchpb.SourceFact{fact}}
+	if err := protoapi.Validate(report); err != nil {
+		t.Fatal(err)
+	}
+	report.Sources = append(report.Sources, proto.Clone(fact).(*sessionlaunchpb.SourceFact))
+	if err := protoapi.Validate(report); err == nil {
+		t.Fatal("duplicate source keys accepted")
+	}
+}
+
+func TestSubagentRoleRequiresUniqueSourceKeys(t *testing.T) {
+	workspace := t.TempDir()
+	app, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := protoapi.SessionSettingsToProto(app.Settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fact := testConfigSourceFact()
+	role := &sessionlaunchpb.SubagentRole{Settings: settings, Sources: []*sessionlaunchpb.SourceFact{fact}}
+	if err := protoapi.Validate(role); err != nil {
+		t.Fatal(err)
+	}
+	role.Sources = append(role.Sources, proto.Clone(fact).(*sessionlaunchpb.SourceFact))
+	if err := protoapi.Validate(role); err == nil {
+		t.Fatal("duplicate subagent source keys accepted")
+	}
+}
+
+func testConfigSourceFact() *sessionlaunchpb.SourceFact {
+	return &sessionlaunchpb.SourceFact{
+		Key: "model",
+		Origin: &sessionlaunchpb.ConfigOrigin{
+			Property: &sessionlaunchpb.ConfigPropertyAddress{Key: "model"},
+			Source: &sessionlaunchpb.ConfigOrigin_DefaultValue{DefaultValue: &emptypb.Empty{}},
+		},
+	}
+}
+
+func TestSourceReportRequiresUniqueFileLayers(t *testing.T) {
+	first := &sessionlaunchpb.ConfigFileReport{
+		File: &sessionlaunchpb.ConfigFileSource{
+			Layer: sessionlaunchpb.ConfigFileLayer_CONFIG_FILE_LAYER_GLOBAL,
+			Path: "/config.toml",
+		},
+	}
+	report := &sessionlaunchpb.SourceReport{Files: []*sessionlaunchpb.ConfigFileReport{first}}
+	if err := protoapi.Validate(report); err != nil {
+		t.Fatal(err)
+	}
+	report.Files = append(report.Files, proto.Clone(first).(*sessionlaunchpb.ConfigFileReport))
+	if err := protoapi.Validate(report); err == nil {
+		t.Fatal("duplicate source file layers accepted")
+	}
+}
 
 func TestNativeProgressSettingSurvivesSessionSettingsTransport(t *testing.T) {
 	for _, test := range []struct {

@@ -51,9 +51,6 @@ func configOriginToProto(origin config.Origin) (*sessionlaunchpb.ConfigOrigin, e
 }
 
 func configOriginFromProto(message *sessionlaunchpb.ConfigOrigin) (config.Origin, error) {
-	if err := Validate(message); err != nil {
-		return config.Origin{}, err
-	}
 	origin := config.Origin{Property: config.PropertyAddress{Key: message.Property.Key, Role: message.Property.Role}}
 	if message.RetainedSessionId != nil {
 		id := runtimeids.SessionIDFromProto(*message.RetainedSessionId)
@@ -168,12 +165,6 @@ func sourceFactsToProto(sources map[string]config.Origin) ([]*sessionlaunchpb.So
 func sourceFactsFromProto(facts []*sessionlaunchpb.SourceFact) (map[string]config.Origin, error) {
 	result := make(map[string]config.Origin, len(facts))
 	for _, fact := range facts {
-		if err := Validate(fact); err != nil {
-			return nil, err
-		}
-		if _, exists := result[fact.Key]; exists {
-			return nil, fmt.Errorf("duplicate configuration source %q", fact.Key)
-		}
 		origin, err := configOriginFromProto(fact.Origin)
 		if err != nil {
 			return nil, err

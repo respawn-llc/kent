@@ -549,9 +549,6 @@ func SessionSourceReportFromProto(message *sessionlaunchpb.SourceReport) (config
 		if err != nil {
 			return config.SourceReport{}, err
 		}
-		if report.File(layer) != nil {
-			return config.SourceReport{}, fmt.Errorf("duplicate configuration file layer %q", layer)
-		}
 		report.Files = append(report.Files, config.ConfigFileReport{
 			SourceFile: config.SourceFile{Layer: layer, Path: file.File.Path},
 			Exists:     file.Exists, Enabled: file.Enabled, Applied: file.Applied,

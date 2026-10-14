@@ -209,6 +209,11 @@ message ReviewerSettings {
 message SubagentRole {
   Settings settings = 1 [(buf.validate.field).required = true];
   repeated SourceFact sources = 8;
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.subagent_role_unique_source_keys"
+    message: "configuration source keys must be unique"
+    expression: "this.sources.map(fact, fact.key).unique()"
+  };
   string description = 3 [(buf.validate.field).string.max_len = 5000];
   bool agent_callable = 4;
   bool workflow_subagent = 6;
@@ -368,6 +373,16 @@ message SourceReport {
   bool created_default_config = 3;
   repeated SourceFact sources = 10;
   repeated ConfigFileReport files = 11;
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.source_report_unique_source_keys"
+    message: "configuration source keys must be unique"
+    expression: "this.sources.map(fact, fact.key).unique()"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.source_report_unique_file_layers"
+    message: "configuration file layers must be unique"
+    expression: "this.files.map(report, report.file.layer).unique()"
+  };
 }
 
 message ConfigFileReport {
