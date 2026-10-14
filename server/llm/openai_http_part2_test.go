@@ -601,7 +601,7 @@ func TestOAuthCompactRequestTargetsStreamingResponsesWithFinalTrigger(t *testing
 	}
 	dispatch, err := NewCodexDispatchContext(CodexDispatchFacts{
 		SessionID:   "test-session",
-		RunID:       "test-run",
+		StepID:      "test-step",
 		RequestKind: CodexRequestKindCompaction.Optional(),
 	})
 	if err != nil {
@@ -919,7 +919,7 @@ func testOAuthCompactionRequest(t *testing.T, model string) ResponsesRequest {
 	t.Helper()
 	dispatch, err := NewCodexDispatchContext(CodexDispatchFacts{
 		SessionID:   "test-session",
-		RunID:       "test-run",
+		StepID:      "test-step",
 		RequestKind: CodexRequestKindCompaction.Optional(),
 	})
 	if err != nil {

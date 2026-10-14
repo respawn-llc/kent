@@ -348,7 +348,6 @@ func TestRemoteLiveResponsesRejectMismatchedSessionIDs(t *testing.T) {
 				Result:         &runtimepb.LiveWaitSuccess_AssistantFinalAnswer{AssistantFinalAnswer: &runtimepb.LiveWaitAssistantFinalAnswer{Result: "done"}},
 				Duration:       durationpb.New(time.Millisecond),
 				LiveRunGroupId: "018fdd67-89ab-4cde-8123-456789abcdef",
-				TerminalRunId:  "018fdd67-89ab-4cde-8123-456789abcdef",
 				TerminalStepId: "018fdd67-89ab-4cde-8123-456789abcdef", TerminalStatus: "completed",
 			},
 			call: func(ctx context.Context, remote *Remote) error {

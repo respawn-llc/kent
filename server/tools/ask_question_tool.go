@@ -29,7 +29,6 @@ type AskQuestionRequest struct {
 	ApprovalConsumer       func(AskQuestionApproval) error       `json:"-"`
 	AccessTargets          []FileAccessTarget                    `json:"-"`
 	Origin                 AskQuestionOrigin                     `json:"-"`
-	RunID                  string                                `json:"-"`
 	StepID                 string                                `json:"-"`
 	ToolCallID             string                                `json:"-"`
 	QuestionBatch          *AskQuestionBatchMetadata             `json:"-"`
@@ -357,13 +356,11 @@ func (t *AskQuestionTool) Call(ctx context.Context, c Call) (Result, error) {
 		return ErrorResult(c, prepareErr.Error()), nil
 	}
 	req.Origin = AskQuestionOriginModelTool
-	req.RunID = c.RunID
 	req.StepID = c.StepID
 	if c.AskQuestionBatch != nil {
 		batch := *c.AskQuestionBatch
 		batch.BatchToolCallIDs = append([]string(nil), c.AskQuestionBatch.BatchToolCallIDs...)
 		req.Origin = batch.Origin
-		req.RunID = batch.RunID
 		req.StepID = batch.StepID
 		req.QuestionBatch = &batch
 	}

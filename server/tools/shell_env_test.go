@@ -20,7 +20,7 @@ func TestCredentialEnvironmentUsesCurrentConnectionReferences(t *testing.T) {
 	}
 	base := EnrichShellEnvForInvocation([]string{
 		"FIRST_KEY=secret", "NEXT_KEY=other", "FIRST_KEY_SUFFIX=ordinary", "KEEP=1",
-	}, "session", "run", "step")
+	}, "session", "step")
 	for _, name := range []string{"FIRST_KEY", "NEXT_KEY"} {
 		write(name)
 		filtered, err := FilterCredentialEnvironment(root, base)
@@ -32,7 +32,7 @@ func TestCredentialEnvironmentUsesCurrentConnectionReferences(t *testing.T) {
 			t.Fatal("referenced credential was inherited")
 		}
 		if values["FIRST_KEY_SUFFIX"] != "ordinary" || values["KEEP"] != "1" ||
-			values[sessionenv.SessionIDEnv] != "session" || values[sessionenv.RunIDEnv] != "run" || values[sessionenv.StepIDEnv] != "step" {
+			values[sessionenv.SessionIDEnv] != "session" || values[sessionenv.StepIDEnv] != "step" {
 			t.Fatal("filter removed unrelated environment or execution metadata")
 		}
 	}
@@ -98,13 +98,10 @@ func TestEnrichForSessionInjectsSessionIDEnv(t *testing.T) {
 	}
 }
 
-func TestEnrichForInvocationInjectsRunAndStepEnv(t *testing.T) {
-	env := envMap(t, EnrichShellEnvForInvocation([]string{"PATH=/bin"}, "session-1", " run-1 ", " step-1 "))
+func TestEnrichForInvocationInjectsStepEnv(t *testing.T) {
+	env := envMap(t, EnrichShellEnvForInvocation([]string{"PATH=/bin"}, "session-1", " step-1 "))
 	if got := env[sessionenv.SessionIDEnv]; got != "session-1" {
 		t.Fatalf("%s = %q, want session-1", sessionenv.SessionIDEnv, got)
-	}
-	if got := env[sessionenv.RunIDEnv]; got != "run-1" {
-		t.Fatalf("%s = %q, want run-1", sessionenv.RunIDEnv, got)
 	}
 	if got := env[sessionenv.StepIDEnv]; got != "step-1" {
 		t.Fatalf("%s = %q, want step-1", sessionenv.StepIDEnv, got)

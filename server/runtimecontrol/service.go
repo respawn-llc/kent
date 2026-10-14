@@ -90,16 +90,12 @@ type goalSetRequest struct {
 	SessionID string
 	Objective string
 	Actor     string
-	RunID     string
-	StepID    string
 }
 
 type goalStatusRequest struct {
 	SessionID string
 	Status    string
 	Actor     string
-	RunID     string
-	StepID    string
 }
 
 type goalClearRequest struct {

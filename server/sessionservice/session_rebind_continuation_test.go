@@ -85,7 +85,7 @@ func TestCrossProjectSelfRebindContinuesWithoutAnotherUserMessage(t *testing.T) 
 					_, err = retargeter.ScheduleWorkspaceRetarget(
 						ctx,
 						request,
-						&sessionlaunchpb.RuntimeStepOrigin{RunId: active.RunID, StepId: active.StepID},
+						&sessionlaunchpb.RuntimeStepOrigin{StepId: active.StepID},
 						worktreecontract.NewOperationID(),
 					)
 					if err != nil {
@@ -284,7 +284,7 @@ func TestSelfRebindRejectsAStaleOriginWithoutInterruptingExecution(t *testing.T)
 		targetProject := fixture.targetProject.ProjectID
 		_, err := retargeter.ScheduleWorkspaceRetarget(ctx, metadata.SessionWorkspaceRetargetRequest{
 			SessionID: fixture.childID.String(), WorkspaceRoot: fixture.targetWorkspaceRoot, ProjectID: &targetProject,
-		}, &sessionlaunchpb.RuntimeStepOrigin{RunId: uuid.NewString(), StepId: uuid.NewString()}, worktreecontract.NewOperationID())
+		}, &sessionlaunchpb.RuntimeStepOrigin{StepId: uuid.NewString()}, worktreecontract.NewOperationID())
 		rejected <- err
 		return llm.Response{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("continued"), Phase: textutil.Value(llm.MessagePhaseFinal)},

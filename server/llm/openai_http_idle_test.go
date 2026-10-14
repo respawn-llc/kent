@@ -66,7 +66,7 @@ func TestOAuthGenerateSurvivesConfiguredHTTPClientTimeout(t *testing.T) {
 	transport.Auth = oauthStaticAuth{}
 	transport.Client.Timeout = 50 * time.Millisecond
 	dispatch, err := NewCodexDispatchContext(CodexDispatchFacts{
-		SessionID: "session-1", RunID: "run-1", RequestKind: CodexRequestKindTurn.Optional(),
+		SessionID: "session-1", StepID: "step-1", RequestKind: CodexRequestKindTurn.Optional(),
 	})
 	if err != nil {
 		t.Fatalf("dispatch context: %v", err)

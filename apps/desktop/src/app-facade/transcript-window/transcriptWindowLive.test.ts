@@ -7,7 +7,7 @@ import { TranscriptWindow } from "./index";
 const compacting = {
   ...idle,
   State: "running",
-  ActiveStep: { RunID: "run", StepID: "step", ActiveKind: "compaction" },
+  ActiveStep: { StepID: "step", ActiveKind: "compaction" },
 } as const;
 const activeCompaction: ChatTranscriptPayloadByKind["compaction_status"] = {
   StepID: "step",
@@ -33,7 +33,7 @@ describe("transcript live membership and compaction", () => {
       hydration: hydration([row(1)], 0, {
         ...idle,
         State: "running",
-        ActiveStep: { RunID: "run", StepID: "step", ActiveKind: "user_turn" },
+        ActiveStep: { StepID: "step", ActiveKind: "user_turn" },
       }),
     });
     const committed = window.snapshot.items;
@@ -66,7 +66,6 @@ describe("transcript live membership and compaction", () => {
         kind: "step_state",
         payload: {
           StepID: "step",
-          RunID: "run",
           Lifecycle: "finished",
           ActiveKind: "user_turn",
           Status: "completed",
@@ -84,7 +83,7 @@ describe("transcript live membership and compaction", () => {
       ...hydration([row(1)], 0, {
         ...idle,
         State: "running",
-        ActiveStep: { RunID: "run", StepID: "step", ActiveKind: "user_turn" },
+        ActiveStep: { StepID: "step", ActiveKind: "user_turn" },
       }),
       ActiveThinkingStatus: { StepID: "step", Text: "status" },
     };
@@ -121,7 +120,7 @@ describe("transcript live membership and compaction", () => {
       ...idle,
       State: "running",
       Reviewer: "invoking",
-      ActiveStep: { RunID: "run", StepID: "step", ActiveKind: "user_turn" },
+      ActiveStep: { StepID: "step", ActiveKind: "user_turn" },
     } as const;
     const status = (StepID: string, Text: string) =>
       window.dispatch({
@@ -164,7 +163,7 @@ describe("transcript live membership and compaction", () => {
       activity: {
         ...reviewer,
         State: "running",
-        ActiveStep: { RunID: "run", StepID: "step", ActiveKind: "user_turn" },
+        ActiveStep: { StepID: "step", ActiveKind: "user_turn" },
       },
     });
     expect(window.snapshot.thinkingStatus).toEqual({ kind: "working" });
@@ -190,7 +189,7 @@ describe("transcript live membership and compaction", () => {
         hydration: hydration([row(1)], 0, {
           ...idle,
           State: "running",
-          ActiveStep: { RunID: "run", StepID: "step", ActiveKind },
+          ActiveStep: { StepID: "step", ActiveKind },
         }),
       });
       expect(window.snapshot.thinkingStatus).toEqual({ kind });

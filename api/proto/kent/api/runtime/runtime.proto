@@ -104,10 +104,6 @@ message ReadModelVersion {
 }
 
 message ActiveStep {
-  string run_id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
   string step_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -493,10 +489,6 @@ message LiveWaitSuccess {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
-  string terminal_run_id = 5 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
   string terminal_step_id = 6 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -693,8 +685,15 @@ message GoalMutationRequest {
       expression: "this.trim() in ['user', 'agent', 'system']"
     }
   ];
-  optional string run_id = 3 [(buf.validate.field).string.min_len = 1];
   optional string step_id = 4 [(buf.validate.field).string.min_len = 1];
+
+  option (buf.validate.message).cel = {
+    id: "kent.runtime.goal_mutation_actor_step"
+    message: "Goal mutation execution identity must be present only for agent actors"
+    expression:
+      "(this.actor.trim() == 'agent' && has(this.step_id)) || "
+      "(this.actor.trim() != 'agent' && !has(this.step_id))"
+  };
 }
 
 message GoalSetRequest {
@@ -720,14 +719,6 @@ message GoalSetRequest {
     not_in: [0]
   }];
   optional string initial_input_draft = 5;
-  optional string run_id = 6 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.runtime.goal_set_run_id_nonblank"
-      message: "run_id must not be blank when present"
-      expression: "this.trim() != ''"
-    }
-  ];
   optional string step_id = 7 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -742,12 +733,12 @@ message GoalSetRequest {
     message: "Goal Set target, actor, execution policy, draft, and execution identity must form a legal combination"
     expression:
       "has(this.target.new_chat) && this.execution_policy == 1 && this.actor.trim() == 'user' && "
-      "!has(this.run_id) && !has(this.step_id) || "
+      "!has(this.step_id) || "
       "has(this.target.session) && !has(this.initial_input_draft) && ("
-      "(this.execution_policy == 1 && this.actor.trim() == 'user' && !has(this.run_id) && !has(this.step_id)) || "
+      "(this.execution_policy == 1 && this.actor.trim() == 'user' && !has(this.step_id)) || "
       "(this.execution_policy == 2 && ("
-      "(this.actor.trim() == 'agent' && has(this.run_id) && has(this.step_id)) || "
-      "(this.actor.trim() != 'agent' && !has(this.run_id) && !has(this.step_id))"
+      "(this.actor.trim() == 'agent' && has(this.step_id)) || "
+      "(this.actor.trim() != 'agent' && !has(this.step_id))"
       ")))"
   };
 }

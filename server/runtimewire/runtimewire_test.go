@@ -662,7 +662,6 @@ func TestOutsideWorkspaceToolsInheritTypedApprovalBarrierFromCallContext(t *test
 				},
 			)
 			ctx = tools.WithExecutionIdentity(ctx, tools.ExecutionIdentity{
-				RunID:      "11111111-1111-4111-8111-111111111111",
 				StepID:     "22222222-2222-4222-8222-222222222222",
 				ToolCallID: clientui.ToolCallID(toolCallID),
 			})
@@ -1111,7 +1110,6 @@ func callRuntimeWireTool(t *testing.T, registry *tools.Registry, id toolspec.ID,
 	}
 	toolCallID := "runtimewire-" + string(id)
 	ctx := tools.WithExecutionIdentity(context.Background(), tools.ExecutionIdentity{
-		RunID:      "11111111-1111-4111-8111-111111111111",
 		StepID:     "22222222-2222-4222-8222-222222222222",
 		ToolCallID: clientui.ToolCallID(toolCallID),
 	})

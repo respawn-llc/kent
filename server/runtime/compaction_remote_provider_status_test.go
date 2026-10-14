@@ -495,6 +495,41 @@ func TestRemoteCompactionTransientRetryReusesUnchangedDispatchState(t *testing.T
 	}
 }
 
+func TestStandaloneCompactionUsesItsOwnCodexTurnIdentity(t *testing.T) {
+	client := &fakeCompactionClient{
+		responses: []llm.Response{{
+			Assistant: llm.Message{
+				Role: llm.RoleAssistant, Content: textutil.Value("ordinary completion"),
+				Phase: textutil.Value(llm.MessagePhaseFinal),
+			},
+			Usage: llm.Usage{WindowTokens: 1_000},
+		}},
+		compactionResponses: []llm.CompactionResponse{remoteCompactionReplacement(1_000, 100, 2_500)},
+	}
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
+		Model: "gpt-6-sol", CompactionMode: "native", ContextWindowTokens: 200_000,
+	})
+	if _, err := engine.SubmitUserMessage(t.Context(), "ordinary work"); err != nil {
+		t.Fatalf("ordinary execution: %v", err)
+	}
+	if len(client.calls) != 1 {
+		t.Fatalf("ordinary generation calls = %d, want one", len(client.calls))
+	}
+	ordinaryTurnID := codexTurnIDForDispatch(t, client.calls[0].CodexDispatch)
+
+	if err := engine.CompactContext(t.Context(), ""); err != nil {
+		t.Fatalf("standalone compaction: %v", err)
+	}
+	waitEngineLifecycleTasks(t, engine)
+	if len(client.compactionCalls) != 1 {
+		t.Fatalf("standalone compaction calls = %d, want one", len(client.compactionCalls))
+	}
+	compactionTurnID := codexTurnIDForDispatch(t, client.compactionCalls[0].CodexDispatch)
+	if ordinaryTurnID == compactionTurnID {
+		t.Fatal("standalone compaction reused the prior execution identity")
+	}
+}
+
 func TestRemoteCompactionFailureAndCheckpointFallback(t *testing.T) {
 	t.Run("non-overflow provider 400 fails without replacement or fallback", func(t *testing.T) {
 		store, client, engine := newRemoteCompactionFixture(t, &llm.ProviderAPIError{

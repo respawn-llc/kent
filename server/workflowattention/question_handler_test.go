@@ -106,12 +106,10 @@ func taskQuestionRequestForTest(t *testing.T) TaskQuestionRequest {
 		Question: askquestion.AskQuestionRequest{
 			Question:   "Proceed?",
 			Origin:     askquestion.AskQuestionOriginModelTool,
-			RunID:      "run-1",
 			StepID:     "step-1",
 			ToolCallID: "ask-1",
 			QuestionBatch: &askquestion.AskQuestionBatchMetadata{
 				Origin:              askquestion.AskQuestionOriginModelTool,
-				RunID:               "run-1",
 				StepID:              "step-1",
 				ToolCallID:          "ask-1",
 				BatchToolCallIDs:    []string{"ask-1", "ask-2"},

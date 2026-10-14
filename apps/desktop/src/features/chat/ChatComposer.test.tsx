@@ -406,7 +406,7 @@ it("guards both compact activations against admitted active compaction", async (
     activity: {
       ...view.activity,
       state: "running",
-      activeStep: { runID: "run-1", stepID: "step-1", activeKind: "compaction" },
+      activeStep: { stepID: "step-1", activeKind: "compaction" },
     },
   });
   await act(async () => {
@@ -612,7 +612,7 @@ it.each(["idle", "stopped", "failed"] as const)(
         activity: {
           ...idle.mainView.activity,
           state: "running",
-          activeStep: { runID: "run-1", stepID: "step-1", activeKind: "user_turn" },
+          activeStep: { stepID: "step-1", activeKind: "user_turn" },
         },
       },
     });
@@ -686,7 +686,7 @@ it("clears an armed Stop on transcript loss while allowing a subsequent independ
       activity: {
         ...mainView.mainView.activity,
         state: "running",
-        activeStep: { runID: "run-1", stepID: "step-1", activeKind: "user_turn" },
+        activeStep: { stepID: "step-1", activeKind: "user_turn" },
       },
     },
   });

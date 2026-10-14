@@ -165,7 +165,6 @@ func TestTryInterruptActiveRunRecoversOrphanedRunningGroup(t *testing.T) {
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	eng.liveRun.beginStep(&RunSnapshot{
-		RunID:      "018fdd67-89ab-4cde-8123-456789abc001",
 		StepID:     "018fdd67-89ab-4cde-8123-456789abc002",
 		Status:     RunStatusRunning,
 		ActiveKind: ActiveKindUserTurn,
@@ -197,8 +196,7 @@ func TestTryInterruptActiveRunRecoversOrphanedRunningGroup(t *testing.T) {
 func TestTryInterruptActiveRunPanicsForOrphanedRunningGroupInDebug(t *testing.T) {
 	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol", Debug: true})
 	eng.liveRun.beginStep(&RunSnapshot{
-		RunID: uuid.NewString(), StepID: uuid.NewString(),
-		Status: RunStatusRunning, ActiveKind: ActiveKindUserTurn, StartedAt: time.Now().UTC(),
+		StepID: uuid.NewString(), Status: RunStatusRunning, ActiveKind: ActiveKindUserTurn, StartedAt: time.Now().UTC(),
 	})
 	defer func() {
 		if recover() == nil {
@@ -211,7 +209,6 @@ func TestTryInterruptActiveRunPanicsForOrphanedRunningGroupInDebug(t *testing.T)
 func TestQueueMessageForActiveRunCancellationPreventsAcceptance(t *testing.T) {
 	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	eng.liveRun.beginStep(&RunSnapshot{
-		RunID:      "018fdd67-89ab-4cde-8123-456789abc001",
 		StepID:     "018fdd67-89ab-4cde-8123-456789abc002",
 		Status:     RunStatusRunning,
 		ActiveKind: ActiveKindUserTurn,
@@ -719,11 +716,10 @@ func TestTryInterruptActiveRunPreservesGoalLoopInterruptBookkeeping(t *testing.T
 	}
 }
 
-func TestTryInterruptActiveRunPreservesDifferentlyIdentifiedGroupDuringActiveStep(t *testing.T) {
+func TestTryInterruptActiveRunPreservesDifferentLiveGroupDuringActiveStep(t *testing.T) {
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	eng.ensureOrchestrationCollaborators()
-	activeRunID := uuid.NewString()
 	activeStepID := uuid.NewString()
 	canceled := false
 	eng.stepLifecycle = &defaultExclusiveStepLifecycle{
@@ -734,13 +730,11 @@ func TestTryInterruptActiveRunPreservesDifferentlyIdentifiedGroupDuringActiveSte
 			cancel: func() {
 				canceled = true
 			},
-			runID:     activeRunID,
 			stepID:    activeStepID,
 			startedAt: time.Now().UTC(),
 		},
 	}
 	eng.liveRun.beginStep(&RunSnapshot{
-		RunID:      uuid.NewString(),
 		StepID:     uuid.NewString(),
 		Status:     RunStatusRunning,
 		ActiveKind: ActiveKindGoalLoop,

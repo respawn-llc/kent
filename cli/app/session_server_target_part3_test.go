@@ -103,7 +103,6 @@ func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
 		Workdir:        workspace,
 		YieldTime:      time.Millisecond,
 		OwnerSessionID: plan.SessionID,
-		OwnerRunID:     "run-1",
 		OwnerStepID:    "step-1",
 	})
 	if err != nil {

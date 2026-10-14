@@ -105,13 +105,6 @@ func NewLiveRunGroupID() LiveRunGroupID {
 	return LiveRunGroupID{uuidv4Value: newUUIDv4Value()}
 }
 
-type RunID struct{ uuidv4Value }
-
-func ParseRunID(raw string) (RunID, error) {
-	id, err := parseUUIDv4Value(raw, "run_id")
-	return RunID{uuidv4Value: id}, err
-}
-
 type StepID struct{ uuidv4Value }
 
 func ParseStepID(raw string) (StepID, error) {

@@ -14,7 +14,6 @@ const (
 
 type StepLifecycleSnapshot struct {
 	SessionID   string
-	RunID       string
 	StepID      string
 	ActiveKind  ActiveKind
 	Transition  StepLifecycleTransition

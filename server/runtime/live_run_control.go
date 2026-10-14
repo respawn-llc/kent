@@ -42,7 +42,6 @@ const (
 
 type LiveRunResult struct {
 	GroupID          runtimeids.LiveRunGroupID
-	RunID            runtimeids.RunID
 	StepID           runtimeids.StepID
 	Status           RunStatus
 	WorkPerformed    bool
@@ -72,7 +71,6 @@ type liveRunCoordinator struct {
 type liveRunGroup struct {
 	supervisorTriggered bool
 	id                  runtimeids.LiveRunGroupID
-	runID               runtimeids.RunID
 	stepID              runtimeids.StepID
 	stepToolStarts      liveStepToolStartCount
 	workPerformed       bool
@@ -414,7 +412,6 @@ func (c *liveRunCoordinator) beginStep(snapshot *RunSnapshot) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.current != nil {
-		c.current.runID = mustRunID(snapshot.RunID)
 		c.current.stepID = mustStepID(snapshot.StepID)
 		c.current.stepToolStarts = liveStepToolStartsNone
 		c.current.goalLoop = snapshot.GoalLoop
@@ -432,7 +429,6 @@ func (c *liveRunCoordinator) beginStep(snapshot *RunSnapshot) {
 	}
 	c.current = &liveRunGroup{
 		id:            runtimeids.NewLiveRunGroupID(),
-		runID:         mustRunID(snapshot.RunID),
 		stepID:        mustStepID(snapshot.StepID),
 		goalLoop:      snapshot.GoalLoop,
 		status:        RunStatusRunning,
@@ -457,7 +453,6 @@ func (c *liveRunCoordinator) finishStepDeferred(snapshot *RunSnapshot, status Ru
 		c.mu.Unlock()
 		return nil, nil
 	}
-	group.runID = mustRunID(snapshot.RunID)
 	group.stepID = mustStepID(snapshot.StepID)
 	group.goalLoop = snapshot.GoalLoop
 	group.status = status
@@ -726,10 +721,9 @@ func (c *liveRunCoordinator) interruptMatchingStep(snapshot *RunSnapshot) (bool,
 	if snapshot == nil {
 		return false, nil, false
 	}
-	runID := mustRunID(snapshot.RunID)
 	stepID := mustStepID(snapshot.StepID)
 	return c.interruptWhere(func(group *liveRunGroup) bool {
-		return group.runID == runID && group.stepID == stepID
+		return group.stepID == stepID
 	})
 }
 
@@ -820,7 +814,6 @@ func (h *LiveRunWaitHandle) Wait() (LiveRunResult, error) {
 	}
 	return LiveRunResult{
 		GroupID:          h.group.id,
-		RunID:            h.group.runID,
 		StepID:           h.group.stepID,
 		Status:           h.group.status,
 		WorkPerformed:    h.group.workPerformed,
@@ -836,7 +829,6 @@ func (h *LiveRunWaitHandle) Wait() (LiveRunResult, error) {
 func liveRunResultForGroup(group *liveRunGroup) LiveRunResult {
 	return LiveRunResult{
 		GroupID:          group.id,
-		RunID:            group.runID,
 		StepID:           group.stepID,
 		Status:           group.status,
 		WorkPerformed:    group.workPerformed,
@@ -868,14 +860,6 @@ func liveRunNoFinalAnswerReason(kind ActiveKind) LiveRunNoFinalAnswerReason {
 	default:
 		return LiveRunNoFinalAnswerReasonUnknown
 	}
-}
-
-func mustRunID(raw string) runtimeids.RunID {
-	id, err := runtimeids.ParseRunID(raw)
-	if err != nil {
-		panic(fmt.Sprintf("runtime generated invalid run id %q: %v", raw, err))
-	}
-	return id
 }
 
 func mustStepID(raw string) runtimeids.StepID {

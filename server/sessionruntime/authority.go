@@ -354,7 +354,6 @@ func (a *Authority) WithExactExecutions(handles []ExecutionHandle, operation fun
 func (a *Authority) CompleteAgentStep(
 	ctx context.Context,
 	scopeID runtimeids.ExecutionScopeID,
-	runID runtimeids.RunID,
 	stepID runtimeids.StepID,
 	operation func() (workflowruntime.CompletionResult, error),
 ) (workflowruntime.CompletionResult, error) {
@@ -375,7 +374,7 @@ func (a *Authority) CompleteAgentStep(
 			exact.resource.ref,
 			func(_ context.Context, engine *runtime.Engine) error {
 				var completionErr error
-				result, completionErr = engine.ApplyWorkflowAgentCompletion(scopeID, runID, stepID, operation)
+				result, completionErr = engine.ApplyWorkflowAgentCompletion(scopeID, stepID, operation)
 				return completionErr
 			},
 		)

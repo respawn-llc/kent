@@ -436,10 +436,6 @@ message CompleteRequest {
   }];
   optional string agent_session_id = 7 [(buf.validate.field).string.min_len = 1];
   bool force = 8;
-  optional string run_id = 9 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
   optional string step_id = 10 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -449,8 +445,8 @@ message CompleteRequest {
     id: "kent.workflow_task.complete_actor"
     message: "completion actor, selector, and force fields must agree"
     expression:
-      "(this.actor_kind == 1 && has(this.agent_session_id) && has(this.run_id) && has(this.step_id) && !this.force && !(has(this.session_id) && has(this.task_id))) || "
-      "(this.actor_kind == 2 && !has(this.agent_session_id) && !has(this.run_id) && !has(this.step_id) && this.force && (has(this.session_id) != has(this.task_id)))"
+      "(this.actor_kind == 1 && has(this.agent_session_id) && has(this.step_id) && !this.force && !(has(this.session_id) && has(this.task_id))) || "
+      "(this.actor_kind == 2 && !has(this.agent_session_id) && !has(this.step_id) && this.force && (has(this.session_id) != has(this.task_id)))"
   };
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.complete_output_names_unique"

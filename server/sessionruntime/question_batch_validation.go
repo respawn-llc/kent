@@ -27,12 +27,6 @@ func validateQuestionBatchMetadata(request tools.AskQuestionRequest) (*validated
 	if request.Origin != tools.AskQuestionOriginModelTool || batch.Origin != request.Origin {
 		return invalid(fmt.Sprintf("origin %q does not match request origin %q", batch.Origin, request.Origin))
 	}
-	if !normalizedQuestionBatchID(request.RunID) {
-		return invalid(fmt.Sprintf("request run id %q is blank or not normalized", request.RunID))
-	}
-	if !normalizedQuestionBatchID(batch.RunID) || batch.RunID != request.RunID {
-		return invalid(fmt.Sprintf("run id %q does not match request run id %q", batch.RunID, request.RunID))
-	}
 	if !normalizedQuestionBatchID(request.StepID) {
 		return invalid(fmt.Sprintf("request step id %q is blank or not normalized", request.StepID))
 	}

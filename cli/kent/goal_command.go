@@ -140,11 +140,11 @@ func goalSetSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 2
 	}
 	actor := "user"
-	var runID, stepID *string
+	var stepID *string
 	if agent {
 		actor = "agent"
-		run, step := sessionenv.LookupRunStepID(os.LookupEnv)
-		runID, stepID = textutil.OptionalTrimmedString(run), textutil.OptionalTrimmedString(step)
+		step, _ := sessionenv.LookupStepID(os.LookupEnv)
+		stepID = textutil.OptionalTrimmedString(step)
 	}
 	return withGoalCommandRemote(stderr, func(ctx context.Context, remote goalCommandRemote) int {
 		resp, err := remote.SetGoal(ctx, &runtimepb.GoalSetRequest{
@@ -156,7 +156,6 @@ func goalSetSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			Objective:       objective,
 			Actor:           actor,
 			ExecutionPolicy: runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE,
-			RunId:           runID,
 			StepId:          stepID,
 		})
 		if err != nil {
@@ -244,13 +243,13 @@ func goalCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 			return 1
 		}
 		actor := "user"
-		var runID, stepID *string
+		var stepID *string
 		if agent {
 			actor = "agent"
-			run, step := sessionenv.LookupRunStepID(os.LookupEnv)
-			runID, stepID = textutil.OptionalTrimmedString(run), textutil.OptionalTrimmedString(step)
+			step, _ := sessionenv.LookupStepID(os.LookupEnv)
+			stepID = textutil.OptionalTrimmedString(step)
 		}
-		response, err := remote.CompleteGoal(ctx, &runtimepb.GoalMutationRequest{SessionId: protoapi.SessionSelectorToProto(target), Actor: actor, RunId: runID, StepId: stepID})
+		response, err := remote.CompleteGoal(ctx, &runtimepb.GoalMutationRequest{SessionId: protoapi.SessionSelectorToProto(target), Actor: actor, StepId: stepID})
 		if err != nil {
 			fmt.Fprintln(stderr, goalMutationCommandError(target.String(), err))
 			return 1
