@@ -104,10 +104,7 @@ func manualCompactionPendingWorkItem(id runtimeids.CompactionRequestID, payload 
 		guidance := *payload.Guidance
 		payload.Guidance = &guidance
 	}
-	canonical, err := payload.CanonicalInput()
-	if err != nil {
-		return runtimeinput.PendingWorkItem{}, err
-	}
+	canonical := payload.CanonicalInput()
 	item := runtimeinput.PendingWorkItem{
 		ID: itemID, Lane: runtimeinput.PendingWorkLaneSteer, Kind: runtimeinput.PendingWorkItemKindManualCompaction,
 		State: runtimeinput.PendingWorkItemStatePending, CanonicalInput: canonical, ManualCompaction: &payload,

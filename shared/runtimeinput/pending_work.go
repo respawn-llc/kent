@@ -72,59 +72,21 @@ type PendingWorkItem struct {
 	WorktreeTransition *PendingWorkWorktreeTransition `json:"worktree_transition,omitempty"`
 }
 
-func (c ManualCompactionAdmission) Validate() error {
+func (c ManualCompactionAdmission) CanonicalInput() string {
 	if c.Guidance == nil {
-		return nil
+		return "/compact"
 	}
-	if *c.Guidance == "" {
-		return errors.New("Pending Work compaction guidance must not be blank")
-	}
-	if NormalizePendingWorkArgument(*c.Guidance) != *c.Guidance {
-		return errors.New("Pending Work compaction guidance must be normalized")
-	}
-	return nil
-}
-
-func (c ManualCompactionAdmission) CanonicalInput() (string, error) {
-	if err := c.Validate(); err != nil {
-		return "", err
-	}
-	if c.Guidance == nil {
-		return "/compact", nil
-	}
-	return "/compact " + *c.Guidance, nil
-}
-
-func (t PendingWorkWorktreeTransition) Validate() error {
-	switch t.Transition {
-	case PendingWorkWorktreeTransitionEnter:
-		if t.Selector == nil || *t.Selector == "" {
-			return errors.New("Pending Work Worktree enter selector is required")
-		}
-		if NormalizePendingWorkArgument(*t.Selector) != *t.Selector {
-			return errors.New("Pending Work Worktree enter selector must be normalized")
-		}
-	case PendingWorkWorktreeTransitionLeave:
-		if t.Selector != nil {
-			return errors.New("Pending Work Worktree leave selector is forbidden")
-		}
-	default:
-		return fmt.Errorf("unknown Pending Work Worktree transition %q", t.Transition)
-	}
-	return nil
+	return "/compact " + *c.Guidance
 }
 
 func (t PendingWorkWorktreeTransition) CanonicalInput() (string, error) {
-	if err := t.Validate(); err != nil {
-		return "", err
-	}
 	switch t.Transition {
 	case PendingWorkWorktreeTransitionEnter:
 		return "/wt switch " + *t.Selector, nil
 	case PendingWorkWorktreeTransitionLeave:
 		return "/wt leave", nil
 	default:
-		panic("validated Pending Work Worktree transition is exhaustive")
+		return "", fmt.Errorf("unknown Pending Work Worktree transition %q", t.Transition)
 	}
 }
 

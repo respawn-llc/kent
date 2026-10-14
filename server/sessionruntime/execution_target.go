@@ -93,9 +93,6 @@ func (a *Authority) RunWorktreeTransition(
 	if err := operationID.Validate(); err != nil {
 		return nil, err
 	}
-	if err := transition.Validate(); err != nil {
-		return nil, err
-	}
 	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
 	if err != nil {
 		return nil, err

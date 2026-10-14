@@ -31,10 +31,3 @@ type RuntimeCompactRequest struct {
 	RequestID runtimeids.CompactionRequestID
 	Admission runtimeinput.ManualCompactionAdmission
 }
-
-func (r RuntimeCompactRequest) Validate() error {
-	if r.RequestID.IsZero() {
-		return fmt.Errorf("compaction request id is required")
-	}
-	return r.Admission.Validate()
-}

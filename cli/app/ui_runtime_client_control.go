@@ -252,9 +252,6 @@ func (c *sessionRuntimeClient) RunUserShell(ctx context.Context, req clientui.Ru
 }
 
 func (c *sessionRuntimeClient) CompactRuntime(ctx context.Context, req clientui.RuntimeCompactRequest) error {
-	if err := req.Validate(); err != nil {
-		return err
-	}
 	return runtimeRequestCallNoResult(ctx, c, func(ctx context.Context) error {
 		return c.controls.CompactContext(ctx, &runtimepb.CompactContextRequest{
 			SessionId: c.sessionID,

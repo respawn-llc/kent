@@ -199,9 +199,6 @@ func (c *defaultContextCompactor) CompactContextAdmissionWithAcceptance(
 	if requestID.IsZero() {
 		return session.CommitReceipt{}, errors.New("compaction request id is required")
 	}
-	if err := admission.Validate(); err != nil {
-		return session.CommitReceipt{}, err
-	}
 	args := ""
 	if admission.Guidance != nil {
 		args = *admission.Guidance
