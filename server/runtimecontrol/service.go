@@ -124,10 +124,7 @@ func (s *Service) runAgentExecution(
 	if s == nil || s.authority == nil {
 		return errors.New("session runtime authority is required")
 	}
-	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
-	if err != nil {
-		return err
-	}
+	id := runtimeids.SessionIDFromProto(sessionID)
 	descriptor, err := session.NewOpenSessionDescriptor(id)
 	if err != nil {
 		return err
@@ -210,10 +207,7 @@ func (s *Service) withRuntime(ctx context.Context, sessionID string, fn func(con
 	if s == nil || s.authority == nil {
 		return errors.New("session runtime authority is required")
 	}
-	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
-	if err != nil {
-		return err
-	}
+	id := runtimeids.SessionIDFromProto(sessionID)
 	return s.authority.WithCurrentRuntime(ctx, id, fn)
 }
 
@@ -324,9 +318,6 @@ func runRuntimeCommand[Resp any](
 }
 
 func (s *Service) SetSessionName(ctx context.Context, req *runtimepb.SetSessionNameRequest) error {
-	if err := protoapi.Validate(req); err != nil {
-		return err
-	}
 	name, err := protoapi.SessionNameFromMutation(req.Mutation)
 	if err != nil {
 		return err
@@ -402,9 +393,6 @@ func (s *Service) AppendSessionEntry(ctx context.Context, sessionID string, role
 }
 
 func (s *Service) SubmitUserShellCommand(ctx context.Context, req *runtimepb.ShellCommandRequest) error {
-	if err := protoapi.Validate(req); err != nil {
-		return err
-	}
 	_, err := runRuntimeCommand(ctx, func(ctx context.Context) (struct{}, bool, error) {
 		attempt := newRuntimeCommandAttempt(ctx)
 		defer attempt.Finish()
@@ -418,9 +406,6 @@ func (s *Service) SubmitUserShellCommand(ctx context.Context, req *runtimepb.She
 }
 
 func (s *Service) CompactContext(ctx context.Context, req *runtimepb.CompactContextRequest) error {
-	if err := protoapi.Validate(req); err != nil {
-		return err
-	}
 	_, err := runRuntimeCommand(ctx, func(ctx context.Context) (struct{}, bool, error) {
 		attempt := newRuntimeCommandAttempt(ctx)
 		defer attempt.Finish()
@@ -436,9 +421,6 @@ func (s *Service) AdmitManualCompaction(
 	ctx context.Context,
 	req *runtimepb.CompactContextRequest,
 ) (bool, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return false, err
-	}
 	attempt := newRuntimeCommandAttempt(ctx)
 	defer attempt.Finish()
 	commandErr := s.withRuntime(attempt.Context(), req.SessionId, func(runCtx context.Context, engine *runtime.Engine) error {
@@ -475,9 +457,6 @@ func admitManualCompaction(
 }
 
 func (s *Service) Interrupt(ctx context.Context, req *runtimepb.InterruptRequest) (*runtimepb.ReadModelUpdate, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if s == nil || s.authority == nil {
 		return nil, errors.New("session runtime authority is required")
 	}
@@ -487,11 +466,8 @@ func (s *Service) Interrupt(ctx context.Context, req *runtimepb.InterruptRequest
 
 func (s *Service) interrupt(ctx context.Context, sessionID string) (*runtimepb.ReadModelUpdate, error) {
 	sessionID = strings.TrimSpace(sessionID)
-	id, err := runtimeids.ParseSessionID(sessionID)
-	if err != nil {
-		return nil, err
-	}
-	_, err = s.authority.InterruptSession(ctx, id)
+	id := runtimeids.SessionIDFromProto(sessionID)
+	_, err := s.authority.InterruptSession(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -525,9 +501,6 @@ func (s *Service) runtimeInterruptResponse(ctx context.Context, sessionID string
 }
 
 func (s *Service) ListPendingWork(ctx context.Context, req *runtimepb.ListPendingWorkRequest) (*runtimepb.ListPendingWorkSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	var pending runtimeinput.PendingWork
 	err := s.withRuntime(ctx, req.SessionId, func(_ context.Context, engine *runtime.Engine) error {
 		var snapshotErr error
@@ -550,9 +523,6 @@ func (s *Service) ListPendingWork(ctx context.Context, req *runtimepb.ListPendin
 }
 
 func (s *Service) RemovePendingWork(ctx context.Context, req *runtimepb.RemovePendingWorkRequest) (*runtimepb.RemovePendingWorkSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	itemID, err := runtimeids.ParseQueueItemID(req.ItemId)
 	if err != nil {
 		return nil, err

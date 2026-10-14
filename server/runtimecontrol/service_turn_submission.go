@@ -72,9 +72,6 @@ func (s *Service) PrepareUserTurn(ctx context.Context, sessionID string, input r
 }
 
 func (s *Service) SubmitUserTurn(ctx context.Context, req *runtimepb.SubmitUserTurnRequest) (*runtimepb.SubmitUserTurnSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	return runRuntimeCommand(ctx, func(ctx context.Context) (*runtimepb.SubmitUserTurnSuccess, bool, error) {
 		input, err := protoapi.UserTurnInputFromProto(req.Input)
 		if err != nil {
@@ -115,9 +112,6 @@ func (s *Service) admitUserTurn(
 	attempt := newRuntimeCommandAttempt(ctx)
 	defer attempt.Finish()
 	response, commandErr := s.submitUserTurn(attempt, request, projection)
-	if commandErr == nil {
-		commandErr = protoapi.Validate(response)
-	}
 	accepted := attempt.Accepted()
 	var historyErr error
 	if accepted {

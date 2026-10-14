@@ -15,10 +15,7 @@ func (s *Service) AdmitChatQueuedUserInput(
 	sessionIDText string,
 	projection PreparedUserTurn,
 ) (serverapi.ChatInputAdmissionResult, error) {
-	sessionID, err := runtimeids.ParseSessionID(sessionIDText)
-	if err != nil {
-		return serverapi.ChatInputAdmissionResult{}, err
-	}
+	sessionID := runtimeids.SessionIDFromProto(sessionIDText)
 	if s == nil || s.authority == nil {
 		return serverapi.ChatInputAdmissionResult{}, errors.New("session runtime authority is required")
 	}
