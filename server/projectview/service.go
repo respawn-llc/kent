@@ -536,6 +536,9 @@ func (s *Service) selectSingleAvailableWorkspace(ctx context.Context) (*projectp
 	}
 	var selection *projectpb.SelectedProjectWorkspace
 	for _, project := range projects {
+		if strings.TrimSpace(project.ID) == "" {
+			return nil, false, errors.New("project id is required")
+		}
 		offset := 0
 		for {
 			page, err := s.metadata.ListProjectWorkspaceCatalogPage(ctx, project.ID, offset, metadata.MaxProjectWorkspacePageSize)

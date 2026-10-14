@@ -810,9 +810,6 @@ func (s *Store) CreateProjectForWorkspaceWithKey(ctx context.Context, workspaceR
 		return Binding{}, errors.New("metadata store is required")
 	}
 	trimmedProjectName := strings.TrimSpace(projectName)
-	if trimmedProjectName == "" {
-		return Binding{}, errors.New("project name is required")
-	}
 	canonicalRoot, err := config.CanonicalWorkspaceRoot(workspaceRoot)
 	if err != nil {
 		return Binding{}, err
@@ -874,16 +871,9 @@ func (s *Store) UpdateProjectMetadata(ctx context.Context, projectID string, dis
 		return errors.New("metadata store is required")
 	}
 	trimmedProjectID := strings.TrimSpace(projectID)
-	if trimmedProjectID == "" {
-		return errors.New("project id is required")
-	}
 	var normalizedKey string
 	if strings.TrimSpace(projectKey) != "" {
-		var err error
-		normalizedKey, err = normalizeProjectKey(projectKey)
-		if err != nil {
-			return err
-		}
+		normalizedKey = normalizeProjectKey(projectKey)
 	}
 	now := time.Now().UTC().UnixMilli()
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -1621,10 +1611,7 @@ func setInitialProjectKey(ctx context.Context, q *sqlitegen.Queries, projectID s
 		}
 		return strings.TrimSpace(state.ProjectKey), nil
 	}
-	normalizedKey, err := normalizeProjectKey(trimmedKey)
-	if err != nil {
-		return "", err
-	}
+	normalizedKey := normalizeProjectKey(trimmedKey)
 	updated, err := q.SetProjectKey(ctx, sqlitegen.SetProjectKeyParams{ProjectKey: normalizedKey, UpdatedAtUnixMs: updatedAtUnixMs, ProjectID: projectID})
 	if err != nil {
 		if IsSQLiteUniqueConstraint(err) {
@@ -1646,10 +1633,7 @@ func (s *Store) SetProjectKey(ctx context.Context, projectID string, projectKey 
 	if trimmedProjectID == "" {
 		return errors.New("project id is required")
 	}
-	normalizedKey, err := normalizeProjectKey(projectKey)
-	if err != nil {
-		return err
-	}
+	normalizedKey := normalizeProjectKey(projectKey)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin set project key tx: %w", err)
@@ -1723,12 +1707,8 @@ func (s *Store) AllocateProjectTaskSequence(ctx context.Context, projectID strin
 	return key, row.NextTaskSeq - 1, nil
 }
 
-func normalizeProjectKey(raw string) (string, error) {
-	key := strings.ToUpper(strings.TrimSpace(raw))
-	if !isValidProjectKey(key) {
-		return "", fmt.Errorf("%w: must match ^[A-Z][A-Z0-9]{1,7}$", ErrInvalidProjectKey)
-	}
-	return key, nil
+func normalizeProjectKey(raw string) string {
+	return strings.ToUpper(strings.TrimSpace(raw))
 }
 
 func isValidProjectKey(key string) bool {
