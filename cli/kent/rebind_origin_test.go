@@ -8,7 +8,6 @@ import (
 
 func TestSessionRetargetRuntimeOriginCarriesInvokingSession(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, "33333333-3333-4333-8333-333333333333")
-	t.Setenv(sessionenv.RunIDEnv, "11111111-1111-4111-8111-111111111111")
 	t.Setenv(sessionenv.StepIDEnv, "22222222-2222-4222-8222-222222222222")
 
 	origin, err := sessionRetargetRuntimeOrigin()
@@ -17,6 +16,9 @@ func TestSessionRetargetRuntimeOriginCarriesInvokingSession(t *testing.T) {
 	}
 	if origin == nil {
 		t.Fatal("matching Session omitted runtime origin")
+	}
+	if origin.StepId != "22222222-2222-4222-8222-222222222222" {
+		t.Fatalf("runtime origin Step = %q, want invoking Step", origin.StepId)
 	}
 
 	origin, err = sessionRetargetRuntimeOrigin()

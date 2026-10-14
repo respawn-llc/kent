@@ -161,7 +161,7 @@ func TestPrepareExecutorToolCallsAssignsQuestionBatchOutsideWorkflow(t *testing.
 			Handler: questionBatchTestHandler{},
 		}),
 	}
-	prepared, err := prepareExecutorToolCalls(engine, "step-1", "run-1", false, []llm.ToolCall{
+	prepared, err := prepareExecutorToolCalls(engine, "step-1", false, []llm.ToolCall{
 		{ID: "ask-1", Name: string(toolspec.ToolAskQuestion), Input: json.RawMessage(`{"question":"First?"}`)},
 		{ID: "ask-2", Name: string(toolspec.ToolAskQuestion), Input: json.RawMessage(`{"question":"Second?"}`)},
 	})

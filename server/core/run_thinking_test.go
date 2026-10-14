@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -590,7 +591,9 @@ func TestRunThinkingRetainedSelectionAcceptsCustomValues(t *testing.T) {
 
 func TestRunThinkingPersistsWhileBusy(t *testing.T) {
 	started, release := make(chan struct{}, 1), make(chan struct{})
+	var calls atomic.Int32
 	app, store, client := newRunThinkingSession(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
 		started <- struct{}{}
 		<-release
 		modelstub.WriteCompletedResponseStream(w, "done", 1, 1)
@@ -615,23 +618,75 @@ func TestRunThinkingPersistsWhileBusy(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("first Run did not dispatch")
 	}
-	_, err = client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
-		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "must not dispatch",
-		Overrides: serverapi.RunPromptOverrides{ThinkingLevel: "high"},
-	}), nil)
-	if !errors.Is(err, runprompt.ErrSessionRunning) {
-		t.Fatalf("busy continuation error = %v", err)
-	}
-	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
+	readRequest := &chatsettingspb.ReadRequest{
 		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}}},
-	})
+	}
+	before, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), readRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "reject without delivery",
+		Overrides: serverapi.RunPromptOverrides{ThinkingLevel: "unsupported"},
+	}), nil)
+	var rejected *serverapi.RunSelectionRejectedError
+	if !errors.As(err, &rejected) {
+		t.Fatalf("unsupported active Thinking = %v", err)
+	}
+	admitted := make(chan *runpromptpb.ActiveSteerAccepted, 1)
+	continued := make(chan error, 1)
+	go func() {
+		_, err := client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+			Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "redirect",
+			Overrides: serverapi.RunPromptOverrides{
+				ThinkingLevel: "high", AgentRole: textutil.Value("worker"),
+				Model: "unavailable-model", Tools: "unavailable-tool", Theme: "dark", ModelTimeoutSeconds: 1,
+			},
+		}), serverapi.RunPromptProgressFunc(func(event *runpromptpb.ProgressEvent) {
+			if accepted := event.GetActiveSteerAccepted(); accepted != nil {
+				admitted <- accepted
+			}
+		}))
+		continued <- err
+	}()
+	var acceptance *runpromptpb.ActiveSteerAccepted
+	select {
+	case acceptance = <-admitted:
+	case err := <-continued:
+		t.Fatalf("continuation finished before acceptance: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("active continuation did not report acceptance")
+	}
+	ignored := map[runpromptpb.IgnoredRunSetting]struct{}{
+		runpromptpb.IgnoredRunSetting_IGNORED_RUN_SETTING_AGENT:         {},
+		runpromptpb.IgnoredRunSetting_IGNORED_RUN_SETTING_MODEL:         {},
+		runpromptpb.IgnoredRunSetting_IGNORED_RUN_SETTING_TOOLS:         {},
+		runpromptpb.IgnoredRunSetting_IGNORED_RUN_SETTING_THEME:         {},
+		runpromptpb.IgnoredRunSetting_IGNORED_RUN_SETTING_MODEL_TIMEOUT: {},
+	}
+	for _, setting := range acceptance.IgnoredSettings {
+		if _, exists := ignored[setting]; !exists {
+			t.Fatalf("unexpected ignored setting %v", setting)
+		}
+		delete(ignored, setting)
+	}
+	if len(ignored) != 0 {
+		t.Fatalf("missing ignored settings = %v", ignored)
+	}
+	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), readRequest)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := read.GetSession().Settings.SelectedAgent.Thinking; got != "high" {
 		t.Fatalf("busy Session Thinking = %q, want high", got)
 	}
+	if got, retained := read.GetSession().Settings.SelectedAgent, before.GetSession().Settings.SelectedAgent; got.Role != retained.Role || got.Model != retained.Model {
+		t.Fatal("active launch overrides changed the retained selection")
+	}
 	unblock()
+	if err := <-continued; err != nil {
+		t.Fatalf("active continuation: %v", err)
+	}
 	select {
 	case err := <-done:
 		if err != nil {
@@ -639,5 +694,8 @@ func TestRunThinkingPersistsWhileBusy(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("first Run did not finish")
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("provider calls = %d, want initial and accepted steer only", calls.Load())
 	}
 }

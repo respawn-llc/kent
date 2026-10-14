@@ -44,7 +44,7 @@ func TestSemanticCloseDoesNotRereportCompletedCellAndLeavesNoEmptySlot(t *testin
 	)
 	engine.stepLifecycle = &stubExclusiveStepLifecycle{
 		activeStepID: "step",
-		snapshot:     &RunSnapshot{RunID: "11111111-1111-4111-8111-111111111111", StepID: "step"},
+		snapshot:     &RunSnapshot{StepID: "step"},
 	}
 	calls := []llm.ToolCall{
 		{ID: "already-complete", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{}`)},

@@ -31,7 +31,7 @@ export function compactionStep(activity: RuntimeActivity): ActiveStep | null {
 }
 
 function sameStep(left: ActiveStep, right: ActiveStep): boolean {
-  return left.RunID === right.RunID && left.StepID === right.StepID && left.ActiveKind === right.ActiveKind;
+  return left.StepID === right.StepID && left.ActiveKind === right.ActiveKind;
 }
 
 export function activityContinues(

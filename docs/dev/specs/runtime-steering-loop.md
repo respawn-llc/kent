@@ -156,7 +156,8 @@
 - Post-turn Queue must use post-turn delivery. Inter-agent developer messages must use ordinary boundary delivery.
 - Kent must assume submitted native steers arrived and must use existing error-to-composer restoration behavior on errors.
 - Native steering must not add delivery reconciliation, automatic replay, or steering-specific recovery.
-- Native steering must not introduce special ordering, concurrency, race, or atomicity guarantees.
+- Ordinary native steering must not introduce special ordering, concurrency, race, or atomicity guarantees.
+- Active-target headless continuation must use the combined submission and observation contract in [CLI Commands](cli-commands.md#headless-run-and-shared-control). That operation's start/finish-race coordination does not change ordinary steering delivery or recovery guarantees.
 
 ## Step Boundaries And Next Work
 

@@ -172,9 +172,8 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 	cmd := exec.CommandContext(context.Background(), req.Command[0], req.Command[1:]...)
 	cmd.Dir = workdir
 	ownerSessionID := strings.TrimSpace(req.OwnerSessionID)
-	ownerRunID := strings.TrimSpace(req.OwnerRunID)
 	ownerStepID := strings.TrimSpace(req.OwnerStepID)
-	cmd.Env = tools.EnrichShellEnvForInvocation(os.Environ(), ownerSessionID, ownerRunID, ownerStepID)
+	cmd.Env = tools.EnrichShellEnvForInvocation(os.Environ(), ownerSessionID, ownerStepID)
 	cmd.Env, err = tools.FilterCredentialEnvironment(m.persistenceRoot, cmd.Env)
 	if err != nil {
 		return ExecResult{}, fmt.Errorf("prepare shell environment: %w", err)
@@ -192,7 +191,6 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 		id:                   id,
 		activityID:           uuid.New(),
 		ownerSessionID:       ownerSessionID,
-		ownerRunID:           ownerRunID,
 		ownerStepID:          ownerStepID,
 		executionCorrelation: cloneExecutionCorrelation(req.ExecutionCorrelation),
 		command:              strings.TrimSpace(req.DisplayCommand),

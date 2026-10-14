@@ -308,14 +308,11 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req PlanRequest) (PlanR
 	var caller *subagentpolicy.Caller
 	if req.Mode == launch.ModeHeadless {
 		if req.CallerSessionID != nil {
-			resolved, callerErr := launch.ResolveSessionCaller(ctx, planner.CallerSessions, *req.CallerSessionID)
+			resolved, callerErr := s.resolveRunCaller(ctx, req.CallerSessionID)
 			if callerErr != nil {
-				if errors.Is(callerErr, session.ErrSessionNotFound) {
-					return PlanResult{}, &serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialCallerMissing}
-				}
 				return PlanResult{}, callerErr
 			}
-			caller = &resolved
+			caller = resolved
 			if parentAgentSessionID != nil {
 				callerSessionID, parseErr := runtimeids.ParseSessionID(*req.CallerSessionID)
 				if parseErr != nil || *parentAgentSessionID != callerSessionID {

@@ -47,16 +47,21 @@ func (s *Service) liveTarget(ctx context.Context, target *sharedpb.SessionSelect
 		return identity, err
 	}
 	captured = serverapi.ProjectedSessionTarget{Identity: identity}
+	err = validateSteerCallerTarget(id, caller)
+	return identity, err
+}
+
+func validateSteerCallerTarget(id runtimeids.SessionID, caller *string) error {
 	if caller != nil {
 		source, err := runtimeids.ParseSessionID(*caller)
 		if err != nil {
-			return identity, err
+			return err
 		}
 		if source == id {
-			return identity, &serverapi.SessionSelfTargetError{SessionID: id}
+			return &serverapi.SessionSelfTargetError{SessionID: id}
 		}
 	}
-	return identity, nil
+	return nil
 }
 
 func (s *Service) withLiveExecutionRuntime(ctx context.Context, id runtimeids.SessionID, fn func(context.Context, *runtime.Engine) error) error {
@@ -70,39 +75,14 @@ func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	identity, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
+	prepared, err := s.PrepareLiveSteer(ctx, req.SessionId, req.CallerSessionId, req.Text)
 	if err != nil {
 		return nil, err
 	}
-	defer retainLiveTargetFailure(identity, &err)
-	sessionID := identity.ID
-	callerSessionID := req.CallerSessionId
-	text := strings.TrimSpace(req.Text)
-	queueText := text
-	var agentSteer runtime.AgentSteer
-	if callerSessionID != nil {
-		callerID, parseErr := runtimeids.ParseSessionID(*callerSessionID)
-		if parseErr != nil {
-			return nil, parseErr
-		}
-		source, err := s.metadata.SessionIdentity(ctx, callerID)
-		if err != nil {
-			return nil, err
-		}
-		agentSteer, err = runtime.NewAgentSteer(source, text)
-		if err != nil {
-			return nil, err
-		}
-		queueText = *agentSteer.Message().Content
-	}
-	err = s.withLiveExecutionRuntime(ctx, sessionID, func(callbackCtx context.Context, engine *runtime.Engine) error {
-		var item runtime.QueuedUserMessage
-		var accepted bool
-		if callerSessionID != nil {
-			item, accepted, err = engine.QueueAgentSteerForActiveRun(callbackCtx, req.QueueItemId, agentSteer, nil)
-		} else {
-			item, accepted, err = engine.QueueUserMessageForActiveRun(callbackCtx, req.QueueItemId, queueText, nil)
-		}
+	defer retainLiveTargetFailure(prepared.Identity, &err)
+	err = s.withLiveExecutionRuntime(ctx, prepared.Identity.ID, func(callbackCtx context.Context, engine *runtime.Engine) error {
+		item, _, accepted, submitErr := s.SubmitLiveSteer(callbackCtx, req.QueueItemId, prepared, engine, nil, nil)
+		err = submitErr
 		if errors.Is(err, runtime.ErrNoActiveLiveRun) {
 			return serverapi.ErrRuntimeNoActiveRun
 		}
@@ -120,14 +100,81 @@ func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest
 			QueueItemId: item.ID,
 			Text:        displayText,
 		}
-		if s != nil && s.promptStore != nil {
-			if _, err := s.recordPromptHistory(callbackCtx, sessionID.String(), queueText); err != nil {
-				engine.ReportPromptHistoryPersistError(err.Error())
-			}
-		}
 		return nil
 	})
 	return resp, err
+}
+
+type PreparedLiveSteer struct {
+	Identity   runtimeids.SessionIdentity
+	Text       string
+	AgentSteer *runtime.AgentSteer
+}
+
+func (p PreparedLiveSteer) HistoryText() string {
+	if p.AgentSteer != nil {
+		return *p.AgentSteer.Message().Content
+	}
+	return p.Text
+}
+
+func (s *Service) AgentSteerForCaller(ctx context.Context, caller *string, text string) (*runtime.AgentSteer, error) {
+	if caller == nil {
+		return nil, nil
+	}
+	callerID, err := runtimeids.ParseSessionID(*caller)
+	if err != nil {
+		return nil, err
+	}
+	source, err := s.metadata.SessionIdentity(ctx, callerID)
+	if err != nil {
+		return nil, err
+	}
+	steer, err := runtime.NewAgentSteer(source, text)
+	if err != nil {
+		return nil, err
+	}
+	return &steer, nil
+}
+
+func (s *Service) PrepareLiveSteer(ctx context.Context, target *sharedpb.SessionSelector, caller *string, text string) (PreparedLiveSteer, error) {
+	identity, err := s.liveTarget(ctx, target, caller)
+	if err != nil {
+		return PreparedLiveSteer{}, err
+	}
+	return s.PrepareSessionSteer(ctx, identity, caller, text)
+}
+
+func (s *Service) PrepareSessionSteer(ctx context.Context, identity runtimeids.SessionIdentity, caller *string, text string) (PreparedLiveSteer, error) {
+	if err := validateSteerCallerTarget(identity.ID, caller); err != nil {
+		return PreparedLiveSteer{}, err
+	}
+	text = strings.TrimSpace(text)
+	steer, err := s.AgentSteerForCaller(ctx, caller, text)
+	if err != nil {
+		return PreparedLiveSteer{}, err
+	}
+	return PreparedLiveSteer{Identity: identity, Text: text, AgentSteer: steer}, nil
+}
+
+// SubmitLiveSteer records the accepted representation once for both live control
+// and Run continuation. A nil observer leaves live control acknowledgement-only.
+func (s *Service) SubmitLiveSteer(ctx context.Context, queueItemID string, prepared PreparedLiveSteer, engine *runtime.Engine, observerCtx context.Context, accept runtime.CommandAcceptance) (runtime.QueuedUserMessage, *runtime.LiveRunWaitHandle, bool, error) {
+	var item runtime.QueuedUserMessage
+	var handle *runtime.LiveRunWaitHandle
+	var accepted bool
+	var err error
+	if prepared.AgentSteer != nil {
+		item, handle, accepted, err = engine.QueueAgentSteerForActiveRunWithObservation(ctx, queueItemID, *prepared.AgentSteer, observerCtx, accept)
+	} else {
+		item, handle, accepted, err = engine.QueueUserMessageForActiveRunWithObservation(ctx, queueItemID, prepared.Text, observerCtx, accept)
+	}
+	if accepted {
+		if _, historyErr := s.recordPromptHistory(ctx, prepared.Identity.ID.String(), prepared.HistoryText()); historyErr != nil {
+			engine.ReportPromptHistoryPersistError(historyErr.Error())
+		}
+	}
+	return item, handle, accepted, err
 }
 
 func (s *Service) LiveStop(ctx context.Context, req *runtimepb.LiveStopRequest) (response *runtimepb.LiveStopSuccess, err error) {
@@ -204,8 +251,8 @@ func (s *Service) LiveWait(ctx context.Context, req *runtimepb.LiveWaitRequest) 
 			AssistantFinalAnswer: &runtimepb.LiveWaitAssistantFinalAnswer{Result: *result.AssistantMessage.Content},
 		},
 		Duration:       durationpb.New(result.FinishedAt.Sub(result.StartedAt)),
-		LiveRunGroupId: result.GroupID.String(), TerminalRunId: result.RunID.String(),
-		TerminalStepId: result.StepID.String(), TerminalStatus: string(result.Status),
+		LiveRunGroupId: result.GroupID.String(), TerminalStepId: result.StepID.String(),
+		TerminalStatus: string(result.Status),
 	}
 	return resp, err
 }

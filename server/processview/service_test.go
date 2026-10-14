@@ -24,9 +24,9 @@ import (
 const processViewTestWaitTimeout = 10 * time.Second
 const processViewTestProjectID = "project-1"
 
-func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
+func TestServiceListProcessesIncludesStepOwnership(t *testing.T) {
 	fixture := newProcessViewFixture(t)
-	result := fixture.startCommand(t, "call-1", "printf 'working\n'; sleep 30", "run-1", "step-1")
+	result := fixture.startCommand(t, "call-1", "printf 'working\n'; sleep 30", "step-1")
 	if result.IsError {
 		t.Fatalf("expected successful tool result, got %+v", result)
 	}
@@ -43,11 +43,11 @@ func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 		return process, true
 	})
 	ownerSessionID := "session-1"
-	ownerRunID := "run-1"
+	ownerStepID := "step-1"
 	resp, err := fixture.service.ListProcesses(context.Background(), &processpb.ListRequest{
 		ProjectId:      processViewTestProjectID,
 		OwnerSessionId: &ownerSessionID,
-		OwnerRunId:     &ownerRunID,
+		OwnerStepId:    &ownerStepID,
 	})
 	if err != nil {
 		t.Fatalf("ListProcesses: %v", err)
@@ -56,7 +56,7 @@ func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 		t.Fatalf("expected one process, got %+v", resp.Processes)
 	}
 	process := resp.Processes[0]
-	if process.OwnerSessionId != "session-1" || process.GetOwnerRunId() != "run-1" || process.GetOwnerStepId() != "step-1" {
+	if process.OwnerSessionId != "session-1" || process.GetOwnerStepId() != "step-1" {
 		t.Fatalf("unexpected ownership: %+v", process)
 	}
 	if !process.Backgrounded || !process.Running {
@@ -70,7 +70,7 @@ func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetProcess: %v", err)
 	}
-	if got.Process == nil || got.Process.GetOwnerRunId() != "run-1" || got.Process.GetOwnerStepId() != "step-1" {
+	if got.Process == nil || got.Process.GetOwnerStepId() != "step-1" {
 		t.Fatalf("unexpected process payload: %+v", got.Process)
 	}
 	if got.Process.LogPath != process.LogPath || got.Process.RecentOutput == "" {
@@ -93,7 +93,7 @@ func TestServiceListExcludesForegroundProcesses(t *testing.T) {
 	fixture.manager.SetMinimumExecToBgTime(2 * time.Second)
 	done := make(chan tools.Result, 1)
 	go func() {
-		done <- fixture.startCommand(t, "foreground", "sleep 1", "run-1", "step-1")
+		done <- fixture.startCommand(t, "foreground", "sleep 1", "step-1")
 	}()
 	waitForProcessCount(t, fixture.manager, 1)
 	list, err := fixture.service.ListProcesses(context.Background(), &processpb.ListRequest{ProjectId: processViewTestProjectID})
@@ -125,7 +125,7 @@ func TestObservationReplacesWithLatestCompletedListInServerOrder(t *testing.T) {
 		t.Fatalf("initial contents: %v (%v)", empty, err)
 	}
 	for _, id := range []string{"first", "second"} {
-		fixture.startCommand(t, id, "sleep 30", "run-1", "step-1")
+		fixture.startCommand(t, id, "sleep 30", "step-1")
 	}
 	initial, err := sub.Next(context.Background())
 	if err != nil {
@@ -162,7 +162,7 @@ func TestObservationReplacesWithLatestCompletedListInServerOrder(t *testing.T) {
 
 func TestObservationInitialSessionScopeAndClose(t *testing.T) {
 	fixture := newProcessViewFixture(t)
-	fixture.startCommand(t, "background", "sleep 30", "run-1", "step-1")
+	fixture.startCommand(t, "background", "sleep 30", "step-1")
 	for _, sessionID := range []string{"session-1", "session-2"} {
 		sub, err := fixture.service.ObserveProcesses(context.Background(), &processpb.ObserveRequest{
 			ProjectId: processViewTestProjectID, SessionId: sessionID,
@@ -300,7 +300,7 @@ func newProcessViewFixture(t *testing.T) processViewFixture {
 	}
 }
 
-func (f processViewFixture) startCommand(t *testing.T, id string, command string, runID string, stepID string) tools.Result {
+func (f processViewFixture) startCommand(t *testing.T, id string, command string, stepID string) tools.Result {
 	t.Helper()
 	input, err := json.Marshal(map[string]any{
 		"cmd":           command,
@@ -315,7 +315,6 @@ func (f processViewFixture) startCommand(t *testing.T, id string, command string
 		ID:     id,
 		Name:   toolspec.ToolExecCommand,
 		Input:  input,
-		RunID:  runID,
 		StepID: stepID,
 	})
 	if err != nil {
@@ -324,30 +323,30 @@ func (f processViewFixture) startCommand(t *testing.T, id string, command string
 	return result
 }
 
-func TestServiceListProcessesFiltersByOwnerRunID(t *testing.T) {
+func TestServiceListProcessesFiltersByOwnerStepID(t *testing.T) {
 	fixture := newProcessViewFixture(t)
-	for _, runID := range []string{"run-a", "run-b"} {
-		fixture.startCommand(t, runID, "sleep 1", runID, runID+"-step")
+	for _, stepID := range []string{"step-a", "step-b"} {
+		fixture.startCommand(t, stepID, "sleep 1", stepID)
 	}
 
 	waitForProcessCount(t, fixture.manager, 2)
 
-	ownerRunID := "run-b"
+	ownerStepID := "step-b"
 	resp, err := fixture.service.ListProcesses(context.Background(), &processpb.ListRequest{
-		ProjectId:  processViewTestProjectID,
-		OwnerRunId: &ownerRunID,
+		ProjectId:   processViewTestProjectID,
+		OwnerStepId: &ownerStepID,
 	})
 	if err != nil {
 		t.Fatalf("ListProcesses: %v", err)
 	}
-	if len(resp.Processes) != 1 || resp.Processes[0].GetOwnerRunId() != "run-b" {
+	if len(resp.Processes) != 1 || resp.Processes[0].GetOwnerStepId() != "step-b" {
 		t.Fatalf("unexpected filtered processes: %+v", resp.Processes)
 	}
 }
 
 func TestServiceGetInlineOutputReturnsManagerPreview(t *testing.T) {
 	fixture := newProcessViewFixture(t)
-	result := fixture.startCommand(t, "call-inline", "printf 'inline-preview\n'; sleep 1", "run-1", "step-1")
+	result := fixture.startCommand(t, "call-inline", "printf 'inline-preview\n'; sleep 1", "step-1")
 	if result.IsError {
 		t.Fatalf("expected successful tool result, got %+v", result)
 	}
@@ -368,7 +367,7 @@ func TestServiceGetInlineOutputReturnsManagerPreview(t *testing.T) {
 
 func TestServiceKillProcessHonorsCancellationAndSignalsManagerEntry(t *testing.T) {
 	fixture := newProcessViewFixture(t)
-	result := fixture.startCommand(t, "call-kill", "sleep 30", "run-1", "step-1")
+	result := fixture.startCommand(t, "call-kill", "sleep 30", "step-1")
 	if result.IsError {
 		t.Fatalf("expected successful tool result, got %+v", result)
 	}

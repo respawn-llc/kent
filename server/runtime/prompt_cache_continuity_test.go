@@ -556,7 +556,6 @@ type promptCacheComparableMainView struct {
 }
 
 type promptCacheComparableRunView struct {
-	RunID      string `json:"run_id"`
 	StepID     string `json:"step_id"`
 	Status     string `json:"status"`
 	StartedAt  string `json:"started_at,omitempty"`
@@ -688,7 +687,6 @@ func comparableRuntimeRunView(run *RunSnapshot) *promptCacheComparableRunView {
 		finishedAt = run.FinishedAt.UTC().Format(time.RFC3339Nano)
 	}
 	return &promptCacheComparableRunView{
-		RunID:      run.RunID,
 		StepID:     run.StepID,
 		Status:     string(run.Status),
 		StartedAt:  run.StartedAt.UTC().Format(time.RFC3339Nano),

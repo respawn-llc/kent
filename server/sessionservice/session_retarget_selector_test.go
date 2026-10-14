@@ -28,7 +28,6 @@ func TestRetargetSelectorsPreserveInvokingSessionScheduling(t *testing.T) {
 				WorkspaceRoot: t.TempDir(),
 				Origin: &sessionlaunchpb.RuntimeStepOrigin{
 					SessionId: caller.String(),
-					RunId:     "11111111-1111-4111-8111-111111111111",
 					StepId:    "22222222-2222-4222-8222-222222222222",
 				},
 			})

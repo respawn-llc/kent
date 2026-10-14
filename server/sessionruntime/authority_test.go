@@ -118,6 +118,7 @@ func (c *admissionObservationContext) Done() <-chan struct{} {
 type ownerlessRetirementLLMClient struct {
 	mu           sync.Mutex
 	calls        int
+	requests     []llm.Request
 	firstStarted chan struct{}
 	releaseFirst chan struct{}
 }
@@ -546,8 +547,10 @@ func TestAuthorityCloseCancelsLifecycleStartWaitingForSessionAdmission(t *testin
 	}
 }
 
-func (c *ownerlessRetirementLLMClient) Generate(ctx context.Context, _ llm.Request, _ llm.StreamCallbacks) (llm.Response, error) {
+func (c *ownerlessRetirementLLMClient) Generate(ctx context.Context, request llm.Request, _ llm.StreamCallbacks) (llm.Response, error) {
 	c.mu.Lock()
+	request.Items = llm.CloneResponseItems(request.Items)
+	c.requests = append(c.requests, request)
 	c.calls++
 	call := c.calls
 	if call == 1 {

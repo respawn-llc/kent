@@ -104,10 +104,6 @@ message SessionPersistInputDraftResult {
 
 message RuntimeStepOrigin {
   string session_id = 3 [(buf.validate.field).string.(scoped_session_id) = true];
-  string run_id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
   string step_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true

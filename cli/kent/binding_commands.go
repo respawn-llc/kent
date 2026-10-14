@@ -266,11 +266,11 @@ func sessionRetargetRuntimeOrigin() (*sessionlaunchpb.RuntimeStepOrigin, error) 
 	if !ok {
 		return nil, nil
 	}
-	runID, stepID := sessionenv.LookupRunStepID(os.LookupEnv)
-	if runID == "" && stepID == "" {
+	stepID, _ := sessionenv.LookupStepID(os.LookupEnv)
+	if stepID == "" {
 		return nil, nil
 	}
-	origin := &sessionlaunchpb.RuntimeStepOrigin{SessionId: currentSessionID, RunId: runID, StepId: stepID}
+	origin := &sessionlaunchpb.RuntimeStepOrigin{SessionId: currentSessionID, StepId: stepID}
 	return origin, protoapi.Validate(origin)
 }
 

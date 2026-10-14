@@ -61,6 +61,81 @@ func TestServiceSetGoalNewChatDeliversResolvedSessionAndPreservesCapturedInputs(
 	}
 }
 
+func TestServiceSetGoalAcceptsAgentExecutionIdentityByStepID(t *testing.T) {
+	owner := newTestOperationOwner()
+	t.Cleanup(func() { _ = owner.Close() })
+	sessionID := runtimeids.NewSessionID()
+	stepID := "11111111-1111-4111-8111-111111111111"
+	invoker := &goalSetTestInvoker{response: committedGoalSetCommit("ship the feature")}
+	service := NewService(
+		owner,
+		&goalSetTestResolver{target: ResolvedTarget{SessionID: sessionID}},
+		&goalSetTestRuntime{},
+		nil,
+		invoker,
+	)
+	request := newExactGoalSetRequest(
+		sessionID,
+		runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE,
+	)
+	request.Actor = "agent"
+	request.StepId = &stepID
+
+	result, err := service.SetGoal(context.Background(), request)
+	if err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	if result.GetMutation() == nil {
+		t.Fatalf("result = %+v, want committed Goal mutation", result)
+	}
+	if invoker.request == nil || invoker.request.GetStepId() != stepID {
+		t.Fatalf("resolved execution identity = %+v, want Step %q", invoker.request, stepID)
+	}
+}
+
+func TestGoalSetProtocolPreservesStepIdentityRestrictions(t *testing.T) {
+	stepID := "11111111-1111-4111-8111-111111111111"
+	sessionID := runtimeids.NewSessionID()
+	agentWithoutStep := newExactGoalSetRequest(
+		sessionID,
+		runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE,
+	)
+	agentWithoutStep.Actor = "agent"
+
+	humanWithStep := newExactGoalSetRequest(
+		sessionID,
+		runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE,
+	)
+	humanWithStep.StepId = &stepID
+
+	draft := "composer draft"
+	newChatWithStep := &runtimepb.GoalSetRequest{
+		Target: &chatpb.ChatTarget{
+			Target: &chatpb.ChatTarget_NewChat{NewChat: validNewChatTarget()},
+		},
+		Objective:         "ship the feature",
+		Actor:             "user",
+		ExecutionPolicy:   runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE,
+		InitialInputDraft: &draft,
+		StepId:            &stepID,
+	}
+
+	for _, test := range []struct {
+		name    string
+		request *runtimepb.GoalSetRequest
+	}{
+		{name: "agent without execution Step", request: agentWithoutStep},
+		{name: "human with execution Step", request: humanWithStep},
+		{name: "new Chat with execution Step", request: newChatWithStep},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := protoapi.Validate(test.request); err == nil {
+				t.Fatalf("invalid Goal Set request unexpectedly validated: %+v", test.request)
+			}
+		})
+	}
+}
+
 func TestServiceSetGoalReturnsSessionBearingRejectionAfterCreatedSessionRuntimeFailure(t *testing.T) {
 	owner := newTestOperationOwner()
 	t.Cleanup(func() { _ = owner.Close() })

@@ -151,16 +151,11 @@ func (a taskCompleteArgs) request(
 	if agentContext {
 		req.ActorKind = taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_AGENT
 		req.AgentSessionId = proto.String(strings.TrimSpace(agentSessionID))
-		rawRunID, rawStepID := sessionenv.LookupRunStepID(os.LookupEnv)
-		runID, err := runtimeids.ParseRunID(rawRunID)
-		if err != nil {
-			return nil, fmt.Errorf("agent completion run provenance: %w", err)
-		}
+		rawStepID, _ := sessionenv.LookupStepID(os.LookupEnv)
 		stepID, err := runtimeids.ParseStepID(rawStepID)
 		if err != nil {
 			return nil, fmt.Errorf("agent completion step provenance: %w", err)
 		}
-		req.RunId = proto.String(runID.String())
 		req.StepId = proto.String(stepID.String())
 	} else {
 		req.ActorKind = taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_USER
@@ -400,7 +395,6 @@ func prepareTaskCompleteJSONContract() (taskCompleteJSONContract, error) {
 				"task_id",
 				"actor_kind",
 				"agent_session_id",
-				"run_id",
 				"step_id",
 				"force",
 			} {

@@ -69,7 +69,7 @@ func TestSessionWorkspaceRetargeterRejectsInvalidDestinationBeforeScheduling(t *
 				var err error
 				if scheduled {
 					active := engine.ActiveRun()
-					_, err = retargeter.ScheduleWorkspaceRetarget(t.Context(), req, &sessionlaunchpb.RuntimeStepOrigin{RunId: active.RunID, StepId: active.StepID}, worktreecontract.NewOperationID())
+					_, err = retargeter.ScheduleWorkspaceRetarget(t.Context(), req, &sessionlaunchpb.RuntimeStepOrigin{StepId: active.StepID}, worktreecontract.NewOperationID())
 				} else {
 					_, err = retargeter.RetargetWorkspace(t.Context(), req)
 				}
@@ -593,7 +593,7 @@ func TestSessionWorkspaceRetargeterSchedulesSelfRebindAtStepBoundary(t *testing.
 		_, err := retargeter.ScheduleWorkspaceRetargetResolutionWithCompletion(
 			requestCtx,
 			request,
-			&sessionlaunchpb.RuntimeStepOrigin{RunId: active.RunID, StepId: active.StepID},
+			&sessionlaunchpb.RuntimeStepOrigin{StepId: active.StepID},
 			worktreecontract.NewOperationID(),
 			func(resolveCtx context.Context) (metadata.SessionWorkspaceRetargetRequest, error) {
 				select {
@@ -719,7 +719,7 @@ func TestSessionWorkspaceRetargeterPublishesFailureBeforeQueuedModelWorkResumes(
 				}
 				_, err := retargeter.ScheduleWorkspaceRetarget(
 					t.Context(),
-					request, &sessionlaunchpb.RuntimeStepOrigin{RunId: active.RunID, StepId: active.StepID}, worktreecontract.NewOperationID(),
+					request, &sessionlaunchpb.RuntimeStepOrigin{StepId: active.StepID}, worktreecontract.NewOperationID(),
 				)
 				if err == nil && test.afterSchedule != nil {
 					return test.afterSchedule(fixture.targetWorkspaceRoot)

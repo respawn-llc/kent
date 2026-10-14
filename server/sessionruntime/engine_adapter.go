@@ -349,6 +349,7 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 			if options.OnEvent != nil {
 				options.OnEvent(event)
 			}
+			resource.publishObservedEvent(event)
 		},
 	}
 	wiring, err := runtimewire.NewRuntimeWiringWithBackground(

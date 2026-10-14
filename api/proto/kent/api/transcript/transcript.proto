@@ -837,10 +837,6 @@ message QueuedMessageState {
 }
 
 message StepState {
-  string run_id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
   string step_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -909,10 +905,6 @@ message BackgroundActivity {
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string process_id = 2 [(buf.validate.field).string.min_len = 1];
-  string owner_run_id = 3 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
   string owner_step_id = 4 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -1202,7 +1194,7 @@ message Hydration {
     id: "kent.transcript.hydration_active_ownership"
     message: "step-scoped hydrated facts must match the canonical runtime active step"
     expression:
-      "(!has(this.active_step) || (has(this.runtime_read_model_update.activity.active_step) && this.active_step.run_id == this.runtime_read_model_update.activity.active_step.run_id && this.active_step.step_id == this.runtime_read_model_update.activity.active_step.step_id && this.active_step.active_kind == this.runtime_read_model_update.activity.active_step.active_kind)) && "
+      "(!has(this.active_step) || (has(this.runtime_read_model_update.activity.active_step) && this.active_step.step_id == this.runtime_read_model_update.activity.active_step.step_id && this.active_step.active_kind == this.runtime_read_model_update.activity.active_step.active_kind)) && "
       "(!has(this.active_assistant) || (has(this.runtime_read_model_update.activity.active_step) && this.active_assistant.step_id == this.runtime_read_model_update.activity.active_step.step_id)) && "
       "(!has(this.active_thinking_status) || (has(this.runtime_read_model_update.activity.active_step) && this.active_thinking_status.step_id == this.runtime_read_model_update.activity.active_step.step_id)) && "
       "this.active_reasoning_traces.all(trace, has(this.runtime_read_model_update.activity.active_step) && trace.step_id == this.runtime_read_model_update.activity.active_step.step_id) && "

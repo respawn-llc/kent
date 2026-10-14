@@ -28,7 +28,6 @@ func testApprovalRequest(id string) AskQuestionRequest {
 
 func testApprovalContext(parent context.Context, toolCallID string) context.Context {
 	ctx := WithExecutionIdentity(parent, ExecutionIdentity{
-		RunID:      "11111111-1111-4111-8111-111111111111",
 		StepID:     "22222222-2222-4222-8222-222222222222",
 		ToolCallID: clientui.ToolCallID(toolCallID),
 	})
@@ -166,7 +165,6 @@ func TestToolCallBarrierFailureRunsBatchCleanup(t *testing.T) {
 		Input: json.RawMessage(`{"question":"Continue?"}`),
 		AskQuestionBatch: &AskQuestionBatchMetadata{
 			Origin:              AskQuestionOriginModelTool,
-			RunID:               "run-1",
 			StepID:              "step-1",
 			ToolCallID:          "queued-question",
 			BatchToolCallIDs:    []string{"queued-question"},
@@ -206,7 +204,6 @@ func TestAskQuestionToolSkipsPreparedBatchWhenBrokerReturnsBeforeHandler(t *test
 		Input: mustAskQuestionInput(t, "two?"),
 		AskQuestionBatch: &AskQuestionBatchMetadata{
 			Origin:              AskQuestionOriginModelTool,
-			RunID:               "run-1",
 			StepID:              "step-1",
 			ToolCallID:          "ask-2",
 			BatchToolCallIDs:    []string{"ask-1", "ask-2"},
@@ -246,7 +243,6 @@ func TestAskQuestionToolDeclineKeepsPreparedSuccessorsPending(t *testing.T) {
 		Input: mustAskQuestionInput(t, "one?"),
 		AskQuestionBatch: &AskQuestionBatchMetadata{
 			Origin:              AskQuestionOriginModelTool,
-			RunID:               "run-1",
 			StepID:              "step-1",
 			ToolCallID:          "ask-1",
 			BatchToolCallIDs:    []string{"ask-1", "ask-2"},
@@ -547,7 +543,6 @@ func TestToolCallPassesPreparedBatchMetadataToAskBroker(t *testing.T) {
 	tool := NewAskQuestionTool(b, func() bool { return true })
 	meta := &AskQuestionBatchMetadata{
 		Origin:              AskQuestionOriginModelTool,
-		RunID:               "run-1",
 		StepID:              "step-1",
 		ToolCallID:          "ask-1",
 		BatchToolCallIDs:    []string{"ask-1", "ask-2"},
@@ -558,7 +553,6 @@ func TestToolCallPassesPreparedBatchMetadataToAskBroker(t *testing.T) {
 		ID:               "ask-1",
 		Name:             toolspec.ToolAskQuestion,
 		Input:            json.RawMessage(`{"question":"one?"}`),
-		RunID:            "run-1",
 		StepID:           "step-1",
 		AskQuestionBatch: meta,
 	})
@@ -568,7 +562,7 @@ func TestToolCallPassesPreparedBatchMetadataToAskBroker(t *testing.T) {
 	if got.QuestionBatch == nil || got.QuestionBatch.StepID != "step-1" || got.QuestionBatch.PreparedPromptCount != 2 {
 		t.Fatalf("broker metadata = %+v", got)
 	}
-	if got.Origin != AskQuestionOriginModelTool || got.RunID != "run-1" || got.StepID != "step-1" || got.ToolCallID != "ask-1" {
+	if got.Origin != AskQuestionOriginModelTool || got.StepID != "step-1" || got.ToolCallID != "ask-1" {
 		t.Fatalf("broker request identity = %+v", got)
 	}
 }
@@ -577,7 +571,6 @@ func TestToolCallReportsPreparedBatchSkippedWhenQuestionsBecomeDisabled(t *testi
 	tool := NewAskQuestionTool(NewAskQuestionBroker(), func() bool { return false })
 	meta := &AskQuestionBatchMetadata{
 		Origin:              AskQuestionOriginModelTool,
-		RunID:               "run-1",
 		StepID:              "step-1",
 		ToolCallID:          "ask-1",
 		BatchToolCallIDs:    []string{"ask-1"},
@@ -589,7 +582,6 @@ func TestToolCallReportsPreparedBatchSkippedWhenQuestionsBecomeDisabled(t *testi
 		ID:               "ask-1",
 		Name:             toolspec.ToolAskQuestion,
 		Input:            json.RawMessage(`{"question":"one?"}`),
-		RunID:            "run-1",
 		StepID:           "step-1",
 		AskQuestionBatch: meta,
 		OnAskQuestionBatchSkipped: func(metadata AskQuestionBatchMetadata) {

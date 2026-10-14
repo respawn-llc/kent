@@ -36,10 +36,10 @@ func TestPendingPromptsRetainOriginalBatchReadinessAcrossExternalAnswers(t *test
 	}
 	request := func(index int) askquestion.AskQuestionRequest {
 		return askquestion.AskQuestionRequest{
-			ToolCallID: ids[index], StepID: registryTestStepID, RunID: registryTestRunID,
+			ToolCallID: ids[index], StepID: registryTestStepID,
 			Question: "Proceed?", Origin: askquestion.AskQuestionOriginModelTool,
 			QuestionBatch: &askquestion.AskQuestionBatchMetadata{
-				Origin: askquestion.AskQuestionOriginModelTool, RunID: registryTestRunID, StepID: registryTestStepID,
+				Origin: askquestion.AskQuestionOriginModelTool, StepID: registryTestStepID,
 				ToolCallID: ids[index], BatchToolCallIDs: ids, CandidateOrdinal: index, PreparedPromptCount: len(ids),
 			},
 		}

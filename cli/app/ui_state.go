@@ -56,7 +56,6 @@ type uiRuntimeFeatureState struct {
 
 type missingPromptRecoveryScope struct {
 	sessionID string
-	runID     runtimeids.RunID
 	stepID    runtimeids.StepID
 }
 
@@ -92,12 +91,8 @@ type uiInputFeatureState struct {
 	unownedQueuedTerminalStates map[string]*transcriptpb.QueuedMessageState
 	pendingInputSubmissionOrder uint64
 	interruptLifecycle          uiInterruptLifecycle
-	currentRunID                string
 	currentStepID               string
-	interruptRunID              string
 	interruptStepID             string
-	completedRunID              string
-	completedStepID             string
 
 	modelName                 string
 	configuredModelName       *string
@@ -216,6 +211,7 @@ type uiKeyboardFeatureState struct {
 	lastEscAt              time.Time
 	pendingCSIShiftEnterAt time.Time
 	pendingCSIShiftEnter   bool
+	keyboardReporting      *uiTerminalKeyboardReportingOwner
 }
 
 type uiRollbackFeatureState struct {
