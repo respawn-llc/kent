@@ -8,6 +8,9 @@ import (
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/shared/config"
+	"core/shared/protoapi"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 )
@@ -67,7 +70,7 @@ func TestSessionChatSettingsReadsRemovedConnectionWithoutRebinding(t *testing.T)
 	}
 }
 
-func TestSessionChatSettingsReplacementUsesSelectedAgentConnection(t *testing.T) {
+func TestSessionChatSettingsReplacementMatchesInteractiveResumeAgentConnection(t *testing.T) {
 	cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
 	cfg.Settings.Connections["worker"] = cfg.Settings.Connections["test"]
 	cfg.Settings.Subagents["worker"] = config.SubagentRole{
@@ -78,7 +81,8 @@ func TestSessionChatSettingsReplacementUsesSelectedAgentConnection(t *testing.T)
 		},
 	}
 	persistence := sessiontest.NewPersistence()
-	store, err := session.Create(t.TempDir(), "workspace", cfg.WorkspaceRoot, sessioncontract.SessionCategoryMain, persistence.Options()...)
+	container := t.TempDir()
+	store, err := session.Create(container, "workspace", cfg.WorkspaceRoot, sessioncontract.SessionCategoryMain, persistence.Options()...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,8 +92,12 @@ func TestSessionChatSettingsReplacementUsesSelectedAgentConnection(t *testing.T)
 	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("worker")}); err != nil {
 		t.Fatal(err)
 	}
-	svc := NewService(launch.Planner{Config: cfg, PersistedSessions: persistence}, ChatSettingsOwner{}, nil)
-	read, err := svc.SessionChatSettings(t.Context(), mustSessionLaunchIntentID(t, store.Meta().SessionID))
+	svc := NewService(launch.Planner{
+		Config: cfg, PersistedSessions: persistence, ContainerDir: container, StoreOptions: persistence.Options(),
+		SessionProjects: sessionLaunchProjectResolver{}, ManagedWorktreeRoots: sessionLaunchProjectResolver{},
+	}, ChatSettingsOwner{}, nil)
+	id := mustSessionLaunchIntentID(t, store.Meta().SessionID)
+	read, err := svc.SessionChatSettings(t.Context(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,5 +106,26 @@ func TestSessionChatSettingsReplacementUsesSelectedAgentConnection(t *testing.T)
 		settings.Session.Connection == nil || settings.Session.Connection.ConnectionId != "worker" ||
 		settings.ConnectionReplacement == nil || settings.ConnectionReplacement.Current != "worker" {
 		t.Fatalf("replacement ignored selected Agent: %+v", settings)
+	}
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(serverapi.OpenExistingSessionLaunchIntent(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := svc.PlanSession(t.Context(), &sessionlaunchpb.SessionPlanRequest{
+		Mode: sessionlaunchpb.SessionLaunchMode_SESSION_LAUNCH_MODE_INTERACTIVE, Intent: intent,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Plan.ActiveSettings.GetConnection() != settings.ConnectionReplacement.Current ||
+		resumed.Plan.ActiveSettings.Model != settings.Settings.SelectedAgent.Model {
+		t.Fatalf("Desktop settings and interactive resume disagree: %+v, %+v", settings, resumed.Plan.ActiveSettings)
+	}
+	record, err := persistence.ResolvePersistedSession(t.Context(), id.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != "removed" {
+		t.Fatalf("projection or planning changed saved binding: %+v", record.Meta.ConnectionID)
 	}
 }
