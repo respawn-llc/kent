@@ -32,9 +32,6 @@ func (r *RuntimeRegistry) WithAttentionNotifications(broker *attentionnotify.Bro
 }
 
 func (r *RuntimeRegistry) SubscribeAttentionNotifications(_ context.Context, req *emptypb.Empty) (apicontract.AttentionNotificationSubscription, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if r == nil || r.attentionBroker == nil {
 		return nil, fmt.Errorf("attention notification stream is unavailable: %w", serverapi.ErrStreamUnavailable)
 	}
@@ -46,9 +43,6 @@ func (r *RuntimeRegistry) SubscribeAttentionNotifications(_ context.Context, req
 }
 
 func (r *RuntimeRegistry) SubscribeSessionAttentionNotifications(_ context.Context, req *attentionpb.SubscribeRequest) (serverapi.SessionAttentionNotificationSubscription, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if r == nil || r.attentionBroker == nil {
 		return nil, fmt.Errorf("attention notification stream is unavailable: %w", serverapi.ErrStreamUnavailable)
 	}

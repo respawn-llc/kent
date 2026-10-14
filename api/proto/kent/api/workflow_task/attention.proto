@@ -483,11 +483,17 @@ message AttentionNotificationID {
     defined_only: true
     not_in: [0]
   }];
-  string uuid = 2 [(buf.validate.field).string.min_len = 1];
+  string uuid = 2 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+  ];
 }
 
 message WorkflowApprovalState {
-  string approval_id = 1 [(buf.validate.field).string.min_len = 1];
+  string approval_id = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+  ];
   optional string message = 2;
 }
 
@@ -565,7 +571,10 @@ message WorkflowTaskAttentionTarget {
 message SessionPromptAttentionTarget {
   optional int64 short_id = 3 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
-  string project_id = 2 [(buf.validate.field).string.min_len = 1];
+  string project_id = 2 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+  ];
 }
 
 message AttentionNotificationTarget {
@@ -594,7 +603,14 @@ message AttentionNotification {
     defined_only: true
     not_in: [0]
   }];
-  google.protobuf.Timestamp occurred_at = 3 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp occurred_at = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).cel = {
+      id: "kent.workflow_task.notification_occurrence_nonzero"
+      message: "Notification occurrence must not be Go zero time"
+      expression: "this != timestamp('0001-01-01T00:00:00Z')"
+    }
+  ];
   uint64 revision = 4 [(buf.validate.field).uint64 = {
     gte: 1
     lte: 9007199254740991
@@ -662,7 +678,14 @@ message ResolvedAttentionNotification {
     defined_only: true
     not_in: [0]
   }];
-  google.protobuf.Timestamp occurred_at = 3 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp occurred_at = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).cel = {
+      id: "kent.workflow_task.resolved_notification_occurrence_nonzero"
+      message: "Resolved notification occurrence must not be Go zero time"
+      expression: "this != timestamp('0001-01-01T00:00:00Z')"
+    }
+  ];
 
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.resolved_notification_kind"

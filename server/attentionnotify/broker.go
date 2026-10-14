@@ -116,9 +116,6 @@ func (b *Broker) PublishPending(scope RoutingScope, notification clientui.Attent
 		Type:    clientui.AttentionNotificationEventPending,
 		Pending: &notification,
 	}
-	if err := serverapi.ValidateAttentionNotificationEvent(withSequenceForValidation(event)); err != nil {
-		return err
-	}
 	return b.publish(scope, event)
 }
 
@@ -131,15 +128,7 @@ func (b *Broker) PublishResolved(scope RoutingScope, id clientui.AttentionNotifi
 		Kind:       kind,
 		OccurredAt: &resolvedAt,
 	}
-	if err := serverapi.ValidateAttentionNotificationEvent(withSequenceForValidation(event)); err != nil {
-		return err
-	}
 	return b.publish(scope, event)
-}
-
-func withSequenceForValidation(event clientui.AttentionNotificationEvent) clientui.AttentionNotificationEvent {
-	event.Sequence = 1
-	return event
 }
 
 func (b *Broker) publish(scope RoutingScope, event clientui.AttentionNotificationEvent) error {

@@ -16,7 +16,6 @@ import (
 	"core/server/sessionruntime"
 	"core/server/workflow"
 	"core/shared/clientui"
-	"core/shared/protoapi"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -56,9 +55,6 @@ func (a *Attention) List(ctx context.Context, req *taskpb.AttentionListRequest) 
 	if a == nil {
 		return nil, errors.New("attention read model is required")
 	}
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	pageSize := int(req.PageSize)
 	if pageSize == 0 {
 		pageSize = 50
@@ -96,9 +92,6 @@ func (a *Attention) List(ctx context.Context, req *taskpb.AttentionListRequest) 
 func (a *Attention) ListTask(ctx context.Context, req *taskpb.TaskAttentionListRequest) (*taskpb.TaskAttentionListSuccess, error) {
 	if a == nil {
 		return nil, errors.New("attention read model is required")
-	}
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
 	}
 	taskID := strings.TrimSpace(req.TaskId)
 	task, err := a.queries.GetTask(ctx, taskID)
