@@ -808,7 +808,10 @@ message GoalProjection {
 }
 
 message GoalObservation {
-  uint64 sequence = 1 [(buf.validate.field).uint64.gt = 0];
+  uint64 sequence = 1 [(buf.validate.field).uint64 = {
+    gt: 0
+    lte: 9007199254740991
+  }];
   GoalObservationKind kind = 2 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]

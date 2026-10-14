@@ -9,7 +9,7 @@ import { StreamCompletionSchema } from "@app/server-api-contract/gen/kent/api/sh
 import { requireProjectAttachment } from "./chatAttachment";
 import { isValidChatSessionID, requireChatSessionID } from "./chatTarget";
 import { initialChatSettingsToWire } from "./chatSettings";
-import { enumValue, required, safeNumber } from "./chatWire";
+import { enumValue, required } from "./chatWire";
 import { timestampMillis } from "./clientTime";
 import { ContractError } from "./errors";
 import { chatOperationError, type ChatOperationError } from "./chatErrors";
@@ -141,15 +141,13 @@ export function goalMutationFromGenerated(value: R.GoalMutationSuccess): ChatGoa
   }
 }
 
-function observation(value: R.GoalObservation): ChatGoalObservation {
+function observation(value: R.GoalObservationValid): ChatGoalObservation {
   const kind = enumValue(value.kind, {
     [R.GoalObservationKind.HYDRATION]: "hydration",
     [R.GoalObservationKind.UPDATE]: "update",
   });
-  const sequence = safeNumber(value.sequence);
-  if ((kind === "hydration" && sequence !== 1) || (kind === "update" && sequence < 2))
-    throw new ContractError("Goal observation sequence does not match kind.");
-  return { sequence, kind, fact: goalFactFromWire(required(value.status)) };
+  const sequence = Number(value.sequence);
+  return { sequence, kind, fact: goalFactFromWire(value.status) };
 }
 
 export function chatGoalSetResultFromGenerated(

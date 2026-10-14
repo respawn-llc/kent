@@ -37,3 +37,22 @@ func TestGoalMutationExecutionIdentityContract(t *testing.T) {
 		})
 	}
 }
+
+func TestGoalObservationSequenceSupportsDesktopProjection(t *testing.T) {
+	for _, tc := range []struct {
+		sequence uint64
+		valid    bool
+	}{
+		{9007199254740991, true},
+		{9007199254740992, false},
+	} {
+		err := protoapi.Validate(&runtimepb.GoalObservation{
+			Sequence: tc.sequence,
+			Kind:     runtimepb.GoalObservationKind_GOAL_OBSERVATION_KIND_UPDATE,
+			Status:   &runtimepb.GoalProjection{},
+		})
+		if (err == nil) != tc.valid {
+			t.Fatalf("sequence %d validation = %v, want valid=%t", tc.sequence, err, tc.valid)
+		}
+	}
+}
