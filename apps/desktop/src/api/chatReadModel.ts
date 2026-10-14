@@ -100,8 +100,8 @@ export function contextUsage(value: R.ContextUsage): ChatTranscriptPayloadByKind
   };
 }
 
-function runtimeStatus(value: R.Status): ChatRuntimeStatus {
-  const usage = required(value.contextUsage);
+function runtimeStatus(value: R.StatusValid): ChatRuntimeStatus {
+  const usage = value.contextUsage;
   return {
     reviewerFrequency: value.reviewerFrequency,
     reviewerEnabled: value.reviewerEnabled,
@@ -133,11 +133,11 @@ function runtimeStatus(value: R.Status): ChatRuntimeStatus {
 }
 
 export function mainView(value: R.MainViewValid, sessionID: string): ChatMainViewRead {
-  const session = required(value.session);
+  const session = value.session;
   if (session.sessionId !== sessionID)
     throw new ContractError("Session Main View does not match the requested Session.");
-  const version = required(value.version);
-  const status = required(value.status);
+  const version = value.version;
+  const status = value.status;
   return {
     mainView: {
       version: {
@@ -148,8 +148,8 @@ export function mainView(value: R.MainViewValid, sessionID: string): ChatMainVie
       status: runtimeStatus(status),
       sessionID: session.sessionId,
       sessionName: session.sessionName ?? null,
-      executionTarget: chatExecutionTarget(executionFacts(required(session.executionTarget))),
-      activity: chatRuntimeActivity(activityFacts(required(value.activity))),
+      executionTarget: chatExecutionTarget(executionFacts(session.executionTarget)),
+      activity: chatRuntimeActivity(activityFacts(value.activity)),
     },
     goal: goalFactFromWire(status.goal),
   };
