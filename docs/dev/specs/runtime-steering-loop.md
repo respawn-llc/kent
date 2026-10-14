@@ -157,7 +157,7 @@
 - Kent must assume submitted native steers arrived and must use existing error-to-composer restoration behavior on errors.
 - Native steering must not add delivery reconciliation, automatic replay, or steering-specific recovery.
 - Ordinary native steering must not introduce special ordering, concurrency, race, or atomicity guarantees.
-- Active-target headless continuation must use the combined submission and observation contract in [CLI Commands](cli-commands.md#headless-run-and-shared-control). That operation's start/finish-race coordination does not change ordinary steering delivery or recovery guarantees.
+- Active-target headless continuation must use the combined submission and observation contract in [CLI Commands](cli-commands.md#headless-run-and-shared-control). Start/finish-race coordination applies only to that operation.
 
 ## Step Boundaries And Next Work
 
