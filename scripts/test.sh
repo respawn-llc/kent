@@ -116,8 +116,6 @@ logs=()
 suite_labels=()
 suite_pids=()
 next_suite=0
-pty_fixture_root=""
-ram_device=""
 test_temp_root=""
 go_test_timeout_args=()
 if [ "$wall_clock_cap" -eq 1 ]; then
@@ -163,23 +161,11 @@ cleanup() {
 	for log in "${logs[@]}"; do
 		unlink "$log" 2>/dev/null || true
 	done
-	if [ -n "$pty_fixture_root" ]; then
-		find "$pty_fixture_root" -depth -delete 2>/dev/null || true
-	fi
 	if [ -n "$test_temp_root" ]; then
 		if ! find "$test_temp_root" -mindepth 1 -depth -delete; then
 			status=1
 		fi
-		if [ -z "$ram_device" ]; then
-			rmdir "$test_temp_root" || status=1
-		fi
-	fi
-	if [ -n "$ram_device" ]; then
-		diskutil unmount force "$ram_device" >/dev/null || status=1
-		diskutil eject "$ram_device" >/dev/null || {
-			echo "Could not detach test RAM disk $ram_device" >&2
-			status=1
-		}
+		rmdir "$test_temp_root" || status=1
 	fi
 	exit "$status"
 }
@@ -196,15 +182,15 @@ prepare_test_storage() {
 	export GOTMPDIR="${GOTMPDIR:-${TMPDIR:-/tmp}}"
 	case "$(uname -s)" in
 	Darwin)
-		ram_device="$(diskutil image attach --noMount --plist ram://4194304 |
-			python3 -c 'import plistlib,sys; print("/dev/" + plistlib.loads(sys.stdin.buffer.read())["system-entities"][0]["dev-entry"])')"
-		diskutil eraseVolume HFS+ "kent-tests-$$" "$ram_device" >/dev/null
-		test_temp_root="$(diskutil info -plist "$ram_device" |
-			python3 -c 'import plistlib,sys; print(plistlib.loads(sys.stdin.buffer.read())["MountPoint"])')"
+		test_temp_root="$(python3 "$repo_root/scripts/test-storage.py")"
 		;;
 	Linux)
 		[ "$(stat -f -c %T /dev/shm)" = "tmpfs" ] || {
 			echo "Tests require a memory-backed /dev/shm for filesystem fixtures." >&2
+			exit 2
+		}
+		python3 -c 'import os,sys; sys.exit(bool(os.statvfs("/dev/shm").f_flag & os.ST_NOEXEC))' || {
+			echo "Tests require executable RAM storage: /dev/shm is mounted noexec. Configure its mount with exec enabled." >&2
 			exit 2
 		}
 		test_temp_root="$(mktemp -d /dev/shm/kent-tests.XXXXXX)"
@@ -233,27 +219,16 @@ run_suite() {
 	suite_pids+=("$!")
 }
 
-prepare_pty_fixtures() {
-	pty_fixture_root="$(mktemp -d "$TMPDIR/kent-pty-fixtures.XXXXXX")"
-	go test -c -o "$pty_fixture_root/kent-pty-fixture.test" core/cli/app
-	just --quiet build _go --output "$pty_fixture_root/kent"
-	go build -o "$pty_fixture_root/ansi-writer" core/internal/testharness/pty/testdata/cmd/ansi-writer
-	go build -o "$pty_fixture_root/phase-input-writer" core/internal/testharness/pty/testdata/cmd/phase-input-writer
-	go build -o "$pty_fixture_root/phase-writer" core/internal/testharness/pty/testdata/cmd/phase-writer
-	export KENT_PTY_FIXTURE_BINARY="$pty_fixture_root/kent-pty-fixture.test"
-	export KENT_PTY_KENT_BINARY="$pty_fixture_root/kent"
-	export KENT_PTY_ANSI_WRITER_BINARY="$pty_fixture_root/ansi-writer"
-	export KENT_PTY_PHASE_INPUT_WRITER_BINARY="$pty_fixture_root/phase-input-writer"
-	export KENT_PTY_PHASE_WRITER_BINARY="$pty_fixture_root/phase-writer"
-}
-
 run_server() {
 	local args=("${tool_args[@]}")
 	just --quiet _gen-go
 	if [ "${#args[@]}" -eq 0 ]; then
-		run_suite developer-tools just --quiet _test-developer-tools
-		prepare_pty_fixtures
-		args=(./...)
+		local timeout_args=()
+		if [ "$wall_clock_cap" -eq 1 ]; then
+			timeout_args=(--timeout "${timeout_seconds}s")
+		fi
+		run_suite server python3 "$repo_root/scripts/test-go.py" --workers "$workers" "${timeout_args[@]}"
+		return
 	fi
 	run_suite server go test -exec "bash \"$repo_root/scripts/test-exec.sh\"" -p "$workers" "${go_test_timeout_args[@]}" "${args[@]}"
 }

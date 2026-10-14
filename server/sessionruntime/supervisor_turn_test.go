@@ -210,9 +210,7 @@ func TestSupervisorStartedQuestionCanBeInterrupted(t *testing.T) {
 	if _, live := h.authority.SessionExecution(h.sessionID); live {
 		t.Fatal("interrupted Supervisor execution remained current")
 	}
-	if activity := h.engine.ReviewerActivity(); activity != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE {
-		t.Fatalf("idle Supervisor activity = %s", activity)
-	}
+	h.awaitActivity(t, runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE)
 }
 
 func (h *supervisorTurnHarness) awaitActivity(t *testing.T, want runtimepb.ReviewerActivity) {

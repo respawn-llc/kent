@@ -1171,9 +1171,10 @@ func TestLocalToolRegistryBindingBindsExecutionCorrelationPerSuccessiveScope(t *
 			t.Fatal("expected exec_command handler")
 		}
 		input, err := json.Marshal(map[string]any{
-			"cmd":           "sleep 1",
+			"cmd":           "read -r release",
 			"shell":         "/bin/sh",
 			"login":         false,
+			"tty":           true,
 			"yield_time_ms": 50,
 		})
 		if err != nil {
@@ -1250,6 +1251,13 @@ func TestLocalToolRegistryBindingBindsExecutionCorrelationPerSuccessiveScope(t *
 		snapshotA.ID:        &correlationA,
 		snapshotB.ID:        &correlationB,
 		snapshotUnscoped.ID: nil,
+	}
+	for processID := range expectedByProcessID {
+		if _, err := manager.WriteStdin(context.Background(), shelltool.WriteRequest{
+			SessionID: processID, Input: "\n", YieldTime: time.Millisecond, MaxOutputChars: 1_000,
+		}); err != nil {
+			t.Fatalf("release background process %s: %v", processID, err)
+		}
 	}
 	for remaining := len(expectedByProcessID); remaining > 0; remaining-- {
 		event := nextEvent()

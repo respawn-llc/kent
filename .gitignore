@@ -50,6 +50,10 @@ go.work.sum
 
 # Lazy Protobuf generation cache and disposable generated sources.
 /.generated/protobuf/
+/.generated/test-binaries/
+/.generated/test-measurements
+/.generated/test-ram
+/.generated/test-storage.lock
 /shared/protoapi/gen/
 /apps/desktop/packages/server-api-contract/src/gen/
 

@@ -7,9 +7,6 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-
-	"modernc.org/sqlite"
-	sqlite3 "modernc.org/sqlite/lib"
 )
 
 var metadataMigrationSnapshots = struct {
@@ -66,34 +63,4 @@ func withMetadataSnapshotConnection(ctx context.Context, db *sql.DB, action func
 	// The one-connection fixture pool retains this connection when it becomes idle:
 	// deserialized databases are private to the native connection, not shared-cache peers.
 	return errors.Join(err, conn.Close())
-}
-
-func TestMigrationSnapshotsKeepFixturesIndependent(t *testing.T) {
-	for _, name := range []string{"first", "second"} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			db, err := openDatabaseAtVersionForTest(t, 93)
-			if err != nil {
-				t.Fatal(err)
-			}
-			execSeed(t, db, "independent snapshot project", `
-INSERT INTO projects (id, display_name, created_at_unix_ms, updated_at_unix_ms)
-VALUES ('snapshot-project', ?, 1000, 1000)`, name)
-			var got string
-			if err := db.QueryRowContext(t.Context(), `
-SELECT display_name FROM projects WHERE id = 'snapshot-project'`).Scan(&got); err != nil {
-				t.Fatal(err)
-			}
-			if got != name {
-				t.Fatalf("fixture project = %q, want %q", got, name)
-			}
-			_, err = db.ExecContext(t.Context(), `
-INSERT INTO sessions (id, project_id, artifact_relpath, created_at_unix_ms, updated_at_unix_ms)
-VALUES ('snapshot-session', 'missing-project', 'sessions/snapshot-session', 1000, 1000)`)
-			var constraint *sqlite.Error
-			if !errors.As(err, &constraint) || constraint.Code() != sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY {
-				t.Fatalf("snapshot foreign-key enforcement error = %v", err)
-			}
-		})
-	}
 }

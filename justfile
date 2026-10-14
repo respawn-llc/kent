@@ -50,6 +50,15 @@ gen:
 test *args:
     @bash scripts/test.sh "$@"
 
+[private]
+_prepare-go-tests workers="10":
+    @just --quiet _gen-go
+    @python3 scripts/test-go.py --workers {{workers}} --prepare-only
+
+[private]
+_ci-test-storage:
+    sudo mount -o remount,exec /dev/shm
+
 # Apply safe lint fixes, or pass --dry-run for read-only validation.
 lint *args:
     @bash scripts/quiet-on-success.sh --success pass just _area-command _lint {{ args }}
@@ -118,10 +127,6 @@ _gen-metadata:
 [parallel]
 [private]
 _generate: _gen-go _gen-typescript
-
-[private]
-_test-developer-tools:
-    PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p '*_test.py'
 
 [private]
 _node:

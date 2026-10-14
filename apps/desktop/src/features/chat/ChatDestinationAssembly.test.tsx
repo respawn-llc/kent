@@ -681,8 +681,8 @@ it.each(["page-first", "hydration-first"] as const)(
         await admitPage();
       }
       const list = await screen.findByRole("list");
-      expect(list.scrollHeight).toBeGreaterThan(list.clientHeight);
       await waitFor(() => {
+        expect(list.scrollHeight).toBeGreaterThan(list.clientHeight);
         expect(list.scrollTop).toBe(list.scrollHeight - list.clientHeight);
       });
       const latestText = entries.at(-1)?.User?.Text;
@@ -886,10 +886,9 @@ it("preserves failed answer diagnostics separately while retaining answers for e
     }),
   );
   const user = userEvent.setup({ delay: null });
-  await user.type(
-    await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }),
-    "retained answer",
-  );
+  fireEvent.change(await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }), {
+    target: { value: "retained answer" },
+  });
   await user.click(screen.getByRole("radio", { name: "one" }));
   expect(view.answer).not.toHaveBeenCalled();
   await user.click(screen.getByRole("radio", { name: "one" }));
@@ -931,11 +930,15 @@ it("retains pending prompt answers and commentary through a Settings read failur
     }),
   );
   const user = userEvent.setup({ delay: null });
-  await user.type(await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }), "first answer");
+  fireEvent.change(await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }), {
+    target: { value: "first answer" },
+  });
   await user.click(screen.getByRole("radio", { name: "one" }));
   await user.click(screen.getByRole("radio", { name: "one" }));
   await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") }));
-  await user.type(screen.getByRole("textbox", { name: appI18n.t("task.commentary") }), "last draft");
+  fireEvent.change(screen.getByRole("textbox", { name: appI18n.t("task.commentary") }), {
+    target: { value: "last draft" },
+  });
   view.settings.mockRejectedValueOnce(new Error("offline"));
   await act(async () => {
     await view.client.refetchQueries({ queryKey: ["chat-settings"] });

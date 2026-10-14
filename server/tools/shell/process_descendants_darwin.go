@@ -16,6 +16,8 @@ func managedProcessSnapshot() (map[int]managedProcessSnapshotEntry, error) {
 			processGroupID: int(process.Eproc.Pgid),
 			startedAt: uint64(process.Proc.P_starttime.Sec)*1_000_000 +
 				uint64(process.Proc.P_starttime.Usec),
+			// sysctl exposes P_LEXIT as P_WEXIT before the process reaches SZOMB.
+			exited: process.Proc.P_stat == 5 || process.Proc.P_flag&0x00002000 != 0,
 		}
 	}
 	return snapshot, nil

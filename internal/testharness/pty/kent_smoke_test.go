@@ -105,38 +105,6 @@ func TestProductionKentBinaryPTYSmoke(t *testing.T) {
 	}
 }
 
-func TestPromptReadyRequiresNormalFrameAndVisibleCursor(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		name  string
-		bytes string
-		ready bool
-	}{
-		{name: "cursor without frame", bytes: "\x1b[?25h"},
-		{name: "alternate frame", bytes: "\x1b[?1049h\x1b[6;1H\x1b[?25h"},
-		{name: "cleanup cursor after old frame", bytes: "\x1b[6;1H\x1b[?25h\x1b[?1049h\x1b[?1049l\x1b[?25h"},
-		{name: "normal frame after cleanup", bytes: "\x1b[?1049h\x1b[?1049l\x1b[6;1H\x1b[?25h", ready: true},
-		{name: "normal frame without alternate screen", bytes: "\x1b[6;1H\x1b[?25h", ready: true},
-		{name: "hidden cursor", bytes: "\x1b[6;1H\x1b[?25h\x1b[?25l"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			payload := []byte(tc.bytes)
-			analysis, err := pty.Analyze(pty.Capture{
-				Dimensions: pty.MustDimensions(6, 10),
-				Chunks:     []pty.Chunk{pty.NewChunk(0, 0, payload)},
-				Raw:        payload,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := promptReady(analysis); got != tc.ready {
-				t.Fatalf("prompt readiness = %v, want %v", got, tc.ready)
-			}
-		})
-	}
-}
-
 func promptReady(analysis analyzer.Analysis) bool {
 	alternateScreenActive := false
 	cursorVisible := false

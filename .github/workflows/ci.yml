@@ -97,6 +97,9 @@ jobs:
       - name: Install GUI dependencies
         run: just install _apps-dependencies
 
+      - name: Configure executable test RAM
+        run: just _ci-test-storage
+
       - name: Test
         run: just test server --no-wall-clock-cap
 
@@ -206,6 +209,9 @@ jobs:
 
       - name: Lint GUI
         run: just lint desktop --dry-run
+
+      - name: Configure executable test RAM
+        run: just _ci-test-storage
 
       - name: Test GUI
         run: just test desktop
