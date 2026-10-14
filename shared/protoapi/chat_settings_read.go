@@ -9,9 +9,6 @@ import (
 )
 
 func ChatSettingsErrorFromProto(value *pb.ReadError) error {
-	if err := Validate(value); err != nil {
-		return err
-	}
 	switch detail := value.Detail.(type) {
 	case *pb.ReadError_WorkspaceNotRegistered:
 		return serverapi.ErrWorkspaceNotRegistered

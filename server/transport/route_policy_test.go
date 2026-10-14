@@ -77,14 +77,14 @@ func TestChatTargetSemanticUnion(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := protoapi.ChatTargetFromRequest(&chatpb.SteerRequest{
+			err := protoapi.Validate(&chatpb.SteerRequest{
 				Target: test.target,
 				Activation: &chatpb.Activation{
 					Input: &chatpb.Activation_Text{Text: "continue"},
 				},
 			})
 			if (err != nil) != test.wantErr {
-				t.Fatalf("ChatTargetFromRequest error = %v, want error %t", err, test.wantErr)
+				t.Fatalf("request validation error = %v, want error %t", err, test.wantErr)
 			}
 		})
 	}
