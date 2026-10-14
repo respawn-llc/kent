@@ -835,6 +835,11 @@ func (e *Engine) SubmitAgentSteerWithHooks(ctx context.Context, steer AgentSteer
 		if err != nil {
 			return err
 		}
+		if steer.initialPrompt != nil {
+			if err := e.store.CaptureInitialPromptPreview(*steer.initialPrompt); err != nil {
+				return err
+			}
+		}
 		result, runErr := e.runStepLoopWithPendingUserInjectionOutcomeObserver(stepCtx, stepID, ownedInputFlushObserver(item.ID, onFlushed), steerUserInjections(map[string]struct{}{item.ID: {}}))
 		if result.FinalAnswer != nil {
 			assistant = *result.FinalAnswer

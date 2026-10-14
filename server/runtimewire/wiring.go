@@ -229,7 +229,8 @@ func NewRuntimeWiringWithBackground(
 	}
 	var namingConfig *runtime.SessionNamingConfig
 	meta := store.Meta()
-	if opts.SubmitSessionNaming != nil && meta.Name == nil && active.Nano != nil && active.Nano.SessionNaming {
+	if opts.SubmitSessionNaming != nil && meta.Name == nil && active.Nano != nil && active.Nano.SessionNaming &&
+		(meta.ModelRequestCount == 0 || strings.TrimSpace(meta.FirstPromptPreview) != "") {
 		targets, err := llm.ResolveNanoTargets(active)
 		if err != nil {
 			return nil, err

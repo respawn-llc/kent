@@ -4,6 +4,21 @@ import "strings"
 
 const firstPromptPreviewMaxChars = 120
 
+// Typed initial assignments are developer messages, so their original task
+// must be supplied separately from the model-visible agent-steer envelope.
+func (s *Store) CaptureInitialPromptPreview(content string) error {
+	return s.mutateAndPersist(func() error {
+		s.captureFirstPromptPreviewLocked(content)
+		return nil
+	})
+}
+
+func (s *Store) captureFirstPromptPreviewLocked(content string) {
+	if s.meta.FirstPromptPreview == "" && s.meta.ModelRequestCount == 0 {
+		s.meta.FirstPromptPreview = normalizeFirstPromptPreview(content)
+	}
+}
+
 func normalizeFirstPromptPreview(content string) string {
 	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimSpace(strings.TrimSuffix(line, "\r"))

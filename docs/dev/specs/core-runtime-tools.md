@@ -268,6 +268,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Naming must include commentary from that Step when present. A tool-calling Step without commentary must qualify.
 - Kent must name an existing unnamed Session only when the user submits further input, after the continuation's first completed Agent Step. Opening a Session or restarting the server must not trigger historical naming.
 - Continued Sessions must use the existing first-prompt preview, limited to its first nonblank line and 120 characters, plus commentary from the continuation's first Step when present. Naming must not add a historical transcript read.
+- Initial delegated assignments must populate the existing first-prompt preview. Continued Sessions without a saved preview must skip automatic naming.
 - Naming must use text input and text output through one nano Step. Its work must have a server-wide lifetime with the nano inference timeout.
 - Naming must use at most 85% of the configured nano context window for its input, including prompt overhead, leaving room for output. Kent must middle-truncate the initial input and optional commentary as necessary, retaining their beginning and ending without changing Session history.
 - If the minimal naming prompt cannot fit, Kent must report a naming failure.
