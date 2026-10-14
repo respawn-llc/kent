@@ -1,7 +1,6 @@
 package serverapi
 
 import (
-	"errors"
 	"strings"
 
 	"core/shared/runtimeids"
@@ -29,42 +28,6 @@ type ProjectWorkspaceSummary struct {
 	Availability    string `json:"availability"`
 	IsPrimary       bool   `json:"is_primary"`
 	UpdatedAtUnixMs int64  `json:"updated_at_unix_ms"`
-}
-
-func (s ProjectHomeSummary) Validate() error {
-	for field, value := range map[string]string{
-		"project_id":               s.ProjectID,
-		"display_name":             s.DisplayName,
-		"primary_workspace_id":     s.PrimaryWorkspace.WorkspaceID,
-		"primary_workspace_root":   s.PrimaryWorkspace.RootPath,
-		"primary_workspace_status": s.PrimaryWorkspace.Availability,
-	} {
-		if strings.TrimSpace(value) == "" {
-			return errors.New(field + " must not be blank")
-		}
-	}
-	if strings.TrimSpace(s.PrimaryWorkspace.DisplayName) == "" && !IsFilesystemRootPath(s.PrimaryWorkspace.RootPath) {
-		return errors.New("primary_workspace_name must not be blank")
-	}
-	if s.DefaultWorkflowID == nil {
-		if strings.TrimSpace(s.DefaultWorkflowName) != "" {
-			return errors.New("default workflow name must be absent when no workflow is present")
-		}
-		if s.DefaultWorkflowValid {
-			return errors.New("default workflow validity must be false when no workflow is present")
-		}
-		return nil
-	}
-	if s.DefaultWorkflowID.IsZero() {
-		return errors.New("default_workflow_id must not be zero when present")
-	}
-	if strings.TrimSpace(s.DefaultWorkflowName) == "" {
-		return errors.New("default_workflow_name must not be blank when present")
-	}
-	if !s.DefaultWorkflowValid {
-		return errors.New("default workflow validity must be true when a workflow is present")
-	}
-	return nil
 }
 
 // IsFilesystemRootPath recognizes filesystem roots without applying local OS path rules.

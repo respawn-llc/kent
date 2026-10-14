@@ -149,13 +149,10 @@ func TestBindingMutationResultValidation(t *testing.T) {
 
 func TestBindingMutationTypedErrorProjection(t *testing.T) {
 	count := int32(1)
-	blocked, err := newBindingMutationBlockedError(" project-1 ", " workspace-1 ", []*projectpb.WorkspaceUnlinkBlocker{
+	blocked := newBindingMutationBlockedError(" project-1 ", " workspace-1 ", []*projectpb.WorkspaceUnlinkBlocker{
 		{Code: "future_blocker", Count: &count},
 		{Code: "default_workspace"},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	projection, err := projectWorkspaceMutationErrorProjection(blocked, "ignored", false)
 	if err != nil {
 		t.Fatal(err)

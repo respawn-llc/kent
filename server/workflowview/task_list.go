@@ -194,9 +194,6 @@ func (l *TaskList) CountGroups(ctx context.Context, req *taskpb.ProjectTaskGroup
 	if l == nil {
 		return nil, errors.New("task list is required")
 	}
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if _, err := l.metadata.GetProjectEditMetadata(ctx, req.ProjectId); err != nil {
 		return nil, err
 	}

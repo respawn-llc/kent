@@ -1218,7 +1218,7 @@ message LabelsGetResult {
 }
 
 message ProjectTaskGroupCountsRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
 message ProjectTaskGroupDefinition {

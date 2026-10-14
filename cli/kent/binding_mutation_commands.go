@@ -99,17 +99,11 @@ func detachSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 
 func bindingMutationResultFromDetachResponse(response *projectpb.UnlinkWorkspaceSuccess) (bindingMutationResult, error) {
 	if len(response.Blockers) > 0 {
-		blocked, err := newBindingMutationBlockedError(response.ProjectId, response.WorkspaceId, response.Blockers)
-		if err != nil {
-			return bindingMutationResult{}, err
-		}
+		blocked := newBindingMutationBlockedError(response.ProjectId, response.WorkspaceId, response.Blockers)
 		return bindingMutationResult{}, blocked
 	}
 	projectID := strings.TrimSpace(response.ProjectId)
 	workspaceID := strings.TrimSpace(response.WorkspaceId)
-	if projectID == "" || workspaceID == "" {
-		return bindingMutationResult{}, errors.New("workspace detach returned incomplete identity")
-	}
 	return bindingMutationResult{ProjectID: &projectID, WorkspaceID: &workspaceID}, nil
 }
 
@@ -224,18 +218,12 @@ type bindingMutationBlockedError struct {
 	Blockers    []*projectpb.WorkspaceUnlinkBlocker
 }
 
-func newBindingMutationBlockedError(projectID string, workspaceID string, blockers []*projectpb.WorkspaceUnlinkBlocker) (*bindingMutationBlockedError, error) {
-	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(workspaceID) == "" {
-		return nil, errors.New("workspace detach blocker response omitted resolved identity")
-	}
-	if len(blockers) == 0 {
-		return nil, errors.New("workspace detach blocker response was empty")
-	}
+func newBindingMutationBlockedError(projectID string, workspaceID string, blockers []*projectpb.WorkspaceUnlinkBlocker) *bindingMutationBlockedError {
 	return &bindingMutationBlockedError{
 		ProjectID:   strings.TrimSpace(projectID),
 		WorkspaceID: strings.TrimSpace(workspaceID),
 		Blockers:    blockers,
-	}, nil
+	}
 }
 
 func projectWorkspaceSelectorToGenerated(selector serverapi.ProjectWorkspaceSelector) *projectpb.ProjectWorkspaceSelector {
@@ -347,7 +335,7 @@ func (r bindingMutationResult) validate() error {
 		}
 		return nil
 	}
-	if r.ProjectID == nil || r.WorkspaceID == nil || strings.TrimSpace(*r.ProjectID) == "" || strings.TrimSpace(*r.WorkspaceID) == "" {
+	if r.ProjectID == nil || r.WorkspaceID == nil {
 		return errors.New("binding mutation result requires project and workspace IDs")
 	}
 	return nil

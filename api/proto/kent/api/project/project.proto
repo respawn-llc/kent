@@ -1028,8 +1028,8 @@ message UnlinkWorkspaceRequest {
 }
 
 message UnlinkWorkspaceSuccess {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
-  string workspace_id = 2 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  string workspace_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   repeated WorkspaceUnlinkBlocker blockers = 3 [(buf.validate.field).repeated.max_items = 6];
   optional ProjectHomeSummary project = 4;
 }
