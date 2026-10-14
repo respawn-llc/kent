@@ -22,9 +22,9 @@ export class UUIDv4Value<Domain extends string> {
     this.#value = value;
   }
 
-  static fromProto<ParsedDomain extends string>(this: void, value: string): UUIDv4Value<ParsedDomain> {
+  static fromProto = <ParsedDomain extends string>(value: string): UUIDv4Value<ParsedDomain> => {
     return new UUIDv4Value<ParsedDomain>(SetupOperationID.fromProto(value));
-  }
+  };
 
   toJSONValue(): string {
     return this.#value.toJSONValue();

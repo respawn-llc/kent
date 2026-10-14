@@ -150,7 +150,7 @@ function connectionReplacement(value: T.ConnectionReplacement): Payloads["connec
   return { PreviousID: value.previousId, CurrentID: value.currentId };
 }
 
-function hydration(value: T.Hydration): Payloads["hydration"] {
+function hydration(value: T.HydrationValid): Payloads["hydration"] {
   const tail = required(value.tailSegment);
   return {
     ConnectionReplacement:
@@ -237,7 +237,7 @@ function worktreeOutcome(value: T.WorktreeTransitionOutcome): Payloads["worktree
   };
 }
 
-export function transcriptMessage(value: T.Message, sessionID: string): ChatTranscriptMessage {
+export function transcriptMessage(value: T.MessageValid, sessionID: string): ChatTranscriptMessage {
   const event = required(value.event).payload;
   const sequence = safeNumber(value.sequence);
   if ((event.case === "hydration" && sequence !== 1) || (event.case !== "hydration" && sequence < 2))
@@ -246,8 +246,8 @@ export function transcriptMessage(value: T.Message, sessionID: string): ChatTran
   return projectEvent(event, sequence, sessionID);
 }
 
-type EventKind = Exclude<T.Event["payload"]["case"], undefined>;
-type EventValue<Kind extends EventKind> = Extract<T.Event["payload"], { case: Kind }>["value"];
+type EventKind = Exclude<T.EventValid["payload"]["case"], undefined>;
+type EventValue<Kind extends EventKind> = Extract<T.EventValid["payload"], { case: Kind }>["value"];
 type PresentEvent<Kind extends EventKind> = {
   [Key in Kind]: Readonly<{ case: Key; value: EventValue<Key> }>;
 }[Kind];

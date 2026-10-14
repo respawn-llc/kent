@@ -132,7 +132,7 @@ function runtimeStatus(value: R.Status): ChatRuntimeStatus {
   };
 }
 
-export function mainView(value: R.MainView, sessionID: string): ChatMainViewRead {
+export function mainView(value: R.MainViewValid, sessionID: string): ChatMainViewRead {
   const session = required(value.session);
   if (session.sessionId !== sessionID)
     throw new ContractError("Session Main View does not match the requested Session.");
