@@ -670,12 +670,6 @@ func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessio
 		if item.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION {
 			continue
 		}
-		if item.GetQuestion().GetQuestion() == nil {
-			return nil, fmt.Errorf("pending question %q has no typed prompt", item.Id)
-		}
-		if item.GetQuestion().Question.Kind != taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY && item.GetQuestion().Question.Kind != taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL {
-			continue
-		}
 		questions = append(questions, item)
 	}
 	sort.Slice(questions, func(i, j int) bool {
@@ -689,19 +683,13 @@ func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessio
 	for _, item := range questions {
 		detail := item.GetQuestion()
 		prompt := detail.Question
-		sessionID, err := runtimeids.ParseSessionID(prompt.SessionId)
-		if err != nil {
-			return nil, err
-		}
+		sessionID := runtimeids.SessionIDFromProto(prompt.SessionId)
 		shortID := protoapi.SessionShortIDFromProto(prompt.ShortId)
-		stepID, err := runtimeids.ParseStepID(prompt.StepId)
+		stepID, err := runtimeids.StepIDFromProto(prompt.StepId)
 		if err != nil {
 			return nil, err
 		}
-		sessionName, err := normalizedOptionalQuestionSessionName(detail.SessionName)
-		if err != nil {
-			return nil, fmt.Errorf("pending question %q session name: %w", item.Id, err)
-		}
+		sessionName := normalizedOptionalQuestionSessionName(detail.SessionName)
 		question := questionCommandPendingQuestion{
 			ToolCallID: clientui.ToolCallID(prompt.ToolCallId),
 			SessionID:  sessionID,
@@ -710,9 +698,6 @@ func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessio
 		}
 		if ordinary := prompt.GetOrdinary(); ordinary != nil {
 			question.Kind = taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY
-			if detail.Message == nil {
-				return nil, fmt.Errorf("pending question %q has no content", item.Id)
-			}
 			question.Question = *detail.Message
 			question.Suggestions = append([]string(nil), ordinary.Suggestions...)
 			if ordinary.RecommendedOptionIndex != nil {
@@ -721,7 +706,7 @@ func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessio
 			}
 		} else {
 			question.Kind = taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL
-			if detail.Message == nil || question.ToolCallID.Validate() != nil || len(prompt.GetApproval().GetApprovalDecisions()) == 0 {
+			if detail.Message == nil {
 				continue
 			}
 			question.Question = *detail.Message
@@ -743,15 +728,12 @@ func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessio
 	return candidates, nil
 }
 
-func normalizedOptionalQuestionSessionName(raw *string) (*string, error) {
+func normalizedOptionalQuestionSessionName(raw *string) *string {
 	if raw == nil {
-		return nil, nil
+		return nil
 	}
 	trimmed := strings.TrimSpace(*raw)
-	if trimmed == "" {
-		return nil, errors.New("session name must be non-blank when present")
-	}
-	return &trimmed, nil
+	return &trimmed
 }
 
 func selectTaskQuestionCandidate(

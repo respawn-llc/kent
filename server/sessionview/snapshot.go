@@ -50,7 +50,7 @@ func (s *Service) resolveMainView(ctx context.Context, sessionID string) (*runti
 	}
 	if s.mainViews != nil {
 		if view, ok := s.mainViews.RuntimeMainViewSnapshot(sessionID); ok {
-			if s.targets != nil && strings.TrimSpace(view.Session.SessionId) != "" {
+			if s.targets != nil {
 				target, err := s.targets.ResolveSessionExecutionTarget(ctx, view.Session.SessionId)
 				if err != nil {
 					return nil, err

@@ -146,23 +146,12 @@ func (s *Service) taskQuestion(
 ) (*taskpb.ObserveOutcome, bool, error) {
 	detail := item.GetQuestion()
 	prompt := detail.GetQuestion()
-	if prompt == nil {
-		return nil, false, nil
-	}
-	if err := protoapi.Validate(prompt); err != nil {
-		return nil, false, err
-	}
-	sessionID, err := runtimeids.ParseSessionID(prompt.SessionId)
-	if err != nil {
-		return nil, false, err
-	}
+	sessionID := runtimeids.SessionIDFromProto(prompt.SessionId)
+	var err error
 	var question *promptpb.ObservationQuestion
 	switch selected := prompt.Prompt.(type) {
 	case *taskpb.AttentionQuestionPrompt_Ordinary:
 		text := detail.GetMessage()
-		if strings.TrimSpace(text) == "" {
-			return nil, false, nil
-		}
 		ask := &promptpb.Question{
 			ShortId:                prompt.ShortId,
 			ToolCallId:             prompt.ToolCallId,

@@ -415,9 +415,6 @@ func liveQuestionAttentionID(
 func (a *Attention) attachLiveQuestionSessionNames(ctx context.Context, candidates []attentionCandidate) error {
 	sessionIDs := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
-		if candidate.item.GetQuestion().GetQuestion() == nil {
-			return fmt.Errorf("live question attention %q has no prompt", candidate.item.Id)
-		}
 		sessionIDs = append(sessionIDs, candidate.item.GetQuestion().Question.SessionId)
 	}
 	names, err := resolveSessionPresentations(ctx, a.queries.ListSessionNamesByIDs, sessionIDs)
