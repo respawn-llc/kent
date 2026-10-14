@@ -1,0 +1,102 @@
+package sessionlaunch
+
+import (
+	"errors"
+	"testing"
+
+	"core/server/launch"
+	"core/server/session"
+	"core/server/session/sessiontest"
+	"core/shared/config"
+	"core/shared/sessioncontract"
+	"core/shared/textutil"
+)
+
+func TestSessionChatSettingsReadsRemovedConnectionWithoutRebinding(t *testing.T) {
+	cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
+	persistence := sessiontest.NewPersistence()
+	store, err := session.Create(t.TempDir(), "workspace", cfg.WorkspaceRoot, sessioncontract.SessionCategoryMain, persistence.Options()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetConnectionID(config.ConnectionID("removed")); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(launch.Planner{Config: cfg, PersistedSessions: persistence}, ChatSettingsOwner{}, nil)
+	id := mustSessionLaunchIntentID(t, store.Meta().SessionID)
+	read, err := svc.SessionChatSettings(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.GetSession().Settings.SelectedAgent.Role != config.DefaultSubagentRole {
+		t.Fatalf("selected Agent = %+v", read.GetSession().Settings.SelectedAgent)
+	}
+	notice := read.GetSession().ConnectionReplacement
+	if notice == nil || notice.Previous != "removed" || notice.Current != "test" {
+		t.Fatalf("Connection replacement notice = %+v", notice)
+	}
+	if read.GetSession().Session.Connection != nil {
+		t.Fatal("single configured Connection must keep its optional row hidden")
+	}
+	record, err := persistence.ResolvePersistedSession(t.Context(), id.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !textutil.EqualOptional(record.Meta.ConnectionID, textutil.Value(config.ConnectionID("removed"))) {
+		t.Fatalf("read changed Session binding: %+v", record.Meta.ConnectionID)
+	}
+	if err := store.SetConnectionID("test"); err != nil {
+		t.Fatal(err)
+	}
+	read, err = svc.SessionChatSettings(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.GetSession().ConnectionReplacement != nil {
+		t.Fatal("configured binding must not produce a replacement notice")
+	}
+	if err := store.SetConnectionID("removed"); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Settings.Connections = map[config.ConnectionID]config.ProviderConnection{}
+	svc = NewService(launch.Planner{Config: cfg, PersistedSessions: persistence}, ChatSettingsOwner{}, nil)
+	read, err = svc.SessionChatSettings(t.Context(), id)
+	var unavailable *config.ConnectionReferenceError
+	if read != nil || !errors.As(err, &unavailable) {
+		t.Fatalf("unavailable replacement returned success: %+v, %v", read, err)
+	}
+}
+
+func TestSessionChatSettingsReplacementUsesSelectedAgentConnection(t *testing.T) {
+	cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
+	cfg.Settings.Connections["worker"] = cfg.Settings.Connections["test"]
+	cfg.Settings.Subagents["worker"] = config.SubagentRole{
+		Settings: config.Settings{Connection: config.SingleConnection("worker"), Model: "gpt-6-luna"},
+		Sources: map[string]config.Origin{
+			"model":      {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}},
+			"connection": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "connection"}},
+		},
+	}
+	persistence := sessiontest.NewPersistence()
+	store, err := session.Create(t.TempDir(), "workspace", cfg.WorkspaceRoot, sessioncontract.SessionCategoryMain, persistence.Options()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetConnectionID("removed"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("worker")}); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(launch.Planner{Config: cfg, PersistedSessions: persistence}, ChatSettingsOwner{}, nil)
+	read, err := svc.SessionChatSettings(t.Context(), mustSessionLaunchIntentID(t, store.Meta().SessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := read.GetSession()
+	if settings.Settings.SelectedAgent.Role != "worker" || settings.Settings.SelectedAgent.Model != "gpt-6-luna" ||
+		settings.Session.Connection == nil || settings.Session.Connection.ConnectionId != "worker" ||
+		settings.ConnectionReplacement == nil || settings.ConnectionReplacement.Current != "worker" {
+		t.Fatalf("replacement ignored selected Agent: %+v", settings)
+	}
+}

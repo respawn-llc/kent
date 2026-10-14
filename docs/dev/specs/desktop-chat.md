@@ -301,6 +301,7 @@
 
 ## Session settings and drafts
 
+- If a Session's recorded Connection is absent from configuration, Chat settings must use the server's ordinary resume Connection selection. Desktop must show a Sonner warning identifying the missing Connection and the selected replacement. The read must leave the recorded binding and any live runtime credentials unchanged. If Kent cannot prepare the replacement settings, Chat must show its ordinary actionable read failure.
 - The Settings popover must show the conditional Session Connection row defined in [Provider Connections](provider-connections.md) as small, lean, single-line text after the divider and before the Session ID.
 
 - The settings trigger is one action chip inside the composer with a small leading gear icon followed by `<role>: <model> <thinking> ⚡`, with the zap icon omitted in normal mode. The zap must match the text height and normal text color. Role and separators use the normal action-chip font. Model and Thinking use monospace and must inherit the chip's text color, including its hover color. When Thinking is unsupported, its value is omitted. Hover or focus must reveal the complete summary only while the model name is truncated. Separate setting chips are not part of ordinary Chat.

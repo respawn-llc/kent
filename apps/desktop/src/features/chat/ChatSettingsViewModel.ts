@@ -46,10 +46,23 @@ export function createChatSettingsViewModel({
       queryFn:
         selected === null
           ? skipToken
-          : async () => {
+          : async (): Promise<ChatSettingsRead> => {
               const result = await services.api.chat.getSettings(selected);
               if (result.kind !== selected.kind)
                 throw new ContractError("Chat Settings returned a different target kind.");
+              if (
+                result.kind === "session" &&
+                result.connectionReplacement !== undefined &&
+                get.get(target) === selected &&
+                observer.hasListeners()
+              ) {
+                showStatusToast({
+                  id: `chat-settings-connection-${result.session.sessionID}`,
+                  tone: "warning",
+                  title: t("chatSettings.connectionReplaced"),
+                  body: t("chatSettings.connectionReplacement", result.connectionReplacement),
+                });
+              }
               return result;
             },
     });
