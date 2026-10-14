@@ -121,10 +121,7 @@ func (m *uiModel) applyTranscriptHydration(
 ) tea.Cmd {
 	var cmds []tea.Cmd
 	cmds = append(cmds, m.applyConnectionReplacement(hydration.ConnectionReplacement))
-	sessionID, err := runtimeids.ParseSessionID(hydration.SessionIdentity.SessionId)
-	if err != nil {
-		panic(err)
-	}
+	sessionID := runtimeids.SessionIDFromProto(hydration.SessionIdentity.SessionId)
 	cmds = append(cmds, m.advancePendingWorkRefreshScope(sessionID))
 	cmds = append(cmds, m.applyTranscriptSessionIdentity(hydration.SessionIdentity))
 	m.applyTranscriptSessionStatus(hydration.SessionStatus)

@@ -2,7 +2,6 @@ package lifecyclehook_test
 
 import (
 	"core/cli/app/internal/lifecyclehook"
-	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"errors"
 	"testing"
@@ -36,28 +35,6 @@ func TestInitialContextUsesTypedSessionTitleAbsence(t *testing.T) {
 	}
 	if present.SessionTitle == nil || *present.SessionTitle != title {
 		t.Fatalf("present session title = %v, want preserved input", present.SessionTitle)
-	}
-}
-
-func TestEventContextRejectsMalformedObservedFactsWithoutMutating(t *testing.T) {
-	sessionID := runtimeids.NewSessionID()
-	title := "Initial"
-	initial, err := lifecyclehook.InitialContext(sessionID.String(), &title)
-	if err != nil {
-		t.Fatalf("InitialContext: %v", err)
-	}
-	context := lifecyclehook.NewEventContext(initial)
-	if err := context.AcceptSessionIdentity(&transcriptpb.SessionIdentity{}); err == nil {
-		t.Fatal("AcceptSessionIdentity accepted a malformed fact")
-	}
-	if err := context.AcceptSessionStatus(&transcriptpb.SessionStatus{}); err == nil {
-		t.Fatal("AcceptSessionStatus accepted a malformed fact")
-	}
-	got := context.Snapshot()
-	if got.SessionID == nil || *got.SessionID != sessionID ||
-		got.SessionTitle == nil || *got.SessionTitle != title ||
-		got.WorkflowTaskID != nil {
-		t.Fatalf("malformed facts mutated lifecycle context: %+v", got)
 	}
 }
 

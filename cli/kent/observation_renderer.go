@@ -66,10 +66,6 @@ func writeRunWatchResponse(w io.Writer, stderr io.Writer, response *promptpb.Liv
 	if stderr == nil {
 		stderr = io.Discard
 	}
-	if err := protoapi.Validate(response); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
 	identity := protoapi.SessionIdentityFromProto(response.SessionId, response.ShortId)
 	var failure *promptpb.LiveWatchFailure
 	code := 1

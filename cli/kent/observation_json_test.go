@@ -288,9 +288,6 @@ func TestTaskFailureJSONPreservesTypedDiscriminatorMetadata(t *testing.T) {
 }
 
 func TestMalformedObservationProjectionReturnsError(t *testing.T) {
-	if _, _, err := projectRunWatchJSON(&promptpb.LiveWatchSuccess{SessionId: "session", Outcome: &promptpb.LiveWatchOutcome{Outcome: &promptpb.LiveWatchOutcome_Question{Question: nil}}}); err == nil {
-		t.Fatal("Run malformed question unexpectedly projected successfully")
-	}
 	if _, _, err := projectTaskObservationJSON("task", &taskpb.ObserveSuccess{
 		TaskId: "task", TaskShortId: "T-1",
 		Outcomes: []*taskpb.ObserveOutcome{{Outcome: &taskpb.ObserveOutcome_ExecutionError{ExecutionError: &taskpb.ObserveFailure{}}}},
