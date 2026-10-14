@@ -2,7 +2,7 @@ import { create } from "@app/server-api-contract";
 import { PromptCommandService } from "@app/server-api-contract/gen/kent/api/prompt_command/prompt_command_pb";
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
-import { ChatService } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
+import { ChatService, InputAdmissionDisposition } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import { ContractError } from "./errors";
 import { parsePendingWorkItemID } from "./pendingWork";
 
@@ -66,7 +66,10 @@ it("accepts a server-selected child for prompt Send and Queue but rejects text a
             session: { sessionId: child },
             outcome: {
               case: "accepted",
-              value: { queueItem: { id: "323e4567-e89b-42d3-a456-426614174000" } },
+              value: {
+                queueItem: { id: "323e4567-e89b-42d3-a456-426614174000" },
+                disposition: InputAdmissionDisposition.STARTED_TURN,
+              },
             },
           },
         },
