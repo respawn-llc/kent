@@ -456,7 +456,7 @@ func TestRoutePolicyAuthorizesGoalExceptionWithoutWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = newRoutePolicyExecutor(gateway).authorizeScopeFacts(context.Background(), &connectionState{}, operation.Options.ScopePolicy, operation.Name, routeScopeParams{sessionID: "missing-session"})
+	err = newRoutePolicyExecutor(gateway).authorizeScopeFacts(context.Background(), &connectionState{}, operation.Options.ScopePolicy, operation.Name, routeScopeParams{sessionID: runtimeids.NewSessionID().String()})
 	if err != nil {
 		t.Fatalf("unbound goal scope: %v", err)
 	}
