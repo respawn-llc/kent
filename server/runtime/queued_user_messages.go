@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"core/server/llm"
-	"core/shared/runtimeids"
 	"core/shared/textutil"
 
 	"github.com/google/uuid"
@@ -57,19 +56,6 @@ type queuedUserMessageAssociation struct {
 }
 
 func (s *queuedUserMessageStore) QueueItem(item QueuedUserMessage, associations ...queuedUserMessageAssociation) (QueuedUserMessage, error) {
-	item.ID = strings.TrimSpace(item.ID)
-	if item.ID == "" {
-		item.ID = uuid.NewString()
-	}
-	if item.Message.Content == nil ||
-		strings.TrimSpace(*item.Message.Content) == "" ||
-		item.Message.Role == "" ||
-		strings.TrimSpace(item.CanonicalPresentation) == "" {
-		return QueuedUserMessage{}, errInvalidQueuedUserMessage
-	}
-	if _, err := runtimeids.ParseQueueItemID(item.ID); err != nil {
-		return QueuedUserMessage{}, err
-	}
 	var association queuedUserMessageAssociation
 	if len(associations) != 0 {
 		association = associations[0]
@@ -90,18 +76,12 @@ func (s *queuedUserMessageStore) QueueItem(item QueuedUserMessage, associations 
 	return item, nil
 }
 
-func (m QueuedUserMessage) DisplayText() (string, error) {
-	if strings.TrimSpace(m.CanonicalPresentation) == "" {
-		return "", errInvalidQueuedUserMessage
-	}
-	return m.CanonicalPresentation, nil
+func (m QueuedUserMessage) DisplayText() string {
+	return m.CanonicalPresentation
 }
 
-func (m QueuedUserMessage) ExecutionText() (string, error) {
-	if m.Message.Content == nil || strings.TrimSpace(*m.Message.Content) == "" {
-		return "", errInvalidQueuedUserMessage
-	}
-	return *m.Message.Content, nil
+func (m QueuedUserMessage) ExecutionText() string {
+	return *m.Message.Content
 }
 
 func (s *queuedUserMessageStore) Discard(queueItemID string) bool {

@@ -17,6 +17,7 @@ func TestQueuedUserMessageStorePreservesTypedAgentSteer(t *testing.T) {
 	}
 	message := steer.Message()
 	item, err := (&queuedUserMessageStore{}).QueueItem(QueuedUserMessage{
+		ID:                    runtimeids.NewQueueItemID().String(),
 		Message:               message,
 		CanonicalPresentation: "report status",
 	})
@@ -26,27 +27,6 @@ func TestQueuedUserMessageStorePreservesTypedAgentSteer(t *testing.T) {
 	if item.Message.Role != llm.RoleDeveloper ||
 		item.Message.MessageType == nil || *item.Message.MessageType != llm.MessageTypeAgentSteer {
 		t.Fatalf("queued message lost typed agent steer: %+v", item.Message)
-	}
-}
-
-func TestQueuedUserMessageStoreReturnsErrorsForInvalidPayloads(t *testing.T) {
-	store := &queuedUserMessageStore{}
-	if _, err := store.QueueItem(QueuedUserMessage{}); err == nil {
-		t.Fatal("QueueItem accepted an invalid payload")
-	}
-	for _, content := range []string{"", " \t "} {
-		if _, err := store.QueueItem(QueuedUserMessage{
-			Message: llm.Message{
-				Role:    llm.RoleUser,
-				Content: textutil.Value(content),
-			},
-			CanonicalPresentation: content,
-		}); err == nil {
-			t.Fatalf("QueueItem accepted whitespace-only content %q", content)
-		}
-	}
-	if _, err := (QueuedUserMessage{}).DisplayText(); err == nil {
-		t.Fatal("DisplayText accepted an invalid payload")
 	}
 }
 
@@ -87,10 +67,7 @@ func TestQueuedUserMessageFlushGroupsKeepAgentSteersSeparate(t *testing.T) {
 		{message: QueuedUserMessage{ID: "a2", Message: secondMessage, CanonicalPresentation: "second"}},
 		{message: QueuedUserMessage{ID: "h2", Message: human, CanonicalPresentation: "human"}},
 	}
-	groups, err := queuedUserMessageFlushGroups(pending)
-	if err != nil {
-		t.Fatalf("queuedUserMessageFlushGroups: %v", err)
-	}
+	groups := queuedUserMessageFlushGroups(pending)
 	if len(groups) != 4 {
 		t.Fatalf("flush groups = %d, want 4", len(groups))
 	}

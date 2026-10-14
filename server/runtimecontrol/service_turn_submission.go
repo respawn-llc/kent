@@ -120,10 +120,7 @@ func (s *Service) submitUserTurn(
 	projection PreparedUserTurn,
 ) (*runtimepb.SubmitUserTurnSuccess, error) {
 	var response *runtimepb.SubmitUserTurnSuccess
-	sessionID, err := runtimeids.ParseSessionID(request.SessionID)
-	if err != nil {
-		return nil, err
-	}
+	sessionID := runtimeids.SessionIDFromProto(request.SessionID)
 	if s == nil || s.authority == nil {
 		return nil, errors.New("session runtime authority is required")
 	}

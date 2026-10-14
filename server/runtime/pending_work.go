@@ -186,10 +186,7 @@ func pendingWorkMessage(message queuedUserMessage) (runtimeinput.PendingWorkItem
 	if err != nil {
 		return runtimeinput.PendingWorkItem{}, err
 	}
-	text, err := message.message.DisplayText()
-	if err != nil {
-		return runtimeinput.PendingWorkItem{}, err
-	}
+	text := message.message.DisplayText()
 	lane := runtimeinput.PendingWorkLaneQueue
 	if message.steerAdmission != nil {
 		lane = runtimeinput.PendingWorkLaneSteer
