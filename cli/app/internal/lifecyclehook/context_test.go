@@ -19,15 +19,6 @@ func TestInitialContextUsesTypedSessionTitleAbsence(t *testing.T) {
 		t.Fatalf("absent session title = %v, want nil", absent.SessionTitle)
 	}
 
-	for name, invalid := range map[string]string{"empty": "", "blank": " \t "} {
-		invalid := invalid
-		t.Run(name, func(t *testing.T) {
-			if _, err := lifecyclehook.InitialContext(sessionID.String(), &invalid); err == nil {
-				t.Fatal("InitialContext accepted a present empty or blank title")
-			}
-		})
-	}
-
 	title := "  Incident triage  "
 	present, err := lifecyclehook.InitialContext(sessionID.String(), &title)
 	if err != nil {

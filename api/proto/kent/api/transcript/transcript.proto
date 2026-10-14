@@ -572,7 +572,7 @@ message CommittedRow {
 
 message SessionIdentity {
   string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
-  optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
+  optional string session_name = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.(kent.api.shared.nonblank) = true];
   kent.api.runtime.ConversationFreshness conversation_freshness = 3 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
@@ -614,6 +614,11 @@ message SessionStatus {
   optional string parent_agent_session_id = 11 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string navigation_target_session_id = 12 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional kent.api.runtime.WorkflowSessionStatus workflow = 13;
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.workflow_task_nonblank"
+    message: "workflow task_id must be non-blank when workflow is present"
+    expression: "!has(this.workflow) || this.workflow.task_id.trim() != ''"
+  };
   option (buf.validate.message).cel = {
     id: "kent.transcript.fast_mode_availability"
     message: "fast mode cannot be enabled when unavailable"

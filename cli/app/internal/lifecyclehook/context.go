@@ -1,9 +1,6 @@
 package lifecyclehook
 
 import (
-	"errors"
-	"fmt"
-	"strings"
 	"sync"
 
 	"core/shared/lifecyclecontract"
@@ -18,19 +15,10 @@ type EventContext struct {
 }
 
 func InitialContext(sessionID string, sessionTitle *string) (lifecyclecontract.Context, error) {
-	parsed, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
-	if err != nil {
-		return lifecyclecontract.Context{}, fmt.Errorf("parse lifecycle session id: %w", err)
-	}
+	parsed := runtimeids.SessionIDFromProto(sessionID)
 	context := lifecyclecontract.Context{
 		SessionID:    &parsed,
 		SessionTitle: textutil.Pointer(sessionTitle),
-	}
-	if sessionTitle != nil && *sessionTitle == "" {
-		return lifecyclecontract.Context{}, errors.New("lifecycle session title cannot be empty")
-	}
-	if err := context.Validate(); err != nil {
-		return lifecyclecontract.Context{}, err
 	}
 	return context, nil
 }
