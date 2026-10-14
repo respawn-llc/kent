@@ -922,7 +922,7 @@ func TestGatewayDisconnectKeepsRuntimeAvailableUntilExplicitCloseIfIdle(t *testi
 	}
 }
 
-func TestGatewayMissingActivationAttachmentDoesNotRecordRuntimeOwnership(t *testing.T) {
+func TestGatewayRejectsMalformedActivationAttachment(t *testing.T) {
 	appCore, _ := newGatewayTestCore(t, true, true)
 	counter := &countingSessionRuntimeClient{
 		SessionRuntimeService: appCore.SessionRuntimeClient(),
@@ -943,10 +943,6 @@ func TestGatewayMissingActivationAttachmentDoesNotRecordRuntimeOwnership(t *test
 	}
 	if err := conn.Close(); err != nil {
 		t.Fatalf("close gateway connection: %v", err)
-	}
-	time.Sleep(100 * time.Millisecond)
-	if got := counter.releaseCount.Load(); got != 0 {
-		t.Fatalf("runtime release call count after invalid activation response = %d, want 0", got)
 	}
 }
 

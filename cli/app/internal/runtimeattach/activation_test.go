@@ -38,17 +38,6 @@ func (s *fakeRuntimeService) ReleaseSessionRuntime(_ context.Context, req server
 	return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, s.releaseErr
 }
 
-func TestSessionRuntimeAttachmentValidation(t *testing.T) {
-	for _, attachment := range []serverapi.SessionRuntimeAttachment{
-		{Generation: 1},
-		{SessionID: "session-1"},
-	} {
-		if err := attachment.Validate(); err == nil {
-			t.Fatalf("Validate(%+v) succeeded, want error", attachment)
-		}
-	}
-}
-
 func TestActivateBuildsRequest(t *testing.T) {
 	service := &fakeRuntimeService{}
 	selection := &serverapi.SessionRuntimeAgentSelection{

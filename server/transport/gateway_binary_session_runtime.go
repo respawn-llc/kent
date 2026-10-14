@@ -31,9 +31,6 @@ func registerSessionRuntimeGatewayBinaryBindings(bindings map[string]gatewayBina
 				if err != nil {
 					return nil, err
 				}
-				if err := attachment.Validate(); err != nil {
-					return nil, err
-				}
 				state.recordOwnedRuntime(attachment)
 				return &sessionlaunchpb.SessionRuntimeActivateSuccess{Attachment: protoapi.SessionRuntimeAttachmentToProto(attachment)}, nil
 			},

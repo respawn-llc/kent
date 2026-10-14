@@ -3,7 +3,7 @@ package transport
 import "core/shared/serverapi"
 
 func (s *connectionState) recordOwnedRuntime(attachment serverapi.SessionRuntimeAttachment) {
-	if s == nil || attachment.Validate() != nil {
+	if s == nil {
 		return
 	}
 	s.ownedRuntimesMu.Lock()

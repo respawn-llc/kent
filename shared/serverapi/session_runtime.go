@@ -86,17 +86,7 @@ func (r SessionRuntimeActivateRequest) Validate() error {
 	return nil
 }
 
-func (a SessionRuntimeAttachment) Validate() error {
-	if err := validateScopedSessionID(a.SessionID); err != nil {
-		return err
-	}
-	return runtimeids.ResourceGeneration(a.Generation).Validate()
-}
-
 func (r SessionRuntimeAttachment) ValidateForSession(sessionID string) error {
-	if err := r.Validate(); err != nil {
-		return fmt.Errorf("validate session runtime activation response: %w", err)
-	}
 	expected := strings.TrimSpace(sessionID)
 	if r.SessionID != expected {
 		return fmt.Errorf(
@@ -109,9 +99,6 @@ func (r SessionRuntimeAttachment) ValidateForSession(sessionID string) error {
 }
 
 func (r SessionRuntimeReleaseRequest) Validate() error {
-	if err := r.Attachment.Validate(); err != nil {
-		return err
-	}
 	switch r.ClosePolicy {
 	case "", SessionRuntimeReleaseClosePolicyCloseIfIdle:
 	case SessionRuntimeReleaseClosePolicyDetachOnly:

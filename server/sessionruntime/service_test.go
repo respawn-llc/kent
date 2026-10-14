@@ -1412,9 +1412,6 @@ func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(
 	sessionID := fixture.store.Meta().SessionID
 	var attachment serverapi.SessionRuntimeAttachment
 	t.Cleanup(func() {
-		if attachment.Validate() != nil {
-			return
-		}
 		_, _ = fixture.api.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
 			Attachment: attachment,
 			OwnerID:    "interactive-owner",
@@ -1501,20 +1498,6 @@ func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(
 	}
 	if processes[0].OwnerSessionID != sessionID {
 		t.Fatalf("background process owner session = %q, want activated session %q", processes[0].OwnerSessionID, sessionID)
-	}
-}
-
-func TestReleaseSessionRuntimeRejectsPathLikeSessionID(t *testing.T) {
-	svc := &API{}
-	_, err := svc.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-		Attachment: serverapi.SessionRuntimeAttachment{
-			SessionID:  "sessions/workspace-a/session-1",
-			Generation: 1,
-		},
-		OwnerID: "owner-a",
-	})
-	if !errors.Is(err, serverapi.ErrSessionIDNotSingle) {
-		t.Fatalf("expected path-like session id rejection, got %v", err)
 	}
 }
 

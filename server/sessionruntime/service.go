@@ -267,10 +267,7 @@ func (s *API) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRu
 	if s == nil || s.authority == nil {
 		return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, errors.New("session runtime authority is required")
 	}
-	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(req.Attachment.SessionID))
-	if err != nil {
-		return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, err
-	}
+	sessionID := runtimeids.SessionIDFromProto(req.Attachment.SessionID)
 	defer func() { err = serverapi.WithSessionTarget(serverapi.CanonicalSessionTarget{ID: sessionID}, err) }()
 	resource, err := runtimeids.NewSessionResourceRef(sessionID, runtimeids.ResourceGeneration(req.Attachment.Generation))
 	if err != nil {
