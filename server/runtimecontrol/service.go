@@ -550,9 +550,6 @@ func (s *Service) RemovePendingWork(ctx context.Context, req *runtimepb.RemovePe
 }
 
 func (s *Service) RecordPromptHistory(ctx context.Context, req *promptpb.RecordHistoryRequest) error {
-	if err := protoapi.Validate(req); err != nil {
-		return err
-	}
 	return s.withRuntime(ctx, req.SessionId, func(_ context.Context, _ *runtime.Engine) error {
 		_, err := s.recordPromptHistory(ctx, strings.TrimSpace(req.SessionId), req.Text)
 		return err

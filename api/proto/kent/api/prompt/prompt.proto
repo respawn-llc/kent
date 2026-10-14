@@ -434,7 +434,7 @@ message FollowUpEvent {
 
 message RecordHistoryRequest {
   string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
-  string text = 2;
+  string text = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
 message RecordHistoryError {
