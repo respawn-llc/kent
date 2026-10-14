@@ -14,14 +14,17 @@ func (m *uiModel) reduceRuntimeMessage(msg tea.Msg) uiFeatureUpdateResult {
 	case runtimeConnectionStateChangedMsg:
 		m.observeRuntimeRequestResult(msg.err)
 		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, waitRuntimeConnectionStateChange(m.runtimeConnectionEvents))
+		return handledUIFeatureUpdate(m, m.batchWithNativeOngoingRepaint(waitRuntimeConnectionStateChange(m.runtimeConnectionEvents)))
 	case runtimeMainViewRefreshedMsg:
 		cmd := m.handleRuntimeMainViewRefreshed(msg)
 		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, cmd)
+		return handledUIFeatureUpdate(m, m.batchWithNativeOngoingRepaint(cmd))
 	case runtimeMainViewRetryMsg:
 		if msg.token != m.runtimeMainViewToken || !m.runtimeDisconnectStatusVisible() {
 			return handledUIFeatureUpdate(m, nil)
+		}
+		if cmd := m.drainPendingRuntimeMainViewRefresh(); cmd != nil {
+			return handledUIFeatureUpdate(m, cmd)
 		}
 		return handledUIFeatureUpdate(m, m.startRuntimeMainViewRefresh(nil))
 	case detailTranscriptLoadMsg:
