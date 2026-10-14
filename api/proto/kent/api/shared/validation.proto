@@ -7,6 +7,11 @@ import "buf/validate/validate.proto";
 option go_package = "core/shared/protoapi/gen/kent/api/shared;sharedpb";
 
 extend buf.validate.StringRules {
+  optional bool pending_work_nonblank = 50007 [(buf.validate.predefined).cel = {
+    id: "kent.shared.pending_work_nonblank"
+    message: "Pending Work text must not be blank"
+    expression: "!rule || this.split('').exists(character, character != '\\uFEFF' && character.trim() != '')"
+  }];
   optional bool connection_id = 50006 [(buf.validate.predefined).cel = {
     id: "kent.shared.connection_id"
     message: "must start with a lowercase ASCII letter and contain only lowercase ASCII letters, digits, hyphens or underscores"

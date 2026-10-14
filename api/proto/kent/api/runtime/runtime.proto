@@ -275,11 +275,7 @@ message UserTurnInput {
     option (buf.validate.oneof).required = true;
     string text = 1 [
       (buf.validate.field).string.min_len = 1,
-      (buf.validate.field).cel = {
-        id: "kent.runtime.user_turn_text_nonblank"
-        message: "text must not be blank"
-        expression: "this.trim() != ''"
-      }
+      (buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true
     ];
     PromptCommandInput prompt_command = 2;
   }
@@ -539,7 +535,7 @@ enum PendingWorkWorktreeTransitionKind {
 message PendingWorkMessage {
   string text = 1 [
     (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true
   ];
 }
 
@@ -586,7 +582,7 @@ message PendingWorkItem {
   }];
   string canonical_input = 7 [
     (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true
   ];
   option (buf.validate.message).cel = {
     id: "kent.runtime.pending_work_item_payload"
@@ -636,7 +632,7 @@ message PendingWorkRestoration {
   }];
   string canonical_input = 2 [
     (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true
   ];
 }
 

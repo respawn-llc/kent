@@ -41,6 +41,14 @@ message Request {
   ];
   google.protobuf.Duration timeout = 4;
   kent.api.session_launch.RunPromptOverrides overrides = 5;
+
+  option (buf.validate.message).cel = {
+    id: "kent.run_prompt.pending_work_prompt_nonblank"
+    message: "caller-absent Pending Work prompt must not be blank"
+    expression:
+      "has(this.caller_session_id) || "
+      "this.prompt.split('').exists(character, character != '\\uFEFF' && character.trim() != '')"
+  };
 }
 
 message Success {

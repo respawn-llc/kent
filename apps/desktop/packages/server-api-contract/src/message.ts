@@ -12,6 +12,7 @@ import {
   canonical_uuid_v4,
   connection_id,
   nonblank,
+  pending_work_nonblank,
   trimmed,
   workflow_key,
 } from "./gen/kent/api/shared/validation_pb.js";
@@ -22,6 +23,7 @@ const validator = createValidator({
     canonical_uuid_v4,
     connection_id,
     nonblank,
+    pending_work_nonblank,
     trimmed,
     workflow_key,
   ),
