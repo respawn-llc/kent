@@ -71,3 +71,31 @@ func TestAttentionSessionPromptProjectMustBeNonblank(t *testing.T) {
 		}
 	}
 }
+
+func TestQuestionAttentionOccurrenceMustBeAfterEpoch(t *testing.T) {
+	for _, occurredAt := range []time.Time{time.UnixMilli(0), time.UnixMilli(-1), time.UnixMilli(1)} {
+		message := &taskpb.AttentionItem{
+			Id: "attention-key", Kind: taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION,
+			ProjectId: "project-1", WorkflowId: "22222222-2222-4222-8222-222222222222",
+			TaskId: "task-1", TaskShortId: "T-1", TaskTitle: "Task", OccurredAt: timestamppb.New(occurredAt),
+			Detail: &taskpb.AttentionItem_Question{Question: &taskpb.QuestionAttention{
+				Message: proto.String("Proceed?"), CurrentNode: &taskpb.AttentionCurrentNode{NodeId: "node-1"},
+				Question: &taskpb.AttentionQuestionPrompt{
+					SessionId: "11111111-1111-4111-8111-111111111111", StepId: "22222222-2222-4222-8222-222222222222",
+					ToolCallId: "ask-1", Kind: taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY,
+					Prompt: &taskpb.AttentionQuestionPrompt_Ordinary{Ordinary: &taskpb.OrdinaryQuestion{}},
+				},
+			}},
+		}
+		if err := protoapi.Validate(message); (err == nil) != (occurredAt.UnixMilli() > 0) {
+			t.Errorf("Question occurrence %v acceptance = %v", occurredAt, err)
+		}
+		message.Kind = taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_INTERRUPTED_CURRENT_NODE
+		message.Detail = &taskpb.AttentionItem_InterruptedCurrentNode{InterruptedCurrentNode: &taskpb.InterruptedAttention{
+			CurrentNode: &taskpb.AttentionCurrentNode{NodeId: "node-1"},
+		}}
+		if err := protoapi.Validate(message); err != nil {
+			t.Errorf("durable interruption occurrence %v rejected: %v", occurredAt, err)
+		}
+	}
+}

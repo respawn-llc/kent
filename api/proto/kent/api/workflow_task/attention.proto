@@ -387,6 +387,11 @@ message AttentionItem {
       "(this.kind == 2 && has(this.approval)) || "
       "(this.kind == 3 && has(this.interrupted_current_node))"
   };
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.question_attention_occurrence"
+    message: "Question attention occurrence must be after the Unix epoch"
+    expression: "this.kind != 1 || this.occurred_at > timestamp('1970-01-01T00:00:00Z')"
+  };
 }
 
 message AttentionListRequest {

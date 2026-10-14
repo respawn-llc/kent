@@ -2,6 +2,45 @@ import { create, validate } from "@app/server-api-contract";
 import * as T from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 
 describe("Attention notification contract", () => {
+  it("limits Question occurrence positivity to Question Attention", () => {
+    for (const seconds of [-1n, 0n, 1n]) {
+      const base = {
+        id: "attention-key",
+        projectId: "project-1",
+        workflowId: "22222222-2222-4222-8222-222222222222",
+        taskId: "task-1",
+        taskShortId: "T-1",
+        taskTitle: "Task",
+        occurredAt: { seconds, nanos: 0 },
+      };
+      const question = create(T.AttentionItemSchema, {
+        ...base,
+        kind: T.AttentionItemKind.QUESTION,
+        detail: {
+          case: "question",
+          value: {
+            message: "Proceed?",
+            currentNode: { nodeId: "node-1" },
+            question: {
+              sessionId: "11111111-1111-4111-8111-111111111111",
+              stepId: "22222222-2222-4222-8222-222222222222",
+              toolCallId: "ask-1",
+              kind: T.AttentionQuestionKind.ORDINARY,
+              prompt: { case: "ordinary", value: {} },
+            },
+          },
+        },
+      });
+      if (seconds > 0n) expect(() => validate(T.AttentionItemSchema, question)).not.toThrow();
+      else expect(() => validate(T.AttentionItemSchema, question)).toThrow();
+      const interrupted = create(T.AttentionItemSchema, {
+        ...base,
+        kind: T.AttentionItemKind.INTERRUPTED_CURRENT_NODE,
+        detail: { case: "interruptedCurrentNode", value: { currentNode: { nodeId: "node-1" } } },
+      });
+      expect(() => validate(T.AttentionItemSchema, interrupted)).not.toThrow();
+    }
+  });
   it("rejects blank notification keys without imposing UUID spelling", () => {
     for (const uuid of [" \t ", "approval-key"]) {
       const message = create(T.AttentionNotificationIDSchema, {

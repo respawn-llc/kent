@@ -356,9 +356,6 @@ func (a *Attention) liveQuestionCandidates(ctx context.Context, taskFilter *stri
 			}
 			promptsByID := make(map[clientui.ToolCallID]PendingPromptSnapshot, len(prompts))
 			for _, prompt := range prompts {
-				if err := prompt.ToolCallID.Validate(); err != nil {
-					return nil, fmt.Errorf("task %q session %q pending prompt identity: %w", taskID, execution.Agent.SessionID, err)
-				}
 				if _, duplicate := promptsByID[prompt.ToolCallID]; duplicate {
 					return nil, fmt.Errorf("task %q session %q has duplicate pending prompt %q", taskID, execution.Agent.SessionID, prompt.ToolCallID)
 				}
@@ -384,9 +381,6 @@ func (a *Attention) liveQuestionCandidates(ctx context.Context, taskFilter *stri
 					return nil, fmt.Errorf("task %q session %q prompt for tool call %q changed prompt kind", taskID, execution.Agent.SessionID, promptReference.ToolCallID)
 				}
 				occurredAt := prompt.CreatedAt.UnixMilli()
-				if occurredAt <= 0 {
-					return nil, fmt.Errorf("task %q session %q prompt for tool call %q has no occurrence time", taskID, execution.Agent.SessionID, promptReference.ToolCallID)
-				}
 				currentNode := workflowCurrentNodeReference(execution.Ref.CurrentNode)
 				out = append(out, attentionCandidate{item: &taskpb.AttentionItem{
 					Id:          liveQuestionAttentionID(execution.Agent.SessionID, prompt.StepID, prompt.ToolCallID),
