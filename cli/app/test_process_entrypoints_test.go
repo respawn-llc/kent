@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"testing"
@@ -71,10 +73,26 @@ func runAppFixtureProcess[T any](
 	if !runningHelper {
 		t.Skip("fixture process runs only through its exact subprocess invocation")
 	}
-	processConfig, err := read(configPath)
-	if err == nil {
-		err = run(processConfig)
-	}
+	err := func() (runErr error) {
+		diagnostics, err := os.OpenFile(appfixture.ProcessDiagnosticLogPath(configPath), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			return fmt.Errorf("open fixture diagnostic log: %w", err)
+		}
+		// The fixture embeds the server in the terminal process. Production
+		// service stderr is separate; keep standard log and default slog output
+		// separate here too, without changing diagnostic levels.
+		previousOutput := log.Writer()
+		log.SetOutput(diagnostics)
+		defer func() {
+			log.SetOutput(previousOutput)
+			runErr = errors.Join(runErr, diagnostics.Close())
+		}()
+		processConfig, err := read(configPath)
+		if err != nil {
+			return err
+		}
+		return run(processConfig)
+	}()
 	exitAppTestProcess(err)
 }
 

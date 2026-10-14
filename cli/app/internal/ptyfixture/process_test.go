@@ -114,6 +114,7 @@ func ptyFixtureProcessEnv(
 ) string {
 	t.Helper()
 	configPath := filepath.Join(root, "process.json")
+	reportFixtureDiagnosticsOnFailure(t, configPath)
 	if err := appfixture.WriteProcessConfig(configPath, appfixture.ProcessConfig{
 		WorkspaceRoot:   workspaceRoot,
 		PersistenceRoot: persistenceRoot,
@@ -123,4 +124,20 @@ func ptyFixtureProcessEnv(
 		t.Fatalf("write fixture process config: %v", err)
 	}
 	return appfixture.ProcessConfigEnvName + "=" + configPath
+}
+
+func reportFixtureDiagnosticsOnFailure(t *testing.T, configPath string) {
+	t.Helper()
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		path := appfixture.ProcessDiagnosticLogPath(configPath)
+		diagnostics, err := os.ReadFile(path)
+		if err != nil {
+			t.Logf("read fixture diagnostics %s: %v", path, err)
+			return
+		}
+		t.Logf("fixture diagnostics %s:\n%s", path, diagnostics)
+	})
 }
