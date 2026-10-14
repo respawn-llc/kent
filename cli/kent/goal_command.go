@@ -255,10 +255,6 @@ func goalCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 			fmt.Fprintln(stderr, goalMutationCommandError(target.String(), err))
 			return 1
 		}
-		if err := protoapi.Validate(response); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
 		if response.Kind != runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL ||
 			response.Goal == nil ||
 			response.Goal.Status != runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_COMPLETE {
@@ -349,10 +345,6 @@ func writeGoalShowText(stdout io.Writer, stderr io.Writer, goal *runtimepb.Goal)
 }
 
 func writeGoalShowJSON(stdout io.Writer, stderr io.Writer, response *runtimepb.GoalShowSuccess) int {
-	if err := protoapi.Validate(response); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
 	output := struct {
 		Goal *struct {
 			ID        string    `json:"id"`
@@ -390,10 +382,6 @@ func writeGoalShowJSON(stdout io.Writer, stderr io.Writer, response *runtimepb.G
 }
 
 func writeGoalMutationResult(stdout io.Writer, stderr io.Writer, result *runtimepb.GoalMutationSuccess) int {
-	if err := protoapi.Validate(result); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
 	switch result.Kind {
 	case runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL:
 		return writeGoalShowText(stdout, stderr, result.Goal)
@@ -404,10 +392,6 @@ func writeGoalMutationResult(stdout io.Writer, stderr io.Writer, result *runtime
 }
 
 func writeGoalSetResult(stdout io.Writer, stderr io.Writer, result *runtimepb.GoalSetSuccess, requestedSessionID string) int {
-	if err := protoapi.Validate(result); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
 	if rejected := result.GetRejected(); rejected != nil {
 		fmt.Fprintln(stderr, goalMutationCommandError(requestedSessionID, client.GoalSetErrorAsError(rejected)))
 		return 1

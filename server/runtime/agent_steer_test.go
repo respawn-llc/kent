@@ -9,10 +9,7 @@ import (
 
 func TestNewAgentSteerBuildsTypedDeveloperMessage(t *testing.T) {
 	sourceID := runtimeids.NewSessionID()
-	steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "inspect the migration\nthen report back")
-	if err != nil {
-		t.Fatalf("NewAgentSteer: %v", err)
-	}
+	steer := NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "inspect the migration\nthen report back")
 	message := steer.Message()
 	if message.Role != llm.RoleDeveloper {
 		t.Fatalf("message role = %q, want developer", message.Role)
@@ -22,23 +19,5 @@ func TestNewAgentSteerBuildsTypedDeveloperMessage(t *testing.T) {
 	}
 	if message.Content == nil || *message.Content == "" {
 		t.Fatalf("message content = %v", message.Content)
-	}
-}
-
-func TestNewAgentSteerRejectsMissingSourceOrText(t *testing.T) {
-	sourceID := runtimeids.NewSessionID()
-	for _, tc := range []struct {
-		name   string
-		source runtimeids.SessionID
-		text   string
-	}{
-		{name: "missing source", text: "message"},
-		{name: "missing text", source: sourceID, text: " \t "},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, err := NewAgentSteer(runtimeids.SessionIdentity{ID: tc.source}, tc.text); err == nil {
-				t.Fatal("NewAgentSteer unexpectedly succeeded")
-			}
-		})
 	}
 }

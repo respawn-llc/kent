@@ -15,12 +15,8 @@ func OptionalSessionIDToProto(id *runtimeids.SessionID) *string {
 	return &value
 }
 
-func NewReadModelVersion(epoch string, generation, sequence uint64) (*runtimepb.ReadModelVersion, error) {
-	version := &runtimepb.ReadModelVersion{Epoch: strings.TrimSpace(epoch), Generation: generation, Sequence: sequence}
-	if err := Validate(version); err != nil {
-		return nil, err
-	}
-	return version, nil
+func NewReadModelVersion(epoch string, generation, sequence uint64) *runtimepb.ReadModelVersion {
+	return &runtimepb.ReadModelVersion{Epoch: strings.TrimSpace(epoch), Generation: generation, Sequence: sequence}
 }
 
 func ReadModelVersionNewerThan(version, other *runtimepb.ReadModelVersion) bool {

@@ -133,10 +133,7 @@ func (l *headlessPromptLauncher) agentSteerForRunPrompt(ctx context.Context, req
 	if err != nil {
 		return nil, err
 	}
-	steer, err := runtime.NewAgentSteer(source, req.Prompt)
-	if err != nil {
-		return nil, err
-	}
+	steer := runtime.NewAgentSteer(source, req.Prompt)
 	return &steer, nil
 }
 

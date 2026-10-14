@@ -80,10 +80,7 @@ func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest
 		if err != nil {
 			return nil, err
 		}
-		agentSteer, err = runtime.NewAgentSteer(source, text)
-		if err != nil {
-			return nil, err
-		}
+		agentSteer = runtime.NewAgentSteer(source, text)
 		queueText = *agentSteer.Message().Content
 	}
 	err = s.withLiveExecutionRuntime(ctx, sessionID, func(callbackCtx context.Context, engine *runtime.Engine) error {

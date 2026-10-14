@@ -27,10 +27,7 @@ func transcriptBrokerHydration(t *testing.T) *transcriptpb.Event {
 	if err != nil {
 		t.Fatalf("ParseSessionID: %v", err)
 	}
-	version, err := protoapi.NewReadModelVersion("registry-test", 1, 1)
-	if err != nil {
-		t.Fatalf("NewReadModelVersion: %v", err)
-	}
+	version := protoapi.NewReadModelVersion("registry-test", 1, 1)
 	hydration := &transcriptpb.Hydration{
 		SessionIdentity: &transcriptpb.SessionIdentity{
 			SessionId:             sessionID.String(),

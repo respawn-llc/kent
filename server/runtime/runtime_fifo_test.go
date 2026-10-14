@@ -137,10 +137,7 @@ func TestAgentStepBoundaryDrainsEveryAcceptedSteerBeforeNextRequest(t *testing.T
 	expectedMessages := make([]string, 0, len(texts))
 	steerDone := make(chan error, len(texts))
 	for _, text := range texts {
-		steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, text)
-		if err != nil {
-			t.Fatalf("create Agent Steer %q: %v", text, err)
-		}
+		steer := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, text)
 		expectedMessages = append(expectedMessages, messageContent(steer.Message()))
 		go func() {
 			_, accepted, err := engine.QueueAgentSteerForActiveRun(t.Context(), steer, nil)
@@ -256,10 +253,7 @@ func TestAgentStepBoundaryDrainsSteersAcceptedWhileFollowingRequestIsPreparing(t
 	queueSteer := func(text string, beforeQueue func() error) (<-chan error, string) {
 		t.Helper()
 		done := make(chan error, 1)
-		steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, text)
-		if err != nil {
-			t.Fatalf("create Agent Steer %q: %v", text, err)
-		}
+		steer := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, text)
 		go func() {
 			_, accepted, queueErr := engine.QueueAgentSteerForActiveRun(t.Context(), steer, beforeQueue)
 			if queueErr == nil && !accepted {

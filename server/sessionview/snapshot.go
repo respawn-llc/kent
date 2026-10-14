@@ -91,14 +91,11 @@ func (s dormantSessionSnapshot) MainView(ctx context.Context) (*runtimepb.MainVi
 	}
 	meta := s.view.Meta()
 	sessionFreshness := s.view.ConversationFreshness()
-	version, err := protoapi.NewReadModelVersion(
+	version := protoapi.NewReadModelVersion(
 		"persisted-session-"+meta.SessionID,
 		1,
 		uint64(meta.LastSequence)+1,
 	)
-	if err != nil {
-		return nil, err
-	}
 	freshness := runtimeview.ConversationFreshnessFromSession(sessionFreshness)
 	goalAvailability, err := session.GoalAvailabilityFromMeta(meta)
 	if err != nil {

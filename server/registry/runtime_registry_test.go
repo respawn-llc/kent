@@ -1180,10 +1180,7 @@ func registryTestReadModelUpdate(
 	state runtimepb.ActivityState,
 ) *runtimepb.ReadModelUpdate {
 	t.Helper()
-	version, err := protoapi.NewReadModelVersion("registry-publication-test", 1, sequence)
-	if err != nil {
-		t.Fatalf("NewReadModelVersion: %v", err)
-	}
+	version := protoapi.NewReadModelVersion("registry-publication-test", 1, sequence)
 	activity := &runtimepb.Activity{
 		State:          state,
 		Reviewer:       runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,

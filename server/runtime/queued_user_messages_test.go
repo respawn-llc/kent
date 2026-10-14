@@ -11,10 +11,7 @@ import (
 
 func TestQueuedUserMessageStorePreservesTypedAgentSteer(t *testing.T) {
 	sourceID := runtimeids.NewSessionID()
-	steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "report status")
-	if err != nil {
-		t.Fatalf("NewAgentSteer: %v", err)
-	}
+	steer := NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "report status")
 	message := steer.Message()
 	item, err := (&queuedUserMessageStore{}).QueueItem(QueuedUserMessage{
 		ID:                    runtimeids.NewQueueItemID().String(),
@@ -51,14 +48,8 @@ func TestQueuedUserMessageStoreRejectsDuplicatePendingIdentity(t *testing.T) {
 
 func TestQueuedUserMessageFlushGroupsKeepAgentSteersSeparate(t *testing.T) {
 	human := llm.Message{Role: llm.RoleUser, Content: textutil.Value("human")}
-	first, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "first")
-	if err != nil {
-		t.Fatalf("NewAgentSteer first: %v", err)
-	}
-	second, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "second")
-	if err != nil {
-		t.Fatalf("NewAgentSteer second: %v", err)
-	}
+	first := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "first")
+	second := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "second")
 	firstMessage := first.Message()
 	secondMessage := second.Message()
 	pending := []queuedUserMessage{

@@ -1369,10 +1369,7 @@ func TestServiceLiveSteerAgentCallerUsesOneWrappedDeveloperMessage(t *testing.T)
 		t.Fatal("timed out waiting for active runtime")
 	}
 	sourceID := runtimeids.NewSessionID()
-	steer, err := runtime.NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "steer live")
-	if err != nil {
-		t.Fatalf("NewAgentSteer: %v", err)
-	}
+	steer := runtime.NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "steer live")
 	sourceText := sourceID.String()
 	steerDone := liveSteerRuntimeControlAsync(service, &runtimepb.LiveSteerRequest{
 		SessionId:       requestfixture.Selector(t, store.Meta().SessionID),
