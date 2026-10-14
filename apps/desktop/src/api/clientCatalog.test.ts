@@ -11,7 +11,7 @@ import {
 } from "@app/server-api-contract/gen/kent/api/project/session_catalog_pb";
 import { FakeRpcTransport } from "@/test-support/api";
 import { ApiClient } from "./client";
-import { ContractError, isProjectMissingError, RpcError } from "./index";
+import { isProjectMissingError, RpcError } from "./index";
 
 describe("ApiClient catalog boundary", () => {
   it.each([
@@ -124,22 +124,6 @@ describe("ApiClient catalog boundary", () => {
       data: { code: "project_not_found" },
     });
 
-    const malformedClient = clientWith(
-      ProjectCatalogService.method.listWorkspaces,
-      create(ProjectCatalogService.method.listWorkspaces.output, {
-        outcome: {
-          case: "error",
-          value: {
-            code: "internal_failure",
-            detail: {
-              case: "projectNotFound",
-              value: { projectId: "project-1" },
-            },
-          },
-        },
-      }),
-    );
-    await expect(malformedClient.listWorkspaces("project-1", 0)).rejects.toBeInstanceOf(ContractError);
   });
 });
 

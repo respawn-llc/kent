@@ -22,6 +22,7 @@ type fixedUIProcessClient struct {
 }
 
 const uiProcessTestProjectID = "project-1"
+const uiProcessTestSessionID = "11111111-1111-4111-8111-111111111111"
 
 func withUIBackgroundManagerForTest(manager *shelltool.Manager) UIOption {
 	return func(m *uiModel) {
@@ -100,7 +101,7 @@ func TestUIProcessClientProjectsManagerSnapshots(t *testing.T) {
 		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"sh", "-c", "printf 'done\n'; sleep 0.05; exit 7"},
 		DisplayCommand: "project-test",
-		OwnerSessionID: "session-1",
+		OwnerSessionID: uiProcessTestSessionID,
 		Workdir:        workdir,
 		YieldTime:      fastBackgroundTestYield})
 	if err != nil {
@@ -215,7 +216,7 @@ func TestUIProcessClientDoesNotBypassSharedReadBoundaryOnError(t *testing.T) {
 		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"sh", "-c", "printf 'done\n'; sleep 0.05; exit 0"},
 		DisplayCommand: "fallback-process",
-		OwnerSessionID: "session-1",
+		OwnerSessionID: uiProcessTestSessionID,
 		OwnerRunID:     "run-1",
 		OwnerStepID:    "step-1",
 		Workdir:        workdir,
@@ -295,5 +296,5 @@ type allUIProjectSessionMembership struct{}
 func (allUIProjectSessionMembership) ListProjectSessionIDs(
 	_ context.Context,
 	_ string) ([]string, error) {
-	return []string{"session-1"}, nil
+	return []string{uiProcessTestSessionID}, nil
 }
