@@ -99,9 +99,6 @@ func transcriptPendingWorkRestoration(restoration *runtimeinput.PendingWorkTechn
 func transcriptToolPresentation(toolName string, presentation *transcript.ToolCallMeta) (*transcriptpb.ToolPresentation, error) {
 	toolName = strings.TrimSpace(toolName)
 	if presentation == nil {
-		if transcript.IsPatchFamilyToolName(toolName) {
-			return nil, fmt.Errorf("Patch/Edit tool presentation is required")
-		}
 		return nil, nil
 	}
 	if strings.TrimSpace(presentation.ToolName) != toolName {

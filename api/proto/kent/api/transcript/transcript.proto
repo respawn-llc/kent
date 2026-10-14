@@ -307,6 +307,16 @@ message ToolRow {
     message: "Patch/Edit tools require patch presentation and other tools cannot carry it"
     expression: "has(this.tool_name) && this.tool_name in ['patch', 'edit', 'replace', 'write'] ? (has(this.presentation) && has(this.presentation.patch_presentation)) : (!has(this.presentation) || !has(this.presentation.patch_presentation))"
   };
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.tool_row_normalized_patch_owner"
+    message: "Normalized Patch/Edit tool names require patch presentation and other tools cannot carry it"
+    expression: "has(this.tool_name) && this.tool_name.trim() in ['patch', 'edit', 'replace', 'write'] ? (has(this.presentation) && has(this.presentation.patch_presentation)) : (!has(this.presentation) || !has(this.presentation.patch_presentation))"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.tool_row_presentation_owner"
+    message: "Tool presentation requires a tool name"
+    expression: "!has(this.presentation) || has(this.tool_name)"
+  };
 }
 
 // Provider-supplied display text is validated nonempty text, not a URL policy.
@@ -744,6 +754,11 @@ message ToolStart {
     id: "kent.transcript.tool_start_patch_owner"
     message: "Patch/Edit tools require patch presentation and other tools cannot carry it"
     expression: "this.tool_name in ['patch', 'edit', 'replace', 'write'] ? (has(this.presentation) && has(this.presentation.patch_presentation)) : (!has(this.presentation) || !has(this.presentation.patch_presentation))"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.tool_start_normalized_patch_owner"
+    message: "Normalized Patch/Edit tool names require patch presentation and other tools cannot carry it"
+    expression: "this.tool_name.trim() in ['patch', 'edit', 'replace', 'write'] ? (has(this.presentation) && has(this.presentation.patch_presentation)) : (!has(this.presentation) || !has(this.presentation.patch_presentation))"
   };
 }
 

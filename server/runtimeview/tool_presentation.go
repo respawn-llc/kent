@@ -105,30 +105,26 @@ func ToolPresentationToProto(meta *transcript.ToolCallMeta) (*transcriptpb.ToolP
 }
 
 func patchPresentationToProto(presentation patchformat.Presentation) (*transcriptpb.PatchPresentation, error) {
-	switch presentation.Variant {
-	case patchformat.PresentationVariantInvalidInput:
+	if presentation.Variant == patchformat.PresentationVariantInvalidInput {
 		return &transcriptpb.PatchPresentation{
 			Presentation: &transcriptpb.PatchPresentation_InvalidInput{
 				InvalidInput: &transcriptpb.PatchInvalidInput{InputDetail: presentation.InvalidInput.InputDetail},
 			},
 		}, nil
-	case patchformat.PresentationVariantChanges:
-		changes := &transcriptpb.PatchChanges{
-			Files: make([]*transcriptpb.PatchFileChange, 0, len(presentation.Changes.Files)),
-		}
-		for _, file := range presentation.Changes.Files {
-			projected, err := patchFileChangeToProto(file)
-			if err != nil {
-				return nil, fmt.Errorf("file %q: %w", file.Path.Absolute, err)
-			}
-			changes.Files = append(changes.Files, projected)
-		}
-		return &transcriptpb.PatchPresentation{
-			Presentation: &transcriptpb.PatchPresentation_Changes{Changes: changes},
-		}, nil
-	default:
-		return nil, fmt.Errorf("unknown patch presentation variant %q", presentation.Variant)
 	}
+	changes := &transcriptpb.PatchChanges{
+		Files: make([]*transcriptpb.PatchFileChange, 0, len(presentation.Changes.Files)),
+	}
+	for _, file := range presentation.Changes.Files {
+		projected, err := patchFileChangeToProto(file)
+		if err != nil {
+			return nil, fmt.Errorf("file %q: %w", file.Path.Absolute, err)
+		}
+		changes.Files = append(changes.Files, projected)
+	}
+	return &transcriptpb.PatchPresentation{
+		Presentation: &transcriptpb.PatchPresentation_Changes{Changes: changes},
+	}, nil
 }
 
 func patchPathToProto(path patchformat.Path) *transcriptpb.PatchPath {
@@ -175,8 +171,6 @@ func patchFileOperationToProto(operation patchformat.FileOperation) (*transcript
 				kind = transcriptpb.PatchChangedLineKind_PATCH_CHANGED_LINE_KIND_ADDED
 			case patchformat.ChangedLineRemoved:
 				kind = transcriptpb.PatchChangedLineKind_PATCH_CHANGED_LINE_KIND_REMOVED
-			default:
-				return nil, fmt.Errorf("unknown patch changed line kind %q", line.Kind)
 			}
 			projected.Lines = append(projected.Lines, &transcriptpb.PatchChangedLine{
 				Kind: kind, Content: line.Content,
@@ -200,8 +194,6 @@ func patchFileOperationToProto(operation patchformat.FileOperation) (*transcript
 			return nil, err
 		}
 		out.Operation = &transcriptpb.PatchFileOperation_Delete{Delete: deletion}
-	default:
-		return nil, fmt.Errorf("unknown patch file operation kind %q", operation.Kind)
 	}
 	return out, nil
 }

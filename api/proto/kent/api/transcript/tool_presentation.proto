@@ -33,6 +33,11 @@ message ToolRenderHint {
   optional string path = 2 [(buf.validate.field).string.min_len = 1];
   bool result_only = 3;
   optional ToolShellDialect shell_dialect = 4 [(buf.validate.field).enum = {defined_only: true not_in: [0]}];
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.source_render_hint_path"
+    message: "Source render hints require a nonblank path"
+    expression: "this.kind != 3 || (has(this.path) && this.path.trim() != '')"
+  };
 }
 
 message ToolPresentation {

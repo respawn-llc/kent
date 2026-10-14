@@ -210,6 +210,10 @@ func (f FileChange) Valid() bool {
 			return false
 		}
 	}
+	return f.CountsValid()
+}
+
+func (f FileChange) CountsValid() bool {
 	expected := f
 	refreshFileCounts(&expected)
 	if f.Added != expected.Added {
