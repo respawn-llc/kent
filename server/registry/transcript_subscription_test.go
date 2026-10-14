@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"testing"
-	"time"
 
 	"core/server/runtime"
 	"core/shared/protoapi"
@@ -102,8 +101,11 @@ func TestTranscriptSubscriptionBrokerSequencesEachSubscriberFromHydration(t *tes
 	if secondHydration.Sequence != 1 || secondHydration.Event.GetHydration() == nil {
 		t.Fatalf("second hydration = %+v, want fresh seq=1 hydration", secondHydration)
 	}
-	if event, err := nextTranscriptMessageTimeout(second, 20*time.Millisecond); err == nil {
-		t.Fatalf("second subscriber replayed old live event: %+v", event)
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if event, err := second.Next(t.Context()); !errors.Is(err, io.EOF) {
+		t.Fatalf("second subscriber replayed old live event: event=%+v err=%v", event, err)
 	}
 }
 
@@ -216,7 +218,10 @@ func TestSessionFeedSequencerRejectsInvalidBatchBeforePrefixMutation(t *testing.
 		if recovered := recover(); recovered == nil {
 			t.Fatal("invalid batch did not fail fast")
 		}
-		if _, err := nextTranscriptMessageTimeout(sub, 20*time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
+		if err := sub.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := sub.Next(t.Context()); !errors.Is(err, io.EOF) {
 			t.Fatalf("valid prefix was delivered after invalid batch: %v", err)
 		}
 		hydratedSub, err := sequencer.Subscribe(func() (*transcriptpb.Hydration, error) {
@@ -330,7 +335,7 @@ func TestTranscriptBrokerRejectsUninitializedEventWithoutSequenceOrDelivery(t *t
 	}
 	_ = nextTranscriptMessage(t, sub)
 	broker.Publish([]*transcriptpb.Event{{}})
-	_, err = nextTranscriptMessageTimeout(sub, time.Second)
+	_, err = sub.Next(t.Context())
 	if err == nil {
 		t.Fatal("uninitialized event was delivered")
 	}
@@ -464,14 +469,14 @@ func TestTranscriptSubscriptionContractValidatesLiveLocatorProgression(t *testin
 			}
 			if !test.wantFailure {
 				for range test.live {
-					if _, err := nextTranscriptMessageTimeout(sub, time.Second); err != nil {
+					if _, err := sub.Next(t.Context()); err != nil {
 						t.Fatalf("valid live locator was rejected: %v", err)
 					}
 				}
 				return
 			}
 			for range test.live[:len(test.live)-1] {
-				if _, err := nextTranscriptMessageTimeout(sub, time.Second); err != nil {
+				if _, err := sub.Next(t.Context()); err != nil {
 					t.Fatalf("valid prefix before invalid locator was rejected: %v", err)
 				}
 			}
@@ -513,17 +518,9 @@ func withTranscriptContractViolationPanic(enabled bool) func() {
 
 func nextTranscriptMessage(t *testing.T, sub serverapi.TranscriptSubscription) *transcriptpb.Message {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	message, err := sub.Next(ctx)
+	message, err := sub.Next(t.Context())
 	if err != nil {
 		t.Fatalf("transcript subscription next: %v", err)
 	}
 	return message
-}
-
-func nextTranscriptMessageTimeout(sub serverapi.TranscriptSubscription, timeout time.Duration) (*transcriptpb.Message, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	return sub.Next(ctx)
 }

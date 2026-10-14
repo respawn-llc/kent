@@ -13,7 +13,6 @@ import (
 	"sync"
 	"testing"
 	"testing/synctest"
-	"time"
 )
 
 func TestMultiRowCompactionEmitsPerRowCommittedCounts(t *testing.T) {
@@ -460,7 +459,11 @@ func TestStreamingIgnoresAsyncLateDeltasAfterGenerateReturns(t *testing.T) {
 		mu     sync.Mutex
 		events []Event
 	)
-	eng := mustNewTestEngine(t, store, fakeAsyncLateDeltaClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
+	releaseLate, lateDone := make(chan struct{}), make(chan struct{})
+	release := sync.OnceFunc(func() { close(releaseLate) })
+	t.Cleanup(release)
+	client := gatedLateDeltaClient{release: releaseLate, done: lateDone}
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
 		Model: "gpt-6-sol",
 		OnEvent: func(evt Event) {
 			mu.Lock()
@@ -476,7 +479,8 @@ func TestStreamingIgnoresAsyncLateDeltasAfterGenerateReturns(t *testing.T) {
 	if messageContent(msg) != "final" {
 		t.Fatalf("assistant content = %q, want final", messageContent(msg))
 	}
-	time.Sleep(40 * time.Millisecond)
+	release()
+	<-lateDone
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -488,6 +492,27 @@ func TestStreamingIgnoresAsyncLateDeltasAfterGenerateReturns(t *testing.T) {
 			t.Fatalf("expected late delta to be ignored, got events: %+v", events)
 		}
 	}
+}
+
+type gatedLateDeltaClient struct {
+	release <-chan struct{}
+	done    chan<- struct{}
+}
+
+func (gatedLateDeltaClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
+	return defaultTestProviderCapabilities(), nil
+}
+
+func (c gatedLateDeltaClient) Generate(_ context.Context, _ llm.Request, callbacks llm.StreamCallbacks) (llm.Response, error) {
+	callbacks.OnAssistantDelta(llm.AssistantDelta{Text: "final"})
+	go func() {
+		<-c.release
+		callbacks.OnAssistantDelta(llm.AssistantDelta{Text: "late"})
+		close(c.done)
+	}()
+	return llm.Response{Assistant: llm.Message{
+		Role: llm.RoleAssistant, Content: textutil.Value("final"), Phase: textutil.Value(llm.MessagePhaseFinal),
+	}}, nil
 }
 
 func TestStreamingBlankFinalClearsLiveAssistantDelta(t *testing.T) {

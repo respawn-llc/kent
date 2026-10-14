@@ -72,6 +72,9 @@ func testCompactionOutputReopen(t *testing.T, fullBundle bool) {
 	if _, err := engine.SetGoal(t.Context(), "goal", session.GoalActorUser); err != nil {
 		t.Fatalf("set active goal: %v", err)
 	}
+	if err := engine.drainRuntimeOperations(t.Context()); err != nil {
+		t.Fatalf("persist active goal notice: %v", err)
+	}
 	mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
 		session.WorktreeReminderModeEnter,
 		"feature/goal",

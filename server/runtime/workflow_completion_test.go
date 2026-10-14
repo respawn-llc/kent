@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"core/internal/testharness/testsetup"
@@ -604,7 +605,9 @@ func TestAcceptedLiveWorkflowSteeringKeepsConfiguredToolChoice(t *testing.T) {
 		{name: "automatic", useAutomaticToolChoice: true, want: llm.ToolChoiceModeAutomatic},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			testAcceptedLiveWorkflowSteeringToolChoice(t, test.useAutomaticToolChoice, test.want)
+			synctest.Test(t, func(t *testing.T) {
+				testAcceptedLiveWorkflowSteeringToolChoice(t, test.useAutomaticToolChoice, test.want)
+			})
 		})
 	}
 }
@@ -625,11 +628,7 @@ func testAcceptedLiveWorkflowSteeringToolChoice(t *testing.T, useAutomaticToolCh
 		_, err := eng.SubmitWorkflowTurn(context.Background())
 		submitDone <- err
 	}()
-	select {
-	case <-client.started:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for active workflow request")
-	}
+	<-client.started
 	type steeringResult struct {
 		queued QueuedUserMessage
 		err    error
@@ -639,6 +638,7 @@ func testAcceptedLiveWorkflowSteeringToolChoice(t *testing.T, useAutomaticToolCh
 		queued, err := eng.Steer(context.Background(), "steer active workflow", nil)
 		steeringDone <- steeringResult{queued: queued, err: err}
 	}()
+	synctest.Wait()
 	releaseClient()
 	steering := <-steeringDone
 	if steering.err != nil {
@@ -1357,76 +1357,75 @@ func TestCompatibleProviderCommentaryContinuesWithoutCompletionSideEffects(t *te
 }
 
 func TestCompatibleProviderCommentaryFlushesAcceptedSteeringBeforeContinuing(t *testing.T) {
-	store := mustCreateTestSession(t)
-	controller := &fakeWorkflowController{}
-	started := make(chan struct{})
-	release := make(chan struct{})
-	releaseRun := sync.OnceFunc(func() { close(release) })
-	defer releaseRun()
-	var once sync.Once
-	var client *hookClient
-	client = &hookClient{
-		response: compatibleCommentaryResponse("continuing"),
-		caps:     compatibleResponsesCapabilities(),
-		beforeReturn: func() error {
-			once.Do(func() {
-				close(started)
-				<-release
-				client.mu.Lock()
-				client.response = compatiblePhaseAbsentResponse(`{"commentary":"complete","summary":"done"}`)
-				client.beforeReturn = nil
-				client.mu.Unlock()
-			})
-			return nil
-		},
-	}
-	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeUnstructured), Config{})
-
-	submitDone := make(chan error, 1)
-	go func() {
-		_, err := eng.SubmitWorkflowTurn(context.Background())
-		submitDone <- err
-	}()
-	select {
-	case <-started:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for commentary response")
-	}
-	steeringDone := make(chan error, 1)
-	go func() {
-		_, err := eng.Steer(context.Background(), "accepted steering", nil)
-		steeringDone <- err
-	}()
-	releaseRun()
-	if err := <-steeringDone; err != nil {
-		t.Fatalf("Steer: %v", err)
-	}
-	if err := <-submitDone; err != nil {
-		t.Fatalf("submit: %v", err)
-	}
-
-	if got := hookClientCallCount(client); got != 2 {
-		t.Fatalf("model calls = %d, want 2", got)
-	}
-	client.mu.Lock()
-	second := client.calls[1]
-	client.mu.Unlock()
-	hasAcceptedSteering := false
-	for _, message := range requestMessages(second) {
-		if message.Role == llm.RoleUser && messageContent(message) == "accepted steering" {
-			hasAcceptedSteering = true
-			break
+	synctest.Test(t, func(t *testing.T) {
+		store := mustCreateTestSession(t)
+		controller := &fakeWorkflowController{}
+		started := make(chan struct{})
+		release := make(chan struct{})
+		releaseRun := sync.OnceFunc(func() { close(release) })
+		defer releaseRun()
+		var once sync.Once
+		var client *hookClient
+		client = &hookClient{
+			response: compatibleCommentaryResponse("continuing"),
+			caps:     compatibleResponsesCapabilities(),
+			beforeReturn: func() error {
+				once.Do(func() {
+					close(started)
+					<-release
+					client.mu.Lock()
+					client.response = compatiblePhaseAbsentResponse(`{"commentary":"complete","summary":"done"}`)
+					client.beforeReturn = nil
+					client.mu.Unlock()
+				})
+				return nil
+			},
 		}
-	}
-	if !hasAcceptedSteering {
-		t.Fatalf("second request omitted accepted steering: %+v", requestMessages(second))
-	}
-	if got := controller.violations.Load(); got != 0 {
-		t.Fatalf("violations = %d, want 0", got)
-	}
-	if got := controller.completed.Load(); got != 1 {
-		t.Fatalf("completions = %d, want 1", got)
-	}
+		eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeUnstructured), Config{})
+
+		submitDone := make(chan error, 1)
+		go func() {
+			_, err := eng.SubmitWorkflowTurn(context.Background())
+			submitDone <- err
+		}()
+		<-started
+		steeringDone := make(chan error, 1)
+		go func() {
+			_, err := eng.Steer(context.Background(), "accepted steering", nil)
+			steeringDone <- err
+		}()
+		synctest.Wait()
+		releaseRun()
+		if err := <-steeringDone; err != nil {
+			t.Fatalf("Steer: %v", err)
+		}
+		if err := <-submitDone; err != nil {
+			t.Fatalf("submit: %v", err)
+		}
+
+		if got := hookClientCallCount(client); got != 2 {
+			t.Fatalf("model calls = %d, want 2", got)
+		}
+		client.mu.Lock()
+		second := client.calls[1]
+		client.mu.Unlock()
+		hasAcceptedSteering := false
+		for _, message := range requestMessages(second) {
+			if message.Role == llm.RoleUser && messageContent(message) == "accepted steering" {
+				hasAcceptedSteering = true
+				break
+			}
+		}
+		if !hasAcceptedSteering {
+			t.Fatalf("second request omitted accepted steering: %+v", requestMessages(second))
+		}
+		if got := controller.violations.Load(); got != 0 {
+			t.Fatalf("violations = %d, want 0", got)
+		}
+		if got := controller.completed.Load(); got != 1 {
+			t.Fatalf("completions = %d, want 1", got)
+		}
+	})
 }
 
 func TestWorkflowTerminalCompletionFailsQueuedSteeringAtRunRelease(t *testing.T) {

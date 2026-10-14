@@ -109,7 +109,7 @@ describe("Goal sidebar", () => {
     act(() => {
       handlers[0]?.onEvent(hydration({ objective: "saved objective", status: "active" }));
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(await screen.findByRole("textbox", { name: "Goal" }));
     await user.clear(screen.getByRole("textbox", { name: "Goal" }));
     await user.type(screen.getByRole("textbox", { name: "Goal" }), "unsaved objective");
@@ -122,7 +122,7 @@ describe("Goal sidebar", () => {
     expect(handlers).toHaveLength(1);
     expect(closes[0]).toHaveBeenCalledOnce();
 
-    await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
+    await userEvent.setup({ delay: null }).click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => {
       expect(handlers).toHaveLength(2);
     });
@@ -157,7 +157,7 @@ describe("Goal sidebar", () => {
     );
 
     await screen.findByText("saved objective");
-    await userEvent.setup().click(screen.getByRole("button", { name: "Pause" }));
+    await userEvent.setup({ delay: null }).click(screen.getByRole("button", { name: "Pause" }));
     expect(await screen.findByRole("button", { name: "Resume" })).toBeInTheDocument();
     pauseResult.resolve({
       kind: "authoritative_goal",
@@ -198,7 +198,7 @@ describe("Goal sidebar", () => {
       </TestAppProviders>,
     );
 
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(await screen.findByRole("textbox", { name: "Goal" }));
     await user.clear(screen.getByRole("textbox", { name: "Goal" }));
     await user.type(screen.getByRole("textbox", { name: "Goal" }), "submitted objective");
@@ -249,7 +249,7 @@ describe("Goal sidebar", () => {
       </TestAppProviders>,
     );
 
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(await screen.findByRole("textbox", { name: "Goal" }));
     const draft = "restore this draft";
     await user.clear(screen.getByRole("textbox", { name: "Goal" }));
@@ -294,7 +294,7 @@ describe("Goal sidebar", () => {
     );
 
     const objective = "Preserve this rejected draft";
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.type(screen.getByRole("textbox", { name: "Goal" }), objective);
     await user.click(screen.getByTestId("goal-save"));
 
@@ -324,7 +324,7 @@ describe("Goal sidebar", () => {
       </TestAppProviders>,
     );
 
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.type(screen.getByRole("textbox", { name: "Goal" }), "unsupported Agent Goal");
 
     const save = screen.getByTestId("goal-save");
@@ -358,7 +358,7 @@ describe("Goal sidebar", () => {
       </TestAppProviders>,
     );
 
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.type(screen.getByRole("textbox", { name: "Goal" }), "New Chat Goal");
     await user.click(screen.getByTestId("goal-save"));
 
@@ -396,7 +396,7 @@ describe("Goal sidebar", () => {
         <GoalFixturePage api={api} owner={owner} delivered={hostDelivery} />
       </TestAppProviders>,
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.type(screen.getByRole("textbox", { name: "Goal" }), "close-safe success");
     await user.click(screen.getByTestId("goal-save"));
     // Closing a sidebar does not close its window or replace the window's Atom registry.

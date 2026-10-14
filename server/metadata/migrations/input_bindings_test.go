@@ -1,4 +1,4 @@
-package metadata
+package migrations
 
 import (
 	"database/sql/driver"

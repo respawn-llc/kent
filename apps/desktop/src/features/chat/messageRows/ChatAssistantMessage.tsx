@@ -1,5 +1,6 @@
 import type { TranscriptRenderItem } from "@/app-facade";
-import { AnimatedSize, Island, StaticMarkdown, StreamingMarkdown } from "@/ui";
+import { AnimatedSize, Island } from "@/ui";
+import { StaticMarkdown, StreamingMarkdown } from "@/ui/markdown";
 
 import { MessageFooter } from "./MessageFooter";
 import type { MessageNeighbors } from "./messageNeighbors";

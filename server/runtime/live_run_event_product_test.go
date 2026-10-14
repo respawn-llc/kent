@@ -5,7 +5,6 @@ import (
 	"errors"
 	"sync"
 	"testing"
-	"time"
 
 	"core/server/llm"
 	"core/server/session"
@@ -129,11 +128,7 @@ func TestEnginePublishesLiveRunTerminalFactsThroughSubmitSeam(t *testing.T) {
 			_, err := eng.SubmitUserMessage(context.Background(), "interrupt")
 			done <- err
 		}()
-		select {
-		case <-started:
-		case <-time.After(runtimeTestSynchronizationTimeout):
-			t.Fatal("timed out waiting for active run")
-		}
+		<-started
 		stopped, err := eng.TryInterruptActiveRun()
 		if err != nil || !stopped {
 			t.Fatalf("TryInterruptActiveRun stopped=%t err=%v", stopped, err)
@@ -194,15 +189,10 @@ func TestEnginePublishesLiveRunTerminalFactsThroughSubmitSeam(t *testing.T) {
 			_, err := eng.SubmitUserMessage(context.Background(), "first")
 			firstDone <- err
 		}()
-		waitActiveLiveRunGroup(t, eng, true)
+		<-stepLifecycle.endedStarted
 		waitHandle, err := eng.CaptureActiveRunResult(context.Background())
 		if err != nil {
 			t.Fatalf("capture active live-run waiter: %v", err)
-		}
-		select {
-		case <-stepLifecycle.endedStarted:
-		case <-time.After(runtimeTestSynchronizationTimeout):
-			t.Fatal("timed out waiting for step terminal publication")
 		}
 		waitDone := make(chan error, 1)
 		go func() {
@@ -210,18 +200,9 @@ func TestEnginePublishesLiveRunTerminalFactsThroughSubmitSeam(t *testing.T) {
 			waitDone <- err
 		}()
 		close(stepLifecycle.releaseEnded)
-		select {
-		case <-callbackStarted:
-		case <-time.After(runtimeTestSynchronizationTimeout):
-			t.Fatal("timed out waiting for terminal callback")
-		}
-		select {
-		case err := <-waitDone:
-			if err != nil {
-				t.Fatalf("live-run waiter: %v", err)
-			}
-		case <-time.After(runtimeTestSynchronizationTimeout):
-			t.Fatal("live-run waiter remained blocked by terminal callback")
+		<-callbackStarted
+		if err := <-waitDone; err != nil {
+			t.Fatalf("live-run waiter: %v", err)
 		}
 		close(releaseCallback)
 		if err := <-firstDone; err != nil {

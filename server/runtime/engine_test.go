@@ -292,8 +292,6 @@ type fakeStreamClient struct {
 	calls    []llm.Request
 }
 
-type fakeAsyncLateDeltaClient struct{}
-
 type fakeNoopStreamClient struct{}
 
 type fakeReasoningStreamClient struct{}
@@ -312,10 +310,6 @@ func defaultTestProviderCapabilities() llm.ProviderCapabilities {
 }
 
 func (f *fakeStreamClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
-	return defaultTestProviderCapabilities(), nil
-}
-
-func (fakeAsyncLateDeltaClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
 	return defaultTestProviderCapabilities(), nil
 }
 
@@ -474,20 +468,6 @@ func TestLastCommittedAssistantFinalAnswerDoesNotSkipTrailingUntypedDeveloperMes
 	if got := eng.LastCommittedAssistantFinalAnswer(); got != nil {
 		t.Fatalf("LastCommittedAssistantFinalAnswer() = %v, want absence", got)
 	}
-}
-
-func (fakeAsyncLateDeltaClient) Generate(_ context.Context, _ llm.Request, callbacks llm.StreamCallbacks) (llm.Response, error) {
-	if callbacks.OnAssistantDelta != nil {
-		callbacks.OnAssistantDelta(llm.AssistantDelta{Text: "final"})
-		go func() {
-			time.Sleep(10 * time.Millisecond)
-			callbacks.OnAssistantDelta(llm.AssistantDelta{Text: "late"})
-		}()
-	}
-	return llm.Response{
-		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("final")},
-		Usage:     llm.Usage{WindowTokens: 200000},
-	}, nil
 }
 
 func (fakeNoopStreamClient) Generate(_ context.Context, _ llm.Request, _ llm.StreamCallbacks) (llm.Response, error) {

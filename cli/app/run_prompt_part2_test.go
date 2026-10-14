@@ -12,7 +12,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"core/internal/testharness/pty/appfixture"
 	modelstub "core/internal/testharness/pty/blackbox"
@@ -51,7 +50,10 @@ func TestLifecycleHookExcludedFromServerHeadlessAndSubagentRuns(t *testing.T) {
 	})
 	defer responses.Close()
 	stopServer := startStandingRunPromptServer(t, workspace, responses.URL)
-	defer stopServer()
+	defer func() {
+		stopServer()
+		requireNoLifecycleHookProductRecords(t, recordPath)
+	}()
 	requireNoLifecycleHookProductRecords(t, recordPath)
 
 	run := func(name string, agentRole *string, want string) {
@@ -81,23 +83,16 @@ func TestLifecycleHookExcludedFromServerHeadlessAndSubagentRuns(t *testing.T) {
 
 func requireNoLifecycleHookProductRecords(t *testing.T, recordPath string) {
 	t.Helper()
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for {
-		_, err := os.Stat(recordPath)
-		if err == nil {
-			data, readErr := os.ReadFile(recordPath)
-			if readErr != nil {
-				t.Fatalf("read unexpected lifecycle hook records: %v", readErr)
-			}
-			t.Fatalf("unexpected lifecycle hook records: %s", data)
+	_, err := os.Stat(recordPath)
+	if err == nil {
+		data, readErr := os.ReadFile(recordPath)
+		if readErr != nil {
+			t.Fatalf("read unexpected lifecycle hook records: %v", readErr)
 		}
-		if !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("stat lifecycle hook records: %v", err)
-		}
-		if time.Now().After(deadline) {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+		t.Fatalf("unexpected lifecycle hook records: %s", data)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stat lifecycle hook records: %v", err)
 	}
 }
 

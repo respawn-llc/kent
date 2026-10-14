@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -91,7 +92,7 @@ func TestFastExecCommandCompletionDoesNotQueueBackgroundNotice(t *testing.T) {
 	if messageContent(assistant) != "done" {
 		t.Fatalf("assistant content = %q, want done", messageContent(assistant))
 	}
-	time.Sleep(50 * time.Millisecond)
+	waitEngineLifecycleTasks(t, eng)
 	client.mu.Lock()
 	callCount := len(client.calls)
 	client.mu.Unlock()
@@ -203,7 +204,7 @@ func TestBackgroundShellNoticeFlushesOnFirstAvailableSlot(t *testing.T) {
 	if !containsNotice(requests[1]) {
 		t.Fatalf("expected background notice in first available in-turn follow-up, messages=%+v", requestMessages(requests[1]))
 	}
-	time.Sleep(50 * time.Millisecond)
+	waitEngineLifecycleTasks(t, eng)
 	client.mu.Lock()
 	callCountAfterReturn := len(client.calls)
 	client.mu.Unlock()
@@ -229,6 +230,10 @@ func TestBackgroundShellNoticeFlushesOnFirstAvailableSlot(t *testing.T) {
 }
 
 func TestSteerAcceptedDuringReviewerAppearsInMainAgentFollowUp(t *testing.T) {
+	synctest.Test(t, testSteerAcceptedDuringReviewerAppearsInMainAgentFollowUp)
+}
+
+func testSteerAcceptedDuringReviewerAppearsInMainAgentFollowUp(t *testing.T) {
 	mainClient := &fakeClient{responses: []llm.Response{
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("foreground done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
@@ -286,10 +291,7 @@ func TestSteerAcceptedDuringReviewerAppearsInMainAgentFollowUp(t *testing.T) {
 	if queued.ID == "" {
 		t.Fatal("Steer was not accepted into Pending Work")
 	}
-	deadline := time.Now().Add(runtimeTestSynchronizationTimeout)
-	for fakeClientCallCount(mainClient) < 2 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
+	synctest.Wait()
 	if got := fakeClientCallCount(mainClient); got != 2 {
 		t.Fatalf("ordinary main work did not proceed while Reviewer was running: calls=%d", got)
 	}
@@ -481,12 +483,12 @@ func TestFinalAssistantBeforeSameTurnBackgroundNoticeKeepsCommittedFrontierConti
 	store := mustCreateTestSessionAt(t, dir)
 
 	var (
-		mu           sync.Mutex
-		events       []Event
-		queueOnce    sync.Once
-		eng          *Engine
-		backgroundID = "1000"
-		updateDone   = make(chan struct{})
+		mu                  sync.Mutex
+		events              []Event
+		queueOnce           sync.Once
+		eng                 *Engine
+		backgroundID        = "1000"
+		backgroundCommitted = make(chan struct{}, 1)
 	)
 	var client *hookClient
 	client = &hookClient{
@@ -502,15 +504,12 @@ func TestFinalAssistantBeforeSameTurnBackgroundNoticeKeepsCommittedFrontierConti
 					Usage:     llm.Usage{WindowTokens: 200000},
 				}
 				client.mu.Unlock()
-				go func() {
-					eng.HandleBackgroundShellUpdate(BackgroundShellEvent{
-						Type:       BackgroundShellEventCompleted,
-						ID:         backgroundID,
-						State:      "completed",
-						NoticeText: "Background shell 1000 completed.\nExit code: 0\nOutput:\ndone",
-					}, true)
-					close(updateDone)
-				}()
+				eng.HandleBackgroundShellUpdate(BackgroundShellEvent{
+					Type:       BackgroundShellEventCompleted,
+					ID:         backgroundID,
+					State:      "completed",
+					NoticeText: "Background shell 1000 completed.\nExit code: 0\nOutput:\ndone",
+				}, true)
 			})
 			return nil
 		},
@@ -521,16 +520,15 @@ func TestFinalAssistantBeforeSameTurnBackgroundNoticeKeepsCommittedFrontierConti
 			mu.Lock()
 			events = append(events, evt)
 			mu.Unlock()
+			if evt.Kind == EventConversationUpdated && evt.Message.MessageType != nil && *evt.Message.MessageType == llm.MessageTypeBackgroundNotice {
+				backgroundCommitted <- struct{}{}
+			}
 		},
 	})
 	if _, err := eng.SubmitUserMessage(context.Background(), "run task"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	select {
-	case <-updateDone:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("background terminal update did not complete after the Step boundary")
-	}
+	<-backgroundCommitted
 	waitEngineLifecycleTasks(t, eng)
 
 	mu.Lock()
@@ -652,7 +650,7 @@ func TestBackgroundShellNoticeSameTurnNoopAddsNoAssistantMessage(t *testing.T) {
 	if !containsNotice(requests[1]) {
 		t.Fatalf("expected background notice in same-Step follow-up, messages=%+v", requestMessages(requests[1]))
 	}
-	time.Sleep(50 * time.Millisecond)
+	waitEngineLifecycleTasks(t, eng)
 	client.mu.Lock()
 	callCountAfterReturn := len(client.calls)
 	client.mu.Unlock()

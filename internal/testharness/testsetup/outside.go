@@ -20,61 +20,25 @@ func NonTemporaryDirectory(
 		t.Fatal("temporary-path classifier is required")
 	}
 
-	workingDir, err := os.Getwd()
+	base, configured := os.LookupEnv("KENT_TEST_NON_TEMPORARY_ROOT")
+	if !configured || base == "" {
+		t.Fatal("non-temporary RAM fixtures require running tests through Just")
+	}
+	dir, err := os.MkdirTemp(base, prefix)
 	if err != nil {
-		t.Fatalf("resolve test working directory: %v", err)
+		t.Fatalf("create non-temporary RAM fixture: %v", err)
 	}
-	moduleRoot, found := findModuleRoot(workingDir)
-	if !found {
-		t.Fatalf("find Go module root from %q", workingDir)
-	}
-
-	bases := []string{filepath.Dir(moduleRoot)}
-	if home, homeErr := os.UserHomeDir(); homeErr == nil && strings.TrimSpace(home) != "" {
-		bases = append(bases, home)
-	}
-	for _, base := range bases {
-		dir, mkdirErr := os.MkdirTemp(base, prefix)
-		if mkdirErr != nil {
-			continue
+	t.Cleanup(func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Errorf("cleanup non-temporary RAM fixture %q: %v", dir, err)
 		}
-		abs, absErr := filepath.Abs(dir)
-		if absErr != nil || isTemporary(abs) || pathWithinRoot(abs, moduleRoot) {
-			if cleanupErr := os.RemoveAll(dir); cleanupErr != nil {
-				t.Fatalf("cleanup unsuitable outside directory %q: %v", dir, cleanupErr)
-			}
-			continue
-		}
-		t.Cleanup(func() {
-			if cleanupErr := os.RemoveAll(abs); cleanupErr != nil {
-				t.Errorf("cleanup outside directory %q: %v", abs, cleanupErr)
-			}
-		})
-		return abs
+	})
+	absolute, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatalf("resolve non-temporary RAM fixture: %v", err)
 	}
-
-	t.Skip("unable to create a non-temporary directory outside the repository")
-	return ""
-}
-
-func findModuleRoot(start string) (string, bool) {
-	for current := filepath.Clean(start); ; current = filepath.Dir(current) {
-		info, err := os.Stat(filepath.Join(current, "go.mod"))
-		if err == nil && !info.IsDir() {
-			return current, true
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return "", false
-		}
+	if isTemporary(absolute) {
+		t.Fatalf("non-temporary fixture %q is classified as temporary", absolute)
 	}
-}
-
-func pathWithinRoot(path string, root string) bool {
-	relative, err := filepath.Rel(root, path)
-	if err != nil || filepath.IsAbs(relative) {
-		return false
-	}
-	parts := strings.Split(relative, string(filepath.Separator))
-	return len(parts) > 0 && parts[0] != ".."
+	return absolute
 }

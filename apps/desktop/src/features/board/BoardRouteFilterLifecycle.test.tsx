@@ -14,7 +14,7 @@ const labelFilter: TaskLabelFilter = {
 
 describe("board filter route lifecycle", () => {
   it("resets Unblocked when Project or Workflow changes while retaining Labels", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const view = render(<TestApp projectID="project-1" workflowID="workflow-1" />);
 
     await user.click(screen.getByRole("button", { name: "select unblocked" }));
@@ -27,7 +27,7 @@ describe("board filter route lifecycle", () => {
   });
 
   it("resets Unblocked after leaving and returning to the same board", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const view = render(<TestApp projectID="project-1" workflowID="workflow-1" />);
 
     await user.click(screen.getByRole("button", { name: "select unblocked" }));
@@ -41,7 +41,7 @@ describe("board filter route lifecycle", () => {
   });
 
   it("resets the route-local board sort when the board key changes", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const view = render(<TestApp projectID="project-1" workflowID="workflow-1" />);
 
     await user.click(screen.getByRole("button", { name: "select created sort" }));

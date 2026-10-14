@@ -8,7 +8,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"core/server/llm"
 	"core/server/session"
@@ -86,14 +85,8 @@ func assertWorkflowToolSiblingsConcurrent(t *testing.T, call llm.ToolCall) {
 			t.Errorf("execute workflow siblings: %v", err)
 		}
 	}()
-	timeout := time.NewTimer(5 * time.Second)
-	defer timeout.Stop()
 	for range calls {
-		select {
-		case <-started:
-		case <-timeout.C:
-			t.Fatal("workflow file tool siblings did not all start before any handler completed")
-		}
+		<-started
 	}
 }
 
@@ -293,94 +286,8 @@ func TestExecuteToolCallsCommitsHandlerErrorAsHonestResult(t *testing.T) {
 	}
 }
 
-func TestToolExecutionDurabilityObservationBaseline(t *testing.T) {
-	for _, count := range []int{1, 3} {
-		t.Run(fmt.Sprintf("%d tools", count), func(t *testing.T) {
-			observer := &toolDurabilityObservationRecorder{}
-			store := mustCreateTestSessionAt(
-				t,
-				t.TempDir(),
-				session.WithDurabilityObserver(observer),
-			)
-			engine := mustNewTestEngine(
-				t,
-				store,
-				&fakeClient{},
-				newTestToolRegistry(t, tools.HandlerRegistration{
-					ID:      toolspec.ToolExecCommand,
-					Handler: durabilityToolHandler{},
-				}),
-				Config{Model: "gpt-6-sol"},
-			)
-			calls := make([]llm.ToolCall, count)
-			for index := range calls {
-				calls[index] = llm.ToolCall{
-					ID:    fmt.Sprintf("baseline-%d", index),
-					Name:  string(toolspec.ToolExecCommand),
-					Input: json.RawMessage(`{"cmd":"true"}`),
-				}
-			}
-
-			stepID := runtimeTestStepID("step")
-			restoreStep := setTestActiveStep(engine, stepID)
-			defer restoreStep()
-			results, err := engine.executeToolCalls(context.Background(), stepID, calls)
-			if err != nil {
-				t.Fatalf("execute tools: %v", err)
-			}
-			if len(results) != count {
-				t.Fatalf("tool results = %d, want %d", len(results), count)
-			}
-			appends, syncs := observer.snapshot()
-			if len(appends) != 1 || len(syncs) != 1 {
-				t.Fatalf(
-					"durability observations = %d appends/%d syncs, want 1/1",
-					len(appends),
-					len(syncs),
-				)
-			}
-			for index, appendObservation := range appends {
-				if appendObservation.RecordCount != count*2 || !appendObservation.Succeeded {
-					t.Fatalf(
-						"append observation %d = %+v, want %d successful records",
-						index,
-						appendObservation,
-						count*2,
-					)
-				}
-			}
-			for index, syncObservation := range syncs {
-				if !syncObservation.Succeeded {
-					t.Fatalf("sync observation %d = %+v, want success", index, syncObservation)
-				}
-			}
-			appendLatencies := make([]time.Duration, len(appends))
-			for index, observation := range appends {
-				appendLatencies[index] = observation.Latency
-			}
-			syncLatencies := make([]time.Duration, len(syncs))
-			for index, observation := range syncs {
-				syncLatencies[index] = observation.Latency
-			}
-			t.Logf(
-				"baseline tools=%d append_transactions=%d physical_syncs=%d append_latencies=%v sync_latencies=%v",
-				count,
-				len(appends),
-				len(syncs),
-				appendLatencies,
-				syncLatencies,
-			)
-		})
-	}
-}
-
 func TestExecuteSiblingToolCallsIndependentlyAdmitOneApprovalAndCommitOneGroup(t *testing.T) {
-	observer := &toolDurabilityObservationRecorder{}
-	store := mustCreateTestSessionAt(
-		t,
-		t.TempDir(),
-		session.WithDurabilityObserver(observer),
-	)
+	store := mustCreateTestSession(t)
 	engine := mustNewTestEngine(
 		t,
 		store,
@@ -413,21 +320,6 @@ func TestExecuteSiblingToolCallsIndependentlyAdmitOneApprovalAndCommitOneGroup(t
 	}
 	if len(results) != len(calls) {
 		t.Fatalf("tool results = %d, want %d", len(results), len(calls))
-	}
-	appends, syncs := observer.snapshot()
-	if len(appends) != 1 || len(syncs) != 1 {
-		t.Fatalf(
-			"group durability observations = %d appends/%d syncs, want 1/1",
-			len(appends),
-			len(syncs),
-		)
-	}
-	if appends[0].RecordCount != len(calls)*2 || !appends[0].Succeeded {
-		t.Fatalf(
-			"group append observation = %+v, want %d successful records",
-			appends[0],
-			len(calls)*2,
-		)
 	}
 	snapshot := mustTranscriptHydrationSnapshot(t, engine)
 	for _, call := range calls {

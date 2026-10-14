@@ -39,7 +39,7 @@ func TestLiveControlErrorsRetainNumericTargetIdentityOverGateway(t *testing.T) {
 				return err
 			},
 			func() error {
-				_, err := remote.LiveSteer(t.Context(), &runtimepb.LiveSteerRequest{SessionId: target, Text: "continue"})
+				_, err := remote.LiveSteer(t.Context(), &runtimepb.LiveSteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: target, Text: "continue"})
 				return err
 			},
 			func() error {

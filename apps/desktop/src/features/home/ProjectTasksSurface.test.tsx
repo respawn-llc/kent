@@ -247,7 +247,7 @@ describe("ProjectTasksSurface", () => {
   });
 
   it("offers the Project Task Sort choices with immediate retained-direction selection", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderSurface();
 
     const trigger = getSortTrigger();
@@ -271,7 +271,7 @@ describe("ProjectTasksSurface", () => {
   });
 
   it("retains the local sort selection across Home tab unmounts", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const memory = createProjectTasksViewMemory();
     const view = renderSurface(memory);
     await user.click(getSortTrigger());
@@ -287,17 +287,31 @@ describe("ProjectTasksSurface", () => {
     expect(getSortRadio(screen.getByRole("dialog"), "desc")).toBeChecked();
   });
 
-  it("opens the server-defined Status legend from keyboard focus", async () => {
-    renderSurface();
+  it("opens the server-defined Status legend on hover", async () => {
+    vi.useFakeTimers();
+    try {
+      renderSurface();
 
-    const statusLegendTriggers = screen.getAllByRole("button", { name: appI18n.t("task.status") });
-    const statusLegendTrigger = statusLegendTriggers[0];
-    if (statusLegendTrigger === undefined) {
-      throw new Error("Expected a Task Status legend trigger.");
+      const statusLegendTriggers = screen.getAllByRole("button", { name: appI18n.t("task.status") });
+      expect(statusLegendTriggers).toHaveLength(projectTaskGroupDefinitions.length);
+      const statusLegendTrigger = statusLegendTriggers[0];
+      if (statusLegendTrigger === undefined) {
+        throw new Error("Expected a Task Status legend trigger.");
+      }
+      fireEvent.mouseEnter(statusLegendTrigger);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      const tooltip = screen.getByRole("tooltip");
+      for (const definition of projectTaskGroupDefinitions) {
+        for (const status of definition.statusKinds) {
+          expect(within(tooltip).getByText(appI18n.t(`task.statusKinds.${status}`))).toBeInTheDocument();
+        }
+      }
+    } finally {
+      vi.useRealTimers();
     }
-    fireEvent.focus(statusLegendTrigger);
-
-    expect(await screen.findByRole("tooltip")).toBeVisible();
   });
 
   it("hides zero-count groups and opens Project-scoped New Task when the Project has no Tasks", () => {

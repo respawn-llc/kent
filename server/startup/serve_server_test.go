@@ -58,6 +58,7 @@ func registerServeWorkspace(t *testing.T, workspace string) {
 	if _, _, err := config.WriteDefaultSettingsFileAt(cfg.Source.File(config.FileGlobal).Path); err != nil {
 		t.Fatalf("write test settings: %v", err)
 	}
+	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)
 	if _, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot); err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
@@ -795,6 +796,7 @@ endpoint = "http://127.0.0.1:11434/v1"
 	if err != nil {
 		t.Fatalf("config.Load for binding: %v", err)
 	}
+	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)
 	if _, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, workspace); err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}

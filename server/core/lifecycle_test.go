@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	serverbootstrap "core/server/bootstrap"
 	"core/shared/config"
@@ -96,6 +97,7 @@ func TestNewWithContextNamesMissingAuthBundleResource(t *testing.T) {
 			Shell: config.ShellSettings{MaxConcurrent: config.DefaultMaxConcurrentShells, PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		},
 	}
+	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)
 	background, err := serverbootstrap.BuildShellManager(cfg)
 	if err != nil {
 		t.Fatalf("BuildShellManager: %v", err)
@@ -114,6 +116,7 @@ func TestNewWithContextNamesMissingAuthBundleResource(t *testing.T) {
 
 func TestNewWithContextNamesMissingRuntimeBundleResource(t *testing.T) {
 	cfg := config.App{PersistenceRoot: t.TempDir()}
+	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)
 	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), cfg.PersistenceRoot, auth.NewMemoryStore(auth.EmptyState()), nil, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
@@ -137,6 +140,7 @@ func TestNewWithContextCleansPersistenceOnAuthBundleFailure(t *testing.T) {
 			Workflow: config.WorkflowSettings{Concurrency: 1},
 		},
 	}
+	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)
 	background, err := serverbootstrap.BuildShellManager(cfg)
 	if err != nil {
 		t.Fatalf("BuildShellManager first: %v", err)

@@ -1,9 +1,9 @@
-import * as matchers from "@testing-library/jest-dom/matchers";
 import { expect, vi } from "vitest";
 
-expect.extend(matchers);
-
 if (typeof window !== "undefined") {
+  const { default: defaultMatchers, ...matchers } = await import("@testing-library/jest-dom/matchers");
+  void defaultMatchers;
+  expect.extend(matchers);
   Object.defineProperty(window, "scrollTo", { configurable: true, value: vi.fn() });
 }
 

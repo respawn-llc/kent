@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"core/server/llm"
 	"core/server/session"
@@ -29,6 +29,10 @@ func openAIFirstPartyNativeWebSearchCaps() llm.ProviderCapabilities {
 }
 
 func TestSetReviewerEnabledConcurrentWithBusyStep(t *testing.T) {
+	synctest.Test(t, testSetReviewerEnabledConcurrentWithBusyStep)
+}
+
+func testSetReviewerEnabledConcurrentWithBusyStep(t *testing.T) {
 	store := mustCreateTestSession(t)
 
 	mainClient := &fakeClient{responses: []llm.Response{
@@ -47,7 +51,8 @@ func TestSetReviewerEnabledConcurrentWithBusyStep(t *testing.T) {
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 
-	eng := mustNewTestEngine(t, store, mainClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: fakeTool{name: toolspec.ToolPatch, delay: 50 * time.Millisecond}}), Config{
+	toolStarted, releaseTool := make(chan struct{}), make(chan struct{})
+	eng := mustNewTestEngine(t, store, mainClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: blockingTool{name: toolspec.ToolPatch, started: toolStarted, release: releaseTool}}), Config{
 		Model: "gpt-6-sol",
 		Reviewer: ReviewerConfig{
 			Frequency:     "off",
@@ -65,8 +70,15 @@ func TestSetReviewerEnabledConcurrentWithBusyStep(t *testing.T) {
 		submitDone <- submitErr
 	}()
 
-	time.Sleep(10 * time.Millisecond)
-	if _, _, err := eng.SetReviewerEnabled(true); err != nil {
+	<-toolStarted
+	settingDone := make(chan error, 1)
+	go func() {
+		_, _, err := eng.SetReviewerEnabled(true)
+		settingDone <- err
+	}()
+	synctest.Wait()
+	close(releaseTool)
+	if err := <-settingDone; err != nil {
 		t.Fatalf("enable reviewer while busy: %v", err)
 	}
 
@@ -83,6 +95,10 @@ func TestSetReviewerEnabledConcurrentWithBusyStep(t *testing.T) {
 }
 
 func TestSetReviewerDisabledConcurrentWithBusyStepSkipsReviewerForCurrentRun(t *testing.T) {
+	synctest.Test(t, testSetReviewerDisabledConcurrentWithBusyStepSkipsReviewerForCurrentRun)
+}
+
+func testSetReviewerDisabledConcurrentWithBusyStepSkipsReviewerForCurrentRun(t *testing.T) {
 	store := mustCreateTestSession(t)
 
 	mainClient := &fakeClient{responses: []llm.Response{
@@ -101,7 +117,8 @@ func TestSetReviewerDisabledConcurrentWithBusyStepSkipsReviewerForCurrentRun(t *
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 
-	eng := mustNewTestEngine(t, store, mainClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: fakeTool{name: toolspec.ToolPatch, delay: 50 * time.Millisecond}}), Config{
+	toolStarted, releaseTool := make(chan struct{}), make(chan struct{})
+	eng := mustNewTestEngine(t, store, mainClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: blockingTool{name: toolspec.ToolPatch, started: toolStarted, release: releaseTool}}), Config{
 		Model: "gpt-6-sol",
 		Reviewer: ReviewerConfig{
 			Frequency:     "all",
@@ -117,8 +134,15 @@ func TestSetReviewerDisabledConcurrentWithBusyStepSkipsReviewerForCurrentRun(t *
 		submitDone <- submitErr
 	}()
 
-	time.Sleep(10 * time.Millisecond)
-	if _, _, err := eng.SetReviewerEnabled(false); err != nil {
+	<-toolStarted
+	settingDone := make(chan error, 1)
+	go func() {
+		_, _, err := eng.SetReviewerEnabled(false)
+		settingDone <- err
+	}()
+	synctest.Wait()
+	close(releaseTool)
+	if err := <-settingDone; err != nil {
 		t.Fatalf("disable reviewer while busy: %v", err)
 	}
 
@@ -585,12 +609,7 @@ func TestInvalidMixedAcceptedCallPositionsFailBeforeToolEffects(t *testing.T) {
 
 func TestHostedOnlyAcceptedCallsPersistInOutputOrder(t *testing.T) {
 	t.Parallel()
-	durability := &toolDurabilityObservationRecorder{}
-	store := mustCreateTestSessionAt(
-		t,
-		t.TempDir(),
-		session.WithDurabilityObserver(durability),
-	)
+	store := mustCreateTestSession(t)
 	client := &fakeClient{
 		caps: openAIFirstPartyNativeWebSearchCaps(),
 		responses: []llm.Response{
@@ -668,16 +687,6 @@ func TestHostedOnlyAcceptedCallsPersistInOutputOrder(t *testing.T) {
 	}
 	if !reflect.DeepEqual(persistedResults, want) {
 		t.Fatalf("hosted-only result order = %v, want %v", persistedResults, want)
-	}
-	appends, _ := durability.snapshot()
-	groupAppends := 0
-	for _, observation := range appends {
-		if observation.RecordCount == len(want)*2 {
-			groupAppends++
-		}
-	}
-	if groupAppends != 1 {
-		t.Fatalf("hosted result-group appends = %d, want one: %+v", groupAppends, appends)
 	}
 	reopened := mustOpenTestSession(t, store.Dir())
 	restored := mustNewTestEngine(

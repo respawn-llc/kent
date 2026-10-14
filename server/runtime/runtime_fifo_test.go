@@ -7,9 +7,8 @@ import (
 	"slices"
 	"sync"
 	"testing"
-	"time"
+	"testing/synctest"
 
-	"core/internal/testharness/testsetup"
 	"core/server/llm"
 	"core/server/session"
 	"core/server/session/sessiontest"
@@ -20,25 +19,11 @@ import (
 	"core/shared/toolspec"
 )
 
-func waitForAcceptedRuntimeOperationCount(t *testing.T, engine *Engine, want int) {
-	t.Helper()
-	deadline := time.Now().Add(runtimeTestSynchronizationTimeout)
-	for time.Now().Before(deadline) {
-		engine.runtimeFIFO.mu.Lock()
-		got := engine.runtimeFIFO.pendingCount
-		engine.runtimeFIFO.mu.Unlock()
-		if got == want {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
-	engine.runtimeFIFO.mu.Lock()
-	got := engine.runtimeFIFO.pendingCount
-	engine.runtimeFIFO.mu.Unlock()
-	t.Fatalf("accepted Runtime operation count = %d, want %d", got, want)
+func TestRuntimeOperationFIFOCompletesTypedOperationsInAcceptanceOrder(t *testing.T) {
+	synctest.Test(t, testRuntimeOperationFIFOCompletesTypedOperationsInAcceptanceOrder)
 }
 
-func TestRuntimeOperationFIFOCompletesTypedOperationsInAcceptanceOrder(t *testing.T) {
+func testRuntimeOperationFIFOCompletesTypedOperationsInAcceptanceOrder(t *testing.T) {
 	fifo := newRuntimeOperationFIFO()
 	t.Cleanup(fifo.Close)
 
@@ -49,21 +34,18 @@ func TestRuntimeOperationFIFOCompletesTypedOperationsInAcceptanceOrder(t *testin
 		<-releaseFirst
 		return 41, nil
 	})
-	select {
-	case <-firstStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for first Runtime operation")
-	}
+	<-firstStarted
 
 	secondStarted := make(chan struct{})
 	second := submitRuntimeOperation(fifo, func(context.Context) (string, error) {
 		close(secondStarted)
 		return "second", nil
 	})
+	synctest.Wait()
 	select {
 	case <-secondStarted:
 		t.Fatal("second Runtime operation started before the first completed")
-	case <-time.After(25 * time.Millisecond):
+	default:
 	}
 
 	close(releaseFirst)
@@ -78,6 +60,10 @@ func TestRuntimeOperationFIFOCompletesTypedOperationsInAcceptanceOrder(t *testin
 }
 
 func TestRuntimeOperationFIFODefersAcceptedOperationsUntilTheProtectedStepBoundary(t *testing.T) {
+	synctest.Test(t, testRuntimeOperationFIFODefersAcceptedOperationsUntilTheProtectedStepBoundary)
+}
+
+func testRuntimeOperationFIFODefersAcceptedOperationsUntilTheProtectedStepBoundary(t *testing.T) {
 	fifo := newRuntimeOperationFIFO()
 	t.Cleanup(fifo.Close)
 	if err := fifo.Pause(t.Context()); err != nil {
@@ -89,10 +75,11 @@ func TestRuntimeOperationFIFODefersAcceptedOperationsUntilTheProtectedStepBounda
 		close(started)
 		return "applied", nil
 	})
+	synctest.Wait()
 	select {
 	case <-started:
 		t.Fatal("Runtime operation applied during a protected Agent Step")
-	case <-time.After(25 * time.Millisecond):
+	default:
 	}
 
 	if err := fifo.Drain(t.Context()); err != nil {
@@ -127,11 +114,7 @@ func TestAgentStepBoundaryDrainsEveryAcceptedSteerBeforeNextRequest(t *testing.T
 		_, err := engine.SubmitUserMessage(t.Context(), "start")
 		runDone <- err
 	}()
-	select {
-	case <-requestStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("initial Agent Step did not start")
-	}
+	<-requestStarted
 
 	texts := []string{"first steer", "second steer", "third steer"}
 	expectedMessages := make([]string, 0, len(texts))
@@ -151,13 +134,8 @@ func TestAgentStepBoundaryDrainsEveryAcceptedSteerBeforeNextRequest(t *testing.T
 		}()
 	}
 	for range texts {
-		select {
-		case err := <-steerDone:
-			if err != nil {
-				t.Fatalf("accept Agent Steer: %v", err)
-			}
-		case <-time.After(runtimeTestSynchronizationTimeout):
-			t.Fatal("Agent Steer acceptance waited for the Step Boundary")
+		if err := <-steerDone; err != nil {
+			t.Fatalf("accept Agent Steer: %v", err)
 		}
 	}
 	if pending := pendingWorkTestSnapshot(t, engine); len(pending.Items) != len(texts) {
@@ -247,11 +225,7 @@ func TestAgentStepBoundaryDrainsSteersAcceptedWhileFollowingRequestIsPreparing(t
 		_, err := engine.SubmitUserMessage(t.Context(), "start")
 		runDone <- err
 	}()
-	select {
-	case <-requestStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("initial Agent Step did not start")
-	}
+	<-requestStarted
 
 	queueSteer := func(text string, beforeQueue func() error) (<-chan error, string) {
 		t.Helper()
@@ -292,31 +266,14 @@ func TestAgentStepBoundaryDrainsSteersAcceptedWhileFollowingRequestIsPreparing(t
 		t.Fatalf("accept first Agent Steer: %v", err)
 	}
 	releaseInitialRequest()
-	select {
-	case <-block.entered:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for following-request preparation to enter persistence")
-	}
+	<-block.entered
 
 	secondSteerDone, secondSteerMessage := queueSteer("second steer", nil)
-	var secondSteerErr, thirdSteerErr error
-	select {
-	case secondSteerErr = <-secondSteerDone:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for the second Steer to be accepted")
-	}
+	secondSteerErr := <-secondSteerDone
 	thirdSteerDone, thirdSteerMessage := queueSteer("third steer", nil)
-	select {
-	case thirdSteerErr = <-thirdSteerDone:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for the third Steer to be accepted")
-	}
+	thirdSteerErr := <-thirdSteerDone
 	block.release()
-	select {
-	case <-followingRequestStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("following provider request did not start")
-	}
+	<-followingRequestStarted
 
 	client.mu.Lock()
 	requests := append([]llm.Request(nil), client.calls...)
@@ -385,11 +342,7 @@ func TestRuntimeOperationFIFOLongOwnerReentersAtTheCurrentTail(t *testing.T) {
 	if _, err := scheduled.Await(t.Context()); err != nil {
 		t.Fatalf("schedule long owner: %v", err)
 	}
-	select {
-	case <-longOwnerStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for long owner")
-	}
+	<-longOwnerStarted
 
 	later := submitRuntimeOperation(fifo, func(context.Context) (struct{}, error) {
 		record("later")
@@ -443,11 +396,7 @@ func TestWorktreeTransitionRunsBeforeQueuedHumanProviderTurn(t *testing.T) {
 		_, err := engine.SubmitUserMessage(t.Context(), "start")
 		initialDone <- err
 	}()
-	select {
-	case <-toolStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("preceding Agent Step did not reach its held tool")
-	}
+	<-toolStarted
 
 	humanApplying := make(chan struct{})
 	releaseHumanApplication := make(chan struct{})
@@ -466,11 +415,7 @@ func TestWorktreeTransitionRunsBeforeQueuedHumanProviderTurn(t *testing.T) {
 		}
 		humanDone <- err
 	}()
-	select {
-	case <-humanApplying:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("Human input did not enter acceptance during the protected Step")
-	}
+	<-humanApplying
 
 	transitionStarted := make(chan struct{})
 	transitionScheduled := make(chan struct{})
@@ -487,14 +432,10 @@ func TestWorktreeTransitionRunsBeforeQueuedHumanProviderTurn(t *testing.T) {
 	if err := <-humanDone; err != nil {
 		t.Fatalf("accept queued Human input: %v", err)
 	}
-	pendingWorkTestWait(t, transitionScheduled, "Worktree transition scheduling")
+	<-transitionScheduled
 	close(releaseTool)
 
-	select {
-	case <-transitionStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("Worktree transition did not start at the preceding Step Boundary")
-	}
+	<-transitionStarted
 	if got := fakeClientCallCount(client); got != 1 {
 		t.Fatal("queued Human provider turn started while the Worktree transition held eligibility")
 	}
@@ -503,19 +444,20 @@ func TestWorktreeTransitionRunsBeforeQueuedHumanProviderTurn(t *testing.T) {
 	if err := <-transitionDone; err != nil {
 		t.Fatalf("Worktree transition: %v", err)
 	}
-	deadline := time.Now().Add(runtimeTestSynchronizationTimeout)
-	for fakeClientCallCount(client) < 2 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	if got := fakeClientCallCount(client); got != 2 {
-		t.Fatal("queued Human provider turn did not start after the Worktree transition")
-	}
 	if err := <-initialDone; err != nil {
 		t.Fatalf("preceding Agent turn: %v", err)
+	}
+	waitEngineLifecycleTasks(t, engine)
+	if got := fakeClientCallCount(client); got != 2 {
+		t.Fatal("queued Human provider turn did not start after the Worktree transition")
 	}
 }
 
 func TestWorktreeTransitionWaitsForActiveAgentStepBoundary(t *testing.T) {
+	synctest.Test(t, testWorktreeTransitionWaitsForActiveAgentStepBoundary)
+}
+
+func testWorktreeTransitionWaitsForActiveAgentStepBoundary(t *testing.T) {
 	toolCall := llm.ToolCall{
 		ID:    "hold-active-step",
 		Name:  string(toolspec.ToolExecCommand),
@@ -547,11 +489,7 @@ func TestWorktreeTransitionWaitsForActiveAgentStepBoundary(t *testing.T) {
 		_, err := engine.SubmitUserMessage(t.Context(), "start")
 		initialDone <- err
 	}()
-	select {
-	case <-toolStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("active Agent Step did not reach its held tool")
-	}
+	<-toolStarted
 
 	transitionStarted := make(chan struct{})
 	releaseTransition := make(chan struct{})
@@ -563,18 +501,15 @@ func TestWorktreeTransitionWaitsForActiveAgentStepBoundary(t *testing.T) {
 			return nil
 		})
 	}()
+	synctest.Wait()
 	select {
 	case <-transitionStarted:
 		t.Fatal("Worktree transition preempted the active Agent Step")
-	case <-time.After(25 * time.Millisecond):
+	default:
 	}
 
 	close(releaseTool)
-	select {
-	case <-transitionStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("Worktree transition did not receive the next Agent Step Boundary")
-	}
+	<-transitionStarted
 	if got := fakeClientCallCount(client); got != 1 {
 		t.Fatalf("ordinary provider continuation started before Worktree: calls=%d", got)
 	}
@@ -583,15 +518,11 @@ func TestWorktreeTransitionWaitsForActiveAgentStepBoundary(t *testing.T) {
 	if err := <-transitionDone; err != nil {
 		t.Fatalf("Worktree transition: %v", err)
 	}
-	deadline := time.Now().Add(runtimeTestSynchronizationTimeout)
-	for fakeClientCallCount(client) < 2 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
+	if err := <-initialDone; err != nil {
+		t.Fatalf("active Agent turn: %v", err)
 	}
 	if got := fakeClientCallCount(client); got != 2 {
 		t.Fatalf("ordinary provider continuation calls=%d, want 2 after Worktree", got)
-	}
-	if err := <-initialDone; err != nil {
-		t.Fatalf("active Agent turn: %v", err)
 	}
 }
 
@@ -637,11 +568,7 @@ func TestWorktreeTransitionRunsWhileReviewerIsActive(t *testing.T) {
 	if _, err := engine.SubmitUserMessage(t.Context(), "start Reviewer"); err != nil {
 		t.Fatalf("SubmitUserMessage: %v", err)
 	}
-	select {
-	case <-reviewerStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for Reviewer provider request")
-	}
+	<-reviewerStarted
 
 	transitionRan := false
 	err := engine.RunExecutionTargetTransition(t.Context(), nil, func() error {
@@ -682,6 +609,10 @@ func (s *nonOverlappingStepLifecycleSink) StepEnded(context.Context, StepLifecyc
 }
 
 func TestWorktreeTransitionUsesReviewerFollowUpStepAtToolBoundary(t *testing.T) {
+	synctest.Test(t, testWorktreeTransitionUsesReviewerFollowUpStepAtToolBoundary)
+}
+
+func testWorktreeTransitionUsesReviewerFollowUpStepAtToolBoundary(t *testing.T) {
 	toolCall := llm.ToolCall{
 		ID:    "reviewer-follow-up-tool",
 		Name:  string(toolspec.ToolExecCommand),
@@ -735,11 +666,7 @@ func TestWorktreeTransitionUsesReviewerFollowUpStepAtToolBoundary(t *testing.T) 
 	if _, err := engine.SubmitUserMessage(t.Context(), "start Reviewer follow-up"); err != nil {
 		t.Fatalf("SubmitUserMessage: %v", err)
 	}
-	select {
-	case <-toolStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for Reviewer follow-up tool")
-	}
+	<-toolStarted
 	if got := engine.ReviewerActivity(); got != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_ADDRESSING_FEEDBACK {
 		t.Fatalf("Reviewer activity completed before its follow-up tool boundary: %q", got)
 	}
@@ -752,20 +679,16 @@ func TestWorktreeTransitionUsesReviewerFollowUpStepAtToolBoundary(t *testing.T) 
 			return nil
 		})
 	}()
+	synctest.Wait()
 	select {
 	case err := <-transitionDone:
 		t.Fatalf("Worktree transition completed before the Reviewer follow-up tool boundary: %v", err)
-	case <-time.After(25 * time.Millisecond):
+	default:
 	}
 
 	releaseHeldTool()
-	select {
-	case err := <-transitionDone:
-		if err != nil {
-			t.Fatalf("Worktree transition failed at Reviewer follow-up boundary: %v", err)
-		}
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("Worktree transition did not run at Reviewer follow-up boundary")
+	if err := <-transitionDone; err != nil {
+		t.Fatalf("Worktree transition failed at Reviewer follow-up boundary: %v", err)
 	}
 	if !transitionRan {
 		t.Fatal("Worktree transition callback did not run")
@@ -790,6 +713,10 @@ func TestRuntimeOperationFIFOPropagatesTypedFailure(t *testing.T) {
 }
 
 func TestRuntimeOperationFIFOIdleDrainWaitsForAcceptedWork(t *testing.T) {
+	synctest.Test(t, testRuntimeOperationFIFOIdleDrainWaitsForAcceptedWork)
+}
+
+func testRuntimeOperationFIFOIdleDrainWaitsForAcceptedWork(t *testing.T) {
 	fifo := newRuntimeOperationFIFO()
 	t.Cleanup(fifo.Close)
 	started := make(chan struct{})
@@ -799,20 +726,17 @@ func TestRuntimeOperationFIFOIdleDrainWaitsForAcceptedWork(t *testing.T) {
 		<-release
 		return struct{}{}, nil
 	})
-	select {
-	case <-started:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for accepted Runtime operation")
-	}
+	<-started
 
 	drained := make(chan error, 1)
 	go func() {
 		drained <- fifo.Drain(t.Context())
 	}()
+	synctest.Wait()
 	select {
 	case err := <-drained:
 		t.Fatalf("Idle drain completed before accepted work: %v", err)
-	case <-time.After(25 * time.Millisecond):
+	default:
 	}
 	close(release)
 	if err := <-drained; err != nil {
@@ -848,6 +772,10 @@ func TestRuntimeOperationFIFOPauseCutoffDetectsAcceptanceAfterIdleDrain(t *testi
 }
 
 func TestRuntimeOperationFIFOCanceledPauseDoesNotSuspendLaterAcceptedWork(t *testing.T) {
+	synctest.Test(t, testRuntimeOperationFIFOCanceledPauseDoesNotSuspendLaterAcceptedWork)
+}
+
+func testRuntimeOperationFIFOCanceledPauseDoesNotSuspendLaterAcceptedWork(t *testing.T) {
 	fifo := newRuntimeOperationFIFO()
 	t.Cleanup(fifo.Close)
 	firstStarted := make(chan struct{})
@@ -868,11 +796,13 @@ func TestRuntimeOperationFIFOCanceledPauseDoesNotSuspendLaterAcceptedWork(t *tes
 	pauseCtx, cancelPause := context.WithCancel(t.Context())
 	pauseDone := make(chan error, 1)
 	go func() { pauseDone <- fifo.Pause(pauseCtx) }()
-	testsetup.RequireUntil(t, time.Now().Add(runtimeTestSynchronizationTimeout), time.Millisecond, func() bool {
-		fifo.mu.Lock()
-		defer fifo.mu.Unlock()
-		return fifo.pauseDone != nil
-	}, "timed out waiting for Runtime FIFO pause request")
+	synctest.Wait()
+	fifo.mu.Lock()
+	pauseRequested := fifo.pauseDone != nil
+	fifo.mu.Unlock()
+	if !pauseRequested {
+		t.Fatal("Runtime FIFO did not accept the pause request")
+	}
 	cancelPause()
 	if err := <-pauseDone; !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled pause error = %v, want context canceled", err)
@@ -881,11 +811,7 @@ func TestRuntimeOperationFIFOCanceledPauseDoesNotSuspendLaterAcceptedWork(t *tes
 	drained := make(chan error, 1)
 	go func() { drained <- fifo.Drain(t.Context()) }()
 	close(releaseFirst)
-	select {
-	case <-secondStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("accepted Runtime operation remained suspended after pause cancellation")
-	}
+	<-secondStarted
 	if err := <-drained; err != nil {
 		t.Fatalf("drain after pause cancellation: %v", err)
 	}
@@ -899,11 +825,7 @@ func TestRuntimeOperationFIFOCloseCancelsCurrentAndRejectsQueuedAndNewWork(t *te
 		<-ctx.Done()
 		return "current", context.Cause(ctx)
 	})
-	select {
-	case <-currentStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for current Runtime operation")
-	}
+	<-currentStarted
 	queuedStarted := make(chan struct{})
 	queued := submitRuntimeOperation(fifo, func(context.Context) (string, error) {
 		close(queuedStarted)
@@ -915,11 +837,7 @@ func TestRuntimeOperationFIFOCloseCancelsCurrentAndRejectsQueuedAndNewWork(t *te
 		fifo.Close()
 		close(closed)
 	}()
-	select {
-	case <-closed:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("Runtime FIFO close did not join current work")
-	}
+	<-closed
 	currentResult, currentErr := current.Await(t.Context())
 	if currentResult != "current" || !errors.Is(currentErr, context.Canceled) {
 		t.Fatalf("current Runtime result = %q, %v; want current, canceled", currentResult, currentErr)
@@ -956,11 +874,7 @@ func TestRuntimeDeferredCallerCancellationDoesNotCancelAcceptedWork(t *testing.T
 		<-release
 		return "applied", nil
 	})
-	select {
-	case <-started:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for accepted Runtime operation")
-	}
+	<-started
 
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -995,6 +909,10 @@ func TestRuntimeOperationFIFORejectsTheTenThousandthPendingOperation(t *testing.
 }
 
 func TestEngineDefersOrdinaryRuntimeMutationUntilProtectedStepFinishes(t *testing.T) {
+	synctest.Test(t, testEngineDefersOrdinaryRuntimeMutationUntilProtectedStepFinishes)
+}
+
+func testEngineDefersOrdinaryRuntimeMutationUntilProtectedStepFinishes(t *testing.T) {
 	engine := mustNewTestEngine(
 		t,
 		mustCreateTestSession(t),
@@ -1012,20 +930,17 @@ func TestEngineDefersOrdinaryRuntimeMutationUntilProtectedStepFinishes(t *testin
 			return nil
 		})
 	}()
-	select {
-	case <-stepStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for protected Agent Step")
-	}
+	<-stepStarted
 
 	mutationDone := make(chan error, 1)
 	go func() {
 		mutationDone <- engine.AppendCommittedEntry(t.Context(), "system", "after boundary")
 	}()
+	synctest.Wait()
 	select {
 	case err := <-mutationDone:
 		t.Fatalf("ordinary Runtime mutation completed during protected Step: %v", err)
-	case <-time.After(25 * time.Millisecond):
+	default:
 	}
 
 	close(releaseStep)
@@ -1063,23 +978,14 @@ func TestActiveSessionRuntimeFIFOsAreIndependent(t *testing.T) {
 		<-releaseFirst
 		return struct{}{}, nil
 	})
-	select {
-	case <-firstStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for first Session Runtime operation")
-	}
+	<-firstStarted
 
 	secondDone := make(chan error, 1)
 	go func() {
 		secondDone <- second.SetThinkingLevel(t.Context(), "low")
 	}()
-	select {
-	case err := <-secondDone:
-		if err != nil {
-			t.Fatalf("second Session Runtime mutation: %v", err)
-		}
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("first Session Runtime blocked the second Session FIFO")
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second Session Runtime mutation: %v", err)
 	}
 	close(releaseFirst)
 	if _, err := blocked.Await(t.Context()); err != nil {
@@ -1088,6 +994,10 @@ func TestActiveSessionRuntimeFIFOsAreIndependent(t *testing.T) {
 }
 
 func TestEngineAppliesStreamingStateAndItsEventAsOneOrderedMutation(t *testing.T) {
+	synctest.Test(t, testEngineAppliesStreamingStateAndItsEventAsOneOrderedMutation)
+}
+
+func testEngineAppliesStreamingStateAndItsEventAsOneOrderedMutation(t *testing.T) {
 	engine := mustNewTestEngine(
 		t,
 		mustCreateTestSession(t),
@@ -1105,21 +1015,18 @@ func TestEngineAppliesStreamingStateAndItsEventAsOneOrderedMutation(t *testing.T
 			return nil
 		})
 	}()
-	select {
-	case <-stepStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for protected Agent Step")
-	}
+	<-stepStarted
 
 	mutationDone := make(chan struct{})
 	go func() {
 		engine.SetStreamingError("ordered error")
 		close(mutationDone)
 	}()
+	synctest.Wait()
 	select {
 	case <-mutationDone:
 		t.Fatal("streaming mutation completed during protected Step")
-	case <-time.After(25 * time.Millisecond):
+	default:
 	}
 	if got := engine.ChatSnapshot().StreamingError; got != "" {
 		t.Fatalf("streaming error applied before its ordered event: %q", got)
@@ -1129,17 +1036,17 @@ func TestEngineAppliesStreamingStateAndItsEventAsOneOrderedMutation(t *testing.T
 	if err := <-stepDone; err != nil {
 		t.Fatalf("finish protected Agent Step: %v", err)
 	}
-	select {
-	case <-mutationDone:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for streaming mutation")
-	}
+	<-mutationDone
 	if got := engine.ChatSnapshot().StreamingError; got != "ordered error" {
 		t.Fatalf("streaming error = %q, want ordered error", got)
 	}
 }
 
 func TestForegroundShellReleasesRuntimeFIFOAfterScheduling(t *testing.T) {
+	synctest.Test(t, testForegroundShellReleasesRuntimeFIFOAfterScheduling)
+}
+
+func testForegroundShellReleasesRuntimeFIFOAfterScheduling(t *testing.T) {
 	handler := &heldRuntimeShell{
 		started: make(chan struct{}),
 		release: make(chan struct{}),
@@ -1162,43 +1069,31 @@ func TestForegroundShellReleasesRuntimeFIFOAfterScheduling(t *testing.T) {
 		<-releaseFirst
 		return struct{}{}, nil
 	})
-	select {
-	case <-firstStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for preceding Runtime mutation")
-	}
+	<-firstStarted
 
 	shellDone := make(chan error, 1)
 	go func() {
 		_, err := engine.SubmitUserShellCommand(t.Context(), "pwd")
 		shellDone <- err
 	}()
+	synctest.Wait()
 	select {
 	case <-handler.started:
 		t.Fatal("foreground shell started before the preceding Runtime mutation")
-	case <-time.After(25 * time.Millisecond):
+	default:
 	}
 	close(releaseFirst)
 	if _, err := first.Await(t.Context()); err != nil {
 		t.Fatalf("complete preceding Runtime mutation: %v", err)
 	}
-	select {
-	case <-handler.started:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for foreground shell")
-	}
+	<-handler.started
 
 	settingDone := make(chan error, 1)
 	go func() {
 		settingDone <- engine.SetThinkingLevel(t.Context(), "low")
 	}()
-	select {
-	case err := <-settingDone:
-		if err != nil {
-			t.Fatalf("apply setting while shell is held: %v", err)
-		}
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("foreground shell retained the Runtime FIFO head")
+	if err := <-settingDone; err != nil {
+		t.Fatalf("apply setting while shell is held: %v", err)
 	}
 
 	close(handler.release)
@@ -1208,6 +1103,10 @@ func TestForegroundShellReleasesRuntimeFIFOAfterScheduling(t *testing.T) {
 }
 
 func TestForegroundShellTerminalEffectReentersAtTheCurrentRuntimeTail(t *testing.T) {
+	synctest.Test(t, testForegroundShellTerminalEffectReentersAtTheCurrentRuntimeTail)
+}
+
+func testForegroundShellTerminalEffectReentersAtTheCurrentRuntimeTail(t *testing.T) {
 	handler := &heldRuntimeShell{
 		started:  make(chan struct{}),
 		release:  make(chan struct{}),
@@ -1228,11 +1127,7 @@ func TestForegroundShellTerminalEffectReentersAtTheCurrentRuntimeTail(t *testing
 		_, err := engine.SubmitUserShellCommand(t.Context(), "pwd")
 		shellDone <- err
 	}()
-	select {
-	case <-handler.started:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for foreground shell")
-	}
+	<-handler.started
 
 	laterStarted := make(chan struct{})
 	releaseLater := make(chan struct{})
@@ -1241,38 +1136,30 @@ func TestForegroundShellTerminalEffectReentersAtTheCurrentRuntimeTail(t *testing
 		<-releaseLater
 		return struct{}{}, nil
 	})
-	select {
-	case <-laterStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for later Runtime mutation")
-	}
+	<-laterStarted
 	close(handler.release)
-	select {
-	case <-handler.returned:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("foreground shell process did not exit")
-	}
+	<-handler.returned
+	synctest.Wait()
 	select {
 	case err := <-shellDone:
 		t.Fatalf("foreground shell completed before its terminal FIFO effect: %v", err)
-	case <-time.After(25 * time.Millisecond):
+	default:
 	}
 
 	close(releaseLater)
 	if _, err := later.Await(t.Context()); err != nil {
 		t.Fatalf("later Runtime mutation: %v", err)
 	}
-	select {
-	case err := <-shellDone:
-		if err != nil {
-			t.Fatalf("foreground shell: %v", err)
-		}
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("foreground shell terminal FIFO effect did not apply")
+	if err := <-shellDone; err != nil {
+		t.Fatalf("foreground shell: %v", err)
 	}
 }
 
 func TestWorktreeTerminalEffectReentersAtTheCurrentRuntimeTail(t *testing.T) {
+	synctest.Test(t, testWorktreeTerminalEffectReentersAtTheCurrentRuntimeTail)
+}
+
+func testWorktreeTerminalEffectReentersAtTheCurrentRuntimeTail(t *testing.T) {
 	engine := mustNewTestEngine(
 		t,
 		mustCreateTestSession(t),
@@ -1295,11 +1182,7 @@ func TestWorktreeTerminalEffectReentersAtTheCurrentRuntimeTail(t *testing.T) {
 			return err
 		})
 	}()
-	select {
-	case <-transitionStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for Worktree transition")
-	}
+	<-transitionStarted
 
 	laterStarted := make(chan struct{})
 	releaseLater := make(chan struct{})
@@ -1308,29 +1191,21 @@ func TestWorktreeTerminalEffectReentersAtTheCurrentRuntimeTail(t *testing.T) {
 		<-releaseLater
 		return struct{}{}, nil
 	})
-	select {
-	case <-laterStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for later Runtime mutation")
-	}
+	<-laterStarted
 	close(releaseTransition)
+	synctest.Wait()
 	select {
 	case <-terminalApplied:
 		t.Fatal("Worktree terminal effect bypassed the current Runtime tail")
-	case <-time.After(25 * time.Millisecond):
+	default:
 	}
 
 	close(releaseLater)
 	if _, err := later.Await(t.Context()); err != nil {
 		t.Fatalf("later Runtime mutation: %v", err)
 	}
-	select {
-	case err := <-transitionDone:
-		if err != nil {
-			t.Fatalf("Worktree transition: %v", err)
-		}
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("Worktree terminal FIFO effect did not apply")
+	if err := <-transitionDone; err != nil {
+		t.Fatalf("Worktree transition: %v", err)
 	}
 }
 
@@ -1361,19 +1236,10 @@ func TestManualCompactionReleasesRuntimeFIFOAfterScheduling(t *testing.T) {
 	go func() {
 		compactionDone <- engine.CompactContext(t.Context(), "")
 	}()
-	select {
-	case err := <-compactionDone:
-		if err != nil {
-			t.Fatalf("schedule manual compaction: %v", err)
-		}
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("manual compaction request did not return after scheduling")
+	if err := <-compactionDone; err != nil {
+		t.Fatalf("schedule manual compaction: %v", err)
 	}
-	select {
-	case <-client.started:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for manual compaction")
-	}
+	<-client.started
 	if err := engine.SetThinkingLevel(t.Context(), "low"); err != nil {
 		t.Fatalf("apply setting while manual compaction is held: %v", err)
 	}
@@ -1407,11 +1273,7 @@ func TestSteersAcceptedDuringCompactionFullyDrainIntoTheFollowingAgentStep(t *te
 	if err := engine.CompactContext(t.Context(), ""); err != nil {
 		t.Fatalf("schedule manual compaction: %v", err)
 	}
-	select {
-	case <-client.started:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for manual compaction")
-	}
+	<-client.started
 
 	texts := []string{"first steer", "second steer", "third steer"}
 	for _, text := range texts {

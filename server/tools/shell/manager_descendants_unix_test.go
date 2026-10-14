@@ -4,12 +4,11 @@ package shell
 
 import (
 	"context"
-	"errors"
+	"encoding/binary"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -23,7 +22,7 @@ import (
 const (
 	descendantHelperMarker  = "KENT_SHELL_DESCENDANT_HELPER"
 	descendantChildMarker   = "KENT_SHELL_DESCENDANT_CHILD"
-	descendantPIDFileEnv    = "KENT_SHELL_DESCENDANT_PID_FILE"
+	descendantPIDPipeEnv    = "KENT_SHELL_DESCENDANT_PID_PIPE"
 	descendantIgnoreTermEnv = "KENT_SHELL_DESCENDANT_IGNORE_TERM"
 	completedHelperMarker   = "KENT_SHELL_COMPLETED_HELPER"
 	completedGroupMarker    = "KENT_SHELL_COMPLETED_GROUP_HELPER"
@@ -31,9 +30,9 @@ const (
 
 func TestManagerKillTerminatesDescendantsInIndependentProcessGroups(t *testing.T) {
 	manager := newShellTestManager(t, 50*time.Millisecond)
-	pidFile := t.TempDir() + "/descendant.pid"
+	pidPipe := newDescendantPIDPipe(t)
 	t.Setenv(descendantHelperMarker, "1")
-	t.Setenv(descendantPIDFileEnv, pidFile)
+	t.Setenv(descendantPIDPipeEnv, pidPipe)
 
 	executable, err := os.Executable()
 	if err != nil {
@@ -45,6 +44,7 @@ func TestManagerKillTerminatesDescendantsInIndependentProcessGroups(t *testing.T
 		DisplayCommand: "managed descendant test helper",
 		Workdir:        t.TempDir(),
 		YieldTime:      50 * time.Millisecond,
+		KeepStdinOpen:  true,
 	})
 	if err != nil {
 		t.Fatalf("start managed helper: %v", err)
@@ -53,7 +53,7 @@ func TestManagerKillTerminatesDescendantsInIndependentProcessGroups(t *testing.T
 		t.Fatalf("managed helper did not move to background: %+v", result)
 	}
 
-	descendantPID := waitForDescendantPID(t, pidFile)
+	descendantPID := waitForDescendantPID(t, pidPipe)
 	exited := false
 	t.Cleanup(func() {
 		if exited {
@@ -76,9 +76,9 @@ func TestManagerCloseForceKillsIndependentDescendantsAfterGracePeriod(t *testing
 		t.Fatalf("new manager: %v", err)
 	}
 	t.Cleanup(func() { _ = manager.Close() })
-	pidFile := t.TempDir() + "/descendant.pid"
+	pidPipe := newDescendantPIDPipe(t)
 	t.Setenv(descendantHelperMarker, "1")
-	t.Setenv(descendantPIDFileEnv, pidFile)
+	t.Setenv(descendantPIDPipeEnv, pidPipe)
 	t.Setenv(descendantIgnoreTermEnv, "1")
 
 	executable, err := os.Executable()
@@ -91,6 +91,7 @@ func TestManagerCloseForceKillsIndependentDescendantsAfterGracePeriod(t *testing
 		DisplayCommand: "managed descendant test helper",
 		Workdir:        t.TempDir(),
 		YieldTime:      50 * time.Millisecond,
+		KeepStdinOpen:  true,
 	})
 	if err != nil {
 		t.Fatalf("start managed helper: %v", err)
@@ -105,7 +106,7 @@ func TestManagerCloseForceKillsIndependentDescendantsAfterGracePeriod(t *testing
 		t.Fatalf("managed helper did not move to background: %+v", result)
 	}
 
-	descendantPID := waitForDescendantPID(t, pidFile)
+	descendantPID := waitForDescendantPID(t, pidPipe)
 	exited := false
 	t.Cleanup(func() {
 		if exited {
@@ -134,6 +135,7 @@ func TestManagerKillRejectsCompletedRetainedProcess(t *testing.T) {
 		DisplayCommand: "completed managed helper",
 		Workdir:        t.TempDir(),
 		YieldTime:      50 * time.Millisecond,
+		KeepStdinOpen:  true,
 	})
 	if err != nil {
 		t.Fatalf("start completed helper: %v", err)
@@ -141,19 +143,14 @@ func TestManagerKillRejectsCompletedRetainedProcess(t *testing.T) {
 	if !result.MovedToBackground || !result.Running {
 		t.Fatalf("completed helper did not move to background: %+v", result)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		snapshot, snapshotErr := manager.Snapshot(result.SessionID)
-		if snapshotErr != nil {
-			t.Fatalf("snapshot completed helper: %v", snapshotErr)
-		}
-		if !snapshot.Running {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("timed out waiting for completed helper")
-		}
-		time.Sleep(10 * time.Millisecond)
+	completed, err := manager.WriteStdin(context.Background(), WriteRequest{
+		SessionID: result.SessionID, Input: "x", YieldTime: 2 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("release completed helper: %v", err)
+	}
+	if completed.Running {
+		t.Fatal("completed helper did not exit after release")
 	}
 	if err := manager.Kill(result.SessionID); err == nil {
 		t.Fatal("kill accepted a completed retained process")
@@ -162,9 +159,9 @@ func TestManagerKillRejectsCompletedRetainedProcess(t *testing.T) {
 
 func TestManagerCloseTerminatesInheritedProcessGroupAfterRootExit(t *testing.T) {
 	manager := newShellTestManager(t, 50*time.Millisecond)
-	pidFile := t.TempDir() + "/descendant.pid"
+	pidPipe := newDescendantPIDPipe(t)
 	t.Setenv(completedGroupMarker, "1")
-	t.Setenv(descendantPIDFileEnv, pidFile)
+	t.Setenv(descendantPIDPipeEnv, pidPipe)
 
 	executable, err := os.Executable()
 	if err != nil {
@@ -176,6 +173,7 @@ func TestManagerCloseTerminatesInheritedProcessGroupAfterRootExit(t *testing.T) 
 		DisplayCommand: "completed managed process group helper",
 		Workdir:        t.TempDir(),
 		YieldTime:      50 * time.Millisecond,
+		KeepStdinOpen:  true,
 	})
 	if err != nil {
 		t.Fatalf("start managed helper: %v", err)
@@ -184,7 +182,7 @@ func TestManagerCloseTerminatesInheritedProcessGroupAfterRootExit(t *testing.T) 
 		t.Fatalf("managed helper did not move to background: %+v", result)
 	}
 
-	descendantPID := waitForDescendantPID(t, pidFile)
+	descendantPID := waitForDescendantPID(t, pidPipe)
 	exited := false
 	t.Cleanup(func() {
 		if exited {
@@ -193,19 +191,14 @@ func TestManagerCloseTerminatesInheritedProcessGroupAfterRootExit(t *testing.T) 
 		_ = syscall.Kill(descendantPID, syscall.SIGKILL)
 	})
 
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		snapshot, snapshotErr := manager.Snapshot(result.SessionID)
-		if snapshotErr != nil {
-			t.Fatalf("snapshot managed helper: %v", snapshotErr)
-		}
-		if !snapshot.Running {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("timed out waiting for managed helper root to exit")
-		}
-		time.Sleep(10 * time.Millisecond)
+	completed, err := manager.WriteStdin(context.Background(), WriteRequest{
+		SessionID: result.SessionID, Input: "x", YieldTime: 2 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("release managed helper root: %v", err)
+	}
+	if completed.Running {
+		t.Fatal("managed helper root did not exit after release")
 	}
 	if err := syscall.Kill(descendantPID, 0); err != nil {
 		t.Fatalf("inherited-group descendant exited before manager close: %v", err)
@@ -220,24 +213,28 @@ func TestManagerCloseTerminatesInheritedProcessGroupAfterRootExit(t *testing.T) 
 
 func TestManagedProcessDescendantHelper(t *testing.T) {
 	if os.Getenv(descendantChildMarker) == "1" {
+		// A live pipe blocks in the OS without the Go runtime declaring deadlock.
+		reader, writer, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("create descendant lifetime pipe: %v", err)
+		}
+		defer reader.Close()
+		defer writer.Close()
 		if os.Getenv(descendantIgnoreTermEnv) == "1" {
 			signal.Ignore(syscall.SIGTERM, os.Interrupt)
 		}
 		if os.Getenv(completedGroupMarker) == "1" {
 			signal.Ignore(syscall.SIGHUP, syscall.SIGTERM, os.Interrupt)
-			publishDescendantPID(t, os.Getenv(descendantPIDFileEnv), os.Getpid())
-			time.Sleep(30 * time.Second)
-			return
 		}
-		pidFile := os.Getenv(descendantPIDFileEnv)
-		if pidFile == "" {
-			t.Fatal("descendant PID file is required")
+		publishDescendantPID(t, os.Getenv(descendantPIDPipeEnv), os.Getpid())
+		_, err = io.Copy(io.Discard, reader)
+		if err != nil {
+			t.Fatalf("wait for descendant termination: %v", err)
 		}
-		publishDescendantPID(t, pidFile, os.Getpid())
-		select {}
+		return
 	}
 	if os.Getenv(completedHelperMarker) == "1" {
-		time.Sleep(200 * time.Millisecond)
+		waitForDescendantRelease(t)
 		return
 	}
 	if os.Getenv(completedGroupMarker) == "1" {
@@ -250,8 +247,7 @@ func TestManagedProcessDescendantHelper(t *testing.T) {
 		if err := child.Start(); err != nil {
 			t.Fatalf("start inherited-group descendant: %v", err)
 		}
-		waitForDescendantPID(t, os.Getenv(descendantPIDFileEnv))
-		time.Sleep(100 * time.Millisecond)
+		waitForDescendantRelease(t)
 		return
 	}
 	if os.Getenv(descendantHelperMarker) != "1" {
@@ -275,38 +271,51 @@ func TestManagedProcessDescendantHelper(t *testing.T) {
 	}
 }
 
+func waitForDescendantRelease(t *testing.T) {
+	t.Helper()
+	var release [1]byte
+	if _, err := io.ReadFull(os.Stdin, release[:]); err != nil {
+		t.Fatalf("wait for helper release: %v", err)
+	}
+}
+
+func newDescendantPIDPipe(t *testing.T) string {
+	t.Helper()
+	path := t.TempDir() + "/descendant.pid"
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Fatalf("create descendant PID pipe: %v", err)
+	}
+	return path
+}
+
 func publishDescendantPID(t *testing.T, path string, pid int) {
 	t.Helper()
 	if path == "" {
-		t.Fatal("descendant PID file is required")
+		t.Fatal("descendant PID pipe is required")
 	}
-	pendingPIDFile := path + ".pending"
-	if err := os.WriteFile(pendingPIDFile, []byte(strconv.Itoa(pid)), 0o600); err != nil {
-		t.Fatalf("write descendant PID: %v", err)
+	writer, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("open descendant PID pipe for publication: %v", err)
 	}
-	if err := os.Rename(pendingPIDFile, path); err != nil {
+	defer writer.Close()
+	if err := binary.Write(writer, binary.LittleEndian, int32(pid)); err != nil {
 		t.Fatalf("publish descendant PID: %v", err)
 	}
 }
 
 func waitForDescendantPID(t *testing.T, path string) int {
 	t.Helper()
-	// Starting both helper processes is fixture setup, not the shutdown deadline.
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		raw, err := os.ReadFile(path)
-		if err == nil {
-			pid, parseErr := strconv.Atoi(strings.TrimSpace(string(raw)))
-			if parseErr != nil {
-				t.Fatalf("parse descendant PID: %v", parseErr)
-			}
-			return pid
-		}
-		if !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("read descendant PID: %v", err)
-		}
-		time.Sleep(10 * time.Millisecond)
+	reader, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open descendant PID pipe: %v", err)
 	}
-	t.Fatal("timed out waiting for descendant PID")
-	return 0
+	defer reader.Close()
+	var pid int32
+	if err := binary.Read(reader, binary.LittleEndian, &pid); err != nil {
+		t.Fatalf("read descendant PID: %v", err)
+	}
+	if pid <= 0 {
+		t.Fatalf("invalid descendant PID: %d", pid)
+	}
+	return int(pid)
 }

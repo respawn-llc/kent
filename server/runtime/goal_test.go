@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"core/prompts"
 	"core/server/llm"
@@ -380,16 +380,18 @@ func TestGoalPersistenceAndReminderAdmissionHaveTheSameOrder(t *testing.T) {
 		_, err := engine.SetGoal(context.Background(), "first goal", session.GoalActorUser)
 		firstDone <- err
 	}()
-	waitForGoalObjective(t, store, "first goal")
+	if err := <-firstDone; err != nil {
+		t.Fatal(err)
+	}
+	if goal := store.Meta().Goal; goal == nil || goal.Objective != "first goal" {
+		t.Fatalf("first mutation did not persist while feedback was blocked: %+v", goal)
+	}
 
 	secondDone := make(chan error, 1)
 	go func() {
 		_, err := engine.SetGoal(context.Background(), "second goal", session.GoalActorUser)
 		secondDone <- err
 	}()
-	if err := <-firstDone; err != nil {
-		t.Fatal(err)
-	}
 	if err := <-secondDone; err != nil {
 		t.Fatal(err)
 	}
@@ -416,18 +418,6 @@ func TestGoalPersistenceAndReminderAdmissionHaveTheSameOrder(t *testing.T) {
 	}
 	assertGoalStatusEventObjective(t, gotEvents, 0, "first goal")
 	assertGoalStatusEventObjective(t, gotEvents, 2, "second goal")
-}
-
-func waitForGoalObjective(t *testing.T, store *session.Store, objective string) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if goal := store.Meta().Goal; goal != nil && goal.Objective == objective {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for goal objective %q, got %+v", objective, store.Meta().Goal)
 }
 
 func assertGoalStatusEventObjective(t *testing.T, events []Event, start int, objective string) {
@@ -768,7 +758,10 @@ func TestGoalLoopStopsAfterPauseOrClearDuringActiveTurn(t *testing.T) {
 			}
 			client.releaseCall(1)
 			waitGoalLoopRunning(t, engine, false)
-			waitActiveLiveRunGroup(t, engine, false)
+			waitEngineLifecycleTasks(t, engine)
+			if engine.HasActiveLiveRunGroup() {
+				t.Fatal("Goal loop retained its Live Run after stopping")
+			}
 			if got := client.callCount(); got != 1 {
 				t.Fatalf("model calls = %d, want 1", got)
 			}
@@ -777,6 +770,10 @@ func TestGoalLoopStopsAfterPauseOrClearDuringActiveTurn(t *testing.T) {
 }
 
 func TestGoalLoopKeepsLiveRunActiveAcrossAutoContinuingTurns(t *testing.T) {
+	synctest.Test(t, testGoalLoopKeepsLiveRunActiveAcrossAutoContinuingTurns)
+}
+
+func testGoalLoopKeepsLiveRunActiveAcrossAutoContinuingTurns(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	client := newScriptedGoalLoopClient()
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
@@ -792,7 +789,9 @@ func TestGoalLoopKeepsLiveRunActiveAcrossAutoContinuingTurns(t *testing.T) {
 		t.Fatalf("StartGoalLoop: %v", err)
 	}
 	client.waitStarted(t, 1)
-	waitActiveLiveRunGroup(t, engine, true)
+	if !engine.HasActiveLiveRunGroup() {
+		t.Fatal("Goal turn has no active Live Run")
+	}
 
 	waitDone := make(chan error, 1)
 	go func() {
@@ -803,18 +802,17 @@ func TestGoalLoopKeepsLiveRunActiveAcrossAutoContinuingTurns(t *testing.T) {
 	client.releaseCall(1)
 	client.waitStarted(t, 2)
 	assertWaitStillBlocked(t, waitDone)
-	waitActiveLiveRunGroup(t, engine, true)
+	if !engine.HasActiveLiveRunGroup() {
+		t.Fatal("Goal continuation lost its active Live Run")
+	}
 
 	client.releaseCall(2)
 	waitGoalLoopRunning(t, engine, false)
-	waitActiveLiveRunGroup(t, engine, false)
-	select {
-	case err := <-waitDone:
-		if !errors.Is(err, ErrLiveRunNoFinalAnswer) {
-			t.Fatalf("WaitForActiveRunResult error = %v, want %v", err, ErrLiveRunNoFinalAnswer)
-		}
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for live run result")
+	if err := <-waitDone; !errors.Is(err, ErrLiveRunNoFinalAnswer) {
+		t.Fatalf("WaitForActiveRunResult error = %v, want %v", err, ErrLiveRunNoFinalAnswer)
+	}
+	if engine.HasActiveLiveRunGroup() {
+		t.Fatal("completed Goal loop retained its Live Run")
 	}
 }
 
@@ -907,6 +905,10 @@ func TestSuspendedGoalAutoResumesAfterSuccessfulUserTurnOnly(t *testing.T) {
 }
 
 func TestSuspendedGoalStaysSuspendedAfterInterruptedUserTurn(t *testing.T) {
+	synctest.Test(t, testSuspendedGoalStaysSuspendedAfterInterruptedUserTurn)
+}
+
+func testSuspendedGoalStaysSuspendedAfterInterruptedUserTurn(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	client := newScriptedGoalLoopClient()
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
@@ -934,6 +936,10 @@ func TestSuspendedGoalStaysSuspendedAfterInterruptedUserTurn(t *testing.T) {
 }
 
 func TestGoalLoopResumeDuringInterruptedTurnDoesNotLaunchDuplicateLoop(t *testing.T) {
+	synctest.Test(t, testGoalLoopResumeDuringInterruptedTurnDoesNotLaunchDuplicateLoop)
+}
+
+func testGoalLoopResumeDuringInterruptedTurnDoesNotLaunchDuplicateLoop(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	client := newScriptedGoalLoopClient()
 	client.ignoreCancelUntilRelease = true
@@ -977,6 +983,20 @@ func TestGoalResumeWhileInterruptIsPublishingSchedulesRestart(t *testing.T) {
 	client := newScriptedGoalLoopClient()
 	client.ignoreCancelUntilRelease = true
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	publicationStarted, releasePublication := make(chan struct{}), make(chan struct{})
+	var releasePublicationOnce sync.Once
+	releaseInterrupt := func() { releasePublicationOnce.Do(func() { close(releasePublication) }) }
+	defer releaseInterrupt()
+	baseLifecycle := engine.stepLifecycle
+	t.Cleanup(func() {
+		waitEngineLifecycleTasks(t, engine)
+		engine.stepLifecycle = baseLifecycle
+	})
+	engine.stepLifecycle = goalInterruptPublicationGate{
+		exclusiveStepLifecycle: baseLifecycle,
+		started:                publicationStarted,
+		release:                releasePublication,
+	}
 	client.beforeReturn = func(call int) {
 		if call == 2 {
 			mustQueueAgentGoalCompletion(engine)
@@ -990,13 +1010,6 @@ func TestGoalResumeWhileInterruptIsPublishingSchedulesRestart(t *testing.T) {
 	}
 	client.waitStarted(t, 1)
 
-	engine.outputMutationMu.Lock()
-	outputLocked := true
-	defer func() {
-		if outputLocked {
-			engine.outputMutationMu.Unlock()
-		}
-	}()
 	released := map[int]bool{}
 	releaseCall := func(call int) {
 		if released[call] {
@@ -1012,7 +1025,10 @@ func TestGoalResumeWhileInterruptIsPublishingSchedulesRestart(t *testing.T) {
 	go func() {
 		interruptDone <- engine.Interrupt()
 	}()
-	waitGoalLoopContinuationEnforced(t, engine, false)
+	<-publicationStarted
+	if engine.GoalLoopContinuationEnforced() {
+		t.Fatal("Goal continuation remained enforced during interrupt publication")
+	}
 
 	accepted, err := engine.SetGoalStatusAndStartLoop(t.Context(), session.GoalStatusActive, session.GoalActorUser)
 	if err != nil {
@@ -1022,15 +1038,9 @@ func TestGoalResumeWhileInterruptIsPublishingSchedulesRestart(t *testing.T) {
 		t.Fatalf("accepted status = %q, want active", accepted.Status)
 	}
 
-	engine.outputMutationMu.Unlock()
-	outputLocked = false
-	select {
-	case err := <-interruptDone:
-		if err != nil {
-			t.Fatalf("Interrupt: %v", err)
-		}
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for interrupt publication")
+	releaseInterrupt()
+	if err := <-interruptDone; err != nil {
+		t.Fatalf("Interrupt: %v", err)
 	}
 
 	releaseCall(1)
@@ -1047,7 +1057,25 @@ func TestGoalResumeWhileInterruptIsPublishingSchedulesRestart(t *testing.T) {
 	waitGoalLoopRunning(t, engine, false)
 }
 
+type goalInterruptPublicationGate struct {
+	exclusiveStepLifecycle
+	started chan<- struct{}
+	release <-chan struct{}
+}
+
+func (g goalInterruptPublicationGate) InterruptCurrent(beforeCancel func(*RunSnapshot)) (*RunSnapshot, error) {
+	return g.exclusiveStepLifecycle.InterruptCurrent(func(snapshot *RunSnapshot) {
+		beforeCancel(snapshot)
+		close(g.started)
+		<-g.release
+	})
+}
+
 func TestGoalLoopRetriesWhenExclusiveStepIsBusy(t *testing.T) {
+	synctest.Test(t, testGoalLoopRetriesWhenExclusiveStepIsBusy)
+}
+
+func testGoalLoopRetriesWhenExclusiveStepIsBusy(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	client := newScriptedGoalLoopClient()
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
@@ -1071,6 +1099,7 @@ func TestGoalLoopRetriesWhenExclusiveStepIsBusy(t *testing.T) {
 				_, err := engine.SetGoalStatus(t.Context(), session.GoalStatusComplete, session.GoalActorAgent)
 				goalCompletionDone <- err
 			}()
+			synctest.Wait()
 		}
 	}
 	if _, err := engine.SetGoal(context.Background(), "ship goal mode", session.GoalActorUser); err != nil {
@@ -1081,13 +1110,8 @@ func TestGoalLoopRetriesWhenExclusiveStepIsBusy(t *testing.T) {
 	}
 	client.waitStarted(t, 1)
 	client.releaseCall(1)
-	select {
-	case err := <-goalCompletionDone:
-		if err != nil {
-			t.Fatalf("complete Goal after protected Step: %v", err)
-		}
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out completing Goal after protected Step")
+	if err := <-goalCompletionDone; err != nil {
+		t.Fatalf("complete Goal after protected Step: %v", err)
 	}
 	waitGoalLoopRunning(t, engine, false)
 	if attempts < 2 {
@@ -1104,6 +1128,10 @@ func TestGoalLoopRetriesWhenExclusiveStepIsBusy(t *testing.T) {
 }
 
 func TestManualCompactionSubmittedDuringGoalTurnRunsBeforeNextGoalTurn(t *testing.T) {
+	synctest.Test(t, testManualCompactionSubmittedDuringGoalTurnRunsBeforeNextGoalTurn)
+}
+
+func testManualCompactionSubmittedDuringGoalTurnRunsBeforeNextGoalTurn(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	client := newScriptedGoalLoopClient()
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
@@ -1130,7 +1158,7 @@ func TestManualCompactionSubmittedDuringGoalTurnRunsBeforeNextGoalTurn(t *testin
 	compactDone := make(chan error, 2)
 	go func() { compactDone <- engine.CompactContext(context.Background(), "preserve active goal") }()
 	go func() { compactDone <- engine.CompactContext(context.Background(), "duplicate request") }()
-	time.Sleep(75 * time.Millisecond)
+	synctest.Wait()
 	client.releaseCall(1)
 
 	client.waitStarted(t, 2)
@@ -1304,22 +1332,19 @@ func (c *scriptedGoalLoopClient) waitStarted(t *testing.T, call int) {
 	c.mu.Lock()
 	started := c.channelLocked(c.started, call)
 	c.mu.Unlock()
-	select {
-	case <-started:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatalf("timed out waiting for goal loop call %d to start", call)
-	}
+	<-started
 }
 
 func (c *scriptedGoalLoopClient) assertNotStarted(t *testing.T, call int) {
 	t.Helper()
+	synctest.Wait()
 	c.mu.Lock()
 	started := c.channelLocked(c.started, call)
 	c.mu.Unlock()
 	select {
 	case <-started:
 		t.Fatalf("goal loop call %d started before previous interrupted turn finished", call)
-	case <-time.After(50 * time.Millisecond):
+	default:
 	}
 }
 
@@ -1352,63 +1377,22 @@ func (c *scriptedGoalLoopClient) channelLocked(channels map[int]chan struct{}, c
 
 func waitGoalLoopRunning(t *testing.T, engine *Engine, want bool) {
 	t.Helper()
-	deadline := time.After(runtimeTestSynchronizationTimeout)
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		running := engine.goalLoopState().Running()
-		if running == want {
-			return
-		}
-		select {
-		case <-deadline:
-			t.Fatalf("goalLoopRunning = %t, want %t", running, want)
-		case <-ticker.C:
+	if !want {
+		if err := engine.WaitForGoalLoop(t.Context()); err != nil {
+			t.Fatalf("wait for Goal loop: %v", err)
 		}
 	}
-}
-
-func waitGoalLoopContinuationEnforced(t *testing.T, engine *Engine, want bool) {
-	t.Helper()
-	deadline := time.After(runtimeTestSynchronizationTimeout)
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		enforced := engine.GoalLoopContinuationEnforced()
-		if enforced == want {
-			return
-		}
-		select {
-		case <-deadline:
-			t.Fatalf("goalLoopContinuationEnforced = %t, want %t", enforced, want)
-		case <-ticker.C:
-		}
-	}
-}
-
-func waitActiveLiveRunGroup(t *testing.T, engine *Engine, want bool) {
-	t.Helper()
-	deadline := time.After(runtimeTestSynchronizationTimeout)
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		active := engine.HasActiveLiveRunGroup()
-		if active == want {
-			return
-		}
-		select {
-		case <-deadline:
-			t.Fatalf("HasActiveLiveRunGroup = %t, want %t", active, want)
-		case <-ticker.C:
-		}
+	if running := engine.goalLoopState().Running(); running != want {
+		t.Fatalf("goalLoopRunning = %t, want %t", running, want)
 	}
 }
 
 func assertWaitStillBlocked(t *testing.T, waitDone <-chan error) {
 	t.Helper()
+	synctest.Wait()
 	select {
 	case err := <-waitDone:
 		t.Fatalf("live wait completed before auto-continuing goal turn finished: %v", err)
-	case <-time.After(50 * time.Millisecond):
+	default:
 	}
 }

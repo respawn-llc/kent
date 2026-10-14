@@ -642,9 +642,17 @@ func TestFileAccessPolicyCaseAliasUsesFilesystemIdentity(t *testing.T) {
 		Context: filesystemContextForTest(t, workspace),
 		Mode:    FileAccessRead,
 	})
-	outcome := policy.BeginCall().Authorize(context.Background(), variant, resolved)
-	if outcome.Kind != FileAccessAllowed || outcome.Reason != FileAccessReasonTrustedRoot {
-		t.Fatalf("case alias outcome = %+v", outcome)
+	for _, target := range []struct {
+		requested string
+		resolved  string
+	}{
+		{requested: variant, resolved: resolved},
+		{requested: filepath.Join(variant, "new-file.txt"), resolved: filepath.Join(resolved, "new-file.txt")},
+	} {
+		outcome := policy.BeginCall().Authorize(context.Background(), target.requested, target.resolved)
+		if outcome.Kind != FileAccessAllowed || outcome.Reason != FileAccessReasonTrustedRoot {
+			t.Fatalf("case alias outcome = %+v", outcome)
+		}
 	}
 }
 

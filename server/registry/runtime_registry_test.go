@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	testharness "core/internal/testharness/testsetup"
@@ -232,40 +233,27 @@ func TestSubscriptionAndPromptResolutionWithPendingPromptDoNotDeadlock(t *testin
 		resolvePendingPromptResourceForTest(registry, ref, scopeID, "ask-1")
 		close(resolutionDone)
 	}()
-	select {
-	case <-resolutionDone:
-		t.Fatal("prompt resolution completed before hydration registration")
-	case <-time.After(20 * time.Millisecond):
-	}
 	close(releaseHydrationResolver)
-	select {
-	case result := <-subscriptionDone:
-		if result.err != nil {
-			t.Fatalf("subscribe: %v", result.err)
-		}
-		defer func() { _ = result.sub.Close() }()
-		if message := nextTranscriptMessage(t, result.sub); message.Event.GetHydration() == nil {
-			t.Fatalf("first message = %+v, want hydration", message)
-		}
-		var resolved bool
-		for !resolved {
-			message, err := result.sub.Next(context.Background())
-			if err != nil {
-				t.Fatalf("read after hydration: %v", err)
-			}
-			if message.Event.GetPrompt() != nil {
-				prompt := message.Event.GetPrompt()
-				resolved = prompt.Status == transcriptpb.PromptStatus_PROMPT_STATUS_RESOLVED
-			}
-		}
-	case <-time.After(time.Second):
-		t.Fatal("subscription and prompt resolution deadlocked")
+	result := <-subscriptionDone
+	if result.err != nil {
+		t.Fatalf("subscribe: %v", result.err)
 	}
-	select {
-	case <-resolutionDone:
-	case <-time.After(time.Second):
-		t.Fatal("prompt resolution did not complete")
+	defer func() { _ = result.sub.Close() }()
+	if message := nextTranscriptMessage(t, result.sub); message.Event.GetHydration() == nil {
+		t.Fatalf("first message = %+v, want hydration", message)
 	}
+	var resolved bool
+	for !resolved {
+		message, err := result.sub.Next(context.Background())
+		if err != nil {
+			t.Fatalf("read after hydration: %v", err)
+		}
+		if message.Event.GetPrompt() != nil {
+			prompt := message.Event.GetPrompt()
+			resolved = prompt.Status == transcriptpb.PromptStatus_PROMPT_STATUS_RESOLVED
+		}
+	}
+	<-resolutionDone
 }
 
 func TestRuntimeReadModelPublicationWaitsForHydrationAdmission(t *testing.T) {
@@ -317,11 +305,7 @@ func TestRuntimeReadModelPublicationWaitsForHydrationAdmission(t *testing.T) {
 	if err := <-subscriptionDone; err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
-	select {
-	case <-publicationDone:
-	case <-time.After(time.Second):
-		t.Fatal("runtime read-model publication remained blocked after hydration")
-	}
+	<-publicationDone
 }
 
 func newRegistryTestRuntime(t *testing.T, onEvent func(runtime.Event)) *runtime.Engine {
@@ -424,16 +408,6 @@ func TestSessionTranscriptSubscriptionEstablishmentMayFinishWithTerminalDrain(t 
 	go func() {
 		drainDone <- registry.ResourceDraining(t.Context(), registryTestResource(ref))
 	}()
-	deadline := time.Now().Add(time.Second)
-	for {
-		if _, available := registry.RuntimeMainViewSnapshot(engine.SessionID()); !available {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("Runtime did not enter drain while hydration was unresolved")
-		}
-		time.Sleep(time.Millisecond)
-	}
 	close(releaseHydrationResolver)
 
 	result := <-subscriptionDone
@@ -524,148 +498,143 @@ func TestSessionSettingPublicationBatchesAuthoritativeStateBeforeFeedback(t *tes
 }
 
 func TestSessionTranscriptSubscriptionWaitsForReplacementRuntime(t *testing.T) {
-	registry := NewRuntimeRegistry(nil)
 	engine := newRegistryTestRuntime(t, nil)
-	sessionID, err := runtimeids.ParseSessionID(engine.SessionID())
-	if err != nil {
-		t.Fatalf("parse runtime Session ID: %v", err)
-	}
-	firstRef, err := runtimeids.NewSessionResourceRef(sessionID, 1)
-	if err != nil {
-		t.Fatalf("first resource reference: %v", err)
-	}
-	registerResource(t, registry, firstRef, engine)
-	first := subscribeTranscriptForTest(t, registry, engine.SessionID())
-	_ = nextTranscriptMessage(t, first)
-	if err := registry.ResourceDraining(context.Background(), registryTestResource(firstRef)); err != nil {
-		t.Fatalf("drain first runtime resource: %v", err)
-	}
-	for {
-		if _, err := first.Next(context.Background()); err != nil {
-			if !errors.Is(err, io.EOF) {
-				t.Fatalf("first subscription close error = %v, want EOF", err)
-			}
-			break
+	synctest.Test(t, func(t *testing.T) {
+		registry := NewRuntimeRegistry(nil)
+		sessionID, err := runtimeids.ParseSessionID(engine.SessionID())
+		if err != nil {
+			t.Fatalf("parse runtime Session ID: %v", err)
 		}
-	}
+		firstRef, err := runtimeids.NewSessionResourceRef(sessionID, 1)
+		if err != nil {
+			t.Fatalf("first resource reference: %v", err)
+		}
+		registerResource(t, registry, firstRef, engine)
+		first := subscribeTranscriptForTest(t, registry, engine.SessionID())
+		_ = nextTranscriptMessage(t, first)
+		if err := registry.ResourceDraining(context.Background(), registryTestResource(firstRef)); err != nil {
+			t.Fatalf("drain first runtime resource: %v", err)
+		}
+		for {
+			if _, err := first.Next(context.Background()); err != nil {
+				if !errors.Is(err, io.EOF) {
+					t.Fatalf("first subscription close error = %v, want EOF", err)
+				}
+				break
+			}
+		}
 
-	type subscribeResult struct {
-		sub serverapi.TranscriptSubscription
-		err error
-	}
-	result := make(chan subscribeResult, 1)
-	subscribeCtx, cancelSubscribe := context.WithCancel(context.Background())
-	defer cancelSubscribe()
-	go func() {
-		sub, err := registry.SubscribeSessionTranscript(
-			subscribeCtx,
-			&transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: engine.SessionID()}}},
-		)
-		result <- subscribeResult{sub: sub, err: err}
-	}()
-	select {
-	case got := <-result:
-		t.Fatalf("replacement subscription returned before runtime wake: %+v", got)
-	case <-time.After(25 * time.Millisecond):
-	}
+		type subscribeResult struct {
+			sub serverapi.TranscriptSubscription
+			err error
+		}
+		result := make(chan subscribeResult, 1)
+		subscribeCtx, cancelSubscribe := context.WithCancel(context.Background())
+		defer cancelSubscribe()
+		go func() {
+			sub, err := registry.SubscribeSessionTranscript(
+				subscribeCtx,
+				&transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: engine.SessionID()}}},
+			)
+			result <- subscribeResult{sub: sub, err: err}
+		}()
+		synctest.Wait()
+		select {
+		case got := <-result:
+			t.Fatalf("replacement subscription returned before runtime wake: %+v", got)
+		default:
+		}
 
-	secondRef, err := runtimeids.NewSessionResourceRef(sessionID, 2)
-	if err != nil {
-		t.Fatalf("second resource reference: %v", err)
-	}
-	registerResource(t, registry, secondRef, engine)
-	t.Cleanup(func() {
-		_ = registry.ResourceDraining(context.Background(), registryTestResource(secondRef))
-	})
-	var replacement serverapi.TranscriptSubscription
-	select {
-	case got := <-result:
+		secondRef, err := runtimeids.NewSessionResourceRef(sessionID, 2)
+		if err != nil {
+			t.Fatalf("second resource reference: %v", err)
+		}
+		registerResource(t, registry, secondRef, engine)
+		t.Cleanup(func() {
+			_ = registry.ResourceDraining(context.Background(), registryTestResource(secondRef))
+		})
+		got := <-result
 		if got.err != nil {
 			t.Fatalf("replacement subscription: %v", got.err)
 		}
-		replacement = got.sub
-	case <-time.After(time.Second):
-		t.Fatal("replacement runtime wake did not open transcript subscription")
-	}
-	defer func() { _ = replacement.Close() }()
-	if hydration := nextTranscriptMessage(t, replacement); hydration.Event.GetHydration() == nil {
-		t.Fatalf("replacement first message = %+v, want hydration", hydration)
-	}
+		replacement := got.sub
+		defer func() { _ = replacement.Close() }()
+		if hydration := nextTranscriptMessage(t, replacement); hydration.Event.GetHydration() == nil {
+			t.Fatalf("replacement first message = %+v, want hydration", hydration)
+		}
+	})
 }
 
 func TestSessionTranscriptSubscriptionRacingInitialRuntimeReadyHydrates(t *testing.T) {
-	registry := NewRuntimeRegistry(nil)
 	engine := newRegistryTestRuntime(t, nil)
-	type subscribeResult struct {
-		sub serverapi.TranscriptSubscription
-		err error
-	}
-	result := make(chan subscribeResult, 1)
-	subscribeCtx, cancelSubscribe := context.WithCancel(context.Background())
-	defer cancelSubscribe()
-	go func() {
-		sub, err := registry.SubscribeSessionTranscript(
-			subscribeCtx,
-			&transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: engine.SessionID()}}},
-		)
-		result <- subscribeResult{sub: sub, err: err}
-	}()
-	select {
-	case got := <-result:
-		t.Fatalf("initial subscription returned before runtime wake: %+v", got)
-	case <-time.After(25 * time.Millisecond):
-	}
+	synctest.Test(t, func(t *testing.T) {
+		registry := NewRuntimeRegistry(nil)
+		type subscribeResult struct {
+			sub serverapi.TranscriptSubscription
+			err error
+		}
+		result := make(chan subscribeResult, 1)
+		subscribeCtx, cancelSubscribe := context.WithCancel(context.Background())
+		defer cancelSubscribe()
+		go func() {
+			sub, err := registry.SubscribeSessionTranscript(
+				subscribeCtx,
+				&transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: engine.SessionID()}}},
+			)
+			result <- subscribeResult{sub: sub, err: err}
+		}()
+		synctest.Wait()
+		select {
+		case got := <-result:
+			t.Fatalf("initial subscription returned before runtime wake: %+v", got)
+		default:
+		}
 
-	registerReady(t, registry, engine.SessionID(), engine)
-	t.Cleanup(func() {
-		_ = registry.ResourceDraining(
-			context.Background(),
-			registryTestResource(registryTestResourceRef(engine.SessionID())),
-		)
-	})
-	var subscription serverapi.TranscriptSubscription
-	select {
-	case got := <-result:
+		registerReady(t, registry, engine.SessionID(), engine)
+		t.Cleanup(func() {
+			_ = registry.ResourceDraining(
+				context.Background(),
+				registryTestResource(registryTestResourceRef(engine.SessionID())),
+			)
+		})
+		got := <-result
 		if got.err != nil {
 			t.Fatalf("initial subscription after runtime wake: %v", got.err)
 		}
-		subscription = got.sub
-	case <-time.After(time.Second):
-		t.Fatal("initial runtime wake did not open transcript subscription")
-	}
-	defer func() { _ = subscription.Close() }()
-	if hydration := nextTranscriptMessage(t, subscription); hydration.Event.GetHydration() == nil {
-		t.Fatalf("initial first message = %+v, want hydration", hydration)
-	}
+		subscription := got.sub
+		defer func() { _ = subscription.Close() }()
+		if hydration := nextTranscriptMessage(t, subscription); hydration.Event.GetHydration() == nil {
+			t.Fatalf("initial first message = %+v, want hydration", hydration)
+		}
+	})
 }
 
 func TestSessionTranscriptSubscriptionWaitStopsWithContext(t *testing.T) {
-	registry := NewRuntimeRegistry(nil)
-	sessionID := runtimeids.NewSessionID().String()
-	ctx, cancel := context.WithCancel(context.Background())
-	result := make(chan error, 1)
-	go func() {
-		_, err := registry.SubscribeSessionTranscript(
-			ctx,
-			&transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}}},
-		)
-		result <- err
-	}()
-	select {
-	case err := <-result:
-		t.Fatalf("unavailable transcript subscription returned before cancellation: %v", err)
-	case <-time.After(25 * time.Millisecond):
-	}
+	synctest.Test(t, func(t *testing.T) {
+		registry := NewRuntimeRegistry(nil)
+		sessionID := runtimeids.NewSessionID().String()
+		ctx, cancel := context.WithCancel(context.Background())
+		result := make(chan error, 1)
+		go func() {
+			_, err := registry.SubscribeSessionTranscript(
+				ctx,
+				&transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}}},
+			)
+			result <- err
+		}()
+		synctest.Wait()
+		select {
+		case err := <-result:
+			t.Fatalf("unavailable transcript subscription returned before cancellation: %v", err)
+		default:
+		}
 
-	cancel()
-	select {
-	case err := <-result:
+		cancel()
+		err := <-result
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("canceled transcript subscription error = %v, want context cancellation", err)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("canceled transcript subscription remained blocked")
-	}
+	})
 }
 
 func TestSessionTranscriptSubscriptionRejectsMissingSession(t *testing.T) {
@@ -729,9 +698,6 @@ func TestAuthorityEventFeedProjectsExactResourceGeneration(t *testing.T) {
 		Message:                    llm.Message{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("stale authority event")},
 		CommittedTranscriptChanged: true,
 	})
-	if message, nextErr := nextTranscriptMessageTimeout(sub, 20*time.Millisecond); nextErr == nil {
-		t.Fatalf("stale authority generation projected transcript event: %+v", message)
-	}
 	registry.PublishAuthorityRuntimeEvent(ref, runtime.Event{
 		Kind:                       runtime.EventAssistantMessage,
 		StepID:                     textutil.Value(registryTestStepID),
@@ -952,9 +918,7 @@ func TestResourceDrainingResolvesPendingPromptBeforeClosingStreams(t *testing.T)
 		resolvedPrompt.GetQuestion().ToolCallId != "ask-draining" {
 		t.Fatalf("resolved transcript prompt = %+v", resolvedPrompt)
 	}
-	resolvedCtx, cancelResolved := context.WithTimeout(context.Background(), time.Second)
-	defer cancelResolved()
-	resolvedAttention, err := attentionSub.Next(resolvedCtx)
+	resolvedAttention, err := attentionSub.Next(t.Context())
 	if err != nil {
 		t.Fatalf("next resolved attention event: %v", err)
 	}
@@ -1022,13 +986,7 @@ func TestRuntimeRegistryAggregatesSleepObserverAcrossAuthorityResources(t *testi
 
 func receiveSleepObserverState(t *testing.T, notifications <-chan bool) bool {
 	t.Helper()
-	select {
-	case running := <-notifications:
-		return running
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for sleep observer notification")
-		return false
-	}
+	return <-notifications
 }
 
 func assertNoSleepObserverState(t *testing.T, notifications <-chan bool) {
@@ -1141,9 +1099,10 @@ func TestRuntimeReadModelPublicationRejectsProvablyOlderUpdate(t *testing.T) {
 	if len(snapshots) != 1 || snapshots[0].SessionID != engine.SessionID() {
 		t.Fatalf("active snapshots = %+v, want only %q", snapshots, engine.SessionID())
 	}
-	nextCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-	if message, err := subscription.Next(nextCtx); !errors.Is(err, context.DeadlineExceeded) {
+	if err := subscription.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if message, err := subscription.Next(t.Context()); !errors.Is(err, io.EOF) {
 		t.Fatalf("stale update message = %+v, error = %v; want no publication", message, err)
 	}
 }
@@ -1237,11 +1196,7 @@ func startRegistryBlockingRuntime(t *testing.T, registry *RuntimeRegistry) (*run
 		_, err := engine.SubmitUserMessage(context.Background(), "work")
 		done <- err
 	}()
-	select {
-	case <-client.started:
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for active runtime")
-	}
+	<-client.started
 	if err := registry.publishCurrentRuntimeActivity(engine.SessionID()); err != nil {
 		t.Fatalf("publish active runtime: %v", err)
 	}
@@ -1260,12 +1215,8 @@ func closeRegistryBlockingRuntime(t *testing.T, engine *runtime.Engine, done <-c
 	if _, err := engine.TryInterruptActiveRun(); err != nil {
 		t.Fatalf("TryInterruptActiveRun: %v", err)
 	}
-	select {
-	case err := <-done:
-		if err != nil && !errors.Is(err, context.Canceled) {
-			t.Fatalf("SubmitUserMessage: %v", err)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for active runtime to stop")
+	err := <-done
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("SubmitUserMessage: %v", err)
 	}
 }

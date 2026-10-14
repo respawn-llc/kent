@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, expect, it } from "vitest";
 
@@ -12,7 +12,7 @@ import { TaskExecutionTargetFacts } from "./TaskExecutionTargetFacts";
 beforeAll(initializeI18n);
 
 it("collapses read-only Task paths but copies their absolute values", async () => {
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const fixture = await createTaskDetailFixture();
   const home = "/Users/engineer";
   const source = `${home}/project`;
@@ -42,18 +42,29 @@ it("collapses read-only Task paths but copies their absolute values", async () =
 
 it("collapses structured approval targets without changing their values", () => {
   const target = { requestedPath: "/Users/engineer/input", resolvedPath: "/Users/engineer/resolved" };
+  const services = createTestServices([], undefined, { homePath: "/Users/engineer", platform: "macos" });
+  const { result } = renderHook(usePathFormatter, {
+    wrapper: ({ children }) => <TestAppProviders services={services}>{children}</TestAppProviders>,
+  });
+  const formattedPaths: { absolute: string; display: string }[] = [];
+  const formatPath = (absolute: string) => {
+    const display = result.current(absolute);
+    formattedPaths.push({ absolute, display });
+    return display;
+  };
   render(
-    <TestAppProviders
-      services={createTestServices([], undefined, { homePath: "/Users/engineer", platform: "macos" })}
-    >
-      <ApprovalTargets target={target} />
+    <TestAppProviders services={services}>
+      <PromptAccessTargets targets={[target]} formatPath={formatPath} />
     </TestAppProviders>,
   );
-  expect(screen.getByText("- ~/input → ~/resolved")).toBeInTheDocument();
-  expect(target.resolvedPath).toBe("/Users/engineer/resolved");
+  expect(formattedPaths).toEqual(
+    expect.arrayContaining([
+      { absolute: target.requestedPath, display: "~/input" },
+      { absolute: target.resolvedPath, display: "~/resolved" },
+    ]),
+  );
+  expect(target).toEqual({
+    requestedPath: "/Users/engineer/input",
+    resolvedPath: "/Users/engineer/resolved",
+  });
 });
-
-function ApprovalTargets({ target }: Readonly<{ target: { requestedPath: string; resolvedPath: string } }>) {
-  const formatPath = usePathFormatter();
-  return <PromptAccessTargets targets={[target]} formatPath={formatPath} />;
-}

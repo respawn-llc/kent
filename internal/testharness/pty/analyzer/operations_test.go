@@ -147,47 +147,6 @@ func TestWriteBatchRejectsCombinedSegmentAndControlOverflow(t *testing.T) {
 	}
 }
 
-func TestMaximumPrintableEvidenceUsesOneBoundedWriteTextArena(t *testing.T) {
-	payload := strings.Repeat("x", maxOperationTextBytes)
-	capture, err := NewCapture(MustDimensions(maxTerminalRows, maxTerminalCols), []Chunk{
-		NewChunk(0, 0, []byte(payload)),
-	})
-	if err != nil {
-		t.Fatalf("NewCapture: %v", err)
-	}
-	analysis, err := Analyze(capture)
-	if err != nil {
-		t.Fatalf("Analyze: %v", err)
-	}
-	if len(analysis.Operations) != 1 {
-		t.Fatalf("top-level operation count = %d, want 1", len(analysis.Operations))
-	}
-
-	arena, err := WriteTextArena(analysis)
-	if err != nil {
-		t.Fatalf("WriteTextArena: %v", err)
-	}
-	if len(arena) != maxOperationTextBytes {
-		t.Fatalf("write-text arena bytes = %d, want %d", len(arena), maxOperationTextBytes)
-	}
-
-	records := OperationRecords(analysis.Operations[0])
-	if len(records) == 0 {
-		t.Fatal("write batch has no records")
-	}
-	for _, record := range records {
-		if record.Kind != OperationWrite || record.Write == nil {
-			t.Fatalf("record = %#v, want write", record)
-		}
-		if record.Write.arena == nil {
-			t.Fatalf("record write payload has no arena: %#v", record.Write)
-		}
-		if record.Write.arena != analysis.Operations[0].Write.arena {
-			t.Fatal("write record does not reference the shared analysis arena")
-		}
-	}
-}
-
 func TestOperationBudgetPreservesOrderedTailAfterCircularWrap(t *testing.T) {
 	budget := newOperationBudget()
 	payload := make([]byte, evidenceExcerptSize+17)

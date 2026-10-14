@@ -85,7 +85,9 @@ describe("open Inbox attention refresh", () => {
       attentionEventsFixture(services.transport).pendingSessionQuestion();
     });
     expect(toast.getToasts()).toEqual(notices);
-    expect(notify).toHaveBeenCalledOnce();
+    await waitFor(() => {
+      expect(notify).toHaveBeenCalledOnce();
+    });
     expect(screen.queryByTestId("attention-row")).not.toBeInTheDocument();
   });
 });

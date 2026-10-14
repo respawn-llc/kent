@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"testing"
+	"testing/synctest"
 
 	"core/server/llm"
 	"core/server/session"
@@ -12,6 +13,10 @@ import (
 )
 
 func TestProviderCompactionFailurePreservesThinkingBaseline(t *testing.T) {
+	synctest.Test(t, testProviderCompactionFailurePreservesThinkingBaseline)
+}
+
+func testProviderCompactionFailurePreservesThinkingBaseline(t *testing.T) {
 	providerErr := errors.New("compaction provider unavailable")
 	client := &fakeCompactionClient{
 		caps: llm.ProviderCapabilities{

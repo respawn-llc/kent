@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
-	"time"
 
 	"core/server/llm"
 	"core/server/runtime"
@@ -39,7 +38,7 @@ func TestGoalQuestionRemainsInterruptibleAcrossCurrentTurnCompletion(t *testing.
 		t.Fatal(err)
 	}
 	original := nextSteeringExchange(t, client)
-	execution, ok := service.authority.SessionExecution(sessionID)
+	_, ok := service.authority.SessionExecution(sessionID)
 	if !ok {
 		t.Fatal("ordinary model request has no execution")
 	}
@@ -67,33 +66,17 @@ func TestGoalQuestionRemainsInterruptibleAcrossCurrentTurnCompletion(t *testing.
 				return err
 			})
 	}()
-	select {
-	case <-entered:
-	case <-time.After(3 * time.Second):
-		t.Fatal("Goal callback did not enter while ordinary execution was active")
-	}
+	<-entered
 	original.reply <- llm.Response{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done")},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}
 	waitForRuntimeControlIdle(t, engine)
-	// Let completion reach the authority while the next callback is held.
 	// Either retaining this execution or replacing it is valid; the newly
 	// accepted Goal must still own a reachable, interruptible Question.
-	waitCtx, cancelWait := context.WithTimeout(t.Context(), 100*time.Millisecond)
-	_, waitErr := execution.Wait(waitCtx)
-	cancelWait()
-	if waitErr != nil && !errors.Is(waitErr, context.DeadlineExceeded) {
-		t.Fatal(waitErr)
-	}
 	proceed <- struct{}{}
-	select {
-	case err := <-admitted:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("Goal admission did not complete")
+	if err := <-admitted; err != nil {
+		t.Fatal(err)
 	}
 	exchange := nextSteeringExchange(t, client)
 	exchange.reply <- llm.Response{
@@ -104,11 +87,7 @@ func TestGoalQuestionRemainsInterruptibleAcrossCurrentTurnCompletion(t *testing.
 		}},
 		Usage: llm.Usage{WindowTokens: 200000},
 	}
-	select {
-	case <-prompts.pending:
-	case <-time.After(time.Second):
-		t.Fatalf("accepted Goal Question never published after original execution completion (original wait: %v)", waitErr)
-	}
+	<-prompts.pending
 	goalExecution, ok := service.authority.SessionExecution(sessionID)
 	if !ok {
 		t.Fatal("published Goal Question has no interruptible execution")

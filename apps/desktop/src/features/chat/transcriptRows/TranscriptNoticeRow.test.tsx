@@ -11,7 +11,7 @@ import { TranscriptNoticeRow } from "./TranscriptNoticeRow";
 beforeAll(initializeI18n);
 
 it("collapses structured worktree summaries without touching model-visible details", async () => {
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const cwd = "/Users/engineer/.kent/worktrees/project/803";
   const detail = `Model-visible context: ${cwd}`;
   const row = {
@@ -67,7 +67,7 @@ it("collapses structured worktree summaries without touching model-visible detai
 it.each(["runtime_diagnostic", "cache_warning"] as const)(
   "shows %s once and truncates display without truncating Copy",
   async (reason) => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const detail = "x".repeat(650);
     const row = {
       Visibility: "ongoing_collapsed",

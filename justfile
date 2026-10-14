@@ -48,7 +48,7 @@ gen:
 
 # Run active tests, or select server, desktop, docs, tui, or explicit frozen rust.
 test *args:
-    @bash scripts/quiet-on-success.sh --success pass bash scripts/test.sh {{ args }}
+    @bash scripts/test.sh "$@"
 
 # Apply safe lint fixes, or pass --dry-run for read-only validation.
 lint *args:
@@ -96,11 +96,19 @@ _lint-protobuf:
 
 [private]
 _gen-go:
+    python3 scripts/generate-protobuf.py go
+
+[private]
+_generate-go-source:
     GOOS= GOARCH= go tool -modfile=tools.mod buf generate --template buf.gen.go.yaml
     GOOS= GOARCH= go tool -modfile=tools.mod buf build --as-file-descriptor-set --exclude-source-info --output shared/protoapi/gen/kent_api.binpb
 
 [private]
 _gen-typescript:
+    python3 scripts/generate-protobuf.py typescript
+
+[private]
+_generate-typescript-source:
     GOOS= GOARCH= go tool -modfile=tools.mod buf generate --template buf.gen.ts.yaml
 
 [private]
@@ -110,6 +118,10 @@ _gen-metadata:
 [parallel]
 [private]
 _generate: _gen-go _gen-typescript
+
+[private]
+_test-developer-tools:
+    PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p '*_test.py'
 
 [private]
 _node:

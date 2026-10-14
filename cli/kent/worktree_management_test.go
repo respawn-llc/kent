@@ -53,6 +53,7 @@ func newWorktreeCommandFixture(t *testing.T) worktreeCommandFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)
 	authSupport, err := bootstrap.BuildAuthSupport(t.Context(), cfg.PersistenceRoot, auth.NewMemoryStore(auth.EmptyState()), nil, nil)
 	if err != nil {
 		t.Fatal(err)

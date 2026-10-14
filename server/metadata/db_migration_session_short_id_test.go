@@ -12,8 +12,7 @@ import (
 
 func TestSessionShortIDMigrationPreservesUnnumberedSessionOnUse(t *testing.T) {
 	root, workspace := t.TempDir(), t.TempDir()
-	path := filepath.Join(root, "db", "main.sqlite3")
-	db, err := openDatabaseAtVersionForTest(t, root, path, 95)
+	db, err := openDatabaseAtVersionForTest(t, 95)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,14 +34,7 @@ func TestSessionShortIDMigrationPreservesUnnumberedSessionOnUse(t *testing.T) {
 	execSeed(t, db, "session", `INSERT INTO sessions
 		(id, project_id, artifact_relpath, name, input_draft, metadata_json, created_at_unix_ms, updated_at_unix_ms)
 		VALUES (?, 'old-project', ?, 'authored name', 'authored draft', ?, 1000, 1000)`, id.String(), relpath, string(payload))
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err := OpenAtPath(root, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := migrateMetadataTestStore(t, root, db)
 	record, err := store.ResolvePersistedSession(t.Context(), id.String())
 	if err != nil {
 		t.Fatal(err)

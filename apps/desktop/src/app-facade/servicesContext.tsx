@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { MarkdownLinkProvider } from "@/ui";
+import { MarkdownLinkProvider } from "@/ui/markdownLinks";
 
 import { AppServicesContext } from "./appServicesContextValue";
 import { useOpenExternalLink } from "./nativeHooks";

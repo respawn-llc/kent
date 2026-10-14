@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useCurrentWindowChromeTitle } from "@/app-facade";
 import { appI18n } from "@/i18n";
@@ -46,7 +46,7 @@ it.each(["unavailable", "registered_idle"] as const)(
     });
     const editors = await screen.findAllByRole("textbox");
     for (const [index, editor] of editors.entries())
-      await userEvent.setup().type(editor, `independent draft ${index.toString()}`);
+      fireEvent.change(editor, { target: { value: `independent draft ${index.toString()}` } });
     const deliver = async (questions: boolean) => {
       await act(async () => {
         for (const view of views)
@@ -61,13 +61,13 @@ it.each(["unavailable", "registered_idle"] as const)(
     });
     await deliver(false);
     for (const button of screen.getAllByRole("button", { name: appI18n.t("chatSettings.open") })) {
-      await userEvent.setup().hover(button);
+      await userEvent.setup({ delay: null }).hover(button);
       expect(
         within(screen.getByRole("dialog")).getByRole("switch", {
           name: appI18n.t("chatSettings.questions"),
         }),
       ).not.toBeChecked();
-      await userEvent.setup().keyboard("{Escape}");
+      await userEvent.setup({ delay: null }).keyboard("{Escape}");
       await waitFor(() => {
         expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       });

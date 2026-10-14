@@ -3,7 +3,8 @@ import { Pencil } from "lucide-react";
 import { useLayoutEffect, useRef } from "react";
 
 import type { TranscriptRenderItem } from "@/app-facade";
-import { AnimatedSize, IconTooltipButton, Island, StaticMarkdown } from "@/ui";
+import { AnimatedSize, IconTooltipButton, Island } from "@/ui";
+import { StaticMarkdown } from "@/ui/markdown";
 
 import "./messageRows.css";
 import { MessageFooter } from "./MessageFooter";

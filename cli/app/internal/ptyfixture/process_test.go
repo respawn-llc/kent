@@ -11,6 +11,7 @@ import (
 
 	"core/internal/testharness/pty"
 	"core/internal/testharness/pty/appfixture"
+	"core/internal/testharness/testsetup"
 )
 
 type ptyFixtureBinaryBuild struct {
@@ -113,6 +114,7 @@ func ptyFixtureProcessEnv(
 	observationPath string,
 ) string {
 	t.Helper()
+	testsetup.PrepareMetadataPersistenceRoot(t, persistenceRoot)
 	configPath := filepath.Join(root, "process.json")
 	if err := appfixture.WriteProcessConfig(configPath, appfixture.ProcessConfig{
 		WorkspaceRoot:   workspaceRoot,

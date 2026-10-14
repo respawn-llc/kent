@@ -4,11 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"core/internal/testharness/postprocessfixture"
 	"core/server/llm"
@@ -23,22 +29,28 @@ import (
 	"core/shared/transcript"
 )
 
-type delayedGenerateClient struct {
+type backgroundCompletionGatedClient struct {
 	*fakeClient
-	delay time.Duration
+	pollStarted chan struct{}
+	completed   <-chan struct{}
 }
 
-func (c *delayedGenerateClient) Generate(ctx context.Context, req llm.Request, callbacks llm.StreamCallbacks) (llm.Response, error) {
+func (c *backgroundCompletionGatedClient) Generate(ctx context.Context, req llm.Request, callbacks llm.StreamCallbacks) (llm.Response, error) {
 	c.mu.Lock()
 	callCount := len(c.calls)
 	c.mu.Unlock()
 	if callCount == 1 {
-		time.Sleep(c.delay)
+		close(c.pollStarted)
+		select {
+		case <-c.completed:
+		case <-ctx.Done():
+			return llm.Response{}, ctx.Err()
+		}
 	}
 	return c.fakeClient.Generate(ctx, req, callbacks)
 }
 
-func forwardBackgroundEvents(t *testing.T, manager *shelltool.Manager, eng *Engine, ownerSessionID string) {
+func forwardBackgroundEvents(t *testing.T, manager *shelltool.Manager, eng *Engine, ownerSessionID string, completed chan<- struct{}) {
 	t.Helper()
 	manager.SetEventHandler(func(evt shelltool.Event) bool {
 		summary, err := shelltool.SummarizeBackgroundEvent(evt, shelltool.BackgroundNoticeOptions{MaxChars: 16_000, SuccessOutputMode: shelltool.BackgroundOutputDefault})
@@ -58,6 +70,9 @@ func forwardBackgroundEvents(t *testing.T, manager *shelltool.Manager, eng *Engi
 			Preview: preview, PreviewRemoved: previewRemoved, ExitCode: exitCode,
 			NoticeSuppressed: evt.NoticeSuppressed,
 		}, strings.TrimSpace(evt.Snapshot.OwnerSessionID) == ownerSessionID && !evt.NoticeSuppressed)
+		if evt.Type == shelltool.EventCompleted {
+			close(completed)
+		}
 		return true
 	})
 }
@@ -174,7 +189,7 @@ func TestMultipleBackgroundShellNoticesFlushTogetherOnFirstAvailableSlot(t *test
 		t.Fatalf("expected both background notices in the same in-turn follow-up, messages=%+v", requestMessages(requests[1]))
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	waitEngineLifecycleTasks(t, eng)
 	client.mu.Lock()
 	callCountAfterReturn := len(client.calls)
 	client.mu.Unlock()
@@ -206,6 +221,18 @@ func TestMultipleBackgroundShellNoticesFlushTogetherOnFirstAvailableSlot(t *test
 
 func TestCompletedWriteStdinGuardConsumesPendingBackgroundNotice(t *testing.T) {
 	store := mustCreateTestSession(t)
+	fifoPath := filepath.Join(t.TempDir(), "release-command")
+	if err := unix.Mkfifo(fifoPath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commandInput, err := json.Marshal(map[string]any{
+		"cmd":   fmt.Sprintf("read -r _ < %q; printf '12345678901234567890123456789012345678901234567890123456789012345678901234567890'", fifoPath),
+		"shell": "/bin/sh", "login": false, "tty": true, "yield_time_ms": 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed := make(chan struct{})
 	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(time.Millisecond))
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
@@ -214,13 +241,13 @@ func TestCompletedWriteStdinGuardConsumesPendingBackgroundNotice(t *testing.T) {
 		_ = manager.Close()
 	}()
 
-	client := &delayedGenerateClient{fakeClient: &fakeClient{responses: []llm.Response{
+	client := &backgroundCompletionGatedClient{fakeClient: &fakeClient{responses: []llm.Response{
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("start background"), Phase: textutil.Value(llm.MessagePhaseCommentary)},
 			ToolCalls: []llm.ToolCall{{
 				ID:    "call_exec_1",
 				Name:  string(toolspec.ToolExecCommand),
-				Input: json.RawMessage(`{"cmd":"sleep 0.1; printf '12345678901234567890123456789012345678901234567890123456789012345678901234567890'","shell":"/bin/sh","login":false,"tty":true,"yield_time_ms":1}`),
+				Input: commandInput,
 			}},
 			Usage: llm.Usage{WindowTokens: 200000},
 		},
@@ -237,17 +264,32 @@ func TestCompletedWriteStdinGuardConsumesPendingBackgroundNotice(t *testing.T) {
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
 			Usage:     llm.Usage{WindowTokens: 200000},
 		},
-	}}, delay: 300 * time.Millisecond}
+	}}, pollStarted: make(chan struct{}), completed: completed}
 	registry := newTestToolRegistry(t,
 		tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: shelltool.NewExecCommandToolWithPostprocessor(store.Meta().WorkspaceRoot, 16_000, 40, manager, store.Meta().SessionID, postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))},
 		tools.HandlerRegistration{ID: toolspec.ToolWriteStdin, Handler: shelltool.NewWriteStdinTool(16_000, 40, manager, nil)},
 	)
 	eng := mustNewTestEngine(t, store, client, registry, Config{Model: "gpt-6-sol"})
-	forwardBackgroundEvents(t, manager, eng, store.Meta().SessionID)
+	forwardBackgroundEvents(t, manager, eng, store.Meta().SessionID, completed)
+	released := make(chan error, 1)
+	go func() {
+		<-client.pollStarted
+		fifo, openErr := os.OpenFile(fifoPath, os.O_WRONLY, 0)
+		if openErr != nil {
+			released <- openErr
+			return
+		}
+		_, writeErr := fifo.WriteString("complete\n")
+		closeErr := fifo.Close()
+		released <- errors.Join(writeErr, closeErr)
+	}()
 
 	assistant, err := eng.SubmitUserMessage(context.Background(), "run and poll")
 	if err != nil {
 		t.Fatalf("submit user message: %v", err)
+	}
+	if err := <-released; err != nil {
+		t.Fatalf("release background command: %v", err)
 	}
 	if messageContent(assistant) != "done" {
 		t.Fatalf("assistant content = %q, want done", messageContent(assistant))
@@ -363,6 +405,10 @@ func TestSubmitUserShellCommandReturnsUnknownToolErrorWhenShellNotRegistered(t *
 }
 
 func TestParallelToolsReturnDeclaredOrder(t *testing.T) {
+	synctest.Test(t, testParallelToolsReturnDeclaredOrder)
+}
+
+func testParallelToolsReturnDeclaredOrder(t *testing.T) {
 	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{
@@ -430,6 +476,10 @@ func TestParallelToolsReturnDeclaredOrder(t *testing.T) {
 }
 
 func TestParallelToolCompletionsStayPendingUntilResultGroupClose(t *testing.T) {
+	synctest.Test(t, testParallelToolCompletionsStayPendingUntilResultGroupClose)
+}
+
+func testParallelToolCompletionsStayPendingUntilResultGroupClose(t *testing.T) {
 	store := mustCreateTestSession(t)
 	watchdog, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
@@ -460,7 +510,7 @@ func TestParallelToolCompletionsStayPendingUntilResultGroupClose(t *testing.T) {
 	toolCompleted := make(chan tools.Result, 4)
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t,
 		tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: slow},
-		tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: fakeTool{name: toolspec.ToolPatch, delay: 1 * time.Millisecond}},
+		tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: fakeTool{name: toolspec.ToolPatch}},
 	), Config{
 		Model:       "gpt-6-sol",
 		Temperature: 1,
@@ -489,12 +539,13 @@ func TestParallelToolCompletionsStayPendingUntilResultGroupClose(t *testing.T) {
 		t.Fatalf("timed out waiting for slow tool to start: %v", watchdog.Err())
 	}
 
+	synctest.Wait()
 	select {
 	case completed := <-toolCompleted:
 		t.Fatalf("tool completion published before result group close: %+v", completed)
 	case submitErr := <-submitDone:
 		t.Fatalf("submit completed before slow tool release: %v", submitErr)
-	case <-time.After(100 * time.Millisecond):
+	default:
 	}
 
 	snapshot := eng.ChatSnapshot()

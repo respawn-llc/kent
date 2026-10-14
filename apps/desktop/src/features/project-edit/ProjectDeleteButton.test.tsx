@@ -29,7 +29,7 @@ it.each([
     push,
     navigator,
   });
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const view = render(
     <RegistryProvider>
       <AppServicesProvider services={services}>

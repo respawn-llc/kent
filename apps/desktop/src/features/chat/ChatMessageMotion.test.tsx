@@ -1,9 +1,23 @@
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import { hydration, target, transcriptPage } from "@/test-support/chat-runtime";
 import { catalog, opening, sessionWithPrompts } from "@/test-support/chat-destination";
 import { installAnimatedHeightGeometry } from "@/test-support/resize-observer";
 import { row } from "@/test-support/transcript-window";
+
+// Motion captures requestAnimationFrame when its module loads.
+vi.hoisted(() => {
+  vi.useFakeTimers();
+});
+
+afterAll(() => {
+  vi.useRealTimers();
+});
+
+async function advanceTime(duration: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(duration);
+  });
+}
 
 it.each([
   ["new-chat", false],
@@ -43,22 +57,19 @@ it.each([
       false,
     );
     try {
-      const editor = await screen.findByRole("textbox");
+      await advanceTime(32);
+      const editor = screen.getByRole("textbox");
       vi.spyOn(editor, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 320, 80));
       if (kind === "existing-session") {
-        await waitFor(() => {
-          expect(view.handlers).toHaveLength(1);
-        });
+        expect(view.handlers).toHaveLength(1);
         await act(async () => {
           view.handlers[0]?.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
         });
       }
-      const user = userEvent.setup();
-      await user.type(editor, "First message");
-      await user.keyboard("{Enter}");
-      await waitFor(() => {
-        expect(view.handlers).toHaveLength(1);
-      });
+      fireEvent.change(editor, { target: { value: "First message" } });
+      fireEvent.keyDown(editor, { key: "Enter", code: "Enter" });
+      await advanceTime(32);
+      expect(view.handlers).toHaveLength(1);
       await act(async () => {
         if (committed === null) throw new Error("Input was not committed.");
         if (kind === "existing-session") {
@@ -78,20 +89,14 @@ it.each([
           },
         });
       });
-      const list = await screen.findByRole("list");
+      const list = screen.getByRole("list");
       const text = within(list).getByText("First message");
       // Text reappears inside the ordinary expanding bubble, not a clipped copy.
-      await waitFor(
-        () => {
-          expect(text).not.toBeVisible();
-        },
-        { interval: 1 },
-      );
+      expect(text).not.toBeVisible();
       expect(screen.getAllByText("First message")).toHaveLength(2);
       if (interrupt) fireEvent.wheel(list, { deltaY: -100 });
-      await waitFor(() => {
-        expect(text).toBeVisible();
-      });
+      await advanceTime(380);
+      expect(text).toBeVisible();
       expect(screen.getByRole("textbox")).toHaveValue("");
     } finally {
       view.unmount();

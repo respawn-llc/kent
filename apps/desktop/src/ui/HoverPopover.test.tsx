@@ -1,8 +1,21 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { HoverPopover } from "./HoverPopover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./radix/tooltip";
+
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+async function advanceTime(duration: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(duration);
+  });
+}
 
 it("opens on hover, keeps interactive content open on click, and closes on leaving", async () => {
   function Example() {
@@ -17,13 +30,12 @@ it("opens on hover, keeps interactive content open on click, and closes on leavi
       </HoverPopover>
     );
   }
-  const user = userEvent.setup({ skipHover: true });
   render(<Example />);
   const trigger = screen.getByRole("button", { name: "Trigger" });
   trigger.focus();
   expect(screen.queryByRole("button", { name: "Popup action" })).not.toBeInTheDocument();
-  await user.hover(trigger);
-  const action = await screen.findByRole("button", { name: "Popup action" });
+  fireEvent.mouseEnter(trigger);
+  const action = screen.getByRole("button", { name: "Popup action" });
   const popup = screen.getByRole("dialog");
   const referenceBounds = vi
     .spyOn(trigger, "getBoundingClientRect")
@@ -35,18 +47,16 @@ it("opens on hover, keeps interactive content open on click, and closes on leavi
   fireEvent.mouseMove(document, { clientX: 151, clientY: 144 });
   expect(action).toBeInTheDocument();
   fireEvent.mouseEnter(action);
-  await user.click(action);
+  fireEvent.click(action);
   expect(action).toBeInTheDocument();
   fireEvent.mouseLeave(document.documentElement);
-  await waitFor(() => {
-    expect(action).not.toBeInTheDocument();
-  });
+  await advanceTime(250);
+  expect(action).not.toBeInTheDocument();
   referenceBounds.mockRestore();
   popupBounds.mockRestore();
 });
 
-it("opens tooltips from hover but not keyboard focus", async () => {
-  const user = userEvent.setup();
+it("opens tooltips from hover but not keyboard focus", () => {
   render(
     <TooltipProvider>
       <Tooltip>
@@ -56,11 +66,13 @@ it("opens tooltips from hover but not keyboard focus", async () => {
     </TooltipProvider>,
   );
   const trigger = screen.getByRole("button");
-  await user.tab();
+  act(() => {
+    trigger.focus();
+  });
   expect(trigger).toHaveFocus();
   expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
-  await user.hover(trigger);
-  expect(await screen.findByRole("tooltip")).toBeInTheDocument();
+  fireEvent.mouseEnter(trigger);
+  expect(screen.getByRole("tooltip")).toBeInTheDocument();
 });
 
 it("keeps the parent popup open through a nested portalled tooltip and closes after leaving both", async () => {
@@ -83,18 +95,17 @@ it("keeps the parent popup open through a nested portalled tooltip and closes af
       </HoverPopover>
     );
   }
-  const user = userEvent.setup();
   render(<Example />);
   const trigger = screen.getByRole("button", { name: "Settings" });
-  await user.hover(trigger);
-  const popup = await screen.findByRole("dialog");
+  fireEvent.mouseEnter(trigger);
+  const popup = screen.getByRole("dialog");
   vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue(new DOMRect(100, 100, 100, 40));
   vi.spyOn(popup, "getBoundingClientRect").mockReturnValue(new DOMRect(100, 148, 320, 200));
   fireEvent.mouseLeave(trigger, { clientX: 150, clientY: 140 });
   fireEvent.mouseMove(popup, { clientX: 200, clientY: 180 });
   const nestedTrigger = screen.getByRole("button", { name: "Session ID" });
   fireEvent.mouseEnter(nestedTrigger, { clientX: 400, clientY: 160 });
-  const tooltip = await screen.findByRole("tooltip");
+  const tooltip = screen.getByRole("tooltip");
   vi.spyOn(nestedTrigger, "getBoundingClientRect").mockReturnValue(new DOMRect(380, 148, 40, 28));
   vi.spyOn(tooltip, "getBoundingClientRect").mockReturnValue(new DOMRect(350, 100, 100, 40));
   expect(popup.contains(tooltip)).toBe(false);
@@ -103,17 +114,14 @@ it("keeps the parent popup open through a nested portalled tooltip and closes af
   fireEvent.mouseMove(document, { clientX: 400, clientY: 144 });
   fireEvent.mouseEnter(tooltip, { clientX: 400, clientY: 138 });
   fireEvent.mouseMove(tooltip, { clientX: 400, clientY: 120 });
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  });
+  await advanceTime(250);
   expect(popup).toBeInTheDocument();
   expect(tooltip).toBeInTheDocument();
   fireEvent.mouseLeave(tooltip, { clientX: 450, clientY: 120 });
   fireEvent.mouseMove(document, { clientX: 600, clientY: 450 });
-  await waitFor(() => {
-    expect(popup).not.toBeInTheDocument();
-    expect(tooltip).not.toBeInTheDocument();
-  });
+  await advanceTime(250);
+  expect(popup).not.toBeInTheDocument();
+  expect(tooltip).not.toBeInTheDocument();
 });
 
 it("keeps slow leftward movement inside the context popup safe area open", async () => {
@@ -131,18 +139,16 @@ it("keeps slow leftward movement inside the context popup safe area open", async
       </HoverPopover>
     );
   }
-  const user = userEvent.setup();
   render(<Example />);
   const trigger = screen.getByRole("button", { name: "Context" });
-  await user.hover(trigger);
-  const popup = await screen.findByRole("dialog");
+  fireEvent.mouseEnter(trigger);
+  const popup = screen.getByRole("dialog");
   const referenceBounds = vi
     .spyOn(trigger, "getBoundingClientRect")
     .mockReturnValue(new DOMRect(400, 400, 60, 28));
   const popupBounds = vi
     .spyOn(popup, "getBoundingClientRect")
     .mockReturnValue(new DOMRect(140, 180, 320, 212));
-  vi.useFakeTimers();
   try {
     fireEvent.mouseLeave(trigger, { clientX: 400, clientY: 410 });
     fireEvent.mouseMove(document, { clientX: 350, clientY: 403 });
@@ -161,7 +167,6 @@ it("keeps slow leftward movement inside the context popup safe area open", async
     });
     expect(popup).not.toBeInTheDocument();
   } finally {
-    vi.useRealTimers();
     referenceBounds.mockRestore();
     popupBounds.mockRestore();
   }
@@ -169,7 +174,6 @@ it("keeps slow leftward movement inside the context popup safe area open", async
 
 it("preserves asChild click behavior and dismisses standalone tooltips with Escape and outside press", async () => {
   const click = vi.fn();
-  const user = userEvent.setup({ skipHover: true });
   render(
     <Tooltip>
       <TooltipTrigger asChild>
@@ -181,29 +185,27 @@ it("preserves asChild click behavior and dismisses standalone tooltips with Esca
     </Tooltip>,
   );
   const trigger = screen.getByRole("button", { name: "Copy" });
-  await user.hover(trigger);
-  await screen.findByRole("tooltip");
+  fireEvent.mouseEnter(trigger);
+  expect(screen.getByRole("tooltip")).toBeInTheDocument();
   const action = screen.getByRole("button", { name: "Tooltip action" });
   fireEvent.pointerDown(action);
   fireEvent.click(action);
   expect(screen.getByRole("tooltip")).toBeInTheDocument();
-  await user.keyboard("{Escape}");
-  await waitFor(() => {
-    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
-  });
-  await user.unhover(trigger);
-  await user.hover(trigger);
-  await screen.findByRole("tooltip");
-  await user.click(document.body);
-  await waitFor(() => {
-    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
-  });
-  await user.click(trigger);
+  fireEvent.keyDown(document, { key: "Escape" });
+  await advanceTime(250);
+  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  fireEvent.mouseLeave(trigger);
+  fireEvent.mouseEnter(trigger);
+  expect(screen.getByRole("tooltip")).toBeInTheDocument();
+  fireEvent.pointerDown(document.body);
+  fireEvent.click(document.body);
+  await advanceTime(250);
+  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  fireEvent.click(trigger);
   expect(click).toHaveBeenCalledOnce();
 });
 
 it("respects controlled open state and the provider hover delay", async () => {
-  const user = userEvent.setup();
   const view = render(
     <TooltipProvider delayDuration={100}>
       <Tooltip open={false}>
@@ -213,12 +215,10 @@ it("respects controlled open state and the provider hover delay", async () => {
     </TooltipProvider>,
   );
   const trigger = screen.getByRole("button");
-  await user.hover(trigger);
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 150));
-  });
+  fireEvent.mouseEnter(trigger);
+  await advanceTime(150);
   expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
-  await user.unhover(trigger);
+  fireEvent.mouseLeave(trigger);
   view.rerender(
     <TooltipProvider delayDuration={100}>
       <Tooltip>
@@ -227,7 +227,10 @@ it("respects controlled open state and the provider hover delay", async () => {
       </Tooltip>
     </TooltipProvider>,
   );
-  await user.hover(trigger);
+  fireEvent.mouseEnter(trigger);
   expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
-  expect(await screen.findByRole("tooltip")).toBeInTheDocument();
+  await advanceTime(99);
+  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  await advanceTime(1);
+  expect(screen.getByRole("tooltip")).toBeInTheDocument();
 });

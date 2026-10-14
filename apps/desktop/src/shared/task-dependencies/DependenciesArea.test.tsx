@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import type { ComponentProps, ReactElement } from "react";
@@ -224,23 +224,40 @@ describe("TaskDependenciesArea", () => {
     const chip = screen.getByLabelText(progress.getAttribute("aria-label") ?? "", {
       selector: "span[tabindex]",
     });
-    await user.tab();
-    expect(chip).toHaveFocus();
-    expect(await screen.findByRole("tooltip")).not.toBeEmptyDOMElement();
+    vi.useFakeTimers();
+    try {
+      fireEvent.mouseEnter(chip);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByRole("tooltip")).not.toBeEmptyDOMElement();
+    } finally {
+      vi.useRealTimers();
+    }
 
     await user.click(screen.getByTestId("dependency-row-task-2"));
     await user.click(screen.getByTestId("dependency-add-blocked-by"));
     await user.click(screen.getByRole("button", { name: "task.dependenciesCreateTask" }));
     await user.click(screen.getByTestId("dependency-remove-task-2"));
+    await user.click(screen.getByTestId("dependency-row-task-3"));
+    await user.click(screen.getByTestId("dependency-add-blocks"));
+    await user.click(screen.getByRole("button", { name: "task.dependenciesCreateTask" }));
+    await user.click(screen.getByTestId("dependency-remove-task-3"));
 
+    expect(onSelectTask).toHaveBeenCalledTimes(2);
     expect(onSelectTask).toHaveBeenCalledWith("task-2");
+    expect(onSelectTask).toHaveBeenCalledWith("task-3");
+    expect(onAdd).toHaveBeenCalledTimes(2);
     expect(onAdd).toHaveBeenCalledWith("blocked-by");
+    expect(onAdd).toHaveBeenCalledWith("blocks");
+    expect(onRemove).toHaveBeenCalledTimes(2);
     expect(onRemove).toHaveBeenCalledWith("task-2", "task-1");
+    expect(onRemove).toHaveBeenCalledWith("task-1", "task-3");
   });
 
   it("adds an existing searched Task and resets accepted IDs after close", async () => {
     const onAddExisting = vi.spyOn(services.api, "addTaskDependency");
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     searchFixture.results = [
       {
         key: "candidate",
@@ -310,7 +327,7 @@ describe("TaskDependenciesArea", () => {
     const onAdd = vi.fn();
     const onRemove = vi.spyOn(services.api, "removeTaskDependency");
     const onSelectTask = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     renderArea(
       <TaskDependenciesArea

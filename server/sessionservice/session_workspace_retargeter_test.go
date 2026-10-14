@@ -737,21 +737,13 @@ func TestSessionWorkspaceRetargeterPublishesFailureBeforeQueuedModelWorkResumes(
 			case <-time.After(3 * time.Second):
 				t.Fatal("self-rebind was not scheduled")
 			}
-			type queuedResult struct {
-				accepted bool
-				err      error
-			}
-			queued := make(chan queuedResult, 1)
-			go func() {
-				_, accepted, err := engine.QueueUserMessageForActiveRun(
-					context.Background(), runtimeids.NewQueueItemID().String(), "continue after the failed move",
-					nil,
-				)
-				queued <- queuedResult{accepted: accepted, err: err}
-			}()
+			_, accepted, err := engine.QueueUserMessageForActiveRun(
+				context.Background(), runtimeids.NewQueueItemID().String(), "continue after the failed move",
+				nil,
+			)
 			close(client.releaseFirst)
-			if result := <-queued; result.err != nil || !result.accepted {
-				t.Fatalf("queue successor accepted=%t error=%v", result.accepted, result.err)
+			if err != nil || !accepted {
+				t.Fatalf("queue successor accepted=%t error=%v", accepted, err)
 			}
 			if err := <-firstDone; err != nil {
 				t.Fatalf("originating Agent Step: %v", err)

@@ -47,6 +47,7 @@ func newGatewayTestServerForConfig(t *testing.T, cfg config.App) (*core.Core, *h
 
 func newGatewayTestServerForConfigOptions(t *testing.T, cfg config.App, options core.Options) (*core.Core, *httptest.Server) {
 	t.Helper()
+	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 	authSupport := newGatewayTestAuthSupport(t, cfg.PersistenceRoot, true)
 	background, err := serverbootstrap.BuildShellManager(cfg)
@@ -80,6 +81,7 @@ func resolveGatewayTestConfig(t *testing.T, workspace string) serverbootstrap.Co
 
 func registerGatewayTestBinding(t *testing.T, cfg config.App) metadata.Binding {
 	t.Helper()
+	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)
 	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)

@@ -132,6 +132,7 @@ func runSecondClientLiveControlsActiveRun(
 	}
 	resolved.Config.Settings.Model = "gpt-6-sol"
 	resolved.Config.Settings = testsetup.WriteProviderSettings(t, resolved.Config.PersistenceRoot, testsetup.WithResponsesProvider(resolved.Config.Settings, server.URL))
+	testsetup.PrepareMetadataPersistenceRoot(t, resolved.Config.PersistenceRoot)
 	binding, err := metadata.RegisterBinding(context.Background(), resolved.Config.PersistenceRoot, resolved.Config.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)

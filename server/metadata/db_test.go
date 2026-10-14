@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/databaseseed"
 	"core/server/metadata/sqlitegen"
 
 	_ "modernc.org/sqlite"
@@ -21,8 +21,7 @@ import (
 
 func TestWorkspaceChatDraftCutoverDeletesLegacyDraftAndPreservesSessionState(t *testing.T) {
 	root := t.TempDir()
-	dbPath := filepath.Join(root, "db", "main.sqlite3")
-	db, err := openDatabaseAtVersionForTest(t, root, dbPath, 88)
+	db, err := openDatabaseAtVersionForTest(t, 88)
 	if err != nil {
 		t.Fatalf("open version 88 database: %v", err)
 	}
@@ -86,15 +85,7 @@ INSERT INTO sessions (
 		now,
 		now,
 	)
-	if err := db.Close(); err != nil {
-		t.Fatalf("close version 88 database: %v", err)
-	}
-
-	store, err := Open(root)
-	if err != nil {
-		t.Fatalf("upgrade metadata database: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := migrateMetadataTestStore(t, root, db)
 
 	if columnExists(t, store.db, "workspaces", "chat_draft_json") {
 		t.Fatal("legacy workspace Chat draft column survived cutover")
@@ -139,10 +130,8 @@ WHERE id = '8b0a92d4-18f8-4b5f-9b66-b8ac0f3f987e'`,
 	}
 }
 
-func TestWorkspaceChatDraftCutoverFailurePreventsMetadataStartup(t *testing.T) {
-	root := t.TempDir()
-	dbPath := filepath.Join(root, "db", "main.sqlite3")
-	db, err := openDatabaseAtVersionForTest(t, root, dbPath, 88)
+func TestWorkspaceChatDraftCutoverFailureLeavesDatabaseUnchanged(t *testing.T) {
+	db, err := openDatabaseAtVersionForTest(t, 88)
 	if err != nil {
 		t.Fatalf("open version 88 database: %v", err)
 	}
@@ -150,39 +139,47 @@ func TestWorkspaceChatDraftCutoverFailurePreventsMetadataStartup(t *testing.T) {
 CREATE VIEW workspace_chat_draft_migration_blocker AS
 SELECT chat_draft_json
 FROM workspaces`)
-	if err := db.Close(); err != nil {
-		t.Fatalf("close version 88 database: %v", err)
-	}
-
-	store, err := Open(root)
+	err = runMigrations(db)
 	if err == nil {
-		if store != nil {
-			_ = store.Close()
-		}
-		t.Fatal("metadata startup succeeded despite failed workspace Chat draft cutover")
+		t.Fatal("workspace Chat draft cutover succeeded despite migration blocker")
 	}
-	if store != nil {
-		t.Fatal("failed metadata startup returned a Store")
-	}
-	var migrationErr *WorkspaceChatDraftCutoverMigrationError
-	if !errors.As(err, &migrationErr) {
-		t.Fatalf("metadata startup error = %v, want typed migration failure", err)
-	}
-
-	unmigrated, err := openDatabaseAtPathWithoutMigrationsForTest(root, dbPath)
-	if err != nil {
-		t.Fatalf("reopen failed migration database: %v", err)
-	}
-	t.Cleanup(func() { _ = unmigrated.Close() })
-	version, err := readMetadataVersion(unmigrated)
+	version, err := readMetadataVersion(db)
 	if err != nil {
 		t.Fatalf("read failed migration version: %v", err)
 	}
 	if version != 88 {
 		t.Fatalf("failed migration version = %d, want 88", version)
 	}
-	if !columnExists(t, unmigrated, "workspaces", "chat_draft_json") {
+	if !columnExists(t, db, "workspaces", "chat_draft_json") {
 		t.Fatal("failed migration partially removed workspace Chat draft schema")
+	}
+}
+
+func TestOpenReturnsTypedWorkspaceChatDraftCutoverFailure(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "db", "main.sqlite3")
+	db, err := openDatabaseAtVersionForTest(t, 88)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execSeed(t, db, "migration blocker", `
+CREATE VIEW workspace_chat_draft_migration_blocker AS
+SELECT chat_draft_json FROM workspaces`)
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	execSeed(t, db, "Open boundary fixture", `VACUUM INTO ?`, dbPath)
+	store, err := Open(root)
+	if store != nil {
+		_ = store.Close()
+		t.Fatal("failed metadata startup returned a Store")
+	}
+	var migrationErr *WorkspaceChatDraftCutoverMigrationError
+	if !errors.As(err, &migrationErr) {
+		t.Fatalf("metadata startup error = %v, want typed migration failure", err)
+	}
+	if migrationErr.DatabasePath != dbPath {
+		t.Fatalf("failed database path = %q, want %q", migrationErr.DatabasePath, dbPath)
 	}
 }
 
@@ -228,7 +225,9 @@ func TestOpenConfiguresSQLitePragmasThroughPathSafeDSN(t *testing.T) {
 
 func TestOpenConfiguresEightConnectionSQLitePool(t *testing.T) {
 	t.Parallel()
-	store, err := Open(t.TempDir())
+	root := t.TempDir()
+	seedMetadataOpenBoundaryDatabase(t, root)
+	store, err := Open(root)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -298,6 +297,7 @@ func TestOpenSupportsConcurrentIndependentDatabases(t *testing.T) {
 	roots := make([]string, databaseCount)
 	for index := range roots {
 		roots[index] = t.TempDir()
+		seedMetadataOpenBoundaryDatabase(t, roots[index])
 	}
 
 	start := make(chan struct{})
@@ -416,11 +416,10 @@ WHERE is_applied = 1`).Scan(&latest); err != nil {
 	}
 }
 
-func TestOpenUpgradesVersion35DatabaseWithHistoricalLedger(t *testing.T) {
+func TestMigrationsUpgradeVersion35DatabaseWithHistoricalLedger(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	dbPath := filepath.Join(root, "db", "main.sqlite3")
-	db, err := openDatabaseAtVersionForTest(t, root, dbPath, 35)
+	db, err := openDatabaseAtVersionForTest(t, 35)
 	if err != nil {
 		t.Fatalf("open version 35 database: %v", err)
 	}
@@ -461,15 +460,7 @@ INSERT INTO sessions (
 )`); err != nil {
 		t.Fatalf("seed version 35 data: %v", err)
 	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("close version 35 database: %v", err)
-	}
-
-	store, err := Open(root)
-	if err != nil {
-		t.Fatalf("upgrade version 35 database: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := migrateMetadataTestStore(t, root, db)
 
 	var projectName, sessionName string
 	if err := store.db.QueryRow(`SELECT display_name FROM projects WHERE id = 'project-v35'`).Scan(&projectName); err != nil {
@@ -544,41 +535,41 @@ func int64Pointer(value int64) *int64 {
 	return &value
 }
 
-func openDatabaseAtVersionForTest(t *testing.T, root string, dbPath string, version int64) (*sql.DB, error) {
+func seedMetadataOpenBoundaryDatabase(t *testing.T, root string) {
 	t.Helper()
-	db, err := openDatabaseAtPathWithoutMigrationsForTest(root, dbPath)
+	if err := databaseseed.MaterializeCurrentMetadataDatabase(root, Open); err != nil {
+		t.Fatalf("seed metadata Open boundary database: %v", err)
+	}
+}
+
+func openDatabaseAtVersionForTest(t *testing.T, version int64) (*sql.DB, error) {
+	t.Helper()
+	snapshot, err := emptyMetadataSnapshotAtVersion(t, version)
 	if err != nil {
 		return nil, err
 	}
-	provider, err := newMetadataMigrationProvider(db)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	if _, err := provider.UpTo(context.Background(), version); err != nil {
-		_ = db.Close()
+	db := openEmptyMetadataTestDatabase(t)
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close in-memory migration database: %v", err)
+		}
+	})
+	if err := withMetadataSnapshotConnection(t.Context(), db, func(conn metadataSnapshotDriver) error {
+		return conn.Deserialize(snapshot)
+	}); err != nil {
 		return nil, err
 	}
 	return db, nil
 }
 
-func openDatabaseAtPathWithoutMigrationsForTest(root string, dbPath string) (*sql.DB, error) {
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-		return nil, err
+func migrateMetadataTestStore(t *testing.T, root string, db *sql.DB) *Store {
+	t.Helper()
+	if err := runMigrations(db); err != nil {
+		t.Fatalf("migrate metadata database: %v", err)
 	}
-	if err := registerMetadataSQLiteCollations(); err != nil {
-		return nil, err
-	}
-	if err := registerMetadataSQLiteFunctions(); err != nil {
-		return nil, err
-	}
-	dsn, err := metadataSQLiteDSN(dbPath)
+	store, err := NewStore(root, db)
 	if err != nil {
-		return nil, fmt.Errorf("metadataSQLiteDSN: %w", err)
+		t.Fatalf("initialize migrated metadata store: %v", err)
 	}
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		return nil, err
-	}
-	return db, nil
+	return store
 }

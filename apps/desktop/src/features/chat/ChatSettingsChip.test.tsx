@@ -13,7 +13,7 @@ it("shows the model tooltip only while its text is truncated", async () => {
   let width = 200;
   const clientWidth = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => width);
   const scrollWidth = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(150);
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const view = render(
     <I18nextProvider i18n={appI18n}>
       <Popover>

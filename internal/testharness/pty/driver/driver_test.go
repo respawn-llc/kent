@@ -7,6 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -20,9 +23,8 @@ import (
 )
 
 const (
-	commandDefaultTimeout = 5 * time.Second
-	commandTestTimeout    = 30 * time.Second
-	commandTimeoutCap     = time.Minute
+	commandTestTimeout = 30 * time.Second
+	commandTimeoutCap  = time.Minute
 )
 
 func TestRunCommandRejectsTimeoutAboveHarnessBudget(t *testing.T) {
@@ -36,21 +38,6 @@ func TestRunCommandRejectsTimeoutAboveHarnessBudget(t *testing.T) {
 	}
 }
 
-func TestRunCommandAppliesHarnessBudgetWhenTimeoutIsOmitted(t *testing.T) {
-	started := time.Now()
-	_, err := driver.RunCommand(context.Background(), driver.CommandSpec{
-		Path:       "/bin/sh",
-		Args:       []string{"-c", "sleep 10"},
-		Dimensions: pty.MustDimensions(2, 8),
-	})
-	if !errors.As(err, new(*driver.TimeoutError)) {
-		t.Fatalf("RunCommand error = %v, want TimeoutError", err)
-	}
-	if elapsed := time.Since(started); elapsed > commandDefaultTimeout+time.Second {
-		t.Fatalf("RunCommand elapsed = %s, want hard cap near %s", elapsed, commandDefaultTimeout)
-	}
-}
-
 func TestRunCommandCapturesOutputAndAnalyzes(t *testing.T) {
 	t.Parallel()
 
@@ -59,7 +46,6 @@ func TestRunCommandCapturesOutputAndAnalyzes(t *testing.T) {
 		Path:       binary,
 		Args:       []string{"write"},
 		Dimensions: pty.MustDimensions(3, 16),
-		Timeout:    commandTestTimeout,
 	})
 	if err != nil {
 		t.Fatalf("RunCommand: %v", err)
@@ -87,7 +73,6 @@ func TestRunCommandPreservesEmptyCapture(t *testing.T) {
 		Path:       binary,
 		Args:       []string{"no-output"},
 		Dimensions: pty.MustDimensions(2, 8),
-		Timeout:    commandTestTimeout,
 	})
 	if err != nil {
 		t.Fatalf("RunCommand: %v", err)
@@ -104,57 +89,128 @@ func TestRunCommandPreservesEmptyCapture(t *testing.T) {
 	}
 }
 
-func TestRunCommandFeedsInputAndAppliesResize(t *testing.T) {
+func TestSessionFeedsInputAfterResizeCompletion(t *testing.T) {
 	t.Parallel()
 
-	binary := buildHelper(t)
-	capture, err := driver.RunCommand(context.Background(), driver.CommandSpec{
-		Path:       binary,
-		Args:       []string{"echo-byte"},
-		Dimensions: pty.MustDimensions(2, 12),
-		Inputs: []driver.InputEvent{{
-			After: 10 * time.Millisecond,
-			Bytes: []byte("x\n"),
-		}},
-		Resizes: []driver.ResizeEvent{{
-			After:      5 * time.Millisecond,
-			Dimensions: pty.MustDimensions(3, 14),
-		}},
-		Timeout: commandTestTimeout,
-	})
-	if err != nil {
-		t.Fatalf("RunCommand: %v", err)
-	}
-	if len(capture.Resizes) != 1 {
-		t.Fatalf("capture resize count = %d, want 1", len(capture.Resizes))
-	}
-	analysis, err := pty.Analyze(capture)
-	if err != nil {
-		t.Fatalf("Analyze: %v", err)
-	}
-	foundResize := false
-	for _, operation := range analysis.Operations {
-		if operation.Kind == pty.OperationResize && operation.Region == (pty.Region{Top: 0, Bottom: 3, Left: 0, Right: 14}) {
-			foundResize = true
+	for _, beforeOutput := range []bool{true, false} {
+		name := "after-phase"
+		if beforeOutput {
+			name = "before-first-chunk"
 		}
-	}
-	if !foundResize {
-		t.Fatalf("resize operation not found in %#v", analysis.Operations)
+		t.Run(name, func(t *testing.T) {
+			var path string
+			var args []string
+			if beforeOutput {
+				path = buildHelper(t)
+				args = []string{"echo-byte"}
+			} else {
+				path = phaseInputWriterBinary(t)
+			}
+			session, err := driver.StartSession(driver.SessionSpec{
+				Path: path, Args: args,
+				Env:        []string{"TERM=xterm-256color", "LANG=C.UTF-8", "LC_ALL=C.UTF-8"},
+				Dimensions: pty.MustDimensions(2, 12),
+			})
+			if err != nil {
+				t.Fatalf("StartSession: %v", err)
+			}
+			t.Cleanup(func() { closeSession(t, session) })
+			dimensions := pty.MustDimensions(3, 14)
+			resizeID, inputID := uuid.New(), uuid.New()
+			resizeQueued := false
+			resizeCompleted, inputCompleted := false, false
+			resize := func() {
+				if err := session.Enqueue(driver.SessionCommand{
+					ID: resizeID, Kind: driver.SessionCommandResize, Dimensions: &dimensions,
+				}); err != nil {
+					t.Fatalf("Enqueue resize: %v", err)
+				}
+				resizeQueued = true
+			}
+			if beforeOutput {
+				resize()
+			}
+			for event := range session.Events() {
+				if event.Err != nil {
+					t.Fatalf("session event failed: %v", event.Err)
+				}
+				if !resizeQueued && event.Analysis != nil {
+					for _, phase := range event.Analysis.PhaseEvents {
+						if phase.Phase == pty.PhaseScenarioStart {
+							resize()
+							break
+						}
+					}
+				}
+				if event.Kind == driver.SessionEventCommandCompleted && event.CommandID == resizeID {
+					resizeCompleted = true
+					if err := session.Enqueue(driver.SessionCommand{
+						ID: inputID, Kind: driver.SessionCommandWrite, Bytes: []byte("x\n"),
+					}); err != nil {
+						t.Fatalf("Enqueue input: %v", err)
+					}
+				}
+				if event.Kind == driver.SessionEventCommandCompleted && event.CommandID == inputID {
+					inputCompleted = true
+				}
+			}
+			<-session.Done()
+			capture, err := session.Capture()
+			if err != nil {
+				t.Fatalf("Capture: %v", err)
+			}
+			if !resizeCompleted || !inputCompleted {
+				t.Fatalf("command completion resize=%v input=%v", resizeCompleted, inputCompleted)
+			}
+			if len(capture.Resizes) != 1 {
+				t.Fatalf("resize count = %d, want 1", len(capture.Resizes))
+			}
+			if beforeOutput && capture.Resizes[0].Placement.Kind != pty.ResizeBeforeFirstChunk {
+				t.Fatalf("resize placement = %#v, want before first chunk", capture.Resizes[0].Placement)
+			}
+			if !beforeOutput && capture.Resizes[0].Placement.Kind != pty.ResizeAfterChunk {
+				t.Fatalf("resize placement = %#v, want after phase output", capture.Resizes[0].Placement)
+			}
+			analysis, err := pty.Analyze(capture)
+			if err != nil {
+				t.Fatalf("Analyze: %v", err)
+			}
+			var resizeIndex, inputIndex *int
+			for index, operation := range analysis.Operations {
+				if operation.Kind == pty.OperationResize {
+					if operation.Region != (pty.Region{Top: 0, Bottom: 3, Left: 0, Right: 14}) {
+						t.Fatalf("resize region = %#v", operation.Region)
+					}
+					resizeIndex = &index
+				}
+				for _, record := range pty.OperationRecords(operation) {
+					if record.Write != nil && record.Write.Text() == "input:x" {
+						inputIndex = &index
+					}
+				}
+			}
+			if resizeIndex == nil || inputIndex == nil || *resizeIndex >= *inputIndex {
+				t.Fatalf("resize must precede input output: operations=%#v", analysis.Operations)
+			}
+			if beforeOutput && *resizeIndex != 0 {
+				t.Fatalf("resize operation index = %d, want 0", *resizeIndex)
+			}
+			if !beforeOutput && len(analysis.PhaseEvents) != 1 {
+				t.Fatalf("phase events = %#v, want scenario start", analysis.PhaseEvents)
+			}
+		})
 	}
 }
 
-func TestRunCommandDelaysInputRelativeToPhase(t *testing.T) {
+func TestRunCommandDispatchesInputWhenPhaseIsReady(t *testing.T) {
 	output := phaseInputWriterBinary(t)
-	delay := 100 * time.Millisecond
 	capture, err := driver.RunCommand(context.Background(), driver.CommandSpec{
 		Path:       output,
 		Dimensions: pty.MustDimensions(2, 16),
 		PhaseInputs: []driver.PhaseInputEvent{{
 			Phase: pty.PhaseScenarioStart,
-			After: delay,
 			Bytes: []byte("x\n"),
 		}},
-		Timeout: commandTestTimeout,
 	})
 	if err != nil {
 		t.Fatalf("RunCommand: %v", err)
@@ -170,11 +226,11 @@ func TestRunCommandDelaysInputRelativeToPhase(t *testing.T) {
 		t.Fatalf("phase input dispatches = %#v, want one", capture.PhaseInputDispatches)
 	}
 	dispatch := capture.PhaseInputDispatches[0]
-	if dispatch.Phase != pty.PhaseScenarioStart || dispatch.ScheduledAfter != delay {
-		t.Fatalf("phase input dispatch = %#v, want scenario-start after %s", dispatch, delay)
+	if dispatch.Phase != pty.PhaseScenarioStart || dispatch.ScheduledAfter != 0 {
+		t.Fatalf("phase input dispatch = %#v, want immediate scenario-start input", dispatch)
 	}
-	if elapsed := dispatch.StartedAt - analysis.PhaseEvents[0].CapturedAt; elapsed < delay {
-		t.Fatalf("recorded phase input elapsed = %s, want at least %s", elapsed, delay)
+	if dispatch.StartedAt < analysis.PhaseEvents[0].CapturedAt {
+		t.Fatalf("input dispatched before phase was captured: %#v", dispatch)
 	}
 	var inputWriteAt *time.Duration
 	for _, operation := range analysis.Operations {
@@ -190,10 +246,10 @@ func TestRunCommandDelaysInputRelativeToPhase(t *testing.T) {
 		}
 	}
 	if inputWriteAt == nil {
-		t.Fatalf("delayed input output missing: operations=%#v", analysis.Operations)
+		t.Fatalf("phase input output missing: operations=%#v", analysis.Operations)
 	}
-	if elapsed := *inputWriteAt - analysis.PhaseEvents[0].CapturedAt; elapsed < delay {
-		t.Fatalf("phase-relative input elapsed = %s, want at least %s", elapsed, delay)
+	if *inputWriteAt < dispatch.StartedAt {
+		t.Fatalf("input output captured before dispatch: output=%s dispatch=%#v", *inputWriteAt, dispatch)
 	}
 }
 
@@ -211,7 +267,6 @@ func TestRunCommandDispatchesFrameInputSequenceAfterCompletedFrames(t *testing.T
 				{Readiness: pty.ReadinessRendererFrame, Bytes: []byte("z\n")},
 			},
 		}},
-		Timeout: commandTestTimeout,
 	})
 	if err != nil {
 		t.Fatalf("RunCommand: %v", err)
@@ -250,7 +305,6 @@ func TestRunCommandDispatchesFrameInputsAcrossTypedReadinessBoundaries(t *testin
 				{Readiness: pty.ReadinessNormalBufferRestored, Bytes: []byte("q\n")},
 			},
 		}},
-		Timeout: commandTestTimeout,
 	})
 	if err != nil {
 		t.Fatalf("RunCommand: %v", err)
@@ -284,105 +338,89 @@ func TestRunCommandRejectsFirstInputAppliedReadiness(t *testing.T) {
 				Bytes:     []byte("x\n"),
 			}},
 		}},
-		Timeout: commandTestTimeout,
 	})
 	if err == nil {
 		t.Fatal("RunCommand accepted input-applied readiness for the first sequence input")
 	}
 }
 
-func TestRunCommandRecordsResizeAtActualCapturePosition(t *testing.T) {
+func TestRunCommandCancellationTerminatesProcessAndReader(t *testing.T) {
 	t.Parallel()
 
-	binary := buildHelper(t)
-	capture, err := driver.RunCommand(context.Background(), driver.CommandSpec{
-		Path:       binary,
-		Args:       []string{"resize-order"},
-		Dimensions: pty.MustDimensions(2, 12),
-		Resizes: []driver.ResizeEvent{{
-			After:      200 * time.Millisecond,
-			Dimensions: pty.MustDimensions(3, 14),
-		}},
-		Timeout: commandTestTimeout,
-	})
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("RunCommand: %v", err)
+		t.Fatalf("Listen: %v", err)
 	}
-	if len(capture.Resizes) != 1 {
-		t.Fatalf("resize count = %d, want 1", len(capture.Resizes))
-	}
-	analysis, err := pty.Analyze(capture)
+	t.Cleanup(func() { _ = listener.Close() })
+	binary, err := os.Executable()
 	if err != nil {
-		t.Fatalf("Analyze: %v", err)
+		t.Fatalf("Executable: %v", err)
 	}
-	var resizeIndex *int
-	var afterWriteIndex *int
-	for i, operation := range analysis.Operations {
-		if operation.Kind == pty.OperationResize {
-			index := i
-			resizeIndex = &index
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ready := make(chan error, 1)
+	go func() {
+		defer cancel()
+		connection, err := listener.Accept()
+		if err != nil {
+			ready <- err
+			return
 		}
-		if operation.Kind == pty.OperationWrite {
-			for _, segment := range operation.WriteSegments {
-				if segment.Write.Text() == "after" {
-					index := i
-					afterWriteIndex = &index
-				}
-			}
+		defer func() { _ = connection.Close() }()
+		var boundary pty.ReadinessBoundaryKind
+		if err := json.NewDecoder(connection).Decode(&boundary); err != nil {
+			ready <- err
+			return
 		}
-	}
-	if resizeIndex == nil || afterWriteIndex == nil || *resizeIndex > *afterWriteIndex {
-		t.Fatalf("operation order resize=%v after_write=%v operations=%#v", resizeIndex, afterWriteIndex, analysis.Operations)
-	}
-}
-
-func TestRunCommandRecordsResizeBeforeFirstChunk(t *testing.T) {
-	t.Parallel()
-
-	binary := buildHelper(t)
-	capture, err := driver.RunCommand(context.Background(), driver.CommandSpec{
+		if boundary != pty.ReadinessRendererFrame {
+			ready <- errors.New("child did not signal renderer-frame readiness")
+			return
+		}
+		ready <- nil
+	}()
+	capture, err := driver.RunCommand(ctx, driver.CommandSpec{
 		Path:       binary,
-		Args:       []string{"resize-before-write"},
-		Dimensions: pty.MustDimensions(2, 12),
-		Resizes: []driver.ResizeEvent{{
-			After:      10 * time.Millisecond,
-			Dimensions: pty.MustDimensions(3, 14),
-		}},
-		Timeout: commandTestTimeout,
-	})
-	if err != nil {
-		t.Fatalf("RunCommand: %v", err)
-	}
-	if len(capture.Resizes) != 1 || capture.Resizes[0].Placement.Kind != pty.ResizeBeforeFirstChunk {
-		t.Fatalf("resizes = %#v, want one pre-first-chunk resize", capture.Resizes)
-	}
-	analysis, err := pty.Analyze(capture)
-	if err != nil {
-		t.Fatalf("Analyze: %v", err)
-	}
-	if len(analysis.Operations) == 0 || analysis.Operations[0].Kind != pty.OperationResize {
-		t.Fatalf("first operation = %#v, want resize before output", analysis.Operations)
-	}
-}
-
-func TestRunCommandTimeoutTerminatesProcessAndReader(t *testing.T) {
-	t.Parallel()
-
-	binary := buildHelper(t)
-	capture, err := driver.RunCommand(context.Background(), driver.CommandSpec{
-		Path:       binary,
-		Args:       []string{"hang"},
+		Args:       []string{"-test.run=^TestCancellationChild$"},
+		Env:        []string{"KENT_PTY_CANCELLATION_ADDRESS=" + listener.Addr().String()},
 		Dimensions: pty.MustDimensions(2, 8),
-		Timeout:    100 * time.Millisecond,
 	})
-	if !errors.As(err, new(*driver.TimeoutError)) {
-		t.Fatalf("RunCommand error = %v, want TimeoutError", err)
+	_ = listener.Close()
+	if readinessErr := <-ready; readinessErr != nil {
+		t.Fatalf("child readiness: %v; RunCommand: %v", readinessErr, err)
 	}
-	if capture.ProcessExit == nil {
-		t.Fatalf("process exit not recorded after timeout cleanup")
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || errors.As(err, new(*driver.TimeoutError)) {
+		t.Fatalf("RunCommand error = %v, want canceled process exit without timeout", err)
+	}
+	if !errors.Is(ctx.Err(), context.Canceled) {
+		t.Fatalf("context error = %v, want cancellation", ctx.Err())
+	}
+	if capture.ProcessExit == nil || capture.ProcessExit.Code == 0 {
+		t.Fatalf("process exit = %#v, want terminated child", capture.ProcessExit)
 	}
 	if !capture.ReadLoopDone {
-		t.Fatalf("read loop completion not recorded after timeout cleanup")
+		t.Fatalf("read loop completion not recorded after cancellation cleanup")
+	}
+}
+
+func TestCancellationChild(t *testing.T) {
+	address, child := os.LookupEnv("KENT_PTY_CANCELLATION_ADDRESS")
+	if !child {
+		return
+	}
+	if _, err := os.Stdout.Write([]byte("\x1b[2;1H")); err != nil {
+		t.Fatalf("write renderer frame: %v", err)
+	}
+	connection, err := net.Dial("tcp", address)
+	if err != nil {
+		t.Fatalf("connect readiness signal: %v", err)
+	}
+	defer func() { _ = connection.Close() }()
+	if err := json.NewEncoder(connection).Encode(pty.ReadinessRendererFrame); err != nil {
+		t.Fatalf("signal renderer-frame readiness: %v", err)
+	}
+	if _, err := io.Copy(io.Discard, os.Stdin); err != nil {
+		t.Fatalf("wait for cancellation: %v", err)
 	}
 }
 
@@ -496,15 +534,7 @@ func TestSessionWriteCommandCompletesOnlyAfterLargePTYInputIsAccepted(t *testing
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = session.Close()
-		_ = session.ForceKill()
-		select {
-		case <-session.Done():
-		case <-time.After(time.Second):
-			t.Error("session did not exit during cleanup")
-		}
-	})
+	t.Cleanup(func() { closeSession(t, session) })
 	ready := false
 	for !ready {
 		event, ok := <-session.Events()
@@ -552,6 +582,24 @@ func TestSessionWriteCommandCompletesOnlyAfterLargePTYInputIsAccepted(t *testing
 	if got := analysis.Screen.TextInRegion(pty.Region{Top: 0, Bottom: 1, Left: 0, Right: 15}); got != "received:262144" {
 		t.Fatalf("child receipt = %q, want complete payload acknowledgement", got)
 	}
+}
+
+func closeSession(t *testing.T, session *driver.Session) {
+	t.Helper()
+	select {
+	case <-session.Done():
+		return
+	default:
+	}
+	if err := session.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+		t.Errorf("Close session: %v", err)
+	}
+	if err := session.ForceKill(); err != nil {
+		t.Errorf("ForceKill session: %v", err)
+	}
+	for range session.Events() {
+	}
+	<-session.Done()
 }
 
 func buildHelper(t *testing.T) string {

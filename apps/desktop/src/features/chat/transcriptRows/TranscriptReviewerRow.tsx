@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { CircleX, Gavel } from "lucide-react";
 
 import type { ChatTranscriptCommittedRow } from "@/api";
-import { StaticMarkdown } from "@/ui";
+import { StaticMarkdown } from "@/ui/markdown";
 
 import { reviewerFeedbackCopyText } from "./transcriptReviewerPolicy";
 import { TranscriptFlatRow } from "./TranscriptFlatRow";

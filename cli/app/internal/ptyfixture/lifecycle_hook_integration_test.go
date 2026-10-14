@@ -13,6 +13,7 @@ import (
 
 	"core/internal/testharness/pty"
 	"core/internal/testharness/pty/appfixture"
+	"core/internal/testharness/testsetup"
 	"core/shared/lifecyclecontract"
 )
 
@@ -110,6 +111,7 @@ func TestLifecycleHooksRemotePTYRunsInControllingClient(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	persistenceRoot := filepath.Join(root, "persistence")
+	testsetup.PrepareMetadataPersistenceRoot(t, persistenceRoot)
 	scriptPath := filepath.Join(root, "script.json")
 	recordPath := filepath.Join(root, "hooks.jsonl")
 	readyPath := filepath.Join(root, "server-ready.json")
@@ -258,6 +260,9 @@ func TestLifecycleHookFailureIsVisibleAndDoesNotBlockPTYRuntime(t *testing.T) {
 
 func lifecyclePTYProcessEnv(t *testing.T, root string, config appfixture.LifecycleProcessConfig) string {
 	t.Helper()
+	if config.ServerMode == appfixture.LifecycleServerModeLocal {
+		testsetup.PrepareMetadataPersistenceRoot(t, config.PersistenceRoot)
+	}
 	path := filepath.Join(root, "lifecycle-process.json")
 	if err := appfixture.WriteLifecycleProcessConfig(path, config); err != nil {
 		t.Fatalf("write lifecycle PTY process config: %v", err)

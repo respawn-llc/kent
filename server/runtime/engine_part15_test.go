@@ -102,6 +102,7 @@ func TestAutoCompactionRemoteReplacesHistoryAndCarriesCompactionItem(t *testing.
 func TestCompactionDispatchPreparationEmbedsBaseMetaAndPreservedUserMessageAtomically(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
+	globalConfigDir := t.TempDir()
 	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
 		OutputItems: []llm.ResponseItem{llm.ResponseItem{
 			Type:             llm.ResponseItemTypeCompaction,
@@ -142,10 +143,14 @@ func TestCompactionDispatchPreparationEmbedsBaseMetaAndPreservedUserMessageAtomi
 	foreignShell := startShell("foreign-session", "foreign running shell")
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
 		Model:                  "gpt-6-sol",
+		GlobalConfigDir:        globalConfigDir,
 		BackgroundShellManager: manager,
 	})
 	if _, err := eng.SetGoal(t.Context(), "preserve atomic goal context", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
+	}
+	if err := eng.drainRuntimeOperations(t.Context()); err != nil {
+		t.Fatalf("persist active goal notice: %v", err)
 	}
 	mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
 		session.WorktreeReminderModeEnter,
@@ -222,6 +227,7 @@ func TestCompactionDispatchPreparationEmbedsBaseMetaAndPreservedUserMessageAtomi
 	reopenedStore := mustOpenTestSession(t, store.Dir())
 	reopened := mustNewTestEngine(t, reopenedStore, &fakeClient{}, tools.NewRegistry(), Config{
 		Model:                  "gpt-6-sol",
+		GlobalConfigDir:        globalConfigDir,
 		BackgroundShellManager: manager,
 	})
 	reopenedReminder := false

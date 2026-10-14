@@ -199,8 +199,6 @@ func TestLiveWatchSurfacesAttentionStreamFailureWhileRunIsBlocked(t *testing.T) 
 	}
 	select {
 	case <-runDone:
-	case <-time.After(3 * time.Second):
-		t.Fatal("live run did not stop after stream failure")
 	}
 }
 
@@ -275,8 +273,6 @@ func TestLiveWatchPromptWakeWinsWhileRunIsBlocked(t *testing.T) {
 	}
 	select {
 	case <-runDone:
-	case <-time.After(3 * time.Second):
-		t.Fatal("live run did not stop after prompt wake")
 	}
 }
 
@@ -322,8 +318,6 @@ func TestLiveWatchCancellationWhileRunIsBlocked(t *testing.T) {
 	}
 	select {
 	case <-runDone:
-	case <-time.After(3 * time.Second):
-		t.Fatal("live run did not stop after cancellation")
 	}
 }
 
@@ -361,8 +355,6 @@ func TestLiveWatchTerminalCompletionWinsWhileRunIsBlocked(t *testing.T) {
 	}
 	select {
 	case <-runDone:
-	case <-time.After(3 * time.Second):
-		t.Fatal("live run did not finish after terminal completion")
 	}
 	_ = engine
 }
@@ -395,8 +387,6 @@ func TestLiveWatchReturnsInterruptedOutcomeWhenRunStops(t *testing.T) {
 	<-observed.subscribed
 	select {
 	case <-promptProjectionStarted:
-	case <-time.After(3 * time.Second):
-		t.Fatal("LiveWatch did not capture the active run and read its initial prompt projection")
 	}
 
 	stopResponse, err := service.LiveStop(context.Background(), &runtimepb.LiveStopRequest{
@@ -419,8 +409,6 @@ func TestLiveWatchReturnsInterruptedOutcomeWhenRunStops(t *testing.T) {
 	}
 	select {
 	case <-runDone:
-	case <-time.After(3 * time.Second):
-		t.Fatal("live run did not finish after interruption")
 	}
 }
 
@@ -457,8 +445,6 @@ func TestLiveWatchSurfacesCanceledAttentionStreamWhileRunIsBlocked(t *testing.T)
 	}
 	select {
 	case <-runDone:
-	case <-time.After(3 * time.Second):
-		t.Fatal("live run did not stop after attention stream cancellation")
 	}
 }
 

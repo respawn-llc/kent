@@ -199,16 +199,7 @@ func fakeClientCallCount(client *fakeClient) int {
 
 func waitEngineLifecycleTasks(t *testing.T, eng *Engine) {
 	t.Helper()
-	done := make(chan struct{})
-	go func() {
-		eng.lifecycleWG.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for engine lifecycle tasks")
-	}
+	eng.lifecycleWG.Wait()
 }
 
 func scheduleSpeculativeCompactionAndWait(t *testing.T, eng *Engine) {

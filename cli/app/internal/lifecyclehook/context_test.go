@@ -6,7 +6,6 @@ import (
 	"core/shared/runtimeids"
 	"errors"
 	"testing"
-	"time"
 )
 
 func TestInitialContextUsesTypedSessionTitleAbsence(t *testing.T) {
@@ -70,7 +69,7 @@ func TestDispatcherSurfacesObservationValidationIssues(t *testing.T) {
 		cause,
 	))
 
-	issue := waitForDispatcherIssue(t, dispatcher.Issues(), 3*time.Second)
+	issue := waitForDispatcherIssue(t, dispatcher.Issues())
 	observation, ok := issue.Detail.(lifecyclehook.ObservationIssue)
 	if !ok {
 		t.Fatalf("issue detail = %T, want observation issue", issue.Detail)

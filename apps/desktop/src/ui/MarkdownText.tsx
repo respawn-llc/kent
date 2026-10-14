@@ -1,4 +1,4 @@
-import { createContext, useContext, type ComponentProps, type MouseEvent, type ReactNode } from "react";
+import { createContext, useContext, type ComponentProps, type MouseEvent } from "react";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { Streamdown, type Components, type CustomRendererProps, type ExtraProps } from "streamdown";
@@ -8,6 +8,7 @@ import { safeExternalUrl } from "./externalLinks";
 import { syntaxHighlightingLanguageHints } from "./syntaxHighlighting";
 import { SyntaxHighlightedCode } from "./SyntaxHighlightedCode";
 import { projectMarkdownText } from "./taskBodyMarkdownText";
+import { MarkdownLinkContext } from "./MarkdownLinkContext";
 import "streamdown/styles.css";
 import "./MarkdownText.css";
 import "./StreamdownMarkdown.css";
@@ -32,7 +33,6 @@ type MarkdownTaskListItemContextValue = Readonly<{
 }>;
 
 const MarkdownTaskListItemContext = createContext<MarkdownTaskListItemContextValue | null>(null);
-const MarkdownLinkContext = createContext<((url: string) => void) | null>(null);
 const languageHints = syntaxHighlightingLanguageHints();
 const linkSafety = { enabled: false };
 const richComponents = {
@@ -41,13 +41,6 @@ const richComponents = {
   li: MarkdownTaskListItem,
   p: "div",
 } satisfies Pick<Components, "a" | "input" | "li" | "p">;
-
-export function MarkdownLinkProvider({
-  children,
-  openExternal,
-}: Readonly<{ children: ReactNode; openExternal(url: string): void }>) {
-  return <MarkdownLinkContext.Provider value={openExternal}>{children}</MarkdownLinkContext.Provider>;
-}
 
 export function StaticMarkdown({
   disabled = false,

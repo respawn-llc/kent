@@ -1,4 +1,4 @@
-import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 
@@ -131,27 +131,29 @@ it("requires confirmation before switching a cached Session Agent", async () => 
   });
   const pending = deferred<ChatSettingsMutationResponse>();
   const mutate = vi.spyOn(services.api.chat, "mutateSettings").mockReturnValue(pending.promise);
-  const user = userEvent.setup();
+  const user = userEvent.setup({ skipHover: true });
   render(
     <TestAppProviders services={services}>
       <SessionSettingsChipHost />
     </TestAppProviders>,
   );
-  await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
-  await user.click(screen.getByText("default"));
-  await user.click(await screen.findByText("reviewer"));
+  fireEvent.mouseEnter(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  fireEvent.click(screen.getByText("default"));
+  fireEvent.click(await screen.findByText("reviewer"));
   expect(mutate).not.toHaveBeenCalled();
   let dialog = await screen.findByRole("dialog", { name: appI18n.t("chatSettings.switchAgent") });
   expect(within(dialog).getByRole("button", { name: appI18n.t("chatSettings.cancelSwitch") })).toHaveFocus();
   await user.keyboard("{Enter}");
   expect(dialog).not.toBeInTheDocument();
   expect(mutate).not.toHaveBeenCalled();
-  await user.click(screen.getByRole("button", { name: appI18n.t("chatSettings.open") }));
-  await user.click(screen.getByText("default"));
-  await user.click(await screen.findByText("reviewer"));
+  fireEvent.mouseEnter(screen.getByRole("button", { name: appI18n.t("chatSettings.open") }));
+  fireEvent.click(screen.getByText("default"));
+  fireEvent.click(await screen.findByText("reviewer"));
   dialog = await screen.findByRole("dialog", { name: appI18n.t("chatSettings.switchAgent") });
-  await user.click(within(dialog).getByRole("button", { name: appI18n.t("chatSettings.confirmSwitch") }));
-  expect(mutate).toHaveBeenCalledExactlyOnceWith(target, { kind: "agent", role: "reviewer" });
+  fireEvent.click(within(dialog).getByRole("button", { name: appI18n.t("chatSettings.confirmSwitch") }));
+  await waitFor(() => {
+    expect(mutate).toHaveBeenCalledExactlyOnceWith(target, { kind: "agent", role: "reviewer" });
+  });
   expect(
     within(dialog).getByRole("button", { name: appI18n.t("chatSettings.confirmSwitch") }),
   ).toBeDisabled();
@@ -176,7 +178,7 @@ it.each(["subscription", "api_key", "no_auth"] as const)(
     render(<SessionSettingsChipHost />, {
       wrapper: ({ children }) => <TestAppProviders services={services}>{children}</TestAppProviders>,
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
     expect(
       await screen.findByText(
@@ -195,7 +197,9 @@ it("omits the Session Connection row when the server does not project it", async
   render(<SessionSettingsChipHost />, {
     wrapper: ({ children }) => <TestAppProviders services={services}>{children}</TestAppProviders>,
   });
-  await userEvent.setup().click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await userEvent
+    .setup({ delay: null })
+    .click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
   expect(
     screen.queryByText(
       appI18n.t("chatSettings.sessionConnection", {
@@ -228,21 +232,22 @@ it("keeps Auto-compaction changes and rollback in Settings, outside Context", as
       </>
     );
   }
-  const user = userEvent.setup();
   render(
     <TestAppProviders services={services}>
       <Host />
     </TestAppProviders>,
   );
   await screen.findByRole("button", { name: appI18n.t("chatSettings.open") });
-  await user.click(screen.getByRole("button", { name: "20%" }));
+  fireEvent.mouseEnter(screen.getByRole("button", { name: "20%" }));
   expect(screen.queryByRole("switch")).not.toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: appI18n.t("chatSettings.open") }));
+  fireEvent.mouseEnter(screen.getByRole("button", { name: appI18n.t("chatSettings.open") }));
   const toggle = screen.getByRole("switch", { name: appI18n.t("chatSettings.autoCompaction") });
   expect(toggle).toBeChecked();
-  await user.click(toggle);
+  fireEvent.click(toggle);
   expect(toggle).not.toBeChecked();
-  expect(mutate).toHaveBeenCalledExactlyOnceWith(target, { kind: "auto_compaction", enabled: false });
+  await waitFor(() => {
+    expect(mutate).toHaveBeenCalledExactlyOnceWith(target, { kind: "auto_compaction", enabled: false });
+  });
   await act(async () => {
     mutation.reject(typedSettingsFailure());
   });
@@ -256,24 +261,28 @@ it("activates nested Settings controls once", async () => {
   const services = createTestServices([]);
   vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(initialRead);
   const mutate = vi.spyOn(services.api.chat, "mutateSettings").mockResolvedValue(response());
-  const user = userEvent.setup();
+  const user = userEvent.setup({ skipHover: true });
   render(
     <TestAppProviders services={services}>
       <SessionSettingsChipHost />
     </TestAppProviders>,
   );
-  await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  fireEvent.mouseEnter(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
   const popover = screen.getByRole("dialog");
-  await user.click(within(popover).getByRole("radio", { name: appI18n.t("chatSettings.supervisorAlways") }));
-  expect(mutate).toHaveBeenCalledExactlyOnceWith(target, { kind: "supervisor", value: "all" });
+  fireEvent.click(within(popover).getByRole("radio", { name: appI18n.t("chatSettings.supervisorAlways") }));
+  await waitFor(() => {
+    expect(mutate).toHaveBeenCalledExactlyOnceWith(target, { kind: "supervisor", value: "all" });
+  });
   mutate.mockClear();
   for (const [label, operation] of [
     [appI18n.t("chatSettings.fast"), { kind: "fast", enabled: true }],
     [appI18n.t("chatSettings.questions"), { kind: "questions", enabled: false }],
     [appI18n.t("chatSettings.autoCompaction"), { kind: "auto_compaction", enabled: false }],
   ] as const) {
-    await user.click(within(popover).getByRole("switch", { name: label }));
-    expect(mutate).toHaveBeenCalledExactlyOnceWith(target, operation);
+    fireEvent.click(within(popover).getByRole("switch", { name: label }));
+    await waitFor(() => {
+      expect(mutate).toHaveBeenCalledExactlyOnceWith(target, operation);
+    });
     mutate.mockClear();
   }
   const thinkingInput = within(popover).getByRole("textbox", { name: appI18n.t("chatSettings.thinking") });
@@ -309,7 +318,7 @@ it.each([
     ...initialRead,
     settings: { ...settings, autoCompaction },
   });
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   render(
     <TestAppProviders services={services}>
       <SessionSettingsChipHost />
@@ -332,19 +341,21 @@ it("sends repeated Supervisor segment activations while an earlier request is pe
     .spyOn(services.api.chat, "mutateSettings")
     .mockReturnValueOnce(first.promise)
     .mockReturnValueOnce(second.promise);
-  const user = userEvent.setup();
   render(
     <TestAppProviders services={services}>
       <SessionSettingsChipHost />
     </TestAppProviders>,
   );
-  await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  fireEvent.mouseEnter(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
   const always = within(screen.getByRole("dialog")).getByRole("radio", {
     name: appI18n.t("chatSettings.supervisorAlways"),
   });
-  await user.click(always);
+  fireEvent.click(always);
   expect(always).toBeChecked();
-  await user.click(always);
+  await waitFor(() => {
+    expect(mutate).toHaveBeenCalledOnce();
+  });
+  fireEvent.click(always);
   await waitFor(() => {
     expect(mutate).toHaveBeenCalledTimes(2);
   });
@@ -376,7 +387,7 @@ it("omits Thinking when the Agent offers only one level", async () => {
   const mutate = vi
     .spyOn(services.api.chat, "mutateSettings")
     .mockResolvedValue(response(singleValueThinking));
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   render(
     <TestAppProviders services={services}>
       <SessionSettingsChipHost />

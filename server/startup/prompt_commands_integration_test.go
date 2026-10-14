@@ -40,6 +40,7 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
+	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)
 	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, workspaceA)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)

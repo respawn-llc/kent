@@ -2,11 +2,9 @@ package metadata_test
 
 import (
 	"context"
-	"database/sql"
-	"os"
-	"path/filepath"
 	"testing"
 
+	"core/internal/testharness/databaseseed"
 	"core/internal/testharness/workflowfixture"
 	"core/server/metadata"
 	metadatamigrations "core/server/metadata/migrations"
@@ -14,31 +12,18 @@ import (
 	"core/server/workflowstore"
 	"core/shared/runtimeids"
 	"core/shared/toolspec"
-
-	_ "modernc.org/sqlite"
 )
 
 const version71CutoverPrompt = `Execute {{.TaskTitle}}.`
 
 func TestVersion71CutoverLoadsAndStartsThroughWorkflowStore(t *testing.T) {
 	ctx := context.Background()
-	root := t.TempDir()
-	bootstrap, err := metadata.Open(filepath.Join(root, "bootstrap"))
-	if err != nil {
-		t.Fatalf("bootstrap metadata.Open: %v", err)
-	}
-	if err := bootstrap.Close(); err != nil {
-		t.Fatalf("close bootstrap metadata store: %v", err)
-	}
-
-	if err := os.MkdirAll(filepath.Join(root, "db"), 0o755); err != nil {
-		t.Fatalf("create database directory: %v", err)
-	}
-	dbPath := filepath.Join(root, "db", "main.sqlite3")
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatalf("open version 71 database: %v", err)
-	}
+	db := databaseseed.OpenEmptyMetadataDatabase(t)
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close in-memory migration database: %v", err)
+		}
+	})
 	provider, err := metadatamigrations.NewProvider(db, nil)
 	if err != nil {
 		t.Fatalf("create migration provider: %v", err)
@@ -110,24 +95,13 @@ SET prompt_template = ?
 WHERE id = 'edge-start'`, version71CutoverPrompt); err != nil {
 		t.Fatalf("seed version 71 Transition Prompt: %v", err)
 	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("close version 71 database: %v", err)
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("migrate version 71 database to current schema: %v", err)
 	}
 
-	metadataStore, err := metadata.Open(root)
+	metadataStore, err := metadata.NewStore("/metadata-cutover", db)
 	if err != nil {
-		t.Fatalf("open migrated metadata store: %v", err)
-	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
-	workspace := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(workspace, "scripts"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(workspace, "scripts", "run"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := metadataStore.DB().ExecContext(ctx, `UPDATE workspaces SET canonical_root_path = ? WHERE id = ?`, workspace, "workspace-cutover"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("initialize migrated metadata store: %v", err)
 	}
 	store, err := workflowstore.New(metadataStore, workflowstore.WithRoleResolver(cutoverRoleResolver{}))
 	if err != nil {
@@ -193,7 +167,7 @@ WHERE name IN ('prompt_template', 'input_fields_json', 'output_fields_json')`).S
 	}
 	plan, err := store.PlanTaskStart(ctx, task.ID, &workflowstore.ExecutionTargetCandidate{
 		Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
-		Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: "workspace-cutover", SourceWorkspaceRoot: workspace},
+		Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: "workspace-cutover", SourceWorkspaceRoot: "/workspace-cutover"},
 	})
 	if err != nil {
 		t.Fatalf("PlanTaskStart: %v", err)

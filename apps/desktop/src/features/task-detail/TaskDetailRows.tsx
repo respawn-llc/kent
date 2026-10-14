@@ -18,7 +18,6 @@ import { writeClipboardText } from "@/shared/native-clipboard";
 import { taskStatusTone } from "@/shared/task-status";
 import {
   Button,
-  CollapsibleMarkdownField,
   Island,
   compactExternalUrlLabel,
   safeExternalUrl,
@@ -29,6 +28,7 @@ import {
   PopoverTrigger,
 } from "@/ui";
 import { cx, fieldIslandInputClassName } from "@/ui";
+import { CollapsibleMarkdownField } from "@/ui/markdown";
 import type { DescriptionPresentationState } from "./TaskDetailDescriptionPresentation";
 import type { TaskDetailSessionChatEntry } from "./taskDetailSessionChat";
 import { TaskExecutionTargetFacts } from "./TaskExecutionTargetFacts";
