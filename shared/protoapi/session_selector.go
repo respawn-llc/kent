@@ -82,14 +82,11 @@ func SessionShortIDFromProto(value *int64) *runtimeids.SessionShortID {
 }
 
 func SessionSelectorFromProto(value *sharedpb.SessionSelector) (runtimeids.SessionSelector, error) {
-	if err := Validate(value); err != nil {
-		return nil, err
-	}
 	switch selected := value.Value.(type) {
 	case *sharedpb.SessionSelector_SessionId:
-		return runtimeids.ParseSessionID(selected.SessionId)
+		return runtimeids.SessionIDFromProto(selected.SessionId), nil
 	case *sharedpb.SessionSelector_ShortId:
-		return runtimeids.NewSessionShortID(selected.ShortId)
+		return runtimeids.SessionShortIDFromProto(selected.ShortId), nil
 	default:
 		return nil, fmt.Errorf("Session selector is required")
 	}

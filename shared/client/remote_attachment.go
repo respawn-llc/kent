@@ -101,7 +101,11 @@ func newRemoteSessionAttachmentIntent(sessionID string) (*remoteAttachmentIntent
 	if err != nil {
 		return nil, err
 	}
-	return &remoteAttachmentIntent{session: &remoteSessionAttachmentIntent{sessionID: selector}}, nil
+	return sessionAttachmentIntent(selector), nil
+}
+
+func sessionAttachmentIntent(selector runtimeids.SessionSelector) *remoteAttachmentIntent {
+	return &remoteAttachmentIntent{session: &remoteSessionAttachmentIntent{sessionID: selector}}
 }
 
 func newRemoteSessionReattachmentIntent(attachment remoteSessionAttachment) (*remoteAttachmentIntent, error) {

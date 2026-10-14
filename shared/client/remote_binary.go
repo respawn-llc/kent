@@ -224,6 +224,14 @@ func callBinaryRPC(
 	if err != nil {
 		return err
 	}
+	_, establishing := request.(*connectionpb.HandshakeRequest)
+	return callPreparedBinaryRPC(ctx, conn, requestID, frame, operation, result, establishing)
+}
+
+func callPreparedBinaryRPC(
+	ctx context.Context, conn rpcwire.Conn, requestID string, frame rpcwire.Frame,
+	operation protoapi.Operation, result proto.Message, establishing bool,
+) error {
 	if err := conn.Send(ctx, frame); err != nil {
 		return err
 	}
@@ -234,7 +242,7 @@ func callBinaryRPC(
 		}
 		if received.Kind != rpcwire.FrameBinary {
 			// Handshake rejection ends setup; established calls reject only the frame.
-			if _, establishing := request.(*connectionpb.HandshakeRequest); establishing {
+			if establishing {
 				return fmt.Errorf("handshake received a nonbinary frame")
 			}
 			continue
