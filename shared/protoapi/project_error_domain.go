@@ -8,15 +8,11 @@ import (
 	"core/shared/serverapi"
 )
 
-func WorkspaceBindingAmbiguousToProto(value serverapi.WorkspaceBindingAmbiguousError) (*projectpb.WorkspaceBindingAmbiguousDetails, error) {
-	details := &projectpb.WorkspaceBindingAmbiguousDetails{
+func WorkspaceBindingAmbiguousToProto(value serverapi.WorkspaceBindingAmbiguousError) *projectpb.WorkspaceBindingAmbiguousDetails {
+	return &projectpb.WorkspaceBindingAmbiguousDetails{
 		CanonicalRoot: value.CanonicalRoot,
 		ProjectIds:    append([]string(nil), value.ProjectIDs...),
 	}
-	if err := Validate(details); err != nil {
-		return nil, fmt.Errorf("convert ambiguous workspace binding to protobuf: %w", err)
-	}
-	return details, nil
 }
 
 func WorkspaceBindingAmbiguousFromProto(details *projectpb.WorkspaceBindingAmbiguousDetails) serverapi.WorkspaceBindingAmbiguousError {
@@ -35,9 +31,6 @@ func ProjectUnavailableToProto(value serverapi.ProjectUnavailableError) (*projec
 		ProjectId:    value.ProjectID,
 		RootPath:     value.RootPath,
 		Availability: availability,
-	}
-	if err := Validate(details); err != nil {
-		return nil, fmt.Errorf("convert unavailable project to protobuf: %w", err)
 	}
 	return details, nil
 }

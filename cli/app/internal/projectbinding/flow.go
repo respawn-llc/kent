@@ -103,13 +103,7 @@ func EnsureInteractive[T any](ctx context.Context, req Request[T]) (T, error) {
 	}
 	switch plan.Kind {
 	case projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_BOUND:
-		if plan.Binding == nil {
-			return zero, errors.New("resolved project binding is required")
-		}
 		projectID := strings.TrimSpace(plan.Binding.ProjectId)
-		if projectID == "" {
-			return zero, errors.New("resolved project id is required")
-		}
 		bound, bindErr := req.Server.BindProjectWorkspace(ctx, projectID, strings.TrimSpace(plan.Binding.WorkspaceId))
 		if bindErr != nil {
 			return zero, FormatStartupError(workspaceRoot, projectID, bindErr)

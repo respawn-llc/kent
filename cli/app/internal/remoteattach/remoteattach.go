@@ -102,10 +102,6 @@ func DialHeadless(ctx context.Context, req HeadlessRequest) (*client.Remote, boo
 	}
 	switch plan.Kind {
 	case projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_BOUND:
-		if plan.Binding == nil {
-			_ = projectViews.Close()
-			return nil, true, errors.New("resolved project binding is required")
-		}
 		_ = projectViews.Close()
 		remote, err := dialWorkspaceWithTimeout(ctx, req.Config, req.AttachTimeout, req.DialWorkspace, plan.Binding.ProjectId, plan.Binding.WorkspaceId)
 		if err != nil {
@@ -123,10 +119,6 @@ func DialHeadless(ctx context.Context, req HeadlessRequest) (*client.Remote, boo
 		_ = projectViews.Close()
 		return nil, true, errors.New("remote server could not resolve the current workspace and no single server workspace could be chosen automatically. Run `kent project list`, `kent project create --path <server-path> --name <project-name>`, or `kent attach --project <project-id> <server-path>` against the configured server, or start interactive Kent to choose an existing server project/workspace")
 	case projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_HEADLESS_REMOTE_SELECTED:
-		if plan.Workspace == nil {
-			_ = projectViews.Close()
-			return nil, true, errors.New("resolved remote workspace is required")
-		}
 		_ = projectViews.Close()
 		remote, err := dialWorkspaceWithTimeout(ctx, req.Config, req.AttachTimeout, req.DialWorkspace, plan.Workspace.ProjectId, plan.Workspace.WorkspaceId)
 		if err != nil {

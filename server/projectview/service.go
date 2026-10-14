@@ -73,9 +73,6 @@ func (s *Service) WithWorkflowExecution(taskMutations *workflowexecution.TaskMut
 }
 
 func (s *Service) ListProjects(ctx context.Context, req *emptypb.Empty) (*projectpb.ProjectListSuccess, error) {
-	if req == nil {
-		return nil, errors.New("project list request is required")
-	}
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
@@ -95,9 +92,6 @@ func (s *Service) ListProjects(ctx context.Context, req *emptypb.Empty) (*projec
 }
 
 func (s *Service) ListProjectHome(ctx context.Context, req *projectpb.ProjectHomeListRequest) (*projectpb.ProjectHomeListSuccess, error) {
-	if req == nil {
-		return nil, errors.New("project home list request is required")
-	}
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
@@ -138,9 +132,6 @@ func (s *Service) ListProjectHome(ctx context.Context, req *projectpb.ProjectHom
 }
 
 func (s *Service) ResolveProjectPath(ctx context.Context, req *projectpb.ResolvePathRequest) (*projectpb.ResolvePathSuccess, error) {
-	if req == nil {
-		return nil, errors.New("project path request is required")
-	}
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
@@ -163,9 +154,6 @@ func (s *Service) ResolveProjectPath(ctx context.Context, req *projectpb.Resolve
 }
 
 func (s *Service) PlanWorkspaceBinding(ctx context.Context, req *projectpb.PlanWorkspaceBindingRequest) (*projectpb.PlanWorkspaceBindingSuccess, error) {
-	if req == nil {
-		return nil, errors.New("workspace binding plan request is required")
-	}
 	resolved, err := s.ResolveProjectPath(ctx, &projectpb.ResolvePathRequest{Path: req.Path})
 	if err != nil {
 		if ambiguous, ok := serverapi.AsWorkspaceBindingAmbiguous(err); ok {
@@ -240,9 +228,6 @@ func (s *Service) PlanWorkspaceBinding(ctx context.Context, req *projectpb.PlanW
 }
 
 func (s *Service) CreateProject(ctx context.Context, req *projectpb.CreateProjectRequest) (*projectpb.CreateProjectSuccess, error) {
-	if req == nil {
-		return nil, errors.New("create project request is required")
-	}
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
@@ -258,9 +243,6 @@ func (s *Service) CreateProject(ctx context.Context, req *projectpb.CreateProjec
 }
 
 func (s *Service) UpdateProject(ctx context.Context, req *projectpb.UpdateProjectRequest) (*projectpb.UpdateProjectSuccess, error) {
-	if req == nil {
-		return nil, errors.New("update project request is required")
-	}
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
@@ -279,9 +261,6 @@ func (s *Service) UpdateProject(ctx context.Context, req *projectpb.UpdateProjec
 }
 
 func (s *Service) GetProjectEdit(ctx context.Context, req *projectpb.ProjectEditGetRequest) (*projectpb.GetProjectEditSuccess, error) {
-	if req == nil {
-		return nil, errors.New("get project edit request is required")
-	}
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
@@ -297,9 +276,6 @@ func (s *Service) GetProjectEdit(ctx context.Context, req *projectpb.ProjectEdit
 }
 
 func (s *Service) DeleteProject(ctx context.Context, req *projectpb.DeleteProjectRequest) (*projectpb.DeleteProjectSuccess, error) {
-	if req == nil {
-		return nil, errors.New("delete project request is required")
-	}
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
@@ -565,9 +541,6 @@ func (s *Service) selectSingleAvailableWorkspace(ctx context.Context) (*projectp
 }
 
 func (s *Service) ListProjectWorkspaces(ctx context.Context, req *projectpb.ProjectWorkspaceListRequest) (*projectpb.ListProjectWorkspacesSuccess, error) {
-	if req == nil {
-		return nil, errors.New("project workspace list request is required")
-	}
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
@@ -594,9 +567,6 @@ func (s *Service) ListProjectWorkspaces(ctx context.Context, req *projectpb.Proj
 }
 
 func (s *Service) GetProjectWorkspace(ctx context.Context, req *projectpb.GetProjectWorkspaceRequest) (*projectpb.GetProjectWorkspaceSuccess, error) {
-	if req == nil {
-		return nil, errors.New("get project workspace request is required")
-	}
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
@@ -622,9 +592,6 @@ func (s *Service) GetProjectWorkspace(ctx context.Context, req *projectpb.GetPro
 }
 
 func (s *Service) AttachWorkspaceToProject(ctx context.Context, req *projectpb.AttachWorkspaceRequest) (*projectpb.AttachWorkspaceSuccess, error) {
-	if req == nil {
-		return nil, errors.New("attach workspace request is required")
-	}
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
@@ -644,9 +611,6 @@ func (s *Service) AttachWorkspaceToProject(ctx context.Context, req *projectpb.A
 }
 
 func (s *Service) RebindWorkspace(ctx context.Context, req *projectpb.RebindWorkspaceRequest) (*projectpb.RebindWorkspaceSuccess, error) {
-	if req == nil {
-		return nil, errors.New("rebind workspace request is required")
-	}
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
@@ -685,9 +649,6 @@ func projectMutationStorageError(err error, projectKey string) error {
 }
 
 func (s *Service) ListSessionPage(ctx context.Context, req *projectpb.SessionPageRequest) (*projectpb.SessionPageSuccess, error) {
-	if req == nil {
-		return nil, errors.New("session page request is required")
-	}
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}

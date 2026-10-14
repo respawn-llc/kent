@@ -529,7 +529,7 @@ message PlanWorkspaceBindingSuccess {
     id: "plan_workspace_binding.shape"
     message: "workspace binding plan fields do not match its kind"
     expression:
-      "this.kind == 1 ? has(this.binding) && size(this.projects) == 0 && !has(this.workspace) : "
+      "this.kind == 1 ? has(this.binding) && this.binding.project_id.trim() != '' && size(this.projects) == 0 && !has(this.workspace) : "
       "this.kind == 4 ? !has(this.binding) && size(this.projects) == 0 && has(this.workspace) : "
       "!has(this.binding) && !has(this.workspace)"
   };
