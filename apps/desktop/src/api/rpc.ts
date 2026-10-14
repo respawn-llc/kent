@@ -12,6 +12,7 @@ import {
   type DescMessage,
   type DescMethod,
   type MessageShape,
+  type MessageValidType,
 } from "@app/server-api-contract";
 import {
   openSocket,
@@ -74,7 +75,7 @@ class RpcWebSocketTransport implements RpcTransport {
     method: Method,
     request: MessageShape<Method["input"]>,
     options?: RpcDedicatedCallOptions,
-  ): Promise<MessageShape<Method["output"]>> {
+  ): Promise<MessageValidType<Method["output"]>> {
     switch (unaryConnectionPolicy(method)) {
       case "multiplexed": {
         if (options?.signal !== undefined) {
@@ -93,7 +94,7 @@ class RpcWebSocketTransport implements RpcTransport {
   async callDescriptorAttachedProject<Method extends DescMethod>(
     input: AttachedProjectDescriptorCall<Method>,
     options?: RpcDedicatedCallOptions,
-  ): Promise<Readonly<{ result: MessageShape<Method["output"]>; attachment: ProjectAttachment }>> {
+  ): Promise<Readonly<{ result: MessageValidType<Method["output"]>; attachment: ProjectAttachment }>> {
     const { projectID, selector, method, createRequest } = input;
     return this.#withDedicatedSocket(
       options,
@@ -118,7 +119,7 @@ class RpcWebSocketTransport implements RpcTransport {
     method: Method,
     request: MessageShape<Method["input"]>,
     options?: RpcDedicatedCallOptions,
-  ): Promise<MessageShape<Method["output"]>> {
+  ): Promise<MessageValidType<Method["output"]>> {
     const attachedSessionID = target.sessionID.trim();
     if (attachedSessionID.length === 0) {
       throw new TransportError("Session attachment requires a Session ID.");
@@ -240,14 +241,14 @@ class RpcWebSocketTransport implements RpcTransport {
     method: Method,
     request: MessageShape<Method["input"]>,
     options?: RpcCallOptions,
-  ): Promise<MessageShape<Method["output"]>> {
+  ): Promise<MessageValidType<Method["output"]>> {
     if (socket.readyState !== WebSocket.OPEN) {
       throw new TransportError("WebSocket is not open.");
     }
     const id = `gui-${this.#nextID.toString()}`;
     this.#nextID += 1;
     const { operation, bytes } = encodeDescriptorCall(method, request, id);
-    return new Promise<MessageShape<Method["output"]>>((resolve, reject) => {
+    return new Promise<MessageValidType<Method["output"]>>((resolve, reject) => {
       const timeoutMs = options?.timeoutMs === undefined ? rpcRequestTimeoutMs : options.timeoutMs;
       const timeout =
         timeoutMs === null

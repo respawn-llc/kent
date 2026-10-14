@@ -13,6 +13,7 @@ import {
   type DescMethod,
   type Message,
   type MessageShape,
+  type MessageValidType,
 } from "@app/server-api-contract";
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
 import {
@@ -328,7 +329,7 @@ export class FakeRpcTransport implements RpcTransport {
     descriptor: Method,
     request: MessageShape<Method["input"]>,
     options?: RpcDedicatedCallOptions,
-  ): Promise<MessageShape<Method["output"]>> {
+  ): Promise<MessageValidType<Method["output"]>> {
     validate(descriptor.input, request);
     this.descriptorCalls.push(
       options === undefined ? { descriptor, request } : { descriptor, request, options },
@@ -401,7 +402,7 @@ export class FakeRpcTransport implements RpcTransport {
   async callDescriptorAttachedProject<Method extends DescMethod>(
     input: AttachedProjectDescriptorCall<Method>,
     options?: RpcDedicatedCallOptions,
-  ): Promise<Readonly<{ result: MessageShape<Method["output"]>; attachment: ProjectAttachment }>> {
+  ): Promise<Readonly<{ result: MessageValidType<Method["output"]>; attachment: ProjectAttachment }>> {
     const { projectID, selector, method, createRequest } = input;
     const attachment = this.#projectAttachment(projectID, selector);
     const request = createRequest(attachment);
@@ -421,7 +422,7 @@ export class FakeRpcTransport implements RpcTransport {
     method: Method,
     request: MessageShape<Method["input"]>,
     options?: RpcDedicatedCallOptions,
-  ): Promise<MessageShape<Method["output"]>> {
+  ): Promise<MessageValidType<Method["output"]>> {
     this.attachedSessionCalls.push({ sessionID: target.sessionID, method: operationName(method) });
     return this.callDescriptor(method, request, options);
   }

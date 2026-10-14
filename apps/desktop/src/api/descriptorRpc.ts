@@ -8,6 +8,7 @@ import {
   validateResultErrorDetail,
   type DescMethod,
   type MessageShape,
+  type MessageValidType,
 } from "@app/server-api-contract";
 import type { Result, TransportFailure } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 
@@ -75,7 +76,7 @@ export function completeDescriptorResponse<Method extends DescMethod>(
   method: Method,
   expectedCorrelation: string,
   response: DescriptorResponse,
-): MessageShape<Method["output"]> {
+): MessageValidType<Method["output"]> {
   const operation = operationName(method);
   if (response.correlation !== expectedCorrelation) {
     throw new TransportError(`${operation} response correlation does not match its request.`);

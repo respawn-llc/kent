@@ -1,4 +1,9 @@
-import { operationName, type DescMethod, type Message, type MessageShape } from "@app/server-api-contract";
+import {
+  operationName,
+  type DescMethod,
+  type Message,
+  type MessageValidType,
+} from "@app/server-api-contract";
 
 import { ContractError, RpcError, TransportError } from "./errors";
 import type { StreamCompletion } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
@@ -17,7 +22,7 @@ type RpcResult = Readonly<{
     | Readonly<{ case: undefined; value?: undefined }>;
 }>;
 type MethodOutcome<Method extends DescMethod> =
-  MessageShape<Method["output"]> extends Readonly<{ outcome: infer Outcome }> ? Outcome : never;
+  MessageValidType<Method["output"]> extends Readonly<{ outcome: infer Outcome }> ? Outcome : never;
 type MethodSuccess<Method extends DescMethod> =
   Extract<MethodOutcome<Method>, Readonly<{ case: "success" }>> extends Readonly<{
     value: infer Success;
@@ -27,7 +32,7 @@ type MethodSuccess<Method extends DescMethod> =
 
 export function requireUnarySuccess<Method extends DescMethod>(
   method: Method,
-  result: RpcResult,
+  result: MessageValidType<Method["output"]> & RpcResult,
 ): MethodSuccess<Method>;
 export function requireUnarySuccess(method: DescMethod, result: RpcResult): Message {
   const { outcome } = result;

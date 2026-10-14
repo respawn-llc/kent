@@ -7,6 +7,7 @@ import {
   type DescMessage,
   type DescMethod,
   type MessageShape,
+  type MessageValidType,
 } from "@app/server-api-contract";
 import { ConnectionService } from "@app/server-api-contract/gen/kent/api/connection/connection_pb";
 import {
@@ -86,13 +87,13 @@ export async function sendSocketDescriptorRequest<Method extends DescMethod>(
   method: Method,
   request: MessageShape<Method["input"]>,
   options: SocketRequestOptions,
-): Promise<MessageShape<Method["output"]>> {
+): Promise<MessageValidType<Method["output"]>> {
   const correlation = `${method.name}-${Date.now().toString()}`;
   const { operation, bytes } = encodeDescriptorCall(method, request, correlation);
   return sendSocketFrame(
     socket,
     { label: operation, frame: binaryFramePayload(bytes) },
-    (event): SocketResponse<MessageShape<Method["output"]>> => {
+    (event): SocketResponse<MessageValidType<Method["output"]>> => {
       const frame = binaryFrameBytes(event.data);
       if (frame === undefined) {
         return { kind: "unmatched" };
@@ -167,7 +168,7 @@ export async function runSocketDescriptorSubscription<
         throw new TransportError(`${notification.operation} notification payload is required.`);
       }
       if (notification.operation === operationName(associations.event)) {
-        let decoded: MessageShape<EventDescriptor>;
+        let decoded: MessageValidType<EventDescriptor>;
         try {
           decoded = decode(eventDescriptor, notification.payload);
         } catch (cause) {
