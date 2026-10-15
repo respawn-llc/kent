@@ -514,9 +514,6 @@ func (i taskExecutionTargetInfrastructure) ResolveExecutionTarget(ctx context.Co
 			revision, err = i.git.ResolveRevision(ctx, req.SourceWorkspaceRoot, defaultBranch.Ref)
 		}
 	case workflow.ExecutionTargetModeCustomRef:
-		if req.Selection.CustomRef == nil {
-			return workflowstore.ExecutionTargetSnapshot{}, errors.New("custom execution target ref is required")
-		}
 		revision, err = i.git.ResolveRevision(ctx, req.SourceWorkspaceRoot, *req.Selection.CustomRef)
 	default:
 		return workflowstore.ExecutionTargetSnapshot{}, fmt.Errorf("execution target mode %q is not managed", req.Selection.Mode)
@@ -539,18 +536,12 @@ func (i taskExecutionTargetInfrastructure) MaterializeExecutionTarget(ctx contex
 	if i.service == nil {
 		return workflowsvc.ExecutionTargetMaterialization{}, errors.New("worktree service is required")
 	}
-	if err := req.Snapshot.Validate(); err != nil {
-		return workflowsvc.ExecutionTargetMaterialization{}, err
-	}
 	if req.Snapshot.Mode == workflow.ExecutionTargetModeNone {
 		prepared, err := i.service.PrepareTaskExecutionRoot(ctx, worktree.TaskExecutionRootPreparationRequest{
 			Purpose: req.Purpose,
 			TaskID:  req.TaskID, SetupOperationID: req.SetupOperationID, SetupRequirement: req.SetupRequirement,
 		})
 		return workflowsvc.ExecutionTargetMaterialization{RetainedPreviousWorktree: prepared.RetainedPreviousWorktree}, err
-	}
-	if req.Snapshot.RequestedRef == nil || req.Snapshot.CommitOID == nil {
-		return workflowsvc.ExecutionTargetMaterialization{}, errors.New("managed execution target snapshot is incomplete")
 	}
 	prepared, err := i.service.PrepareTaskExecutionRoot(ctx, worktree.TaskExecutionRootPreparationRequest{
 		Purpose:          req.Purpose,
