@@ -81,14 +81,22 @@ func TestUsageFallbackContinuesAndSavesReplacement(t *testing.T) {
 }
 
 func TestUsageFallbackInheritedReviewerContinues(t *testing.T) {
-	testUsageFallbackReviewer(t, false)
+	testUsageFallbackReviewer(t, false, false, false)
 }
 
 func TestUsageFallbackExplicitReviewerStaysIsolated(t *testing.T) {
-	testUsageFallbackReviewer(t, true)
+	testUsageFallbackReviewer(t, true, false, false)
 }
 
-func testUsageFallbackReviewer(t *testing.T, explicit bool) {
+func TestUsageFallbackInheritedReviewerUnavailable(t *testing.T) {
+	testUsageFallbackReviewer(t, false, true, false)
+}
+
+func TestUsageFallbackReviewerPreparationFailureKeepsBinding(t *testing.T) {
+	testUsageFallbackReviewer(t, false, false, true)
+}
+
+func testUsageFallbackReviewer(t *testing.T, explicit, unavailable, preparationFailure bool) {
 	healthy, err := blackbox.StartResponsesStub([]blackbox.RequiredOperation{
 		{ID: uuid.New(), Route: blackbox.RouteResponses, Outcome: blackbox.OutcomeStream, Output: textutil.Value("done"), ResponsePhase: blackbox.NewResponsePhase(blackbox.ResponsePhaseFinal)},
 		{ID: uuid.New(), Route: blackbox.RouteResponses, Outcome: blackbox.OutcomeStream, Output: textutil.Value(`{"suggestions":[]}`), ResponsePhase: blackbox.NewResponsePhase(blackbox.ResponsePhaseFinal)},
@@ -119,7 +127,20 @@ func testUsageFallbackReviewer(t *testing.T, explicit bool) {
 		reviewer.Connection = config.SingleConnection("a")
 	}
 	rotation := launch.NewConnectionRotation(time.Minute)
-	wiring, store := newUsageFallbackRuntimeWithReviewer(t, rotation, a.URL, healthy.URL(), config.CompactionModeLocal, reviewer)
+	b := healthy.URL()
+	if unavailable {
+		b, _ = usageFailureEndpoint(t, 429, fault)
+	}
+	var factory RuntimeClientFactory
+	if preparationFailure {
+		factory = RuntimeClientFactoryFunc(func(ctx context.Context, req RuntimeClientRequest) (llm.Client, error) {
+			if req.Connection.ID == "b" && req.Purpose == RuntimeClientPurposeReviewer {
+				return nil, errors.New("fixture Reviewer resource preparation failure")
+			}
+			return NewRuntimeClient(ctx, nil, req)
+		})
+	}
+	wiring, store := newUsageFallbackRuntimeWithReviewer(t, rotation, a.URL, b, config.CompactionModeLocal, reviewer, factory)
 	if _, err := wiring.Engine.SubmitUserMessage(t.Context(), "hello"); err != nil {
 		t.Fatal(err)
 	}
@@ -135,8 +156,11 @@ func testUsageFallbackReviewer(t *testing.T, explicit bool) {
 		}
 	}
 	wantID, wantRequests := config.ConnectionID("b"), 2
-	if explicit {
+	if explicit || preparationFailure {
 		wantID, wantRequests = "a", 1
+	}
+	if unavailable {
+		wantRequests = 1
 	}
 	if got := store.Meta().ConnectionID; got == nil || *got != wantID {
 		_ = wiring.Engine.WithTranscriptHydrationSnapshot(func(value runtime.TranscriptHydrationSnapshot) error {
@@ -148,13 +172,38 @@ func testUsageFallbackReviewer(t *testing.T, explicit bool) {
 	if !rotation.CoolingDown("a") || calls.Load() != 2 || len(healthy.Snapshot().Observed) != wantRequests {
 		t.Fatalf("requests = a %d, healthy %+v", calls.Load(), healthy.Snapshot().Observed)
 	}
+	if explicit || unavailable || preparationFailure {
+		reopened, err := session.Open(store.Dir(), runtimeWireTestSessionPersistence.Options()...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		page, err := runtime.TranscriptNewestSegmentPageFromEventLog(materializedRuntimeWireEventLog(t, reopened), config.CacheWarningModeDefault)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var errorsFound int
+		for _, entry := range page.Snapshot.Entries {
+			if entry.ReviewerError != nil {
+				errorsFound++
+				if entry.ReviewerError.ID.String() == "" || entry.ReviewerError.Detail == "" {
+					t.Fatalf("Reviewer error lacks identity or diagnostics: %+v", entry.ReviewerError)
+				}
+			}
+			if entry.ConnectionsUnavailable != nil {
+				t.Fatal("Reviewer failure projected an extra generic unavailable row")
+			}
+		}
+		if errorsFound != 1 {
+			t.Fatalf("durable Reviewer errors = %d, want 1", errorsFound)
+		}
+	}
 }
 
 func newUsageFallbackRuntime(t *testing.T, rotation *launch.ConnectionRotation, a, b string, mode config.CompactionMode, enabled ...toolspec.ID) (*RuntimeWiring, *session.Store) {
-	return newUsageFallbackRuntimeWithReviewer(t, rotation, a, b, mode, config.ReviewerSettings{Frequency: "off"}, enabled...)
+	return newUsageFallbackRuntimeWithReviewer(t, rotation, a, b, mode, config.ReviewerSettings{Frequency: "off"}, nil, enabled...)
 }
 
-func newUsageFallbackRuntimeWithReviewer(t *testing.T, rotation *launch.ConnectionRotation, a, b string, mode config.CompactionMode, reviewer config.ReviewerSettings, enabled ...toolspec.ID) (*RuntimeWiring, *session.Store) {
+func newUsageFallbackRuntimeWithReviewer(t *testing.T, rotation *launch.ConnectionRotation, a, b string, mode config.CompactionMode, reviewer config.ReviewerSettings, factory RuntimeClientFactory, enabled ...toolspec.ID) (*RuntimeWiring, *session.Store) {
 	t.Helper()
 	root := t.TempDir()
 	store := newRuntimeWireSession(t, root, "usage-fallback")
@@ -186,6 +235,7 @@ func newUsageFallbackRuntimeWithReviewer(t *testing.T, rotation *launch.Connecti
 		Shell:          config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 	}
 	options := requiredRuntimeWireTestOptions(RuntimeWiringOptions{
+		ClientFactory:      factory,
 		FilesystemContext:  runtimeWireFilesystemContext(t, root),
 		ConnectionRotation: rotation,
 		ConnectionScope:    config.ConnectionScope{Selection: &scope},

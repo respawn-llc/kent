@@ -87,7 +87,7 @@ func TestReviewerSystemPromptRefreshesIndependentlyAfterCompaction(t *testing.T)
 	if _, err := eng.SubmitUserMessage(context.Background(), "hello"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	reviewerReq, err := eng.buildReviewerRequest(context.Background(), newObservedModelClient(reviewerClient))
+	reviewerReq, err := eng.buildReviewerRequest(context.Background())
 	if err != nil {
 		t.Fatalf("build reviewer before compaction: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestReviewerSystemPromptRefreshesIndependentlyAfterCompaction(t *testing.T)
 	if mainLocked != nil {
 		t.Fatalf("contract after compaction = %+v, want absent", mainLocked)
 	}
-	reviewerReq, err = eng.buildReviewerRequest(context.Background(), newObservedModelClient(reviewerClient))
+	reviewerReq, err = eng.buildReviewerRequest(context.Background())
 	if err != nil {
 		t.Fatalf("build reviewer after compaction: %v", err)
 	}
@@ -182,6 +182,7 @@ func TestReviewerSuggestionsRequestInheritsFastMode(t *testing.T) {
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 
+	reviewerClient.caps = mainClient.caps
 	eng := mustNewTestEngine(t, store, mainClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
 		Model:           "gpt-6-sol",
 		FastModeEnabled: true,
