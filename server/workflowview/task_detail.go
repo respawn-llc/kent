@@ -73,13 +73,7 @@ func (d *TaskDetail) GetTaskByProjectShortID(ctx context.Context, projectID stri
 		return nil, errors.New("task detail is required")
 	}
 	trimmedProjectID := strings.TrimSpace(projectID)
-	if trimmedProjectID == "" {
-		return nil, errors.New("project_id is required")
-	}
 	trimmedShortID := strings.TrimSpace(shortID)
-	if trimmedShortID == "" {
-		return nil, errors.New("short_id is required")
-	}
 	task, err := d.queries.GetTaskByProjectShortID(ctx, sqlitegen.GetTaskByProjectShortIDParams{ProjectID: trimmedProjectID, ShortID: trimmedShortID})
 	if err != nil {
 		return nil, err
@@ -92,9 +86,6 @@ func (d *TaskDetail) GetTaskByShortID(ctx context.Context, shortID string) (*tas
 		return nil, errors.New("task detail is required")
 	}
 	trimmedShortID := strings.TrimSpace(shortID)
-	if trimmedShortID == "" {
-		return nil, errors.New("short_id is required")
-	}
 	tasks, err := d.queries.ListTasksByShortID(ctx, trimmedShortID)
 	if err != nil {
 		return nil, err
