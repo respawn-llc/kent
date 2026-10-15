@@ -886,7 +886,7 @@ func (s *Service) startWorkflowTask(ctx context.Context, req *taskpb.StartReques
 		return nil, errors.New("task start did not create any current nodes")
 	}
 	if detail, detailErr := s.readModels.TaskDetail.GetTask(ctx, req.TaskId); detailErr == nil {
-		workflowID, err := runtimeids.ParseWorkflowID(detail.Summary.WorkflowId)
+		workflowID, err := runtimeids.WorkflowIDFromProto(detail.Summary.WorkflowId)
 		if err != nil {
 			return nil, err
 		}
@@ -1478,7 +1478,7 @@ func (s *Service) resumeWorkflowTaskAuthorized(
 	}
 	if handled {
 		if detail, detailErr := s.readModels.TaskDetail.GetTask(ctx, req.TaskId); detailErr == nil {
-			workflowID, err := runtimeids.ParseWorkflowID(detail.Summary.WorkflowId)
+			workflowID, err := runtimeids.WorkflowIDFromProto(detail.Summary.WorkflowId)
 			if err != nil {
 				return nil, err
 			}
@@ -1597,7 +1597,7 @@ func (s *Service) resumeWorkflowTaskAuthorized(
 		return nil, &workflowexecution.TaskResumeConflictError{TaskID: taskID}
 	}
 	if detail, detailErr := s.readModels.TaskDetail.GetTask(ctx, req.TaskId); detailErr == nil {
-		workflowID, err := runtimeids.ParseWorkflowID(detail.Summary.WorkflowId)
+		workflowID, err := runtimeids.WorkflowIDFromProto(detail.Summary.WorkflowId)
 		if err != nil {
 			return nil, err
 		}
@@ -1651,7 +1651,7 @@ func (s *Service) approveWorkflowTask(ctx context.Context, req *taskpb.ApproveRe
 	s.finalizeTaskAttentionResolution(approved.TaskAttentionResolution)
 	taskID := string(approved.ResolvedApproval.Source.TaskID)
 	if detail, detailErr := s.readModels.TaskDetail.GetTask(ctx, taskID); detailErr == nil {
-		workflowID, err := runtimeids.ParseWorkflowID(detail.Summary.WorkflowId)
+		workflowID, err := runtimeids.WorkflowIDFromProto(detail.Summary.WorkflowId)
 		if err != nil {
 			return nil, err
 		}
@@ -1888,7 +1888,7 @@ func (s *Service) moveWorkflowTask(ctx context.Context, req *taskpb.MoveRequest)
 	}
 	s.finalizeTaskAttentionResolution(moved.TaskAttentionResolution)
 	if detail, detailErr := s.readModels.TaskDetail.GetTask(ctx, req.TaskId); detailErr == nil {
-		workflowID, err := runtimeids.ParseWorkflowID(detail.Summary.WorkflowId)
+		workflowID, err := runtimeids.WorkflowIDFromProto(detail.Summary.WorkflowId)
 		if err != nil {
 			return nil, err
 		}
@@ -2201,7 +2201,7 @@ func (s *Service) AddWorkflowTaskComment(ctx context.Context, req *taskpb.Commen
 		return nil, err
 	}
 	if detail, detailErr := s.readModels.TaskDetail.GetTask(ctx, req.TaskId); detailErr == nil {
-		workflowID, err := runtimeids.ParseWorkflowID(detail.Summary.WorkflowId)
+		workflowID, err := runtimeids.WorkflowIDFromProto(detail.Summary.WorkflowId)
 		if err != nil {
 			return nil, err
 		}

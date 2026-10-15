@@ -116,9 +116,6 @@ func (s *Store) RunWorkflowGraphSaveOperation(
 	workflowID runtimeids.WorkflowID,
 	operation func(context.Context) (WorkflowGraphSaveResult, error),
 ) (WorkflowGraphSaveResult, error) {
-	if workflowID.IsZero() {
-		return WorkflowGraphSaveResult{}, ErrWorkflowIDRequired
-	}
 	if operation == nil {
 		return WorkflowGraphSaveResult{}, errors.New("workflow graph save operation is required")
 	}
