@@ -346,6 +346,38 @@ func TestUsageFallbackUnavailableIsBoundedAfterCooldownExpires(t *testing.T) {
 	}
 }
 
+func TestUsageFallbackCooldownExpiryKeepsCurrentConnection(t *testing.T) {
+	store := newRuntimeWireSession(t, t.TempDir(), "cooldown-expiry")
+	settings := config.Settings{
+		Connection: config.SingleConnection("a"),
+		Connections: map[config.ConnectionID]config.ProviderConnection{
+			"a": {Protocol: config.ConnectionResponses, Endpoint: textutil.Value("http://127.0.0.1:1")},
+		},
+	}
+	rotation := launch.NewConnectionRotation(time.Microsecond)
+	resolve := connectionMaterializer(store, settings, RuntimeWiringOptions{
+		ConnectionRotation: rotation,
+		ConnectionScope:    config.ConnectionScope{Selection: settings.Connection},
+	}, func(config.Settings, RuntimeClientPurpose, RuntimeClientFactory, llm.ProviderCapabilities) (llm.Client, error) {
+		return nil, errors.New("unchanged connection must not reconstruct its client")
+	})
+	// Exercise eligibility changing during selection without asserting scheduler
+	// timing: either still unavailable or usable with its existing resources.
+	for range 10000 {
+		rotation.RecordExhaustion("a")
+		replacement, err := resolve(t.Context(), runtime.ConnectionSelectionRequest{
+			Current: "a", Reason: runtime.ConnectionBeforeDispatch,
+		})
+		var unavailable *llmerrors.ConnectionsUnavailableError
+		if errors.As(err, &unavailable) {
+			continue
+		}
+		if err != nil || replacement != nil {
+			t.Fatalf("unchanged selection = %+v, %v", replacement, err)
+		}
+	}
+}
+
 func TestUsageFallbackZeroRetainsOriginalFailure(t *testing.T) {
 	fault := usageExhaustionFixture(t)
 	a, aCalls := usageFailureEndpoint(t, 429, fault)

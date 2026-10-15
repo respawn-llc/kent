@@ -90,6 +90,9 @@ func connectionMaterializer(
 		if err != nil {
 			return nil, err
 		}
+		if id == request.Current {
+			return nil, nil
+		}
 		settings := active
 		settings.Connection = config.SingleConnection(id)
 		replacementOptions := opts
