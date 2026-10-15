@@ -97,11 +97,7 @@ func writeTaskSessionsResponse(
 	jsonOut bool,
 ) int {
 	if jsonOut {
-		output, err := taskSessionsOutput(response)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+		output := taskSessionsOutput(response)
 		return writeCommandJSON(stdout, stderr, output)
 	}
 	for _, item := range response.Items {
