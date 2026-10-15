@@ -22,7 +22,10 @@ func prepareNewSessionUIRun(ctx context.Context, server interactiveSessionServer
 	}
 	catalog := prepareUICommandCatalog(ctx, server, nil)
 	return uiLoopRequest{
-		ctx: ctx,
+		ctx:             ctx,
+		newChatSettings: server.ChatSettingsClient(),
+		newChatAuth:     server.AuthBootstrapClient(),
+		newChatLogin:    server.Reauthenticate,
 		newChat: &chatpb.NewChatTarget{
 			ProjectId:   binding.ProjectID,
 			WorkspaceId: binding.WorkspaceID,

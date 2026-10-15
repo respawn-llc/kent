@@ -32,6 +32,9 @@ type uiProgramComposition struct {
 type uiLoopRequest struct {
 	sessionLifecycle             apicontract.SessionLifecycleService
 	newChat                      *chatpb.NewChatTarget
+	newChatSettings              apicontract.ChatSettingsService
+	newChatAuth                  apicontract.AuthBootstrapService
+	newChatLogin                 func(context.Context) error
 	ctx                          context.Context
 	wiring                       *runtimeWiring
 	projectID                    string
@@ -219,7 +222,15 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		model.drafts = newUIDraftPersistence(request.sessionLifecycle, sessionID, model.mainEditor.Text())
 	}
 	if request.newChat != nil {
-		model.presentationTarget = uiNewSessionTarget{creation: request.newChat}
+		model.presentationTarget = &uiNewSessionTarget{
+			creation: request.newChat,
+			settings: request.newChatSettings,
+			auth:     request.newChatAuth,
+			login:    request.newChatLogin,
+		}
+		if request.newChatSettings != nil {
+			model.startupCmds = append(model.startupCmds, model.loadNewSessionSettingsCmd(nil))
+		}
 	}
 	if request.initialTransientStatus != nil {
 		model.startupCmds = append(model.startupCmds, model.showTransientStatusNotice(uiStatusNotice{

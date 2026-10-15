@@ -44,6 +44,7 @@ type interactiveSessionServer interface {
 	sessionTransitionServer
 	EnsureAuthReady(ctx context.Context, settings config.Settings, interactor authInteractor) error
 	EnsureConnectionSetup(ctx context.Context) error
+	AuthBootstrapClient() apicontract.AuthBootstrapService
 	BindProjectWorkspace(ctx context.Context, projectID string, workspaceID string) (interactiveSessionServer, error)
 }
 

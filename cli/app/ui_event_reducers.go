@@ -122,6 +122,12 @@ func (m *uiModel) reduceInputAsyncMessage(msg tea.Msg) uiFeatureUpdateResult {
 		cmd := m.applyChatSettingsDone(msg)
 		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
+	case newSessionSettingsLoadedMsg:
+		cmd := m.applyNewSessionSettingsLoaded(msg)
+		m.layout().syncViewport()
+		return handledUIFeatureUpdate(m, cmd)
+	case newSessionLoginDoneMsg:
+		return handledUIFeatureUpdate(m, m.applyNewSessionLoginDone(msg))
 	case goalRuntimeDoneMsg:
 		cmd := m.applyGoalRuntimeDone(msg)
 		m.layout().syncViewport()

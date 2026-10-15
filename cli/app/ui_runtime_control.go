@@ -41,6 +41,9 @@ func (m *uiModel) hasRuntimeClient() bool {
 }
 
 func (m *uiModel) chatSettingsMutationCommand(operation *chatsettingspb.MutationOperation) tea.Cmd {
+	if m.newSessionTarget() != nil {
+		return m.mutateNewSessionSettings(operation)
+	}
 	client := m.runtimeClient().(chatSettingsRuntimeClient)
 	return func() tea.Msg {
 		response, err := client.MutateChatSettings(operation)
@@ -52,6 +55,17 @@ func (m *uiModel) chatSettingsToggleCommand(
 	operation *chatsettingspb.MutationOperation,
 	requested string,
 ) tea.Cmd {
+	if m.newSessionTarget() != nil {
+		settings := m.projectedNewSessionSettings()
+		if settings == nil {
+			return m.mutateNewSessionSettings(operation)
+		}
+		resolved, err := resolveChatSettingsToggle(operation, requested, settings)
+		if err != nil {
+			return m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
+		}
+		return m.mutateNewSessionSettings(resolved)
+	}
 	client := m.runtimeClient().(chatSettingsRuntimeClient)
 	return func() tea.Msg {
 		settings, err := client.ReadChatSettings()
@@ -142,16 +156,8 @@ func (m *uiModel) applyChatSettingsDone(msg chatSettingsDoneMsg) tea.Cmd {
 	}
 	response := msg.response
 	settings := response.Settings
-	m.modelName = settings.SelectedAgent.Model
-	m.thinkingLevel = settings.SelectedAgent.Thinking
-	m.fastModeAvailable = settings.Fast != nil
-	m.fastModeEnabled = settings.Fast != nil && settings.Fast.Value
-	m.reviewerMode = supervisorRuntimeMode(settings.Supervisor.Value)
-	m.reviewerEnabled = settings.Supervisor.Value != chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF
-	m.questionsEnabled = settings.Questions.Enabled
+	m.applyChatSettingsProjection(settings)
 	m.autoCompactionEnabled = response.Context.AutoCompactionEnabled
-	m.modelContractLocked = settings.AgentLocked
-	m.status.snapshot.AgentRole = textutil.OptionalTrimmedString(config.NormalizeSubagentSelector(settings.SelectedAgent.Role))
 	m.status.snapshot.CompactionCount = int(response.Context.CompletedCompactionCount)
 	m.setRuntimeContextUsage(m.currentRuntimeSessionID(), &runtimepb.ContextUsage{UsedTokens: int32(response.Context.UsedTokens), WindowTokens: int32(response.Context.ContextWindowTokens)})
 	if rejected := response.Result.GetRejected(); rejected != nil {
@@ -168,6 +174,18 @@ func (m *uiModel) applyChatSettingsDone(msg chatSettingsDoneMsg) tea.Cmd {
 		uiStatusNoticeSuccess, transientStatusDuration, uiStatusNoticeReplace,
 		chatSettingsMutationNoticeID(msg.operation),
 	)
+}
+
+func (m *uiModel) applyChatSettingsProjection(settings *chatsettingspb.Settings) {
+	m.modelName = settings.SelectedAgent.Model
+	m.thinkingLevel = settings.SelectedAgent.Thinking
+	m.fastModeAvailable = settings.Fast != nil
+	m.fastModeEnabled = settings.Fast != nil && settings.Fast.Value
+	m.reviewerMode = supervisorRuntimeMode(settings.Supervisor.Value)
+	m.reviewerEnabled = settings.Supervisor.Value != chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF
+	m.questionsEnabled = settings.Questions.Enabled
+	m.modelContractLocked = settings.AgentLocked
+	m.status.snapshot.AgentRole = textutil.OptionalTrimmedString(config.NormalizeSubagentSelector(settings.SelectedAgent.Role))
 }
 
 func chatSettingsMutationNoticeID(operation *chatsettingspb.MutationOperation) string {

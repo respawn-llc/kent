@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"core/shared/apicontract"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	"core/shared/runtimeids"
 )
@@ -10,7 +12,11 @@ type uiPresentationTarget interface {
 }
 
 type uiNewSessionTarget struct {
-	creation *chatpb.NewChatTarget
+	creation     *chatpb.NewChatTarget
+	settings     apicontract.ChatSettingsService
+	auth         apicontract.AuthBootstrapService
+	login        func(context.Context) error
+	settingsLoad uiNewSessionSettingsLoad
 }
 
 func (uiNewSessionTarget) isUIPresentationTarget() {}
@@ -22,11 +28,16 @@ type uiKnownSessionTarget struct {
 func (uiKnownSessionTarget) isUIPresentationTarget() {}
 
 func (m *uiModel) newChatTarget() *chatpb.NewChatTarget {
-	target, ok := m.presentationTarget.(uiNewSessionTarget)
-	if !ok {
+	target := m.newSessionTarget()
+	if target == nil {
 		return nil
 	}
 	return target.creation
+}
+
+func (m *uiModel) newSessionTarget() *uiNewSessionTarget {
+	target, _ := m.presentationTarget.(*uiNewSessionTarget)
+	return target
 }
 
 func (m *uiModel) setKnownSessionTarget(id string) {

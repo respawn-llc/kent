@@ -87,6 +87,8 @@ func (s *remoteAppServer) ProjectBinding() (client.ProjectAttachment, bool) {
 
 func (s *remoteAppServer) ChatSettingsClient() apicontract.ChatSettingsService { return s.remote }
 
+func (s *remoteAppServer) AuthBootstrapClient() apicontract.AuthBootstrapService { return s.remote }
+
 func (s *remoteAppServer) workspaceRetargetContext() *sessionWorkspaceRetargetContext {
 	if s == nil || s.retarget == nil {
 		return nil

@@ -124,6 +124,9 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 		next, cmd := c.handleBackCommand()
 		return next, sequenceCmds(prefixCmd, cmd)
 	case commands.ActionLogout:
+		if m.newSessionTarget() != nil {
+			return m, sequenceCmds(prefixCmd, m.loginNewSessionCmd())
+		}
 		m.exitAction = UIActionLogout
 		return m, sequenceCmds(prefixCmd, tea.Quit)
 	case commands.ActionSetName:
@@ -211,6 +214,9 @@ func (c uiInputController) handleSessionNameCommand(sessionName string) (tea.Mod
 		return m, m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
 	m.sessionName = name
+	if target := m.newChatTarget(); target != nil {
+		target.Name = name
+	}
 	return m, tea.SetWindowTitle(sessionTitle(m.sessionName))
 }
 
