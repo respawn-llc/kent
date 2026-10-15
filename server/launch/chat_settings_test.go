@@ -68,7 +68,7 @@ func TestSessionChatAgentCatalogPreservesWorkerMatchingHeadlessDefault(t *testin
 			meta.Continuation = &session.ContinuationContext{AgentRole: textutil.Value(config.DefaultSubagentRole)}
 			model = "gpt-6-sol"
 		}
-		catalog, err := PrepareSessionChatAgentCatalog(app, meta, nil)
+		catalog, err := PrepareSessionChatAgentCatalog(t.Context(), app, meta, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -133,7 +133,7 @@ connection = "missing"
 				if available {
 					app.Settings.Connections["missing"] = app.Settings.Connections["work"]
 				}
-				catalog, err := PrepareSessionChatAgentCatalog(app, meta, nil)
+				catalog, err := PrepareSessionChatAgentCatalog(t.Context(), app, meta, nil)
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -6,13 +6,53 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
+	"core/internal/testharness/testsetup"
+	"core/server/metadata"
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
+
+func TestConnectionAllocationPrefersConsumptionBeforeLRU(t *testing.T) {
+	store, err := metadata.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	rotation := NewConnectionRotation(store)
+	settings := config.Settings{
+		Connection:      config.SingleConnection("a"),
+		ConnectionOrder: []config.ConnectionID{"a", "b"},
+		Connections: map[config.ConnectionID]config.ProviderConnection{
+			"a": {Protocol: config.ConnectionChatGPT}, "b": {Protocol: config.ConnectionChatGPT},
+		},
+	}
+	if _, err := rotation.Prepare(t.Context(), settings, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordConnectionConsumption(t.Context(), "b", time.Now(), 42); err != nil {
+		t.Fatal(err)
+	}
+	members := config.ConnectionSelection{"a", "b"}
+	settings.Connection = &members
+	for _, allocate := range []bool{false, true} {
+		selected, err := rotation.Prepare(t.Context(), settings, allocate)
+		if err != nil || selected != "a" {
+			t.Fatalf("allocate %v: selected %q, error %v; want lower-cost a", allocate, selected, err)
+		}
+	}
+	if err := store.RecordConnectionConsumption(t.Context(), "a", time.Now(), 42); err != nil {
+		t.Fatal(err)
+	}
+	selected, err := rotation.Prepare(t.Context(), settings, true)
+	if err != nil || selected != "b" {
+		t.Fatalf("equal cost selected %q, error %v; want LRU b", selected, err)
+	}
+}
 
 func TestConnectionRotationSharesSetsWithoutAllocatingPreviews(t *testing.T) {
 	app := loadLaunchConfig(t, t.TempDir(),
@@ -22,16 +62,16 @@ func TestConnectionRotationSharesSetsWithoutAllocatingPreviews(t *testing.T) {
 		`[connections.account-a]`,
 		`protocol = "chatgpt-codex"`,
 	)
-	rotation := new(ConnectionRotation)
+	rotation := NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
 	for index := range 4 {
 		want := []config.ConnectionID{"account-a", "account-z"}[index%2]
 		for range 2 {
-			preview, err := rotation.Prepare(app.Settings, false)
+			preview, err := rotation.Prepare(t.Context(), app.Settings, false)
 			if err != nil || preview != want {
 				t.Fatalf("preview = %v, %v; want %v", preview, err, want)
 			}
 		}
-		selected, err := rotation.Prepare(app.Settings, true)
+		selected, err := rotation.Prepare(t.Context(), app.Settings, true)
 		if err != nil || selected != want {
 			t.Fatalf("allocation %d = %v, %v; want %v", index, selected, err, want)
 		}
@@ -48,17 +88,17 @@ func TestConnectionRotationConcurrentSelection(t *testing.T) {
 		`[connections.account-a]`,
 		`protocol = "chatgpt-codex"`,
 	)
-	rotation := new(ConnectionRotation)
+	rotation := NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
 	results := make(chan config.ConnectionID, 100)
 	var group sync.WaitGroup
 	for range 100 {
 		group.Go(func() {
-			preview, err := rotation.Prepare(app.Settings, false)
+			preview, err := rotation.Prepare(t.Context(), app.Settings, false)
 			if err != nil || (preview != "account-z" && preview != "account-a") {
 				t.Errorf("concurrent preview = %s, %v", preview, err)
 				return
 			}
-			id, err := rotation.Prepare(app.Settings, true)
+			id, err := rotation.Prepare(t.Context(), app.Settings, true)
 			if err != nil {
 				t.Error(err)
 				return
@@ -86,7 +126,7 @@ func TestConnectionAllocationUsesGlobalLRUAcrossAllowedSets(t *testing.T) {
 			"b": {Protocol: config.ConnectionChatGPT},
 		},
 	}
-	allocator := new(ConnectionRotation)
+	allocator := NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
 	for index, step := range []struct {
 		allowed config.ConnectionSelection
 		want    config.ConnectionID
@@ -99,15 +139,15 @@ func TestConnectionAllocationUsesGlobalLRUAcrossAllowedSets(t *testing.T) {
 		{config.ConnectionSelection{"a", "z"}, "a"},
 	} {
 		settings.Connection = &step.allowed
-		got, err := allocator.Prepare(settings, true)
+		got, err := allocator.Prepare(t.Context(), settings, true)
 		if err != nil || got != step.want {
 			t.Fatalf("allocation %d for %v = %q, %v; want %q", index, step.allowed, got, err, step.want)
 		}
 	}
 	selection := config.ConnectionSelection{"a", "b", "z"}
 	settings.Connection = &selection
-	restarted := new(ConnectionRotation)
-	got, err := restarted.Prepare(settings, true)
+	restarted := NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
+	got, err := restarted.Prepare(t.Context(), settings, true)
 	if err != nil || got != "z" {
 		t.Fatalf("first allocation after restart = %q, %v; want declaration-order z", got, err)
 	}
@@ -121,23 +161,23 @@ func TestBindingOneAllowedConnectionParticipatesInGlobalLRU(t *testing.T) {
 		`[connections.b]`,
 		`protocol = "chatgpt-codex"`,
 	)
-	allocator := new(ConnectionRotation)
+	allocator := NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
 	persistence := sessiontest.NewPersistence()
 	store := createTestSessionInContainer(t, t.TempDir(), "sessions", app.WorkspaceRoot, persistence.Options()...)
-	if _, err := allocator.BindSessionConnection(store, &app.Settings, app.Source.Sources); err != nil {
+	if _, err := allocator.BindSessionConnection(t.Context(), store, &app.Settings, app.Source.Sources); err != nil {
 		t.Fatal(err)
 	}
 	selection := config.ConnectionSelection{"a", "b"}
 	app.Settings.Connection = &selection
-	got, err := allocator.Prepare(app.Settings, true)
+	got, err := allocator.Prepare(t.Context(), app.Settings, true)
 	if err != nil || got != "b" {
 		t.Fatalf("allocation after binding a = %q, %v; want b", got, err)
 	}
-	if _, err := allocator.BindSessionConnection(store, &app.Settings, app.Source.Sources); err != nil {
+	if _, err := allocator.BindSessionConnection(t.Context(), store, &app.Settings, app.Source.Sources); err != nil {
 		t.Fatal(err)
 	}
 	app.Settings.Connection = &selection
-	got, err = allocator.Prepare(app.Settings, true)
+	got, err = allocator.Prepare(t.Context(), app.Settings, true)
 	if err != nil || got != "a" {
 		t.Fatalf("allocation after resuming a = %q, %v; want a", got, err)
 	}
@@ -158,12 +198,12 @@ func TestAllocatedMemberCapabilitiesPreserveAuthoredModelAndPrompt(t *testing.T)
 	)
 	prompt := &config.SystemPromptFile{Path: "/operator-prompt.md", Scope: config.SystemPromptFileScopeHomeConfig}
 	app.Settings.SystemPromptFile = prompt
-	rotation := new(ConnectionRotation)
+	rotation := NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
 	for _, want := range []struct {
 		id   config.ConnectionID
 		fast bool
 	}{{"a", true}, {"b", false}} {
-		prepared, err := PrepareRunPromptOverridesWithContext(app, serverapi.RunPromptOverrides{}, RunPromptPreparationContext{
+		prepared, err := PrepareRunPromptOverridesWithContext(t.Context(), app, serverapi.RunPromptOverrides{}, RunPromptPreparationContext{
 			Mode: ModeInteractive, Rotation: rotation, AllocateConnection: true,
 		})
 		if err != nil {
@@ -188,7 +228,7 @@ func TestFreshLaunchUsesAllocatedConnectionWithoutSecondSelection(t *testing.T) 
 		`[connections.b]`,
 		`protocol = "chatgpt-codex"`,
 	)
-	rotation := new(ConnectionRotation)
+	rotation := NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
 	planner := newTestPlanner(app, t.TempDir(), sessiontest.NewPersistence().Options()...)
 	planner.Rotation = rotation
 	for _, want := range []config.ConnectionID{"a", "b", "a"} {

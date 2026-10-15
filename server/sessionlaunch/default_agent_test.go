@@ -40,7 +40,7 @@ func TestChatAgentMutationAllocatesActualMemberAndPreservesUnchangedBinding(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	rotation := new(launch.ConnectionRotation)
+	rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
 		PersistenceRoot: cfg.PersistenceRoot, StoreOptions: db.AuthoritativeSessionStoreOptions(), ConnectionRotation: rotation,
 	})
@@ -92,7 +92,7 @@ func TestChatAgentMutationAllocatesActualMemberAndPreservesUnchangedBinding(t *t
 	if record.Meta.ChatSettings == nil || record.Meta.ChatSettings.Fast == nil || *record.Meta.ChatSettings.Fast {
 		t.Fatalf("selected member baseline did not disable unsupported Fast: %+v", record.Meta.ChatSettings)
 	}
-	next, err := rotation.Prepare(cfg.Settings, true)
+	next, err := rotation.Prepare(t.Context(), cfg.Settings, true)
 	if err != nil || next != "a" {
 		t.Fatalf("reads/unchanged edits consumed a slot: %s, %v", next, err)
 	}
@@ -121,7 +121,7 @@ func TestChatAgentMutationAllocatesActualMemberAndPreservesUnchangedBinding(t *t
 		t.Fatalf("unchanged Agent changed Session: %v", err)
 	}
 	// Return to the default on a, then fail preparation of the next member b.
-	if _, err := rotation.Prepare(cfg.Settings, true); err != nil {
+	if _, err := rotation.Prepare(t.Context(), cfg.Settings, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.MutateChatSettings(t.Context(), id, &chatsettingspb.MutationOperation{
@@ -146,7 +146,7 @@ func TestChatAgentMutationAllocatesActualMemberAndPreservesUnchangedBinding(t *t
 	if err != nil || !reflect.DeepEqual(before, record.Meta) {
 		t.Fatalf("failed preparation changed Session: %v", err)
 	}
-	next, err = rotation.Prepare(cfg.Settings, true)
+	next, err = rotation.Prepare(t.Context(), cfg.Settings, true)
 	if err != nil || next != "a" {
 		t.Fatalf("failed selection switched or replayed a slot: %s, %v", next, err)
 	}
@@ -168,7 +168,7 @@ func TestDistinctConnectionSetInitialSelectionAndUnavailableAgentRepair(t *testi
 	}
 	service := newSessionLaunchTestService(cfg, t.TempDir())
 	service.planner.Config = cfg
-	service.planner.Rotation = new(launch.ConnectionRotation)
+	service.planner.Rotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
 	for _, want := range []config.ConnectionID{"a", "c"} {
 		result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
 			Mode:   launch.ModeInteractive,
@@ -201,7 +201,7 @@ func TestDistinctConnectionSetInitialSelectionAndUnavailableAgentRepair(t *testi
 			t.Fatalf("distinct role unavailable-Agent repair = %+v, %+v, %v", resolved, rejected, err)
 		}
 	}
-	next, err := service.planner.Rotation.Prepare(cfg.Settings, true)
+	next, err := service.planner.Rotation.Prepare(t.Context(), cfg.Settings, true)
 	if err != nil || next != "b" {
 		t.Fatalf("next global allocation = %v, %v; want unused connection b", next, err)
 	}

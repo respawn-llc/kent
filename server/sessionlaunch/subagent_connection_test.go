@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/launch"
 	"core/shared/config"
 	"core/shared/serverapi"
@@ -24,7 +25,7 @@ func TestParentAgentChildrenAllocateFreshConnectionsAndResumeSticky(t *testing.T
 		AgentCallable: true,
 	}
 	service := newSessionLaunchTestService(cfg, t.TempDir())
-	service.planner.Rotation = new(launch.ConnectionRotation)
+	service.planner.Rotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
 	service.planner.CallerSessions = serviceTestPersistence
 	parent, err := service.PlanLaunchSession(t.Context(), PlanRequest{
 		Mode: launch.ModeInteractive,

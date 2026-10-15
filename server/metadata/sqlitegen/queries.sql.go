@@ -13,6 +13,25 @@ import (
 	"core/shared/runtimeids"
 )
 
+const accumulateConnectionConsumption = `-- name: AccumulateConnectionConsumption :exec
+INSERT INTO connection_consumption (connection_id, hour_start_unix, score)
+VALUES (?, ?, ?)
+ON CONFLICT (connection_id, hour_start_unix) DO UPDATE
+SET score = connection_consumption.score + excluded.score
+`
+
+type AccumulateConnectionConsumptionParams struct {
+	ConnectionID  string
+	HourStartUnix int64
+	Score         int64
+}
+
+func (q *Queries) AccumulateConnectionConsumption(ctx context.Context, arg AccumulateConnectionConsumptionParams) error {
+	_, err := q.db.ExecContext(ctx, accumulateConnectionConsumption, arg.ConnectionID, arg.HourStartUnix, arg.Score)
+	err = recordQueryError(ctx, err, accumulateConnectionConsumption, 3)
+	return err
+}
+
 const acquireCurrentNodeResumeWriteLock = `-- name: AcquireCurrentNodeResumeWriteLock :execrows
 UPDATE task_current_nodes
 SET scheduling_state = scheduling_state
@@ -1553,6 +1572,16 @@ func (q *Queries) DeleteWorktreeByID(ctx context.Context, id string) (int64, err
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const expireConnectionConsumption = `-- name: ExpireConnectionConsumption :exec
+DELETE FROM connection_consumption WHERE hour_start_unix < ?
+`
+
+func (q *Queries) ExpireConnectionConsumption(ctx context.Context, hourStartUnix int64) error {
+	_, err := q.db.ExecContext(ctx, expireConnectionConsumption, hourStartUnix)
+	err = recordQueryError(ctx, err, expireConnectionConsumption, 1)
+	return err
 }
 
 const findContainingProjectWorkspace = `-- name: FindContainingProjectWorkspace :one
@@ -8736,6 +8765,50 @@ func (q *Queries) ResumeSerialCurrentNode(ctx context.Context, arg ResumeSerialC
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const retainedConnectionConsumption = `-- name: RetainedConnectionConsumption :many
+SELECT connection_id, CAST(SUM(score) AS INTEGER) AS score
+FROM connection_consumption
+WHERE hour_start_unix >= ?1
+  AND connection_id IN (
+    SELECT value FROM json_each(CAST(?2 AS TEXT))
+  )
+GROUP BY connection_id
+`
+
+type RetainedConnectionConsumptionParams struct {
+	Cutoff            int64
+	ConnectionIdsJson string
+}
+
+type RetainedConnectionConsumptionRow struct {
+	ConnectionID string
+	Score        int64
+}
+
+func (q *Queries) RetainedConnectionConsumption(ctx context.Context, arg RetainedConnectionConsumptionParams) ([]RetainedConnectionConsumptionRow, error) {
+	rows, err := q.db.QueryContext(ctx, retainedConnectionConsumption, arg.Cutoff, arg.ConnectionIdsJson)
+	err = recordQueryError(ctx, err, retainedConnectionConsumption, 2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RetainedConnectionConsumptionRow
+	for rows.Next() {
+		var i RetainedConnectionConsumptionRow
+		if err := recordQueryError(ctx, rows.Scan(&i.ConnectionID, &i.Score), retainedConnectionConsumption, 2); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := recordQueryError(ctx, rows.Close(), retainedConnectionConsumption, 2); err != nil {
+		return nil, err
+	}
+	if err := recordQueryError(ctx, rows.Err(), retainedConnectionConsumption, 2); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const retargetSessionWorkspaceProject = `-- name: RetargetSessionWorkspaceProject :execrows

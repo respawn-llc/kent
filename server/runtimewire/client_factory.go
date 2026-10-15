@@ -25,6 +25,8 @@ const (
 )
 
 type RuntimeClientRequest struct {
+	RecordUsage         ConnectionUsageRecorder
+	UsageObserver       llm.UsageObserver
 	Purpose             RuntimeClientPurpose
 	SessionID           string
 	ActiveSettings      config.Settings
@@ -33,6 +35,8 @@ type RuntimeClientRequest struct {
 	Connection          authservice.ResolvedConnection
 	RequestCapabilities llm.ProviderCapabilities
 }
+
+type ConnectionUsageRecorder func(context.Context, config.ConnectionID, string, llm.Usage)
 
 type RuntimeClientFactory interface {
 	NewRuntimeClient(context.Context, RuntimeClientRequest) (llm.Client, error)
@@ -49,6 +53,13 @@ func (f RuntimeClientFactoryFunc) NewRuntimeClient(ctx context.Context, req Runt
 func NewRuntimeClient(ctx context.Context, factory RuntimeClientFactory, request RuntimeClientRequest) (llm.Client, error) {
 	request.EnabledTools = append([]toolspec.ID(nil), request.EnabledTools...)
 	request.Sources = maps.Clone(request.Sources)
+	if record := request.RecordUsage; record != nil {
+		connectionID := request.Connection.ID
+		request.UsageObserver = func(_ context.Context, model string, usage llm.Usage) {
+			// Bookkeeping belongs to the client's server-owned scope, not a model turn.
+			go record(ctx, connectionID, model, usage)
+		}
+	}
 	if factory != nil {
 		client, err := factory.NewRuntimeClient(ctx, request)
 		if err != nil {
@@ -84,6 +95,7 @@ func NewRuntimeClient(ctx context.Context, factory RuntimeClientFactory, request
 		ProviderIdentifier: &active.ProviderIdentifier, Store: active.Store,
 		ContextWindowTokens: active.ModelContextWindow, ProviderCapabilitiesOverride: &capabilities,
 		RequestCapabilities: &request.RequestCapabilities,
+		UsageObserver:       request.UsageObserver,
 	})
 }
 

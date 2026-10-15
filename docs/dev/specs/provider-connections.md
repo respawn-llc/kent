@@ -24,9 +24,9 @@
 - Kent must treat each array as a set. Kent must collapse duplicate IDs, reject empty arrays and invalid IDs, and ignore unknown IDs. If the set contains no defined member, selection must fail with an actionable error. It must not inherit or select another connection.
 - Kent must accept valid member definitions without requiring equal protocols, endpoints, or capabilities. Inclusion in a set must express the user's assertion that its members can serve the configured Agent.
 - Selection must not change the Agent's configured model, prompts, or settings. A fresh Session must use the selected connection's declared provider capabilities for supported request features. Selecting a connection that cannot serve the configured model must be treated as a user configuration error.
-- Every fresh Session must select the connection with the oldest last assignment from its effective member set. The selected role's connection setting must define that set when supplied. Otherwise, the Session must use the inherited connection selector. Array order must not affect selection.
-- All Session types, roles, workspaces, and overlapping member sets must share one server-wide connection assignment order. This includes interactive, headless, subagent, Workflow, and forked Sessions. A singleton selection must update that same order.
-- Connections without an assignment in the current server process must precede assigned connections. Ties must follow global connection declaration order. Assignment order must exist only in memory and reset on server restart.
+- Every fresh Session must select the connection with the lowest estimated consumption over roughly the preceding seven days from its effective member set. The selected role's connection setting must define that set when supplied. Otherwise, the Session must use the inherited connection selector. Array order must not affect selection.
+- All Session types, roles, workspaces, and overlapping member sets must share one server-wide consumption history and connection assignment order. This includes interactive, headless, subagent, Workflow, and forked Sessions. Usage through a singleton selection must contribute to the same consumption history. A singleton selection must update the same assignment order.
+- Equal consumption scores must prefer the connection with the oldest last assignment. Connections without an assignment in the current server process must precede assigned connections with equal scores. Remaining ties must follow global connection declaration order. Assignment order must exist only in memory and reset on server restart.
 - Concurrent selections must update the shared assignment order under one owner.
 - Listing Agents, reading settings, and previewing selections must not change assignment order.
 - Selection must not check credentials, refresh tokens, or probe providers to choose a member. The selected connection must use the existing authentication flow or actionable error. Credential or provider failures must not automatically select another member.
@@ -35,6 +35,21 @@
 - Connection sets must be configured through configuration files. Terminal connection management must continue to manage individual connections. Make default must select one connection without changing existing Session bindings.
 - Explicit Supervisor `reviewer.connection` must accept one connection ID. When the Supervisor inherits connection selection, it must use the main Session's selected connection rather than allocate separately from the configured set.
 - Nano `nano.connection` must accept one connection ID or an array. Each nano invocation must select once through the same shared server-wide rotation for its effective member set and use that connection throughout the invocation.
+
+## Consumption estimates
+
+- Kent must attribute reported usage to the Provider Connection that served the operation. Copied conversation context and restored Session usage totals must not count as new consumption.
+- Kent must calculate consumption from uncached input, cached input, and output tokens. Cached input must count once as part of input, not as additional input.
+- For models with known pricing, Kent must use standard short-context API prices from official provider sources. Subscription connections must use the same API-price estimate. The estimate must exclude speed-tier premiums, long-context premiums, cache-write charges, and other surcharges.
+- Kent must price the provider-reported served model when available. Otherwise, Kent must price the requested model.
+- For models without known pricing, Kent must use estimated prices of $1 per million uncached input tokens, $0.10 per million cached input tokens, and $10 per million output tokens.
+- Kent must treat missing usage fields as zero for this estimate. Missing cached input must leave reported input priced as uncached input. Kent must not estimate entirely missing usage or retry provider operations to obtain it.
+- Kent must persist recent consumption history across server restarts and expire consumption older than roughly seven days. Collection must begin without historical backfill. Existing Sessions must contribute only new usage.
+- Selection must use observed consumption without reserving or predicting the cost of unfinished work. Several new Sessions may select the same lower-consumption connection before usage arrives.
+- A failure to persist consumption history must not interrupt chat. Kent must log the failure. Unsaved estimates may be lost on restart. Kent must not replay requests or reconstruct history to recover those estimates.
+- Separate consumption-history writes must run asynchronously without delaying the next agent turn. They must use the available server-owned Session, Workflow, or Nano parent lifetime rather than the individual model request lifetime.
+- If consumption history cannot be read for an allocation, Kent must log the error and select using assignment order alone for that allocation. This must not replace ordinary validation, authentication, or provider error handling.
+- Consumption estimates must guide routing only. They must not represent provider invoices or promise equal subscription-allowance drain.
 
 ## Authentication
 

@@ -51,7 +51,7 @@ func TestRequestAsResponsesClonesPreparedSchemaCarriers(t *testing.T) {
 }
 
 func TestResponsesClientGenerateDoesNotReplayFinalTextAsDelta(t *testing.T) {
-	client := NewResponsesClient(streamingOnlyTransport{})
+	client := NewResponsesClient(streamingOnlyTransport{}, nil)
 	req := Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"}
 
 	var deltas []string
@@ -73,7 +73,7 @@ func TestResponsesClientGenerateDoesNotReplayFinalTextAsDelta(t *testing.T) {
 
 func TestResponsesClientGeneratePreservesFinalTextThatExtendsStreamWithWhitespace(t *testing.T) {
 	transport := trailingWhitespaceStreamingTransport{}
-	client := NewResponsesClient(transport)
+	client := NewResponsesClient(transport, nil)
 
 	var deltas []string
 	resp, err := client.Generate(
@@ -115,7 +115,7 @@ func (trailingWhitespaceStreamingTransport) Generate(
 }
 
 func TestResponsesClientGenerateEmitsUnknownDeltaPhase(t *testing.T) {
-	client := NewResponsesClient(streamingOnlyTransport{})
+	client := NewResponsesClient(streamingOnlyTransport{}, nil)
 	req := Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"}
 
 	var deltas []AssistantDelta

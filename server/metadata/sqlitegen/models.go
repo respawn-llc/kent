@@ -10,6 +10,12 @@ import (
 	"core/shared/runtimeids"
 )
 
+type ConnectionConsumption struct {
+	ConnectionID  string
+	HourStartUnix int64
+	Score         int64
+}
+
 type MigrationCurrentNodeValueEnvironment struct {
 	PlacementID            string
 	CurrentInputValuesJson string

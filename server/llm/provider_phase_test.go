@@ -63,7 +63,7 @@ func TestResponsesClientProjectsProviderPhaseFromOneAuthoritativeFact(t *testing
 			AssistantText: textutil.Value("done"),
 			ProviderPhase: FinalProviderPhase(),
 		},
-	})
+	}, nil)
 
 	resp, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"), Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"}, StreamCallbacks{})
 	if err != nil {
@@ -87,7 +87,7 @@ func TestGenerateDecodesAbsentProviderPhaseStructurally(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := NewResponsesClient(newProviderPhaseResponseTransport(t, tt.phaseField))
+			client := NewResponsesClient(newProviderPhaseResponseTransport(t, tt.phaseField), nil)
 			resp, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"), Model: "compatible-model", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
 			if err != nil {
 				t.Fatalf("generate: %v", err)
@@ -116,7 +116,7 @@ func TestGenerateRejectsInvalidProviderPhaseContracts(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := NewResponsesClient(newProviderPhaseResponseTransport(t, tt.phaseField))
+			client := NewResponsesClient(newProviderPhaseResponseTransport(t, tt.phaseField), nil)
 			_, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"), Model: "compatible-model", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
 			if err == nil {
 				t.Fatal("expected provider contract error")

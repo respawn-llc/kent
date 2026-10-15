@@ -54,6 +54,7 @@ type WorkflowAttentionRegistry interface {
 }
 
 type Starter struct {
+	recordUsage          runtimewire.ConnectionUsageRecorder
 	connectionRotation   *launch.ConnectionRotation
 	environment          func(string) (string, bool)
 	cfg                  config.App
@@ -70,6 +71,7 @@ type Starter struct {
 }
 
 type StarterOptions struct {
+	RecordUsage                runtimewire.ConnectionUsageRecorder
 	ConnectionRotation         *launch.ConnectionRotation
 	WorkspaceConfigLoadOptions config.LoadOptions
 	Environment                func(string) (string, bool)
@@ -90,6 +92,7 @@ func NewStarter(cfg config.App, metadataStore *metadata.Store, store RuntimeStor
 		return nil, err
 	}
 	return &Starter{
+		recordUsage:          opts.RecordUsage,
 		connectionRotation:   opts.ConnectionRotation,
 		environment:          opts.Environment,
 		cfg:                  cfg,
@@ -797,6 +800,7 @@ func (s *Starter) newWorkflowProviderClient(ctx context.Context, plan launch.Ses
 		ActiveSettings: active, EnabledTools: plan.EnabledTools,
 		Sources: plan.Source.Sources, Connection: connection,
 		RequestCapabilities: capabilities,
+		RecordUsage:         s.recordUsage,
 	})
 }
 

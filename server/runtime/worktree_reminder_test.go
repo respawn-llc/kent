@@ -395,6 +395,8 @@ func TestManualCompactionReinjectsWorktreeReminderExactlyOnce(t *testing.T) {
 	case <-time.After(runtimeTestSynchronizationTimeout):
 		t.Fatal("timed out waiting for compaction")
 	}
+	// The completion event precedes release of the compaction's active step.
+	waitEngineLifecycleTasks(t, eng)
 
 	if _, err := eng.SubmitUserMessage(t.Context(), "continue after compaction"); err != nil {
 		t.Fatalf("submit post-compaction request: %v", err)
