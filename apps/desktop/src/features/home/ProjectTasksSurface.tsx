@@ -19,7 +19,6 @@ import {
   useOwnedSidebarRoots,
   useSidebarShell,
   useStatusController,
-  type SidebarMode,
 } from "@/app-facade";
 import {
   executeTaskInitiatingAction,
@@ -79,11 +78,9 @@ import { createProjectTasksModel, useProjectTasksActions } from "./ProjectTasksM
 
 export function ProjectTasksSurface({
   projectID,
-  sidebarMode,
   viewMemory,
 }: Readonly<{
   projectID: string;
-  sidebarMode: SidebarMode;
   viewMemory: ProjectTasksViewMemory;
 }>) {
   const { t } = useTranslation();
@@ -194,10 +191,10 @@ export function ProjectTasksSurface({
   const workflowCardinality = projectTaskListWorkflowCardinality(data);
   const newTaskAvailable = workflowsQuery.newTaskAvailable;
   const openLinkWorkflow = () => {
-    actions.linkWorkflow({ open, mode: sidebarMode });
+    actions.linkWorkflow({ open });
   };
   const openNewTask = () => {
-    actions.newTask({ open, mode: sidebarMode });
+    actions.newTask({ open });
   };
   const countsBoundary = directionalBoundary({
     failed: data.counts.isError,
@@ -218,16 +215,16 @@ export function ProjectTasksSurface({
   const openTaskDetail = useCallback(
     (taskID: string) => {
       setLabelEditorTaskID(null);
-      actions.taskDetail({ open, mode: sidebarMode, taskID, dependencies: false });
+      actions.taskDetail({ open, taskID, dependencies: false });
     },
-    [actions, open, sidebarMode],
+    [actions, open],
   );
   const openTaskDependencies = useCallback(
     (taskID: string) => {
       setLabelEditorTaskID(null);
-      actions.taskDetail({ open, mode: sidebarMode, taskID, dependencies: true });
+      actions.taskDetail({ open, taskID, dependencies: true });
     },
-    [actions, open, sidebarMode],
+    [actions, open],
   );
   const presentation = projectTasksPresentation({
     data,

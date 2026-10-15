@@ -312,7 +312,6 @@ describe("ProjectTasksSurface", () => {
     expect(destination).toMatchObject({
       boardQueryWorkflowID: undefined,
       kind: "newTask",
-      mode: "shift",
       projectID: "project-1",
     });
     if (destination.kind !== "newTask") throw new Error("Expected New Task destination.");
@@ -342,7 +341,6 @@ describe("ProjectTasksSurface", () => {
     const destination = openedDestination();
     expect(destination).toMatchObject({
       kind: "linkWorkflow",
-      mode: "shift",
       projectID: "project-1",
     });
     if (destination.kind !== "linkWorkflow") throw new Error("Expected Link Workflow destination.");
@@ -383,7 +381,6 @@ describe("ProjectTasksSurface", () => {
     expect(destination).toMatchObject({
       boardQueryWorkflowID: undefined,
       kind: "newTask",
-      mode: "shift",
       projectID: "project-1",
     });
     if (destination.kind !== "newTask") throw new Error("Expected New Task destination.");
@@ -561,7 +558,7 @@ describe("ProjectTasksSurface", () => {
       nextRequestGeneration: "project-1:50",
     };
 
-    renderSurface(createProjectTasksViewMemory(), "shift", activeTasks);
+    renderSurface(createProjectTasksViewMemory(), activeTasks);
 
     expect(fetchNextPage).toHaveBeenCalledOnce();
   });
@@ -577,7 +574,7 @@ describe("ProjectTasksSurface", () => {
       nextRequestGeneration: "project-1:100",
     };
 
-    renderSurface(createProjectTasksViewMemory(), "shift", activeTasks);
+    renderSurface(createProjectTasksViewMemory(), activeTasks);
 
     expect(fetchNextPage).not.toHaveBeenCalled();
   });
@@ -611,19 +608,18 @@ describe("ProjectTasksSurface", () => {
     expect(screen.getAllByRole("button", { name: appI18n.t("app.retry") })).toHaveLength(1);
   });
 
-  it("opens Task Detail with the containing sidebar mode", () => {
-    renderSurface(createProjectTasksViewMemory(), "overlay", [task("active-1", "KNT-1", "Task")]);
+  it("opens Task Detail with automatic sidebar presentation", () => {
+    renderSurface(createProjectTasksViewMemory(), [task("active-1", "KNT-1", "Task")]);
 
     fireEvent.click(screen.getByRole("row", { name: "KNT-1 Task" }));
     expect(fixture.open).toHaveBeenCalledWith({
       kind: "taskDetail",
-      mode: "overlay",
       taskID: "active-1",
     });
   });
 
   it("keeps informational status icons from opening Task Detail", () => {
-    renderSurface(createProjectTasksViewMemory(), "shift", [task("active-1", "KNT-1", "Task")]);
+    renderSurface(createProjectTasksViewMemory(), [task("active-1", "KNT-1", "Task")]);
 
     fireEvent.click(screen.getByTestId("project-task-status-active-1"));
 
@@ -631,7 +627,7 @@ describe("ProjectTasksSurface", () => {
   });
 
   it("refreshes the Project Task list after Resume applies", async () => {
-    renderSurface(createProjectTasksViewMemory(), "shift", [
+    renderSurface(createProjectTasksViewMemory(), [
       task("active-1", "KNT-1", "Interrupted task", {
         status: {
           kind: "interrupted",
@@ -655,7 +651,7 @@ describe("ProjectTasksSurface", () => {
 
   it("opens Task Detail from the dependency chip and uses the active sidebar destination for selection", () => {
     fixture.activeDestination = { kind: "taskDetail", mode: "shift", taskID: "active-1" };
-    renderSurface(createProjectTasksViewMemory(), "overlay", [
+    renderSurface(createProjectTasksViewMemory(), [
       task("active-1", "KNT-1", "Selected task", {
         dependencyProgress: { satisfiedCount: 2, totalCount: 2 },
       }),
@@ -670,7 +666,6 @@ describe("ProjectTasksSurface", () => {
     );
     expect(fixture.open).toHaveBeenCalledWith({
       kind: "taskDetail",
-      mode: "overlay",
       taskID: "active-1",
     });
 
@@ -681,7 +676,7 @@ describe("ProjectTasksSurface", () => {
 
   it("keeps Labels subscribed and applies last-wins selection while the chooser is open", async () => {
     fixture.activeDestination = { kind: "taskDetail", mode: "shift", taskID: "active-1" };
-    renderSurface(createProjectTasksViewMemory(), "shift", [
+    renderSurface(createProjectTasksViewMemory(), [
       task("active-1", "KNT-1", "Detail selected"),
       task("active-2", "KNT-2", "Labels selected", {
         labels: [{ id: "label-1", name: "Priority" }],
@@ -727,16 +722,12 @@ describe("ProjectTasksSurface", () => {
   });
 });
 
-function renderSurface(
-  memory = createProjectTasksViewMemory(),
-  sidebarMode: "overlay" | "shift" = "shift",
-  activeTasks?: readonly TaskListItem[],
-) {
+function renderSurface(memory = createProjectTasksViewMemory(), activeTasks?: readonly TaskListItem[]) {
   if (activeTasks !== undefined) {
     fixture.counts = { active: activeTasks.length, backlog: 0, done: 0 };
     mockedActiveTasks = activeTasks;
   }
-  return render(withQueryClient(surface(memory, sidebarMode)));
+  return render(withQueryClient(surface(memory)));
 }
 
 function getSortTrigger(): HTMLElement {
@@ -759,10 +750,10 @@ function getSortRadio(dialog: HTMLElement, value: string): HTMLElement {
   return radio;
 }
 
-function surface(memory = createProjectTasksViewMemory(), sidebarMode: "overlay" | "shift" = "shift") {
+function surface(memory = createProjectTasksViewMemory()) {
   return (
     <I18nextProvider i18n={appI18n}>
-      <ProjectTasksSurface projectID="project-1" sidebarMode={sidebarMode} viewMemory={memory} />
+      <ProjectTasksSurface projectID="project-1" viewMemory={memory} />
     </I18nextProvider>
   );
 }

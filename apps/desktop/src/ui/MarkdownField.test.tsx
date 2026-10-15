@@ -28,7 +28,9 @@ describe("MarkdownField presentation options", () => {
             {...baseProps}
             editing={editing}
             onEditingChange={setEditing}
-            onEdit={() => { setEditing(true); }}
+            onEdit={() => {
+              setEditing(true);
+            }}
             expanded
             expandLabel="Expand"
             collapsedHeightClamp={{ kind: "pixels", maximumPixels: 300 }}

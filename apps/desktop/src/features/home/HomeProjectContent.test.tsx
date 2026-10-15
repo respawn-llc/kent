@@ -177,7 +177,7 @@ it("renders the Task surface while selected Project metadata is pending", () => 
     isPending: true,
   };
 
-  render(<HomeProjectContent projectID="project-1" sidebarMode="shift" />);
+  render(<HomeProjectContent projectID="project-1" />);
 
   expect(
     screen.getByRole("grid", { name: appI18n.t("home.prototype.projectTasksGrid") }),
@@ -185,7 +185,7 @@ it("renders the Task surface while selected Project metadata is pending", () => 
 });
 
 it("restores Task-grid pixels after visiting another Project tab", () => {
-  render(<HomeProjectContent projectID="project-1" sidebarMode="shift" />);
+  render(<HomeProjectContent projectID="project-1" />);
   const grid = screen.getByRole("grid", { name: appI18n.t("home.prototype.projectTasksGrid") });
   grid.scrollTop = 500;
   grid.scrollLeft = 0;
@@ -203,7 +203,7 @@ it("restores Task-grid pixels after visiting another Project tab", () => {
 });
 
 it("offers Project tabs with Tasks selected initially", () => {
-  render(<HomeProjectContent projectID="project-1" sidebarMode="shift" />);
+  render(<HomeProjectContent projectID="project-1" />);
 
   expect(screen.getByRole("tab", { name: appI18n.t("home.prototype.tasks") })).toBeInTheDocument();
   expect(
@@ -227,7 +227,7 @@ it.each([
     },
   ];
 
-  render(<HomeProjectContent projectID="project-1" sidebarMode="shift" />);
+  render(<HomeProjectContent projectID="project-1" />);
   fireEvent.click(screen.getByRole("tab", { name: appI18n.t(`home.prototype.${tabLabel}`) }));
   fireEvent.click(await screen.findByRole("button", { name: sessionName }));
 
@@ -250,7 +250,7 @@ it("uses the Session ID as an unnamed row title and shows its supplied preview o
     updatedAt: 1,
   };
   fixture.sessions = [session];
-  render(<HomeProjectContent projectID="project-1" sidebarMode="shift" />);
+  render(<HomeProjectContent projectID="project-1" />);
   fireEvent.click(screen.getByRole("tab", { name: appI18n.t("home.prototype.sessions") }));
   expect(await screen.findByRole("button", { name: "73" })).toBeVisible();
   expect(screen.getAllByText(session.firstPromptPreview)).toHaveLength(1);

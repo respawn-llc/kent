@@ -127,7 +127,9 @@ function MarkdownFieldCore({
     // The editor and its action share one focus boundary. Switching to the
     // preview on pointer-down would move the action before pointer-up.
     field.addEventListener("blur", leaveField, true);
-    return () => { field.removeEventListener("blur", leaveField, true); };
+    return () => {
+      field.removeEventListener("blur", leaveField, true);
+    };
   }, []);
   const fieldID = useId();
   const errorID = `${fieldID}-error`;

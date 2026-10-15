@@ -150,12 +150,7 @@ export function ProjectTasksRoute() {
   return (
     <SidebarRootOwner>
       <section className="island-glass h-full min-h-0 overflow-hidden rounded-[var(--radius-xl)]">
-        <ProjectTasksSurface
-          key={params.projectId}
-          projectID={params.projectId}
-          sidebarMode="shift"
-          viewMemory={viewMemory}
-        />
+        <ProjectTasksSurface key={params.projectId} projectID={params.projectId} viewMemory={viewMemory} />
       </section>
     </SidebarRootOwner>
   );
