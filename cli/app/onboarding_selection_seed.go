@@ -55,20 +55,11 @@ func onboardingSelectionsFromFacts(local config.LocalPreferences, facts *capabil
 	if err != nil {
 		return onboardingSelections{}, err
 	}
-	contextWindow, err := seedContextSelection(int(defaults.GetContextWindowTokens()), model.value, facts)
-	if err != nil {
-		return onboardingSelections{}, err
-	}
+	contextWindow := seedContextSelection(int(defaults.GetContextWindowTokens()), model.value, facts)
 	thinking := seedThinkingFact(defaults.Thinking, modelFactForFacts(facts, model.value).SupportedThinkingLevels)
 	verbosity := seedVerbositySelection(defaults.Verbosity)
-	supervisor, err := seedSupervisorSelection(defaults.Supervisor, facts)
-	if err != nil {
-		return onboardingSelections{}, err
-	}
-	compaction, err := seedCompactionSelection(config.CompactionMode(defaults.CompactionMode))
-	if err != nil {
-		return onboardingSelections{}, err
-	}
+	supervisor := seedSupervisorSelection(defaults.Supervisor, facts)
+	compaction := seedCompactionSelection(config.CompactionMode(defaults.CompactionMode))
 	var baselineModelContextWindow *int
 	if defaults.ContextWindowTokens != nil {
 		value := int(*defaults.ContextWindowTokens)
@@ -121,19 +112,17 @@ func onboardingModelSelectionForModel(model string, facts *capabilitypb.Facts) o
 	return onboardingModelSelection{kind: kind, value: model}
 }
 
-func seedContextSelection(tokens int, model string, facts *capabilitypb.Facts) (onboardingContextSelection, error) {
+func seedContextSelection(tokens int, model string, facts *capabilitypb.Facts) onboardingContextSelection {
 	fact := modelFactForFacts(facts, model)
 	switch {
 	case tokens == 0:
-		return onboardingContextSelection{kind: onboardingContextDefault}, nil
+		return onboardingContextSelection{kind: onboardingContextDefault}
 	case fact.ContextWindowTokens != nil && tokens == int(*fact.ContextWindowTokens):
-		return onboardingContextSelection{kind: onboardingContextDefault}, nil
+		return onboardingContextSelection{kind: onboardingContextDefault}
 	case fact.LargeWindow != nil && tokens == int(fact.LargeWindow.Tokens):
-		return onboardingContextSelection{kind: onboardingContextLarge}, nil
-	case tokens > 0:
-		return onboardingContextSelection{kind: onboardingContextCustom, tokens: tokens}, nil
+		return onboardingContextSelection{kind: onboardingContextLarge}
 	default:
-		return onboardingContextSelection{}, conversionError("model_context_window", tokens, "custom context window must be positive")
+		return onboardingContextSelection{kind: onboardingContextCustom, tokens: tokens}
 	}
 }
 
@@ -155,18 +144,12 @@ func seedVerbositySelection(value *capabilitypb.VerbosityDefaultFact) onboarding
 	return onboardingVerbositySelection{kind: onboardingVerbosityLevel, value: value.Level}
 }
 
-func seedSupervisorSelection(choice *onboardingpb.SupervisorChoice, facts *capabilitypb.Facts) (onboardingSupervisorSelection, error) {
-	var frequency onboardingSupervisorFrequency
-	switch choice.Frequency {
-	case onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_OFF:
-		frequency = onboardingSupervisorOff
-	case onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_EDITS:
-		frequency = onboardingSupervisorEdits
-	case onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_ALL:
-		frequency = onboardingSupervisorAll
-	default:
-		return onboardingSupervisorSelection{}, conversionError("supervisor.frequency", choice.Frequency, "unsupported frequency")
-	}
+func seedSupervisorSelection(choice *onboardingpb.SupervisorChoice, facts *capabilitypb.Facts) onboardingSupervisorSelection {
+	frequency := map[onboardingpb.SupervisorFrequency]onboardingSupervisorFrequency{
+		onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_OFF:   onboardingSupervisorOff,
+		onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_EDITS: onboardingSupervisorEdits,
+		onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_ALL:   onboardingSupervisorAll,
+	}[choice.Frequency]
 	reviewerModel := onboardingReviewerModelSelection{kind: onboardingReviewerModelInherited}
 	model := facts.Defaults.PrimaryModelId
 	if choice.Model != nil {
@@ -175,8 +158,6 @@ func seedSupervisorSelection(choice *onboardingpb.SupervisorChoice, facts *capab
 			model = choice.Model.GetModelId()
 		case onboardingpb.ModelKind_MODEL_KIND_CUSTOM:
 			model = choice.Model.GetAlias()
-		default:
-			return onboardingSupervisorSelection{}, conversionError("supervisor.model", choice.Model, "unsupported model choice")
 		}
 		override := onboardingModelSelectionForModel(strings.TrimSpace(model), facts)
 		reviewerModel = onboardingReviewerModelSelection{kind: onboardingReviewerModelOverridden, override: override}
@@ -193,8 +174,6 @@ func seedSupervisorSelection(choice *onboardingpb.SupervisorChoice, facts *capab
 			thinkingFact.Mode, thinkingFact.Level = "level", choice.Thinking.Level
 		case onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM:
 			thinkingFact.Mode, thinkingFact.Value = "custom", choice.Thinking.Value
-		default:
-			return onboardingSupervisorSelection{}, conversionError("supervisor.thinking", choice.Thinking, "unsupported thinking choice")
 		}
 		override := seedThinkingFact(&thinkingFact, modelFactForFacts(facts, model).SupportedThinkingLevels)
 		reviewerThinking = onboardingReviewerThinkingSelection{kind: onboardingReviewerThinkingOverridden, override: override}
@@ -203,20 +182,15 @@ func seedSupervisorSelection(choice *onboardingpb.SupervisorChoice, facts *capab
 		frequency: frequency,
 		model:     reviewerModel,
 		thinking:  reviewerThinking,
-	}, nil
+	}
 }
 
-func seedCompactionSelection(value config.CompactionMode) (onboardingCompactionSelection, error) {
-	switch value {
-	case config.CompactionModeLocal:
-		return onboardingCompactionLocal, nil
-	case config.CompactionModeNative:
-		return onboardingCompactionNative, nil
-	case config.CompactionModeNone:
-		return onboardingCompactionManualOnly, nil
-	default:
-		return "", conversionError("compaction_mode", value, "unsupported compaction mode")
-	}
+func seedCompactionSelection(value config.CompactionMode) onboardingCompactionSelection {
+	return map[config.CompactionMode]onboardingCompactionSelection{
+		config.CompactionModeLocal:  onboardingCompactionLocal,
+		config.CompactionModeNative: onboardingCompactionNative,
+		config.CompactionModeNone:   onboardingCompactionManualOnly,
+	}[value]
 }
 
 func seedThinkingFact(fact *capabilitypb.ThinkingDefaultFact, levels []string) onboardingThinkingSelection {
