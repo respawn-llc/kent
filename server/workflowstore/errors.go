@@ -223,38 +223,14 @@ func (e TaskLabelWrongProjectError) Is(target error) bool {
 	return target == ErrTaskLabelWrongProject
 }
 
-type TaskLabelMutationErrorReason string
-
-const (
-	TaskLabelMutationTooManyAdd      TaskLabelMutationErrorReason = "too_many_add_label_ids"
-	TaskLabelMutationTooManyRemove   TaskLabelMutationErrorReason = "too_many_remove_label_ids"
-	TaskLabelMutationDuplicateAdd    TaskLabelMutationErrorReason = "duplicate_add_label_id"
-	TaskLabelMutationDuplicateRemove TaskLabelMutationErrorReason = "duplicate_remove_label_id"
-	TaskLabelMutationOverlap         TaskLabelMutationErrorReason = "add_remove_overlap"
-	TaskLabelMutationInvalidID       TaskLabelMutationErrorReason = "invalid_label_id"
-)
-
 type TaskLabelMutationError struct {
-	Reason  TaskLabelMutationErrorReason
 	Field   string
-	LabelID *string
-	Limit   *int
+	LabelID string
 	Cause   error
 }
 
 func (e TaskLabelMutationError) Error() string {
-	switch e.Reason {
-	case TaskLabelMutationTooManyAdd, TaskLabelMutationTooManyRemove:
-		return fmt.Sprintf("%s must contain at most %d label IDs", e.Field, *e.Limit)
-	case TaskLabelMutationDuplicateAdd, TaskLabelMutationDuplicateRemove:
-		return fmt.Sprintf("%s contains duplicate label ID %q", e.Field, *e.LabelID)
-	case TaskLabelMutationOverlap:
-		return fmt.Sprintf("label ID %q cannot be both added and removed", *e.LabelID)
-	case TaskLabelMutationInvalidID:
-		return fmt.Sprintf("%s contains invalid label ID %q", e.Field, *e.LabelID)
-	default:
-		return "task label mutation is invalid"
-	}
+	return fmt.Sprintf("%s contains invalid label ID %q", e.Field, e.LabelID)
 }
 
 func (e TaskLabelMutationError) Unwrap() error {

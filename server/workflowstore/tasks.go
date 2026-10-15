@@ -171,7 +171,7 @@ func (s *Store) CreateTask(ctx context.Context, req CreateTaskRequest) (TaskReco
 		workflowID = &value
 	}
 	dependencyIntents := append([]workflow.TaskDependencyCreateIntent(nil), req.DependencyIntents...)
-	labelIDs, _, err := parseUniqueLabelIDs(req.LabelIDs, "label_ids", TaskLabelMutationDuplicateAdd)
+	labelIDs, err := labelIDsFromProto(req.LabelIDs, "label_ids")
 	if err != nil {
 		return TaskRecord{}, err
 	}

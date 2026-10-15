@@ -368,84 +368,35 @@ func (s *Store) UpdateTaskLabels(ctx context.Context, req TaskLabelUpdateRequest
 }
 
 func prepareTaskLabelUpdate(req TaskLabelUpdateRequest) ([]label.ID, []label.ID, error) {
-	if strings.TrimSpace(string(req.TaskID)) == "" {
-		return nil, nil, errors.New("task id is required")
-	}
-	if len(req.AddLabelIDs) > label.MaxProjectLabels {
-		limit := label.MaxProjectLabels
-		return nil, nil, TaskLabelMutationError{
-			Reason: TaskLabelMutationTooManyAdd,
-			Field:  "add_label_ids",
-			Limit:  &limit,
-		}
-	}
-	if len(req.RemoveLabelIDs) > label.MaxProjectLabels {
-		limit := label.MaxProjectLabels
-		return nil, nil, TaskLabelMutationError{
-			Reason: TaskLabelMutationTooManyRemove,
-			Field:  "remove_label_ids",
-			Limit:  &limit,
-		}
-	}
-	addIDs, addSet, err := parseUniqueLabelIDs(
-		req.AddLabelIDs,
-		"add_label_ids",
-		TaskLabelMutationDuplicateAdd,
-	)
+	addIDs, err := labelIDsFromProto(req.AddLabelIDs, "add_label_ids")
 	if err != nil {
 		return nil, nil, err
 	}
-	removeIDs, _, err := parseUniqueLabelIDs(
-		req.RemoveLabelIDs,
-		"remove_label_ids",
-		TaskLabelMutationDuplicateRemove,
-	)
+	removeIDs, err := labelIDsFromProto(req.RemoveLabelIDs, "remove_label_ids")
 	if err != nil {
 		return nil, nil, err
-	}
-	for _, id := range removeIDs {
-		if addSet[id.String()] {
-			labelID := id.String()
-			return nil, nil, TaskLabelMutationError{
-				Reason:  TaskLabelMutationOverlap,
-				LabelID: &labelID,
-			}
-		}
 	}
 	return addIDs, removeIDs, nil
 }
 
-func parseUniqueLabelIDs(
+func labelIDsFromProto(
 	rawIDs []string,
 	field string,
-	duplicateReason TaskLabelMutationErrorReason,
-) ([]label.ID, map[string]bool, error) {
+) ([]label.ID, error) {
 	parsed := make([]label.ID, 0, len(rawIDs))
-	seen := make(map[string]bool, len(rawIDs))
 	for _, raw := range rawIDs {
-		id, err := label.ParseID(raw)
+		id, err := label.IDFromProto(raw)
 		if err != nil {
 			labelID := raw
-			return nil, nil, TaskLabelMutationError{
-				Reason:  TaskLabelMutationInvalidID,
+			return nil, TaskLabelMutationError{
 				Field:   field,
-				LabelID: &labelID,
+				LabelID: labelID,
 				Cause:   err,
 			}
 		}
-		canonical := id.String()
-		if seen[canonical] {
-			labelID := canonical
-			return nil, nil, TaskLabelMutationError{
-				Reason:  duplicateReason,
-				Field:   field,
-				LabelID: &labelID,
-			}
-		}
-		seen[canonical] = true
 		parsed = append(parsed, id)
 	}
-	return parsed, seen, nil
+	return parsed, nil
 }
 
 func taskProjectForLabels(ctx context.Context, q *sqlitegen.Queries, taskID workflow.TaskID) (string, error) {
