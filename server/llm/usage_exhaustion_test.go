@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"core/shared/config"
+	"core/shared/llmerrors"
 	"core/shared/textutil"
 )
 
@@ -112,6 +113,11 @@ func TestGrokUsageExhaustionSignals(t *testing.T) {
 			var failure *ProviderAPIError
 			if !errors.As(err, &failure) || IsUsageExhaustionError(err) != test.exhausted || failure.Raw == "" {
 				t.Fatalf("classified Grok failure = %v", err)
+			}
+			if test.status == http.StatusPaymentRequired && !test.exhausted {
+				if failure.Code != llmerrors.UnifiedErrorCodeEntitlement || !IsNonRetriableModelError(err) {
+					t.Fatalf("public-route payment failure must remain terminal entitlement: %+v", failure)
+				}
 			}
 		})
 	}

@@ -13,8 +13,11 @@ func newGrokErrorReducer(providerID string) ProviderErrorReducer {
 		providerID: providerID, decode: decodeGrokErrorPayload,
 		classify: func(status int, code, typ string) UnifiedErrorCode {
 			category := classifyGrokError(status, code, typ)
-			if category == UnifiedErrorCodeUnknown && status == 402 && providerID == string(config.ConnectionGrokCLIProxy) {
-				return UnifiedErrorCodeUsageExhausted
+			if category == UnifiedErrorCodeUnknown && status == 402 {
+				if providerID == string(config.ConnectionGrokCLIProxy) {
+					return UnifiedErrorCodeUsageExhausted
+				}
+				return llmerrors.UnifiedErrorCodeEntitlement
 			}
 			return category
 		},
