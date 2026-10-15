@@ -690,6 +690,11 @@ message ObserveDone {
 }
 
 message ObserveQuestion {
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.observe_question_session_number"
+    message: "short_id requires session_id"
+    expression: "!has(this.short_id) || has(this.session_id)"
+  };
   optional int64 short_id = 5 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   optional string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string script_path = 2 [(buf.validate.field).string.min_len = 1];
@@ -698,6 +703,11 @@ message ObserveQuestion {
 }
 
 message ObserveFailure {
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.observe_failure_session_number"
+    message: "short_id requires session_id"
+    expression: "!has(this.short_id) || has(this.session_id)"
+  };
   optional int64 short_id = 5 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   optional string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string script_path = 2 [(buf.validate.field).string.min_len = 1];

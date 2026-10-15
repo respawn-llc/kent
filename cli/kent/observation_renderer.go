@@ -13,16 +13,13 @@ import (
 	"core/shared/serverapi"
 )
 
-func optionalSessionDisplayID(id *string, shortID *int64) (*string, error) {
+func optionalSessionDisplayID(id *string, shortID *int64) *string {
 	if id == nil {
-		if shortID != nil {
-			return nil, fmt.Errorf("Session number requires its UUID identity")
-		}
-		return nil, nil
+		return nil
 	}
 	identity := protoapi.SessionIdentityFromProto(*id, shortID)
 	display := identity.String()
-	return &display, nil
+	return &display
 }
 
 func writeObservedQuestion(w io.Writer, question serverapi.ObservationQuestion, hint string) {

@@ -217,6 +217,11 @@ message QuestionHistoryStarted {
 }
 
 message QuestionHistoryQuestion {
+  option (buf.validate.message).cel = {
+    id: "kent.session.question_history_answerer_number"
+    message: "answered_by_session_short_id requires answered_by_session_id"
+    expression: "!has(this.answered_by_session_short_id) || has(this.answered_by_session_id)"
+  };
   optional int64 answered_by_session_short_id = 7 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string question = 1 [
     (buf.validate.field).string.min_len = 1,

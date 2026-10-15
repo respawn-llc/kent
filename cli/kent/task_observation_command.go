@@ -138,11 +138,7 @@ func writeTaskObservation(stdout io.Writer, stderr io.Writer, response *taskpb.O
 			fmt.Fprintf(stdout, "Task %s entered Done status\n", response.TaskShortId)
 		case *taskpb.ObserveOutcome_Question:
 			detail := selected.Question
-			displayID, err := optionalSessionDisplayID(detail.SessionId, detail.ShortId)
-			if err != nil {
-				fmt.Fprintln(stderr, err)
-				return 1
-			}
+			displayID := optionalSessionDisplayID(detail.SessionId, detail.ShortId)
 			question, err := protoapi.ObservationQuestionFromProto(detail.Question)
 			if err != nil {
 				fmt.Fprintln(stderr, err)
@@ -180,10 +176,7 @@ func writeTaskObservation(stdout io.Writer, stderr io.Writer, response *taskpb.O
 }
 
 func writeTaskObservationFailure(stdout io.Writer, detail *taskpb.ObserveFailure) error {
-	displayID, err := optionalSessionDisplayID(detail.SessionId, detail.ShortId)
-	if err != nil {
-		return err
-	}
+	displayID := optionalSessionDisplayID(detail.SessionId, detail.ShortId)
 	writeTaskOutcomeDiscriminator(stdout, displayID, detail.ScriptPath, detail.NodeKey)
 	fmt.Fprintln(stdout, detail.Failure.Reason)
 	if detail.Failure.Diagnostic != nil {
