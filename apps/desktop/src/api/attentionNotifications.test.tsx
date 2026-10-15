@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+import { describe, expect, it } from "bun:test";
 import { create } from "@app/server-api-contract";
 import * as pb from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
@@ -103,7 +103,9 @@ describe("attention notification API", () => {
   it("releases the binary subscription when the mounted observation departs", async () => {
     const { transport, view } = await observe();
     expect(transport.descriptorSubscriptions).toEqual([service.subscribe]);
-    view.unmount();
+    await act(async () => {
+      view.unmount();
+    });
     await waitFor(() => {
       expect(transport.descriptorSubscriptions).toEqual([]);
     });

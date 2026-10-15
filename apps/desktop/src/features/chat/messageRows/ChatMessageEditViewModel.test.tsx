@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { RegistryProvider, useAtomValue } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
@@ -51,7 +52,8 @@ it("keeps the parent pending until the captured child draft is saved before navi
     view.result.current.activate({ item: userItem(), draft: "parent draft", onSuccess: view.onSuccess });
     view.response.resolve("child");
   });
-  expect(view.persist).toHaveBeenCalledExactlyOnceWith(
+  expect(view.persist).toHaveBeenCalledTimes(1);
+  expect(view.persist).toHaveBeenCalledWith(
     { projectID: target.projectID, sessionID: "child" },
     "**Original**\n\n\nparent draft",
     null,
@@ -61,7 +63,7 @@ it("keeps the parent pending until the captured child draft is saved before navi
   await act(async () => {
     saved.resolve(undefined);
   });
-  expect(view.onSuccess).toHaveBeenCalledOnce();
+  expect(view.onSuccess).toHaveBeenCalledTimes(1);
 });
 
 it("keeps the parent and reports failure when the child draft cannot be saved", async () => {
@@ -72,9 +74,9 @@ it("keeps the parent and reports failure when the child draft cannot be saved", 
     view.response.resolve("child");
   });
   expect(view.onSuccess).not.toHaveBeenCalled();
-  expect(view.push).toHaveBeenCalledOnce();
+  expect(view.push).toHaveBeenCalledTimes(1);
   expect(view.result.current.request.isPending).toBe(false);
-  expect(view.fork).toHaveBeenCalledOnce();
+  expect(view.fork).toHaveBeenCalledTimes(1);
 });
 
 it("does not activate Edit without a server rollback target", async () => {
@@ -115,7 +117,8 @@ it("hands the returned child and captured draft to the activation callback", asy
   await act(async () => {
     view.response.resolve("authoritative-child");
   });
-  expect(view.onSuccess).toHaveBeenCalledExactlyOnceWith({
+  expect(view.onSuccess).toHaveBeenCalledTimes(1);
+  expect(view.onSuccess).toHaveBeenCalledWith({
     sessionID: "authoritative-child",
     draft: "**Original**\n\n\nparent draft",
   });
@@ -175,7 +178,8 @@ it.each([
       view.result.current.activate(input);
     });
     expect(view.fork).toHaveBeenCalledTimes(2);
-    expect(view.onSuccess).toHaveBeenCalledExactlyOnceWith({
+    expect(view.onSuccess).toHaveBeenCalledTimes(1);
+    expect(view.onSuccess).toHaveBeenCalledWith({
       sessionID: "retried-child",
       draft: "**Original**\n\n\nunchanged parent",
     });

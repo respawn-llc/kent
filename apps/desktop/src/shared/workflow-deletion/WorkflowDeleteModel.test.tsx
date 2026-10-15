@@ -1,4 +1,5 @@
 import { RegistryProvider, useAtomMount, useAtomSet } from "@effect/atom-react";
+import { expect, it, vi } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import { createTestServices } from "@/test-support/app-services";
@@ -31,7 +32,7 @@ it("admits only one preview and one deletion for duplicate submissions", async (
     view.result.current.open({ onOpening: vi.fn(), onError: vi.fn() });
     view.result.current.open({ onOpening: vi.fn(), onError: vi.fn() });
   });
-  expect(preview).toHaveBeenCalledOnce();
+  expect(preview).toHaveBeenCalledTimes(1);
   const previewImpact: WorkflowDeleteImpact = {
     workflowID: "workflow-1",
     version: 1,
@@ -50,9 +51,9 @@ it("admits only one preview and one deletion for duplicate submissions", async (
     view.result.current.confirm({ onCommitted: vi.fn(), onCompleted });
     view.result.current.confirm({ onCommitted: vi.fn(), onCompleted });
   });
-  expect(deletion).toHaveBeenCalledOnce();
+  expect(deletion).toHaveBeenCalledTimes(1);
   await act(async () => {
     result.resolve({ deleted: true, blockers: [], impact: previewImpact });
   });
-  expect(onCompleted).toHaveBeenCalledOnce();
+  expect(onCompleted).toHaveBeenCalledTimes(1);
 });

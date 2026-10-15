@@ -16,8 +16,8 @@ usage() {
 	cat <<'USAGE'
 Usage: just test [server|desktop|docs|tui|rust] [--timeout SECONDS] [--workers COUNT] [--inherit-env] [-- TOOL-ARGS...]
 
-The timeout controls Go test execution. Go's emergency process deadline also covers TestMain preparation.
-Other test runners use their native timeout settings.
+The timeout controls Go package and Bun per-test execution. Go's emergency process deadline also covers TestMain preparation.
+Without an explicit timeout, Bun uses its native per-test default.
 Bare `just test` runs server and desktop tests concurrently.
 USAGE
 }
@@ -25,6 +25,7 @@ USAGE
 target="default"
 timeout_seconds=180
 workers=""
+native_timeout_args=()
 inherit_env=0
 tool_args=()
 
@@ -38,6 +39,7 @@ while [ "$#" -gt 0 ]; do
 	--timeout)
 		[ "$#" -ge 2 ] || { echo "--timeout requires seconds" >&2; exit 2; }
 		timeout_seconds="$2"
+		native_timeout_args=("--timeout=${timeout_seconds}000")
 		shift 2
 		;;
 	--workers)
@@ -220,7 +222,7 @@ run_server() {
 
 run_desktop() {
 	just --quiet _gen-typescript
-	run_suite desktop bun run --cwd apps/desktop vitest --config tooling/vite.config.ts run "${tool_args[@]}"
+	run_suite desktop bun run --cwd apps/desktop tooling/run-tests.ts "--workers=$workers" "${native_timeout_args[@]}" "${tool_args[@]}"
 }
 
 run_tui() {
@@ -229,7 +231,7 @@ run_tui() {
 }
 
 run_docs() {
-	run_suite docs bun test docs/scripts docs/src "${tool_args[@]}"
+	run_suite docs bun test "${native_timeout_args[@]}" docs/scripts docs/src "${tool_args[@]}"
 }
 
 run_rust() {

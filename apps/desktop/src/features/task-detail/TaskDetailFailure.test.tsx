@@ -1,3 +1,4 @@
+import { expect, it } from "bun:test";
 import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { projectEventsFixture } from "@/test-support/project-events";

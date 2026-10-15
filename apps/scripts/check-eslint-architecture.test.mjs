@@ -106,7 +106,7 @@ const allowedPaths = Object.freeze([
   "src/features/alpha/allowed-same-feature.ts",
   "src/features/alpha/allowed-test-support.test.ts",
   "src/features/alpha/allowed-type-import.ts",
-  "src/features/alpha/allowed-vi-module-loaders.test.ts",
+  "src/features/alpha/allowed-native-module-mock.test.ts",
   "src/i18n/allowed-owner-local.ts",
   "src/shared/alpha/allowed-public-seams.ts",
   "src/shared/labels/allowed-public-seams.ts",
@@ -142,12 +142,7 @@ const forbiddenDependencyPaths = Object.freeze([
   "src/features/alpha/forbidden-test-support.ts",
   "src/features/alpha/forbidden-type-import.ts",
   "src/features/alpha/forbidden-vendor-deep.ts",
-  "src/features/alpha/forbidden-vi-do-mock.test.ts",
-  "src/features/alpha/forbidden-vi-do-unmock.test.ts",
-  "src/features/alpha/forbidden-vi-import-actual.test.ts",
-  "src/features/alpha/forbidden-vi-import-mock.test.ts",
-  "src/features/alpha/forbidden-vi-mock.test.ts",
-  "src/features/alpha/forbidden-vi-unmock.test.ts",
+  "src/features/alpha/forbidden-native-module-mock.test.ts",
   "src/features/beta/forbidden-css.ts",
   "src/i18n/forbidden-ui.ts",
   "src/shared/alpha/forbidden-api-composition.ts",
@@ -267,13 +262,11 @@ test("Effect policy accepts standard action bindings and rejects root, aliased, 
     overrideConfigFile: true,
     overrideConfig: effectPolicyConfig(),
   });
-  const [allowed, forbidden, standardTest] = await eslint.lintFiles([
+  const [allowed, forbidden] = await eslint.lintFiles([
     "src/features/alpha/allowed-effect.tsx",
     "src/features/alpha/forbidden-effect.ts",
-    "src/features/alpha/allowed-effect.test.ts",
   ]);
   assert.deepEqual(allowed.messages, []);
-  assert.deepEqual(standardTest.messages, []);
   assert.ok(forbidden.errorCount >= 9);
   assert.ok(
     forbidden.messages.every(

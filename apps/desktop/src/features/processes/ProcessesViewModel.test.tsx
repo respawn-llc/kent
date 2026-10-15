@@ -1,9 +1,11 @@
 import { RegistryProvider, useAtomValue, useAtomSet } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { expect, it, vi } from "bun:test";
 import type { ReactNode } from "react";
 import { useMemo } from "react";
 
+import type { DesktopProcess } from "@/api";
 import { queryKeys } from "@/app-facade";
 import { createTestServices } from "@/test-support/app-services";
 import { processObservationFixture, processObservationFixtureRoute } from "@/test-support/api";
@@ -61,9 +63,11 @@ it("replaces all content in server order, including removal of previous rows", a
     view.observation.publish("c", "a");
   });
   expect(view.result.current.state).toMatchObject({ kind: "ready", processes: [{ id: "c" }, { id: "a" }] });
-  expect(view.client.getQueryData(queryKeys.processes(target.projectID, target.sessionID))).toEqual(
-    view.result.current.state.kind === "ready" ? view.result.current.state.processes : undefined,
-  );
+  expect(
+    view.client.getQueryData<readonly DesktopProcess[]>(
+      queryKeys.processes(target.projectID, target.sessionID),
+    ),
+  ).toEqual(view.result.current.state.kind === "ready" ? view.result.current.state.processes : undefined);
   expect(view.transport.descriptorCalls).toHaveLength(0);
 });
 
@@ -79,8 +83,14 @@ it("advances elapsed time locally without another process observation and stops 
     });
     const initial = view.result.current.state;
     if (initial.kind !== "ready") throw new Error("Expected running process.");
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_000);
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    await waitFor(() => {
+      const state = view.result.current.state;
+      expect(state.kind).toBe("ready");
+      if (state.kind !== "ready") throw new Error("Expected running process.");
+      expect(state.observationTime - initial.observationTime).toBeGreaterThanOrEqual(1_000);
     });
     const current = view.result.current.state;
     expect(current.kind).toBe("ready");
@@ -90,10 +100,12 @@ it("advances elapsed time locally without another process observation and stops 
     expect(view.transport.descriptorSubscriptionStarts).toHaveLength(1);
     expect(view.transport.descriptorCalls).toHaveLength(0);
     view.unmount();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_000);
+    act(() => {
+      vi.advanceTimersByTime(2_000);
     });
-    expect(view.transport.descriptorSubscriptions).toHaveLength(0);
+    await waitFor(() => {
+      expect(view.transport.descriptorSubscriptions).toHaveLength(0);
+    });
   } finally {
     vi.useRealTimers();
   }

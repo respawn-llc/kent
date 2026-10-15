@@ -1,18 +1,18 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, expect, it, mock, vi } from "bun:test";
 
 import type { WorkflowRecord } from "@/api";
-import { WorkflowRow } from "./WorkflowRow";
 
-const fixture = vi.hoisted(() => ({
+const fixture = {
   edit: vi.fn(),
   open: vi.fn(),
-}));
+};
 
-vi.mock("react-i18next", () => ({
+await mock.module("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-vi.mock("@/shared/workflow-deletion", () => ({
+await mock.module("@/shared/workflow-deletion", () => ({
   useWorkflowDeleteLauncher: () => ({
     dialog: null,
     disabled: false,
@@ -21,6 +21,8 @@ vi.mock("@/shared/workflow-deletion", () => ({
     submitting: false,
   }),
 }));
+
+const { WorkflowRow } = await import("./WorkflowRow");
 
 beforeEach(() => {
   fixture.edit.mockClear();
@@ -31,11 +33,11 @@ it("opens from the whole workflow row while keeping Edit independent", () => {
   render(<WorkflowRow contextActions={{ onEdit: fixture.edit }} onOpen={fixture.open} workflow={workflow} />);
 
   fireEvent.click(screen.getByRole("button", { name: workflow.name }));
-  expect(fixture.open).toHaveBeenCalledOnce();
+  expect(fixture.open).toHaveBeenCalledTimes(1);
 
   fireEvent.click(screen.getByRole("button", { name: /workflowLibrary\.editWorkflow/u }));
-  expect(fixture.edit).toHaveBeenCalledOnce();
-  expect(fixture.open).toHaveBeenCalledOnce();
+  expect(fixture.edit).toHaveBeenCalledTimes(1);
+  expect(fixture.open).toHaveBeenCalledTimes(1);
 });
 
 const workflow: WorkflowRecord = {

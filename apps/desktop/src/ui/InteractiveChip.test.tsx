@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 
 import { InteractiveChip, ProgressChip, ProgressInteractiveChip } from "./index";
 
@@ -45,7 +45,7 @@ describe("InteractiveChip", () => {
     expect(progress).toHaveAttribute("aria-valuemax", "4");
 
     await user.click(screen.getByRole("button", { name: "Dependency progress" }));
-    expect(onClick).toHaveBeenCalledOnce();
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 
   it("composes semantic progress without interactive semantics", () => {

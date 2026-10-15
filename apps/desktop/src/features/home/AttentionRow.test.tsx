@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { useAtomSet } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
+import { beforeAll, beforeEach, expect, it, vi } from "bun:test";
 
 import type { ApprovalAttentionItem, AttentionItem, InterruptedCurrentNodeAttentionItem } from "@/api";
 import { appI18n, initializeI18n } from "@/i18n";
@@ -9,9 +10,9 @@ import { createHomeViewModel } from "./HomeViewModel";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { createTestSidebarController } from "@/test-support/sidebar";
 
-const fixture = vi.hoisted(() => ({
+const fixture = {
   openSessionChat: vi.fn(async () => undefined),
-}));
+};
 
 beforeAll(async () => initializeI18n());
 beforeEach(() => {
@@ -63,7 +64,7 @@ it("opens Task Detail from the attention row and Chat only from its separate act
     projectID: "project-1",
     sessionID: "session-1",
   });
-  expect(openSidebar).toHaveBeenCalledOnce();
+  expect(openSidebar).toHaveBeenCalledTimes(1);
 });
 
 it("renders structured access approval paths without a message", () => {
@@ -166,7 +167,7 @@ it.each([
   } else {
     expect(screen.getAllByRole("button")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button"));
-    expect(openSidebar).toHaveBeenCalledOnce();
+    expect(openSidebar).toHaveBeenCalledTimes(1);
   }
 });
 

@@ -1,33 +1,10 @@
-import { act, fireEvent, screen, within } from "@testing-library/react";
+import { expect, it, vi } from "bun:test";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { hydration, target, transcriptPage } from "@/test-support/chat-runtime";
-import { catalog, opening, sessionWithPrompts } from "@/test-support/chat-destination";
+import { catalog, opening, sessionSettingsRead, sessionWithPrompts } from "@/test-support/chat-destination";
 import { installAnimatedHeightGeometry } from "@/test-support/resize-observer";
 import { row } from "@/test-support/transcript-window";
-
-// Motion captures requestAnimationFrame when its module loads.
-vi.hoisted(() => {
-  vi.useFakeTimers();
-});
-
-afterAll(() => {
-  vi.useRealTimers();
-});
-
-async function advanceTime(duration: number) {
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(duration);
-  });
-}
-
-async function waitForPresentation(assertion: () => void) {
-  await vi.waitFor(
-    async () => {
-      await advanceTime(0);
-      assertion();
-    },
-    { interval: 0 },
-  );
-}
 
 it.each([
   ["new-chat", false],
@@ -40,11 +17,11 @@ it.each([
     let committed: ReturnType<typeof row> | null = null;
     const view = sessionWithPrompts(
       (services) => {
-        const sessionSettings = vi.mocked(services.api.chat.getSettings).getMockImplementation();
-        vi.mocked(services.api.chat.getSettings).mockImplementation(async (selection) => {
+        const settingsRead = vi.spyOn(services.api.chat, "getSettings");
+        const sessionSettings = sessionSettingsRead();
+        settingsRead.mockImplementation(async (selection) => {
           if (selection.kind === "new_chat") return catalog;
-          if (sessionSettings === undefined) throw new Error("Missing Session settings fixture.");
-          return sessionSettings(selection);
+          return sessionSettings;
         });
         vi.spyOn(services.api.chat, "getCommandCatalog").mockResolvedValue([]);
         vi.spyOn(services.api.chat, "steer").mockImplementation(async (_, __, id) => {
@@ -57,7 +34,7 @@ it.each([
             outcome: { kind: "accepted", queueItemID: id, diagnostic: null, disposition: "started_turn" },
           };
         });
-        vi.mocked(services.api.chat.getTranscriptPage).mockImplementation(async () => ({
+        vi.spyOn(services.api.chat, "getTranscriptPage").mockImplementation(async () => ({
           ...transcriptPage(null),
           entries: committed === null ? [] : [committed],
         }));
@@ -67,24 +44,21 @@ it.each([
       false,
     );
     try {
-      const presentation = within(view.container);
-      await waitForPresentation(() => {
-        expect(presentation.getByRole("textbox")).toBeInTheDocument();
-        expect(view.client.isFetching()).toBe(0);
-      });
-      const editor = presentation.getByRole("textbox");
+      const editor = await screen.findByRole("textbox");
       vi.spyOn(editor, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 320, 80));
       if (kind === "existing-session") {
-        expect(view.handlers).toHaveLength(1);
+        await waitFor(() => {
+          expect(view.handlers).toHaveLength(1);
+        });
         await act(async () => {
           view.handlers[0]?.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
         });
       }
-      fireEvent.change(editor, { target: { value: "First message" } });
-      fireEvent.keyDown(editor, { key: "Enter", code: "Enter" });
-      await waitForPresentation(() => {
-        expect(view.services.api.chat.steer).toHaveBeenCalledOnce();
-        expect(view.handlers).toHaveLength(1);
+      const user = userEvent.setup();
+      await user.type(editor, "First message");
+      await user.keyboard("{Enter}");
+      await waitFor(() => {
+        expect(view.services.api.chat.steer).toHaveBeenCalledTimes(1);
       });
       await act(async () => {
         if (committed === null) throw new Error("Input was not committed.");
@@ -108,15 +82,13 @@ it.each([
       act(() => {
         geometry.resize(80);
       });
-      const list = within(view.container).getByRole("list");
-      await waitForPresentation(() => {
-        expect(within(list).getByText("First message")).toBeInTheDocument();
-      });
-      const text = within(list).getByText("First message");
+      const list = await screen.findByRole("list");
+      const text = await within(list).findByText("First message");
       // Assert the completed presentation, not a transient frame that hydration may outlast.
       if (interrupt) fireEvent.wheel(list, { deltaY: -100 });
-      await advanceTime(380);
-      expect(text).toBeVisible();
+      await waitFor(() => {
+        expect(text).toBeVisible();
+      });
       expect(within(list).getAllByText("First message")).toHaveLength(1);
       expect(view.services.api.chat.steer).toHaveBeenCalledTimes(1);
       expect(screen.getByRole("textbox")).toHaveValue("");

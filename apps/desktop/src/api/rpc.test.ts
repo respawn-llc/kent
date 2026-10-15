@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
 import { createRpcTransport } from "./rpc";
 import { SessionCategory } from "@app/server-api-contract/gen/kent/api/project/session_catalog_pb";
 import { ProtocolMismatchError, RpcError, ServerRootMismatchError } from "./errors";
@@ -66,17 +67,14 @@ class MockWebSocket extends EventTarget {
     const text = z.string().safeParse(data);
     if (text.success) {
       this.sent.push(text.data);
-      return;
-    }
-    if (ArrayBuffer.isView(data)) {
+    } else if (ArrayBuffer.isView(data)) {
       this.sent.push(new Uint8Array(data.buffer, data.byteOffset, data.byteLength).slice());
-      return;
-    }
-    if (data instanceof ArrayBuffer) {
+    } else if (data instanceof ArrayBuffer) {
       this.sent.push(new Uint8Array(data).slice());
-      return;
+    } else {
+      throw new Error("Mock WebSocket does not support Blob sends.");
     }
-    throw new Error("Mock WebSocket does not support Blob sends.");
+    this.dispatchEvent(new Event("sent"));
   }
 
   close(): void {
@@ -102,16 +100,25 @@ class MockWebSocket extends EventTarget {
 }
 
 const sockets: MockWebSocket[] = [];
+const originalWebSocketDescriptor = Object.getOwnPropertyDescriptor(globalThis, "WebSocket");
 
 describe("RpcWebSocketTransport", () => {
   beforeEach(() => {
     sockets.length = 0;
-    vi.stubGlobal("WebSocket", MockWebSocket);
+    Object.defineProperty(globalThis, "WebSocket", {
+      configurable: true,
+      value: MockWebSocket,
+      writable: true,
+    });
   });
 
   afterEach(() => {
     vi.useRealTimers();
-    vi.unstubAllGlobals();
+    if (originalWebSocketDescriptor) {
+      Object.defineProperty(globalThis, "WebSocket", originalWebSocketDescriptor);
+    } else {
+      Reflect.deleteProperty(globalThis, "WebSocket");
+    }
   });
 
   it("rejects pending mutations on disconnect and does not replay them on reconnect", async () => {
@@ -123,7 +130,7 @@ describe("RpcWebSocketTransport", () => {
     expect(descriptorOperation(firstSocket, 1)).toBe(operationName(ServerService.method.getReadiness));
 
     firstSocket.close();
-    await expect(mutation).rejects.toThrow("closed");
+    expect(mutation).rejects.toThrow("closed");
     expect(firstSocket.sent).toHaveLength(2);
 
     const retry = callReadiness(transport);
@@ -132,7 +139,7 @@ describe("RpcWebSocketTransport", () => {
     expect(secondSocket.sent).toHaveLength(2);
     ack(secondSocket, 1);
 
-    await expect(retry).resolves.toMatchObject({ outcome: { case: "success" } });
+    expect(retry).resolves.toMatchObject({ outcome: { case: "success" } });
     expect(firstSocket.sent).toHaveLength(2);
   });
 
@@ -143,7 +150,7 @@ describe("RpcWebSocketTransport", () => {
 
     await socket.setup();
     binaryAck(socket, 1, ServerService.method.getReadiness, { result: readinessResult() });
-    await expect(readiness).resolves.toMatchObject({
+    expect(readiness).resolves.toMatchObject({
       outcome: { case: "success", value: { readiness: { serverId: "server-1" } } },
     });
 
@@ -153,17 +160,17 @@ describe("RpcWebSocketTransport", () => {
     socket.receive(JSON.stringify({ id: descriptorCall(socket, 3).correlation, result: {} }));
     ack(socket, 3);
     ack(socket, 2);
-    await expect(concurrentReadiness).resolves.toMatchObject({ outcome: { case: "success" } });
-    await expect(request).resolves.toMatchObject({ outcome: { case: "success" } });
+    expect(concurrentReadiness).resolves.toMatchObject({ outcome: { case: "success" } });
+    expect(request).resolves.toMatchObject({ outcome: { case: "success" } });
     const malformedReadiness = callReadiness(transport);
     await waitForSent(socket, 5);
     socket.receive(new Uint8Array([0xff]).buffer);
     malformedBinaryAck(socket, 4);
-    await expect(malformedReadiness).rejects.toBeInstanceOf(Error);
+    expect(malformedReadiness).rejects.toBeInstanceOf(Error);
     const next = callReadiness(transport);
     await waitForSent(socket, 6);
     ack(socket, 5);
-    await expect(next).resolves.toMatchObject({ outcome: { case: "success" } });
+    expect(next).resolves.toMatchObject({ outcome: { case: "success" } });
     expect(sockets).toHaveLength(1);
     expect(socket.readyState).toBe(MockWebSocket.OPEN);
   });
@@ -174,7 +181,7 @@ describe("RpcWebSocketTransport", () => {
     const controlSocket = sockets[0] ?? failTest("control socket missing");
     await controlSocket.setup();
     ack(controlSocket, 1);
-    await expect(readiness).resolves.toMatchObject({ outcome: { case: "success" } });
+    expect(readiness).resolves.toMatchObject({ outcome: { case: "success" } });
 
     const method = TaskReadService.method.search;
     const search = transport.callDescriptor(
@@ -195,7 +202,7 @@ describe("RpcWebSocketTransport", () => {
       }),
     });
 
-    await expect(search).resolves.toMatchObject({ outcome: { case: "success" } });
+    expect(search).resolves.toMatchObject({ outcome: { case: "success" } });
     expect(dedicatedSocket.readyState).toBe(MockWebSocket.CLOSED);
     expect(controlSocket.readyState).toBe(MockWebSocket.OPEN);
   });
@@ -221,7 +228,7 @@ describe("RpcWebSocketTransport", () => {
       result: create(method.output, { outcome: { case: "success", value: { questions: [] } } }),
     });
 
-    await expect(answer).resolves.toMatchObject({ outcome: { case: "success", value: { questions: [] } } });
+    expect(answer).resolves.toMatchObject({ outcome: { case: "success", value: { questions: [] } } });
     expect(socket.readyState).toBe(MockWebSocket.CLOSED);
   });
 
@@ -265,14 +272,18 @@ describe("RpcWebSocketTransport", () => {
       operationName(SessionReadService.method.resolveViewedImageOriginalSource),
     );
 
+    const socketClosed = new Promise<void>((resolve) => {
+      socket.addEventListener(
+        "close",
+        () => {
+          resolve();
+        },
+        { once: true },
+      );
+    });
     controller.abort();
-    try {
-      await vi.waitFor(() => {
-        expect(socket.readyState).toBe(MockWebSocket.CLOSED);
-      });
-    } finally {
-      if (socket.readyState !== MockWebSocket.CLOSED) socket.close();
-    }
+    await socketClosed;
+    expect(socket.readyState).toBe(MockWebSocket.CLOSED);
     await sourceSettled;
   });
 
@@ -368,13 +379,13 @@ describe("RpcWebSocketTransport", () => {
     const operation = descriptorCall(socket, 1).operation;
     controller.abort();
 
-    await expect(search).rejects.toThrow("canceled");
+    expect(search).rejects.toThrow("canceled");
     expect(operation).toBe(operationName(TaskReadService.method.search));
     expect(socket.readyState).toBe(MockWebSocket.CLOSED);
     const nextReadiness = callReadiness(transport);
     await waitForSent(control, 3);
     ack(control, 2);
-    await expect(nextReadiness).resolves.toMatchObject({ outcome: { case: "success" } });
+    expect(nextReadiness).resolves.toMatchObject({ outcome: { case: "success" } });
     expect(control.readyState).toBe(MockWebSocket.OPEN);
     expect(sockets).toHaveLength(2);
   });
@@ -404,7 +415,7 @@ describe("RpcWebSocketTransport", () => {
     const readiness = callReadiness(transport);
     await waitForSent(socket, 3);
     ack(socket, 2);
-    await expect(readiness).resolves.toMatchObject({ outcome: { case: "success" } });
+    expect(readiness).resolves.toMatchObject({ outcome: { case: "success" } });
     expect(socket.readyState).toBe(MockWebSocket.OPEN);
   });
 
@@ -417,7 +428,7 @@ describe("RpcWebSocketTransport", () => {
     await waitForSent(socket, 1);
     ackHandshakeRoot(socket, 0, "other-root");
 
-    await expect(readiness).rejects.toBeInstanceOf(ServerRootMismatchError);
+    expect(readiness).rejects.toBeInstanceOf(ServerRootMismatchError);
     expect(socket.sent).toHaveLength(1);
     expect(descriptorOperation(socket, 0)).toBe(operationName(ConnectionService.method.handshake));
   });
@@ -434,7 +445,7 @@ describe("RpcWebSocketTransport", () => {
     expect(descriptorOperation(socket, 1)).toBe(operationName(ServerService.method.getReadiness));
     ack(socket, 1);
 
-    await expect(readiness).resolves.toMatchObject({ outcome: { case: "success" } });
+    expect(readiness).resolves.toMatchObject({ outcome: { case: "success" } });
   });
 
   it("keeps no-timeout control calls pending past the generic request deadline", async () => {
@@ -459,11 +470,12 @@ describe("RpcWebSocketTransport", () => {
     await socket.setup();
     expect(descriptorOperation(socket, 1)).toBe(operationName(ServerService.method.getReadiness));
 
-    await vi.advanceTimersByTimeAsync(31_000);
+    vi.advanceTimersByTime(31_000);
+    await Promise.resolve();
     expect(settled).toBe(false);
     ack(socket, 1);
 
-    await expect(mutation).resolves.toMatchObject({ outcome: { case: "success" } });
+    expect(mutation).resolves.toMatchObject({ outcome: { case: "success" } });
   });
 
   it("installs subscription event listener before subscribe ack can race with first event", async () => {
@@ -493,9 +505,11 @@ describe("RpcWebSocketTransport", () => {
 
   it("rejects subscriptions on handshake protocol mismatch before sending the subscribe method", async () => {
     const errors: Error[] = [];
+    const errorReported = deferred<Error>();
     const { subscription, socket } = subscribeProject({
       onError(error) {
         errors.push(error);
+        errorReported.resolve(error);
       },
     });
 
@@ -503,9 +517,8 @@ describe("RpcWebSocketTransport", () => {
     await waitForSent(socket, 1);
     handshakeProtocolMismatchAck(socket, 0);
 
-    await vi.waitFor(() => {
-      expect(errors[0]).toBeInstanceOf(ProtocolMismatchError);
-    });
+    await errorReported.promise;
+    expect(errors[0]).toBeInstanceOf(ProtocolMismatchError);
     expect(errors[0]).toMatchObject({
       requiredProtocolVersion: "126",
       clientProtocolVersion: protocolVersion,
@@ -521,9 +534,11 @@ describe("RpcWebSocketTransport", () => {
   it("ends a lost subscription and permits a fresh explicit subscription", async () => {
     vi.useFakeTimers();
     const errors: Error[] = [];
+    const errorReported = deferred<Error>();
     const { subscription, socket: firstSocket } = subscribeProject({
       onError(error) {
         errors.push(error);
+        errorReported.resolve(error);
       },
     });
     await firstSocket.setup();
@@ -531,7 +546,8 @@ describe("RpcWebSocketTransport", () => {
     await flushPromises();
 
     firstSocket.close();
-    await vi.advanceTimersByTimeAsync(10_000);
+    vi.advanceTimersByTime(10_000);
+    await errorReported.promise;
     expect(sockets).toHaveLength(1);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toBeInstanceOf(TransportError);
@@ -548,9 +564,11 @@ describe("RpcWebSocketTransport", () => {
 
   it("stops subscription retry after a definitive RPC rejection", async () => {
     const errors: Error[] = [];
+    const errorReported = deferred<Error>();
     const { subscription, socket } = subscribeProject({
       onError(error) {
         errors.push(error);
+        errorReported.resolve(error);
       },
     });
     await socket.setup();
@@ -568,7 +586,8 @@ describe("RpcWebSocketTransport", () => {
       }),
     });
     await flushPromises();
-    await vi.advanceTimersByTimeAsync(1_000);
+    vi.advanceTimersByTime(1_000);
+    await errorReported.promise;
 
     expect(errors).toHaveLength(1);
     expect(errors[0]).toBeInstanceOf(RpcError);
@@ -581,12 +600,14 @@ describe("RpcWebSocketTransport", () => {
     vi.useFakeTimers();
     const completions: (StreamFailureCode | null)[] = [];
     const errors: Error[] = [];
+    const errorReported = deferred<Error>();
     const { subscription, socket: firstSocket } = subscribeProject({
       onComplete(code) {
         completions.push(code);
       },
       onError(error) {
         errors.push(error);
+        errorReported.resolve(error);
       },
     });
     await firstSocket.setup();
@@ -602,7 +623,8 @@ describe("RpcWebSocketTransport", () => {
       ),
     );
 
-    await vi.advanceTimersByTimeAsync(10_000);
+    vi.advanceTimersByTime(10_000);
+    await errorReported.promise;
     expect(sockets).toHaveLength(1);
     expect(completions).toEqual([StreamFailureCode.STREAM_GAP]);
     expect(errors).toHaveLength(1);
@@ -677,14 +699,14 @@ describe("RpcWebSocketTransport", () => {
     );
     const socket = sockets[0] ?? failTest("Transcript socket missing.");
     await prepareTranscriptSocket(socket, sessionID);
-    await vi.advanceTimersByTimeAsync(60_000);
+    vi.advanceTimersByTime(60_000);
     expect(onOpen).not.toHaveBeenCalled();
     binaryAck(socket, 2, StreamService.method.subscribe, {
       result: create(StreamService.method.subscribe.output, {
         outcome: { case: "success", value: {} },
       }),
     });
-    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onOpen).toHaveBeenCalledTimes(1);
     // Sequence without the required Event is an invalid expected event, not a bad envelope.
     binaryNotification(socket, StreamService.method.event, Uint8Array.of(8, 2));
     binaryNotification(
@@ -727,7 +749,7 @@ describe("RpcWebSocketTransport", () => {
         }),
       ),
     );
-    expect(onEvent).toHaveBeenCalledOnce();
+    expect(onEvent).toHaveBeenCalledTimes(1);
     expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ sequence: 4, kind: "session_identity" }));
     expect(onError).toHaveBeenCalledTimes(2);
     for (const [error] of onError.mock.calls) expect(error).toBeInstanceOf(ContractError);
@@ -735,7 +757,7 @@ describe("RpcWebSocketTransport", () => {
     // Present zero code is invalid; successful completion is the empty message.
     binaryNotification(socket, StreamService.method.complete, Uint8Array.of(8, 0));
     expect(onError).toHaveBeenCalledTimes(3);
-    await vi.advanceTimersByTimeAsync(10_000);
+    vi.advanceTimersByTime(10_000);
     expect(socket.readyState).toBe(MockWebSocket.CLOSED);
     expect(sockets).toHaveLength(1);
     subscription.close();
@@ -744,8 +766,20 @@ describe("RpcWebSocketTransport", () => {
   it("ends each transcript attempt on loss or completion and permits explicit observation", async () => {
     vi.useFakeTimers();
     const sessionID = "123e4567-e89b-42d3-a456-426614174000";
-    const onComplete = vi.fn<(completion: ChatTranscriptCompletion) => void>();
-    const onTransportLoss = vi.fn();
+    const completionReported = deferred<undefined>();
+    let completionCount = 0;
+    const onComplete = vi.fn<(completion: ChatTranscriptCompletion) => void>(() => {
+      completionCount += 1;
+      if (completionCount === 2) completionReported.resolve(undefined);
+    });
+    const firstTransportLoss = deferred<undefined>();
+    const secondTransportLoss = deferred<undefined>();
+    let transportLossCount = 0;
+    const onTransportLoss = vi.fn(() => {
+      transportLossCount += 1;
+      if (transportLossCount === 1) firstTransportLoss.resolve(undefined);
+      if (transportLossCount === 2) secondTransportLoss.resolve(undefined);
+    });
     const onError = vi.fn();
     const api = createChatApi(createRpcTransport("ws://127.0.0.1:53082/rpc"));
     const observe = () =>
@@ -763,8 +797,9 @@ describe("RpcWebSocketTransport", () => {
       result: create(StreamService.method.subscribe.output, { outcome: { case: "success", value: {} } }),
     });
     socket.close();
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(onTransportLoss).toHaveBeenCalledOnce();
+    vi.advanceTimersByTime(1_000);
+    await firstTransportLoss.promise;
+    expect(onTransportLoss).toHaveBeenCalledTimes(1);
     expect(sockets).toHaveLength(1);
     const second = observe();
     socket = sockets[1] ?? failTest("Reconnected transcript socket missing.");
@@ -783,7 +818,8 @@ describe("RpcWebSocketTransport", () => {
         }),
       ),
     );
-    await vi.advanceTimersByTimeAsync(2_000);
+    vi.advanceTimersByTime(2_000);
+    await secondTransportLoss.promise;
     expect(onTransportLoss).toHaveBeenCalledTimes(2);
     expect(sockets).toHaveLength(2);
     const third = observe();
@@ -797,7 +833,8 @@ describe("RpcWebSocketTransport", () => {
       StreamService.method.complete,
       encode(StreamService.method.complete.input, create(StreamService.method.complete.input)),
     );
-    await vi.advanceTimersByTimeAsync(10_000);
+    vi.advanceTimersByTime(10_000);
+    await completionReported.promise;
     expect(onComplete.mock.calls.map(([completion]) => completion.code)).toEqual([
       StreamFailureCode.STREAM_GAP,
       null,
@@ -1078,9 +1115,24 @@ async function flushPromises(): Promise<void> {
   await Promise.resolve();
 }
 
+function deferred<Value>() {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 async function waitForSent(socket: MockWebSocket, count: number): Promise<void> {
-  await vi.waitFor(() => {
-    expect(socket.sent.length).toBeGreaterThanOrEqual(count);
+  if (socket.sent.length >= count) return;
+  await new Promise<void>((resolve) => {
+    const sent = () => {
+      if (socket.sent.length < count) return;
+      socket.removeEventListener("sent", sent);
+      resolve();
+    };
+    socket.addEventListener("sent", sent);
+    sent();
   });
 }
 

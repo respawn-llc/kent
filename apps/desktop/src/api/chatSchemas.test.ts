@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { create, decode, encode } from "@app/server-api-contract";
 import * as T from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
 import {

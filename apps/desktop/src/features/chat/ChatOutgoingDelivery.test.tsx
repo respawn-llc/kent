@@ -1,6 +1,7 @@
+import { expect, it, vi } from "bun:test";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ChatInputMutationResult } from "@/api";
+import type { ChatInputMutationResult, PendingWorkItemID } from "@/api";
 import { appI18n } from "@/i18n";
 import { hydration, target } from "@/test-support/chat-runtime";
 import { sessionWithPrompts } from "@/test-support/chat-destination";
@@ -12,8 +13,12 @@ it("releases a busy submission after two seconds and keeps subsequent typing thr
   const response = new Promise<ChatInputMutationResult>((resolve) => {
     respond = resolve;
   });
+  let inputID: PendingWorkItemID | undefined;
   const view = sessionWithPrompts((services) => {
-    vi.spyOn(services.api.chat, "steer").mockReturnValue(response);
+    vi.spyOn(services.api.chat, "steer").mockImplementation(async (_, __, id) => {
+      inputID = id;
+      return response;
+    });
   });
   try {
     const editor = await screen.findByRole("textbox");
@@ -36,13 +41,18 @@ it("releases a busy submission after two seconds and keeps subsequent typing thr
       { timeout: 3000 },
     );
     expect(await screen.findByText("Busy submission")).toBeInTheDocument();
-    await user.type(editor, "next draft");
-    const inputID = vi.mocked(view.services.api.chat.steer).mock.calls[0]?.[2];
-    if (inputID === undefined) throw new Error("Missing submitted identity");
+    fireEvent.change(editor, { target: { value: "next draft" } });
+    const submittedID = inputID;
+    if (submittedID === undefined) throw new Error("Missing submitted identity");
     await act(async () => {
       respond({
         sessionID: target.sessionID,
-        outcome: { kind: "accepted", queueItemID: inputID, diagnostic: null, disposition: "pending_steer" },
+        outcome: {
+          kind: "accepted",
+          queueItemID: submittedID,
+          diagnostic: null,
+          disposition: "pending_steer",
+        },
       });
     });
     expect(editor).toHaveValue("next draft");
@@ -58,8 +68,12 @@ it("shows an idle submission before its response and adopts commitment once with
   const response = new Promise<ChatInputMutationResult>((resolve) => {
     respond = resolve;
   });
+  let inputID: PendingWorkItemID | undefined;
   const view = sessionWithPrompts((services) => {
-    vi.spyOn(services.api.chat, "steer").mockReturnValue(response);
+    vi.spyOn(services.api.chat, "steer").mockImplementation(async (_, __, id) => {
+      inputID = id;
+      return response;
+    });
   });
   try {
     const editor = await screen.findByRole("textbox");
@@ -94,17 +108,25 @@ it("shows an idle submission before its response and adopts commitment once with
     expect(editor).toHaveValue("");
     expect(editor).not.toHaveAttribute("readonly");
     fireEvent.change(editor, { target: { value: "next draft" } });
-    const inputID = vi.mocked(view.services.api.chat.steer).mock.calls[0]?.[2];
-    if (inputID === undefined) throw new Error("Missing submitted identity");
+    const submittedID = inputID;
+    if (submittedID === undefined) throw new Error("Missing submitted identity");
     await act(async () => {
       view.handlers[0]?.onEvent({
         sequence: 2,
         kind: "committed_row",
-        payload: { ...row(1), User: { Text: "Optimistic message", QueueItemIDs: [inputID.toJSONValue()] } },
+        payload: {
+          ...row(1),
+          User: { Text: "Optimistic message", QueueItemIDs: [submittedID.toJSONValue()] },
+        },
       });
       respond({
         sessionID: target.sessionID,
-        outcome: { kind: "accepted", queueItemID: inputID, diagnostic: null, disposition: "pending_steer" },
+        outcome: {
+          kind: "accepted",
+          queueItemID: submittedID,
+          diagnostic: null,
+          disposition: "pending_steer",
+        },
       });
     });
     await waitFor(() => {

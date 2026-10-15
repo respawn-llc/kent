@@ -1,4 +1,5 @@
-import { createChatStorageFixture } from "./chatStorageFixture";
+import { afterEach, beforeEach, expect, it, vi } from "bun:test";
+import { installChatStorageFixture } from "./chatStorageFixture";
 import { act, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
@@ -30,8 +31,14 @@ import {
   navigation,
   renderDestination,
 } from "@/test-support/chat-destination";
-beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
-afterEach(() => vi.unstubAllGlobals());
+let restoreStorage: (() => void) | undefined;
+beforeEach(() => {
+  restoreStorage = installChatStorageFixture();
+});
+afterEach(() => {
+  restoreStorage?.();
+  restoreStorage = undefined;
+});
 function setup(commands: readonly ComposerCommand[] = [], selected: ChatDestinationOpening = opening) {
   writeBrowserStorage("local", "desktop.newChatDraft", "");
   const services = createTestServices([]);
@@ -572,7 +579,7 @@ it.each(["settings", "workspace"] as const)(
     if (source === "workspace") {
       await user.click(screen.getByRole("button", { name: opening.workspace.name }));
       await waitFor(() => {
-        expect(workspaces).toHaveBeenCalledOnce();
+        expect(workspaces).toHaveBeenCalledTimes(1);
       });
     }
     read.mockRejectedValueOnce(new Error("offline"));
@@ -871,7 +878,7 @@ it.each(["creation failed", "response lost"])(
       ok: true,
       value: "later\noriginal",
     });
-    expect(view.steer).toHaveBeenCalledOnce();
+    expect(view.steer).toHaveBeenCalledTimes(1);
     expect(view.draft).not.toHaveBeenCalled();
     expect(view.services.transport.descriptorCalls).toHaveLength(0);
   },
@@ -1016,7 +1023,7 @@ it("keeps text but replaces edited settings when selecting another workspace bef
   const choice = catalog.catalog.choices[0];
   if (choice === undefined) throw new Error("Missing choice");
   const loading = deferred<ChatSettingsRead>();
-  vi.mocked(view.services.api.chat.getSettings).mockReturnValueOnce(loading.promise);
+  vi.spyOn(view.services.api.chat, "getSettings").mockReturnValueOnce(loading.promise);
   act(() => {
     view.result.current.selectWorkspace({
       id: "workspace-2",
@@ -1069,7 +1076,7 @@ it("rejects a previously rendered workspace action while any first input request
     view.result.current.composer.submit("send");
   });
   await waitFor(() => {
-    expect(view.steer).toHaveBeenCalledOnce();
+    expect(view.steer).toHaveBeenCalledTimes(1);
   });
   act(() => {
     selectWorkspace({ id: "workspace-2", name: "Second", rootPath: "/second", isDefault: false });

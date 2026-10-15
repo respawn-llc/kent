@@ -1,20 +1,14 @@
-import { afterAll, afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "bun:test";
 import { SharedTextMotion } from "./SharedTextMotion";
 
-// Motion captures requestAnimationFrame when its module loads.
-vi.hoisted(() => {
-  vi.useFakeTimers();
-});
+let restoreMatchMedia: (() => void) | undefined;
 
-afterAll(() => {
-  vi.useRealTimers();
-});
-
-afterEach(async () => {
-  await vi.advanceTimersByTimeAsync(32);
+afterEach(() => {
   document.body.replaceChildren();
   document.documentElement.style.removeProperty("--motion-text-handoff");
-  vi.unstubAllGlobals();
+  restoreMatchMedia?.();
+  restoreMatchMedia = undefined;
+  vi.useRealTimers();
 });
 
 function textElement(top: number) {
@@ -26,7 +20,8 @@ function textElement(top: number) {
 }
 
 async function layoutSettled() {
-  await vi.advanceTimersByTimeAsync(32);
+  await new Promise(requestAnimationFrame);
+  await new Promise(requestAnimationFrame);
 }
 
 it.each([50, 900])("keeps a tall-chat flight at 350ms with a %ims theme duration", async (duration) => {
@@ -38,21 +33,26 @@ it.each([50, 900])("keeps a tall-chat flight at 350ms with a %ims theme duration
   source.remove();
   expect(motion.arrive(["first"], target)).toBe(true);
   expect(target).not.toBeVisible();
-  await vi.advanceTimersByTimeAsync(250);
+  await new Promise((resolve) => setTimeout(resolve, 250));
   expect(target).not.toBeVisible();
-  await vi.advanceTimersByTimeAsync(150);
+  await new Promise((resolve) => setTimeout(resolve, 150));
   expect(target).toBeVisible();
   expect(document.body.children).toHaveLength(1);
   motion.dispose();
 });
 
 it("consumes reduced-motion delivery without overlays or historical replay", () => {
-  vi.stubGlobal(
-    "matchMedia",
-    vi.fn((query: string) => ({
+  const previousMatchMedia = Object.getOwnPropertyDescriptor(globalThis, "matchMedia");
+  Object.defineProperty(globalThis, "matchMedia", {
+    configurable: true,
+    value: vi.fn((query: string) => ({
       matches: query === "(prefers-reduced-motion: reduce)",
     })),
-  );
+  });
+  restoreMatchMedia = () => {
+    if (previousMatchMedia === undefined) Reflect.deleteProperty(globalThis, "matchMedia");
+    else Object.defineProperty(globalThis, "matchMedia", previousMatchMedia);
+  };
   const motion = new SharedTextMotion();
   const source = textElement(300);
   const target = textElement(100);
@@ -60,7 +60,8 @@ it("consumes reduced-motion delivery without overlays or historical replay", () 
   expect(motion.arrive(["first"], target)).toBe(false);
   expect(target).toBeVisible();
   expect(document.body.children).toHaveLength(2);
-  vi.unstubAllGlobals();
+  restoreMatchMedia();
+  restoreMatchMedia = undefined;
   expect(motion.arrive(["first"], target)).toBe(false);
   motion.dispose();
 });
@@ -140,17 +141,16 @@ it("reveals the live destination without freezing its opening layout", async () 
   vi.spyOn(target, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 100, 240, 30));
   await layoutSettled();
   expect(target).not.toBeVisible();
-  const newContent = document.createElement("span");
-  newContent.textContent = "Newly laid out content";
-  target.append(newContent);
-  await vi.advanceTimersByTimeAsync(350);
+  target.append(document.createTextNode(" with newly laid out content"));
+  await new Promise((resolve) => setTimeout(resolve, 350));
   expect(target).toBeVisible();
-  expect(newContent).toBeVisible();
+  expect(target).toHaveTextContent("A message with newly laid out content");
   expect(document.body.children).toHaveLength(2);
   motion.dispose();
 });
 
 it("expires composer snapshots and bounds the retained source count", () => {
+  vi.useFakeTimers();
   const motion = new SharedTextMotion();
   const source = textElement(300);
   const target = textElement(100);

@@ -66,15 +66,14 @@ export const architectureDependencyNodes = Object.freeze(["import", "export", "d
 // Its handwritten package entrypoint and policy modules remain fail-closed below.
 export const generatedServerApiContractFiles = "packages/server-api-contract/src/gen/**/*.ts";
 
-export const architectureAdditionalDependencyNodes = Object.freeze(
-  ["mock", "doMock", "unmock", "doUnmock", "importActual", "importMock"].map((method) =>
-    Object.freeze({
-      selector: `CallExpression[callee.object.name=vi][callee.property.name=${method}] > Literal.arguments:first-child`,
-      kind: "value",
-      name: `vi.${method}`,
-    }),
-  ),
-);
+export const architectureAdditionalDependencyNodes = Object.freeze([
+  Object.freeze({
+    selector:
+      "CallExpression[callee.object.name=mock][callee.property.name=module] > Literal.arguments:first-child",
+    kind: "value",
+    name: "mock.module",
+  }),
+]);
 
 const dependencyTargets = {
   API: dependencyTarget(architectureOwners.API, "@/api"),

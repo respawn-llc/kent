@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { TestAppProviders, createTestServices } from "@/test-support/app-services";
@@ -42,13 +43,13 @@ it("rejects same-turn duplicate deletion without blocking another Task and compl
     expect(result.current.b.isPending).toBe(false);
   });
   expect(result.current.a.isPending).toBe(true);
-  expect(onDeletedB).toHaveBeenCalledOnce();
+  expect(onDeletedB).toHaveBeenCalledTimes(1);
   unmount();
   await act(async () => {
     a.resolve(undefined);
   });
   await waitFor(() => {
-    expect(onDeletedA).toHaveBeenCalledOnce();
+    expect(onDeletedA).toHaveBeenCalledTimes(1);
   });
   expect(onError).not.toHaveBeenCalled();
 });
@@ -92,7 +93,7 @@ it("keeps deletion admission when its confirmation is closed and reopened", asyn
   );
   fireEvent.click(screen.getByRole("button", { name: "confirm" }));
   await waitFor(() => {
-    expect(remove).toHaveBeenCalledOnce();
+    expect(remove).toHaveBeenCalledTimes(1);
   });
   view.rerender(
     <TestAppProviders services={services}>

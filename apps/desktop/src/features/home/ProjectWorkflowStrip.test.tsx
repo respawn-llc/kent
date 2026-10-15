@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
-import { vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "bun:test";
 
 import { appI18n, initializeI18n } from "@/i18n";
 import { ProjectWorkflowStrip } from "./ProjectWorkflowStrip";

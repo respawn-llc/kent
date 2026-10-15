@@ -1,15 +1,14 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "bun:test";
 
 import { BoardDependencyProgressChip } from "./BoardDependencyProgressChip";
 
 describe("BoardDependencyProgressChip", () => {
-  beforeEach(() => vi.useFakeTimers());
-  afterEach(() => vi.useRealTimers());
-
   it("isolates chip activation from its card and exposes server progress", async () => {
     const onActivate = vi.fn();
     const onCardActivate = vi.fn();
+    const user = userEvent.setup();
 
     render(
       <div onClick={onCardActivate}>
@@ -21,19 +20,16 @@ describe("BoardDependencyProgressChip", () => {
     );
 
     const chip = screen.getByRole("button");
-    chip.focus();
+    await user.tab();
     expect(chip).toHaveFocus();
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
-    fireEvent.mouseEnter(chip);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(0);
-    });
-    const tooltip = screen.getByRole("tooltip");
+    await user.hover(chip);
+    const tooltip = await screen.findByRole("tooltip");
     expect(tooltip).not.toBeEmptyDOMElement();
 
-    fireEvent.click(chip);
+    await user.click(chip);
 
-    expect(onActivate).toHaveBeenCalledOnce();
+    expect(onActivate).toHaveBeenCalledTimes(1);
     expect(onCardActivate).not.toHaveBeenCalled();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuemax", "2");

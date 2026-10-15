@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 
 import { type TaskStartResponse, type WorkflowExecutionTargetSelection } from "@/api";
 import { TestAppProviders, createTestServices } from "@/test-support/app-services";
@@ -238,7 +238,7 @@ describe("TaskInitiatingActionDialogs", () => {
     }
     expect(result.action.proceedDespiteDependencies).toBe(true);
     expect(result.selection).toBeUndefined();
-    expect(execute).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("dependency-confirmation-proceed")).not.toBeInTheDocument();
   });
 
@@ -296,7 +296,7 @@ describe("TaskInitiatingActionDialogs", () => {
     }
     expect(result.action.proceedDespiteDependencies).toBe(false);
     expect(result.selection).toEqual({ mode: "default_branch", customRef: null });
-    expect(execute).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("radiogroup")).toBeInTheDocument();
   });
 

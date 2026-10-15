@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 
 import { ActionableListRow } from "./index";
 
@@ -38,8 +38,8 @@ describe("ActionableListRow", () => {
     await user.click(screen.getByRole("button", { name: "Rename" }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
-    expect(onSelect).toHaveBeenCalledOnce();
-    expect(onRename).toHaveBeenCalledOnce();
-    expect(onDelete).toHaveBeenCalledOnce();
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onRename).toHaveBeenCalledTimes(1);
+    expect(onDelete).toHaveBeenCalledTimes(1);
   });
 });

@@ -2,10 +2,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { RegistryProvider } from "@effect/atom-react";
+import { beforeEach, expect, it, mock } from "bun:test";
 
 import type { WorkflowListInput, WorkflowRecord, WorkflowPage } from "@/api";
 import { deferred } from "@/test-support/chat-runtime";
-import { projectTaskWorkflowItems, useProjectTaskWorkflowPages } from "./projectTaskWorkflows";
 
 const projectID = "project-1";
 interface ProjectTaskWorkflowFixture {
@@ -14,7 +14,7 @@ interface ProjectTaskWorkflowFixture {
   pending: Promise<WorkflowPage> | null;
 }
 
-const fixture = vi.hoisted<ProjectTaskWorkflowFixture>(() => ({
+const fixture: ProjectTaskWorkflowFixture = {
   pending: null,
   requests: [],
   workflows: Array.from({ length: 130 }, (_value, index): WorkflowRecord => ({
@@ -25,10 +25,11 @@ const fixture = vi.hoisted<ProjectTaskWorkflowFixture>(() => ({
     projectLink: { isDefault: index === 0 },
     version: 1,
   })),
-}));
+};
 
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
+const actualAppFacade = await import("@/app-facade");
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
   useAppServices: () => ({
     api: {
       listWorkflows: async (input: WorkflowListInput) => {
@@ -44,6 +45,7 @@ vi.mock("@/app-facade", async (importOriginal) => ({
     },
   }),
 }));
+const { projectTaskWorkflowItems, useProjectTaskWorkflowPages } = await import("./projectTaskWorkflows");
 
 beforeEach(() => {
   fixture.requests = [];

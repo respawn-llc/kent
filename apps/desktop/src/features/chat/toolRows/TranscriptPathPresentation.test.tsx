@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
+import { MotionConfig } from "motion/react";
 import userEvent from "@testing-library/user-event";
-import { beforeAll, expect, it } from "vitest";
+import { beforeAll, expect, it } from "bun:test";
 
 import { appI18n, initializeI18n } from "@/i18n";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
@@ -40,16 +41,18 @@ it("formats the image label without changing its source or offering Copy", async
       },
     },
   } satisfies TranscriptToolSlotItem;
-  render(
-    <TestAppProviders
-      services={createTestServices([], undefined, { homePath: "/Users/engineer", platform: "macos" })}
-    >
-      <TranscriptToolSlot
-        item={item}
-        target={{ projectID: "project", sessionID: "session" }}
-        effectiveWorkdir={null}
-      />
-    </TestAppProviders>,
+  const view = render(
+    <MotionConfig skipAnimations>
+      <TestAppProviders
+        services={createTestServices([], undefined, { homePath: "/Users/engineer", platform: "macos" })}
+      >
+        <TranscriptToolSlot
+          item={item}
+          target={{ projectID: "project", sessionID: "session" }}
+          effectiveWorkdir={null}
+        />
+      </TestAppProviders>
+    </MotionConfig>,
   );
   expect(
     screen.getByText(appI18n.t("chat.toolRows.viewedImage", { path: "~/project/image.png" })),
@@ -57,4 +60,5 @@ it("formats the image label without changing its source or offering Copy", async
   await user.click(screen.getByRole("button", { name: appI18n.t("chat.toolRows.expand") }));
   expect(screen.queryByRole("button", { name: appI18n.t("chat.toolRows.copy") })).not.toBeInTheDocument();
   expect(item.tool.Presentation.RenderHint.Path).toBe(path);
+  view.unmount();
 });

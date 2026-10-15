@@ -1,10 +1,9 @@
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, mock, vi } from "bun:test";
 import { DragDropSurface } from "@app/ui-kit";
 import type { ReactElement } from "react";
 import type * as ReactI18next from "react-i18next";
 
-import { KanbanColumn } from "./BoardColumns";
 import type { KanbanCardVM, KanbanColumnVM } from "./BoardColumnViewModel";
 import { useBoardDragLifecycle, type ActiveBoardCardDrag } from "./BoardDragState";
 import { projectPendingBoardCardMove } from "./BoardCardMotionModel";
@@ -14,16 +13,21 @@ import { startTaskInitiatingAction } from "@/shared/execution-target";
 import type { TaskStartResponse } from "@/api";
 import { deferred } from "@/test-support/chat-runtime";
 
-vi.mock("react-i18next", async (importOriginal) => ({
-  ...(await importOriginal<typeof ReactI18next>()),
+const actualReactI18next: typeof ReactI18next = await import("react-i18next");
+const actualAppFacade = await import("@/app-facade");
+
+await mock.module("react-i18next", () => ({
+  ...actualReactI18next,
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
   formatRelativeTime: () => "now",
   useOwnedSidebarRoots: () => ({ open: vi.fn() }),
 }));
+
+const { KanbanColumn } = await import("./BoardColumns");
 
 const column: KanbanColumnVM = {
   assigneeRole: "",
@@ -64,6 +68,8 @@ const drag: ActiveBoardCardDrag = {
   snapshot: card,
 };
 
+let pointerEventDescriptor: PropertyDescriptor | undefined;
+
 function renderColumn(column: ReactElement) {
   return render(
     <DragDropSurface onDrop={vi.fn()} onCancel={vi.fn()}>
@@ -74,17 +80,26 @@ function renderColumn(column: ReactElement) {
 
 describe("KanbanColumn retained replacement boundary", () => {
   beforeEach(() => {
+    pointerEventDescriptor = Object.getOwnPropertyDescriptor(globalThis, "PointerEvent");
     class TestPointerEvent extends MouseEvent {
       readonly isPrimary = true;
       readonly pointerId = 1;
       readonly pointerType = "mouse";
     }
-    vi.stubGlobal("PointerEvent", TestPointerEvent);
+    Object.defineProperty(globalThis, "PointerEvent", {
+      configurable: true,
+      value: TestPointerEvent,
+      writable: true,
+    });
   });
 
   afterEach(() => {
     vi.useRealTimers();
-    vi.unstubAllGlobals();
+    if (pointerEventDescriptor === undefined) {
+      Reflect.deleteProperty(globalThis, "PointerEvent");
+    } else {
+      Object.defineProperty(globalThis, "PointerEvent", pointerEventDescriptor);
+    }
   });
 
   it("holds a dropped card at its destination while confirmation or execution is pending", async () => {
@@ -211,7 +226,7 @@ describe("KanbanColumn retained replacement boundary", () => {
         await waitFor(() => {
           expect(result.current.gesture.pendingCardMove).toBeNull();
         });
-        expect(onActionError).toHaveBeenCalledOnce();
+        expect(onActionError).toHaveBeenCalledTimes(1);
         expect(onActionError.mock.calls[0]?.[2]).toBe(failure);
       } else if (outcome === "confirmation") {
         await waitFor(() => {
@@ -292,15 +307,19 @@ describe("KanbanColumn retained replacement boundary", () => {
       else fireEvent.pointerUp(document, { clientX, clientY: 50 });
       fireEvent.click(source);
       expect(onClick).not.toHaveBeenCalled();
-      await act(async () => {
-        await vi.runOnlyPendingTimersAsync();
+      act(() => {
+        vi.runOnlyPendingTimers();
       });
       vi.useRealTimers();
       if (finish === "escape" || finish === "cancel") {
-        expect(onCancel).toHaveBeenCalledOnce();
+        await waitFor(() => {
+          expect(onCancel).toHaveBeenCalledTimes(1);
+        });
         expect(onDrop).not.toHaveBeenCalled();
       } else {
-        expect(onDrop).toHaveBeenCalledOnce();
+        await waitFor(() => {
+          expect(onDrop).toHaveBeenCalledTimes(1);
+        });
         expect(onDrop.mock.calls[0]?.[0]).toBe(finish === "outside" ? null : destination.id);
         expect(onCancel).not.toHaveBeenCalled();
       }
@@ -338,7 +357,7 @@ describe("KanbanColumn retained replacement boundary", () => {
 
     expect(screen.getByRole("alert")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button"));
-    expect(boundary.onRetry).toHaveBeenCalledOnce();
+    expect(boundary.onRetry).toHaveBeenCalledTimes(1);
   });
 
   it("keeps server-authorized actions while an invalid Workflow disables drag", () => {

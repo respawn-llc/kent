@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { question, approval } from "@/test-support/chat-prompts";
 import { emptyPickerState, transitionPicker } from "./promptPickerState";
 

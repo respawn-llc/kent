@@ -2,6 +2,7 @@ import { RegistryProvider, useAtomValue } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { expect, it, vi } from "bun:test";
 import { appI18n } from "@/i18n";
 import { createTestServices } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
@@ -35,7 +36,7 @@ it("stops workspace selection on directory cancellation", async () => {
   await act(async () => {
     view.result.current.chooseWorkspace(view.context);
   });
-  expect(view.select).toHaveBeenCalledOnce();
+  expect(view.select).toHaveBeenCalledTimes(1);
   expect(view.plan).not.toHaveBeenCalled();
   expect(view.create).not.toHaveBeenCalled();
   expect(view.context.openDraft).not.toHaveBeenCalled();
@@ -154,7 +155,7 @@ it("does not create when revalidation requires workspace selection", async () =>
     view.result.current.submit({ draft, complete: vi.fn(), selectionRequired });
   });
   expect(view.create).not.toHaveBeenCalled();
-  expect(selectionRequired).toHaveBeenCalledOnce();
+  expect(selectionRequired).toHaveBeenCalledTimes(1);
   expect(view.push).toHaveBeenCalledWith(expect.objectContaining({ tone: "info" }));
 });
 
@@ -162,7 +163,11 @@ it("does not open inline creation after native launch fails following disposal",
   vi.useFakeTimers();
   try {
     const view = setup();
-    vi.spyOn(view.services.nativeBridge.capabilities, "projectCreationWindow", "get").mockReturnValue(true);
+    Object.defineProperty(view.services.nativeBridge.capabilities, "projectCreationWindow", {
+      configurable: true,
+      value: true,
+      writable: true,
+    });
     const launch = deferred<undefined>();
     const openWindow = vi
       .spyOn(view.services.nativeBridge.projectCreation, "openWindow")
@@ -172,9 +177,11 @@ it("does not open inline creation after native launch fails following disposal",
     await act(async () => {
       view.result.current.chooseWorkspace(view.context);
     });
-    expect(openWindow).toHaveBeenCalledOnce();
+    expect(openWindow).toHaveBeenCalledTimes(1);
     view.unmount();
-    await act(async () => vi.advanceTimersByTimeAsync(500));
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+    });
     await act(async () => {
       launch.reject(new Error("Launch failed"));
     });
@@ -204,7 +211,9 @@ it.each(["plan", "create"] as const)(
         view.result.current.submit({ draft, complete, selectionRequired: vi.fn() });
       });
       view.unmount();
-      await act(async () => vi.advanceTimersByTimeAsync(500));
+      await act(async () => {
+        vi.advanceTimersByTime(500);
+      });
       await act(async () => {
         planning.resolve({ kind: "local_unbound", canonicalRoot: "/Kent", binding: null });
         creation.resolve(binding);

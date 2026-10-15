@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import { expect, it, vi } from "bun:test";
 import { useWindowChromeTitle } from "@/app-facade";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { WindowChromeFrame } from "./WindowChromeFrame";

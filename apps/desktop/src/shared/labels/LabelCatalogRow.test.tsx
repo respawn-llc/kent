@@ -1,24 +1,26 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { expect, it, mock, vi } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { queryKeys } from "@/app-facade";
 import type { ProjectLabel } from "@/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
-import { ProjectLabelsProvider } from "./ProjectLabelsProvider";
-import { LabelCatalogRow } from "./LabelCatalogRow";
 import type { DeleteState, RenameState } from "./LabelChooserRows";
-import { useProjectLabelCatalog } from "./projectLabelHooks";
-import { useProjectLabelActions } from "./projectLabelHooks";
 import { LabelActionScopeContext } from "./projectLabelContext";
 
 const labelID = "38bf0da7-a3f7-4c15-bc5f-c8fca538e667";
 
-vi.mock("react-i18next", async (importOriginal) => ({
-  ...(await importOriginal()),
+const actualI18next = await import("react-i18next");
+await mock.module("react-i18next", () => ({
+  ...actualI18next,
   useTranslation: () => ({ t: (key: string) => key }),
 }));
+
+const { ProjectLabelsProvider } = await import("./ProjectLabelsProvider");
+const { LabelCatalogRow } = await import("./LabelCatalogRow");
+const { useProjectLabelCatalog, useProjectLabelActions } = await import("./projectLabelHooks");
 
 it("keeps an edited rename draft when a duplicate Save is ignored and the original Save finishes", async () => {
   const services = createTestServices([]);

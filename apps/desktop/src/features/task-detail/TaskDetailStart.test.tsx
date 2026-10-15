@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -72,7 +73,7 @@ it("starts the persisted Task without submitting a dirty title or description dr
   await user.click(screen.getByTestId("task-detail-start"));
 
   await waitFor(() => {
-    expect(start).toHaveBeenCalledOnce();
+    expect(start).toHaveBeenCalledTimes(1);
   });
   expect(update).not.toHaveBeenCalled();
   expect(start.mock.calls[0]?.[0]).toMatchObject({

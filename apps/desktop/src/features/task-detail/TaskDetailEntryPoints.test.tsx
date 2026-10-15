@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
+import { beforeAll, beforeEach, expect, it, mock, vi } from "bun:test";
 import {
   createMemoryHistory,
   createRootRoute,
@@ -7,33 +8,34 @@ import {
   RouterContextProvider,
 } from "@tanstack/react-router";
 
-import { SidebarRootContext } from "@/app-facade";
 import { createBrowserNativeBridge } from "@/test-support/native-bridge";
 import { createTaskDetailTestServices, taskDetailResponse } from "@/test-support/task-detail";
 import { createTestSidebarController } from "@/test-support/sidebar";
 import { TestAppProviders } from "@/test-support/app-services";
 import { appI18n, initializeI18n } from "@/i18n";
-import { StandaloneTaskRoute } from "./StandaloneTaskRoute";
-import { TaskDetailWindowRoute } from "./TaskDetailWindowRoute";
 
-const fixture = vi.hoisted(() => ({
+const fixture = {
   copyText: vi.fn(async () => undefined),
   navigation: {
     openHome: vi.fn(async () => undefined),
     openSessionChat: vi.fn(async () => undefined),
   },
-}));
+};
 
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
+const actualAppFacade = await import("@/app-facade");
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
   useAppNavigation: () => fixture.navigation,
 }));
-vi.mock("./taskDetailDismissal", () => ({
+await mock.module("./taskDetailDismissal", () => ({
   useExactTaskDetailDeleteDismissal: () => async () => ({ kind: "accepted" }),
 }));
 
+const { SidebarRootContext } = actualAppFacade;
+const { StandaloneTaskRoute } = await import("./StandaloneTaskRoute");
+const { TaskDetailWindowRoute } = await import("./TaskDetailWindowRoute");
+
 beforeAll(async () => initializeI18n());
-afterEach(() => vi.unstubAllEnvs());
 beforeEach(() => {
   fixture.copyText.mockClear();
   fixture.navigation.openHome.mockClear();
@@ -68,7 +70,7 @@ it.each([
   ["development", true, true],
   ["production", false, true],
 ] as const)("renders the %s main-window Task Detail actions", async (_name, enabled, hasChat) => {
-  vi.stubEnv("DEV", enabled);
+  globalThis.__KENT_TEST_ENV__.DEV = enabled;
   renderTaskDetailHost(<StandaloneTaskRoute taskId="task-1" />);
 
   const flow = await screen.findByTestId("task-detail-action-flow");

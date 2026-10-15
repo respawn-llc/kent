@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { expect, it, vi } from "bun:test";
 import { StrictMode } from "react";
 
 import { ChatTranscriptHost, TranscriptWindow } from "@/app-facade";
@@ -72,10 +73,12 @@ it.each(["older", "newer"] as const)(
 
 it("opens and remounts a compacted live transcript at the bottom despite underestimated rows", async () => {
   const geometry = installVirtualizedScrollGeometry(600);
-  const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (
-    this: HTMLElement,
-  ) {
-    return this.getAttribute("role") === "list" ? 600 : 400;
+  const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.getAttribute("role") === "list" ? 600 : 400;
+    },
   });
   const host = new ChatTranscriptHost(
     {
@@ -138,7 +141,8 @@ it("opens and remounts a compacted live transcript at the bottom despite underes
   } finally {
     view.unmount();
     host.dispose();
-    height.mockRestore();
+    if (originalOffsetHeight === undefined) Reflect.deleteProperty(HTMLElement.prototype, "offsetHeight");
+    else Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalOffsetHeight);
     geometry.restore();
   }
 });
@@ -310,10 +314,12 @@ it.each([
 
 it("keeps a streaming response and its measured height intact offscreen until it commits", () => {
   const geometry = installVirtualizedScrollGeometry(600);
-  const rowHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (
-    this: HTMLElement,
-  ) {
-    return this.getAttribute("role") === "list" ? 600 : 40;
+  const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.getAttribute("role") === "list" ? 600 : 40;
+    },
   });
   try {
     const { window, view, renderSnapshot } = streamingView(
@@ -373,7 +379,8 @@ it("keeps a streaming response and its measured height intact offscreen until it
     expect(bubble.isConnected).toBe(false);
     view.unmount();
   } finally {
-    rowHeight.mockRestore();
+    if (originalOffsetHeight === undefined) Reflect.deleteProperty(HTMLElement.prototype, "offsetHeight");
+    else Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalOffsetHeight);
     geometry.restore();
   }
 });

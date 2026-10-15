@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ChatTranscriptHandler } from "@/api";

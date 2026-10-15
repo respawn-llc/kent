@@ -2,6 +2,7 @@ import { RegistryProvider } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { expect, it, vi } from "bun:test";
 import { AppServicesProvider, StatusProvider } from "@/app-facade";
 import { appI18n } from "@/i18n";
 import { createTestServices } from "@/test-support/app-services";
@@ -59,8 +60,8 @@ it.each([
   await waitFor(() => {
     expect(push).toHaveBeenCalledWith(expect.objectContaining({ tone: "success" }));
   });
-  expect(navigator.close).toHaveBeenCalledOnce();
+  expect(navigator.close).toHaveBeenCalledTimes(1);
   expect(selectedProjectOpenHome).toHaveBeenCalledTimes(homeCalls);
   expect(openHome).not.toHaveBeenCalled();
-  expect(remove).toHaveBeenCalledOnce();
+  expect(remove).toHaveBeenCalledTimes(1);
 });

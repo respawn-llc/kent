@@ -1,3 +1,4 @@
+import { describe, expect, it, mock } from "bun:test";
 import {
   defaultWorkflowExecutionTargetPolicy,
   emptyWorkflowDerivedWiring,
@@ -5,7 +6,14 @@ import {
 } from "@/api";
 
 import { initializeWorkflowEditorDraft, workflowEditorDraftReducer } from "./workflowEditorDraft";
-import { workflowSaveConfirmationPreviewKey } from "./workflowEditorQueries";
+
+await mock.module("./workflowGraphLayout", () => ({
+  layoutWorkflowGraph: () => {
+    throw new Error("Graph layout is outside this conflict-state test.");
+  },
+}));
+
+const { workflowSaveConfirmationPreviewKey } = await import("./workflowEditorQueries");
 
 function workflowDefinition(version: number, name = "Workflow"): WorkflowDefinition {
   return {

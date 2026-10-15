@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import * as Stream from "effect/Stream";
 import type { BoardCard, SelectedWorkflowBoard, TaskResumeResponse } from "@/api";
@@ -5,6 +6,7 @@ import { ChatPromptPresenceProvider } from "@/app-facade";
 import { appI18n } from "@/i18n";
 import { TestAppProviders, createTestServices, startupRoutes } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
+import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer";
 import { TestSidebar } from "@/test-support/sidebar-rendering";
 import { BoardRoute } from "./BoardRoute";
 
@@ -82,41 +84,61 @@ it("resumes another Board card while the first Resume remains pending", async ()
   const resume = vi
     .spyOn(services.api, "resumeTask")
     .mockImplementation(async ({ taskID }) => (taskID === "task-a" ? a.promise : b.promise));
-  render(
-    <TestAppProviders services={services}>
-      <ChatPromptPresenceProvider>
-        <TestSidebar>
-          <BoardRoute projectId={board.projectID} workflowId={workflow.id} selectedTaskId="" />
-        </TestSidebar>
-      </ChatPromptPresenceProvider>
-    </TestAppProviders>,
-  );
-  const buttons = await screen.findAllByRole("button", { name: appI18n.t("board.resume") });
-  expect(buttons).toHaveLength(2);
-  const [first, second] = buttons;
-  if (!first || !second) throw new Error("Expected two Resume controls");
-  fireEvent.click(first);
-  await waitFor(() => {
-    expect(resume).toHaveBeenCalledTimes(1);
+  const originalIntersectionObserver = Object.getOwnPropertyDescriptor(globalThis, "IntersectionObserver");
+  // Happy DOM doesn't report visible columns, so exercise the explicit no-observer path.
+  Object.defineProperty(globalThis, "IntersectionObserver", {
+    configurable: true,
+    value: undefined,
+    writable: true,
   });
-  expect(first).toHaveAttribute("aria-busy", "true");
-  expect(second).toBeEnabled();
-  fireEvent.click(second);
-  await waitFor(() => {
-    expect(resume.mock.calls.map(([input]) => input.taskID)).toEqual(["task-a", "task-b"]);
-  });
-  const applied: TaskResumeResponse = { outcome: "applied", applied: { currentNodes: [] } };
-  await act(async () => {
-    b.resolve(applied);
-  });
-  await waitFor(() => {
-    expect(second).not.toHaveAttribute("aria-busy", "true");
-  });
-  expect(first).toHaveAttribute("aria-busy", "true");
-  await act(async () => {
-    a.resolve(applied);
-  });
-  await waitFor(() => {
-    expect(first).not.toHaveAttribute("aria-busy", "true");
-  });
+  const geometry = installVirtualizedScrollGeometry(600);
+  let view: ReturnType<typeof render> | undefined;
+  try {
+    view = render(
+      <TestAppProviders services={services}>
+        <ChatPromptPresenceProvider>
+          <TestSidebar>
+            <BoardRoute projectId={board.projectID} workflowId={workflow.id} selectedTaskId="" />
+          </TestSidebar>
+        </ChatPromptPresenceProvider>
+      </TestAppProviders>,
+    );
+    geometry.resize(await screen.findByTestId("kanban-column-scroll-node-1"), 600);
+    const buttons = await screen.findAllByRole("button", { name: appI18n.t("board.resume") });
+    expect(buttons).toHaveLength(2);
+    const [first, second] = buttons;
+    if (!first || !second) throw new Error("Expected two Resume controls");
+    fireEvent.click(first);
+    await waitFor(() => {
+      expect(resume).toHaveBeenCalledTimes(1);
+    });
+    expect(first).toHaveAttribute("aria-busy", "true");
+    expect(second).toBeEnabled();
+    fireEvent.click(second);
+    await waitFor(() => {
+      expect(resume.mock.calls.map(([input]) => input.taskID)).toEqual(["task-a", "task-b"]);
+    });
+    const applied: TaskResumeResponse = { outcome: "applied", applied: { currentNodes: [] } };
+    await act(async () => {
+      b.resolve(applied);
+    });
+    await waitFor(() => {
+      expect(second).not.toHaveAttribute("aria-busy", "true");
+    });
+    expect(first).toHaveAttribute("aria-busy", "true");
+    await act(async () => {
+      a.resolve(applied);
+    });
+    await waitFor(() => {
+      expect(first).not.toHaveAttribute("aria-busy", "true");
+    });
+  } finally {
+    view?.unmount();
+    geometry.restore();
+    if (originalIntersectionObserver === undefined) {
+      Reflect.deleteProperty(globalThis, "IntersectionObserver");
+    } else {
+      Object.defineProperty(globalThis, "IntersectionObserver", originalIntersectionObserver);
+    }
+  }
 });

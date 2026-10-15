@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "bun:test";
 
 import type { TaskMovePreviewResponse } from "@/api";
 import { TestAppProviders, createTestServices } from "@/test-support/app-services";
@@ -136,6 +136,6 @@ describe("ManualMoveDialog", () => {
     });
 
     await user.click(screen.getByRole("button", { name: appI18n.t("app.cancel") }));
-    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 });

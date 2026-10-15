@@ -1,13 +1,12 @@
 import { act, fireEvent, render as renderReact, renderHook, screen, waitFor } from "@testing-library/react";
 import { useCallback, type ReactElement } from "react";
+import { beforeAll, beforeEach, expect, it, mock, vi } from "bun:test";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
 
 import { appI18n, initializeI18n } from "@/i18n";
 import { clearLastProjectRoute, type SessionChatTarget } from "@/app-facade";
 import type { ProjectTasksViewMemory } from "./projectTasksViewMemory";
-import { HomeProjectContent } from "./HomeProjectContent";
-import { useHomeSessionPages } from "./HomeProjectModel";
 
 it.each(["main", "subagent"] as const)(
   "rejects repeated %s paging and retry while retaining a pending page",
@@ -69,7 +68,7 @@ it.each(["main", "subagent"] as const)(
     await act(async () => {
       view.result.current.fetchNextPage();
     });
-    expect(list).toHaveBeenCalledOnce();
+    expect(list).toHaveBeenCalledTimes(1);
   },
 );
 
@@ -79,31 +78,30 @@ type ProjectQueryFixture = Readonly<{
   isPending: boolean;
 }>;
 
-const fixture = vi.hoisted(
-  (): {
-    projectQuery: ProjectQueryFixture;
-    sessions: readonly {
-      id: string;
-      category: "main" | "subagent";
-      name: string | null;
-      shortID: bigint | null;
-      firstPromptPreview: string | null;
-      updatedAt: number;
-    }[];
-    sessionTargets: SessionChatTarget[];
-  } => ({
-    projectQuery: {
-      data: { displayName: "Kent", projectKey: "KNT" },
-      error: null,
-      isPending: false,
-    },
-    sessions: [],
-    sessionTargets: [],
-  }),
-);
+const fixture: {
+  projectQuery: ProjectQueryFixture;
+  sessions: readonly {
+    id: string;
+    category: "main" | "subagent";
+    name: string | null;
+    shortID: bigint | null;
+    firstPromptPreview: string | null;
+    updatedAt: number;
+  }[];
+  sessionTargets: SessionChatTarget[];
+} = {
+  projectQuery: {
+    data: { displayName: "Kent", projectKey: "KNT" },
+    error: null,
+    isPending: false,
+  },
+  sessions: [],
+  sessionTargets: [],
+};
 
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
+const actualAppFacade = await import("@/app-facade");
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
   useAppNavigation: () => ({
     openSessionChat: async (target: SessionChatTarget) => {
       fixture.sessionTargets.push(target);
@@ -133,7 +131,7 @@ function render(content: ReactElement) {
   return renderReact(<TestAppProviders services={services}>{content}</TestAppProviders>);
 }
 
-vi.mock("./ProjectTasksSurface", () => ({
+await mock.module("./ProjectTasksSurface", () => ({
   ProjectTasksSurface: ({ viewMemory }: Readonly<{ viewMemory: ProjectTasksViewMemory }>) => {
     const registerGrid = useCallback(
       (element: HTMLDivElement | null) => {
@@ -156,6 +154,9 @@ vi.mock("./ProjectTasksSurface", () => ({
     );
   },
 }));
+
+const { HomeProjectContent } = await import("./HomeProjectContent");
+const { useHomeSessionPages } = await import("./HomeProjectModel");
 
 beforeAll(async () => initializeI18n());
 

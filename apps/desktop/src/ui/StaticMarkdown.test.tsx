@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "bun:test";
 import userEvent from "@testing-library/user-event";
-import { vi } from "vitest";
 import { Streamdown } from "streamdown";
 
 import { StaticMarkdown } from "./MarkdownText";
