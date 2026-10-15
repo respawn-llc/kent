@@ -132,13 +132,9 @@ function workflowPickerItem(value: pb.WorkflowPickerItem): WorkflowPickerItem {
   };
 }
 
-export function workflowBoard(value: pb.Board | undefined): WorkflowBoard {
-  if (value?.project === undefined || value.generatedAt === undefined) {
-    throw new ContractError("Board Project and generation time are required.");
-  }
+export function workflowBoard(value: pb.BoardValid): WorkflowBoard {
   const columns = value.columns
     .map((column) => {
-      if (column.node === undefined) throw new ContractError("Board column Node is required.");
       return {
         id: column.node.nodeId,
         key: column.node.key,
@@ -181,9 +177,7 @@ export function workflowBoard(value: pb.Board | undefined): WorkflowBoard {
   };
 }
 
-export function boardNodeCardsPage(value: pb.BoardNodeCardsListSuccess): BoardNodeCardsPage {
-  if (value.generatedAt === undefined)
-    throw new ContractError("Board card page generation time is required.");
+export function boardNodeCardsPage(value: pb.BoardNodeCardsListSuccessValid): BoardNodeCardsPage {
   return {
     projectID: value.projectId,
     workflowID: value.workflowId,
@@ -191,9 +185,6 @@ export function boardNodeCardsPage(value: pb.BoardNodeCardsListSuccess): BoardNo
     nextOffset: value.nextOffset ?? null,
     generatedAt: timestampMillis(value.generatedAt),
     cards: value.cards.map((card) => {
-      if (card.preview === undefined || card.updatedAt === undefined) {
-        throw new ContractError("Task card preview and update time are required.");
-      }
       return {
         id: card.taskId,
         shortID: card.shortId,
