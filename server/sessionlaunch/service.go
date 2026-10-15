@@ -102,7 +102,7 @@ func (s *Service) prepareSessionChatSettings(
 			return PreparedChatSettingsOperationInput{}, nil, err
 		}
 	}
-	catalog, err := launch.PrepareSessionChatAgentCatalog(planner.Config, meta)
+	catalog, err := launch.PrepareSessionChatAgentCatalog(planner.Config, meta, planner.Rotation)
 	if err != nil {
 		return PreparedChatSettingsOperationInput{}, nil, err
 	}

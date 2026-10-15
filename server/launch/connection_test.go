@@ -24,12 +24,14 @@ func TestConnectionRotationSharesSetsWithoutAllocatingPreviews(t *testing.T) {
 	)
 	rotation := new(ConnectionRotation)
 	for index := range 4 {
-		preview, err := rotation.Prepare(app.Settings, false)
-		if err != nil || preview != "account-a" {
-			t.Fatalf("preview = %v, %v", preview, err)
+		want := []config.ConnectionID{"account-a", "account-z"}[index%2]
+		for range 2 {
+			preview, err := rotation.Prepare(app.Settings, false)
+			if err != nil || preview != want {
+				t.Fatalf("preview = %v, %v; want %v", preview, err, want)
+			}
 		}
 		selected, err := rotation.Prepare(app.Settings, true)
-		want := []config.ConnectionID{"account-a", "account-z"}[index%2]
 		if err != nil || selected != want {
 			t.Fatalf("allocation %d = %v, %v; want %v", index, selected, err, want)
 		}
@@ -51,6 +53,11 @@ func TestConnectionRotationConcurrentSelection(t *testing.T) {
 	var group sync.WaitGroup
 	for range 100 {
 		group.Go(func() {
+			preview, err := rotation.Prepare(app.Settings, false)
+			if err != nil || (preview != "account-z" && preview != "account-a") {
+				t.Errorf("concurrent preview = %s, %v", preview, err)
+				return
+			}
 			id, err := rotation.Prepare(app.Settings, true)
 			if err != nil {
 				t.Error(err)

@@ -73,8 +73,11 @@ func TestSessionChatSettingsReadsRemovedConnectionWithoutRebinding(t *testing.T)
 func TestSessionChatSettingsReplacementMatchesInteractiveResumeAgentConnection(t *testing.T) {
 	cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
 	cfg.Settings.Connections["worker"] = cfg.Settings.Connections["test"]
+	cfg.Settings.Connections["worker-next"] = cfg.Settings.Connections["test"]
+	cfg.Settings.ConnectionOrder = []config.ConnectionID{"test", "worker", "worker-next"}
+	workerConnections := config.ConnectionSelection{"worker", "worker-next"}
 	cfg.Settings.Subagents["worker"] = config.SubagentRole{
-		Settings: config.Settings{Connection: config.SingleConnection("worker"), Model: "gpt-6-luna"},
+		Settings: config.Settings{Connection: &workerConnections, Model: "gpt-6-luna"},
 		Sources: map[string]config.Origin{
 			"model":      {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}},
 			"connection": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "connection"}},
@@ -92,8 +95,14 @@ func TestSessionChatSettingsReplacementMatchesInteractiveResumeAgentConnection(t
 	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("worker")}); err != nil {
 		t.Fatal(err)
 	}
+	rotation := new(launch.ConnectionRotation)
+	workerSettings := cfg.Settings
+	workerSettings.Connection = &workerConnections
+	if selected, err := rotation.Prepare(workerSettings, true); err != nil || selected != "worker" {
+		t.Fatalf("initial assignment = %s, %v", selected, err)
+	}
 	svc := NewService(launch.Planner{
-		Config: cfg, PersistedSessions: persistence, ContainerDir: container, StoreOptions: persistence.Options(),
+		Config: cfg, Rotation: rotation, PersistedSessions: persistence, ContainerDir: container, StoreOptions: persistence.Options(),
 		SessionProjects: sessionLaunchProjectResolver{}, ManagedWorktreeRoots: sessionLaunchProjectResolver{},
 	}, ChatSettingsOwner{}, nil)
 	id := mustSessionLaunchIntentID(t, store.Meta().SessionID)
@@ -103,8 +112,8 @@ func TestSessionChatSettingsReplacementMatchesInteractiveResumeAgentConnection(t
 	}
 	settings := read.GetSession()
 	if settings.Settings.SelectedAgent.Role != "worker" || settings.Settings.SelectedAgent.Model != "gpt-6-luna" ||
-		settings.Session.Connection == nil || settings.Session.Connection.ConnectionId != "worker" ||
-		settings.ConnectionReplacement == nil || settings.ConnectionReplacement.Current != "worker" {
+		settings.Session.Connection == nil || settings.Session.Connection.ConnectionId != "worker-next" ||
+		settings.ConnectionReplacement == nil || settings.ConnectionReplacement.Current != "worker-next" {
 		t.Fatalf("replacement ignored selected Agent: %+v", settings)
 	}
 	intent, err := protoapi.SessionLaunchRequestIntentToProto(serverapi.OpenExistingSessionLaunchIntent(id))
