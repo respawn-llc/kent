@@ -62,19 +62,13 @@ export function taskDependencyProgress(
   return value === undefined ? null : { satisfiedCount: value.satisfiedCount, totalCount: value.totalCount };
 }
 
-export function taskListPage(value: pb.ListSuccess): TaskListPage {
-  if (value.scope === undefined || value.generatedAt === undefined) {
-    throw new ContractError("Task list scope and generation time are required.");
-  }
+export function taskListPage(value: pb.ListSuccessValid): TaskListPage {
   return {
     scope: { projectID: value.scope.projectId, workflowID: value.scope.workflowId ?? null },
     matchingWorkflowCardinality: taskCardinality.decode(value.matchingWorkflowCardinality),
     nextOffset: value.nextOffset ?? null,
     generatedAt: timestampMillis(value.generatedAt),
     tasks: value.tasks.map((task) => {
-      if (task.createdAt === undefined || task.updatedAt === undefined) {
-        throw new ContractError("Task creation and update times are required.");
-      }
       return {
         id: task.taskId,
         shortID: task.shortId,
@@ -92,10 +86,7 @@ export function taskListPage(value: pb.ListSuccess): TaskListPage {
   };
 }
 
-export function projectTaskGroupCounts(value: pb.ProjectTaskGroupCountsSuccess): ProjectTaskGroupCounts {
-  if (value.counts === undefined || value.generatedAt === undefined) {
-    throw new ContractError("Task group counts and generation time are required.");
-  }
+export function projectTaskGroupCounts(value: pb.ProjectTaskGroupCountsSuccessValid): ProjectTaskGroupCounts {
   return {
     projectID: value.projectId,
     definitions: value.definitions.map((definition) => ({
