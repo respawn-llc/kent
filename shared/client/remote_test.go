@@ -597,7 +597,7 @@ func TestRemotePersistInputDraftSendsComposerInput(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 	_, err = remote.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
-		SessionId: "session-1",
+		SessionId: "11111111-1111-4111-8111-111111111111",
 		Input:     "visible draft",
 	})
 	if err != nil {
@@ -1518,7 +1518,7 @@ func TestRemotePendingWorkContractsPreserveTypedResults(t *testing.T) {
 	exact := "/compact keep details"
 	requestID := runtimeids.NewCompactionRequestID()
 	wire, err := protoapi.Encode(&runtimepb.CompactContextRequest{
-		SessionId: "session-1", RequestId: requestID.String(),
+		SessionId: "11111111-1111-4111-8111-111111111111", RequestId: requestID.String(),
 		Admission: &runtimepb.ManualCompactionAdmission{Guidance: &guidance}})
 	if err != nil {
 		t.Fatal(err)
@@ -1573,7 +1573,7 @@ func TestRemotePendingWorkContractsPreserveTypedResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = remote.Close() }()
-	gotList, err := remote.ListPendingWork(context.Background(), &runtimepb.ListPendingWorkRequest{SessionId: "session-1"})
+	gotList, err := remote.ListPendingWork(context.Background(), &runtimepb.ListPendingWorkRequest{SessionId: "11111111-1111-4111-8111-111111111111"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1582,7 +1582,7 @@ func TestRemotePendingWorkContractsPreserveTypedResults(t *testing.T) {
 		gotList.PendingWork.Items[0].CanonicalInput != exact {
 		t.Fatalf("listed compaction = %+v", compaction)
 	}
-	gotRemoval, err := remote.RemovePendingWork(context.Background(), &runtimepb.RemovePendingWorkRequest{SessionId: "session-1", ItemId: id.String()})
+	gotRemoval, err := remote.RemovePendingWork(context.Background(), &runtimepb.RemovePendingWorkRequest{SessionId: "11111111-1111-4111-8111-111111111111", ItemId: id.String()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1590,7 +1590,7 @@ func TestRemotePendingWorkContractsPreserveTypedResults(t *testing.T) {
 		gotRemoval.Restoration.CanonicalInput != exact {
 		t.Fatalf("removal = %+v", gotRemoval.Restoration)
 	}
-	if _, err := remote.ListPendingWork(context.Background(), &runtimepb.ListPendingWorkRequest{SessionId: "session-1"}); err == nil {
+	if _, err := remote.ListPendingWork(context.Background(), &runtimepb.ListPendingWorkRequest{SessionId: "11111111-1111-4111-8111-111111111111"}); err == nil {
 		t.Fatal("invalid list response was accepted")
 	}
 }

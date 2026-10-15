@@ -665,13 +665,8 @@ func TestNewLazyWithIDUsesExactCanonicalSessionIdentity(t *testing.T) {
 }
 
 func TestNewLazyWithIDRejectsNonCanonicalNewSessionIdentity(t *testing.T) {
-	legacy, err := runtimeids.ParseSessionID("session-legacy")
-	if err != nil {
-		t.Fatalf("parse legacy session id: %v", err)
-	}
 	for name, sessionID := range map[string]runtimeids.SessionID{
-		"zero":   {},
-		"legacy": legacy,
+		"zero": {},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := session.NewLazyWithID(
