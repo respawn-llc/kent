@@ -128,9 +128,9 @@ func (m *uiModel) reduceInputAsyncMessage(msg tea.Msg) uiFeatureUpdateResult {
 	case newSessionSettingsLoadedMsg:
 		cmd := m.applyNewSessionSettingsLoaded(msg)
 		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, cmd)
+		return handledUIFeatureUpdate(m, m.batchWithNativeOngoingRepaint(cmd))
 	case newSessionLoginDoneMsg:
-		return handledUIFeatureUpdate(m, m.applyNewSessionLoginDone(msg))
+		return handledUIFeatureUpdate(m, m.batchWithNativeOngoingRepaint(m.applyNewSessionLoginDone(msg)))
 	case newSessionActionDoneMsg:
 		return handledUIFeatureUpdate(m, m.applyNewSessionActionDone(msg))
 	case sessionObservationLoadedMsg:

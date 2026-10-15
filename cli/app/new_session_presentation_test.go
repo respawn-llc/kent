@@ -1,12 +1,16 @@
 package app
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"core/cli/app/commands"
+	"core/cli/tui/ongoing"
+	"core/internal/testharness/pty"
 	"core/internal/testharness/testsetup"
 	"core/shared/config"
 	"core/shared/protoapi"
@@ -16,7 +20,47 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
+	tea "github.com/charmbracelet/bubbletea"
 )
+
+func TestNewSessionSettingsFailureRepaintsNativeComposer(t *testing.T) {
+	var output bytes.Buffer
+	model := sizedTestUIModel(newProjectedStaticUIModel(
+		WithUIOngoingSurface(ongoing.NewSurface(&output))), 100, 24)
+	target := &chatpb.NewChatTarget{}
+	model.presentationTarget = &uiNewSessionTarget{creation: target}
+	failure := io.ErrUnexpectedEOF
+	model.chatSettings = failingHeaderSettingsReader{err: failure}
+	read := model.loadNewSessionSettingsCmd(nil)
+	model.renderNativeOngoingSurface()
+	model.Update(read())
+	assertVisibleFailure := func() {
+		t.Helper()
+		capture, err := pty.NewCapture(pty.MustDimensions(24, 100), []pty.Chunk{pty.NewChunk(0, 0, output.Bytes())})
+		if err != nil {
+			t.Fatal(err)
+		}
+		analysis, err := pty.Analyze(capture)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(analysis.Screen.RenderText(), failure.Error()) {
+			t.Fatalf("settings failure absent from visible terminal: %s", analysis.Screen.RenderText())
+		}
+	}
+	assertVisibleFailure()
+	actions := &concurrentNewChatClient{}
+	model.chatMutations = actions
+	testSetMainInput(model, "retained input")
+	_, retry := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	for _, msg := range collectCmdMessages(t, retry) {
+		model.Update(msg)
+	}
+	assertVisibleFailure()
+	if model.newSessionTarget() == nil || len(actions.requests) != 0 || model.mainEditor.Text() != "retained input" {
+		t.Fatal("failed settings retry created a Session, submitted or lost the draft")
+	}
+}
 
 func TestNewSessionSelectedCompactionRespectsServerPolicy(t *testing.T) {
 	for _, test := range []struct {
@@ -206,7 +250,12 @@ func TestNewSessionBackUsesNavigationOnlyOrigin(t *testing.T) {
 	if request.newChat.Origin.GetNavigationOnlySessionId().GetSessionId() != previous.String() {
 		t.Fatal("TUI New retained context-inheriting creation")
 	}
-	model.inputController().handleBackCommand()
+	testSetMainInput(model, "/back")
+	matches := model.currentSlashCommandMatches("back")
+	if len(matches) != 1 || matches[0].Name != "back" {
+		t.Fatalf("originating navigation unavailable in command picker: %v", matches)
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if model.nextSessionID != previous.String() || model.exitAction != UIActionOpenSession {
 		t.Fatal("New Session back did not open its originating Session")
 	}
