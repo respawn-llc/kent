@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -301,6 +302,33 @@ func TestSessionPickerListFailureKeepsRetryPriorityOverHeaderFailure(t *testing.
 	runSessionPickerCommands(t, m, retry)
 	if m.main.bodyPhase != sessionPickerBodyReady || !errors.Is(m.headerFactsErr, failure) {
 		t.Fatal("Enter must recover the failed active list before retrying header metadata")
+	}
+}
+
+func TestSessionPickerHeaderIdentifiesWorkingDirectory(t *testing.T) {
+	for _, inHome := range []bool{true, false} {
+		t.Run(fmt.Sprintf("inside home=%t", inHome), func(t *testing.T) {
+			workdir := t.TempDir()
+			home := t.TempDir()
+			want := filepath.ToSlash(workdir)
+			if inHome {
+				home = filepath.Dir(workdir)
+				want = "~/" + filepath.Base(workdir)
+			}
+			t.Setenv("HOME", home)
+			t.Chdir(workdir)
+			model := newUninitializedTestSessionPickerModel(t, nil, sessionPickerHeaderInfo{
+				StatusRequest: uiStatusRequest{WorkspaceRoot: workdir},
+			})
+			cmd := collectSessionPickerStatusCmd(model.header)
+			if cmd == nil {
+				t.Fatal("missing header status collection")
+			}
+			model.Update(cmd())
+			if model.header.CWD != want {
+				t.Fatalf("header working directory = %q, want %q", model.header.CWD, want)
+			}
+		})
 	}
 }
 

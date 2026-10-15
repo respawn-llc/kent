@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"core/cli/app/internal/status"
+	"core/cli/internal/pathdisplay"
 	"core/shared/apicontract"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	"core/shared/textutil"
@@ -92,7 +93,7 @@ func collectSessionPickerStatusCmd(header sessionPickerHeaderInfo) tea.Cmd {
 			branch = nil
 		}
 		return sessionPickerStatusMsg{
-			cwd:    textutil.OptionalTrimmedString(statusDisplayPath(base.Workdir, "")),
+			cwd:    textutil.OptionalTrimmedString(pathdisplay.CompactHome(base.Workdir)),
 			branch: branch,
 		}
 	}
