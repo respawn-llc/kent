@@ -51,11 +51,8 @@ type taskListJSON struct {
 	Tasks                       []taskListItemJSON `json:"tasks"`
 }
 
-func taskListOutput(response *taskpb.ListSuccess) (taskListJSON, error) {
-	cardinality, err := protoapi.TaskCardinality.Decode(response.MatchingWorkflowCardinality)
-	if err != nil {
-		return taskListJSON{}, err
-	}
+func taskListOutput(response *taskpb.ListSuccess) taskListJSON {
+	cardinality := protoapi.TaskCardinality.FromProto(response.MatchingWorkflowCardinality)
 	out := taskListJSON{
 		Scope: response.Scope, MatchingWorkflowCardinality: cardinality, NextOffset: response.NextOffset,
 		GeneratedAtUnixMs: response.GeneratedAt.AsTime().UnixMilli(),
@@ -77,5 +74,5 @@ func taskListOutput(response *taskpb.ListSuccess) (taskListJSON, error) {
 		}
 		out.Tasks = append(out.Tasks, item)
 	}
-	return out, nil
+	return out
 }

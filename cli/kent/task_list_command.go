@@ -212,11 +212,7 @@ func parseTaskListLabelMatch(raw string, explicit bool, selectorCount int, unlab
 }
 
 func writeTaskListResponse(stdout io.Writer, stderr io.Writer, response *taskpb.ListSuccess, jsonOut bool) int {
-	resp, err := taskListOutput(response)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
+	resp := taskListOutput(response)
 	if jsonOut {
 		return writeCommandJSON(stdout, stderr, resp)
 	}

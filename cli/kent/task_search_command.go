@@ -158,11 +158,7 @@ func searchWorkflowTasks(ctx context.Context, remote apicontract.WorkflowService
 
 func writeTaskSearchResponse(stdout io.Writer, stderr io.Writer, response *taskpb.SearchSuccess, jsonOut bool) int {
 	if jsonOut {
-		output, err := taskSearchOutput(response)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+		output := taskSearchOutput(response)
 		if exitCode := writeCommandJSON(stdout, stderr, output); exitCode != 0 {
 			return exitCode
 		}
