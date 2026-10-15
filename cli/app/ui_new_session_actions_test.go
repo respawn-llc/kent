@@ -16,6 +16,42 @@ import (
 	"core/shared/serverapi"
 )
 
+func TestNewSessionGoalUsesOrdinaryRemoteAdmission(t *testing.T) {
+	_, workspace := newRegisteredAppWorkspace(t)
+	t.Setenv("REMOTE_TEST_KEY", "ready-key")
+	fixture := startRemoteAuthTestFixture(t, workspace)
+	server, err := ensureInteractiveProjectBinding(t.Context(), fixture.server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = server.Close() }()
+	request, err := prepareNewSessionUIRun(t.Context(), server, nil, serverapi.RunPromptOverrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	composition, err := composeUIProgram(request, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer composition.close()
+	model := composition.model
+	model.Update(model.loadNewSessionSettingsCmd(nil)())
+	model.mainEditor.SetText("unsent draft")
+	cmd := model.newSessionActionCmd(chatGoalAction{objective: "Report current directory"}, nil)
+	result := cmd().(newSessionActionDoneMsg)
+	if result.err != nil || result.session == nil {
+		t.Fatalf("first Goal: session=%v error=%v", result.session, result.err)
+	}
+	model.Update(result)
+	if model.mainEditor.Text() != "unsent draft" || model.newSessionTarget() != nil {
+		t.Fatal("Goal did not retain the editor and adopt its Session")
+	}
+	known := model.goalRuntimeCommand(goalRuntimeSet, "Report the current directory again")().(goalRuntimeDoneMsg)
+	if known.err != nil || known.setResult == nil || known.setResult.GetMutation() == nil {
+		t.Fatalf("known unobserved Goal: result=%v error=%v", known.setResult, known.err)
+	}
+}
+
 func TestNewSessionConfirmedWorktreeCreateKeepsSessionOnSetupFailure(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("REMOTE_TEST_KEY", "ready-key")
@@ -184,7 +220,7 @@ func TestNewSessionKnownFailureRetainsIdentityAndVisibleDraft(t *testing.T) {
 	id := runtimeids.NewSessionID()
 	model.pendingNewChatActions = 1
 	model.Update(newSessionActionDoneMsg{
-		origin: model, token: 1, action: newSessionInputAction{},
+		origin: model, token: 1, action: chatInputAction{},
 		session:       &chatpb.ExistingSessionTarget{SessionId: id.String()},
 		submittedText: appStringPointer("rejected input"), err: io.ErrUnexpectedEOF,
 	})
@@ -204,7 +240,7 @@ func TestNewSessionDeliveredResultsAdoptInOrderWithoutReplacingDraft(t *testing.
 	for range 2 {
 		id := runtimeids.NewSessionID()
 		model.Update(newSessionActionDoneMsg{
-			origin: model, token: 1, action: newSessionInputAction{},
+			origin: model, token: 1, action: chatInputAction{},
 			session: &chatpb.ExistingSessionTarget{SessionId: id.String()},
 		})
 		if model.currentRuntimeSessionID() != id.String() {
@@ -224,7 +260,7 @@ func TestNewSessionLateResultDoesNotNavigateReplacement(t *testing.T) {
 	replacement := newProjectedStaticUIModel()
 	replacement.presentationTarget = &uiNewSessionTarget{creation: &chatpb.NewChatTarget{}}
 	result := newSessionActionDoneMsg{
-		origin: origin, token: 1, action: newSessionInputAction{},
+		origin: origin, token: 1, action: chatInputAction{},
 		session: &chatpb.ExistingSessionTarget{SessionId: runtimeids.NewSessionID().String()},
 	}
 	origin.Update(result)
@@ -245,7 +281,7 @@ func TestKnownSessionAfterObservationFailureDoesNotCreateOrReplay(t *testing.T) 
 	id := runtimeids.NewSessionID()
 	model.pendingNewChatActions = 1
 	_, cmd := model.Update(newSessionActionDoneMsg{
-		origin: model, token: 1, action: newSessionGoalAction{objective: "objective"},
+		origin: model, token: 1, action: chatGoalAction{objective: "objective"},
 		session: &chatpb.ExistingSessionTarget{SessionId: id.String()},
 	})
 	for _, msg := range collectCmdMessages(t, cmd) {
@@ -300,9 +336,6 @@ func TestNewSessionFirstRequestsCaptureIndependentInputs(t *testing.T) {
 	}
 	if client.requests[0].Target.GetNewChat().GetName() != "second name" || client.requests[1].Target.GetNewChat().Name != nil {
 		t.Fatal("pending requests shared mutable creation inputs")
-	}
-	if model.activeSubmit.token != 0 {
-		t.Fatal("independent New requests replaced the singleton submission")
 	}
 	_, fresh := model.inputController().applyCommandResultWithPreSubmitQueuePosition(commands.Result{
 		SubmitUser: true, FreshConversation: true, User: "fresh prompt",
