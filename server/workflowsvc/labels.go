@@ -118,9 +118,6 @@ func (s *Service) ReorderWorkflowProjectLabels(ctx context.Context, req *pb.Proj
 }
 
 func (s *Service) GetWorkflowTaskLabels(ctx context.Context, req *taskpb.LabelsGetRequest) (*taskpb.LabelsGetSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	ids, err := s.store.GetTaskLabelIDs(ctx, workflow.TaskID(req.TaskId))
 	if err != nil {
 		return nil, err
@@ -134,9 +131,6 @@ func (s *Service) GetWorkflowTaskLabels(ctx context.Context, req *taskpb.LabelsG
 }
 
 func (s *Service) UpdateWorkflowTaskLabels(ctx context.Context, req *taskpb.LabelsUpdateRequest) (*taskpb.LabelsUpdateSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	scope, err := s.store.GetTaskLabelScope(ctx, workflow.TaskID(req.TaskId))
 	if err != nil {
 		return nil, err
