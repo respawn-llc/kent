@@ -356,10 +356,7 @@ func (s *Service) SetSessionName(ctx context.Context, req *runtimepb.SetSessionN
 }
 
 func (s *Service) AppendCommittedEntry(ctx context.Context, req *transcriptpb.AppendCommittedEntryRequest) error {
-	visibility, err := protoapi.AppendVisibilityFromProto(req.Visibility)
-	if err != nil {
-		return err
-	}
+	visibility := protoapi.AppendVisibilityFromProto(req.Visibility)
 	return s.withRuntime(ctx, req.SessionId, func(callbackCtx context.Context, engine *runtime.Engine) error {
 		if visibility == transcript.EntryVisibilityAuto && strings.TrimSpace(req.GetNoticeId()) != "" {
 			return engine.AppendCommittedEntryWithNoticeID(callbackCtx, req.Role, req.Text, req.GetNoticeId())
