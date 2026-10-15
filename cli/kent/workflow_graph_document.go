@@ -100,7 +100,7 @@ func prepareWorkflowGraphDocumentContract() (workflowGraphDocumentContract, erro
 }
 
 func workflowGraphDocumentFromDefinition(definition *pb.WorkflowDefinition) (workflowGraphDocument, error) {
-	id, err := runtimeids.ParseWorkflowID(definition.Workflow.Id)
+	id, err := runtimeids.WorkflowIDFromProto(definition.Workflow.Id)
 	if err != nil {
 		return workflowGraphDocument{}, err
 	}

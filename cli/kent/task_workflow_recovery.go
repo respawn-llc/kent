@@ -100,7 +100,7 @@ func taskListRecoveryForScopeError(scopeErr *taskpb.ListScopeErrorDetails, comma
 	}
 	var workflowID *runtimeids.WorkflowID
 	if scopeErr.WorkflowId != nil {
-		id, err := runtimeids.ParseWorkflowID(*scopeErr.WorkflowId)
+		id, err := runtimeids.WorkflowIDFromProto(*scopeErr.WorkflowId)
 		if err != nil {
 			return taskWorkflowRecovery{}, err
 		}
@@ -129,7 +129,7 @@ func taskCreateRecoveryForSelectionError(createErr *taskpb.CreateSelectionDetail
 	}
 	var workflowID *runtimeids.WorkflowID
 	if createErr.WorkflowId != nil {
-		value, err := runtimeids.ParseWorkflowID(*createErr.WorkflowId)
+		value, err := runtimeids.WorkflowIDFromProto(*createErr.WorkflowId)
 		if err != nil {
 			return taskWorkflowRecovery{}, err
 		}
