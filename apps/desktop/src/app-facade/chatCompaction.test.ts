@@ -34,7 +34,6 @@ describe("admitted compaction facts", () => {
       payload: {
         StepID: "compact-step",
         Mode: "manual",
-        RequestID: "request",
         State: "completed",
         Count: 3,
       },
@@ -63,7 +62,6 @@ describe("admitted compaction facts", () => {
       payload: {
         StepID: "compact-step",
         Mode: "manual",
-        RequestID: "request",
         State: "completed",
         Count: 3,
       },
@@ -111,7 +109,6 @@ describe("admitted compaction facts", () => {
         payload: {
           StepID: "compact-step",
           Mode: "manual",
-          RequestID: `request-${attempt.toString()}`,
           State: "completed",
           Count: 3 + attempt,
         },
@@ -142,56 +139,53 @@ describe("admitted compaction facts", () => {
     expect(completed).toHaveBeenCalledOnce();
     await owner.dispose();
   });
-  it.each([
-    { mode: "auto", requestID: null },
-    { mode: "handoff", requestID: null },
-    { mode: "workflow_post_completion", requestID: null },
-    { mode: "manual", requestID: null },
-  ] as const)("does not notify for $mode completion with request $requestID", async ({ mode, requestID }) => {
-    const fixture = runtimeApi();
-    const completed = vi.fn();
-    const owner = new ChatRuntimeOwner(
-      fixture.api,
-      target,
-      new QueryClient(),
-      runtimeHost({
-        onManualCompactionCompleted: completed,
-      }),
-    );
-    owner.start();
-    fixture.handlers[0]?.onEvent({ sequence: 1, kind: "hydration", payload: activeHydration() });
-    fixture.handlers[0]?.onEvent({
-      sequence: 2,
-      kind: "compaction_status",
-      payload: {
-        StepID: "compact-step",
-        Mode: mode,
-        RequestID: requestID,
-        State: "completed",
-        Count: 3,
-      },
-    });
-    const replacement = activeHydration(3);
-    fixture.handlers[1]?.onOpen?.();
-    fixture.handlers[1]?.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      payload: {
-        ...replacement,
-        RuntimeReadModelUpdate: {
-          Version: { Epoch: "epoch-1", Generation: 1, Sequence: 3 },
-          Activity: {
-            ...replacement.RuntimeReadModelUpdate.Activity,
-            State: "registered_idle",
-            ActiveStep: null,
+  it.each([{ mode: "auto" }, { mode: "handoff" }, { mode: "workflow_post_completion" }] as const)(
+    "does not notify for $mode completion",
+    async ({ mode }) => {
+      const fixture = runtimeApi();
+      const completed = vi.fn();
+      const owner = new ChatRuntimeOwner(
+        fixture.api,
+        target,
+        new QueryClient(),
+        runtimeHost({
+          onManualCompactionCompleted: completed,
+        }),
+      );
+      owner.start();
+      fixture.handlers[0]?.onEvent({ sequence: 1, kind: "hydration", payload: activeHydration() });
+      fixture.handlers[0]?.onEvent({
+        sequence: 2,
+        kind: "compaction_status",
+        payload: {
+          StepID: "compact-step",
+          Mode: mode,
+          State: "completed",
+          Count: 3,
+        },
+      });
+      const replacement = activeHydration(3);
+      fixture.handlers[1]?.onOpen?.();
+      fixture.handlers[1]?.onEvent({
+        sequence: 1,
+        kind: "hydration",
+        payload: {
+          ...replacement,
+          RuntimeReadModelUpdate: {
+            Version: { Epoch: "epoch-1", Generation: 1, Sequence: 3 },
+            Activity: {
+              ...replacement.RuntimeReadModelUpdate.Activity,
+              State: "registered_idle",
+              ActiveStep: null,
+            },
           },
         },
-      },
-    });
-    expect(owner.snapshot.observation.kind).toBe("observing");
-    expect(completed).not.toHaveBeenCalled();
-    await owner.dispose();
-  });
+      });
+      expect(owner.snapshot.observation.kind).toBe("observing");
+      expect(completed).not.toHaveBeenCalled();
+      await owner.dispose();
+    },
+  );
   it("does not manufacture completion from an idle hydration's historical count", async () => {
     const fixture = runtimeApi();
     const completed = vi.fn();
@@ -246,7 +240,6 @@ describe("admitted compaction facts", () => {
       payload: {
         StepID: "compact-step",
         Mode: "manual",
-        RequestID: "request",
         State: "failed",
         Count: 0,
         Diagnostic: diagnostic,

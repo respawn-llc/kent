@@ -47,7 +47,7 @@ func transcriptAssistantIdentity(step *string, stream *uuid.UUID, phase llm.Mess
 
 func transcriptCompactionProjection(
 	step *string,
-	requestID *runtimeids.CompactionRequestID,
+
 	mode string,
 	count int,
 	state transcriptpb.CompactionState,
@@ -75,10 +75,6 @@ func transcriptCompactionProjection(
 		projected.Mode = transcriptpb.CompactionMode_COMPACTION_MODE_WORKFLOW_POST_COMPLETION
 	default:
 		return nil, fmt.Errorf("unknown compaction mode %q", mode)
-	}
-	if requestID != nil {
-		value := requestID.String()
-		projected.RequestId = &value
 	}
 	return projected, protoapi.Validate(projected)
 }

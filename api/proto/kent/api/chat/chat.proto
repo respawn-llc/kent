@@ -118,13 +118,6 @@ message QueueItemIdentity {
   ];
 }
 
-message CompactionRequestIdentity {
-  string id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
-}
-
 message PendingWorkCapacityDetails {}
 
 message RuntimeUnavailableDetails {}
@@ -255,7 +248,6 @@ message ManualCompactionDisabledDetails {}
 message ManualCompactionActiveDetails {}
 
 message CompactionAccepted {
-  CompactionRequestIdentity request = 1 [(buf.validate.field).required = true];
   optional AcceptedDiagnostic diagnostic = 2;
 }
 
@@ -299,10 +291,6 @@ message CompactResult {
 message CompactRequest {
   ChatTarget target = 1 [(buf.validate.field).required = true];
   CompactionInvocation invocation = 2 [(buf.validate.field).required = true];
-  string request_id = 3 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
 }
 
 service ChatService {

@@ -31,8 +31,6 @@ description: Built-in slash commands and file-backed custom prompts.
 | `/init <instructions>`                                                                  | optional free-form text      | Run repository initialization. Uses the empty session or starts a fresh child session.                                                                             |
 | `/prompt:<name>`                                                                        | optional trailing arguments  | Run a server-owned custom prompt command.                                                                                                                          |
 
-After `/resume`, press `Shift+Tab` to read saved history in Detail mode.
-
 ## File-backed prompt commands
 
 Custom prompt commands come from Markdown files on the connected server.

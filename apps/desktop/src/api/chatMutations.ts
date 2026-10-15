@@ -27,12 +27,7 @@ import { nonBlank } from "./chatSchemas";
 import { isValidChatSessionID, requireChatProjectTarget, requireChatSessionID } from "./chatTarget";
 import type { ChatActivation, ChatApi, ChatMutationTarget } from "./chatTypes";
 import { ContractError } from "./errors";
-import {
-  parseCompactionRequestID,
-  parsePendingWorkItemID,
-  pendingWorkRestorationSchema,
-  pendingWorkSchema,
-} from "./pendingWork";
+import { parsePendingWorkItemID, pendingWorkRestorationSchema, pendingWorkSchema } from "./pendingWork";
 import type { RpcTransport } from "./transport";
 
 type ChatMutationApi = Pick<
@@ -109,7 +104,6 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
     queue: async (target, activation) => mutateInput(ChatService.method.queue, target, activation),
     async compact(target, invocation) {
       const method = ChatService.method.compact;
-      const requestId = crypto.randomUUID();
       const result =
         target.kind === "session"
           ? await transport.callDescriptorAttachedSession(
@@ -125,7 +119,6 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
                   },
                 },
                 invocation,
-                requestId,
               }),
             )
           : await transport
@@ -137,7 +130,6 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
                   create(method.input, {
                     target: mutationTarget(target, attachment.workspaceID),
                     invocation,
-                    requestId,
                   }),
               })
               .then((call) => {
@@ -159,14 +151,13 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
           },
         };
       }
-      if (success.outcome.case !== "accepted" || success.outcome.value.request === undefined) {
+      if (success.outcome.case !== "accepted") {
         throw new ContractError("Chat compaction response did not match the GUI contract.");
       }
       return {
         sessionID: returnedSessionID,
         outcome: {
           kind: "accepted",
-          requestID: parseCompactionRequestID(success.outcome.value.request.id),
           diagnostic: acceptedDiagnostic(success.outcome.value.diagnostic),
         },
       };

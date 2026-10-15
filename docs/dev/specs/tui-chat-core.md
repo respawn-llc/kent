@@ -66,9 +66,9 @@
 - `Ctrl+C` does not cancel a submission before its Agent Turn starts.
 - When the live TUI observes the interruption event, it restores the stopped execution's pending human messages into the main input so the user can edit or resend them.
 - `Ctrl+C` exits the TUI only when the Live Execution lifecycle is not Running and no current pending Question or Approval identifies live work. A submission already sent to the server may start or continue after the client detaches.
-- Graceful exit through `Ctrl+C` or `/exit` must save the current composer draft before stopping Session observation.
+- The TUI must save composer drafts asynchronously during editing. Stopping or exiting must never wait for draft saving. The final unsaved edit may be lost on exit.
 - `/exit` must stop client observation without interrupting the Active Session Runtime. Runtime lifetime follows [Core Runtime And Tools](core-runtime-tools.md).
-- Session-navigation commands must persist the outgoing draft, resolve the typed transition, stop the originating observation, and only then plan or observe the destination.
+- Session-navigation commands must resolve the typed transition, stop the originating observation, and then plan or observe the destination without waiting for draft saving.
 - In the rollback picker, `Ctrl+C` closes the overlay before it applies the same busy-interrupt or idle-exit behavior as the main transcript.
 - `Shift+Tab` and `Ctrl+T` toggle between Ongoing Mode and Detail Mode. The selected mode is not saved.
 - Arming the rollback flow requires two consecutive `Esc` presses on empty idle input within a short window (Esc-Esc); a single `Esc` does nothing visible. Rollback behavior itself is owned by its own family spec.

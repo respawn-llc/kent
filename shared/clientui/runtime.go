@@ -107,7 +107,7 @@ type RuntimeClient interface {
 	AppendCommittedEntryWithNoticeID(role, text, noticeID string) error
 	SubmitRuntimeInput(ctx context.Context, req RuntimeSubmitRequest) (UserTurnSubmission, error)
 	RunUserShell(ctx context.Context, req RuntimeShellRequest) error
-	CompactRuntime(ctx context.Context, req RuntimeCompactRequest) error
+	CompactRuntime(ctx context.Context, req RuntimeCompactRequest) (RuntimeCompactResult, error)
 	Interrupt() error
 	DiscardQueuedUserMessage(queueItemID string) bool
 	RecordPromptHistory(text string) error

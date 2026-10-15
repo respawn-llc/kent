@@ -454,13 +454,9 @@ func admitManualCompaction(
 	req *runtimepb.CompactContextRequest,
 	accept runtime.CommandAcceptance,
 ) error {
-	requestID, err := runtimeids.ParseCompactionRequestID(req.RequestId)
-	if err != nil {
-		return err
-	}
-	_, err = engine.CompactContextAdmissionForRequestWithAcceptance(
+	_, err := engine.CompactContextAdmissionWithAcceptance(
 		ctx,
-		requestID,
+
 		protoapi.ManualCompactionAdmissionFromProto(req.Admission),
 		accept,
 	)

@@ -783,6 +783,12 @@ func TestActivateSessionRuntimeUsesTypedQuestionAndAutoCompactionSettings(t *tes
 
 func TestActivateSessionRuntimeCommitsPlannedAgentSelection(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
+	child, err := session.Create(filepath.Dir(fixture.store.Dir()), "child", fixture.config.WorkspaceRoot,
+		sessioncontract.SessionCategorySubagent, fixture.metadata.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.store = child
 	fixture.api = NewAPI(fixture.metadata, fixture.authority, APIOptions{
 		RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(context.Context, runtimewire.RuntimeClientRequest) (llm.Client, error) {
 			return &sessionRuntimeTestLLMClient{}, nil
@@ -791,7 +797,7 @@ func TestActivateSessionRuntimeCommitsPlannedAgentSelection(t *testing.T) {
 	settings := sessionRuntimeFastSettings(true)
 	settings.Reviewer.Frequency = "all"
 	settings.ThinkingLevel = "high"
-	err := fixture.api.ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
+	err = fixture.api.ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
 		SessionID: requestfixture.SessionID(t, fixture.store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: settings,
 			QuestionsEnabled:      textutil.Value(false),
 			AutoCompactionEnabled: textutil.Value(false),
@@ -813,6 +819,9 @@ func TestActivateSessionRuntimeCommitsPlannedAgentSelection(t *testing.T) {
 	persisted, err := fixture.metadata.ResolvePersistedSession(t.Context(), fixture.store.Meta().SessionID)
 	if err != nil {
 		t.Fatalf("resolve persisted Session: %v", err)
+	}
+	if persisted.Meta.Category == nil || *persisted.Meta.Category != sessioncontract.SessionCategorySubagent {
+		t.Fatal("Runtime activation promoted the Subagent without an explicit Session mutation")
 	}
 	state, err := session.ChatSettingsStateFromMeta(*persisted.Meta)
 	if err != nil {

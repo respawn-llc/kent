@@ -879,15 +879,6 @@ message CompactionStatus {
   }];
   int32 count = 4 [(buf.validate.field).int32.gte = 0];
   optional Diagnostic diagnostic = 5;
-  optional string request_id = 6 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
-  option (buf.validate.message).cel = {
-    id: "kent.transcript.manual_compaction_identity"
-    message: "only manual compaction carries a request identity"
-    expression: "!has(this.request_id) || this.mode == 3"
-  };
   option (buf.validate.message).cel = {
     id: "kent.transcript.compaction_diagnostic"
     message: "only failed compaction carries a diagnostic"

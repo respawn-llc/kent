@@ -11,11 +11,9 @@ import (
 	"core/shared/runtimeids"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/google/uuid"
 )
 
 type uiPendingDetailTranscriptRequest struct {
-	id        uuid.UUID
 	sessionID runtimeids.SessionID
 	request   *transcriptpb.PageRequest
 	// Session replacement may warm this request outside Detail Mode.
@@ -69,18 +67,17 @@ func (m *uiModel) loadDetailTranscriptPageWithOptionsCmd(
 	}
 	request := cloneTranscriptPageRequest(req)
 	request.SessionId = protoapi.SessionSelectorToProto(sessionID)
-	requestID := uuid.New()
 	parentCtx, cancel := context.WithCancel(context.Background())
-	m.pendingDetailTranscript = &uiPendingDetailTranscriptRequest{
-		id:         requestID,
+	pending := &uiPendingDetailTranscriptRequest{
 		sessionID:  sessionID,
 		request:    request,
 		detailMode: m.surface() == uiSurfaceTranscriptDetail,
 		cancel:     cancel,
 	}
+	m.pendingDetailTranscript = pending
 	if options.noticePolicy == uiDetailTranscriptLoadingNoticeVisible &&
 		request.Direction != nil {
-		m.showDetailTranscriptLoadingNotice(requestID)
+		m.showDetailTranscriptLoadingNotice(pending)
 	}
 	var deadline *time.Time
 	if options.deadline != nil {
@@ -91,8 +88,8 @@ func (m *uiModel) loadDetailTranscriptPageWithOptionsCmd(
 	return func() tea.Msg {
 		if client == nil {
 			return detailTranscriptLoadMsg{
-				requestID: requestID,
-				err:       errors.New("session view client is required"),
+				pending: pending,
+				err:     errors.New("session view client is required"),
 			}
 		}
 		var (
@@ -114,7 +111,7 @@ func (m *uiModel) loadDetailTranscriptPageWithOptionsCmd(
 		if deadline != nil && errors.Is(err, context.DeadlineExceeded) {
 			err = fmt.Errorf("%w: %w", errRollbackNavigationTimedOut, err)
 		}
-		return detailTranscriptLoadMsg{requestID: requestID, page: page, err: err}
+		return detailTranscriptLoadMsg{pending: pending, page: page, err: err}
 	}
 }
 
@@ -139,8 +136,8 @@ func validateDetailTranscriptPageResponse(
 	return nil
 }
 
-func (m *uiModel) takePendingDetailTranscriptRequest(requestID uuid.UUID) (uiPendingDetailTranscriptRequest, bool) {
-	if m == nil || m.pendingDetailTranscript == nil || m.pendingDetailTranscript.id != requestID {
+func (m *uiModel) takePendingDetailTranscriptRequest(request *uiPendingDetailTranscriptRequest) (uiPendingDetailTranscriptRequest, bool) {
+	if m == nil || m.pendingDetailTranscript == nil || m.pendingDetailTranscript != request {
 		return uiPendingDetailTranscriptRequest{}, false
 	}
 	pending := *m.pendingDetailTranscript
@@ -153,23 +150,22 @@ func (m *uiModel) cancelPendingDetailTranscriptRequest() tea.Cmd {
 	if m == nil || m.pendingDetailTranscript == nil {
 		return nil
 	}
-	pending := *m.pendingDetailTranscript
+	pending := m.pendingDetailTranscript
 	m.pendingDetailTranscript = nil
 	pending.cancel()
-	return m.clearDetailTranscriptLoadingNotice(pending.id)
+	return m.clearDetailTranscriptLoadingNotice(pending)
 }
 
-func (m *uiModel) showDetailTranscriptLoadingNotice(requestID uuid.UUID) {
-	requestIDCopy := requestID
+func (m *uiModel) showDetailTranscriptLoadingNotice(pending *uiPendingDetailTranscriptRequest) {
 	_ = m.showTransientStatusNotice(uiStatusNotice{
-		Text:      "Loading transcript history",
-		Kind:      uiStatusNoticeInfo,
-		RequestID: &requestIDCopy,
+		Text:          "Loading transcript history",
+		Kind:          uiStatusNoticeInfo,
+		DetailRequest: pending,
 	})
 }
 
-func (m *uiModel) clearDetailTranscriptLoadingNotice(requestID uuid.UUID) tea.Cmd {
-	if m == nil || m.transientStatusRequestID == nil || *m.transientStatusRequestID != requestID {
+func (m *uiModel) clearDetailTranscriptLoadingNotice(pending *uiPendingDetailTranscriptRequest) tea.Cmd {
+	if m == nil || m.transientStatusDetailRequest == nil || m.transientStatusDetailRequest != pending {
 		return nil
 	}
 	return m.advanceTransientStatusQueue()

@@ -8,7 +8,6 @@ import (
 	"core/cli/tui"
 	"core/shared/clientui"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
-	"core/shared/textutil"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -97,6 +96,9 @@ func (m *uiModel) startupSubmitCmd() tea.Cmd {
 
 func (m *uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	defer m.enterUIMainThread("Update")()
+	if done, ok := msg.(draftSaveDoneMsg); ok {
+		return finalizeUIUpdate(m, m.finishDraftSave(done))
+	}
 	if probe, ok := msg.(uiModelProbeMessage); ok {
 		probe.probeUIModel(m)
 		return m, m.reconcileNativeProgress()
@@ -127,6 +129,10 @@ func finalizeUIUpdate(model *uiModel, cmd tea.Cmd) (tea.Model, tea.Cmd) {
 		return model, cmd
 	}
 	progressCmd := model.reconcileNativeProgress()
+	draftCmd := model.saveEditedDraft()
+	if draftCmd != nil {
+		cmd = tea.Batch(cmd, draftCmd, model.renderNativeOngoingSurface())
+	}
 	if cmd == nil {
 		return model, progressCmd
 	}
@@ -259,7 +265,7 @@ func (m *uiModel) showTransientStatusNotice(notice uiStatusNotice) tea.Cmd {
 	m.transientStatus = strings.TrimSpace(notice.Text)
 	m.transientStatusKind = notice.Kind
 	m.transientStatusNoticeID = strings.TrimSpace(notice.NoticeID)
-	m.transientStatusRequestID = textutil.Pointer(notice.RequestID)
+	m.transientStatusDetailRequest = notice.DetailRequest
 	if notice.Duration <= 0 {
 		return nil
 	}
@@ -270,7 +276,7 @@ func (m *uiModel) advanceTransientStatusQueue() tea.Cmd {
 	m.transientStatus = ""
 	m.transientStatusKind = uiStatusNoticeInfo
 	m.transientStatusNoticeID = ""
-	m.transientStatusRequestID = nil
+	m.transientStatusDetailRequest = nil
 	if len(m.transientStatusQueue) == 0 {
 		m.layout().syncViewport()
 		return nil

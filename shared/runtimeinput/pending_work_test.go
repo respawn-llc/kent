@@ -9,17 +9,13 @@ import (
 func TestCollectionContract(t *testing.T) {
 	t.Parallel()
 	guidance := "keep implementation details"
-	selector, compactionID := "feature/a", runtimeids.NewCompactionRequestID()
-	compactionView, err := runtimeids.ParseQueueItemID(compactionID.String())
-	if err != nil {
-		t.Fatalf("compaction ID view: %v", err)
-	}
+	selector := "feature/a"
 	steerMessage := PendingWorkItem{
 		ID: runtimeids.NewQueueItemID(), Lane: PendingWorkLaneSteer, Kind: PendingWorkItemKindMessage,
 		State: PendingWorkItemStatePending, CanonicalInput: "keep going", Message: &PendingWorkMessage{Text: "keep going"},
 	}
 	steerCompaction := PendingWorkItem{
-		ID: compactionView, Lane: PendingWorkLaneSteer, Kind: PendingWorkItemKindManualCompaction,
+		ID: runtimeids.NewQueueItemID(), Lane: PendingWorkLaneSteer, Kind: PendingWorkItemKindManualCompaction,
 		State: PendingWorkItemStatePending, CanonicalInput: "/compact keep implementation details",
 		ManualCompaction: &PendingWorkManualCompaction{Guidance: &guidance},
 	}
@@ -73,9 +69,8 @@ func TestCollectionContract(t *testing.T) {
 	technical, technicalErr := steerCompaction.TechnicalRestoration()
 	if err != nil || technicalErr != nil ||
 		restoration.Kind != steerCompaction.Kind || restoration.CanonicalInput != steerCompaction.CanonicalInput ||
-		technical.ItemID != compactionView || technical.Kind != steerCompaction.Kind ||
-		technical.CanonicalInput != steerCompaction.CanonicalInput ||
-		compactionView.String() != compactionID.String() {
+		technical.ItemID != steerCompaction.ID || technical.Kind != steerCompaction.Kind ||
+		technical.CanonicalInput != steerCompaction.CanonicalInput {
 		t.Fatalf("restoration = %+v; technical = %+v; errors = %v, %v", restoration, technical, err, technicalErr)
 	}
 	if _, err := runtimeids.ParseCanonicalUUIDv4(technical.ItemID.String(), "Pending Work item ID"); err != nil {

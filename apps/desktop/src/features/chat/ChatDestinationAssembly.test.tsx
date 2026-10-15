@@ -192,7 +192,7 @@ it("clears submitted text immediately while compaction and steering delivery rem
       kind: "hydration",
       payload: {
         ...hydration(),
-        ActiveCompaction: { StepID: "compact", State: "started", Mode: "manual", Count: 1, RequestID: null },
+        ActiveCompaction: { StepID: "compact", State: "started", Mode: "manual", Count: 1 },
       },
     });
   });

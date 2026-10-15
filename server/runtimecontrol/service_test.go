@@ -52,7 +52,6 @@ func TestRejectedRuntimeCompactionPreservesIdleLifetime(t *testing.T) {
 		time.Sleep(2 * time.Minute)
 		err = service.CompactContext(t.Context(), &runtimepb.CompactContextRequest{
 			SessionId: sessionID.String(),
-			RequestId: runtimeids.NewCompactionRequestID().String(),
 			Admission: &runtimepb.ManualCompactionAdmission{},
 		})
 		if err == nil {
@@ -2946,11 +2945,9 @@ func TestServiceAdmitManualCompactionAcceptsEligibleIdleRuntime(t *testing.T) {
 	}
 	waitForRuntimeControlAssistantFinal(t, engine, "seeded")
 	waitForRuntimeControlIdle(t, engine)
-	requestID := runtimeids.NewCompactionRequestID()
 
 	accepted, err := service.AdmitManualCompaction(t.Context(), &runtimepb.CompactContextRequest{
 		SessionId: store.Meta().SessionID,
-		RequestId: requestID.String(),
 		Admission: &runtimepb.ManualCompactionAdmission{},
 	})
 	if err != nil {
@@ -2973,11 +2970,9 @@ func TestServiceAdmitManualCompactionQueuesBehindActiveAgentStep(t *testing.T) {
 		t.Fatalf("start user turn: %v", err)
 	}
 	waitForRuntimeControlActiveRun(t, engine)
-	requestID := runtimeids.NewCompactionRequestID()
 
 	accepted, err := service.AdmitManualCompaction(t.Context(), &runtimepb.CompactContextRequest{
 		SessionId: store.Meta().SessionID,
-		RequestId: requestID.String(),
 		Admission: &runtimepb.ManualCompactionAdmission{},
 	})
 	if err != nil {
@@ -2986,16 +2981,18 @@ func TestServiceAdmitManualCompactionQueuesBehindActiveAgentStep(t *testing.T) {
 	if !accepted {
 		t.Fatal("manual compaction behind an active Agent Step was not accepted")
 	}
-	itemID, err := serverapi.PendingWorkItemIDFromCompactionRequest(requestID)
-	if err != nil {
-		t.Fatalf("Pending Work identity: %v", err)
-	}
 	pending, err := engine.PendingWorkSnapshot()
 	if err != nil {
 		t.Fatalf("Pending Work: %v", err)
 	}
-	if !runtimeControlPendingWorkContains(pending, itemID) {
-		t.Fatalf("manual compaction %s is absent from Pending Work: %+v", requestID, pending.Items)
+	compactions := 0
+	for _, item := range pending.Items {
+		if item.Kind == runtimeinput.PendingWorkItemKindManualCompaction {
+			compactions++
+		}
+	}
+	if compactions != 1 {
+		t.Fatalf("manual compaction is absent from Pending Work: %+v", pending.Items)
 	}
 	// Stop the intentionally queued operation before Authority fixture cleanup.
 	if err := engine.Close(); err != nil {
@@ -3582,7 +3579,6 @@ func TestServiceInterruptCompactionAllowsNextTurnWithoutRestart(t *testing.T) {
 
 	if err := service.CompactContext(context.Background(), &runtimepb.CompactContextRequest{
 		SessionId: store.Meta().SessionID,
-		RequestId: runtimeids.NewCompactionRequestID().String(),
 		Admission: &runtimepb.ManualCompactionAdmission{},
 	}); err != nil {
 		t.Fatalf("CompactContext scheduling: %v", err)

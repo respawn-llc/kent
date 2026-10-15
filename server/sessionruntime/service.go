@@ -99,9 +99,6 @@ func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionR
 	resource, err := s.authority.openRuntime(ctx, RuntimeOpenRequest{
 		SessionID: sessionID,
 	}, func(activationCtx context.Context, store *session.Store) (*AgentRuntimePlan, AgentResourceSelection, error) {
-		if _, err := store.PromoteSubagentToMain(); err != nil {
-			return nil, nil, err
-		}
 		agentSelectionChanged := false
 		if req.AgentSelection != nil {
 			target, targetErr := session.ChatSettingsStateFromRole(

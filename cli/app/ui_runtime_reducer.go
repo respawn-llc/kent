@@ -54,7 +54,7 @@ func (m *uiModel) reduceRuntimeMessage(msg tea.Msg) uiFeatureUpdateResult {
 }
 
 func (m *uiModel) handleDetailTranscriptLoad(msg detailTranscriptLoadMsg) tea.Cmd {
-	pending, ok := m.takePendingDetailTranscriptRequest(msg.requestID)
+	pending, ok := m.takePendingDetailTranscriptRequest(msg.pending)
 	if !ok {
 		return nil
 	}
@@ -65,7 +65,7 @@ func (m *uiModel) handleDetailTranscriptLoad(msg detailTranscriptLoadMsg) tea.Cm
 		m.rollbackDetailPageLoadFailed(pending.request)
 		return m.sendTransientStatusWithNoticeID(msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
-	clearLoadingCmd := m.clearDetailTranscriptLoadingNotice(msg.requestID)
+	clearLoadingCmd := m.clearDetailTranscriptLoadingNotice(msg.pending)
 	if m.rollbackNavigationDeadlineExceeded(pending.request) {
 		m.rollback.pendingNavigation = nil
 		return m.sendTransientStatusWithNoticeID(

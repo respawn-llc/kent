@@ -168,28 +168,64 @@ func TestResolveSessionActionPreservesInitialPromptHistoryRecorded(t *testing.T)
 
 func TestPersistSessionDraftIncludesOnlyComposerInput(t *testing.T) {
 	var captured *sessionlaunchpb.SessionPersistInputDraftRequest
+	var saveErr error
 	client := &recordingSessionLifecycleClient{
 		persistInputDraft: func(_ context.Context, req *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error) {
 			captured = req
-			return &emptypb.Empty{}, nil
+			return &emptypb.Empty{}, saveErr
 		},
 	}
 	model := newUIModelDefaults(nil)
+	model.sessionID = "session-1"
+	model.drafts = newUIDraftPersistence(client, model.sessionID, model.mainEditor.Text())
 	testSetMainInput(model, "visible draft")
-	model.injectedQueue = []injectedRuntimeQueueItem{{
-		LocalID:         "pending-injected",
+	model.injectedQueue = []*injectedRuntimeQueueItem{{
+
 		Text:            "  pending injected\n",
 		State:           injectedRuntimeQueuePendingCreate,
 		submissionOrder: inputSubmissionOrder{sequence: 1},
 	}}
 	model.queued = queuedInputsForTest("\tqueued later  ")
 
-	if err := persistSessionDraftToServer(context.Background(), narrowSessionLifecycleServer{lifecycle: client}, " session-1 ", model); err != nil {
-		t.Fatalf("persistSessionDraftToServer: %v", err)
+	cmd := model.saveEditedDraft()
+	if cmd == nil || captured != nil {
+		t.Fatal("editing must schedule persistence without waiting for it")
+	}
+	testSetMainInput(model, "newer draft")
+	if next := model.saveEditedDraft(); next != nil {
+		t.Fatal("editing during a save must coalesce behind the in-flight write")
+	}
+	done := cmd().(draftSaveDoneMsg)
+	if done.err != nil {
+		t.Fatalf("persist draft: %v", done.err)
 	}
 	if captured.Input != "visible draft" || captured.SessionId != "session-1" {
 		t.Fatalf("captured draft request = %+v, want composer input only", captured)
 	}
+	model.finishDraftSave(done)
+	next := model.saveEditedDraft()
+	if next == nil {
+		t.Fatal("latest edit was not scheduled after the previous save finished")
+	}
+	done = next().(draftSaveDoneMsg)
+	if done.err != nil {
+		t.Fatalf("persist latest draft: %v", done.err)
+	}
+	if captured.Input != "newer draft" {
+		t.Fatalf("saved draft = %q, want newest editor content", captured.Input)
+	}
+	model.finishDraftSave(done)
+	saveErr = errors.New("draft storage unavailable")
+	testSetMainInput(model, "unsaved draft")
+	failed := model.saveEditedDraft()().(draftSaveDoneMsg)
+	if !errors.Is(failed.err, saveErr) {
+		t.Fatalf("save failure = %v, want %v", failed.err, saveErr)
+	}
+	model.finishDraftSave(failed)
+	if model.mainEditor.Text() != "unsaved draft" || model.saveEditedDraft() != nil {
+		t.Fatal("failed save must preserve the editor without automatic replay")
+	}
+	model.Close()
 }
 
 func TestRuntimeCloseStopsObservationOnce(t *testing.T) {
@@ -202,7 +238,7 @@ func TestRuntimeCloseStopsObservationOnce(t *testing.T) {
 	}
 }
 
-func TestReopenRetargetedSessionPersistsDraftBeforeReleasingSourceRuntime(t *testing.T) {
+func TestReopenRetargetedSessionDoesNotSaveDraftOnNavigation(t *testing.T) {
 	sourceRemoteOpen := true
 	released := false
 	var persistedDraft string
@@ -233,15 +269,11 @@ func TestReopenRetargetedSessionPersistsDraftBeforeReleasingSourceRuntime(t *tes
 		released = true
 	}}
 	sessionID := "11111111-1111-4111-8111-111111111111"
-	model := newUIModelDefaults(nil)
-	testSetMainInput(model, "draft after rebind")
-
 	next, err := reopenRetargetedSession(
 		context.Background(),
 		server,
 		runtimePlan,
 		sessionID,
-		model,
 	)
 	if err != nil {
 		t.Fatalf("reopen retargeted Session: %v", err)
@@ -249,15 +281,15 @@ func TestReopenRetargetedSessionPersistsDraftBeforeReleasingSourceRuntime(t *tes
 	if !released || sourceRemoteOpen {
 		t.Fatalf("handoff state released=%t source_remote_open=%t", released, sourceRemoteOpen)
 	}
-	if persistedDraft != "draft after rebind" {
-		t.Fatalf("persisted draft = %q, want destination draft", persistedDraft)
+	if persistedDraft != "" {
+		t.Fatalf("navigation unexpectedly persisted draft %q", persistedDraft)
 	}
 	if target := requireSessionOpenDestination(t, next); target != sessionID {
 		t.Fatalf("reopen destination = %q, want %q", target, sessionID)
 	}
 }
 
-func TestReopenRetargetedSessionPreservesDraftWhenDestinationReattachmentFails(t *testing.T) {
+func TestReopenRetargetedSessionReportsReattachmentFailureWithoutSavingDraft(t *testing.T) {
 	reattachErr := errors.New("destination unavailable")
 	var persistedDraft string
 	server := &reattachSessionLifecycleServer{
@@ -275,15 +307,11 @@ func TestReopenRetargetedSessionPreservesDraftWhenDestinationReattachmentFails(t
 	runtimePlan := &runtimeLaunchPlan{stopEventStreams: func() {
 		released = true
 	}}
-	model := newUIModelDefaults(nil)
-	testSetMainInput(model, "draft survives failed reattachment")
-
 	_, err := reopenRetargetedSession(
 		context.Background(),
 		server,
 		runtimePlan,
 		"11111111-1111-4111-8111-111111111111",
-		model,
 	)
 	if !errors.Is(err, reattachErr) {
 		t.Fatalf("reopen error = %v, want %v", err, reattachErr)
@@ -291,8 +319,8 @@ func TestReopenRetargetedSessionPreservesDraftWhenDestinationReattachmentFails(t
 	if !released {
 		t.Fatal("source runtime was not released")
 	}
-	if persistedDraft != "draft survives failed reattachment" {
-		t.Fatalf("persisted draft = %q, want preserved composer input", persistedDraft)
+	if persistedDraft != "" {
+		t.Fatalf("failed navigation unexpectedly persisted draft %q", persistedDraft)
 	}
 }
 

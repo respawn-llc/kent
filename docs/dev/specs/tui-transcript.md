@@ -360,6 +360,7 @@
 - Ring on turn end only if the TUI observed at least two tool calls for an eligible turn.
 - Every turn-end notification is requested only after the local queued prompt drain is fully idle.
 - Notifications never delay queued model work.
+- Manual compaction completion notifies unfocused TUIs only when the compacted Session is open at the moment the notification arrives, regardless of which client initiated it.
 - If transcript delivery lags, Kent can omit a notification, delay it until a later Queue drain, or use an earlier observed preview.
 - Reviewer activity does not defer or otherwise change turn-end notification eligibility or preview selection.
 - A queued prompt drain emits at most one turn-end notification when any observed turn in the drain meets the two-tool threshold, using the last final answer observed by the TUI even when that turn has fewer than two tool calls.

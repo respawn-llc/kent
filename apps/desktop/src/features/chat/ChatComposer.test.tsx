@@ -4,7 +4,7 @@ import type { ChatInputMutationResult, ChatTranscriptHandler, InitialChatSetting
 import { ChatRuntimeProvider, queryKeys } from "@/app-facade";
 import { mainViewRead, runtimeHost, transcriptPage } from "@/test-support/chat-runtime";
 import { ChatComposerSurface, useComposerSurface } from "./ChatComposerSurface";
-import { parseCompactionRequestID, parsePendingWorkItemID } from "@/api";
+import { parsePendingWorkItemID } from "@/api";
 
 import { createTestServices } from "@/test-support/app-services";
 import { createWorktreeCommand } from "./worktreeCommand";
@@ -1091,8 +1091,8 @@ it("prepends live interrupted messages in event order and restores Discard only 
 it("keeps repeated compactions distinct and restores only the discarded canonical command", async () => {
   const services = createTestServices([]);
   vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "draft", protectedInput: null });
-  const first = parseCompactionRequestID("79f762c8-0998-402a-bc80-6b42f3e241ed");
-  const second = parseCompactionRequestID("99f762c8-0998-402a-bc80-6b42f3e241ed");
+  const first = parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed");
+  const second = parsePendingWorkItemID("99f762c8-0998-402a-bc80-6b42f3e241ed");
   const items = [first, second].map((id) => ({
     id,
     kind: "manual_compaction" as const,

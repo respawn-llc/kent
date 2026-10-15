@@ -4,7 +4,6 @@ import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
 import (
 	"core/cli/app/commands"
-	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 
@@ -246,21 +245,16 @@ func TestCompactionDispatchKeepsInputEditableWithoutLocalRuntimeBlocking(t *test
 	if cmd := model.inputController().startCompaction("  /compact   tighten  summary  ", "tighten  summary"); cmd == nil {
 		t.Fatal("expected compaction command")
 	}
-	requestID := runtimeids.NewCompactionRequestID()
 	_ = model.inputController().compactCmd(
-		requestID,
 		"  /compact   tighten  summary  ",
 		optionalCompactionGuidance("tighten  summary"),
 	)()
-	if got := client.compactRequest.RequestID; got != requestID {
-		t.Fatalf("compaction request ID = %v, want %v", got, requestID)
-	}
 	if client.compactRequest.Admission.Guidance == nil ||
 		*client.compactRequest.Admission.Guidance != "tighten summary" {
 		t.Fatalf("compaction admission = %+v", client.compactRequest.Admission)
 	}
 	buttonClient := &runtimeControlFakeClient{}
-	_ = newProjectedTestUIModel(buttonClient).inputController().compactCmd(runtimeids.NewCompactionRequestID(), "", nil)()
+	_ = newProjectedTestUIModel(buttonClient).inputController().compactCmd("", nil)()
 	if buttonClient.compactRequest.Admission.Guidance != nil {
 		t.Fatalf("button compaction guidance = %v, want absent", buttonClient.compactRequest.Admission.Guidance)
 	}

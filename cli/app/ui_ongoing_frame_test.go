@@ -1,6 +1,9 @@
 package app
 
-import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+import (
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	"core/shared/textutil"
+)
 import (
 	"core/cli/tui/ongoing"
 	"core/cli/tui/transcriptrender"
@@ -221,9 +224,9 @@ func TestOngoingFrameInputAskViewportAndCursorShareBoundedProjection(t *testing.
 
 func TestOngoingFrameInputKeepsServerBackedQueuedStateTranscriptOwned(t *testing.T) {
 	m := sizedTestUIModel(newProjectedTestUIModel(&runtimeControlFakeClient{}), 48, 10)
-	m.injectedQueue = []injectedRuntimeQueueItem{{
-		LocalID:  "22222222-2222-4222-8222-222222222222",
-		ServerID: "11111111-1111-4111-8111-111111111111",
+	m.injectedQueue = []*injectedRuntimeQueueItem{{
+
+		ServerID: textutil.Value("11111111-1111-4111-8111-111111111111"),
 		Text:     "server accepted",
 		State:    injectedRuntimeQueueEnqueued}}
 
@@ -259,10 +262,10 @@ func TestOngoingFrameInputStillRendersClientLocalQueuedMessages(t *testing.T) {
 
 func TestOngoingFrameInputRendersPendingInjectedMessagesBeforeServerAcceptance(t *testing.T) {
 	m := sizedTestUIModel(newProjectedStaticUIModel(), 48, 10)
-	m.injectedQueue = []injectedRuntimeQueueItem{{
-		LocalID: "11111111-1111-4111-8111-111111111111",
-		Text:    "pending injected before server acceptance",
-		State:   injectedRuntimeQueuePendingCreate}}
+	m.injectedQueue = []*injectedRuntimeQueueItem{{
+
+		Text:  "pending injected before server acceptance",
+		State: injectedRuntimeQueuePendingCreate}}
 	frame := m.ongoingFrameInput()
 
 	section, ok := frameSection(frame, ongoing.FrameSectionQueuedOrSteered)
@@ -283,9 +286,9 @@ func TestOngoingFrameInputRendersPendingInjectedMessagesBeforeServerAcceptance(t
 
 func TestOngoingFrameInputRendersNoRuntimeInjectedMessages(t *testing.T) {
 	m := sizedTestUIModel(newProjectedStaticUIModel(), 48, 10)
-	m.injectedQueue = []injectedRuntimeQueueItem{{
-		LocalID:  "11111111-1111-4111-8111-111111111111",
-		ServerID: "11111111-1111-4111-8111-111111111111",
+	m.injectedQueue = []*injectedRuntimeQueueItem{{
+
+		ServerID: textutil.Value("11111111-1111-4111-8111-111111111111"),
 		Text:     "local injected without runtime client",
 		State:    injectedRuntimeQueueEnqueued}}
 	frame := m.ongoingFrameInput()

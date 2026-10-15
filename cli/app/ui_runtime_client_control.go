@@ -266,9 +266,9 @@ func (c *sessionRuntimeClient) RunUserShell(ctx context.Context, req clientui.Ru
 	})
 }
 
-func (c *sessionRuntimeClient) CompactRuntime(ctx context.Context, req clientui.RuntimeCompactRequest) error {
+func (c *sessionRuntimeClient) CompactRuntime(ctx context.Context, req clientui.RuntimeCompactRequest) (clientui.RuntimeCompactResult, error) {
 	if err := req.Validate(); err != nil {
-		return err
+		return clientui.RuntimeCompactResult{}, err
 	}
 	invocation := &chatpb.CompactionInvocation{Token: "/compact"}
 	if req.Admission.Guidance != nil {
@@ -277,24 +277,21 @@ func (c *sessionRuntimeClient) CompactRuntime(ctx context.Context, req clientui.
 	}
 	target, err := c.takeChatTarget()
 	if err != nil {
-		return err
+		return clientui.RuntimeCompactResult{}, err
 	}
 	result, err := c.chatMutations.Compact(ctx, &chatpb.CompactRequest{
-		Target: target, RequestId: req.RequestID.String(), Invocation: invocation,
+		Target: target, Invocation: invocation,
 	})
 	if err != nil {
-		return err
+		return clientui.RuntimeCompactResult{}, err
 	}
 	if err := protoapi.Validate(result); err != nil {
-		return err
+		return clientui.RuntimeCompactResult{}, err
 	}
 	if rejected := result.GetNotAccepted(); rejected != nil {
-		return protoapi.ChatNotAcceptedFromProto(rejected)
+		return clientui.RuntimeCompactResult{}, protoapi.ChatNotAcceptedFromProto(rejected)
 	}
-	if result.GetAccepted().Request.Id != req.RequestID.String() {
-		return errors.New("compaction response does not match the dispatched request")
-	}
-	return protoapi.ChatAcceptedDiagnosticFromProto(result.GetAccepted().Diagnostic)
+	return clientui.RuntimeCompactResult{Diagnostic: protoapi.ChatAcceptedDiagnosticFromProto(result.GetAccepted().Diagnostic)}, nil
 }
 
 func (c *sessionRuntimeClient) Interrupt() error {

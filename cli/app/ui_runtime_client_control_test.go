@@ -32,9 +32,7 @@ func (c *shellPreparationClient) Compact(_ context.Context, request *chatpb.Comp
 	c.compactions = append(c.compactions, request)
 	return &chatpb.CompactionMutationSuccess{
 		Session: &chatpb.ExistingSessionTarget{SessionId: request.Target.GetSession().SessionId.GetSessionId()},
-		Outcome: &chatpb.CompactionMutationSuccess_Accepted{Accepted: &chatpb.CompactionAccepted{
-			Request: &chatpb.CompactionRequestIdentity{Id: request.RequestId},
-		}},
+		Outcome: &chatpb.CompactionMutationSuccess_Accepted{Accepted: &chatpb.CompactionAccepted{Diagnostic: c.diagnostic}},
 	}, nil
 }
 
@@ -71,17 +69,13 @@ func TestRuntimeClientConsumesLaunchIntentOnFailedFirstDispatch(t *testing.T) {
 	if err := client.RunUserShell(t.Context(), request); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
 		t.Fatalf("first shell error = %v", err)
 	}
-	id := runtimeids.NewCompactionRequestID()
-	if err := client.CompactRuntime(t.Context(), clientui.RuntimeCompactRequest{RequestID: id}); err != nil {
+	if _, err := client.CompactRuntime(t.Context(), clientui.RuntimeCompactRequest{}); err != nil {
 		t.Fatal(err)
 	}
 	if len(chat.requests) != 1 || len(chat.compactions) != 1 ||
 		chat.requests[0].Target.GetSession().Preparation == nil ||
 		chat.compactions[0].Target.GetSession().Preparation != nil {
 		t.Fatalf("launch choices must be consumed even when first dispatch fails: %+v", chat.requests)
-	}
-	if chat.compactions[0].RequestId != id.String() {
-		t.Fatal("compaction must dispatch its pre-registered progress identity")
 	}
 }
 
@@ -194,5 +188,9 @@ func TestRuntimeClientInputMakesOneExplicitCall(t *testing.T) {
 	}
 	if len(chat.inputs) != 1 {
 		t.Fatalf("submit calls = %d, want 1", len(chat.inputs))
+	}
+	compaction, err := runtimeClient.CompactRuntime(t.Context(), clientui.RuntimeCompactRequest{})
+	if err != nil || compaction.Diagnostic == nil {
+		t.Fatalf("accepted compaction diagnostic = %+v, error = %v", compaction, err)
 	}
 }

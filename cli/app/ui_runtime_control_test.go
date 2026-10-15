@@ -257,13 +257,13 @@ func (f *runtimeControlFakeClient) compactContext(_ context.Context, args string
 	_ = args
 	return f.err
 }
-func (f *runtimeControlFakeClient) CompactRuntime(ctx context.Context, req clientui.RuntimeCompactRequest) error {
+func (f *runtimeControlFakeClient) CompactRuntime(ctx context.Context, req clientui.RuntimeCompactRequest) (clientui.RuntimeCompactResult, error) {
 	f.compactRequest = req
 	input, err := req.Admission.CanonicalInput()
 	if err != nil {
-		return err
+		return clientui.RuntimeCompactResult{}, err
 	}
-	return f.compactContext(ctx, input)
+	return clientui.RuntimeCompactResult{}, f.compactContext(ctx, input)
 }
 func (f *runtimeControlFakeClient) Interrupt() error {
 	f.interruptCalls++
@@ -530,9 +530,9 @@ func TestInterruptedHumanInputRestoresServerOrderBeforeComposer(t *testing.T) {
 	m := newProjectedClosedUIModel(&runtimeControlFakeClient{})
 	firstID := runtimeids.NewQueueItemID()
 	secondID := runtimeids.NewQueueItemID()
-	m.injectedQueue = []injectedRuntimeQueueItem{
-		{LocalID: firstID.String(), ServerID: firstID.String(), Text: "local stale first", State: injectedRuntimeQueueEnqueued},
-		{LocalID: secondID.String(), ServerID: secondID.String(), Text: "local stale second", State: injectedRuntimeQueueEnqueued}}
+	m.injectedQueue = []*injectedRuntimeQueueItem{
+		{ServerID: textutil.Value(firstID.String()), Text: "local stale first", State: injectedRuntimeQueueEnqueued},
+		{ServerID: textutil.Value(secondID.String()), Text: "local stale second", State: injectedRuntimeQueueEnqueued}}
 	testSetMainInput(m, "composer")
 
 	cmd := m.applyTranscriptHumanInputInterrupted(&transcriptpb.HumanInputInterrupted{

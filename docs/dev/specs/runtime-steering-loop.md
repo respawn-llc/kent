@@ -91,7 +91,6 @@
 - Each item carries a concrete typed operation rather than a generic command.
 - A human-message item presents its exact submitted text.
 - Manual compaction has canonical presentation `/compact` followed by its normalized guidance when guidance is present.
-- Each Chat manual-compaction request must carry a caller-generated UUID v4. Acceptance and progress events must use that identity so clients can match progress received before the request returns.
 - Worktree enter has canonical presentation `/wt switch <selector>`.
 - Worktree leave has canonical presentation `/wt leave`.
 - Canonical presentation is independent of command alias, capitalization, spacing, or whether a control or typed command initiated the action.

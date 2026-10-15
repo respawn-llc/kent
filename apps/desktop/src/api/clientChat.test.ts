@@ -715,7 +715,6 @@ describe("Desktop Chat read client", () => {
 
 describe("Desktop Chat mutation adapter", () => {
   const queueItemID = "223e4567-e89b-42d3-a456-426614174000";
-  const compactionRequestID = "323e4567-e89b-42d3-a456-426614174000";
   const sessionTarget = {
     kind: "session",
     projectID: "project-1",
@@ -902,7 +901,7 @@ describe("Desktop Chat mutation adapter", () => {
               session: { sessionId: sessionID },
               outcome: {
                 case: "accepted",
-                value: { request: { id: compactionRequestID } },
+                value: {},
               },
             },
           },
@@ -922,7 +921,6 @@ describe("Desktop Chat mutation adapter", () => {
       rawGuidance: "",
     });
     if (compacted.outcome.kind !== "accepted") throw new Error("Expected accepted compaction fixture.");
-    expect(compacted.outcome.requestID.toJSONValue()).toBe(compactionRequestID);
 
     const failingChat = new ApiClient(
       new FakeRpcTransport([

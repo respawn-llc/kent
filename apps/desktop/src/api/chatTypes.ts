@@ -20,7 +20,6 @@ import type {
 export type { ChatSettings } from "./chatSettingsTypes";
 import type { ChatTranscriptMessage, ChatTranscriptPayloadByKind } from "./chatTranscriptTypes";
 import type {
-  CompactionRequestID,
   PendingWork,
   PendingWorkIdentity,
   PendingWorkItemID,
@@ -99,7 +98,6 @@ export type ChatCompactionResult = Readonly<{
   outcome:
     | Readonly<{
         kind: "accepted";
-        requestID: CompactionRequestID;
         diagnostic: ChatAcceptedDiagnostic | null;
       }>
     | Readonly<{ kind: "not_accepted"; reason: ChatNotAcceptedReason }>;

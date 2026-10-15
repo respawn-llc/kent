@@ -119,7 +119,7 @@ func transcriptCompactionStateFromRuntime(state *runtime.TranscriptCompactionSta
 	if state == nil {
 		return nil, nil
 	}
-	return transcriptCompactionProjection(&state.StepID, state.RequestID, state.Mode, state.Count, transcriptpb.CompactionState_COMPACTION_STATE_STARTED, nil)
+	return transcriptCompactionProjection(&state.StepID, state.Mode, state.Count, transcriptpb.CompactionState_COMPACTION_STATE_STARTED, nil)
 }
 
 func transcriptContextUsageFromRuntime(usage *runtime.ContextUsage) (*runtimepb.ContextUsage, error) {
@@ -439,7 +439,7 @@ func transcriptCompactionStatus(evt runtime.Event) (*transcriptpb.CompactionStat
 	default:
 		return nil, fmt.Errorf("runtime event %q carries compaction facts outside the compaction lifecycle", evt.Kind)
 	}
-	return transcriptCompactionProjection(evt.StepID, evt.Compaction.RequestID, evt.Compaction.Mode, evt.Compaction.Count, state, diagnostic)
+	return transcriptCompactionProjection(evt.StepID, evt.Compaction.Mode, evt.Compaction.Count, state, diagnostic)
 }
 
 func transcriptGoalStatus(update runtime.GoalStatusUpdate) (*runtimepb.GoalView, error) {

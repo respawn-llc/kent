@@ -112,7 +112,7 @@ func TestTUIStrictIOBusyEnterQueuesInjectedInputAsCommand(t *testing.T) {
 	if client.submitCalls != 1 {
 		t.Fatalf("SubmitRuntimeInput calls after command = %d, want 1", client.submitCalls)
 	}
-	if len(updated.injectedQueue) != 1 || updated.injectedQueue[0].ServerID != "server-queue-1" {
+	if len(updated.injectedQueue) != 1 || updated.injectedQueue[0].ServerID == nil || *updated.injectedQueue[0].ServerID != "server-queue-1" {
 		t.Fatalf("expected server queue item after command, got %+v", updated.injectedQueue)
 	}
 }

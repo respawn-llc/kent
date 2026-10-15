@@ -353,21 +353,14 @@ func (s *Service) compact(
 			errors.New("manual-compaction admission service is required"),
 		), nil
 	}
-	requestID, err := runtimeids.ParseCompactionRequestID(request.RequestId)
-	if err != nil {
-		return nil, err
-	}
 	accepted, admissionErr := s.admissions.AdmitManualCompaction(ctx, &runtimepb.CompactContextRequest{
 		SessionId: target.SessionID.String(),
-		RequestId: requestID.String(),
 		Admission: protoapi.ManualCompactionAdmissionToProto(admission),
 	})
 	if !accepted {
 		return compactionNotAccepted(target.SessionID, admissionErr), nil
 	}
-	acceptedResult := &chatpb.CompactionAccepted{
-		Request: &chatpb.CompactionRequestIdentity{Id: requestID.String()},
-	}
+	acceptedResult := &chatpb.CompactionAccepted{}
 	if admissionErr != nil {
 		acceptedResult.Diagnostic = acceptedDiagnostic("chat_compact", admissionErr)
 	}

@@ -340,10 +340,6 @@ message CompactContextRequest {
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).string.(kent.api.shared.nonblank) = true
   ];
-  string request_id = 2 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
   ManualCompactionAdmission admission = 3 [(buf.validate.field).required = true];
 }
 

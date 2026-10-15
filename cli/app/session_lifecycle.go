@@ -207,17 +207,12 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 				runtimePlan.Close()
 				return errors.New("Session rebind requires a Remote server")
 			}
-			next, err = reopenRetargetedSession(ctx, reattacher, runtimePlan, plan.SessionID, finalModel)
+			next, err = reopenRetargetedSession(ctx, reattacher, runtimePlan, plan.SessionID)
 			if err != nil {
 				return err
 			}
 			continue
 		}
-		if err := persistSessionDraftToServer(ctx, server, plan.SessionID, finalModel); err != nil {
-			runtimePlan.Close()
-			return err
-		}
-
 		if transition.Exit {
 			runtimePlan.Close()
 			return nil
@@ -235,14 +230,10 @@ func reopenRetargetedSession(
 	server sessionReattachServer,
 	runtimePlan *runtimeLaunchPlan,
 	rawSessionID string,
-	finalModel any,
 ) (*sessionlaunchpb.SessionDirective, error) {
 	defer runtimePlan.Close()
 	sessionID, err := runtimeids.ParseSessionID(rawSessionID)
 	if err != nil {
-		return &sessionlaunchpb.SessionDirective{}, err
-	}
-	if err := persistSessionDraftToServer(ctx, server, rawSessionID, finalModel); err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
 	runtimePlan.Close()
@@ -351,6 +342,7 @@ func prepareSessionUIRun(
 		return nil, uiLoopRequest{}, err
 	}
 	return runtimePlan, uiLoopRequest{
+		sessionLifecycle:             server.SessionLifecycleClient(),
 		ctx:                          ctx,
 		wiring:                       runtimePlan.Wiring,
 		projectID:                    strings.TrimSpace(server.ProjectID()),
@@ -400,24 +392,6 @@ func sessionLaunchInitialStateFromServer(
 		return sessionLaunchInitialState{}, err
 	}
 	return sessionLaunchInitialState{Input: resp.Input}, nil
-}
-
-func persistSessionDraftToServer(ctx context.Context, server sessionLifecycleClientProvider, sessionID string, model any) error {
-	if strings.TrimSpace(sessionID) == "" {
-		return nil
-	}
-	ui, ok := model.(*uiModel)
-	if !ok || ui == nil {
-		return nil
-	}
-	if server == nil || server.SessionLifecycleClient() == nil {
-		return nil
-	}
-	_, err := server.SessionLifecycleClient().PersistInputDraft(ctx, &sessionlaunchpb.SessionPersistInputDraftRequest{
-		SessionId: strings.TrimSpace(sessionID),
-		Input:     ui.mainEditor.Text(),
-	})
-	return err
 }
 
 func sessionLaunchRequestFromIntent(intent *sessionlaunchpb.SessionLaunchRequestIntent, overrides serverapi.RunPromptOverrides) (sessionLaunchRequest, error) {
