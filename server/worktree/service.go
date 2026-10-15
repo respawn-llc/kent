@@ -1563,9 +1563,6 @@ func (s *Service) DeleteTaskWorktree(ctx context.Context, req DeleteTaskWorktree
 		return DeleteTaskWorktreeResponse{}, errors.New("worktree service dependencies are required")
 	}
 	taskID := strings.TrimSpace(req.TaskID)
-	if taskID == "" {
-		return DeleteTaskWorktreeResponse{}, errors.New("task_id is required")
-	}
 	task, err := s.metadata.Queries().GetTask(ctx, taskID)
 	if err != nil {
 		return DeleteTaskWorktreeResponse{}, err
@@ -1681,9 +1678,6 @@ func (s *Service) EnsureTaskWorktreeDeletable(ctx context.Context, taskID string
 		return errors.New("worktree service dependencies are required")
 	}
 	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return errors.New("task_id is required")
-	}
 	task, err := s.metadata.Queries().GetTask(ctx, taskID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
