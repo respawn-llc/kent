@@ -43,7 +43,7 @@ describe("task lifecycle client", () => {
             value: {
               outcome: {
                 case: "applied",
-                value: { currentNodes: [{ nodeId: "node-1", sessionId: "session-1" }] },
+                value: { currentNodes: [{ nodeId: "node-1", sessionId: "11111111-1111-4111-8111-111111111111" }] },
               },
             },
           },
@@ -165,7 +165,7 @@ describe("task lifecycle client", () => {
               value: {
                 outcome: {
                   case: "noOp",
-                  value: { currentNodes: [{ nodeId: "node-1", sessionId: "session-1" }] },
+                  value: { currentNodes: [{ nodeId: "node-1", sessionId: "11111111-1111-4111-8111-111111111111" }] },
                 },
               },
             },
@@ -176,7 +176,7 @@ describe("task lifecycle client", () => {
     );
     await expect(client.resumeTask({ taskID: "task-1" })).resolves.toMatchObject({
       outcome: "no_op",
-      noOp: { currentNodes: [{ nodeID: "node-1", sessionID: "session-1" }] },
+      noOp: { currentNodes: [{ nodeID: "node-1", sessionID: "11111111-1111-4111-8111-111111111111" }] },
     });
   });
 
