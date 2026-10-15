@@ -587,6 +587,13 @@ func newSelectedRunPromptFixture(
 	}
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
 	observed := newObservedTestHeadlessRuntime(t, root, store, nil, authManager, nil, persistence.Options()...)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := observed.authority.Close(ctx); err != nil {
+			t.Errorf("close fixture runtime authority: %v", err)
+		}
+	})
 
 	if len(enabledTools) == 0 {
 		enabledTools = []toolspec.ID{toolspec.ToolAskQuestion}
@@ -1831,11 +1838,6 @@ func TestInProcessRunPromptReturnsPendingQuestionAndExecutionContinues(t *testin
 	defer server.Close()
 
 	fixture := newSelectedRunPromptFixture(t, server.URL, nil)
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		_ = fixture.authority.Close(ctx)
-	})
 	responseCh := make(chan struct {
 		response *runpromptpb.Success
 		err      error
@@ -1958,11 +1960,6 @@ func TestInProcessRunPromptReturnsPendingApprovalAndExecutionContinues(t *testin
 	defer server.Close()
 
 	fixture := newSelectedRunPromptFixture(t, server.URL, nil, toolspec.ToolPatch)
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		_ = fixture.authority.Close(ctx)
-	})
 	responseCh := make(chan struct {
 		response *runpromptpb.Success
 		err      error
