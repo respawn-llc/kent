@@ -240,21 +240,12 @@ func (r WorktreeSetupResult) Validate() error {
 	payloadCount := 0
 	if r.Completed != nil {
 		payloadCount++
-		if err := protoapi.Validate(r.Completed); err != nil {
-			return err
-		}
 	}
 	if r.NotRequired != nil {
 		payloadCount++
-		if err := protoapi.Validate(r.NotRequired); err != nil {
-			return err
-		}
 	}
 	if r.Failed != nil {
 		payloadCount++
-		if err := protoapi.Validate(r.Failed); err != nil {
-			return err
-		}
 	}
 	if payloadCount != 1 {
 		return errors.New("worktree setup result requires exactly one final payload")

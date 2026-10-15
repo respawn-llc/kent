@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"core/shared/apicontract"
-	"core/shared/protoapi"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/worktreecontract"
 )
@@ -38,7 +37,7 @@ func (b *setupEventBroker) Subscribe(req *worktreepb.SetupSubscribeRequest) (Set
 	if b == nil {
 		return nil, errors.New("worktree setup broker is required")
 	}
-	id, err := worktreecontract.ParseSetupOperationID(req.SetupOperationId)
+	id, err := worktreecontract.SetupOperationIDFromProto(req.SetupOperationId)
 	if err != nil {
 		return nil, err
 	}
@@ -60,10 +59,7 @@ func (b *setupEventBroker) Publish(evt *worktreepb.SetupEvent) {
 	if b == nil {
 		return
 	}
-	if err := protoapi.Validate(evt); err != nil {
-		panic(fmt.Sprintf("publish invalid worktree setup event: %v; event=%+v", err, evt))
-	}
-	id, err := worktreecontract.ParseSetupOperationID(evt.SetupOperationId)
+	id, err := worktreecontract.SetupOperationIDFromProto(evt.SetupOperationId)
 	if err != nil {
 		panic(fmt.Sprintf("publish invalid worktree setup operation identity: %v", err))
 	}

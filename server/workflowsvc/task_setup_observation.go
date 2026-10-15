@@ -7,7 +7,6 @@ import (
 
 	"core/server/workflow"
 	"core/server/worktree"
-	"core/shared/protoapi"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/serverapi"
 	"core/shared/worktreecontract"
@@ -117,9 +116,6 @@ func worktreeSetupExecutionTarget(selection workflow.ExecutionTargetSelection) (
 		target.Mode = worktreepb.SetupExecutionTargetMode_WORKTREE_SETUP_EXECUTION_TARGET_MODE_ASK_ON_FIRST_EXECUTION
 	default:
 		return nil, fmt.Errorf("worktree setup execution target mode %q is invalid", selection.Mode)
-	}
-	if err := protoapi.Validate(target); err != nil {
-		return nil, err
 	}
 	return target, nil
 }

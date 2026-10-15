@@ -13,6 +13,7 @@ import (
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -156,23 +157,33 @@ func TestSessionTranscriptSubscriptionPublishesLiveRunFinishedWithoutRewritingSe
 
 type gatewayTranscriptServiceFunc func(context.Context, *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error)
 
-func TestDeliveredInvalidTranscriptPanicsInProduction(t *testing.T) {
+func TestDeliveredInvalidInvariantNotificationsPanicInProduction(t *testing.T) {
 	t.Setenv("KENT_INVARIANT_MODE", "diagnostic")
-	method := transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("StreamService").Methods().ByName("Subscribe")
-	operations, err := protoapi.ResolveSubscriptionOperations(method)
-	if err != nil {
-		t.Fatal(err)
+	for _, test := range []struct {
+		name    string
+		method  protoreflect.MethodDescriptor
+		payload proto.Message
+	}{
+		{"transcript", transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("StreamService").Methods().ByName("Subscribe"), &transcriptpb.Message{}},
+		{"setup", worktreepb.File_kent_api_worktree_worktree_proto.Services().ByName("SetupService").Methods().ByName("Subscribe"), &worktreepb.SetupEvent{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			operations, err := protoapi.ResolveSubscriptionOperations(test.method)
+			if err != nil {
+				t.Fatal(err)
+			}
+			conn := &recordingGatewayConn{}
+			defer func() {
+				if recover() == nil {
+					t.Error("invalid delivered notification did not panic")
+				}
+				if len(conn.frames) != 0 {
+					t.Error("invalid delivered notification was sent")
+				}
+			}()
+			_ = sendBinaryNotification(t.Context(), conn, operations.Event, test.payload)
+		})
 	}
-	conn := &recordingGatewayConn{}
-	defer func() {
-		if recover() == nil {
-			t.Error("invalid delivered Transcript did not panic")
-		}
-		if len(conn.frames) != 0 {
-			t.Error("invalid delivered Transcript was sent")
-		}
-	}()
-	_ = sendBinaryNotification(t.Context(), conn, operations.Event, &transcriptpb.Message{})
 }
 
 func (f gatewayTranscriptServiceFunc) SubscribeSessionTranscript(ctx context.Context, req *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
