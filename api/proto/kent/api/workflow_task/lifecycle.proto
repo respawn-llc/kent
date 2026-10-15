@@ -434,7 +434,7 @@ message CompleteRequest {
   optional string task_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   optional string transition_id = 3 [(buf.validate.field).string.min_len = 1];
   repeated NamedValue output_values = 4;
-  optional string commentary = 5;
+  optional string commentary = 5 [(buf.validate.field).string.max_bytes = 65536];
   CompleteActorKind actor_kind = 6 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
