@@ -76,25 +76,29 @@ func (e *Engine) selectConnection(ctx context.Context, stepID string, request Co
 
 func (e *Engine) selectConnectionWithPreparation(ctx context.Context, stepID string, request ConnectionSelectionRequest, prepare func(*connectionBundle) error) (*connectionBundle, error) {
 	current := e.connectionSnapshot()
-	if e.cfg.ResolveConnection == nil || current.id == nil {
-		return current, nil
+	var replacement *PreparedConnection
+	if e.cfg.ResolveConnection != nil && current.id != nil {
+		request.Current = *current.id
+		var err error
+		replacement, err = e.cfg.ResolveConnection(ctx, request)
+		if err != nil {
+			return nil, err
+		}
 	}
-	request.Current = *current.id
-	replacement, err := e.cfg.ResolveConnection(ctx, request)
-	if err != nil {
-		return nil, err
+	next := current
+	if replacement != nil {
+		if err := ValidateSessionProviderChange(e.eventLog, replacement.TransportCapabilities); err != nil {
+			return nil, err
+		}
+		next = newConnectionBundle(*replacement)
 	}
-	if replacement == nil {
-		return current, nil
-	}
-	if err := ValidateSessionProviderChange(e.eventLog, replacement.TransportCapabilities); err != nil {
-		return nil, err
-	}
-	next := newConnectionBundle(*replacement)
 	if prepare != nil {
 		if err := prepare(next); err != nil {
 			return nil, err
 		}
+	}
+	if replacement == nil {
+		return next, nil
 	}
 	if err := e.store.SetConnectionID(*replacement.ID); err != nil {
 		return nil, err

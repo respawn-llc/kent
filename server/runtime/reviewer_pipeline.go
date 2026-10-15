@@ -109,15 +109,7 @@ func (r *defaultReviewerPipeline) runPrepared(ctx context.Context, prepared prep
 				return err
 			}
 			if e.cfg.Reviewer.InheritsConnection {
-				preparedReplacement := false
-				bundle, err := e.selectConnectionWithPreparation(ctx, prepared.originStepID.String(), request, func(next *connectionBundle) error {
-					preparedReplacement = true
-					return prepare(next)
-				})
-				if err == nil && !preparedReplacement {
-					err = prepare(bundle)
-				}
-				return bundle, err
+				return e.selectConnectionWithPreparation(ctx, prepared.originStepID.String(), request, prepare)
 			}
 			bundle := prepared.connection
 			if bundle.id != nil && e.cfg.Reviewer.ResolveConnection != nil {
