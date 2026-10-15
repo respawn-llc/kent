@@ -19,6 +19,16 @@ async function advanceTime(duration: number) {
   });
 }
 
+async function waitForPresentation(assertion: () => void) {
+  await vi.waitFor(
+    async () => {
+      await advanceTime(0);
+      assertion();
+    },
+    { interval: 0 },
+  );
+}
+
 it.each([
   ["new-chat", false],
   ["existing-session", false],
@@ -57,8 +67,12 @@ it.each([
       false,
     );
     try {
-      await advanceTime(32);
-      const editor = screen.getByRole("textbox");
+      const presentation = within(view.container);
+      await waitForPresentation(() => {
+        expect(presentation.getByRole("textbox")).toBeInTheDocument();
+        expect(view.client.isFetching()).toBe(0);
+      });
+      const editor = presentation.getByRole("textbox");
       vi.spyOn(editor, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 320, 80));
       if (kind === "existing-session") {
         expect(view.handlers).toHaveLength(1);
@@ -68,8 +82,10 @@ it.each([
       }
       fireEvent.change(editor, { target: { value: "First message" } });
       fireEvent.keyDown(editor, { key: "Enter", code: "Enter" });
-      await advanceTime(32);
-      expect(view.handlers).toHaveLength(1);
+      await waitForPresentation(() => {
+        expect(view.services.api.chat.steer).toHaveBeenCalledOnce();
+        expect(view.handlers).toHaveLength(1);
+      });
       await act(async () => {
         if (committed === null) throw new Error("Input was not committed.");
         if (kind === "existing-session") {
@@ -93,6 +109,9 @@ it.each([
         geometry.resize(80);
       });
       const list = within(view.container).getByRole("list");
+      await waitForPresentation(() => {
+        expect(within(list).getByText("First message")).toBeInTheDocument();
+      });
       const text = within(list).getByText("First message");
       // Assert the completed presentation, not a transient frame that hydration may outlast.
       if (interrupt) fireEvent.wheel(list, { deltaY: -100 });

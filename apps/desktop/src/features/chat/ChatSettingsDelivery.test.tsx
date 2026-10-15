@@ -17,6 +17,7 @@ function TitleProbe() {
 it.each(["unavailable", "registered_idle"] as const)(
   "updates two %s Chats from real settings messages without resetting drafts or transcript observation",
   async (state) => {
+    const user = userEvent.setup({ delay: null });
     let name: string | null = null;
     let sequence = 1;
     const views = [0, 1].map(() =>
@@ -42,9 +43,10 @@ it.each(["unavailable", "registered_idle"] as const)(
       for (const view of views) {
         expect(view.handlers).toHaveLength(1);
         expect(hasSessionSettingsSubscription(view.services.transport)).toBe(true);
+        expect(view.client.isFetching()).toBe(0);
       }
     });
-    const editors = await screen.findAllByRole("textbox");
+    const editors = views.map((view) => within(view.container).getByRole("textbox"));
     for (const [index, editor] of editors.entries())
       fireEvent.change(editor, { target: { value: `independent draft ${index.toString()}` } });
     const deliver = async (questions: boolean) => {
@@ -60,14 +62,14 @@ it.each(["unavailable", "registered_idle"] as const)(
         expect(title.textContent).toBe("Delivered name");
     });
     await deliver(false);
-    for (const button of screen.getAllByRole("button", { name: appI18n.t("chatSettings.open") })) {
-      await userEvent.setup({ delay: null }).hover(button);
+    for (const view of views) {
+      await user.hover(within(view.container).getByRole("button", { name: appI18n.t("chatSettings.open") }));
       expect(
         within(screen.getByRole("dialog")).getByRole("switch", {
           name: appI18n.t("chatSettings.questions"),
         }),
       ).not.toBeChecked();
-      await userEvent.setup({ delay: null }).keyboard("{Escape}");
+      await user.keyboard("{Escape}");
       await waitFor(() => {
         expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       });
