@@ -1142,6 +1142,13 @@ message GraphDeriveWiringSuccess {
 
 message GraphSavePreviewRequest {
   option (buf.validate.message).cel = {
+    id: "kent.workflow_definition.save_preview_node_group_membership"
+    message: "saved node group IDs must identify a group after normalization"
+    expression:
+      "this.graph.nodes.all(node, !has(node.group_id) || "
+      "this.graph.node_groups.exists(group, group.id.trim() == node.group_id.trim()))"
+  };
+  option (buf.validate.message).cel = {
     id: "kent.workflow_definition.save_preview_group_identity_unique"
     message: "saved node group IDs and keys must be unique after normalization"
     expression:
@@ -1166,6 +1173,13 @@ message GraphSavePreviewRequest {
 }
 
 message GraphSaveRequest {
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_definition.save_node_group_membership"
+    message: "saved node group IDs must identify a group after normalization"
+    expression:
+      "this.graph.nodes.all(node, !has(node.group_id) || "
+      "this.graph.node_groups.exists(group, group.id.trim() == node.group_id.trim()))"
+  };
   option (buf.validate.message).cel = {
     id: "kent.workflow_definition.save_group_identity_unique"
     message: "saved node group IDs and keys must be unique after normalization"

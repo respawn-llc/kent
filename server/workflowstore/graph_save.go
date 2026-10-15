@@ -488,8 +488,6 @@ func prepareWorkflowGraphSave(workflowID runtimeids.WorkflowID, displayName stri
 		transitionGroups: append([]TransitionGroupRecord(nil), req.TransitionGroups...),
 		edges:            append([]EdgeRecord(nil), req.Edges...),
 	}
-	groupsByKey := map[workflow.ModelKey]string{}
-	groupsByID := map[string]bool{}
 	for i, group := range prepared.nodeGroups {
 		if err := validateWorkflowGraphRecordWorkflowID(workflowID, group.WorkflowID, "node group", group.ID); err != nil {
 			return preparedWorkflowGraphSave{}, workflow.Definition{}, err
@@ -498,8 +496,6 @@ func prepareWorkflowGraphSave(workflowID runtimeids.WorkflowID, displayName stri
 		group.Key = workflow.ModelKey(strings.TrimSpace(string(group.Key)))
 		group.DisplayName = strings.TrimSpace(group.DisplayName)
 		group.SortOrder = int64(i * 100)
-		groupsByID[group.ID] = true
-		groupsByKey[group.Key] = group.ID
 		prepared.nodeGroups[i] = group
 	}
 
@@ -512,16 +508,6 @@ func prepareWorkflowGraphSave(workflowID runtimeids.WorkflowID, displayName stri
 			node.GroupID = &trimmed
 		}
 		node.GroupKey = strings.TrimSpace(node.GroupKey)
-		if node.GroupID == nil && node.GroupKey != "" {
-			groupID, ok := groupsByKey[workflow.ModelKey(node.GroupKey)]
-			if !ok {
-				return preparedWorkflowGraphSave{}, workflow.Definition{}, fmt.Errorf("workflow node group key %q is not in the saved graph", node.GroupKey)
-			}
-			node.GroupID = &groupID
-		}
-		if node.GroupID != nil && !groupsByID[*node.GroupID] {
-			return preparedWorkflowGraphSave{}, workflow.Definition{}, fmt.Errorf("workflow node group %q is not in the saved graph", *node.GroupID)
-		}
 		if err := validateNodeCompletionMode(node.Kind, node.CompletionMode); err != nil {
 			return preparedWorkflowGraphSave{}, workflow.Definition{}, err
 		}

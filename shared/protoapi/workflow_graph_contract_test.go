@@ -57,7 +57,7 @@ func TestWorkflowSaveGroupsRequireSubstantiveIdentity(t *testing.T) {
 func TestWorkflowSavedGroupIdentitiesAreUniqueAfterNormalization(t *testing.T) {
 	for _, test := range []struct {
 		groups []*pb.GraphDraftNodeGroup
-		valid bool
+		valid  bool
 	}{
 		{groups: []*pb.GraphDraftNodeGroup{{Id: " a ", Key: " x "}, {Id: "b", Key: "y"}}, valid: true},
 		{groups: []*pb.GraphDraftNodeGroup{{Id: " a ", Key: "x"}, {Id: "a", Key: "y"}}},
@@ -73,6 +73,35 @@ func TestWorkflowSavedGroupIdentitiesAreUniqueAfterNormalization(t *testing.T) {
 		} {
 			if err := protoapi.Validate(request); (err == nil) != test.valid {
 				t.Errorf("%T groups %+v acceptance = %v", request, test.groups, err)
+			}
+		}
+	}
+}
+
+func TestWorkflowSavedNodeGroupMembershipUsesNormalizedIdentity(t *testing.T) {
+	for _, test := range []struct {
+		id    *string
+		valid bool
+	}{
+		{valid: true},
+		{id: proto.String("group"), valid: true},
+		{id: proto.String(" group "), valid: true},
+		{id: proto.String("missing")},
+		{id: proto.String(" ")},
+	} {
+		graph := &pb.GraphDraft{
+			NodeGroups: []*pb.GraphDraftNodeGroup{{Id: " group ", Key: "key"}},
+			Nodes:      []*pb.GraphDraftNode{{Kind: pb.NodeKind_WORKFLOW_NODE_KIND_START, GroupId: test.id}},
+		}
+		if err := protoapi.Validate(graph); err != nil {
+			t.Fatalf("reportable draft rejected: %v", err)
+		}
+		for _, request := range []proto.Message{
+			&pb.GraphSaveRequest{WorkflowId: "11111111-1111-4111-8111-111111111111", Graph: graph},
+			&pb.GraphSavePreviewRequest{WorkflowId: "11111111-1111-4111-8111-111111111111", Graph: graph},
+		} {
+			if err := protoapi.Validate(request); (err == nil) != test.valid {
+				t.Errorf("%T node %+v acceptance = %v", request, graph.Nodes[0], err)
 			}
 		}
 	}

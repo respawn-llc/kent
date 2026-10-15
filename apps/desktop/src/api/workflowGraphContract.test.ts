@@ -30,6 +30,23 @@ describe("Workflow draft group-key resolution", () => {
 });
 
 describe("Workflow saved group identity", () => {
+  it("requires normalized explicit node group membership only at Save and Preview", () => {
+    for (const groupId of [undefined, "group", " group ", "missing", " "]) {
+      const graph = create(GraphDraftSchema, {
+        nodeGroups: [{ id: " group ", key: "key" }],
+        nodes: [{ kind: NodeKind.WORKFLOW_NODE_KIND_START, groupId }],
+      });
+      expect(() => validate(GraphDraftSchema, graph)).not.toThrow();
+      for (const schema of [GraphSaveRequestSchema, GraphSavePreviewRequestSchema]) {
+        const request = create(schema, { workflowId: "11111111-1111-4111-8111-111111111111", graph });
+        if (groupId === undefined || groupId === "group" || groupId === " group ") {
+          expect(() => validate(schema, request)).not.toThrow();
+        } else {
+          expect(() => validate(schema, request)).toThrow();
+        }
+      }
+    }
+  });
   it("requires normalized IDs and keys to be unique only at Save and Preview", () => {
     for (const { nodeGroups, valid } of [
       { nodeGroups: [{ id: " a ", key: " x " }, { id: "b", key: "y" }], valid: true },
