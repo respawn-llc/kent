@@ -4,13 +4,12 @@ import (
 	"strings"
 
 	shelltool "core/server/tools/shell"
-	"core/shared/protoapi"
 	processpb "core/shared/protoapi/gen/kent/api/process"
 	"core/shared/textutil"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func ProcessFromSnapshot(snapshot shelltool.Snapshot) (*processpb.BackgroundProcess, error) {
+func ProcessFromSnapshot(snapshot shelltool.Snapshot) *processpb.BackgroundProcess {
 	var exitCode *int64
 	if snapshot.ExitCode != nil {
 		value := int64(*snapshot.ExitCode)
@@ -37,5 +36,5 @@ func ProcessFromSnapshot(snapshot shelltool.Snapshot) (*processpb.BackgroundProc
 	if !snapshot.FinishedAt.IsZero() {
 		result.FinishedAt = timestamppb.New(snapshot.FinishedAt)
 	}
-	return result, protoapi.Validate(result)
+	return result
 }

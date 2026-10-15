@@ -55,11 +55,7 @@ func (s *ProcessViewService) ListProcesses(ctx context.Context, req *processpb.L
 		if req.OwnerRunId != nil && snapshot.OwnerRunID != *req.OwnerRunId {
 			continue
 		}
-		process, err := ProcessFromSnapshot(snapshot)
-		if err != nil {
-			return nil, err
-		}
-		processes = append(processes, process)
+		processes = append(processes, ProcessFromSnapshot(snapshot))
 	}
 	return &processpb.ListSuccess{Processes: processes}, nil
 }
@@ -72,11 +68,7 @@ func (s *ProcessViewService) GetProcess(_ context.Context, req *processpb.GetReq
 	if err != nil {
 		return nil, err
 	}
-	process, err := ProcessFromSnapshot(snapshot)
-	if err != nil {
-		return nil, err
-	}
-	return &processpb.GetSuccess{Process: process}, nil
+	return &processpb.GetSuccess{Process: ProcessFromSnapshot(snapshot)}, nil
 }
 
 func (s *ProcessViewService) KillProcess(ctx context.Context, req *processpb.KillRequest) (*emptypb.Empty, error) {
