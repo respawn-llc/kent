@@ -41,7 +41,7 @@ message BootstrapStatus {
   ];
   BootstrapCallbackTransport callback_transport = 7;
   AuthMethod method = 8 [(buf.validate.field).enum.defined_only = true];
-  string connection_id = 9 [(buf.validate.field).string.min_len = 1];
+  string connection_id = 9 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
 }
 
 message GetBootstrapStatusRequest {
@@ -134,7 +134,7 @@ message BootstrapCompletion {
   AuthMethod method = 3 [(buf.validate.field).enum.defined_only = true];
   optional string account_id = 4 [(buf.validate.field).string.min_len = 1];
   optional string email = 5 [(buf.validate.field).string.min_len = 1];
-  string connection_id = 6 [(buf.validate.field).string.min_len = 1];
+  string connection_id = 6 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
 }
 
 message AuthRequiredDetails {}
@@ -308,7 +308,7 @@ message ProviderFacts {
 }
 
 message ConnectionFacts {
-  string connection_id = 1 [(buf.validate.field).string.min_len = 1];
+  string connection_id = 1 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
   AuthMethod method = 2 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
@@ -318,7 +318,7 @@ message ConnectionFacts {
 message StatusFacts {
   AuthMethod method = 1 [(buf.validate.field).enum.defined_only = true];
   ProviderFacts provider = 2 [(buf.validate.field).required = true];
-  string connection_id = 7 [(buf.validate.field).string.min_len = 1];
+  string connection_id = 7 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
   ConnectionFacts session_connection = 8;
   oneof method_facts {
     OAuthFacts oauth = 4;
@@ -499,7 +499,7 @@ enum ConnectionFailureReason {
 
 message ConnectionFailureDetails {
   ConnectionFailureReason reason = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
-  optional string connection_id = 2 [(buf.validate.field).string.min_len = 1];
+  optional string connection_id = 2 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
   option (buf.validate.message).cel = {
     id: "kent.auth.connection_failure.identity"
     message: "connection-specific failures require a connection ID; setup failures have no connection ID"
